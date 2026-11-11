@@ -41,14 +41,14 @@
     "zod": "^4.0.0"
   },
   "peerDependencies": {
-    "@superdurable/dex": "1.44.0",
+    "@superdurable/dex": "1.45.0",
     "@superdurable/dex-agents": "^0.1.0",
     "@superdurable/dex-agents-cli": "^0.1.0",
     "@superdurable/dex-agents-mastra": "^0.1.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@superdurable/dex": "1.44.0",
+    "@superdurable/dex": "1.45.0",
     "@superdurable/dex-agents": "file:../../../typescript/core",
     "@superdurable/dex-agents-cli": "file:../runtime",
     "@superdurable/dex-agents-mastra": "file:../../../typescript/mastra",

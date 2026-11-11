@@ -21,7 +21,7 @@ import { readWantedTarFiles } from "./release-archive.js";
  *
  * @since 0.5.0
  */
-export const pinnedDexcliVersion = "1.44.0";
+export const pinnedDexcliVersion = "1.45.0";
 
 const downloadTimeoutMs = 300_000;
 const maximumRedirects = 5;

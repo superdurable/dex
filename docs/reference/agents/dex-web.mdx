@@ -10,10 +10,38 @@ Flow Definition Graph. **dexcli visualize** cannot read the session Flow,
 because the Flow lives in the agents package and each application chooses its
 Flow type. The Python and TypeScript packages ship the session graph instead.
 
+## Upload the session graph from the Worker {#upload-the-graph}
+
+Since 0.5.0. With server-zd 0.1.26 or later, the Worker uploads the graph to
+the Dex Server when it starts, and Dex Web reads it from there. Pass the
+document that **session_flow_definition_document** (Python) or
+**sessionFlowDefinitionDocument** (TypeScript) returns for each agent, with the
+agent's Flow type and the permission its Actions require, such as
+**SupportAgent** and **support-agent.operate**. Python takes it in
+**WorkerOptions.flow_definitions**, and TypeScript in
+**WorkerOptions.flowDefinitions**.
+
+The Worker uploads only the Flow types it registers. A failed upload, such as
+on an older server, logs a warning, and the Worker still starts. See Flow
+definitions in the [Python](/reference/python/workers#flow-definitions) and
+[TypeScript](/reference/typescript/workers#flow-definitions) Worker references.
+
+The document's generation time is the time the graph template last changed,
+the same in both packages. Restarting a Worker writes nothing, and Workers of
+an upgraded package replace the graph. The server keeps a stored graph whose
+generation time is the same or later, so changing only the permission does not
+replace it. To change the permission, upload the new document once with
+**force**, through **upload_flow_definitions** or **uploadFlowDefinitions** on
+the Client.
+
+The Dex Agents CLI commands upload the graph of their session Flow type in the
+same way. Their Actions require the permission **dex-agents-cli.operate**.
+
 ## Render the session graph {#render-the-graph}
 
-Render the graph once for each agent, with the agent's Flow type and the
-permission its Actions require:
+For a server older than 0.1.26, render the graph to a file instead. Render it
+once for each agent, with the agent's Flow type and the permission its Actions
+require:
 
 ```bash
 dex-agents-session-graph --flow-type SupportAgent --permission support-agent.operate \
@@ -30,9 +58,9 @@ dex-web --flow-rendering-dir ./definitions
 
 On a development machine, **dexcli dev --flow-rendering-dir ./definitions**
 does the same. Render the files in the build or deployment step that ships the
-Workers, and mount the directory into Dex Web. Workers publish nothing. Dex Web
-reads the directory when it starts, so restart it after a file changes. Render
-the files again after you upgrade the agents packages.
+Workers, and mount the directory into Dex Web. Dex Web reads the directory
+when it starts, so restart it after a file changes. Render the files again
+after you upgrade the agents packages.
 
 ## What Dex Web shows {#what-dex-web-shows}
 

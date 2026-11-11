@@ -30,6 +30,11 @@ from dex_agents_cli.turns import (
     recorded_turn_settings,
 )
 
+#: The permission every session Action requires in the session graph that the
+#: Worker uploads for Dex Web. In Dex Web, choose it in Working as to answer a
+#: CLI session's approvals and questions. Every CLI runtime uses this text.
+SESSION_ACTION_PERMISSION = "dex-agents-cli.operate"
+
 _FLOW_TYPE_SUFFIX_LENGTH = 6
 _FLOW_TYPE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 _DEFAULTS_CONFIG_IDENTITY = "defaults"

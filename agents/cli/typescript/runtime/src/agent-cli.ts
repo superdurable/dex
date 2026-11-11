@@ -17,6 +17,7 @@ import { parseArgs } from "node:util";
 import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
   LocalDirectoryMediaStore,
+  sessionFlowDefinitionDocument,
   startAgentSession,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
@@ -320,6 +321,8 @@ class AgentCliCommand {
     this.worker = new Worker(registry, this.blobCache, {
       ...connection,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
+      // Dex Web then shows the session without --flow-rendering-dir.
+      flowDefinitions: [sessionFlowDefinitionDocument({ flowType, actionPermission: sessionActionPermission })],
     });
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
@@ -632,6 +635,16 @@ export interface SessionEnvironmentIdentity {
   /** The workspace's canonical real path. */
   readonly workspace: string;
 }
+
+/**
+ * The permission every session Action requires in the session graph that the Worker uploads for Dex Web.
+ *
+ * In Dex Web, choose it in Working as to answer a CLI session's approvals and questions. Every CLI runtime uses this
+ * text, so runtimes of two languages that share a session Flow type upload the same graph.
+ *
+ * @since 0.5.0
+ */
+export const sessionActionPermission = "dex-agents-cli.operate";
 
 /** The number of base36 characters in a session Flow type suffix. */
 const flowTypeSuffixLength = 6;

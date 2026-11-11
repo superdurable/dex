@@ -7,7 +7,7 @@ require (
 	github.com/openai/openai-go/v3 v3.91.1
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex/blob-cache-go v0.1.2
-	github.com/superdurable/dex/sdk-go v1.44.0
+	github.com/superdurable/dex/sdk-go v1.45.0
 )
 
 require (

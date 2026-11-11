@@ -38,7 +38,12 @@ from dex import (
     open_blob_cache,
 )
 
-from dex_agents import AgentSessionClient, LocalDirectoryMediaStore, MediaStore
+from dex_agents import (
+    AgentSessionClient,
+    LocalDirectoryMediaStore,
+    MediaStore,
+    session_flow_definition_document,
+)
 from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli.chat import Terminal, TerminalChat
 from dex_agents_cli.config import AUTO, ConnectorEntry, EffectiveConfig
@@ -61,6 +66,7 @@ from dex_agents_cli.connectors import (
 from dex_agents_cli.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
 from dex_agents_cli.environment import RuntimeEnvironment
 from dex_agents_cli.harness import (
+    SESSION_ACTION_PERMISSION,
     AgentHarness,
     HarnessContext,
     LocalToolGroup,
@@ -295,6 +301,10 @@ async def _run(
             server_address=endpoint.address,
             flow_service_tls=tls,
             pull=PullWorkerOptions(stop_drain_timeout=timedelta(seconds=5)),
+            # Dex Web then shows the session without --flow-rendering-dir.
+            flow_definitions=[
+                session_flow_definition_document(flow_type, SESSION_ACTION_PERMISSION)
+            ],
         ),
     )
     serving = asyncio.create_task(worker.start())

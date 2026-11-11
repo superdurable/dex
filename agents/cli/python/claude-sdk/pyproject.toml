@@ -19,7 +19,7 @@ dependencies = [
     "dex-agents==0.1.0",
     "dex-agents-claude-agent-sdk==0.1.0",
     "dex-agents-cli==0.1.0",
-    "dex-python-sdk==1.44.0",
+    "dex-python-sdk==1.45.0",
 ]
 
 [project.scripts]

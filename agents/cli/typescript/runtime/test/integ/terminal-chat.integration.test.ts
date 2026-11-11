@@ -16,12 +16,29 @@ import { promisify } from "node:util";
 
 import { pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
-import type { AgentTurnContext, DeferredToolExecution, ToolEffect } from "@superdurable/dex-agents";
+import {
+  renderSessionFlowGraph,
+  sessionFlowDefinitionDocument,
+  type AgentTurnContext,
+  type DeferredToolExecution,
+  type ToolEffect,
+} from "@superdurable/dex-agents";
 
-import { ConnectorsMcpToolSource, TurnConfigResolver, resolveConfig } from "../../src/index.js";
+import {
+  ConnectorsMcpToolSource,
+  TurnConfigResolver,
+  resolveConfig,
+  sessionActionPermission,
+} from "../../src/index.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { shellReplacingScriptedHarness } from "../fixtures/scripted-harness.js";
+
+/** One definition in the protobuf JSON that `dexcli api call GetFlowDefinitions` prints. */
+interface StoredFlowDefinition {
+  readonly info: { readonly flowType: string; readonly generatedAt: string };
+  readonly content: string;
+}
 
 describe("terminal chat with connectors and session settings", () => {
   let engine: PrivateDexEngine;
@@ -96,6 +113,37 @@ describe("terminal chat with connectors and session settings", () => {
       workspace: realpathSync.native(home.workspace),
       user_name: userInfo().username,
     });
+  });
+
+  test("the Worker uploads the session graph for Dex Web", async () => {
+    const home = newHome("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    const flowType = home.sessionFlowType();
+    const definition = await pollUntil(
+      async () => {
+        const { stdout } = await promisify(execFile)(home.environment().DEXCLI ?? "dexcli", [
+          "api",
+          "call",
+          "GetFlowDefinitions",
+          "--server",
+          engine.serverAddress,
+          "--data",
+          JSON.stringify({ flowTypes: [flowType] }),
+        ]);
+        return (JSON.parse(stdout) as { definitions?: StoredFlowDefinition[] }).definitions?.[0];
+      },
+      { description: `the uploaded definition of ${flowType}`, timeoutMs: 10_000 },
+    );
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(definition.info.flowType, flowType);
+    assert.equal(
+      Buffer.from(definition.content, "base64").toString("utf8"),
+      renderSessionFlowGraph({ flowType, actionPermission: sessionActionPermission }),
+    );
+    const { generatedAt } = sessionFlowDefinitionDocument({ flowType, actionPermission: sessionActionPermission });
+    assert.equal(new Date(definition.info.generatedAt).toISOString(), generatedAt.toISOString());
   });
 
   test("one chat turn streams the reply, reusing the running dexcli dev", async () => {

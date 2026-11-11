@@ -20,6 +20,7 @@ import pytest
 
 from dex_agents import ToolExecutionError
 from dex_agents_cli import (
+    SESSION_ACTION_PERMISSION,
     SessionEnvironmentIdentity,
     current_session_environment_identity,
     namespace_session_flow_type,
@@ -47,6 +48,10 @@ def test_the_flow_type_matches_the_shared_cases(case: dict[str, Any]) -> None:
     )
     harness_flow_type = FLOW_TYPE_FIXTURE["harness_flow_type"]
     assert namespace_session_flow_type(harness_flow_type, identity) == case["flow_type"]
+
+
+def test_the_session_action_permission_matches_every_cli_runtime_s() -> None:
+    assert FLOW_TYPE_FIXTURE["session_action_permission"] == SESSION_ACTION_PERMISSION
 
 
 def test_the_flow_type_hashes_host_user_config_and_workspace(tmp_path: Path) -> None:

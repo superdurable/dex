@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.44.0`:
+later and requires the released `dex-python-sdk==1.45.0`:
 
 ```bash
 pip install dex-agents
@@ -1152,6 +1152,36 @@ another mode, such as `ActiveStepSearchMode.DISABLED`. `AsyncClient.start_flow`
 does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
+
+## Showing sessions in Dex Web
+
+Dex Web draws a session and offers its Actions from the session Flow
+Definition Graph. Let the Worker upload it: pass
+`session_flow_definition_document(flow_type, action_permission)` in
+`WorkerOptions(flow_definitions=...)`.
+
+```python
+from dex import AsyncWorker, Registry, WorkerOptions
+from dex_agents import session_flow_definition_document
+
+worker = AsyncWorker(
+    Registry([flow], allow_async_handlers=True),
+    blob_cache,
+    WorkerOptions(
+        flow_definitions=[
+            session_flow_definition_document("SupportAgent", "support-agent.operate")
+        ]
+    ),
+)
+```
+
+The upload needs server-zd 0.1.26 or later. The document's `generated_at` is
+`SESSION_FLOW_GRAPH_GENERATED_AT` in `dex_agents.session_graph`, the time the
+graph template last changed, so a restart writes nothing and an upgrade
+replaces the graph. For an older server, render a file with
+`render_session_flow_graph` or the `dex-agents-session-graph` command and pass
+its directory to Dex Web with `--flow-rendering-dir`. See
+[Show sessions in Dex Web](https://docs.superdurable.io/reference/agents/dex-web).
 
 ## Spend limits
 
