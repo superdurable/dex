@@ -121,7 +121,10 @@ export interface ConnectorsMcpUnavailability {
  * const source = new ConnectorsMcpToolSource(url, turns, (line) => console.error(line), mediaStore, {
  *   startupAvailability: await probeConnectorsMcp(url),
  *   writeLogLine: (line) => appendFileSync(logPath, `${line}\n`),
- *   describeUnavailable: (unavailability) => connectorsUnavailableLine(unavailability, `See ${logPath}.`),
+ *   describeUnavailable: (unavailability) =>
+ *     unavailability.httpStatus === 401 || unavailability.httpStatus === 403
+ *       ? `Connector tools are unavailable: access denied. See ${logPath}.`
+ *       : `Connector tools are unavailable for now. See ${logPath}.`,
  * });
  * ```
  *
@@ -142,7 +145,8 @@ export interface ConnectorsMcpToolSourceOptions {
   readonly writeLogLine?: (line: string) => void;
   /**
    * Returns the terminal line for a failed listing when the server stops answering, or starts or stops denying
-   * access. It is used only with `writeLogLine`. Defaults to {@link connectorsUnavailableLine} without a hint.
+   * access. It is used only with `writeLogLine`. Defaults to a line that says each turn tries again, or that the
+   * server denied access and what to check.
    */
   readonly describeUnavailable?: (unavailability: ConnectorsMcpUnavailability) => string;
 }
