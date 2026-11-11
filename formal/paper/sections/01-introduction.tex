@@ -121,8 +121,10 @@ and Timers.
   abstraction map with ghost history that turns every failure into a
   stutter; and the Lean theorems \lean{safety_failure_forward},
   \lean{liveness_failure}, \lean{endToEnd_safety}, and
-  \lean{endToEnd_liveness}, with the same three axioms and kernel-checked
-  runs with a crash, retries, and a zombie effect.
+  \lean{endToEnd_liveness}, with the same three axioms, kernel-checked
+  witnesses for safety and for liveness with the markers \mterm{} and
+  \mdead{}, and counterexamples that show the hypotheses H1, H3, H4, and
+  the treatment of re-sent publications are needed.
 \end{enumerate}
 
 \paragraph{What is not claimed.}
@@ -163,5 +165,5 @@ failure-free rule unchanged. The Lean development is \file{formal/lean/}.
 File paths in this paper are relative to the repository root, and Lean
 files are under \file{formal/lean/DexExpressiveness/}. Numbers for the
 first theorem are for commit \texttt{33e998003} of the development, and
-numbers for the failure theorem for commit \texttt{5a8e0634c}, which
+numbers for the failure theorem for commit \texttt{dd449bd57}, which
 changes no file of the first proof except for import lines.

@@ -46,7 +46,7 @@ place where a real deployment can leave the theorem.
   construction; the theorem covers those features by not modeling them.
 \item \emph{Finitely many failures for liveness.} Liveness also assumes
   that the server comes back after every crash and that every interrupt
-  commits. Progress is defined through the abstraction map, so the theorem
+  eventually leaves the interrupted set. Progress is defined through the abstraction map, so the theorem
   says nothing about an internal livelock of the engine.
 \item \emph{The clock.} On one node the wall clock must not step back
   between the timer service's due check and the stamping of its command.
@@ -83,7 +83,8 @@ idempotent effect is not enough for exactly-once in effect. Idempotent
 does not mean commutative: a zombie's late \emph{set $x$ to 1} can
 overwrite a later \emph{set $x$ to 2}, although each call is idempotent.
 Exactly-once in effect needs idempotency keys, commutative effects, or
-effects fenced by attempt. The server's deterministic simulation harness
+effects fenced by attempt. A fence reads the attempt number, so such a
+handler is outside H3, although it is still good practice. The server's deterministic simulation harness
 with injected crashes checks that a recovered store equals one that never
 crashed; it is complementary evidence and is not connected to the model.
 

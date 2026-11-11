@@ -131,7 +131,8 @@ D7 & The input word is the \emph{outcome word}: requests in the order of
 HP & Every StartFlow retry is ordered in the log before the purge of the
   run. & True by construction: the model keeps a closed run. \\
 FF, FR, FI & For liveness: finitely many failures; the server comes back;
-  every interrupt commits. & Part of \lean{DexF.IsFair}. \\
+  every interrupt eventually leaves $I$, so after the last recovery each
+  one commits. & Part of \lean{DexF.IsFair}. \\
 OD1 & Timers fire as a prefix of the due timers, as in the first theorem. &
   The timer rule of the Dex model. \\
 \bottomrule
@@ -327,8 +328,14 @@ Step and, before it is due, a zero-second timer of another Step that the
 second publication starts, and fire the second timer first. With the
 retries in between, the first timer is due first and takes the only
 message both wait for, and no DexF run for that word has the failure-free
-trace. The specification states liveness as an equality; Lean states, and
-proves, the two inclusions that hold.
+trace. The kernel checks the parts the model can state
+(\file{Failure/Examples/RetryTiming.lean}): every StartFlow retry advances
+the commit stamp, so $n$ retries put at least $n$ microseconds between two
+publications, and in a failure-free Flow a delay of 1,000,001 microseconds
+changes the trace. The last step, a statement about every DexF run of a
+word with a million labels, remains an argument by hand. The specification
+was corrected to the same two inclusions after the review of the Lean
+statements.
 
 \paragraph{End to end.}
 \lean{endToEnd_safety} and \lean{endToEnd_liveness} compose these with
@@ -380,7 +387,7 @@ the proof and need no trust.
 
 The proof followed the method of \S\ref{sec:engineering}. The failure
 model was written against the code first, and repeated adversarial
-reviews checked it; its review log has 34 entries. Each finding was
+reviews checked it; its review log has 37 entries. Each finding was
 checked against the code and accepted. Among them were rejected client
 requests that had been made silent, a purge of closed runs that lets a
 late StartFlow retry start a second run, an abstraction that was not a
@@ -436,25 +443,57 @@ execution ID could be reused when a Step counter was out of date; and a
 closed run could keep a running invocation.
 
 \paragraph{Non-vacuity.}
-Two DexF runs of $\kw{main}(x)\colon \kw{emit}(1); \kw{exit}(0)$ are
-checked in the kernel (\file{Failure/Examples/CrashRetryZombie.lean}). The
-first has a crash, two retries, a start on a retained snapshot, a zombie
-effect, an interrupt, a stale result, a zombie drop, and a StartFlow retry;
-its trace is in $\mathit{Tr}_\mathit{fail}$, erases to a Dex trace, and
-projects to $\ev{begin}(7), \ev{out}(1), \ev{out}(1), \ev{out}(1),
-\ev{exit}(0)$, the \Lang{} trace $\ev{begin}(7), \ev{out}(1),
-\ev{exit}(0)$ with two inserted $\ev{out}(1)$. In the second, a zombie's
-result commits after a crash and before its interrupt, which apply then
-ignores. Both runs are finite. The development exhibits no fair maximal DexF
-trace, so the liveness theorem has no witness of its own beyond the
-failure-free runs that \lean{liveness_failure} includes backward.
+Witnesses show that the hypotheses of each main statement hold together
+for runs with crashes, retries, and zombie effects, and apply the
+statement to them (\file{Failure/Examples/Nonvacuity.lean}). Each asserts
+that its schedule is executable and that every step is simulated and keeps
+the invariants.
+\begin{itemize}
+\item \lean{safetyRepetition_isNonvacuous}: a run of the translation of
+  $\kw{main}(x)\colon \kw{emit}(1); \kw{exit}(0)$ with a StartFlow retry,
+  a lost attempt, a zombie effect, two retry fires, a crash and its
+  recovery, an interrupt, a stale zombie result, and a zombie drop. Its
+  trace has three $\ev{fx}$ events, and $\mathit{erase}$ keeps one. It
+  projects to the \Lang{} trace $\ev{begin}(7), \ev{out}(1),
+  \ev{exit}(0)$ with two inserted $\ev{out}(1)$.
+\item \lean{livenessForward_isNonvacuous_terminated}: the same run
+  followed by ticks, a fair maximal DexF trace with marker \mterm{} for a
+  word with a retry.
+\item \lean{livenessForward_isNonvacuous_deadlocked}: the translation of
+  $\kw{main}(x)\colon \kw{emit}(1); x := \kw{recv}(5)$ with a crash, an
+  interrupt, a lost WaitFor attempt, two retry fires, and two stale zombie
+  results, then blocked forever: a fair maximal DexF trace with marker
+  \mdead{}.
+\end{itemize}
+A finite schedule followed by ticks forever is a fair maximal run when
+three Boolean checks pass (\lean{prefixThenTicks_isFailureFairMaximalTrace}).
+A further kernel-checked run takes the order the model allows and the fuzz
+never reached: a zombie's result commits after a crash and before its
+interrupt, which apply then ignores.
+
+\paragraph{Counterexamples.}
+Each hypothesis that the model can express is needed
+(\file{Failure/Examples/HypothesisCounterexamples.lean}). Without H3
+(\lean{attemptSensitive_isNotRepetition}), attempt $a$ emits $a$ copies of
+$a$; the retry emits $\ev{fx}(2)$, which no failure-free run emits, so
+both safety statements fail. Such a handler is an attempt-fenced effect.
+Without H1 (\lean{exhaustion_isNotFailureFree}), an exhausted attempt
+closes the Flow as Failed, which no failure-free run of that Flow does;
+H4 (\lean{nonRetryableFailure_isNotFailureFree}) fails the same way,
+because in the model a non-retryable failure is an exhaustion. A re-sent
+publication (\lean{resentPublication_isTwoRequests}) gives two
+$\ev{pub}$ events, which no failure-free trace of the one-publication word
+has, even as a repetition. H2, SYNC, and HP hold by construction in the
+model, and the specification argues from the code why each is needed. All
+witnesses and counterexamples depend on a subset of the three standard
+axioms.
 
 \paragraph{Size.}
 Table~\ref{tab:failure-size} gives the size of the failure development. It
-adds 83 files and 31,813 lines to the development of \S\ref{sec:size}, and
-the specification grew to 3,521 lines. By their git author dates, the 80
+adds 88 files and 33,928 lines to the development of \S\ref{sec:size}, and
+the specification grew to 3,534 lines. By their git author dates, the 88
 commits of this work under \file{formal/}, from the first draft of the
-failure model to the last proof, fall between 10:58 and 15:35 on one day.
+failure model to the last witness, fall between 10:58 and 16:16 on one day.
 
 \begin{table}[t]
 \centering
@@ -469,14 +508,14 @@ definitions & 6 & 2,268 & configurations, rules, repetition, $\alpha$,
 \texttt{Proofs/} & 49 & 18,940 & WP-F1 to WP-F4 and the leaf part of
   WP-F6 \\
 \texttt{Composite/} & 17 & 8,305 & WP-F5 to WP-F7 \\
-\texttt{Examples/} & 4 & 1,334 & kernel-checked runs, review probes, the
-  fuzz \\
+\texttt{Examples/} & 9 & 3,449 & kernel-checked runs, witnesses,
+  counterexamples, review probes, the fuzz \\
 tooling & 5 & 575 & decidable equality, checkers, aggregators \\
 \midrule
-Total & 83 & 31,813 & \\
+Total & 88 & 33,928 & \\
 \bottomrule
 \end{tabular}
-\caption{The failure development at commit \texttt{5a8e0634c}, counted
+\caption{The failure development at commit \texttt{dd449bd57}, counted
 with \texttt{wc -l}. \file{FailureFuzz.lean}, the fuzz entry point, adds
 59 lines outside \file{Failure/}.}
 \label{tab:failure-size}
