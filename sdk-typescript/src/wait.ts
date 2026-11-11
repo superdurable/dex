@@ -9,6 +9,7 @@
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
+import type { Join } from "./join.js";
 import type { SubFlowOptions } from "./subflow.js";
 import {
   requireConditionId,
@@ -122,6 +123,7 @@ export interface ChannelMessage<T> {
  * Unselected pending reads throw ChannelMessagesNotLoadedError; a selected empty queue returns [].
  * Pending snapshots can become stale while a handler runs. Use a shared Attribute lock when all
  * cooperating writers must preserve a queue-dependent decision. Size metadata needs no message load.
+ * To continue after parallel branches report results, use a {@link Join} instead of counting messages.
  *
  * @example
  * ```ts
@@ -266,6 +268,7 @@ export class Channel<T> {
 /**
  * Defines keyed Channel instances that share one typed schema.
  * Instance keys must be non-empty and must not contain `/`.
+ * To join parallel branches round by round, use a {@link Join}, which keys this map by round for you.
  * @typeParam T - Type of every published value.
  */
 export class ChannelMap<T> {

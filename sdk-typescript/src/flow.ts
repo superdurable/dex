@@ -18,6 +18,7 @@ import {
   StepList, StepRef, type Step, type StepClass, type StepDecision,
   type StepOptions, type StepTarget,
 } from "./step.js";
+import { registeredChannelDefinition } from "./join.js";
 import { physicalMapName, requireName } from "./validation.js";
 import { Channel, ChannelMap } from "./wait.js";
 import type { AsyncContext } from "./context.js";
@@ -357,7 +358,7 @@ function doRegisterFlow(
   const schema = flow.getPersistenceSchema?.() ?? {};
   const persistenceDefinitions = [
     ...(schema.attributes ?? []),
-    ...(schema.channels ?? []),
+    ...(schema.channels ?? []).map(registeredChannelDefinition),
     ...(schema.streams ?? []),
   ];
   const persistence = new Map<string, (typeof persistenceDefinitions)[number]>();

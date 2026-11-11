@@ -18,6 +18,10 @@ Released 2026-11-10 as [sdk-typescript/v1.43.0](https://github.com/superdurable/
 - Removed **WaitForStepCompletionOptions.internalHandlerTimeoutMs** and **WaitForAttributeOptions.internalHandlerTimeoutMs**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
 - Generated bindings rename **FlowExecutionID** to **FlowRunID** and **flowExecutionId** to **flowRunId**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
 
+### Added
+
+- **Join** synchronizes parallel branches through a ChannelMap of branch results. **Join.fork** starts one round from a Step and creates its **JoinRound** token; **Join.forkWithRoundKey** does the same with an explicit key, for example in an RPC. Branches report with **Join.endBranch** or **Join.reportBranchResult**. The join Step waits with **Join.forAllBranches**, **Join.forFirstBranch**, or **Join.forBranches** and reads **Join.branchResults**. The next round resets the previous one with **Join.forRemainingBranches** and reads **Join.remainingBranchResults**. **joinRoundCodec** encodes a JoinRound as a JSON object with the fields **roundKey** and **branchCount**, and **PersistenceSchema.channels** accepts a Join. **Join.channelMap** is the registered ChannelMap, for reading a round's pending results, for example in an RPC; never publish to it directly. [Reference](/reference/typescript/waits).
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [sdk-typescript/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.40.0).
