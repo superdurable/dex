@@ -24,6 +24,7 @@ import pytest_asyncio
 
 from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
+    AgentEventType,
     AgentImageReference,
     AgentSessionClient,
     AgentSessionFlow,
@@ -32,6 +33,7 @@ from dex_agents import (
     InMemoryMediaStore,
     LocalDirectoryMediaStore,
     MessageRole,
+    ToolCallStatus,
     build_image_reference,
 )
 from dex_agents.builtin_loop import (
@@ -76,6 +78,7 @@ class BuiltinImageHarness:
     stack: AgentTestStack
     sessions: AgentSessionClient
     no_store_sessions: AgentSessionClient
+    no_store_flow: AgentSessionFlow
     state_dir: Path
 
     @property
@@ -115,7 +118,7 @@ async def image_harness(tmp_path: Path) -> AsyncIterator[BuiltinImageHarness]:
         worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield BuiltinImageHarness(
-            stack, stack.sessions(flows[0]), stack.sessions(flows[1]), state_dir
+            stack, stack.sessions(flows[0]), stack.sessions(flows[1]), flows[1], state_dir
         )
 
 
@@ -390,7 +393,7 @@ async def test_a_worker_killed_after_a_function_tool_image_rebuilds_the_same_inp
     assert snapshot.messages[-1].text == "screenshot taken"
 
 
-async def test_a_function_tool_without_a_media_store_gets_none_and_its_images_fail_the_call(
+async def test_a_function_tool_without_a_media_store_gets_none_and_its_images_fail_the_call_once(
     image_harness: BuiltinImageHarness,
 ) -> None:
     await image_harness.stack.start_worker()
@@ -408,12 +411,18 @@ async def test_a_function_tool_without_a_media_store_gets_none_and_its_images_fa
         description="1 finished turn",
     )
 
-    # A read retries its failed attempts, and every attempt saw no store.
+    # No retry could show the images, so the read fails on its only attempt.
     assert InvocationLog(image_harness.state_dir / FUNCTION_TOOL_STORES_LOG_NAME).names() == [
-        "store absent attempt 1",
-        "store absent attempt 2",
-        "store absent attempt 3",
+        "store absent attempt 1"
     ]
+    events = await image_harness.stack.client.list_stream_messages(
+        session_id, image_harness.no_store_flow.agent_events, 500
+    )
+    assert [
+        json.loads(message.value.payload)["status"]
+        for message in events.messages
+        if message.value.type == AgentEventType.TOOL_CALL_FINISHED
+    ] == [ToolCallStatus.FAILED]
     [tool_result] = [
         item
         for item in image_harness.model_requests()[-1]["items"]

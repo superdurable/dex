@@ -823,7 +823,7 @@ const flow = createBuiltinAgentSessionFlow(supportAgent, "SupportAgent", { media
   without their images. `estimateInputTokens` gets requests without image bytes; the AI SDK client counts
   `estimatedImageInputTokens` (1600) for each image.
 - **Without a store.** A tool source result's references are still stored for display, but the model sees only the
-  text. A function tool's images fail the attempt instead.
+  text. A function tool's images fail the call instead, without a retry.
 - **AI SDK.** `createAiSdkModelClient` sends each image after the item's text as an AI SDK `file` part with its bytes:
   `{ type: "file", mediaType, data: { type: "data", data } }`. A user message's content is a text part and one file
   part per image. A tool result with images has `content` output, a text part and one file part per image; the
@@ -864,9 +864,10 @@ const takeScreenshot = functionTool<Record<string, never>>({
   model exactly like a tool source's. A plain object with `output` and `images` keys and no such `kind` is still
   serialized as JSON.
 - More than `maxImagesPerMessage` images, or a reference that `validateImageReference` refuses, fails the attempt
-  with `ImageValidationError`. Images from a runner without a media store fail the attempt with an `Error`, because
-  the model could not see them. A failed attempt of a `read` or `idempotent_write` tool retries; a single-attempt call
+  with `ImageValidationError`. A failed attempt of a `read` or `idempotent_write` tool retries; a single-attempt call
   records `outcome_unknown`.
+- Images from a runner without a media store throw `ToolExecutionError`, because no retry could show them. The
+  session records `failed` once, without a retry, and the model sees the error text.
 - A retried attempt uploads the same bytes to the same object, so uploading again is safe. A replay reads the stored
   references, so the tool does not run again.
 

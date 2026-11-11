@@ -884,7 +884,7 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
   client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image.
 - **Without a store.** A tool source result's references are still stored
   for display, but the model sees only the text. A function tool's images
-  fail the attempt instead.
+  fail the call instead, without a retry.
 - **LiteLLM.** `LiteLLMModelClient` sends each image after the item's text as
   a base64 `data:` URL. On the Responses API, a user message's `content` and
   a `function_call_output`'s `output` are an `input_text` part and one
@@ -933,10 +933,12 @@ async def take_screenshot(context: ToolCallContext) -> str | FunctionToolResult:
   serialized as JSON.
 - More than `MAX_IMAGES_PER_MESSAGE` images, or a reference that
   `validate_image_reference` refuses, fails the attempt with
-  `ImageValidationError`. Images from a runner without a media store fail
-  the attempt with `ValueError`, because the model could not see them. A
-  failed attempt of a `READ` or `IDEMPOTENT_WRITE` tool retries; a
-  single-attempt call records `outcome_unknown`.
+  `ImageValidationError`. A failed attempt of a `READ` or
+  `IDEMPOTENT_WRITE` tool retries; a single-attempt call records
+  `outcome_unknown`.
+- Images from a runner without a media store raise `ToolExecutionError`,
+  because no retry could show them. The session records `FAILED` once,
+  without a retry, and the model sees the error text.
 - A retried attempt uploads the same bytes to the same object, so uploading
   again is safe. A replay reads the stored references, so the tool does not
   run again.

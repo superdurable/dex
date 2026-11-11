@@ -500,7 +500,7 @@ class BuiltinLoopAgentRunner:
     text of the items only. Without a store the runner has no
     ``build_user_message_with_images``, so the session refuses user images,
     and a tool source result's images are stored but not shown to the model.
-    A function tool's images fail the attempt instead.
+    A function tool's images fail the call instead, without a retry.
 
     .. versionadded:: 0.5.0
        Replaces ``StepwiseAgentRunner``, which stays as a deprecated alias.
@@ -723,10 +723,9 @@ class BuiltinLoopAgentRunner:
 
         Raises:
             ToolExecutionError: If the tool is unknown, the arguments break its
-                schema, the tool's ``prepare_arguments`` raised, or the tool or
-                its source raised it.
-            ValueError: If a function tool returned images and this runner has
-                no media store. It fails the attempt.
+                schema, the tool's ``prepare_arguments`` raised, the tool or
+                its source raised it, or a function tool returned images and
+                this runner has no media store.
             LookupError: If a source built the call but the definition no
                 longer has it, so the effect class decides the outcome.
             Exception: What the tool source raises otherwise.
@@ -765,7 +764,7 @@ class BuiltinLoopAgentRunner:
             return ToolExecutionResult(output=result)
         if isinstance(result, FunctionToolResult):
             if result.images and self.__media_store is None:
-                raise ValueError(
+                raise ToolExecutionError(
                     f"function tool {tool.name} returned images, but the runner has no media store"
                 )
             return ToolExecutionResult(output=result.output, images=result.images)

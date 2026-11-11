@@ -10,5 +10,6 @@ section: Images
   `put_image` (`putImage`). The runner returns the images in
   **ToolExecutionResult.images**, so the session checks, stores, and shows
   them exactly like a tool source's images. Images from a runner without a
-  media store fail the attempt. Strings and other JSON results are
+  media store fail the call once, without a retry, and the model sees the
+  error. Strings and other JSON results are
   unchanged. See the core README, "Images from function tools".

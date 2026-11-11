@@ -339,7 +339,7 @@ describe("images through a built-in loop session", () => {
     assert.equal(snapshot.messages.at(-1)?.text, "screenshot taken");
   });
 
-  test("a function tool without a media store gets none and its images fail the call", async () => {
+  test("a function tool without a media store gets none and its images fail the call once", async () => {
     const stateDirectory = mkdtempSync(join(engine.stateDirectory, "function-no-store-"));
     await startWorker(stateDirectory);
     const sessionId = `builtin-images-function-no-store-${randomUUID()}`;
@@ -347,12 +347,14 @@ describe("images through a built-in loop session", () => {
     await noStoreSessions.waitForCompletedTurns(sessionId, 1);
     const snapshot = await noStoreSessions.getAgentSnapshot(sessionId);
 
-    // A read retries its failed attempts, and every attempt saw no store.
+    // No retry could show the images, so the read fails on its only attempt.
     assert.deepEqual(new InvocationLog(join(stateDirectory, functionToolStoresLogName)).names(), [
       "store absent attempt 1",
-      "store absent attempt 2",
-      "store absent attempt 3",
     ]);
+    const finished = (await noStoreSessions.listAgentEvents(sessionId))
+      .filter((event) => event.type === "tool_call_finished")
+      .map((event) => (JSON.parse(event.payload) as { status?: string }).status);
+    assert.deepEqual(finished, ["failed"]);
     const toolResult = JSON.stringify(lastMessage(readLoggedPrompts(stateDirectory).at(-1)));
     assert.ok(
       toolResult.includes("function tool take_function_screenshot returned images, but the runner has no media store"),

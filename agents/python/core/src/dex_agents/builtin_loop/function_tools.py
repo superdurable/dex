@@ -121,11 +121,12 @@ class FunctionToolResult:
     so the session checks the images exactly as it checks a tool source's
     images. More than ``MAX_IMAGES_PER_MESSAGE`` images, or a reference that
     ``validate_image_reference`` refuses, fails the attempt with
-    ``ImageValidationError``. Images from a runner without a media store fail
-    the attempt with ``ValueError``, because the model could not see them. A
-    failed attempt of a ``READ`` or ``IDEMPOTENT_WRITE`` tool retries; a
-    failed single-attempt call records ``outcome_unknown``. A result without
-    images is the same as returning ``output`` as a ``str``.
+    ``ImageValidationError``. A failed attempt of a ``READ`` or
+    ``IDEMPOTENT_WRITE`` tool retries; a failed single-attempt call records
+    ``outcome_unknown``. Images from a runner without a media store raise
+    ``ToolExecutionError`` instead, because no retry could show them: the
+    session records ``FAILED`` once and the model sees the error text. A
+    result without images is the same as returning ``output`` as a ``str``.
 
     Example:
         >>> @function_tool(effect=ToolEffect.READ)

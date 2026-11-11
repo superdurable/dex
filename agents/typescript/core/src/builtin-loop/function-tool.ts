@@ -142,10 +142,11 @@ export interface FunctionToolResult {
  *
  * The runner returns the result as a `ToolExecutionResult` with the same output and images, so the session checks
  * the images exactly as it checks a tool source's images. More than `maxImagesPerMessage` images, or a reference
- * that `validateImageReference` refuses, fails the attempt with `ImageValidationError`. Images from a runner without
- * a media store fail the attempt with an `Error`, because the model could not see them. A failed attempt of a
- * `read` or `idempotent_write` tool retries; a failed single-attempt call records `outcome_unknown`. A result
- * without images is the same as returning `output` as a string.
+ * that `validateImageReference` refuses, fails the attempt with `ImageValidationError`. A failed attempt of a
+ * `read` or `idempotent_write` tool retries; a failed single-attempt call records `outcome_unknown`. Images from a
+ * runner without a media store throw `ToolExecutionError` instead, because no retry could show them: the session
+ * records `failed` once and the model sees the error text. A result without images is the same as returning
+ * `output` as a string.
  *
  * @example
  * ```ts

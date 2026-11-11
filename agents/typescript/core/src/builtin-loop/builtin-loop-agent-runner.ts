@@ -142,7 +142,7 @@ const discardedModelOutput: ModelOutputWriter = {
  * converts each image to the provider's image part. A failed read fails that `RunModel` attempt, which retries. The
  * model call that writes a context summary sees the text of the items only. Without a store the session refuses
  * user images, and a tool source result's images are stored but not shown to the model. A function tool's images fail
- * the attempt instead. The class declares neither member, so a subclass may still define its own
+ * the call instead, without a retry. The class declares neither member, so a subclass may still define its own
  * `buildUserMessageWithImages` or `mediaStore`; a subclass method stays in use with a store.
  *
  * @example
@@ -382,9 +382,9 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
    * other result as JSON; the tool's {@link ToolInputRequested}; or a source's outcome, such as
    * {@link ToolTaskStarted}.
    * @throws {ToolExecutionError} For an unknown tool, arguments that are not a JSON object or break the
-   * schema, a non-cancellation error or a thenable result of the tool's `prepareArguments`, or a
-   * `ToolExecutionError` from the tool or its source.
-   * @throws {Error} When a function tool returned images and this runner has no media store; it fails the attempt.
+   * schema, a non-cancellation error or a thenable result of the tool's `prepareArguments`, a
+   * `ToolExecutionError` from the tool or its source, or a function tool that returned images while this runner has
+   * no media store.
    * @throws {RangeError} When a source built the call but the definition no longer has it, so the effect decides
    * the outcome.
    * @throws Any other error of the tool source.
@@ -437,7 +437,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
       return { output: result.output };
     }
     if (this.#mediaStore === undefined) {
-      throw new Error(`function tool ${toolName} returned images, but the runner has no media store`);
+      throw new ToolExecutionError(`function tool ${toolName} returned images, but the runner has no media store`);
     }
     return { output: result.output, images: result.images };
   }
