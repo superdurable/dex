@@ -258,7 +258,10 @@ def _parse_ready_fields(text: str) -> dict[str, str]:
 def _is_http_url(value: str | None) -> bool:
     if not value or any(character.isspace() for character in value):
         return False
-    parts = urlsplit(value)
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
     return parts.scheme in ("http", "https") and bool(parts.netloc)
 
 
