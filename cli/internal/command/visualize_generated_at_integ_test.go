@@ -52,7 +52,7 @@ func TestVisualizeV2JSONHonorsSourceDateEpoch(t *testing.T) {
 
 func TestVisualizeRejectsInvalidSourceDateEpoch(t *testing.T) {
 	sourcePath := generatedAtTestFlowSource(t)
-	for _, epochValue := range []string{"abc", "-1", "1762763400.5"} {
+	for _, epochValue := range []string{"abc", "-1", "1762763400.5", "253402300800"} {
 		t.Run(epochValue, func(t *testing.T) {
 			var stdout bytes.Buffer
 			app := NewApp(strings.NewReader(""), &stdout, &bytes.Buffer{})
