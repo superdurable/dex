@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx2
 from mcp import Client, Implementation
+from mcp.client.streamable_http import streamable_http_client
 
 from dex_agents import (
     AgentToolCall,
@@ -261,13 +262,17 @@ async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
             the server answered ``initialize`` and only the listing failed.
     """
     is_initialized = False
+    failed_response = _FailedHttpResponse()
     try:
-        async with Client(
-            url,
-            read_timeout_seconds=_CATALOG_TIMEOUT_SECONDS,
-            client_info=_client_info(),
-            cache=None,
-        ) as client:
+        async with (
+            httpx2.AsyncClient(timeout=httpx2.Timeout(_CATALOG_TIMEOUT_SECONDS)) as http_client,
+            Client(
+                streamable_http_client(url, http_client=failed_response.observe(http_client)),
+                read_timeout_seconds=_CATALOG_TIMEOUT_SECONDS,
+                client_info=_client_info(),
+                cache=None,
+            ) as client,
+        ):
             is_initialized = True
             tools: list[Any] = []
             cursor: str | None = None
@@ -278,7 +283,13 @@ async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
                 if not cursor:
                     break
     except Exception as error:
-        raise await _unavailable_error(url, error, is_initialized=is_initialized) from error
+        raise _unavailable_error(
+            url,
+            error,
+            failed_response.status_code,
+            failed_response.text,
+            is_initialized=is_initialized,
+        ) from error
     return tuple(
         ConnectorCatalogTool(
             name=tool.name, description=tool.description or "", identity=_identity(tool.meta)
@@ -407,7 +418,7 @@ class ConnectorsMcpToolSource:
         except McpToolListingError as error:
             _LOGGER.warning("connectors MCP server %s is unavailable: %s", self._url, error)
             self._report_listing_failure(
-                await _unavailable_error(self._url, error, is_initialized=False)
+                _unavailable_error(self._url, error, error.http_status, "", is_initialized=False)
             )
             return ()
         except ConnectorsMcpUnavailableError as error:
@@ -615,42 +626,63 @@ def _identity(meta: Mapping[str, Any] | None) -> ConnectorToolIdentity | None:
     )
 
 
-async def _unavailable_error(
-    url: str, error: Exception, *, is_initialized: bool
+def _unavailable_error(
+    url: str,
+    error: Exception,
+    status_code: int | None,
+    response_text: str,
+    *,
+    is_initialized: bool,
 ) -> ConnectorsMcpUnavailableError:
-    """Return the error for a failed listing, classified by the endpoint's direct answer."""
-    reason, status_code = await _describe_unavailable(url, error)
+    """Return the error for a failed listing, by the HTTP status of the request that failed."""
     if status_code in _ACCESS_DENIED_STATUS_CODES:
-        return ConnectorsMcpAccessDeniedError(reason, status_code)
-    if is_initialized:
-        return ConnectorsMcpListingError(reason)
-    return ConnectorsMcpUnavailableError(reason)
-
-
-async def _describe_unavailable(url: str, error: Exception) -> tuple[str, int | None]:
-    """Ask the endpoint directly, so a 503 shows the server's own reason.
-
-    Returns:
-        The reason, and the HTTP status of the direct request, or ``None``
-        when nothing answered it.
-    """
-    try:
-        async with httpx2.AsyncClient(timeout=5.0) as http:
-            response = await http.get(url, headers={"Accept": "text/event-stream"})
-    except httpx2.HTTPError as http_error:
-        return f"cannot reach {url}: {http_error}", None
-    status_code = response.status_code
+        return ConnectorsMcpAccessDeniedError(
+            f"{url} denied access (HTTP {status_code})", status_code
+        )
     if status_code == 503:
-        reason = response.text.strip() or "the server is not ready"
-        return f"{url} is not ready: {reason}", status_code
+        reason = response_text or "the server is not ready"
+        return _unavailable_error_type(is_initialized)(f"{url} is not ready: {reason}")
     if status_code == 404:
-        return (
+        return _unavailable_error_type(is_initialized)(
             f"{url} does not serve MCP (404); this dexcli dev predates the connectors MCP "
             "server or runs with --connectors-mcp=false"
-        ), status_code
-    if status_code in _ACCESS_DENIED_STATUS_CODES:
-        return f"{url} denied access (HTTP {status_code}): {error}", status_code
-    return f"cannot list the tools of {url}: {error}", status_code
+        )
+    if status_code is None and not is_initialized:
+        return ConnectorsMcpUnavailableError(f"cannot reach {url}: {_describe_exception(error)}")
+    return _unavailable_error_type(is_initialized)(
+        f"cannot list the tools of {url}: {_describe_exception(error)}"
+    )
+
+
+def _unavailable_error_type(is_initialized: bool) -> type[ConnectorsMcpUnavailableError]:
+    return ConnectorsMcpListingError if is_initialized else ConnectorsMcpUnavailableError
+
+
+def _describe_exception(error: BaseException) -> str:
+    if isinstance(error, BaseExceptionGroup):
+        return "; ".join(_describe_exception(inner) for inner in error.exceptions)
+    text = str(error)
+    return f"{type(error).__name__}: {text}" if text else type(error).__name__
+
+
+class _FailedHttpResponse:
+    """Record the latest failed POST of the catalog read, whose status the MCP client drops."""
+
+    def __init__(self) -> None:
+        self.status_code: int | None = None
+        self.text = ""
+
+    def observe(self, http_client: httpx2.AsyncClient) -> httpx2.AsyncClient:
+        http_client.event_hooks["response"].append(self._record)
+        return http_client
+
+    async def _record(self, response: httpx2.Response) -> None:
+        # Only POST carries a JSON-RPC request; GET opens the event stream, DELETE ends the session.
+        if response.request.method != "POST" or response.status_code < 400:
+            return
+        self.status_code = response.status_code
+        body = await response.aread()
+        self.text = body.decode("utf-8", errors="replace").strip()[:500]
 
 
 def _client_info() -> Implementation:

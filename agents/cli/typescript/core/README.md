@@ -307,9 +307,10 @@ shows one short line when connector tools become unavailable, naming the log
 file `~/.dex/agents/<harness>.log` and the Dex Web Connectors page, and one
 line when they are available again. Each failed listing and its error go to
 the log file only. A server that answers HTTP 401 or 403 gets a line saying it
-denied access, so check its access settings and `connectors.mcp`. An explicit `connectors.mcp` URL that is not available
-stops the command. A server that answers `initialize` but cannot be listed
-only warns, whichever URL names it.
+denied access, so check its access settings and `connectors.mcp`. For an
+explicit `connectors.mcp` URL, only a failed `initialize` probe stops the
+command. A server that answers `initialize` but cannot be listed only warns,
+whichever URL names it.
 
 A harness whose runner fixes its tools when the Flow is built declares
 `isToolSetFixedAtBuild: true`. The CLI core then lists the connector tools the

@@ -44,6 +44,8 @@ export class FakeConnectorsMcpServer {
   public listingsBeforeFailure = 0;
   /** When set, every request answers this HTTP status, such as 401 for an endpoint that needs credentials. */
   public accessDeniedStatus: number | undefined;
+  /** When set, `initialize` answers but every `tools/list` answers this HTTP status. */
+  public listingAccessDeniedStatus: number | undefined;
   /** The connection that `slack_post_thread_reply` names; tests rebind it. */
   public slackConnection = "support-slack";
   /** The connection that the `reports_long_report` task tool names; tests rebind it. */
@@ -68,6 +70,10 @@ export class FakeConnectorsMcpServer {
           return;
         }
         const body = await readJsonBody(request);
+        if (this.listingAccessDeniedStatus !== undefined && isToolsListRequest(body)) {
+          response.writeHead(this.listingAccessDeniedStatus, { "content-type": "text/plain" }).end("access denied");
+          return;
+        }
         if (this.listingFailureReason !== undefined && isToolsListRequest(body) && this.listingsBeforeFailure > 0) {
           this.listingsBeforeFailure -= 1;
         } else if (this.listingFailureReason !== undefined && !isInitializeRequest(body)) {

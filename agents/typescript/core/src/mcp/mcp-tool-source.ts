@@ -12,7 +12,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolResultSchema,
@@ -324,16 +324,28 @@ export class McpToolCallInterruptedError extends Error {
  */
 export class McpToolListingError extends Error {
   /**
+   * The HTTP status a Streamable HTTP server answered to the failed listing, such as 401 or 403 for denied access.
+   * It is `undefined` for a stdio server, or when no HTTP response came, such as for a refused connection or a
+   * timeout.
+   *
+   * @since 0.6.0
+   */
+  public readonly httpStatus: number | undefined;
+
+  /**
    * Creates the error.
    * @param serverName - Configured name of the last MCP server that failed.
    * @param detail - What went wrong with that server.
+   * @param httpStatus - The HTTP status the server answered, when it answered one. Since 0.6.0.
    */
   public constructor(
     public readonly serverName: string,
     public readonly detail: string,
+    httpStatus?: number,
   ) {
     super(`could not list the tools of MCP server ${serverName}: ${detail}`);
     this.name = "McpToolListingError";
+    this.httpStatus = httpStatus;
   }
 }
 
@@ -1199,6 +1211,7 @@ export class McpToolSource {
 
   private async listServerTools(server: McpServerConfig): Promise<McpTool[]> {
     let detail = "no listing attempt";
+    let httpStatus: number | undefined;
     for (let listingAttempt = 1; listingAttempt <= this.connectionAttempts; listingAttempt += 1) {
       let connection: McpConnection | undefined;
       try {
@@ -1218,6 +1231,7 @@ export class McpToolSource {
         return listed.map((tool) => mcpToolFromListing(server, tool));
       } catch (error: unknown) {
         detail = describeError(error);
+        httpStatus = streamableHttpStatusOf(error);
       } finally {
         await this.connector.disconnectQuietly(connection);
       }
@@ -1225,7 +1239,7 @@ export class McpToolSource {
         await delay(connectionRetryDelayMs * listingAttempt);
       }
     }
-    throw new McpToolListingError(server.name, detail);
+    throw new McpToolListingError(server.name, detail, httpStatus);
   }
 }
 
@@ -1727,6 +1741,18 @@ function taskPollIntervalMs(task: Task): number {
     return defaultTaskPollIntervalMs;
   }
   return Math.min(Math.max(task.pollInterval, minimumTaskPollIntervalMs), maximumTaskPollIntervalMs);
+}
+
+/** Returns the HTTP status of a Streamable HTTP failure in the error or its causes, if any. */
+function streamableHttpStatusOf(error: unknown): number | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    if (current instanceof StreamableHTTPError && current.code !== undefined && current.code > 0) {
+      return current.code;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 /** Wraps an application's warning callback so that a throwing callback falls back to `console.warn`. */

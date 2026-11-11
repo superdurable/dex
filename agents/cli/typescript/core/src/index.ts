@@ -62,7 +62,6 @@ export {
   ConnectorsMcpToolSource,
   DisabledConnectorsToolSource,
   connectorToolMetaKeys,
-  connectorsUnavailableLine,
   expectedIdentityMetaKeys,
   isConnectorToolEnabledBy,
   listConnectorToolIdentities,

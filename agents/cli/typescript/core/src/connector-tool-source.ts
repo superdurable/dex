@@ -20,9 +20,9 @@ import {
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
 } from "@superdurable/dex-agents";
-import { McpToolSource, type McpTool } from "@superdurable/dex-agents/mcp";
+import { McpToolListingError, McpToolSource, type McpTool } from "@superdurable/dex-agents/mcp";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import {
   canonicalOperationName,
@@ -215,15 +215,17 @@ export class ConnectorsMcpToolSource implements ToolSource {
    */
   public async listTools(): Promise<readonly SourceToolDefinition[]> {
     const turn = this.turns.currentTurn();
-    let tools: readonly McpTool[];
-    let identities: ReadonlyMap<string, ConnectorToolIdentity>;
-    try {
-      [tools, identities] = await Promise.all([this.mcp.listTools(), this.readIdentities()]);
-    } catch (error: unknown) {
-      await this.reportListingFailure(describeError(error));
+    const [toolsResult, identitiesResult] = await Promise.allSettled([this.mcp.listTools(), this.readIdentities()]);
+    if (toolsResult.status === "rejected" || identitiesResult.status === "rejected") {
+      const failures = [toolsResult, identitiesResult]
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason as unknown);
+      this.reportListingFailure(failures);
       this.lastListing = [];
       return [];
     }
+    const tools = toolsResult.value;
+    const identities = identitiesResult.value;
     if (this.unavailability !== undefined) {
       this.log("Connector tools are available again.");
       this.writeLogLine(`connectors MCP server ${this.url} is available again`);
@@ -450,11 +452,10 @@ export class ConnectorsMcpToolSource implements ToolSource {
   }
 
   /** Logs every failure; the terminal gets one line only when the availability changes. */
-  private async reportListingFailure(reason: string): Promise<void> {
+  private reportListingFailure(failures: readonly unknown[]): void {
     const previous = this.unavailability;
-    // A direct request tells a denied access from a server that is not ready.
-    const probed = await probeConnectorsMcp(this.url);
-    const httpStatus = probed.isAvailable ? undefined : probed.httpStatus;
+    const reason = failures.map(describeError).join("; ");
+    const httpStatus = failures.map(httpStatusOfListingFailure).find((status) => status !== undefined);
     const unavailability: ConnectorsMcpUnavailability = {
       isAvailable: false,
       reason,
@@ -790,6 +791,17 @@ export function connectorsAccessDeniedSentence(httpStatus: number): string {
  */
 export function isConnectorsMcpAccessDenied(unavailability: ConnectorsMcpUnavailability): boolean {
   return unavailability.httpStatus === 401 || unavailability.httpStatus === 403;
+}
+
+/** Returns the HTTP status the failed listing request itself answered, if it answered one. */
+function httpStatusOfListingFailure(error: unknown): number | undefined {
+  if (error instanceof McpToolListingError) {
+    return error.httpStatus;
+  }
+  if (error instanceof StreamableHTTPError && error.code !== undefined && error.code > 0) {
+    return error.code;
+  }
+  return undefined;
 }
 
 function describeError(error: unknown): string {

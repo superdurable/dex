@@ -27,13 +27,13 @@ import {
 import {
   ConnectorsMcpToolSource,
   TurnConfigResolver,
-  connectorsUnavailableLine,
   probeConnectorsMcp,
   resolveConfig,
   sessionActionPermission,
   type ConnectorsMcpUnavailability,
 } from "../../src/index.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
+import { connectorsUnavailableLine } from "../../src/connector-tool-source.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { shellReplacingScriptedHarness } from "../fixtures/scripted-harness.js";
 
@@ -521,6 +521,29 @@ describe("terminal chat with connectors and session settings", () => {
     });
     assert.ok((await source.listTools()).length > 0);
     assert.deepEqual(lines, ["Connector tools are available again."]);
+  });
+
+  test("a server that answers initialize but denies tools/list prints one access-denied line", async () => {
+    const effective = resolveConfig({ connectors: { mcp: connectorsUrl } }, "builtin", "scripted/default");
+    const lines: string[] = [];
+    const source = new ConnectorsMcpToolSource(
+      connectorsUrl,
+      new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined)),
+      (line) => lines.push(line),
+      undefined,
+      { writeLogLine: () => undefined, describeUnavailable: describeWithLogHint },
+    );
+    connectors.listingAccessDeniedStatus = 403;
+    try {
+      assert.deepEqual(await source.listTools(), []);
+      assert.deepEqual(await source.listTools(), []);
+    } finally {
+      connectors.listingAccessDeniedStatus = undefined;
+    }
+    assert.deepEqual(lines, [
+      "Connector tools are unavailable. The connectors MCP server denied access (HTTP 403). " +
+        "Check its access settings and that connectors.mcp names the right server. See the log file.",
+    ]);
   });
 
   test("a server that denies access prints one line that says so", async () => {

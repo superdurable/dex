@@ -253,8 +253,10 @@ async def test_an_explicit_mcp_server_that_is_starting_fails_with_its_reason(
 
 
 @contextlib.contextmanager
-def mcp_server_that_fails_listing(reason: str, successful_listings: int = 0) -> Iterator[str]:
-    """Answer ``initialize``, notifications, and the first listings, and 503 with ``reason`` after.
+def mcp_server_that_fails_listing(
+    reason: str, successful_listings: int = 0, failure_status: int = 503
+) -> Iterator[str]:
+    """Answer ``initialize``, notifications, and the first listings, then ``failure_status``.
 
     Each successful ``tools/list`` lists no tools.
     """
@@ -286,7 +288,7 @@ def mcp_server_that_fails_listing(reason: str, successful_listings: int = 0) -> 
                 body = json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": {"tools": []}})
                 self._answer(200, "application/json", body.encode())
             else:
-                self._answer(503, "text/plain", reason.encode())
+                self._answer(failure_status, "text/plain", reason.encode())
 
         def _answer(self, status: int, content_type: str, body: bytes) -> None:
             self.send_response(status)
@@ -410,6 +412,24 @@ async def test_a_server_that_denies_access_prints_one_line_that_says_so() -> Non
         assert await source.list_file_enabled_tools() == ()
     assert lines == [
         "Connector tools are unavailable. The connectors MCP server denied access (HTTP 403). "
+        "Check its access settings and that connectors.mcp names the right server. See the log."
+    ]
+
+
+async def test_a_server_that_answers_initialize_but_denies_listing_prints_one_line() -> None:
+    config = resolve_config({"connectors": {"mcp": "auto"}}, "builtin", "scripted-model")
+    lines: list[str] = []
+    with mcp_server_that_fails_listing("access denied", failure_status=401) as url:
+        source = ConnectorsMcpToolSource(
+            url,
+            TurnConfigResolver(config, None, lambda warnings: None),
+            report=lines.append,
+            describe_unavailable=lambda error: connectors_unavailable_line(error, "See the log."),
+        )
+        assert await source.list_file_enabled_tools() == ()
+        assert await source.list_file_enabled_tools() == ()
+    assert lines == [
+        "Connector tools are unavailable. The connectors MCP server denied access (HTTP 401). "
         "Check its access settings and that connectors.mcp names the right server. See the log."
     ]
 
