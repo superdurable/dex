@@ -87,8 +87,9 @@ for the Dex SDK and framework versions each release supports.
   each model call and Pi tools run as Dex tool Steps. It peer-depends on
   `@earendil-works/pi-ai@^1.5.1`, tested with 1.5.1.
   **createPiAiModelClient(model, { apiKey, headers, prepareRequest })** makes
-  one pi-ai request per `RunModel` attempt, stores pi-ai's whole assistant
-  message with the pi-ai version, and replays it to every later model call.
+  one pi-ai request per `RunModel` attempt, stores the replay fields of pi-ai's
+  assistant message with the pi-ai version, and replays them to every later
+  model call.
   **piAgentFunctionTool(tool, { effect, requiresApproval })** wraps a Pi
   `AgentTool`; without an effect, `replay: "safe"` gives `idempotent_write`,
   `replay: "never"` gives `non_idempotent_write`, and a tool with neither
