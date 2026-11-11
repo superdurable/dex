@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use dexzd_keyspace::row_keys::{outbox_key, run_item_index_key};
+use dexzd_keyspace::row_keys::{outbox_key, prefix_range, run_item_index_key};
 use dexzd_keyspace::{ColumnFamily, IndexKind};
 use dexzd_protocol::dex::{
     ActiveStepSearchMode, ExecuteMethodFailurePolicy, FlowConfig, FlowResult, FlowTimeoutPolicy,
@@ -480,7 +480,7 @@ pub(crate) fn apply_outbox_ack(
     let mut changed = false;
     for message_id in &command.message_ids {
         let key = outbox_key(cursor.rows.flow_hash, cursor.run_id(), message_id);
-        let Some(mut record): Option<OutboxRecord> =
+        let Some(record): Option<OutboxRecord> =
             transaction.get_message(ColumnFamily::Flow, &key, "outbox")?
         else {
             continue;
@@ -488,38 +488,7 @@ pub(crate) fn apply_outbox_ack(
         if record.acknowledged_at_micros != 0 {
             continue;
         }
-        if let Some(outbox_record::Payload::ChildStart(start)) = record.payload.as_mut() {
-            for object in start.hard_delete_objects.drain(..) {
-                crate::command_handlers::flow_data::schedule_hard_delete(
-                    transaction,
-                    &mut cursor,
-                    object,
-                );
-            }
-        }
-        record.acknowledged_at_micros = scope.now_micros;
-        transaction.put_message(ColumnFamily::Flow, key, &record);
-        transaction.delete(
-            ColumnFamily::PartitionIndex,
-            run_item_index_key(
-                transaction.context().partition,
-                IndexKind::OutboxPending,
-                cursor.rows.flow_hash,
-                cursor.run_id(),
-                message_id,
-            ),
-        );
-        arm_timer(
-            transaction,
-            &mut cursor,
-            &TimerId {
-                run_attempt: 0,
-                kind: Some(timer_id::Kind::OutboxRetention(OutboxRetentionTimerId {
-                    message_id: message_id.clone(),
-                })),
-            },
-            scope.now_micros.saturating_add(OUTBOX_RETENTION_MICROS),
-        );
+        acknowledge_outbox_record(transaction, &mut cursor, scope, message_id, record);
         changed = true;
     }
     if !changed {
@@ -531,6 +500,91 @@ pub(crate) fn apply_outbox_ack(
         ok_reply(),
         HistoryKind::BOOKKEEPING,
     )?))
+}
+
+/// Acknowledges pending child starts carrying exactly `parent`; the child's report proves
+/// delivery, so its purge cannot precede redelivery.
+pub(crate) fn acknowledge_child_starts_of_reporting_child(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    parent: &ParentFlowReference,
+) -> Result<(), ApplyError> {
+    // History rebuild discards run-scoped outbox writes.
+    if scope.is_history_rebuild() {
+        return Ok(());
+    }
+    let pending_prefix = run_item_index_key(
+        transaction.context().partition,
+        IndexKind::OutboxPending,
+        cursor.rows.flow_hash,
+        cursor.run_id(),
+        &[CHILD_START_MESSAGE_KIND],
+    );
+    let message_id_offset = pending_prefix.len() - 1;
+    let (start, end) = prefix_range(&pending_prefix);
+    let pending_keys = transaction.scan(ColumnFamily::PartitionIndex, &start, &end, usize::MAX)?;
+    for (pending_key, _) in pending_keys {
+        let message_id = &pending_key[message_id_offset..];
+        let key = outbox_key(cursor.rows.flow_hash, cursor.run_id(), message_id);
+        let record: OutboxRecord = transaction
+            .get_message(ColumnFamily::Flow, &key, "outbox")?
+            .ok_or_else(|| ApplyError::InvariantViolation {
+                detail: "pending outbox index has no outbox row".to_owned(),
+            })?;
+        let is_start_for_parent = record.acknowledged_at_micros == 0
+            && matches!(
+                record.payload.as_ref(),
+                Some(outbox_record::Payload::ChildStart(start))
+                    if start.parent.as_ref() == Some(parent)
+            );
+        if is_start_for_parent {
+            acknowledge_outbox_record(transaction, cursor, scope, message_id, record);
+        }
+    }
+    Ok(())
+}
+
+/// Marks one unacknowledged outbox row acknowledged and arms its retention timer.
+fn acknowledge_outbox_record(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    scope: &CommandScope<'_>,
+    message_id: &[u8],
+    mut record: OutboxRecord,
+) {
+    if let Some(outbox_record::Payload::ChildStart(start)) = record.payload.as_mut() {
+        for object in start.hard_delete_objects.drain(..) {
+            crate::command_handlers::flow_data::schedule_hard_delete(transaction, cursor, object);
+        }
+    }
+    record.acknowledged_at_micros = scope.now_micros;
+    transaction.put_message(
+        ColumnFamily::Flow,
+        outbox_key(cursor.rows.flow_hash, cursor.run_id(), message_id),
+        &record,
+    );
+    transaction.delete(
+        ColumnFamily::PartitionIndex,
+        run_item_index_key(
+            transaction.context().partition,
+            IndexKind::OutboxPending,
+            cursor.rows.flow_hash,
+            cursor.run_id(),
+            message_id,
+        ),
+    );
+    arm_timer(
+        transaction,
+        cursor,
+        &TimerId {
+            run_attempt: 0,
+            kind: Some(timer_id::Kind::OutboxRetention(OutboxRetentionTimerId {
+                message_id: message_id.to_vec(),
+            })),
+        },
+        scope.now_micros.saturating_add(OUTBOX_RETENTION_MICROS),
+    );
 }
 
 pub(crate) fn on_outbox_retention_fired(
