@@ -34,7 +34,7 @@ from dex import (
 
 from dex_agents_cli_core.config import AUTO
 from dex_agents_cli_core.dexcli_install import DexcliInstallError, download_dexcli, locate_dexcli
-from dex_agents_cli_core.environment import RuntimeEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment
 
 #: The line ``dexcli dev`` prints once Dex Server and Dex Web are ready.
 DEXCLI_DEV_READY_LINE = "Dex development environment is ready"
@@ -94,7 +94,7 @@ class _Readiness(Enum):
 
 async def resolve_dex_server(
     server: str,
-    environment: RuntimeEnvironment,
+    environment: CommandEnvironment,
     *,
     report: Callable[[str], None],
 ) -> DexServerEndpoint:
@@ -149,7 +149,7 @@ async def resolve_dex_server(
 
 
 def _read_started_server(
-    environment: RuntimeEnvironment, web_url: str, address: str
+    environment: CommandEnvironment, web_url: str, address: str
 ) -> _DevServerState | None:
     """Return the recorded ``dexcli dev`` when it still runs on exactly these ports."""
     try:
@@ -166,7 +166,7 @@ def _read_started_server(
 
 
 async def _start_dev_server(
-    environment: RuntimeEnvironment, report: Callable[[str], None]
+    environment: CommandEnvironment, report: Callable[[str], None]
 ) -> DexServerEndpoint:
     try:
         dexcli = locate_dexcli(environment)

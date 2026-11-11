@@ -25,7 +25,7 @@ from dex_agents_cli_core.config import (
     parse_config_yaml,
     resolve_config,
 )
-from dex_agents_cli_core.environment import RuntimeEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import AgentHarness
 
 
@@ -48,7 +48,7 @@ class ConfigFileError(Exception):
     """Report a configuration file that cannot be read or is invalid."""
 
 
-def default_config_path(environment: RuntimeEnvironment, harness: AgentHarness) -> Path:
+def default_config_path(environment: CommandEnvironment, harness: AgentHarness) -> Path:
     """Return ``~/.dex/agents/<name>.yaml``.
 
     Args:

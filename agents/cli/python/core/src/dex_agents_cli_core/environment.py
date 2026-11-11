@@ -37,7 +37,7 @@ DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_DOWNLOAD_URL"
 
 
 @dataclass(frozen=True)
-class RuntimeEnvironment:
+class CommandEnvironment:
     """The paths and machine settings one command run uses.
 
     Attributes:
@@ -62,7 +62,7 @@ class RuntimeEnvironment:
     search_path: tuple[Path, ...] = ()
 
     @classmethod
-    def from_environment(cls, environ: Mapping[str, str] | None = None) -> RuntimeEnvironment:
+    def from_environment(cls, environ: Mapping[str, str] | None = None) -> CommandEnvironment:
         """Read the settings from environment variables.
 
         Args:

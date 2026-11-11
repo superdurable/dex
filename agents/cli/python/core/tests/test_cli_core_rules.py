@@ -27,7 +27,7 @@ from dex_agents_cli_core import (
     session_flow_type,
 )
 from dex_agents_cli_core.dexcli_install import DexcliInstallError, check_download_url
-from dex_agents_cli_core.environment import RuntimeEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import session_start_environment
 from dex_agents_cli_core.local_tools.files import MAX_EDIT_BYTES, WorkspaceFiles
 
@@ -117,7 +117,7 @@ def test_an_insecure_download_url_is_refused(url: str) -> None:
 
 
 def test_the_download_url_is_checked_only_when_downloading(tmp_path: Path) -> None:
-    environment = RuntimeEnvironment.from_environment(
+    environment = CommandEnvironment.from_environment(
         {"HOME": str(tmp_path), "DEX_AGENTS_DEXCLI_DOWNLOAD_URL": "http://mirror.example"}
     )
     assert environment.dexcli_release_base_url == "http://mirror.example"

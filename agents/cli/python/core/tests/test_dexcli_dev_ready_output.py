@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from dex_agents_cli_core.dex_server import _parse_ready_fields, _read_started_server
-from dex_agents_cli_core.environment import RuntimeEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment
 
 WEB_URL = "http://127.0.0.1:8802"
 DEX_ADDRESS = "127.0.0.1:8801"
@@ -107,7 +107,7 @@ def test_a_dexcli_without_the_connectors_mcp_line_records_no_url() -> None:
 def test_a_recorded_value_that_is_not_a_url_is_dropped(
     tmp_path: Path, recorded_url: str | None
 ) -> None:
-    environment = RuntimeEnvironment(home=tmp_path)
+    environment = CommandEnvironment(home=tmp_path)
     environment.agents_directory.mkdir(parents=True)
     environment.dev_server_state_path.write_text(
         json.dumps(
@@ -125,7 +125,7 @@ def test_a_recorded_value_that_is_not_a_url_is_dropped(
 
 
 def test_a_recorded_url_is_kept(tmp_path: Path) -> None:
-    environment = RuntimeEnvironment(home=tmp_path)
+    environment = CommandEnvironment(home=tmp_path)
     environment.agents_directory.mkdir(parents=True)
     environment.dev_server_state_path.write_text(
         json.dumps(

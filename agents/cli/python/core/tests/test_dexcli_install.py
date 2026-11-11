@@ -28,7 +28,7 @@ from dex_agents_cli_core.dexcli_install import (
     locate_dexcli,
     release_asset_name,
 )
-from dex_agents_cli_core.environment import RuntimeEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment
 
 VERSION = "9.9.9"
 ArchiveEntries = Callable[[tarfile.TarFile], None]
@@ -93,8 +93,8 @@ def release_server(tmp_path: Path) -> Iterator[tuple[str, Path]]:
 
 def environment_for(
     tmp_path: Path, url: str, search_path: tuple[Path, ...] = ()
-) -> RuntimeEnvironment:
-    return RuntimeEnvironment(
+) -> CommandEnvironment:
+    return CommandEnvironment(
         home=tmp_path / "home",
         dexcli_version=VERSION,
         dexcli_release_base_url=url,
@@ -253,7 +253,7 @@ def test_only_an_old_dexcli_on_the_path_means_a_download(tmp_path: Path) -> None
 
 def test_dexcli_from_the_environment_wins(tmp_path: Path) -> None:
     dexcli = tmp_path / "custom-dexcli"
-    environment = RuntimeEnvironment(home=tmp_path, dexcli=dexcli)
+    environment = CommandEnvironment(home=tmp_path, dexcli=dexcli)
     assert locate_dexcli(environment) == dexcli
 
 

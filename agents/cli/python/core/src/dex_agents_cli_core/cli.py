@@ -64,7 +64,7 @@ from dex_agents_cli_core.connectors import (
     read_connector_catalog,
 )
 from dex_agents_cli_core.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
-from dex_agents_cli_core.environment import RuntimeEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import (
     SESSION_ACTION_PERMISSION,
     AgentHarness,
@@ -130,7 +130,7 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     """
     arguments = _parse_arguments(harness, argv)
     try:
-        environment = RuntimeEnvironment.from_environment()
+        environment = CommandEnvironment.from_environment()
     except ValueError as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
@@ -194,7 +194,7 @@ def _parse_arguments(harness: AgentHarness, argv: Sequence[str] | None) -> _Argu
     )
 
 
-def _configure_logging(environment: RuntimeEnvironment, harness: AgentHarness) -> None:
+def _configure_logging(environment: CommandEnvironment, harness: AgentHarness) -> None:
     environment.agents_directory.mkdir(parents=True, exist_ok=True)
     log_path = environment.agents_directory / f"{harness.name}.log"
     handler = logging.FileHandler(log_path, encoding="utf-8")
@@ -208,7 +208,7 @@ def _is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def _init(arguments: _Arguments, environment: RuntimeEnvironment, harness: AgentHarness) -> int:
+def _init(arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness) -> int:
     path = arguments.config_path or default_config_path(environment, harness)
     if arguments.is_yes or not _is_interactive():
         values = default_config_values(harness)
@@ -220,7 +220,7 @@ def _init(arguments: _Arguments, environment: RuntimeEnvironment, harness: Agent
 
 
 def _load_config(
-    arguments: _Arguments, environment: RuntimeEnvironment, harness: AgentHarness
+    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
 ) -> LoadedConfig:
     """Load the file, or create it first as ``H`` in the plan describes."""
     path = arguments.config_path or default_config_path(environment, harness)
@@ -254,7 +254,7 @@ def _ask(question: str, default: str) -> str:
 
 
 async def _run(
-    arguments: _Arguments, environment: RuntimeEnvironment, harness: AgentHarness
+    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
     config = _with_model_override(loaded.config, arguments)
@@ -353,7 +353,7 @@ def _report_ignored_settings(warnings: Sequence[str]) -> None:
     print(f"Session settings keys ignored: {', '.join(warnings)}", file=sys.stderr)
 
 
-def _build_media_store(config: EffectiveConfig, environment: RuntimeEnvironment) -> MediaStore:
+def _build_media_store(config: EffectiveConfig, environment: CommandEnvironment) -> MediaStore:
     """Build the store of ``media.store``: ``~/.dex/agents/media`` for auto, else the S3 bucket."""
     media = config.media
     try:
@@ -380,7 +380,7 @@ def _build_media_store(config: EffectiveConfig, environment: RuntimeEnvironment)
 
 
 def _read_system_prompt_file(
-    config: EffectiveConfig, loaded: LoadedConfig, environment: RuntimeEnvironment
+    config: EffectiveConfig, loaded: LoadedConfig, environment: CommandEnvironment
 ) -> str | None:
     if config.system_prompt_file is None:
         return None
@@ -392,7 +392,7 @@ def _read_system_prompt_file(
 
 
 async def _resolve_server(
-    config: EffectiveConfig, environment: RuntimeEnvironment
+    config: EffectiveConfig, environment: CommandEnvironment
 ) -> DexServerEndpoint:
     return await resolve_dex_server(config.dex.server, environment, report=print)
 
@@ -586,7 +586,7 @@ async def _open_session(
 
 
 async def _list_sessions(
-    arguments: _Arguments, environment: RuntimeEnvironment, harness: AgentHarness
+    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
     endpoint = await _resolve_server(loaded.config, environment)
@@ -617,7 +617,7 @@ async def _list_sessions(
 
 
 async def _list_connectors(
-    arguments: _Arguments, environment: RuntimeEnvironment, harness: AgentHarness
+    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
     config = loaded.config

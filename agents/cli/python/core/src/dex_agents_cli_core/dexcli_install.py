@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 
 import httpx2
 
-from dex_agents_cli_core.environment import RuntimeEnvironment
+from dex_agents_cli_core.environment import CommandEnvironment
 
 #: The executables a ``dexcli`` release archive holds; ``dexcli dev`` runs both.
 DEXCLI_EXECUTABLES = ("dexcli", "dex-server-zd")
@@ -43,7 +43,7 @@ class DexcliInstallError(Exception):
     """Report that ``dexcli`` is not installed, cannot be downloaded, or was changed."""
 
 
-def locate_dexcli(environment: RuntimeEnvironment) -> Path | None:
+def locate_dexcli(environment: CommandEnvironment) -> Path | None:
     """Return the ``dexcli`` to run without downloading one.
 
     Args:
@@ -75,7 +75,7 @@ def locate_dexcli(environment: RuntimeEnvironment) -> Path | None:
     return None
 
 
-def installed_release_directory(environment: RuntimeEnvironment) -> Path:
+def installed_release_directory(environment: CommandEnvironment) -> Path:
     """Return ``~/.dex/bin/dexcli-<version>``, where the pinned release is installed.
 
     Args:
@@ -137,7 +137,7 @@ def release_asset_name(version: str, system: str, machine: str) -> str:
     return f"dexcli_v{version}_{operating_system}_{architecture}.tar.gz"
 
 
-def download_dexcli(environment: RuntimeEnvironment) -> Path:
+def download_dexcli(environment: CommandEnvironment) -> Path:
     """Download the pinned ``dexcli`` release, check it, and install it in ``~/.dex/bin``.
 
     The archive's SHA-256 must match its line in the release's
