@@ -62,6 +62,17 @@ Removed the Continue-As-New and internal handler timeout APIs:
 
 ### Added
 
+Added `Join<T>` and `JoinRound` to synchronize parallel branches of one Flow.
+`Join.fork` starts a round from a split Step, using the Step execution ID as
+the round key and the number of branch builders as the branch count;
+`Join.forkWithRoundKey` takes an application key, for example in an RPC.
+Branches report with `endBranch` or `reportBranchResult`. The join Step waits
+with `forAllBranches`, `forFirstBranch`, or `forBranches` and reads
+`getBranchResults`. The next round's split Step resets the previous round with
+`forRemainingBranches` and reads `getRemainingBranchResults`. A Join is stored
+as a `ChannelMap` with the same name; `JoinRound` is stored in Step inputs as
+`{"roundKey", "branchCount"}`. [Reference](https://docs.superdurable.io/reference/java/waits)
+
 Added `FlowConfig.Builder.offloadHistory(boolean)` to choose whether a run
 offloads its history to object storage. Omitting it means `true`. Pass `false`
 for many short runs that close soon, to avoid object storage requests. Set it at
