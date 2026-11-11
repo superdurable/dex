@@ -180,13 +180,18 @@ const flow = createBuiltinAgentSessionFlow(definition, "SupportAgent", { mediaSt
   `{ type: "image", data, mimeType }` with base64 data, after the item's text
   and in order. A user message with images becomes a text part and one image
   part per image; a message without images keeps its plain text. A tool
-  result message gets its text part and then the images. pi-ai converts them
+  result message gets its text part and then the images. An item with images
+  and empty text gets no text part, because Anthropic rejects an empty text
+  block; an item without images keeps its text even when empty. pi-ai converts them
   for the provider: Anthropic Messages puts them in the `tool_result` block,
   and OpenAI Chat Completions keeps the tool message text and adds a user
   message, `Attached image(s) from tool result:`, with the images.
 - **Models without image input.** When the pi-ai model's `input` lacks
-  `"image"`, pi-ai sends `(image omitted: model does not support images)` in
-  place of each image. Use a model with image input for image sessions.
+  `"image"`, pi-ai replaces images with its own placeholder text. It writes one
+  note for each run of adjacent images, and the wording depends on where the
+  images are, such as `(image omitted: model does not support images)` in a
+  user message and `(tool image omitted: model does not support images)` in a
+  tool result. Use a model with image input for image sessions.
 - **Missing bytes.** A request whose `imageBytes` lacks an image's bytes
   throws a `TypeError` before pi-ai sends anything, and the `RunModel` attempt
   retries.
@@ -268,9 +273,9 @@ their effect. A call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
   store during the call, and the model sees the images after the text, in
   content order. The session stores only their references. An image the store
   refuses, such as an SVG, and every image without a store become
-  `[image omitted: <mime type>]` in the text. Only the first
-  `maxImagesPerMessage` (20) images are uploaded; each later one becomes a
-  note, and the text ends with `(more than 20 images; the rest were
+  `[image omitted: <mime type>]` in the text. A result delivers at most
+  `maxImagesPerMessage` (20) images that the store accepts; refused images do
+  not count. Each image after those becomes a note, and the text ends with `(more than 20 images; the rest were
   omitted)`, so the call still succeeds. A failed upload fails the
   attempt: a `read` or `idempotent_write` call retries, and a single-attempt
   call records `outcome_unknown`. Progress text and the text of an

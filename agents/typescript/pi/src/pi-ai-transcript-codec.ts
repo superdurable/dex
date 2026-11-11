@@ -12,6 +12,7 @@ import {
   type ImageContent,
   type JsonObject,
   type Message,
+  type TextContent,
   type ToolCall,
   type ToolResultMessage,
   type Usage,
@@ -144,7 +145,7 @@ export function toPiAiMessages(
       case "user_text": {
         const images = toPiAiImageContent(item.images, imageBytes);
         // Text alone stays a string, so a request without images is unchanged.
-        const content = images.length === 0 ? item.text : [{ type: "text" as const, text: item.text }, ...images];
+        const content = images.length === 0 ? item.text : [...toPiAiTextContent(item.text), ...images];
         messages.push({ role: "user", content, timestamp: 0 });
         break;
       }
@@ -156,11 +157,14 @@ export function toPiAiMessages(
         break;
       }
       case "tool_result": {
+        const images = toPiAiImageContent(item.images, imageBytes);
         const result: ToolResultMessage = {
           role: "toolResult",
           toolCallId: item.toolCallId,
           toolName: item.toolName,
-          content: [{ type: "text", text: item.output }, ...toPiAiImageContent(item.images, imageBytes)],
+          // A result without images keeps its text part, even when empty, so its request is unchanged.
+          content:
+            images.length === 0 ? [{ type: "text", text: item.output }] : [...toPiAiTextContent(item.output), ...images],
           isError: false,
           timestamp: 0,
         };
@@ -170,6 +174,11 @@ export function toPiAiMessages(
     }
   }
   return messages;
+}
+
+/** The text part before an item's images; none for empty text, which Anthropic rejects as a block. */
+function toPiAiTextContent(text: string): TextContent[] {
+  return text === "" ? [] : [{ type: "text", text }];
 }
 
 /** One pi-ai image content part per image, with the bytes the runner loaded for the request. */

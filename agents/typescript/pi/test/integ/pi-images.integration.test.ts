@@ -76,6 +76,26 @@ const piScreenshotTool: PiAgentToolLike = {
   }),
 };
 
+const bareScreenshotToolName = "take_bare_screenshot";
+const piBareScreenshotToolName = "pi_bare_screenshot";
+const piDurableBarePhotoToolName = "pi_durable_bare_photo";
+
+const piBareScreenshotTool: PiAgentToolLike = {
+  name: piBareScreenshotToolName,
+  description: "Take a screenshot without text with a Pi tool.",
+  parameters: { type: "object", properties: {} },
+  replay: "safe",
+  execute: async () => ({ content: [{ type: "image", data: base64(png), mimeType: "image/png" }] }),
+};
+
+const piDurableBarePhotoTool: PiDurableToolLike = {
+  name: piDurableBarePhotoToolName,
+  description: "Take a photo without text with a pi-durable tool.",
+  parameters: { type: "object", properties: {} },
+  replay: "safe",
+  execute: async () => ({ output: [{ type: "image", data: base64(jpeg), mimeType: "image/jpeg" }] }),
+};
+
 const piManyScreenshotsToolName = "pi_many_screenshots";
 
 const piManyScreenshotsTool: PiAgentToolLike = {
@@ -139,6 +159,8 @@ describe("images through a Pi agent session", () => {
         tools: [
           piAgentFunctionTool(piScreenshotTool, { effect: "read" }),
           piAgentFunctionTool(piManyScreenshotsTool, { effect: "read" }),
+          piAgentFunctionTool(piBareScreenshotTool, { effect: "read" }),
+          piDurableFunctionTool(piDurableBarePhotoTool, { effect: "read" }),
           piDurableFunctionTool(piDurablePhotoTool, { effect: "read" }),
         ],
         toolSources: [new ScreenshotToolSource(store)],
@@ -203,6 +225,7 @@ describe("images through a Pi agent session", () => {
 
     const [request] = modelServer.requests(token);
     assert.equal(request?.format, "anthropic");
+    assertNoEmptyTextBlock(request?.body);
     const content = request?.body["messages"].at(-1).content as readonly Record<string, unknown>[];
     // pi-ai adds cache_control to the last block, so compare the fields that carry the message.
     assert.deepEqual(
@@ -336,6 +359,81 @@ describe("images through a Pi agent session", () => {
     assert.equal(storedToolMessage?.images?.length, maxImagesPerMessage);
   });
 
+  test("image-only tool results reach Anthropic without an empty text block", async () => {
+    const token = newToken();
+    const sessionId = `pi-images-bare-anthropic-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? {
+            toolCalls: [
+              { id: "toolu_bare_pi", name: piBareScreenshotToolName, arguments: "{}" },
+              { id: "toolu_bare_durable", name: piDurableBarePhotoToolName, arguments: "{}" },
+              { id: "toolu_bare_source", name: bareScreenshotToolName, arguments: "{}" },
+            ],
+          }
+        : { text: "bare images seen" },
+    );
+    await sessions.startSession(sessionId, `bare images ${token}`, {}, { model: "anthropic" });
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const requests = modelServer.requests(token);
+    assert.equal(requests.length, 2);
+    assertNoEmptyTextBlock(requests[1]?.body);
+    const toolResults = (requests[1]?.body["messages"].at(-1).content as readonly Record<string, any>[]).filter(
+      (block) => block["type"] === "tool_result",
+    );
+    const seeAttachedImage = { type: "text", text: "(see attached image)" };
+    const imageBlock = (data: Uint8Array, mediaType: string) => ({
+      type: "image",
+      source: { type: "base64", media_type: mediaType, data: base64(data) },
+    });
+    assert.deepEqual(
+      toolResults.map((block) => ({
+        id: block["tool_use_id"],
+        content: (block["content"] as readonly Record<string, unknown>[]).map(
+          ({ cache_control: _cacheControl, ...part }) => part,
+        ),
+      })),
+      // pi-ai adds this text to a tool result without text.
+      [
+        { id: "toolu_bare_pi", content: [seeAttachedImage, imageBlock(png, "image/png")] },
+        { id: "toolu_bare_durable", content: [seeAttachedImage, imageBlock(jpeg, "image/jpeg")] },
+        { id: "toolu_bare_source", content: [seeAttachedImage, imageBlock(png, "image/png")] },
+      ],
+    );
+  });
+
+  test("a user message with images and empty text reaches Anthropic without an empty text block", async () => {
+    const token = newToken();
+    const reference = await store.putImage(gif);
+    const model = createPiAiModelClient(
+      createFakeAnthropicModel(modelServer.baseUrl, "claude-fake-1", ["text", "image"]),
+      { apiKey: "test-key" },
+    );
+    modelServer.script(token, () => ({ text: "image only" }));
+    const request = imageRequest(token, reference);
+
+    await model.callModel(
+      {
+        ...request,
+        // The fake server routes by a token in the body, and the user text is empty.
+        instructions: `Describe images ${token}.`,
+        inputItems: [{ type: "user_text", text: "", images: [reference] }],
+        imageBytes: new Map([[reference.sha256, gif]]),
+      },
+      { writeTextDelta: () => undefined, writeReasoningDelta: () => undefined },
+    );
+
+    const [sent] = modelServer.requests(token);
+    assertNoEmptyTextBlock(sent?.body);
+    assert.deepEqual(
+      (sent?.body["messages"].at(-1).content as readonly Record<string, unknown>[]).map(
+        ({ cache_control: _cacheControl, ...block }) => block,
+      ),
+      [{ type: "image", source: { type: "base64", media_type: "image/gif", data: base64(gif) } }],
+    );
+  });
+
   test("a pi-durable tool's image reaches the next Anthropic request inside the tool_result block", async () => {
     const token = newToken();
     const sessionId = `pi-images-pi-durable-tool-${token}`;
@@ -415,6 +513,11 @@ class ScreenshotToolSource implements ToolSource {
   public listTools(): Promise<readonly SourceToolDefinition[]> {
     return Promise.resolve([
       { name: screenshotToolName, description: "Take a screenshot.", inputSchema: { type: "object", properties: {} } },
+      {
+        name: bareScreenshotToolName,
+        description: "Take a screenshot without text.",
+        inputSchema: { type: "object", properties: {} },
+      },
     ]);
   }
 
@@ -430,9 +533,10 @@ class ScreenshotToolSource implements ToolSource {
     };
   }
 
-  public async executeDeferredToolCall(_call: DeferredToolExecution): Promise<ToolExecutionResult> {
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
     const reference = await this.store.putImage(png);
-    return { output: "Took a screenshot.", images: [reference] };
+    const output = call.toolCall.toolName === bareScreenshotToolName ? "" : "Took a screenshot.";
+    return { output, images: [reference] };
   }
 
   public pollToolTask(_poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
@@ -459,6 +563,22 @@ function assertNoImageBytes(snapshot: AgentSnapshot, ...contents: Uint8Array[]):
   ]);
   for (const data of contents) {
     assert.equal(stored.includes(base64(data)), false);
+  }
+}
+
+/** Anthropic rejects a text block with empty text anywhere in a request, including inside a `tool_result`. */
+function assertNoEmptyTextBlock(value: unknown, path = "body"): void {
+  if (Array.isArray(value)) {
+    value.forEach((element, index) => assertNoEmptyTextBlock(element, `${path}[${index}]`));
+    return;
+  }
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  assert.equal(record["type"] === "text" && record["text"] === "", false, `empty text block at ${path}`);
+  for (const [key, child] of Object.entries(record)) {
+    assertNoEmptyTextBlock(child, `${path}.${key}`);
   }
 }
 

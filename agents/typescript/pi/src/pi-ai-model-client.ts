@@ -115,9 +115,11 @@ export interface PiAiModelClientOptions {
  * Images of user text and tool result items reach the model as pi-ai image content,
  * `{ type: "image", data, mimeType }` with the base64 of their bytes from `ModelRequest.imageBytes`, after the item's
  * text and in order. A user message with images has a text part and one image part per image; a tool result message
- * has its text part and then the images. pi-ai converts them for the provider. For example, OpenAI Chat Completions
- * keeps the tool message text-only and adds a user message with the tool result's images after it. A model whose
- * `input` lacks `"image"` gets pi-ai's placeholder text in place of each image. A request whose `imageBytes` lacks an
+ * has its text part and then the images. An item with images and empty text has no text part, because Anthropic
+ * rejects an empty text block; an item without images keeps its text, even when empty. pi-ai converts them for the
+ * provider. For example, OpenAI Chat Completions keeps the tool message text-only and adds a user message with the
+ * tool result's images after it. A model whose `input` lacks `"image"` gets pi-ai's placeholder text instead, one
+ * note for each run of adjacent images, such as `(tool image omitted: model does not support images)`. A request whose `imageBytes` lacks an
  * image's bytes throws a `TypeError` before pi-ai sends anything. `estimateInputTokens` counts
  * {@link piAiEstimatedImageInputTokens} for each image.
  *
