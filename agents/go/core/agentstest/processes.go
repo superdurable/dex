@@ -293,7 +293,7 @@ const connectorsMCPFlag = "-connectors-mcp"
 // serves no Connectors MCP server at /mcp and downloads no release. Start a fake MCP server when a test
 // needs connector tools.
 //
-// Changed in 0.5.1: the engine no longer starts a Connectors MCP server or uses the user's HOME.
+// Changed in 0.6.0: the engine no longer starts a Connectors MCP server or uses the user's HOME.
 type PrivateDexEngine struct {
 	stateDir string
 	dexcli   string
