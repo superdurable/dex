@@ -11,17 +11,19 @@
 package io.superdurable.dex;
 
 import java.time.Instant;
-import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Implements the cross-SDK Flow definition upload rules shared with every Dex SDK. */
 final class FlowDefinitionRules {
     private static final Pattern RFC_3339 = Pattern.compile(
-            "\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?([Zz]|[+-]\\d{2}:\\d{2})");
+            "(\\d{4}-\\d{2}-\\d{2})[Tt](\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)(?:[Zz]|([+-])(\\d{2}):(\\d{2}))");
     private static final Pattern DRIVE_ROOT = Pattern.compile("[A-Za-z]:[\\\\/].*", Pattern.DOTALL);
 
     private FlowDefinitionRules() {
@@ -33,14 +35,27 @@ final class FlowDefinitionRules {
      * @throws IllegalArgumentException if the value is not strict RFC 3339
      */
     static Instant parseGeneratedAt(final String value) {
-        if (!RFC_3339.matcher(value).matches()) {
+        final Matcher matcher = RFC_3339.matcher(value);
+        if (!matcher.matches()) {
             throw new IllegalArgumentException("generatedAt " + value + " is not an RFC 3339 time");
         }
+        final LocalDateTime localDateTime;
         try {
-            return truncateToMillis(OffsetDateTime.parse(value.toUpperCase(Locale.ROOT)).toInstant());
+            localDateTime = LocalDateTime.parse(matcher.group(1) + "T" + matcher.group(2));
         } catch (DateTimeParseException invalid) {
             throw new IllegalArgumentException("generatedAt " + value + " is not an RFC 3339 time", invalid);
         }
+        long offsetSeconds = 0;
+        if (matcher.group(3) != null) {
+            final int offsetHours = Integer.parseInt(matcher.group(4));
+            final int offsetMinutes = Integer.parseInt(matcher.group(5));
+            if (offsetHours > 23 || offsetMinutes > 59) {
+                throw new IllegalArgumentException("generatedAt " + value + " is not an RFC 3339 time");
+            }
+            offsetSeconds = (offsetHours * 3600L + offsetMinutes * 60L) * ("-".equals(matcher.group(3)) ? -1 : 1);
+        }
+        // ZoneOffset stops at 18 hours, so the offset is applied to the UTC instant directly.
+        return truncateToMillis(localDateTime.toInstant(ZoneOffset.UTC).minusSeconds(offsetSeconds));
     }
 
     static Instant truncateToMillis(final Instant instant) {

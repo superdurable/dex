@@ -65,6 +65,16 @@ final class FlowDefinitionConformanceTest {
     }
 
     @Test
+    void acceptsOffsetsBeyondEighteenHours() {
+        assertEquals(1793491200000L,
+                FlowDefinitionRules.parseGeneratedAt("2026-11-01T23:30:00+23:30").toEpochMilli());
+        assertEquals(1793491200000L - (23 * 60 + 59) * 60_000L,
+                FlowDefinitionRules.parseGeneratedAt("2026-11-01T00:00:00+23:59").toEpochMilli());
+        assertEquals(1793491200000L,
+                FlowDefinitionRules.parseGeneratedAt("2026-10-31T00:30:00-23:30").toEpochMilli());
+    }
+
+    @Test
     void validatesDocumentsLikeEverySdk() throws Exception {
         final JsonNode cases = fixture().get("documentValidity");
         assertTrue(cases.size() > 0);
