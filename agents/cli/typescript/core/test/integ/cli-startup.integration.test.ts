@@ -18,13 +18,14 @@ import { findFreeLoopbackPorts, PrivateDexEngine } from "@superdurable/dex-agent
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
 import { CliProcess, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
+import { PseudoTerminalCliProcess } from "../fixtures/pseudo-terminal-cli-process.js";
 import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
 
 describe("CLI startup: configuration, the Dex server, and connectors", () => {
   let engine: PrivateDexEngine;
   let connectors: FakeConnectorsMcpServer;
   let connectorsUrl: string;
-  const processes: CliProcess[] = [];
+  const processes: (CliProcess | PseudoTerminalCliProcess)[] = [];
   const startedServers: number[] = [];
 
   before(async () => {
@@ -104,6 +105,64 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.doesNotMatch(tools, /fetch_web_page|browser_navigate/);
     stdin.write("/exit\n");
     assert.equal(await run, 0);
+  });
+
+  function startAtTerminal(home: TestHome, commandArguments: readonly string[] = []): PseudoTerminalCliProcess {
+    const cli = PseudoTerminalCliProcess.start(home, commandArguments);
+    processes.push(cli);
+    return cli;
+  }
+
+  test("Ctrl-C at the first init question exits with 130 and writes no file", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const cli = startAtTerminal(home, ["init"]);
+    await cli.terminal.waitFor("Model [scripted/default]: ");
+    cli.type("\x03");
+    assert.equal(await cli.waitForExit(), 130);
+    assert.match(cli.terminal.all, /Cancelled; no configuration written\./);
+    assert.equal(home.hasConfig(), false);
+  });
+
+  test("Ctrl-C at a later question of the first-run setup exits with 130 and writes no file", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const cli = startAtTerminal(home);
+    await cli.terminal.waitFor("Model [scripted/default]: ");
+    cli.type("\r");
+    await cli.terminal.waitFor("System prompt");
+    cli.type("Answer briefly.\r");
+    await cli.terminal.waitFor("Connectors");
+    cli.type("\x03");
+    assert.equal(await cli.waitForExit(), 130);
+    assert.match(cli.terminal.all, /Cancelled; no configuration written\./);
+    assert.doesNotMatch(cli.terminal.all, /Type a message/);
+    assert.equal(home.hasConfig(), false);
+  });
+
+  test("after the first-run setup at a terminal, the chat reads the terminal", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const cli = startAtTerminal(home);
+    for (const question of ["Model", "System prompt", "Connectors", "Workspace", "Local tools"]) {
+      await cli.terminal.waitFor(question);
+      cli.type("\r");
+    }
+    await cli.terminal.waitFor(/Session \S+\. Type a message/);
+    assert.equal(home.hasConfig(), true);
+    cli.type("hello\r");
+    await cli.terminal.waitFor("echo: hello");
+    cli.type("/exit\r");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("Ctrl-D at an init question exits with 1 and writes no file", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const cli = startAtTerminal(home, ["init"]);
+    await cli.terminal.waitFor("Model [scripted/default]: ");
+    cli.type("\r");
+    await cli.terminal.waitFor("System prompt");
+    cli.type("\x04");
+    assert.equal(await cli.waitForExit(), 1);
+    assert.match(cli.terminal.all, /Cancelled; no configuration written\./);
+    assert.equal(home.hasConfig(), false);
   });
 
   test("without a terminal or a configuration, the command runs on the defaults and writes no file", async () => {
