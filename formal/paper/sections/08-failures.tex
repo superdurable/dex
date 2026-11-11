@@ -121,13 +121,15 @@ D2 & Every Step method is SYNC: an attempt reaches a Worker only after its
   with a new snapshot. & \lean{IsSyncOnly}, true by construction: DexF has
   only the SYNC start. \\
 H1 & No attempt exhausts its retries. Exhaustion closes the Flow as
-  Failed with WORKER\_API\_FAIL, which a failure-free run can reach only
-  by deciding ForceFail. & Part of the trace sets. \\
+  Failed, with WORKER\_API\_FAIL or INTERNAL in the code, a close that a
+  failure-free run reaches only by deciding ForceFail. & Part of the trace
+  sets; the model closes with the value \texttt{"WORKER\_API\_FAIL"}. \\
 H2 & No failure policy (ProceedOnFailure, ProceedToConfiguredStep). &
   \lean{HasNoFailurePolicy}, true by construction. \\
 H3 & User code ignores the attempt-varying context: attempt number, first
-  attempt time, last error, last heartbeat value. & A hypothesis:
-  \lean{IgnoresAttemptContext}. \\
+  attempt time, last error, last heartbeat value. Hard-delete Attributes,
+  which are re-read on every attempt, are outside the fragment. & A
+  hypothesis: \lean{IgnoresAttemptContext}. \\
 H4 & No non-retryable failure. & A case of H1. \\
 D6 & On one node, the wall clock does not step back between the timer
   service's due check and the stamping of its command. & The premise of
@@ -137,23 +139,28 @@ D7 & The input word is the \emph{outcome word}: requests in the order of
   admissible outcome words. \\
 HP & Every StartFlow retry is ordered in the log before the purge of the
   run. & True by construction: the model keeps a closed run. \\
-TID & Every logged started-attempt command carries a non-empty task ID. &
+TID & Every logged command of a started attempt (result, returned
+  attempt, heartbeat, failure after start) carries a non-empty task ID. &
   True by construction: task IDs are minted numbers. \\
-F0--F6 & The fairness of Table~\ref{tab:fairness}, restated for DexF:
-  timers of both kinds that stay due are fired (F2); a pending invocation
-  that stays startable while the server is up starts (F3); every real task,
-  in $\Theta$ or $Z$, eventually returns or is dropped (F4); every returned
-  task eventually leaves by a Complete rule or a stale result (F5). &
-  \lean{DexF.IsFair}. \\
+F0 & Every request of the outcome word gets its final outcome, in order.
+  & \lean{RequestsArrive}, part of \lean{IsFairMaximalTrace}. \\
+F1--F6 & The fairness of Table~\ref{tab:fairness}, restated for DexF:
+  clocks grow without bound (F1); a timer of either kind that stays armed
+  and due is fired (F2); an invocation that stays startable while the
+  server is up starts (F3); every real task, in $\Theta$ or $Z$,
+  eventually returns or is dropped (F4); every returned task eventually
+  leaves by a Complete rule or a stale result (F5); F6 is trivial in the
+  fragment. & \lean{DexF.IsFair}. \\
 FF, FR, FI & For liveness: finitely many crashes, lost attempts, and
   returned attempts; the server comes back after every crash; every
   interrupt eventually leaves $I$, by its commit or by a crash that
   empties $I$, so after the last recovery each one commits. & Part of
   \lean{DexF.IsFair}. \\
 OD1 & A timer command fires a non-empty prefix of the due timers in the
-  order (fire time, timer ID), as in the first theorem. & The timer rule
-  of the Dex model; at equal fire times a wait timer comes before a retry
-  timer. \\
+  order (fire time, encoded timer ID), as in the first theorem. & The
+  timer rule of the Dex model for wait timers. Lean does not compute
+  timer ID bytes: at equal fire times a wait timer comes before a retry
+  timer, and retry timers keep their list order. \\
 \bottomrule
 \end{tabularx}
 \caption{What the failure theorem assumes. H1 to H4 exclude four features
@@ -493,7 +500,8 @@ never reached: a zombie's result commits after a crash and before its
 interrupt, which apply then ignores.
 
 \paragraph{Counterexamples.}
-Each hypothesis that the model can express is needed
+Counterexamples show that H1 and H3 are needed and that a re-sent
+publication counts as a second request
 (\file{Failure/Examples/HypothesisCounterexamples.lean}). Without H3
 (\lean{attemptSensitive_isNotRepetition}), attempt $a$ emits $a$ copies of
 $a$; the retry emits $\ev{fx}(2)$, which no failure-free run emits, so
@@ -502,8 +510,8 @@ Without H1 (\lean{exhaustion_isNotFailureFree}), an exhausted attempt
 closes the Flow as Failed, which no failure-free run of that Flow does,
 because it never decides ForceFail. The run of
 \lean{nonRetryableFailure_isNotFailureFree} breaks H4 and also H1: in the
-model a non-retryable failure is an exhaustion, so it does not show that H4
-is needed on its own. A re-sent
+model a non-retryable failure is an exhaustion, so H1 implies H4, and no
+counterexample shows H4 needed on its own. A re-sent
 publication (\lean{resentPublication_isTwoRequests}) gives two
 $\ev{pub}$ events, which no failure-free trace of the one-publication word
 has, even as a repetition. H2, SYNC, and HP hold by construction in the
