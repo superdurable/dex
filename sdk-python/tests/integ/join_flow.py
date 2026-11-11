@@ -15,6 +15,7 @@ from datetime import timedelta
 from typing import Any, Callable, TypeVar
 
 from dex import (
+    AsyncContext,
     Channel,
     ChannelMap,
     Context,
@@ -199,6 +200,44 @@ class MultiInstanceJoinFlow(Flow[list[str]]):
     def get_steps(self) -> StepList[list[str]]:
         return StepList.start_step(SplitReviews()).other_steps(
             ReviewBranch(), CollectAllBranches()
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(BRANCH_RESULT)
+
+
+def build_async_review(reviewer: str) -> Callable[[JoinRound], StepMovement[Any]]:
+    return lambda join_round: StepMovement.of(
+        AsyncReviewBranch, ReviewInput(reviewer, join_round)
+    )
+
+
+class AsyncSplitReviews(Step[list[str]]):
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, input: list[str]
+    ) -> StepDecision:
+        movements = BRANCH_RESULT.fork(
+            context,
+            [build_async_review(reviewer) for reviewer in input],
+            build_collect_all,
+        )
+        return go_to_many(*movements)
+
+
+class AsyncReviewBranch(Step[ReviewInput]):
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, input: ReviewInput
+    ) -> StepDecision:
+        return BRANCH_RESULT.end_branch(context, input.join_round, input.reviewer)
+
+
+class AsyncMultiInstanceJoinFlow(Flow[list[str]]):
+    def get_flow_type(self) -> str:
+        return "PythonAsyncMultiInstanceJoinFlow"
+
+    def get_steps(self) -> StepList[list[str]]:
+        return StepList.start_step(AsyncSplitReviews()).other_steps(
+            AsyncReviewBranch(), CollectAllBranches()
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:

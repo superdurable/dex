@@ -30,6 +30,7 @@ from .async_environment import AsyncDexDevTestEnvironment
 from .environment import DexDevTestEnvironment
 from .join_flow import (
     AllBranchesJoinFlow,
+    AsyncMultiInstanceJoinFlow,
     CancellingFirstBranchJoinFlow,
     DuplicateJoinNameFlow,
     ForkTwiceJoinFlow,
@@ -85,6 +86,23 @@ def test_multi_instance_join_counts_branches_from_the_input_list(
         )
         assert outcome.branch_count == len(reviewers)
         assert sorted(outcome.results) == reviewers
+
+
+def test_async_handlers_fork_and_end_branches() -> None:
+    asyncio.run(_async_handlers_fork_and_end_branches())
+
+
+async def _async_handlers_fork_and_end_branches() -> None:
+    flow = AsyncMultiInstanceJoinFlow()
+    async with AsyncDexDevTestEnvironment(
+        flow, allow_async_handlers=True
+    ) as environment:
+        flow_id = unique_id("python-join-async-handlers")
+        await environment.client.start_flow(flow, flow_id, ["r1", "r2", "r3"])
+        result = await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        outcome = result.single_output(JoinOutcome)
+        assert outcome.branch_count == 3
+        assert sorted(outcome.results) == ["r1", "r2", "r3"]
 
 
 def test_partial_join_rounds_reset_and_block_the_next_round() -> None:
