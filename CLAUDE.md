@@ -292,7 +292,8 @@ These files are generated. Never hand-merge them:
 
 When a rebase or merge conflicts in one of them, run
 `make regenerate-derived`. It takes origin/main's copy of each conflicted
-derived file, runs only the affected generators, and stages the result.
+derived file, runs only the affected generators, and stages the result
+during a merge or rebase.
 Pass `ARGS=--dry-run` to print the plan or `ARGS=--all` to run every
 generator. It refuses while a non-derived path is still unmerged.
 

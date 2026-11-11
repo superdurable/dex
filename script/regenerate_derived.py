@@ -6,19 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""Resolve derived-file conflicts by taking the upstream copy and running each generator.
-
-Run it from the repository after a rebase or merge stops on a conflict, or any time a
-derived file may be stale:
-
-    make regenerate-derived                 # affected groups only
-    make regenerate-derived ARGS=--dry-run  # print the plan, change nothing
-    make regenerate-derived ARGS=--all      # run every generator
-
-A conflicted derived file is replaced with its copy in the upstream ref (origin/main by
-default). That works the same way during a rebase and a merge, unlike --ours/--theirs.
-The affected generators then rewrite the files, and the resolved files are staged.
-"""
+"""Resolve derived-file conflicts by taking the upstream copy and rerunning their generators."""
 
 from __future__ import annotations
 
@@ -113,6 +101,14 @@ class Repository:
         if result.returncode != 0:
             raise RegenerationError(f"command failed with exit code {result.returncode}: {command}")
 
+    def is_merge_or_rebase_in_progress(self) -> bool:
+        markers = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")
+        for marker in markers:
+            path = Path(self.git("rev-parse", "--git-path", marker).stdout.strip())
+            if (path if path.is_absolute() else self.root / path).exists():
+                return True
+        return False
+
     def unmerged_paths(self) -> list[str]:
         output = self.git("ls-files", "--unmerged", "-z").stdout
         paths = {entry.split("\t", 1)[1] for entry in output.split("\0") if entry}
@@ -193,6 +189,7 @@ def regenerate_derived(repository: Repository, is_dry_run: bool, should_run_all:
     for group in selected:
         for path in group.conflicted:
             repository.take_upstream_copy(path)
+    is_operation_in_progress = repository.is_merge_or_rebase_in_progress()
     for group in selected:
         print(f"== regenerating {group.name}", flush=True)
         override = repository.generator_commands.get(group.name)
@@ -201,7 +198,7 @@ def regenerate_derived(repository: Repository, is_dry_run: bool, should_run_all:
         else:
             group.regenerate(repository)
         existing_pathspecs = [path for path in group.pathspecs if (repository.root / path).exists()]
-        if group.conflicted and existing_pathspecs:
+        if (group.conflicted or is_operation_in_progress) and existing_pathspecs:
             repository.git("add", "--all", "--", *existing_pathspecs)
     return report_result(repository, groups, selected)
 

@@ -65,6 +65,31 @@ class RegenerateDerivedIntegrationTest(unittest.TestCase):
         self.git("-c", "core.editor=true", "rebase", "--continue")
         self.assertEqual(self.git("show", f"HEAD:{LOCK}").stdout, "main\nregenerated\n")
 
+    def test_rebase_stages_auto_merged_derived_file_so_continue_succeeds(self) -> None:
+        self.write(LOCK, "base\nmiddle\nend\n")
+        self.commit("longer lock")
+        self.git("branch", "-f", "main")
+        self.write(LOCK, "branch\nmiddle\nend\n")
+        self.write(FLOW_DEFINITION, "{\"branch\": true}\n")
+        self.commit("branch change")
+        self.git("switch", "main")
+        self.write(LOCK, "base\nmiddle\nmain\n")
+        self.write(FLOW_DEFINITION, "{\"main\": true}\n")
+        self.commit("upstream change")
+        self.git("switch", "feature")
+        self.git("rebase", "main", check=False)
+        self.assertEqual(self.unmerged(), [FLOW_DEFINITION])
+
+        result = self.regenerate(
+            "--generator-command", f"cargo-lock:server-zd={STUB_GENERATOR}",
+            "--generator-command", "flow-definitions=true",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.git("-c", "core.editor=true", "rebase", "--continue")
+        self.assertEqual(self.git("show", f"HEAD:{LOCK}").stdout, "branch\nmiddle\nmain\nregenerated\n")
+        self.assertEqual(self.git("show", f"HEAD:{FLOW_DEFINITION}").stdout, "{\"main\": true}\n")
+
     def test_changed_file_without_conflict_keeps_branch_copy(self) -> None:
         self.write(LOCK, "branch\n")
         self.commit("branch lock")
