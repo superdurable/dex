@@ -42,10 +42,12 @@ func (OrderFlow) UpdateOrder(
 
 var _ dex.RPC[UpdateOrderInput, UpdateOrderOutput] = Orders.UpdateOrder
 
+// startOrder retries one start with the same startAttempt; a rerun after a failed run uses the next one.
 func startOrder(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
+	startAttempt int,
 ) (string, error) {
 	initialStatus, err := dex.InitialAttribute(OrderStatus, "created")
 	if err != nil {
@@ -86,7 +88,7 @@ func startOrder(
 			AlreadyStarted: &dex.AlreadyStartedOptions{
 				IgnoreError: true,
 			},
-			RequestID: ptr.Any("start-order/" + flowID),
+			RequestID: ptr.Any(fmt.Sprintf("start-order/%s/%d", flowID, startAttempt)),
 		},
 	)
 }

@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.12 - 2026-11-10
+
+- Correct the start identity rule in `dex-sdk` `error-handling.md`: a StartFlow retry whose Request ID matches the latest run's start returns that run under every ID reuse policy and never starts a second run or terminates the first. A rejecting policy still keeps the original run the latest one.
+
 ## 1.0.11 - 2026-11-10
 
 - Remove the internal handler timeout rule from the `dex-sdk` Client wait guidance. Waits no longer have that setting.

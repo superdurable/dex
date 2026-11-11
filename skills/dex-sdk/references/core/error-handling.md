@@ -75,7 +75,7 @@ Dex is the start deduplication boundary:
 - Choose an ID reuse policy that matches the lifecycle.
 - Never add a table, row, outbox, lease, lock, cache, or admission projection only to deduplicate or serialize starts.
 
-A stable Request ID alone does not suppress AlreadyStarted. For a retry that may attach to the existing Flow run, also enable the SDK's ignore-already-started option. It returns the existing run only when that run's start Request ID matches. The Server compares Request IDs, not inputs. For replay of one logical request, use a reuse policy that rejects a new execution even after the original closes. A policy that permits a new execution bypasses this matching.
+A stable Request ID alone does not suppress AlreadyStarted. For a retry that may attach to the existing Flow run, also enable the SDK's ignore-already-started option. It returns the existing run only when that run's start Request ID matches. The Server compares Request IDs, not inputs. A matching Request ID takes precedence over the reuse policy, so a retry never starts a second run or terminates the run it started. Matching uses only the latest run of the Flow ID. For replay of one logical request, use a reuse policy that rejects a new execution even after the original closes, so another request cannot start a newer run that the retry no longer matches.
 
 When the Flow ID exists and the reuse policy rejects another execution:
 
