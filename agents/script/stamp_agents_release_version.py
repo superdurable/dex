@@ -22,14 +22,14 @@ AGENTS_DIR = Path(__file__).resolve().parents[1]
 # A "cli/<name>" package lives in agents/cli/<language>/<name>; the others in agents/<language>/<name>.
 PYTHON_PACKAGES = (
     "core", "openai-agents", "pydantic-ai", "langgraph", "google-adk", "claude-agent-sdk",
-    "cli/runtime", "cli/claude-sdk", "cli/openai-sdk", "cli/pydantic-ai", "cli/deepagents", "cli/google-adk",
+    "cli/core", "cli/claude-sdk", "cli/openai-sdk", "cli/pydantic-ai", "cli/deepagents", "cli/google-adk",
     "cli/builtin",
-    # Never published, but it pins the runtime, so it carries the release version too.
+    # Never published, but it pins the CLI core, so it carries the release version too.
     "cli/testing",
 )
 TYPESCRIPT_PACKAGES = (
     "core", "vercel-ai", "openai-agents", "mastra", "claude-agent-sdk", "pi",
-    "cli/runtime", "cli/claude-sdk", "cli/openai-sdk", "cli/vercel-ai", "cli/mastra", "cli/builtin", "cli/pi",
+    "cli/core", "cli/claude-sdk", "cli/openai-sdk", "cli/vercel-ai", "cli/mastra", "cli/builtin", "cli/pi",
 )
 PYTHON_CORE_DISTRIBUTION = "dex-agents"
 TYPESCRIPT_CORE_PACKAGE = "@superdurable/dex-agents"

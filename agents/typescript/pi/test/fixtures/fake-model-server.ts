@@ -130,8 +130,11 @@ export class FakeModelServer {
   }
 }
 
+/** Input kinds of a fake model; only a model with `image` gets image content from pi-ai. */
+export type FakeModelInput = Model<Api>["input"];
+
 /** A chat model of the fake OpenAI Chat Completions endpoint. */
-export function createFakeOpenAiModel(baseUrl: string, id = "fake-gpt"): Model<Api> {
+export function createFakeOpenAiModel(baseUrl: string, id = "fake-gpt", input: FakeModelInput = ["text"]): Model<Api> {
   return {
     id,
     name: id,
@@ -139,7 +142,7 @@ export function createFakeOpenAiModel(baseUrl: string, id = "fake-gpt"): Model<A
     provider: "fake-openai",
     baseUrl: `${baseUrl}/v1`,
     reasoning: false,
-    input: ["text"],
+    input: [...input],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128_000,
     maxTokens: 4_096,
@@ -147,7 +150,11 @@ export function createFakeOpenAiModel(baseUrl: string, id = "fake-gpt"): Model<A
 }
 
 /** A thinking chat model of the fake Anthropic Messages endpoint. */
-export function createFakeAnthropicModel(baseUrl: string, id = "claude-fake-1"): Model<Api> {
+export function createFakeAnthropicModel(
+  baseUrl: string,
+  id = "claude-fake-1",
+  input: FakeModelInput = ["text"],
+): Model<Api> {
   return {
     id,
     name: id,
@@ -155,7 +162,7 @@ export function createFakeAnthropicModel(baseUrl: string, id = "claude-fake-1"):
     provider: "anthropic",
     baseUrl,
     reasoning: true,
-    input: ["text"],
+    input: [...input],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200_000,
     maxTokens: 16_000,

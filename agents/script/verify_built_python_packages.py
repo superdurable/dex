@@ -21,7 +21,7 @@ from pathlib import Path
 
 FORBIDDEN_MEMBER_PATTERN = re.compile(r"(^|/)(tests?|__pycache__|\.venv|\.mypy_cache|\.ruff_cache)(/|$)|\.pyc$")
 CORE_DISTRIBUTION = "dex-agents"
-CLI_RUNTIME_DISTRIBUTION = "dex-agents-cli"
+CLI_CORE_DISTRIBUTION = "dex-agents-cli-core"
 OTEL_EXTRA_MARKER_PATTERN = re.compile(r"""extra\s*==\s*["']otel["']""")
 INTERNAL_REQUIREMENT_PATTERN = re.compile(r"^(dex-agents(?:-[a-z0-9-]+)?)(\[[^\]]*\])?\s*([^;]*)")
 
@@ -43,11 +43,11 @@ def canonical_version(version: str) -> str:
 
 
 def distribution_name(package: str) -> str:
-    """Map an agents package, such as core, pydantic-ai, cli/runtime, or cli/builtin, to its distribution."""
+    """Map an agents package, such as core, pydantic-ai, cli/core, or cli/builtin, to its distribution."""
     if package == "core":
         return CORE_DISTRIBUTION
-    if package == "cli/runtime":
-        return CLI_RUNTIME_DISTRIBUTION
+    if package == "cli/core":
+        return CLI_CORE_DISTRIBUTION
     if package.startswith("cli/"):
         return f"{CORE_DISTRIBUTION}-{package.removeprefix('cli/')}-cli"
     return f"{CORE_DISTRIBUTION}-{package}"
@@ -58,7 +58,7 @@ def module_name(package: str) -> str:
 
 
 def is_cli_command(package: str) -> bool:
-    return package.startswith("cli/") and package != "cli/runtime"
+    return package.startswith("cli/") and package != "cli/core"
 
 
 def verify_package(dist_dir: Path, package: str, version: str) -> list[str]:
@@ -125,7 +125,7 @@ def verify_internal_requirements(wheel_name: str, package: str, requirements: li
             problems.append(f"{wheel_name} requires {requirement}, not {name}=={version}")
     expected_names = {CORE_DISTRIBUTION}
     if is_cli_command(package):
-        expected_names.add(CLI_RUNTIME_DISTRIBUTION)
+        expected_names.add(CLI_CORE_DISTRIBUTION)
     for name in sorted(expected_names - required_names):
         problems.append(f"{wheel_name} does not require {name}=={version}: {requirements}")
     return problems

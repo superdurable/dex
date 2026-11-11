@@ -6,14 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli";
+import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli-core";
 import { createVercelAiAgentSessionFlow } from "@superdurable/dex-agents-vercel-ai";
 
 import { createProviderLanguageModel } from "./provider-language-models.js";
 import { TurnLanguageModel } from "./turn-language-model.js";
 
 /**
- * The base Flow type of the command's sessions, before the runtime namespaces it.
+ * The base Flow type of the command's sessions, before the CLI core namespaces it.
  *
  * @since 0.5.0
  */
@@ -38,13 +38,13 @@ export const defaultInstructions =
 /**
  * The `dex-agents-vercel-ai` command: a Vercel AI SDK agent in the terminal.
  *
- * The agent offers the runtime's connector and local tools. The model ID is `openai/<model>` or
+ * The agent offers the CLI core's connector and local tools. The model ID is `openai/<model>` or
  * `anthropic/<model>`; each turn uses the model and instructions its session settings resolve to. The
  * `vercel_ai` section has no options yet; any key in it is a configuration error.
  *
  * @example
  * ```ts
- * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli";
+ * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
  * import { vercelAiHarness } from "@superdurable/dex-agents-vercel-ai-cli";
  *
  * process.exit(await runAgentCli(vercelAiHarness, processAgentCliIo()));

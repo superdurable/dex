@@ -9,14 +9,14 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createBuiltinAgentSessionFlow, type BuiltinLoopAgentRunner } from "@superdurable/dex-agents/builtin-loop";
-import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli";
+import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli-core";
 
 import { defaultBashTimeoutSeconds, maximumBashTimeoutSeconds, PiCodingToolSource } from "./pi-coding-tool-source.js";
 import { PiModelClients } from "./pi-model-clients.js";
 import { ProjectContextFiles, type ProjectContextFile } from "./project-context-files.js";
 
 /**
- * The base Flow type of the command's sessions, before the runtime namespaces it.
+ * The base Flow type of the command's sessions, before the CLI core namespaces it.
  *
  * @since 0.5.0
  */
@@ -57,7 +57,7 @@ export interface PiSection {
   /**
    * Seconds a `bash` command runs before it is killed when the model passes no `timeout`.
    * `bash_timeout_seconds` in the file, a whole number from 1 to `maximumBashTimeoutSeconds`; defaults to
-   * `defaultBashTimeoutSeconds`, 120, as the runtime shell tool.
+   * `defaultBashTimeoutSeconds`, 120, as the CLI core shell tool.
    */
   readonly bashTimeoutSeconds: number;
 }
@@ -67,14 +67,14 @@ export interface PiSection {
  *
  * Every model call is one `RunModel` Step through pi-ai, and every tool call is its own tool Step. The model ID is
  * `<provider>/<model>`, as pi-ai's catalog names them, and the API key comes only from the provider's environment
- * variable. pi-coding-agent's `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` replace the runtime's
- * `files` and `shell` groups, with the runtime's rules; see {@link PiCodingToolSource}. The runtime's web fetch,
+ * variable. pi-coding-agent's `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` replace the CLI core's
+ * `files` and `shell` groups, with the CLI core's rules; see {@link PiCodingToolSource}. The CLI core's web fetch,
  * browser, and connector tools stay, and the agent can ask the user questions. Each model call adds the
  * workspace's `AGENTS.md` files unless `pi.load_project_context` is `false`.
  *
  * @example
  * ```ts
- * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli";
+ * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
  * import { piHarness } from "@superdurable/dex-agents-pi-cli";
  *
  * process.exit(await runAgentCli(piHarness, processAgentCliIo()));
@@ -95,6 +95,10 @@ export const piHarness: AgentHarness = {
  *
  * It builds the model client of the file's model at once, so a missing API key stops the command before the chat
  * starts. A turn whose session settings pick another model builds that model's client in its first model call.
+ *
+ * With `context.mediaStore`, the session takes the images the user attaches with `/image`, and the images that the
+ * Pi tools return, such as `read` of an image file, reach the model too. Without it, the session refuses user images
+ * and each tool image reaches the model as a text note.
  *
  * @param context - The configuration, workspace, and tool sources.
  * @param environment - The environment the API keys come from; defaults to `process.env`.
@@ -126,6 +130,7 @@ export function createPiSessionFlow(
       builtInTools: ["ask_user"],
     },
     context.flowType,
+    context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore },
   );
 }
 

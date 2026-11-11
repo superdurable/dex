@@ -19,7 +19,7 @@ import {
   AgentTestEnvironment,
   type PrivateDexEngine,
 } from "@superdurable/dex-agents/testing";
-import { namespaceSessionFlowType, resolveConfig, TurnConfigResolver, type HarnessContext } from "@superdurable/dex-agents-cli";
+import { namespaceSessionFlowType, resolveConfig, TurnConfigResolver, type HarnessContext } from "@superdurable/dex-agents-cli-core";
 
 import { openaiSdkHarness } from "../../src/index.js";
 import type { MockResponsesApi } from "./mock-responses-api.js";

@@ -12,7 +12,7 @@ import type {
   LanguageModelV4GenerateResult,
   LanguageModelV4StreamResult,
 } from "@ai-sdk/provider";
-import type { ResolvedTurn } from "@superdurable/dex-agents-cli";
+import type { ResolvedTurn } from "@superdurable/dex-agents-cli-core";
 
 /**
  * An AI SDK language model that serves each call with the model and instructions of the turn whose model call is

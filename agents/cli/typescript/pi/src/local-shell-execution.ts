@@ -12,7 +12,7 @@ import { constants as osConstants } from "node:os";
 import { getShellConfig, type BashOperations } from "@earendil-works/pi-coding-agent";
 import { ToolExecutionError } from "@superdurable/dex-agents";
 
-/** The longest a command may run, in seconds: the runtime shell tool's maximum. */
+/** The longest a command may run, in seconds: the CLI core shell tool's maximum. */
 export const maximumShellTimeoutSeconds = 600;
 
 type ShellExecutionOptions = Parameters<BashOperations["exec"]>[2];

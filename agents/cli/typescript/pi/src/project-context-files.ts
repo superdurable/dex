@@ -10,7 +10,7 @@ import { realpathSync } from "node:fs";
 import { lstat, realpath, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { WorkspaceFiles } from "@superdurable/dex-agents-cli";
+import { WorkspaceFiles } from "@superdurable/dex-agents-cli-core";
 
 /** The names Pi looks for in each directory, in its order; the first regular file wins. */
 const contextFileNames = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
@@ -42,7 +42,7 @@ interface ContextDirectory {
  * It searches Pi's directories in Pi's order: Pi's global agent directory, then each directory from the outermost
  * ancestor of the workspace to the workspace. In each, the first of `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`,
  * `CLAUDE.md`, and `CLAUDE.MD` that is a regular file, or a link to one, is the candidate. Every candidate is read
- * through the runtime's `WorkspaceFiles`, at most 1 MiB, never with a synchronous or blocking read.
+ * through the CLI core's `WorkspaceFiles`, at most 1 MiB, never with a synchronous or blocking read.
  *
  * The real path of each directory is pinned the first time the loader sees it and never derived again. A candidate
  * loads only when its real path is directly in its pinned directory: a link to a file elsewhere, even below that

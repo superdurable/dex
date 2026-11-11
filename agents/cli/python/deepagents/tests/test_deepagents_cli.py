@@ -19,7 +19,7 @@ import pytest
 from deepagents import create_deep_agent
 from langchain.agents.middleware import AgentMiddleware
 
-from dex_agents_cli import session_flow_type
+from dex_agents_cli_core import session_flow_type
 from dex_agents_cli_testing import scenarios
 from dex_agents_cli_testing.commands import (
     CommandHome,
@@ -75,7 +75,7 @@ def test_a_key_in_the_deepagents_section_is_a_configuration_error(
     scenarios.harness_section_key_is_a_configuration_error(command_home, DEFAULTS, "deepagents")
 
 
-async def test_the_runtime_tools_replace_deep_agents_file_tools_and_subagents(
+async def test_the_cli_core_tools_replace_deep_agents_file_tools_and_subagents(
     command_home: CommandHome,
 ) -> None:
     command_home.write_config({**scenarios.NO_CONNECTORS, "system_prompt": "Be brief."})

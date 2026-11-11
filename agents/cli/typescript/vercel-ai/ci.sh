@@ -8,7 +8,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-# Builds the core, the Vercel AI SDK adapter, and the CLI runtime, installs locked dependencies, typechecks, and runs
+# Builds the core, the Vercel AI SDK adapter, and the CLI core, installs locked dependencies, typechecks, and runs
 # the integration tests. DEXCLI must name the dexcli binary; dex-server-zd must sit in the same directory.
 
 set -euo pipefail
@@ -38,7 +38,7 @@ node --version
 # npm packs the file: dependencies for install-links=true, so their dist must exist first.
 (cd ../../../typescript/core && npm ci && npm run build)
 (cd ../../../typescript/vercel-ai && npm ci && npm run build)
-(cd ../runtime && npm ci && npm run build)
+(cd ../core && npm ci && npm run build)
 
 # Every test runs the AI SDK OpenAI provider against a local scripted Responses API.
 npm ci

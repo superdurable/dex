@@ -197,18 +197,19 @@ describe('Work Queue search', () => {
     const pageFlowType = within(advanced).getByRole('checkbox', { name: 'RefundFlow' }) as HTMLInputElement;
     expect(pageFlowType.checked).toBe(true);
     expect(pageFlowType.disabled).toBe(true);
-    const searchesBefore = searches.length;
+    // The page-load search runs in an effect that can land after the panel renders.
+    await waitFor(() => expect(searches).toHaveLength(1));
     // The Step filter reads the graphs of the searched Flow types only, one Flow type at a time.
     await waitFor(() => expect(definitionReads).toEqual(['RefundFlow']));
 
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'OrderFlow' }));
     fireEvent.click(await within(advanced).findByRole('checkbox', { name: 'AwaitPacking' }));
     expect(definitionReads).toEqual(['RefundFlow', 'OrderFlow']);
-    expect(searches.length).toBe(searchesBefore);
+    expect(searches).toHaveLength(1);
     await submit();
 
     await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow', 'RefundFlow']));
-    expect(searches.length).toBe(searchesBefore + 1);
+    expect(searches).toHaveLength(2);
   });
 
   it('labels rows with their own Flow, and opens a row under its own Flow type', async () => {

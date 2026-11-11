@@ -10,7 +10,7 @@ one file gives the same agent in either language.
 | [`config.schema.json`](config.schema.json) | JSON Schema (2020-12) of the configuration file |
 | [`session-settings.schema.json`](session-settings.schema.json) | JSON Schema of one session's settings, which override the file |
 | [`examples/`](examples) | Example configuration files; the tests validate each one |
-| [`../conformance/cli_config.json`](../conformance/cli_config.json) | Cases every CLI runtime must pass |
+| [`../conformance/cli_config.json`](../conformance/cli_config.json) | Cases every CLI core must pass |
 | [`tests/`](tests) | The schema and conformance checks, with a test-only reference resolver |
 
 ## The configuration file
@@ -133,7 +133,7 @@ Images that connector tools return go to the same store.
 
 The model sees the images only when the harness's runner takes images. The
 built-in, Claude Agent SDK, OpenAI Agents SDK, Pydantic AI, Deep Agents,
-Google ADK, Vercel AI SDK, and Mastra commands do. With another harness, the
+Google ADK, Vercel AI SDK, Mastra, and Pi commands do. With another harness, the
 command says the message was not sent and removes the attached images; send
 the message again without them.
 
@@ -142,7 +142,7 @@ the message again without them.
 The command uploads the session Flow Definition Graph of its session Flow
 type when it starts, so Dex Web shows each session's Steps and its
 **Agent session** tab without `--flow-rendering-dir`. The session Actions
-require the permission `dex-agents-cli.operate` in every CLI runtime: choose it
+require the permission `dex-agents-cli.operate` in every CLI core: choose it
 in **Working as** to answer a session's approvals and questions in Dex Web.
 Uploading needs server-zd 0.1.26 or later, which `dexcli dev` 1.45.0 runs. The
 outcome, and a failure such as on an older server, go to the log file
@@ -178,14 +178,14 @@ the session keeps its settings until someone fixes them.
 ## Conformance
 
 [`../conformance/cli_config.json`](../conformance/cli_config.json) holds the
-cases every CLI runtime runs: YAML parsing, valid and invalid files with the
+cases every CLI core runs: YAML parsing, valid and invalid files with the
 expected effective configuration or error, and session settings with the
 expected turn configuration and warnings, or error. Its `error_codes`,
 `warnings`, and `check_order` fields define how errors and warnings are
 reported.
 
 Schema validators report errors in different orders, so the contract does not
-fix one. Every `schema` case has exactly one violation, and a runtime passes it
+fix one. Every `schema` case has exactly one violation, and a CLI core passes it
 when the expected instance location and keyword are among its validator's
 errors. Warnings are sorted by key in Unicode code point order; in
 TypeScript, compare code points instead of using the default `sort()`.

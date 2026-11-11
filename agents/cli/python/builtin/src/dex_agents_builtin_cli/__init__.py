@@ -9,10 +9,10 @@
 """The ``dex-agents-builtin`` command: a Dex built-in loop agent in the terminal.
 
 It builds the agent session Flow with the Dex built-in agent loop on LiteLLM and
-runs it with the shared Dex Agents CLI runtime. See the package README.
+runs it with the shared Dex Agents CLI core. See the package README.
 """
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
@@ -25,7 +25,7 @@ from dex_agents_builtin_cli.harness import (
     BuiltinHarness,
     validate_builtin_section,
 )
-from dex_agents_cli import ConfigError, command_name, run_agent_cli
+from dex_agents_cli_core import ConfigError, command_name, run_agent_cli
 
 __all__ = [
     "BUILTIN_CLI_FLOW_TYPE",

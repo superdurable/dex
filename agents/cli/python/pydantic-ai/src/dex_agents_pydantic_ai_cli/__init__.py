@@ -9,16 +9,16 @@
 """The ``dex-agents-pydantic-ai`` command: a Pydantic AI agent in the terminal.
 
 It builds the agent session Flow with the Dex Pydantic AI adapter and
-runs it with the shared Dex Agents CLI runtime. See the package README.
+runs it with the shared Dex Agents CLI core. See the package README.
 """
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
 import sys
 
-from dex_agents_cli import ConfigError, command_name, run_agent_cli
+from dex_agents_cli_core import ConfigError, command_name, run_agent_cli
 from dex_agents_pydantic_ai_cli.harness import (
     DEFAULT_INSTRUCTIONS,
     DEFAULT_PYDANTIC_AI_MODEL,

@@ -33,10 +33,10 @@ concurrency:
 env:
   DEXCLI_RELEASE_TAG: cli-v1.45.0
   DEXCLI_ARCHIVE: dexcli_v1.45.0_linux_amd64.tar.gz
-  # Upload order: the core, the adapters, the CLI runtime, then the CLI commands.
+  # Upload order: the core, the adapters, the CLI core, then the CLI commands.
   AGENTS_PYTHON_DISTRIBUTIONS: >-
     dex-agents dex-agents-openai-agents dex-agents-pydantic-ai dex-agents-langgraph dex-agents-google-adk
-    dex-agents-claude-agent-sdk dex-agents-cli dex-agents-claude-sdk-cli dex-agents-openai-sdk-cli
+    dex-agents-claude-agent-sdk dex-agents-cli-core dex-agents-claude-sdk-cli dex-agents-openai-sdk-cli
     dex-agents-pydantic-ai-cli dex-agents-deepagents-cli dex-agents-google-adk-cli dex-agents-builtin-cli
 
 jobs:

@@ -6,24 +6,24 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The OpenAI Agents SDK harness: an SDK agent with the runtime's tools."""
+"""The OpenAI Agents SDK harness: an SDK agent with the CLI core's tools."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
 from agents import Agent, Model, ModelProvider, MultiProvider, RunConfig, RunContextWrapper
 
 from dex_agents import AgentSessionFlow
-from dex_agents_cli import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
+from dex_agents_cli_core import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
 from dex_agents_openai_agents import openai_agents_session_flow
 
-#: The Flow type of the command's sessions, before the runtime namespaces it.
+#: The Flow type of the command's sessions, before the CLI core namespaces it.
 OPENAI_SDK_CLI_FLOW_TYPE = "DexAgentsOpenAISdkCliSession"
 
 #: The model the command uses when the configuration file sets none.
@@ -41,7 +41,7 @@ class OpenAISdkHarness:
 
     Each model call uses the turn's model through the SDK's default model
     provider, so ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL`` apply, and a
-    ``litellm/`` prefix needs LiteLLM installed. The runtime's connector and
+    ``litellm/`` prefix needs LiteLLM installed. The CLI core's connector and
     local tools are the agent's only tools. The SDK's own tracing is off, so
     no conversation leaves the machine for the OpenAI traces dashboard.
     """

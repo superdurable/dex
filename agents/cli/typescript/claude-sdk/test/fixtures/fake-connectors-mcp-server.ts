@@ -8,7 +8,7 @@
 
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
-import { canonicalOperationName, connectorToolMetaKeys } from "@superdurable/dex-agents-cli";
+import { canonicalOperationName, connectorToolMetaKeys } from "@superdurable/dex-agents-cli-core";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";

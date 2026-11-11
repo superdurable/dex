@@ -8,7 +8,7 @@
 
 /**
  * The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal. It builds the agent session Flow
- * with the Claude Agent SDK adapter and runs it with the shared Dex Agents CLI runtime.
+ * with the Claude Agent SDK adapter and runs it with the shared Dex Agents CLI core.
  *
  * @packageDocumentation
  */

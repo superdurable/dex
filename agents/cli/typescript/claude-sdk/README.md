@@ -4,7 +4,7 @@
 command. It runs a
 [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript)
 agent as a durable Dex agent session and chats with it in your terminal. The
-shared runtime, [`@superdurable/dex-agents-cli`](../runtime/README.md), starts
+shared CLI core, [`@superdurable/dex-agents-cli-core`](../core/README.md), starts
 or reuses `dexcli dev`, connects the connectors MCP server, and runs the
 Worker. This package only builds the agent with the
 [Claude Agent SDK adapter](../../../typescript/claude-agent-sdk/README.md).
@@ -26,7 +26,7 @@ The first run asks the `init` questions and writes
 `~/.dex/agents/claude-sdk.yaml`. Then type a message. Approve or reject tool
 calls with `y` or `n`, and type `/exit` to leave. The session stays in Dex,
 and the command prints the `--resume` line that continues it. See the
-[runtime README](../runtime/README.md) for every subcommand and option, and
+[CLI core README](../core/README.md) for every subcommand and option, and
 [`agents/cli`](../../README.md) for the configuration file.
 
 The command passes its environment to Claude Code unchanged and never stores
@@ -38,8 +38,8 @@ The model defaults to `claude-opus-5-5`; set `model` in the file or pass
 `--model` to change it. The `claude` section has no options yet, and any key in
 it is a configuration error.
 
-Claude Code's own tools replace the runtime's `files`, `shell`, and `web_fetch`
-tools; the runtime's browser tools and connector tools stay:
+Claude Code's own tools replace the CLI core's `files`, `shell`, and `web_fetch`
+tools; the CLI core's browser tools and connector tools stay:
 
 | `local_tools` group | Claude Code tools | Approval |
 | --- | --- | --- |
@@ -67,7 +67,7 @@ image, and images that tools return go to the same store. See
 
 ## Development
 
-`ci.sh` builds the core, the Claude adapter, and the runtime, which this
+`ci.sh` builds the core, the Claude adapter, and the CLI core, which this
 package installs from the repository, then typechecks and runs the integration
 tests against a private `dexcli dev`:
 

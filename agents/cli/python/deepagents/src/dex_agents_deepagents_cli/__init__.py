@@ -9,17 +9,17 @@
 """The ``dex-agents-deepagents`` command: a Deep Agents agent in the terminal.
 
 It builds the agent session Flow from ``create_deep_agent`` with the Dex
-LangGraph adapter and runs it with the shared Dex Agents CLI runtime. See the
+LangGraph adapter and runs it with the shared Dex Agents CLI core. See the
 package README.
 """
 
-import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
+import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
 import sys
 
-from dex_agents_cli import ConfigError, command_name, run_agent_cli
+from dex_agents_cli_core import ConfigError, command_name, run_agent_cli
 from dex_agents_deepagents_cli.harness import (
     DEEPAGENTS_CLI_FLOW_TYPE,
     DEFAULT_DEEPAGENTS_MODEL,

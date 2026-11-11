@@ -7,16 +7,27 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
-import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
+import {
+  ImageValidationError,
+  maxImagesPerMessage,
+  ToolExecutionError,
+  type AgentImageReference,
+  type ToolEffect,
+} from "@superdurable/dex-agents";
 import {
   functionTool,
+  functionToolResult,
   type FunctionTool,
+  type FunctionToolResult,
   type PreparedToolArguments,
   type ToolCallContext,
 } from "@superdurable/dex-agents/builtin-loop";
 
 /**
- * One part of a Pi tool result's content: text, or an image the model cannot see on Dex yet.
+ * One part of a Pi tool result's content: text, or an image.
+ *
+ * With a media store on the session Flow, an image part reaches the model after the result's text. Without one, or
+ * when the store refuses the image's type, it becomes the note `[image omitted: <mimeType>]`.
  *
  * @since 0.5.0
  */
@@ -28,9 +39,9 @@ export type PiToolContentPart =
       readonly text: string;
     }
   | {
-      /** Discriminator: an image part, shown to the model as `[image omitted: <mimeType>]`. */
+      /** Discriminator: an image part. */
       readonly type: "image";
-      /** Image bytes, base64-encoded. Dex does not store them. */
+      /** Image bytes, base64-encoded. Dex uploads them to the media store and keeps only the reference. */
       readonly data: string;
       /** MIME type of the image, such as `image/png`. */
       readonly mimeType: string;
@@ -49,6 +60,45 @@ export function describePiToolContent(content: readonly PiToolContentPart[] | un
   return (content ?? [])
     .map((part) => (part.type === "text" ? part.text : `[image omitted: ${part.mimeType}]`))
     .join("\n");
+}
+
+/** Text parts plus images uploaded to the call's store; a refused, excess, or storeless image keeps its note. */
+export async function toPiFunctionToolResult(
+  context: ToolCallContext,
+  content: readonly PiToolContentPart[] | undefined,
+): Promise<string | FunctionToolResult> {
+  const mediaStore = context.mediaStore;
+  const parts = content ?? [];
+  if (mediaStore === undefined || !parts.some((part) => part.type === "image")) {
+    return describePiToolContent(parts);
+  }
+  const texts: string[] = [];
+  const images: AgentImageReference[] = [];
+  let hasExcessImages = false;
+  for (const part of parts) {
+    if (part.type === "text") {
+      texts.push(part.text);
+      continue;
+    }
+    if (images.length === maxImagesPerMessage) {
+      // The session fails a result with more images, so the call succeeds with notes instead.
+      hasExcessImages = true;
+      texts.push(`[image omitted: ${part.mimeType}]`);
+      continue;
+    }
+    try {
+      images.push(await mediaStore.putImage(new Uint8Array(Buffer.from(part.data, "base64"))));
+    } catch (error) {
+      if (!(error instanceof ImageValidationError)) {
+        throw error;
+      }
+      texts.push(`[image omitted: ${part.mimeType}]`);
+    }
+  }
+  if (hasExcessImages) {
+    texts.push(`(more than ${maxImagesPerMessage} images; the rest were omitted)`);
+  }
+  return functionToolResult({ output: texts.join("\n"), images });
 }
 
 /** Writes Pi progress text as a `pi.tool_progress` event; empty text writes nothing. */
@@ -72,7 +122,7 @@ export interface PiFunctionToolParts {
   readonly requiresApproval: boolean | undefined;
   /** The Pi tool's argument repair, which the runner calls before the schema check. */
   readonly prepareArguments: ((args: unknown) => unknown) | undefined;
-  readonly execute: (args: unknown, context: ToolCallContext) => Promise<string>;
+  readonly execute: (args: unknown, context: ToolCallContext) => Promise<string | FunctionToolResult>;
 }
 
 /** Builds the Dex function tool, so a Pi tool gets every check `functionTool` makes. */
