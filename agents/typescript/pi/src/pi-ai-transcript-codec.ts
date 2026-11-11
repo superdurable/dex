@@ -9,12 +9,14 @@
 import {
   PI_AI_VERSION,
   type AssistantMessage,
+  type ImageContent,
   type JsonObject,
   type Message,
   type ToolCall,
   type ToolResultMessage,
   type Usage,
 } from "@earendil-works/pi-ai";
+import type { AgentImageReference } from "@superdurable/dex-agents";
 import type { ModelInputItem, ModelOutputItem, ModelToolCall } from "@superdurable/dex-agents/builtin-loop";
 
 /**
@@ -127,14 +129,25 @@ export function readStoredModelIdentity(item: ModelOutputItem): PiAiModelIdentit
   return { provider: message.provider, api: message.api, model: message.model };
 }
 
-/** Converts the conversation; pi-ai items replay unchanged, since pi-ai converts between providers itself. */
-export function toPiAiMessages(items: readonly ModelInputItem[]): Message[] {
+/**
+ * Converts the conversation; pi-ai items replay unchanged, since pi-ai converts between providers itself. Images of
+ * user text and tool result items follow the item's text as pi-ai image content, with bytes from `imageBytes`.
+ * @throws {TypeError} When `imageBytes` lacks the bytes of an item's image.
+ */
+export function toPiAiMessages(
+  items: readonly ModelInputItem[],
+  imageBytes: ReadonlyMap<string, Uint8Array>,
+): Message[] {
   const messages: Message[] = [];
   for (const item of items) {
     switch (item.type) {
-      case "user_text":
-        messages.push({ role: "user", content: item.text, timestamp: 0 });
+      case "user_text": {
+        const images = toPiAiImageContent(item.images, imageBytes);
+        // Text alone stays a string, so a request without images is unchanged.
+        const content = images.length === 0 ? item.text : [{ type: "text" as const, text: item.text }, ...images];
+        messages.push({ role: "user", content, timestamp: 0 });
         break;
+      }
       case "model_output": {
         const message = item.api === piAiModelClientApi ? decodeStoredPiAiMessage(item.item) : rebuildAssistantMessage(item);
         if (message.content.length > 0) {
@@ -147,7 +160,7 @@ export function toPiAiMessages(items: readonly ModelInputItem[]): Message[] {
           role: "toolResult",
           toolCallId: item.toolCallId,
           toolName: item.toolName,
-          content: [{ type: "text", text: item.output }],
+          content: [{ type: "text", text: item.output }, ...toPiAiImageContent(item.images, imageBytes)],
           isError: false,
           timestamp: 0,
         };
@@ -157,6 +170,20 @@ export function toPiAiMessages(items: readonly ModelInputItem[]): Message[] {
     }
   }
   return messages;
+}
+
+/** One pi-ai image content part per image, with the bytes the runner loaded for the request. */
+function toPiAiImageContent(
+  images: readonly AgentImageReference[] | undefined,
+  imageBytes: ReadonlyMap<string, Uint8Array>,
+): ImageContent[] {
+  return (images ?? []).map((image): ImageContent => {
+    const data = imageBytes.get(image.sha256);
+    if (data === undefined) {
+      throw new TypeError(`the model request has no bytes for image ${image.uri}`);
+    }
+    return { type: "image", data: Buffer.from(data).toString("base64"), mimeType: image.mimeType };
+  });
 }
 
 /** Tool calls Dex runs: none unless pi-ai stopped for tool use, so a broken stream runs none. */

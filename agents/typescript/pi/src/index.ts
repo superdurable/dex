@@ -19,7 +19,11 @@ export {
   type PiAgentToolLike,
   type PiAgentToolResultLike,
 } from "./pi-agent-function-tool.js";
-export { createPiAiModelClient, type PiAiModelClientOptions } from "./pi-ai-model-client.js";
+export {
+  createPiAiModelClient,
+  piAiEstimatedImageInputTokens,
+  type PiAiModelClientOptions,
+} from "./pi-ai-model-client.js";
 export { piAiModelClientApi } from "./pi-ai-transcript-codec.js";
 export {
   piDurableFunctionTool,

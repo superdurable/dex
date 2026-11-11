@@ -158,6 +158,43 @@ to send, for example with a temporary note added or messages trimmed. It runs in
 the `RunModel` Step, which Dex never replays, so it needs no determinism. It
 changes only that request: the next model call builds its context from the
 stored messages again. An exception fails the attempt, which Dex retries.
+The context holds each image as pi-ai image content with its base64 bytes.
+
+### Images
+
+Give the session Flow a media store, and the model sees the images of user
+messages and of tool source results:
+
+```ts
+import { S3MediaStore } from "@superdurable/dex-agents/s3";
+
+const mediaStore = S3MediaStore.fromStoreUri("s3://agent-media/sessions");
+const flow = createBuiltinAgentSessionFlow(definition, "SupportAgent", { mediaStore });
+```
+
+- **Stored items.** The built-in loop stores image references in its
+  `user_text` and `tool_result` items, never bytes. The pi-ai envelope of a
+  response is unchanged. Right before each model call, the runner reads the
+  bytes into `ModelRequest.imageBytes`.
+- **Requests.** The client turns each image into pi-ai image content,
+  `{ type: "image", data, mimeType }` with base64 data, after the item's text
+  and in order. A user message with images becomes a text part and one image
+  part per image; a message without images keeps its plain text. A tool
+  result message gets its text part and then the images. pi-ai converts them
+  for the provider: Anthropic Messages puts them in the `tool_result` block,
+  and OpenAI Chat Completions keeps the tool message text and adds a user
+  message, `Attached image(s) from tool result:`, with the images.
+- **Models without image input.** When the pi-ai model's `input` lacks
+  `"image"`, pi-ai sends `(image omitted: model does not support images)` in
+  place of each image. Use a model with image input for image sessions.
+- **Missing bytes.** A request whose `imageBytes` lacks an image's bytes
+  throws a `TypeError` before pi-ai sends anything, and the `RunModel` attempt
+  retries.
+- **Estimates.** `estimateInputTokens` counts
+  `piAiEstimatedImageInputTokens` (1600) for each image.
+- **Which tools return images.** A tool source's
+  `ToolExecutionResult.images`, such as an MCP tool's image content. A Pi
+  tool's image content still becomes a text note; see Tools.
 
 ### Stored messages
 
@@ -225,8 +262,8 @@ their effect. A call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
 - Each `onUpdate` writes its text as a `pi.tool_progress` event with
   `tool_call_id`, `tool_name`, and `text`.
 - The result's text parts, joined by newlines, are what the model sees. An
-  image part becomes `[image omitted: <mime type>]` for now. `details` is not
-  stored.
+  image part becomes `[image omitted: <mime type>]`, because a built-in loop
+  function tool returns text only. `details` is not stored.
 - A result with `isError: true`, a thrown `ToolExecutionError`, or arguments
   that fail conversion or validation become a `ToolExecutionError`: the call is
   recorded as failed, the model sees the message, and the session continues.
@@ -337,7 +374,9 @@ A compatibility layer for the `pi-durable` API is tracked in
   profile's `max_attempts`. Dex's `RunModel` retries multiply them. Model calls
   have no side effects, so results stay correct; only latency and request
   counts grow.
-- Images in tool results: each image becomes a text note.
+- Images in Pi tool results: each image becomes a text note, because a
+  built-in loop function tool cannot return images yet. User images and tool
+  source images reach the model; see Images.
 - `pi-durable` Harness features: `api`, `control`, Extensions, and fork.
 - Pi's `Agent`, `agentLoop`, and session files.
 
