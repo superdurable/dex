@@ -29,7 +29,7 @@ section: Added
   **AgentTurnContext**; **should_defer_tool_calls_before_middleware** makes the
   deferral the outermost tool wrapper on the runner's own copy of the graph,
   which `create_deep_agent`'s middleware order otherwise prevents. Existing
-  graphs behave as before. See
+  graphs behave as before, except for the fixed ID of a replayed tool result. See
   [A Deep Agents agent](python/langgraph/README.md#a-deep-agents-agent).
 - The **dex-agents-deepagents** command uses these options instead of its own
   state schema, subagent middleware replacement, and model middleware. Its
