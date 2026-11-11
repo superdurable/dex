@@ -71,61 +71,28 @@ attempt can make a new effect or change their order.
 
 ## What this means for your code {#what-it-means-for-you}
 
-Expect repeats. Retries can repeat external effects. Attempts can overlap in
-time. An old attempt can still run after a newer attempt finished, and even
-after the Flow closed.
+A retry can run a Step method's external calls again. An older attempt can also
+make a call late, after a newer attempt made the same call. The proof
+guarantees only that every extra external call repeats an earlier one.
 
-Idempotent is not enough. An idempotent call has the same result when it runs
-twice in a row. A repeat can come late, though, after a newer write. Say an old
-attempt sets a status to "packed", and the next Step already set it to
-"shipped". The late call sets "packed" again. Each call is idempotent, and the
-result is still wrong.
+So make each external call safe to repeat and safe to arrive late. One common
+way is an idempotency key that the external system deduplicates on. Build it
+from the Flow run, the Step execution, the method, and the effect. The
+[Step guarantees](/concepts/step#guarantees) say more about keys.
 
-Choose one of these instead:
+The proof also covers some client retries, and not others:
 
-- **An idempotency key.** Derive it from values that every attempt shares, such
-  as the Flow ID and the StepExecutionID. It must also tell apart a new run
-  after the Flow ID is reused, the two methods of a Step, and the different
-  effects of one method. The other system then ignores a late repeat. The
-  [Step guarantees](/concepts/step#guarantees) say how to key an effect.
-- **A commutative effect.** For example, add an item to a set. Order then does
-  not matter. A repeat still adds again, so use a key as well, unless repeating
-  the effect is harmless.
-- **A fence by attempt.** The other system rejects a call from an attempt
-  older than the newest one it has recorded. This protects against late
-  overwrites, not against repeats. It stops an older write only after the
-  newer attempt's call has reached it. An older call that arrives first passes,
-  and so does the newer one after it, so two increments both apply. Repeats
-  within one attempt pass too. Combine a fence with an idempotency key for
-  exactly-once. The code reads the attempt number, so it is outside the proof's
-  assumption about attempts. It is still good practice.
-
-A **PublishToChannel** request has no request ID. If the response is lost and
-the client sends the request again, both requests can commit. Then the Flow
-receives the message twice. The proof treats that as a second request, not as
-a failure. To publish exactly once, a client can call an RPC with a request ID
-it chooses, once the SDKs let it pass one. That is tracked in
-[issue 1519](https://github.com/superdurable/dex/issues/1519). The retry must
-send the same request ID with the same content. Dex rejects a different
-payload with that ID. For a matching retry, Dex returns the recorded reply
-instead of running the RPC again, but only after the first call committed, only within one run,
-and only while it still keeps the record of that request. A crash before the
-commit can run the handler and its external calls again. Until then, give each
-message your own ID and let the Flow ignore duplicates.
-
-A **StopFlow** request without a run ID stops the newest run of its Flow ID. If
-the Flow ID was reused, a late retry can stop the new run. Pass the run ID once
-the SDKs accept one. That is tracked in
-[issue 1520](https://github.com/superdurable/dex/issues/1520).
-
-A **StartFlow** retry returns the existing run when three things hold. It sends
-the same request ID as the first start. It sets the start option that returns
-the existing run instead of an already-started error; without it, the retry
-fails with that error. And the Flow uses the default ID reuse policy, which
-rejects a second run. See [Start options](/concepts/flow#start-options). The
-proof covers such a retry only when the server orders it before it deletes the
-closed run at the end of its retention. A retry ordered after that starts a new
-run.
+- A **StartFlow** retry is covered when it reuses the request ID, sets the
+  option that returns the existing run, uses the default ID reuse policy, and
+  comes before Dex purges the closed run. See
+  [Start options](/concepts/flow#start-options).
+- A **PublishToChannel** request sent again after a lost response is a second
+  request. It can publish the message twice. Publishing once through RPC
+  request IDs is planned in
+  [issue 1519](https://github.com/superdurable/dex/issues/1519).
+- A **StopFlow** retry without a run ID can stop a newer run of the same Flow
+  ID. Passing a run ID is planned in
+  [issue 1520](https://github.com/superdurable/dex/issues/1520).
 
 ## What the proof assumes {#what-the-proof-assumes}
 
@@ -164,7 +131,9 @@ every run without failures.
 The part about how a run ends holds for fair runs. A fair run meets these
 conditions:
 
-- Every client request gets its final outcome, in order.
+- Every request of the outcome word gets its final outcome, in order. The
+  outcome word lists the client requests in the order of their final
+  outcomes. A request lost before any outcome is not in it.
 - The server's clock grows without bound.
 - Failures happen only finitely often, and the server comes back after each
   crash.
@@ -178,8 +147,8 @@ conditions:
 
 ## What the proof does not say {#what-it-does-not-say}
 
-- It does not make external effects exactly once. That is your code's job, as
-  the section above explains.
+- It does not prevent repeated external calls. The section above says how to
+  make them safe.
 - It says nothing about real time. A timer never fires before its time by the
   server's stamps. A server clock that runs ahead can still fire it early.
 - It says nothing about a client that sends **PublishToChannel** again.

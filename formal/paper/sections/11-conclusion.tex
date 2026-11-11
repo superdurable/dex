@@ -44,10 +44,9 @@ The failure theorem adds a lesson of its own. Repeated effects are not
 arbitrary: because every attempt of a method reuses one snapshot and runs
 the same handler, the first occurrences of its effects come in order, even
 when zombies overlap with newer attempts. That is what makes erasure
-work, and it is also why an application needs more than idempotent
-effects: a late repeat can still overwrite a newer write, so effects need
-idempotency keys, commutativity, or a fence by attempt; the last reads
-the attempt number and so lies outside the theorem's hypothesis H3.
+work. It also tells an application what to prepare for: every extra
+external call repeats an earlier one, possibly late, so each call must be
+safe to repeat and safe to arrive late.
 
 The limits are equally explicit. The Dex side is a model validated by
 review, and liveness assumes fair scheduling and Workers that settle. The

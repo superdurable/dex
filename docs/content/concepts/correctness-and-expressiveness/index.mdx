@@ -43,8 +43,6 @@ same [paper](/papers/dex-expressiveness.pdf) has the full argument.
 
 Together, the two proofs cover the well-formed programs of the small
 concurrent language. Such a program runs on Dex with the events of a run
-without failures, except that its external effects may repeat. Repeats can
-overlap and come late, so an idempotent effect alone
-is not enough.
+without failures, except that its external effects may repeat, and a repeat can come late.
 [What this means for your code](/concepts/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)
-explains what to do instead.
+says how to make repeats safe.

@@ -54,15 +54,9 @@ place where a real deployment can leave the theorem.
   timer early in real time.
 \item \emph{Publications retried by the client.} A publication has no
   request ID. A client that sends it again after a lost response has sent a
-  second request; when both commit, the Flow receives the message twice.
-  That is outside failure transparency. Exactly-once publication needs
-  another route, such as an RPC with a caller-chosen request ID, once the
-  SDKs expose one. A retry must repeat the same request ID with the same
-  content; a different payload with that ID is rejected. The
-  deduplication covers only the committed result, within one run, while
-  the request record has not been evicted from the bounded request table.
-  A crash before the commit lets the handler and its external calls run
-  again.
+  second request, and the message can be published twice. That is outside
+  failure transparency. Exactly-once publication through RPC request IDs is
+  planned.
 \item \emph{StartFlow retries after the purge.} A retry deduplicates only
   while the run is still in the Flow directory; after the purge it starts a
   new run. The theorem assumes every retry comes before the purge, and the
@@ -82,23 +76,14 @@ place where a real deployment can leave the theorem.
   Multi-node partition ownership is not: the server runs one node per
   cluster, and the model has one log writer at a time.
 \end{itemize}
-The theorem also says less than a reader might hope about effects.
-Repeated effects may overlap in time and come late: a zombie can emit an
-effect after a newer attempt of the same method has finished. So an
-idempotent effect is not enough for exactly-once in effect. Idempotent
-does not mean commutative: a zombie's late \emph{set $x$ to 1} can
-overwrite a later \emph{set $x$ to 2}, although each call is idempotent.
-Exactly-once in effect needs more, and each remedy has conditions. An
-idempotency key must tell apart runs after a Flow ID is reused, the
-methods of a Step, and the distinct effects of one method. A commutative
-effect still accumulates when it repeats, so it needs a key too, unless
-repeating it is harmless. A fence by attempt protects against late
-overwrites, not against repeats. It rejects an older write only after the
-external system has recorded the newer attempt's fence. An older attempt
-that arrives first passes, and so does the newer one after it, so two
-increments both apply; repeats within one attempt pass too. So a fence
-needs an idempotency key for exactly-once. A handler that sends its
-attempt number is outside H3, although the fence is still good practice. The server's deterministic simulation harness
+The theorem also says less than a reader might hope about effects. A retry
+can run a Step method's external calls again, and an older attempt can
+make a call late, after a newer attempt's call. The theorem guarantees only
+that every extra external call repeats an earlier one. An application must
+make each external call safe to repeat and safe to arrive late, for
+example with an idempotency key that the external system deduplicates on,
+built from the Flow run, the Step execution, the method, and the effect.
+The server's deterministic simulation harness
 with injected crashes checks that a recovered store equals one that never
 crashed; it is complementary evidence and is not connected to the model.
 
