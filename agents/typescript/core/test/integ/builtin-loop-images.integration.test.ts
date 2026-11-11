@@ -38,6 +38,7 @@ import {
   builtinImageAgentStateDirectoryVariable,
   createBuiltinImageAgentFlows,
   functionToolStoresLogName,
+  plainResultJson,
   readLoggedPrompts,
   seenImage,
   storeReadsFailFileName,
@@ -363,6 +364,31 @@ describe("images through a built-in loop session", () => {
     assert.equal(toolResult.includes('"type":"file"'), false);
     const toolMessage = snapshot.messages.find((message) => message.role === "tool");
     assert.equal(toolMessage?.images, undefined);
+  });
+
+  test("a plain object with a function tool result's fields stays JSON, with or without a store", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "function-plain-json-"));
+    await startWorker(stateDirectory);
+    for (const [label, client] of [
+      ["store", sessions],
+      ["no-store", noStoreSessions],
+    ] as const) {
+      for (const withImages of [false, true]) {
+        const sessionId = `builtin-images-plain-json-${label}-${withImages}-${randomUUID()}`;
+        await client.startSession(sessionId, withImages ? "function-plain-json-images" : "function-plain-json");
+        await client.waitForCompletedTurns(sessionId, 1);
+        const snapshot = await client.getAgentSnapshot(sessionId);
+
+        const toolMessage = snapshot.messages.find((message) => message.role === "tool");
+        assert.deepEqual(JSON.parse(toolMessage?.toolOutput ?? "null"), plainResultJson(withImages), sessionId);
+        assert.equal(toolMessage?.images, undefined, sessionId);
+        const finished = (await client.listAgentEvents(sessionId))
+          .filter((event) => event.type === "tool_call_finished")
+          .map((event) => (JSON.parse(event.payload) as { status?: string }).status);
+        assert.deepEqual(finished, ["succeeded"], sessionId);
+        assert.equal(snapshot.messages.at(-1)?.text, "plain json returned", sessionId);
+      }
+    }
   });
 
   test("a function tool's invalid image fails like a tool source's", async () => {

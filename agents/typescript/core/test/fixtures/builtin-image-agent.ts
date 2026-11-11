@@ -23,6 +23,8 @@
 //   `store absent` with its attempt in `function-tool-stores.log`.
 // - `function-invalid-image` calls `return_invalid_function_image`, a single-attempt write function tool that returns
 //   a reference with an unsupported media type.
+// - `function-plain-json` and `function-plain-json-images` call `return_plain_result_json`, a function tool that
+//   returns a plain object with the fields of a `FunctionToolResult`, without or with one image reference.
 // While the file `store-reads-fail` exists in the state directory, every image read fails with MediaStoreError and
 // is logged as `read-failed <sha256>` in `store-reads.log`.
 // Every call appends one JSON line to `model-prompts.log`: each prompt message's role and parts, with each file
@@ -70,6 +72,7 @@ export const screenshotToolName = "take_screenshot";
 export const mcpScreenshotToolName = "local__take_screenshot";
 export const functionScreenshotToolName = "take_function_screenshot";
 export const invalidFunctionImageToolName = "return_invalid_function_image";
+export const plainResultJsonToolName = "return_plain_result_json";
 export const functionToolStoresLogName = "function-tool-stores.log";
 const noStoreUri = "file:///no-media-store";
 export const storeReadsFailFileName = "store-reads-fail";
@@ -188,7 +191,31 @@ function createFunctionImageTools(stateDirectory: string): FunctionTool[] {
         });
       },
     }),
+    functionTool<{ readonly withImages: boolean }>({
+      name: plainResultJsonToolName,
+      description: "Return plain JSON with the fields of a function tool result.",
+      parameters: {
+        type: "object",
+        properties: { withImages: { type: "boolean" } },
+        required: ["withImages"],
+      },
+      effect: "read",
+      execute: (args) => plainResultJson(args.withImages),
+    }),
   ];
+}
+
+/**
+ * Builds the plain object that `return_plain_result_json` returns.
+ * @param withImages - Whether the object lists one image reference.
+ * @returns An object with the fields of a function tool result that no factory created.
+ */
+export function plainResultJson(withImages: boolean): Record<string, unknown> {
+  return {
+    kind: "function_tool_result",
+    output: "data",
+    images: withImages ? [buildImageReference(screenshotPng(), noStoreUri)] : [],
+  };
 }
 
 /** Continues with a user message after the tools of a response that says so. */
@@ -310,6 +337,20 @@ async function* streamImageResponse(
       return;
     }
     yield* streamAnswer("invalid image returned");
+    return;
+  }
+  if (command === "function-plain-json" || command === "function-plain-json-images") {
+    if (!hasToolResult) {
+      yield {
+        type: "tool-call",
+        toolCallId: `call-${seen.length}`,
+        toolName: plainResultJsonToolName,
+        input: JSON.stringify({ withImages: command === "function-plain-json-images" }),
+      };
+      yield finishPart("tool-calls");
+      return;
+    }
+    yield* streamAnswer("plain json returned");
     return;
   }
   if (command === "screenshot-continue") {

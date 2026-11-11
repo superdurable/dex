@@ -749,14 +749,17 @@ reference = await store.put_image(Path("chart.png").read_bytes())
 await sessions.send_user_message("session-42", "What does this chart show?", images=[reference])
 ```
 
-A tool returns images the same way, uploading inside its call. A function
-tool returns a `FunctionToolResult` instead; see
-[Images from function tools](#images-from-function-tools):
+A tool source returns images the same way, uploading inside its call. This
+is a tool source's `execute_deferred_tool_call` result:
 
 ```python
 reference = await store.put_image(screenshot_png)
 return ToolExecutionResult(output="Took a screenshot.", images=[reference])
 ```
+
+A function tool returns `FunctionToolResult(output=..., images=[...])`
+instead, because the runner serializes its other results as JSON; see
+[Images from function tools](#images-from-function-tools).
 
 - **One object per image.** The object key is `<prefix>/sha256/<sha256>`, and
   the reference's `uri` ends in `/sha256/<sha256>`. `S3MediaStore.put_image`

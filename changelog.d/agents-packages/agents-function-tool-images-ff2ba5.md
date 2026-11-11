@@ -3,8 +3,7 @@ section: Images
 ---
 - Built-in agent loop, Python and TypeScript: function tools return images.
   A function tool returns the new **FunctionToolResult** with `output` and
-  `images` (`functionToolResult({ output, images })` in TypeScript, which
-  marks the object with `kind: "function_tool_result"`), and the new
+  `images` (`functionToolResult({ output, images })` in TypeScript), and the new
   **ToolCallContext.media_store** (`mediaStore`) gives it the runner's media
   store, or none when the runner has none, to upload the bytes with
   `put_image` (`putImage`). The runner returns the images in

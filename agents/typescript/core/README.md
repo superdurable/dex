@@ -721,13 +721,16 @@ const reference = await store.putImage(await readFile("chart.png"));
 await sendAgentUserMessage(client, flow, "session-42", { text: "What does this chart show?", images: [reference] });
 ```
 
-A tool returns images the same way, uploading inside its call. A function tool returns `functionToolResult` instead;
-see [Images from function tools](#images-from-function-tools):
+A tool source returns images the same way, uploading inside its call. This is a tool source's
+`executeDeferredToolCall` result:
 
 ```ts
 const reference = await store.putImage(screenshotPng);
 return { output: "Took a screenshot.", images: [reference] };
 ```
+
+A function tool returns `functionToolResult({ output, images })` instead, because the runner serializes its plain
+objects as JSON; see [Images from function tools](#images-from-function-tools).
 
 - **One object per image.** The object key is `<prefix>/sha256/<sha256>`, and the reference's `uri` ends in
   `/sha256/<sha256>`. `S3MediaStore.putImage` uploads with `If-None-Match: *` and treats "already exists" (412) as
@@ -859,9 +862,9 @@ const takeScreenshot = functionTool<Record<string, never>>({
 });
 ```
 
-- `functionToolResult` returns a `FunctionToolResult` marked with `kind: "function_tool_result"`. The runner returns
-  it as a `ToolExecutionResult` with the same output and images, so the images are stored, checked, and shown to the
-  model exactly like a tool source's. A plain object with `output` and `images` keys and no such `kind` is still
+- The runner returns the `FunctionToolResult` that `functionToolResult` created as a `ToolExecutionResult` with the
+  same output and images, so the images are stored, checked, and shown to the model exactly like a tool source's.
+  Only the object `functionToolResult` returned counts: a plain object, or a copy, with the same fields is still
   serialized as JSON.
 - More than `maxImagesPerMessage` images, or a reference that `validateImageReference` refuses, fails the attempt
   with `ImageValidationError`. A failed attempt of a `read` or `idempotent_write` tool retries; a single-attempt call

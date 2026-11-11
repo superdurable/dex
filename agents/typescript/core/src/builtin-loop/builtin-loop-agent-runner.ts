@@ -49,7 +49,7 @@ import {
   type SessionSettings,
 } from "../agent-session-values.js";
 import type { AgentDefinition, ContinueTurn, TurnContinuation } from "./agent-definition.js";
-import type { FunctionTool, FunctionToolResult, ToolCallContext } from "./function-tool.js";
+import { isFunctionToolResult, type FunctionTool, type FunctionToolResult, type ToolCallContext } from "./function-tool.js";
 import { findJsonSchemaViolation, serializeJsonWithSpacedSeparators } from "./json-schema-validation.js";
 import type {
   ModelClient,
@@ -422,12 +422,11 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     if (typeof result === "string") {
       return { output: result };
     }
-    const kind = (result as { readonly kind?: unknown } | null)?.kind;
-    if (kind === "tool_input_requested") {
+    if ((result as { readonly kind?: unknown } | null)?.kind === "tool_input_requested") {
       return result as DeferredToolOutcome;
     }
-    if (kind === "function_tool_result") {
-      return this.toToolExecutionResult(tool.name, result as FunctionToolResult);
+    if (isFunctionToolResult(result)) {
+      return this.toToolExecutionResult(tool.name, result);
     }
     return { output: serializeJsonWithSpacedSeparators(result === undefined ? null : result) };
   }

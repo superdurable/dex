@@ -12,6 +12,8 @@ import type { AgentImageReference, QuestionAnswer, ToolEffect } from "../agent-s
 
 const toolNamePattern = /^[A-Za-z0-9_-]{1,64}$/;
 const toolEffects: readonly ToolEffect[] = ["read", "idempotent_write", "non_idempotent_write", "unclassified"];
+// Identity, not fields, marks a result, so a tool's plain JSON with the same keys stays JSON.
+const createdFunctionToolResults = new WeakSet<object>();
 
 /**
  * A value that {@link FunctionToolDefinition.prepareArguments} may return: any value except a Promise or another
@@ -117,13 +119,11 @@ export interface ToolCallContext {
 /**
  * Text and images that a function tool returns. Create it with {@link functionToolResult}.
  *
- * The `kind` marks the object, so a tool that returns other JSON with `output` and `images` keys is still
- * serialized as JSON.
+ * Only an object that {@link functionToolResult} created is a result with images. Any other object with the same
+ * fields, such as a copy or a literal, is serialized as JSON like every other tool result.
  * @since 0.5.0
  */
 export interface FunctionToolResult {
-  /** Discriminator. */
-  readonly kind: "function_tool_result";
   /** Tool output text the model sees. */
   readonly output: string;
   /**
@@ -146,7 +146,7 @@ export interface FunctionToolResult {
  * `read` or `idempotent_write` tool retries; a failed single-attempt call records `outcome_unknown`. Images from a
  * runner without a media store throw `ToolExecutionError` instead, because no retry could show them: the session
  * records `failed` once and the model sees the error text. A result without images is the same as returning
- * `output` as a string.
+ * `output` as a string. Return the object it creates: a copy is serialized as JSON.
  *
  * @example
  * ```ts
@@ -165,7 +165,7 @@ export interface FunctionToolResult {
  * });
  * ```
  * @param result - The output text and, optionally, the image references.
- * @returns The marked result, to return from `execute`.
+ * @returns The frozen result, to return from `execute`.
  * @throws {TypeError} When `output` is not a string or `images` is not an array.
  * @since 0.5.0
  */
@@ -179,11 +179,16 @@ export function functionToolResult(result: {
   if (result.images !== undefined && !Array.isArray(result.images)) {
     throw new TypeError("function tool result images must be an array");
   }
-  return Object.freeze({
-    kind: "function_tool_result",
+  const created: FunctionToolResult = Object.freeze({
     output: result.output,
     ...(result.images === undefined ? {} : { images: result.images }),
   });
+  createdFunctionToolResults.add(created);
+  return created;
+}
+
+export function isFunctionToolResult(value: unknown): value is FunctionToolResult {
+  return typeof value === "object" && value !== null && createdFunctionToolResults.has(value);
 }
 
 /** Definition passed to {@link functionTool}. */

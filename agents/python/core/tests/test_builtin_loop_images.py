@@ -57,6 +57,7 @@ from tests.builtin_loop_image_agent import (
     STORE_READS_FAIL_FILE_NAME,
     STORE_READS_LOG_NAME,
     build_builtin_image_agent_flows,
+    plain_result_json,
     screenshot_png,
 )
 from tests.conftest import CORE_DIR
@@ -78,6 +79,7 @@ class BuiltinImageHarness:
     stack: AgentTestStack
     sessions: AgentSessionClient
     no_store_sessions: AgentSessionClient
+    flow: AgentSessionFlow
     no_store_flow: AgentSessionFlow
     state_dir: Path
 
@@ -118,7 +120,7 @@ async def image_harness(tmp_path: Path) -> AsyncIterator[BuiltinImageHarness]:
         worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield BuiltinImageHarness(
-            stack, stack.sessions(flows[0]), stack.sessions(flows[1]), flows[1], state_dir
+            stack, stack.sessions(flows[0]), stack.sessions(flows[1]), flows[0], flows[1], state_dir
         )
 
 
@@ -437,6 +439,45 @@ async def test_a_function_tool_without_a_media_store_gets_none_and_its_images_fa
         message for message in snapshot.messages if message.role is MessageRole.TOOL
     )
     assert tool_message.images == []
+
+
+async def test_a_dict_with_a_function_tool_result_fields_stays_json_with_or_without_a_store(
+    image_harness: BuiltinImageHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    for label, sessions, flow in (
+        ("store", image_harness.sessions, image_harness.flow),
+        ("no-store", image_harness.no_store_sessions, image_harness.no_store_flow),
+    ):
+        for with_images in (False, True):
+            session_id = f"session-plain-json-{label}-{with_images}-{uuid4().hex}"
+            command = "function-plain-json-images" if with_images else "function-plain-json"
+            await sessions.start_session(session_id, command)
+            snapshot = await wait_for_agent_snapshot(
+                sessions,
+                session_id,
+                lambda snapshot: snapshot
+                if snapshot.state is not None
+                and snapshot.state.turn_count >= 1
+                and snapshot.state.active_turn_id is None
+                else None,
+                description="1 finished turn",
+            )
+
+            tool_message = next(
+                message for message in snapshot.messages if message.role is MessageRole.TOOL
+            )
+            assert json.loads(tool_message.tool_output or "null") == plain_result_json(with_images)
+            assert tool_message.images == []
+            events = await image_harness.stack.client.list_stream_messages(
+                session_id, flow.agent_events, 500
+            )
+            assert [
+                json.loads(message.value.payload)["status"]
+                for message in events.messages
+                if message.value.type == AgentEventType.TOOL_CALL_FINISHED
+            ] == [ToolCallStatus.SUCCEEDED]
+            assert snapshot.messages[-1].text == "plain json returned"
 
 
 async def test_a_function_tool_invalid_image_fails_like_a_tool_source_image(

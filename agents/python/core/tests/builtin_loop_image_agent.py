@@ -31,6 +31,9 @@ The model reads the current turn's user text:
 * ``function-invalid-image`` calls ``return_invalid_function_image``, a
   single-attempt write function tool that returns a reference with an
   unsupported MIME type.
+* ``function-plain-json`` and ``function-plain-json-images`` call
+  ``return_plain_result_json``, a function tool that returns a ``dict`` with
+  the fields of a ``FunctionToolResult``, without or with one image reference.
 
 Every model call appends one JSON line to ``model-requests.log``: each input
 item's kind and text, with each image as its MIME type and the SHA-256 and
@@ -99,6 +102,7 @@ MEDIA_DIRECTORY_NAME = "media"
 SCREENSHOT_TOOL_NAME = "take_screenshot"
 FUNCTION_SCREENSHOT_TOOL_NAME = "take_function_screenshot"
 INVALID_FUNCTION_IMAGE_TOOL_NAME = "return_invalid_function_image"
+PLAIN_RESULT_JSON_TOOL_NAME = "return_plain_result_json"
 FUNCTION_TOOL_STORES_LOG_NAME = "function-tool-stores.log"
 NO_STORE_URI = "file:///no-media-store"
 MCP_SCREENSHOT_TOOL_NAME = "local__take_screenshot"
@@ -242,6 +246,15 @@ class ImageModelScript:
                     tool_calls=[ScriptedToolCall(tool_name=INVALID_FUNCTION_IMAGE_TOOL_NAME)]
                 )
             return ScriptedModelReply(text="invalid image returned")
+        if command in ("function-plain-json", "function-plain-json-images"):
+            if not ScriptedModelClient.tool_results(request):
+                arguments = {"with_images": command == "function-plain-json-images"}
+                return ScriptedModelReply(
+                    tool_calls=[
+                        ScriptedToolCall(tool_name=PLAIN_RESULT_JSON_TOOL_NAME, arguments=arguments)
+                    ]
+                )
+            return ScriptedModelReply(text="plain json returned")
         if command == "screenshot-continue":
             return ScriptedModelReply(
                 text=CONTINUE_AFTER_TOOLS_TEXT,
@@ -284,7 +297,18 @@ def build_function_image_tools(state_dir: Path) -> list[FunctionTool]:
         invalid = AgentImageReference(**{**asdict(reference), "mime_type": "image/bmp"})
         return FunctionToolResult(output="returned a bad image", images=[invalid])
 
-    return [take_function_screenshot, return_invalid_function_image]
+    @function_tool(effect=ToolEffect.READ, name=PLAIN_RESULT_JSON_TOOL_NAME)
+    def return_plain_result_json(with_images: bool) -> dict[str, Any]:
+        """Return plain JSON with the fields of a function tool result."""
+        return plain_result_json(with_images)
+
+    return [take_function_screenshot, return_invalid_function_image, return_plain_result_json]
+
+
+def plain_result_json(with_images: bool) -> dict[str, Any]:
+    """Build a ``dict`` with the fields of a ``FunctionToolResult``."""
+    images = [asdict(build_image_reference(screenshot_png(), NO_STORE_URI))] if with_images else []
+    return {"output": "data", "images": images}
 
 
 def continue_after_tools(context: TurnContinuationContext) -> TurnContinuation:
