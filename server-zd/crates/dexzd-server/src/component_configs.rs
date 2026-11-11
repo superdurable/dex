@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use dexzd_api::{CredentialAuthenticatorConfig, FlowServiceConfig};
+use dexzd_api::{CredentialAuthenticatorConfig, FlowDefinitionsConfig, FlowServiceConfig};
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
     AttributeSyncConfig, AttributeSyncRetryPolicy, BlockingWorkPlacement, CommitConfig,
@@ -42,6 +42,7 @@ pub(crate) struct ComponentConfigs {
     pub(crate) matching: MatchingConfig,
     pub(crate) stream_store: StreamStoreConfig,
     pub(crate) flow_service: FlowServiceConfig,
+    pub(crate) flow_definitions: FlowDefinitionsConfig,
     pub(crate) grpc_max_message_bytes: usize,
     /// Empty when public API authentication is disabled.
     pub(crate) authenticators: Vec<CredentialAuthenticatorConfig>,
@@ -336,6 +337,17 @@ impl ComponentConfigs {
             max_wait,
             ..FlowServiceConfig::default()
         };
+        let flow_definitions = FlowDefinitionsConfig {
+            max_definition_bytes: to_usize(
+                "flowDefinitions.maxDefinitionBytes",
+                config.flow_definitions.max_definition_bytes,
+            )?,
+            max_flow_type_length: to_usize(
+                "matching.maxFlowTypeLength",
+                u64::from(config.matching.max_flow_type_length),
+            )?,
+            max_response_bytes: grpc_max_message_bytes,
+        };
         let history_reads = HistoryReadsConfig {
             read_cache_directory: config
                 .history
@@ -357,6 +369,7 @@ impl ComponentConfigs {
             matching,
             stream_store,
             flow_service,
+            flow_definitions,
             grpc_max_message_bytes,
             authenticators: config.auth.credential_authenticators(),
             attribute_sync: attribute_sync_config(config)?,
