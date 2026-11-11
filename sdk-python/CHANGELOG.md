@@ -13,6 +13,8 @@
 
 ### Added and fixed
 
+- The Join documentation no longer recommends reporting a result for a cancelled
+  branch from the cancelling RPC, which could count that branch twice.
 - Add `Join` and `JoinRound` to synchronize parallel branches of a Flow.
   `Join.fork` starts a round from the split Step's `execute` and builds the
   branch and join movements, so the application keeps no branch count or round

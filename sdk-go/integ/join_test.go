@@ -557,7 +557,8 @@ func TestJoinFirstBranchCancelsSiblingBranchesAndKeepsLateResults(t *testing.T) 
 	require.Equal(t, [][]string{{"A"}}, summary.BranchResults)
 }
 
-func TestJoinRPCReportsAResultForACanceledBranch(t *testing.T) {
+func TestJoinRPCReportsABranchResult(t *testing.T) {
+	// The RPC cancels branch B before the test releases it, so only the RPC reports for B.
 	flowID := startJoinFlow(t, joinPlan{
 		Scenario:         joinRPCReportsCanceled,
 		BranchNames:      []string{"A", "B"},

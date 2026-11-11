@@ -67,12 +67,12 @@ pub struct JoinRound {
 /// [`crate::Wait::any_combination_of`], for example with a [`crate::Timer`] as a deadline.
 ///
 /// After a first-of-m or n-of-m join, the other branches still report. To reuse the Join in a loop,
-/// reset the finished round. Pass its `JoinRound` to the next round's split Step. That Step waits in
-/// `wait_for` with [`Self::for_remaining_branches`] and the count the join consumed. Its `execute`
-/// can read the late results with [`Self::remaining_branch_results`]. The next round therefore
-/// cannot start before the previous round's branches have all reported. Without a reset, late
-/// results stay pending in the round's instance until the Flow closes. They never count toward
-/// another round.
+/// reset the finished round, unless a cancelling join finished it. Pass its `JoinRound` to the next
+/// round's split Step. That Step waits in `wait_for` with [`Self::for_remaining_branches`] and the
+/// count the join consumed. Its `execute` can read the late results with
+/// [`Self::remaining_branch_results`]. The next round therefore cannot start before the previous
+/// round's branches have all reported. Without a reset, late results stay pending in the round's
+/// instance until the Flow closes. They never count toward another round.
 ///
 /// Add the Join to the Flow with [`crate::PersistenceSchema::join`]. Declare it as a module-level
 /// [`std::sync::LazyLock`] static. The name follows the Channel-map rules: it is stable, it contains
@@ -91,9 +91,9 @@ pub struct JoinRound {
 /// - The `received_count` of [`Self::for_remaining_branches`] equals the number of results the
 ///   join consumed: `count` after [`Self::for_branches`], and `1` after [`Self::for_first_branch`].
 /// - A reset waits for every branch that has not reported yet, so it never completes while a
-///   canceled branch has not reported. Do not reset the round of a cancelling join, unless an RPC
-///   reports a result for each canceled branch with [`Self::report_branch_result`]. Without a
-///   reset, the round's late results stay pending until the Flow closes.
+///   canceled branch has not reported. Never reset the round of a cancelling join. The next round
+///   forks a new round without the reset wait, as the first round does. Without a reset, the
+///   round's late results stay pending until the Flow closes.
 /// - One invocation forks one Join at most once with [`Self::fork`]. Use a second Join, or
 ///   [`Self::fork_with_round_key`] with distinct keys, for two independent joins.
 /// - An RPC has no Step execution ID, so it must use [`Self::fork_with_round_key`].
@@ -104,10 +104,13 @@ pub struct JoinRound {
 ///   round is active. Steps started by an RPC count as siblings of every Step started by any call of
 ///   that RPC. For rounds that an RPC forks, also use [`StepDecision::cancel_step`] with one active
 ///   round.
-/// - A canceled branch never reports, so an all-of join that waits for it waits forever. Cancel the
-///   join Step together with its branches, add a [`crate::Timer`] deadline with
-///   [`crate::Wait::any_of`], or let the canceling RPC report a result for the canceled branch with
-///   [`Self::report_branch_result`]. That RPC's input then carries the `JoinRound`.
+/// - A canceled branch never reports, and no other code can safely report for it. Dex decides at
+///   commit time whether a cancellation takes effect, so the code that cancels a branch cannot know
+///   whether the branch already reported. If it did, the cancellation does nothing, and an extra
+///   report counts that branch twice, so an all-of join can complete while another branch has not
+///   reported. To keep an all-of join from waiting forever for a canceled branch, cancel the join
+///   Step together with its branches, or wait on [`crate::Wait::any_of`] with the join condition
+///   and a [`crate::Timer`] and handle the timeout in `execute`.
 /// - When a join Step is canceled after its wait matched, what happens to the results it consumed
 ///   depends on the server version. A server that requeues them puts them back at the front of
 ///   the round's instance, unless the canceling decision closes the Flow. On a server that drops
@@ -398,8 +401,10 @@ impl<T> Join<T> {
 
     /// Reports this branch's result without ending the branch.
     ///
-    /// Use it when the branch continues after reporting, from a Step's `wait_for` or `execute`.
-    /// An RPC may also report on behalf of a canceled branch; its input then carries the round. The
+    /// Use it when the branch continues after reporting, from a Step's `wait_for` or `execute`, for
+    /// example when a multi-Step branch reports from a Step other than its last. An RPC that forked
+    /// a round with [`Self::fork_with_round_key`] can also report results for that round; its input
+    /// then carries the round. Never report for a canceled branch; see the rules on [`Join`]. The
     /// result is staged and becomes durable only when the handler returns successfully. Results
     /// queue in the order their handlers commit.
     ///
@@ -478,8 +483,8 @@ impl<T> Join<T> {
     /// [`Self::for_first_branch`]. When nothing remains, it completes immediately.
     ///
     /// `received_count` counts only results the join consumed. Never count a canceled branch, which
-    /// does not report. The reset therefore waits for every canceled branch too; see the rules on
-    /// [`Join`] for cancelling joins.
+    /// does not report. The reset therefore waits for every canceled branch too, so never reset the
+    /// round of a cancelling join; see the rules on [`Join`].
     ///
     /// A `received_count` greater than `round.branch_count`, or an invalid round, makes the Step's
     /// `wait_for` fail when the SDK sends the Wait.

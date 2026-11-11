@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix the Join documentation: it no longer recommends reporting a result for a
+  cancelled branch from the cancelling RPC, which could count that branch twice.
 - Add `Join` and `JoinRound` to join parallel branches of one Flow. `Join::fork`
   starts the branches and one join Step from a split Step, keyed by its Step
   execution ID; `Join::fork_with_round_key` takes an explicit key, as in an

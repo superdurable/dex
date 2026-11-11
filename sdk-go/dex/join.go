@@ -32,7 +32,8 @@ import (
 // pending. A Flow that forks the same Join in a loop resets each round before it starts the next:
 // the next split Step waits with ForRemainingBranches on the previous round, and its Execute reads
 // those late results with RemainingBranchResults. The next round therefore cannot start before
-// the previous round has received every result.
+// the previous round has received every result. A canceling join's round is never reset; see the
+// rules below.
 //
 // Rules and traps:
 //   - Each branch reports exactly one result per round. A branch that reports twice is counted
@@ -54,13 +55,16 @@ import (
 //     which is correct only while one round is active. Steps started by an RPC are siblings of
 //     every Step that any invocation of the same RPC started, so a round started by an RPC also
 //     uses CancelSteps.
-//   - A branch canceled before it reports never reports, so ForAllBranches waits forever. Cancel
-//     the join Step together with its branches, report a canceled result for the branch from the
-//     canceling RPC with ReportBranchResult, or combine the join Condition with a Timer in AnyOf.
-//   - A round whose branches were canceled cannot be fully reset: ForRemainingBranches waits for
-//     results that canceled branches never report. receivedCount never counts canceled branches.
-//     Reset such a round only after an RPC has reported a result for each canceled branch with
-//     ReportBranchResult. Otherwise a canceling join does not loop over the same Join.
+//   - A canceled branch never reports, and no other code can safely report for it. Dex decides at
+//     commit time whether a cancellation takes effect, so the code that cancels a branch cannot
+//     know whether the branch already reported. If it did, the cancellation does nothing, and an
+//     extra report counts that branch twice, so ForAllBranches can be satisfied while another
+//     branch has not reported. To keep ForAllBranches from waiting forever for a canceled branch,
+//     cancel the join Step together with its branches, or wait on AnyOf with the join Condition and
+//     a Timer and handle the timeout in Execute.
+//   - Never reset a canceling join's round with ForRemainingBranches: it waits for results that
+//     canceled branches never report. The next round forks a new round without the reset wait, as
+//     the first round does. The canceled round's late results stay pending.
 //   - When a join Step is canceled after its wait consumed results but before its Execute commits,
 //     what happens to those results depends on the server version. A server that returns consumed
 //     messages on cancellation puts them back at the front of the round's instance, so a new join
@@ -310,10 +314,11 @@ func (join Join[T]) EndBranch(ctx Context, round JoinRound, result T) (*StepDeci
 
 // ReportBranchResult reports one branch result without ending the branch.
 //
-// Use it in a branch's WaitFor or Execute when the branch continues after it reports. Use it in an
-// RPC to report a result for a branch that the RPC cancels, so that ForAllBranches can still be
-// satisfied; the RPC input then carries the JoinRound. Dex commits the result only when the handler
-// succeeds. Each branch reports exactly one result per round.
+// Use it in a branch's WaitFor or Execute when the branch continues after it reports, for example
+// when a multi-Step branch reports from a Step other than its last. An RPC that forked a round
+// with ForkWithRoundKey can also report results for that round; the RPC input then carries the
+// JoinRound. Dex commits the result only when the handler succeeds. Each branch reports exactly
+// one result per round. Never report for a canceled branch; see the Join rules.
 //
 // It returns an error when ctx is not a Dex invocation, when round is invalid, when the Join is not
 // registered in the Flow, or when result cannot be encoded.

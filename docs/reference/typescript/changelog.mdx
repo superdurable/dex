@@ -8,6 +8,14 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the TypeScript SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.45 {#v1-45}
+
+Not released yet. The next release, sdk-typescript/v1.45.0, ships these changes.
+
+### Fixed
+
+- The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/typescript/waits).
+
 ## 1.44 {#v1-44}
 
 Released 2026-11-10 as [sdk-typescript/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-typescript%2Fv1.44.0).

@@ -222,7 +222,8 @@ public final class JoinIntegTest {
     }
 
     @Test
-    void testRpcReportsForACanceledBranchAndTheAllBranchesJoinFires() throws Exception {
+    void testRpcReportsABranchResultAndTheAllBranchesJoinFires() throws Exception {
+        // Branch B waits for a release the test never sends, so only the RPC reports for it.
         final JoinIntegAllOfWorkflow workflow = new JoinIntegAllOfWorkflow();
         try (DexDevTestEnvironment environment = start(workflow)) {
             final String flowId = startAllOf(

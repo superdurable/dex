@@ -186,11 +186,12 @@ async def _first_branch_join_cancels_siblings_and_keeps_late_results_pending() -
         assert result.single_output(str) == "A"
 
 
-def test_rpc_reports_for_a_canceled_branch_so_the_join_fires() -> None:
-    asyncio.run(_rpc_reports_for_a_canceled_branch_so_the_join_fires())
+def test_rpc_reports_a_branch_result_so_the_join_fires() -> None:
+    asyncio.run(_rpc_reports_a_branch_result_so_the_join_fires())
 
 
-async def _rpc_reports_for_a_canceled_branch_so_the_join_fires() -> None:
+async def _rpc_reports_a_branch_result_so_the_join_fires() -> None:
+    # Branch B waits for a release the test never sends, so only the RPC reports for it.
     flow = ReportForCanceledBranchJoinFlow()
     async with AsyncDexDevTestEnvironment(flow) as environment:
         client = environment.client

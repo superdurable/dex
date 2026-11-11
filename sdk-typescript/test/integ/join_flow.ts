@@ -484,7 +484,7 @@ export class JoinFirstWinFlow implements Flow<void> {
   }
 }
 
-// All-of join where an RPC cancels one branch and reports a substitute result.
+// All-of join where an RPC reports a result for one branch and cancels that branch.
 
 const substituteResult = new Join("joinSubstituteResult", stringCodec);
 const substituteRelease = new ChannelMap("joinSubstituteRelease", stringCodec);

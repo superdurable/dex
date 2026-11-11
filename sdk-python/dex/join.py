@@ -114,7 +114,8 @@ class Join(Generic[ResultT]):
       :meth:`for_all_branches`.
     - Without a reset, results that arrive after the join stay pending in the
       round's instance until the Flow ends. They never count toward another round.
-      A Flow that forks in a loop should reset every round.
+      A Flow that forks in a loop should reset every round, except the round of
+      a canceling join.
     - A canceling join returns its decision with
       :meth:`~dex.StepDecision.with_canceling_sibling_steps` and the branch Step
       types. A canceled branch does not report. Sibling selection matches only the
@@ -122,17 +123,19 @@ class Join(Generic[ResultT]):
       every Step started by any call of that RPC is a sibling, so cancel those
       branches explicitly with :meth:`~dex.StepDecision.with_canceling_steps`
       while only one round is active.
-    - A canceled branch never reports, so a canceling join's round cannot be
-      fully reset by :meth:`for_remaining_branches` alone. Its
-      ``received_count`` is still the number of results the join consumed, not
-      a count that includes canceled branches. To reset such a round, report a
-      result for each canceled branch, for example from an RPC with
-      :meth:`report_branch_result`. Otherwise start the next round without
-      the reset; the late results stay pending until the Flow ends.
-    - A branch canceled from outside never reports, so an all-branches join waits
-      forever. Cancel the join Step too, report a result for the canceled branch
-      from the RPC that cancels it with :meth:`report_branch_result`, or give the
-      join a Timer deadline.
+    - A canceled branch never reports, and no other code can safely report for
+      it. Dex decides at commit time whether a cancellation takes effect, so the
+      code that cancels a branch cannot know whether the branch already
+      reported. If it did, the cancellation does nothing, and an extra report
+      counts that branch twice, so an all-branches join can fire while another
+      branch has not reported. To keep an all-branches join from waiting
+      forever for a canceled branch, cancel the join Step together with its
+      branches, or wait on :meth:`~dex.Wait.any_of` with the join condition and a
+      Timer and handle the timeout in ``execute``.
+    - Never reset a canceling join's round with :meth:`for_remaining_branches`:
+      it waits for results that canceled branches never report. The next round
+      forks a new round without the reset wait, as the first round does. The
+      canceled round's late results stay pending until the Flow ends.
     - When a join Step is canceled after its wait matched but before its
       ``execute`` committed, what happens to the results that wait consumed
       depends on the server version. A server that requeues consumed messages
@@ -447,9 +450,11 @@ class Join(Generic[ResultT]):
     ) -> None:
         """Report a branch result without ending the current Step path.
 
-        Use it when a branch continues after it reports, or in an RPC that reports
-        for a branch it cancels. The result commits only when the handler's result
-        commits.
+        Use it when a branch continues after it reports, for example when a
+        multi-Step branch reports from a Step other than its last. An RPC that
+        forked a round with :meth:`fork_with_round_key` can also report results
+        for that round. The result commits only when the handler's result
+        commits. Never report for a canceled branch; see the :class:`Join` rules.
 
         Args:
             context: The current Step or RPC Context.

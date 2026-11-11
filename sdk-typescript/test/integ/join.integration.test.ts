@@ -156,7 +156,8 @@ test("first-branch join cancels sibling branches and leaves the late result pend
   });
 });
 
-test("an RPC reports a substitute result for a branch it cancels", async () => {
+test("an RPC reports a branch result", async () => {
+  // Branch B waits for a release the test never sends, so only the RPC reports for it.
   const flow = new JoinSubstituteFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("typescript-join-substitute");

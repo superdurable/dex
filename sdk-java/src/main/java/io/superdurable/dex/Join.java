@@ -201,7 +201,8 @@ import java.util.function.Function;
  *       of results the join consumed: the {@code count} of {@link #forBranches}, or 1 for
  *       {@link #forFirstBranch}.</li>
  *   <li>Without a reset, late results stay in the round's ChannelMap instance until the Flow
- *       closes. They do not delay graceful completion. A Flow that loops must reset every round.</li>
+ *       closes. They do not delay graceful completion. A Flow that loops must reset every round,
+ *       except the round of a cancelling join.</li>
  *   <li>To cancel the remaining branches when the join fires, return the join's decision with
  *       {@link StepDecision#withCancelingSiblingSteps} and the branch Step classes. Fork puts the
  *       branches and the join in one decision, so the selection covers exactly this round's
@@ -209,13 +210,18 @@ import java.util.function.Function;
  *       {@link StepDecision#withCancelingSteps}, which is correct only when one round is active at
  *       a time. Rounds forked by an RPC through {@link #forkWithRoundKey} share their parent with
  *       every other Step that RPC name started, so prefer {@code withCancelingSteps} there.</li>
- *   <li>A branch canceled by a cancelling join never reports, so the next split cannot reset that
- *       round with {@link #forRemainingBranches}; it would wait forever. Do not reset a cancelling
- *       join's round. Its late results stay until the Flow closes. To reset it anyway, have an RPC
- *       report a result for every canceled branch with {@link #reportBranchResult} first.</li>
- *   <li>A branch canceled from outside never reports, so an all-branches join keeps waiting.
- *       Include the join in the cancellation, have the canceling RPC report a result for the
- *       canceled branch with {@link #reportBranchResult}, or give the join a Timer deadline.</li>
+ *   <li>A canceled branch never reports, and no other code can safely report for it. Dex decides
+ *       at commit time whether a cancellation takes effect, so the code that cancels a branch
+ *       cannot know whether the branch already reported. If it did, the cancellation does nothing,
+ *       and an extra report counts that branch twice, so an all-branches join can fire while
+ *       another branch has not reported. To keep an all-branches join from waiting forever for a
+ *       canceled branch, cancel the join Step together with its branches, or wait on
+ *       {@link Wait#anyOf} with the join condition and a Timer and handle the timeout in
+ *       Execute.</li>
+ *   <li>Never reset a cancelling join's round with {@link #forRemainingBranches}: it waits for
+ *       results that canceled branches never report. The next round forks a new round without the
+ *       reset wait, as the first round does. The canceled round's late results stay until the Flow
+ *       closes.</li>
  *   <li>Canceling a join Step after its wait matched but before its Execute committed makes the
  *       round unable to fire again, unless the Dex Server returns a canceled Step's consumed
  *       messages to their Channel. Check the server change log for that behavior before
@@ -391,9 +397,12 @@ public final class Join<T> extends PersistenceDefinition {
     /**
      * Reports this branch's result without ending the branch.
      *
-     * <p>Use it when a branch continues after reporting, or from an RPC that reports on behalf of a
-     * branch it canceled. The result is published to the round's ChannelMap instance and commits
-     * together with the current method. Each branch reports exactly once per round.
+     * <p>Use it when a branch continues after reporting, for example when a multi-Step branch
+     * reports from a Step other than its last. An RPC that forked a round with
+     * {@link #forkWithRoundKey} can also report results for that round. The result is published to
+     * the round's ChannelMap instance and commits together with the current method. Each branch
+     * reports exactly once per round. Never report for a canceled branch; see the {@link Join}
+     * rules.
      *
      * @param context the Step or RPC invocation context
      * @param round the round of the branch
@@ -543,8 +552,8 @@ public final class Join<T> extends PersistenceDefinition {
      * which has no previous round, return {@link Wait#skipImmediately()} instead.
      *
      * <p>Count only the results the join consumed. The reset waits for every other branch of the
-     * round, so it never completes while a canceled branch has no reported result. Do not reset
-     * the round of a cancelling join unless an RPC reported a result for each canceled branch.
+     * round, so it never completes while a canceled branch has no reported result. Never reset the
+     * round of a cancelling join; the next round forks a new round without this reset.
      *
      * @param round the previous round
      * @param receivedCount the number of results already consumed from that round, which is the

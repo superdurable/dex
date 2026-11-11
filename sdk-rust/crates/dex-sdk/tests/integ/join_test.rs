@@ -255,7 +255,8 @@ fn test_join_first_branch_cancels_sibling_branches() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
-fn test_join_rpc_reports_for_a_canceled_branch() {
+fn test_join_rpc_reports_a_branch_result() {
+    // Branch reported-b waits for a release the test never sends, so only the RPC reports for it.
     let run = JoinScenarioRun::start(
         JoinScenario::RpcReportsCanceledBranch,
         "rust-join-rpc-reports-canceled",
