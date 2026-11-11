@@ -7,11 +7,13 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 
 from dex._message_size import validate_grpc_max_message_bytes
 from dex.credential import Credential
+from dex.flow_definition import FlowDefinitionDocument
 from dex.flow_service_tls_options import FlowServiceTlsOptions
 
 
@@ -147,6 +149,51 @@ class WorkerOptions:
             limits both directions. A negative value raises ``ValueError``.
 
             .. versionadded:: 1.38.0
+        flow_definition_paths: Flow Definition Graph (FDG 2.0) JSON files, or
+            directories searched recursively for ``*.json`` files, that the
+            Worker uploads when it starts. Defaults to none. Each file's
+            ``flow.name`` is its Flow type. Its top-level ``generatedAt``
+            (RFC 3339) is the generation time; without it the file's
+            modification time is used. Files are read when the Worker is
+            constructed. See "Flow definitions" below.
+
+            .. versionadded:: 1.45.0
+        flow_definitions: In-memory FDG documents that the Worker uploads when
+            it starts. Defaults to none. Use them when the application renders
+            its graph in code. See ``FlowDefinitionDocument``.
+
+            .. versionadded:: 1.45.0
+
+    Flow definitions:
+        Dex Web draws a run's graph from the Flow definition that the Server
+        stores for its Flow type. A Worker configured with
+        ``flow_definition_paths`` or ``flow_definitions`` uploads them once per
+        start, after protocol negotiation and Attribute index synchronization
+        and before it opens task streams. It uploads only definitions whose Flow
+        type this Worker registers and logs the skipped ones at INFO level. It
+        rewrites an absolute ``source.path`` inside each document to a path
+        relative to the current working directory, or to the file name.
+
+        The Server replaces a stored definition only with a different one
+        generated later. The Worker logs created and replaced definitions at
+        INFO, unchanged ones at DEBUG, and a kept newer definition at WARNING.
+        Upload failures, including a Server without this API, are logged at
+        WARNING and never stop the Worker from starting. Use
+        ``Client.upload_flow_definitions`` with ``force=True`` to roll a
+        definition back.
+
+        The Worker constructor raises ``ValueError`` for a missing path, a file
+        that is not a JSON object with a ``flow.name`` string, an invalid
+        ``generatedAt``, an in-memory document whose ``flow.name`` differs from
+        its Flow type, or two definitions for the same Flow type from any
+        sources.
+
+    Examples:
+        >>> options = WorkerOptions(
+        ...     server_address="dex.internal:8801",
+        ...     flow_definition_paths=("build/flow-definitions",),
+        ... )
+        >>> worker = Worker(registry, cache, options)
     """
 
     server_address: str = "localhost:8801"
@@ -155,9 +202,22 @@ class WorkerOptions:
     credential: Credential | None = None
     flow_service_tls: FlowServiceTlsOptions | None = None
     grpc_max_message_bytes: int = 0
+    flow_definition_paths: Sequence[str | os.PathLike[str]] = ()
+    flow_definitions: Sequence[FlowDefinitionDocument] = ()
 
     def __post_init__(self) -> None:
         validate_grpc_max_message_bytes(self.grpc_max_message_bytes)
+        if isinstance(self.flow_definition_paths, (str, bytes, os.PathLike)):
+            raise TypeError("flow_definition_paths must be a sequence of paths")
+        object.__setattr__(
+            self, "flow_definition_paths", tuple(self.flow_definition_paths)
+        )
+        object.__setattr__(self, "flow_definitions", tuple(self.flow_definitions))
+        for document in self.flow_definitions:
+            if not isinstance(document, FlowDefinitionDocument):
+                raise TypeError(
+                    "flow_definitions must contain FlowDefinitionDocument values"
+                )
         if self.pull is None:
             raise ValueError(
                 "push Workers are no longer supported; use PullWorkerOptions() instead of pull=None"

@@ -17,6 +17,11 @@ from google.protobuf import empty_pb2
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex._credential_transport import AsyncCredentialRunner, async_channel
+from dex._flow_definition_upload import (
+    flow_definition_uploader,
+    prepare_flow_definitions,
+    upload_worker_flow_definitions_async,
+)
 from dex._flow_service_tls import flow_service_transport
 from dex._pull_worker import PullWorkerRuntime, resolve_app_worker_id
 from dex._server_protocol import (
@@ -71,10 +76,19 @@ class AsyncWorker:
         Raises:
             ValueError: If the pull Worker ID or configured TLS address, server
                 name, or CA bundle is invalid, or default roots cannot be loaded.
+                Also raised when a configured Flow definition cannot be loaded
+                or two Flow definitions describe the same Flow type.
+
+        .. versionchanged:: 1.45.0
+           Loads ``flow_definition_paths`` and ``flow_definitions`` and raises
+           ``ValueError`` for an invalid or duplicate Flow definition.
         """
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or WorkerOptions()
+        self._flow_definitions = prepare_flow_definitions(
+            self.options.flow_definition_paths, self.options.flow_definitions
+        )
         transport = flow_service_transport(
             self.options.server_address, self.options.flow_service_tls
         )
@@ -153,6 +167,10 @@ class AsyncWorker:
 
         .. versionchanged:: 1.35.0
            Requires Server protocol 4 and fails above matching.maxConcurrentTasksCap.
+
+        .. versionchanged:: 1.45.0
+           Uploads the configured Flow definitions before opening task streams.
+           An upload failure is logged as a warning and does not fail start.
 
         Raises:
             PullRegistrationError: A permanent stream rejection stops this Worker.
@@ -288,6 +306,15 @@ class AsyncWorker:
             await self._close_failed_start_channel()
             self._stopped.set()
             raise RuntimeError("cannot synchronize Attribute indexes") from failure
+        await upload_worker_flow_definitions_async(
+            lambda request: self._flow_service.UploadFlowDefinitions(
+                request,
+                timeout=self.options.attribute_index_sync_timeout.total_seconds(),
+            ),
+            self._flow_definitions,
+            self.registry._registered_flows.keys(),
+            flow_definition_uploader(self._sdk_version),
+        )
         self._state = "running"
         await self._pull.run()
         self._stopped.set()
