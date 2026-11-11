@@ -241,6 +241,7 @@ mcp = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", marker = "extra == 's3'", specifier = ">=1.35,<2" },
     { name = "dex-connectors-sdk", marker = "extra == 'connectors'", specifier = "==0.9.0" },
     { name = "dex-python-sdk", specifier = "==1.38.0" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
@@ -248,7 +249,7 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20,<2" },
 ]
-provides-extras = ["mcp", "otel", "litellm", "connectors"]
+provides-extras = ["mcp", "otel", "litellm", "connectors", "s3"]
 
 [package.metadata.requires-dev]
 dev = [
