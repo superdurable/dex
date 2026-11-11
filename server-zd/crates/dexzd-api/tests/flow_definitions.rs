@@ -663,3 +663,88 @@ async fn get_stops_reading_once_the_response_budget_is_spent() {
         .unwrap();
     assert_eq!(response.definitions.len(), 2);
 }
+
+#[tokio::test]
+async fn list_pages_past_a_foreign_key_longer_than_any_flow_definition_key() {
+    let store = Arc::new(InMemoryObjectStore::new());
+    let definitions = flow_definitions(store.clone());
+    definitions
+        .upload_flow_definitions(
+            TenantId::DEFAULT,
+            request(vec![upload("Alpha", 1, 1), upload("zeta", 1, 1)]),
+        )
+        .await
+        .unwrap();
+    // "long/..." sorts between "Alpha" and "zeta", so it ends the second one-key page.
+    let long_foreign_key = format!("{TYPES_PREFIX}long/{}", "x".repeat(2_000));
+    store
+        .put(
+            &long_foreign_key,
+            Bytes::from_static(b"foreign"),
+            WriteCondition::Unconditional,
+        )
+        .await
+        .unwrap();
+    let mut listed = Vec::new();
+    let mut next_page_token = String::new();
+    let mut pages = 0;
+    loop {
+        let page = definitions
+            .list_flow_definitions(
+                TenantId::DEFAULT,
+                ListFlowDefinitionsRequest {
+                    page_size: 1,
+                    next_page_token,
+                },
+            )
+            .await
+            .unwrap();
+        pages += 1;
+        listed.extend(page.flow_types);
+        if page.next_page_token.is_empty() {
+            break;
+        }
+        next_page_token = page.next_page_token;
+    }
+    assert_eq!(listed, vec!["Alpha".to_owned(), "zeta".to_owned()]);
+    assert!(pages >= 3, "the long foreign key ended a page");
+}
+
+#[tokio::test]
+async fn a_stored_object_above_the_read_cap_fails_upload_as_internal() {
+    let store = Arc::new(InMemoryObjectStore::new());
+    let writer = flow_definitions(store.clone());
+    let mut large = upload("Large", 1, 1);
+    large.content = format!(
+        r#"{{"schemaVersion":"2.0","flow":{{"name":"Large"}},"pad":"{}"}}"#,
+        "x".repeat(2_000)
+    )
+    .into_bytes();
+    writer
+        .upload_flow_definitions(TenantId::DEFAULT, request(vec![large]))
+        .await
+        .unwrap();
+    let config = config_with(|config| config.max_response_bytes = 1_000);
+    let reader = flow_definitions_with_config(store.clone(), &config);
+    let status = reader
+        .upload_flow_definitions(TenantId::DEFAULT, request(vec![upload("Large", 2, 2)]))
+        .await
+        .unwrap_err()
+        .into_status();
+    assert_eq!(status.code(), Code::Internal, "{status:?}");
+    let status = reader
+        .get_flow_definitions(
+            TenantId::DEFAULT,
+            GetFlowDefinitionsRequest {
+                flow_types: vec!["Large".to_owned()],
+            },
+        )
+        .await
+        .unwrap_err()
+        .into_status();
+    assert_eq!(status.code(), Code::ResourceExhausted);
+    assert_eq!(
+        sub_status(&status),
+        ErrorSubStatus::FlowDefinitionResponseTooLarge
+    );
+}

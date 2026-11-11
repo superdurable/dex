@@ -32,9 +32,9 @@ pub use flow_definitions_config::FlowDefinitionsConfig;
 
 use self::flow_definition_digest::FlowDefinitionDigest;
 use self::flow_definition_store::{
-    FlowDefinitionRead, StoredFlowDefinition, decode_canonical_key_segment, decode_page_token,
-    encode_page_token, flow_definition_key, flow_definition_types_prefix, object_store_unavailable,
-    read_flow_definition,
+    FlowDefinitionRead, MAX_PAGE_TOKEN_SEGMENT_BYTES, StoredFlowDefinition,
+    decode_canonical_key_segment, decode_page_token, encode_page_token, flow_definition_key,
+    flow_definition_types_prefix, object_store_unavailable, read_flow_definition,
 };
 use self::upload_validation::{
     ValidatedUpload, unix_micros_timestamp, validate_requested_flow_types, validate_upload_request,
@@ -146,7 +146,18 @@ impl FlowDefinitions {
             }
         }
         let next_page_token = match listing.next_start_after {
-            Some(key) => encode_page_token(stored_key_segment(&prefix, &key)?),
+            Some(key) => {
+                let segment = stored_key_segment(&prefix, &key)?;
+                if segment.len() > MAX_PAGE_TOKEN_SEGMENT_BYTES {
+                    return Err(FlowOperationError::Internal {
+                        detail: format!(
+                            "listed object key under {prefix} is {} bytes, longer than any page token",
+                            key.len()
+                        ),
+                    });
+                }
+                encode_page_token(segment)
+            }
             None => String::new(),
         };
         Ok(ListFlowDefinitionsResponse {

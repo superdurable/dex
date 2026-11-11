@@ -19,6 +19,8 @@ use crate::FlowOperationError;
 
 /// Longest full object key, including the store prefix; S3 keys hold at most 1024 bytes.
 const MAX_OBJECT_KEY_BYTES: usize = 1024;
+/// Longest key segment a page token carries; above any key S3 (1 KiB) or db9 indexes (under 3 KiB) hold.
+pub(super) const MAX_PAGE_TOKEN_SEGMENT_BYTES: usize = 64 * 1024;
 
 /// One stored record, checked against its key, with the ETag that conditional replacement needs.
 #[derive(Debug, Clone)]
@@ -80,12 +82,12 @@ pub(super) fn encode_page_token(start_after_segment: &str) -> String {
 
 /// Decodes an untrusted page token; `None` unless this server could have returned it.
 pub(super) fn decode_page_token(token: &str) -> Option<String> {
-    if token.len() > MAX_OBJECT_KEY_BYTES.div_ceil(3) * 4 {
+    if token.len() > MAX_PAGE_TOKEN_SEGMENT_BYTES.div_ceil(3) * 4 {
         return None;
     }
     let bytes = URL_SAFE_NO_PAD.decode(token).ok()?;
     let segment = String::from_utf8(bytes).ok()?;
-    (!segment.is_empty() && segment.len() <= MAX_OBJECT_KEY_BYTES).then_some(segment)
+    (!segment.is_empty() && segment.len() <= MAX_PAGE_TOKEN_SEGMENT_BYTES).then_some(segment)
 }
 
 /// Percent-encodes every byte outside `[A-Za-z0-9._-]`, and the dots of `.` and `..`.
@@ -232,6 +234,13 @@ mod tests {
                 Some(segment)
             );
         }
+        let longest = "x".repeat(MAX_PAGE_TOKEN_SEGMENT_BYTES);
+        assert_eq!(
+            decode_page_token(&encode_page_token(&longest)).as_deref(),
+            Some(longest.as_str())
+        );
+        let too_long = "x".repeat(MAX_PAGE_TOKEN_SEGMENT_BYTES + 1);
+        assert_eq!(decode_page_token(&encode_page_token(&too_long)), None);
         assert_eq!(decode_page_token("not base64!"), None);
         assert_eq!(decode_page_token(&URL_SAFE_NO_PAD.encode([0xFF])), None);
     }

@@ -398,7 +398,9 @@ and the **FLOW_DEFINITION_INVALID** sub-status before anything is stored:
 - more than 256 items, or one Flow type twice;
 - an empty Flow type, one longer than **matching.maxFlowTypeLength** bytes, or
   one whose percent-encoded object key, with **objectStore.prefix**, would be
-  longer than 1024 bytes;
+  longer than 1024 bytes. The check is conservative: a non-empty prefix counts
+  as its length plus one byte with every object store, so a key of exactly
+  1024 bytes may be rejected;
 - content larger than [**flowDefinitions.maxDefinitionBytes**](/reference/server/configuration#flow-definitions);
 - content that is not a JSON object, nests objects and arrays more than 128
   levels deep, lacks a **schemaVersion** that starts with **2.**, or has a
@@ -432,9 +434,11 @@ between calls. See
 [Object storage layout](/reference/server/object-storage#flow-definitions).
 There is no delete operation yet. A failure to read or write object storage
 returns **UNAVAILABLE**. A stored object that does not decode, names another
-Flow type, has a digest that does not match its content, or is larger than
-**api.grpcMaxMessageBytes** fails Upload and Get for that Flow type with
-**INTERNAL**. In [request metrics](/reference/server/metrics),
+Flow type, or has a digest that does not match its content fails Upload and
+Get for that Flow type with **INTERNAL**. A stored object larger than
+**api.grpcMaxMessageBytes** fails Upload with **INTERNAL**, and fails Get with
+**RESOURCE_EXHAUSTED** and the **FLOW_DEFINITION_RESPONSE_TOO_LARGE**
+sub-status. In [request metrics](/reference/server/metrics),
 uploads count as **flow_write**, and lists and gets as **flow_read**.
 
 ## Time travel {#time-travel}
