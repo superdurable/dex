@@ -83,7 +83,9 @@ class BuiltinHarness:
             tool_sources=list(context.tool_sources),
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
         )
-        return builtin_agent_session_flow(definition, flow_type=context.flow_type)
+        return builtin_agent_session_flow(
+            definition, flow_type=context.flow_type, media_store=context.media_store
+        )
 
 
 def validate_builtin_section(options: Mapping[str, Any]) -> None:

@@ -286,10 +286,11 @@ for the Dex SDK and framework versions each release supports.
   attaches it to the next message; a harness whose runner takes no images
   says the message was not sent. **HarnessContext.media_store**
   (`mediaStore`) hands the store to the harness, and connector tool images go
-  to the same store. The Claude Agent SDK, OpenAI Agents SDK, Pydantic AI,
-  Deep Agents, and Google ADK commands in Python and the Claude Agent SDK,
-  OpenAI Agents SDK, Vercel AI SDK, and Mastra commands in TypeScript pass the
-  store to their adapter, so their models see the images. See
+  to the same store. The built-in, Claude Agent SDK, OpenAI Agents SDK,
+  Pydantic AI, Deep Agents, and Google ADK commands in Python and the
+  built-in, Claude Agent SDK, OpenAI Agents SDK, Vercel AI SDK, and Mastra
+  commands in TypeScript pass the store to their runner or adapter, so their
+  models see the images. See
   [Images](cli/README.md#images).
 
 ### Changed
