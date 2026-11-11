@@ -90,7 +90,7 @@ export interface AgentHarness {
   /**
    * The base Flow type of the command's sessions, such as `DexAgentsClaudeSdkCliSession`. Keep it stable.
    *
-   * The runtime registers `<flowType>-<hash>`, from `namespaceSessionFlowType`, where the hash covers the
+   * The runtime registers `<flowType>-<suffix>`, from `namespaceSessionFlowType`, where the suffix hashes the
    * host name, the user, the configuration file's real path, and the workspace. A Worker then takes only the
    * Steps of sessions started in the same execution environment, so an approved write or shell command runs
    * where it was approved. Processes in the same environment share their sessions' Steps. `--resume` and the

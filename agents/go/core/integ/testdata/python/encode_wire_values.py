@@ -179,7 +179,11 @@ EVENT = AgentEvent(
 )
 
 VALUES: list[tuple[str, type, object]] = [
-    ("AgentSessionStartInput", AgentSessionStartInput, AgentSessionStartInput(initial_message="hi")),
+    (
+        "AgentSessionStartInput",
+        AgentSessionStartInput,
+        AgentSessionStartInput(initial_message="hi", start_environment={"host_name": "h\u00f6st"}),
+    ),
     ("AgentState", AgentState, STATE),
     ("AgentMessage", AgentMessage, MESSAGE),
     *((f"AgentToolCall/{call.tool_call_id}", AgentToolCall, call) for call in TOOL_CALLS),
