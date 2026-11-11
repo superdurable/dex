@@ -2159,6 +2159,7 @@ checked against the code at `55721e878`.
 | F34 | The retry definition also matched the word's first StartFlow, which sets `ignore_already_started_error` and has its own request ID, so `w↓` deleted the real start. | **Fixed.** A retry is a StartFlow request at a position after the first one, with the first one's request ID. `w↓`, HP, and Appendix A, item 66, use this definition. Section 11.3. |
 | F35 | FI said every element of `I` takes [RECOVER-INTERRUPT], but a [CRASH] empties `I` and [RECOVER] rebuilds it from durable state. Found while writing the Lean definitions. | **Fixed.** FI says every element eventually leaves `I`; after the last [RECOVER] each takes [RECOVER-INTERRUPT]. Section 11.5. |
 | F36 | The liveness equality was false in the Dex-to-DexF direction for words with retries: retries advance the stamp and can change a timer race. Found by review of the Lean statements, with a kernel-checked failure-free trace. | **Fixed** [decision]: the forward inclusion holds for every word; the reverse inclusion is stated for words without retries. Section 11.5. |
+| F37 | Section 11.5 recommends effects fenced by attempt, but such a handler reads the attempt number, which H3 excludes. Found while writing the paper. | **Fixed.** The text says an attempt-fenced handler is outside H3 and still good practice. Section 11.5. |
 
 ## 11. Failures
 
@@ -3121,6 +3122,9 @@ earlier `out(x)` with the same value, not to repeat a particular `emit`.
   mean commutative. A zombie's late `set x = 1` can overwrite a later
   `set x = 2`, though each call is idempotent. Exactly-once in effect needs
   more: idempotency keys, commutative effects, or effects fenced by attempt.
+  An effect fenced by attempt carries the attempt number, so the handler
+  reads attempt-varying context and is outside H3. Such a handler is still
+  good practice; the theorem just does not cover it.
 - Anything about physical time. A timer fires no earlier than its fire time
   in stamps (D6); a host clock that runs ahead can fire it early in real
   time.
