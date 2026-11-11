@@ -93,10 +93,10 @@ func (ConfirmRegistration) Execute(dex.Context, dex.None) (*dex.StepDecision, er
 var (
 	StartedReviewersAttributeMap = dex.DefineAttributeMap[bool]("startedReviewers")
 	ReviewGateOpenedChannel      = dex.DefineChannel[string]("reviewGateOpened")
-	ReviewCompletedChannel       = dex.DefineChannel[string]("reviewCompleted")
+	ReviewCompletedJoin          = dex.DefineJoin[string]("reviewCompleted")
 	reviewSchema                 = dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{StartedReviewersAttributeMap},
-		Channels:   []dex.ChannelDef{ReviewGateOpenedChannel, ReviewCompletedChannel},
+		Channels:   []dex.ChannelDef{ReviewGateOpenedChannel, ReviewCompletedJoin},
 	}
 	loadStartedReviewersOptions = &dex.RPCOptions{
 		LoadAttributeMaps: []dex.AttributeDef{StartedReviewersAttributeMap},
@@ -139,8 +139,8 @@ type StartDesignTimeReviews struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (StartDesignTimeReviews) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
-	return startReviewInstances([]string{"legal", "finance", "security"}), nil
+func (StartDesignTimeReviews) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return startReviewInstances(ctx, []string{"legal", "finance", "security"})
 }
 
 // RunTimeMultipleInstancesFlow implements WCP-14 with an instance count from the input.
@@ -179,40 +179,53 @@ type StartRunTimeReviews struct {
 	dex.StepDefaultsNoWaitFor[[]string]
 }
 
-func (StartRunTimeReviews) Execute(_ dex.Context, reviewers []string) (*dex.StepDecision, error) {
-	return startReviewInstances(reviewers), nil
+func (StartRunTimeReviews) Execute(ctx dex.Context, reviewers []string) (*dex.StepDecision, error) {
+	return startReviewInstances(ctx, reviewers)
 }
 
-func startReviewInstances(reviewers []string) *dex.StepDecision {
-	movements := make([]dex.StepMovement, 0, len(reviewers)+1)
+func startReviewInstances(ctx dex.Context, reviewers []string) (*dex.StepDecision, error) {
+	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, len(reviewers))
 	for _, reviewer := range reviewers {
-		movements = append(movements, dex.MovementOf(ReviewDocument{}, reviewer))
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(ReviewDocument{}, ReviewerBranch{Reviewer: reviewer, Round: round})
+		})
 	}
-	movements = append(movements, dex.MovementOf(CollectReviews{}, len(reviewers)))
-	return dex.GoToMany(movements...)
+	movements, err := ReviewCompletedJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(CollectReviews{}, round)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return dex.GoToMany(movements...), nil
+}
+
+// ReviewerBranch is the input of one ReviewDocument instance.
+type ReviewerBranch struct {
+	Reviewer string        `json:"reviewer"`
+	Round    dex.JoinRound `json:"round"`
 }
 
 type ReviewDocument struct{ dex.StepDefaults }
 
-func (ReviewDocument) WaitFor(ctx dex.Context, reviewer string) (*dex.Wait, error) {
-	if err := StartedReviewersAttributeMap.Set(ctx, reviewer, true); err != nil {
+func (ReviewDocument) WaitFor(ctx dex.Context, branch ReviewerBranch) (*dex.Wait, error) {
+	if err := StartedReviewersAttributeMap.Set(ctx, branch.Reviewer, true); err != nil {
 		return nil, err
 	}
 	return dex.Until(ReviewGateOpenedChannel.ForOne()), nil
 }
 
-func (ReviewDocument) Execute(ctx dex.Context, reviewer string) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, ReviewCompletedChannel, reviewer)
+func (ReviewDocument) Execute(ctx dex.Context, branch ReviewerBranch) (*dex.StepDecision, error) {
+	return ReviewCompletedJoin.EndBranch(ctx, branch.Round, branch.Reviewer)
 }
 
 type CollectReviews struct{ dex.StepDefaults }
 
-func (CollectReviews) WaitFor(_ dex.Context, reviewerCount int) (*dex.Wait, error) {
-	return dex.Until(ReviewCompletedChannel.ForN(reviewerCount)), nil
+func (CollectReviews) WaitFor(_ dex.Context, round dex.JoinRound) (*dex.Wait, error) {
+	return dex.Until(ReviewCompletedJoin.ForAllBranches(round)), nil
 }
 
-func (CollectReviews) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	reviewers, err := ReviewCompletedChannel.GetConditionResults(ctx)
+func (CollectReviews) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	reviewers, err := ReviewCompletedJoin.BranchResults(ctx, round)
 	if err != nil {
 		return nil, err
 	}
@@ -390,8 +403,9 @@ func (ReportSamples) Execute(_ dex.Context, analyzed []string) (*dex.StepDecisio
 }
 
 var (
-	InspectionReleasedChannel = dex.DefineChannel[string]("inspectionReleased")
-	UnitInspectedChannelMap   = dex.DefineChannelMap[int]("unitInspected")
+	InspectionReleasedChannel   = dex.DefineChannel[string]("inspectionReleased")
+	UnitInspectedJoin           = dex.DefineJoin[int]("unitInspected")
+	IgnoredInspectionsAttribute = dex.DefineAttribute[InspectedUnits]("ignoredInspections")
 )
 
 // InspectionPlan sets how many units run and how many complete the join.
@@ -402,16 +416,23 @@ type InspectionPlan struct {
 
 // InspectionRound is the input of one static partial join round.
 type InspectionRound struct {
-	InspectionCount     int `json:"inspectionCount"`
-	RequiredInspections int `json:"requiredInspections"`
-	Round               int `json:"round"`
-	RoundCount          int `json:"roundCount"`
+	InspectionCount     int            `json:"inspectionCount"`
+	RequiredInspections int            `json:"requiredInspections"`
+	Round               int            `json:"round"`
+	RoundCount          int            `json:"roundCount"`
+	PreviousRound       *dex.JoinRound `json:"previousRound,omitempty"`
+}
+
+// InspectionJoinInput is the input of the AcceptInspections join of one round.
+type InspectionJoinInput struct {
+	Inspection InspectionRound `json:"inspection"`
+	JoinRound  dex.JoinRound   `json:"joinRound"`
 }
 
 // UnitInspection identifies one inspection instance of one round.
 type UnitInspection struct {
-	Round     int `json:"round"`
-	UnitIndex int `json:"unitIndex"`
+	JoinRound dex.JoinRound `json:"joinRound"`
+	UnitIndex int           `json:"unitIndex"`
 }
 
 // InspectedUnits lists the unit indexes one join or reset consumed in a round.
@@ -420,7 +441,8 @@ type InspectedUnits struct {
 	UnitIndexes []int `json:"unitIndexes"`
 }
 
-// StaticPartialJoinForMultipleInstancesFlow implements WCP-34 with a per-round join and reset Step.
+// StaticPartialJoinForMultipleInstancesFlow implements WCP-34: each round joins n
+// of m instances, and the next round first resets the previous one.
 type StaticPartialJoinForMultipleInstancesFlow struct{ dex.FlowDefaults }
 
 func (*StaticPartialJoinForMultipleInstancesFlow) GetSteps() []dex.StepDef {
@@ -429,7 +451,6 @@ func (*StaticPartialJoinForMultipleInstancesFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(InspectUnit{}),
 		dex.DefineStep(AcceptInspections{}),
 		dex.DefineStep(ApproveBatch{}),
-		dex.DefineStep(ResetInspectionJoin{}),
 	}
 }
 
@@ -439,7 +460,8 @@ func (flow *StaticPartialJoinForMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
 
 func (*StaticPartialJoinForMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Channels: []dex.ChannelDef{InspectionReleasedChannel, UnitInspectedChannelMap},
+		Attributes: []dex.AttributeDef{IgnoredInspectionsAttribute},
+		Channels:   []dex.ChannelDef{InspectionReleasedChannel, UnitInspectedJoin},
 	}
 }
 
@@ -454,16 +476,39 @@ func (*StaticPartialJoinForMultipleInstancesFlow) ReleaseInspections(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-type StartInspections struct {
-	dex.StepDefaultsNoWaitFor[InspectionRound]
+// StartInspections resets the previous round, then starts the next one.
+type StartInspections struct{ dex.StepDefaults }
+
+func (StartInspections) WaitFor(_ dex.Context, round InspectionRound) (*dex.Wait, error) {
+	if round.PreviousRound == nil {
+		return dex.SkipWaitImmediately(), nil
+	}
+	return dex.Until(UnitInspectedJoin.ForRemainingBranches(*round.PreviousRound, round.RequiredInspections)), nil
 }
 
-func (StartInspections) Execute(_ dex.Context, round InspectionRound) (*dex.StepDecision, error) {
-	movements := make([]dex.StepMovement, 0, round.InspectionCount+1)
-	for unitIndex := range round.InspectionCount {
-		movements = append(movements, dex.MovementOf(InspectUnit{}, UnitInspection{Round: round.Round, UnitIndex: unitIndex}))
+func (StartInspections) Execute(ctx dex.Context, round InspectionRound) (*dex.StepDecision, error) {
+	if round.PreviousRound != nil {
+		ignoredIndexes, err := UnitInspectedJoin.RemainingBranchResults(ctx, *round.PreviousRound)
+		if err != nil {
+			return nil, err
+		}
+		ignored := InspectedUnits{Round: round.Round - 1, UnitIndexes: sortedCopy(ignoredIndexes)}
+		if err := IgnoredInspectionsAttribute.Set(ctx, ignored); err != nil {
+			return nil, err
+		}
 	}
-	movements = append(movements, dex.MovementOf(AcceptInspections{}, round))
+	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, round.InspectionCount)
+	for unitIndex := range round.InspectionCount {
+		branchBuilders = append(branchBuilders, func(joinRound dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(InspectUnit{}, UnitInspection{JoinRound: joinRound, UnitIndex: unitIndex})
+		})
+	}
+	movements, err := UnitInspectedJoin.Fork(ctx, branchBuilders, func(joinRound dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(AcceptInspections{}, InspectionJoinInput{Inspection: round, JoinRound: joinRound})
+	})
+	if err != nil {
+		return nil, err
+	}
 	return dex.GoToMany(movements...), nil
 }
 
@@ -474,27 +519,31 @@ func (InspectUnit) WaitFor(dex.Context, UnitInspection) (*dex.Wait, error) {
 }
 
 func (InspectUnit) Execute(ctx dex.Context, inspection UnitInspection) (*dex.StepDecision, error) {
-	if err := UnitInspectedChannelMap.Publish(ctx, roundInstance(inspection.Round), inspection.UnitIndex); err != nil {
-		return nil, err
-	}
-	return dex.DeadEnd(), nil
+	return UnitInspectedJoin.EndBranch(ctx, inspection.JoinRound, inspection.UnitIndex)
 }
 
 type AcceptInspections struct{ dex.StepDefaults }
 
-func (AcceptInspections) WaitFor(_ dex.Context, round InspectionRound) (*dex.Wait, error) {
-	return dex.Until(UnitInspectedChannelMap.ForN(roundInstance(round.Round), round.RequiredInspections)), nil
+func (AcceptInspections) WaitFor(_ dex.Context, input InspectionJoinInput) (*dex.Wait, error) {
+	return dex.Until(UnitInspectedJoin.ForBranches(input.JoinRound, input.Inspection.RequiredInspections)), nil
 }
 
-func (AcceptInspections) Execute(ctx dex.Context, round InspectionRound) (*dex.StepDecision, error) {
-	indexes, err := UnitInspectedChannelMap.GetConditionResults(ctx, roundInstance(round.Round))
+func (AcceptInspections) Execute(ctx dex.Context, input InspectionJoinInput) (*dex.StepDecision, error) {
+	indexes, err := UnitInspectedJoin.BranchResults(ctx, input.JoinRound)
 	if err != nil {
 		return nil, err
 	}
-	return dex.GoToMany(
+	round := input.Inspection
+	movements := []dex.StepMovement{
 		dex.MovementOf(ApproveBatch{}, InspectedUnits{Round: round.Round, UnitIndexes: sortedCopy(indexes)}),
-		dex.MovementOf(ResetInspectionJoin{}, round),
-	), nil
+	}
+	if round.Round < round.RoundCount {
+		next := round
+		next.Round++
+		next.PreviousRound = &input.JoinRound
+		movements = append(movements, dex.MovementOf(StartInspections{}, next))
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type ApproveBatch struct {
@@ -505,33 +554,9 @@ func (ApproveBatch) Execute(_ dex.Context, approved InspectedUnits) (*dex.StepDe
 	return dex.GracefulComplete(approved), nil
 }
 
-// ResetInspectionJoin consumes the rest of the round, then re-enables the join.
-type ResetInspectionJoin struct{ dex.StepDefaults }
-
-func (ResetInspectionJoin) WaitFor(_ dex.Context, round InspectionRound) (*dex.Wait, error) {
-	remainingInspections := round.InspectionCount - round.RequiredInspections
-	if remainingInspections == 0 {
-		return dex.SkipWaitImmediately(), nil
-	}
-	return dex.Until(UnitInspectedChannelMap.ForN(roundInstance(round.Round), remainingInspections)), nil
-}
-
-func (ResetInspectionJoin) Execute(ctx dex.Context, round InspectionRound) (*dex.StepDecision, error) {
-	indexes, err := UnitInspectedChannelMap.GetConditionResults(ctx, roundInstance(round.Round))
-	if err != nil {
-		return nil, err
-	}
-	if round.Round < round.RoundCount {
-		next := round
-		next.Round++
-		return dex.GoTo(StartInspections{}, next), nil
-	}
-	return dex.GracefulComplete(InspectedUnits{Round: round.Round, UnitIndexes: sortedCopy(indexes)}), nil
-}
-
 var (
 	QuorumInspectionReleasedChannel = dex.DefineChannel[string]("quorumInspectionReleased")
-	QuorumUnitInspectedChannel      = dex.DefineChannel[int]("quorumUnitInspected")
+	QuorumUnitInspectedJoin         = dex.DefineJoin[int]("quorumUnitInspected")
 	QuorumCertifiedChannel          = dex.DefineChannel[string]("quorumCertified")
 )
 
@@ -562,7 +587,7 @@ func (*CancellingPartialJoinForMultipleInstancesFlow) GetPersistenceSchema() dex
 	return dex.PersistenceSchema{
 		Channels: []dex.ChannelDef{
 			QuorumInspectionReleasedChannel,
-			QuorumUnitInspectedChannel,
+			QuorumUnitInspectedJoin,
 			QuorumCertifiedChannel,
 		},
 	}
@@ -606,37 +631,53 @@ type StartQuorumInspections struct {
 	dex.StepDefaultsNoWaitFor[InspectionPlan]
 }
 
-func (StartQuorumInspections) Execute(_ dex.Context, plan InspectionPlan) (*dex.StepDecision, error) {
-	movements := make([]dex.StepMovement, 0, plan.InspectionCount+1)
-	for index := range plan.InspectionCount {
-		movements = append(movements, dex.MovementOf(InspectQuorumUnit{}, index))
+func (StartQuorumInspections) Execute(ctx dex.Context, plan InspectionPlan) (*dex.StepDecision, error) {
+	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, plan.InspectionCount)
+	for unitIndex := range plan.InspectionCount {
+		branchBuilders = append(branchBuilders, func(joinRound dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(InspectQuorumUnit{}, UnitInspection{JoinRound: joinRound, UnitIndex: unitIndex})
+		})
 	}
-	movements = append(movements, dex.MovementOf(AcceptQuorumInspections{}, plan.RequiredInspections))
+	movements, err := QuorumUnitInspectedJoin.Fork(ctx, branchBuilders, func(joinRound dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(AcceptQuorumInspections{}, QuorumJoinInput{
+			RequiredInspections: plan.RequiredInspections,
+			JoinRound:           joinRound,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
 	return dex.GoToMany(movements...), nil
+}
+
+// QuorumJoinInput is the input of the AcceptQuorumInspections join.
+type QuorumJoinInput struct {
+	RequiredInspections int           `json:"requiredInspections"`
+	JoinRound           dex.JoinRound `json:"joinRound"`
 }
 
 type InspectQuorumUnit struct{ dex.StepDefaults }
 
-func (InspectQuorumUnit) WaitFor(dex.Context, int) (*dex.Wait, error) {
+func (InspectQuorumUnit) WaitFor(dex.Context, UnitInspection) (*dex.Wait, error) {
 	return dex.Until(QuorumInspectionReleasedChannel.ForOne()), nil
 }
 
-func (InspectQuorumUnit) Execute(ctx dex.Context, index int) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, QuorumUnitInspectedChannel, index)
+func (InspectQuorumUnit) Execute(ctx dex.Context, inspection UnitInspection) (*dex.StepDecision, error) {
+	return QuorumUnitInspectedJoin.EndBranch(ctx, inspection.JoinRound, inspection.UnitIndex)
 }
 
 type AcceptQuorumInspections struct{ dex.StepDefaults }
 
-func (AcceptQuorumInspections) WaitFor(_ dex.Context, requiredInspections int) (*dex.Wait, error) {
-	return dex.Until(QuorumUnitInspectedChannel.ForN(requiredInspections)), nil
+func (AcceptQuorumInspections) WaitFor(_ dex.Context, input QuorumJoinInput) (*dex.Wait, error) {
+	return dex.Until(QuorumUnitInspectedJoin.ForBranches(input.JoinRound, input.RequiredInspections)), nil
 }
 
-func (AcceptQuorumInspections) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	indexes, err := QuorumUnitInspectedChannel.GetConditionResults(ctx)
+func (AcceptQuorumInspections) Execute(ctx dex.Context, input QuorumJoinInput) (*dex.StepDecision, error) {
+	indexes, err := QuorumUnitInspectedJoin.BranchResults(ctx, input.JoinRound)
 	if err != nil {
 		return nil, err
 	}
-	return dex.GoTo(CertifyQuorum{}, sortedCopy(indexes)).CancelSteps(InspectQuorumUnit{}), nil
+	return dex.GoTo(CertifyQuorum{}, sortedCopy(indexes)).CancelSiblingSteps(InspectQuorumUnit{}), nil
 }
 
 type CertifyQuorum struct{ dex.StepDefaults }

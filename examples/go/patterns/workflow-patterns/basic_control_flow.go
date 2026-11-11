@@ -64,12 +64,12 @@ func (ShipOrder) Execute(_ dex.Context, trail []string) (*dex.StepDecision, erro
 }
 
 var (
-	FulfillmentBranchCompletedChannel = dex.DefineChannel[string]("fulfillmentBranchCompleted")
-	PaymentApprovedChannel            = dex.DefineChannel[string]("paymentApproved")
+	FulfillmentBranchCompletedJoin = dex.DefineJoin[string]("fulfillmentBranchCompleted")
+	PaymentApprovedChannel         = dex.DefineChannel[string]("paymentApproved")
 )
 
-// ParallelSplitSynchronizationFlow implements WCP-2 Parallel Split with GoToMany
-// and WCP-3 Synchronization with a Channel ForN join.
+// ParallelSplitSynchronizationFlow implements WCP-2 Parallel Split with a Join Fork
+// and WCP-3 Synchronization with a ForAllBranches join.
 type ParallelSplitSynchronizationFlow struct{ dex.FlowDefaults }
 
 func (*ParallelSplitSynchronizationFlow) GetSteps() []dex.StepDef {
@@ -87,7 +87,7 @@ func (flow *ParallelSplitSynchronizationFlow) GetRPCs() []dex.RPCDef {
 
 func (*ParallelSplitSynchronizationFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Channels: []dex.ChannelDef{FulfillmentBranchCompletedChannel, PaymentApprovedChannel},
+		Channels: []dex.ChannelDef{FulfillmentBranchCompletedJoin, PaymentApprovedChannel},
 	}
 }
 
@@ -106,46 +106,46 @@ type SplitOrder struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (SplitOrder) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
-	return dex.GoToMany(
-		dex.MovementOf(PackItems{}, nil),
-		dex.MovementOf(ChargePayment{}, nil),
-		dex.MovementOf(SynchronizeFulfillment{}, nil),
-	), nil
+func (SplitOrder) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	movements, err := FulfillmentBranchCompletedJoin.Fork(ctx,
+		[]func(dex.JoinRound) dex.StepMovement{
+			func(round dex.JoinRound) dex.StepMovement { return dex.MovementOf(PackItems{}, round) },
+			func(round dex.JoinRound) dex.StepMovement { return dex.MovementOf(ChargePayment{}, round) },
+		},
+		func(round dex.JoinRound) dex.StepMovement { return dex.MovementOf(SynchronizeFulfillment{}, round) },
+	)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type PackItems struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
+	dex.StepDefaultsNoWaitFor[dex.JoinRound]
 }
 
-func (PackItems) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	if err := FulfillmentBranchCompletedChannel.Publish(ctx, "PackItems"); err != nil {
-		return nil, err
-	}
-	return dex.DeadEnd(), nil
+func (PackItems) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	return FulfillmentBranchCompletedJoin.EndBranch(ctx, round, "PackItems")
 }
 
 type ChargePayment struct{ dex.StepDefaults }
 
-func (ChargePayment) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+func (ChargePayment) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(PaymentApprovedChannel.ForOne()), nil
 }
 
-func (ChargePayment) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	if err := FulfillmentBranchCompletedChannel.Publish(ctx, "ChargePayment"); err != nil {
-		return nil, err
-	}
-	return dex.DeadEnd(), nil
+func (ChargePayment) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	return FulfillmentBranchCompletedJoin.EndBranch(ctx, round, "ChargePayment")
 }
 
 type SynchronizeFulfillment struct{ dex.StepDefaults }
 
-func (SynchronizeFulfillment) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
-	return dex.Until(FulfillmentBranchCompletedChannel.ForN(2)), nil
+func (SynchronizeFulfillment) WaitFor(_ dex.Context, round dex.JoinRound) (*dex.Wait, error) {
+	return dex.Until(FulfillmentBranchCompletedJoin.ForAllBranches(round)), nil
 }
 
-func (SynchronizeFulfillment) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	branches, err := FulfillmentBranchCompletedChannel.GetConditionResults(ctx)
+func (SynchronizeFulfillment) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	branches, err := FulfillmentBranchCompletedJoin.BranchResults(ctx, round)
 	if err != nil {
 		return nil, err
 	}

@@ -158,6 +158,9 @@ func TestWorkflowPatternsStructuredPartialJoin(t *testing.T) {
 		waitForWorkflowPatternStepExecution(t, flowID, "PlaceOrder", 1)
 		release(t, flowID, "B", "C")
 		waitForWorkflowPatternStepExecution(t, flowID, "RequestQuotes", 2)
+		require.Equal(t,
+			workflowpatterns.IgnoredQuotes{Round: 1, IgnoredQuotes: []string{"B", "C"}},
+			readWorkflowPatternAttribute(t, flowID, workflowpatterns.IgnoredQuotesAttribute))
 		release(t, flowID, "B")
 		waitForWorkflowPatternStepExecution(t, flowID, "PlaceOrder", 2)
 		release(t, flowID, "A", "C")
@@ -166,9 +169,6 @@ func TestWorkflowPatternsStructuredPartialJoin(t *testing.T) {
 			{Round: 1, AcceptedQuotes: []string{"A"}},
 			{Round: 2, AcceptedQuotes: []string{"B"}},
 		}, decodeStepOutputs[workflowpatterns.AcceptedQuotes](t, result, "PlaceOrder"))
-		require.Equal(t, []workflowpatterns.IgnoredQuotes{
-			{Round: 2, IgnoredQuotes: []string{"A", "C"}},
-		}, decodeStepOutputs[workflowpatterns.IgnoredQuotes](t, result, "ResetQuoteJoin"))
 	})
 	t.Run("partial join", func(t *testing.T) {
 		flowID := startWorkflowPattern(t, flow, "wcp-structured-partial-join",
@@ -179,6 +179,9 @@ func TestWorkflowPatternsStructuredPartialJoin(t *testing.T) {
 		waitForWorkflowPatternStepExecution(t, flowID, "PlaceOrder", 1)
 		release(t, flowID, "C")
 		waitForWorkflowPatternStepExecution(t, flowID, "RequestQuotes", 2)
+		require.Equal(t,
+			workflowpatterns.IgnoredQuotes{Round: 1, IgnoredQuotes: []string{"C"}},
+			readWorkflowPatternAttribute(t, flowID, workflowpatterns.IgnoredQuotesAttribute))
 		release(t, flowID, "C")
 		waitForWorkflowPatternStepExecution(t, flowID, "QuoteFromSupplierC", 2)
 		release(t, flowID, "A")
@@ -189,9 +192,6 @@ func TestWorkflowPatternsStructuredPartialJoin(t *testing.T) {
 			{Round: 1, AcceptedQuotes: []string{"A", "B"}},
 			{Round: 2, AcceptedQuotes: []string{"A", "C"}},
 		}, decodeStepOutputs[workflowpatterns.AcceptedQuotes](t, result, "PlaceOrder"))
-		require.Equal(t, []workflowpatterns.IgnoredQuotes{
-			{Round: 2, IgnoredQuotes: []string{"B"}},
-		}, decodeStepOutputs[workflowpatterns.IgnoredQuotes](t, result, "ResetQuoteJoin"))
 	})
 	t.Run("rejects unknown supplier", func(t *testing.T) {
 		flowID := startWorkflowPattern(t, flow, "wcp-structured-unknown-supplier",
@@ -370,6 +370,7 @@ func TestWorkflowPatternsStaticPartialJoinForMultipleInstances(t *testing.T) {
 	requireWorkflowPatternRunning(t, flowID)
 	invokeWorkflowPatternRPC(t, flowID, flow.ReleaseInspections, 1, nil)
 	waitForWorkflowPatternStepExecution(t, flowID, "StartInspections", 2)
+	ignored := readWorkflowPatternAttribute(t, flowID, workflowpatterns.IgnoredInspectionsAttribute)
 	invokeWorkflowPatternRPC(t, flowID, flow.ReleaseInspections, 2, nil)
 	waitForWorkflowPatternStepExecution(t, flowID, "ApproveBatch", 2)
 	invokeWorkflowPatternRPC(t, flowID, flow.ReleaseInspections, 1, nil)
@@ -382,11 +383,9 @@ func TestWorkflowPatternsStaticPartialJoinForMultipleInstances(t *testing.T) {
 		require.NotEqual(t, batch.UnitIndexes[0], batch.UnitIndexes[1])
 		require.Subset(t, []int{0, 1, 2}, batch.UnitIndexes)
 	}
-	reset := decodeStepOutputs[workflowpatterns.InspectedUnits](t, result, "ResetInspectionJoin")
-	require.Len(t, reset, 1)
-	require.Equal(t, 2, reset[0].Round)
-	require.Len(t, reset[0].UnitIndexes, 1)
-	require.ElementsMatch(t, []int{0, 1, 2}, append(slices.Clone(approved[1].UnitIndexes), reset[0].UnitIndexes...))
+	require.Equal(t, 1, ignored.Round)
+	require.Len(t, ignored.UnitIndexes, 1)
+	require.ElementsMatch(t, []int{0, 1, 2}, append(slices.Clone(approved[0].UnitIndexes), ignored.UnitIndexes...))
 }
 
 func TestWorkflowPatternsCancellingPartialJoinForMultipleInstances(t *testing.T) {
@@ -762,6 +761,15 @@ func pollWorkflowPatternAttribute[T comparable](
 		_, err := integClient.GetAttributes(integrationContext(t), flowID, dex.ReadAttribute(attribute, &value))
 		return err == nil && value == expected
 	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "Flow %s Attribute %s", flowID, attribute.AttributeName())
+}
+
+// readWorkflowPatternAttribute reads the current value of a Flow Attribute.
+func readWorkflowPatternAttribute[T any](t *testing.T, flowID string, attribute dex.Attribute[T]) T {
+	t.Helper()
+	var value T
+	_, err := integClient.GetAttributes(integrationContext(t), flowID, dex.ReadAttribute(attribute, &value))
+	require.NoError(t, err, "Flow %s Attribute %s", flowID, attribute.AttributeName())
+	return value
 }
 
 func stopWorkflowPattern(t *testing.T, flowID string) {

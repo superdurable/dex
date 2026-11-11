@@ -27,7 +27,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-var CompleteCh = dex.DefineChannel[dex.None]("parallel-complete")
+var WorkCompletedJoin = dex.DefineJoin[int]("parallel-complete")
 
 type AwaitParallelStepsFlow struct{ dex.FlowDefaults }
 
@@ -44,43 +44,59 @@ func (*AwaitParallelStepsFlow) GetSteps() []dex.StepDef {
 }
 
 func (*AwaitParallelStepsFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{CompleteCh}}
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{WorkCompletedJoin}}
 }
 
 type awaitInit struct{ dex.StepDefaultsNoWaitFor[int] }
 
 func (awaitInit) GetStepType() string { return "Init" }
 
-func (awaitInit) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
-	movements := []dex.StepMovement{dex.MovementOf(awaitStep{}, count)}
-	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(awaitWork{}, index))
+func (awaitInit) Execute(ctx dex.Context, count int) (*dex.StepDecision, error) {
+	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, count)
+	for index := range count {
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(awaitWork{}, awaitWorkInput{Index: index, Round: round})
+		})
+	}
+	movements, err := WorkCompletedJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(awaitStep{}, round)
+	})
+	if err != nil {
+		return nil, err
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type awaitWork struct{ dex.StepDefaultsNoWaitFor[int] }
+type awaitWorkInput struct {
+	Index int           `json:"index"`
+	Round dex.JoinRound `json:"round"`
+}
+
+type awaitWork struct {
+	dex.StepDefaultsNoWaitFor[awaitWorkInput]
+}
 
 func (awaitWork) GetStepType() string { return "DoWork" }
 
-func (awaitWork) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (awaitWork) Execute(ctx dex.Context, input awaitWorkInput) (*dex.StepDecision, error) {
 	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
-	if err := CompleteCh.Publish(ctx, nil); err != nil {
-		return nil, err
-	}
-	return dex.DeadEnd(), nil
+	return WorkCompletedJoin.EndBranch(ctx, input.Round, input.Index)
 }
 
 type awaitStep struct{ dex.StepDefaults }
 
 func (awaitStep) GetStepType() string { return "Await" }
 
-func (awaitStep) WaitFor(_ dex.Context, count int) (*dex.Wait, error) {
-	return dex.Until(CompleteCh.ForN(count)), nil
+func (awaitStep) WaitFor(_ dex.Context, round dex.JoinRound) (*dex.Wait, error) {
+	return dex.Until(WorkCompletedJoin.ForAllBranches(round)), nil
 }
 
-func (awaitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(count), nil
+func (awaitStep) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	completedIndexes, err := WorkCompletedJoin.BranchResults(ctx, round)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(len(completedIndexes)), nil
 }
 
 var _ dex.Flow = (*AwaitParallelStepsFlow)(nil)

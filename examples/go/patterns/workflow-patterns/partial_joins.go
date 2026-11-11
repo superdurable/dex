@@ -30,14 +30,11 @@ var (
 	SupplierAReleasedChannel = dex.DefineChannel[string]("supplierAReleased")
 	SupplierBReleasedChannel = dex.DefineChannel[string]("supplierBReleased")
 	SupplierCReleasedChannel = dex.DefineChannel[string]("supplierCReleased")
-	QuoteReceivedChannelMap  = dex.DefineChannelMap[string]("quoteReceived")
+	QuoteReceivedJoin        = dex.DefineJoin[string]("quoteReceived")
+	IgnoredQuotesAttribute   = dex.DefineAttribute[IgnoredQuotes]("ignoredQuotes")
 )
 
-const (
-	supplierCount          = 3
-	branchCount            = 3
-	blockingJoinRoundCount = 2
-)
+const blockingJoinRoundCount = 2
 
 // StructuredPartialJoinFlow implements WCP-9 (requiredQuotes 1) and WCP-30 (requiredQuotes 2).
 type StructuredPartialJoinFlow struct{ dex.FlowDefaults }
@@ -50,7 +47,6 @@ func (*StructuredPartialJoinFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(QuoteFromSupplierC{}),
 		dex.DefineStep(AcceptQuotes{}),
 		dex.DefineStep(PlaceOrder{}),
-		dex.DefineStep(ResetQuoteJoin{}),
 	}
 }
 
@@ -60,11 +56,12 @@ func (flow *StructuredPartialJoinFlow) GetRPCs() []dex.RPCDef {
 
 func (*StructuredPartialJoinFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{IgnoredQuotesAttribute},
 		Channels: []dex.ChannelDef{
 			SupplierAReleasedChannel,
 			SupplierBReleasedChannel,
 			SupplierCReleasedChannel,
-			QuoteReceivedChannelMap,
+			QuoteReceivedJoin,
 		},
 	}
 }
@@ -91,9 +88,16 @@ func (*StructuredPartialJoinFlow) ReleaseSupplierQuote(
 
 // QuoteRound is the input of one structured partial join round.
 type QuoteRound struct {
-	RequiredQuotes int `json:"requiredQuotes"`
-	Round          int `json:"round"`
-	RoundCount     int `json:"roundCount"`
+	RequiredQuotes int            `json:"requiredQuotes"`
+	Round          int            `json:"round"`
+	RoundCount     int            `json:"roundCount"`
+	PreviousRound  *dex.JoinRound `json:"previousRound,omitempty"`
+}
+
+// QuoteJoinInput is the input of the AcceptQuotes join of one round.
+type QuoteJoinInput struct {
+	Request   QuoteRound    `json:"request"`
+	JoinRound dex.JoinRound `json:"joinRound"`
 }
 
 // AcceptedQuotes lists the quotes that fired the join in one round.
@@ -102,70 +106,101 @@ type AcceptedQuotes struct {
 	AcceptedQuotes []string `json:"acceptedQuotes"`
 }
 
-// IgnoredQuotes lists the quotes the last reset consumed.
+// IgnoredQuotes lists the late quotes that the next round's reset consumed.
 type IgnoredQuotes struct {
 	Round         int      `json:"round"`
 	IgnoredQuotes []string `json:"ignoredQuotes"`
 }
 
-type RequestQuotes struct {
-	dex.StepDefaultsNoWaitFor[QuoteRound]
+// RequestQuotes resets the previous round, then starts the next one.
+type RequestQuotes struct{ dex.StepDefaults }
+
+func (RequestQuotes) WaitFor(_ dex.Context, round QuoteRound) (*dex.Wait, error) {
+	if round.PreviousRound == nil {
+		return dex.SkipWaitImmediately(), nil
+	}
+	return dex.Until(QuoteReceivedJoin.ForRemainingBranches(*round.PreviousRound, round.RequiredQuotes)), nil
 }
 
-func (RequestQuotes) Execute(_ dex.Context, round QuoteRound) (*dex.StepDecision, error) {
-	return dex.GoToMany(
-		dex.MovementOf(QuoteFromSupplierA{}, round.Round),
-		dex.MovementOf(QuoteFromSupplierB{}, round.Round),
-		dex.MovementOf(QuoteFromSupplierC{}, round.Round),
-		dex.MovementOf(AcceptQuotes{}, round),
-	), nil
+func (RequestQuotes) Execute(ctx dex.Context, round QuoteRound) (*dex.StepDecision, error) {
+	if round.PreviousRound != nil {
+		ignored, err := QuoteReceivedJoin.RemainingBranchResults(ctx, *round.PreviousRound)
+		if err != nil {
+			return nil, err
+		}
+		ignoredQuotes := IgnoredQuotes{Round: round.Round - 1, IgnoredQuotes: sortedCopy(ignored)}
+		if err := IgnoredQuotesAttribute.Set(ctx, ignoredQuotes); err != nil {
+			return nil, err
+		}
+	}
+	movements, err := QuoteReceivedJoin.Fork(ctx,
+		[]func(dex.JoinRound) dex.StepMovement{
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(QuoteFromSupplierA{}, joinRound) },
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(QuoteFromSupplierB{}, joinRound) },
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(QuoteFromSupplierC{}, joinRound) },
+		},
+		func(joinRound dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(AcceptQuotes{}, QuoteJoinInput{Request: round, JoinRound: joinRound})
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type QuoteFromSupplierA struct{ dex.StepDefaults }
 
-func (QuoteFromSupplierA) WaitFor(dex.Context, int) (*dex.Wait, error) {
+func (QuoteFromSupplierA) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(SupplierAReleasedChannel.ForOne()), nil
 }
 
-func (QuoteFromSupplierA) Execute(ctx dex.Context, round int) (*dex.StepDecision, error) {
-	return publishRoundSignalAndDeadEnd(ctx, QuoteReceivedChannelMap, round, "A")
+func (QuoteFromSupplierA) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return QuoteReceivedJoin.EndBranch(ctx, joinRound, "A")
 }
 
 type QuoteFromSupplierB struct{ dex.StepDefaults }
 
-func (QuoteFromSupplierB) WaitFor(dex.Context, int) (*dex.Wait, error) {
+func (QuoteFromSupplierB) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(SupplierBReleasedChannel.ForOne()), nil
 }
 
-func (QuoteFromSupplierB) Execute(ctx dex.Context, round int) (*dex.StepDecision, error) {
-	return publishRoundSignalAndDeadEnd(ctx, QuoteReceivedChannelMap, round, "B")
+func (QuoteFromSupplierB) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return QuoteReceivedJoin.EndBranch(ctx, joinRound, "B")
 }
 
 type QuoteFromSupplierC struct{ dex.StepDefaults }
 
-func (QuoteFromSupplierC) WaitFor(dex.Context, int) (*dex.Wait, error) {
+func (QuoteFromSupplierC) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(SupplierCReleasedChannel.ForOne()), nil
 }
 
-func (QuoteFromSupplierC) Execute(ctx dex.Context, round int) (*dex.StepDecision, error) {
-	return publishRoundSignalAndDeadEnd(ctx, QuoteReceivedChannelMap, round, "C")
+func (QuoteFromSupplierC) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return QuoteReceivedJoin.EndBranch(ctx, joinRound, "C")
 }
 
 type AcceptQuotes struct{ dex.StepDefaults }
 
-func (AcceptQuotes) WaitFor(_ dex.Context, round QuoteRound) (*dex.Wait, error) {
-	return dex.Until(QuoteReceivedChannelMap.ForN(roundInstance(round.Round), round.RequiredQuotes)), nil
+func (AcceptQuotes) WaitFor(_ dex.Context, input QuoteJoinInput) (*dex.Wait, error) {
+	return dex.Until(QuoteReceivedJoin.ForBranches(input.JoinRound, input.Request.RequiredQuotes)), nil
 }
 
-func (AcceptQuotes) Execute(ctx dex.Context, round QuoteRound) (*dex.StepDecision, error) {
-	accepted, err := QuoteReceivedChannelMap.GetConditionResults(ctx, roundInstance(round.Round))
+func (AcceptQuotes) Execute(ctx dex.Context, input QuoteJoinInput) (*dex.StepDecision, error) {
+	accepted, err := QuoteReceivedJoin.BranchResults(ctx, input.JoinRound)
 	if err != nil {
 		return nil, err
 	}
-	return dex.GoToMany(
+	round := input.Request
+	movements := []dex.StepMovement{
 		dex.MovementOf(PlaceOrder{}, AcceptedQuotes{Round: round.Round, AcceptedQuotes: sortedCopy(accepted)}),
-		dex.MovementOf(ResetQuoteJoin{}, round),
-	), nil
+	}
+	if round.Round < round.RoundCount {
+		next := round
+		next.Round++
+		next.PreviousRound = &input.JoinRound
+		movements = append(movements, dex.MovementOf(RequestQuotes{}, next))
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type PlaceOrder struct {
@@ -176,41 +211,24 @@ func (PlaceOrder) Execute(_ dex.Context, accepted AcceptedQuotes) (*dex.StepDeci
 	return dex.GracefulComplete(accepted), nil
 }
 
-// ResetQuoteJoin consumes the rest of the round, then re-enables the join.
-type ResetQuoteJoin struct{ dex.StepDefaults }
-
-func (ResetQuoteJoin) WaitFor(_ dex.Context, round QuoteRound) (*dex.Wait, error) {
-	remainingQuotes := supplierCount - round.RequiredQuotes
-	if remainingQuotes == 0 {
-		return dex.SkipWaitImmediately(), nil
-	}
-	return dex.Until(QuoteReceivedChannelMap.ForN(roundInstance(round.Round), remainingQuotes)), nil
-}
-
-func (ResetQuoteJoin) Execute(ctx dex.Context, round QuoteRound) (*dex.StepDecision, error) {
-	ignored, err := QuoteReceivedChannelMap.GetConditionResults(ctx, roundInstance(round.Round))
-	if err != nil {
-		return nil, err
-	}
-	if round.Round < round.RoundCount {
-		next := round
-		next.Round++
-		return dex.GoTo(RequestQuotes{}, next), nil
-	}
-	return dex.GracefulComplete(IgnoredQuotes{Round: round.Round, IgnoredQuotes: sortedCopy(ignored)}), nil
-}
-
 var (
-	BranchASignalChannel      = dex.DefineChannel[string]("branchASignal")
-	BranchBSignalChannel      = dex.DefineChannel[string]("branchBSignal")
-	BranchCSignalChannel      = dex.DefineChannel[string]("branchCSignal")
-	BranchCompletedChannelMap = dex.DefineChannelMap[string]("branchCompleted")
+	BranchASignalChannel = dex.DefineChannel[string]("branchASignal")
+	BranchBSignalChannel = dex.DefineChannel[string]("branchBSignal")
+	BranchCSignalChannel = dex.DefineChannel[string]("branchCSignal")
+	BranchCompletedJoin  = dex.DefineJoin[string]("branchCompleted")
 )
 
 // BlockingJoinRound is the input of one BlockingJoin round.
 type BlockingJoinRound struct {
-	RequiredSignals int `json:"requiredSignals"`
-	Round           int `json:"round"`
+	RequiredSignals int            `json:"requiredSignals"`
+	Round           int            `json:"round"`
+	PreviousRound   *dex.JoinRound `json:"previousRound,omitempty"`
+}
+
+// BlockingJoinInput is the input of the BlockingJoin of one round.
+type BlockingJoinInput struct {
+	Request   BlockingJoinRound `json:"request"`
+	JoinRound dex.JoinRound     `json:"joinRound"`
 }
 
 // ProcessedRound records the branches that fired one BlockingJoin round.
@@ -230,7 +248,6 @@ func (*BlockingPartialJoinFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(SignalFromBranchC{}),
 		dex.DefineStep(BlockingJoin{}),
 		dex.DefineStep(ProcessRound{}),
-		dex.DefineStep(ResetBlockingJoin{}),
 	}
 }
 
@@ -249,7 +266,7 @@ func (*BlockingPartialJoinFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			BranchASignalChannel,
 			BranchBSignalChannel,
 			BranchCSignalChannel,
-			BranchCompletedChannelMap,
+			BranchCompletedJoin,
 		},
 	}
 }
@@ -281,64 +298,85 @@ func (*BlockingPartialJoinFlow) GetQueuedBranchSignalCount(
 	return &dex.RPCResult[int]{Output: queuedCount}, nil
 }
 
-type StartBlockingRound struct {
-	dex.StepDefaultsNoWaitFor[BlockingJoinRound]
+// StartBlockingRound waits for the rest of the previous round, then starts the next one.
+type StartBlockingRound struct{ dex.StepDefaults }
+
+func (StartBlockingRound) WaitFor(_ dex.Context, round BlockingJoinRound) (*dex.Wait, error) {
+	if round.PreviousRound == nil {
+		return dex.SkipWaitImmediately(), nil
+	}
+	return dex.Until(BranchCompletedJoin.ForRemainingBranches(*round.PreviousRound, round.RequiredSignals)), nil
 }
 
-func (StartBlockingRound) Execute(_ dex.Context, round BlockingJoinRound) (*dex.StepDecision, error) {
-	return dex.GoToMany(
-		dex.MovementOf(SignalFromBranchA{}, round.Round),
-		dex.MovementOf(SignalFromBranchB{}, round.Round),
-		dex.MovementOf(SignalFromBranchC{}, round.Round),
-		dex.MovementOf(BlockingJoin{}, round),
-	), nil
+func (StartBlockingRound) Execute(ctx dex.Context, round BlockingJoinRound) (*dex.StepDecision, error) {
+	movements, err := BranchCompletedJoin.Fork(ctx,
+		[]func(dex.JoinRound) dex.StepMovement{
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(SignalFromBranchA{}, joinRound) },
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(SignalFromBranchB{}, joinRound) },
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(SignalFromBranchC{}, joinRound) },
+		},
+		func(joinRound dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(BlockingJoin{}, BlockingJoinInput{Request: round, JoinRound: joinRound})
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type SignalFromBranchA struct{ dex.StepDefaults }
 
-func (SignalFromBranchA) WaitFor(dex.Context, int) (*dex.Wait, error) {
+func (SignalFromBranchA) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(BranchASignalChannel.ForOne()), nil
 }
 
-func (SignalFromBranchA) Execute(ctx dex.Context, round int) (*dex.StepDecision, error) {
-	return publishRoundSignalAndDeadEnd(ctx, BranchCompletedChannelMap, round, "A")
+func (SignalFromBranchA) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return BranchCompletedJoin.EndBranch(ctx, joinRound, "A")
 }
 
 type SignalFromBranchB struct{ dex.StepDefaults }
 
-func (SignalFromBranchB) WaitFor(dex.Context, int) (*dex.Wait, error) {
+func (SignalFromBranchB) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(BranchBSignalChannel.ForOne()), nil
 }
 
-func (SignalFromBranchB) Execute(ctx dex.Context, round int) (*dex.StepDecision, error) {
-	return publishRoundSignalAndDeadEnd(ctx, BranchCompletedChannelMap, round, "B")
+func (SignalFromBranchB) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return BranchCompletedJoin.EndBranch(ctx, joinRound, "B")
 }
 
 type SignalFromBranchC struct{ dex.StepDefaults }
 
-func (SignalFromBranchC) WaitFor(dex.Context, int) (*dex.Wait, error) {
+func (SignalFromBranchC) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(BranchCSignalChannel.ForOne()), nil
 }
 
-func (SignalFromBranchC) Execute(ctx dex.Context, round int) (*dex.StepDecision, error) {
-	return publishRoundSignalAndDeadEnd(ctx, BranchCompletedChannelMap, round, "C")
+func (SignalFromBranchC) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return BranchCompletedJoin.EndBranch(ctx, joinRound, "C")
 }
 
 type BlockingJoin struct{ dex.StepDefaults }
 
-func (BlockingJoin) WaitFor(_ dex.Context, round BlockingJoinRound) (*dex.Wait, error) {
-	return dex.Until(BranchCompletedChannelMap.ForN(roundInstance(round.Round), round.RequiredSignals)), nil
+func (BlockingJoin) WaitFor(_ dex.Context, input BlockingJoinInput) (*dex.Wait, error) {
+	return dex.Until(BranchCompletedJoin.ForBranches(input.JoinRound, input.Request.RequiredSignals)), nil
 }
 
-func (BlockingJoin) Execute(ctx dex.Context, round BlockingJoinRound) (*dex.StepDecision, error) {
-	fired, err := BranchCompletedChannelMap.GetConditionResults(ctx, roundInstance(round.Round))
+func (BlockingJoin) Execute(ctx dex.Context, input BlockingJoinInput) (*dex.StepDecision, error) {
+	fired, err := BranchCompletedJoin.BranchResults(ctx, input.JoinRound)
 	if err != nil {
 		return nil, err
 	}
-	return dex.GoToMany(
+	round := input.Request
+	movements := []dex.StepMovement{
 		dex.MovementOf(ProcessRound{}, ProcessedRound{Round: round.Round, Branches: sortedCopy(fired)}),
-		dex.MovementOf(ResetBlockingJoin{}, round),
-	), nil
+	}
+	if round.Round < blockingJoinRoundCount {
+		next := round
+		next.Round++
+		next.PreviousRound = &input.JoinRound
+		movements = append(movements, dex.MovementOf(StartBlockingRound{}, next))
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type ProcessRound struct {
@@ -349,31 +387,11 @@ func (ProcessRound) Execute(_ dex.Context, processed ProcessedRound) (*dex.StepD
 	return dex.GracefulComplete(processed), nil
 }
 
-// ResetBlockingJoin waits for the rest of the round before the next round may start.
-type ResetBlockingJoin struct{ dex.StepDefaults }
-
-func (ResetBlockingJoin) WaitFor(_ dex.Context, round BlockingJoinRound) (*dex.Wait, error) {
-	remainingSignals := branchCount - round.RequiredSignals
-	if remainingSignals == 0 {
-		return dex.SkipWaitImmediately(), nil
-	}
-	return dex.Until(BranchCompletedChannelMap.ForN(roundInstance(round.Round), remainingSignals)), nil
-}
-
-func (ResetBlockingJoin) Execute(_ dex.Context, round BlockingJoinRound) (*dex.StepDecision, error) {
-	if round.Round < blockingJoinRoundCount {
-		next := round
-		next.Round++
-		return dex.GoTo(StartBlockingRound{}, next), nil
-	}
-	return dex.GracefulComplete(round.Round), nil
-}
-
 var (
 	CarrierAReleasedChannel        = dex.DefineChannel[string]("carrierAReleased")
 	CarrierBReleasedChannel        = dex.DefineChannel[string]("carrierBReleased")
 	CarrierCReleasedChannel        = dex.DefineChannel[string]("carrierCReleased")
-	BidReceivedChannel             = dex.DefineChannel[string]("bidReceived")
+	BidReceivedJoin                = dex.DefineJoin[string]("bidReceived")
 	CarrierBookingConfirmedChannel = dex.DefineChannel[string]("carrierBookingConfirmed")
 )
 
@@ -408,7 +426,7 @@ func (*CancellingPartialJoinFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			CarrierAReleasedChannel,
 			CarrierBReleasedChannel,
 			CarrierCReleasedChannel,
-			BidReceivedChannel,
+			BidReceivedJoin,
 			CarrierBookingConfirmedChannel,
 		},
 	}
@@ -462,60 +480,77 @@ func (*CancellingPartialJoinFlow) ConfirmCarrierBooking(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
+// BidJoinInput is the input of the AcceptBids join.
+type BidJoinInput struct {
+	RequiredBids int           `json:"requiredBids"`
+	JoinRound    dex.JoinRound `json:"joinRound"`
+}
+
 type RequestBids struct{ dex.StepDefaultsNoWaitFor[int] }
 
-func (RequestBids) Execute(_ dex.Context, requiredBids int) (*dex.StepDecision, error) {
-	return dex.GoToMany(
-		dex.MovementOf(BidFromCarrierA{}, nil),
-		dex.MovementOf(BidFromCarrierB{}, nil),
-		dex.MovementOf(BidFromCarrierC{}, nil),
-		dex.MovementOf(AcceptBids{}, requiredBids),
-	), nil
+func (RequestBids) Execute(ctx dex.Context, requiredBids int) (*dex.StepDecision, error) {
+	movements, err := BidReceivedJoin.Fork(ctx,
+		[]func(dex.JoinRound) dex.StepMovement{
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(BidFromCarrierA{}, joinRound) },
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(BidFromCarrierB{}, joinRound) },
+			func(joinRound dex.JoinRound) dex.StepMovement { return dex.MovementOf(BidFromCarrierC{}, joinRound) },
+		},
+		func(joinRound dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(AcceptBids{}, BidJoinInput{RequiredBids: requiredBids, JoinRound: joinRound})
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type BidFromCarrierA struct{ dex.StepDefaults }
 
-func (BidFromCarrierA) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+func (BidFromCarrierA) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(CarrierAReleasedChannel.ForOne()), nil
 }
 
-func (BidFromCarrierA) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, BidReceivedChannel, "A")
+func (BidFromCarrierA) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return BidReceivedJoin.EndBranch(ctx, joinRound, "A")
 }
 
 type BidFromCarrierB struct{ dex.StepDefaults }
 
-func (BidFromCarrierB) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+func (BidFromCarrierB) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(CarrierBReleasedChannel.ForOne()), nil
 }
 
-func (BidFromCarrierB) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, BidReceivedChannel, "B")
+func (BidFromCarrierB) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return BidReceivedJoin.EndBranch(ctx, joinRound, "B")
 }
 
 type BidFromCarrierC struct{ dex.StepDefaults }
 
-func (BidFromCarrierC) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+func (BidFromCarrierC) WaitFor(dex.Context, dex.JoinRound) (*dex.Wait, error) {
 	return dex.Until(CarrierCReleasedChannel.ForOne()), nil
 }
 
-func (BidFromCarrierC) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, BidReceivedChannel, "C")
+func (BidFromCarrierC) Execute(ctx dex.Context, joinRound dex.JoinRound) (*dex.StepDecision, error) {
+	return BidReceivedJoin.EndBranch(ctx, joinRound, "C")
 }
 
 type AcceptBids struct{ dex.StepDefaults }
 
-func (AcceptBids) WaitFor(_ dex.Context, requiredBids int) (*dex.Wait, error) {
-	return dex.Until(BidReceivedChannel.ForN(requiredBids)), nil
+func (AcceptBids) WaitFor(_ dex.Context, input BidJoinInput) (*dex.Wait, error) {
+	if input.RequiredBids == 1 {
+		return dex.Until(BidReceivedJoin.ForFirstBranch(input.JoinRound)), nil
+	}
+	return dex.Until(BidReceivedJoin.ForBranches(input.JoinRound, input.RequiredBids)), nil
 }
 
-func (AcceptBids) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	accepted, err := BidReceivedChannel.GetConditionResults(ctx)
+func (AcceptBids) Execute(ctx dex.Context, input BidJoinInput) (*dex.StepDecision, error) {
+	accepted, err := BidReceivedJoin.BranchResults(ctx, input.JoinRound)
 	if err != nil {
 		return nil, err
 	}
 	return dex.GoTo(ConfirmCarrierBooking{}, sortedCopy(accepted)).
-		CancelSteps(BidFromCarrierA{}, BidFromCarrierB{}, BidFromCarrierC{}), nil
+		CancelSiblingSteps(BidFromCarrierA{}, BidFromCarrierB{}, BidFromCarrierC{}), nil
 }
 
 type ConfirmCarrierBooking struct{ dex.StepDefaults }
