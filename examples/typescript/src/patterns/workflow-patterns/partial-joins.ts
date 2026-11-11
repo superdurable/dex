@@ -197,6 +197,7 @@ class AcceptQuotes implements Step<QuoteJoin> {
         }),
       );
     }
+    // The last round's late quotes stay pending until the Flow closes.
     return goTo(PlaceOrder, acceptedQuotes);
   }
 }
@@ -257,7 +258,7 @@ export interface BlockingJoinRound {
 }
 
 export interface BlockingJoinInput {
-  readonly joinRound: BlockingJoinRound;
+  readonly blockingRound: BlockingJoinRound;
   readonly round: JoinRound;
 }
 
@@ -278,14 +279,14 @@ class StartBlockingRound implements Step<BlockingJoinRound> {
     return "StartBlockingRound";
   }
 
-  public waitFor(_context: Context, joinRound: BlockingJoinRound): Wait {
-    if (joinRound.previousRound === undefined) {
+  public waitFor(_context: Context, blockingRound: BlockingJoinRound): Wait {
+    if (blockingRound.previousRound === undefined) {
       return Wait.skipImmediately();
     }
-    return Wait.until(branchCompleted.forRemainingBranches(joinRound.previousRound, joinRound.requiredSignals));
+    return Wait.until(branchCompleted.forRemainingBranches(blockingRound.previousRound, blockingRound.requiredSignals));
   }
 
-  public execute(context: Context, joinRound: BlockingJoinRound): StepDecision {
+  public execute(context: Context, blockingRound: BlockingJoinRound): StepDecision {
     return goToMany(
       ...branchCompleted.fork(
         context,
@@ -294,7 +295,7 @@ class StartBlockingRound implements Step<BlockingJoinRound> {
           (round) => StepMovement.of(SignalFromBranchB, round),
           (round) => StepMovement.of(SignalFromBranchC, round),
         ],
-        (round) => StepMovement.of(BlockingJoin, { joinRound, round }),
+        (round) => StepMovement.of(BlockingJoin, { blockingRound, round }),
       ),
     );
   }
@@ -354,25 +355,26 @@ class BlockingJoin implements Step<BlockingJoinInput> {
   }
 
   public waitFor(_context: Context, input: BlockingJoinInput): Wait {
-    return Wait.until(branchCompleted.forBranches(input.round, input.joinRound.requiredSignals));
+    return Wait.until(branchCompleted.forBranches(input.round, input.blockingRound.requiredSignals));
   }
 
   public execute(context: Context, input: BlockingJoinInput): StepDecision {
-    const { joinRound, round } = input;
+    const { blockingRound, round } = input;
     const processedRound: ProcessedRound = {
-      round: joinRound.round,
+      round: blockingRound.round,
       branches: [...branchCompleted.branchResults(context, round)].sort(),
     };
-    if (joinRound.round < BLOCKING_JOIN_ROUNDS) {
+    if (blockingRound.round < BLOCKING_JOIN_ROUNDS) {
       return goToMany(
         StepMovement.of(ProcessRound, processedRound),
         StepMovement.of(StartBlockingRound, {
-          requiredSignals: joinRound.requiredSignals,
-          round: joinRound.round + 1,
+          requiredSignals: blockingRound.requiredSignals,
+          round: blockingRound.round + 1,
           previousRound: round,
         }),
       );
     }
+    // The last round's late signals stay pending until the Flow closes.
     return goTo(ProcessRound, processedRound);
   }
 }

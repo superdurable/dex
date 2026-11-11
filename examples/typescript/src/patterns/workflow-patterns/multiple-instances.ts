@@ -488,6 +488,7 @@ class AcceptInspections implements Step<InspectionJoin> {
         }),
       );
     }
+    // The last round's late inspections stay pending until the Flow closes.
     return goTo(ApproveBatch, approved);
   }
 }
