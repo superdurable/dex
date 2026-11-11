@@ -11,22 +11,21 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Annotated, Any, NotRequired, cast
+from typing import Any
 
 import dex_agents_cli  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
 from deepagents import create_deep_agent
-from deepagents.graph import DeepAgentState
-from langchain.agents.middleware import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.todo import WRITE_TODOS_TOOL_DESCRIPTION, Todo
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool, StructuredTool
 
-from dex_agents import AgentSessionFlow
+from dex_agents import AgentSessionFlow, AgentTurnContext
 from dex_agents_cli import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
 from dex_agents_langgraph import DurableToolCallMiddleware, langchain_agent_session_flow
 
@@ -46,17 +45,21 @@ DEFAULT_INSTRUCTIONS = (
 #: The todo tool's name, as Deep Agents and LangChain name it.
 WRITE_TODOS_TOOL_NAME = "write_todos"
 
+#: Deep Agents' subagent tool, which the session neither offers nor runs.
+TASK_TOOL_NAME = "task"
+
 
 class DeepAgentsHarness:
     """The ``dex-agents-deepagents`` command: a Deep Agents agent in the terminal.
 
     The agent comes from ``create_deep_agent`` and runs on the Dex LangGraph
     adapter, so every model call is a ``RunModel`` Step and every tool call
-    its own tool Step. Deep Agents' own file tools and its ``task`` subagent
-    tool are removed: the runtime's local tools provide files and shell
-    commands with the runtime's policies, and a subagent would run its model
-    and tool calls inside one tool Step, out of Dex's sight. ``write_todos``
-    stays as a read-only tool that records the plan in the conversation.
+    its own tool Step. Deep Agents' own file tools are removed and its
+    ``task`` subagent tool is excluded: the runtime's local tools provide
+    files and shell commands with the runtime's policies, and a subagent would
+    run its model and tool calls inside one tool Step, out of Dex's sight.
+    ``write_todos`` stays as a read-only tool that records the plan in the
+    conversation.
     """
 
     name = "deepagents"
@@ -83,15 +86,19 @@ class DeepAgentsHarness:
             lambda: build_deep_agent(file_model),
             flow_type=context.flow_type,
             tool_sources=context.tool_sources,
+            excluded_tool_names=[TASK_TOOL_NAME],
+            select_turn_chat_model=TurnChatModelSelector(file_model),
+            should_defer_tool_calls_before_middleware=True,
         )
 
 
 def build_deep_agent(file_model: str) -> Any:
     """Build the command's Deep Agents graph.
 
-    Deep Agents' file tools, ``task`` subagents, and summarization are
-    replaced by middleware that adds nothing. The summarization would make
-    an extra model call with the file's model inside a ``RunModel`` Step.
+    Deep Agents' file tools and summarization are replaced by middleware that
+    adds nothing. The summarization would make an extra model call with the
+    file's model inside a ``RunModel`` Step. The session Flow excludes the
+    ``task`` tool.
 
     Args:
         file_model: The configuration file's model; each turn may override it.
@@ -104,13 +111,10 @@ def build_deep_agent(file_model: str) -> Any:
         tools=[write_todos_tool()],
         middleware=[
             _WithoutFilesystemTools(),
-            _WithoutSubagents(),
             _WithoutSummarization(),
             DurableToolCallMiddleware(),
-            TurnModelMiddleware(file_model),
+            TurnInstructionsMiddleware(),
         ],
-        # Deep Agents' own schema stores messages in a DeltaChannel, which sessions refuse.
-        state_schema=cast("type[DeepAgentState]", DurableDeepAgentState),
     )
 
 
@@ -164,37 +168,8 @@ def write_todos_tool() -> BaseTool:
     )
 
 
-def merge_files(current: dict[str, Any] | None, update: dict[str, Any | None]) -> dict[str, Any]:
-    """Merge a ``files`` update into the agent state; ``None`` deletes a file.
-
-    Args:
-        current: The files so far.
-        update: The changed files.
-
-    Returns:
-        The merged files.
-    """
-    merged = dict(current or {})
-    for path, file_data in update.items():
-        if file_data is None:
-            merged.pop(path, None)
-        else:
-            merged[path] = file_data
-    return merged
-
-
-class DurableDeepAgentState(AgentState[Any]):
-    """The Deep Agents state with plain channels that an agent session can store.
-
-    ``messages`` keeps LangChain's ``add_messages`` reducer. ``files`` holds
-    what Deep Agents' summarization offloads to its in-state backend.
-    """
-
-    files: Annotated[NotRequired[dict[str, Any]], merge_files]
-
-
-class TurnModelMiddleware(AgentMiddleware[Any, Any, Any]):
-    """Give each model call the running turn's model and instructions."""
+class TurnChatModelSelector:
+    """Pick the running turn's chat model when it differs from the configuration file's."""
 
     def __init__(self, file_model: str) -> None:
         """Keep the model the agent was built with.
@@ -202,30 +177,37 @@ class TurnModelMiddleware(AgentMiddleware[Any, Any, Any]):
         Args:
             file_model: The configuration file's model.
         """
-        super().__init__()
         self._file_model = file_model
         self._models: dict[str, BaseChatModel] = {}
+
+    def __call__(self, turn: AgentTurnContext) -> BaseChatModel | None:
+        """Return the turn's chat model, built once per ID, or ``None`` for the file's model."""
+        turn_config = current_turn_config()
+        if turn_config is None or turn_config.model == self._file_model:
+            return None
+        if turn_config.model not in self._models:
+            self._models[turn_config.model] = deep_agents_chat_model(turn_config.model)
+        return self._models[turn_config.model]
+
+
+class TurnInstructionsMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Put the running turn's instructions first in every model call's system message."""
 
     async def awrap_model_call(
         self,
         request: ModelRequest[Any],
         handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
     ) -> ModelResponse[Any]:
-        """Use the turn's model, and put the turn's instructions first in the system message."""
+        """Prepend the turn's instructions, or the default ones, to the system message."""
         turn = current_turn_config()
         if turn is None:
             return await handler(request)
-        overrides: dict[str, Any] = {}
-        if turn.model != self._file_model:
-            if turn.model not in self._models:
-                self._models[turn.model] = deep_agents_chat_model(turn.model)
-            overrides["model"] = self._models[turn.model]
         instructions = turn.instructions or DEFAULT_INSTRUCTIONS
         existing = request.system_message.text if request.system_message is not None else ""
-        overrides["system_message"] = SystemMessage(
+        system_message = SystemMessage(
             f"{instructions}\n\n{existing}" if existing else instructions
         )
-        return await handler(request.override(**overrides))
+        return await handler(request.override(system_message=system_message))
 
 
 class _WithoutFilesystemTools(AgentMiddleware[Any, Any, Any]):
@@ -242,11 +224,3 @@ class _WithoutSummarization(AgentMiddleware[Any, Any, Any]):
     @property
     def name(self) -> str:
         return "SummarizationMiddleware"
-
-
-class _WithoutSubagents(AgentMiddleware[Any, Any, Any]):
-    """Replace the ``task`` tool, whose subagent would run inside one tool Step."""
-
-    @property
-    def name(self) -> str:
-        return "SubAgentMiddleware"

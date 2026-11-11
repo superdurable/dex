@@ -20,9 +20,13 @@ from typing import Any
 from dex_agents import AgentTurnContext, ToolCallStatus, ToolEffect, ToolPolicy
 from dex_agents.builtin_loop import SourceToolDefinition, SourceToolListing
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AnyMessage, ToolCall, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
+from langgraph._internal._constants import CONFIG_KEY_SEND
+from langgraph.checkpoint.serde.base import SerializerProtocol
+from langgraph.config import get_config
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
@@ -30,10 +34,15 @@ from langgraph.types import Command, interrupt
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
+from dex_agents_langgraph._tool_state import EncodedStateWrites, decode_state_writes
+
 #: ``RunnableConfig["configurable"]`` key that carries a deferred call's idempotency key.
 TOOL_CALL_IDEMPOTENCY_KEY_CONFIGURABLE = "dex_tool_call_idempotency_key"
 
 _DEFERRED_TOOL_CALLS_INTERRUPT_TYPE = "dex_deferred_tool_calls"
+
+# Marks a ToolNode whose tool wrapper chain the runner already put behind the deferral.
+_DEFERS_BEFORE_TOOL_MIDDLEWARE_ATTRIBUTE = "_dex_defers_before_tool_middleware"
 
 #: The callable a ``wrap_tool_call`` hook receives to run the tool.
 ToolCallExecutor = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
@@ -61,6 +70,15 @@ class DurableToolCallMiddleware(AgentMiddleware):
     such as ``ConnectorToolSource``, to every model request, after the
     agent's own tools, so the model can call them. Their calls are deferred
     like any other call and run through their source in their own Step.
+    It also removes the agent's tools that the session Flow's
+    ``excluded_tool_names`` name from every model request, and it gives every
+    model request the chat model that ``select_turn_chat_model`` picks for
+    the turn.
+
+    ``create_deep_agent`` places the middleware you pass after its own, so
+    this middleware cannot be first in a Deep Agents agent. Set the session
+    Flow's ``should_defer_tool_calls_before_middleware`` to make the deferral
+    the outermost tool wrapper anyway.
 
     The middleware works only while an agent session runs the graph. Invoking
     the agent outside a session raises ``RuntimeError`` on the first tool call,
@@ -98,11 +116,16 @@ class DurableToolCallMiddleware(AgentMiddleware):
                 inside a deferred tool's own Step.
 
         Returns:
-            A ``ToolMessage`` with the call's recorded result.
+            A ``ToolMessage`` with the call's recorded result. The state writes
+            that the tool made in its tool Step, such as a returned
+            ``Command``'s update, become this graph task's writes.
 
         Raises:
             GraphInterrupt: When the call is deferred. LangGraph handles it.
             RuntimeError: If no agent session runs the graph.
+
+        .. versionchanged:: 0.5.0
+            It replays the state writes that the tool recorded.
         """
         return await awrap_durable_tool_call(request, handler)
 
@@ -118,6 +141,10 @@ class DurableToolCallMiddleware(AgentMiddleware):
 
         .. versionadded:: 0.4.0
 
+        .. versionchanged:: 0.5.0
+            It also removes the agent's excluded tools, and it uses the turn's
+            chat model when the session Flow selects one.
+
         Args:
             request: The model request.
             handler: Runs the model, or the next wrapper.
@@ -125,7 +152,7 @@ class DurableToolCallMiddleware(AgentMiddleware):
         Returns:
             What ``handler`` returns.
         """
-        return handler(_with_source_tools(request))
+        return handler(_with_session_model_request(request))
 
     async def awrap_model_call(
         self,
@@ -139,6 +166,10 @@ class DurableToolCallMiddleware(AgentMiddleware):
 
         .. versionadded:: 0.4.0
 
+        .. versionchanged:: 0.5.0
+            It also removes the agent's excluded tools, and it uses the turn's
+            chat model when the session Flow selects one.
+
         Args:
             request: The model request.
             handler: Runs the model, or the next wrapper.
@@ -146,7 +177,7 @@ class DurableToolCallMiddleware(AgentMiddleware):
         Returns:
             What ``handler`` returns.
         """
-        return await handler(_with_source_tools(request))
+        return await handler(_with_session_model_request(request))
 
 
 async def awrap_durable_tool_call(
@@ -184,11 +215,16 @@ async def awrap_durable_tool_call(
             deferred tool's own Step.
 
     Returns:
-        A ``ToolMessage`` with the call's recorded result.
+        A ``ToolMessage`` with the call's recorded result. The state writes that
+        the tool made in its tool Step, such as a returned ``Command``'s
+        update, become this graph task's writes.
 
     Raises:
         GraphInterrupt: When the call is deferred. LangGraph handles it.
         RuntimeError: If no agent session runs the graph.
+
+    .. versionchanged:: 0.5.0
+        It replays the state writes that the tool recorded.
     """
     binding = _require_active_tool_binding()
     if isinstance(binding, _ToolStepBinding):
@@ -209,6 +245,10 @@ class DurableToolNode(ToolNode):
 
     Attributes:
         tools_by_name: The node's tools by name, as on ``ToolNode``.
+
+    .. versionchanged:: 0.5.0
+        Each replayed call also replays the state writes its tool recorded,
+        such as a returned ``Command``'s update, as this task's writes.
     """
 
     def _func(
@@ -281,6 +321,9 @@ def durable_tool_node(
 
     Raises:
         ValueError: If ``tool_node_options`` sets a tool call wrapper.
+
+    .. versionchanged:: 0.5.0
+        The node replays the state writes that each tool recorded.
     """
     for wrapper_option in ("wrap_tool_call", "awrap_tool_call"):
         if wrapper_option in tool_node_options:
@@ -381,6 +424,9 @@ class _RunModelBinding:
     source_tools: Sequence[BaseTool] = ()
     source_tool_listing: SourceToolListing | None = None
     resumed_tool_call_ids: set[str] = field(default_factory=set)
+    state_serializer: SerializerProtocol | None = None
+    excluded_tool_names: frozenset[str] = frozenset()
+    turn_chat_model: BaseChatModel | None = None
 
 
 @dataclass(frozen=True)
@@ -407,6 +453,7 @@ class _RecordedToolCallOutcome:
     tool_name: str
     status: ToolCallStatus
     output: str
+    state_writes: EncodedStateWrites | None = None
 
     def to_tool_message(self, tool_name: str) -> ToolMessage:
         return ToolMessage(
@@ -458,6 +505,17 @@ def _recorded_outcomes_resume_value(
                 "tool_name": outcome.tool_name,
                 "status": str(outcome.status),
                 "output": outcome.output,
+                # Only a tool that wrote graph state adds the key, so other values stay the same.
+                **(
+                    {}
+                    if outcome.state_writes is None
+                    else {
+                        "state_writes": {
+                            "type": outcome.state_writes.type,
+                            "data": outcome.state_writes.data,
+                        }
+                    }
+                ),
             }
             for outcome in outcomes
         }
@@ -474,6 +532,12 @@ def _recorded_outcomes_from_resume_value(value: object) -> dict[str, _RecordedTo
             tool_name=str(result["tool_name"]),
             status=ToolCallStatus(result["status"]),
             output=str(result["output"]),
+            state_writes=None
+            if result.get("state_writes") is None
+            else EncodedStateWrites(
+                type=str(result["state_writes"]["type"]),
+                data=str(result["state_writes"]["data"]),
+            ),
         )
         for tool_call_id, result in results.items()
     }
@@ -503,7 +567,9 @@ def _defer_tool_calls(
             policy=_resolve_deferred_tool_policy(
                 binding,
                 tool_call["name"],
-                binding.tools_by_name.get(tool_call["name"])
+                None
+                if tool_call["name"] in binding.excluded_tool_names
+                else binding.tools_by_name.get(tool_call["name"])
                 or request_tool
                 or (node_tools_by_name or {}).get(tool_call["name"]),
             ),
@@ -565,6 +631,12 @@ def _recorded_tool_message(
             "model call"
         )
     binding.resumed_tool_call_ids.add(request.tool_call_id)
+    if outcome.state_writes is not None:
+        if binding.state_serializer is None:
+            raise RuntimeError("the runner bound no serializer for recorded state writes")
+        # The graph task's own send, as a tool that writes state inside the graph uses it.
+        send = get_config()["configurable"][CONFIG_KEY_SEND]
+        send(decode_state_writes(outcome.state_writes, binding.state_serializer))
     return outcome.to_tool_message(request.tool_name)
 
 
@@ -580,11 +652,49 @@ def _resolve_deferred_tool_policy(
     return binding.turn.resolve_tool_policy(tool_name, framework_effect)
 
 
-def _with_source_tools(request: ModelRequest[Any]) -> ModelRequest[Any]:
+def _with_session_model_request(request: ModelRequest[Any]) -> ModelRequest[Any]:
     binding = _ACTIVE_TOOL_BINDING.get()
-    if not isinstance(binding, _RunModelBinding) or not binding.source_tools:
+    if not isinstance(binding, _RunModelBinding):
         return request
-    return request.override(tools=[*request.tools, *binding.source_tools])
+    overrides: dict[str, Any] = {}
+    if binding.source_tools or binding.excluded_tool_names:
+        kept = [
+            tool for tool in request.tools if _tool_name(tool) not in binding.excluded_tool_names
+        ]
+        overrides["tools"] = [*kept, *binding.source_tools]
+    if binding.turn_chat_model is not None:
+        overrides["model"] = binding.turn_chat_model
+    return request.override(**overrides) if overrides else request
+
+
+def _tool_name(tool: BaseTool | Mapping[str, Any]) -> str | None:
+    if isinstance(tool, BaseTool):
+        return tool.name
+    name = tool.get("name")
+    if isinstance(name, str):
+        return name
+    function = tool.get("function")
+    return function.get("name") if isinstance(function, Mapping) else None
+
+
+def _defer_before_tool_middleware(tool_node: ToolNode) -> None:
+    """Make deferral the outermost async tool wrapper of a plain ``ToolNode``, once."""
+    if getattr(tool_node, _DEFERS_BEFORE_TOOL_MIDDLEWARE_ATTRIBUTE, False):
+        return
+    middleware_wrapper = tool_node._awrap_tool_call
+
+    async def defer_first(
+        request: ToolCallRequest, execute: ToolCallExecutor
+    ) -> ToolMessage | Command[Any]:
+        async def run_middleware(inner_request: ToolCallRequest) -> ToolMessage | Command[Any]:
+            if middleware_wrapper is None:
+                return await execute(inner_request)
+            return await middleware_wrapper(inner_request, execute)
+
+        return await awrap_durable_tool_call(request, run_middleware)
+
+    tool_node._awrap_tool_call = defer_first
+    setattr(tool_node, _DEFERS_BEFORE_TOOL_MIDDLEWARE_ATTRIBUTE, True)
 
 
 def _source_tool_as_langchain_tool(definition: SourceToolDefinition) -> BaseTool:

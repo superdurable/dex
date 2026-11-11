@@ -57,6 +57,24 @@ for the Dex SDK and framework versions each release supports.
 
 ### Added
 
+- Python LangGraph adapter: Deep Agents agents from **create_deep_agent** run
+  as agent sessions. A **DeltaChannel** in the root graph is accepted, and each
+  turn-local checkpoint stores its whole value. A tool with a **ToolRuntime**
+  or **InjectedState** parameter receives the graph state of its deferral in
+  its tool Step, without the message list, and reads and writes state as in a
+  graph task, as Deep Agents' **StateBackend** file tools do. A tool may return
+  a **Command** with an `update` mapping. The next `RunModel` replays the
+  tool's state writes. New session Flow and **LangGraphAgentRunner** options:
+  **excluded_tool_names** removes graph tools from model requests and tool
+  Steps, such as `task` to turn off subagents, and frees their names for tool
+  sources; **select_turn_chat_model** picks each turn's chat model from its
+  **AgentTurnContext**; **should_defer_tool_calls_before_middleware** makes the
+  deferral the outermost tool wrapper, which `create_deep_agent`'s middleware
+  order otherwise prevents. Existing graphs behave as before. See
+  [A Deep Agents agent](python/langgraph/README.md#a-deep-agents-agent).
+- The **dex-agents-deepagents** command uses these options instead of its own
+  state schema, subagent middleware replacement, and model middleware. Its
+  behavior is unchanged.
 - Python CLI runtime (`dex-agents-cli`, not published yet): the shared runtime
   of the Python harness commands. It reads `~/.dex/agents/<harness>.yaml` and
   asks the init questions on first run, reuses or starts `dexcli dev`

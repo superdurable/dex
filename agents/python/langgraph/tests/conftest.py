@@ -39,6 +39,7 @@ from tests.connector_agent import (
     CONNECTOR_STATE_GRAPH_FLOW_TYPE,
     build_connector_agent_flows,
 )
+from tests.deep_agents import DEEP_AGENT_FLOW_TYPE, build_deep_agent_flows
 from tests.fake_ledger import (
     STATE_DIR_ENVIRONMENT_VARIABLE as LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE,
 )
@@ -58,6 +59,7 @@ AGENT_FLOW_TYPES = [CREATE_AGENT_FLOW_TYPE, STATE_GRAPH_FLOW_TYPE]
 CONNECTOR_WORKER_MODULE = "tests.connector_worker"
 #: Both ways to offer tool source tools; connector tests run once per way.
 CONNECTOR_FLOW_TYPES = [CONNECTOR_CREATE_AGENT_FLOW_TYPE, CONNECTOR_STATE_GRAPH_FLOW_TYPE]
+DEEP_AGENT_WORKER_MODULE = "tests.deep_agent_worker"
 
 
 @dataclass
@@ -187,5 +189,30 @@ async def connector_harness(
         CONNECTOR_WORKER_MODULE,
         worker_cwd=PACKAGE_DIR,
         worker_env={LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+    ) as stack:
+        yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)
+
+
+@pytest.fixture
+def deep_agent_flow_type() -> str:
+    """Selects the Deep Agents agent under test."""
+    return DEEP_AGENT_FLOW_TYPE
+
+
+@pytest_asyncio.fixture
+async def deep_agent_harness(
+    tmp_path: Path, deep_agent_flow_type: str
+) -> AsyncIterator[ScriptedAgentHarness]:
+    """Starts a private engine for the create_deep_agent agents."""
+    state_dir = tmp_path / "deep-agent-state"
+    state_dir.mkdir()
+    flows = build_deep_agent_flows(state_dir)
+    flow = next(flow for flow in flows if flow.get_flow_type() == deep_agent_flow_type)
+    async with AgentTestStack(
+        tmp_path,
+        flows,
+        DEEP_AGENT_WORKER_MODULE,
+        worker_cwd=PACKAGE_DIR,
+        worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)

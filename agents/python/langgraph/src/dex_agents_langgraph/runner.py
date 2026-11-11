@@ -14,7 +14,7 @@ import asyncio
 import inspect
 import json
 import threading
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, TypeAlias
@@ -22,6 +22,9 @@ from uuid import UUID, uuid4
 
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
+    TURN_CANCELLED_NOTE_HEADER,
+    TURN_FAILURE_NOTE_HEADER,
+    TURN_STEERED_NOTE_HEADER,
     AgentFrameworkRunner,
     AgentToolCall,
     AgentTurnContext,
@@ -35,6 +38,7 @@ from dex_agents import (
     FrameworkMessage,
     ModelCallMetadata,
     ToolCallsRequested,
+    ToolCallStatus,
     ToolCallStepOptions,
     ToolExecutionError,
     ToolExecutionResult,
@@ -65,9 +69,11 @@ from langchain_core.messages import (
 from langchain_core.outputs import LLMResult
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, ToolException
+from langgraph._internal._constants import CONFIG_KEY_READ, CONFIG_KEY_SEND
 from langgraph.channels.delta import DeltaChannel
 from langgraph.checkpoint.serde.base import SerializerProtocol
 from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt.tool_node import ToolRuntime, _get_all_injected_args
 from langgraph.pregel import Pregel
 from langgraph.types import Command, Interrupt, StateSnapshot
 from pydantic import BaseModel, ValidationError
@@ -80,14 +86,27 @@ from dex_agents_langgraph._checkpoints import (
     encode_suspended_graph_run_state,
     restore_suspended_graph_checkpoints,
 )
+from dex_agents_langgraph._delta_channels import checkpointed_delta_channels
+from dex_agents_langgraph._tool_state import (
+    StateWrite,
+    append_state_writes,
+    build_graph_state_reader,
+    decode_tool_state_reference,
+    encode_tool_state_reference,
+    remove_state_writes_blocks,
+    split_recorded_output,
+    split_tool_command,
+)
 from dex_agents_langgraph.messages import (
     framework_messages_to_langchain_messages,
     langchain_message_to_framework_message,
 )
 from dex_agents_langgraph.tool_deferral import (
     TOOL_CALL_IDEMPOTENCY_KEY_CONFIGURABLE,
+    DurableToolNode,
     _bind_run_model,
     _bind_tool_step,
+    _defer_before_tool_middleware,
     _deferred_tool_call_requests,
     _DeferredToolCallRequest,
     _recorded_outcomes_resume_value,
@@ -104,6 +123,13 @@ CompiledGraphSource: TypeAlias = (
     CompiledGraph | Callable[[], CompiledGraph] | Callable[[], Awaitable[CompiledGraph]]
 )
 
+
+# The notes the session stores about a turn's tool calls, which quote each recorded output.
+_TOOL_CALL_NOTE_HEADERS = (
+    TURN_FAILURE_NOTE_HEADER,
+    TURN_STEERED_NOTE_HEADER,
+    TURN_CANCELLED_NOTE_HEADER,
+)
 
 # LangChain model_provider values whose provider has a well-known gen_ai.provider.name value.
 _GEN_AI_PROVIDER_NAMES = {
@@ -140,7 +166,9 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     The graph must keep the conversation in a list of LangChain messages under
     ``messages_key``, with the ``add_messages`` reducer, as ``create_agent``
     and ``MessagesState`` do. Its tool calls must go through
-    ``DurableToolCallMiddleware`` or a ``durable_tool_node``.
+    ``DurableToolCallMiddleware`` or a ``durable_tool_node``. A Deep Agents
+    agent from ``create_deep_agent`` works too: its ``DeltaChannel`` state
+    channels are stored whole in each turn-local checkpoint.
 
     The session runs in Step mode. Each ``RunModel`` Step calls
     ``run_model_step``, which runs the graph on a fresh, turn-local
@@ -163,7 +191,16 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     ``RunModel`` and then fails the call, so no tool runs outside its own Step.
 
     The runner keeps no session state between calls. It builds the graph from
-    a factory once, on first use, and shares it across sessions.
+    a factory once, on first use, and shares it across sessions. Each turn
+    starts the graph from the stored messages alone, so other state keys, such
+    as Deep Agents' ``files``, start from their defaults on every turn.
+
+    A tool that reads graph state through a ``ToolRuntime`` or
+    ``InjectedState`` parameter receives, in its tool Step, the graph state at
+    its deferral without the message list. A tool may return a ``Command``
+    whose ``update`` holds its ``ToolMessage`` and other state keys: the tool
+    Step records the update after the output text, and the next ``RunModel``
+    applies it with the recorded ``ToolMessage``.
 
     Tool sources, such as ``ConnectorToolSource``, add tools that the runner
     lists in every ``RunModel``. ``DurableToolCallMiddleware`` adds them to
@@ -202,6 +239,9 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         summary_model: BaseChatModel | None = None,
         tool_sources: Sequence[ToolSource] = (),
         tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+        excluded_tool_names: Collection[str] = (),
+        select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
+        should_defer_tool_calls_before_middleware: bool = False,
     ) -> None:
         """Create a runner for one compiled graph.
 
@@ -243,31 +283,79 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 seconds.
 
                 .. versionadded:: 0.4.0
+            excluded_tool_names: Names of graph tools that the session never
+                offers or runs, such as ``"task"`` to turn off Deep Agents'
+                subagents. ``DurableToolCallMiddleware`` removes them from
+                every model request, tool Steps do not run them, and a tool
+                source may list a tool of the same name, which then replaces
+                the graph's tool. A model call of an excluded name that no
+                source lists records an error result. A custom graph's model
+                node must leave them out of its own tool list. Defaults to
+                none.
+
+                .. versionadded:: 0.5.0
+            select_turn_chat_model: Function that picks the chat model of a
+                turn, or ``None``, the default, to keep the graph's model.
+                Each ``RunModel`` calls it once with the turn's context, so it
+                can read ``turn.session_settings``. When it returns a model,
+                ``DurableToolCallMiddleware`` gives that model to every model
+                request of the call. A ``None`` result keeps the graph's
+                model. Cache the models it returns: it runs once in every
+                ``RunModel`` Step. A custom graph without the middleware
+                ignores it.
+
+                .. versionadded:: 0.5.0
+            should_defer_tool_calls_before_middleware: Whether to make the
+                deferral the outermost tool wrapper of every plain
+                ``ToolNode`` in the graph, as if ``DurableToolCallMiddleware``
+                came first in ``middleware``. Set it for a Deep Agents agent,
+                where ``create_deep_agent`` places your middleware after its
+                own. The runner changes those tool nodes in place when it
+                loads the graph. Middleware tool wrappers then never run in a
+                session: ``RunModel`` replays recorded results before them,
+                and a tool Step calls the tool alone. Defaults to ``False``,
+                which keeps the middleware order.
+
+                .. versionadded:: 0.5.0
 
         Raises:
             TypeError: If ``graph`` is neither a compiled graph nor callable,
                 or a tool source lacks a ``ToolSource`` method or a non-blank
-                ``source_name``.
+                ``source_name``, or ``excluded_tool_names`` is a string.
             ValueError: If a compiled ``graph`` has no ``messages_key`` channel,
-                uses a ``DeltaChannel``, or has two tool nodes whose different
-                tools share a name that ``tools`` does not settle; if two tool
-                sources share a ``source_name``; if a source's
+                uses a ``DeltaChannel`` in a subgraph, or has two tool nodes
+                whose different tools share a name that ``tools`` does not
+                settle; if ``excluded_tool_names`` names a tool of ``tools``;
+                if two tool sources share a ``source_name``; if a source's
                 ``declared_tool_names`` repeat a tool of ``tools``, a tool of a
                 compiled ``graph``, or another source's tool; or if
                 ``tool_source_listing_timeout`` is not positive.
+
+        .. versionchanged:: 0.5.0
+            A ``DeltaChannel`` in the root graph is accepted.
         """
         if not isinstance(graph, Pregel) and not callable(graph):
             raise TypeError("graph must be a compiled LangGraph graph or a function returning one")
+        if isinstance(excluded_tool_names, str):
+            raise TypeError("excluded_tool_names must be a collection of names, not a string")
         self._graph_factory = None if isinstance(graph, Pregel) else graph
         self._explicit_tools = {tool.name: tool for tool in tools}
+        self._excluded_tool_names = frozenset(excluded_tool_names)
+        excluded_explicit_tools = sorted(self._excluded_tool_names & self._explicit_tools.keys())
+        if excluded_explicit_tools:
+            raise ValueError(
+                f"excluded_tool_names names tools of tools=: {excluded_explicit_tools}"
+            )
         self._messages_key = messages_key
         self._checkpoint_serializer = checkpoint_serializer
+        # The serializer the turn-local checkpoints use, so state travels with the same encoding.
+        self._state_serializer = TurnCheckpointSaver(serde=checkpoint_serializer).serde
         self._summary_model = summary_model
+        self._select_turn_chat_model = select_turn_chat_model
+        self._should_defer_tool_calls_before_middleware = should_defer_tool_calls_before_middleware
         self._graph_load_lock = asyncio.Lock()
         self._loaded_graph = (
-            _inspect_compiled_graph(graph, messages_key, self._explicit_tools)
-            if isinstance(graph, Pregel)
-            else None
+            self._inspect_compiled_graph(graph) if isinstance(graph, Pregel) else None
         )
         self._tool_sources = FrameworkToolSourceRouter(
             tool_sources,
@@ -290,8 +378,14 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
         Returns:
             A ``MessageRole.USER`` message holding a ``HumanMessage`` with a
-            new ``"dex-user-<hex>"`` ID.
+            new ``"dex-user-<hex>"`` ID. A note about a turn's tool calls
+            leaves out the state writes recorded after their outputs.
+
+        .. versionchanged:: 0.5.0
+            Notes about a turn's tool calls leave out recorded state writes.
         """
+        if text.startswith(_TOOL_CALL_NOTE_HEADERS):
+            text = remove_state_writes_blocks(text)
         return langchain_message_to_framework_message(
             HumanMessage(content=text, id=f"dex-user-{uuid4().hex}")
         )
@@ -327,7 +421,10 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             note = build_context_summary_note(turn.context_summary)
             history.insert(0, HumanMessage(content=note, id=summary_message_id))
         saver = TurnCheckpointSaver(serde=self._checkpoint_serializer)
-        graph = loaded_graph.graph.copy(update={"checkpointer": saver})
+        graph_update: dict[str, Any] = {"checkpointer": saver}
+        if loaded_graph.turn_channels is not None:
+            graph_update["channels"] = loaded_graph.turn_channels
+        graph = loaded_graph.graph.copy(update=graph_update)
         turn_callbacks = _TurnCallbackHandler()
         resumed_tool_call_ids: set[str] = set()
         if turn.framework_run_state is None:
@@ -337,7 +434,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             run_state = decode_suspended_graph_run_state(turn.framework_run_state)
             thread_id = run_state.thread_id
             await restore_suspended_graph_checkpoints(saver, run_state)
-            graph_input = Command(resume=_resume_values(turn, run_state.interrupts))
+            graph_input = Command(resume=self._resume_values(turn, run_state.interrupts))
             resumed_tool_call_ids = {
                 tool_call_id
                 for interrupt in run_state.interrupts
@@ -352,6 +449,11 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             tools_by_name=loaded_graph.tools_by_name,
             source_tools=[_source_tool_as_langchain_tool(tool) for tool in source_tools.tools],
             source_tool_listing=source_tools,
+            state_serializer=self._state_serializer,
+            excluded_tool_names=self._excluded_tool_names,
+            turn_chat_model=None
+            if self._select_turn_chat_model is None
+            else self._select_turn_chat_model(turn),
         )
         with _bind_run_model(binding):
             async for streamed in graph.astream(
@@ -374,7 +476,14 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         model_call_metadata = turn_callbacks.model_call_metadata()
         if snapshot.interrupts:
             return await self._request_tool_calls(
-                turn, source_tools, saver, thread_id, snapshot, usage, model_call_metadata
+                turn,
+                loaded_graph,
+                source_tools,
+                saver,
+                thread_id,
+                snapshot,
+                usage,
+                model_call_metadata,
             )
         if snapshot.next:
             raise RuntimeError(
@@ -492,6 +601,15 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         invokes with ``DurableToolCallMiddleware`` runs its own tools inline,
         as part of this Step.
 
+        A tool with a ``ToolRuntime`` or ``InjectedState`` parameter receives
+        the graph state that ``RunModel`` stored with the call, without the
+        message list. Its runtime has no store and no context, and it reads
+        and writes state as in a graph task, which Deep Agents'
+        ``StateBackend`` does. A tool may also return a ``Command`` whose
+        ``update`` mapping holds its ``ToolMessage``. Its state writes follow
+        the output text in a block that the next ``RunModel`` replays as the
+        graph task's writes.
+
         Args:
             call: The approved record and its idempotency key.
 
@@ -508,12 +626,17 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             LookupError: A source built the call, but no source of that name
                 is configured on this Worker, so the effect class decides.
             TypeError: The tool returned something other than a
-                ``ToolMessage``, such as a graph ``Command``.
+                ``ToolMessage`` or a ``Command``, or a ``Command`` that routes
+                the graph, updates state with something other than a mapping,
+                or has no ``ToolMessage`` for the call.
             Exception: Any other exception from the tool, including a
                 ``ValidationError`` raised inside its body, fails the Step
                 attempt. Once the attempts run out, the session records
                 ``FAILED`` for a ``READ`` call and ``OUTCOME_UNKNOWN`` for a
                 write, because the write may have taken effect.
+
+        .. versionchanged:: 0.5.0
+            A tool may read and write graph state and return a ``Command``.
         """
         record = call.tool_call
         if self._tool_sources.is_source_tool_call(record):
@@ -529,19 +652,39 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         config: RunnableConfig = {
             "configurable": {TOOL_CALL_IDEMPOTENCY_KEY_CONFIGURABLE: call.idempotency_key}
         }
+        state_writes: list[StateWrite] = []
+        if record.tool_name in loaded_graph.state_tool_names:
+            state = decode_tool_state_reference(
+                record.tool_source_reference, self._state_serializer
+            )
+            config["configurable"][CONFIG_KEY_READ] = build_graph_state_reader(
+                loaded_graph.graph.channels, state or {}, state_writes
+            )
+            config["configurable"][CONFIG_KEY_SEND] = state_writes.extend
+            tool_call = self._with_injected_tool_arguments(
+                loaded_graph, tool, tool_call, state or {}, config
+            )
         with _bind_tool_step():
             try:
                 result = await tool.ainvoke(tool_call, config)
             except ToolException as error:
                 raise ToolExecutionError(str(error)) from error
+        if isinstance(result, Command):
+            command_result = split_tool_command(result, record.tool_call_id, self._messages_key)
+            state_writes.extend(command_result.state_writes)
+            result = command_result.tool_message
         if not isinstance(result, ToolMessage):
             raise TypeError(
                 f"tool {record.tool_name} returned {type(result).__name__}; "
-                "a tool of an agent session must return content, not a graph Command"
+                "a tool of an agent session must return content or a Command"
             )
         output = _tool_message_output(result)
         if result.status == "error":
             raise ToolExecutionError(output)
+        if state_writes:
+            output = append_state_writes(
+                output, state_writes, record.tool_call_id, self._state_serializer
+            )
         return ToolExecutionResult(output=output)
 
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
@@ -575,16 +718,126 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 built = self._graph_factory()
                 if inspect.isawaitable(built):
                     built = await built
-                self._loaded_graph = _inspect_compiled_graph(
-                    built, self._messages_key, self._explicit_tools
-                )
+                self._loaded_graph = self._inspect_compiled_graph(built)
         if self._loaded_graph is None:
             raise RuntimeError("the runner has neither a compiled graph nor a graph factory")
         return self._loaded_graph
 
+    def _inspect_compiled_graph(self, graph: object) -> _LoadedGraph:
+        if not isinstance(graph, Pregel):
+            raise TypeError(
+                f"the graph factory returned {type(graph).__name__}, not a compiled graph"
+            )
+        if self._messages_key not in graph.channels:
+            raise ValueError(
+                f"the graph state has no {self._messages_key!r} channel for the conversation"
+            )
+        tools_by_name: dict[str, BaseTool] = {}
+        ambiguous_tool_names: set[str] = set()
+        for compiled in _graph_and_subgraphs(graph):
+            for channel_name, channel in compiled.channels.items():
+                if compiled is not graph and isinstance(channel, DeltaChannel):
+                    raise ValueError(
+                        f"subgraph state channel {channel_name!r} is a DeltaChannel, which agent "
+                        "sessions cannot store while tool calls run; only the root graph may "
+                        "use one"
+                    )
+            for node in compiled.nodes.values():
+                if not isinstance(node.bound, ToolNode):
+                    continue
+                if self._should_defer_tool_calls_before_middleware and not isinstance(
+                    node.bound, DurableToolNode
+                ):
+                    _defer_before_tool_middleware(node.bound)
+                for tool_name, tool in node.bound.tools_by_name.items():
+                    known = tools_by_name.setdefault(tool_name, tool)
+                    if known is not tool:
+                        ambiguous_tool_names.add(tool_name)
+        ambiguous_tool_names -= self._explicit_tools.keys() | self._excluded_tool_names
+        if ambiguous_tool_names:
+            raise ValueError(
+                f"tool nodes of the graph use different tools named "
+                f"{sorted(ambiguous_tool_names)}; rename them, or pass the tool that tool call "
+                "Steps should run in tools="
+            )
+        tools_by_name.update(self._explicit_tools)
+        for excluded_tool_name in self._excluded_tool_names:
+            tools_by_name.pop(excluded_tool_name, None)
+        return _LoadedGraph(
+            graph=graph,
+            tools_by_name=tools_by_name,
+            turn_channels=checkpointed_delta_channels(graph.channels),
+            state_tool_names=frozenset(
+                tool_name
+                for tool_name, tool in tools_by_name.items()
+                if _reads_graph_state(_get_all_injected_args(tool))
+            ),
+        )
+
+    def _resume_values(
+        self,
+        turn: AgentTurnContext,
+        interrupts: Sequence[PendingInterrupt],
+    ) -> dict[str, dict[str, Any]]:
+        resume_values: dict[str, dict[str, Any]] = {}
+        for pending in interrupts:
+            outcomes: list[_RecordedToolCallOutcome] = []
+            for tool_call_id in pending.tool_call_ids:
+                record = turn.recorded_tool_call(tool_call_id)
+                if record is None or not record.status.is_final:
+                    raise RuntimeError(f"tool call {tool_call_id} has no final record")
+                output = describe_tool_call_outcome(record)
+                state_writes = None
+                if record.status is ToolCallStatus.SUCCEEDED and not (
+                    self._tool_sources.is_source_tool_call(record)
+                ):
+                    output, state_writes = split_recorded_output(output, tool_call_id)
+                outcomes.append(
+                    _RecordedToolCallOutcome(
+                        tool_call_id=tool_call_id,
+                        tool_name=record.tool_name,
+                        status=record.status,
+                        output=output,
+                        state_writes=state_writes,
+                    )
+                )
+            resume_values[pending.interrupt_id] = _recorded_outcomes_resume_value(outcomes)
+        return resume_values
+
+    def _with_injected_tool_arguments(
+        self,
+        loaded_graph: _LoadedGraph,
+        tool: BaseTool,
+        tool_call: ToolCall,
+        state: dict[str, Any],
+        config: RunnableConfig,
+    ) -> ToolCall:
+        tool_runtime = ToolRuntime(
+            state=state,
+            context=None,
+            config=config,
+            stream_writer=_discard_stream_write,
+            tool_call_id=tool_call["id"],
+            store=None,
+            tools=list(loaded_graph.tools_by_name.values()),
+        )
+        # LangGraph's own injection, so ToolRuntime and InjectedState work as in a ToolNode.
+        injector = ToolNode([tool], messages_key=self._messages_key)
+        return injector._inject_tool_args(tool_call, tool_runtime, tool)
+
+    def _tool_state_reference(
+        self, loaded_graph: _LoadedGraph, tool_name: str, snapshot: StateSnapshot
+    ) -> str | None:
+        if tool_name not in loaded_graph.state_tool_names or not isinstance(snapshot.values, dict):
+            return None
+        # The message list stays out: it is the largest value, and one call would store it again.
+        state = {key: value for key, value in snapshot.values.items() if key != self._messages_key}
+        return encode_tool_state_reference(state, self._state_serializer)
+
     async def _request_tool_calls(
         self,
         turn: AgentTurnContext,
+        loaded_graph: _LoadedGraph,
         source_tools: SourceToolListing,
         saver: TurnCheckpointSaver,
         thread_id: str,
@@ -630,6 +883,10 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                     tool_name=request.tool_name,
                     arguments=request.arguments,
                     policy=request.policy,
+                    # Graph tools never use this field otherwise; a state-reading tool needs it.
+                    tool_source_reference=self._tool_state_reference(
+                        loaded_graph, request.tool_name, snapshot
+                    ),
                 )
                 for _, request in ordered
             ],
@@ -657,6 +914,9 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 class _LoadedGraph:
     graph: CompiledGraph
     tools_by_name: Mapping[str, BaseTool]
+    # The root channels with each DeltaChannel replaced, or None when the graph has none.
+    turn_channels: Mapping[str, Any] | None
+    state_tool_names: frozenset[str]
 
 
 @dataclass(frozen=True)
@@ -759,41 +1019,6 @@ class _TurnCallbackHandler(BaseCallbackHandler):
         )
 
 
-def _inspect_compiled_graph(
-    graph: object,
-    messages_key: str,
-    explicit_tools: Mapping[str, BaseTool],
-) -> _LoadedGraph:
-    if not isinstance(graph, Pregel):
-        raise TypeError(f"the graph factory returned {type(graph).__name__}, not a compiled graph")
-    if messages_key not in graph.channels:
-        raise ValueError(f"the graph state has no {messages_key!r} channel for the conversation")
-    tools_by_name: dict[str, BaseTool] = {}
-    ambiguous_tool_names: set[str] = set()
-    for compiled in _graph_and_subgraphs(graph):
-        for channel_name, channel in compiled.channels.items():
-            if isinstance(channel, DeltaChannel):
-                raise ValueError(
-                    f"state channel {channel_name!r} is a DeltaChannel, which agent sessions "
-                    "cannot store while tool calls run"
-                )
-        for node in compiled.nodes.values():
-            if not isinstance(node.bound, ToolNode):
-                continue
-            for tool_name, tool in node.bound.tools_by_name.items():
-                known = tools_by_name.setdefault(tool_name, tool)
-                if known is not tool:
-                    ambiguous_tool_names.add(tool_name)
-    ambiguous_tool_names -= explicit_tools.keys()
-    if ambiguous_tool_names:
-        raise ValueError(
-            f"tool nodes of the graph use different tools named {sorted(ambiguous_tool_names)}; "
-            "rename them, or pass the tool that tool call Steps should run in tools="
-        )
-    tools_by_name.update(explicit_tools)
-    return _LoadedGraph(graph=graph, tools_by_name=tools_by_name)
-
-
 def _graph_and_subgraphs(graph: CompiledGraph) -> list[CompiledGraph]:
     # get_subgraphs skips subgraphs compiled with checkpointer=False, so nodes are walked too.
     found: list[CompiledGraph] = [graph]
@@ -804,29 +1029,6 @@ def _graph_and_subgraphs(graph: CompiledGraph) -> list[CompiledGraph]:
             if isinstance(candidate, Pregel) and all(candidate is not known for known in found):
                 found.append(candidate)
     return found
-
-
-def _resume_values(
-    turn: AgentTurnContext,
-    interrupts: Sequence[PendingInterrupt],
-) -> dict[str, dict[str, Any]]:
-    resume_values: dict[str, dict[str, Any]] = {}
-    for pending in interrupts:
-        outcomes: list[_RecordedToolCallOutcome] = []
-        for tool_call_id in pending.tool_call_ids:
-            record = turn.recorded_tool_call(tool_call_id)
-            if record is None or not record.status.is_final:
-                raise RuntimeError(f"tool call {tool_call_id} has no final record")
-            outcomes.append(
-                _RecordedToolCallOutcome(
-                    tool_call_id=tool_call_id,
-                    tool_name=record.tool_name,
-                    status=record.status,
-                    output=describe_tool_call_outcome(record),
-                )
-            )
-        resume_values[pending.interrupt_id] = _recorded_outcomes_resume_value(outcomes)
-    return resume_values
 
 
 def _validated_tool_arguments(tool: BaseTool, arguments_json: str) -> dict[str, Any]:
@@ -843,6 +1045,15 @@ def _validated_tool_arguments(tool: BaseTool, arguments_json: str) -> dict[str, 
         except ValidationError as error:
             raise ToolExecutionError(f"invalid tool arguments: {error}") from error
     return arguments
+
+
+def _reads_graph_state(injected: Any) -> bool:
+    return bool(injected.state) or injected.runtime is not None
+
+
+def _discard_stream_write(chunk: Any) -> None:
+    # A tool Step has no graph stream to write custom chunks to.
+    return None
 
 
 def _state_messages(snapshot: StateSnapshot, messages_key: str) -> list[BaseMessage] | None:
