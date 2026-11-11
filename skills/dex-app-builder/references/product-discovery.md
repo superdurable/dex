@@ -145,7 +145,7 @@ owner, so it never pollutes the authoritative store.
 | product-specific | yes or no | concrete option | measured requirement, not speculation | required before a SubFlow | Step, independent top-level Flow, or confirmed SubFlow |
 
 New applications default to no SubFlows. Use static or dynamic parallel
-Steps, Channels for joins or quorum, batching, typed RPCs, and ordinary Go
+Steps, a Join for parallel branches, Channels for quorum, batching, typed RPCs, and ordinary Go
 helpers first. Provider abstraction, research stages, model calls, code reuse,
 an independent retry policy, and ordinary bounded fan-out never justify a
 SubFlow.

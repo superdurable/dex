@@ -99,6 +99,30 @@ def execute(self, context: Context, input: int) -> StepDecision:
 
 Example: [examples/python/dex_examples/primitives/subflow/parent_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/subflow/parent_flow.py)
 
+## Join parallel branches {#join}
+
+Since 1.44.0. A **Join** waits for the parallel branches that one Step
+started. It stores branch results in a ChannelMap with the Join's name, so
+its conditions are Channel conditions. They combine with **AnyOf**, **AllOf**,
+and Timers.
+
+- **Join** defines a Join. Add it to **channels** of **PersistenceSchema**, like a ChannelMap.
+- **Join.fork** starts one round from a split Step. It returns the branch movements
+  and the join Step movement. **Join.fork_with_round_key** does the same with an explicit
+  round key, for example in an RPC.
+- A branch reports its result with **Join.end_branch** or **Join.report_branch_result**.
+- The join Step waits with **Join.for_all_branches**, **Join.for_first_branch**, or **Join.for_branches**, and reads **Join.branch_results**.
+- The next round's split Step resets the previous round with
+  **Join.for_remaining_branches**, and reads **Join.remaining_branch_results**.
+- **Join.channel_map** returns the underlying ChannelMap, for reading a round's
+  pending results. Never publish to it directly.
+
+The [Join API reference](pathname:///api/python/latest/dex.html#Join) documents each method. The
+[Await Parallel Steps](/design-patterns/parallel/await) pattern shows the whole
+shape.
+
+Example: [examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py)
+
 ## AnyCombinationOf {#anycombinationof}
 
 **AnyCombinationOf** is met when every condition in any one group is met. Each

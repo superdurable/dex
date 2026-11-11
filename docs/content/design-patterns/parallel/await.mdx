@@ -10,7 +10,7 @@ Wait for every dynamically started Step before finishing the Flow.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** starts the **DoWork** executions and **AwaitStep** together. Each worker sleeps for a random short time, then publishes one message to **CompleteCh**. In **WaitFor**, **AwaitStep** waits for exactly one message per worker, so it completes only after every worker has finished. Channel messages are durable, so a message published before **AwaitStep** starts waiting still counts.
+**InitStep** forks one round of the **parallel-complete** Join. The fork starts one **DoWork** execution per item and the **Await** Step in the same decision. It gives all of them the same round token, which holds the round key and the branch count. Each worker sleeps for a random short time, then ends its branch and reports its index as the result. In **WaitFor**, **Await** waits for every branch of the round, so it completes only after every worker has finished. Results are durable, so a result reported before **Await** starts waiting still counts.
 
 ## Core implementation
 
@@ -25,76 +25,111 @@ Wait for every dynamically started Step before finishing the Flow.
 <SdkSnippet lang="python">
 
 ```python
-class DoWork(Step[int]):
-    def __init__(self, complete_ch: Channel[None]) -> None:
-        self.complete_ch = complete_ch
+@dataclass(frozen=True)
+class WorkItem:
+    index: int
+    round: JoinRound
+
+
+def build_work_item(index: int) -> Callable[[JoinRound], StepMovement[WorkItem]]:
+    return lambda join_round: StepMovement.of(DoWork, WorkItem(index, join_round))
+
+
+class DoWork(Step[WorkItem]):
+    def __init__(self, work_completed: Join[int]) -> None:
+        self.work_completed = work_completed
 
     async def execute(  # type: ignore[override]
-        self, context: AsyncContext, input: int
+        self, context: AsyncContext, input: WorkItem
     ) -> StepDecision:
         await asyncio.sleep(random.uniform(0.05, 0.5))
-        self.complete_ch.publish(context, None)
-        return dead_end()
+        return self.work_completed.end_branch(context, input.round, input.index)
 
 
-class AwaitStep(Step[int]):
-    def __init__(self, complete_ch: Channel[None]) -> None:
-        self.complete_ch = complete_ch
+class Await(Step[JoinRound]):
+    def __init__(self, work_completed: Join[int]) -> None:
+        self.work_completed = work_completed
 
-    def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.until(self.complete_ch.for_n(input))
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
+        return Wait.until(self.work_completed.for_all_branches(input))
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        return graceful_complete(input)
-
-
-class Init(Step[int]):
-    def execute(self, context: Context, input: int) -> StepDecision:
-        movements: list[StepMovement[Any]] = [StepMovement.of(AwaitStep, input)]
-        movements.extend(
-            StepMovement.of(DoWork, index) for index in range(input)
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return graceful_complete(
+            len(self.work_completed.branch_results(context, input))
         )
-        return go_to_many(*movements)
+
+
+class InitStep(Step[int]):
+    def __init__(self, work_completed: Join[int]) -> None:
+        self.work_completed = work_completed
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        return go_to_many(
+            *self.work_completed.fork(
+                context,
+                [build_work_item(index) for index in range(input)],
+                lambda join_round: StepMovement.of(Await, join_round),
+            )
+        )
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
+var WorkCompletedJoin = dex.DefineJoin[int]("parallel-complete")
+
 type awaitInit struct{ dex.StepDefaultsNoWaitFor[int] }
 
 func (awaitInit) GetStepType() string { return "Init" }
 
-func (awaitInit) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
-	movements := []dex.StepMovement{dex.MovementOf(awaitStep{}, count)}
-	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(awaitWork{}, index))
+func (awaitInit) Execute(ctx dex.Context, count int) (*dex.StepDecision, error) {
+	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, count)
+	for index := range count {
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(awaitWork{}, WorkItem{Index: index, Round: round})
+		})
+	}
+	movements, err := WorkCompletedJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(awaitStep{}, round)
+	})
+	if err != nil {
+		return nil, err
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-type awaitWork struct{ dex.StepDefaultsNoWaitFor[int] }
+// WorkItem is the input of one DoWork branch.
+type WorkItem struct {
+	Index int           `json:"index"`
+	Round dex.JoinRound `json:"round"`
+}
+
+type awaitWork struct {
+	dex.StepDefaultsNoWaitFor[WorkItem]
+}
 
 func (awaitWork) GetStepType() string { return "DoWork" }
 
-func (awaitWork) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+func (awaitWork) Execute(ctx dex.Context, input WorkItem) (*dex.StepDecision, error) {
 	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
-	if err := CompleteCh.Publish(ctx, nil); err != nil {
-		return nil, err
-	}
-	return dex.DeadEnd(), nil
+	return WorkCompletedJoin.EndBranch(ctx, input.Round, input.Index)
 }
 
 type awaitStep struct{ dex.StepDefaults }
 
-func (awaitStep) GetStepType() string { return "AwaitStep" }
+func (awaitStep) GetStepType() string { return "Await" }
 
-func (awaitStep) WaitFor(_ dex.Context, count int) (*dex.Wait, error) {
-	return dex.Until(CompleteCh.ForN(count)), nil
+func (awaitStep) WaitFor(_ dex.Context, round dex.JoinRound) (*dex.Wait, error) {
+	return dex.Until(WorkCompletedJoin.ForAllBranches(round)), nil
 }
 
-func (awaitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(count), nil
+func (awaitStep) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	completedIndexes, err := WorkCompletedJoin.BranchResults(ctx, round)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(len(completedIndexes)), nil
 }
 ```
 
@@ -102,7 +137,13 @@ func (awaitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
 <SdkSnippet lang="java">
 
 ```java
-final class Init implements Step<Integer> {
+public final Join<Integer> workCompleted = Join.define("parallel-complete", Integer.class);
+
+/** One worker: its index and the Join round it reports to. */
+public record WorkItem(int index, JoinRound round) {
+}
+
+final class InitStep implements Step<Integer> {
     @Override
     public Class<Integer> getInputType() {
         return Integer.class;
@@ -110,48 +151,49 @@ final class Init implements Step<Integer> {
 
     @Override
     public StepDecision execute(final Context context, final Integer count) {
-        final StepMovement<?>[] movements = new StepMovement<?>[count + 1];
-        movements[0] = StepMovement.of(AwaitStep.class, count);
+        final List<Function<JoinRound, StepMovement<?>>> workers =
+                new ArrayList<Function<JoinRound, StepMovement<?>>>();
         for (int index = 0; index < count; index++) {
-            movements[index + 1] = StepMovement.of(DoWork.class, index);
+            final int workIndex = index;
+            workers.add(round -> StepMovement.of(DoWork.class, new WorkItem(workIndex, round)));
         }
-        return StepDecision.goToMany(movements);
+        return StepDecision.goToMany(workCompleted.fork(
+                context, workers, round -> StepMovement.of(Await.class, round)));
     }
 }
 
-final class DoWork implements Step<Integer> {
+final class DoWork implements Step<WorkItem> {
     @Override
-    public Class<Integer> getInputType() {
-        return Integer.class;
+    public Class<WorkItem> getInputType() {
+        return WorkItem.class;
     }
 
     @Override
-    public StepDecision execute(final Context context, final Integer input) {
+    public StepDecision execute(final Context context, final WorkItem item) {
         try {
             Thread.sleep(ThreadLocalRandom.current().nextInt(50, 500));
         } catch (final InterruptedException error) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(error);
         }
-        completeCh.publish(context, null);
-        return StepDecision.deadEnd();
+        return workCompleted.endBranch(context, item.round(), item.index());
     }
 }
 
-final class AwaitStep implements Step<Integer> {
+final class Await implements Step<JoinRound> {
     @Override
-    public Class<Integer> getInputType() {
-        return Integer.class;
+    public Class<JoinRound> getInputType() {
+        return JoinRound.class;
     }
 
     @Override
-    public Wait waitFor(final Context context, final Integer count) {
-        return Wait.until(completeCh.forN(count));
+    public Wait waitFor(final Context context, final JoinRound round) {
+        return Wait.until(workCompleted.forAllBranches(round));
     }
 
     @Override
-    public StepDecision execute(final Context context, final Integer count) {
-        return StepDecision.gracefulComplete(count);
+    public StepDecision execute(final Context context, final JoinRound round) {
+        return StepDecision.gracefulComplete(workCompleted.getBranchResults(context, round).size());
     }
 }
 ```
@@ -160,45 +202,53 @@ final class AwaitStep implements Step<Integer> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-class AwaitInitStep implements Step<number> {
+const workCompleted = new Join("parallel-complete", doubleCodec);
+
+interface WorkItem {
+  readonly index: number;
+  readonly round: JoinRound;
+}
+
+class AwaitDoWork implements Step<WorkItem> {
+  public getStepType(): string {
+    return "DoWork";
+  }
+  public async execute(context: Context, item: WorkItem): Promise<StepDecision> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
+    });
+    return workCompleted.endBranch(context, item.round, item.index);
+  }
+}
+
+class Await implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+  public getStepType(): string {
+    return "Await";
+  }
+  public waitFor(_context: Context, round: JoinRound): Wait {
+    return Wait.until(workCompleted.forAllBranches(round));
+  }
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return gracefulComplete(workCompleted.branchResults(context, round).length);
+  }
+}
+
+class AwaitInit implements Step<number> {
   public readonly inputCodec = doubleCodec;
   public getStepType(): string {
     return "Init";
   }
-  public execute(_context: Context, count: number): StepDecision {
+  public execute(context: Context, count: number): StepDecision {
     return goToMany(
-      StepMovement.of(AwaitStep, count),
-      ...Array.from({ length: count }, (_, index) =>
-        StepMovement.of(AwaitDoWork, index),
+      ...workCompleted.fork(
+        context,
+        Array.from({ length: count }, (_, index) => (round: JoinRound) =>
+          StepMovement.of(AwaitDoWork, { index, round }),
+        ),
+        (round) => StepMovement.of(Await, round),
       ),
     );
-  }
-}
-
-class AwaitDoWork implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-  public getStepType(): string {
-    return "DoWork";
-  }
-  public async execute(context: Context, _input: number): Promise<StepDecision> {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
-    });
-    completeCh.publish(context, undefined);
-    return deadEnd();
-  }
-}
-
-class AwaitStep implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-  public getStepType(): string {
-    return "AwaitStep";
-  }
-  public waitFor(_context: Context, count: number): Wait {
-    return Wait.until(completeCh.forN(count));
-  }
-  public execute(_context: Context, count: number): StepDecision {
-    return gracefulComplete(count);
   }
 }
 ```
@@ -212,47 +262,80 @@ struct AwaitInit;
 impl Step for AwaitInit {
     type Input = usize;
     fn step_type(&self) -> &'static str {
-        "Init"
+        "InitStep"
     }
-    fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
-        let mut movements = vec![StepMovement::to(&AwaitStep, count)];
-        movements.extend((0..count).map(|index| StepMovement::to(&AwaitWork, index)));
+    fn execute(&self, context: &mut Context, count: usize) -> HandlerResult<StepDecision> {
+        let branches = (0..count)
+            .map(|index| {
+                Box::new(move |round: &JoinRound| {
+                    StepMovement::to(
+                        &AwaitWork,
+                        WorkItem {
+                            index,
+                            round: round.clone(),
+                        },
+                    )
+                }) as Box<dyn FnOnce(&JoinRound) -> StepMovement>
+            })
+            .collect();
+        let movements =
+            COMPLETE.fork(context, branches, |round| StepMovement::to(&Await, round))?;
         Ok(StepDecision::go_to_many(movements))
     }
 }
-
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct WorkItem {
+    pub index: usize,
+    pub round: JoinRound,
+}
 #[derive(Default)]
 struct AwaitWork;
 impl Step for AwaitWork {
-    type Input = usize;
+    type Input = WorkItem;
     fn step_type(&self) -> &'static str {
         "DoWork"
     }
-    fn execute(&self, context: &mut Context, _: usize) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, item: WorkItem) -> HandlerResult<StepDecision> {
         thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
-        COMPLETE.publish(context, ())?;
-        Ok(StepDecision::dead_end())
+        COMPLETE.end_branch(context, &item.round, item.index)
+    }
+}
+#[derive(Default)]
+struct Await;
+impl Step for Await {
+    type Input = JoinRound;
+    fn step_type(&self) -> &'static str {
+        "Await"
+    }
+    fn wait_for(&self, _: &mut Context, round: JoinRound) -> HandlerResult<Wait> {
+        Ok(Wait::until(COMPLETE.for_all_branches(&round)))
+    }
+    fn execute(&self, context: &mut Context, round: JoinRound) -> HandlerResult<StepDecision> {
+        let results = COMPLETE.branch_results(context, &round)?;
+        Ok(StepDecision::graceful_complete(results.len()))
     }
 }
 
-#[derive(Default)]
-struct AwaitStep;
-impl Step for AwaitStep {
-    type Input = usize;
-    fn step_type(&self) -> &'static str {
-        "AwaitStep"
-    }
-    fn wait_for(&self, _: &mut Context, count: usize) -> HandlerResult<Wait> {
-        Ok(Wait::until(COMPLETE.for_n(count)))
-    }
-    fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(count))
-    }
-}
+static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-complete"));
 ```
 
 </SdkSnippet>
 </SdkTabs>
+
+## Rules
+
+- Start the join Step in the same fork as the branches. Fork a Join at most once in one Step method. A fork with an explicit round key is the exception: it may run several times in one method, with a distinct key for each round.
+- Each branch reports exactly one result per round, on every exit path. That includes the Step that a failure route goes to. A branch that never reports leaves the join waiting forever. A branch that reports twice counts twice.
+- A branch of several Steps passes the round token to its last Step, and only that Step reports.
+- A branch never waits for the join itself. Only the join Step waits for its round.
+- A canceled branch never reports. Do not cancel branches that the join waits for. Cancel the join together with them, or wait for the join and a Timer with **AnyOf**.
+- A Join stores its results in a ChannelMap with the same name. You can read a round's pending results through it, for example in an RPC. Never publish to it directly.
+
+## Wait for some branches
+
+The join Step can also wait for the first branch or for n branches. It can cancel the rest with a decision that cancels its sibling Steps. Fork starts the branches and the join together, so the siblings are exactly this round's branches. When an RPC forks a round with an explicit round key, the branches are siblings of every Step that this RPC name ever started, so cancel them explicitly by Step type instead. A cancelling join's round is never reset: its canceled branches never report. In a loop, the next round forks a new round directly.
+
+When the other branches keep running instead, their results arrive later. In a loop, the next round's split Step resets the previous round first: its **WaitFor** waits for the remaining results of that round, and its **Execute** can read them. Then it forks the next round. Without a reset, late results stay pending until the Flow closes. The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns#wcp-30) links runnable examples of both shapes.
 
 ## Related
 
