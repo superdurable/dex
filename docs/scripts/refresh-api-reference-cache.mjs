@@ -20,16 +20,26 @@ const docsRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = dirname(docsRoot);
 const buildScriptPath = join(docsRoot, 'scripts', 'build-api-reference.mjs');
 const stampSuffix = '.stamp.json';
+const minorDirectoryPattern = /^\d+\.\d+$/;
+const manifestLanguages = Object.keys(JSON.parse(await readFile(join(docsRoot, 'api-reference-versions.json'), 'utf8')));
+const usage = `Usage: node scripts/refresh-api-reference-cache.mjs <plan|refresh> <latest|all>
+
+  plan     Fetches missing SDK release tags and prints the cache key hash for the scope.
+  refresh  Regenerates stale trees for the scope and removes every other tree, so
+           "refresh latest" prunes non-latest trees. It does not fetch tags; run plan first.
+
+DEX_API_TOOL_HASH is required: the hash of the API reference tools.
+DEX_API_OUTPUT optionally changes the cache root (default .cache/api-reference).`;
 // Maven Central artifacts are immutable, so the version identifies the Javadoc.
 const javaRevision = 'maven-central';
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   const [command, scope] = process.argv.slice(2);
   if (!['plan', 'refresh'].includes(command) || !['latest', 'all'].includes(scope)) {
-    throw new Error('Usage: node scripts/refresh-api-reference-cache.mjs <plan|refresh> <latest|all>');
+    throw new Error(usage);
   }
   const toolHash = process.env.DEX_API_TOOL_HASH;
-  if (!toolHash) throw new Error('DEX_API_TOOL_HASH must hold the hash of the API reference tools');
+  if (!toolHash) throw new Error(`DEX_API_TOOL_HASH is not set.\n\n${usage}`);
   const cacheRoot = resolve(process.env.DEX_API_OUTPUT ?? join(docsRoot, '.cache', 'api-reference'));
   const entries = await readMatrixEntries(scope);
   if (command === 'plan') {
@@ -88,10 +98,11 @@ async function removeTreesOutside(cacheRoot, entries) {
   const keptNames = new Set(entries.map((entry) => `${entry.language}/${entry.minor}`));
   const removed = [];
   for (const language of await directoryNames(cacheRoot)) {
+    if (!manifestLanguages.includes(language)) continue;
     const languageRoot = join(cacheRoot, language);
     for (const fileName of await readdir(languageRoot)) {
       const minor = fileName.endsWith(stampSuffix) ? fileName.slice(0, -stampSuffix.length) : fileName;
-      if (keptNames.has(`${language}/${minor}`)) continue;
+      if (!minorDirectoryPattern.test(minor) || keptNames.has(`${language}/${minor}`)) continue;
       await rm(join(languageRoot, fileName), {recursive: true, force: true});
       if (!fileName.endsWith(stampSuffix)) removed.push(`${language}/${minor}`);
     }
@@ -108,18 +119,18 @@ async function fetchReleaseTags(entries) {
   const missingTags = [];
   for (const {language, version} of entries.filter((entry) => entry.language !== 'java')) {
     const tag = `sdk-${language}/v${version}`;
-    if (!(await isGitObjectPresent(`refs/tags/${tag}`))) missingTags.push(tag);
+    if (!(await isTagCommitPresent(`refs/tags/${tag}`))) missingTags.push(tag);
   }
   if (missingTags.length === 0) return;
   const {stdout: shallowFlag} = await executeFile('git', ['rev-parse', '--is-shallow-repository'], {cwd: repositoryRoot});
   // Only a shallow checkout, as in CI, fetches shallowly; a full clone must stay full.
   const depthArguments = shallowFlag.trim() === 'true' ? ['--depth=1'] : [];
   // The plan command's stdout carries only the hash, so Git output goes to stderr.
-  await runInherited('git', ['fetch', '--no-tags', ...depthArguments, 'origin', ...missingTags.map((tag) => `refs/tags/${tag}:refs/tags/${tag}`)],
+  await runChildProcess('git', ['fetch', '--no-tags', ...depthArguments, 'origin', ...missingTags.map((tag) => `refs/tags/${tag}:refs/tags/${tag}`)],
     repositoryRoot, ['ignore', 2, 2]);
 }
 
-async function isGitObjectPresent(reference) {
+async function isTagCommitPresent(reference) {
   try {
     await executeFile('git', ['rev-parse', '--verify', '--quiet', `${reference}^{commit}`], {cwd: repositoryRoot});
     return true;
@@ -139,10 +150,10 @@ async function resolveRevisions(entries) {
 }
 
 async function generateWithBuildScript({language, version}) {
-  await runInherited(process.execPath, [buildScriptPath, language, `sdk-${language}/v${version}`], docsRoot);
+  await runChildProcess(process.execPath, [buildScriptPath, language, `sdk-${language}/v${version}`], docsRoot);
 }
 
-function runInherited(command, commandArguments, cwd, stdio = 'inherit') {
+function runChildProcess(command, commandArguments, cwd, stdio = 'inherit') {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, commandArguments, {cwd, stdio});
     child.on('error', rejectPromise);

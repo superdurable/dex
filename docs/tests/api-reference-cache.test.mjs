@@ -91,6 +91,21 @@ test('removes trees and stamps outside the entry list', async () => withCacheRoo
   assert.deepEqual(await readdir(join(cacheRoot, 'java')), []);
 }));
 
+test('pruning leaves unrelated files and directories alone', async () => withCacheRoot(async (cacheRoot) => {
+  const older = {...goLatest, version: '1.35.0', minor: '1.35'};
+  await refreshApiReferenceCache({cacheRoot, toolHash: 't1', entries: [goLatest, older], generate: recordingGenerator(cacheRoot).generate});
+  const unrelatedPaths = [join('go', 'notes.txt'), join('go', 'drafts', 'page.html'), join('other', '1.35', 'keep.html'), 'README.md'];
+  for (const unrelatedPath of unrelatedPaths) {
+    await mkdir(join(cacheRoot, unrelatedPath, '..'), {recursive: true});
+    await writeFile(join(cacheRoot, unrelatedPath), 'keep');
+  }
+  const outcome = await refreshApiReferenceCache({cacheRoot, toolHash: 't1', entries: [goLatest], generate: recordingGenerator(cacheRoot).generate});
+  assert.deepEqual(outcome.removed, ['go/1.35']);
+  for (const unrelatedPath of unrelatedPaths) {
+    assert.equal(await readFile(join(cacheRoot, unrelatedPath), 'utf8'), 'keep');
+  }
+}));
+
 test('the entries hash changes with any revision or the tools', () => {
   const base = entriesHash([goLatest, javaLatest], 't1');
   assert.equal(entriesHash([goLatest, javaLatest], 't1'), base);
