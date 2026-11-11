@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""Connector operations as Stepwise agent tools."""
+"""Connector operations as tools of an agent on the built-in loop."""
 
 from __future__ import annotations
 
@@ -206,7 +206,7 @@ def classify_connector_branch(
 
 @dataclass(frozen=True, kw_only=True)
 class ConnectorTool:
-    """Describe one Connector operation offered to a Stepwise agent as a tool.
+    """Describe one Connector operation offered to an agent on the built-in loop as a tool.
 
     Create it with ``connector_tool``, which reads the operation's entry in its
     package's ``dex-connector.json``. Pass it to ``ConnectorToolSource``.
@@ -269,7 +269,7 @@ def connector_tool(
     max_result_bytes: int | None = None,
     manifest: Mapping[str, Any] | None = None,
 ) -> ConnectorTool:
-    """Offer one reviewed Connector operation to a Stepwise agent as a tool.
+    """Offer one reviewed Connector operation to an agent on the built-in loop as a tool.
 
     The tool's name, description, and argument schema come from the
     operation's entry in its package's ``dex-connector.json``. Only an
@@ -429,7 +429,7 @@ def connector_tool(
 
 
 class ConnectorToolSource:
-    """Offer reviewed Connector operations to a Stepwise agent as tools.
+    """Offer reviewed Connector operations to an agent on the built-in loop as tools.
 
     Put it in ``AgentDefinition.tool_sources``, as ``McpToolSource`` is. It
     lists exactly the tools the application passes; no Connector is exposed by

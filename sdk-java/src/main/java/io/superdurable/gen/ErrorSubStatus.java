@@ -67,6 +67,24 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10;</code>
    */
   ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG(10),
+  /**
+   * <pre>
+   * A Flow definition request breaks a validation rule, such as invalid JSON,
+   * a Flow type mismatch, or a size or item count limit.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID = 11;</code>
+   */
+  ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID(11),
+  /**
+   * <pre>
+   * The Flow definitions that GetFlowDefinitions requested would not fit in
+   * one response message.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE = 12;</code>
+   */
+  ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE(12),
   UNRECOGNIZED(-1),
   ;
 
@@ -135,6 +153,24 @@ public enum ErrorSubStatus
    * <code>ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10;</code>
    */
   public static final int ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG_VALUE = 10;
+  /**
+   * <pre>
+   * A Flow definition request breaks a validation rule, such as invalid JSON,
+   * a Flow type mismatch, or a size or item count limit.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID = 11;</code>
+   */
+  public static final int ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID_VALUE = 11;
+  /**
+   * <pre>
+   * The Flow definitions that GetFlowDefinitions requested would not fit in
+   * one response message.
+   * </pre>
+   *
+   * <code>ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE = 12;</code>
+   */
+  public static final int ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE_VALUE = 12;
 
 
   public final int getNumber() {
@@ -172,6 +208,8 @@ public enum ErrorSubStatus
       case 8: return ERROR_SUB_STATUS_FLOW_CLOSING;
       case 9: return ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED;
       case 10: return ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG;
+      case 11: return ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID;
+      case 12: return ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE;
       default: return null;
     }
   }

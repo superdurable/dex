@@ -152,9 +152,9 @@
       "$ref": "#/$defs/harness_options",
       "description": "Options of the Pydantic AI command. Omitted: its defaults."
     },
-    "langgraph": {
+    "deepagents": {
       "$ref": "#/$defs/harness_options",
-      "description": "Options of the LangGraph command. Omitted: its defaults."
+      "description": "Options of the Deep Agents command. Omitted: its defaults."
     },
     "google_adk": {
       "$ref": "#/$defs/harness_options",
@@ -174,7 +174,7 @@
     },
     "builtin": {
       "$ref": "#/$defs/harness_options",
-      "description": "Options of the built-in (Stepwise) command. Omitted: its defaults."
+      "description": "Options of the built-in agent loop command. Omitted: its defaults."
     }
   },
   "not": {

@@ -76,6 +76,10 @@ for (const packageDirectoryName of packages) {
     if (manifest.peerDependenciesMeta?.["@opentelemetry/api"]?.optional !== true) {
       problems.push(`${label} must mark @opentelemetry/api as an optional peer dependency`);
     }
+    // pi-ai belongs to @superdurable/dex-agents-pi, so core users never install it.
+    for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+      if (manifest[field]?.["@earendil-works/pi-ai"] !== undefined) problems.push(`${label} ${field} includes @earendil-works/pi-ai`);
+    }
   }
   if (packageDirectoryName !== "core") {
     if (manifest.peerDependencies?.[corePackageName] !== `^${releaseVersion}`) {

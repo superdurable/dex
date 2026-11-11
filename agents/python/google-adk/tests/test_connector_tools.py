@@ -30,8 +30,8 @@ from dex_agents import (
     ToolCallStepOptionsProvider,
     ToolEffect,
 )
+from dex_agents.builtin_loop import FrameworkToolSourceRouter
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import FrameworkToolSourceRouter
 from dex_agents_google_adk import AdkAgentRunner, adk_agent_session_flow
 from tests.conftest import AdkAgentHarness as ScriptedAgentHarness
 from tests.connector_agent import (

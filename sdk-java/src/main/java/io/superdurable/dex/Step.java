@@ -83,6 +83,13 @@ public interface Step<I> {
      * <p>The default is {@code getClass().getSimpleName()}. Use an explicit named class or override
      * this method so refactoring does not accidentally change the Step type stored by Dex.
      *
+     * <p>A Step whose Step type contains {@code -} cannot start SubFlows, because the generated
+     * child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with {@code -}.
+     * When its {@link #waitFor} returns a {@link SubFlow} condition, the server rejects the result
+     * and fails the attempt without retry. Such a Step type remains valid for Steps that start no
+     * SubFlows. Changed in 1.45.0: a Step whose Step type contains {@code -} can no longer start
+     * SubFlows.
+     *
      * @return the nonblank Step type
      */
     default String getStepType() {

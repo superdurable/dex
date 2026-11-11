@@ -24,11 +24,11 @@ import {
 import { FinishTurnCancellationStep } from "../../src/agent-session-cancellation-steps.js";
 import { cancelTurnRequestCodec } from "../../src/agent-session-codecs.js";
 import {
-  StepwiseAgentRunner,
+  BuiltinLoopAgentRunner,
   functionTool,
   type AgentDefinition,
   type ModelRequest,
-} from "../../src/stepwise/index.js";
+} from "../../src/builtin-loop/index.js";
 import {
   FileGate,
   InvocationLog,
@@ -75,7 +75,7 @@ export interface SteeringTestAgentOptions {
 export function createSteeringTestAgentFlow(
   markerDirectory: string,
   options: SteeringTestAgentOptions = {},
-): AgentSessionFlow<StepwiseAgentRunner> {
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const definition = createSteeringAgentDefinition(markerDirectory);
   return createAgentSessionFlow(
     new GatedUnfinishedTurnRunner(definition, markerDirectory, options.builderGate),
@@ -102,7 +102,7 @@ export function readSteeringInvocations(markerDirectory: string): InvocationLog 
   return new InvocationLog(join(markerDirectory, "invocations.log"));
 }
 
-class GatedUnfinishedTurnRunner extends StepwiseAgentRunner {
+class GatedUnfinishedTurnRunner extends BuiltinLoopAgentRunner {
   public constructor(
     definition: AgentDefinition,
     private readonly markerDirectory: string,
@@ -308,7 +308,7 @@ function splitOnce(text: string): [string, string] {
 export function createCancelRpcGatedSteeringFlow(
   markerDirectory: string,
   cancelRpcGate: string,
-): AgentSessionFlow<StepwiseAgentRunner> {
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const flow = createSteeringTestAgentFlow(markerDirectory);
   // The gated handler is async, which the AgentSessionFlow interface does not declare.
   const flowClass = flow.constructor as new () => {
@@ -330,7 +330,7 @@ export function createCancelRpcGatedSteeringFlow(
       return result;
     }
   }
-  return new CancelRpcGatedFlow() as unknown as AgentSessionFlow<StepwiseAgentRunner>;
+  return new CancelRpcGatedFlow() as unknown as AgentSessionFlow<BuiltinLoopAgentRunner>;
 }
 
 /** Makes every `FinishTurnCancellation` of this process block the Worker at a FileGate before it decides. */

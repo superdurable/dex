@@ -375,8 +375,9 @@ func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
 		Definitions []json.RawMessage `json:"definitions"`
 	}
 	decodeResponse(t, definitionResponse, &definitionCatalog)
-	if definitionCatalog.Configured || len(definitionCatalog.Definitions) != 0 {
-		t.Fatalf("unexpected unconfigured Flow definitions: %+v", definitionCatalog)
+	// The FlowService is a definition source even without a directory; this server stores none.
+	if !definitionCatalog.Configured || len(definitionCatalog.Definitions) != 0 {
+		t.Fatalf("unexpected Flow definitions without a directory: %+v", definitionCatalog)
 	}
 
 	for _, path := range []string{"/", "/v1/rendering", "/v1/flows/checkout-1/run-1", "/v2"} {
@@ -440,11 +441,29 @@ func TestWebServerLoadsFlowDefinitionsAtStartup(t *testing.T) {
 	if len(catalog.Definitions) != 3 || catalog.Definitions[0].ID != "nested/billing.json" || catalog.Definitions[1].ID != "nested/multiple.json" || catalog.Definitions[2].ID != "orders.flow.json" {
 		t.Fatalf("unexpected Flow definitions: %+v", catalog.Definitions)
 	}
-	if catalog.Definitions[0].FlowName != "Billing" || catalog.Definitions[0].Valid || len(catalog.Definitions[0].Graph) == 0 {
+	// The listing carries metadata only; a page reads one Flow type's graph from its own route.
+	if catalog.Definitions[0].FlowName != "Billing" || catalog.Definitions[0].Valid || len(catalog.Definitions[0].Graph) != 0 {
 		t.Fatalf("unexpected Billing definition: %+v", catalog.Definitions[0])
 	}
 	if catalog.Definitions[1].FlowName != "nested/multiple" || catalog.Definitions[1].Valid {
 		t.Fatalf("unexpected multiple-Flow definition: %+v", catalog.Definitions[1])
+	}
+
+	billingResponse := get(t, harness.http.URL+"/api/flow-definitions/by-type?flowType=Billing")
+	defer billingResponse.Body.Close()
+	var billing struct {
+		DefinitionRevision string `json:"definitionRevision"`
+		Definitions        []struct {
+			ID     string          `json:"id"`
+			Source string          `json:"source"`
+			Graph  json.RawMessage `json:"graph"`
+		} `json:"definitions"`
+	}
+	decodeResponse(t, billingResponse, &billing)
+	if billingResponse.StatusCode != http.StatusOK || len(billing.Definitions) != 1 ||
+		billing.Definitions[0].ID != "nested/billing.json" || billing.Definitions[0].Source != "directory" ||
+		len(billing.Definitions[0].Graph) == 0 || billing.DefinitionRevision == "" {
+		t.Fatalf("Billing definitions = %d %+v", billingResponse.StatusCode, billing)
 	}
 }
 

@@ -56,7 +56,7 @@ export function SessionView({
   onChooseWorkingAs?: (permission: string) => void;
 }) {
   const invoke = useSessionActionInvoker(flowType, flowId, workQueuePermissions);
-  const { catalog } = useWebCatalog();
+  const { revisionFor } = useWebCatalog();
   const { held, reload, includeChunks, loadEarlierMessages } = useAgentSession(flowId, reloadKey);
   const [steerText, setSteerText] = useState('');
   /** Kept outside the card: the reload that follows removes the card's own controls. */
@@ -89,7 +89,7 @@ export function SessionView({
     flowType,
     flowId,
     workQueuePermissions,
-    definitionRevision: catalog?.definitionRevision ?? '',
+    definitionRevision: revisionFor([flowType]),
   };
   const tellAgent = (call: ToolCallView) => {
     setSteerText(SESSION_COPY.tellAgentPrefix(call.toolName, call.toolCallId));

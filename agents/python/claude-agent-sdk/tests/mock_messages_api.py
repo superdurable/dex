@@ -257,7 +257,8 @@ def _prompt_text(message: dict[str, Any]) -> str | None:
     has_tool_result = any(
         isinstance(block, dict) and block.get("type") == "tool_result" for block in content
     )
-    commands = [text.strip() for text in texts if not text.lstrip().startswith("<")]
+    # The CLI adds an "[Image: source: <path>]" text after each prompt image.
+    commands = [text.strip() for text in texts if not text.lstrip().startswith(("<", "[Image"))]
     if has_tool_result or not commands:
         return None
     return commands[-1]
@@ -270,7 +271,9 @@ def _block_text(content: object) -> str:
         return "\n".join(
             str(block.get("text", ""))
             for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and not str(block.get("text", "")).startswith("[Image")
         )
     return ""
 

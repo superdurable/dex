@@ -15,7 +15,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "dex-python-sdk==1.38.0",
+    "dex-python-sdk==1.44.0",
 ]
 
 [project.scripts]
@@ -31,7 +31,7 @@ mcp = [
 otel = [
     "opentelemetry-api>=1.20,<2",
 ]
-# dex_agents.litellm: the Stepwise model client on LiteLLM.
+# dex_agents.litellm: the built-in agent loop model client on LiteLLM.
 # LiteLLM 1.106 makes every Responses API call import the undeclared mcp package.
 litellm = [
     "litellm>=1.104,<1.106",

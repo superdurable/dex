@@ -96,7 +96,7 @@ Start options are immutable after the start. Flow configuration can change while
 | Policy | Existing running Flow | Existing closed Flow |
 | --- | --- | --- |
 | Default | rejects | rejects |
-| Allow if previous failed | rejects | starts a new run only after a failed run |
+| Allow if previous failed | rejects | starts a new run after a failed, canceled, or terminated run (a Flow timeout under the fail or cancel timeout policy counts; under the handler policy, the handler's outcome decides); rejects after a completed run |
 | Allow if not running | rejects | starts a new run |
 | Disallow | rejects | rejects |
 | Terminate if running | terminates it and starts a replacement | starts a new run |

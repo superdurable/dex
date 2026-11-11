@@ -2,7 +2,7 @@
 
 `github.com/superdurable/dex/agents/go/core` (package `dexagents`) is the Go
 core of Dex Agents. It provides the durable agent session Flow,
-`AgentSessionFlow`, the `AgentFrameworkRunner` contract, and Stepwise mode,
+`AgentSessionFlow`, the `AgentFrameworkRunner` contract, and the built-in agent loop,
 the built-in agent loop, with model clients on the official OpenAI and
 Anthropic Go SDKs. The contract is
 [agent-framework-adapters.md](https://github.com/superdurable/dex/blob/main/docs/design/plan/agent-framework-adapters.md),
@@ -34,9 +34,9 @@ Supported:
 - the turn-failure note;
 - incremental turn messages (A1: `ToolCallsRequested.NewMessages` and
   `UnfinishedTurnMessageBuilder`);
-- session settings and `update_session_settings`, with the Stepwise model
+- session settings and `update_session_settings`, with the built-in loop model
   resolver;
-- Stepwise mode, with function tools;
+- the built-in agent loop, with function tools;
 - the OpenAI (`openai-go`) and Anthropic (`anthropic-sdk-go`) model clients.
 
 Not planned for Go: questions (`ask_user`, `answer_question`, tool input
@@ -85,15 +85,15 @@ requires a pseudo-version of that change.
 
 ## Running an agent
 
-Declare a Stepwise agent, build its Flow, and serve it with a Worker:
+Declare a built-in loop agent, build its Flow, and serve it with a Worker:
 
 ```go
-lookupOrder, err := stepwise.NewFunctionTool(
+lookupOrder, err := builtinloop.NewFunctionTool(
 	"lookup_order",
 	"Look up an order by its ID.",
 	json.RawMessage(`{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"]}`),
 	dexagents.ToolEffectRead,
-	func(ctx context.Context, arguments json.RawMessage, call stepwise.ToolCallContext) (string, error) {
+	func(ctx context.Context, arguments json.RawMessage, call builtinloop.ToolCallContext) (string, error) {
 		var input struct {
 			OrderID string `json:"order_id"`
 		}
@@ -106,17 +106,17 @@ lookupOrder, err := stepwise.NewFunctionTool(
 if err != nil {
 	return err
 }
-definition, err := stepwise.NewAgentDefinition(
+definition, err := builtinloop.NewAgentDefinition(
 	"support",
 	"You help customers with their orders.",
 	openaimodel.NewResponsesModelClient(openai.NewClient(), "gpt-5-mini"),
-	stepwise.WithFunctionTools(lookupOrder),
-	stepwise.WithInterruptDeadline(24*time.Hour),
+	builtinloop.WithFunctionTools(lookupOrder),
+	builtinloop.WithInterruptDeadline(24*time.Hour),
 )
 if err != nil {
 	return err
 }
-flow, err := stepwise.NewStepwiseAgentSessionFlow(definition, "SupportAgent")
+flow, err := builtinloop.NewBuiltinAgentSessionFlow(definition, "SupportAgent")
 if err != nil {
 	return err
 }
@@ -156,9 +156,9 @@ for _, interrupt := range snapshot.PendingInterrupts {
 Stream from a resume token; events are best effort, so rebuild from
 `GetAgentSnapshot` after a gap.
 
-## Stepwise mode
+## Built-in agent loop
 
-`StepwiseAgentRunner` makes at most one model call per `RunModel`, from
+`BuiltinLoopAgentRunner` makes at most one model call per `RunModel`, from
 committed state only. It stores every item as it appears: the assistant item
 that asks for tools commits with the tool call records, and the tool results
 commit with the next model call. Its input builder pairs every tool call with
@@ -192,7 +192,7 @@ checked against the JSON Schema subset the Python core checks (`type`, `enum`,
 
 ### Model clients
 
-A `stepwise.ModelClient` makes exactly one request per `RunModel` attempt,
+A `builtinloop.ModelClient` makes exactly one request per `RunModel` attempt,
 with no retries of its own, sends the whole input every time, and keeps each
 output item as the provider sent it.
 
@@ -247,6 +247,11 @@ that fails the session at once, with no retry, with a reason that starts with
 `InvalidStartSessionSettingsReason`. Start sessions with settings only after
 every Worker of the Flow type runs 0.2.0. JSON numbers decode as `float64`.
 
+`AgentSessionStartInput.StartEnvironment` is different: string keys and values
+that say where the starting program ran. Set it through `Client.StartFlow`. It
+stays in the Flow's start input and the session never reads it, so it is not a
+setting and cannot change.
+
 ## The runner contract
 
 A framework adapter implements `AgentFrameworkRunner`:
@@ -293,7 +298,7 @@ type AgentFrameworkRunner interface {
 `WithDefaultToolEffect` (default `unclassified`), `WithEventStreamCapacityBytes`
 (default 10 MiB), `WithInterruptDeadline` (default none),
 `WithMessageWindowSize` (default 64), `WithMessageChunkSize` (default 32),
-`WithMessageChunkMaxBytes` (default 1 MiB), and `WithLogger`. `stepwise.NewStepwiseAgentSessionFlow` accepts the same options
+`WithMessageChunkMaxBytes` (default 1 MiB), and `WithLogger`. `builtinloop.NewBuiltinAgentSessionFlow` accepts the same options
 after the Flow type.
 
 ## Message storage
@@ -404,14 +409,14 @@ as children of the test binary:
   0.1.0 layout migrating four chunks per commit, and a 60-turn session whose
   window never exceeds its size;
 - a Python Client and a TypeScript Client each running a session on a Go
-  Worker, and a Go Client running a session on the Python core's Stepwise test
+  Worker, and a Go Client running a session on the Python core's built-in loop test
   Worker;
 - a Go Step that lands in a turn a Python Worker with steering began, which
   fails the session with a reason instead of stalling;
 - a heartbeat checkpoint carried across tool Step attempts, and no stale trace
   context on records;
 - every wire value the Python core encodes, decoded and re-encoded byte for
-  byte after canonicalization, plus event payloads, Stepwise framework items,
+  byte after canonicalization, plus event payloads, built-in loop framework items,
   the turn-failure note, function tool argument errors, and an Anthropic item
   that the Python core stores and replays with its thinking.
 
@@ -424,7 +429,7 @@ The model clients are tested against fake HTTP servers; no test needs a key.
   only; TypeScript writes contract order and raw UTF-8. All three decode each
   other; the parity test compares Go's values with Python's after writing both
   in Python's canonical form.
-- Event payload text, Stepwise framework items, Stepwise run state, and
+- Event payload text, built-in loop framework items, built-in loop run state, and
   model-visible texts are byte for byte the Python core's, through an internal
   writer that reproduces `json.dumps`.
 - Times are UTC with milliseconds and `Z`; readers accept the `+00:00` form.

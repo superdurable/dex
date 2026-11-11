@@ -538,7 +538,7 @@ func TestLoadFlowDefinitionsMarksOnlyTheSessionGraphAsAnAgentSession(t *testing.
 		t.Fatal(err)
 	}
 	session := definition.V2.AgentSession
-	if session == nil || !session.StartStepSkipWaitFor ||
+	if session == nil || !session.StartStepSkipWaitFor || !session.HasQuestions || session.Language == "" ||
 		!session.RPCNames["send_user_message"] || !session.RPCNames["update_session_settings"] {
 		t.Fatalf("agent session = %+v", session)
 	}

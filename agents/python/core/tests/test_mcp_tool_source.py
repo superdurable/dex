@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import hashlib
 import json
 import os
 import sys
@@ -67,6 +69,9 @@ from dex_agents import (
     ToolTaskStarted,
     resolve_tool_policy,
 )
+from dex_agents.builtin_loop import (
+    ScriptedModelClient,
+)
 from dex_agents.mcp import (
     IDEMPOTENCY_KEY_META_KEY,
     MCP_GET_PROMPT_TOOL_NAME,
@@ -104,9 +109,6 @@ from dex_agents.mcp._tool_source import (
     _ToolCallSucceeded,
 )
 from dex_agents.mcp._tools import mcp_tool_from_listing
-from dex_agents.stepwise import (
-    ScriptedModelClient,
-)
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     AgentTestStack,
@@ -120,6 +122,7 @@ from tests.fake_mcp_server import (
     INVOCATION_LOG_NAME,
     READY_LINE,
     REQUEST_META_LOG_NAME,
+    SCREENSHOT_PNG_BASE64,
     STATE_DIR_ENVIRONMENT_VARIABLE,
 )
 from tests.mcp_agent import (
@@ -130,6 +133,7 @@ from tests.mcp_agent import (
     McpScriptedRunner,
     build_mcp_agent_flow,
     build_mcp_tool_source,
+    build_media_store,
 )
 from tests.mcp_stepwise_agent import (
     build_mcp_stepwise_definition,
@@ -288,7 +292,10 @@ async def test_mcp_tool_calls_emit_execute_tool_spans_in_their_activation(
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     flow = AgentSessionFlow(
-        McpScriptedRunner(build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)),
+        McpScriptedRunner(
+            build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url),
+            build_media_store(mcp_harness.state_dir),
+        ),
         flow_type="TracedMcpScriptedAgent",
         options=AgentSessionOptions(
             tool_policies=TOOL_POLICIES, tracing=AgentTracingOptions(tracer_provider=provider)
@@ -367,6 +374,50 @@ async def test_read_tool_reissues_a_call_whose_stream_broke(mcp_harness: McpAgen
     ]
     history = await mcp_harness.stack.read_step_history(session_id)
     assert [entry.final_attempt for entry in history if entry.step_type == "CallTool"] == [2]
+
+
+@pytest.mark.parametrize("server", ["local", "remote"])
+async def test_mcp_image_content_becomes_a_reference_the_model_loads(
+    mcp_harness: McpAgentHarness, server: str
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(session_id, f"call {server}__take_screenshot {{}}")
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    png = base64.b64decode(SCREENSHOT_PNG_BASE64)
+    sha256 = hashlib.sha256(png).hexdigest()
+    tool_message = next(
+        message for message in snapshot.messages if message.role is MessageRole.TOOL
+    )
+    assert tool_message.tool_output == "captured the page\n[image 1]"
+    (image,) = tool_message.images
+    assert (image.sha256, image.mime_type, image.size_bytes) == (sha256, "image/png", len(png))
+    assert await build_media_store(mcp_harness.state_dir).get_image(image) == png
+    assert SCREENSHOT_PNG_BASE64 not in tool_message.framework_item
+    assert snapshot.messages[-1].text == (
+        f"{server}__take_screenshot: captured the page\n[image 1] image {sha256} {len(png)}"
+    )
+
+
+async def test_mcp_image_content_that_is_not_an_image_fails_the_call(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id, 'call remote__take_screenshot {"broken": true}'
+    )
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    tool_message = next(
+        message for message in snapshot.messages if message.role is MessageRole.TOOL
+    )
+    assert tool_message.tool_output == (
+        "The tool call failed: MCP tool remote__take_screenshot returned image 1, which is "
+        "not a supported image: image is not PNG, JPEG, GIF, or WebP"
+    )
+    assert tool_message.images == []
 
 
 async def test_unclassified_write_waits_for_approval_and_runs_once(

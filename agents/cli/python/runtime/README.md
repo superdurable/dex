@@ -46,14 +46,25 @@ usage or configuration error.
 
 ### Sessions and Flow types
 
-The command registers its sessions under `<flow_type>-<12 hex digits>`, the
+The command registers its sessions under `<flow_type>-<suffix>`, the
 harness's Flow type namespaced by this machine, user, configuration file, and
-workspace. The digits are the start of the SHA-256 of
+workspace. The suffix is 6 lowercase base36 characters (`0-9a-z`). Take the
+SHA-256 of the UTF-8 text
 `"<hostname>\n<user>\n<config identity>\n<workspace>"`: the user is the
 numeric user ID, or the user name where there is none; the config identity is
 the configuration file's real path, or `defaults` without a file; and the
-workspace is its real path. Tool settings do not count. `session_flow_type`
-computes it. Two commands that differ in any of these never take each other's
+workspace is its real path. Read the digest's first 8 bytes as an unsigned
+big-endian integer, reduce it modulo 36**6, write it in base36, and left-pad
+it with `0` to 6 characters. Tool settings do not count.
+`namespace_session_flow_type` computes it, `session_flow_type` gathers the
+values of this process, and every CLI runtime passes the cases in
+[`agents/conformance/cli_session_flow_types.json`](../../../conformance/cli_session_flow_types.json).
+
+Each new session records these values in its start input,
+`AgentSessionStartInput.start_environment`, so a run shows where it was
+started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
+hashed values, and `user_name` is the user's name, left out when the system
+cannot tell it. They are not session settings and cannot change. Two commands that differ in any of these never take each other's
 tool Steps, so an approved write runs only with the workspace, tools, and
 connections it was approved under. `sessions` lists, and `--resume` continues,
 only sessions of the same Flow type; resuming another one exits with code 2
@@ -350,7 +361,7 @@ harness may replace only `FILES` and `SHELL`.
 | `harness_options: Mapping[str, Any]` | The harness's own section, `{}` by default. |
 | `tool_sources: Sequence[ToolSource]` | The connector and local tool sources, which apply each turn's settings themselves. Offer all of them. |
 | `resolve_turn(session_settings) -> ResolvedTurn` | A turn's narrowed configuration with its `model` and `instructions`. Raises `ConfigError` for rejected settings. |
-| `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a Stepwise function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |
+| `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a built-in loop function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |
 | `current_turn() -> ResolvedTurn` | The turn whose model call or tool Step is running, or the file's configuration outside both. In a tool Step it is the configuration of the turn that made the call, from the settings the session recorded for that turn, so a replacement tool sees the turn's switches, shell allow list, and `approval.always`. |
 
 The returned Flow must use `context.flow_type`, which is namespaced as
@@ -385,7 +396,7 @@ def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
     )
 ```
 
-A Stepwise harness puts the sources in `AgentDefinition.tool_sources` and
+A built-in loop harness puts the sources in `AgentDefinition.tool_sources` and
 resolves the model and instructions from the session settings it is given:
 
 ```python
@@ -402,7 +413,7 @@ def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         resolve_model=resolve_model,
         tool_sources=list(context.tool_sources),
     )
-    return stepwise_agent_session_flow(definition, flow_type=context.flow_type)
+    return builtin_agent_session_flow(definition, flow_type=context.flow_type)
 ```
 
 ## Development
@@ -417,7 +428,7 @@ DEXCLI=/path/to/dexcli ./ci.sh
 ```
 
 The tests run the commands as processes, in a pseudo-terminal where a test
-needs one, with a scripted Stepwise harness (`tests/scripted_harness.py`), a
+needs one, with a scripted built-in loop harness (`tests/scripted_harness.py`), a
 fake connectors MCP server, and a private home directory each. They also run
 every case of `agents/conformance/cli_config.json`. The browser test downloads
 Playwright's headless Chromium when it is missing and skips only when it

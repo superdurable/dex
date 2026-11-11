@@ -8,7 +8,7 @@
 
 """A Stepwise agent whose tools come from a function tool and an ``McpToolSource``.
 
-Its model is the scripted demo model of ``dex_agents.stepwise``. It reads
+Its model is the scripted demo model of ``dex_agents.builtin_loop``. It reads
 ``call <tool> <json>`` from the user text, calls that tool, and answers
 ``<tool>: <output>`` once the result arrives. Any other text is answered
 ``said: <text>``. The ``local`` server runs ``tests.fake_mcp_server`` over
@@ -22,16 +22,16 @@ import sys
 from pathlib import Path
 
 from dex_agents import AgentSessionFlow, BuiltInTool, ToolEffect
-from dex_agents.mcp import McpStdioServerConfig, McpStreamableHttpServerConfig, McpToolSource
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
     ModelRequest,
     ScriptedModelClient,
     ScriptedModelReply,
     ScriptedToolCall,
+    builtin_agent_session_flow,
     function_tool,
-    stepwise_agent_session_flow,
 )
+from dex_agents.mcp import McpStdioServerConfig, McpStreamableHttpServerConfig, McpToolSource
 from tests.fake_mcp_server import STATE_DIR_ENVIRONMENT_VARIABLE
 
 MCP_STEPWISE_AGENT_FLOW_TYPE = "McpStepwiseAgent"
@@ -82,4 +82,4 @@ def build_mcp_stepwise_definition(state_dir: Path, http_url: str) -> AgentDefini
 
 
 def build_mcp_stepwise_flow(definition: AgentDefinition) -> AgentSessionFlow:
-    return stepwise_agent_session_flow(definition, flow_type=MCP_STEPWISE_AGENT_FLOW_TYPE)
+    return builtin_agent_session_flow(definition, flow_type=MCP_STEPWISE_AGENT_FLOW_TYPE)

@@ -80,7 +80,7 @@ func TestDexWebOnServerZDStartsPullFlowsAndFiltersStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, "zd", catalog.ServerEngine)
 	require.False(t, catalog.StartFlowWorkerTargetPull, "the pull default must come from the engine, not configuration")
-	web.revision = catalog.DefinitionRevision
+	web.useCatalogRevisions(t)
 
 	approvalFlow := dexWebV2TestFlow{
 		flowType:   dex.GetFinalFlowType(&webv2approval.ApprovalFlow{}),
@@ -135,7 +135,7 @@ func TestDexWebOnServerZDFindsRunsAtActiveStepsAcrossFlowTypes(t *testing.T) {
 	status, err := web.getJSON("/api/v2/catalog", &catalog)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, status)
-	web.revision = catalog.DefinitionRevision
+	web.useCatalogRevisions(t)
 
 	ctx := integrationContext(t)
 	approvalFlow := dexWebV2TestFlow{
@@ -297,7 +297,7 @@ func TestDexWebOnServerZDActionReturnsRPCOutput(t *testing.T) {
 	status, err := web.getJSON("/api/v2/catalog", &catalog)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, status)
-	web.revision = catalog.DefinitionRevision
+	web.useCatalogRevisions(t)
 
 	flow := &webv2approval.ApprovalFlow{}
 	flowType := dex.GetFinalFlowType(flow)

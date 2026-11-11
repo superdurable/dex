@@ -18,7 +18,7 @@ repeats at most the one call that was running. The plan is
 ## Installation
 
 The package needs Python 3.11 or later. It requires `dex-agents` at the same
-version, `dex-python-sdk==1.38.0`, and `google-adk` 2.13 or a later 2.x
+version, `dex-python-sdk==1.44.0`, and `google-adk` 2.13 or a later 2.x
 release:
 
 ```bash
@@ -221,7 +221,7 @@ flow = adk_agent_session_flow(
   tool Step the operation's timeout and retry policy. A `tool_policies` entry
   for a connector tool changes only its approval.
 - Writes of one model response run one at a time in the model's order, as in a
-  Stepwise agent. Once one does not succeed, the later ones record `failed`
+  built-in loop agent. Once one does not succeed, the later ones record `failed`
   with `skipped`.
 - Definition fails with `ValueError` when two sources share a `source_name`,
   or a source's `declared_tool_names` repeat a tool, an agent name, or an ADK
@@ -344,6 +344,53 @@ usage metadata: `input_tokens` counts prompt and tool-use prompt tokens,
 `output_tokens` counts candidate and thought tokens, and `model_calls` counts
 model requests.
 
+## Images
+
+Since 0.5.0 a session can show images to the model. Pass a media store, such
+as `S3MediaStore` or `LocalDirectoryMediaStore`, to `adk_agent_session_flow`
+or `AdkAgentRunner`, the same store in every Worker and every client that
+uploads images:
+
+```python
+from dex_agents.s3 import S3MediaStore
+
+store = S3MediaStore("agent-media", "sessions")
+flow = adk_agent_session_flow(agent, flow_type="SupportAgent", media_store=store)
+
+reference = await store.put_image(Path("chart.png").read_bytes())
+await sessions.send_user_message("session-42", "What does this chart show?", images=[reference])
+```
+
+Without a store the runner has no `build_user_message_with_images`, so
+`send_user_message` refuses images, and tool result images are ignored.
+
+- **What the model sees.** A user message is one user `Content`: the text
+  part, then one `types.Part(inline_data=types.Blob(...))` per image, in
+  order, with the reference's MIME type. A tool result's images go in its
+  `FunctionResponse.parts`, as `FunctionResponsePart` inline data after the
+  JSON `response`, which ADK passes to Gemini and LiteLLM models natively.
+- **What the session stores.** Stored events and the paused turn's run state
+  hold only placeholders: a `file_data` part whose `file_uri` is the
+  reference's `uri`. The runner swaps them for the bytes in each model
+  request, from its own plugin's `before_model_callback`, after the
+  application's plugins run and before the agents' `before_model_callback`.
+  A failed store read fails the model call, which `RunModel` retries. Other
+  `file_data` parts, such as `gs://` URIs, reach the model unchanged.
+- **Tool results.** A tool source returns
+  `ToolExecutionResult(images=[...])`. An ADK tool returns image
+  `types.Part` values with `inline_data`, found where ADK finds tool media;
+  the tool Step uploads them with `put_image`, so the record holds
+  references. An image that `put_image` refuses, such as one over
+  `MAX_IMAGE_BYTES`, fails the tool Step. The tool message stores the
+  record's images in `images`. Other media a tool returns, such as audio, a
+  `file_data` part, or a Part nested deeper than ADK looks, is encoded into
+  the output text as before.
+- **Callbacks.** When the next model call replays a result with images, the
+  result dict that `after_tool_callback`s receive also holds a
+  `__dex_images__` entry with the placeholder Parts. ADK moves them into
+  `FunctionResponse.parts`; a callback that returns a new dict without that
+  entry drops the images from the model input.
+
 ## Tracing
 
 With tracing on in `AgentSessionOptions.tracing`, each `RunModel` returns
@@ -382,6 +429,11 @@ order, an unknown or rejected write that skips the later write, a withdrawn
 tool whose new call is refused, a reused call ID, the operation's tool Step
 options, an unexposed operation, refused name collisions, and a run-time
 toolset name collision.
+
+`tests/test_images.py` sends a user image and returns tool images through a
+`LocalDirectoryMediaStore`, checks the exact bytes in the recorded model
+requests, kills the Worker during a model call and checks that the rerun
+request is identical, and checks that stored state holds no image bytes.
 
 ## Compaction
 

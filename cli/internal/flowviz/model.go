@@ -292,6 +292,7 @@ func (graph *Graph) AddDiagnostic(severity string, code string, message string, 
 }
 
 func (graph *Graph) Normalize() {
+	graph.replaceNilArrays()
 	graph.addUnknownTargets()
 	graph.addUnreachableWarnings()
 	graph.addUnusedResourceWarnings()
@@ -326,6 +327,47 @@ func (graph *Graph) Normalize() {
 		}
 		return first.Message < second.Message
 	})
+}
+
+// replaceNilArrays makes every array field without omitempty encode as [] instead of null.
+func (graph *Graph) replaceNilArrays() {
+	graph.Nodes = nonNilSlice(graph.Nodes)
+	graph.Edges = nonNilSlice(graph.Edges)
+	graph.Diagnostics = nonNilSlice(graph.Diagnostics)
+	for index := range graph.Nodes {
+		if wait := graph.Nodes[index].Wait; wait != nil {
+			wait.Conditions = nonNilSlice(wait.Conditions)
+		}
+	}
+	for index := range graph.Groups {
+		graph.Groups[index].StepIDs = nonNilSlice(graph.Groups[index].StepIDs)
+	}
+	if graph.V2 == nil {
+		return
+	}
+	graph.V2.IndexedAttributes = nonNilSlice(graph.V2.IndexedAttributes)
+	graph.V2.Summary.Fields = nonNilSlice(graph.V2.Summary.Fields)
+	graph.V2.Display.Fields = nonNilSlice(graph.V2.Display.Fields)
+	graph.V2.Actions = nonNilSlice(graph.V2.Actions)
+	for index := range graph.V2.Actions {
+		if condition := graph.V2.Actions[index].Condition; condition != nil {
+			condition.Values = nonNilSlice(condition.Values)
+		}
+	}
+	for index := range graph.V2.ConnectorTriggerBindings {
+		configurationUI := &graph.V2.ConnectorTriggerBindings[index].ConfigurationUI
+		configurationUI.Units = nonNilSlice(configurationUI.Units)
+		for unitIndex := range configurationUI.Units {
+			configurationUI.Units[unitIndex].Bindings = nonNilSlice(configurationUI.Units[unitIndex].Bindings)
+		}
+	}
+}
+
+func nonNilSlice[T any](values []T) []T {
+	if values == nil {
+		return []T{}
+	}
+	return values
 }
 
 func (graph *Graph) addUnknownTargets() {

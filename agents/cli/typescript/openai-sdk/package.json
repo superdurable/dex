@@ -1,0 +1,62 @@
+{
+  "name": "@superdurable/dex-agents-openai-sdk-cli",
+  "version": "0.1.0",
+  "description": "The dex-agents-openai-sdk command: a durable OpenAI Agents SDK agent in your terminal",
+  "license": "LicenseRef-Sustainable-Use-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superdurable/dex.git",
+    "directory": "agents/cli/typescript/openai-sdk"
+  },
+  "homepage": "https://github.com/superdurable/dex/tree/main/agents/cli/typescript/openai-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/superdurable/dex/issues"
+  },
+  "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
+  "bin": {
+    "dex-agents-openai-sdk": "dist/src/bin.js"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 --test-timeout=300000 'dist/test/integ/*.integration.test.js'"
+  },
+  "dependencies": {
+    "@openai/agents": "0.21.0",
+    "zod": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@superdurable/dex": "1.44.0",
+    "@superdurable/dex-agents": "^0.1.0",
+    "@superdurable/dex-agents-cli": "^0.1.0",
+    "@superdurable/dex-agents-openai-agents": "^0.1.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@superdurable/dex": "1.44.0",
+    "@superdurable/dex-agents": "file:../../../typescript/core",
+    "@superdurable/dex-agents-cli": "file:../runtime",
+    "@superdurable/dex-agents-openai-agents": "file:../../../typescript/openai-agents",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

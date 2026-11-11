@@ -31,13 +31,13 @@ from dex_agents import (
     ToolTaskPollOutcome,
     ToolTaskStarted,
 )
+from dex_agents.builtin_loop import SourceToolDefinition
 from dex_agents.mcp import (
     McpStreamableHttpServerConfig,
     McpTool,
     McpToolListingError,
     McpToolSource,
 )
-from dex_agents.stepwise import SourceToolDefinition
 from dex_agents_cli.config import ConnectorsConfig, EffectiveConfig
 from dex_agents_cli.tool_policy import disabled_tool_call, raise_if_disabled
 from dex_agents_cli.turns import (

@@ -23,7 +23,11 @@ from dex_agents_claude_agent_sdk.runner import (
     current_deferred_tool_execution,
 )
 from dex_agents_claude_agent_sdk.session_flow import claude_agent_session_flow
-from dex_agents_claude_agent_sdk.tool_gate import CLAUDE_CODE_BUILT_IN_TOOL_NAMES
+from dex_agents_claude_agent_sdk.tool_gate import (
+    CLAUDE_CODE_BUILT_IN_TOOL_NAMES,
+    ClaudeCodeToolDenial,
+    ClaudeCodeToolPermission,
+)
 from dex_agents_claude_agent_sdk.transcript import (
     CLAUDE_TRANSCRIPT_ITEM_KIND,
     USER_PROMPT_ITEM_KIND,
@@ -38,6 +42,8 @@ __all__ = [
     "ClaudeAgentOptionsContext",
     "ClaudeAgentOptionsFactory",
     "ClaudeAgentRunner",
+    "ClaudeCodeToolDenial",
+    "ClaudeCodeToolPermission",
     "claude_agent_session_flow",
     "current_deferred_tool_execution",
 ]

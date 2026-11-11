@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-// Package openaimodel connects Stepwise agents to OpenAI models through the official openai-go SDK.
+// Package openaimodel connects built-in agent loop agents to OpenAI models through the official openai-go SDK.
 //
 // ResponsesModelClient makes one streaming Responses API request per RunModel
 // attempt, with store false and encrypted reasoning content included, so Dex
@@ -29,8 +29,8 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
+	"github.com/superdurable/dex/agents/go/core/builtinloop"
 	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
-	"github.com/superdurable/dex/agents/go/core/stepwise"
 )
 
 // ResponsesAPI is the ModelOutputItem.API of the items this client returns.
@@ -91,7 +91,7 @@ func WithRequestOptions(requestOptions ...option.RequestOption) ResponsesModelCl
 // client's own fields.
 //
 //	model := openaimodel.NewResponsesModelClient(openai.NewClient(), "gpt-5-mini")
-//	definition, err := stepwise.NewAgentDefinition("support", "You help customers.", model)
+//	definition, err := builtinloop.NewAgentDefinition("support", "You help customers.", model)
 type ResponsesModelClient struct {
 	client         openai.Client
 	model          string
@@ -139,12 +139,12 @@ type responsesCompleted struct {
 // response.completed or response.incomplete.
 func (client *ResponsesModelClient) CallModel(
 	ctx context.Context,
-	request stepwise.ModelRequest,
-	output stepwise.ModelOutputWriter,
-) (stepwise.ModelResponse, error) {
+	request builtinloop.ModelRequest,
+	output builtinloop.ModelOutputWriter,
+) (builtinloop.ModelResponse, error) {
 	requestOptions, err := client.requestBody(request)
 	if err != nil {
-		return stepwise.ModelResponse{}, err
+		return builtinloop.ModelResponse{}, err
 	}
 	stream := client.client.Responses.NewStreaming(ctx, responses.ResponseNewParams{Model: client.model}, requestOptions...)
 	itemsByIndex := map[int64]json.RawMessage{}
@@ -152,7 +152,7 @@ func (client *ResponsesModelClient) CallModel(
 	for stream.Next() {
 		var event responsesStreamEvent
 		if err := json.Unmarshal([]byte(stream.Current().RawJSON()), &event); err != nil {
-			return stepwise.ModelResponse{}, errors.Join(fmt.Errorf("decode a Responses API event: %w", err), stream.Close())
+			return builtinloop.ModelResponse{}, errors.Join(fmt.Errorf("decode a Responses API event: %w", err), stream.Close())
 		}
 		switch event.Type {
 		case "response.output_text.delta", "response.refusal.delta":
@@ -168,19 +168,19 @@ func (client *ResponsesModelClient) CallModel(
 			err = fmt.Errorf("the Responses API stream failed: %s", stream.Current().RawJSON())
 		}
 		if err != nil {
-			return stepwise.ModelResponse{}, errors.Join(err, stream.Close())
+			return builtinloop.ModelResponse{}, errors.Join(err, stream.Close())
 		}
 	}
 	if err := errors.Join(stream.Err(), stream.Close()); err != nil {
-		return stepwise.ModelResponse{}, err
+		return builtinloop.ModelResponse{}, err
 	}
 	if completed == nil {
-		return stepwise.ModelResponse{}, errors.New("the Responses API stream ended without response.completed")
+		return builtinloop.ModelResponse{}, errors.New("the Responses API stream ended without response.completed")
 	}
 	return client.response(itemsByIndex, completed)
 }
 
-func (client *ResponsesModelClient) requestBody(request stepwise.ModelRequest) ([]option.RequestOption, error) {
+func (client *ResponsesModelClient) requestBody(request builtinloop.ModelRequest) ([]option.RequestOption, error) {
 	input, err := responsesInput(request.InputItems, client.providerName)
 	if err != nil {
 		return nil, err
@@ -224,15 +224,15 @@ func (client *ResponsesModelClient) requestBody(request stepwise.ModelRequest) (
 func (client *ResponsesModelClient) response(
 	itemsByIndex map[int64]json.RawMessage,
 	completed *responsesCompleted,
-) (stepwise.ModelResponse, error) {
+) (builtinloop.ModelResponse, error) {
 	indexes := make([]int64, 0, len(itemsByIndex))
 	for index := range itemsByIndex {
 		indexes = append(indexes, index)
 	}
 	slices.Sort(indexes)
-	response := stepwise.ModelResponse{
-		OutputItems:   []stepwise.ModelOutputItem{},
-		ToolCalls:     []stepwise.ModelToolCall{},
+	response := builtinloop.ModelResponse{
+		OutputItems:   []builtinloop.ModelOutputItem{},
+		ToolCalls:     []builtinloop.ModelToolCall{},
 		ResponseModel: completed.Model,
 		FinishReason:  completed.Status,
 		Usage: dexagents.AgentUsage{
@@ -246,7 +246,7 @@ func (client *ResponsesModelClient) response(
 	for _, index := range indexes {
 		item, err := client.outputItem(itemsByIndex[index])
 		if err != nil {
-			return stepwise.ModelResponse{}, err
+			return builtinloop.ModelResponse{}, err
 		}
 		response.OutputItems = append(response.OutputItems, item)
 		response.ToolCalls = append(response.ToolCalls, item.ToolCalls...)
@@ -268,18 +268,18 @@ type responsesItemProjection struct {
 	} `json:"content"`
 }
 
-func (client *ResponsesModelClient) outputItem(raw json.RawMessage) (stepwise.ModelOutputItem, error) {
+func (client *ResponsesModelClient) outputItem(raw json.RawMessage) (builtinloop.ModelOutputItem, error) {
 	parsed, err := pythonjson.ParseOrdered(raw)
 	if err != nil {
-		return stepwise.ModelOutputItem{}, fmt.Errorf("decode a Responses API output item: %w", err)
+		return builtinloop.ModelOutputItem{}, fmt.Errorf("decode a Responses API output item: %w", err)
 	}
 	object, isObject := parsed.(pythonjson.Object)
 	if !isObject {
-		return stepwise.ModelOutputItem{}, errors.New("a Responses API output item is not an object")
+		return builtinloop.ModelOutputItem{}, errors.New("a Responses API output item is not an object")
 	}
 	var projection responsesItemProjection
 	if err := json.Unmarshal(raw, &projection); err != nil {
-		return stepwise.ModelOutputItem{}, fmt.Errorf("decode a Responses API output item: %w", err)
+		return builtinloop.ModelOutputItem{}, fmt.Errorf("decode a Responses API output item: %w", err)
 	}
 	stored := object
 	if fields, hasReplayFields := responsesReplayFields[projection.Type]; hasReplayFields {
@@ -294,9 +294,9 @@ func (client *ResponsesModelClient) outputItem(raw json.RawMessage) (stepwise.Mo
 	}
 	itemText, err := pythonjson.Marshal(stored, pythonjson.Options{IsCompact: true})
 	if err != nil {
-		return stepwise.ModelOutputItem{}, err
+		return builtinloop.ModelOutputItem{}, err
 	}
-	item := stepwise.ModelOutputItem{Provider: client.providerName, API: ResponsesAPI, Item: itemText}
+	item := builtinloop.ModelOutputItem{Provider: client.providerName, API: ResponsesAPI, Item: itemText}
 	switch projection.Type {
 	case "message":
 		text := ""
@@ -312,13 +312,13 @@ func (client *ResponsesModelClient) outputItem(raw json.RawMessage) (stepwise.Mo
 		}
 	case "function_call":
 		if projection.CallID == nil || projection.Name == nil {
-			return stepwise.ModelOutputItem{}, errors.New("a Responses API function_call item has no call_id or name")
+			return builtinloop.ModelOutputItem{}, errors.New("a Responses API function_call item has no call_id or name")
 		}
 		arguments := "{}"
 		if projection.Arguments != nil && *projection.Arguments != "" {
 			arguments = *projection.Arguments
 		}
-		item.ToolCalls = []stepwise.ModelToolCall{{ToolCallID: *projection.CallID, ToolName: *projection.Name, Arguments: arguments}}
+		item.ToolCalls = []builtinloop.ModelToolCall{{ToolCallID: *projection.CallID, ToolName: *projection.Name, Arguments: arguments}}
 	}
 	return item, nil
 }
@@ -327,15 +327,15 @@ func (client *ResponsesModelClient) outputItem(raw json.RawMessage) (stepwise.Mo
 //
 // The Python core counts with LiteLLM's tokenizer instead; this estimate only
 // orders compaction, a later contract addition.
-func (client *ResponsesModelClient) EstimateInputTokens(request stepwise.ModelRequest) int64 {
+func (client *ResponsesModelClient) EstimateInputTokens(request builtinloop.ModelRequest) int64 {
 	characters := len(request.Instructions)
 	for _, item := range request.InputItems {
 		switch typed := item.(type) {
-		case stepwise.UserTextItem:
+		case builtinloop.UserTextItem:
 			characters += len(typed.Text)
-		case stepwise.ToolResultItem:
+		case builtinloop.ToolResultItem:
 			characters += len(typed.Output)
-		case stepwise.ModelOutputItem:
+		case builtinloop.ModelOutputItem:
 			characters += len(typed.Item)
 		}
 	}
@@ -346,7 +346,7 @@ func (client *ResponsesModelClient) EstimateInputTokens(request stepwise.ModelRe
 }
 
 // responsesInput converts the request items; a stored item of this provider replays unchanged.
-func responsesInput(items []stepwise.ModelInputItem, providerName string) ([]json.RawMessage, error) {
+func responsesInput(items []builtinloop.ModelInputItem, providerName string) ([]json.RawMessage, error) {
 	converted := []json.RawMessage{}
 	appendJSON := func(value any) error {
 		encoded, err := json.Marshal(value)
@@ -359,11 +359,11 @@ func responsesInput(items []stepwise.ModelInputItem, providerName string) ([]jso
 	for _, item := range items {
 		var err error
 		switch typed := item.(type) {
-		case stepwise.UserTextItem:
+		case builtinloop.UserTextItem:
 			err = appendJSON(map[string]any{"type": "message", "role": "user", "content": typed.Text})
-		case stepwise.ToolResultItem:
+		case builtinloop.ToolResultItem:
 			err = appendJSON(map[string]any{"type": "function_call_output", "call_id": typed.ToolCallID, "output": typed.Output})
-		case stepwise.ModelOutputItem:
+		case builtinloop.ModelOutputItem:
 			if typed.Provider == providerName && typed.API == ResponsesAPI {
 				if !json.Valid([]byte(typed.Item)) {
 					return nil, fmt.Errorf("stored %s item is not JSON", ResponsesAPI)
@@ -390,12 +390,12 @@ func responsesInput(items []stepwise.ModelInputItem, providerName string) ([]jso
 	return converted, nil
 }
 
-func responsesToolChoice(choice stepwise.ToolChoice) any {
-	if choice.Mode == stepwise.ToolChoiceModeNamed {
+func responsesToolChoice(choice builtinloop.ToolChoice) any {
+	if choice.Mode == builtinloop.ToolChoiceModeNamed {
 		return map[string]any{"type": "function", "name": choice.ToolName}
 	}
 	if choice.Mode == "" {
-		return string(stepwise.ToolChoiceModeAuto)
+		return string(builtinloop.ToolChoiceModeAuto)
 	}
 	return string(choice.Mode)
 }

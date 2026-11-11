@@ -389,8 +389,8 @@ type StartFlowOptions struct {
 	// and RequestID matches the request that started that run.
 	// Without IgnoreError, the retry returns FlowAlreadyStartedError even when the first attempt
 	// created the Flow.
-	// The match applies only when IDReusePolicy rejects the start.
-	// A policy that permits another run starts a new run instead.
+	// The match uses the latest run of the Flow ID and takes precedence over IDReusePolicy.
+	// A retry never starts a second run or terminates the run it started.
 	// Dex compares only request IDs, not input or other options.
 	// Never reuse a request ID for a different logical start.
 	// See StartFlowOptions for an example that sets both fields.
@@ -466,9 +466,14 @@ func defaultSubFlowOptions() SubFlowOptions {
 type IDReusePolicy uint8
 
 const (
-	// IDReuseDefault uses the server default, which rejects every previously used Flow ID.
+	// IDReuseDefault rejects the start whenever the Flow ID has a run, the same as IDReuseDisallow.
+	// The server does not make this default configurable.
 	IDReuseDefault IDReusePolicy = iota
-	// IDReuseAllowIfPreviousFailed permits reuse only after a failed run.
+	// IDReuseAllowIfPreviousFailed starts a new run only when the latest run closed abnormally:
+	// failed, canceled, or terminated.
+	// A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy.
+	// Under the handler policy, the timeout handler's outcome decides.
+	// A running or completed latest run rejects the start.
 	IDReuseAllowIfPreviousFailed
 	// IDReuseAllowIfNotRunning permits reuse when no run is active.
 	IDReuseAllowIfNotRunning

@@ -32,7 +32,7 @@ from dex_agents import (
     ToolCallStatus,
     ToolEffect,
 )
-from dex_agents.stepwise import TOOL_CALL_LIMIT_REACHED_RESULT
+from dex_agents.builtin_loop import TOOL_CALL_LIMIT_REACHED_RESULT
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     WAIT_FOR_COMPLETED_EVENT,
@@ -731,3 +731,87 @@ async def test_a_tool_question_whose_interrupt_id_another_call_uses_fails_clearl
         'publish_note: {"published": "receipt"}'
     )
     assert harness.invocations.names().count("transfer_funds:run") == 0
+
+
+async def test_tool_call_context_effect_is_the_effect_a_tool_policy_raised(
+    stepwise_harness: ScriptedAgentHarness,
+) -> None:
+    harness = stepwise_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "effect")
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == "update_record: effect non_idempotent_write"
+    assert await harness.executed_step_types(session_id) == [
+        "StartAgentSession",
+        "RunModel",
+        "CallSingleAttemptTool",
+        "ResumeTurn",
+        "RunModel",
+    ]
+
+
+async def test_a_wrapper_sees_an_unclassified_policy_effect_and_records_outcome_unknown(
+    stepwise_harness: ScriptedAgentHarness,
+) -> None:
+    harness = stepwise_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "send-unclassified")
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == f"send_record: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    # The tool declares IDEMPOTENT_WRITE; only the policy's UNCLASSIFIED lets its error propagate.
+    assert await harness.executed_step_types(session_id) == [
+        "StartAgentSession",
+        "RunModel",
+        "RecordToolOutcomeUnknown",
+        "ResumeTurn",
+        "RunModel",
+    ]
+
+
+async def test_prepare_arguments_errors_reach_the_model_and_conversions_pass_the_schema(
+    stepwise_harness: ScriptedAgentHarness,
+) -> None:
+    harness = stepwise_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "bad-shape")
+    failed = await harness.wait_for_turns(session_id, 1)
+    assert failed.messages[-1].text == (
+        "get_order: The tool call failed: invalid arguments for get_order: "
+        "unsupported argument shape"
+    )
+
+    assert await harness.sessions.send_user_message(session_id, "old-shape")
+    converted = await harness.wait_for_turns(session_id, 2)
+    assert converted.messages[-1].text == 'get_order: {"order_id": "7"}'
+    # The stored calls keep the model's original arguments.
+    assert _stored_tool_arguments(converted, "get_order") == [{"bad": True}, {"id": "7"}]
+
+
+async def test_an_approval_shows_the_model_arguments_and_runs_with_the_prepared_ones(
+    stepwise_harness: ScriptedAgentHarness,
+) -> None:
+    harness = stepwise_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "approve-old-shape")
+    approval = await _wait_for_pending_interrupt(harness, session_id)
+    assert (approval.kind, approval.tool_name) == (InterruptKind.TOOL_APPROVAL, "cancel_order")
+    assert json.loads(approval.arguments or "null") == {"id": "9"}
+
+    assert await harness.sessions.resolve_interrupt(
+        session_id, approval.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == 'cancel_order: {"cancelled": "9"}'
+    assert _stored_tool_arguments(snapshot, "cancel_order") == [{"id": "9"}]
+
+
+def _stored_tool_arguments(snapshot: AgentSnapshot, tool_name: str) -> list[object]:
+    return [
+        json.loads(message.tool_arguments or "null")
+        for message in snapshot.messages
+        if message.role is MessageRole.ASSISTANT and message.tool_name == tool_name
+    ]

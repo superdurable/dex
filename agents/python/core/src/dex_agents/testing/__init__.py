@@ -20,8 +20,8 @@ Every adapter package tests against a real Dex Server with these tools:
 * ``wait_until`` and ``wait_for_agent_snapshot`` poll with a deadline.
 * ``read_step_history`` lists the completed Steps of a session, so a test can
   assert the Step shape of a turn.
-* ``ScriptedModelClient`` answers Stepwise model calls from a script, so a
-  test needs no model key. It is the class ``dex_agents.stepwise`` exports.
+* ``ScriptedModelClient`` answers built-in agent loop model calls from a script, so a
+  test needs no model key. It is the class ``dex_agents.builtin_loop`` exports.
 * ``ContextWindowModelScript`` is a scripted model with a context window, and
   ``ContextWindowSessionScenario`` drives an adapter's session past it.
 

@@ -163,9 +163,13 @@ check until the record is updated.
 ## Skills mirror
 
 Contribute skills in [`skills/`](skills/) in this repository. Its CI runs the
-skills validators. A merge to Dex main syncs that directory to the read-only
-[`superdurable/dex-skills`](https://github.com/superdurable/dex-skills) mirror;
-the mirror publishes releases when `VERSION` changes. If the sync fails its
+skills validators. A skills change adds a fragment under
+[`changelog.d/skills/`](changelog.d/README.md). A skills release-prep pull
+request assembles the fragments and changes `skills/VERSION`. Its merge to Dex
+main syncs that directory to the read-only
+[`superdurable/dex-skills`](https://github.com/superdurable/dex-skills) mirror,
+and the mirror publishes the release. Run **Mirror Dex skills** by hand to sync
+other changes sooner; it refuses while `changelog.d/skills/` holds a fragment. See [`skills/CONTRIBUTING.md`](skills/CONTRIBUTING.md#version-and-release). If the sync fails its
 drift check, compare the mirror HEAD tree with the last synced Dex commit's
 `skills/` tree (from the mirror commit's `Dex-Commit` trailer). Restore the
 mirror to that tree, then rerun the sync; do not overwrite unexplained edits.
@@ -221,7 +225,7 @@ The dependency-aware paths are:
 | TypeScript SDK | `sdk-typescript/vX.Y.Z` | `sdk-typescript/v0.1.0` | npm [`@superdurable/dex`](https://www.npmjs.com/package/@superdurable/dex) via [`.github/workflows/sdk-typescript-publish.yml`](.github/workflows/sdk-typescript-publish.yml) (version from the tag) |
 | Rust SDK | `sdk-rust/vX.Y.Z` | `sdk-rust/v0.1.0` | crates.io `dex-sdk`, `dex-blob-cache`, and `dex-protocol` via [`.github/workflows/sdk-rust-publish.yml`](.github/workflows/sdk-rust-publish.yml) (version from the tag) |
 | Dex CLI | `cli-vX.Y.Z` | `cli-v0.1.0` | macOS/Linux archives and Homebrew formula input |
-| Agents packages | `agents/vX.Y.Z` | `agents/v0.1.0` | PyPI `dex-agents` and its five adapters via [`.github/workflows/agents-python-publish.yml`](.github/workflows/agents-python-publish.yml), and npm `@superdurable/dex-agents` and its four adapters via [`.github/workflows/agents-typescript-publish.yml`](.github/workflows/agents-typescript-publish.yml) (one version for all eleven; see [`agents/README.md`](agents/README.md#releases)) |
+| Agents packages | `agents/vX.Y.Z` | `agents/v0.1.0` | PyPI `dex-agents` and its five adapters via [`.github/workflows/agents-python-publish.yml`](.github/workflows/agents-python-publish.yml), and npm `@superdurable/dex-agents` and its five adapters via [`.github/workflows/agents-typescript-publish.yml`](.github/workflows/agents-typescript-publish.yml) (one version for all twelve; see [`agents/README.md`](agents/README.md#releases)) |
 
 Notes:
 

@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs';
 import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer';
 import { describe, expect, it } from 'vitest';
-import type { FlowDefinitionCatalog, FlowDefinitionEntry, V2Catalog } from '@/lib/types';
+import type { V2Catalog, V2CatalogEntry } from '@/lib/types';
 import { agentSessionFlowTypes } from './NewSessionDialog';
 import {
   agentSessionSchema,
@@ -25,9 +25,25 @@ function publishedSessionGraph(): FlowDefinitionGraph {
   return JSON.parse(readFileSync(path, 'utf8')) as FlowDefinitionGraph;
 }
 
+/** A catalog entry as Dex Web's server describes the published session graph. */
+function sessionEntry(flowType: string, overrides: Partial<V2CatalogEntry> = {}): V2CatalogEntry {
+  const graph = publishedSessionGraph();
+  return {
+    flowType,
+    definition: graph.v2!,
+    definitionRevision: 'sha256:r',
+    agentSession: {
+      language: graph.source.language,
+      hasQuestions: graph.nodes.some((node) => node.kind === 'step' && node.name === 'AwaitQuestionAnswer'),
+      rpcNames: graph.nodes.filter((node) => node.kind === 'rpc').map((node) => node.name),
+    },
+    ...overrides,
+  };
+}
+
 describe('agentSessionSchema', () => {
   it('recognises the published session graph and its four Actions', () => {
-    const schema = agentSessionSchema(publishedSessionGraph(), undefined);
+    const schema = agentSessionSchema(sessionEntry('SupportAgent'));
     expect(schema).not.toBeNull();
     expect(schema?.resolveInterrupt?.rpcName).toBe(SESSION_RPC.resolveInterrupt);
     expect(schema?.answerQuestion?.rpcName).toBe(SESSION_RPC.answerQuestion);
@@ -37,24 +53,12 @@ describe('agentSessionSchema', () => {
     expect(schema?.rpcNames).toEqual(expect.arrayContaining([SESSION_RPC.sendUserMessage, SESSION_RPC.updateSessionSettings]));
   });
 
-  it('rejects a graph that starts at another Step, and offers it no New session', () => {
-    const graph = publishedSessionGraph();
-    const nodes = graph.nodes.map((node) => node.name === 'StartAgentSession' ? { ...node, name: 'StartImpostor' } : node);
-    expect(agentSessionSchema({ ...graph, nodes }, undefined)).toBeNull();
-
-    const entry = (flowName: string, entryGraph: FlowDefinitionGraph): FlowDefinitionEntry => ({
-      id: flowName, file: `${flowName}.json`, schemaVersion: '2.0', flowName, sourceLanguage: 'python',
-      sourcePath: 'session_flow.py', valid: true, graph: entryGraph,
-    });
+  it('offers New session only for entries the server marks as sessions', () => {
     const catalog: V2Catalog = {
       enabled: true, definitionRevision: 'r',
-      flows: ['SupportAgent', 'ImpostorAgent'].map((flowType) => ({ flowType, definition: graph.v2! })),
+      flows: [sessionEntry('SupportAgent'), sessionEntry('ImpostorAgent', { agentSession: undefined })],
     };
-    const definitions = {
-      configured: true,
-      definitions: [entry('SupportAgent', graph), entry('ImpostorAgent', { ...graph, nodes })],
-    } as unknown as FlowDefinitionCatalog;
-    expect(agentSessionFlowTypes(catalog, definitions)).toEqual(['SupportAgent']);
+    expect(agentSessionFlowTypes(catalog)).toEqual(['SupportAgent']);
   });
 
   it('declares every Attribute the view requires', () => {
@@ -63,39 +67,22 @@ describe('agentSessionSchema', () => {
   });
 
   it('reads a reduced session that offers only approvals', () => {
-    const graph = publishedSessionGraph();
-    const reduced: FlowDefinitionGraph = {
-      ...graph,
-      source: { language: 'go', path: 'session_flow.go' },
-      nodes: graph.nodes.filter((node) => node.name !== 'AwaitQuestionAnswer'),
-      v2: { ...graph.v2!, actions: graph.v2!.actions.filter((action) => action.rpcName === 'resolve_interrupt') },
-    };
-    const schema = agentSessionSchema(reduced, undefined);
+    const entry = sessionEntry('GoAgent');
+    const reduced = sessionEntry('GoAgent', {
+      definition: { ...entry.definition, actions: entry.definition.actions.filter((action) => action.rpcName === 'resolve_interrupt') },
+      agentSession: { ...entry.agentSession!, language: 'go', hasQuestions: false },
+    });
+    const schema = agentSessionSchema(reduced);
+    expect(schema?.language).toBe('go');
     expect(schema?.resolveInterrupt).toBeDefined();
     expect(schema?.steerUserMessage).toBeUndefined();
     expect(schema?.cancelTurn).toBeUndefined();
     expect(schema?.hasQuestions).toBe(false);
   });
 
-  it('rejects a Flow without the session Attributes', () => {
-    const graph = publishedSessionGraph();
-    expect(agentSessionSchema({ ...graph, nodes: graph.nodes.filter((node) => node.name !== 'AgentToolCalls') }, undefined)).toBeNull();
-    expect(agentSessionSchema({ ...graph, valid: false }, undefined)).toBeNull();
-    expect(agentSessionSchema(undefined, undefined)).toBeNull();
-  });
-
-  it('does not count a repeated Attribute in place of a missing one', () => {
-    const graph = publishedSessionGraph();
-    const nodes = graph.nodes.map((node) => node.name === 'PendingInterrupts' ? { ...node, name: 'AgentState' } : node);
-    expect(agentSessionSchema({ ...graph, nodes }, undefined)).toBeNull();
-  });
-
-  it('rejects a session Attribute that is not an AttributeMap where one is required', () => {
-    const graph = publishedSessionGraph();
-    const nodes = graph.nodes.map((node) => node.name === 'AgentMessages'
-      ? { ...node, resource: { valueType: 'AgentMessage' } }
-      : node);
-    expect(agentSessionSchema({ ...graph, nodes }, undefined)).toBeNull();
+  it('rejects an entry the server does not mark as a session', () => {
+    expect(agentSessionSchema(sessionEntry('PlainFlow', { agentSession: undefined }))).toBeNull();
+    expect(agentSessionSchema(null)).toBeNull();
   });
 });
 

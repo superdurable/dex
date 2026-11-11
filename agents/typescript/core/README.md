@@ -7,9 +7,9 @@ the Steps, persistence, RPCs, live events, tool approval, and crash recovery.
 It runs in Step mode: each model call and each tool call is its own Dex Step,
 and the tool calls of one model response run in parallel.
 
-The package also ships the built-in agent loop, **Stepwise mode**, for agents
-defined in Dex terms without a framework (`@superdurable/dex-agents/stepwise`),
-and its AI SDK model client (`@superdurable/dex-agents/ai-sdk`). Stepwise runs
+The package also ships the built-in agent loop for agents
+defined in Dex terms without a framework (`@superdurable/dex-agents/builtin-loop`),
+and its AI SDK model client (`@superdurable/dex-agents/ai-sdk`). The built-in loop runs
 on the same session Flow as every adapter, with the same Steps, RPCs, and
 events. The session also handles two built-in tools under any runner:
 `ask_user` asks the user a question and waits in `AwaitQuestionAnswer`, and
@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.38.0
+npm i @superdurable/dex-agents @superdurable/dex@1.44.0
 ```
 
-`@superdurable/dex` 1.38.0 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.44.0 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -49,13 +49,13 @@ the published core. It is for tests only; it needs `DEXCLI` and
 | Subpath | Contents | Extra dependency |
 | --- | --- | --- |
 | `@superdurable/dex-agents` | Session Flow, runner contract, built-in tool definitions | none |
-| `@superdurable/dex-agents/stepwise` | Stepwise mode: `createStepwiseAgentSessionFlow`, `functionTool`, `ToolSource`, `ModelClient`, `ScriptedModelClient` | none |
+| `@superdurable/dex-agents/builtin-loop` | The built-in agent loop: `createBuiltinAgentSessionFlow`, `functionTool`, `ToolSource`, `ModelClient`, `ScriptedModelClient` | none |
 | `@superdurable/dex-agents/ai-sdk` | `createAiSdkModelClient` for any AI SDK `LanguageModel` | optional peer `ai@^7.0.159`, the Vercel AI SDK adapter's range |
 | `@superdurable/dex-agents/mcp` | MCP servers' tools as agent tools; see [MCP tools](#mcp-tools-superdurabledex-agentsmcp) | optional peer `@modelcontextprotocol/sdk@^1.32.2` |
 | `@superdurable/dex-agents/connectors` | Reviewed Connector operations as agent tools; see [Connector tools](#connector-tools-superdurabledex-agentsconnectors) | optional peer `@superdurable/connectors-sdk` |
 | `@superdurable/dex-agents/ui-stream` | Browser streams of live sessions; see [UI streams](#ui-streams) | none |
 | `@superdurable/dex-agents/s3` | `S3MediaStore`, image bytes in an S3-compatible bucket; see [Images](#images) | optional peer `@aws-sdk/client-s3@^3.400.0` |
-| `@superdurable/dex-agents/testing` | Test engine, Worker processes, waits, and `ScriptedModelClient` (the same class as the stepwise entry point's) | none |
+| `@superdurable/dex-agents/testing` | Test engine, Worker processes, waits, and `ScriptedModelClient` (the same class as the builtin-loop entry point's) | none |
 
 Install `ai` and a provider package only for `./ai-sdk`; importing that
 subpath without `ai` fails with `Cannot find package 'ai'`.
@@ -129,17 +129,17 @@ Enable built-in tools and call `answer_question` only after every Worker of the
 Flow type runs 0.2.0, because a 0.1.0 Worker cannot decode the new non-final
 statuses.
 
-## Stepwise mode
+## Built-in agent loop
 
-Stepwise is the built-in agent loop. Declare the agent, its function tools,
-and its model client; `createStepwiseAgentSessionFlow` builds the session Flow
-with a `StepwiseAgentRunner` and derives the session options from the
+The built-in agent loop runs an agent without a framework. Declare the agent, its function tools,
+and its model client; `createBuiltinAgentSessionFlow` builds the session Flow
+with a `BuiltinLoopAgentRunner` and derives the session options from the
 definition.
 
 ```ts
 import { openai } from "@ai-sdk/openai";
 import { createAiSdkModelClient } from "@superdurable/dex-agents/ai-sdk";
-import { createStepwiseAgentSessionFlow, functionTool } from "@superdurable/dex-agents/stepwise";
+import { createBuiltinAgentSessionFlow, functionTool } from "@superdurable/dex-agents/builtin-loop";
 
 const lookupOrder = functionTool<{ order_id: string }>({
   name: "lookup_order",
@@ -156,7 +156,7 @@ const refundOrder = functionTool<{ order_id: string }>({
   execute: async ({ order_id }, context) => payments.refund(order_id, { idempotencyKey: context.idempotencyKey }),
 });
 
-export const supportAgentFlow = createStepwiseAgentSessionFlow(
+export const supportAgentFlow = createBuiltinAgentSessionFlow(
   {
     name: "support",
     instructions: "You help customers with their orders.",
@@ -198,7 +198,16 @@ A function tool declares its effect, which picks `CallTool` or
 model's arguments against the tool's JSON Schema before `execute` runs, and a
 mismatch or an unknown tool reaches the model as a tool failure. `execute`
 receives the arguments and a `ToolCallContext` with the idempotency key,
-attempt, events, heartbeat, and the answers to the tool's own questions. A
+attempt, events, heartbeat, the answers to the tool's own questions, and
+`effect`: the call's effect after the tool policies, which chose its tool Step.
+A wrapper that turns errors into `ToolExecutionError` lets them propagate for a
+`non_idempotent_write` or `unclassified` effect, and for an absent one, which
+only a hand-built context has. `prepareArguments`, a synchronous and deterministic function, converts the
+decoded arguments before the schema check, such as an argument shape an earlier
+version of the tool took; a throw fails the call like a schema violation, a
+cancellation passes through, and a Promise result is refused. The
+stored tool call and the approval interrupt keep the model's original
+arguments. A
 `string` result is the output, and a `ToolInputRequested` result asks the user
 first. Any other result is JSON with the separators of Python's `json.dumps`,
 so the model sees the same text as from the Python core; the one exception is a
@@ -208,7 +217,7 @@ for `enum`, so `true` matches `1`.
 
 The session's tool policies, `turn.toolPolicies`, win over a function tool's own
 effect and `requiresApproval`, whether they come from the agent definition or
-from options passed to `createAgentSessionFlow` with a `StepwiseAgentRunner`. A
+from options passed to `createAgentSessionFlow` with a `BuiltinLoopAgentRunner`. A
 built-in tool enabled only in those options must not share a function tool's
 name; the first `RunModel` fails before it calls the model.
 
@@ -237,7 +246,7 @@ const files = new McpToolSource(
   [{ transport: "stdio", name: "files", command: "mcp-server-files", args: ["/srv/reports"] }],
   { resourceAndPromptToolsEnabled: true },
 );
-export const reportsAgentFlow = createStepwiseAgentSessionFlow(
+export const reportsAgentFlow = createBuiltinAgentSessionFlow(
   {
     name: "reports",
     instructions: "You manage reports.",
@@ -287,7 +296,7 @@ runner's last listing of that source, as the Python core does.
 
 ### Demo model without a key
 
-`ScriptedModelClient` from `@superdurable/dex-agents/stepwise` answers each
+`ScriptedModelClient` from `@superdurable/dex-agents/builtin-loop` answers each
 call from a function of the `ModelRequest`, so an agent runs without a model
 key: a local demo mode, a tutorial, or a test. The function returns text,
 reasoning, and tool calls, sync or async; `ScriptedModelClient.userTexts` and
@@ -297,7 +306,7 @@ core's. Keep the script deterministic, because a crashed `RunModel` reruns
 it. `@superdurable/dex-agents/testing` exports the same class.
 
 ```ts
-import { ScriptedModelClient, type ModelRequest, type ScriptedModelReply } from "@superdurable/dex-agents/stepwise";
+import { ScriptedModelClient, type ModelRequest, type ScriptedModelReply } from "@superdurable/dex-agents/builtin-loop";
 
 function replyAsDemoModel(request: ModelRequest): ScriptedModelReply {
   const results = ScriptedModelClient.toolResults(request);
@@ -310,7 +319,7 @@ function replyAsDemoModel(request: ModelRequest): ScriptedModelReply {
 const model = isDemo ? new ScriptedModelClient(replyAsDemoModel) : createAiSdkModelClient(openai("gpt-5-mini"));
 ```
 
-The stored `framework_item` of a Stepwise message is one of
+The stored `framework_item` of a built-in loop message is one of
 `{"type":"user_text","text"}`,
 `{"type":"model_output","provider","api","item","text","tool_calls"}`, or
 `{"type":"tool_result","tool_call_id","tool_name","output"}`, the same as the
@@ -363,7 +372,7 @@ response`; invalid arguments fail with `invalid todos: <reason>`.
 
 Plan mode reviews a plan before it runs. Enable it with
 `planModeEnabled: true`, which needs `write_todos` in `builtInTools` and a
-runner whose `supportsPlanMode` is `true`, such as the Stepwise runner.
+runner whose `supportsPlanMode` is `true`, such as the built-in loop runner.
 `AgentDefinition.planningToolChoice` is `"auto"` by default: a planning turn
 offers only `write_todos`, the plan note tells the model to write the plan with
 it, and a turn that answers in text, such as with a clarifying question, ends
@@ -409,7 +418,7 @@ if (snapshot.plan?.status === "draft") {
   user approved plan revision <n>. Execute it and keep the task statuses
   current with write_todos.`.
 - `buildPlanNote(plan, interactionMode)` returns the note that shows the model
-  the plan. Stepwise adds it as user text before the turn's messages in every
+  the plan. The built-in loop adds it as user text before the turn's messages in every
   model call, so the model always sees the latest plan.
 
 ## Steering and turn cancellation
@@ -494,7 +503,7 @@ at once.
 
 Compaction keeps the model input under the context window. Pass
 `compaction: { contextWindowTokens, triggerRatio?, retainedRatio? }` to
-`createAgentSessionFlow`, or as `AgentDefinition.compaction` for Stepwise. The
+`createAgentSessionFlow`, or as `AgentDefinition.compaction` for the built-in loop. The
 ratios default to 0.85 and 0.3, as in the Python core.
 
 ```ts
@@ -518,7 +527,7 @@ in `turn.messages` and the summary in `turn.contextSummary`.
 Summarized messages stay stored until retention deletes them; see
 [Message storage and retention](#message-storage-and-retention). A compaction policy needs a runner with all
 three optional methods, and `createAgentSessionFlow` throws a `TypeError`
-otherwise. `StepwiseAgentRunner` implements them: its input starts with
+otherwise. `BuiltinLoopAgentRunner` implements them: its input starts with
 `contextSummaryNoteHeader` (`[Dex] Summary of the earlier conversation:`) and
 the summary, it cuts only between model responses whose tool calls all have
 stored results, so a turn with many tool calls compacts mid-turn without
@@ -561,7 +570,7 @@ const models: Record<string, ModelClient> = {
   "gpt-5-mini": createAiSdkModelClient(openai("gpt-5-mini")),
   "gpt-5": createAiSdkModelClient(openai("gpt-5")),
 };
-const flow = createStepwiseAgentSessionFlow(
+const flow = createBuiltinAgentSessionFlow(
   {
     name: "support",
     instructions: "You help customers with their orders.",
@@ -589,7 +598,7 @@ await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings:
   turn left reads as no settings.
 - A runner reads `AgentTurnContext.sessionSettings`, `{}` when there are
   none, such as in a session started on 0.1.0. `ContextSummaryRequest` carries
-  the same value. Stepwise's `AgentDefinition.resolveModel` maps it to the
+  the same value. The built-in loop's `AgentDefinition.resolveModel` maps it to the
   `ModelClient` of each model call, including summary calls and token
   estimates, and `InstructionContext.sessionSettings` passes it to an
   instructions function.
@@ -617,6 +626,9 @@ await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings:
 - Start sessions with settings, and call `update_session_settings`, only after
   every Worker of the Flow type runs 0.2.0. A 0.1.0 Worker drops the start
   settings and starts turns without them.
+- `AgentSessionStartInput.startEnvironment` (`startAgentSession(..., { startEnvironment })`) is different: string
+  keys and values that say where the starting program ran. It stays in the Flow's start input and the session never
+  reads it, so it is not a setting and cannot change.
 
 ## Images
 
@@ -702,8 +714,13 @@ return { output: "Took a screenshot.", images: [reference] };
   follows a symbolic link. The Python core opens every path relative to an open directory and has no such window.
   Reads check the file's size first, read at most one byte past `sizeBytes`, and run `verifyImageBytes`. It needs a POSIX file system. Deleting a
   session deletes no file.
-- **Built-in runners.** In this release no built-in runner shows images to a model: Stepwise and the framework
-  adapters do not implement `buildUserMessageWithImages`, so their sessions refuse images.
+- **Built-in runners.** The framework adapters show images to their model when built with a `mediaStore`: they
+  implement `buildUserMessageWithImages`, keep references in their stored items, and load the bytes for each model
+  call. Without a store they do not, and their sessions refuse images. The built-in loop does not implement it yet, so its
+  sessions refuse images.
+- **MCP tools.** `new McpToolSource(servers, { mediaStore })` uploads the `image` content of a successful result
+  inside the tool Step and returns the references in `ToolExecutionResult.images`. Give it the store the runner
+  reads.
 - **Retention.** Deleting a session deletes no object. A runner reads the images again whenever a model call replays
   them, so a bucket lifecycle rule must keep each object at least as long as any session that references it can
   still run a turn or replay its history. When an object is gone, the turn that needs it fails with `MediaStoreError`
@@ -1293,7 +1310,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.38.0 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.44.0 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or
@@ -1313,7 +1330,7 @@ const tools = new McpToolSource([
 ]);
 ```
 
-A Stepwise agent takes the source in `toolSources`; see
+A built-in loop agent takes the source in `toolSources`; see
 [Tool sources](#tool-sources). Another runner offers the tools and defers every
 call; the tool Step runs it:
 
@@ -1425,6 +1442,8 @@ signal aborts the request.
 | What happens | Recorded | Re-issued? |
 | --- | --- | --- |
 | A result | `succeeded`: text blocks joined with newlines, other content as JSON | - |
+| A result with `image` content, on a source built with `mediaStore` | `succeeded`: each image uploaded and recorded in `images`; the text shows `[image <n>]` in its place, counting from 1. More than 20 images, base64 that is invalid or not canonical, or bytes that are not a supported image: `failed` (`ToolExecutionError`) | - |
+| An `isError`, `rejected`, or `unknown` result with `image` content | As above, with `[image <n> omitted]` for each image in the text, with or without a store, so the recorded error holds no image bytes | As above |
 | An `isError` result, or a JSON-RPC error response other than `-32603` | `failed` with the text (`ToolExecutionError`) | No |
 | A result or error with the Dex `outcome` key | `outcome_unknown` or `failed`; see [Dex MCP conventions](#dex-mcp-conventions) | No |
 | The call was never sent: its server is not configured, or 3 connection attempts failed | `failed` | No |
@@ -1456,7 +1475,7 @@ only delays the next poll. A server that no longer knows the task, or cannot be
 reached for three poll attempts, records `failed` for a `read` tool and
 `outcome_unknown` otherwise. `cancel_turn` abandons the task, and
 `cancelToolTask` sends `tasks/cancel`; forward it from your runner's
-`cancelToolTask`, as the Stepwise runner does. Any answer from the server ends
+`cancelToolTask`, as the built-in loop runner does. Any answer from the server ends
 the cancellation, so a retried one is harmless.
 
 The source requests such a task's TTL as `taskTtlMs`, 24 hours by default. The
@@ -1616,7 +1635,7 @@ so a wrapper is its only path to tool Steps.
 ## Connector tools (`@superdurable/dex-agents/connectors`)
 
 `@superdurable/dex-agents/connectors` offers reviewed Connector operations to a
-Stepwise agent as tools. `ConnectorToolSource` implements `ToolSource`, like
+built-in loop agent as tools. `ConnectorToolSource` implements `ToolSource`, like
 `McpToolSource`. Each call runs one operation in its own tool Step through the
 Connector SDK's `runQuery` or `runMutation`, so the connector's Call ID,
 idempotency key, credential handling, and single-dispatch fence apply. Install
@@ -1740,7 +1759,7 @@ README. An adapter serves them through `ToolSourceRouter`, exported from the
 package root: it lists the sources in each `RunModel`, refuses name
 collisions, lets the source build each deferred call, so the effect, the
 approval, and the write order come from the source, and routes the tool Step,
-its Step options, and polls back to that source. The Stepwise runner uses it
+its Step options, and polls back to that source. The built-in loop runner uses it
 too.
 
 ## UI streams
@@ -2132,7 +2151,7 @@ real Dex Server with no model key:
 | `AgentSessionTestClient` | Typed RPC calls (`resolveInterrupt` retries lock conflicts) and Worker-free waits on committed Attributes |
 | `readStepHistory(serverAddress, flowId)` | Completed Step methods from `dexcli flow history`, to assert a turn's Step shape |
 | `FileGate`, `InvocationLog` | Pause Worker code at an exact point; count real tool runs across processes |
-| `ScriptedModelClient` | Stepwise `ModelClient` that answers from a script, like the Python core's; the same class as `@superdurable/dex-agents/stepwise` exports. See [Demo model without a key](#demo-model-without-a-key) |
+| `ScriptedModelClient` | Built-in loop `ModelClient` that answers from a script, like the Python core's; the same class as `@superdurable/dex-agents/builtin-loop` exports. See [Demo model without a key](#demo-model-without-a-key) |
 | `pollUntil(probe, options)` | Deadline polling where the Client has no direct wait |
 | `findFreeLoopbackPorts(count)` | Distinct free loopback ports, chosen with every listener held open until all are picked |
 
@@ -2225,7 +2244,7 @@ use a scripted runner (`test/fixtures/scripted-agent-runner.ts`) and cover:
 - two tools of one response that ask at once, both answerable, and a sibling
   approval resolved while a tool runs that never reappears as pending.
 
-The Stepwise tests (`test/integ/stepwise-*.integration.test.ts`) run the
+The built-in loop tests (`test/integ/stepwise-*.integration.test.ts`) run the
 built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
 (`test/fixtures/stepwise-scripted-language-model.ts`), and cover:
 
@@ -2357,7 +2376,7 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   attempts, on every `listTools` call until it answers. A server that binds
   tasks to its protocol session, such as a stateful server on the SDK's task
   store, cannot resume a task across attempts; the retry calls the tool again.
-- Images: no built-in runner sends images to a model yet, and the media stores keep no local read cache, so each
+- Images: the built-in loop sends no images to a model yet, and the media stores keep no local read cache, so each
   `loadImages` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.

@@ -12,6 +12,7 @@ The model reads commands from the last user message:
 
 * ``say <text>`` answers ``said: <text>``.
 * ``recall`` answers with every earlier user message, proving history replay.
+* ``describe`` answers ``saw <n> images`` for the base64 image blocks of every user message.
 * ``call <tool> <json>`` asks for one tool call; join several with `` && ``.
   Separate model calls with `` then ``: each one's tool calls follow the last one's results.
   After the last one it answers ``<tool>: <result>`` for every call, joined by ``; ``.
@@ -19,12 +20,16 @@ The model reads commands from the last user message:
   the gate, and then streams the rest of the final answer.
 
 Every model call records ``model:<n>`` in the InvocationLog, ``n`` counting the turn's calls.
+With ``model_input_log_path``, it also records its user and tool messages there as one JSON
+line, with the MIME type, SHA-256, and base64 of each image block's bytes.
 Each reply's ``response_metadata`` names the response model, provider, response ID, and
 finish reason, as LangChain integrations do.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
@@ -67,6 +72,7 @@ class ScriptedChatModel(BaseChatModel):
 
     invocation_log_path: str
     fresh_tool_call_ids: bool = False
+    model_input_log_path: str | None = None
     # BaseChatModel._get_ls_params reports it as ls_model_name.
     model: str = SCRIPTED_REQUEST_MODEL
 
@@ -133,6 +139,10 @@ class ScriptedChatModel(BaseChatModel):
         InvocationLog(Path(self.invocation_log_path)).record(
             f"{MODEL_CALL_INVOCATION_PREFIX}{len(replies) + 1}"
         )
+        if self.model_input_log_path is not None:
+            InvocationLog(Path(self.model_input_log_path)).record(
+                json.dumps(describe_model_input(messages))
+            )
         reply = self._plan_reply(messages, user_index, turn_messages, replies)
         response_metadata = {
             "model_name": SCRIPTED_RESPONSE_MODEL,
@@ -162,6 +172,14 @@ class ScriptedChatModel(BaseChatModel):
                 if isinstance(message, HumanMessage)
             ]
             return ScriptedReply(_answer("history: " + " | ".join(earlier)))
+        if command == "describe":
+            image_count = sum(
+                isinstance(block, dict) and block.get("type") == "image"
+                for message in messages
+                if isinstance(message, HumanMessage) and isinstance(message.content, list)
+                for block in message.content
+            )
+            return ScriptedReply(_answer(f"saw {image_count} images"))
         if command.startswith("call "):
             return self._reply_to_tool_command(command, user_index, turn_messages, replies)
         raise ValueError(f"unknown scripted command {command!r}")
@@ -200,6 +218,39 @@ class ScriptedChatModel(BaseChatModel):
                 content=f"step {step + 1}", tool_calls=tool_calls, usage_metadata=MODEL_CALL_USAGE
             )
         )
+
+
+def describe_model_input(messages: Sequence[BaseMessage]) -> list[dict[str, Any]]:
+    """Describe the user and tool messages a model call received, image bytes included."""
+    return [
+        {
+            "kind": "human" if isinstance(message, HumanMessage) else "tool",
+            "content": _describe_content(message.content),
+        }
+        for message in messages
+        if isinstance(message, HumanMessage | ToolMessage)
+    ]
+
+
+def _describe_content(content: str | list[str | dict[str, Any]]) -> list[Any]:
+    described: list[Any] = []
+    for block in [content] if isinstance(content, str) else content:
+        if isinstance(block, str):
+            described.append(block)
+        elif block.get("type") == "text":
+            described.append(block["text"])
+        elif block.get("type") == "image" and "base64" in block:
+            data = base64.b64decode(block["base64"])
+            described.append(
+                {
+                    "image": block["mime_type"],
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "base64": block["base64"],
+                }
+            )
+        else:
+            described.append(block)
+    return described
 
 
 def _summarize_tool_results(

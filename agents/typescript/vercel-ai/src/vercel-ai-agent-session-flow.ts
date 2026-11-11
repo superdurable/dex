@@ -23,6 +23,7 @@ import {
   createAgentSessionFlow,
   type AgentSessionFlow,
   type AgentSessionOptions,
+  type MediaStore,
   type ToolEffect,
   type ToolPolicy,
   type ToolSource,
@@ -202,7 +203,30 @@ export interface VercelAiAgentDefinition<TOOLS extends ToolSet = ToolSet> {
 }
 
 /** Session options of {@link createVercelAiAgentSessionFlow}; tool policies live in the agent definition. */
-export type VercelAiAgentSessionOptions = Omit<AgentSessionOptions, "toolPolicies" | "defaultToolEffect">;
+export interface VercelAiAgentSessionOptions extends Omit<AgentSessionOptions, "toolPolicies" | "defaultToolEffect"> {
+  /**
+   * The media store that holds the session's images, such as `S3MediaStore` from `@superdurable/dex-agents/s3`.
+   * Defaults to none.
+   *
+   * With a store, `send_user_message` accepts images, and the model sees each image of a user message or a tool
+   * result as an AI SDK file part with its bytes. Stored messages keep only references: the runner reads the bytes
+   * with `loadImages` right before each `streamText` call, so a store read failure fails that model call and its
+   * `RunModel` Step retries. A tool result with images becomes `content` output: its text, then one file part per
+   * image. Use the same store, or one that reads the same objects, in every Worker process of the Flow type.
+   *
+   * Without a store, `send_user_message` refuses images and tool result images do not reach the model.
+   *
+   * @example
+   * ```ts
+   * import { S3MediaStore } from "@superdurable/dex-agents/s3";
+   *
+   * const mediaStore = new S3MediaStore({ bucket: "agent-media", prefix: "sessions" });
+   * const flow = createVercelAiAgentSessionFlow(supportAgent, "SupportAgent", { mediaStore });
+   * ```
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
+}
 
 /**
  * Creates a durable Dex agent session Flow that runs a Vercel AI SDK agent.
@@ -255,8 +279,9 @@ export function createVercelAiAgentSessionFlow<TOOLS extends ToolSet>(
   options: VercelAiAgentSessionOptions = {},
 ): AgentSessionFlow {
   const resolvedAgent = resolveVercelAiAgentDefinition(agent);
-  return createAgentSessionFlow(new VercelAiAgentRunner(resolvedAgent), flowType, {
-    ...options,
+  const { mediaStore, ...sessionOptions } = options;
+  return createAgentSessionFlow(new VercelAiAgentRunner(resolvedAgent, mediaStore), flowType, {
+    ...sessionOptions,
     toolPolicies: resolvedAgent.toolPolicies,
     ...(agent.defaultToolEffect === undefined ? {} : { defaultToolEffect: agent.defaultToolEffect }),
   });

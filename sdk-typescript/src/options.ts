@@ -177,9 +177,17 @@ export type ActiveStepSearchMode =
 
 /** Controls whether `startFlow` may reuse a previously used Flow ID. */
 export const IdReusePolicy = Object.freeze({
-  /** Uses the Dex server default, which rejects every previously used Flow ID. */
+  /**
+   * Rejects the start whenever the Flow ID has a run, the same as `DISALLOW`.
+   * The server does not make this default configurable.
+   */
   DEFAULT: "default",
-  /** Reuses an ID only after an unsuccessful closed run. */
+  /**
+   * Starts a new run only when the latest run closed abnormally: failed, canceled, or terminated.
+   * A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy.
+   * Under the handler policy, the timeout handler's outcome decides. A running or completed latest
+   * run rejects the start.
+   */
   ALLOW_IF_PREVIOUS_FAILED: "allowIfPreviousFailed",
   /** Reuses an ID after any closed run. */
   ALLOW_IF_NOT_RUNNING: "allowIfNotRunning",
@@ -492,10 +500,10 @@ export interface StartFlowOptions {
    * A retried start returns the existing run only when `ignoreAlreadyStarted` is `true` and this
    * request ID matches the request that started that run. Without that option, the retry throws
    * {@link FlowAlreadyStartedError} even when the first attempt created the Flow. The match
-   * applies only when the ID reuse policy rejects the start. A policy that permits another run
-   * starts a new run instead. Dex compares only request IDs, not input or other options, so never
-   * reuse a request ID for a different logical start. See {@link StartFlowOptions} for an example
-   * that sets both options.
+   * uses the latest run of the Flow ID and takes precedence over the ID reuse policy. A retry
+   * never starts a second run or terminates the run it started. Dex compares only request IDs,
+   * not input or other options, so never reuse a request ID for a different logical start. See
+   * {@link StartFlowOptions} for an example that sets both options.
    */
   readonly requestId?: string;
 }

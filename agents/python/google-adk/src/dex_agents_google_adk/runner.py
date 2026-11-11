@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import replace
 from datetime import timedelta
 
 from google.adk.agents import BaseAgent, LlmAgent, ParallelAgent
@@ -36,6 +37,8 @@ from dex_agents import (
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     DEFAULT_RETAINED_MESSAGE_LIMIT,
     AgentEventWriter,
+    AgentImageReference,
+    AgentMessage,
     AgentSessionFlow,
     AgentSessionOptions,
     AgentToolCall,
@@ -50,6 +53,7 @@ from dex_agents import (
     DeferredToolExecution,
     DeferredToolOutcome,
     FrameworkMessage,
+    MediaStore,
     MessageRole,
     ModelCallMetadata,
     ToolCallsRequested,
@@ -61,10 +65,11 @@ from dex_agents import (
     ToolPolicy,
     TurnCompleted,
     build_context_summary_prompt,
+    collect_turn_images,
     estimate_stored_input_tokens,
     select_turn_boundary_cutoff,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     FrameworkToolSourceRouter,
     ToolSource,
@@ -79,11 +84,17 @@ from dex_agents_google_adk._compaction import (
 )
 from dex_agents_google_adk._history import (
     build_adk_session,
+    deserialize_adk_event,
     framework_message_for_adk_event,
     is_adk_event_kept_after_turn,
     serialize_adk_event,
     stored_adk_events,
     without_confirmation_plumbing,
+)
+from dex_agents_google_adk._images import (
+    extract_tool_result_images,
+    image_placeholder_part,
+    image_references_in_parts,
 )
 from dex_agents_google_adk._run_state import SuspendedAdkTurn
 from dex_agents_google_adk._session_service import TurnSessionService
@@ -142,6 +153,11 @@ class AdkAgentRunner:
     that also restores the ADK session state and the agent that replied last.
     Without a policy nothing changes.
 
+    Pass a ``media_store`` to let the session take images. User images and
+    the images of tool results then reach the model as inline image parts,
+    while the session stores only references. Without a store the runner
+    has no ``build_user_message_with_images``, so the session refuses images.
+
     The runner holds no per-session state, so one instance serves every
     session of its Flow type, also concurrently. The agent, its tools,
     toolsets, plugins, and the optional services stay owned by the
@@ -156,6 +172,19 @@ class AdkAgentRunner:
         ...         "search_tickets": ToolPolicy(ToolEffect.READ)}))
     """
 
+    build_user_message_with_images: Callable[[str, Sequence[AgentImageReference]], FrameworkMessage]
+    """Store user text and images as an ADK user event, only with a ``media_store``.
+
+    The constructor sets this attribute only when it gets a ``media_store``.
+    See ``ImageUserMessageBuilder``. The session calls it instead of
+    ``build_user_message`` for a message with images. The event holds the
+    text part, then one ``file_data`` part per image, in order, whose
+    ``file_uri`` is the reference's ``uri``. Right before each model call the
+    runner replaces those parts with the bytes as ``inline_data``.
+
+    .. versionadded:: 0.5.0
+    """
+
     def __init__(
         self,
         agent: BaseAgent | App,
@@ -168,6 +197,7 @@ class AdkAgentRunner:
         summary_model: BaseLlm | str | None = None,
         tool_sources: Sequence[ToolSource] = (),
         tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+        media_store: MediaStore | None = None,
     ) -> None:
         """Wrap an ADK agent or App.
 
@@ -210,6 +240,21 @@ class AdkAgentRunner:
                 turn already called. Defaults to 10 seconds.
 
                 .. versionadded:: 0.4.0
+            media_store: The store that holds the session's images, such as
+                ``S3MediaStore``. Every Worker and every client that uploads
+                images must reach the same store. With a store, the runner
+                sets ``build_user_message_with_images``, so the session
+                accepts user images. Each model call reads the images of the
+                replayed events from the store and sends them as inline image
+                parts; a failed read fails that model call, which ``RunModel``
+                retries. A tool result's ``images`` reach the model as
+                ``FunctionResponse.parts``. An ADK tool that returns image
+                ``types.Part`` values with ``inline_data`` gets them uploaded
+                in its tool Step, so the record keeps references. ``None``,
+                the default, refuses user images and ignores tool result
+                images, as before.
+
+                .. versionadded:: 0.5.0
 
         Raises:
             TypeError: If the App's root is not a ``BaseAgent``, or a tool
@@ -247,6 +292,10 @@ class AdkAgentRunner:
         self._credential_service = credential_service
         self._summary_model = summary_model
         self._fixed_input_tokens: int | None = None
+        self._media_store = media_store
+        if media_store is not None:
+            # The session accepts images only from a runner that has this method.
+            self.build_user_message_with_images = self._build_user_message_with_images
 
     @property
     def app(self) -> App:
@@ -278,6 +327,21 @@ class AdkAgentRunner:
             invocation_id=new_invocation_context_id(),
             author="user",
             content=types.Content(role="user", parts=[types.Part(text=text)]),
+        )
+        return FrameworkMessage(
+            role=MessageRole.USER, text=text, framework_item=serialize_adk_event(event)
+        )
+
+    def _build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        event = Event(
+            invocation_id=new_invocation_context_id(),
+            author="user",
+            content=types.Content(
+                role="user",
+                parts=[types.Part(text=text), *(image_placeholder_part(image) for image in images)],
+            ),
         )
         return FrameworkMessage(
             role=MessageRole.USER, text=text, framework_item=serialize_adk_event(event)
@@ -328,8 +392,7 @@ class AdkAgentRunner:
         suspended: SuspendedAdkTurn | None = None
         if turn.framework_run_state is None:
             resumed_events: Sequence[Event] = []
-            user_text = turn.messages[user_message_index].text or ""
-            new_messages = [types.Content(role="user", parts=[types.Part(text=user_text)])]
+            new_messages = [_stored_user_content(turn.messages[user_message_index])]
         else:
             suspended = SuspendedAdkTurn.from_framework_run_state(turn.framework_run_state)
             resumed_events = suspended.events
@@ -343,12 +406,19 @@ class AdkAgentRunner:
             )
         )
         source_tools = await self._tool_sources.list_source_tools(turn)
+        image_references_by_uri = (
+            {}
+            if self._media_store is None
+            else {reference.uri: reference for reference in collect_turn_images(turn)}
+        )
         deferral_plugin = ToolDeferralPlugin(
             turn,
             turn.flow_id,
             self._root_agent,
             source_tools,
             () if suspended is None else suspended.confirmation_request_ids.keys(),
+            self._media_store,
+            image_references_by_uri,
         )
         live_events = _LiveAdkEventWriter(turn.events, deferral_plugin.control_tool_names)
         runner = Runner(
@@ -398,7 +468,7 @@ class AdkAgentRunner:
         if not deferred:
             return TurnCompleted(
                 new_messages=[
-                    framework_message_for_adk_event(event)
+                    _framework_message_with_images(event, image_references_by_uri)
                     for event in without_confirmation_plumbing(turn_events)
                     if event.id != user_event_id and is_adk_event_kept_after_turn(event)
                 ],
@@ -583,6 +653,11 @@ class AdkAgentRunner:
             tool_confirmation=dex_approval,
         )
         result = await tool.run_async(args=json.loads(record.arguments), tool_context=tool_context)
+        images: list[AgentImageReference] = []
+        if self._media_store is not None:
+            result, image_bytes = extract_tool_result_images(result)
+            # The upload is idempotent, so a retried Step stores each image once.
+            images = [await self._media_store.put_image(data) for data in image_bytes]
         actions = tool_context.actions
         if actions.requested_tool_confirmations or actions.requested_auth_configs:
             raise ToolExecutionError(
@@ -594,7 +669,7 @@ class AdkAgentRunner:
                 "deferred ADK tool %s changed session state or artifacts; Dex discards the change",
                 record.tool_name,
             )
-        return ToolExecutionResult(output=encode_tool_output(result))
+        return ToolExecutionResult(output=encode_tool_output(result), images=images)
 
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
         """Return a tool source's options for one call's tool Step.
@@ -639,6 +714,7 @@ def adk_agent_session_flow(
     summary_model: BaseLlm | str | None = None,
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    media_store: MediaStore | None = None,
 ) -> AgentSessionFlow:
     """Build the durable Dex agent session Flow for one Google ADK agent.
 
@@ -651,7 +727,7 @@ def adk_agent_session_flow(
     Tool sources add tools that always run in their own tool Step, reads
     included. ``ConnectorToolSource`` offers reviewed Connector operations
     this way: each call gets the operation's effect class, approval, Call ID,
-    timeout, and retry policy from its manifest, as in a Stepwise agent.
+    timeout, and retry policy from its manifest, as in an agent on the built-in loop.
 
     Example:
         >>> from google.adk.agents import LlmAgent
@@ -711,6 +787,14 @@ def adk_agent_session_flow(
             source's ``list_tools``. Defaults to 10 seconds.
 
             .. versionadded:: 0.4.0
+        media_store: The store that holds the session's images, such as
+            ``S3MediaStore``. With a store, ``send_user_message`` accepts
+            images, and user and tool result images reach the model as inline
+            image parts while the session stores only references. Build the
+            Flow with the same store in every process. ``None``, the default,
+            refuses user images. See ``AdkAgentRunner``.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with an ``AdkAgentRunner``.
@@ -733,6 +817,7 @@ def adk_agent_session_flow(
             summary_model=summary_model,
             tool_sources=tool_sources,
             tool_source_listing_timeout=tool_source_listing_timeout,
+            media_store=media_store,
         ),
         flow_type=flow_type,
         options=AgentSessionOptions(
@@ -804,6 +889,24 @@ def _in_model_order(
         deferred_tool_calls,
         key=lambda call: model_order.get(call.tool_call_id, len(model_order)),
     )
+
+
+def _stored_user_content(message: AgentMessage) -> types.Content:
+    """Return the content of a stored user event, with any image placeholders."""
+    content = deserialize_adk_event(message.framework_item).content
+    if content is None:
+        raise RuntimeError(f"stored user message {message.sequence} has no content")
+    return content
+
+
+def _framework_message_with_images(
+    event: Event, image_references_by_uri: Mapping[str, AgentImageReference]
+) -> FrameworkMessage:
+    message = framework_message_for_adk_event(event)
+    if message.role is not MessageRole.TOOL or event.content is None:
+        return message
+    images = image_references_in_parts(event.content.parts or [], image_references_by_uri)
+    return replace(message, images=images) if images else message
 
 
 def _turn_user_message_index(turn: AgentTurnContext) -> int:

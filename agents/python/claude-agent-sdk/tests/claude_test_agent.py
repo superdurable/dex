@@ -13,6 +13,9 @@
 * ``charge`` is an idempotent write through its ``idempotentHint`` annotation.
 * ``slow_write`` is a non-idempotent write without approval that waits at a gate.
 * ``Bash`` runs inside the CLI and needs approval, the default for unknown tools.
+  The Claude Code tool permission runs ``INLINE_BASH_COMMAND`` without
+  approval, denies commands that start with ``DENIED_BASH_COMMAND_PREFIX``,
+  and raises for ``FAILING_PERMISSION_BASH_COMMAND``.
 
 The fake ledger Connector's operations are source tools: ``get_balance`` is a
 Query; ``create_payout`` is a ``retry: safe`` Mutation without approval and
@@ -32,14 +35,21 @@ application hooks for a resumed call that has a final record. Another denies
 ``REAL_CLI_ENVIRONMENT_VARIABLE`` set, the agent runs the bundled Claude Code
 CLI with that JSON object as extra CLI environment. A comma-separated
 ``ALLOWED_TOOLS_ENVIRONMENT_VARIABLE`` becomes ``allowed_tools``.
+
+With ``MEDIA_STORE_ENVIRONMENT_VARIABLE`` set, the agent takes images from a
+``LocalDirectoryMediaStore`` under the state directory and adds two tools:
+``screenshot``, a source tool that needs approval, uploads the GIF test image,
+and returns its reference; and ``draw``, a deferred custom tool without
+approval that returns the JPEG test image as MCP ``image`` content.
 """
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -64,21 +74,25 @@ from dex_agents import (
     DeferredToolCall,
     DeferredToolExecution,
     DeferredToolOutcome,
+    LocalDirectoryMediaStore,
+    MediaStore,
     ModelCallCheck,
     ModelCallDecision,
     ModelUsageReport,
     RunModelLimit,
     ToolCallStepOptions,
     ToolEffect,
+    ToolExecutionResult,
     ToolPolicy,
     ToolTaskPoll,
     ToolTaskPollOutcome,
 )
+from dex_agents.builtin_loop import SourceToolDefinition
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import SourceToolDefinition
 from dex_agents.testing import FileGate, InvocationLog
 from dex_agents_claude_agent_sdk import (
     ClaudeAgentOptionsContext,
+    ClaudeCodeToolDenial,
     claude_agent_session_flow,
     current_deferred_tool_execution,
 )
@@ -104,17 +118,40 @@ SPEND_REPORTS_LOG_NAME = "spend-reports.jsonl"
 REWRITTEN_PUBLISH_INPUT = {"message": "rewritten"}
 RAISED_PAYOUT_AMOUNT = 500
 BASH_OUTPUT_FILE_NAME = "bash-ran.txt"
+INLINE_BASH_COMMAND = "echo inline"
+DENIED_BASH_COMMAND_PREFIX = "forbidden"
+DENIED_BASH_COMMAND_REASON = "forbidden commands never run"
+FAILING_PERMISSION_BASH_COMMAND = "break the permission check"
 ORIGINAL_BASH_COMMAND = f"echo original-input | tee {BASH_OUTPUT_FILE_NAME}"
 REWRITTEN_BASH_COMMAND = f"echo rewritten-input | tee {BASH_OUTPUT_FILE_NAME}"
 HIDE_SOURCE_TOOLS_FILE_NAME = "hide-source-tools"
 DENY_FLAG_FILE_NAME = "deny-publish-and-post-note"
 APPLICATION_HOOK_DENIAL = "the application hook denies this call"
 SLOW_WRITE_GATE = "slow_write"
+MEDIA_STORE_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_MEDIA_STORE"
+MEDIA_DIRECTORY_NAME = "media"
 TOOL_POLICIES = {
     "publish": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
     "slow_write": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
     "policy_note": ToolPolicy(ToolEffect.READ, requires_approval=True),
+    "screenshot": ToolPolicy(ToolEffect.READ, requires_approval=True),
+    "draw": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
 }
+TEST_IMAGES = {
+    image["name"]: image
+    for image in json.loads(
+        (Path(__file__).resolve().parents[3] / "conformance" / "images.json").read_text()
+    )["images"]
+}
+
+
+def conformance_image_bytes(name: str) -> bytes:
+    """Return the bytes of one conformance image: ``png``, ``jpeg``, ``gif``, or ``webp``."""
+    return base64.b64decode(TEST_IMAGES[name]["base64"])
+
+
+def build_media_store(state_dir: Path) -> LocalDirectoryMediaStore:
+    return LocalDirectoryMediaStore(state_dir / MEDIA_DIRECTORY_NAME)
 
 
 def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
@@ -150,17 +187,100 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
             },
         )
 
+    media_store = (
+        build_media_store(state_dir) if os.environ.get(MEDIA_STORE_ENVIRONMENT_VARIABLE) else None
+    )
+    custom_tools = build_custom_tools(state_dir)
+    tool_sources: list[Any] = [build_connector_source(state_dir), HidingToolSource(state_dir)]
+    if media_store is not None:
+        custom_tools.append(build_draw_tool(state_dir))
+        tool_sources.append(ScreenshotToolSource(state_dir, media_store))
     return claude_agent_session_flow(
         build_options,
-        build_custom_tools(state_dir),
+        custom_tools,
         flow_type=CLAUDE_TEST_AGENT_FLOW_TYPE,
         tool_policies=TOOL_POLICIES,
-        tool_sources=[build_connector_source(state_dir), HidingToolSource(state_dir)],
+        tool_sources=tool_sources,
+        claude_code_tool_permission=decide_claude_code_tool_permission,
         run_model_limit=_run_model_limit_from_environment(),
         spend_limit=(
             FileSpendLimit(state_dir) if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE) else None
         ),
+        media_store=media_store,
     )
+
+
+def decide_claude_code_tool_permission(
+    turn: AgentTurnContext, tool_name: str, tool_input: Mapping[str, Any]
+) -> ToolPolicy | ClaudeCodeToolDenial | None:
+    command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
+    if command == INLINE_BASH_COMMAND:
+        return ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False)
+    if command.startswith(DENIED_BASH_COMMAND_PREFIX):
+        return ClaudeCodeToolDenial(DENIED_BASH_COMMAND_REASON)
+    if command == FAILING_PERMISSION_BASH_COMMAND:
+        raise RuntimeError("the permission check broke")
+    return None
+
+
+class _ListedTool:
+    def __init__(self, name: str, description: str) -> None:
+        self.name = name
+        self.description = description
+        self.input_schema: dict[str, Any] = {"type": "object", "properties": {}}
+
+
+class ScreenshotToolSource:
+    """Lists ``screenshot``, which uploads the GIF test image and returns its reference."""
+
+    source_name = "screenshots"
+
+    def __init__(self, state_dir: Path, media_store: MediaStore) -> None:
+        self._invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+        self._media_store = media_store
+
+    async def list_tools(self) -> Sequence[SourceToolDefinition]:
+        return [_ListedTool("screenshot", "Take a screenshot")]
+
+    def deferred_tool_call(
+        self,
+        turn: AgentTurnContext,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: str,
+        listed_tool: SourceToolDefinition,
+    ) -> DeferredToolCall:
+        return DeferredToolCall(
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            policy=turn.resolve_tool_policy(tool_name, ToolEffect.READ),
+        )
+
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
+        self._invocations.record("screenshot")
+        reference = await self._media_store.put_image(conformance_image_bytes("gif"))
+        return ToolExecutionResult(output="took a screenshot", images=[reference])
+
+    async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
+        raise RuntimeError("screenshot starts no tool task")
+
+
+def build_draw_tool(state_dir: Path) -> SdkMcpTool[Any]:
+    invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+
+    @tool("draw", "Draw a picture", {"subject": str})
+    async def draw(arguments: dict[str, Any]) -> dict[str, Any]:
+        invocations.record("draw")
+        return {
+            "content": [
+                {"type": "text", "text": f"drew {arguments['subject']}"},
+                {"type": "image", "data": TEST_IMAGES["jpeg"]["base64"], "mimeType": "image/jpeg"},
+            ]
+        }
+
+    return draw
 
 
 def build_connector_source(state_dir: Path) -> ConnectorToolSource:

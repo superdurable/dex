@@ -8,6 +8,18 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Java SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.45 {#v1-45}
+
+Not released yet. The next release, sdk-java/v1.45.0, ships these changes.
+
+### Breaking
+
+- A Step whose Step type contains **-** can no longer start SubFlows. The child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with **-**, so a dash made two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; with the default failure policy, the Flow fails. Steps that start no SubFlows are unaffected. To migrate, rename the Step type, for example by overriding **getStepType**; the rename changes the child Flow IDs of new SubFlow starts. [Reference](/reference/java/subflow#step-types-that-start-subflows).
+
+### Fixed
+
+- The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/java/waits).
+
 ## 1.44 {#v1-44}
 
 Released 2026-11-10 as [sdk-java/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.44.0).
@@ -73,7 +85,7 @@ Released 2026-11-06 as [sdk-java/v1.37.0](https://github.com/superdurable/dex/re
 
 ### Added
 
-- **FlowServiceTlsOptions** and **flowServiceTls** on Client and Worker option builders enable verified TLS, with optional extra root CAs and a server-name override. Omitting the option keeps plaintext connections. [API reference](pathname:///api/java/1.37/io/superdurable/dex/FlowServiceTlsOptions.html).
+- **FlowServiceTlsOptions** and **flowServiceTls** on Client and Worker option builders enable verified TLS, with optional extra root CAs and a server-name override. Omitting the option keeps plaintext connections. [API reference](pathname:///api/java/latest/io/superdurable/dex/FlowServiceTlsOptions.html).
 
 ## 1.35 {#v1-35}
 
@@ -83,13 +95,13 @@ Released 2026-11-06 as [sdk-java/v1.35.0](https://github.com/superdurable/dex/re
 
 - Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
 - Worker startup fails when **maxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/java/workers#capacity-and-shutdown).
-- **RetryPolicy.Builder.totalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/java/1.35/io/superdurable/dex/RetryPolicy.Builder.html).
+- **RetryPolicy.Builder.totalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/java/latest/io/superdurable/dex/RetryPolicy.Builder.html).
 - A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
 - A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/java/failure-and-retries#same-attempt-redelivery).
 
 ### Added
 
-- **RecoveryErrorInfo.getAttemptProgress()** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/java/1.35/io/superdurable/dex/RecoveryErrorInfo.html).
+- **RecoveryErrorInfo.getAttemptProgress()** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/java/latest/io/superdurable/dex/RecoveryErrorInfo.html).
 
 ### Changed
 
@@ -114,7 +126,7 @@ Released 2026-10-31 as [sdk-java/v1.31.0](https://github.com/superdurable/dex/re
 
 ### Added
 
-- **Client.getAttributes** reads committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and **AttributeValues.get** returns an **Optional** value. [API reference](pathname:///api/java/1.31/io/superdurable/dex/Client.html).
+- **Client.getAttributes** reads committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and **AttributeValues.get** returns an **Optional** value. [API reference](pathname:///api/java/latest/io/superdurable/dex/Client.html).
 
 ## 1.30 {#v1-30}
 

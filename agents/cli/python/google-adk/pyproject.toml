@@ -1,0 +1,89 @@
+[project]
+name = "dex-agents-google-adk-cli"
+# Every agents package shares one version; agents/script/stamp_agents_release_version.py sets it.
+version = "0.1.0"
+description = "The dex-agents-google-adk command: a durable Google ADK agent in your terminal"
+authors = [{name = "Super Durable"}]
+readme = "README.md"
+license = "LicenseRef-Sustainable-Use-1.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Typing :: Typed",
+]
+dependencies = [
+    "dex-agents==0.1.0",
+    "dex-agents-cli==0.1.0",
+    "dex-agents-google-adk==0.1.0",
+    "dex-python-sdk==1.44.0",
+    "google-adk>=2.13,<3",
+]
+
+[project.scripts]
+dex-agents-google-adk = "dex_agents_google_adk_cli:run"
+
+[project.urls]
+Homepage = "https://github.com/superdurable/dex/tree/main/agents/cli/python/google-adk"
+Repository = "https://github.com/superdurable/dex"
+Changelog = "https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "dex-agents-cli-testing",
+    "mypy>=1.15,<2",
+    "pexpect>=4.9,<5",
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.26,<2",
+    "ruff>=0.8,<0.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = "==0.12.2"
+
+[tool.uv.sources]
+dex-agents = { path = "../../../python/core", editable = true }
+dex-agents-cli = { path = "../runtime", editable = true }
+dex-agents-cli-testing = { path = "../testing", editable = true }
+dex-agents-google-adk = { path = "../../../python/google-adk", editable = true }
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF"]
+# Test helpers poll files and spawn children on purpose.
+ignore = ["ASYNC109", "ASYNC110", "ASYNC220", "ASYNC221"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "dex_agents",
+    "dex_agents_google_adk",
+    "dex_agents_google_adk_cli",
+    "dex_agents_cli",
+    "dex_agents_cli_testing",
+    "tests",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["pexpect", "pexpect.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

@@ -209,8 +209,8 @@ public class WorkflowPatternsIntegTest {
                 outputsInExecutionOrder(
                         completions, "PlaceOrder", StructuredPartialJoinFlow.AcceptedQuotes.class));
         assertEquals(
-                List.of(new StructuredPartialJoinFlow.IgnoredQuotes(2, List.of("A", "C"))),
-                outputsOf(completions, "ResetQuoteJoin", StructuredPartialJoinFlow.IgnoredQuotes.class));
+                new StructuredPartialJoinFlow.IgnoredQuotes(1, List.of("B", "C")),
+                attributeValue(flowId, StructuredPartialJoinFlow.ignoredQuotes));
     }
 
     @Test
@@ -238,8 +238,8 @@ public class WorkflowPatternsIntegTest {
                 outputsInExecutionOrder(
                         completions, "PlaceOrder", StructuredPartialJoinFlow.AcceptedQuotes.class));
         assertEquals(
-                List.of(new StructuredPartialJoinFlow.IgnoredQuotes(2, List.of("B"))),
-                outputsOf(completions, "ResetQuoteJoin", StructuredPartialJoinFlow.IgnoredQuotes.class));
+                new StructuredPartialJoinFlow.IgnoredQuotes(1, List.of("C")),
+                attributeValue(flowId, StructuredPartialJoinFlow.ignoredQuotes));
     }
 
     @Test
@@ -451,10 +451,8 @@ public class WorkflowPatternsIntegTest {
                         completions,
                         "ApproveBatch",
                         StaticPartialJoinForMultipleInstancesFlow.InspectedUnits.class);
-        final List<StaticPartialJoinForMultipleInstancesFlow.InspectedUnits> ignored = outputsOf(
-                completions,
-                "ResetInspectionJoin",
-                StaticPartialJoinForMultipleInstancesFlow.InspectedUnits.class);
+        final StaticPartialJoinForMultipleInstancesFlow.InspectedUnits ignored = attributeValue(
+                flowId, StaticPartialJoinForMultipleInstancesFlow.ignoredInspections);
         assertEquals(2, approved.size());
         for (int round = 1; round <= 2; round++) {
             final List<Integer> indexes = approved.get(round - 1).unitIndexes();
@@ -462,12 +460,11 @@ public class WorkflowPatternsIntegTest {
             assertEquals(2, new HashSet<Integer>(indexes).size());
             assertTrue(Set.of(0, 1, 2).containsAll(indexes));
         }
-        assertEquals(1, ignored.size());
-        assertEquals(2, ignored.get(0).round());
-        assertEquals(1, ignored.get(0).unitIndexes().size());
-        final Set<Integer> roundTwoIndexes = new HashSet<Integer>(approved.get(1).unitIndexes());
-        roundTwoIndexes.addAll(ignored.get(0).unitIndexes());
-        assertEquals(Set.of(0, 1, 2), roundTwoIndexes);
+        assertEquals(1, ignored.round());
+        assertEquals(1, ignored.unitIndexes().size());
+        final Set<Integer> roundOneIndexes = new HashSet<Integer>(approved.get(0).unitIndexes());
+        roundOneIndexes.addAll(ignored.unitIndexes());
+        assertEquals(Set.of(0, 1, 2), roundOneIndexes);
     }
 
     @Test
@@ -828,6 +825,10 @@ public class WorkflowPatternsIntegTest {
                 expected::equals,
                 WAIT_TIMEOUT,
                 flowId + " Attribute never became " + expected);
+    }
+
+    private static <T> T attributeValue(final String flowId, final Attribute<T> attribute) {
+        return client().getAttributes(flowId, attribute).get(attribute).orElse(null);
     }
 
     private static void awaitRpcValue(

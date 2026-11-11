@@ -21,7 +21,11 @@ export {
   type ClaudeAgentDefinition,
   type ClaudeAgentSessionOptions,
 } from "./claude-agent-session-flow.js";
-export type { ClaudeCustomTool } from "./claude-tool-call-gate.js";
+export {
+  ClaudeCodeToolDenial,
+  type ClaudeCodeToolPermission,
+  type ClaudeCustomTool,
+} from "./claude-tool-call-gate.js";
 export {
   claudeTranscriptItemKind,
   userPromptItemKind,

@@ -109,11 +109,23 @@ public interface StartFlowRequestOrBuilder extends
   io.superdurable.gen.FlowStartOptionsOrBuilder getFlowStartOptionsOrBuilder();
 
   /**
+   * <pre>
+   * Required. Identifies one logical start; Dex records it on the run it starts.
+   * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+   * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+   * </pre>
+   *
    * <code>string request_id = 11;</code>
    * @return The requestId.
    */
   java.lang.String getRequestId();
   /**
+   * <pre>
+   * Required. Identifies one logical start; Dex records it on the run it starts.
+   * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+   * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+   * </pre>
+   *
    * <code>string request_id = 11;</code>
    * @return The bytes for requestId.
    */

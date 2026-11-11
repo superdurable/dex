@@ -1663,6 +1663,27 @@ that commits after the Timer's deadline can still win.
 **StartFlow**. Most options are the same; **SubFlowReusePolicy** is the
 difference.
 
+### Step types that start SubFlows {#subflow-step-types}
+
+Dex Server builds each SubFlow ID from the parent Flow ID, the Step execution
+ID, and the condition index, joined with a dash. A Step execution ID is the
+Step type, a dash, and a counter:
+
+```text
+SubFlow:<parent Flow ID>-<Step type>-<counter>-<condition index>
+```
+
+A dash inside a Step type makes this ID ambiguous. For example, parent **a-b**
+at Step type **C** and parent **a** at Step type **b-C** both produce
+**SubFlow:a-b-C-1-0**, so two parents would share one child.
+
+Changed in 0.1.26: a Step whose Step type contains a dash cannot start
+SubFlows. Dex Server rejects a WaitFor result that registers a SubFlow
+condition from such a Step as an invalid Worker response. The attempt fails
+without retry, with an error that names the Step type. Step types with a dash
+may still wait on Timers and Channels. To migrate, rename the Step type so it
+has no dash.
+
 ### SubFlowReusePolicy {#subflow-reuse-policy}
 
 Dex Server generates a SubFlow ID from the parent Flow ID, Step execution ID,

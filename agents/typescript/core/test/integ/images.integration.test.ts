@@ -11,7 +11,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+
 import {
+  ToolExecutionError,
   ImageValidationError,
   InMemoryMediaStore,
   MediaStoreError,
@@ -33,6 +36,8 @@ import {
   type AgentTurnContext,
 } from "../../src/index.js";
 import { decodeAgentImageReference, encodeAgentImageReference } from "../../src/agent-session-codecs.js";
+import { storeToolResultImages } from "../../src/mcp/mcp-image-content.js";
+import { outcomeFromToolResult } from "../../src/mcp/mcp-tool-source.js";
 import { S3MediaStore } from "../../src/s3/index.js";
 import { readConformanceJson, serializeCanonicalJson } from "../fixtures/conformance-suite.js";
 
@@ -96,6 +101,23 @@ interface ImageSuite {
     readonly repeat: number;
     readonly error: string | null;
   }[];
+  readonly mcp_image_content: {
+    readonly tool_name: string;
+    readonly cases: readonly {
+      readonly name: string;
+      readonly content: CallToolResult["content"];
+      readonly expected?: {
+        readonly output: string;
+        readonly images: readonly { readonly sha256: string; readonly mime_type: string; readonly size_bytes: number }[];
+      };
+      readonly expected_error?: string;
+    }[];
+    readonly failure_cases: readonly {
+      readonly name: string;
+      readonly result: CallToolResult;
+      readonly expected: { readonly kind: string; readonly message: string };
+    }[];
+  };
 }
 
 const suite = readConformanceJson<ImageSuite>("images.json");
@@ -360,4 +382,41 @@ describe("the in-memory media store", () => {
 
     assert.deepEqual(collectTurnImages(turn), [png, jpeg, gif, webp]);
   });
+});
+
+describe("MCP image content conformance cases", () => {
+  const toolName = suite.mcp_image_content.tool_name;
+  const knownBytes = new Map(suite.images.map((image) => [image.sha256, bytesOf(image.base64)]));
+  for (const testCase of suite.mcp_image_content.cases) {
+    test(testCase.name, async () => {
+      const store = new InMemoryMediaStore("mcp-conformance");
+      const result: CallToolResult = { content: [...testCase.content] };
+      if (testCase.expected_error !== undefined) {
+        await assert.rejects(storeToolResultImages(result, store, toolName), (error: unknown) => {
+          assert.ok(error instanceof ToolExecutionError);
+          assert.equal(error.message, testCase.expected_error);
+          return true;
+        });
+        return;
+      }
+      const converted = await storeToolResultImages(result, store, toolName);
+      assert.equal(converted.output, testCase.expected?.output);
+      const images = converted.images ?? [];
+      assert.deepEqual(
+        images.map((image) => ({ sha256: image.sha256, mime_type: image.mimeType, size_bytes: image.sizeBytes })),
+        testCase.expected?.images,
+      );
+      for (const image of images) {
+        assert.deepEqual(await store.getImage(image), knownBytes.get(image.sha256));
+      }
+    });
+  }
+
+  for (const testCase of suite.mcp_image_content.failure_cases) {
+    test(`a failed result: ${testCase.name}`, () => {
+      const outcome = outcomeFromToolResult(testCase.result);
+      assert.ok(outcome.kind === "failed" || outcome.kind === "outcome_unknown");
+      assert.deepEqual({ kind: outcome.kind, message: outcome.message }, testCase.expected);
+    });
+  }
 });

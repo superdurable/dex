@@ -15,7 +15,7 @@ import contextlib
 import copy
 import dataclasses
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from datetime import timedelta
 from typing import Any
@@ -46,6 +46,7 @@ from pydantic import ValidationError
 from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
     AgentFrameworkRunner,
+    AgentImageReference,
     AgentMessage,
     AgentToolCall,
     AgentTurnContext,
@@ -57,6 +58,7 @@ from dex_agents import (
     DeferredToolExecution,
     DeferredToolOutcome,
     FrameworkMessage,
+    MediaStore,
     MessageRole,
     ModelCallMetadata,
     ToolCallsRequested,
@@ -68,13 +70,14 @@ from dex_agents import (
     TurnCompleted,
     build_context_summary_note,
     build_context_summary_prompt,
+    collect_turn_images,
     describe_stored_message,
     describe_tool_call_outcome,
     estimate_stored_input_tokens,
     estimate_text_tokens,
     select_turn_boundary_cutoff,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     FrameworkToolSourceRouter,
     ToolSource,
@@ -85,6 +88,7 @@ from dex_agents_openai_agents._agent_graph import (
     DeferrableAgentGraph,
     DeferrableFunctionTool,
 )
+from dex_agents_openai_agents._images import ImageBytesInputFilter, build_user_image_input_item
 from dex_agents_openai_agents._items import (
     build_user_input_item,
     format_tool_output,
@@ -173,6 +177,18 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     call continues from the ``RunState``, which holds its input already, so it
     never compacts. Without a policy nothing changes.
 
+    With a ``media_store``, the runner shows images to the model. A user
+    message with images becomes one SDK user message whose ``content`` holds
+    an ``input_text`` part and then one ``input_image`` part per image. A tool
+    call record with images becomes a ``function_call_output`` whose
+    ``output`` lists an ``input_text`` part and then the ``input_image`` parts,
+    except for a function tool with an output schema, whose output stays text.
+    Stored items and the ``RunState`` hold each image's ``uri`` as its
+    ``image_url``, never its bytes. Every model call reads the bytes with
+    ``load_images`` and sends each image as a ``data:`` URL, after the run
+    config's own ``call_model_input_filter``. Without a store the runner has no
+    ``build_user_message_with_images``, so the session refuses images.
+
     The runner is stateless between calls and safe to share across concurrent
     sessions and parallel tool call Steps in one Worker.
 
@@ -186,6 +202,12 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         >>> flow = AgentSessionFlow(runner, flow_type="SupportAgent", options=options)
     """
 
+    #: Convert user text and its images into the stored SDK user message. The
+    #: attribute exists only on a runner built with a ``media_store``.
+    #:
+    #: .. versionadded:: 0.5.0
+    build_user_message_with_images: Callable[[str, Sequence[AgentImageReference]], FrameworkMessage]
+
     def __init__(
         self,
         agent: Agent[Any],
@@ -198,6 +220,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         summary_model: str | Model | None = None,
         tool_sources: Sequence[ToolSource] = (),
         tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+        media_store: MediaStore | None = None,
     ) -> None:
         """Copy the agent graph and keep the run settings for every model call.
 
@@ -243,6 +266,16 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 turn already called. Defaults to 10 seconds.
 
                 .. versionadded:: 0.4.0
+            media_store: The store that holds the session's images, such as
+                ``S3MediaStore``. With a store, the runner has
+                ``build_user_message_with_images``, so user messages and tool
+                results may carry images, and every model call reads their
+                bytes from it; a failed read fails the ``RunModel`` attempt.
+                Use the store the clients and tools upload to. ``None``, the
+                default, refuses user images and shows tool images to the
+                model as text only.
+
+                .. versionadded:: 0.5.0
 
         Raises:
             TypeError: If ``context`` is a ``RunContextWrapper``. Pass the
@@ -275,6 +308,10 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         self._summary_model = summary_model
         self._graph_request_model = _shared_request_model(run_config, self._graph.agents)
         self._fixed_input_tokens: int | None = None
+        self._media_store = media_store
+        if media_store is not None:
+            # The session accepts images only from a runner with this attribute.
+            self.build_user_message_with_images = self._build_user_message_with_images
 
     @property
     def agent(self) -> Agent[Any]:
@@ -325,6 +362,17 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             text=text,
         )
 
+    def _build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        return FrameworkMessage(
+            role=MessageRole.USER,
+            framework_item=json.dumps(
+                build_user_image_input_item(text, images), ensure_ascii=False
+            ),
+            text=text,
+        )
+
     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
         """Let the agent make one model call, starting or continuing the turn.
 
@@ -352,7 +400,9 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             Exception: Any SDK or model error fails the ``RunModel`` attempt.
         """
         source_tools = await self._tool_sources.list_source_tools(turn)
-        active_turn = ActiveTurn(turn=turn, source_tools=source_tools)
+        active_turn = ActiveTurn(
+            turn=turn, source_tools=source_tools, shows_tool_images=self._media_store is not None
+        )
         token = ACTIVE_TURN.set(active_turn)
         try:
             run_input: list[Any] | RunState[Any, Agent[Any]]
@@ -366,7 +416,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 context=self._context,
                 max_turns=self._max_turns,
                 hooks=self._hooks,
-                run_config=self._run_config,
+                run_config=self._model_step_run_config(turn),
             )
             # Nothing runs before the first await, so this is the usage restored from RunState.
             restored_usage = copy.deepcopy(result.context_wrapper.usage)
@@ -379,7 +429,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             return self._request_tool_calls(active_turn, result, usage, model_call_metadata)
         new_items = result.to_input_list()[len(ItemHelpers.input_to_new_input_list(result.input)) :]
         return TurnCompleted(
-            new_messages=project_input_items(turn.messages, new_items),
+            new_messages=project_input_items(turn.messages, new_items, turn.recorded_tool_call),
             usage=usage,
             model_call_metadata=model_call_metadata,
         )
@@ -583,6 +633,15 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 defaults.
         """
         return self._tool_sources.tool_call_step_options(tool_call)
+
+    def _model_step_run_config(self, turn: AgentTurnContext) -> RunConfig | None:
+        if self._media_store is None:
+            return self._run_config
+        run_config = self._run_config or RunConfig()
+        image_filter = ImageBytesInputFilter(
+            self._media_store, collect_turn_images(turn), run_config.call_model_input_filter
+        )
+        return dataclasses.replace(run_config, call_model_input_filter=image_filter)
 
     async def _restore_run_state(
         self,

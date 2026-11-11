@@ -10,73 +10,74 @@
     "name": "AwaitParallelStepsFlow",
     "startStepId": "step:InitStep",
     "span": {
-      "startLine": 74,
+      "startLine": 91,
       "startColumn": 1,
-      "endLine": 86,
-      "endColumn": 54
+      "endLine": 103,
+      "endColumn": 57
     }
   },
   "nodes": [
     {
-      "id": "decision:step:Await:60:16",
+      "id": "decision:step:Await:70:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:Await",
       "phase": "execute",
       "span": {
-        "startLine": 60,
+        "startLine": 70,
         "startColumn": 16,
-        "endLine": 60,
-        "endColumn": 40
+        "endLine": 72,
+        "endColumn": 10
       },
       "decision": {
         "type": "gracefulComplete"
       }
     },
     {
-      "id": "decision:step:DoWork:47:16",
+      "id": "decision:step:DoWork:57:16",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:DoWork",
       "phase": "execute",
       "span": {
-        "startLine": 47,
+        "startLine": 57,
         "startColumn": 16,
-        "endLine": 47,
-        "endColumn": 26
+        "endLine": 57,
+        "endColumn": 81
       },
       "decision": {
         "type": "deadEnd"
       }
     },
     {
-      "id": "decision:step:InitStep:71:16",
+      "id": "decision:step:InitStep:82:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:InitStep",
       "phase": "execute",
       "span": {
-        "startLine": 71,
+        "startLine": 82,
         "startColumn": 16,
-        "endLine": 71,
-        "endColumn": 38
+        "endLine": 88,
+        "endColumn": 10
       },
       "decision": {
         "type": "goToMany"
       }
     },
     {
-      "id": "resource:channel:AwaitParallelStepsFlow.complete_ch",
+      "id": "resource:channel:AwaitParallelStepsFlow.work_completed",
       "kind": "channel",
       "name": "parallel-complete",
       "span": {
-        "startLine": 75,
+        "startLine": 92,
         "startColumn": 5,
-        "endLine": 75,
-        "endColumn": 65
+        "endLine": 92,
+        "endColumn": 52
       },
       "resource": {
-        "valueType": "None"
+        "valueType": "int",
+        "map": true
       }
     },
     {
@@ -85,9 +86,9 @@
       "name": "Await",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 83,
+        "startLine": 100,
         "startColumn": 70,
-        "endLine": 83,
+        "endLine": 100,
         "endColumn": 85
       },
       "metadata": {
@@ -100,9 +101,9 @@
       "name": "DoWork",
       "phase": "execute",
       "span": {
-        "startLine": 83,
+        "startLine": 100,
         "startColumn": 59,
-        "endLine": 83,
+        "endLine": 100,
         "endColumn": 68
       },
       "metadata": {
@@ -116,9 +117,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 83,
+        "startLine": 100,
         "startColumn": 36,
-        "endLine": 83,
+        "endLine": 100,
         "endColumn": 45
       },
       "metadata": {
@@ -126,30 +127,30 @@
       }
     },
     {
-      "id": "wait:Await:57:16:0",
+      "id": "wait:Await:67:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:Await",
       "phase": "wait_for",
       "span": {
-        "startLine": 57,
+        "startLine": 67,
         "startColumn": 16,
-        "endLine": 57,
-        "endColumn": 57
+        "endLine": 67,
+        "endColumn": 71
       },
       "wait": {
         "type": "until",
         "conditions": [
           {
             "kind": "channel",
-            "label": "parallel-complete.for input",
-            "resourceId": "resource:channel:AwaitParallelStepsFlow.complete_ch",
+            "label": "parallel-complete[input].for all branches",
+            "resourceId": "resource:channel:AwaitParallelStepsFlow.work_completed",
             "expression": "input",
             "span": {
-              "startLine": 57,
+              "startLine": 67,
               "startColumn": 27,
-              "endLine": 57,
-              "endColumn": 56
+              "endLine": 67,
+              "endColumn": 70
             }
           }
         ]
@@ -160,55 +161,70 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:InitStep:71:16",
+      "from": "decision:step:InitStep:82:16",
       "to": "step:Await",
       "label": "fan-out",
-      "multiplicity": "×N",
       "span": {
-        "startLine": 67,
-        "startColumn": 47,
-        "endLine": 67,
-        "endColumn": 76
+        "startLine": 86,
+        "startColumn": 36,
+        "endLine": 86,
+        "endColumn": 70
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:InitStep:71:16",
+      "from": "decision:step:InitStep:82:16",
       "to": "step:DoWork",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
-        "startLine": 69,
-        "startColumn": 13,
-        "endLine": 69,
-        "endColumn": 43
+        "startLine": 44,
+        "startColumn": 31,
+        "endLine": 44,
+        "endColumn": 83
       }
     },
     {
       "id": "edge:0003",
-      "kind": "wait_condition",
-      "from": "resource:channel:AwaitParallelStepsFlow.complete_ch",
-      "to": "wait:Await:57:16:0",
-      "label": "parallel-complete.for input",
+      "kind": "resource_read",
+      "from": "resource:channel:AwaitParallelStepsFlow.work_completed",
+      "to": "step:Await",
+      "label": "branch_results",
       "span": {
-        "startLine": 57,
-        "startColumn": 27,
-        "endLine": 57,
-        "endColumn": 56
+        "startLine": 71,
+        "startColumn": 17,
+        "endLine": 71,
+        "endColumn": 67
+      },
+      "metadata": {
+        "phase": "execute"
       }
     },
     {
       "id": "edge:0004",
+      "kind": "wait_condition",
+      "from": "resource:channel:AwaitParallelStepsFlow.work_completed",
+      "to": "wait:Await:67:16:0",
+      "label": "parallel-complete[input].for all branches",
+      "span": {
+        "startLine": 67,
+        "startColumn": 27,
+        "endLine": 67,
+        "endColumn": 70
+      }
+    },
+    {
+      "id": "edge:0005",
       "kind": "resource_publish",
       "from": "step:DoWork",
-      "to": "resource:channel:AwaitParallelStepsFlow.complete_ch",
-      "label": "publish",
+      "to": "resource:channel:AwaitParallelStepsFlow.work_completed",
+      "label": "end_branch",
       "span": {
-        "startLine": 46,
-        "startColumn": 9,
-        "endLine": 46,
-        "endColumn": 48
+        "startLine": 57,
+        "startColumn": 16,
+        "endLine": 57,
+        "endColumn": 81
       },
       "metadata": {
         "phase": "execute"

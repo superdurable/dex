@@ -46,8 +46,8 @@ configuration, and 0 otherwise.
 
 ### Sessions belong to one execution environment
 
-The runtime registers the session Flow type `<flowType>-<hash>`. The hash is
-the first 12 hexadecimal digits of the SHA-256 of
+The runtime registers the session Flow type `<flowType>-<suffix>`. The suffix
+is 6 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of
 `<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8:
 
 - the user is the numeric user ID, or the user name where the platform has
@@ -56,10 +56,22 @@ the first 12 hexadecimal digits of the SHA-256 of
   `defaults` without a file;
 - the workspace is its canonical real path.
 
+Read the digest's first 8 bytes as an unsigned big-endian integer, reduce it
+modulo 36^6, write it in base36, and left-pad it with `0` to 6 characters.
+`namespaceSessionFlowType` computes it, and every CLI runtime passes the cases
+in
+[`agents/conformance/cli_session_flow_types.json`](../../../conformance/cli_session_flow_types.json).
+
+Each new session records these values in its start input,
+`AgentSessionStartInput.startEnvironment`, so a run shows where it was
+started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
+hashed values, and `user_name` is the user's name, left out when the system
+cannot tell it. They are not session settings and cannot change.
+
 A Worker takes only the Steps of its own Flow type, so an approved write or
 shell command always runs as the same user, with the same configuration file
 and workspace it was approved under. Tool settings, such as the shell allow
-list, are not part of the hash, so changing them keeps `--resume` working.
+list, are not part of the suffix, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.
@@ -79,7 +91,7 @@ exits with its result, because open connections can keep Node running.
 
 ```ts
 #!/usr/bin/env node
-import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
+import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
 import { runAgentCli, type AgentHarness } from "@superdurable/dex-agents-cli";
 
 const harness: AgentHarness = {
@@ -89,7 +101,7 @@ const harness: AgentHarness = {
   defaultModel: "openai/gpt-5-mini",
   replacedLocalTools: [], // for example ["files", "shell", "web_fetch"] for Claude Code
   createSessionFlow: (context) =>
-    createStepwiseAgentSessionFlow(
+    createBuiltinAgentSessionFlow(
       {
         name: "assistant",
         instructions: (turn) =>
@@ -131,7 +143,7 @@ interface HarnessContext {
 type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
 ```
 
-- A Stepwise harness puts `context.toolSources` in
+- A built-in loop harness puts `context.toolSources` in
   `AgentDefinition.toolSources`. A runner-based adapter, such as the Claude
   Agent SDK, OpenAI Agents, Vercel AI, or Mastra adapter, passes them to its
   runner's `toolSources` and builds the Flow with `createAgentSessionFlow`.
@@ -168,7 +180,7 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
     parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
     effect: "non_idempotent_write",
     execute: async ({ command }, call) => {
-      // call is the Stepwise ToolCallContext, with flowId and turnId.
+      // call is the built-in loop ToolCallContext, with flowId and turnId.
       const permissions = await context.resolveToolStepPermissions(call);
       if (!isLocalToolGroupEnabled(permissions, "shell")) {
         throw new ToolExecutionError("shell commands are switched off; the command did not run");
@@ -257,6 +269,15 @@ not available, such as one answering 503 while it starts, or an older
 lists the server again, so its tools appear once it is ready. An explicit
 `connectors.mcp` URL that is not available stops the command.
 
+A harness whose runner fixes its tools when the Flow is built declares
+`isToolSetFixedAtBuild: true`. The runtime then lists the connector tools the
+file enables before it builds the Flow, so the connector source's
+`cachedTools()` holds them. When the server does not answer at startup, or
+that listing fails, the warning says the run has no connector tools and to
+restart the command once the server answers. Every TypeScript adapter lists
+its tool sources in each model call, so none of the TypeScript commands sets
+it; the Python runtime's `is_tool_set_fixed_at_build` is the same switch.
+
 The agent sees each connector tool by its MCP name, such as
 `slack_post_thread_reply`. `connectors.enabled` matches only these `_meta`
 keys of each tool, never its name:
@@ -336,7 +357,7 @@ DEXCLI=/path/to/dexcli ./ci.sh
 
 `ci.sh` builds the core, installs the locked dependencies, typechecks, and
 runs the conformance cases of `agents/conformance/cli_config.json` and the
-integration tests. The integration tests run a scripted Stepwise harness
+integration tests. The integration tests run a scripted built-in loop harness
 against a private `dexcli dev`, a fake connectors MCP server, and a local
 web page. `.npmrc` sets `install-links`, so the local core is copied with one
 shared `@superdurable/dex`, as in a published install.

@@ -14,11 +14,18 @@ import contextlib
 import json
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from dex_agents import AgentTurnContext, ToolCallStatus, ToolEffect, ToolPolicy
-from dex_agents.stepwise import SourceToolDefinition, SourceToolListing
+from dex_agents import (
+    AgentImageReference,
+    AgentTurnContext,
+    MediaStore,
+    ToolCallStatus,
+    ToolEffect,
+    ToolPolicy,
+)
+from dex_agents.builtin_loop import SourceToolDefinition, SourceToolListing
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, AnyMessage, ToolCall, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -29,6 +36,12 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
+
+from dex_agents_langgraph._images import (
+    image_reference_block,
+    inline_message_images,
+    message_image_references,
+)
 
 #: ``RunnableConfig["configurable"]`` key that carries a deferred call's idempotency key.
 TOOL_CALL_IDEMPOTENCY_KEY_CONFIGURABLE = "dex_tool_call_idempotency_key"
@@ -61,6 +74,10 @@ class DurableToolCallMiddleware(AgentMiddleware):
     such as ``ConnectorToolSource``, to every model request, after the
     agent's own tools, so the model can call them. Their calls are deferred
     like any other call and run through their source in their own Step.
+
+    With a runner ``media_store``, it also replaces each image reference in
+    the request's messages with the image's bytes, as a base64 image block,
+    right before the model call. The graph state keeps the references.
 
     The middleware works only while an agent session runs the graph. Invoking
     the agent outside a session raises ``RuntimeError`` on the first tool call,
@@ -114,9 +131,15 @@ class DurableToolCallMiddleware(AgentMiddleware):
         """Add the session's tool source tools to one model request.
 
         ``create_agent`` calls this hook for every model call; applications do
-        not call it. Outside a session the request passes unchanged.
+        not call it. Outside a session the request passes unchanged. The
+        runner always calls the model asynchronously, through
+        ``awrap_model_call``.
 
         .. versionadded:: 0.4.0
+
+        .. versionchanged:: 0.5.0
+            Raises ``RuntimeError`` for a request that holds image references,
+            whose bytes only the asynchronous hook can read.
 
         Args:
             request: The model request.
@@ -124,7 +147,14 @@ class DurableToolCallMiddleware(AgentMiddleware):
 
         Returns:
             What ``handler`` returns.
+
+        Raises:
+            RuntimeError: If a message of the request holds an image reference.
         """
+        if any(message_image_references(message) for message in request.messages):
+            raise RuntimeError(
+                "a model request with image references needs the asynchronous model call"
+            )
         return handler(_with_source_tools(request))
 
     async def awrap_model_call(
@@ -132,12 +162,16 @@ class DurableToolCallMiddleware(AgentMiddleware):
         request: ModelRequest[Any],
         handler: Callable[[ModelRequest[Any]], Awaitable[_ModelCallResult]],
     ) -> _ModelCallResult:
-        """Add the session's tool source tools to one model request.
+        """Add the session's tool source tools and image bytes to one model request.
 
         ``create_agent`` calls this hook for every model call; applications do
         not call it. Outside a session the request passes unchanged.
 
         .. versionadded:: 0.4.0
+
+        .. versionchanged:: 0.5.0
+            Replaces image references with their bytes, as
+            ``inline_image_references`` does.
 
         Args:
             request: The model request.
@@ -145,8 +179,18 @@ class DurableToolCallMiddleware(AgentMiddleware):
 
         Returns:
             What ``handler`` returns.
+
+        Raises:
+            RuntimeError: If a message holds an image reference and the runner
+                has no ``media_store``.
+            MediaStoreError: If the store cannot return an image's bytes. The
+                model call fails, and its ``RunModel`` Step retries.
         """
-        return await handler(_with_source_tools(request))
+        request = _with_source_tools(request)
+        messages = await inline_image_references(request.messages)
+        if messages is not request.messages:
+            request = request.override(messages=messages)
+        return await handler(request)
 
 
 async def awrap_durable_tool_call(
@@ -317,6 +361,49 @@ def get_current_tool_source_tools() -> list[BaseTool]:
     return list(binding.source_tools)
 
 
+async def inline_image_references(messages: list[AnyMessage]) -> list[AnyMessage]:
+    """Return the messages with each Dex image reference replaced by the image's bytes.
+
+    Call it in the model node of a custom graph, right before the chat model
+    call, when the runner has a ``media_store``. ``DurableToolCallMiddleware``
+    does this for a ``create_agent`` agent by itself. The session stores each
+    image of a user message or a tool result as a reference: a standard image
+    block whose ``url`` is the reference's ``uri`` and whose ``extras`` hold
+    the reference under ``"dex_image_reference"``. This function reads the
+    bytes from the runner's store and returns copies of the messages in which
+    each such block is ``{"type": "image", "base64": ..., "mime_type": ...}``.
+    It leaves the given messages and the graph state unchanged, so the state
+    and the stored messages keep holding references.
+
+    .. versionadded:: 0.5.0
+
+    Example:
+        >>> async def call_model(state: MessagesState) -> dict[str, list[AIMessage]]:
+        ...     messages = await inline_image_references(state["messages"])
+        ...     reply = await model.bind_tools(tools).ainvoke(messages)
+        ...     return {"messages": [reply]}
+
+    Args:
+        messages: The messages the model call sends.
+
+    Returns:
+        ``messages`` itself when no message holds an image reference, or
+        outside a session's ``RunModel``; otherwise a new list in which each
+        message with references is a copy with the bytes.
+
+    Raises:
+        RuntimeError: If a message holds an image reference and the runner has
+            no ``media_store``.
+        MediaStoreError: If the store cannot return an image's bytes. The model
+            call fails, and its ``RunModel`` Step retries.
+    """
+    binding = _ACTIVE_TOOL_BINDING.get()
+    if not isinstance(binding, _RunModelBinding):
+        return messages
+    inlined = await inline_message_images(messages, binding.media_store)
+    return messages if inlined is None else inlined
+
+
 def tool_effect_from_metadata(tool: BaseTool) -> ToolEffect | None:
     """Return the effect a tool's metadata declares, as MCP annotations do.
 
@@ -380,6 +467,7 @@ class _RunModelBinding:
     tools_by_name: Mapping[str, BaseTool]
     source_tools: Sequence[BaseTool] = ()
     source_tool_listing: SourceToolListing | None = None
+    media_store: MediaStore | None = None
     resumed_tool_call_ids: set[str] = field(default_factory=set)
 
 
@@ -407,10 +495,17 @@ class _RecordedToolCallOutcome:
     tool_name: str
     status: ToolCallStatus
     output: str
+    images: Sequence[AgentImageReference] = ()
 
     def to_tool_message(self, tool_name: str) -> ToolMessage:
+        content: str | list[str | dict[str, Any]] = self.output
+        if self.images:
+            content = [
+                {"type": "text", "text": self.output},
+                *map(image_reference_block, self.images),
+            ]
         return ToolMessage(
-            content=self.output,
+            content=content,
             tool_call_id=self.tool_call_id,
             name=tool_name,
             status="success" if self.status is ToolCallStatus.SUCCEEDED else "error",
@@ -458,6 +553,12 @@ def _recorded_outcomes_resume_value(
                 "tool_name": outcome.tool_name,
                 "status": str(outcome.status),
                 "output": outcome.output,
+                # References only; without images the value keeps its earlier shape.
+                **(
+                    {"images": [asdict(image) for image in outcome.images]}
+                    if outcome.images
+                    else {}
+                ),
             }
             for outcome in outcomes
         }
@@ -474,6 +575,7 @@ def _recorded_outcomes_from_resume_value(value: object) -> dict[str, _RecordedTo
             tool_name=str(result["tool_name"]),
             status=ToolCallStatus(result["status"]),
             output=str(result["output"]),
+            images=[AgentImageReference(**image) for image in result.get("images", ())],
         )
         for tool_call_id, result in results.items()
     }

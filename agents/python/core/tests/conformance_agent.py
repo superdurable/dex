@@ -35,15 +35,15 @@ from dex_agents import (
     ToolTaskPollOutcome,
     ToolTaskStarted,
 )
-from dex_agents.stepwise import (
+from dex_agents.builtin_loop import (
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     ModelOutputItem,
     ModelRequest,
-    StepwiseAgentRunner,
     ToolResultItem,
     UserTextItem,
+    builtin_agent_session_options,
     function_tool,
-    stepwise_agent_session_options,
 )
 from dex_agents.testing import ScriptedModelClient, ScriptedModelReply, ScriptedToolCall
 
@@ -75,7 +75,7 @@ def read_replies() -> dict[str, list[dict[str, Any]]]:
     return replies
 
 
-class ConformanceRunner(StepwiseAgentRunner):
+class ConformanceRunner(BuiltinLoopAgentRunner):
     """Stepwise, plus ``start_report``, which starts a task the first poll finishes."""
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
@@ -134,7 +134,7 @@ def build_conformance_flows(state_dir: Path) -> list[AgentSessionFlow]:
             AgentSessionFlow(
                 ConformanceRunner(definition),
                 flow_type=flow_type,
-                options=stepwise_agent_session_options(definition),
+                options=builtin_agent_session_options(definition),
             )
         )
     return flows

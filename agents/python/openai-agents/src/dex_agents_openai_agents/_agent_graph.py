@@ -50,7 +50,8 @@ from dex_agents import (
     ToolPolicy,
     describe_tool_call_outcome,
 )
-from dex_agents.stepwise import SourceToolDefinition, SourceToolListing
+from dex_agents.builtin_loop import SourceToolDefinition, SourceToolListing
+from dex_agents_openai_agents._images import build_tool_image_outputs
 
 PROVIDER_HOSTED_TOOL_TYPES = (
     FileSearchTool,
@@ -97,6 +98,8 @@ class ActiveTurn:
 
     turn: AgentTurnContext
     source_tools: SourceToolListing | None = None
+    # With a media store, a recorded result shows its images to the model.
+    shows_tool_images: bool = False
     # Call IDs of the restored RunState's interruptions; each replays its record once.
     paused_call_ids: set[str] = field(default_factory=set)
     application_approval_call_ids: set[str] = field(default_factory=set)
@@ -122,6 +125,13 @@ class ActiveTurn:
             )
         self.paused_call_ids.remove(tool_call_id)
         return record
+
+    def describe_recorded_result(self, record: AgentToolCall) -> Any:
+        """Return the recorded result as the tool output the SDK gives the model."""
+        output = describe_tool_call_outcome(record)
+        if not self.shows_tool_images or not record.images:
+            return output
+        return build_tool_image_outputs(output, record.images)
 
     def resolve_tool_call_policy(
         self, tool: DeferrableFunctionTool, tool_call_id: str
@@ -391,13 +401,13 @@ class _RecordedToolResult:
         self._tool = tool
 
     async def __call__(self, context: ToolContext[Any], arguments: str) -> Any:
-        record = require_active_turn().take_paused_record(
-            context.tool_call_id, self._tool.qualified_name
-        )
-        return _build_recorded_tool_result(self._tool, record, context)
+        active_turn = require_active_turn()
+        record = active_turn.take_paused_record(context.tool_call_id, self._tool.qualified_name)
+        return _build_recorded_tool_result(active_turn, self._tool, record, context)
 
 
 def _build_recorded_tool_result(
+    active_turn: ActiveTurn,
     tool: DeferrableFunctionTool,
     record: AgentToolCall,
     context: ToolContext[Any],
@@ -405,7 +415,10 @@ def _build_recorded_tool_result(
     if record.status is not ToolCallStatus.SUCCEEDED and tool.has_output_schema:
         # Only successful outputs match the tool's output schema.
         setattr(context, _SDK_HANDLED_FAILURE_ATTRIBUTE, True)
-    return describe_tool_call_outcome(record)
+    if tool.has_output_schema:
+        # The SDK validates the output against the schema, so it stays text.
+        return describe_tool_call_outcome(record)
+    return active_turn.describe_recorded_result(record)
 
 
 class _StopForSourceToolStep:
@@ -452,7 +465,7 @@ class _RecordedSourceToolResult:
             # Its source no longer lists the tool; the model reads why, and nothing runs.
             return source_tools.not_offered_result(self._tool_name)
         record = active_turn.take_paused_record(context.tool_call_id, self._tool_name)
-        return describe_tool_call_outcome(record)
+        return active_turn.describe_recorded_result(record)
 
 
 class _SourceToolEnabled:

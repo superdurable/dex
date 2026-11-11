@@ -23,6 +23,7 @@ import {
 import { expectError, flowId, withEnvironment } from "./environment.js";
 import {
   JoinAllOfFlow,
+  JoinCancelJoinFlow,
   JoinConditionValidationFlow,
   JoinDoubleForkFlow,
   JoinFirstWinFlow,
@@ -30,7 +31,6 @@ import {
   JoinNameConflictFlow,
   JoinPartialFlow,
   JoinRPCForkFlow,
-  JoinSubstituteFlow,
   JoinTimerFlow,
   JoinZeroFlow,
   type ConditionValidationCase,
@@ -156,15 +156,20 @@ test("first-branch join cancels sibling branches and leaves the late result pend
   });
 });
 
-test("an RPC reports a substitute result for a branch it cancels", async () => {
-  const flow = new JoinSubstituteFlow();
+test("cancel the join with its branches", async () => {
+  const flow = new JoinCancelJoinFlow();
   await withEnvironment([flow], async ({ client }) => {
-    const id = flowId("typescript-join-substitute");
+    const id = flowId("typescript-join-cancel-join");
     await client.startFlow(flow, id, undefined);
-    await waitForStep(client, id, "JoinSubstituteSplit");
-    await client.invokeRPC(flow.cancelBranchB, id, { roundKey: "JoinSubstituteSplit-1", branchCount: 2 });
     await client.invokeRPC(flow.releaseBranch, id, "A");
-    assert.deepEqual(await flowOutput<readonly string[]>(client, id), ["B-canceled", "A"]);
+    await waitForStep(client, id, "JoinCancelJoinBranchA");
+    await client.invokeRPC(flow.cancelJoinWithBranches, id);
+    // Branch B was canceled, so its release stays pending and nothing consumes A's result.
+    await client.invokeRPC(flow.releaseBranch, id, "B");
+    assert.equal(await client.invokeRPC(flow.getPendingReleaseCount, id, "B"), 1);
+    assert.equal(await client.invokeRPC(flow.getPendingResultCount, id, "JoinCancelJoinSplit-1"), 1);
+    await client.invokeRPC(flow.openGate, id);
+    assert.deepEqual(await flowOutput<readonly string[]>(client, id), ["join canceled"]);
   });
 });
 
@@ -188,9 +193,13 @@ test("an RPC forks only with an explicit slash-free round key", async () => {
     const slashFailure = await expectError(client.invokeRPC(flow.startRound, id, "slash"), WorkerInvocationError);
     assert.match(slashFailure.workerErrorDetail, /must not contain '\/'/);
     await client.invokeRPC(flow.startRound, id, "key");
+    await client.invokeRPC(flow.reportHandoffResult, id, {
+      round: { roundKey: "rpc-round-1", branchCount: 2 },
+      result: "handoff-result",
+    });
     assert.deepEqual(
       await flowOutput<{ readonly roundKey: string; readonly results: readonly string[] }>(client, id),
-      { roundKey: "rpc-round-1", results: ["A", "B"] },
+      { roundKey: "rpc-round-1", results: ["A", "handoff-result"] },
     );
   });
 });

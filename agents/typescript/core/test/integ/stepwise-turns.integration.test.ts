@@ -16,8 +16,20 @@ import { StepExecutionId, TimerId } from "@superdurable/dex";
 import { MockLanguageModelV4 } from "ai/test";
 
 import { createAiSdkModelClient } from "../../src/ai-sdk/index.js";
-import { ToolExecutionError, createAgentSessionFlow, type AgentEvent, type AgentMessage } from "../../src/index.js";
-import { StepwiseAgentRunner, createStepwiseAgentSessionFlow, functionTool } from "../../src/stepwise/index.js";
+import {
+  ToolExecutionError,
+  createAgentSessionFlow,
+  outcomeUnknownToolResult,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentSnapshot,
+} from "../../src/index.js";
+import {
+  BuiltinLoopAgentRunner,
+  createBuiltinAgentSessionFlow,
+  functionTool,
+  type PreparedToolArguments,
+} from "../../src/builtin-loop/index.js";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -44,6 +56,7 @@ describe("Stepwise agent turns with an in-process Worker", () => {
   let sessionPolicySessions: AgentSessionTestClient;
   let builtInClashSessions: AgentSessionTestClient;
   let scriptedClientSessions: AgentSessionTestClient;
+  let preparedToolSessions: AgentSessionTestClient;
   let markerDirectory: string;
 
   before(async () => {
@@ -63,7 +76,7 @@ describe("Stepwise agent turns with an in-process Worker", () => {
       sessionToolPolicies: { charge_card: { effect: "non_idempotent_write", requiresApproval: true } },
     });
     const builtInClashFlow = createAgentSessionFlow(
-      new StepwiseAgentRunner({
+      new BuiltinLoopAgentRunner({
         name: "built-in-clash",
         instructions: "",
         model: createAiSdkModelClient(createStepwiseScriptedLanguageModel(markerDirectory)),
@@ -80,7 +93,7 @@ describe("Stepwise agent turns with an in-process Worker", () => {
       "StepwiseBuiltInClashAgent",
       { builtInTools: ["ask_user"] },
     );
-    const scriptedClientFlow = createStepwiseAgentSessionFlow(
+    const scriptedClientFlow = createBuiltinAgentSessionFlow(
       {
         name: "scripted-client",
         instructions: "Help.",
@@ -101,14 +114,24 @@ describe("Stepwise agent turns with an in-process Worker", () => {
       },
       "StepwiseScriptedClientAgent",
     );
+    const preparedToolFlow = createPreparedToolFlow();
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
-      flows: [flow, deadlineFlow, limitedFlow, sessionPolicyFlow, builtInClashFlow, scriptedClientFlow],
+      flows: [
+        flow,
+        deadlineFlow,
+        limitedFlow,
+        sessionPolicyFlow,
+        builtInClashFlow,
+        scriptedClientFlow,
+        preparedToolFlow,
+      ],
       isWorkerInProcess: true,
     });
     sessionPolicySessions = new AgentSessionTestClient(environment.client, sessionPolicyFlow);
     builtInClashSessions = new AgentSessionTestClient(environment.client, builtInClashFlow);
     scriptedClientSessions = new AgentSessionTestClient(environment.client, scriptedClientFlow);
+    preparedToolSessions = new AgentSessionTestClient(environment.client, preparedToolFlow);
     sessions = new AgentSessionTestClient(environment.client, flow);
     deadlineSessions = new AgentSessionTestClient(environment.client, deadlineFlow);
     limitedSessions = new AgentSessionTestClient(environment.client, limitedFlow);
@@ -620,8 +643,194 @@ describe("Stepwise agent turns with an in-process Worker", () => {
     assert.match(String(items[2]?.["item"]), /^\{"type":"function_call","call_id":"RunModel-1-0","name":"lookup_order"/);
   });
 
+  test("ToolCallContext.effect is the effect a tool policy raised, which picked CallSingleAttemptTool", async () => {
+    const sessionId = `stepwise-context-effect-${newToken()}`;
+    await preparedToolSessions.startSession(sessionId, "effect");
+    await preparedToolSessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await preparedToolSessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, "done: effect non_idempotent_write");
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "CallSingleAttemptTool",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+  });
+
+  test("a wrapper sees an unclassified effect from a tool policy, and its error records outcome_unknown", async () => {
+    const sessionId = `stepwise-context-unclassified-${newToken()}`;
+    await preparedToolSessions.startSession(sessionId, "send-unclassified");
+    await preparedToolSessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await preparedToolSessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, `done: ${outcomeUnknownToolResult}`);
+    // The tool declares idempotent_write, so only the policy's unclassified lets its error propagate.
+    assert.deepEqual(await executedStepTypes(sessionId), [
+      "StartAgentSession",
+      "RunModel",
+      "RecordToolOutcomeUnknown",
+      "ResumeTurn",
+      "RunModel",
+    ]);
+    const events = await preparedToolSessions.listAgentEvents(sessionId);
+    assert.deepEqual(payloadOf(events, "tool_call_finished"), {
+      status: "outcome_unknown",
+      tool_call_id: "RunModel-1-0",
+      tool_name: "send_record",
+    });
+  });
+
+  test("a thenable from prepareArguments fails the call without running it", async () => {
+    const sessionId = `stepwise-prepare-thenable-${newToken()}`;
+    await preparedToolSessions.startSession(sessionId, "thenable-shape");
+    await preparedToolSessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await preparedToolSessions.getAgentSnapshot(sessionId);
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      "done: The tool call failed: invalid arguments for send_with_thenable: argument conversion must be synchronous",
+    );
+    assert.equal(preparedToolExecutions.length, 0);
+    const events = await preparedToolSessions.listAgentEvents(sessionId);
+    assert.equal((payloadOf(events, "tool_call_finished") as { status?: string } | null)?.status, "failed");
+  });
+
+  test("prepareArguments converts an old argument shape before the schema check", async () => {
+    const sessionId = `stepwise-prepare-arguments-${newToken()}`;
+    await preparedToolSessions.startSession(sessionId, "old-shape");
+    await preparedToolSessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await preparedToolSessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, 'done: order {"order_id":"7"}');
+    // The stored call keeps the model's original arguments.
+    assert.deepEqual(storedToolArguments(snapshot, "get_order"), { id: "7" });
+  });
+
+  test("a prepareArguments error reaches the model as a tool failure and the session continues", async () => {
+    const sessionId = `stepwise-prepare-arguments-error-${newToken()}`;
+    await preparedToolSessions.startSession(sessionId, "bad-shape");
+    await preparedToolSessions.waitForCompletedTurns(sessionId, 1);
+    const failed = await preparedToolSessions.getAgentSnapshot(sessionId);
+    assert.equal(
+      failed.messages.at(-1)?.text,
+      "done: The tool call failed: invalid arguments for get_order: unsupported argument shape",
+    );
+    await preparedToolSessions.sendUserMessage(sessionId, "old-shape");
+    await preparedToolSessions.waitForCompletedTurns(sessionId, 2);
+    const next = await preparedToolSessions.getAgentSnapshot(sessionId);
+    assert.equal(next.messages.at(-1)?.text, 'done: order {"order_id":"7"}');
+  });
+
+  test("an approval shows the model's arguments, and the approved call runs with the prepared ones", async () => {
+    const sessionId = `stepwise-prepare-arguments-approval-${newToken()}`;
+    await preparedToolSessions.startSession(sessionId, "approve-old-shape");
+    const approval = await preparedToolSessions.waitForPendingInterrupt(sessionId, "cancel_order");
+    assert.equal(approval.kind, "tool_approval");
+    assert.deepEqual(JSON.parse(approval.arguments ?? "null"), { id: "9" });
+    assert.equal(await preparedToolSessions.resolveInterrupt(sessionId, approval.interruptId, true), true);
+    await preparedToolSessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await preparedToolSessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, 'done: cancelled {"order_id":"9"}');
+    assert.deepEqual(storedToolArguments(snapshot, "cancel_order"), { id: "9" });
+  });
+
+  test("prepareArguments passes a cancellation through and refuses a thenable before execute runs", async () => {
+    let executions = 0;
+    const abortError = new DOMException("cancelled", "AbortError");
+    const refusedTool = (name: string, prepareArguments: () => unknown) =>
+      functionTool({
+        name,
+        description: "Returns a thenable from prepareArguments, which is refused.",
+        parameters: { type: "object" },
+        effect: "non_idempotent_write",
+        // The type refuses a thenable, so only a cast gets one past the compiler.
+        prepareArguments: prepareArguments as unknown as (args: unknown) => PreparedToolArguments,
+        execute: () => {
+          executions += 1;
+          return "ran";
+        },
+      });
+    const runner = new BuiltinLoopAgentRunner({
+      name: "prepare-errors",
+      instructions: "",
+      model: new ScriptedModelClient(() => ({})),
+      tools: [
+        functionTool({
+          name: "cancel_prepare",
+          description: "Cancelled while converting.",
+          parameters: { type: "object" },
+          effect: "non_idempotent_write",
+          prepareArguments: () => {
+            throw abortError;
+          },
+          execute: () => {
+            executions += 1;
+            return "ran";
+          },
+        }),
+        refusedTool("async_prepare", async () => ({})),
+        refusedTool("rejected_prepare", () => Promise.reject(new Error("rejected"))),
+        refusedTool("custom_thenable_prepare", () => ({
+          then(resolve: (value: unknown) => void) {
+            resolve({});
+          },
+        })),
+        refusedTool("throwing_then_prepare", () => ({
+          get then(): unknown {
+            throw new Error("then getter failed");
+          },
+        })),
+        refusedTool("promise_subclass_prepare", () => ThrowingThenPromise.resolve({})),
+      ],
+    });
+    await assert.rejects(executeToolForTest(runner, "cancel_prepare", "{}"), (error: unknown) => error === abortError);
+    const refusedToolNames = [
+      "async_prepare",
+      "rejected_prepare",
+      "custom_thenable_prepare",
+      "throwing_then_prepare",
+      "promise_subclass_prepare",
+    ];
+    for (const toolName of refusedToolNames) {
+      await assert.rejects(executeToolForTest(runner, toolName, "{}"), (error: unknown) =>
+        error instanceof ToolExecutionError &&
+        error.message === `invalid arguments for ${toolName}: argument conversion must be synchronous`);
+    }
+    assert.equal(executions, 0);
+  });
+
+  test("prepareArguments may return arguments with a then field that holds JSON", async () => {
+    interface RuleArguments {
+      readonly condition: string;
+      readonly then: string;
+    }
+    const runner = new BuiltinLoopAgentRunner({
+      name: "rules",
+      instructions: "",
+      model: new ScriptedModelClient(() => ({})),
+      tools: [
+        functionTool<RuleArguments>({
+          name: "apply_rule",
+          description: "Apply a rule.",
+          parameters: {
+            type: "object",
+            properties: { condition: { type: "string" }, then: { type: "string" } },
+            required: ["condition", "then"],
+          },
+          effect: "read",
+          prepareArguments: (args): RuleArguments => {
+            const record = args as Record<string, unknown>;
+            return { condition: String(record["if"]), then: String(record["do"]) };
+          },
+          execute: (rule) => `${rule.condition} -> ${rule.then}`,
+        }),
+      ],
+    });
+    assert.deepEqual(await executeToolForTest(runner, "apply_rule", '{"if": "late", "do": "send"}'), {
+      output: "late -> send",
+    });
+  });
+
   test("function tool argument errors use the Python core's text", async () => {
-    const runner = new StepwiseAgentRunner({
+    const runner = new BuiltinLoopAgentRunner({
       name: "arguments",
       instructions: "",
       model: new ScriptedModelClient(() => ({})),
@@ -635,30 +844,7 @@ describe("Stepwise agent turns with an in-process Worker", () => {
         }),
       ],
     });
-    const execute = (argumentsText: string) =>
-      runner.executeDeferredToolCall({
-        flowId: "f",
-        toolCall: {
-          toolCallId: "c",
-          turnId: "turn-1",
-          toolName: "pick",
-          arguments: argumentsText,
-          effect: "read",
-          requiresApproval: false,
-          status: "approved",
-          output: null,
-          error: null,
-          rejectionMessage: null,
-          deferralOrder: 0,
-        },
-        idempotencyKey: "f/turn-1/c",
-        attempt: 1,
-        events: { turnId: "turn-1", attempt: 1, writeEvent() {}, writeTextDelta() {}, writeReasoningDelta() {},
-          writeToolCallStarted() {}, writeToolCallFinished() {} },
-        cancellationSignal: new AbortController().signal,
-        deadline: undefined,
-        heartbeat: async () => undefined,
-      });
+    const execute = (argumentsText: string) => executeToolForTest(runner, "pick", argumentsText);
     await assert.rejects(execute("{nope"), (error: unknown) =>
       error instanceof ToolExecutionError && error.message === "invalid arguments for pick: arguments are not valid JSON");
     await assert.rejects(execute('{"value": 2}'), (error: unknown) =>
@@ -680,20 +866,20 @@ describe("Stepwise agent turns with an in-process Worker", () => {
     });
     assert.throws(
       () =>
-        createStepwiseAgentSessionFlow(
+        createBuiltinAgentSessionFlow(
           { name: "clash", instructions: "", model, tools: [durableWaitTool], builtInTools: ["durable_wait"] },
           "ClashAgent",
         ),
       /uses the name of an enabled built-in tool/,
     );
-    const flow = createStepwiseAgentSessionFlow(
+    const flow = createBuiltinAgentSessionFlow(
       { name: "ordinary", instructions: "", model, tools: [durableWaitTool], builtInTools: ["ask_user"] },
       "OrdinaryAgent",
     );
     assert.deepEqual(flow.options.builtInTools, ["ask_user"]);
     assert.throws(
       () =>
-        createAgentSessionFlow(new StepwiseAgentRunner({ name: "policy", instructions: "", model }), "PolicyAgent", {
+        createAgentSessionFlow(new BuiltinLoopAgentRunner({ name: "policy", instructions: "", model }), "PolicyAgent", {
           builtInTools: ["ask_user"],
           toolPolicies: { ask_user: { effect: "read" } },
         }),
@@ -713,6 +899,155 @@ describe("Stepwise agent turns with an in-process Worker", () => {
       .filter((line) => line.startsWith(`${sessionId} `));
   }
 });
+
+/**
+ * A scripted agent whose order tools convert an old `{ id }` argument shape. `update_record` declares
+ * `idempotent_write`, and a tool policy raises it to `non_idempotent_write`.
+ */
+const preparedToolExecutions: string[] = [];
+
+/** A Promise whose own `then` throws, so the runner must never call it. */
+class ThrowingThenPromise<T> extends Promise<T> {
+  public override then<TResult1 = T, TResult2 = never>(): Promise<TResult1 | TResult2> {
+    throw new Error("the subclass then ran");
+  }
+}
+
+function createPreparedToolFlow() {
+  const prepareOrderArguments = (args: unknown): PreparedToolArguments => {
+    const record = args as Record<string, unknown>;
+    if ("bad" in record) {
+      throw new Error("unsupported argument shape");
+    }
+    return "id" in record ? { order_id: record["id"] } : record;
+  };
+  const orderParameters = {
+    type: "object",
+    properties: { order_id: { type: "string" } },
+    required: ["order_id"],
+    additionalProperties: false,
+  };
+  const scriptedCalls: Readonly<Record<string, { readonly toolName: string; readonly arguments: object }>> = {
+    effect: { toolName: "update_record", arguments: {} },
+    "send-unclassified": { toolName: "send_record", arguments: {} },
+    "thenable-shape": { toolName: "send_with_thenable", arguments: {} },
+    "old-shape": { toolName: "get_order", arguments: { id: "7" } },
+    "bad-shape": { toolName: "get_order", arguments: { bad: true } },
+    "approve-old-shape": { toolName: "cancel_order", arguments: { id: "9" } },
+  };
+  return createBuiltinAgentSessionFlow(
+    {
+      name: "prepared-tools",
+      instructions: "Help.",
+      model: new ScriptedModelClient((request) => {
+        const results = ScriptedModelClient.toolResults(request);
+        if (results.length > 0) {
+          return { text: `done: ${results.map((result) => result.output).join(", ")}` };
+        }
+        const command = ScriptedModelClient.userTexts(request).at(-1) ?? "";
+        const call = scriptedCalls[command];
+        if (call === undefined) {
+          throw new Error(`unknown scripted command ${command}`);
+        }
+        return { toolCalls: [{ toolName: call.toolName, arguments: JSON.stringify(call.arguments) }] };
+      }),
+      tools: [
+        functionTool({
+          name: "update_record",
+          description: "Update a record.",
+          parameters: { type: "object" },
+          effect: "idempotent_write",
+          execute: (_args, context) => `effect ${context.effect}`,
+        }),
+        functionTool({
+          name: "send_with_thenable",
+          description: "Send with a conversion that returns a thenable.",
+          parameters: { type: "object" },
+          effect: "non_idempotent_write",
+          requiresApproval: false,
+          prepareArguments: (() => ({
+            get then(): unknown {
+              throw new Error("then getter failed");
+            },
+          })) as unknown as (args: unknown) => PreparedToolArguments,
+          execute: () => {
+            preparedToolExecutions.push("send_with_thenable");
+            return "sent";
+          },
+        }),
+        functionTool({
+          name: "send_record",
+          description: "Send a record.",
+          parameters: { type: "object" },
+          effect: "idempotent_write",
+          // The documented wrapper: only read and idempotent_write errors become model-visible failures.
+          execute: (_args, context) => {
+            try {
+              throw new Error("connection reset after send");
+            } catch (error: unknown) {
+              if (context.effect !== "read" && context.effect !== "idempotent_write") {
+                throw error;
+              }
+              throw new ToolExecutionError(String(error));
+            }
+          },
+        }),
+        functionTool<{ order_id: string }>({
+          name: "get_order",
+          description: "Get an order.",
+          parameters: orderParameters,
+          effect: "read",
+          prepareArguments: prepareOrderArguments,
+          execute: (args) => `order ${JSON.stringify(args)}`,
+        }),
+        functionTool<{ order_id: string }>({
+          name: "cancel_order",
+          description: "Cancel an order.",
+          parameters: orderParameters,
+          effect: "non_idempotent_write",
+          prepareArguments: prepareOrderArguments,
+          execute: (args) => `cancelled ${JSON.stringify(args)}`,
+        }),
+      ],
+      toolPolicies: {
+        update_record: { effect: "non_idempotent_write", requiresApproval: false },
+        send_record: { effect: "unclassified", requiresApproval: false },
+      },
+    },
+    "StepwisePreparedToolAgent",
+  );
+}
+
+function executeToolForTest(runner: BuiltinLoopAgentRunner, toolName: string, argumentsText: string) {
+  return runner.executeDeferredToolCall({
+    flowId: "f",
+    toolCall: {
+      toolCallId: "c",
+      turnId: "turn-1",
+      toolName,
+      arguments: argumentsText,
+      effect: "read",
+      requiresApproval: false,
+      status: "approved",
+      output: null,
+      error: null,
+      rejectionMessage: null,
+      deferralOrder: 0,
+    },
+    idempotencyKey: "f/turn-1/c",
+    attempt: 1,
+    events: { turnId: "turn-1", attempt: 1, writeEvent() {}, writeTextDelta() {}, writeReasoningDelta() {},
+      writeToolCallStarted() {}, writeToolCallFinished() {} },
+    cancellationSignal: new AbortController().signal,
+    deadline: undefined,
+    heartbeat: async () => undefined,
+  });
+}
+
+function storedToolArguments(snapshot: AgentSnapshot, toolName: string): unknown {
+  const message = snapshot.messages.find((candidate) => candidate.role === "assistant" && candidate.toolName === toolName);
+  return JSON.parse(message?.toolArguments ?? "null");
+}
 
 function newToken(): string {
   return randomUUID().slice(0, 8);
