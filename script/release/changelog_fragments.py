@@ -325,10 +325,12 @@ def legacy_skills_bump_problems(base: TreeReader, head: TreeReader, changes: Seq
     if not {SKILLS_VERSION, SKILLS_CHANGELOG} <= changed_paths:
         return [f"{prefix} must change both {SKILLS_VERSION} and {SKILLS_CHANGELOG}"]
     # The mirror refuses to sync while fragments are pending, so this bump could never publish.
-    pending_fragments = [fragment.path for fragment in base.fragments(SKILLS_TARGET)]
+    pending_fragments = sorted(
+        {fragment.path for tree in (base, head) for fragment in tree.fragments(SKILLS_TARGET)}
+    )
     if pending_fragments:
         return [
-            f"{prefix} cannot bump while the base has unreleased skills fragments: "
+            f"{prefix} cannot bump while unreleased skills fragments exist: "
             + ", ".join(pending_fragments)
             + ". Revert the VERSION, manifest, and CHANGELOG.md edits and add a fragment instead"
         ]

@@ -273,7 +273,19 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         result = self.check_pr(pr_number=LEGACY_PR_NUMBER)
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("unreleased skills fragments: changelog.d/skills/fix-000001.md", result.stderr)
+        self.assertIn("unreleased skills fragments exist: changelog.d/skills/fix-000001.md", result.stderr)
+
+    def test_a_grace_pull_request_cannot_bump_and_add_a_fragment(self) -> None:
+        self.git("switch", "-c", "legacy-with-fragment")
+        self.write(SKILL_FILE, self.read(SKILL_FILE) + "\nA new rule.\n")
+        self.legacy_bump(self.next_patch(self.base_version))
+        self.write("changelog.d/skills/legacy-with-fragment-abc123.md", "---\nbump: patch\n---\n- Add a rule.\n")
+        self.commit("legacy bump with a fragment")
+
+        result = self.check_pr(pr_number=LEGACY_PR_NUMBER)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unreleased skills fragments exist: changelog.d/skills/legacy-with-fragment-abc123.md", result.stderr)
 
     def test_every_published_skills_file_needs_a_fragment(self) -> None:
         for path in ("skills/README.md", "skills/script/check-package.py", "skills/hooks/new-hook.sh"):
