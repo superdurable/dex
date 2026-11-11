@@ -396,13 +396,17 @@ it reads it. Each of these fails the whole request with **INVALID_ARGUMENT**
 and the **FLOW_DEFINITION_INVALID** sub-status before anything is stored:
 
 - more than 256 items, or one Flow type twice;
-- an empty Flow type, or one longer than **matching.maxFlowTypeLength** bytes;
+- an empty Flow type, one longer than **matching.maxFlowTypeLength** bytes, or
+  one whose percent-encoded object key, with **objectStore.prefix**, would be
+  longer than 1024 bytes. The check is conservative: a non-empty prefix counts
+  as its length plus one byte with every object store, so a key of exactly
+  1024 bytes may be rejected;
 - content larger than [**flowDefinitions.maxDefinitionBytes**](/reference/server/configuration#flow-definitions);
 - content that is not a JSON object, nests objects and arrays more than 128
   levels deep, lacks a **schemaVersion** that starts with **2.**, or has a
   **flow.name** different from the Flow type;
-- a missing **generated_at**, or one more than 24 hours after the server's
-  clock;
+- a missing **generated_at**, one outside the protobuf Timestamp range (years
+  1 to 9999), or one more than 24 hours after the server's clock;
 - an **uploader** longer than 128 bytes.
 
 The whole request must also fit in **api.grpcMaxMessageBytes**.
@@ -410,23 +414,31 @@ The whole request must also fit in **api.grpcMaxMessageBytes**.
 **ListFlowDefinitions** returns the Flow types that have a stored document,
 names only, one page at a time. A page holds at most **page_size** names; 0 and
 values above 1000 mean 1000. Pass the returned page token to read the next
-page; an empty token means the last page. Pages follow the order of the stored
-object keys, which is stable but not exactly the order of Flow types.
+page; an empty token means the last page. Tokens are opaque. Pages follow the
+order of the stored object keys, which is stable but not exactly the order of
+Flow types. Objects under the prefix that the server did not write are skipped,
+so a page can hold fewer names than **page_size**, even none, and still have a
+next page.
 
 **GetFlowDefinitions** returns the stored documents of up to 256 Flow types,
 with the digest, **generated_at**, upload time, and uploader of each. The
 content is byte for byte what was uploaded. A Flow type without a stored
-document is left out. When the documents would not fit in one
-**api.grpcMaxMessageBytes** response, the call fails with
-**RESOURCE_EXHAUSTED** and the **FLOW_DEFINITION_RESPONSE_TOO_LARGE**
-sub-status; request fewer Flow types.
+document is left out. The server reads the documents one at a time and never
+reads more than fits in one **api.grpcMaxMessageBytes** response. When they
+would not fit, the call fails with **RESOURCE_EXHAUSTED** and the
+**FLOW_DEFINITION_RESPONSE_TOO_LARGE** sub-status; request fewer Flow types.
 
 The server keeps each document in its own object under
 **PREFIX/registry/flow-definitions/**, so the documents use no server memory
 between calls. See
 [Object storage layout](/reference/server/object-storage#flow-definitions).
 There is no delete operation yet. A failure to read or write object storage
-returns **UNAVAILABLE**. In [request metrics](/reference/server/metrics),
+returns **UNAVAILABLE**. A stored object that does not decode, names another
+Flow type, or has a digest that does not match its content fails Upload and
+Get for that Flow type with **INTERNAL**. A stored object larger than
+**api.grpcMaxMessageBytes** fails Upload with **INTERNAL**, and fails Get with
+**RESOURCE_EXHAUSTED** and the **FLOW_DEFINITION_RESPONSE_TOO_LARGE**
+sub-status. In [request metrics](/reference/server/metrics),
 uploads count as **flow_write**, and lists and gets as **flow_read**.
 
 ## Time travel {#time-travel}

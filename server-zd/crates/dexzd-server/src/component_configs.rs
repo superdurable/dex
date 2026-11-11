@@ -347,6 +347,12 @@ impl ComponentConfigs {
                 u64::from(config.matching.max_flow_type_length),
             )?,
             max_response_bytes: grpc_max_message_bytes,
+            // S3 adds the prefix and a slash; db9 adds the prefix alone.
+            object_key_prefix_bytes: if config.object_store.prefix.is_empty() {
+                0
+            } else {
+                config.object_store.prefix.len() + 1
+            },
         };
         let history_reads = HistoryReadsConfig {
             read_cache_directory: config

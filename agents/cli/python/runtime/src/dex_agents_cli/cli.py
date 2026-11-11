@@ -63,7 +63,11 @@ from dex_agents_cli.harness import (
     AgentHarness,
     HarnessContext,
     LocalToolGroup,
+    SessionEnvironmentIdentity,
+    current_session_environment_identity,
+    namespace_session_flow_type,
     session_flow_type,
+    session_start_environment,
 )
 from dex_agents_cli.local_tools import LocalToolSource
 from dex_agents_cli.turns import TurnConfigResolver, with_turn_config
@@ -257,7 +261,8 @@ async def _run(
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
     ]
-    flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
+    identity = current_session_environment_identity(loaded.path, workspace)
+    flow_type = namespace_session_flow_type(harness.flow_type, identity)
     context = HarnessContext(
         flow_type=flow_type,
         config=config,
@@ -293,7 +298,7 @@ async def _run(
         await worker.wait_pull_registered(timeout=_WORKER_REGISTRATION_TIMEOUT_SECONDS)
         sessions = AgentSessionClient(client, flow)
         session_id = await _open_session(
-            client, sessions, arguments.resume_session_id, harness, flow_type
+            client, sessions, arguments.resume_session_id, harness, flow_type, identity
         )
         print(f"Session {session_id}")
         if endpoint.web_url is not None:
@@ -459,6 +464,7 @@ async def _open_session(
     resume_session_id: str | None,
     harness: AgentHarness,
     flow_type: str,
+    identity: SessionEnvironmentIdentity,
 ) -> str:
     if resume_session_id is not None:
         try:
@@ -479,7 +485,7 @@ async def _open_session(
             )
         return resume_session_id
     session_id = f"{harness.name}-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
-    await sessions.start_session(session_id)
+    await sessions.start_session(session_id, start_environment=session_start_environment(identity))
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SESSION_START_TIMEOUT_SECONDS
     while (await sessions.get_agent_snapshot(session_id)).state is None:

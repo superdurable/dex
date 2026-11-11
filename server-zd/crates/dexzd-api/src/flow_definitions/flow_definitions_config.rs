@@ -13,8 +13,12 @@ pub struct FlowDefinitionsConfig {
     pub max_definition_bytes: usize,
     /// Defaults to 256, `matching.maxFlowTypeLength`; longest accepted Flow type in bytes.
     pub max_flow_type_length: usize,
-    /// Defaults to 32 MiB, `api.grpcMaxMessageBytes`; largest encoded GetFlowDefinitions response.
+    /// Defaults to 32 MiB, `api.grpcMaxMessageBytes`; largest encoded GetFlowDefinitions response,
+    /// and the most bytes read from one stored object.
     pub max_response_bytes: usize,
+    /// Defaults to 0; bytes that `objectStore.prefix` adds in front of every object key. Flow types
+    /// whose full key would exceed 1024 bytes are rejected.
+    pub object_key_prefix_bytes: usize,
 }
 
 impl Default for FlowDefinitionsConfig {
@@ -23,6 +27,7 @@ impl Default for FlowDefinitionsConfig {
             max_definition_bytes: 8 << 20,
             max_flow_type_length: 256,
             max_response_bytes: 32 << 20,
+            object_key_prefix_bytes: 0,
         }
     }
 }

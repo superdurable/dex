@@ -282,6 +282,12 @@ private static final long serialVersionUID = 0L;
   @SuppressWarnings("serial")
   private volatile java.lang.Object requestId_ = "";
   /**
+   * <pre>
+   * Required. Identifies one logical start; Dex records it on the run it starts.
+   * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+   * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+   * </pre>
+   *
    * <code>string request_id = 11;</code>
    * @return The requestId.
    */
@@ -299,6 +305,12 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
+   * <pre>
+   * Required. Identifies one logical start; Dex records it on the run it starts.
+   * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+   * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+   * </pre>
+   *
    * <code>string request_id = 11;</code>
    * @return The bytes for requestId.
    */
@@ -1518,6 +1530,12 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object requestId_ = "";
     /**
+     * <pre>
+     * Required. Identifies one logical start; Dex records it on the run it starts.
+     * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+     * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+     * </pre>
+     *
      * <code>string request_id = 11;</code>
      * @return The requestId.
      */
@@ -1534,6 +1552,12 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Required. Identifies one logical start; Dex records it on the run it starts.
+     * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+     * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+     * </pre>
+     *
      * <code>string request_id = 11;</code>
      * @return The bytes for requestId.
      */
@@ -1551,6 +1575,12 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Required. Identifies one logical start; Dex records it on the run it starts.
+     * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+     * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+     * </pre>
+     *
      * <code>string request_id = 11;</code>
      * @param value The requestId to set.
      * @return This builder for chaining.
@@ -1564,6 +1594,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Required. Identifies one logical start; Dex records it on the run it starts.
+     * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+     * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+     * </pre>
+     *
      * <code>string request_id = 11;</code>
      * @return This builder for chaining.
      */
@@ -1574,6 +1610,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Required. Identifies one logical start; Dex records it on the run it starts.
+     * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+     * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+     * </pre>
+     *
      * <code>string request_id = 11;</code>
      * @param value The bytes for requestId to set.
      * @return This builder for chaining.
