@@ -1,0 +1,121 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to the Python SDK, newest first; each section covers the changes since the previous release of this component.
+
+## 1.43 {#v1-43}
+
+Not released yet. The next minor release, sdk-python/v1.43.0, ships these changes.
+
+### Breaking
+
+- Removed **Client.trigger_continue_as_new**, **AsyncClient.trigger_continue_as_new**, **FlowStatus.CONTINUED_AS_NEW**, **FlowConfig.continue_as_new_threshold**, **FlowConfig.continue_as_new_page_size_bytes**, and **include_continued_as_new** from both clients' **search_flows** methods. [Reference](/reference/python/1.43.x/flow#flow-config).
+- **FlowConfig** is a dataclass, and the two removed fields were its second and third fields. Every later field moves two positions forward, so a positional **FlowConfig** call can set the wrong field. Construct **FlowConfig** with keyword arguments. [Reference](/reference/python/1.43.x/flow#flow-config).
+- Removed **WaitForStepCompletionOptions.internal_handler_timeout** and **WaitForAttributeOptions.internal_handler_timeout**. **request_id** remains accepted but the server does not read it for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
+- Generated bindings rename **FlowExecutionID** to **FlowRunID** and **flow_execution_id** to **flow_run_id**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
+
+## 1.40 {#v1-40}
+
+Released 2026-11-09 as [sdk-python/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.40.0).
+
+### Added
+
+- **FlowConfig.offload_history** chooses whether a run offloads its history to object storage. None means True. Set it to False for many short runs that close soon. Set it at start through **StartFlowOptions.config_override** or **SubFlowOptions.config_override**. A SubFlow otherwise inherits its parent's value, and **update_flow_config** rejects it with INVALID_ARGUMENT. It requires server-zd 0.1.23 or later. [Reference](/reference/server/configuration#history-offload).
+
+### Changed
+
+- **FlowConfig.delete_expired_history_objects** is deprecated. It has no effect, and the SDK no longer sends it. Existing code that sets it still compiles.
+
+## 1.39 {#v1-39}
+
+Released 2026-11-09 as [sdk-python/v1.39.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.39.0). Patch release [sdk-python/v1.39.1](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.39.1) followed the same day.
+
+### Added
+
+- **Action** and **when_attribute_matches** declare an RPC that a person can invoke from Dex Web: pass an **Action** with a label, a required permission, and a condition as the **action** argument of **@rpc**. The condition is optional. Workers send the Flow's Action permission mappings, and **start_flow** and SubFlow starts record the permissions the initial Attributes make available. This arrived in 1.39.1. [Reference](/reference/web/dex-web#actions).
+- **FlowConfig.delete_expired_history_objects** controls expired history object deletion at start, on update, and for SubFlows. It requires history offload and server-zd 0.1.22 or later.
+
+### Changed
+
+- A LoadBlobs request names at most 1,000 entries. The SDK batches larger requests and keeps the input order.
+
+## 1.38 {#v1-38}
+
+Released 2026-11-07 as [sdk-python/v1.38.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.38.0).
+
+### Added
+
+- **FlowConfig.history_window_events** sets about how many of the newest history events a run keeps for history reads and Time Travel. Set it at start, change it with **update_flow_config**, or override it for a SubFlow. None uses the server's **history.windowEvents** setting. Dex rejects a value that is not positive or exceeds **history.maxWindowEvents** with INVALID_ARGUMENT. It requires server-zd 0.1.21 or later. [Reference](/reference/server/configuration#history-window).
+
+### Changed
+
+- The gRPC receive limit rises from 4 MiB to **DEFAULT_GRPC_MAX_MESSAGE_BYTES** (32 MiB) on every FlowService and pull stream channel. Set **grpc_max_message_bytes** on **ClientOptions** or **WorkerOptions** to change it.
+
+### Fixed
+
+- A LoadBlobs request splits in half when its response exceeds a gRPC size limit, so a Worker with an empty blob cache no longer fails on a long Flow. A single blob that does not fit raises the new **BlobMessageTooLargeError**.
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [sdk-python/v1.37.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.37.0). Reference: [1.37.x](/reference/python/1.37.x/).
+
+### Added
+
+- **FlowServiceTlsOptions** and **flow_service_tls** on Client and Worker options enable verified TLS, with optional extra root CAs and a server-name override. Omitting the option keeps plaintext connections. [API reference](pathname:///api/python/1.37/dex.html#FlowServiceTlsOptions).
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [sdk-python/v1.35.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.35.0). Reference: [1.35.x](/reference/python/1.35.x/).
+
+### Breaking
+
+- Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
+- Worker startup fails when **max_concurrent_tasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/python/1.43.x/workers#capacity-and-shutdown).
+- **RetryPolicy.total_duration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/python/1.35/dex.html#RetryPolicy.total_duration).
+- A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/python/1.43.x/failure-and-retries#same-attempt-redelivery).
+
+### Added
+
+- **RecoveryErrorInfo.attempt_progress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/python/1.35/dex.html#RecoveryErrorInfo.attempt_progress).
+
+### Changed
+
+- Workers open one execution stream per slot; **reserved_rpc_tasks** selects RPC-only slots. By default, a Worker with at least two slots reserves one for RPCs. [Reference](/reference/python/1.43.x/workers#capacity-and-shutdown).
+- **stop** drains running handlers and returns tasks that did not start without consuming a retry. [Reference](/reference/python/1.43.x/workers#capacity-and-shutdown).
+
+### Deprecated
+
+- **idle_streams_per_queue** is accepted but ignored, and **pull_reserved_rpc_declines** always reports zero. Use execution-slot capacity and queue metrics instead. [Reference](/reference/python/1.43.x/workers#reserved-rpc-capacity).
+
+## 1.32 {#v1-32}
+
+Released 2026-11-01 as [sdk-python/v1.32.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.32.0). Reference: [1.32.x](/reference/python/1.32.x/).
+
+### Added
+
+- Generated protocol bindings include **AdminService**, with **DescribeActiveNode** and **StepDownActiveNode** for inspecting and stepping down the active server process. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.32.0).
+
+## 1.30 {#v1-30}
+
+Released 2026-10-31 as [sdk-python/v1.30.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.30.0). Reference: [1.30.x](/reference/python/1.43.x/).
+
+### Added
+
+- Generated protocol bindings add **ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED** and **ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG** for Attribute index admission errors. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.30.0).
+
+## 1.29 {#v1-29}
+
+Released 2026-10-31 as [sdk-python/v1.29.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.29.0). Reference: [1.29.x](/reference/python/1.43.x/).
+
+### Added
+
+- Generated history responses expose the pruned event range and first retained event ID. Step event contexts also carry related event IDs and the WaitFor completion time. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.29.0).
+- **Client.get_attributes** and **AsyncClient.get_attributes** read committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and **AttributeValues** provides typed result lookup. [API reference](pathname:///api/python/1.29/dex.html).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-python&expanded=true).
