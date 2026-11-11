@@ -37,7 +37,13 @@ import { defaultToolSourceListingTimeoutMs, type ToolSource } from "@superdurabl
 import * as zodV3 from "zod/v3";
 import * as zodV4 from "zod/v4";
 
-import { ToolCallGate, ToolCatalog, cliToolNames, type ClaudeCustomTool } from "./claude-tool-call-gate.js";
+import {
+  ToolCallGate,
+  ToolCatalog,
+  cliToolNames,
+  type ClaudeCodeToolPermission,
+  type ClaudeCustomTool,
+} from "./claude-tool-call-gate.js";
 import { createClaudeToolServer } from "./claude-tool-server.js";
 import { ToolSourceRouter, withSourceReference } from "./claude-tool-sources.js";
 import {
@@ -197,6 +203,15 @@ export interface ClaudeAgentRunnerOptions {
    * @since 0.4.0
    */
   readonly toolSourceListingTimeoutMs?: number;
+  /**
+   * Decides each new call of a tool that runs inside the Claude Code CLI from its input: a `ToolPolicy` for that
+   * call, a `ClaudeCodeToolDenial` to refuse it, or `undefined` for the session's policies. Use it when one tool
+   * needs different approval per call, such as `Bash` commands on an allow list, or must stay inside a directory.
+   * The `allowedTools` check keeps using the session's policies. See {@link ClaudeCodeToolPermission}. Defaults to
+   * none: every call uses the session's policies.
+   * @since 0.5.0
+   */
+  readonly claudeCodeToolPermission?: ClaudeCodeToolPermission;
 }
 
 const adapterOwnedOptionNames = [
@@ -294,6 +309,7 @@ export function currentDeferredToolExecution(): DeferredToolExecution | undefine
 export class ClaudeAgentRunner implements AgentFrameworkRunner {
   private readonly toolCatalog: ToolCatalog;
   private readonly toolSourceRouter: ToolSourceRouter;
+  private readonly claudeCodeToolPermission: ClaudeCodeToolPermission | undefined;
 
   /**
    * Creates a runner for one agent.
@@ -317,6 +333,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
       );
     }
     this.toolCatalog = new ToolCatalog(runnerOptions.customTools ?? [], customToolServerName);
+    this.claudeCodeToolPermission = runnerOptions.claudeCodeToolPermission;
     this.toolSourceRouter = new ToolSourceRouter(
       runnerOptions.toolSources ?? [],
       runnerOptions.toolSourceListingTimeoutMs ?? defaultToolSourceListingTimeoutMs,
@@ -382,7 +399,12 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     const resumedSessionId = resumedEntries.length === 0 ? null : sessionId;
     const sessionStore = new TurnSegmentSessionStore(resumedSessionId, resumedEntries);
     const toolCatalog = await this.listSegmentTools(turn);
-    const toolCallGate = new ToolCallGate(turn, toolCatalog, answeredToolUseIds(resumedEntries));
+    const toolCallGate = new ToolCallGate(
+      turn,
+      toolCatalog,
+      answeredToolUseIds(resumedEntries),
+      this.claudeCodeToolPermission,
+    );
     const observer = new TurnSegmentObserver(turn, toolCallGate);
     const segmentInput = new TurnSegmentInput(promptContent);
     const abortController = new AbortController();
