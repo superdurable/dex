@@ -10,7 +10,11 @@ This page lists user-visible changes to the Go SDK, newest first; each section c
 
 ## 1.45 {#v1-45}
 
-Not released yet. The next release, sdk-go/v1.45.0, ships these changes.
+Not released yet. The next minor release, sdk-go/v1.45.0, ships these changes.
+
+### Added
+
+- **WorkerOptions.FlowDefinitionPaths** and **WorkerOptions.FlowDefinitions** upload the Flow Definition Graph 2.0 documents of the Worker's registered Flow types when the Worker starts. A failed upload only logs a warning. **ReadFlowDefinitionFiles** reads documents with the same rules, and **Client.UploadFlowDefinitions** uploads them from a deployment script and reports each **FlowDefinitionUploadOutcome**. [Reference](/reference/go/workers#flow-definitions).
 
 ### Breaking
 

@@ -8,7 +8,7 @@
 
 import { join } from "node:path";
 
-import type { CompactionPolicy } from "@superdurable/dex-agents";
+import type { CompactionPolicy, ToolPolicy } from "@superdurable/dex-agents";
 import type { ModelClient, ModelRequest } from "@superdurable/dex-agents/builtin-loop";
 import { createBuiltinAgentSessionFlow } from "@superdurable/dex-agents/builtin-loop";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
@@ -49,6 +49,7 @@ export interface PiTestAgentOptions {
   readonly compaction?: CompactionPolicy;
   /** Read on every Anthropic call: `undefined` keeps `medium`, `null` sends no `reasoningEffort`. */
   readonly anthropicReasoningEffort?: () => string | null | undefined;
+  readonly toolPolicies?: Readonly<Record<string, ToolPolicy>>;
 }
 
 /** A built-in loop agent with Pi tools; session settings `model` picks `openai` (default) or `anthropic`. */
@@ -79,6 +80,7 @@ export function createPiTestAgentFlow(options: PiTestAgentOptions) {
       resolveModel: (settings) => (settings["model"] === "anthropic" ? resolveAnthropicModel() : openAiModel),
       modelSettings: { reasoningEffort: "medium" },
       ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
+      ...(options.toolPolicies === undefined ? {} : { toolPolicies: options.toolPolicies }),
       tools: [
         piAgentFunctionTool(tools.lookupOrder()),
         piAgentFunctionTool(tools.getWeather(), { effect: "read" }),
@@ -91,6 +93,7 @@ export function createPiTestAgentFlow(options: PiTestAgentOptions) {
         piDurableFunctionTool(tools.durableCharge()),
         piDurableFunctionTool(tools.durableNestedCall(), { effect: "read" }),
         piDurableFunctionTool(tools.durableFinishTurn(), { effect: "read" }),
+        piDurableFunctionTool(tools.durableFailLookup(), { effect: "read" }),
       ],
     },
     options.flowType,
@@ -139,7 +142,8 @@ class PiTestTools {
       name: "fail_lookup",
       description: "A lookup that fails.",
       parameters: { type: "object", properties: {} },
-      execute: async () => {
+      execute: async (toolCallId) => {
+        new InvocationLog(join(this.markerDirectory, "fail_lookup.log")).record(toolCallId);
         throw new Error("warehouse offline");
       },
     };
@@ -190,12 +194,24 @@ class PiTestTools {
     return {
       name: "rename_customer",
       description: "Rename a customer.",
-      parameters: { type: "object", properties: { name: { type: "string" } } },
+      parameters: {
+        type: "object",
+        properties: { name: { type: "string" } },
+        required: ["name"],
+        additionalProperties: false,
+      },
+      // Version 1 took { old_name }; { legacy_id } was never supported.
       prepareArguments: (args) => {
-        const raw = args as { name?: unknown; old_name?: unknown };
+        const raw = args as { name?: unknown; old_name?: unknown; legacy_id?: unknown };
+        if (raw.legacy_id !== undefined) {
+          throw new Error("legacy_id is no longer supported");
+        }
         return raw.name === undefined && raw.old_name !== undefined ? { name: raw.old_name } : raw;
       },
-      execute: async (_toolCallId, params: { name?: string }) => textResult(`renamed to ${String(params.name)}`),
+      execute: async (toolCallId, params: { name: string }) => {
+        new InvocationLog(join(this.markerDirectory, "rename_customer.log")).record(`${params.name} ${toolCallId}`);
+        return textResult(`renamed to ${params.name}`);
+      },
     };
   }
 
@@ -244,6 +260,18 @@ class PiTestTools {
       execute: async () => {
         new InvocationLog(join(this.markerDirectory, "durable_finish_turn.log")).record("ran");
         return { output: [{ type: "text", text: "done" }], control: { terminate: true } };
+      },
+    };
+  }
+
+  public durableFailLookup(): PiDurableToolLike {
+    return {
+      name: "durable_fail_lookup",
+      description: "A pi-durable lookup that fails.",
+      parameters: { type: "object", properties: { key: { type: "string" } }, required: ["key"] },
+      execute: async (args: { key: string }) => {
+        new InvocationLog(join(this.markerDirectory, "durable_fail_lookup.log")).record(args.key);
+        throw new Error("archive offline");
       },
     };
   }

@@ -6,7 +6,6 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
 import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
 
@@ -15,6 +14,7 @@ import {
   describePiToolContent,
   throwPiToolArgumentsFailure,
   throwPiToolExecutionFailure,
+  validatePiToolArguments,
   type PiToolContentPart,
 } from "./pi-tool-content.js";
 
@@ -49,7 +49,14 @@ export interface PiDurableToolLike {
   readonly replay?: "safe" | "unsafe";
   /** `pi-durable`'s execution mode. Dex always runs the calls of one model response in parallel. */
   readonly executionMode?: "sequential" | "parallel";
-  /** Repairs raw arguments before pi-ai validates them. */
+  /**
+   * Repairs raw arguments, such as an argument shape an earlier version of the tool accepted.
+   *
+   * The built-in agent loop runner calls it with the decoded arguments before it checks them against
+   * `parameters`. It must be synchronous and deterministic and have no side effects, because every attempt
+   * converts the stored arguments again. A throw or a Promise fails the call: the model sees
+   * `invalid arguments for <tool>: <message>`, and `execute` does not run.
+   */
   prepareArguments?(args: unknown): unknown;
   /**
    * Runs the tool, as `pi-durable` does.
@@ -82,20 +89,24 @@ export interface PiDurableFunctionToolOptions {
  * the tool's `replay`: `safe` runs as `idempotent_write`, which `CallTool` retries, and anything else runs as
  * `non_idempotent_write`, which runs at most once and waits for approval by default.
  *
- * Each call runs `tool.execute(args, api, context)`. The arguments pass `prepareArguments`, when the tool has one,
- * and pi-ai's validation, as in `pi-durable`. `context.abortSignal` is the attempt's cancellation signal; the
- * context has no values and a no-op `telemetry`. The result's text parts, joined by newlines, are the output the
- * model sees, and each image part becomes `[image omitted: <mime type>]`. A result with `isError: true`, a thrown
- * `ToolExecutionError`, or invalid arguments become a `ToolExecutionError`, so the model sees the failure. Any
- * other thrown error does too, except for a `non_idempotent_write` tool: its write may have taken effect, so the
- * error propagates and the session records `outcome_unknown` without running the call again.
+ * Each call runs `tool.execute(args, api, context)`. `prepareArguments`, when the tool has one, repairs the raw
+ * arguments before the built-in agent loop runner checks them against `parameters`; pi-ai's validation then
+ * coerces them, as in `pi-durable`. `context.abortSignal` is the attempt's cancellation signal; the context has no
+ * values and a no-op `telemetry`. The result's text parts, joined by newlines, are the output the model sees, and
+ * each image part becomes `[image omitted: <mime type>]`. A result with `isError: true`, a thrown
+ * `ToolExecutionError`, or arguments that fail conversion or validation become a `ToolExecutionError`, so the model
+ * sees the failure. Any other thrown error is handled by the call's effect, which is the effect after
+ * `AgentDefinition.toolPolicies` when a policy overrides the wrapped one. For `read` and `idempotent_write` it
+ * becomes a `ToolExecutionError` too. For `non_idempotent_write` and `unclassified` the tool may have changed
+ * state, so the error propagates and the session records `outcome_unknown` without running the call again. A
+ * context without an effect, such as one built by hand in a test, is handled like `unclassified`.
  *
  * Dex does not support the Harness parts of a `pi-durable` tool:
  * - Reading any property of `api`, such as `api.commit` or `api.executeTool`, throws an error that names it, which
  *   the rule above handles like any thrown error. A tool that uses `api` must be rewritten as a Pi `AgentTool` for `piAgentFunctionTool`, or as a Dex
  *   `functionTool`.
  * - A result with `control` fails the call with a `ToolExecutionError`. The tool's effect has already happened by
- *   then. Use the built-in loop `decideTurnContinuation` hook to end a turn after tools.
+ *   then.
  * - `executionMode: "sequential"` throws here, because Dex runs the calls of one model response in parallel.
  *
  * @example
@@ -134,23 +145,19 @@ export function piDurableFunctionTool(tool: PiDurableToolLike, options: PiDurabl
     parameters: tool.parameters,
     effect,
     requiresApproval: undefined,
-    execute: (args, context) => executePiDurableTool(tool, effect, args, context),
+    prepareArguments: tool.prepareArguments?.bind(tool),
+    execute: (args, context) => executePiDurableTool(tool, args, context),
   });
 }
 
 async function executePiDurableTool(
   tool: PiDurableToolLike,
-  effect: ToolEffect,
   args: unknown,
   context: ToolCallContext,
 ): Promise<string> {
   let validatedArguments: unknown;
   try {
-    const preparedArguments = tool.prepareArguments === undefined ? args : tool.prepareArguments(args);
-    validatedArguments = validateToolArguments(
-      { name: tool.name, description: tool.description, parameters: tool.parameters },
-      { type: "toolCall", id: context.toolCallId, name: tool.name, arguments: preparedArguments as JsonObject },
-    );
+    validatedArguments = validatePiToolArguments(tool, args, context.toolCallId);
   } catch (error) {
     throwPiToolArgumentsFailure(context, error);
   }
@@ -158,7 +165,7 @@ async function executePiDurableTool(
   try {
     result = await tool.execute(validatedArguments, createUnsupportedHarnessApi(tool.name), createToolContext(context));
   } catch (error) {
-    throwPiToolExecutionFailure(context, effect, error);
+    throwPiToolExecutionFailure(context, error);
   }
   if (result?.control !== undefined) {
     throw new ToolExecutionError(
