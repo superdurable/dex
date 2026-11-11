@@ -21,6 +21,7 @@ import {
   type AgentTurnOutcome,
   type DeferredToolExecution,
   type FrameworkMessage,
+  type MediaStore,
   type ToolExecutionResult,
   type ToolPolicy,
 } from "@superdurable/dex-agents";
@@ -34,11 +35,14 @@ import {
   type MastraAgentRunnerOptions,
 } from "../../src/index.js";
 import { ScriptedLanguageModel } from "./scripted-language-model.js";
+import { ScreenshotToolSource } from "./screenshot-tool-source.js";
 
 /** Flow type of the scripted Mastra agent in every test. */
 export const scriptedMastraAgentFlowType = "ScriptedMastraAgent";
 /** Environment variable naming the directory where scripted tools write marker files. */
 export const scriptedMastraMarkerDirectoryVariable = "SCRIPTED_MASTRA_MARKER_DIRECTORY";
+/** Environment variable naming the root of the Worker's `LocalDirectoryMediaStore`; unset means no store. */
+export const scriptedMastraMediaDirectoryVariable = "SCRIPTED_MASTRA_MEDIA_DIRECTORY";
 /** RequestContext key carrying the session ID, set by `createRequestContext`. */
 const sessionIdRequestContextKey = "dexSessionId";
 
@@ -64,6 +68,8 @@ export interface ScriptedMastraAgentFlowOptions {
   /** Moves the `createdAt` of every completed turn's messages this far ahead, like a fast Worker clock. */
   readonly clockSkewMs?: number;
   readonly tracing?: AgentTracingOptions;
+  /** Shows images to the model and adds the `take_screenshot` source tool, which uploads to this store. */
+  readonly mediaStore?: MediaStore;
 }
 
 /**
@@ -102,6 +108,9 @@ export function createScriptedMastraAgentFlow(
         [sessionIdRequestContextKey, flowId],
         ...(flowOptions.isMemoryThreadSelected === true ? [[MASTRA_THREAD_ID_KEY, flowId] as const] : []),
       ]),
+    ...(flowOptions.mediaStore === undefined
+      ? {}
+      : { mediaStore: flowOptions.mediaStore, toolSources: [new ScreenshotToolSource(flowOptions.mediaStore)] }),
   };
   const agent = createScriptedMastraAgent(markerDirectory, flowOptions);
   const flowType = flowOptions.flowType ?? scriptedMastraAgentFlowType;
