@@ -25,6 +25,7 @@ from typing import Any, Literal
 
 try:
     import litellm
+    from litellm.llms.vertex_ai.common_utils import get_supports_system_message
 except ImportError as error:  # pragma: no cover - exercised by the built-package smoke test
     raise ImportError(
         "dex_agents.litellm needs LiteLLM; install it with: pip install 'dex-agents[litellm]'"
@@ -69,6 +70,9 @@ ESTIMATED_IMAGE_INPUT_TOKENS = 1600
 # LiteLLM's multimodal function response, so Gemini and Vertex AI get the user message.
 _TOOL_MESSAGE_IMAGE_PROVIDERS = frozenset({"anthropic", "bedrock"})
 
+# LiteLLM providers whose Gemini models get tool images in the function response turn.
+_GEMINI_PROVIDERS = frozenset({"gemini", "vertex_ai", "vertex_ai_beta"})
+
 # Input fields the Responses API accepts back for each output item type.
 _RESPONSES_REPLAY_FIELDS: Mapping[str, tuple[str, ...]] = {
     "reasoning": ("type", "id", "summary", "content", "encrypted_content", "status"),
@@ -107,7 +111,10 @@ class LiteLLMModelClient:
       tool message keeps the text, and after the last tool message of the run
       follows one user message per tool result with images, holding
       ``TOOL_RESULT_IMAGES_TEXT`` and then the image parts. Gemini 2.5 models
-      refuse images in a function response.
+      refuse images in a function response. For Gemini models, on Gemini
+      and Vertex AI, the request's ``contents`` puts those user messages'
+      parts in the same ``user`` content as the function responses, after
+      them, so ``user`` and ``model`` turns still alternate.
 
     .. versionchanged:: 0.5.0
        Sends the images of user text and tool result items.
@@ -390,6 +397,12 @@ class LiteLLMModelClient:
         if request.settings.reasoning_effort is not None:
             options["reasoning_effort"] = request.settings.reasoning_effort
         options.update(request.settings.provider_options)
+        if request.image_bytes is not None and any(
+            isinstance(item, ToolResultItem) and item.images for item in request.input_items
+        ):
+            contents = _gemini_contents_with_one_user_turn(options["messages"], self._model)
+            if contents is not None:
+                options["extra_body"] = {"contents": contents, **(options.get("extra_body") or {})}
         stream = await litellm.acompletion(**options)
         message = _ChatMessageAssembler()
         async with _closing_stream(stream):
@@ -577,6 +590,42 @@ def _chat_messages(
                 {"role": "tool", "tool_call_id": item.tool_call_id, "content": tool_content}
             )
     return messages
+
+
+def _gemini_contents_with_one_user_turn(
+    messages: list[dict[str, Any]], model: str
+) -> list[dict[str, Any]] | None:
+    """Return LiteLLM's Gemini ``contents`` with adjacent ``user`` contents merged; turns alternate.
+
+    Returns:
+        The merged contents, or ``None`` when the model is not Gemini on
+        Gemini or Vertex AI, or when no ``user`` contents are adjacent.
+    """
+    try:
+        model_name, provider, _, _ = litellm.get_llm_provider(model)
+    except Exception:
+        return None
+    if provider not in _GEMINI_PROVIDERS or "gemini" not in model_name.lower():
+        return None
+    # LiteLLM sends system messages as system_instruction when the model supports them.
+    conversation = messages
+    if get_supports_system_message(model=model_name, custom_llm_provider=provider):
+        conversation = [message for message in messages if message["role"] != "system"]
+    gemini_config: Any
+    if provider == "gemini":
+        gemini_config = litellm.GoogleAIStudioGeminiConfig()
+    else:
+        gemini_config = litellm.VertexGeminiConfig()
+    contents: list[dict[str, Any]] = gemini_config._transform_messages(
+        messages=conversation, model=model_name, litellm_params={}
+    )
+    merged: list[dict[str, Any]] = []
+    for content in contents:
+        if merged and merged[-1]["role"] == "user" and content["role"] == "user":
+            merged[-1] = {"role": "user", "parts": [*merged[-1]["parts"], *content["parts"]]}
+        else:
+            merged.append(content)
+    return merged if len(merged) < len(contents) else None
 
 
 def _responses_parts(

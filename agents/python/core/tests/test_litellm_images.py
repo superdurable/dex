@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""LiteLLMModelClient image parts on the wire: Responses API, OpenAI chat, and Anthropic."""
+"""LiteLLMModelClient image parts on the wire: Responses API, OpenAI chat, Anthropic, and Gemini."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ from dex_agents.litellm import (
     ESTIMATED_IMAGE_INPUT_TOKENS,
     TOOL_RESULT_IMAGES_TEXT,
     LiteLLMModelClient,
+    _gemini_contents_with_one_user_turn,
 )
 from tests.test_litellm_model_client import (
     FakeProviderTransport,
@@ -57,6 +58,10 @@ IMAGE_BYTES = {PNG_REFERENCE.sha256: PNG, JPEG_REFERENCE.sha256: JPEG}
 
 def data_url(reference: AgentImageReference, data: bytes) -> str:
     return f"data:{reference.mime_type};base64,{base64.b64encode(data).decode()}"
+
+
+def inline_data(reference: AgentImageReference, data: bytes) -> dict[str, str]:
+    return {"mime_type": reference.mime_type, "data": base64.b64encode(data).decode()}
 
 
 def neutral_tool_calls(*tool_call_ids: str) -> ModelOutputItem:
@@ -218,45 +223,162 @@ async def test_anthropic_gets_image_blocks_in_the_user_message_and_inside_the_to
     assert tool_result["content"][1]["source"]["media_type"] == "image/jpeg"
 
 
-async def test_gemini_gets_tool_images_in_a_user_message_after_the_function_response(
+async def test_gemini_gets_tool_images_in_the_function_response_turn_after_the_responses(
     transport: FakeProviderTransport,
 ) -> None:
     client = LiteLLMModelClient(
         "gemini/gemini-2.5-flash", api_base=transport.base_url, api_key_provider=lambda: "key"
     )
-    transport.responses.append((200, _gemini_text_stream("A screenshot.")))
+    transport.responses.append((200, _gemini_text_stream("Two screenshots.")))
 
     await client.call_model(
         image_request(
             [
                 UserTextItem(text="Look.", images=[PNG_REFERENCE]),
-                neutral_tool_calls("call_1"),
+                ModelOutputItem(
+                    provider="dex-scripted",
+                    api="scripted",
+                    item="{}",
+                    tool_calls=(
+                        ModelToolCall(
+                            tool_call_id="call_1", tool_name="screenshot", arguments='{"page": 1}'
+                        ),
+                        ModelToolCall(
+                            tool_call_id="call_2", tool_name="screenshot", arguments='{"page": 2}'
+                        ),
+                    ),
+                ),
                 ToolResultItem(
                     tool_call_id="call_1",
                     tool_name="screenshot",
-                    output="Took one.",
+                    output="First.",
                     images=[JPEG_REFERENCE],
                 ),
+                ToolResultItem(
+                    tool_call_id="call_2",
+                    tool_name="screenshot",
+                    output="Second.",
+                    images=[PNG_REFERENCE],
+                ),
+                UserTextItem(text="And now?"),
             ]
         ),
         RecordedOutput(),
     )
 
     _, body = transport.requests[0]
-    parts = [part for content in body["contents"] for part in content["parts"]]
-    response_index = next(index for index, part in enumerate(parts) if "function_response" in part)
-    # The function response holds text only; Gemini 2.5 refuses images there.
-    assert "inline_data" not in json.dumps(parts[response_index])
-    assert [
-        part.get("inline_data") for part in parts[:response_index] if "inline_data" in part
-    ] == [{"mime_type": "image/png", "data": base64.b64encode(PNG).decode()}]
-    following = parts[response_index + 1 :]
-    assert {
-        "text": TOOL_RESULT_IMAGES_TEXT.format(tool_name="screenshot", tool_call_id="call_1")
-    } in (following)
-    assert {
-        "inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(JPEG).decode()}
-    } in (following)
+    assert body["system_instruction"] == {"parts": [{"text": "You help with orders."}]}
+    # One user turn holds the function responses, which carry text only because Gemini 2.5
+    # refuses images there, and then the images, so user and model turns alternate.
+    assert body["contents"] == [
+        {
+            "role": "user",
+            "parts": [{"text": "Look."}, {"inline_data": inline_data(PNG_REFERENCE, PNG)}],
+        },
+        {
+            "role": "model",
+            "parts": [
+                {"function_call": {"name": "screenshot", "args": {"page": 1}}},
+                {"function_call": {"name": "screenshot", "args": {"page": 2}}},
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {"function_response": {"name": "screenshot", "response": {"content": "First."}}},
+                {"function_response": {"name": "screenshot", "response": {"content": "Second."}}},
+                {
+                    "text": TOOL_RESULT_IMAGES_TEXT.format(
+                        tool_name="screenshot", tool_call_id="call_1"
+                    )
+                },
+                {"inline_data": inline_data(JPEG_REFERENCE, JPEG)},
+                {
+                    "text": TOOL_RESULT_IMAGES_TEXT.format(
+                        tool_name="screenshot", tool_call_id="call_2"
+                    )
+                },
+                {"inline_data": inline_data(PNG_REFERENCE, PNG)},
+                {"text": "And now?"},
+            ],
+        },
+    ]
+
+
+async def test_gemini_contents_stay_litellm_s_own_without_tool_images(
+    transport: FakeProviderTransport,
+) -> None:
+    client = LiteLLMModelClient(
+        "gemini/gemini-2.5-flash", api_base=transport.base_url, api_key_provider=lambda: "key"
+    )
+    transport.responses.append((200, _gemini_text_stream("Nothing to see.")))
+
+    await client.call_model(
+        image_request(
+            [
+                UserTextItem(text="Look.", images=[PNG_REFERENCE]),
+                neutral_tool_calls("call_1"),
+                ToolResultItem(tool_call_id="call_1", tool_name="screenshot", output="None."),
+            ]
+        ),
+        RecordedOutput(),
+    )
+
+    _, body = transport.requests[0]
+    assert [content["role"] for content in body["contents"]] == ["user", "model", "user"]
+    assert body["contents"][2]["parts"] == [
+        {"function_response": {"name": "screenshot", "response": {"content": "None."}}}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("model", "merges"),
+    [
+        ("vertex_ai/gemini-2.5-flash", True),
+        ("vertex_ai_beta/gemini-2.5-flash", True),
+        ("gemini/gemini-2.5-flash", True),
+        ("vertex_ai/claude-sonnet-4-5", False),
+        ("openai/gpt-4o", False),
+    ],
+)
+def test_only_gemini_models_get_their_user_contents_merged(model: str, merges: bool) -> None:
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": "Be brief."},
+        {"role": "user", "content": "Look."},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "screenshot", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "Took one."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Its images."},
+                {"type": "image_url", "image_url": {"url": data_url(JPEG_REFERENCE, JPEG)}},
+            ],
+        },
+    ]
+
+    contents = _gemini_contents_with_one_user_turn(messages, model)
+
+    if not merges:
+        assert contents is None
+        return
+    assert contents is not None
+    assert [content["role"] for content in contents] == ["user", "model", "user"]
+    assert contents[0]["parts"] == [{"text": "Look."}]
+    assert contents[2]["parts"] == [
+        {"function_response": {"name": "screenshot", "response": {"content": "Took one."}}},
+        {"text": "Its images."},
+        {"inline_data": inline_data(JPEG_REFERENCE, JPEG)},
+    ]
 
 
 async def test_a_request_without_the_bytes_of_an_image_fails_before_it_is_sent(

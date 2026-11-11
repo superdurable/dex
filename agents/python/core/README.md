@@ -893,6 +893,9 @@ flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media
   after the last tool message of that run follows one user message per tool
   result with images, holding `TOOL_RESULT_IMAGES_TEXT` (`The <tool_name> tool
   call <tool_call_id> returned these images.`) and then the image parts.
+  For Gemini models on Gemini and Vertex AI, the request's `contents` puts
+  those parts in the same `user` content as the function responses, after
+  them, so `user` and `model` turns alternate.
 - **Your own model client.** Convert each reference in `images` to the
   provider's image part with its bytes from `ModelRequest.image_bytes`, and
   raise when they are missing. A client that ignores `images` shows the

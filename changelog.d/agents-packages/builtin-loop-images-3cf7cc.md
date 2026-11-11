@@ -23,7 +23,9 @@ section: Images
   `image_url` parts in Chat Completions user messages, and in tool messages
   for Anthropic and Bedrock. Other Chat Completions providers, such as
   OpenAI, Gemini, and Vertex AI, get the tool result's images in a user message
-  after the run of tool messages, with **TOOL_RESULT_IMAGES_TEXT**.
+  after the run of tool messages, with **TOOL_RESULT_IMAGES_TEXT**. For
+  Gemini models, those images follow the function responses in the same
+  `user` content.
   `estimate_input_tokens` counts **ESTIMATED_IMAGE_INPUT_TOKENS** per image.
 - **createAiSdkModelClient** sends images as AI SDK `file` parts in user
   messages and in tool result `content` output. `estimateInputTokens` counts
