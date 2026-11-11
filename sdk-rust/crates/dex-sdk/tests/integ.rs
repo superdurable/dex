@@ -31,6 +31,10 @@ mod basic_workflow;
 mod conditional_complete_test;
 #[path = "integ/conditional_complete_workflow.rs"]
 mod conditional_complete_workflow;
+#[path = "integ/flow_definition_upload_test.rs"]
+mod flow_definition_upload_test;
+#[path = "integ/flow_definition_upload_workflow.rs"]
+mod flow_definition_upload_workflow;
 #[path = "integ/flow_service_client.rs"]
 mod flow_service_client;
 #[path = "integ/get_attributes_test.rs"]

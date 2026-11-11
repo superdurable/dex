@@ -1592,6 +1592,67 @@ public final class Client implements AutoCloseable {
                 flowId);
     }
 
+    /**
+     * Uploads Flow Definition Graph documents so Dex Web can draw their Flow types.
+     *
+     * <p>Use this from a deploy or CI script. Workers upload their configured documents at start;
+     * see {@link WorkerOptions.Builder#flowDefinitionPaths(List)}. The Dex Server decides each Flow
+     * type separately. It stores a document for a new Flow type, keeps an identical one, and
+     * replaces a different one only when the uploaded generation time is strictly later. With
+     * {@code force}, a different document always replaces the stored one; use it to roll a
+     * definition back on purpose. Before sending, an absolute {@code source.path} in a document is
+     * replaced by a path relative to the working directory, or by the file name when the file is
+     * elsewhere, exactly as a Worker does. Documents are sent in requests of at most 256 documents
+     * and 16 MiB of content; a larger document goes alone. A failed request throws; documents in earlier requests stay stored, and repeating the call is safe.
+     *
+     * <pre>{@code
+     * byte[] content = Files.readAllBytes(Paths.get("flow-definitions/OrderFlow.json"));
+     * List<FlowDefinitionUploadResult> results = client.uploadFlowDefinitions(
+     *         Collections.singletonList(new FlowDefinitionDocument(
+     *                 "OrderFlow", content, Instant.parse("2026-11-01T00:00:00Z"))),
+     *         false);
+     * for (FlowDefinitionUploadResult result : results) {
+     *     if (result.getOutcome() == FlowDefinitionUploadOutcome.KEPT_EXISTING) {
+     *         System.err.println(result.getFlowType() + " kept " + result.getStoredDigest());
+     *     }
+     * }
+     * }</pre>
+     *
+     * @param documents the nonnull documents, each with a distinct Flow type; an empty list sends
+     *     nothing
+     * @param force whether a different document replaces the stored one whatever its generation
+     *     time
+     * @return one result for each document, in order
+     * @throws IllegalArgumentException if documents is null or contains null, or a document is not
+     *     valid JSON
+     * @throws DexServiceException if Dex rejects a request, for example with
+     *     {@code INVALID_ARGUMENT} for an invalid document, or with {@code UNIMPLEMENTED} on a Server
+     *     without Flow definition storage
+     * @throws IllegalStateException if the Dex Server does not support protocol version 4
+     * @since 1.45.0
+     */
+    public List<FlowDefinitionUploadResult> uploadFlowDefinitions(
+            final List<FlowDefinitionDocument> documents,
+            final boolean force) {
+        if (documents == null) {
+            throw new IllegalArgumentException("documents are required");
+        }
+        for (FlowDefinitionDocument document : documents) {
+            if (document == null) {
+                throw new IllegalArgumentException("documents must not contain null");
+            }
+        }
+        final List<FlowDefinitionDocument> prepared = FlowDefinitionUploads.rewriteSourcePaths(
+                documents, FlowDefinitionUploads.workingDirectory());
+        final List<FlowDefinitionUploadResult> results = new ArrayList<FlowDefinitionUploadResult>();
+        for (io.superdurable.gen.UploadFlowDefinitionsRequest request
+                : FlowDefinitionUploads.requests(prepared, force)) {
+            results.addAll(FlowDefinitionUploads.results(
+                    call(() -> service.uploadFlowDefinitions(request))));
+        }
+        return Collections.unmodifiableList(results);
+    }
+
     boolean healthCheck() {
         final FlowServiceGrpc.FlowServiceBlockingStub healthCheckService =
                 service.withDeadlineAfter(5, TimeUnit.SECONDS);

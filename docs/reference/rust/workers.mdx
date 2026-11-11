@@ -101,6 +101,45 @@ pub fn is_pull_greeting_ready(worker: &Worker) -> bool {
 
 Example: [examples/rust/src/production/pull_workers.rs](https://github.com/superdurable/dex/blob/main/examples/rust/src/production/pull_workers.rs)
 
+## Upload Flow definitions {#upload-flow-definitions}
+
+A Worker can upload Flow Definition Graph documents when it starts, so Dex Web
+can draw the graph of each Flow type. Since 1.45.0.
+
+| Setting | Rust name |
+| --- | --- |
+| Files and directories of documents | **WorkerOptions::flow_definition_paths** |
+| In-memory documents | **WorkerOptions::flow_definitions** |
+
+- A directory is read recursively for **.json** files. A JSON file without
+  **flow.name** is skipped, so a directory may hold other JSON files.
+- A file's Flow type is its **flow.name**. Its generation time is its
+  top-level **generatedAt** (RFC 3339), or the file modification time.
+- A **FlowDefinitionDocument** carries its Flow type, JSON bytes, and
+  generation time. Pass a fixed time for a document built from a template.
+- **Worker::try_new** reads the files. It returns
+  **SdkError::FlowDefinition** when two sources have the same Flow type, or an
+  in-memory document is not JSON or names another Flow type. A missing or
+  unreadable path is logged as a warning and skipped.
+- **Worker::start** uploads the documents after protocol negotiation and Attribute
+  index synchronization, before it opens task streams. It uploads only the Flow
+  types that the **Registry** registers and logs the others at info level.
+- Before upload, an absolute **source.path** in a document becomes a path
+  relative to the working directory, or the file name when the file is
+  elsewhere. Nothing else in the document changes.
+- The uploader is **rust/** followed by the SDK version.
+- Results are logged through **tracing**: CREATED and REPLACED at info,
+  UNCHANGED at debug, and KEPT_EXISTING at warn with both digests and
+  generation times.
+- Every upload failure is logged at warn and the Worker keeps starting.
+  Each request uses the **attribute_index_sync_timeout** deadline.
+  This includes a Server without Flow definition storage, which returns
+  UNIMPLEMENTED.
+
+Deploy scripts can call **Client::upload_flow_definitions** instead. See
+[Flow definitions](/reference/server/runtime-client#flow-definitions) for how
+the Server decides between a stored and an uploaded document.
+
 ## Capacity and shutdown
 
 | Setting | Rust name |

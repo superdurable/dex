@@ -164,6 +164,26 @@ final class WorkerDispatchIntegrationTest {
     }
 
     @Test
+    void processesTasksWhenServerLacksFlowDefinitionUpload() throws Exception {
+        final FlowDefinitionDocument definition = new FlowDefinitionDocument(
+                "BridgeFlow",
+                "{\"schemaVersion\": \"2.0\", \"flow\": {\"name\": \"BridgeFlow\"}}"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                java.time.Instant.parse("2026-11-01T00:00:00Z"));
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null, null,
+                Collections.singletonList(definition));
+        try {
+            final InvokeExecuteMethodResponse execute = invokeExecute(
+                    running, executeRequest(concrete("hello")));
+            assertEquals(
+                    "hello",
+                    execute.getStepDecision().getCloseDecision().getCloseInput().getStringValue());
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
     void streamsStepProgressFramesInCallOrder() throws Exception {
         final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
         try {
@@ -951,6 +971,16 @@ final class WorkerDispatchIntegrationTest {
             final TestBlobCache cache,
             final String serverAddress,
             final GrpcErrorStatusMapping mapping) throws Exception {
+        return startWorker(flow, cache, serverAddress, mapping,
+                Collections.<FlowDefinitionDocument>emptyList());
+    }
+
+    private static RunningWorker startWorker(
+            final BridgeFlow flow,
+            final TestBlobCache cache,
+            final String serverAddress,
+            final GrpcErrorStatusMapping mapping,
+            final List<FlowDefinitionDocument> flowDefinitions) throws Exception {
         final AtomicReference<SyncAttributeIndexRequest> syncRequest = new AtomicReference<>();
         final PullTaskTestService client = new PullTaskTestService();
         final ManagedChannel upstream = serverAddress == null ? null
@@ -985,7 +1015,8 @@ final class WorkerDispatchIntegrationTest {
                     }
                 }).build().start();
         final WorkerOptions.Builder options = WorkerOptions.newBuilder()
-                .serverAddress("127.0.0.1:" + flowServer.getPort());
+                .serverAddress("127.0.0.1:" + flowServer.getPort())
+                .flowDefinitions(flowDefinitions);
         if (mapping != null) {
             options.grpcErrorStatusMapping(mapping);
         }

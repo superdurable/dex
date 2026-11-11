@@ -113,6 +113,45 @@ Call the boolean helper from your probe endpoint and return 200 when true or
 
 Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)
 
+## Upload Flow definitions {#upload-flow-definitions}
+
+A Worker can upload Flow Definition Graph documents when it starts, so Dex Web
+can draw the graph of each Flow type. Since 1.45.0.
+
+| Setting | Java name |
+| --- | --- |
+| Files and directories of documents | **flowDefinitionPaths** |
+| In-memory documents | **flowDefinitions** |
+
+- A directory is read recursively for **.json** files. A JSON file without
+  **flow.name** is skipped, so a directory may hold other JSON files.
+- A file's Flow type is its **flow.name**. Its generation time is its
+  top-level **generatedAt** (RFC 3339), or the file modification time.
+- A **FlowDefinitionDocument** carries its Flow type, JSON bytes, and
+  generation time. Pass a fixed time for a document built from a template.
+- The **Worker** constructor reads the files. It throws
+  **IllegalArgumentException** when two sources have the same Flow type, or an
+  in-memory document is not JSON or names another Flow type. A missing or
+  unreadable path is logged as a warning and skipped.
+- **start** uploads the documents after protocol negotiation and Attribute
+  index synchronization, before it opens task streams. It uploads only the Flow
+  types that the **Registry** registers and logs the others at INFO.
+- Before upload, an absolute **source.path** in a document becomes a path
+  relative to the working directory, or the file name when the file is
+  elsewhere. Nothing else in the document changes.
+- The uploader is **java/** followed by the SDK version.
+- Results are logged through **java.util.logging**: CREATED and REPLACED at
+  INFO, UNCHANGED at FINE, and KEPT_EXISTING at WARNING with both digests and
+  generation times.
+- Every upload failure is logged as a WARNING and the Worker keeps starting.
+  Each request uses the **attributeIndexSyncTimeout** deadline.
+  This includes a Server without Flow definition storage, which returns
+  UNIMPLEMENTED.
+
+Deploy scripts can call **Client.uploadFlowDefinitions** instead. See
+[Flow definitions](/reference/server/runtime-client#flow-definitions) for how
+the Server decides between a stored and an uploaded document.
+
 ## Capacity and shutdown
 
 | Setting | Java name |

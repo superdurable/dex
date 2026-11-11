@@ -13,6 +13,7 @@ persistence, reset, signals, timers, recovery, and failure behavior.
 | `BasicTest` | start inputs, ID reuse, custom names, config, describe, step wait |
 | `ConditionalCompleteTest` | multi-message signal/internal channel draining and conditional close |
 | `InternalChannelTest` | parallel movements, payloads, unselected conditions, and channel maps |
+| `FlowDefinitionUploadTest` | Worker upload of Flow definitions from files and memory, registered-type filtering, `source.path` rewriting, duplicate sources, rejected uploads, and Client upload outcomes |
 | `HardDeleteAttributeTest` | hard-delete Attribute and AttributeMap initial values, Step and RPC overwrites and deletions, inline reads, absence after deletion, and wait rejection |
 | `NoStartStateTest` | no-start, no-step, dead-end, and RPC-triggered movement |
 | `PersistenceTest` | typed attributes/maps, primitive-value equality waits, indexes, initial values, client reads/writes |

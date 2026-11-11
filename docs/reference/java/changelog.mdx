@@ -8,6 +8,15 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Java SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.45 {#v1-45}
+
+Not released yet. The next minor release, sdk-java/v1.45.0, ships these changes.
+
+### Added
+
+- **WorkerOptions.Builder.flowDefinitionPaths** and **WorkerOptions.Builder.flowDefinitions** make a **Worker** upload Flow Definition Graph documents when it starts, so Dex Web can draw the Flow types it registers. **FlowDefinitionDocument** holds an in-memory document. Upload failures, including a Server without Flow definition storage, are logged as warnings and never stop the Worker. [Reference](/reference/java/workers#upload-flow-definitions).
+- **Client.uploadFlowDefinitions** uploads documents from a deploy or CI script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/java/client#api-names).
+
 ## 1.44 {#v1-44}
 
 Released 2026-11-10 as [sdk-java/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.44.0).

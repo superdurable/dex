@@ -6,10 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{Credential, FlowServiceTlsOptions};
+use crate::{Credential, FlowDefinitionDocument, FlowServiceTlsOptions};
 
 /// Configures outbound polling for a Worker.
 ///
@@ -156,6 +157,8 @@ pub struct WorkerOptions {
     attribute_index_sync_timeout: Duration,
     credential: Option<Arc<dyn Credential>>,
     flow_service_tls: Option<FlowServiceTlsOptions>,
+    flow_definition_paths: Vec<PathBuf>,
+    flow_definitions: Vec<FlowDefinitionDocument>,
 }
 
 impl WorkerOptions {
@@ -167,7 +170,73 @@ impl WorkerOptions {
             attribute_index_sync_timeout: Duration::from_secs(120),
             credential: None,
             flow_service_tls: None,
+            flow_definition_paths: Vec::new(),
+            flow_definitions: Vec::new(),
         }
+    }
+
+    /// Sets the Flow Definition Graph files that the Worker uploads to the Dex Server at start.
+    ///
+    /// Dex Web draws each Flow type's graph from the uploaded document. Generate the files with
+    /// `dexcli visualize`. Each path is a file or a directory; a directory is read recursively
+    /// for `*.json` files. The Flow type of a file is its `flow.name`. Its generation time is its
+    /// top-level `generatedAt` (RFC 3339), or the file modification time when that is missing. A
+    /// JSON file without `flow.name` is skipped, so a directory may hold other JSON files. A
+    /// missing or unreadable path is logged as a warning and skipped.
+    ///
+    /// [`crate::Worker::try_new`] reads the files. [`crate::Worker::start`] uploads only documents
+    /// for Flow types that the Registry registers, after protocol negotiation and Attribute-index
+    /// synchronization and before it opens task streams. An absolute `source.path` in a document
+    /// is replaced by a path relative to the working directory, or by the file name when the file
+    /// is elsewhere. An upload failure, including an older Server without upload support, is
+    /// logged as a warning; the Worker still starts. Each request uses the
+    /// [`Self::attribute_index_sync_timeout`] deadline. The default is no paths. Each call
+    /// replaces the previous paths. [`crate::Worker::try_new`] returns
+    /// [`crate::SdkError::FlowDefinition`] when two sources share a Flow type.
+    ///
+    /// Since 1.45.0.
+    ///
+    /// ```
+    /// use dex_sdk::WorkerOptions;
+    /// let options = WorkerOptions::new()
+    ///     .server_address("dex:8801")
+    ///     .flow_definition_paths(["flow-definitions"]);
+    /// ```
+    pub fn flow_definition_paths<P: Into<PathBuf>>(
+        mut self,
+        value: impl IntoIterator<Item = P>,
+    ) -> Self {
+        self.flow_definition_paths = value.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Sets in-memory Flow Definition Graph documents that the Worker uploads at start.
+    ///
+    /// Use this when the application builds documents itself, for example from a template with
+    /// a fixed generation time. Uploading, filtering to registered Flow types, the `source.path`
+    /// rewrite, and failure handling work as for [`Self::flow_definition_paths`]. A Flow type may
+    /// come from only one document across both settings. The default is no documents. Each call
+    /// replaces the previous documents. [`crate::Worker::try_new`] returns
+    /// [`crate::SdkError::FlowDefinition`] when a document is not JSON, its `flow.name` differs
+    /// from its Flow type, or two sources share a Flow type. See [`FlowDefinitionDocument`] for an
+    /// example.
+    ///
+    /// Since 1.45.0.
+    pub fn flow_definitions(
+        mut self,
+        value: impl IntoIterator<Item = FlowDefinitionDocument>,
+    ) -> Self {
+        self.flow_definitions = value.into_iter().collect();
+        self
+    }
+
+    pub(crate) fn take_flow_definition_sources(
+        &mut self,
+    ) -> (Vec<PathBuf>, Vec<FlowDefinitionDocument>) {
+        (
+            std::mem::take(&mut self.flow_definition_paths),
+            std::mem::take(&mut self.flow_definitions),
+        )
     }
 
     /// Sets the Dex FlowService address used by the Worker.

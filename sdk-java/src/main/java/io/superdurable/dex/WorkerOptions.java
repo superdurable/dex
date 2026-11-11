@@ -16,7 +16,11 @@ package io.superdurable.dex;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Configures a Java Worker's outbound polling, connection, and serialization.
@@ -44,6 +48,8 @@ public final class WorkerOptions {
     private final PullWorkerOptions pull;
     private final Credential credential;
     private final FlowServiceTlsOptions flowServiceTls;
+    private final List<Path> flowDefinitionPaths;
+    private final List<FlowDefinitionDocument> flowDefinitions;
 
     private WorkerOptions(final Builder builder) {
         this.serverAddress = builder.serverAddress;
@@ -53,6 +59,8 @@ public final class WorkerOptions {
         this.pull = builder.pull;
         this.credential = builder.credential;
         this.flowServiceTls = builder.flowServiceTls;
+        this.flowDefinitionPaths = builder.flowDefinitionPaths;
+        this.flowDefinitions = builder.flowDefinitions;
     }
 
     /**
@@ -92,6 +100,14 @@ public final class WorkerOptions {
         return flowServiceTls;
     }
 
+    List<Path> getFlowDefinitionPaths() {
+        return flowDefinitionPaths;
+    }
+
+    List<FlowDefinitionDocument> getFlowDefinitions() {
+        return flowDefinitions;
+    }
+
     /** Builds immutable {@link WorkerOptions} values. */
     public static final class Builder {
         private String serverAddress = "localhost:8801";
@@ -102,6 +118,8 @@ public final class WorkerOptions {
         private PullWorkerOptions pull = PullWorkerOptions.newBuilder().build();
         private Credential credential;
         private FlowServiceTlsOptions flowServiceTls;
+        private List<Path> flowDefinitionPaths = Collections.emptyList();
+        private List<FlowDefinitionDocument> flowDefinitions = Collections.emptyList();
 
         private Builder() {
         }
@@ -228,6 +246,83 @@ public final class WorkerOptions {
             }
             this.attributeIndexSyncTimeout = value;
             return this;
+        }
+
+        /**
+         * Sets the Flow Definition Graph files that the Worker uploads to the Dex Server at start.
+         *
+         * <p>Dex Web draws each Flow type's graph from the uploaded document. Generate the files
+         * with {@code dexcli visualize}. Each path is a file or a directory; a directory is read
+         * recursively for {@code *.json} files. The Flow type of a file is its {@code flow.name}.
+         * Its generation time is its top-level {@code generatedAt} (RFC 3339), or the file
+         * modification time when that is missing. A JSON file without {@code flow.name} is skipped,
+         * so a directory may hold other JSON files. A missing or unreadable path is logged as a
+         * warning and skipped.
+         *
+         * <p>The Worker reads the files when it is constructed. It uploads only documents for Flow
+         * types that its registry registers, after protocol negotiation and before it opens task
+         * streams. An absolute {@code source.path} in a document is replaced by a path relative to
+         * the working directory, or by the file name when the file is elsewhere. An upload failure,
+         * including an older Server without upload support, is logged as a warning; the Worker
+         * still starts. Each upload request uses the {@link #attributeIndexSyncTimeout(Duration)}
+         * deadline. The default is no paths. Each call replaces the previous paths.
+         *
+         * <pre>{@code
+         * WorkerOptions options = WorkerOptions.newBuilder()
+         *         .serverAddress("dex:8801")
+         *         .flowDefinitionPaths(Collections.singletonList(Paths.get("flow-definitions")))
+         *         .build();
+         * }</pre>
+         *
+         * @param value the nonnull files and directories; elements must be nonnull
+         * @return this builder
+         * @throws IllegalArgumentException if value or an element is null
+         * @since 1.45.0
+         */
+        public Builder flowDefinitionPaths(final List<Path> value) {
+            this.flowDefinitionPaths = immutableCopy(value, "flowDefinitionPaths");
+            return this;
+        }
+
+        /**
+         * Sets in-memory Flow Definition Graph documents that the Worker uploads at start.
+         *
+         * <p>Use this when the application builds documents itself, for example from a template
+         * with a fixed generation time. Uploading, filtering to registered Flow types, the
+         * {@code source.path} rewrite, and failure handling work as for
+         * {@link #flowDefinitionPaths(List)}. A Flow type may come from only one document across
+         * both settings. The default is no documents. Each call replaces the previous documents.
+         *
+         * <pre>{@code
+         * WorkerOptions options = WorkerOptions.newBuilder()
+         *         .flowDefinitions(Collections.singletonList(new FlowDefinitionDocument(
+         *                 "OrderFlow", orderFlowJson, Instant.parse("2026-11-01T00:00:00Z"))))
+         *         .build();
+         * }</pre>
+         *
+         * @param value the nonnull documents; elements must be nonnull
+         * @return this builder
+         * @throws IllegalArgumentException if value or an element is null; the {@link Worker}
+         *     constructor throws IllegalArgumentException when a document is not JSON, its
+         *     {@code flow.name} differs from its Flow type, or two sources share a Flow type
+         * @since 1.45.0
+         */
+        public Builder flowDefinitions(final List<FlowDefinitionDocument> value) {
+            this.flowDefinitions = immutableCopy(value, "flowDefinitions");
+            return this;
+        }
+
+        private static <T> List<T> immutableCopy(final List<T> value, final String name) {
+            if (value == null) {
+                throw new IllegalArgumentException(name + " is required");
+            }
+            final List<T> copy = new ArrayList<T>(value);
+            for (T element : copy) {
+                if (element == null) {
+                    throw new IllegalArgumentException(name + " must not contain null");
+                }
+            }
+            return Collections.unmodifiableList(copy);
         }
 
         /**
