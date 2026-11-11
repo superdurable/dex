@@ -27,6 +27,7 @@ import {
   type ToolTaskPollOutcome,
 } from "../../src/index.js";
 import {
+  McpToolListingError,
   McpToolSource,
   defaultMcpSourceName,
   mcpGetPromptToolName,
@@ -387,7 +388,7 @@ describe("tool source routing, policies, listing failures, and name collisions",
     );
   });
 
-  test("a logWarning callback that throws does not fail listTools", async () => {
+  test("a logWarning callback that throws does not replace the listing outcome", async () => {
     const directory = mkdtempSync(join(tmpdir(), "stepwise-throwing-warning-"));
     const refusingLog = join(directory, "refusing.log");
     const source = new McpToolSource(
@@ -400,7 +401,8 @@ describe("tool source routing, policies, listing failures, and name collisions",
         },
       },
     );
-    assert.deepEqual(await source.listTools(), []);
+    // With no server listed, listTools reports the listing failure, not the callback's error.
+    await assert.rejects(source.listTools(), McpToolListingError);
     assert.equal(launches(refusingLog), 1);
   });
 
