@@ -8,6 +8,7 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   linkSync,
@@ -26,6 +27,7 @@ import { basename, join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { crc32, deflateSync } from "node:zlib";
 
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
@@ -35,6 +37,24 @@ import { MockMessagesApi } from "../fixtures/mock-messages-api.js";
 const failAfterRenameHook = fileURLToPath(new URL("../fixtures/fail-after-rename-hook.js", import.meta.url));
 const noConnectors = { connectors: { enabled: [] }, local_tools: { browser: false } };
 const piToolNames = ["read", "grep", "find", "ls", "write", "edit", "bash"];
+
+/** A valid 1x1 PNG. */
+function pngBytes(): Buffer {
+  const chunk = (kind: string, data: Buffer): Buffer => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(kind, "latin1"), data]);
+    const checksum = Buffer.alloc(4);
+    checksum.writeUInt32BE(crc32(body));
+    return Buffer.concat([length, body, checksum]);
+  };
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0])),
+    chunk("IDAT", deflateSync(Buffer.from([0, 0xff, 0, 0]))),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
 
 function call(toolName: string, toolInput: Readonly<Record<string, unknown>>): string {
   return `call ${toolName} ${JSON.stringify(toolInput)}`;
@@ -112,6 +132,59 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(api.modelRequests()[0]?.["model"], "claude-opus-5-5");
     assert.deepEqual([...new Set(api.requests.map((request) => request.apiKey))], [mockApiKey]);
     assert.doesNotMatch(first.stdout.all + first.stderr.all + home.stateText(), new RegExp(mockApiKey));
+  });
+
+  function messageBlocks(body: Record<string, unknown> | undefined): Record<string, unknown>[] {
+    const messages = (body?.["messages"] as Record<string, unknown>[] | undefined) ?? [];
+    return messages.flatMap((message) =>
+      Array.isArray(message["content"]) ? (message["content"] as Record<string, unknown>[]) : [],
+    );
+  }
+
+  test("an image attached with /image reaches the Messages API as an image block", async () => {
+    const home = newHome(noConnectors);
+    const png = pngBytes();
+    writeFileSync(join(home.directory, "chart.png"), png);
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine("/image ~/chart.png");
+    await cli.stdout.waitFor("Attached chart.png (image/png");
+    cli.writeLine("say hi");
+    await cli.stdout.waitFor("said: hi");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const sha256 = createHash("sha256").update(png).digest("hex");
+    assert.deepEqual(readFileSync(join(home.directory, ".dex", "agents", "media", "sha256", sha256)), png);
+    const images = messageBlocks(api.modelRequests().at(-1)).filter((block) => block["type"] === "image");
+    assert.deepEqual(
+      images.map((block) => block["source"]),
+      [{ type: "base64", media_type: "image/png", data: png.toString("base64") }],
+    );
+  });
+
+  test("read of a PNG in the workspace reaches the next model call as an image in the tool result", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    const png = pngBytes();
+    writeFileSync(join(home.workspace, "chart.png"), png);
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("read", { path: "chart.png" }));
+    await cli.stdout.waitFor("read: Read image file [image/png]");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const toolResults = messageBlocks(api.modelRequests().at(-1)).filter((block) => block["type"] === "tool_result");
+    assert.equal(toolResults.length, 1, JSON.stringify(toolResults));
+    const content = (toolResults[0]?.["content"] as Record<string, unknown>[] | undefined) ?? [];
+    const images = content.filter((block) => block["type"] === "image");
+    assert.equal(images.length, 1, JSON.stringify(content));
+    const source = images[0]?.["source"] as Record<string, unknown>;
+    assert.equal(source["type"], "base64");
+    assert.equal(source["media_type"], "image/png");
+    const stored = Buffer.from(String(source["data"]), "base64");
+    const sha256 = createHash("sha256").update(stored).digest("hex");
+    assert.deepEqual(readFileSync(join(home.directory, ".dex", "agents", "media", "sha256", sha256)), stored);
+    assert.doesNotMatch(JSON.stringify(content), /image omitted/);
   });
 
   test("read and ls run at once, and the Pi tools replace the runtime's file and shell tools", async () => {
