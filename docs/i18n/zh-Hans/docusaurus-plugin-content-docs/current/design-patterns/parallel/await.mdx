@@ -330,7 +330,7 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 - 由多个 Step 组成的分支，要把 round token 一直传到最后一个 Step，并且只由这个 Step 上报。
 - 分支自己不等待汇合。只有汇合 Step 等待它这一轮。
 - 被取消的分支不会上报。不要取消汇合正在等待的分支。要么把汇合和它们一起取消，要么用 **AnyOf** 同时等待汇合和一个 Timer。
-- Join 就是一个与 Join 同名的 ChannelMap。可以通过它读取一轮中待处理的结果，例如在 RPC 中读取。不要直接向它发布消息。
+- Join 底层是一个同名的 ChannelMap。可以通过它读取一轮中待处理的结果，例如在 RPC 中读取。不要直接向它发布消息。
 
 ## 只等待部分分支
 

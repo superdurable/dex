@@ -28,11 +28,11 @@ The ratings use the scheme of the published evaluations.
   an RPC guard, or a loop that waits again. In a few rows, one part of the
   definition holds in a limited form, and the row says which. The published
   evaluations call this rating partial support.
+- **-** means no support.
 
 A Dex construct is part of the programming model. It is a Primitive, a Step
 decision, a wait, or an SDK API that all five SDKs provide and document as
 the standard way to do the job. The **Join** is such an API.
-- **-** means no support.
 
 ## How Dex joins parallel branches {#why-many-joins-are-indirect}
 
@@ -75,14 +75,14 @@ The Join counts the results that branches report. It does not watch the
 branch Steps. These limits follow.
 
 - Each branch must report exactly once per round, on every exit path. That
-  includes the Step that a failure route goes to. A branch that never reports
-  leaves a join that waits for every branch waiting forever. A branch that
-  reports twice counts twice.
+  includes the Step that a failure route goes to. If a branch never reports,
+  a join that waits for every branch waits forever. A branch that reports
+  twice counts twice.
 - A branch that is canceled from outside, for example by an RPC, never
   reports. A join that waits for every branch then waits forever. Cancel the
   join together with the branches, or wait for the join and a Timer with
   **AnyOf**.
-- The second limit does not change the ratings. In Petri nets and YAWL,
+- Canceling a branch from outside does not change the ratings. In Petri nets and YAWL,
   canceling a task inside a synchronized region also deadlocks the AND-join,
   unless the cancel region includes the join.
 - A join Step can be canceled after its wait consumed results but before its
@@ -273,7 +273,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **What it is.** After a parallel split, the first branch to arrive passes control on. Later arrivals do not. The construct resets once every branch has arrived. See the [official definition](http://www.workflowpatterns.com/patterns/control/advanced_branching/wcp9.php).
 
-**How Dex implements it.** A **Join** forks each round. The join waits for **ForBranches** of 1 and passes control on. It also starts the next round's split Step with the round token. That Step's **WaitFor** waits for **ForRemainingBranches**, which consumes the other results of the round. That is the reset. The Step then forks the next round. The example records the ignored results in an Attribute.
+**How Dex implements it.** The split Step forks each round of a **Join**. The join waits for **ForBranches** of 1 and passes control on. It also starts the next round's split Step with the round token. That Step's **WaitFor** waits for **ForRemainingBranches**, which consumes the other results of the round. That is the reset. The Step then forks the next round. The example records the ignored results in an Attribute.
 
 **Rating:** **+**. The Join keys each round by the Step execution that forked it, so a late result never passes control on. The reset needs no extra Step and no round counter.
 
@@ -467,7 +467,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **What it is.** The first branch to arrive passes control on. The definition says "Subsequent enablements of incoming branches are blocked until the Blocking Discriminator has reset." It resets once every active branch has arrived. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp28.php).
 
-**How Dex implements it.** A **Join** forks each round, and the join waits for **ForBranches** of 1. The next round's split Step waits for **ForRemainingBranches** of the previous round before it forks again. Until then, no branch of the next round exists, so a next-round signal stays queued and has no effect.
+**How Dex implements it.** The split Step forks each round of a **Join**, and the join waits for **ForBranches** of 1. The next round's split Step waits for **ForRemainingBranches** of the previous round before it forks again. Until then, no branch of the next round exists, so a next-round signal stays queued and has no effect.
 
 **Rating:** **+**. The reset blocks the next round by construction. It needs no extra Step and no round counter.
 
@@ -477,7 +477,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **What it is.** The first branch to arrive passes control on. It also cancels the other branches. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp29.php).
 
-**How Dex implements it.** A **Join** forks the branches, and the join waits for **ForBranches** of 1. Its decision cancels its sibling Steps of the branch Step types. **Fork** starts the branches and the join in one decision, so the siblings are exactly this round's branches.
+**How Dex implements it.** The split Step forks the branches with a **Join**, and the join waits for **ForBranches** of 1. Its decision cancels its sibling Steps of the branch Step types. **Fork** starts the branches and the join in one decision, so the siblings are exactly this round's branches.
 
 **Rating:** **+**. One join Step both fires and cancels. A canceled branch never reports a result.
 
@@ -487,7 +487,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **What it is.** After a parallel split into m branches, control passes on once n of them arrive. Later arrivals do not pass control on. The join resets after every branch arrives. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp30.php).
 
-**How Dex implements it.** A **Join** forks each round of m branches. The join waits for **ForBranches** of n. The next round's split Step waits for **ForRemainingBranches** of the previous round, which consumes the other m - n results. Then it forks the next round. The example records the ignored results in an Attribute.
+**How Dex implements it.** The split Step forks each round of a **Join** with m branches. The join waits for **ForBranches** of n. The next round's split Step waits for **ForRemainingBranches** of the previous round, which consumes the other m - n results. Then it forks the next round. The example records the ignored results in an Attribute.
 
 **Rating:** **+**. As in WCP-9, the Join keys each round, and the reset needs no extra Step and no round counter.
 
@@ -527,7 +527,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **What it is.** m instances run. The next task starts once n of them complete. The rest still finish, and the join resets after all complete. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp34.php).
 
-**How Dex implements it.** A **Join** forks m instances of one Step type in each round. The join waits for **ForBranches** of n. The next round's split Step waits for **ForRemainingBranches** of the previous round, then forks the next round. The example records the ignored results in an Attribute.
+**How Dex implements it.** In each round, the split Step forks a **Join** with m instances of one Step type. The join waits for **ForBranches** of n. The next round's split Step waits for **ForRemainingBranches** of the previous round, then forks the next round. The example records the ignored results in an Attribute.
 
 **Rating:** **+**. As in WCP-30, with instances as the branches.
 
@@ -537,7 +537,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 
 **What it is.** m instances run. Once n of them complete, the next task starts and the rest are canceled. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp35.php).
 
-**How Dex implements it.** A **Join** forks m instances, and the join waits for **ForBranches** of n. Its decision cancels its sibling Steps of the instance Step type.
+**How Dex implements it.** The split Step forks m instances with a **Join**, and the join waits for **ForBranches** of n. Its decision cancels its sibling Steps of the instance Step type.
 
 **Rating:** **+**. As in WCP-32, with instances as the branches.
 

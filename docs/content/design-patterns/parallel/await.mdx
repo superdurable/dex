@@ -329,7 +329,7 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 - A branch of several Steps passes the round token to its last Step, and only that Step reports.
 - A branch never waits for the join itself. Only the join Step waits for its round.
 - A canceled branch never reports. Do not cancel branches that the join waits for. Cancel the join together with them, or wait for the join and a Timer with **AnyOf**.
-- The Join is a ChannelMap with the Join's name. You can read a round's pending results through it, for example in an RPC. Never publish to it directly.
+- A Join stores its results in a ChannelMap with the same name. You can read a round's pending results through it, for example in an RPC. Never publish to it directly.
 
 ## Wait for some branches
 

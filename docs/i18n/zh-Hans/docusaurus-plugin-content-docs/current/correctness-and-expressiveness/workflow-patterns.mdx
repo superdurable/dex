@@ -47,7 +47,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 - 每个分支每轮必须恰好上报一次，所有退出路径都要上报，包括失败路由去往的 Step。从不上报的分支会让等待全部分支的汇合一直等下去。上报两次的分支会被计两次。
 - 从外部取消的分支（例如被 RPC 取消）不会上报。等待全部分支的汇合会一直等下去。要把汇合和分支一起取消，或者用 **AnyOf** 同时等待汇合和一个 Timer。
-- 第二条限制不影响评级。在 Petri net 和 YAWL 中，取消同步区域内的任务同样会让 AND-join 死锁，除非取消区域包含这个 join。
+- 从外部取消分支这一点不影响评级。在 Petri net 和 YAWL 中，取消同步区域内的任务同样会让 AND-join 死锁，除非取消区域包含这个 join。
 - 汇合 Step 的等待已经消费了结果，但它的 **Execute** 结果还没保存时，它可能被取消。这些结果是否回到这一轮，取决于 server 版本，见 [server change log](/reference/server/changelog)。如果结果丢失，为同一轮重新建立的汇合永远不会触发。
 
 ## 评级如何验证 {#how-the-ratings-were-checked}
@@ -218,7 +218,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：并行拆分之后，最先到达的分支把控制传下去，之后到达的分支不再传递。所有分支都到达后，该构件复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/advanced_branching/wcp9.php)。
 
-**Dex 实现**：每一轮由 **Join** fork。汇合 Step 等待 **ForBranches** 取 1，然后传递控制。它同时用 round token 启动下一轮的拆分 Step。这个 Step 的 **WaitFor** 等待 **ForRemainingBranches**，消费这一轮其余的结果，这就是 reset。然后它 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
+**Dex 实现**：拆分 Step 用 **Join** fork 每一轮。汇合 Step 等待 **ForBranches** 取 1，然后传递控制。它同时用 round token 启动下一轮的拆分 Step。这个 Step 的 **WaitFor** 等待 **ForRemainingBranches**，消费这一轮其余的结果，这就是 reset。然后它 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
 
 **评级**：**+**。Join 按开启一轮的 Step 执行区分各轮，所以迟到的结果永远不会传递控制。reset 不需要额外的 Step，也不需要轮次计数器。
 
@@ -412,7 +412,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：最先到达的分支把控制传下去。定义写道："Subsequent enablements of incoming branches are blocked until the Blocking Discriminator has reset."所有活动分支都到达后，它复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp28.php)。
 
-**Dex 实现**：每一轮由 **Join** fork，汇合 Step 等待 **ForBranches** 取 1。下一轮的拆分 Step 先等待上一轮的 **ForRemainingBranches**，再 fork 下一轮。在此之前，下一轮的分支还不存在，所以下一轮的信号只会排队，不产生效果。
+**Dex 实现**：拆分 Step 用 **Join** fork 每一轮，汇合 Step 等待 **ForBranches** 取 1。下一轮的拆分 Step 先等待上一轮的 **ForRemainingBranches**，再 fork 下一轮。在此之前，下一轮的分支还不存在，所以下一轮的信号只会排队，不产生效果。
 
 **评级**：**+**。reset 在结构上挡住下一轮，不需要额外的 Step，也不需要轮次计数器。
 
@@ -422,7 +422,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：最先到达的分支把控制传下去，并取消其他分支。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp29.php)。
 
-**Dex 实现**：**Join** fork 各分支，汇合 Step 等待 **ForBranches** 取 1。它的 decision 取消分支 Step type 中属于它的 sibling 的 Step。**Fork** 在同一个 decision 里启动分支和汇合 Step，所以这些 sibling 正好是本轮的分支。
+**Dex 实现**：拆分 Step 用 **Join** fork 各分支，汇合 Step 等待 **ForBranches** 取 1。它的 decision 取消分支 Step type 中属于它的 sibling 的 Step。**Fork** 在同一个 decision 里启动分支和汇合 Step，所以这些 sibling 正好是本轮的分支。
 
 **评级**：**+**。同一个汇合 Step 既触发又取消。被取消的分支永远不会上报结果。
 
@@ -432,7 +432,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：并行拆分成 m 个分支后，其中 n 个到达时控制就传下去，之后到达的不再传递。所有分支都到达后，汇合复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp30.php)。
 
-**Dex 实现**：每一轮由 **Join** fork m 个分支。汇合 Step 等待 **ForBranches** 取 n。下一轮的拆分 Step 等待上一轮的 **ForRemainingBranches**，消费其余 m - n 个结果，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
+**Dex 实现**：每一轮，拆分 Step 用 **Join** fork m 个分支。汇合 Step 等待 **ForBranches** 取 n。下一轮的拆分 Step 等待上一轮的 **ForRemainingBranches**，消费其余 m - n 个结果，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
 
 **评级**：**+**。与 WCP-9 一样，Join 区分各轮，reset 不需要额外的 Step，也不需要轮次计数器。
 
@@ -472,7 +472,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个实例运行。其中 n 个完成时，下一个任务开始。其余实例照常完成，全部完成后汇合复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp34.php)。
 
-**Dex 实现**：每一轮由 **Join** fork 同一 Step type 的 m 个实例。汇合 Step 等待 **ForBranches** 取 n。下一轮的拆分 Step 等待上一轮的 **ForRemainingBranches**，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
+**Dex 实现**：每一轮，拆分 Step 用 **Join** fork 同一 Step type 的 m 个实例。汇合 Step 等待 **ForBranches** 取 n。下一轮的拆分 Step 等待上一轮的 **ForRemainingBranches**，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
 
 **评级**：**+**。与 WCP-30 相同，只是分支换成了实例。
 
@@ -482,7 +482,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个实例运行。其中 n 个完成时，下一个任务开始，其余实例被取消。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp35.php)。
 
-**Dex 实现**：**Join** fork m 个实例，汇合 Step 等待 **ForBranches** 取 n。它的 decision 取消实例 Step type 中属于它的 sibling 的 Step。
+**Dex 实现**：拆分 Step 用 **Join** fork m 个实例，汇合 Step 等待 **ForBranches** 取 n。它的 decision 取消实例 Step type 中属于它的 sibling 的 Step。
 
 **评级**：**+**。与 WCP-32 相同，只是分支换成了实例。
 
