@@ -18,23 +18,22 @@ import { AppHeader } from './AppHeader';
 
 type DefinitionsReply = 'fail' | number;
 
-function definitionsResponse(reply: DefinitionsReply): Response {
+/** The Flow type list, which is all the header and the app root read about definitions. */
+function definitionsResponse(reply: DefinitionsReply, isOperatorAPI = false): Response {
   if (reply === 'fail') {
     return new Response(JSON.stringify({ error: 'definitions unavailable' }), { status: 503 });
   }
   return new Response(JSON.stringify({
     configured: true,
-    directory: '/defs',
-    definitionRevision: 'r1',
-    definitionCount: reply,
-    definitions: Array.from({ length: reply }, (_, index) => ({ id: `d${index}` })),
+    operatorAPI: isOperatorAPI,
+    flowTypes: Array.from({ length: reply }, (_, index) => ({ flowType: `Flow${index}`, source: 'directory' })),
   }), { status: 200 });
 }
 
 function stubDexWeb(replies: DefinitionsReply[]) {
   let readCount = 0;
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
-    if (input === '/api/v2/catalog') return new Response('{}', { status: 404 });
+    if (input !== '/api/flow-definition-types') throw new Error(`unexpected request ${input}`);
     readCount += 1;
     const reply = replies[Math.min(readCount - 1, replies.length - 1)];
     return definitionsResponse(reply);
@@ -111,11 +110,7 @@ describe('Dex Web header Docs link', () => {
 describe('Dex Web header Designs entry', () => {
   it('stays hidden while loading', async () => {
     const pendingReads: Array<() => void> = [];
-    vi.stubGlobal('fetch', vi.fn((input: string) => new Promise<Response>((resolve) => {
-      if (input === '/api/v2/catalog') {
-        resolve(new Response('{}', { status: 404 }));
-        return;
-      }
+    vi.stubGlobal('fetch', vi.fn((_input: string) => new Promise<Response>((resolve) => {
       pendingReads.push(() => resolve(definitionsResponse(1)));
     })));
     renderHeader('/v1/flows');
@@ -149,13 +144,7 @@ describe('Dex Web header Designs entry', () => {
 
 function stubOperatorDexWeb({ flows, connectors }: { flows: number; connectors: 'missing' | 'disabled' | number }) {
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
-    if (input === '/api/v2/catalog') {
-      return new Response(JSON.stringify({
-        enabled: true,
-        definitionRevision: 'r1',
-        flows: Array.from({ length: flows }, (_, index) => ({ flowType: `Flow${index}`, definition: {} })),
-      }));
-    }
+    if (input === '/api/v2/catalog') throw new Error('the header must not read the v2 catalog');
     if (input === '/api/v2/connector-connections') {
       if (connectors === 'missing') return new Response('404 page not found', { status: 404 });
       return new Response(JSON.stringify({
@@ -165,7 +154,7 @@ function stubOperatorDexWeb({ flows, connectors }: { flows: number; connectors: 
         connections: Array.from({ length: connectors === 'disabled' ? 0 : connectors }, (_, index) => ({ connectorId: `c${index}` })),
       }));
     }
-    return definitionsResponse(1);
+    return definitionsResponse(flows, true);
   }));
 }
 
@@ -190,27 +179,28 @@ describe('Dex Web header experimental pages', () => {
   });
 
   it.each([
-    ['no valid Flow types and no Connector setup', 0, 'missing' as const],
+    ['no Flow types and no Connector setup', 0, 'missing' as const],
     ['Connector setup turned off', 0, 'disabled' as const],
   ])('leaves out what does not apply: %s', async (_name, flows, connectors) => {
     stubOperatorDexWeb({ flows, connectors });
     renderHeader('/v1/flows');
-    await waitFor(() => expect(designsLink()).not.toBeNull());
-    expect(screen.queryByRole('menuitem', { name: /Work Queue/ })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: /Connectors/ })).toBeNull();
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/v2/connector-connections', expect.anything()));
+    expect(experimentalMenuButton()).toBeNull();
+  });
+
+  it('offers Work Queue once any Flow type has a definition, before reading any definition', async () => {
+    stubOperatorDexWeb({ flows: 1, connectors: 'missing' });
+    renderHeader('/v1/flows');
+    await waitFor(() => expect(experimentalItem('Work Queue')).not.toBeNull());
+    expect(vi.mocked(fetch).mock.calls.map(([input]) => input)).not.toContain('/api/flow-definitions');
   });
 
   it('offers Connectors where Connector setup runs, before any connection and without Flow definitions', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string) => {
-      if (input === '/api/v2/catalog') {
-        return new Response(JSON.stringify({ enabled: true, definitionRevision: 'r0', flows: [] }));
-      }
       if (input === '/api/v2/connector-connections') {
         return new Response(JSON.stringify({ enabled: true, definitionRevision: 'r0', csrfToken: 't', connections: [] }));
       }
-      return new Response(JSON.stringify({
-        configured: false, definitionRevision: 'r0', definitionCount: 0, definitions: [],
-      }));
+      return new Response(JSON.stringify({ configured: false, operatorAPI: true, flowTypes: [] }));
     }));
     renderHeader('/v1/flows');
     await waitFor(() => expect(experimentalItem('Connectors')).not.toBeNull());

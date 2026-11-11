@@ -9,7 +9,7 @@
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
 import { hydrateBlobs } from '@/lib/blobs';
 import { readResponseJSON } from '@/lib/http';
-import type { FlowDefinitionEntry, FlowState, FlowSummary, V2CatalogEntry, V2Flow } from '@/lib/types';
+import type { FlowState, FlowSummary, V2CatalogEntry, V2Flow } from '@/lib/types';
 import {
   APPROVAL_STEP_TYPE,
   QUESTION_STEP_TYPE,
@@ -36,14 +36,10 @@ export interface AgentSessionRead {
 /** The session schema of every loaded Flow type that can ask for an approval. */
 export function inboxSessionSchemas(
   flows: readonly V2CatalogEntry[],
-  definitions: readonly FlowDefinitionEntry[],
 ): Map<string, { definition: FlowV2Definition; schema: AgentSessionSchema }> {
   const schemas = new Map<string, { definition: FlowV2Definition; schema: AgentSessionSchema }>();
   for (const entry of [...flows].sort((left, right) => left.flowType.localeCompare(right.flowType))) {
-    const graph = definitions.find((candidate) => (
-      candidate.flowName === entry.flowType && candidate.schemaVersion === '2.0' && candidate.valid
-    ))?.graph;
-    const schema = agentSessionSchema(graph, entry.definition);
+    const schema = agentSessionSchema(entry);
     if (schema?.resolveInterrupt) schemas.set(entry.flowType, { definition: entry.definition, schema });
   }
   return schemas;

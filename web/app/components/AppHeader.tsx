@@ -11,7 +11,7 @@ import { useLocation } from 'react-router-dom';
 import { BookOpen, Inbox, PencilRuler, Plug } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import { usePreferences } from '../providers';
-import type { FlowDefinitionCatalog } from '@/lib/types';
+import type { FlowDefinitionTypeList } from '@/lib/types';
 import { isWorkQueueApplicable } from '../catalog/applicability';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
 import { ExperimentalMenu, type ExperimentalPage } from './ExperimentalMenu';
@@ -26,27 +26,27 @@ export const COMPANY_HOME_URL = 'https://superdurable.io';
 /** The Dex documentation site that the header Docs link opens in a new tab. */
 export const DEX_DOCS_URL = 'https://docs.superdurable.io/';
 
-/** Designs has something to show only when the definitions directory holds at least one JSON file. */
-export function hasLoadedFlowDefinitions(definitions: FlowDefinitionCatalog | null): boolean {
-  return definitions?.configured === true && definitions.definitions.length > 0;
+/** Designs has something to show only when a directory file or an upload declares at least one Flow type. */
+export function hasLoadedFlowDefinitions(flowTypes: FlowDefinitionTypeList | null): boolean {
+  return flowTypes?.configured === true && flowTypes.flowTypes.length > 0;
 }
 
 /**
- * Reports whether the Designs page applies.
- * It rereads the catalog on every route change, so a failed read or a changed directory recovers on the next navigation.
+ * The Flow type list, which reads no definition.
+ * It rereads the list on every route change, so a failed read or a new definition recovers on the next navigation.
  */
-function useHasLoadedFlowDefinitions(pathname: string): boolean {
-  const [hasDefinitions, setHasDefinitions] = useState(false);
+function useFlowDefinitionTypes(pathname: string): FlowDefinitionTypeList | null {
+  const [flowTypes, setFlowTypes] = useState<FlowDefinitionTypeList | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    fetch(webURL('/api/flow-definitions'), { signal: controller.signal })
-      .then((response) => readResponseJSON<FlowDefinitionCatalog>(response))
-      .then((catalog) => setHasDefinitions(hasLoadedFlowDefinitions(catalog)))
+    fetch(webURL('/api/flow-definition-types'), { signal: controller.signal })
+      .then((response) => readResponseJSON<FlowDefinitionTypeList>(response))
+      .then(setFlowTypes)
       // A failed read keeps the last known answer; the next navigation retries.
       .catch(() => undefined);
     return () => controller.abort();
   }, [pathname]);
-  return hasDefinitions;
+  return flowTypes;
 }
 
 /** The part of the local Connector setup listing that says whether the page has anything to show. */
@@ -86,10 +86,11 @@ function useHasConnectorSetup(canUseOperatorAPI: boolean): boolean {
 
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
-  const { canUseOperatorAPI, canUseV2, catalog } = useWebCatalog();
+  const { canUseOperatorAPI, canUseV2 } = useWebCatalog();
   const location = useLocation();
-  const hasFlowDefinitions = useHasLoadedFlowDefinitions(location.pathname);
-  const hasWorkQueue = isWorkQueueApplicable(catalog, canUseV2);
+  const flowTypes = useFlowDefinitionTypes(location.pathname);
+  const hasFlowDefinitions = hasLoadedFlowDefinitions(flowTypes);
+  const hasWorkQueue = isWorkQueueApplicable(flowTypes, canUseV2);
   const hasConnectors = useHasConnectorSetup(canUseOperatorAPI);
   const experimentalPages: ExperimentalPage[] = [
     ...(hasFlowDefinitions ? [{

@@ -9,6 +9,8 @@
 import { Link } from 'react-router-dom';
 import type { FlowDefinitionEntry } from '@/lib/types';
 import { CONNECTORS_PATH } from '../routes';
+import { DesignCanvasErrorBoundary, DesignUnavailable } from './DesignCanvasErrorBoundary';
+import { flowDefinitionLimitProblem } from './definitionLimits';
 import { FlowDesignCanvas } from './FlowDesignCanvas';
 
 /**
@@ -18,11 +20,17 @@ import { FlowDesignCanvas } from './FlowDesignCanvas';
  * how a Flow is built rather than what one run did.
  */
 export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntry }) {
+  const problem = flowDefinitionLimitProblem(definition.graph);
+  if (problem !== null) {
+    return <DesignUnavailable title="This Flow design graph is too large to draw" detail={problem} />;
+  }
   return (
-    <FlowDesignCanvas
-      graph={definition.graph}
-      graphKey={definition.file}
-      connectorSettingsLink={<Link to={CONNECTORS_PATH}>Configure connection</Link>}
-    />
+    <DesignCanvasErrorBoundary key={definition.id}>
+      <FlowDesignCanvas
+        graph={definition.graph}
+        graphKey={definition.id}
+        connectorSettingsLink={<Link to={CONNECTORS_PATH}>Configure connection</Link>}
+      />
+    </DesignCanvasErrorBoundary>
   );
 }

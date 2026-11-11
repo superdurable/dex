@@ -27,10 +27,19 @@ function sessionGraph(flowType: string, permission: string) {
   return graph;
 }
 
-function graphEntry(flowType: string, permission: string) {
+/** A v2 catalog entry for a session graph, with the session parts Dex Web's server reads from it. */
+function sessionCatalogEntry(flowType: string, permission: string) {
+  const graph = sessionGraph(flowType, permission);
+  const nodes = graph.nodes as { kind: string; name: string }[];
   return {
-    id: flowType, file: `${flowType}.json`, schemaVersion: '2.0', flowName: flowType, sourceLanguage: 'python',
-    sourcePath: 'session_flow.py', valid: true, graph: sessionGraph(flowType, permission),
+    flowType,
+    definition: graph.v2,
+    definitionRevision: `r-${flowType}`,
+    agentSession: {
+      language: graph.source.language,
+      hasQuestions: nodes.some((node) => node.kind === 'step' && node.name === 'AwaitQuestionAnswer'),
+      rpcNames: nodes.filter((node) => node.kind === 'rpc').map((node) => node.name),
+    },
   };
 }
 
@@ -58,22 +67,23 @@ function stubServer(sessions: Record<string, Session>, actionReply: (body: Recor
   async function handle(url: string, init?: RequestInit) {
     const path = new URL(url, 'http://dex.test');
     const flowId = path.searchParams.get('flowId') ?? '';
-    if (url === '/api/flow-definitions') {
+    if (url === '/api/flow-definition-types') {
       return json({
-        configured: true, definitionRevision: 'r1', definitionCount: 3,
-        definitions: [graphEntry('SupportAgent', 'support.operate'), graphEntry('FinanceAgent', 'finance.operate')],
+        configured: true, operatorAPI: true,
+        flowTypes: ['FinanceAgent', 'OrderFlow', 'SupportAgent'].map((flowType) => ({ flowType, source: 'uploaded' })),
       });
     }
     if (url === '/api/v2/catalog') {
       return json({
         enabled: true, definitionRevision: 'r1',
         flows: [
-          { flowType: 'FinanceAgent', definition: sessionGraph('FinanceAgent', 'finance.operate').v2 },
-          { flowType: 'OrderFlow', definition: { indexedAttributes: [], summary: view, display: view, actions: [] } },
-          { flowType: 'SupportAgent', definition: sessionGraph('SupportAgent', 'support.operate').v2 },
+          sessionCatalogEntry('FinanceAgent', 'finance.operate'),
+          { flowType: 'OrderFlow', definition: { indexedAttributes: [], summary: view, display: view, actions: [] }, definitionRevision: 'r-OrderFlow' },
+          sessionCatalogEntry('SupportAgent', 'support.operate'),
         ],
       });
     }
+    if (path.pathname.startsWith('/api/flow-definitions/')) return json({ error: 'no graphs in this test' }, 404);
     if (url === '/api/v2/search') {
       searches.push(JSON.parse(String(init?.body)));
       return json({

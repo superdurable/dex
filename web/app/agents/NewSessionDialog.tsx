@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { DexAPIError } from '@/lib/http';
-import type { FlowDefinitionCatalog, V2Catalog } from '@/lib/types';
+import type { V2Catalog } from '@/lib/types';
 import { sessionSchemaFor } from '../catalog/applicability';
 import { SESSION_COPY } from './copy';
 import {
@@ -21,12 +21,9 @@ import {
 import './session.css';
 
 /** The catalog Flow types whose graph is a Dex Agents session, in catalog order. */
-export function agentSessionFlowTypes(
-  catalog: V2Catalog | null | undefined,
-  definitions: FlowDefinitionCatalog | null | undefined,
-): string[] {
+export function agentSessionFlowTypes(catalog: V2Catalog | null | undefined): string[] {
   return (catalog?.flows ?? [])
-    .filter((entry) => sessionSchemaFor(definitions, entry) !== null)
+    .filter((entry) => sessionSchemaFor(entry) !== null)
     .map((entry) => entry.flowType);
 }
 
@@ -64,7 +61,7 @@ export function sessionIdProblem(sessionId: string): string | null {
 export function NewSessionDialog({
   flowTypes,
   initialFlowType,
-  definitionRevision,
+  definitionRevisionFor,
   onClose,
   onDefinitionChanged,
   onStarted,
@@ -72,7 +69,8 @@ export function NewSessionDialog({
   /** Agent session Flow types to choose from; at least one. */
   flowTypes: readonly string[];
   initialFlowType?: string;
-  definitionRevision: string;
+  /** The revision a start request sends for the chosen Flow type. */
+  definitionRevisionFor: (flowType: string) => string;
   onClose: () => void;
   onDefinitionChanged: (error: unknown) => boolean;
   onStarted: (flowType: string, sessionId: string) => void;
@@ -114,7 +112,7 @@ export function NewSessionDialog({
         flowId: draft.sessionId.trim(),
         initialMessage: draft.firstMessage,
         sessionSettings: settings.value,
-        definitionRevision,
+        definitionRevision: definitionRevisionFor(flowType),
       });
       if (isOpen.current) onStarted(flowType, sessionId);
     } catch (error) {

@@ -70,6 +70,7 @@ function definitionEntry(id: string, flowName: string, graph: FlowDefinitionGrap
     sourceLanguage: 'python',
     sourcePath: 'flow.py',
     valid: true,
+    source: 'directory',
     graph,
   };
 }
@@ -83,6 +84,18 @@ const plainGraph = {
   edges: [],
   diagnostics: [],
 } as unknown as FlowDefinitionGraph;
+
+/** The session parts Dex Web's server reads from a session graph, or undefined for any other graph. */
+function agentSessionOf(definitions: FlowDefinitionEntry[]) {
+  const graph = definitions.find((definition) => definition.schemaVersion === '2.0' && definition.valid)?.graph;
+  const isSession = graph?.nodes.some((node) => node.kind === 'step' && node.name === 'StartAgentSession' && node.start === true);
+  if (!graph || !isSession) return undefined;
+  return {
+    language: graph.source.language,
+    hasQuestions: graph.nodes.some((node) => node.kind === 'step' && node.name === 'AwaitQuestionAnswer'),
+    rpcNames: graph.nodes.filter((node) => node.kind === 'rpc').map((node) => node.name),
+  };
+}
 
 interface DexWebStub {
   flowType: string;
@@ -110,9 +123,26 @@ function stubDexWeb({
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
     const url = new URL(input, 'http://dex.test');
     requests.push(url.pathname);
-    if (url.pathname === '/api/flow-definitions') {
+    if (url.pathname === '/api/flow-definition-types') {
+      const flowTypes = [...new Set(definitions.map((definition) => definition.flowName))];
+      return json({
+        configured: true,
+        operatorAPI: operatorFlows !== undefined,
+        flowTypes: flowTypes.map((name) => ({ flowType: name, source: 'directory' })),
+      });
+    }
+    if (url.pathname.startsWith('/api/flow-definitions/')) {
       await definitionsReleased;
-      return json({ configured: true, definitionRevision: 'r1', definitionCount: definitions.length, definitions });
+      const requested = decodeURIComponent(url.pathname.slice('/api/flow-definitions/'.length));
+      const matches = definitions.filter((definition) => definition.flowName === requested);
+      if (matches.length === 0) return json({ code: 'FLOW_DEFINITION_NOT_FOUND', error: 'not found' }, 404);
+      const operatorFlow = operatorFlows?.find((candidate) => candidate.flowType === requested);
+      return json({
+        flowType: requested,
+        definitionRevision: `r-${requested}`,
+        definitions: matches,
+        v2: operatorFlow ? { ...operatorFlow, definitionRevision: `r-${requested}`, agentSession: agentSessionOf(matches) } : null,
+      });
     }
     if (url.pathname === '/api/v2/catalog') {
       return operatorFlows ? json({ enabled: true, definitionRevision: 'r1', flows: operatorFlows }) : json({}, 404);
@@ -222,6 +252,17 @@ describe('Run page experimental tabs', () => {
     expect(tabLabels()).toEqual(['overview', 'steps', 'timeline', 'stream', 'design']);
     const design = screen.getByRole('button', { name: /^Design/ });
     expect(design.querySelector('.experimental-badge')?.textContent).toBe('Experimental');
+  });
+
+  it('reads only the definitions of the run Flow type, never every definition', async () => {
+    const requests = stubDexWeb({
+      flowType: 'OrderFlow',
+      definitions: [definitionEntry('order', 'OrderFlow', plainGraph), definitionEntry('other', 'OtherFlow', plainGraph)],
+    });
+    renderRun();
+    await waitFor(() => expect(tabLabels()).toContain('design'));
+    const definitionRequests = requests.filter((path) => path.includes('definition') || path === '/api/v2/catalog');
+    expect(definitionRequests).toEqual(['/api/flow-definition-types', '/api/flow-definitions/OrderFlow']);
   });
 
   it('opens a running Flow on Design without reading history, state, stored values or waiting', async () => {

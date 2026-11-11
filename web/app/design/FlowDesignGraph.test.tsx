@@ -46,6 +46,7 @@ function entryOf(file: string): FlowDefinitionEntry {
     sourceLanguage: graph.source.language,
     sourcePath: graph.source.path,
     valid: graph.valid,
+    source: 'directory',
     graph,
   };
 }
