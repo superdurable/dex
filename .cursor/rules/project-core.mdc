@@ -42,8 +42,8 @@ Developer reference. Pure internal refactors and fixes that preserve
 application behavior do not change skills either.
 
 If a Dex change makes existing skills text wrong, remove or correct that text
-in the same work item. That correction is a PATCH bump. Do not add new
-volatile detail while doing so.
+in the same work item. That correction adds a skills fragment with
+`bump: patch`. Do not add new volatile detail while doing so.
 
 Test each fact with one question: will this still hold in the next minor
 release? If yes, it may belong in skills. If no, it belongs in the Developer
@@ -51,16 +51,24 @@ reference.
 
 Skills contain no Dex version numbers and no release-tag pins. A skills change
 does not wait for a Dex release, and a Dex release never requires a skills
-change. Merging `skills/` to main automatically syncs it to the read-only
+change. A skills release-prep pull request assembles the fragments and bumps
+the version. Merging it syncs `skills/` to the read-only
 `superdurable/dex-skills` mirror, which publishes the skill release.
 
 If the skills mirror is unavailable or contains work that cannot be safely
-synced, do not mark the skills change complete. Report the blocker explicitly.
+synced, do not mark the skills release complete. Report the blocker
+explicitly.
 
-Bump the skills `VERSION` and add a `CHANGELOG.md` entry only when stable
-content changes. A typo, link, or wording-only change needs no bump; its pull
-request description contains a line `skills-release: no bump needed: <reason>`.
-See `skills/CONTRIBUTING.md`.
+A stable skills content change adds a fragment: run
+`python3 script/release/changelog_fragments.py new skills --bump <level>` and
+write the change-log bullets in the new `changelog.d/skills/` file. A typo,
+link, or wording-only change needs no fragment; its pull request description
+contains a line `skills-release: no bump needed: <reason>`. Never edit
+`skills/VERSION`, `skills/dex-sdk/VERSION`, the plugin and marketplace
+manifests, or `skills/CHANGELOG.md` by hand. Only the release-prep pull
+request writes them. Check Gate CI rejects other edits unless the description
+contains a line `changelog: correction: <reason>`. See
+`skills/CONTRIBUTING.md` and `changelog.d/README.md`.
 
 ## Release Versions
 

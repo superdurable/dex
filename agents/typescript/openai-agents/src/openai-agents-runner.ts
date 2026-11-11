@@ -16,6 +16,7 @@ import {
   invokeFunctionTool,
   runToolInputGuardrails,
   type AgentInputItem,
+  type CallModelInputFilter,
   type Model,
   type RunConfig,
   type RunStreamEvent,
@@ -36,8 +37,10 @@ import {
   estimateTextTokens,
   isFinalToolCallStatus,
   selectTurnBoundaryCutoff,
+  collectTurnImages,
   type AgentEventWriter,
   type AgentFrameworkRunner,
+  type AgentImageReference,
   type AgentToolCall,
   type AgentTurnContext,
   type AgentMessage,
@@ -48,6 +51,7 @@ import {
   type DeferredToolExecution,
   type FrameworkMessage,
   type ListedSourceTool,
+  type MediaStore,
   type ModelCallMetadata,
   type ResolvedToolPolicy,
   type SourceToolDefinition,
@@ -65,6 +69,7 @@ import {
   type GraphFunctionTool,
   type WrappedAgentGraph,
 } from "./openai-agents-agent-graph.js";
+import { buildUserImageMessageItem, createImageBytesInputFilter } from "./openai-agents-images.js";
 import {
   buildUserMessageItem,
   readAgentInputItems,
@@ -115,6 +120,11 @@ export interface OpenAIAgentsRunnerSettings<TContext> extends AgentGraphConfigur
   readonly summaryModel?: string | Model | undefined;
   readonly toolSources: readonly ToolSource[];
   readonly toolSourceListingTimeoutMs: number | undefined;
+  /**
+   * The store of the session's images; with it the runner shows images to the model. Defaults to none.
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore | undefined;
 }
 
 /**
@@ -123,6 +133,12 @@ export interface OpenAIAgentsRunnerSettings<TContext> extends AgentGraphConfigur
  * summary enters as the first input item of a turn's first model call. A resumed call continues from the
  * `RunState`, which holds its input, so it never compacts. With tool sources, every `RunModel` lists them and
  * wraps the agent graph again, so every agent offers the listed tools as gated function tools.
+ *
+ * With a media store, a user message's images become `input_image` parts after its `input_text` part, and a tool
+ * call record's images become `input_image` parts after the text of its `function_call_result` output, except for a
+ * function tool with an output schema. Stored items and the `RunState` hold each image's `uri`, never its bytes.
+ * Every model call reads the bytes with `loadImages` and sends each image as a `data:` URL, after the run
+ * configuration's own `callModelInputFilter`.
  */
 export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
   private readonly agentGraph: WrappedAgentGraph;
@@ -130,6 +146,15 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
   private readonly toolSources: ToolSourceRouter;
   private readonly graphToolNames: ReadonlySet<string>;
   private fixedInputTokens: number | undefined;
+  /**
+   * Converts user text and its images into the stored SDK user message. Set only on a runner with a media store,
+   * so a runner without one refuses images.
+   * @since 0.5.0
+   */
+  public readonly buildUserMessageWithImages?: (
+    text: string,
+    images: readonly AgentImageReference[],
+  ) => FrameworkMessage;
 
   public constructor(
     private readonly startingAgent: Agent<TContext, any>,
@@ -147,6 +172,9 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         : { listingTimeoutMs: settings.toolSourceListingTimeoutMs }),
     });
     this.mapSourceToolNamesToFunctionToolNames([...this.toolSources.declaredToolNames()]);
+    if (settings.mediaStore !== undefined) {
+      this.buildUserMessageWithImages = (text, images) => toFrameworkMessage(buildUserImageMessageItem(text, images));
+    }
   }
 
   public buildUserMessage(text: string): FrameworkMessage {
@@ -168,14 +196,16 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
             runContext,
             unreturnedResumedToolCallIds,
           );
-    let modelStepRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
-      this.streamModelCall(turn, agentGraph, runInput, runContext),
+    const modelStep = { turn, unreturnedResumedToolCallIds, showsToolImages: this.settings.mediaStore !== undefined };
+    const callModelInputFilter = this.createCallModelInputFilter(turn);
+    let modelStepRun = await runningModelStepScope.run(modelStep, () =>
+      this.streamModelCall(turn, agentGraph, runInput, runContext, callModelInputFilter),
     );
     // A new call of a replay-only tool stops the run like any gated call; refuse it and continue the run.
     while (this.refuseReplayOnlyToolCalls(turn, modelStepGraph, modelStepRun.result)) {
       const refusedRunState = modelStepRun.result.state;
-      const resumedRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
-        this.streamModelCall(turn, agentGraph, refusedRunState, runContext),
+      const resumedRun = await runningModelStepScope.run(modelStep, () =>
+        this.streamModelCall(turn, agentGraph, refusedRunState, runContext, callModelInputFilter),
       );
       modelStepRun = {
         result: resumedRun.result,
@@ -188,7 +218,8 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     const modelCallMetadata = createModelCallMetadata(modelStepRun, this.settings.runConfig.model);
     const interruptions = result.interruptions;
     if (interruptions.length === 0) {
-      return { kind: "completed", newMessages: result.output.map(toFrameworkMessage), usage, ...modelCallMetadata };
+      const newMessages = result.output.map((item) => toFrameworkMessage(item, (id) => turn.recordedToolCall(id)));
+      return { kind: "completed", newMessages, usage, ...modelCallMetadata };
     }
     const toolCalls: DeferredToolCall[] = [];
     for (const interruption of interruptions) {
@@ -483,6 +514,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     agentGraph: WrappedAgentGraph,
     runInput: AgentInputItem[] | AnyRunState,
     runContext: RunContext<TContext | undefined>,
+    callModelInputFilter: CallModelInputFilter | undefined,
   ): Promise<OpenAIAgentsModelStepRun> {
     const maxTurns = this.settings.maxTurns;
     const modelCallAgents = [Array.isArray(runInput) ? agentGraph.startingAgent : runInput.currentAgent];
@@ -498,6 +530,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
         signal,
         ...(Array.isArray(runInput) ? { context: runContext } : {}),
         ...(maxTurns === undefined ? {} : { maxTurns }),
+        ...(callModelInputFilter === undefined ? {} : { callModelInputFilter }),
       },
     );
     for await (const event of result) {
@@ -527,6 +560,15 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
       throw signal.reason ?? new Error(`the model call of turn ${turn.turnId} was cancelled`);
     }
     return { result, modelCallAgents, responseIds };
+  }
+
+  /** A per-run filter replaces the configured one, so the image filter runs the configured filter first. */
+  private createCallModelInputFilter(turn: AgentTurnContext): CallModelInputFilter | undefined {
+    const mediaStore = this.settings.mediaStore;
+    if (mediaStore === undefined) {
+      return undefined;
+    }
+    return createImageBytesInputFilter(mediaStore, collectTurnImages(turn), this.settings.runConfig.callModelInputFilter);
   }
 
   private async toDeferredToolCall(

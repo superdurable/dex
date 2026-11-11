@@ -20,6 +20,10 @@ Not released yet. The next minor release, cli-v1.45.0, ships these changes.
 
 - **dexcli dev** bundles server-zd 0.1.26, which stores uploaded Flow Definition Graphs. [Reference](/reference/server/changelog#v0-1-26).
 
+### Fixed
+
+- **dexcli visualize** writes an empty array, never **null**, for every list in the Flow Definition Graph. A WaitFor that only fails used to get **"conditions": null**. [Reference](/reference/web/flow-visualization#json-contract).
+
 ## 1.44 {#v1-44}
 
 Released 2026-11-10 as [cli-v1.44.0](https://github.com/superdurable/dex/releases/tag/cli-v1.44.0).

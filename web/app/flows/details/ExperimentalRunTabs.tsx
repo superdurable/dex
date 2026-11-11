@@ -13,7 +13,7 @@ import { SESSION_COPY } from '../../agents/copy';
 import { agentSessionFlowTypes, NewSessionDialog } from '../../agents/NewSessionDialog';
 import type { AgentSessionSchema } from '../../agents/sessionSchema';
 import { SessionView } from '../../agents/SessionView';
-import { useWebCatalog } from '../../catalog/WebCatalogProvider';
+import { useV2Catalog } from '../../catalog/WebCatalogProvider';
 import { sessionRunPath } from '../../routes';
 import { ChevronDown, Plus, UserRound } from 'lucide-react';
 import { SelectedRunPanel } from '../../workspace/SelectedRunPanel';
@@ -39,31 +39,24 @@ export function AgentSessionTab({
   workingAs: RunWorkingAs;
 }) {
   const navigate = useNavigate();
-  const { catalog, definitions, handleDefinitionError } = useWebCatalog();
   const [isNewSessionOpen, setNewSessionOpen] = useState(false);
-  const flowTypes = agentSessionFlowTypes(catalog, definitions);
   return (
     <section className="v2-shell sv run-experimental xp" aria-label="Agent session">
       <header className="xp-head">
         <h3>Agent session</h3>
         <div className="xp-head-tools">
           <WorkingAsBar entry={entry} workingAs={workingAs} />
-          {flowTypes.length > 0 && catalog && (
-            <button className="xp-new-session" onClick={() => setNewSessionOpen(true)} type="button">
-              <Plus aria-hidden="true" size={14} strokeWidth={2.2} />
-              {SESSION_COPY.newSession}
-            </button>
-          )}
+          <button className="xp-new-session" onClick={() => setNewSessionOpen(true)} type="button">
+            <Plus aria-hidden="true" size={14} strokeWidth={2.2} />
+            {SESSION_COPY.newSession}
+          </button>
         </div>
       </header>
-      {isNewSessionOpen && catalog && (
-        <NewSessionDialog
-          definitionRevision={catalog.definitionRevision}
-          flowTypes={flowTypes}
-          initialFlowType={entry.flowType}
+      {isNewSessionOpen && (
+        <CatalogNewSessionDialog
+          entry={entry}
           onClose={() => setNewSessionOpen(false)}
-          onDefinitionChanged={handleDefinitionError}
-          onStarted={(_flowType, sessionId) => {
+          onStarted={(sessionId) => {
             setNewSessionOpen(false);
             navigate(sessionRunPath(sessionId));
           }}
@@ -79,6 +72,34 @@ export function AgentSessionTab({
         onChooseWorkingAs={workingAs.setPermission}
       />
     </section>
+  );
+}
+
+/**
+ * New session for a session run. It lists every session Flow type, so it reads the whole catalog,
+ * but only once the reader opens it; until then it offers the run's own Flow type.
+ */
+function CatalogNewSessionDialog({
+  entry,
+  onClose,
+  onStarted,
+}: {
+  entry: V2CatalogEntry;
+  onClose: () => void;
+  onStarted: (sessionId: string) => void;
+}) {
+  const { catalog, handleDefinitionError, revisionFor } = useV2Catalog();
+  const catalogFlowTypes = agentSessionFlowTypes(catalog);
+  const flowTypes = catalogFlowTypes.includes(entry.flowType) ? catalogFlowTypes : [entry.flowType, ...catalogFlowTypes];
+  return (
+    <NewSessionDialog
+      definitionRevisionFor={(flowType) => revisionFor([flowType])}
+      flowTypes={flowTypes}
+      initialFlowType={entry.flowType}
+      onClose={onClose}
+      onDefinitionChanged={handleDefinitionError}
+      onStarted={(_flowType, sessionId) => onStarted(sessionId)}
+    />
   );
 }
 

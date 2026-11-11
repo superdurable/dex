@@ -330,7 +330,8 @@ export function decodeFlow(
       continue
     }
     waitNodeToStep.set(n.id, owner.id)
-    const conditions: Condition[] = n.wait.conditions.map((c) => ({
+    // dexcli visualize 1.44 and older writes null conditions for a WaitFor that only fails.
+    const conditions: Condition[] = (n.wait.conditions ?? []).map((c) => ({
       kind: c.kind,
       label: cleanConditionLabel(c.label),
       resourceId: c.resourceId,

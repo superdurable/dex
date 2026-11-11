@@ -64,7 +64,7 @@ func (h *v2Handler) startAgentSession(response http.ResponseWriter, request *htt
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	snapshot, ok := h.loadSnapshot(response, request, true)
+	snapshot, ok := h.loadSnapshot(response, request, []string{body.FlowType}, true)
 	if !ok {
 		return
 	}
@@ -174,7 +174,7 @@ func (h *v2Handler) invokeAgentSessionRPC(
 	rpcName string,
 	input []byte,
 ) {
-	snapshot, ok := h.loadSnapshot(response, request, true)
+	snapshot, ok := h.loadSnapshot(response, request, []string{flowType}, true)
 	if !ok {
 		return
 	}

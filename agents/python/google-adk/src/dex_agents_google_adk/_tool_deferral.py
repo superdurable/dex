@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import AsyncIterator, Callable, Collection, Iterator
+from collections.abc import AsyncIterator, Callable, Collection, Iterator, Mapping
 from typing import Any
 
 from google.adk.agents import BaseAgent, LlmAgent
@@ -30,15 +30,18 @@ from google.genai import types
 from pydantic_core import to_jsonable_python
 
 from dex_agents import (
+    AgentImageReference,
     AgentToolCall,
     AgentTurnContext,
     DeferredToolCall,
+    MediaStore,
     ToolCallStatus,
     ToolEffect,
     ToolPolicy,
     describe_tool_call_outcome,
 )
 from dex_agents.builtin_loop import FrameworkToolSourceRouter, SourceToolListing
+from dex_agents_google_adk._images import inline_image_references, with_tool_result_images
 from dex_agents_google_adk._tool_sources import SourceTool, SourceToolset
 
 TOOL_DEFERRAL_PLUGIN_NAME = "dex_tool_deferral"
@@ -70,6 +73,8 @@ class ToolDeferralPlugin(BasePlugin):
     One instance serves one ``RunModel`` attempt. It must be the last plugin,
     so application plugins see each call first. A deferred call pauses the
     ADK invocation; ADK control tools run inline because they steer it.
+    With a media store, it also swaps image placeholders for bytes in each
+    model request, and adds a record's images to its replayed result.
     """
 
     def __init__(
@@ -79,8 +84,12 @@ class ToolDeferralPlugin(BasePlugin):
         root_agent: BaseAgent,
         source_tools: SourceToolListing,
         paused_tool_call_ids: Collection[str],
+        media_store: MediaStore | None = None,
+        image_references_by_uri: Mapping[str, AgentImageReference] | None = None,
     ) -> None:
         super().__init__(name=TOOL_DEFERRAL_PLUGIN_NAME)
+        self._media_store = media_store
+        self._image_references_by_uri = image_references_by_uri or {}
         self._turn = turn
         self._session_id = session_id
         self._root_agent = root_agent
@@ -99,6 +108,10 @@ class ToolDeferralPlugin(BasePlugin):
         self.model_call_count += 1
         self.requested_models.append(llm_request.model)
         _raise_for_source_tool_name_collisions(llm_request, self._source_tools)
+        if self._media_store is not None:
+            await inline_image_references(
+                llm_request, self._media_store, self._image_references_by_uri
+            )
         return None
 
     async def after_model_callback(
@@ -128,7 +141,10 @@ class ToolDeferralPlugin(BasePlugin):
             raise RuntimeError(f"ADK called tool {tool.name} without a function call ID")
         record = self._turn.recorded_tool_call(tool_call_id)
         if record is not None:
-            return recorded_tool_response(self._take_paused_record(record, tool.name))
+            response = recorded_tool_response(self._take_paused_record(record, tool.name))
+            if self._media_store is None:
+                return response
+            return with_tool_result_images(response, record)
         if isinstance(tool, SourceTool) and self._source_tools.is_replay_only(tool.name):
             # Its source no longer lists the tool; the model reads why, and nothing runs.
             return {"error": self._source_tools.not_offered_result(tool.name)}

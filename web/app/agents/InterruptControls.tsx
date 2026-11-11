@@ -30,7 +30,7 @@ export function useSessionActionInvoker(
   flowId: string,
   workQueuePermissions: readonly string[],
 ): SessionActionInvoker {
-  const { catalog } = useWebCatalog();
+  const { revisionFor } = useWebCatalog();
   return (action, input) => {
     if (!action) return Promise.resolve<SessionActionOutcome>({ kind: 'failed', message: SESSION_COPY.closed });
     return invokeSessionAction({
@@ -39,7 +39,7 @@ export function useSessionActionInvoker(
       action,
       input,
       workQueuePermissions,
-      definitionRevision: catalog?.definitionRevision ?? '',
+      definitionRevision: revisionFor([flowType]),
     });
   };
 }

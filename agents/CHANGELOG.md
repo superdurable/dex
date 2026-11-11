@@ -4,7 +4,27 @@ All twelve Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
-## Unreleased
+## 0.5.0 (not released yet)
+
+### Dex SDK 1.44.0
+
+- Every package requires Dex SDK 1.44.0 (`dex-python-sdk==1.44.0`,
+  `@superdurable/dex` `1.44.0`, Go `sdk-go` `v1.44.0`) instead of 1.38.0, so an
+  application can use the SDK's **Join** helper with the agents packages
+  without overriding the SDK version. The npm adapters peer-depend on
+  `@superdurable/dex` `1.44.0`.
+- The SDK pin stays exact, because an SDK minor release may break APIs that
+  an application shares with the agents packages. The agents packages use
+  none of the APIs that SDK 1.43.0 removed. Before upgrading, read the
+  breaking changes of SDK 1.43 in the
+  [Python](../docs/reference/python/changelog.mdx),
+  [TypeScript](../docs/reference/typescript/changelog.mdx), and
+  [Go](../docs/reference/go/changelog.mdx) SDK change logs.
+- Dex SDK 1.44.0 still needs a Dex Server with protocol 4: server-zd v0.1.17
+  or later.
+- Agents CI, the nightly long run, and the publish workflows test against
+  `dexcli` 1.44.0. The Python and TypeScript CLI runtimes download `dexcli`
+  1.44.0 when none is installed.
 
 ### Dex MCP conventions
 
@@ -76,6 +96,16 @@ for the Dex SDK and framework versions each release supports.
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- Python commands for the other harnesses, not published yet, on the shared
+  CLI runtime: **dex-agents-openai-sdk** (OpenAI Agents SDK),
+  **dex-agents-pydantic-ai** (Pydantic AI), **dex-agents-deepagents** (Deep
+  Agents on the LangGraph adapter), **dex-agents-google-adk** (Google ADK), and
+  **dex-agents-builtin** (the Dex built-in agent loop on LiteLLM). Each uses the
+  runtime's local and connector tools, so every tool call is its own Dex tool
+  Step with the runtime's policy, and each model call uses its turn's model and
+  instructions. Provider keys come only from each provider's standard
+  environment variables. The configuration file's `langgraph` section is now
+  `deepagents`. See [cli/python](cli/python).
 - The TypeScript **dex-agents-openai-sdk**, **dex-agents-vercel-ai**,
   **dex-agents-mastra**, and **dex-agents-builtin** commands
   (`@superdurable/dex-agents-<name>-cli`), not published yet: an OpenAI Agents
@@ -98,8 +128,8 @@ for the Dex SDK and framework versions each release supports.
   **ClaudeCodeToolDenial** to refuse it, or nothing for the session's policies,
   so `Bash` can run allow-listed commands without approval. See
   [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
-- New npm package `@superdurable/dex-agents-pi` (not published yet) runs Pi
-  agents on the Stepwise session Flow. Dex runs the agent loop; pi-ai makes
+- New npm package `@superdurable/dex-agents-pi`, first published in 0.5.0, runs
+  Pi agents on the built-in agent loop's session Flow. Dex runs the agent loop; pi-ai makes
   each model call and Pi tools run as Dex tool Steps. It peer-depends on
   `@earendil-works/pi-ai@^1.5.1`, tested with 1.5.1.
   **createPiAiModelClient(model, { apiKey, headers, prepareRequest })** makes
@@ -119,6 +149,25 @@ for the Dex SDK and framework versions each release supports.
   `AgentSessionClient.start_session` and TypeScript `startAgentSession` take
   it. Workers before 0.5.0 ignore it. The CLI runtimes record their host name,
   user ID and user name, configuration identity, and workspace there.
+- Python and TypeScript cores: new **ToolCallContext.effect**, the effect of a
+  built-in agent loop function tool call after the tool policies are applied.
+  It is the effect that chose `CallTool` or `CallSingleAttemptTool`, so a wrapper that
+  turns errors into `ToolExecutionError` can let errors of a
+  `non_idempotent_write` or `unclassified` call propagate and the session
+  records `outcome_unknown`. The runner always sets it. A context built by
+  hand has no effect: the field is optional in TypeScript, so existing
+  contexts still compile, and defaults to `UNCLASSIFIED` in Python. Treat
+  either as an unknown effect and handle the call as a write.
+- Python and TypeScript cores: built-in agent loop function tools take an
+  optional **prepare_arguments** (`prepareArguments`) that converts the model's decoded
+  arguments before the schema check, such as an argument shape an earlier
+  version of the tool took. Its result is checked and passed to the tool. An
+  error it raises fails the call like a schema violation:
+  `invalid arguments for <tool>: <message>`; a cancellation passes through
+  unchanged. It must be synchronous and deterministic: an awaitable result
+  fails the call with `argument conversion must be synchronous`, and the
+  TypeScript type **PreparedToolArguments** refuses a Promise. The stored tool
+  call and the approval interrupt keep the model's original arguments.
 
 ### Images
 
@@ -171,8 +220,29 @@ for the Dex SDK and framework versions each release supports.
   it; a missing object fails the turn with **MediaStoreError**.
 - `send_user_message` returns `false` for invalid images, or for images when
   the runner does not implement **ImageUserMessageBuilder**
-  (`buildUserMessageWithImages`). No built-in runner implements it yet; image
-  input for Stepwise and the framework adapters comes later.
+  (`buildUserMessageWithImages`). The built-in loop does not implement it yet.
+- Framework adapters show images to their model when built with a media
+  store: a new optional **media_store** (`mediaStore`) on each adapter's
+  runner and session-flow factory. With a store, the runner accepts images,
+  keeps only references in its stored items and run state, and loads the
+  bytes right before each model call, so a replay sends the same input.
+  A user image becomes the framework's image part, and a tool result's
+  images reach the model in the framework's tool-result form. Without a
+  store the adapter refuses images, as before. See each adapter README,
+  "Images".
+- Python and TypeScript cores: **McpToolSource** takes an optional
+  **media_store** (`mediaStore`). With one, the `image` content of a
+  successful result is uploaded inside the tool Step and returned in
+  `ToolExecutionResult.images`, and the output text shows `[image <n>]` in
+  its place. More than 20 images, invalid base64, or bytes that are not a
+  supported image fail the call. Base64 must be canonical: padded, without
+  line breaks or unused trailing bits. Without a store, the image content of
+  a successful result stays JSON text, as before.
+- Both cores: a failed MCP result (`isError`, or the Dex outcome `rejected`
+  or `unknown`) shows `[image <n> omitted]` for each image block in its
+  text, with or without a media store, so the recorded error holds no image
+  bytes. It used to hold each image block as JSON with its base64. Cases: `mcp_image_content` in
+  `agents/conformance/images.json`.
 - Runners read bytes with **load_images** (`loadImages`) and may choose them
   with **collect_turn_images** (`collectTurnImages`).
 - Go core: no image input. Its values carry `images`, so a value written by
@@ -207,7 +277,8 @@ for the Dex SDK and framework versions each release supports.
     `EncodeStepwiseMessage` -> `EncodeBuiltinLoopMessage`;
     `DecodeStepwiseMessage` -> `DecodeBuiltinLoopMessage`. Package `stepwise`
     forwards to `builtinloop` and is marked `Deprecated:`.
-  - The framework adapters and the agents CLI runtime import the new names.
+  - The framework adapters, the Pi adapter, and the agents CLI runtime import
+    the new names.
 - The error text for a session message that the built-in agent loop cannot
   read now says "built-in agent loop item" (Python and Go cores) or "built-in
   loop item" (TypeScript core) instead of "Stepwise item", and the

@@ -36,6 +36,10 @@ type EmbeddedSiteTarget struct {
 	BasePath string
 	// FlowRenderingDirectory defaults empty, meaning no Flow Definition Graph files; otherwise Dex Web reads the
 	// JSON files under it on every definition request.
+	//
+	// Dex Web also reads the definitions that Workers uploaded to the Dex Server through FlowServiceClient,
+	// so a target needs no directory for them. A Flow type that a file in this directory declares comes only
+	// from the directory. Changed in 1.45.0: Dex Web reads uploaded definitions.
 	FlowRenderingDirectory string
 }
 
@@ -82,7 +86,7 @@ func (site *EmbeddedSite) ServeTarget(response http.ResponseWriter, request *htt
 		api.WriteCodedError(response, http.StatusInternalServerError, "TARGET_INVALID", "Dex Web target is invalid")
 		return
 	}
-	flowDefinitions, err := NewDirectoryFlowDefinitionProvider(target.FlowRenderingDirectory)
+	flowDefinitions, err := newFlowDefinitionSources(target.FlowRenderingDirectory, target.FlowServiceClient)
 	if err != nil {
 		slog.Error("Dex Web target has an invalid Flow rendering directory", "error", err)
 		api.WriteCodedError(response, http.StatusInternalServerError, "TARGET_INVALID", "Dex Web target is invalid")

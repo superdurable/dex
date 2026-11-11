@@ -17,8 +17,20 @@ import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { claudeTranscriptItemKind } from "../../src/index.js";
 import { ClaudeAgentTestHarness } from "../fixtures/claude-agent-test-harness.js";
+import {
+  claudeTestAgentCliVariable,
+  claudeTestAgentMediaStoreVariable,
+  conformanceImage,
+  createMediaStore,
+  type ClaudeTestAgentCli,
+} from "../fixtures/claude-test-agent.js";
 import { FakeLedgerProvider } from "../fixtures/fake-ledger.js";
-import { mockScriptMarker, MockAnthropicApi, RefusingProxy } from "../fixtures/mock-anthropic-api.js";
+import {
+  mockScriptMarker,
+  MockAnthropicApi,
+  RefusingProxy,
+  type MockApiRequest,
+} from "../fixtures/mock-anthropic-api.js";
 
 /** Set by ci.sh so a missing native binary fails the suite instead of skipping it. */
 const isRealCliRequiredVariable = "CLAUDE_AGENT_SDK_REAL_CLI_REQUIRED";
@@ -56,29 +68,58 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     await engine?.stop();
   });
 
+  function realCli(stateDirectory: string, flowType: string, permissionMode?: PermissionMode): ClaudeTestAgentCli {
+    mkdirSync(join(stateDirectory, "home"), { recursive: true });
+    return {
+      flowType,
+      executablePath: realCliPath as string,
+      model: "claude-sonnet-4-5",
+      ...(permissionMode === undefined ? {} : { permissionMode }),
+      // A closed environment: never the developer's HOME, credentials, or the real API.
+      environment: {
+        PATH: "/usr/bin:/bin",
+        HOME: join(stateDirectory, "home"),
+        ANTHROPIC_BASE_URL: api.baseUrl,
+        ANTHROPIC_API_KEY: "sk-ant-test-not-a-real-key",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        DISABLE_AUTOUPDATER: "1",
+        HTTPS_PROXY: proxy.url,
+        HTTP_PROXY: proxy.url,
+        NO_PROXY: "127.0.0.1,localhost",
+      },
+    };
+  }
+
   async function startHarness(permissionMode?: PermissionMode): Promise<ClaudeAgentTestHarness> {
-    harness = await ClaudeAgentTestHarness.start(engine, true, (stateDirectory) => {
-      mkdirSync(join(stateDirectory, "home"), { recursive: true });
-      return {
-        flowType: permissionMode === undefined ? "RealClaudeCliAgent" : `RealClaudeCliAgent-${permissionMode}`,
-        executablePath: realCliPath as string,
-        model: "claude-sonnet-4-5",
-        ...(permissionMode === undefined ? {} : { permissionMode }),
-        // A closed environment: never the developer's HOME, credentials, or the real API.
-        environment: {
-          PATH: "/usr/bin:/bin",
-          HOME: join(stateDirectory, "home"),
-          ANTHROPIC_BASE_URL: api.baseUrl,
-          ANTHROPIC_API_KEY: "sk-ant-test-not-a-real-key",
-          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-          DISABLE_AUTOUPDATER: "1",
-          HTTPS_PROXY: proxy.url,
-          HTTP_PROXY: proxy.url,
-          NO_PROXY: "127.0.0.1,localhost",
-        },
-      };
-    });
+    harness = await ClaudeAgentTestHarness.start(engine, true, (stateDirectory) =>
+      realCli(
+        stateDirectory,
+        permissionMode === undefined ? "RealClaudeCliAgent" : `RealClaudeCliAgent-${permissionMode}`,
+        permissionMode,
+      ),
+    );
     return harness;
+  }
+
+  // A child Worker builds the same Flow from these variables, media store included.
+  async function startImageHarness(
+    isWorkerInProcess: boolean,
+  ): Promise<{ agent: ClaudeAgentTestHarness; workerEnvironment: Record<string, string> }> {
+    let cli: ClaudeTestAgentCli | undefined;
+    harness = await ClaudeAgentTestHarness.start(
+      engine,
+      isWorkerInProcess,
+      (stateDirectory) => {
+        cli = realCli(stateDirectory, "RealClaudeCliImageAgent");
+        return cli;
+      },
+      undefined,
+      true,
+    );
+    return {
+      agent: harness,
+      workerEnvironment: { [claudeTestAgentCliVariable]: JSON.stringify(cli), [claudeTestAgentMediaStoreVariable]: "1" },
+    };
   }
 
   function scriptedRequestsOf(command: string): number {
@@ -233,6 +274,95 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.equal(snapshot.messages.at(-1)?.text, "Bash: reviewed hi");
   });
 
+  test("user and tool result images reach the model and replay byte for byte after Worker restarts", async () => {
+    const { agent, workerEnvironment } = await startImageHarness(false);
+    const media = createMediaStore(agent.stateDirectory);
+    const userImageBase64 = conformanceImage("png").base64;
+    const screenshotBase64 = conformanceImage("gif").base64;
+    const userImage = await media.putImage(Buffer.from(userImageBase64, "base64"));
+    let worker = await agent.startWorker(workerEnvironment);
+    const sessionId = agent.newSessionId("real-images");
+    const command = `call screenshot {"label":"${sessionId}"}`;
+    await agent.sessions.startSession(sessionId);
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}${command}`, false, [userImage]), true);
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "screenshot");
+    // The suspended turn keeps its transcript, user image included, in the run state.
+    const [runState] = await agent.sessions.client.getAttributes(sessionId, agent.flow.frameworkRunState);
+    assert.ok(runState?.includes(userImage.uri));
+    assert.equal(runState?.includes(userImageBase64), false);
+
+    await worker.kill();
+    worker = await agent.startWorker(workerEnvironment);
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const first = await agent.waitForTurns(sessionId, 1);
+    assert.equal(first.state?.lastTurnError, null);
+    assert.equal(first.messages.at(-1)?.text, "screenshot: took a screenshot");
+    await worker.kill();
+    await agent.startWorker(workerEnvironment);
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, `${mockScriptMarker}recall`), true);
+    const second = await agent.waitForTurns(sessionId, 2);
+    assert.equal(second.messages.at(-1)?.text, `history: ${command}`);
+
+    const [firstRequest, resumedRequest, recallRequest] = requestsOfSession(sessionId);
+    assert.ok(firstRequest !== undefined && resumedRequest !== undefined && recallRequest !== undefined);
+    assert.deepEqual(imageBlocksOf(contentOf(firstRequest.messages[0])), [
+      { type: "image", source: { type: "base64", media_type: "image/png", data: userImageBase64 } },
+    ]);
+    const toolResult = contentOf(resumedRequest.messages.at(-1)).find((block) => block["type"] === "tool_result");
+    assert.equal(toolResult?.["tool_use_id"], interrupt.toolCallId);
+    assert.deepEqual(imageBlocksOf(toolResult?.["content"]), [
+      { type: "image", source: { type: "base64", media_type: "image/gif", data: screenshotBase64 } },
+    ]);
+    // Each restarted Worker rebuilt the earlier conversation from references, byte for byte.
+    const firstConversation = conversationOf(firstRequest);
+    const resumedConversation = conversationOf(resumedRequest);
+    assert.deepEqual(resumedConversation.slice(0, firstConversation.length), firstConversation);
+    assert.deepEqual(conversationOf(recallRequest).slice(0, resumedConversation.length), resumedConversation);
+
+    const screenshotImage = await media.putImage(Buffer.from(screenshotBase64, "base64"));
+    assert.deepEqual(second.messages[0]?.images, [userImage]);
+    const toolMessages = second.messages.filter((message) => message.role === "tool");
+    assert.deepEqual(
+      toolMessages.map((message) => [message.toolName, message.images]),
+      [["screenshot", [screenshotImage]]],
+    );
+    const stored = JSON.stringify(second.messages.map((message) => message.frameworkItem));
+    assert.equal(stored.includes(userImageBase64), false);
+    assert.equal(stored.includes(screenshotBase64), false);
+    assert.ok(stored.includes(screenshotImage.uri));
+    assert.equal(agent.invocations.count("screenshot"), 1);
+  });
+
+  test("a deferred custom tool's MCP image is stored as a reference and reaches the model", async () => {
+    const { agent } = await startImageHarness(true);
+    const drawingBase64 = conformanceImage("jpeg").base64;
+    const sessionId = agent.newSessionId("real-drawing");
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}call draw {"subject":"${sessionId}"}`);
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    assert.equal(snapshot.state?.lastTurnError, null);
+    assert.equal(snapshot.messages.at(-1)?.text, `draw: drew ${sessionId}`);
+    const toolMessages = snapshot.messages.filter((message) => message.role === "tool");
+    assert.deepEqual(
+      toolMessages.map((message) => (message.images ?? []).map((image) => image.sha256)),
+      [[conformanceImage("jpeg").sha256]],
+    );
+    const resumedRequest = requestsOfSession(sessionId).at(-1);
+    const toolResult = (resumedRequest?.messages ?? [])
+      .flatMap((message) => contentOf(message))
+      .find((block) => block["type"] === "tool_result");
+    assert.deepEqual(imageBlocksOf(toolResult?.["content"]), [
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: drawingBase64 } },
+    ]);
+    const stored = JSON.stringify(snapshot.messages.map((message) => message.frameworkItem));
+    assert.equal(stored.includes(drawingBase64), false);
+    assert.equal(agent.invocations.count("draw"), 1);
+  });
+
+  function requestsOfSession(sessionId: string): MockApiRequest[] {
+    return api.scriptedRequests().filter((request) => JSON.stringify(request.messages).includes(sessionId));
+  }
+
   test("Bash waits for approval and the resumed CLI runs it", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("real-bash");
@@ -244,6 +374,36 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.equal(snapshot.messages.at(-1)?.text, "Bash: hi");
   });
 });
+
+type JsonBlock = Readonly<Record<string, unknown>>;
+
+function contentOf(message: unknown): JsonBlock[] {
+  const content = (message as JsonBlock | undefined)?.["content"];
+  return Array.isArray(content) ? (content as JsonBlock[]) : [];
+}
+
+function imageBlocksOf(content: unknown): JsonBlock[] {
+  return Array.isArray(content) ? (content as JsonBlock[]).filter((block) => block["type"] === "image") : [];
+}
+
+// The CLI's system turns and cache breakpoints move between requests; neither carries images.
+function conversationOf(request: MockApiRequest): unknown[] {
+  return request.messages.filter((message) => message["role"] !== "system").map(withoutCacheControl);
+}
+
+function withoutCacheControl(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(withoutCacheControl);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => key !== "cache_control")
+        .map(([key, item]) => [key, withoutCacheControl(item)]),
+    );
+  }
+  return value;
+}
 
 function findBundledClaudeCli(): string | undefined {
   const require = createRequire(import.meta.url);

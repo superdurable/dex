@@ -11,9 +11,11 @@ import type { PocFlow } from './canvas/model/pocFlow';
 import type { StepGroup } from './canvas/views/groups';
 
 export function groupsFromDefinition(graph: FlowDefinitionGraph, flow: PocFlow): StepGroup[] {
+  // A map keeps a graph with many groups linear; a Step ID that names no Step is skipped.
+  const stepsByID = new Map(flow.steps.map((step) => [step.id, step]));
   return (graph.groups ?? []).map((group) => {
     const members = group.stepIds.flatMap((stepId) => {
-      const step = flow.steps.find((candidate) => candidate.id === stepId);
+      const step = stepsByID.get(stepId);
       return step === undefined ? [] : [step];
     });
     return {

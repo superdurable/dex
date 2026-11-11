@@ -16,6 +16,10 @@ Not released yet. The next minor release, sdk-go/v1.45.0, ships these changes.
 
 - **WorkerOptions.FlowDefinitionPaths** and **WorkerOptions.FlowDefinitions** upload the Flow Definition Graph 2.0 documents of the Worker's registered Flow types when the Worker starts. A failed upload only logs a warning. **ReadFlowDefinitionFiles** reads documents with the same rules, and **Client.UploadFlowDefinitions** uploads them from a deployment script and reports each **FlowDefinitionUploadOutcome**. [Reference](/reference/go/workers#flow-definitions).
 
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. The child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash made it ambiguous. When such a Step returns a **SubFlow** Condition from **WaitFor**, Dex Server rejects the result and fails the attempt without retry. The Worker logs a warning. Default Step types are Go type names and are not affected; only a **GetStepType** override can contain "-". To migrate, change the **GetStepType** override to return a name without "-". [Reference](/reference/go/subflow#step-type-rule).
+
 ### Fixed
 
 - The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [API reference](pathname:///api/go/latest/dex/#type-join).

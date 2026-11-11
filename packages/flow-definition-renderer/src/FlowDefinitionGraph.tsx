@@ -298,7 +298,7 @@ function WaitNode({ data }: NodeProps) {
       <div className="definition-shape-content">
         <strong>WaitFor <span>{definition.wait?.type ?? definition.name}</span></strong>
         <div className="definition-shape-rows">
-          {definition.wait?.conditions.map((condition, index) => (
+          {(definition.wait?.conditions ?? []).map((condition, index) => (
             <span key={`${condition.kind}-${condition.label}-${index}`}>
               {waitIcon(condition.kind)} {condition.kind === 'subflow' ? `SubFlow [${condition.index ?? index}]: ` : ''}{condition.label}
             </span>

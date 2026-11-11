@@ -498,7 +498,8 @@ class BuiltinLoopAgentRunner:
 
         Raises:
             ToolExecutionError: If the tool is unknown, the arguments break its
-                schema, or the tool or its source raised it.
+                schema, the tool's ``prepare_arguments`` raised, or the tool or
+                its source raised it.
             LookupError: If a source built the call but the definition no
                 longer has it, so the effect class decides the outcome.
             Exception: What the tool source raises otherwise.
@@ -525,6 +526,7 @@ class BuiltinLoopAgentRunner:
                 heartbeat=call.heartbeat,
                 input_answers=tuple(call.input_answers),
                 input_continuation=record.input_continuation,
+                effect=record.effect,
             ),
         )
         return result if not isinstance(result, str) else ToolExecutionResult(output=result)

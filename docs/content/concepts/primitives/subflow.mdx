@@ -27,6 +27,12 @@ instead of starting a second one. By default, the parent keeps waiting
 for a running child, uses the result of a completed child, and restarts a child
 that ended abnormally.
 
+The SubFlow ID joins its parts with a dash. So a Step whose Step type
+contains a dash cannot start SubFlows. Otherwise two parents could compute
+the same SubFlow ID and share one child. Dex fails such a WaitFor attempt
+without retry. Give every Step that starts SubFlows a Step type without a
+dash.
+
 When you start the parent Flow ID again, the new run usually computes
 the same SubFlow IDs as the earlier run. Dex then applies the reuse policy. With
 the default policy, the new run gets the earlier run's child, running or
