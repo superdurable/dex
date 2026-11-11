@@ -11,7 +11,8 @@ import { loadImages, type AgentImageReference, type MediaStore } from "@superdur
 
 // A stored input_image part's image is the reference's uri; the model input filter swaps in a data URL.
 const imageDetail = "auto";
-const dataUrlPrefix = "data:";
+// A reference URI ends in /sha256/<sha256>; other image URLs are the application's own.
+const placeholderPattern = /\/sha256\/[0-9a-f]{64}$/;
 const partListKeys = ["content", "output"] as const;
 
 type InputImagePart = { readonly type: "input_image"; readonly image?: unknown };
@@ -134,5 +135,10 @@ function isInputImagePart(part: unknown): part is InputImagePart {
 }
 
 function isPlaceholderPart(part: unknown): part is InputImagePart & { readonly image: string } {
-  return isInputImagePart(part) && typeof part.image === "string" && !part.image.startsWith(dataUrlPrefix);
+  return (
+    isInputImagePart(part) &&
+    typeof part.image === "string" &&
+    !part.image.startsWith("data:") &&
+    placeholderPattern.test(part.image)
+  );
 }
