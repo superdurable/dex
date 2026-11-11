@@ -240,6 +240,16 @@ class FakeTranscript {
     return entry;
   }
 
+  /** Writes a `last-prompt` entry naming the current leaf, as the real CLI sometimes does. */
+  public appendLeafPointer(): void {
+    const entry: JsonObject = { type: "last-prompt", leafUuid: this.lastUuid(), sessionId: this.sessionId };
+    appendFileSync(this.path, `${JSON.stringify(entry)}\n`);
+    this.entries.push(entry);
+    if (this.hasSessionMirror) {
+      this.channel.emit({ type: "transcript_mirror", filePath: this.path, entries: [entry] });
+    }
+  }
+
   /** Returns the deferred tool use at the end of the transcript, as `--resume` finds it. */
   public pendingDeferredToolUse(): ToolUse | undefined {
     for (let index = this.entries.length - 1; index >= 0; index -= 1) {
@@ -867,6 +877,7 @@ class FakeClaudeCli {
     readonly deferredUnavailable?: boolean;
     readonly errors?: readonly string[];
   }): void {
+    this.requireTranscript().appendLeafPointer();
     const usage = Object.fromEntries(
       Object.entries(modelCallUsage).map(([key, value]) => [
         key,

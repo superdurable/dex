@@ -466,6 +466,10 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
 - Files the CLI changes in `cwd`. Point `cwd` at storage that survives the
   Worker, such as a sandbox owned by the session, for file-editing agents.
 - Subagent transcripts. Resume needs only the main transcript.
+- Claude Code's `last-prompt` entries. Each names the leaf a resume continues
+  from, and one stored from an earlier segment would make a later resume skip
+  every entry after it. Entries that adapter 0.4.0 stored are dropped when a
+  segment reads the transcript.
 
 ## Limits
 
@@ -547,7 +551,7 @@ speaks this subset of the SDK's stream-json protocol:
 | CLI to SDK | `control_request` `hook_callback` for every matching PreToolUse callback at once (`tool_name`, `tool_input`, `tool_use_id`); `updatedInput` applies before the decision, and `deny` beats `defer`, `ask`, and `allow`. |
 | CLI to SDK | `control_request` `can_use_tool` when no hook allowed, denied, or deferred the call, or for a resumed call when `FAKE_CLAUDE_RESUME_SKIPS_HOOKS` is set; the SDK answers `behavior` `allow`, with an optional `updatedInput` that the call runs, or `deny`. A hook denial becomes the tool result `PreToolUse:<tool> hook error: <reason>`. |
 | CLI to SDK | `system` `init` naming the requested model, `stream_event` `content_block_delta` text deltas, one `assistant` message per content block naming a dated response model, a `stream_event` `message_delta` with the stop reason after each model call, `user` tool results, and `result` with `usage` and `modelUsage` keyed by the requested model with provider `firstParty`, or with `stop_reason: "tool_deferred"` and `deferred_tool_use` naming the last deferred call. |
-| CLI to SDK | `transcript_mirror` frames `{filePath, entries}` for every transcript line. |
+| CLI to SDK | `transcript_mirror` frames `{filePath, entries}` for every transcript line, including a `last-prompt` entry naming the leaf before each result. |
 | Transcript | `user`, `assistant`, and `attachment` `hook_deferred_tool` entries with `uuid` and `parentUuid`, and an `isMeta` "Continue from where you left off." entry after a resumed call. A resumed CLI reruns PreToolUse for the last deferral that has no tool result, with the model's input rather than the hook-rewritten input. |
 
 The scripted models read commands from the prompt (`say`, `recall`, `call`,
@@ -604,7 +608,8 @@ written in different languages:
   `claude_transcript` message, oldest first: a plain string for one text, one
   text block per text otherwise. A resumed segment sends no prompt.
 - Turn message `framework_item`: `{"kind": "claude_transcript", "session_id": "<uuid>", "entries": [...]}`
-  with the CLI's transcript entries unchanged.
+  with the CLI's transcript entries unchanged, except that `last-prompt`
+  entries are left out.
 - `FrameworkRunState`: `{"version": 1, "session_id": "<uuid>", "turn_entries": [...]}`.
 - Records name custom tools by their own name and CLI tools by their CLI name.
   Custom tool names must not be Claude Code tool names.

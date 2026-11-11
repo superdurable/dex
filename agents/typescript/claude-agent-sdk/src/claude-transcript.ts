@@ -21,12 +21,15 @@ export const userPromptItemKind = "user_prompt";
  * `frameworkItem` `kind` of a stored message that carries Claude Code transcript entries.
  *
  * The item is `{"kind": "claude_transcript", "session_id": <Claude session ID>, "entries": [...]}`.
- * `entries` are the CLI's transcript lines, unchanged. Concatenating the entries of every stored message
- * in sequence order rebuilds the session transcript. The value matches the Python adapter.
+ * `entries` are the CLI's transcript lines, unchanged, except that `last-prompt` entries are left out; the
+ * adapter also drops the ones adapter 0.4.0 stored when it reads them. Concatenating the entries of every
+ * stored message in sequence order rebuilds the session transcript. The value matches the Python adapter.
  */
 export const claudeTranscriptItemKind = "claude_transcript";
 
 const runStateFormatVersion = 1;
+// Claude Code's entry that names the leaf a resume continues from.
+export const leafPointerEntryType = "last-prompt";
 
 /** One Claude Code transcript line: an opaque JSON object with a string `type`. */
 export type ClaudeTranscriptEntry = Record<string, unknown>;
@@ -98,7 +101,7 @@ export function loadSessionTranscript(messages: readonly AgentMessage[]): Claude
     sessionId = item["session_id"];
     entries.push(...(item["entries"] as ClaudeTranscriptEntry[]));
   }
-  return { sessionId, entries };
+  return { sessionId, entries: withoutLeafPointers(entries) };
 }
 
 export function encodeRunState(
@@ -122,8 +125,13 @@ export function decodeRunState(frameworkRunState: string): SuspendedClaudeTurn {
   }
   return {
     sessionId: state["session_id"],
-    turnEntries: state["turn_entries"] as ClaudeTranscriptEntry[],
+    turnEntries: withoutLeafPointers(state["turn_entries"] as ClaudeTranscriptEntry[]),
   };
+}
+
+/** Drops `last-prompt` entries: a stored leaf pointer would resume at a stale message. */
+export function withoutLeafPointers(entries: readonly ClaudeTranscriptEntry[]): ClaudeTranscriptEntry[] {
+  return entries.filter((entry) => entry["type"] !== leafPointerEntryType);
 }
 
 // One message per assistant API message or tool result; other entries ride along with the next.
