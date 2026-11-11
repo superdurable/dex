@@ -12,6 +12,7 @@ package dex_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -706,5 +707,31 @@ func TestRecoveryAttemptProgressPublicContract(t *testing.T) {
 		if failure.AttemptProgress != progress {
 			t.Fatal("attempt progress was not preserved")
 		}
+	}
+}
+
+// TestJoinRoundJSONContract pins the persisted JoinRound field names shared by every Dex SDK.
+func TestJoinRoundJSONContract(t *testing.T) {
+	encoded, err := json.Marshal(dex.JoinRound{RoundKey: "RequestQuotes-2", BranchCount: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != `{"roundKey":"RequestQuotes-2","branchCount":3}` {
+		t.Fatalf("unexpected JoinRound JSON: %s", encoded)
+	}
+	var decoded dex.JoinRound
+	if err := json.Unmarshal([]byte(`{"roundKey":"round-1","branchCount":0}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded != (dex.JoinRound{RoundKey: "round-1", BranchCount: 0}) {
+		t.Fatalf("unexpected decoded JoinRound: %#v", decoded)
+	}
+	quoteReceived := dex.DefineJoin[string]("quoteReceived")
+	schema := dex.PersistenceSchema{Channels: []dex.ChannelDef{quoteReceived}}
+	if len(schema.Channels) != 1 {
+		t.Fatal("a Join must register as a ChannelDef")
+	}
+	if quoteReceived.JoinName() != "quoteReceived" {
+		t.Fatalf("unexpected Join name %q", quoteReceived.JoinName())
 	}
 }
