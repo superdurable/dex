@@ -207,13 +207,21 @@ moved on.
    ```
 
 4. Publish the PyPI packages. A release with no new PyPI project needs one
-   run with `skip_packages` empty. A release with new PyPI projects needs one
-   run per new project; see
+   run with `skip_packages` empty:
+
+   ```bash
+   gh workflow run agents-python-publish.yml --ref agents/v<version> \
+     -f version=<version> -f publish=true
+   ```
+
+   A release with new PyPI projects needs one run per new project, each
+   skipping the new commands that are not registered yet; see
    [Releasing new PyPI projects](#releasing-new-pypi-projects):
 
    ```bash
    gh workflow run agents-python-publish.yml --ref agents/v<version> \
-     -f version=<version> -f publish=true [-f skip_packages="<new commands not yet registered>"]
+     -f version=<version> -f publish=true \
+     -f skip_packages="<new commands not yet registered>"
    ```
 
 5. Create the GitHub Release by hand, after the day's publisher runs succeed. Its notes
@@ -221,15 +229,30 @@ moved on.
    Pass the previous `agents/v*` tag. Attach the wheels of CLI commands that
    are not on PyPI yet, so users can install them before a later day's upload.
    Take them from the `agents-python-distributions` artifact of a Python
-   publisher run on the tag:
+   publisher run on the tag.
+
+   Write the notes:
 
    ```bash
    python3 script/release/agents_release_notes.py <version> \
      --previous-tag agents/v<previous version> --output agents-release-notes.md
+   ```
+
+   When every package is on PyPI, create the Release:
+
+   ```bash
+   gh release create agents/v<version> --verify-tag --title "Dex agents <version>" \
+     --notes-file agents-release-notes.md --latest=false
+   ```
+
+   When some CLI commands still wait, download the wheels and attach one per
+   waiting command:
+
+   ```bash
    gh run download <Python publisher run ID> --name agents-python-distributions --dir agents-dist
    gh release create agents/v<version> --verify-tag --title "Dex agents <version>" \
      --notes-file agents-release-notes.md --latest=false \
-     [agents-dist/dex_agents_<command>_cli-<version>-*.whl ...]
+     agents-dist/dex_agents_<command>_cli-<version>-*.whl
    ```
 
 6. Snapshot the agents Developer reference on `main` with
