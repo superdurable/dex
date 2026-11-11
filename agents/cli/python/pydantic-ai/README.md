@@ -75,3 +75,6 @@ tests cover a chat turn and `--resume`, `read_file` without approval and
 `write_file` after approval, a connector read and an approved connector write
 that runs once, session settings that change the model, and a key in the
 `pydantic_ai` section.
+They also cover a `system_prompt` set in the session settings, which reaches
+the next model request, and a rejected file write and connector write, which
+never run.

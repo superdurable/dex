@@ -56,3 +56,20 @@ def test_a_key_in_the_pydantic_ai_section_is_a_configuration_error(
     command_home: CommandHome,
 ) -> None:
     scenarios.harness_section_key_is_a_configuration_error(command_home, DEFAULTS, "pydantic_ai")
+
+
+async def test_session_settings_change_the_instructions(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    flow_type = session_flow_type(
+        PYDANTIC_AI_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    await scenarios.session_settings_change_the_instructions(
+        command_home, DEFAULTS, flow_type, tmp_path / "cache"
+    )
+
+
+async def test_rejected_local_and_connector_writes_never_run(
+    command_home: CommandHome, fake_mcp: FakeConnectorsMcp
+) -> None:
+    await scenarios.rejected_writes_never_run(command_home, DEFAULTS, fake_mcp)

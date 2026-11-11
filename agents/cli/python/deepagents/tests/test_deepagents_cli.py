@@ -10,18 +10,33 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections import Counter
 from pathlib import Path
+from typing import Any
+
+import pytest
+from deepagents import create_deep_agent
+from langchain.agents.middleware import AgentMiddleware
 
 from dex_agents_cli import session_flow_type
 from dex_agents_cli_testing import scenarios
-from dex_agents_cli_testing.commands import CommandHome, call, expect, wait_for_exit
+from dex_agents_cli_testing.commands import (
+    CommandHome,
+    call,
+    expect,
+    read_session_id,
+    session_client,
+    wait_for_exit,
+)
 from dex_agents_cli_testing.fixtures import FakeConnectorsMcp
-from dex_agents_deepagents_cli import DEEPAGENTS_CLI_FLOW_TYPE
+from dex_agents_deepagents_cli import DEEPAGENTS_CLI_FLOW_TYPE, build_deep_agent
+from dex_agents_deepagents_cli.harness import deep_agents_chat_model
 from tests.conftest import MOCK_API_KEY
 
 DEFAULTS: dict[str, object] = {}
 DEEP_AGENTS_FILE_AND_SUBAGENT_TOOLS = {"ls", "glob", "grep", "execute", "task"}
+_MIDDLEWARE_SEARCH_DEPTH = 50
 
 
 async def test_a_turn_answers_and_resume_continues_the_session(command_home: CommandHome) -> None:
@@ -93,3 +108,82 @@ async def test_write_todos_runs_at_once_and_returns_the_plan(command_home: Comma
     assert "[approval]" not in (child.before or "")
     child.sendeof()
     assert await wait_for_exit(child) == 0
+
+
+async def test_session_settings_change_the_instructions(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    flow_type = session_flow_type(
+        DEEPAGENTS_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    await scenarios.session_settings_change_the_instructions(
+        command_home, DEFAULTS, flow_type, tmp_path / "cache"
+    )
+
+
+async def test_rejected_local_and_connector_writes_never_run(
+    command_home: CommandHome, fake_mcp: FakeConnectorsMcp
+) -> None:
+    await scenarios.rejected_writes_never_run(command_home, DEFAULTS, fake_mcp)
+
+
+def test_the_graph_has_no_summarization_that_calls_a_model_on_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", MOCK_API_KEY)
+    model = deep_agents_chat_model("openai:gpt-5.2")
+    # The plain Deep Agents graph shows the search finds the summarization when it is there.
+    assert "SummarizationMiddleware" in _model_node_middleware(create_deep_agent(model))
+    assert "SummarizationMiddleware" not in _model_node_middleware(
+        build_deep_agent("openai:gpt-5.2")
+    )
+
+
+async def test_a_model_from_the_session_settings_reaches_every_model_call(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    command_home.write_config(scenarios.NO_CONNECTORS)
+    command_home.workspace.mkdir(parents=True, exist_ok=True)
+    (command_home.workspace / "notes.txt").write_text("buy milk\n")
+    child = command_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    flow_type = session_flow_type(
+        DEEPAGENTS_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    async with session_client(command_home.address, tmp_path / "cache", flow_type) as sessions:
+        await sessions.update_session_settings(session_id, {"model": "openai:gpt-5-mini"})
+    child.sendline(call("read_file", {"path": "notes.txt"}))
+    await expect(child, "buy milk")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    # One request for the call and one for the answer, both with the session's model.
+    models = [request.body["model"] for request in command_home.model_api.model_requests()]
+    assert models == ["gpt-5-mini", "gpt-5-mini"]
+
+
+def _model_node_middleware(graph: Any) -> set[str]:
+    """Return the names of the middleware that the model node's wrappers capture."""
+    names: set[str] = set()
+    seen: set[int] = set()
+    pending: list[tuple[Any, int]] = [(graph.nodes["model"].bound, 0)]
+    while pending:
+        value, depth = pending.pop()
+        if id(value) in seen or depth > _MIDDLEWARE_SEARCH_DEPTH:
+            continue
+        seen.add(id(value))
+        if isinstance(value, AgentMiddleware):
+            names.add(value.name)
+            continue
+        children: list[Any] = [
+            getattr(value, attribute, None)
+            for attribute in ("func", "afunc", "__wrapped__", "__self__")
+        ]
+        for cell in getattr(value, "__closure__", None) or ():
+            with contextlib.suppress(ValueError):
+                children.append(cell.cell_contents)
+        if isinstance(value, list | tuple):
+            children.extend(value)
+        pending.extend((child, depth + 1) for child in children if child is not None)
+    return names

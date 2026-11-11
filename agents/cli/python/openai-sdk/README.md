@@ -49,9 +49,12 @@ tools stay in the workspace. See the
 
 The SDK fixes an agent's tools when the command starts. The command offers
 the connector tools that the configuration file enables and that the
-connectors MCP server lists at startup. A connection you authorize while the
-command runs needs a restart. Session settings still narrow the tools of each
-turn.
+connectors MCP server lists at startup. Session settings still narrow the
+tools of each turn. Restart the command in two cases:
+
+- The connectors MCP server did not answer at startup, such as while it was
+  still starting. The command warns that this run has no connector tools.
+- You authorized a connection while the command ran.
 
 ## Development
 
@@ -73,3 +76,8 @@ connectors MCP server serves a connector read and write. The tests cover a
 chat turn and `--resume`, `read_file` without approval and `write_file` after
 approval, a connector read and an approved connector write that runs once,
 session settings that change the model, and a key in the `openai` section.
+They also cover a `system_prompt` set in the session settings, which reaches
+the next model request, and a rejected file write and connector write, which
+never run.
+The OpenAI Agents SDK command also warns to restart when the connectors MCP
+server does not answer at startup.

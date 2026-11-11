@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -118,6 +119,55 @@ async def session_settings_change_the_model(
     await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
+
+
+async def session_settings_change_the_instructions(
+    home: CommandHome, config: Mapping[str, Any], flow_type: str, cache_dir: Path
+) -> None:
+    """Set ``system_prompt`` in the session settings; the next turn's request carries it."""
+    instructions = "You answer like a pirate."
+    home.write_config({**NO_CONNECTORS, **config})
+    child = home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    child.sendline("say before")
+    await expect(child, "said: before")
+    await expect(child, "> ")
+    assert instructions not in json.dumps(home.model_api.model_requests()[-1].body)
+    async with session_client(home.address, cache_dir, flow_type) as sessions:
+        await sessions.update_session_settings(session_id, {"system_prompt": instructions})
+    child.sendline("say after")
+    await expect(child, "said: after")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert instructions in json.dumps(home.model_api.model_requests()[-1].body)
+
+
+async def rejected_writes_never_run(
+    home: CommandHome, config: Mapping[str, Any], fake_mcp: FakeConnectorsMcp
+) -> None:
+    """Reject a local file write and a connector write; neither runs."""
+    home.write_config({**config, "connectors": {"mcp": fake_mcp.url}})
+    child = home.spawn()
+    await expect(child, "> ")
+    child.sendline(call("write_file", {"path": "rejected.txt", "content": "never"}))
+    await expect(child, "[approval] write_file")
+    await expect(child, APPROVE_PROMPT)
+    child.sendline("n not now")
+    await expect(child, "write_file: ")
+    await expect(child, "> ")
+
+    child.sendline(call("slack_post_thread_reply", {"thread": "T1", "text": "never"}))
+    await expect(child, "[approval] slack_post_thread_reply {")
+    await expect(child, APPROVE_PROMPT)
+    child.sendline("n not now")
+    await expect(child, "slack_post_thread_reply: ")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert not (home.workspace / "rejected.txt").exists()
+    assert fake_mcp.runs("slack_post_thread_reply") == 0
 
 
 def harness_section_key_is_a_configuration_error(

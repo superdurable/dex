@@ -54,3 +54,34 @@ async def test_session_settings_change_the_model(command_home: CommandHome, tmp_
 
 def test_a_key_in_the_openai_section_is_a_configuration_error(command_home: CommandHome) -> None:
     scenarios.harness_section_key_is_a_configuration_error(command_home, DEFAULTS, "openai")
+
+
+async def test_session_settings_change_the_instructions(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    flow_type = session_flow_type(
+        OPENAI_SDK_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    await scenarios.session_settings_change_the_instructions(
+        command_home, DEFAULTS, flow_type, tmp_path / "cache"
+    )
+
+
+async def test_rejected_local_and_connector_writes_never_run(
+    command_home: CommandHome, fake_mcp: FakeConnectorsMcp
+) -> None:
+    await scenarios.rejected_writes_never_run(command_home, DEFAULTS, fake_mcp)
+
+
+def test_without_a_connectors_mcp_server_at_startup_it_says_to_restart(
+    command_home: CommandHome,
+) -> None:
+    # This dexcli dev serves no connectors MCP server, as with one that is still starting.
+    command_home.write_config({})
+    completed = command_home.run(stdin="say hi\n")
+    assert completed.returncode == 0, completed.stderr
+    assert "said: hi" in completed.stdout
+    assert (
+        "dex-agents-openai-sdk fixes its tools when it starts, so this run has no connector "
+        "tools. Restart it once the connectors MCP server answers."
+    ) in completed.stdout

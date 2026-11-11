@@ -51,6 +51,8 @@ class OpenAISdkHarness:
     flow_type = OPENAI_SDK_CLI_FLOW_TYPE
     default_model: str | None = DEFAULT_OPENAI_MODEL
     replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
+    # The SDK fixes an agent's tools when the runner is built.
+    is_tool_set_fixed_at_build = True
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         """Build the OpenAI Agents SDK agent session Flow from the effective configuration.

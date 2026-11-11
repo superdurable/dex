@@ -79,26 +79,39 @@ class DeepAgentsHarness:
         """
         validate_deepagents_section(context.harness_options)
         file_model = context.config.model
-
-        def build_agent() -> Any:
-            return create_deep_agent(
-                deep_agents_chat_model(file_model),
-                tools=[write_todos_tool()],
-                middleware=[
-                    _WithoutFilesystemTools(),
-                    _WithoutSubagents(),
-                    DurableToolCallMiddleware(),
-                    TurnModelMiddleware(file_model),
-                ],
-                # Deep Agents' own schema stores messages in a DeltaChannel, which sessions refuse.
-                state_schema=cast("type[DeepAgentState]", DurableDeepAgentState),
-            )
-
         return langchain_agent_session_flow(
-            build_agent,
+            lambda: build_deep_agent(file_model),
             flow_type=context.flow_type,
             tool_sources=context.tool_sources,
         )
+
+
+def build_deep_agent(file_model: str) -> Any:
+    """Build the command's Deep Agents graph.
+
+    Deep Agents' file tools, ``task`` subagents, and summarization are
+    replaced by middleware that adds nothing. The summarization would make
+    an extra model call with the file's model inside a ``RunModel`` Step.
+
+    Args:
+        file_model: The configuration file's model; each turn may override it.
+
+    Returns:
+        The compiled agent graph.
+    """
+    return create_deep_agent(
+        deep_agents_chat_model(file_model),
+        tools=[write_todos_tool()],
+        middleware=[
+            _WithoutFilesystemTools(),
+            _WithoutSubagents(),
+            _WithoutSummarization(),
+            DurableToolCallMiddleware(),
+            TurnModelMiddleware(file_model),
+        ],
+        # Deep Agents' own schema stores messages in a DeltaChannel, which sessions refuse.
+        state_schema=cast("type[DeepAgentState]", DurableDeepAgentState),
+    )
 
 
 def validate_deepagents_section(options: Mapping[str, Any]) -> None:
@@ -221,6 +234,14 @@ class _WithoutFilesystemTools(AgentMiddleware[Any, Any, Any]):
     @property
     def name(self) -> str:
         return "FilesystemMiddleware"
+
+
+class _WithoutSummarization(AgentMiddleware[Any, Any, Any]):
+    """Replace the summarization, which calls the file's model inside a ``RunModel`` Step."""
+
+    @property
+    def name(self) -> str:
+        return "SummarizationMiddleware"
 
 
 class _WithoutSubagents(AgentMiddleware[Any, Any, Any]):

@@ -100,7 +100,14 @@ async def fake_mcp(tmp_path: Path) -> AsyncIterator[FakeConnectorsMcp]:
     with log_path.open("w") as log:
         process = subprocess.Popen(
             [sys.executable, "-m", "dex_agents_cli_testing.fake_connectors_mcp", str(port)],
-            env={**os.environ, STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+            env={
+                **{
+                    name: value
+                    for name, value in os.environ.items()
+                    if name in ("PATH", "LANG", "LC_ALL", "TMPDIR")
+                },
+                STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir),
+            },
             stdout=log,
             stderr=subprocess.STDOUT,
         )

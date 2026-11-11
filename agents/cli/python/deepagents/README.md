@@ -72,8 +72,12 @@ its policy asks for it.
 - LangChain's own todo tool updates the agent state with a graph `Command`.
   A tool Step returns only content, so this command's `write_todos` returns
   the plan as text instead.
-- Deep Agents' summarization still runs inside the model call, with the
-  configuration file's model. It offloads old messages to the agent state.
+- Deep Agents' summarization is replaced too. It would make an extra model
+  call with the configuration file's model inside a `RunModel` Step, so a
+  model from the session settings would not reach it. The session does not
+  compact either: Dex compaction needs the model's context window, which the
+  configuration does not set. A long session ends when its input no longer
+  fits the model's context window; start a new session then.
 
 ## Development
 
@@ -98,3 +102,8 @@ cover a chat turn and `--resume`, `read_file` without approval and
 that runs once, a model change in the session settings, a key in the
 `deepagents` section, the offered tools without Deep Agents' file and
 subagent tools, and `write_todos`.
+They also cover a `system_prompt` set in the session settings, which reaches
+the next model request, and a rejected file write and connector write, which
+never run.
+The Deep Agents command also checks that its graph has no summarization and
+that a model from the session settings reaches every model call.
