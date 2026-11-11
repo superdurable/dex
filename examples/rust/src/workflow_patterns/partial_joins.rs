@@ -159,6 +159,12 @@ impl Step for RequestQuotes {
                 round.required_quotes
             )));
         }
+        if round.round < 1 || round.previous_round.is_some() != (round.round > 1) {
+            return Ok(StepDecision::force_fail(format!(
+                "round must be at least 1 and carry a previous round exactly after round 1, got round {}",
+                round.round
+            )));
+        }
         if let Some(previous_round) = &round.previous_round {
             let late_quotes = QUOTE_RECEIVED.remaining_branch_results(context, previous_round)?;
             IGNORED_QUOTES.set(
@@ -268,6 +274,7 @@ impl Step for AcceptQuotes {
                 },
             ));
         }
+        // The last round's late quotes stay pending until the Flow closes.
         Ok(StepDecision::go_to_many(movements))
     }
 }
@@ -512,6 +519,7 @@ impl Step for BlockingJoin {
                 },
             ));
         }
+        // The last round's late signals stay pending until the Flow closes.
         Ok(StepDecision::go_to_many(movements))
     }
 }

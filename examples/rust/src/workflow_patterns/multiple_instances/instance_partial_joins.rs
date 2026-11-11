@@ -151,10 +151,17 @@ impl Step for StartInspections {
     }
 
     fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
-        if round.required_inspections > round.inspection_count {
-            return Ok(StepDecision::force_fail(
-                "required inspections exceed the inspection count",
-            ));
+        if !(1..=round.inspection_count).contains(&round.required_inspections) {
+            return Ok(StepDecision::force_fail(format!(
+                "required inspections must be between 1 and {}, got {}",
+                round.inspection_count, round.required_inspections
+            )));
+        }
+        if round.round < 1 || round.previous_round.is_some() != (round.round > 1) {
+            return Ok(StepDecision::force_fail(format!(
+                "round must be at least 1 and carry a previous round exactly after round 1, got round {}",
+                round.round
+            )));
         }
         if let Some(previous_round) = &round.previous_round {
             let late_units = UNIT_INSPECTED.remaining_branch_results(context, previous_round)?;
@@ -229,6 +236,7 @@ impl Step for AcceptInspections {
                 },
             ));
         }
+        // The last round's late inspections stay pending until the Flow closes.
         Ok(StepDecision::go_to_many(movements))
     }
 }
