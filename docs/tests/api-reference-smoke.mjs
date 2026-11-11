@@ -160,8 +160,8 @@ function auditPageLinks(pathname, html, htmlByPath, outputPaths, isAllRequired) 
     const target = new URL(href, `${siteOrigin}${pathname}`);
     if (target.origin !== siteOrigin || !['http:', 'https:'].includes(target.protocol)) continue;
     if (target.pathname === `/reference/${language}/`) continue;
-    if (target.pathname === '/reference/server/configuration' && target.hash === '#history-offload') continue;
-    if (target.pathname === '/reference/server/changelog' && !target.hash) continue;
+    // SDK docstrings link to the server reference, which the docs site audits.
+    if (target.pathname.startsWith('/reference/server/')) continue;
     assert.ok(target.pathname.startsWith('/api/'), `${pathname}: unexpected local target ${href}`);
     const targetPath = decodeURIComponent(target.pathname).replace(/\/$/, '/index.html');
     const outputPath = targetPath.slice('/api/'.length);

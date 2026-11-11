@@ -384,7 +384,9 @@ the site size against the GitHub Pages 1 GB limit.
 2. Update the API reference section of `reference/<language>/index.mdx` to
    match. `npm run check` fails until the links match the manifest.
 3. For Python, run `scripts/api-reference-tools/lock-python-dependencies.sh`
-   to regenerate the per-version locks.
+   with a cutoff date at least two weeks old. The script deletes and regenerates
+   every per-version lock, so advancing the window also upgrades transitive
+   dependencies.
 4. Retarget links in current reference pages from retired API versions to
    `/api/<language>/latest/`. Archived reference snapshots keep their original
    links and use the site's 404 fallback.
