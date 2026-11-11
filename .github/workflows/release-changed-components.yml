@@ -364,22 +364,26 @@ jobs:
           if [[ "${PUBLISHER_WORKFLOW}" == "agents-python-publish.yml" && -n "${PYTHON_SKIP_PACKAGES}" ]]; then
             inputs+=(-f "skip_packages=${PYTHON_SKIP_PACKAGES}")
           fi
+          list_matching_run_ids() {
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow "${PUBLISHER_WORKFLOW}" \
+              --event workflow_dispatch \
+              --commit "${GITHUB_SHA}" \
+              --limit 50 \
+              --json databaseId,displayTitle |
+              jq -c --arg title "${title}" '[.[] | select(.displayTitle == $title) | .databaseId]'
+          }
+          # Earlier runs with the same title, such as dry runs of this commit, are never the new run.
+          existing_run_ids="$(list_matching_run_ids)"
           # On the new tag, the publishers build the released commit even if main moves on.
           gh workflow run "${PUBLISHER_WORKFLOW}" \
             --repo "${GITHUB_REPOSITORY}" \
             --ref "${AGENTS_TAG}" \
             "${inputs[@]}"
           for _ in {1..30}; do
-            run_id="$({
-              gh run list \
-                --repo "${GITHUB_REPOSITORY}" \
-                --workflow "${PUBLISHER_WORKFLOW}" \
-                --event workflow_dispatch \
-                --commit "${GITHUB_SHA}" \
-                --limit 20 \
-                --json databaseId,displayTitle
-            } | jq -r --arg title "${title}" \
-              '.[] | select(.displayTitle == $title) | .databaseId' | head -n 1)"
+            run_id="$(list_matching_run_ids | jq -r --argjson existing "${existing_run_ids}" \
+              '.[] | select(. as $id | $existing | index($id) | not)' | head -n 1)"
             if [[ -n "${run_id}" ]]; then
               echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
               exit 0
