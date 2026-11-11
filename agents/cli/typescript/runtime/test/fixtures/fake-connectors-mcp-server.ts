@@ -38,6 +38,8 @@ export class FakeConnectorsMcpServer {
   public readonly runs: FakeConnectorRun[] = [];
   /** When set, every request answers 503 with this reason, as `dexcli dev` does before the server is ready. */
   public unavailableReason: string | undefined;
+  /** When set, `initialize` still answers but every other request answers 503 with this reason. */
+  public listingFailureReason: string | undefined;
   /** The connection that `slack_post_thread_reply` names; tests rebind it. */
   public slackConnection = "support-slack";
   /** The connection that the `reports_long_report` task tool names; tests rebind it. */
@@ -57,6 +59,11 @@ export class FakeConnectorsMcpServer {
           response.writeHead(503, { "content-type": "text/plain" }).end(this.unavailableReason);
           return;
         }
+        const body = await readJsonBody(request);
+        if (this.listingFailureReason !== undefined && !isInitializeRequest(body)) {
+          response.writeHead(503, { "content-type": "text/plain" }).end(this.listingFailureReason);
+          return;
+        }
         const server = this.createMcpServer();
         const transport = new StreamableHTTPServerTransport({});
         response.on("close", () => {
@@ -64,7 +71,7 @@ export class FakeConnectorsMcpServer {
           void server.close();
         });
         await server.connect(transport);
-        await transport.handleRequest(request, response, await readJsonBody(request));
+        await transport.handleRequest(request, response, body);
       })().catch((error: unknown) => {
         console.error("fake connectors MCP request failed", error);
         if (!response.headersSent) {
@@ -208,6 +215,10 @@ function identityMeta(connector: string, connection: string, operation: string):
     [connectorToolMetaKeys.operationName]: canonicalOperationName(operation),
     [connectorToolMetaKeys.connectorVersion]: "1.0.0",
   };
+}
+
+function isInitializeRequest(body: unknown): boolean {
+  return typeof body === "object" && body !== null && (body as { method?: unknown }).method === "initialize";
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {

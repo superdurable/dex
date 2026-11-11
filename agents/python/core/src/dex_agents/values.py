@@ -308,10 +308,21 @@ class AgentSessionStartInput:
             fails the session at once, with no retry, for settings it
             refuses. Start sessions with settings only after every Worker of
             the Flow type runs dex-agents 0.2.0: a 0.1.0 Worker drops them.
+        start_environment: Where the program that started the session ran,
+            as string keys and values, such as a host name and a workspace
+            path. ``None``, the default, records nothing. The session never
+            reads it: it stays in the Flow's start input, so a run shows the
+            environment that started it. The Dex Agents CLI records its host,
+            user, configuration file, and workspace here. Never put a secret
+            in it. Workers before dex-agents 0.5.0 ignore it.
+
+    .. versionchanged:: 0.5.0
+        Added ``start_environment``.
     """
 
     initial_message: str | None = None
     session_settings: dict[str, Any] | None = None
+    start_environment: dict[str, str] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

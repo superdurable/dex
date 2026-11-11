@@ -1,0 +1,62 @@
+{
+  "name": "@superdurable/dex-agents-mastra-cli",
+  "version": "0.1.0",
+  "description": "The dex-agents-mastra command: a durable Mastra agent in your terminal",
+  "license": "LicenseRef-Sustainable-Use-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/superdurable/dex.git",
+    "directory": "agents/cli/typescript/mastra"
+  },
+  "homepage": "https://github.com/superdurable/dex/tree/main/agents/cli/typescript/mastra#readme",
+  "bugs": {
+    "url": "https://github.com/superdurable/dex/issues"
+  },
+  "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0"
+  },
+  "bin": {
+    "dex-agents-mastra": "dist/src/bin.js"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 --test-timeout=300000 'dist/test/integ/*.integration.test.js'"
+  },
+  "dependencies": {
+    "@mastra/core": "1.81.0",
+    "zod": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@superdurable/dex": "1.38.0",
+    "@superdurable/dex-agents": "^0.1.0",
+    "@superdurable/dex-agents-cli": "^0.1.0",
+    "@superdurable/dex-agents-mastra": "^0.1.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@superdurable/dex": "1.38.0",
+    "@superdurable/dex-agents": "file:../../../typescript/core",
+    "@superdurable/dex-agents-cli": "file:../runtime",
+    "@superdurable/dex-agents-mastra": "file:../../../typescript/mastra",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
