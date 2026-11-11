@@ -267,6 +267,11 @@ class ConnectorsMcpToolSource:
         """Return the server's MCP endpoint."""
         return self._url
 
+    @property
+    def is_available(self) -> bool:
+        """Return whether the server answered its latest listing or catalog read."""
+        return self._is_available
+
     def cached_tools(self) -> tuple[ConnectorToolDefinition, ...]:
         """Return the last listing, or the startup listing of ``list_file_enabled_tools``."""
         return self._last_listing

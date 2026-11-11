@@ -183,7 +183,10 @@ task an earlier attempt started and can never send `tools/call` again, so the
 task is recovered even while the server cannot be listed. An attempt that may
 send again lists the server first and fails when it cannot.
 
-At startup the command lists the server once:
+At startup, before the harness builds its Flow, the command reads the
+server's tool catalog. When the server answers, it then lists the tools the
+configuration file enables, which is one MCP `tools/list` and one more catalog
+read, and caches them for the harness:
 
 - An `auto` server that does not answer, such as one answering 503 while it
   starts or an older `dexcli` without `/mcp`, gives a warning with the reason.
@@ -191,6 +194,13 @@ At startup the command lists the server once:
   model call, printing `Connector tools are unavailable for now` and
   `Connector tools are available again` when that changes. An explicit `connectors.mcp` URL
   that does not answer stops the command with exit code 1.
+- A harness whose runner fixes its tools when it is built, such as the OpenAI
+  Agents SDK command, declares `is_tool_set_fixed_at_build = True`. It offers
+  only the connector tools of the startup listing; session settings still
+  narrow them each turn. When the server does not answer at startup, the
+  warning says the run has no connector tools and to restart the command once
+  the server answers. A connection authorized while the command runs also
+  needs a restart.
 - An entry of `connectors.enabled` with no tool on the server has no
   authorized connection. The command prints a hint with the Dex Web
   Connectors page, `<Dex Web URL>/v1/connectors`, and opens it only in an
