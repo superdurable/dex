@@ -18,10 +18,33 @@ import dex_agents.builtin_loop.tool_sources as _replacement_module
 from dex_agents.stepwise._deprecated_alias import forward_deprecated_attribute
 
 if TYPE_CHECKING:
-    from dex_agents.builtin_loop.tool_sources import *  # noqa: F403
+    from dex_agents.builtin_loop.tool_sources import SourceToolDefinition, ToolSource
+    from dex_agents.runner import (
+        AgentTurnContext,
+        DeferredToolCall,
+        DeferredToolExecution,
+        DeferredToolOutcome,
+        ToolTaskPoll,
+        ToolTaskPollOutcome,
+    )
 
 _RENAMED_ATTRIBUTES: dict[str, str] = {}
+
+__all__ = [
+    "AgentTurnContext",
+    "DeferredToolCall",
+    "DeferredToolExecution",
+    "DeferredToolOutcome",
+    "SourceToolDefinition",
+    "ToolSource",
+    "ToolTaskPoll",
+    "ToolTaskPollOutcome",
+]
 
 
 def __getattr__(name: str) -> Any:
     return forward_deprecated_attribute(__name__, _replacement_module, _RENAMED_ATTRIBUTES, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)

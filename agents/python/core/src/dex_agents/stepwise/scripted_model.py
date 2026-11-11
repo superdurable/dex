@@ -18,10 +18,50 @@ import dex_agents.builtin_loop.scripted_model as _replacement_module
 from dex_agents.stepwise._deprecated_alias import forward_deprecated_attribute
 
 if TYPE_CHECKING:
-    from dex_agents.builtin_loop.scripted_model import *  # noqa: F403
+    from dex_agents.builtin_loop.model import (
+        ModelOutputItem,
+        ModelOutputWriter,
+        ModelRequest,
+        ModelResponse,
+        ModelToolCall,
+        ToolResultItem,
+        UserTextItem,
+    )
+    from dex_agents.builtin_loop.scripted_model import (
+        DEFAULT_MAX_RECORDED_REQUESTS,
+        SCRIPTED_MODEL_API,
+        SCRIPTED_MODEL_PROVIDER,
+        ScriptedModelClient,
+        ScriptedModelReply,
+        ScriptedModelResponder,
+        ScriptedToolCall,
+    )
+    from dex_agents.values import AgentUsage
 
 _RENAMED_ATTRIBUTES: dict[str, str] = {}
+
+__all__ = [
+    "DEFAULT_MAX_RECORDED_REQUESTS",
+    "SCRIPTED_MODEL_API",
+    "SCRIPTED_MODEL_PROVIDER",
+    "AgentUsage",
+    "ModelOutputItem",
+    "ModelOutputWriter",
+    "ModelRequest",
+    "ModelResponse",
+    "ModelToolCall",
+    "ScriptedModelClient",
+    "ScriptedModelReply",
+    "ScriptedModelResponder",
+    "ScriptedToolCall",
+    "ToolResultItem",
+    "UserTextItem",
+]
 
 
 def __getattr__(name: str) -> Any:
     return forward_deprecated_attribute(__name__, _replacement_module, _RENAMED_ATTRIBUTES, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)

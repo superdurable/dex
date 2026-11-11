@@ -109,3 +109,33 @@ def test_unknown_old_names_raise_attribute_error_without_warning() -> None:
 
     with pytest.raises(AttributeError, match="dex_agents.stepwise"):
         _ = stepwise.NoSuchName
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "dex_agents.stepwise",
+        "dex_agents.stepwise.framework_tool_sources",
+        "dex_agents.stepwise.function_tools",
+        "dex_agents.stepwise.model",
+        "dex_agents.stepwise.runner",
+        "dex_agents.stepwise.scripted_model",
+        "dex_agents.stepwise.tool_sources",
+        "dex_agents.stepwise.transcript",
+    ],
+)
+def test_star_import_from_each_old_module_exports_its_old_names(module_name: str) -> None:
+    old_module = importlib.import_module(module_name)
+    replacement_name = module_name.replace("dex_agents.stepwise", "dex_agents.builtin_loop")
+    replacement_module = importlib.import_module(replacement_name)
+    namespace: dict[str, object] = {}
+
+    with pytest.warns(DeprecationWarning):
+        exec(f"from {module_name} import *", namespace)
+
+    exported = {name for name in namespace if not name.startswith("__")}
+    assert exported == set(old_module.__all__)
+    assert not {"forward_deprecated_attribute", "TYPE_CHECKING", "Any"} & exported
+    for old_name in exported:
+        new_name = RENAMED_NAMES.get(old_name, old_name)
+        assert namespace[old_name] is getattr(replacement_module, new_name), old_name
