@@ -9,6 +9,7 @@
 import { validateToolArguments, type JsonObject } from "@earendil-works/pi-ai";
 import {
   ImageValidationError,
+  maxImagesPerMessage,
   ToolExecutionError,
   type AgentImageReference,
   type ToolEffect,
@@ -61,7 +62,7 @@ export function describePiToolContent(content: readonly PiToolContentPart[] | un
     .join("\n");
 }
 
-/** Text parts plus images uploaded to the call's store; a refused image, or no store, keeps its note. */
+/** Text parts plus images uploaded to the call's store; a refused, excess, or storeless image keeps its note. */
 export async function toPiFunctionToolResult(
   context: ToolCallContext,
   content: readonly PiToolContentPart[] | undefined,
@@ -73,9 +74,16 @@ export async function toPiFunctionToolResult(
   }
   const texts: string[] = [];
   const images: AgentImageReference[] = [];
+  let hasExcessImages = false;
   for (const part of parts) {
     if (part.type === "text") {
       texts.push(part.text);
+      continue;
+    }
+    if (images.length === maxImagesPerMessage) {
+      // The session fails a result with more images, so the call succeeds with notes instead.
+      hasExcessImages = true;
+      texts.push(`[image omitted: ${part.mimeType}]`);
       continue;
     }
     try {
@@ -86,6 +94,9 @@ export async function toPiFunctionToolResult(
       }
       texts.push(`[image omitted: ${part.mimeType}]`);
     }
+  }
+  if (hasExcessImages) {
+    texts.push(`(more than ${maxImagesPerMessage} images; the rest were omitted)`);
   }
   return functionToolResult({ output: texts.join("\n"), images });
 }

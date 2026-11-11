@@ -16,6 +16,7 @@ import { after, before, describe, test } from "node:test";
 
 import {
   InMemoryMediaStore,
+  maxImagesPerMessage,
   type AgentImageReference,
   type AgentSnapshot,
   type AgentTurnContext,
@@ -75,6 +76,25 @@ const piScreenshotTool: PiAgentToolLike = {
   }),
 };
 
+const piManyScreenshotsToolName = "pi_many_screenshots";
+
+const piManyScreenshotsTool: PiAgentToolLike = {
+  name: piManyScreenshotsToolName,
+  description: "Take more screenshots than one tool result may carry.",
+  parameters: { type: "object", properties: {} },
+  replay: "safe",
+  execute: async () => ({
+    content: [
+      { type: "text", text: "Took 21 screenshots." },
+      ...Array.from({ length: maxImagesPerMessage + 1 }, () => ({
+        type: "image" as const,
+        data: base64(png),
+        mimeType: "image/png",
+      })),
+    ],
+  }),
+};
+
 const piDurablePhotoTool: PiDurableToolLike = {
   name: piDurablePhotoToolName,
   description: "Take a photo with a pi-durable tool.",
@@ -118,6 +138,7 @@ describe("images through a Pi agent session", () => {
         resolveModel: (settings) => modelsBySetting.get(String(settings["model"])) ?? openAiModel,
         tools: [
           piAgentFunctionTool(piScreenshotTool, { effect: "read" }),
+          piAgentFunctionTool(piManyScreenshotsTool, { effect: "read" }),
           piDurableFunctionTool(piDurablePhotoTool, { effect: "read" }),
         ],
         toolSources: [new ScreenshotToolSource(store)],
@@ -283,6 +304,36 @@ describe("images through a Pi agent session", () => {
     const toolMessage = snapshot.messages.find((message) => message.role === "tool");
     assert.deepEqual(toolMessage?.images, [await store.putImage(png)]);
     assertNoImageBytes(snapshot, png);
+  });
+
+  test("a Pi tool with more images than one result may carry delivers the first ones and notes the rest", async () => {
+    const token = newToken();
+    const sessionId = `pi-images-pi-tool-many-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? { toolCalls: [{ id: "call_pi_many", name: piManyScreenshotsToolName, arguments: "{}" }] }
+        : { text: "many screenshots taken" },
+    );
+    await sessions.startSession(sessionId, `many screenshots ${token}`);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const requests = modelServer.requests(token);
+    assert.equal(requests.length, 2);
+    const [toolMessage, attachedMessage] = requests[1]?.body["messages"].slice(-2);
+    assert.deepEqual(toolMessage, {
+      role: "tool",
+      content:
+        "Took 21 screenshots.\n[image omitted: image/png]\n" +
+        `(more than ${maxImagesPerMessage} images; the rest were omitted)`,
+      tool_call_id: "call_pi_many",
+    });
+    const attachedImages = (attachedMessage.content as readonly Record<string, unknown>[]).filter(
+      (part) => part["type"] === "image_url",
+    );
+    assert.equal(attachedImages.length, maxImagesPerMessage);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    const storedToolMessage = snapshot.messages.find((message) => message.role === "tool");
+    assert.equal(storedToolMessage?.images?.length, maxImagesPerMessage);
   });
 
   test("a pi-durable tool's image reaches the next Anthropic request inside the tool_result block", async () => {

@@ -99,8 +99,9 @@ export interface PiDurableFunctionToolOptions {
  * values and a no-op `telemetry`. The result's text parts, joined by newlines, are the output the model sees. With a
  * media store on the session Flow, each image part is uploaded to it during the call, and the model sees the images
  * after the text, in content order; the session stores only their references. An image the store refuses, such as
- * an SVG, and every image without a store, become `[image omitted: <mime type>]` in the text instead. A failed
- * upload fails the attempt: a `read` or `idempotent_write` call retries, and a single-attempt call records
+ * an SVG, and every image without a store, become `[image omitted: <mime type>]` in the text instead. Only the
+ * first `maxImagesPerMessage` (20) images are uploaded; each later one becomes a note, and the text ends with
+ * `(more than 20 images; the rest were omitted)`. A failed upload fails the attempt: a `read` or `idempotent_write` call retries, and a single-attempt call records
  * `outcome_unknown`. The text of an `isError` result always shows images as notes. A result with `isError: true`, a
  * thrown `ToolExecutionError`, or arguments that fail conversion or validation become a `ToolExecutionError`, so the model
  * sees the failure. Any other thrown error is handled by the call's effect, which is the effect after

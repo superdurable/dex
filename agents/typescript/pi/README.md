@@ -268,7 +268,10 @@ their effect. A call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
   store during the call, and the model sees the images after the text, in
   content order. The session stores only their references. An image the store
   refuses, such as an SVG, and every image without a store become
-  `[image omitted: <mime type>]` in the text. A failed upload fails the
+  `[image omitted: <mime type>]` in the text. Only the first
+  `maxImagesPerMessage` (20) images are uploaded; each later one becomes a
+  note, and the text ends with `(more than 20 images; the rest were
+  omitted)`, so the call still succeeds. A failed upload fails the
   attempt: a `read` or `idempotent_write` call retries, and a single-attempt
   call records `outcome_unknown`. Progress text and the text of an
   `isError: true` result show images as notes.

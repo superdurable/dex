@@ -125,7 +125,8 @@ export interface PiAgentFunctionToolOptions {
  * - With a media store on the session Flow, each image part is uploaded to it during the call, and the model sees
  *   the images after the output text, in content order. The session stores only their references. An image the
  *   store refuses, such as an SVG, and every image without a store, become `[image omitted: <mime type>]` in the
- *   text instead. A failed upload fails the attempt: a `read` or `idempotent_write` call retries, and a
+ *   text instead. Only the first `maxImagesPerMessage` (20) images are uploaded; each later one becomes a note,
+ *   and the text ends with `(more than 20 images; the rest were omitted)`. A failed upload fails the attempt: a `read` or `idempotent_write` call retries, and a
  *   single-attempt call records `outcome_unknown`. Progress text and the text of an `isError` result always show
  *   images as notes.
  * - A result with `isError: true`, a thrown `ToolExecutionError`, or arguments that fail conversion or validation
