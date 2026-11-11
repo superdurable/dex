@@ -66,7 +66,8 @@ export function SelectedRunPanel({
   onStranded?: (flowID: string) => void;
   workQueuePermissions?: readonly string[];
 }) {
-  const { catalog, definitionUpdateKey, handleDefinitionError } = useWebCatalog();
+  const { revisionFor, definitionUpdateKey, handleDefinitionError } = useWebCatalog();
+  const definitionRevision = revisionFor([flowType]);
   const [held, setHeld] = useState(() => nothingHeld<V2Display>());
   /** A write that failed is not a stale read, so it does not touch held. */
   const [actionError, setActionError] = useState('');
@@ -81,7 +82,7 @@ export function SelectedRunPanel({
     try {
       const query = new URLSearchParams({ flowType, flowId });
       const response = await fetch(webURL(`/api/v2/display?${query}`), {
-        headers: definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
+        headers: definitionRevisionHeaders(definitionRevision),
       });
       const display = await readResponseJSON<V2Display>(response);
       setHeld((prior) => absorb(prior, { state: 'ok', value: display }));
@@ -95,7 +96,7 @@ export function SelectedRunPanel({
       if (outcome.state === 'stranded') onStranded?.(flowId);
       setHeld((prior) => absorb(prior, outcome));
     }
-  }, [catalog?.definitionRevision, flowId, flowStatusCode, flowType, handleDefinitionError, onStranded]);
+  }, [definitionRevision, flowId, flowStatusCode, flowType, handleDefinitionError, onStranded]);
 
   // A new run must not inherit the previous run's values while its own read is in flight.
   useEffect(() => {
@@ -119,7 +120,7 @@ export function SelectedRunPanel({
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
+          ...definitionRevisionHeaders(definitionRevision),
         },
         body: JSON.stringify({
           flowType, flowId, attributeKey,
@@ -149,7 +150,7 @@ export function SelectedRunPanel({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
+          ...definitionRevisionHeaders(definitionRevision),
         },
         body: JSON.stringify({
           flowType, flowId, rpcName: action.rpcName,

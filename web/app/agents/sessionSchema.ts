@@ -6,11 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type {
-  FlowDefinitionGraph,
-  FlowV2Action,
-  FlowV2Definition,
-} from '@superdurable/flow-definition-renderer';
+import type { FlowV2Action } from '@superdurable/flow-definition-renderer';
+import type { V2CatalogEntry } from '@/lib/types';
 
 /** Names Dex Web reads by name; the Dex Web reference states the compatibility rule. */
 export const SESSION_ATTRIBUTE = {
@@ -31,12 +28,6 @@ export const REQUIRED_SESSION_ATTRIBUTES = [
   SESSION_ATTRIBUTE.toolCalls,
   SESSION_ATTRIBUTE.pendingInterrupts,
 ] as const;
-
-const MAP_ATTRIBUTES: readonly string[] = [
-  SESSION_ATTRIBUTE.messages,
-  SESSION_ATTRIBUTE.messageChunks,
-  SESSION_ATTRIBUTE.toolCalls,
-];
 
 export const SESSION_RPC = {
   resolveInterrupt: 'resolve_interrupt',
@@ -76,35 +67,23 @@ export interface AgentSessionSchema {
 export const SESSION_START_STEP_TYPE = 'StartAgentSession';
 
 /**
- * The session schema a graph declares, or null when the Flow is not a Dex Agents session.
+ * The session schema of a v2 catalog entry, or null when the Flow is not a Dex Agents session.
  *
- * Mirrors loadAgentSession in web/flow_rendering_agent_session.go, which guards the session routes.
+ * Dex Web's server reads the session parts from the graph with loadAgentSession in
+ * web/flow_rendering_agent_session.go, which also guards the session routes, so both use one rule.
  */
-export function agentSessionSchema(
-  graph: FlowDefinitionGraph | undefined,
-  definition: FlowV2Definition | undefined,
-): AgentSessionSchema | null {
-  if (!graph || graph.schemaVersion !== '2.0' || !graph.valid) return null;
-  // Each required Attribute counts by its own name and kind; a repeated node never stands in for another.
-  const isDeclared = (name: string) => graph.nodes.some((node) => (
-    node.kind === 'attribute' && node.name === name && (node.resource?.map === true) === MAP_ATTRIBUTES.includes(name)
-  ));
-  if (!REQUIRED_SESSION_ATTRIBUTES.every(isDeclared)) return null;
-  const hasStartStep = graph.nodes.some((node) => (
-    node.kind === 'step' && node.name === SESSION_START_STEP_TYPE && node.start === true
-  ));
-  if (!hasStartStep) return null;
-  const stepTypes = new Set(graph.nodes.filter((node) => node.kind === 'step').map((node) => node.name));
-  const actions = definition?.actions ?? graph.v2?.actions ?? [];
-  const action = (rpcName: string) => actions.find((candidate) => candidate.rpcName === rpcName);
+export function agentSessionSchema(entry: V2CatalogEntry | null | undefined): AgentSessionSchema | null {
+  const session = entry?.agentSession;
+  if (!entry || !session) return null;
+  const action = (rpcName: string) => entry.definition.actions.find((candidate) => candidate.rpcName === rpcName);
   return {
-    language: graph.source.language,
+    language: session.language,
     resolveInterrupt: action(SESSION_RPC.resolveInterrupt),
     answerQuestion: action(SESSION_RPC.answerQuestion),
     steerUserMessage: action(SESSION_RPC.steerUserMessage),
     cancelTurn: action(SESSION_RPC.cancelTurn),
-    hasQuestions: stepTypes.has(QUESTION_STEP_TYPE),
-    rpcNames: graph.nodes.filter((node) => node.kind === 'rpc').map((node) => node.name),
+    hasQuestions: session.hasQuestions,
+    rpcNames: session.rpcNames,
   };
 }
 

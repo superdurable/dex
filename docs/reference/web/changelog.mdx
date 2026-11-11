@@ -8,6 +8,31 @@ sidebar_label: Change log
 
 This page lists user-visible changes to Dex Web, newest first; each section covers the changes since the previous release of this component.
 
+## 1.45 {#v1-45}
+
+Not released yet. The next minor release, web/v1.45.0, ships these changes.
+
+### Breaking
+
+- Each Flow type has its own definition revision. A request about a Flow type sends that Flow type's revision in **X-Dex-Flow-Definition-Revision**, from **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE** or a **GET /api/v2/catalog** entry; a search of several Flow types sends theirs separated by commas. The catalog's top-level **definitionRevision** no longer passes the check. [Reference](/reference/web/dex-web#api-requests).
+- **GET /api/flow-definitions** lists definitions without their graphs. Read a Flow type's graphs from **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE**. [Reference](/reference/web/flow-visualization#definition-sources).
+
+### Added
+
+- Dex Web reads the Flow definitions that Workers upload to the Dex Server, so **dex-web**, **dexcli dev**, and embedded Dex Web need no **--flow-rendering-dir** or **FlowRenderingDirectory** for them. A Flow type in the directory wins over an uploaded one, without a conflict. A Dex Server without the definition RPCs shows only the directory. [Reference](/reference/web/flow-visualization#definition-sources).
+- **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE** returns every definition of one Flow type, with graphs, its v2 contract, and its revision, and answers 304 to a matching **If-None-Match**. **GET /api/flow-definition-types** lists the Flow types that have a definition without reading them. [Reference](/reference/web/flow-visualization#definition-sources).
+- **Designs** shows where each definition comes from, a directory file or an upload, and when an uploaded one was generated and uploaded. Without definitions, it explains how to upload them when a Worker starts. [Reference](/reference/web/flow-visualization#render-definitions-in-dex-web).
+- Each **GET /api/v2/catalog** entry carries its **definitionRevision** and, for a Dex Agents session, **agentSession**. [Reference](/reference/web/dex-web#agent-session-view).
+
+### Changed
+
+- Dex Web loads definitions only where a page uses them. A run page reads only its own Flow type, the header and **/readyz** read only Flow type names, and only **Designs**, **Work Queue**, and **Connectors** read every definition. [Reference](/reference/web/flow-visualization#definition-sources).
+- An invalid, oversized, or duplicated definition is marked invalid with its reason, and the other definitions keep working. A directory file over the document size limit claims no Flow type, so an uploaded definition of that Flow type is shown. Before, one bad file failed the whole catalog and **/readyz**. Dex Web limits each definition's nodes, edges, string length, nesting depth, and Connector Steps, and the canvas shows that a graph is too large instead of drawing it. [Reference](/reference/web/flow-visualization#definition-sources).
+- Dex Web ignores unknown top-level fields of a Flow Definition Graph, such as **generatedAt**. Known fields are still validated strictly. [Reference](/reference/web/flow-visualization#definition-sources).
+- The **Work Queue** link appears when any Flow type has a definition; the page itself says when none has a valid Version 2.0 contract. [Reference](/reference/web/flow-visualization#definition-sources).
+- **Connectors** looks up each Connector release once per listing, at most 64 releases with four downloads at a time, and does not ask again for five minutes after a release is not found. A release past the limit shows its Connector ID. The app reads the Connectors listing once when it loads. [Reference](/reference/web/local-connector-setup).
+- Dex Web rejects a definition whose nodes, edges, or diagnostics are not objects with the fields the pages read, and bounds Step groups, the Version 2.0 lists, and the start input fields. Pages that draw a definition show an error in place of the definition when it cannot be drawn. [Reference](/reference/web/flow-visualization#definition-sources).
+
 ## 1.44 {#v1-44}
 
 Released 2026-11-10 as [web/v1.44.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.44.0).

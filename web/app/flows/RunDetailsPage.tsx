@@ -70,8 +70,9 @@ import { useRunHistory } from './useRunHistory';
 import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
 import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
+import { DesignCanvasErrorBoundary } from '../design/DesignCanvasErrorBoundary';
 import { FlowDefinitionDiagnostics } from '../rendering/FlowDefinitionDiagnostics';
-import { useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
+import { useFlowTypeDefinitions, useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
 import { useWorkingAs } from '../workspace/useWorkingAs';
 import { RUN_VIEW_PARAM, runPath as currentRunPath } from '../routes';
@@ -219,9 +220,11 @@ export function RunDetailsPage({
   const requestedView = searchParams.get(RUN_VIEW_PARAM);
   const [tab, setTab] = useState<RunTab>(() => (isRunTab(requestedView) ? requestedView : storedRunTab()));
   const webCatalog = useOptionalWebCatalog();
-  const isCatalogReady = webCatalog === null || webCatalog.ready;
-  const designDefinition = designDefinitionFor(webCatalog?.definitions, summary?.flowType);
-  const catalogEntry = catalogEntryFor(webCatalog?.catalog, webCatalog?.canUseV2 ?? false, summary?.flowType);
+  // A run page reads only its own Flow type's definitions.
+  const runDefinitions = useFlowTypeDefinitions(summary?.flowType);
+  const isCatalogReady = webCatalog === null || (webCatalog.ready && runDefinitions?.status !== 'loading');
+  const designDefinition = designDefinitionFor(runDefinitions?.value, summary?.flowType);
+  const catalogEntry = catalogEntryFor(runDefinitions?.value, webCatalog?.canUseV2 ?? false);
   const workingAsDefinitions = useMemo(
     () => (catalogEntry ? [catalogEntry.definition] : noOperatorDefinitions),
     [catalogEntry],
@@ -239,7 +242,7 @@ export function RunDetailsPage({
     flowId,
     runId,
   );
-  const runSessionSchema = sessionSchemaFor(webCatalog?.definitions, catalogEntry);
+  const runSessionSchema = sessionSchemaFor(catalogEntry);
   const runHasActions = hasRunActions(catalogEntry);
   // Agent session and Actions read and write the current run, so an earlier run does not offer them.
   const sessionSchema = displayedRunPosition === 'current' ? runSessionSchema : null;
@@ -1072,13 +1075,15 @@ export function RunDetailsPage({
             />
           )}
           {shownTab === 'design' && designDefinition && (
-            <>
-              <FlowDesignGraph key={designDefinition.id} definition={designDefinition} />
+            <DesignCanvasErrorBoundary key={designDefinition.id}>
+              <FlowDesignGraph definition={designDefinition} />
               <FlowDefinitionDiagnostics definition={designDefinition} />
-            </>
+            </DesignCanvasErrorBoundary>
           )}
           {shownTab === 'stream' && summary && (
-            <StreamPanel definition={designDefinition} flowId={flowId} flowType={summary.flowType} />
+            <DesignCanvasErrorBoundary key={designDefinition?.id ?? 'stream'} title="Streams could not be shown">
+              <StreamPanel definition={designDefinition} flowId={flowId} flowType={summary.flowType} />
+            </DesignCanvasErrorBoundary>
           )}
           {shownTab === 'session' && sessionSchema && catalogEntry && (
             <AgentSessionTab

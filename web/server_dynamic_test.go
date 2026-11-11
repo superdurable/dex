@@ -48,27 +48,35 @@ func (failingFlowDefinitionProvider) Load(context.Context) (*FlowDefinitionSnaps
 	return nil, invalidDefinitionSource(context.Canceled)
 }
 
+func (failingFlowDefinitionProvider) loadFlowTypes(context.Context, []string) (*FlowDefinitionSnapshot, error) {
+	return nil, invalidDefinitionSource(context.Canceled)
+}
+
+func (failingFlowDefinitionProvider) listFlowTypes(context.Context) (*flowDefinitionTypeList, error) {
+	return nil, invalidDefinitionSource(context.Canceled)
+}
+
 func TestReadinessReportsDefinitionSnapshot(t *testing.T) {
-	snapshot, err := buildFlowDefinitionSnapshot(nil, "local", "", "")
+	list, err := flowDefinitionSources{}.listFlowTypes(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	response := httptest.NewRecorder()
-	readinessHandler(readinessFlowServiceClient{}, staticFlowDefinitionProvider{snapshot: snapshot})(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), snapshot.DefinitionRevision) {
+	readinessHandler(readinessFlowServiceClient{}, flowDefinitionSources{})(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), list.revision()) {
 		t.Fatalf("readiness response = %d %q", response.Code, response.Body.String())
 	}
 }
 
 func TestFlowDefinitionResponseReportsRevisionETag(t *testing.T) {
-	snapshot, err := buildFlowDefinitionSnapshot(nil, "local", "", "")
+	snapshot, err := flowDefinitionSources{}.Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodGet, "/api/flow-definitions", nil)
 	response := httptest.NewRecorder()
-	serveFlowDefinitions(staticFlowDefinitionProvider{snapshot: snapshot})(response, request)
+	serveFlowDefinitions(flowDefinitionSources{})(response, request)
 	if response.Code != http.StatusOK || response.Header().Get("ETag") != `"`+snapshot.DefinitionRevision+`"` {
 		t.Fatalf("definition response = %d headers=%v", response.Code, response.Header())
 	}
@@ -84,15 +92,11 @@ func TestReadinessFailsForInvalidDefinitionSource(t *testing.T) {
 }
 
 func TestReadinessFailsForUnavailableFlowService(t *testing.T) {
-	snapshot, err := buildFlowDefinitionSnapshot(nil, "local", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	response := httptest.NewRecorder()
 	readinessHandler(
 		readinessFlowServiceClient{err: context.DeadlineExceeded},
-		staticFlowDefinitionProvider{snapshot: snapshot},
+		flowDefinitionSources{},
 	)(response, request)
 	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "FLOW_SERVICE_UNAVAILABLE") {
 		t.Fatalf("readiness response = %d %q", response.Code, response.Body.String())

@@ -159,6 +159,17 @@ html .v2-shell.dg {
   color: var(--muted);
 }
 
+.dg-unavailable {
+  align-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+
+.dg-unavailable b {
+  color: var(--text);
+}
+
 /* ---------- overlay: toolbar at the top left, zoom and legend at the top right ---------- */
 /* Only the controls take pointer events, so the drawing under the overlay's empty parts still pans. */
 .dg .dg-overlay {
