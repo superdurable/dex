@@ -37,6 +37,7 @@ from dex_agents.runner import (
     FrameworkMessage,
     ModelCallMetadata,
     TurnCompleted,
+    TurnContinued,
     describe_tool_call_outcome,
 )
 from dex_agents.tracing import AgentTracingOptions, GenAISemanticConventionsVersion
@@ -462,7 +463,7 @@ class _RecordingModelCallSpan(ModelCallSpan):
         self._set_metadata_attributes(span, outcome.model_call_metadata)
         if is_single_model_call:
             self._set_usage_attributes(span, outcome.usage)
-        if isinstance(outcome, TurnCompleted):
+        if isinstance(outcome, TurnCompleted | TurnContinued):
             produced_index = _first_produced_message_index(outcome.new_messages)
             span.set_attribute(
                 "dex.agent.output_messages.keys", list(self._appended_message_keys[produced_index:])

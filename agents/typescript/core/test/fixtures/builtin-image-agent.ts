@@ -15,6 +15,8 @@
 // - `screenshot-hold <gate>` does the same, but the second model call waits at that FileGate after it logs.
 // - `mcp-screenshot` calls `local__take_screenshot` of an McpToolSource with the media store, whose fake stdio
 //   server returns an image block, then answers `mcp screenshot taken`.
+// - `screenshot-continue` calls `take_screenshot` with the text `continue after tools`, so `decideTurnContinuation`
+//   continues the turn with the user text `Describe the screenshot.`, which the model answers `described`.
 // While the file `store-reads-fail` exists in the state directory, every image read fails with MediaStoreError and
 // is logged as `read-failed <sha256>` in `store-reads.log`.
 // Every call appends one JSON line to `model-prompts.log`: each prompt message's role and parts, with each file
@@ -43,6 +45,8 @@ import {
   type BuiltinLoopAgentRunner,
   type SourceToolDefinition,
   type ToolSource,
+  type TurnContinuation,
+  type TurnContinuationContext,
 } from "../../src/builtin-loop/index.js";
 import { McpToolSource } from "../../src/mcp/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
@@ -57,6 +61,8 @@ export const screenshotToolName = "take_screenshot";
 export const mcpScreenshotToolName = "local__take_screenshot";
 export const storeReadsFailFileName = "store-reads-fail";
 export const storeReadsLogName = "store-reads.log";
+export const continuationMessage = "Describe the screenshot.";
+const continueAfterToolsText = "continue after tools";
 
 type LanguageModelCallOptions = Parameters<MockLanguageModelV4["doStream"]>[0];
 type LanguageModelPrompt = LanguageModelCallOptions["prompt"];
@@ -104,6 +110,7 @@ export function createBuiltinImageAgentFlows(
     instructions: "You look at images.",
     model: createAiSdkModelClient(createImageLanguageModel(stateDirectory)),
     toolSources: [new ScreenshotToolSource(switchableStore), mcpTools],
+    decideTurnContinuation: continueAfterTools,
   };
   return [
     createBuiltinAgentSessionFlow(definition, builtinImageAgentFlowType, { mediaStore: switchableStore }),
@@ -130,6 +137,14 @@ export function readLoggedPrompts(stateDirectory: string): SeenMessage[][] {
  */
 export function seenImage(data: Uint8Array, mediaType: string): SeenPart {
   return { type: "file", mediaType, sha256: sha256Of(data), size: data.length };
+}
+
+/** Continues with a user message after the tools of a response that says so. */
+function continueAfterTools(context: TurnContinuationContext): TurnContinuation {
+  const asksToContinue = context.modelOutput.some((item) => item.text === continueAfterToolsText);
+  return context.toolResults.length > 0 && asksToContinue
+    ? { action: "continue", message: continuationMessage }
+    : "default";
 }
 
 /** A media store whose reads fail while the test's flag file exists. */
@@ -226,6 +241,18 @@ async function* streamImageResponse(
       await gate.waitForRelease(options.abortSignal);
     }
     yield* streamAnswer("screenshot taken");
+    return;
+  }
+  if (command === "screenshot-continue") {
+    yield { type: "text-start", id: "t1" };
+    yield { type: "text-delta", id: "t1", delta: continueAfterToolsText };
+    yield { type: "text-end", id: "t1" };
+    yield { type: "tool-call", toolCallId: `call-${seen.length}`, toolName: screenshotToolName, input: "{}" };
+    yield finishPart("tool-calls");
+    return;
+  }
+  if (command === continuationMessage) {
+    yield* streamAnswer("described");
     return;
   }
   if (command === "mcp-screenshot") {

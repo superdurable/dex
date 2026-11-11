@@ -27,7 +27,11 @@ import {
   readStepHistory,
 } from "../../src/testing/index.js";
 import { readLoggedModelCalls } from "../fixtures/stepwise-scripted-language-model.js";
-import { createStepwiseTestAgentFlow, stepwiseMarkerDirectoryVariable } from "../fixtures/stepwise-test-agent.js";
+import {
+  createStepwiseTestAgentFlow,
+  stepwiseMarkerDirectoryVariable,
+  builtinLoopTurnContinuationHookVariable,
+} from "../fixtures/stepwise-test-agent.js";
 
 const workerEntryModulePath = fileURLToPath(new URL("../fixtures/stepwise-test-agent-worker.js", import.meta.url));
 
@@ -59,16 +63,103 @@ describe("Stepwise agent sessions survive a Worker killed with SIGKILL", () => {
     await engine?.stop();
   });
 
-  async function startWorker(markerDirectory: string): Promise<KillableWorkerProcess> {
+  async function startWorker(
+    markerDirectory: string,
+    options: { readonly hasTurnContinuationHook?: boolean } = {},
+  ): Promise<KillableWorkerProcess> {
     const worker = await KillableWorkerProcess.start({
       entryModulePath: workerEntryModulePath,
       serverAddress: engine.serverAddress,
       logPath: join(markerDirectory, "worker.log"),
-      environment: { [stepwiseMarkerDirectoryVariable]: markerDirectory },
+      environment: {
+        [stepwiseMarkerDirectoryVariable]: markerDirectory,
+        ...(options.hasTurnContinuationHook === true ? { [builtinLoopTurnContinuationHookVariable]: "1" } : {}),
+      },
     });
     workers.push(worker);
     return worker;
   }
+
+  test("a Worker killed during the second RunModel of a continued turn reruns only that model call", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory, { hasTurnContinuationHook: true });
+    const token = newToken();
+    const sessionId = `stepwise-kill-continue-${token}`;
+    await sessions.startSession(sessionId, `revise ${token} then pause`);
+    const modelGate = new FileGate(markerDirectory, "model");
+    await modelGate.waitUntilReached();
+    const continued = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(continued.state?.status, "running_model");
+    assert.deepEqual(
+      continued.messages.map((message) => `${message.sequence} ${message.role} ${message.text}`),
+      [
+        `1 user revise ${token} then pause`,
+        `2 assistant draft for ${token} then pause`,
+        `3 user finalize ${token} then pause`,
+      ],
+    );
+
+    await firstWorker.kill();
+    modelGate.release();
+    await startWorker(markerDirectory, { hasTurnContinuationHook: true });
+
+    const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.equal(state.lastTurnError, null);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      snapshot.messages.map((message) => `${message.sequence} ${message.role} ${message.text}`),
+      [
+        `1 user revise ${token} then pause`,
+        `2 assistant draft for ${token} then pause`,
+        `3 user finalize ${token} then pause`,
+        `4 assistant partial final for ${token}. final for ${token}`,
+      ],
+    );
+    assert.equal(modelGate.reachedCount(), 2);
+    // The draft call ran once; only the killed second call ran again.
+    const loggedCalls = readLoggedModelCalls(markerDirectory, token);
+    assert.equal(loggedCalls.length, 3);
+    // Through the AI SDK, the continued call's prompt ends with the message as a user message.
+    assert.deepEqual(
+      loggedCalls.slice(1).map((call) => call.prompt.at(-1)?.role),
+      ["user", "user"],
+    );
+    assert.equal(snapshot.usage.modelCalls, 2);
+    assert.deepEqual(await executedStepTypes(sessionId), ["StartAgentSession", "RunModel", "RunModel"]);
+  });
+
+  test("a session parked by a Worker without the hook continues on a Worker with it", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const token = newToken();
+    const sessionId = `stepwise-hook-upgrade-${token}`;
+    // The tool waits at the gate, so the run state and the record are persisted by the Worker without the hook.
+    await sessions.startSession(sessionId, `lookup gated-end-after-tools-${token}`);
+    const lookupGate = new FileGate(markerDirectory, "lookup");
+    await lookupGate.waitUntilReached();
+    await firstWorker.kill();
+    lookupGate.release();
+    await startWorker(markerDirectory, { hasTurnContinuationHook: true });
+
+    const state = await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+    assert.equal(state.lastTurnError, null);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.deepEqual(
+      snapshot.messages.map((message) => `${message.sequence} ${message.role} ${message.text ?? message.toolName}`),
+      [`1 user lookup gated-end-after-tools-${token}`, "2 assistant lookup_order", "3 tool lookup_order"],
+    );
+    // The hook ended the turn after the tool, so no model call followed it.
+    assert.equal(readLoggedModelCalls(markerDirectory, token).length, 1);
+    assert.equal(snapshot.usage.modelCalls, 1);
+
+    // The next turn runs normally, with the hook's continue.
+    await sessions.sendUserMessage(sessionId, `revise next-${token}`);
+    await sessions.waitForCompletedTurns(sessionId, 2, { timeoutMs: 120_000 });
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      `final for next-${token}`,
+    );
+  });
 
   test("a Worker killed during RunModel reruns only that model call and stores each message once", async () => {
     const markerDirectory = newMarkerDirectory();

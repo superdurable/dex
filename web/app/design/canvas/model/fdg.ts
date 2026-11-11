@@ -103,6 +103,8 @@ export interface FdgFlowV2 {
 
 export interface FlowDefinitionGraph {
   schemaVersion: string
+  /** RFC 3339 UTC time when dexcli visualize generated a 2.0 graph; older graphs omit it. */
+  generatedAt?: string
   valid: boolean
   source: { language: string; path: string }
   flow: { name: string; startStepId?: string; span?: SourceSpan }

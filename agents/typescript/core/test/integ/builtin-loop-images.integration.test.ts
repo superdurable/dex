@@ -235,6 +235,35 @@ describe("images through a built-in loop session", () => {
     assert.equal(snapshot.state?.lastTurnError ?? null, null);
   });
 
+  test("a continuation after tools keeps the tool image and adds none", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "continuation-"));
+    await startWorker(stateDirectory);
+    const sessionId = `builtin-images-continuation-${randomUUID()}`;
+    await sessions.startSession(sessionId, "screenshot-continue");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    // The continuation message follows the tool result, whose image the next model call still shows.
+    assert.deepEqual(readLoggedPrompts(stateDirectory).at(-1)?.slice(-2), [
+      {
+        role: "tool",
+        parts: [
+          {
+            type: "tool-result",
+            toolName: "take_screenshot",
+            output: [{ type: "text", text: "Took a screenshot." }, seenImage(screenshotPng(), "image/png")],
+          },
+        ],
+      },
+      { role: "user", parts: [{ type: "text", text: "Describe the screenshot." }] },
+    ]);
+    assert.equal(snapshot.messages.at(-1)?.text, "described");
+    const continuation = snapshot.messages.at(-2);
+    assert.equal(continuation?.text, "Describe the screenshot.");
+    assert.equal(continuation?.images, undefined);
+    assert.equal("images" in (JSON.parse(continuation?.frameworkItem ?? "{}") as object), false);
+  });
+
   test("a runner without a media store refuses images and hides tool images", async () => {
     const stateDirectory = mkdtempSync(join(engine.stateDirectory, "no-store-"));
     const store = new LocalDirectoryMediaStore(join(stateDirectory, mediaDirectoryName));

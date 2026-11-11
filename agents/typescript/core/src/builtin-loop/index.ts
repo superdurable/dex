@@ -6,7 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-export { type AgentDefinition, type InstructionContext, type PlanningToolChoice } from "./agent-definition.js";
+export {
+  type AgentDefinition,
+  type InstructionContext,
+  type PlanningToolChoice,
+  type ContinueTurn,
+  type TurnContinuation,
+  type TurnContinuationContext,
+} from "./agent-definition.js";
 export {
   functionTool,
   type FunctionTool,
@@ -46,5 +53,9 @@ export {
   contextSummaryNoteHeader,
   contextSummaryRequest,
 } from "../agent-context-compaction.js";
-export { BuiltinLoopAgentRunner, defaultToolSourceListingTimeoutMs } from "./builtin-loop-agent-runner.js";
+export {
+  BuiltinLoopAgentRunner,
+  defaultToolSourceListingTimeoutMs,
+  maxConsecutiveTurnContinuations,
+} from "./builtin-loop-agent-runner.js";
 export { type SourceToolDefinition, type ToolSource } from "./tool-source.js";

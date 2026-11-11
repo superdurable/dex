@@ -290,6 +290,33 @@ async def test_a_failed_store_read_fails_the_model_call_and_the_retry_succeeds(
     assert max(entry.final_attempt for entry in history if entry.step_type == "RunModel") >= 2
 
 
+async def test_a_continuation_after_tools_keeps_the_tool_image_and_adds_none(
+    image_harness: BuiltinImageHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    session_id = f"session-{uuid4().hex}"
+    await image_harness.sessions.start_session(session_id, "screenshot-continue")
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    # The continuation message follows the tool result, whose image the next model call still shows.
+    assert image_harness.model_requests()[-1]["items"][-2:] == [
+        {
+            "kind": "tool_result",
+            "text": "Took a screenshot.",
+            "images": [image_seen(screenshot_png(), "image/png")],
+        },
+        {"kind": "user", "text": "Describe the screenshot.", "images": []},
+    ]
+    assert snapshot.messages[-1].text == "described"
+    continuation = snapshot.messages[-2]
+    assert (continuation.role, continuation.text, continuation.images) == (
+        MessageRole.USER,
+        "Describe the screenshot.",
+        [],
+    )
+    assert "images" not in json.loads(continuation.framework_item)
+
+
 async def wait_until_true(predicate: Callable[[], bool]) -> None:
     await wait_until("the condition", _as_async(predicate), timeout=timedelta(seconds=60))
 

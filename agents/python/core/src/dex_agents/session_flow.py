@@ -164,6 +164,7 @@ from dex_agents.runner import (
     ToolTaskPollOutcome,
     ToolTaskStarted,
     TurnCompleted,
+    TurnContinued,
     UnfinishedTurnMessageBuilder,
     build_tool_call_note,
     build_turn_failure_note,
@@ -1363,7 +1364,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         with self._session_tracer.trace_model_call(context, step_type, turn) as model_call_span:
             async with _background_heartbeats(context.heartbeat):
                 outcome = await self._runner.run_model_step(turn)
-                if isinstance(outcome, TurnCompleted | ToolCallsRequested):
+                if isinstance(outcome, TurnCompleted | ToolCallsRequested | TurnContinued):
                     await self._report_model_usage(context, turn_id, step_type, outcome.usage)
             # The index keeps where the turn's replies start, so summarized ones still count.
             stored_turn_message_count = _count_stored_turn_replies(context, state, turn_id)
@@ -1381,7 +1382,18 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             if isinstance(outcome, ToolCallsRequested):
                 model_call_span.record_outcome(outcome, [])
                 return self._start_tool_calls(context, state, tool_calls, outcome, events)
-            raise TypeError("run_model_step must return TurnCompleted or ToolCallsRequested")
+            if isinstance(outcome, TurnContinued):
+                model_call_span.record_outcome(
+                    outcome,
+                    [
+                        message_sequence_key(state.next_message_sequence + offset)
+                        for offset in range(len(outcome.new_messages))
+                    ],
+                )
+                return self._continue_turn(context, state, tool_calls, outcome, events)
+            raise TypeError(
+                "run_model_step must return TurnCompleted, ToolCallsRequested, or TurnContinued"
+            )
 
     async def _check_spend_limit(
         self, context: AsyncContext, state: AgentState, turn_id: str, step_type: str
@@ -1634,6 +1646,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         stored_turn_message_count: int,
     ) -> StepDecision:
         turn_id = _require_active_turn_id(state)
+        turn_error = outcome.turn_error
+        if turn_error is not None and (not isinstance(turn_error, str) or not turn_error.strip()):
+            raise TypeError(f"TurnCompleted.turn_error for {turn_id} must be a non-blank string")
         state = _append_messages(
             context, state, turn_id, outcome.new_messages, self._message_storage
         )
@@ -1650,13 +1665,42 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 turn_count=state.turn_count + 1,
                 active_turn_id=None,
                 accepts_turn_control=False,
-                last_turn_error=None,
+                last_turn_error=turn_error,
             ),
         )
+        if turn_error is not None:
+            events.write_event(AgentEventType.TURN_FAILED, {"error": turn_error})
+            return go_to(self._await_user_message, None)
         # The turn's user messages are stored before RunModel; count only what came after them.
         appended_message_count = stored_turn_message_count + len(outcome.new_messages)
         events.write_event(AgentEventType.TURN_COMPLETED, {"message_count": appended_message_count})
         return go_to(self._await_user_message, None)
+
+    def _continue_turn(
+        self,
+        context: AsyncContext,
+        state: AgentState,
+        tool_calls: Sequence[AgentToolCall],
+        outcome: TurnContinued,
+        events: AgentEventWriter,
+    ) -> StepDecision:
+        """Store the answer and any continuation message, then run ``RunModel`` again."""
+        turn_id = _require_active_turn_id(state)
+        if not isinstance(outcome.framework_run_state, str) or not outcome.framework_run_state:
+            raise ValueError("TurnContinued needs a non-empty framework_run_state")
+        if outcome.new_messages and not isinstance(self._runner, UnfinishedTurnMessageBuilder):
+            # The same runner defect as for ToolCallsRequested.new_messages.
+            _record_usage(context, events, outcome.usage)
+            return self._fail_turn(
+                context, state, tool_calls, events, MISSING_UNFINISHED_TURN_MESSAGE_BUILDER
+            )
+        state = _append_messages(
+            context, state, turn_id, outcome.new_messages, self._message_storage
+        )
+        FRAMEWORK_RUN_STATE.set(context, outcome.framework_run_state)
+        _record_usage(context, events, outcome.usage)
+        AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_MODEL))
+        return self._go_to_message_step(context, self._run_model)
 
     def _start_tool_calls(
         self,

@@ -144,8 +144,10 @@ registry = Registry([flow], allow_async_handlers=True)
 `max_model_calls_per_turn` (100; after that many calls in one turn the next
 call offers no tools, and a tool call the model makes anyway gets the result
 `The tool call was not run: this turn reached its limit of <n> model calls.`
-while the turn ends), `interrupt_deadline`, `event_stream_capacity_bytes`, and
-`plan_mode_enabled` (see [Plans and plan mode](#plans-and-plan-mode)).
+while the turn ends), `interrupt_deadline`, `event_stream_capacity_bytes`,
+`plan_mode_enabled` (see [Plans and plan mode](#plans-and-plan-mode)), and
+`decide_turn_continuation` (since 0.5.0; see
+[Ending or continuing a turn](#ending-or-continuing-a-turn)).
 A function tool may not share a name with an enabled built-in tool:
 `AgentDefinition` refuses it, and so does `run_model_step`, before any model
 request, when only the session options enable that built-in.
@@ -180,7 +182,68 @@ of the previous model response from the final records. Every stored tool call is
 result; a missing one becomes the outcome-unknown text, so an orphaned call
 never reaches a provider. It stores items as they appear
 (`ToolCallsRequested.new_messages`), so `FrameworkRunState` holds only the
-turn's model call count.
+turn's model call count, plus the count of consecutive continuations after a
+continued answer.
+
+### Ending or continuing a turn
+
+`decide_turn_continuation` lets the application decide, at the end of each
+loop iteration, whether the turn ends or continues. An iteration is one model
+call and the tool calls it requested. The function receives a
+`TurnContinuationContext`: `flow_id`, `turn_id`, `session_settings`, the
+iteration's `model_output` items, and its `tool_results` (empty when the model
+answered without tools). It returns `"end"`, `"default"`, or a
+`ContinueTurn(message)`, directly or as an awaitable.
+
+| The iteration | `"end"` | `ContinueTurn(message)` | `"default"` or no hook |
+| --- | --- | --- | --- |
+| The model called tools | The turn completes without another model call | The message follows the tool results, and the model is called with both | The model is called with the tool results |
+| The model answered without tools | The turn completes | The answer and the message are stored, and the model is called again in the same turn | The turn completes |
+
+```python
+def decide(context: TurnContinuationContext) -> TurnContinuation:
+    if any(result.tool_name == "submit_decision" for result in context.tool_results):
+        return "end"
+    answer = "".join(item.text or "" for item in context.model_output)
+    if not context.tool_results and "DECISION:" not in answer:
+        return ContinueTurn("Finish with a line that starts with DECISION:.")
+    return "default"
+
+
+approvals_agent = AgentDefinition(
+    name="approvals",
+    instructions="Review the request, then call submit_decision.",
+    model=model,
+    tools=[submit_decision],
+    decide_turn_continuation=decide,
+)
+```
+
+- After tools, the hook runs in the next `RunModel` Step, before its model
+  call. `"end"` completes the turn there with the tool results as its last
+  messages and zero model calls in that Step's usage. The snapshot, the
+  `turn_completed` event, and the browser stream show a finished turn whose
+  last message is the tool result. That `RunModel` still runs the session's
+  compaction and spend-limit checks first, and still emits a `chat` span.
+- After an answer, the hook runs in the same `RunModel` Step, after the model
+  call. A `ContinueTurn` returns the `TurnContinued` outcome: the session
+  stores the answer and the message as user text, then moves to `RunModel`
+  again. The next model request therefore ends with a user message, which
+  every provider accepts. Each model call stays its own `RunModel` Step, so a
+  crash or retry repeats only that call. Each continued call counts toward
+  `max_model_calls_per_turn`.
+- The message is part of the turn's transcript: the model sees it as user
+  text, and snapshots hold it as a `user` message of the same turn. A browser
+  that renders snapshots can tell it from a user's message: it comes between
+  two model calls of one turn.
+- At most `MAX_CONSECUTIVE_TURN_CONTINUATIONS` (8) continuations in a row
+  may follow answers without tools; a tool call resets the count. The next
+  one ends the turn with its answer stored, `last_turn_error` set to
+  `TURN_CONTINUATION_LIMIT_ERROR`, and a `turn_failed` event.
+- An exception, or any other value, including a `ContinueTurn` with a blank
+  message, fails the `RunModel` attempt, and its retry policy runs it again.
+  After an answer, the retry repeats the model call too. Keep the function
+  free of side effects.
 
 ### Tool sources
 
@@ -865,7 +928,8 @@ and a bare `AgentFrameworkRunner` means `AgentFrameworkRunner[ToolExecutionResul
 as in 0.1.0. A runner whose tools ask the user implements
 `AgentFrameworkRunner[DeferredToolOutcome]`.
 
-`AgentTurnOutcome` is `TurnCompleted | ToolCallsRequested`.
+`AgentTurnOutcome` is `TurnCompleted | ToolCallsRequested | TurnContinued`.
+`TurnContinued` and `TurnCompleted.turn_error` are new in 0.5.0.
 
 ### `build_user_message(text)`
 
@@ -884,7 +948,7 @@ committed state:
 | --- | --- |
 | `flow_id`, `turn_id`, `attempt` | Session ID, `"turn-<n>"`, and the one-based `RunModel` attempt. |
 | `messages` | Every stored `AgentMessage` in sequence order. The last user message belongs to this turn. |
-| `framework_run_state` | `None` for the turn's first model call; otherwise the value from this turn's last `ToolCallsRequested`. `is_resuming` tests it. |
+| `framework_run_state` | `None` for the turn's first model call; otherwise the value from this turn's last `ToolCallsRequested` or `TurnContinued`. `is_resuming` tests it. |
 | `tool_calls` | Every `AgentToolCall` record of this turn by tool call ID. When `RunModel` runs, every record is final. `recorded_tool_call(id)` reads one. |
 | `resolve_tool_policy(name, framework_effect=None)` | The policy for a tool: explicit policy, else framework metadata, else `default_tool_effect`. |
 | `events` | `AgentEventWriter` bound to the turn, Step execution, and attempt: `write_text_delta`, `write_reasoning_delta`, `write_tool_call_started`, `write_tool_call_finished`, `write_event`. Safe to call from any thread; writes after the call returns are dropped. |
@@ -920,13 +984,22 @@ A runner must:
    raises or returns anything but `FrameworkMessage` values, the session logs a
    warning and stores only the note. A runner that sets `new_messages` without
    the method fails its turn after that one model call, with no retry.
-5. Report `usage` for this model call only. The session adds it to the session
+5. To make another model call within the same turn, return
+   `TurnContinued(framework_run_state, new_messages, usage)`, with
+   `new_messages` ending with a user message when the provider needs the
+   request to end with one. The session stores the messages and runs
+   `RunModel` again; such a runner implements
+   `build_unfinished_turn_messages`. To end the turn as failed without a
+   retry, such as at a limit the runner enforces, return `TurnCompleted` with
+   `turn_error`; the session stores `new_messages` and sets `last_turn_error`
+   to that text.
+6. Report `usage` for this model call only. The session adds it to the session
    total. Optionally return `model_call_metadata=ModelCallMetadata(
    request_model, response_model, provider_name, response_id, finish_reasons)`
    in either outcome. The session never stores it; it names the `chat` span
    (see [Tracing](#tracing)). Leave a field `None` when the framework does not
    expose it.
-6. Never run a tool inside `run_model_step`, unless the framework cannot defer
+7. Never run a tool inside `run_model_step`, unless the framework cannot defer
    it. Document such tools as at-least-once: a `RunModel` retry runs them
    again.
 

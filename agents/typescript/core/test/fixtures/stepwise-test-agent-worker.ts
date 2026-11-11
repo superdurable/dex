@@ -7,10 +7,18 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { runAgentWorkerProcess } from "../../src/testing/index.js";
-import { createStepwiseTestAgentFlow, stepwiseMarkerDirectoryVariable } from "./stepwise-test-agent.js";
+import {
+  createStepwiseTestAgentFlow,
+  stepwiseMarkerDirectoryVariable,
+  builtinLoopTurnContinuationHookVariable,
+} from "./stepwise-test-agent.js";
 
 const markerDirectory = process.env[stepwiseMarkerDirectoryVariable];
 if (markerDirectory === undefined || markerDirectory === "") {
   throw new Error(`${stepwiseMarkerDirectoryVariable} is not set`);
 }
-await runAgentWorkerProcess([createStepwiseTestAgentFlow(markerDirectory)]);
+await runAgentWorkerProcess([
+  createStepwiseTestAgentFlow(markerDirectory, {
+    hasTurnContinuationHook: process.env[builtinLoopTurnContinuationHookVariable] === "1",
+  }),
+]);

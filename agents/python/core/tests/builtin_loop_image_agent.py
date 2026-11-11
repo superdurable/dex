@@ -19,6 +19,9 @@ The model reads the current turn's user text:
 * ``mcp-screenshot`` calls ``local__take_screenshot`` of an ``McpToolSource``
   with the media store, whose fake stdio server returns an image block, then
   answers ``mcp screenshot taken``.
+* ``screenshot-continue`` calls ``take_screenshot`` with the text ``continue
+  after tools``, so ``decide_turn_continuation`` continues the turn with the
+  user text ``Describe the screenshot.``, which the model answers ``described``.
 
 Every model call appends one JSON line to ``model-requests.log``: each input
 item's kind and text, with each image as its MIME type and the SHA-256 and
@@ -57,12 +60,15 @@ from dex_agents import (
 )
 from dex_agents.builtin_loop import (
     AgentDefinition,
+    ContinueTurn,
     ModelRequest,
     ScriptedModelClient,
     ScriptedModelReply,
     ScriptedToolCall,
     SourceToolDefinition,
     ToolResultItem,
+    TurnContinuation,
+    TurnContinuationContext,
     UserTextItem,
     builtin_agent_session_flow,
 )
@@ -80,6 +86,8 @@ MCP_SCREENSHOT_TOOL_NAME = "local__take_screenshot"
 STORE_READS_FAIL_FILE_NAME = "store-reads-fail"
 STORE_READS_LOG_NAME = "store-reads.log"
 CORE_DIR = Path(__file__).resolve().parents[1]
+CONTINUE_AFTER_TOOLS_TEXT = "continue after tools"
+CONTINUATION_MESSAGE = "Describe the screenshot."
 
 
 def screenshot_png() -> bytes:
@@ -207,6 +215,13 @@ class ImageModelScript:
                 gate.mark_reached()
                 await gate.wait_for_release()
             return ScriptedModelReply(text="screenshot taken")
+        if command == "screenshot-continue":
+            return ScriptedModelReply(
+                text=CONTINUE_AFTER_TOOLS_TEXT,
+                tool_calls=[ScriptedToolCall(tool_name=SCREENSHOT_TOOL_NAME)],
+            )
+        if command == CONTINUATION_MESSAGE:
+            return ScriptedModelReply(text="described")
         if command == "mcp-screenshot":
             if not ScriptedModelClient.tool_results(request):
                 return ScriptedModelReply(
@@ -214,6 +229,14 @@ class ImageModelScript:
                 )
             return ScriptedModelReply(text="mcp screenshot taken")
         raise ValueError(f"unknown image command {command!r}")
+
+
+def continue_after_tools(context: TurnContinuationContext) -> TurnContinuation:
+    """Continue with a user message after the tools of a response that says so."""
+    asks_to_continue = any(item.text == CONTINUE_AFTER_TOOLS_TEXT for item in context.model_output)
+    if context.tool_results and asks_to_continue:
+        return ContinueTurn(message=CONTINUATION_MESSAGE)
+    return "default"
 
 
 def build_builtin_image_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
@@ -238,6 +261,7 @@ def build_builtin_image_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
         instructions="You look at images.",
         model=ScriptedModelClient(ImageModelScript(state_dir).respond),
         tool_sources=[ScreenshotToolSource(store), mcp_tools],
+        decide_turn_continuation=continue_after_tools,
     )
     return [
         builtin_agent_session_flow(definition, flow_type=IMAGE_AGENT_FLOW_TYPE, media_store=store),
