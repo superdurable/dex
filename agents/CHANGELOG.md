@@ -76,6 +76,17 @@ for the Dex SDK and framework versions each release supports.
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- The TypeScript **dex-agents-openai-sdk**, **dex-agents-vercel-ai**,
+  **dex-agents-mastra**, and **dex-agents-builtin** commands
+  (`@superdurable/dex-agents-<name>-cli`), not published yet: an OpenAI Agents
+  SDK, Vercel AI SDK, Mastra, or Stepwise agent in the terminal on the shared
+  CLI runtime, with its connector and local tools. Each turn uses the model and
+  instructions its session settings resolve to. Provider keys come from each
+  provider's standard environment variables, such as `OPENAI_API_KEY`. See
+  [cli/typescript/openai-sdk](cli/typescript/openai-sdk/README.md),
+  [vercel-ai](cli/typescript/vercel-ai/README.md),
+  [mastra](cli/typescript/mastra/README.md), and
+  [builtin](cli/typescript/builtin/README.md).
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,
