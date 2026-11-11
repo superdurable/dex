@@ -57,6 +57,14 @@ class AgentHarness(Protocol):
     file, the Dex server, connector and local tools, sessions, the Worker, and
     the terminal chat.
 
+    A harness whose runner fixes its tools when it is built, such as one on
+    the OpenAI Agents SDK adapter, also sets the optional class attribute
+    ``is_tool_set_fixed_at_build = True``. Such a runner offers only the tools
+    that the sources cache before the Flow is built: the tools the
+    configuration file enables and the connectors MCP server lists at
+    startup. When that listing fails, the command warns that the run has no
+    connector tools and that a restart brings them back.
+
     Example:
         >>> class ClaudeHarness:
         ...     name = "claude-sdk"

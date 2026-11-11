@@ -73,9 +73,11 @@ class ScriptedHarness:
         tool_policies: Mapping[str, ToolPolicy] | None = None,
         *,
         has_replacement_shell_tool: bool = False,
+        is_tool_set_fixed_at_build: bool = False,
     ) -> None:
         self._tool_policies = dict(tool_policies or {})
         self._has_replacement_shell_tool = has_replacement_shell_tool
+        self.is_tool_set_fixed_at_build = is_tool_set_fixed_at_build
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         cached_at_build = sorted(
