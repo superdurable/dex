@@ -67,9 +67,11 @@ Rule & What happens \\
   rejection would give. \\
 \bottomrule
 \end{tabularx}
-\caption{The failure rules of DexF (specification \S11.3). Every rule is
-silent except \rulename{ATTEMPT-EXHAUSTED}, which emits $\ev{closed}$, and
-\rulename{ZOMBIE-EFFECT}, which emits $\ev{fx}$.}
+\caption{The failure rules of DexF (specification \S11.3). They emit no
+event, except \rulename{ATTEMPT-EXHAUSTED} ($\ev{closed}$),
+\rulename{ZOMBIE-EFFECT} ($\ev{fx}$), \rulename{ENGINE-REJECT}
+($\ev{rejected}$), and \rulename{RETRY-FIRE} when its command also fires
+wait timers, which then acts as \rulename{TIMER-FIRE}.}
 \label{tab:failure-rules}
 \end{table}
 
@@ -235,8 +237,10 @@ and only $\alpha$ uses (\lean{Ghost}):
   heartbeat at the same sequence number, and need different relabelings.
 \end{itemize}
 
-The specification classifies every command by whether it advances the
-run's persisted sequence counter: \emph{normal} commands map to Dex commits;
+The specification classifies every command by apply's outcome. Whether a
+command takes a run sequence number is decided by whether it advances the
+run's persisted sequence counter: normal and failure commands do,
+bookkeeping commands do not. \emph{Normal} commands map to Dex commits;
 \emph{failure}, \emph{bookkeeping}, internal ignored, and post-close
 housekeeping commands map to stutters; a rejected client request maps to
 the same Dex rejection with the same event. The simulation needs seven
@@ -441,7 +445,9 @@ projects to $\ev{begin}(7), \ev{out}(1), \ev{out}(1), \ev{out}(1),
 \ev{exit}(0)$, the \Lang{} trace $\ev{begin}(7), \ev{out}(1),
 \ev{exit}(0)$ with two inserted $\ev{out}(1)$. In the second, a zombie's
 result commits after a crash and before its interrupt, which apply then
-ignores.
+ignores. Both runs are finite. The development exhibits no fair maximal DexF
+trace, so the liveness theorem has no witness of its own beyond the
+failure-free runs that \lean{liveness_failure} includes backward.
 
 \paragraph{Size.}
 Table~\ref{tab:failure-size} gives the size of the failure development. It
