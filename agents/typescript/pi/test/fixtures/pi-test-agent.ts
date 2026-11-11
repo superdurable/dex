@@ -28,6 +28,9 @@ export const piTestModelServerVariable = "PI_TEST_MODEL_SERVER";
 /** Environment variable naming the marker directory for a Worker process. */
 export const piTestMarkerDirectoryVariable = "PI_TEST_MARKER_DIRECTORY";
 
+/** Flow type of the agent that the Worker process registers. */
+export const piWorkerKillFlowType = "PiWorkerKillAgent";
+
 /** Session settings `model` values the test agent understands. */
 export type PiTestModelName = "openai" | "anthropic";
 

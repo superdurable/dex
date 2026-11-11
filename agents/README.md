@@ -30,6 +30,7 @@ adapter depends on the published core instead.
 | [`typescript/mastra`](typescript/mastra) | [`@superdurable/dex-agents-mastra`](https://www.npmjs.com/package/@superdurable/dex-agents-mastra) | Mastra |
 | [`typescript/claude-agent-sdk`](typescript/claude-agent-sdk) | [`@superdurable/dex-agents-claude-agent-sdk`](https://www.npmjs.com/package/@superdurable/dex-agents-claude-agent-sdk) | Claude Agent SDK |
 | [`cli/typescript/claude-sdk`](cli/typescript/claude-sdk) | `@superdurable/dex-agents-claude-sdk-cli`, not published yet | The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal |
+| [`typescript/pi`](typescript/pi) | `@superdurable/dex-agents-pi`, not published yet | Pi: pi-ai models and Pi tools on Stepwise mode, where Dex runs the agent loop |
 
 ## UI streams
 
@@ -75,7 +76,7 @@ npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/
 
 ## Versions and compatibility
 
-All eleven packages share one version line, starting at 0.1.0. It is
+All twelve packages share one version line, starting at 0.1.0. It is
 independent of the Dex SDK versions and of the Dex Skills: frameworks move
 faster than Dex, and the adapter API is still before 1.0, so a minor release
 may change it. One release publishes the whole family under one tag,
@@ -120,6 +121,7 @@ framework range it was tested against.
 | 0.4.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-openai-agents` | `@openai/agents@^0.21.0` | 0.21.0 |
 | 0.4.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-mastra` | `@mastra/core@^1.81.0` | 1.81.0 |
 | 0.4.0 | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-claude-agent-sdk` | `@anthropic-ai/claude-agent-sdk@^0.3.316` | 0.3.316 |
+| Unreleased | `@superdurable/dex@1.38.0` | `@superdurable/dex-agents-pi` | `@earendil-works/pi-ai@^1.5.1` | 1.5.1 |
 
 A Python adapter requires `dex-agents==<same version>`. An npm adapter
 peer-depends on `@superdurable/dex-agents@^<same version>`. Add a row for
@@ -139,7 +141,7 @@ before the Workers.
 ## Releases
 
 Publishing a GitHub Release with the tag `agents/v<version>` from a commit on
-`main` publishes all eleven packages: the core first, then the adapters.
+`main` publishes all twelve packages: the core first, then the adapters.
 [`agents-python-publish.yml`](../.github/workflows/agents-python-publish.yml)
 uploads to PyPI and
 [`agents-typescript-publish.yml`](../.github/workflows/agents-typescript-publish.yml)
@@ -151,7 +153,7 @@ when `agents/**` changed and its `agents_version` input is set.
 
 Both workflows stamp the release version first with
 [`script/stamp_agents_release_version.py`](script/stamp_agents_release_version.py).
-It sets one version in all six `pyproject.toml` and five `package.json`
+It sets one version in all six `pyproject.toml` and six `package.json`
 files, their lockfiles, and the adapters' constraints on their core. Run it
 locally to bump the committed version, and pass `--check` to verify it.
 
@@ -188,5 +190,8 @@ DEXCLI=/path/to/dexcli agents/script/smoke-test-built-packages.sh all
 `Agents CI` finds every executable `agents/*/*/ci.sh` and runs each in its own
 job, so a new package needs no workflow change. Add a new package to the
 package lists in the stamping script, the smoke test, both publish workflows,
-and the tables above. Source files use the
+and the tables above. Before the first release that publishes a new package
+name, an owner sets up trusted publishing for that name on PyPI or npm; until
+then the publish job fails for the new package. Source
+files use the
 Sustainable Use License header; `make copyright-check` verifies it.
