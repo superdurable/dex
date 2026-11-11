@@ -36,10 +36,10 @@ async def test_writes_from_an_executor_thread_run_on_the_event_loop_thread() -> 
     worker_thread_id = await asyncio.to_thread(write_from_thread)
     writer.write_text_delta("from the loop")
 
-    async def delivered_count() -> int:
-        return len(delivered)
+    async def has_three_delivered_events() -> bool:
+        return len(delivered) >= 3
 
-    await wait_until("three delivered events", delivered_count)
+    await wait_until("three delivered events", has_three_delivered_events)
     assert worker_thread_id != loop_thread_id
     assert [thread_id for thread_id, _ in delivered] == [loop_thread_id] * 3
     assert [json.loads(event.payload)["text"] for _, event in delivered] == [
@@ -50,6 +50,26 @@ async def test_writes_from_an_executor_thread_run_on_the_event_loop_thread() -> 
     assert {(event.turn_id, event.attempt, event.step_execution_id) for _, event in delivered} == {
         ("turn-1", 2, "RunModel-1")
     }
+
+
+async def test_a_loop_write_follows_earlier_writes_from_another_thread() -> None:
+    delivered: list[AgentEvent] = []
+    writer = AgentEventWriter(delivered.append, "turn-1", 1)
+
+    # Joining on the loop thread keeps the loop from running the handed-over writes.
+    thread = threading.Thread(target=writer.write_text_delta, args=("from a thread",))
+    thread.start()
+    thread.join()
+    writer.write_text_delta("from the loop")
+
+    async def has_two_delivered_events() -> bool:
+        return len(delivered) >= 2
+
+    await wait_until("two delivered events", has_two_delivered_events)
+    assert [json.loads(event.payload)["text"] for event in delivered] == [
+        "from a thread",
+        "from the loop",
+    ]
 
 
 def test_a_writer_created_outside_an_event_loop_writes_directly() -> None:

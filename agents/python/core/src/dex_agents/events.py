@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from collections import deque
 from collections.abc import Callable, Mapping
 from enum import StrEnum
 
@@ -143,6 +144,8 @@ class AgentEventWriter:
         except RuntimeError:
             self._loop = None
         self._loop_thread_id = threading.get_ident()
+        self._pending_events_lock = threading.Lock()
+        self._pending_events: deque[AgentEvent] = deque()
 
     @property
     def turn_id(self) -> str | None:
@@ -194,11 +197,26 @@ class AgentEventWriter:
             payload=json.dumps(dict(payload), ensure_ascii=False, sort_keys=True),
             step_execution_id=self._step_execution_id,
         )
-        if self._loop is None or threading.get_ident() == self._loop_thread_id:
+        if self._loop is None:
             self._write_agent_event(event)
             return
+        if threading.get_ident() == self._loop_thread_id:
+            # Earlier writes from other threads may still wait for their loop callback.
+            self._write_pending_events()
+            self._write_agent_event(event)
+            return
+        with self._pending_events_lock:
+            self._pending_events.append(event)
         # The Dex Step output queue belongs to the event loop and is not thread-safe.
-        self._loop.call_soon_threadsafe(self._write_agent_event, event)
+        self._loop.call_soon_threadsafe(self._write_pending_events)
+
+    def _write_pending_events(self) -> None:
+        while True:
+            with self._pending_events_lock:
+                if not self._pending_events:
+                    return
+                event = self._pending_events.popleft()
+            self._write_agent_event(event)
 
     def write_text_delta(self, text: str) -> None:
         """Write a chunk of visible model text.
