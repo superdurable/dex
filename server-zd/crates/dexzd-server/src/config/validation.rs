@@ -449,6 +449,11 @@ impl Config {
             "must be positive",
         )?;
         ensure(
+            self.flow_definitions.max_definition_bytes > 0,
+            "flowDefinitions.maxDefinitionBytes",
+            "must be positive",
+        )?;
+        ensure(
             self.matching.ping_interval > Duration::ZERO,
             "matching.pingInterval",
             "must be positive",

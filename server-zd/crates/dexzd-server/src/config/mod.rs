@@ -33,8 +33,8 @@ pub use engine_config::{
     LimitsConfig, RecoveryConfig, RetentionConfig, SnapshotConfig, ValuesConfig,
 };
 pub use service_config::{
-    ApiConfig, LifecycleConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig,
-    StreamStoreBackend, StreamStoreConfig,
+    ApiConfig, FlowDefinitionsConfig, LifecycleConfig, MatchingConfig, MetricsConfig,
+    SearchBackend, SearchConfig, StreamStoreBackend, StreamStoreConfig,
 };
 pub(crate) use source_config::SINGLE_NODE_PARTITION_COUNT;
 pub use source_config::{ConfigError, SingleNodeProfile};
@@ -87,6 +87,8 @@ pub struct Config {
     pub stream_store: StreamStoreConfig,
     /// Search backend and query budgets. Defaults to builtin search.
     pub search: SearchConfig,
+    /// Uploaded Flow Definition Graph limits. Defaults to 8 MiB per definition.
+    pub flow_definitions: FlowDefinitionsConfig,
     /// Flow, speculative state, wait, and deduplication limits.
     /// Defaults to the values in [`LimitsConfig::default`].
     pub limits: LimitsConfig,

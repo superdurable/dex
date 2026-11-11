@@ -1257,6 +1257,12 @@ const (
 	ErrorSubStatus_ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED ErrorSubStatus = 9
 	// An indexed Keyword value or KeywordArray element exceeds the byte limit.
 	ErrorSubStatus_ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG ErrorSubStatus = 10
+	// A Flow definition request breaks a validation rule, such as invalid JSON,
+	// a Flow type mismatch, or a size or item count limit.
+	ErrorSubStatus_ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID ErrorSubStatus = 11
+	// The Flow definitions that GetFlowDefinitions requested would not fit in
+	// one response message.
+	ErrorSubStatus_ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE ErrorSubStatus = 12
 )
 
 // Enum value maps for ErrorSubStatus.
@@ -1273,19 +1279,23 @@ var (
 		8:  "ERROR_SUB_STATUS_FLOW_CLOSING",
 		9:  "ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED",
 		10: "ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG",
+		11: "ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID",
+		12: "ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE",
 	}
 	ErrorSubStatus_value = map[string]int32{
-		"ERROR_SUB_STATUS_UNSPECIFIED":                       0,
-		"ERROR_SUB_STATUS_UNCATEGORIZED":                     1,
-		"ERROR_SUB_STATUS_FLOW_ALREADY_STARTED":              2,
-		"ERROR_SUB_STATUS_FLOW_NOT_EXISTS":                   3,
-		"ERROR_SUB_STATUS_WORKER_API_ERROR":                  4,
-		"ERROR_SUB_STATUS_LONG_POLL_TIME_OUT":                5,
-		"ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND":         6,
-		"ERROR_SUB_STATUS_REQUEST_TIMEOUT":                   7,
-		"ERROR_SUB_STATUS_FLOW_CLOSING":                      8,
-		"ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED": 9,
-		"ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG":          10,
+		"ERROR_SUB_STATUS_UNSPECIFIED":                        0,
+		"ERROR_SUB_STATUS_UNCATEGORIZED":                      1,
+		"ERROR_SUB_STATUS_FLOW_ALREADY_STARTED":               2,
+		"ERROR_SUB_STATUS_FLOW_NOT_EXISTS":                    3,
+		"ERROR_SUB_STATUS_WORKER_API_ERROR":                   4,
+		"ERROR_SUB_STATUS_LONG_POLL_TIME_OUT":                 5,
+		"ERROR_SUB_STATUS_CHANNEL_MESSAGE_NOT_FOUND":          6,
+		"ERROR_SUB_STATUS_REQUEST_TIMEOUT":                    7,
+		"ERROR_SUB_STATUS_FLOW_CLOSING":                       8,
+		"ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED":  9,
+		"ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG":           10,
+		"ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID":            11,
+		"ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE": 12,
 	}
 )
 
@@ -1633,6 +1643,67 @@ func (x StepAttemptProgress) Number() protoreflect.EnumNumber {
 // Deprecated: Use StepAttemptProgress.Descriptor instead.
 func (StepAttemptProgress) EnumDescriptor() ([]byte, []int) {
 	return file_dex_proto_rawDescGZIP(), []int{28}
+}
+
+// What UploadFlowDefinitions did with one Flow type.
+type FlowDefinitionUploadOutcome int32
+
+const (
+	FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED FlowDefinitionUploadOutcome = 0
+	// No document was stored for the Flow type; the uploaded one is now stored.
+	FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED FlowDefinitionUploadOutcome = 1
+	// The uploaded document replaced a different, older one.
+	FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED FlowDefinitionUploadOutcome = 2
+	// The stored document has the same digest; nothing was written.
+	FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED FlowDefinitionUploadOutcome = 3
+	// The stored document differs and its generated_at is the same or later, so
+	// it stays. Upload with force to replace it anyway.
+	FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING FlowDefinitionUploadOutcome = 4
+)
+
+// Enum value maps for FlowDefinitionUploadOutcome.
+var (
+	FlowDefinitionUploadOutcome_name = map[int32]string{
+		0: "FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED",
+		1: "FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED",
+		2: "FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED",
+		3: "FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED",
+		4: "FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING",
+	}
+	FlowDefinitionUploadOutcome_value = map[string]int32{
+		"FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED":   0,
+		"FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED":       1,
+		"FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED":      2,
+		"FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED":     3,
+		"FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING": 4,
+	}
+)
+
+func (x FlowDefinitionUploadOutcome) Enum() *FlowDefinitionUploadOutcome {
+	p := new(FlowDefinitionUploadOutcome)
+	*p = x
+	return p
+}
+
+func (x FlowDefinitionUploadOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FlowDefinitionUploadOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_dex_proto_enumTypes[29].Descriptor()
+}
+
+func (FlowDefinitionUploadOutcome) Type() protoreflect.EnumType {
+	return &file_dex_proto_enumTypes[29]
+}
+
+func (x FlowDefinitionUploadOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FlowDefinitionUploadOutcome.Descriptor instead.
+func (FlowDefinitionUploadOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{29}
 }
 
 // Describes the Dex Server release and the inclusive protocol range it supports.
@@ -12428,6 +12499,607 @@ func (x *NodeLeaseHolderUnknown) GetDetail() string {
 	return ""
 }
 
+// One Flow Definition Graph (FDG 2.0) JSON document to store.
+type FlowDefinitionUpload struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Flow type that the document describes. It must equal flow.name in content,
+	// must not be empty, and must not exceed matching.maxFlowTypeLength bytes.
+	FlowType string `protobuf:"bytes,1,opt,name=flow_type,json=flowType,proto3" json:"flow_type,omitempty"`
+	// The FDG JSON document, at most flowDefinitions.maxDefinitionBytes. It must
+	// be a JSON object whose schemaVersion starts with "2.", nested at most 128
+	// levels deep. The server stores these exact bytes and returns them unchanged.
+	Content []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	// When the document was generated, normally the document's generatedAt or the
+	// file modification time. Required. A newer generated_at replaces a stored
+	// document with a different digest. The server keeps microsecond precision
+	// and rejects a time more than 24 hours after its own clock.
+	GeneratedAt   *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=generated_at,json=generatedAt,proto3" json:"generated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FlowDefinitionUpload) Reset() {
+	*x = FlowDefinitionUpload{}
+	mi := &file_dex_proto_msgTypes[143]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlowDefinitionUpload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlowDefinitionUpload) ProtoMessage() {}
+
+func (x *FlowDefinitionUpload) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[143]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlowDefinitionUpload.ProtoReflect.Descriptor instead.
+func (*FlowDefinitionUpload) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{143}
+}
+
+func (x *FlowDefinitionUpload) GetFlowType() string {
+	if x != nil {
+		return x.FlowType
+	}
+	return ""
+}
+
+func (x *FlowDefinitionUpload) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *FlowDefinitionUpload) GetGeneratedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.GeneratedAt
+	}
+	return nil
+}
+
+// Stores Flow definitions. See FlowService.UploadFlowDefinitions.
+type UploadFlowDefinitionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Documents to store, at most 256, each with a distinct flow_type.
+	Definitions []*FlowDefinitionUpload `protobuf:"bytes,1,rep,name=definitions,proto3" json:"definitions,omitempty"`
+	// Identifies the uploading software for diagnostics, such as an SDK name and
+	// version. At most 128 bytes. GetFlowDefinitions reports it for each stored
+	// document. May be empty.
+	Uploader string `protobuf:"bytes,2,opt,name=uploader,proto3" json:"uploader,omitempty"`
+	// Replaces every stored document whose digest differs, whatever its
+	// generated_at; an identical document is still UNCHANGED. Use it to roll a
+	// definition back on purpose, or to replace a document whose generated_at
+	// came from a fast clock. The 24-hour limit on generated_at still applies.
+	Force         bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadFlowDefinitionsRequest) Reset() {
+	*x = UploadFlowDefinitionsRequest{}
+	mi := &file_dex_proto_msgTypes[144]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadFlowDefinitionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadFlowDefinitionsRequest) ProtoMessage() {}
+
+func (x *UploadFlowDefinitionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[144]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadFlowDefinitionsRequest.ProtoReflect.Descriptor instead.
+func (*UploadFlowDefinitionsRequest) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{144}
+}
+
+func (x *UploadFlowDefinitionsRequest) GetDefinitions() []*FlowDefinitionUpload {
+	if x != nil {
+		return x.Definitions
+	}
+	return nil
+}
+
+func (x *UploadFlowDefinitionsRequest) GetUploader() string {
+	if x != nil {
+		return x.Uploader
+	}
+	return ""
+}
+
+func (x *UploadFlowDefinitionsRequest) GetForce() bool {
+	if x != nil {
+		return x.Force
+	}
+	return false
+}
+
+// The outcome for one uploaded Flow type and the document stored afterwards.
+type FlowDefinitionUploadResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Flow type of the uploaded document.
+	FlowType string `protobuf:"bytes,1,opt,name=flow_type,json=flowType,proto3" json:"flow_type,omitempty"`
+	// What the server did with the uploaded document.
+	Outcome FlowDefinitionUploadOutcome `protobuf:"varint,2,opt,name=outcome,proto3,enum=dex.FlowDefinitionUploadOutcome" json:"outcome,omitempty"`
+	// Lowercase hexadecimal SHA-256 digest of the document stored after the call.
+	// It differs from the uploaded document's digest only for KEPT_EXISTING.
+	StoredDigest string `protobuf:"bytes,3,opt,name=stored_digest,json=storedDigest,proto3" json:"stored_digest,omitempty"`
+	// generated_at of the document stored after the call, at microsecond precision.
+	StoredGeneratedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=stored_generated_at,json=storedGeneratedAt,proto3" json:"stored_generated_at,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *FlowDefinitionUploadResult) Reset() {
+	*x = FlowDefinitionUploadResult{}
+	mi := &file_dex_proto_msgTypes[145]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlowDefinitionUploadResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlowDefinitionUploadResult) ProtoMessage() {}
+
+func (x *FlowDefinitionUploadResult) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[145]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlowDefinitionUploadResult.ProtoReflect.Descriptor instead.
+func (*FlowDefinitionUploadResult) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{145}
+}
+
+func (x *FlowDefinitionUploadResult) GetFlowType() string {
+	if x != nil {
+		return x.FlowType
+	}
+	return ""
+}
+
+func (x *FlowDefinitionUploadResult) GetOutcome() FlowDefinitionUploadOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return FlowDefinitionUploadOutcome_FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED
+}
+
+func (x *FlowDefinitionUploadResult) GetStoredDigest() string {
+	if x != nil {
+		return x.StoredDigest
+	}
+	return ""
+}
+
+func (x *FlowDefinitionUploadResult) GetStoredGeneratedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StoredGeneratedAt
+	}
+	return nil
+}
+
+// Reports the outcome of each uploaded document.
+type UploadFlowDefinitionsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// One result for each request item, in request order.
+	Results       []*FlowDefinitionUploadResult `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadFlowDefinitionsResponse) Reset() {
+	*x = UploadFlowDefinitionsResponse{}
+	mi := &file_dex_proto_msgTypes[146]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadFlowDefinitionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadFlowDefinitionsResponse) ProtoMessage() {}
+
+func (x *UploadFlowDefinitionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[146]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadFlowDefinitionsResponse.ProtoReflect.Descriptor instead.
+func (*UploadFlowDefinitionsResponse) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{146}
+}
+
+func (x *UploadFlowDefinitionsResponse) GetResults() []*FlowDefinitionUploadResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+// Describes one stored Flow definition.
+type FlowDefinitionInfo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Flow type that the document describes.
+	FlowType string `protobuf:"bytes,1,opt,name=flow_type,json=flowType,proto3" json:"flow_type,omitempty"`
+	// Lowercase hexadecimal SHA-256 digest of the stored document. It changes
+	// whenever the content changes, so clients can use it as a cache key.
+	Digest string `protobuf:"bytes,2,opt,name=digest,proto3" json:"digest,omitempty"`
+	// generated_at of the upload that stored this document, at microsecond precision.
+	GeneratedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=generated_at,json=generatedAt,proto3" json:"generated_at,omitempty"`
+	// When the server stored this document.
+	UploadedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=uploaded_at,json=uploadedAt,proto3" json:"uploaded_at,omitempty"`
+	// uploader of the request that stored this document.
+	Uploader      string `protobuf:"bytes,5,opt,name=uploader,proto3" json:"uploader,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FlowDefinitionInfo) Reset() {
+	*x = FlowDefinitionInfo{}
+	mi := &file_dex_proto_msgTypes[147]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlowDefinitionInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlowDefinitionInfo) ProtoMessage() {}
+
+func (x *FlowDefinitionInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[147]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlowDefinitionInfo.ProtoReflect.Descriptor instead.
+func (*FlowDefinitionInfo) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{147}
+}
+
+func (x *FlowDefinitionInfo) GetFlowType() string {
+	if x != nil {
+		return x.FlowType
+	}
+	return ""
+}
+
+func (x *FlowDefinitionInfo) GetDigest() string {
+	if x != nil {
+		return x.Digest
+	}
+	return ""
+}
+
+func (x *FlowDefinitionInfo) GetGeneratedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.GeneratedAt
+	}
+	return nil
+}
+
+func (x *FlowDefinitionInfo) GetUploadedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UploadedAt
+	}
+	return nil
+}
+
+func (x *FlowDefinitionInfo) GetUploader() string {
+	if x != nil {
+		return x.Uploader
+	}
+	return ""
+}
+
+// Requests one page of the Flow types that have a stored definition.
+type ListFlowDefinitionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Most Flow types in the page. 0 and values above 1000 mean 1000.
+	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// next_page_token of the previous page, or empty for the first page.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFlowDefinitionsRequest) Reset() {
+	*x = ListFlowDefinitionsRequest{}
+	mi := &file_dex_proto_msgTypes[148]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFlowDefinitionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFlowDefinitionsRequest) ProtoMessage() {}
+
+func (x *ListFlowDefinitionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[148]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFlowDefinitionsRequest.ProtoReflect.Descriptor instead.
+func (*ListFlowDefinitionsRequest) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{148}
+}
+
+func (x *ListFlowDefinitionsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListFlowDefinitionsRequest) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+// One page of the Flow types that have a stored definition.
+type ListFlowDefinitionsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Flow types in object key order.
+	FlowTypes []string `protobuf:"bytes,1,rep,name=flow_types,json=flowTypes,proto3" json:"flow_types,omitempty"`
+	// Pass as ListFlowDefinitionsRequest.next_page_token to read the next page.
+	// Empty when this is the last page.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFlowDefinitionsResponse) Reset() {
+	*x = ListFlowDefinitionsResponse{}
+	mi := &file_dex_proto_msgTypes[149]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFlowDefinitionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFlowDefinitionsResponse) ProtoMessage() {}
+
+func (x *ListFlowDefinitionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[149]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFlowDefinitionsResponse.ProtoReflect.Descriptor instead.
+func (*ListFlowDefinitionsResponse) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{149}
+}
+
+func (x *ListFlowDefinitionsResponse) GetFlowTypes() []string {
+	if x != nil {
+		return x.FlowTypes
+	}
+	return nil
+}
+
+func (x *ListFlowDefinitionsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+// Requests the stored Flow definitions of some Flow types.
+type GetFlowDefinitionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Flow types to return, at least 1 and at most 256.
+	FlowTypes     []string `protobuf:"bytes,1,rep,name=flow_types,json=flowTypes,proto3" json:"flow_types,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFlowDefinitionsRequest) Reset() {
+	*x = GetFlowDefinitionsRequest{}
+	mi := &file_dex_proto_msgTypes[150]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFlowDefinitionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFlowDefinitionsRequest) ProtoMessage() {}
+
+func (x *GetFlowDefinitionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[150]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFlowDefinitionsRequest.ProtoReflect.Descriptor instead.
+func (*GetFlowDefinitionsRequest) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{150}
+}
+
+func (x *GetFlowDefinitionsRequest) GetFlowTypes() []string {
+	if x != nil {
+		return x.FlowTypes
+	}
+	return nil
+}
+
+// One stored Flow definition with its content.
+type FlowDefinition struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Metadata of the stored document.
+	Info *FlowDefinitionInfo `protobuf:"bytes,1,opt,name=info,proto3" json:"info,omitempty"`
+	// The stored FDG JSON document, byte for byte as uploaded.
+	Content       []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FlowDefinition) Reset() {
+	*x = FlowDefinition{}
+	mi := &file_dex_proto_msgTypes[151]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlowDefinition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlowDefinition) ProtoMessage() {}
+
+func (x *FlowDefinition) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[151]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlowDefinition.ProtoReflect.Descriptor instead.
+func (*FlowDefinition) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{151}
+}
+
+func (x *FlowDefinition) GetInfo() *FlowDefinitionInfo {
+	if x != nil {
+		return x.Info
+	}
+	return nil
+}
+
+func (x *FlowDefinition) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+// Returns the requested stored Flow definitions.
+type GetFlowDefinitionsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The stored definitions of the requested Flow types, in request order.
+	// Flow types without a stored definition are left out.
+	Definitions   []*FlowDefinition `protobuf:"bytes,1,rep,name=definitions,proto3" json:"definitions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFlowDefinitionsResponse) Reset() {
+	*x = GetFlowDefinitionsResponse{}
+	mi := &file_dex_proto_msgTypes[152]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFlowDefinitionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFlowDefinitionsResponse) ProtoMessage() {}
+
+func (x *GetFlowDefinitionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[152]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFlowDefinitionsResponse.ProtoReflect.Descriptor instead.
+func (*GetFlowDefinitionsResponse) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{152}
+}
+
+func (x *GetFlowDefinitionsResponse) GetDefinitions() []*FlowDefinition {
+	if x != nil {
+		return x.Definitions
+	}
+	return nil
+}
+
 var File_dex_proto protoreflect.FileDescriptor
 
 const file_dex_proto_rawDesc = "" +
@@ -13360,7 +14032,44 @@ const file_dex_proto_rawDesc = "" +
 	"node_epoch\x18\x01 \x01(\x04R\tnodeEpoch\x12*\n" +
 	"\x11holder_process_id\x18\x02 \x01(\tR\x0fholderProcessId\"0\n" +
 	"\x16NodeLeaseHolderUnknown\x12\x16\n" +
-	"\x06detail\x18\x01 \x01(\tR\x06detail*z\n" +
+	"\x06detail\x18\x01 \x01(\tR\x06detail\"\x8c\x01\n" +
+	"\x14FlowDefinitionUpload\x12\x1b\n" +
+	"\tflow_type\x18\x01 \x01(\tR\bflowType\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent\x12=\n" +
+	"\fgenerated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\vgeneratedAt\"\x8d\x01\n" +
+	"\x1cUploadFlowDefinitionsRequest\x12;\n" +
+	"\vdefinitions\x18\x01 \x03(\v2\x19.dex.FlowDefinitionUploadR\vdefinitions\x12\x1a\n" +
+	"\buploader\x18\x02 \x01(\tR\buploader\x12\x14\n" +
+	"\x05force\x18\x03 \x01(\bR\x05force\"\xe6\x01\n" +
+	"\x1aFlowDefinitionUploadResult\x12\x1b\n" +
+	"\tflow_type\x18\x01 \x01(\tR\bflowType\x12:\n" +
+	"\aoutcome\x18\x02 \x01(\x0e2 .dex.FlowDefinitionUploadOutcomeR\aoutcome\x12#\n" +
+	"\rstored_digest\x18\x03 \x01(\tR\fstoredDigest\x12J\n" +
+	"\x13stored_generated_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x11storedGeneratedAt\"Z\n" +
+	"\x1dUploadFlowDefinitionsResponse\x129\n" +
+	"\aresults\x18\x01 \x03(\v2\x1f.dex.FlowDefinitionUploadResultR\aresults\"\xe1\x01\n" +
+	"\x12FlowDefinitionInfo\x12\x1b\n" +
+	"\tflow_type\x18\x01 \x01(\tR\bflowType\x12\x16\n" +
+	"\x06digest\x18\x02 \x01(\tR\x06digest\x12=\n" +
+	"\fgenerated_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\vgeneratedAt\x12;\n" +
+	"\vuploaded_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"uploadedAt\x12\x1a\n" +
+	"\buploader\x18\x05 \x01(\tR\buploader\"a\n" +
+	"\x1aListFlowDefinitionsRequest\x12\x1b\n" +
+	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"d\n" +
+	"\x1bListFlowDefinitionsResponse\x12\x1d\n" +
+	"\n" +
+	"flow_types\x18\x01 \x03(\tR\tflowTypes\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\":\n" +
+	"\x19GetFlowDefinitionsRequest\x12\x1d\n" +
+	"\n" +
+	"flow_types\x18\x01 \x03(\tR\tflowTypes\"W\n" +
+	"\x0eFlowDefinition\x12+\n" +
+	"\x04info\x18\x01 \x01(\v2\x17.dex.FlowDefinitionInfoR\x04info\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent\"S\n" +
+	"\x1aGetFlowDefinitionsResponse\x125\n" +
+	"\vdefinitions\x18\x01 \x03(\v2\x13.dex.FlowDefinitionR\vdefinitions*z\n" +
 	"\fServerEngine\x12\x1d\n" +
 	"\x19SERVER_ENGINE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16SERVER_ENGINE_TEMPORAL\x10\x01\x12\x19\n" +
@@ -13478,7 +14187,7 @@ const file_dex_proto_rawDesc = "" +
 	"%ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN\x10\x03\x122\n" +
 	".ATTRIBUTE_MATCH_OPERATOR_GREATER_THAN_OR_EQUAL\x10\x04\x12&\n" +
 	"\"ATTRIBUTE_MATCH_OPERATOR_LESS_THAN\x10\x05\x12/\n" +
-	"+ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL\x10\x06*\xd7\x03\n" +
+	"+ATTRIBUTE_MATCH_OPERATOR_LESS_THAN_OR_EQUAL\x10\x06*\xbe\x04\n" +
 	"\x0eErrorSubStatus\x12 \n" +
 	"\x1cERROR_SUB_STATUS_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eERROR_SUB_STATUS_UNCATEGORIZED\x10\x01\x12)\n" +
@@ -13491,7 +14200,9 @@ const file_dex_proto_rawDesc = "" +
 	"\x1dERROR_SUB_STATUS_FLOW_CLOSING\x10\b\x126\n" +
 	"2ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED\x10\t\x12-\n" +
 	")ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG\x10\n" +
-	"*\x8b\x02\n" +
+	"\x12,\n" +
+	"(ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID\x10\v\x127\n" +
+	"3ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE\x10\f*\x8b\x02\n" +
 	"\x11CloseDecisionType\x12#\n" +
 	"\x1fCLOSE_DECISION_TYPE_UNSPECIFIED\x10\x00\x128\n" +
 	"4CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY\x10\x01\x12)\n" +
@@ -13521,7 +14232,13 @@ const file_dex_proto_rawDesc = "" +
 	"\x13StepAttemptProgress\x12%\n" +
 	"!STEP_ATTEMPT_PROGRESS_UNSPECIFIED\x10\x00\x12%\n" +
 	"!STEP_ATTEMPT_PROGRESS_NOT_STARTED\x10\x01\x12'\n" +
-	"#STEP_ATTEMPT_PROGRESS_NOT_COMPLETED\x10\x022\xc4\x0e\n" +
+	"#STEP_ATTEMPT_PROGRESS_NOT_COMPLETED\x10\x02*\x86\x02\n" +
+	"\x1bFlowDefinitionUploadOutcome\x12.\n" +
+	"*FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED\x10\x00\x12*\n" +
+	"&FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED\x10\x01\x12+\n" +
+	"'FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED\x10\x02\x12,\n" +
+	"(FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED\x10\x03\x120\n" +
+	",FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING\x10\x042\xd5\x10\n" +
 	"\vFlowService\x128\n" +
 	"\rGetServerInfo\x12\x16.google.protobuf.Empty\x1a\x0f.dex.ServerInfo\x12:\n" +
 	"\tStartFlow\x12\x15.dex.StartFlowRequest\x1a\x16.dex.StartFlowResponse\x12H\n" +
@@ -13549,7 +14266,10 @@ const file_dex_proto_rawDesc = "" +
 	"\x10UpdateFlowConfig\x12\x1c.dex.UpdateFlowConfigRequest\x1a\x16.google.protobuf.Empty\x12^\n" +
 	"\x15WaitForStepCompletion\x12!.dex.WaitForStepCompletionRequest\x1a\".dex.WaitForStepCompletionResponse\x12O\n" +
 	"\x10WaitForAttribute\x12\x1c.dex.WaitForAttributeRequest\x1a\x1d.dex.WaitForAttributeResponse\x126\n" +
-	"\vHealthCheck\x12\x16.google.protobuf.Empty\x1a\x0f.dex.HealthInfo2\x91\x02\n" +
+	"\vHealthCheck\x12\x16.google.protobuf.Empty\x1a\x0f.dex.HealthInfo\x12^\n" +
+	"\x15UploadFlowDefinitions\x12!.dex.UploadFlowDefinitionsRequest\x1a\".dex.UploadFlowDefinitionsResponse\x12X\n" +
+	"\x13ListFlowDefinitions\x12\x1f.dex.ListFlowDefinitionsRequest\x1a .dex.ListFlowDefinitionsResponse\x12U\n" +
+	"\x12GetFlowDefinitions\x12\x1e.dex.GetFlowDefinitionsRequest\x1a\x1f.dex.GetFlowDefinitionsResponse2\x91\x02\n" +
 	"\rWorkerService\x12X\n" +
 	"\x13InvokeWaitForMethod\x12\x1f.dex.InvokeWaitForMethodRequest\x1a\x1e.dex.InvokeWaitForMethodOutput0\x01\x12X\n" +
 	"\x13InvokeExecuteMethod\x12\x1f.dex.InvokeExecuteMethodRequest\x1a\x1e.dex.InvokeExecuteMethodOutput0\x01\x12L\n" +
@@ -13573,8 +14293,8 @@ func file_dex_proto_rawDescGZIP() []byte {
 	return file_dex_proto_rawDescData
 }
 
-var file_dex_proto_enumTypes = make([]protoimpl.EnumInfo, 29)
-var file_dex_proto_msgTypes = make([]protoimpl.MessageInfo, 154)
+var file_dex_proto_enumTypes = make([]protoimpl.EnumInfo, 30)
+var file_dex_proto_msgTypes = make([]protoimpl.MessageInfo, 164)
 var file_dex_proto_goTypes = []any{
 	(ServerEngine)(0),                          // 0: dex.ServerEngine
 	(PollWorkerSlotKind)(0),                    // 1: dex.PollWorkerSlotKind
@@ -13605,538 +14325,564 @@ var file_dex_proto_goTypes = []any{
 	(ConditionStatus)(0),                       // 26: dex.ConditionStatus
 	(InternalTimerStatus)(0),                   // 27: dex.InternalTimerStatus
 	(StepAttemptProgress)(0),                   // 28: dex.StepAttemptProgress
-	(*ServerInfo)(nil),                         // 29: dex.ServerInfo
-	(*PollWorkerTaskRequest)(nil),              // 30: dex.PollWorkerTaskRequest
-	(*PollWorkerTaskRegister)(nil),             // 31: dex.PollWorkerTaskRegister
-	(*PollWorkerTaskFrame)(nil),                // 32: dex.PollWorkerTaskFrame
-	(*PollWorkerTaskReject)(nil),               // 33: dex.PollWorkerTaskReject
-	(*PollWorkerTaskPong)(nil),                 // 34: dex.PollWorkerTaskPong
-	(*PollWorkerTaskResponse)(nil),             // 35: dex.PollWorkerTaskResponse
-	(*PollWorkerTaskRegistered)(nil),           // 36: dex.PollWorkerTaskRegistered
-	(*PollWorkerTask)(nil),                     // 37: dex.PollWorkerTask
-	(*PollWorkerTaskCancelTask)(nil),           // 38: dex.PollWorkerTaskCancelTask
-	(*PollWorkerTaskReconnect)(nil),            // 39: dex.PollWorkerTaskReconnect
-	(*PollWorkerTaskPing)(nil),                 // 40: dex.PollWorkerTaskPing
-	(*Value)(nil),                              // 41: dex.Value
-	(*EncodedObject)(nil),                      // 42: dex.EncodedObject
-	(*AttributeWrite)(nil),                     // 43: dex.AttributeWrite
-	(*ActionPermissionMapping)(nil),            // 44: dex.ActionPermissionMapping
-	(*ActionPermissionMappings)(nil),           // 45: dex.ActionPermissionMappings
-	(*AttributeSyncConfig)(nil),                // 46: dex.AttributeSyncConfig
-	(*KV)(nil),                                 // 47: dex.KV
-	(*IndexConfig)(nil),                        // 48: dex.IndexConfig
-	(*Context)(nil),                            // 49: dex.Context
-	(*RetryPolicy)(nil),                        // 50: dex.RetryPolicy
-	(*FlowRetryPolicy)(nil),                    // 51: dex.FlowRetryPolicy
-	(*StepOptions)(nil),                        // 52: dex.StepOptions
-	(*FlowTimeoutHandlerOptions)(nil),          // 53: dex.FlowTimeoutHandlerOptions
-	(*FlowAlreadyStartedOptions)(nil),          // 54: dex.FlowAlreadyStartedOptions
-	(*FlowStartOptions)(nil),                   // 55: dex.FlowStartOptions
-	(*FlowConfig)(nil),                         // 56: dex.FlowConfig
-	(*AttributeStoreNames)(nil),                // 57: dex.AttributeStoreNames
-	(*WorkerTarget)(nil),                       // 58: dex.WorkerTarget
-	(*StartFlowRequest)(nil),                   // 59: dex.StartFlowRequest
-	(*StartFlowResponse)(nil),                  // 60: dex.StartFlowResponse
-	(*PublishToChannelRequest)(nil),            // 61: dex.PublishToChannelRequest
-	(*ChannelMessage)(nil),                     // 62: dex.ChannelMessage
-	(*GetChannelMessagesRequest)(nil),          // 63: dex.GetChannelMessagesRequest
-	(*GetChannelMessagesResponse)(nil),         // 64: dex.GetChannelMessagesResponse
-	(*DeleteChannelMessageRequest)(nil),        // 65: dex.DeleteChannelMessageRequest
-	(*ChannelMessageDeletion)(nil),             // 66: dex.ChannelMessageDeletion
-	(*WriteStreamRequest)(nil),                 // 67: dex.WriteStreamRequest
-	(*ReadStreamRequest)(nil),                  // 68: dex.ReadStreamRequest
-	(*ReadStreamResponse)(nil),                 // 69: dex.ReadStreamResponse
-	(*ListStreamMessagesRequest)(nil),          // 70: dex.ListStreamMessagesRequest
-	(*ListStreamMessagesResponse)(nil),         // 71: dex.ListStreamMessagesResponse
-	(*StreamMessage)(nil),                      // 72: dex.StreamMessage
-	(*StopFlowRequest)(nil),                    // 73: dex.StopFlowRequest
-	(*GetAttributesRequest)(nil),               // 74: dex.GetAttributesRequest
-	(*GetAttributesResponse)(nil),              // 75: dex.GetAttributesResponse
-	(*SetAttributesRequest)(nil),               // 76: dex.SetAttributesRequest
-	(*LoadBlobRequestEntry)(nil),               // 77: dex.LoadBlobRequestEntry
-	(*LoadBlobsRequest)(nil),                   // 78: dex.LoadBlobsRequest
-	(*LoadBlobsResponse)(nil),                  // 79: dex.LoadBlobsResponse
-	(*WaitForFlowRequest)(nil),                 // 80: dex.WaitForFlowRequest
-	(*StepCompletionOutput)(nil),               // 81: dex.StepCompletionOutput
-	(*FlowResult)(nil),                         // 82: dex.FlowResult
-	(*SearchFlowsRequest)(nil),                 // 83: dex.SearchFlowsRequest
-	(*SearchFlowsResponse)(nil),                // 84: dex.SearchFlowsResponse
-	(*SearchFlowsResponseEntry)(nil),           // 85: dex.SearchFlowsResponseEntry
-	(*SyncAttributeIndexRequest)(nil),          // 86: dex.SyncAttributeIndexRequest
-	(*SyncAttributeIndexResponse)(nil),         // 87: dex.SyncAttributeIndexResponse
-	(*FlowRunID)(nil),                          // 88: dex.FlowRunID
-	(*GetFlowSummaryRequest)(nil),              // 89: dex.GetFlowSummaryRequest
-	(*GetFlowSummaryResponse)(nil),             // 90: dex.GetFlowSummaryResponse
-	(*GetHistoryEventsRequest)(nil),            // 91: dex.GetHistoryEventsRequest
-	(*GetHistoryEventsResponse)(nil),           // 92: dex.GetHistoryEventsResponse
-	(*HistoryEventIDRange)(nil),                // 93: dex.HistoryEventIDRange
-	(*FlowHistoryEvent)(nil),                   // 94: dex.FlowHistoryEvent
-	(*TimeTravelForkHistoryEvent)(nil),         // 95: dex.TimeTravelForkHistoryEvent
-	(*FlowStartedOrContinuedHistoryEvent)(nil), // 96: dex.FlowStartedOrContinuedHistoryEvent
-	(*FlowInitialStart)(nil),                   // 97: dex.FlowInitialStart
-	(*FlowClosedHistoryEvent)(nil),             // 98: dex.FlowClosedHistoryEvent
-	(*StepMethodPendingEvent)(nil),             // 99: dex.StepMethodPendingEvent
-	(*StepMethodFailure)(nil),                  // 100: dex.StepMethodFailure
-	(*StepMethodOptions)(nil),                  // 101: dex.StepMethodOptions
-	(*StepMethodEventInput)(nil),               // 102: dex.StepMethodEventInput
-	(*PullRouting)(nil),                        // 103: dex.PullRouting
-	(*StepMethodEventContext)(nil),             // 104: dex.StepMethodEventContext
-	(*StepWaitForCompletedOutput)(nil),         // 105: dex.StepWaitForCompletedOutput
-	(*StepExecuteCompletedOutput)(nil),         // 106: dex.StepExecuteCompletedOutput
-	(*StepMethodFailedOutput)(nil),             // 107: dex.StepMethodFailedOutput
-	(*StepWaitForCompletedEvent)(nil),          // 108: dex.StepWaitForCompletedEvent
-	(*StepWaitForFailedEvent)(nil),             // 109: dex.StepWaitForFailedEvent
-	(*StepExecuteCompletedEvent)(nil),          // 110: dex.StepExecuteCompletedEvent
-	(*StepExecuteFailedEvent)(nil),             // 111: dex.StepExecuteFailedEvent
-	(*RpcExecutionCompletedEvent)(nil),         // 112: dex.RpcExecutionCompletedEvent
-	(*ChannelExternalPublishEvent)(nil),        // 113: dex.ChannelExternalPublishEvent
-	(*ChannelExternalDeleteEvent)(nil),         // 114: dex.ChannelExternalDeleteEvent
-	(*WaitForHistoryEventRequest)(nil),         // 115: dex.WaitForHistoryEventRequest
-	(*WaitForHistoryEventResponse)(nil),        // 116: dex.WaitForHistoryEventResponse
-	(*ActiveStepExecutionState)(nil),           // 117: dex.ActiveStepExecutionState
-	(*StepMethodInvocationState)(nil),          // 118: dex.StepMethodInvocationState
-	(*GetFlowStateRequest)(nil),                // 119: dex.GetFlowStateRequest
-	(*GetFlowStateResponse)(nil),               // 120: dex.GetFlowStateResponse
-	(*ResetFlowRequest)(nil),                   // 121: dex.ResetFlowRequest
-	(*ResetFlowResponse)(nil),                  // 122: dex.ResetFlowResponse
-	(*InvokeRPCRequest)(nil),                   // 123: dex.InvokeRPCRequest
-	(*InvokeRPCResponse)(nil),                  // 124: dex.InvokeRPCResponse
-	(*SkipTimerRequest)(nil),                   // 125: dex.SkipTimerRequest
-	(*UpdateFlowConfigRequest)(nil),            // 126: dex.UpdateFlowConfigRequest
-	(*WaitForStepCompletionRequest)(nil),       // 127: dex.WaitForStepCompletionRequest
-	(*WaitForStepCompletionResponse)(nil),      // 128: dex.WaitForStepCompletionResponse
-	(*WaitForAttributeRequest)(nil),            // 129: dex.WaitForAttributeRequest
-	(*WaitForAttributeResponse)(nil),           // 130: dex.WaitForAttributeResponse
-	(*AttributeMatch)(nil),                     // 131: dex.AttributeMatch
-	(*HealthInfo)(nil),                         // 132: dex.HealthInfo
-	(*ServiceErrorResponse)(nil),               // 133: dex.ServiceErrorResponse
-	(*WorkerErrorResponse)(nil),                // 134: dex.WorkerErrorResponse
-	(*ChannelInfo)(nil),                        // 135: dex.ChannelInfo
-	(*InvokeWaitForMethodRequest)(nil),         // 136: dex.InvokeWaitForMethodRequest
-	(*InvokeWaitForMethodResponse)(nil),        // 137: dex.InvokeWaitForMethodResponse
-	(*StepMethodHeartbeat)(nil),                // 138: dex.StepMethodHeartbeat
-	(*StepStreamWrite)(nil),                    // 139: dex.StepStreamWrite
-	(*InvokeWaitForMethodOutput)(nil),          // 140: dex.InvokeWaitForMethodOutput
-	(*InvokeExecuteMethodRequest)(nil),         // 141: dex.InvokeExecuteMethodRequest
-	(*InvokeExecuteMethodResponse)(nil),        // 142: dex.InvokeExecuteMethodResponse
-	(*InvokeExecuteMethodOutput)(nil),          // 143: dex.InvokeExecuteMethodOutput
-	(*InvokeWorkerRPCRequest)(nil),             // 144: dex.InvokeWorkerRPCRequest
-	(*InvokeWorkerRPCResponse)(nil),            // 145: dex.InvokeWorkerRPCResponse
-	(*StepDecision)(nil),                       // 146: dex.StepDecision
-	(*CloseDecision)(nil),                      // 147: dex.CloseDecision
-	(*StepMovement)(nil),                       // 148: dex.StepMovement
-	(*ConditionCombination)(nil),               // 149: dex.ConditionCombination
-	(*WaitingCondition)(nil),                   // 150: dex.WaitingCondition
-	(*WaitingConditionState)(nil),              // 151: dex.WaitingConditionState
-	(*SubFlowOptions)(nil),                     // 152: dex.SubFlowOptions
-	(*SubFlowCondition)(nil),                   // 153: dex.SubFlowCondition
-	(*SubFlowConditionState)(nil),              // 154: dex.SubFlowConditionState
-	(*TimerCondition)(nil),                     // 155: dex.TimerCondition
-	(*ChannelCondition)(nil),                   // 156: dex.ChannelCondition
-	(*ConditionResults)(nil),                   // 157: dex.ConditionResults
-	(*TimerResult)(nil),                        // 158: dex.TimerResult
-	(*ChannelResult)(nil),                      // 159: dex.ChannelResult
-	(*ChannelValues)(nil),                      // 160: dex.ChannelValues
-	(*StepExecutionCompletedConditions)(nil),   // 161: dex.StepExecutionCompletedConditions
-	(*StepExecutionResumeInfo)(nil),            // 162: dex.StepExecutionResumeInfo
-	(*RecoveryErrorInfo)(nil),                  // 163: dex.RecoveryErrorInfo
-	(*AttributeSyncItem)(nil),                  // 164: dex.AttributeSyncItem
-	(*TimerInfo)(nil),                          // 165: dex.TimerInfo
-	(*DescribeActiveNodeRequest)(nil),          // 166: dex.DescribeActiveNodeRequest
-	(*DescribeActiveNodeResponse)(nil),         // 167: dex.DescribeActiveNodeResponse
-	(*StepDownActiveNodeRequest)(nil),          // 168: dex.StepDownActiveNodeRequest
-	(*StepDownActiveNodeResponse)(nil),         // 169: dex.StepDownActiveNodeResponse
-	(*NodeLeaseHolder)(nil),                    // 170: dex.NodeLeaseHolder
-	(*NodeLeaseHolderUnknown)(nil),             // 171: dex.NodeLeaseHolderUnknown
-	nil,                                        // 172: dex.LoadBlobsResponse.ValuesEntry
-	nil,                                        // 173: dex.SyncAttributeIndexRequest.AttributeIndexesEntry
-	nil,                                        // 174: dex.GetFlowStateResponse.PendingChannelMessagesEntry
-	nil,                                        // 175: dex.InvokeWaitForMethodRequest.ChannelInfosEntry
-	nil,                                        // 176: dex.InvokeWaitForMethodRequest.LoadedChannelMessagesEntry
-	nil,                                        // 177: dex.InvokeExecuteMethodRequest.ChannelInfosEntry
-	nil,                                        // 178: dex.InvokeExecuteMethodRequest.LoadedChannelMessagesEntry
-	nil,                                        // 179: dex.InvokeWorkerRPCRequest.ChannelInfosEntry
-	nil,                                        // 180: dex.InvokeWorkerRPCRequest.LoadedChannelMessagesEntry
-	nil,                                        // 181: dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry
-	nil,                                        // 182: dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry
-	(*timestamppb.Timestamp)(nil),              // 183: google.protobuf.Timestamp
-	(structpb.NullValue)(0),                    // 184: google.protobuf.NullValue
-	(*durationpb.Duration)(nil),                // 185: google.protobuf.Duration
-	(*emptypb.Empty)(nil),                      // 186: google.protobuf.Empty
+	(FlowDefinitionUploadOutcome)(0),           // 29: dex.FlowDefinitionUploadOutcome
+	(*ServerInfo)(nil),                         // 30: dex.ServerInfo
+	(*PollWorkerTaskRequest)(nil),              // 31: dex.PollWorkerTaskRequest
+	(*PollWorkerTaskRegister)(nil),             // 32: dex.PollWorkerTaskRegister
+	(*PollWorkerTaskFrame)(nil),                // 33: dex.PollWorkerTaskFrame
+	(*PollWorkerTaskReject)(nil),               // 34: dex.PollWorkerTaskReject
+	(*PollWorkerTaskPong)(nil),                 // 35: dex.PollWorkerTaskPong
+	(*PollWorkerTaskResponse)(nil),             // 36: dex.PollWorkerTaskResponse
+	(*PollWorkerTaskRegistered)(nil),           // 37: dex.PollWorkerTaskRegistered
+	(*PollWorkerTask)(nil),                     // 38: dex.PollWorkerTask
+	(*PollWorkerTaskCancelTask)(nil),           // 39: dex.PollWorkerTaskCancelTask
+	(*PollWorkerTaskReconnect)(nil),            // 40: dex.PollWorkerTaskReconnect
+	(*PollWorkerTaskPing)(nil),                 // 41: dex.PollWorkerTaskPing
+	(*Value)(nil),                              // 42: dex.Value
+	(*EncodedObject)(nil),                      // 43: dex.EncodedObject
+	(*AttributeWrite)(nil),                     // 44: dex.AttributeWrite
+	(*ActionPermissionMapping)(nil),            // 45: dex.ActionPermissionMapping
+	(*ActionPermissionMappings)(nil),           // 46: dex.ActionPermissionMappings
+	(*AttributeSyncConfig)(nil),                // 47: dex.AttributeSyncConfig
+	(*KV)(nil),                                 // 48: dex.KV
+	(*IndexConfig)(nil),                        // 49: dex.IndexConfig
+	(*Context)(nil),                            // 50: dex.Context
+	(*RetryPolicy)(nil),                        // 51: dex.RetryPolicy
+	(*FlowRetryPolicy)(nil),                    // 52: dex.FlowRetryPolicy
+	(*StepOptions)(nil),                        // 53: dex.StepOptions
+	(*FlowTimeoutHandlerOptions)(nil),          // 54: dex.FlowTimeoutHandlerOptions
+	(*FlowAlreadyStartedOptions)(nil),          // 55: dex.FlowAlreadyStartedOptions
+	(*FlowStartOptions)(nil),                   // 56: dex.FlowStartOptions
+	(*FlowConfig)(nil),                         // 57: dex.FlowConfig
+	(*AttributeStoreNames)(nil),                // 58: dex.AttributeStoreNames
+	(*WorkerTarget)(nil),                       // 59: dex.WorkerTarget
+	(*StartFlowRequest)(nil),                   // 60: dex.StartFlowRequest
+	(*StartFlowResponse)(nil),                  // 61: dex.StartFlowResponse
+	(*PublishToChannelRequest)(nil),            // 62: dex.PublishToChannelRequest
+	(*ChannelMessage)(nil),                     // 63: dex.ChannelMessage
+	(*GetChannelMessagesRequest)(nil),          // 64: dex.GetChannelMessagesRequest
+	(*GetChannelMessagesResponse)(nil),         // 65: dex.GetChannelMessagesResponse
+	(*DeleteChannelMessageRequest)(nil),        // 66: dex.DeleteChannelMessageRequest
+	(*ChannelMessageDeletion)(nil),             // 67: dex.ChannelMessageDeletion
+	(*WriteStreamRequest)(nil),                 // 68: dex.WriteStreamRequest
+	(*ReadStreamRequest)(nil),                  // 69: dex.ReadStreamRequest
+	(*ReadStreamResponse)(nil),                 // 70: dex.ReadStreamResponse
+	(*ListStreamMessagesRequest)(nil),          // 71: dex.ListStreamMessagesRequest
+	(*ListStreamMessagesResponse)(nil),         // 72: dex.ListStreamMessagesResponse
+	(*StreamMessage)(nil),                      // 73: dex.StreamMessage
+	(*StopFlowRequest)(nil),                    // 74: dex.StopFlowRequest
+	(*GetAttributesRequest)(nil),               // 75: dex.GetAttributesRequest
+	(*GetAttributesResponse)(nil),              // 76: dex.GetAttributesResponse
+	(*SetAttributesRequest)(nil),               // 77: dex.SetAttributesRequest
+	(*LoadBlobRequestEntry)(nil),               // 78: dex.LoadBlobRequestEntry
+	(*LoadBlobsRequest)(nil),                   // 79: dex.LoadBlobsRequest
+	(*LoadBlobsResponse)(nil),                  // 80: dex.LoadBlobsResponse
+	(*WaitForFlowRequest)(nil),                 // 81: dex.WaitForFlowRequest
+	(*StepCompletionOutput)(nil),               // 82: dex.StepCompletionOutput
+	(*FlowResult)(nil),                         // 83: dex.FlowResult
+	(*SearchFlowsRequest)(nil),                 // 84: dex.SearchFlowsRequest
+	(*SearchFlowsResponse)(nil),                // 85: dex.SearchFlowsResponse
+	(*SearchFlowsResponseEntry)(nil),           // 86: dex.SearchFlowsResponseEntry
+	(*SyncAttributeIndexRequest)(nil),          // 87: dex.SyncAttributeIndexRequest
+	(*SyncAttributeIndexResponse)(nil),         // 88: dex.SyncAttributeIndexResponse
+	(*FlowRunID)(nil),                          // 89: dex.FlowRunID
+	(*GetFlowSummaryRequest)(nil),              // 90: dex.GetFlowSummaryRequest
+	(*GetFlowSummaryResponse)(nil),             // 91: dex.GetFlowSummaryResponse
+	(*GetHistoryEventsRequest)(nil),            // 92: dex.GetHistoryEventsRequest
+	(*GetHistoryEventsResponse)(nil),           // 93: dex.GetHistoryEventsResponse
+	(*HistoryEventIDRange)(nil),                // 94: dex.HistoryEventIDRange
+	(*FlowHistoryEvent)(nil),                   // 95: dex.FlowHistoryEvent
+	(*TimeTravelForkHistoryEvent)(nil),         // 96: dex.TimeTravelForkHistoryEvent
+	(*FlowStartedOrContinuedHistoryEvent)(nil), // 97: dex.FlowStartedOrContinuedHistoryEvent
+	(*FlowInitialStart)(nil),                   // 98: dex.FlowInitialStart
+	(*FlowClosedHistoryEvent)(nil),             // 99: dex.FlowClosedHistoryEvent
+	(*StepMethodPendingEvent)(nil),             // 100: dex.StepMethodPendingEvent
+	(*StepMethodFailure)(nil),                  // 101: dex.StepMethodFailure
+	(*StepMethodOptions)(nil),                  // 102: dex.StepMethodOptions
+	(*StepMethodEventInput)(nil),               // 103: dex.StepMethodEventInput
+	(*PullRouting)(nil),                        // 104: dex.PullRouting
+	(*StepMethodEventContext)(nil),             // 105: dex.StepMethodEventContext
+	(*StepWaitForCompletedOutput)(nil),         // 106: dex.StepWaitForCompletedOutput
+	(*StepExecuteCompletedOutput)(nil),         // 107: dex.StepExecuteCompletedOutput
+	(*StepMethodFailedOutput)(nil),             // 108: dex.StepMethodFailedOutput
+	(*StepWaitForCompletedEvent)(nil),          // 109: dex.StepWaitForCompletedEvent
+	(*StepWaitForFailedEvent)(nil),             // 110: dex.StepWaitForFailedEvent
+	(*StepExecuteCompletedEvent)(nil),          // 111: dex.StepExecuteCompletedEvent
+	(*StepExecuteFailedEvent)(nil),             // 112: dex.StepExecuteFailedEvent
+	(*RpcExecutionCompletedEvent)(nil),         // 113: dex.RpcExecutionCompletedEvent
+	(*ChannelExternalPublishEvent)(nil),        // 114: dex.ChannelExternalPublishEvent
+	(*ChannelExternalDeleteEvent)(nil),         // 115: dex.ChannelExternalDeleteEvent
+	(*WaitForHistoryEventRequest)(nil),         // 116: dex.WaitForHistoryEventRequest
+	(*WaitForHistoryEventResponse)(nil),        // 117: dex.WaitForHistoryEventResponse
+	(*ActiveStepExecutionState)(nil),           // 118: dex.ActiveStepExecutionState
+	(*StepMethodInvocationState)(nil),          // 119: dex.StepMethodInvocationState
+	(*GetFlowStateRequest)(nil),                // 120: dex.GetFlowStateRequest
+	(*GetFlowStateResponse)(nil),               // 121: dex.GetFlowStateResponse
+	(*ResetFlowRequest)(nil),                   // 122: dex.ResetFlowRequest
+	(*ResetFlowResponse)(nil),                  // 123: dex.ResetFlowResponse
+	(*InvokeRPCRequest)(nil),                   // 124: dex.InvokeRPCRequest
+	(*InvokeRPCResponse)(nil),                  // 125: dex.InvokeRPCResponse
+	(*SkipTimerRequest)(nil),                   // 126: dex.SkipTimerRequest
+	(*UpdateFlowConfigRequest)(nil),            // 127: dex.UpdateFlowConfigRequest
+	(*WaitForStepCompletionRequest)(nil),       // 128: dex.WaitForStepCompletionRequest
+	(*WaitForStepCompletionResponse)(nil),      // 129: dex.WaitForStepCompletionResponse
+	(*WaitForAttributeRequest)(nil),            // 130: dex.WaitForAttributeRequest
+	(*WaitForAttributeResponse)(nil),           // 131: dex.WaitForAttributeResponse
+	(*AttributeMatch)(nil),                     // 132: dex.AttributeMatch
+	(*HealthInfo)(nil),                         // 133: dex.HealthInfo
+	(*ServiceErrorResponse)(nil),               // 134: dex.ServiceErrorResponse
+	(*WorkerErrorResponse)(nil),                // 135: dex.WorkerErrorResponse
+	(*ChannelInfo)(nil),                        // 136: dex.ChannelInfo
+	(*InvokeWaitForMethodRequest)(nil),         // 137: dex.InvokeWaitForMethodRequest
+	(*InvokeWaitForMethodResponse)(nil),        // 138: dex.InvokeWaitForMethodResponse
+	(*StepMethodHeartbeat)(nil),                // 139: dex.StepMethodHeartbeat
+	(*StepStreamWrite)(nil),                    // 140: dex.StepStreamWrite
+	(*InvokeWaitForMethodOutput)(nil),          // 141: dex.InvokeWaitForMethodOutput
+	(*InvokeExecuteMethodRequest)(nil),         // 142: dex.InvokeExecuteMethodRequest
+	(*InvokeExecuteMethodResponse)(nil),        // 143: dex.InvokeExecuteMethodResponse
+	(*InvokeExecuteMethodOutput)(nil),          // 144: dex.InvokeExecuteMethodOutput
+	(*InvokeWorkerRPCRequest)(nil),             // 145: dex.InvokeWorkerRPCRequest
+	(*InvokeWorkerRPCResponse)(nil),            // 146: dex.InvokeWorkerRPCResponse
+	(*StepDecision)(nil),                       // 147: dex.StepDecision
+	(*CloseDecision)(nil),                      // 148: dex.CloseDecision
+	(*StepMovement)(nil),                       // 149: dex.StepMovement
+	(*ConditionCombination)(nil),               // 150: dex.ConditionCombination
+	(*WaitingCondition)(nil),                   // 151: dex.WaitingCondition
+	(*WaitingConditionState)(nil),              // 152: dex.WaitingConditionState
+	(*SubFlowOptions)(nil),                     // 153: dex.SubFlowOptions
+	(*SubFlowCondition)(nil),                   // 154: dex.SubFlowCondition
+	(*SubFlowConditionState)(nil),              // 155: dex.SubFlowConditionState
+	(*TimerCondition)(nil),                     // 156: dex.TimerCondition
+	(*ChannelCondition)(nil),                   // 157: dex.ChannelCondition
+	(*ConditionResults)(nil),                   // 158: dex.ConditionResults
+	(*TimerResult)(nil),                        // 159: dex.TimerResult
+	(*ChannelResult)(nil),                      // 160: dex.ChannelResult
+	(*ChannelValues)(nil),                      // 161: dex.ChannelValues
+	(*StepExecutionCompletedConditions)(nil),   // 162: dex.StepExecutionCompletedConditions
+	(*StepExecutionResumeInfo)(nil),            // 163: dex.StepExecutionResumeInfo
+	(*RecoveryErrorInfo)(nil),                  // 164: dex.RecoveryErrorInfo
+	(*AttributeSyncItem)(nil),                  // 165: dex.AttributeSyncItem
+	(*TimerInfo)(nil),                          // 166: dex.TimerInfo
+	(*DescribeActiveNodeRequest)(nil),          // 167: dex.DescribeActiveNodeRequest
+	(*DescribeActiveNodeResponse)(nil),         // 168: dex.DescribeActiveNodeResponse
+	(*StepDownActiveNodeRequest)(nil),          // 169: dex.StepDownActiveNodeRequest
+	(*StepDownActiveNodeResponse)(nil),         // 170: dex.StepDownActiveNodeResponse
+	(*NodeLeaseHolder)(nil),                    // 171: dex.NodeLeaseHolder
+	(*NodeLeaseHolderUnknown)(nil),             // 172: dex.NodeLeaseHolderUnknown
+	(*FlowDefinitionUpload)(nil),               // 173: dex.FlowDefinitionUpload
+	(*UploadFlowDefinitionsRequest)(nil),       // 174: dex.UploadFlowDefinitionsRequest
+	(*FlowDefinitionUploadResult)(nil),         // 175: dex.FlowDefinitionUploadResult
+	(*UploadFlowDefinitionsResponse)(nil),      // 176: dex.UploadFlowDefinitionsResponse
+	(*FlowDefinitionInfo)(nil),                 // 177: dex.FlowDefinitionInfo
+	(*ListFlowDefinitionsRequest)(nil),         // 178: dex.ListFlowDefinitionsRequest
+	(*ListFlowDefinitionsResponse)(nil),        // 179: dex.ListFlowDefinitionsResponse
+	(*GetFlowDefinitionsRequest)(nil),          // 180: dex.GetFlowDefinitionsRequest
+	(*FlowDefinition)(nil),                     // 181: dex.FlowDefinition
+	(*GetFlowDefinitionsResponse)(nil),         // 182: dex.GetFlowDefinitionsResponse
+	nil,                                        // 183: dex.LoadBlobsResponse.ValuesEntry
+	nil,                                        // 184: dex.SyncAttributeIndexRequest.AttributeIndexesEntry
+	nil,                                        // 185: dex.GetFlowStateResponse.PendingChannelMessagesEntry
+	nil,                                        // 186: dex.InvokeWaitForMethodRequest.ChannelInfosEntry
+	nil,                                        // 187: dex.InvokeWaitForMethodRequest.LoadedChannelMessagesEntry
+	nil,                                        // 188: dex.InvokeExecuteMethodRequest.ChannelInfosEntry
+	nil,                                        // 189: dex.InvokeExecuteMethodRequest.LoadedChannelMessagesEntry
+	nil,                                        // 190: dex.InvokeWorkerRPCRequest.ChannelInfosEntry
+	nil,                                        // 191: dex.InvokeWorkerRPCRequest.LoadedChannelMessagesEntry
+	nil,                                        // 192: dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry
+	nil,                                        // 193: dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry
+	(*timestamppb.Timestamp)(nil),              // 194: google.protobuf.Timestamp
+	(structpb.NullValue)(0),                    // 195: google.protobuf.NullValue
+	(*durationpb.Duration)(nil),                // 196: google.protobuf.Duration
+	(*emptypb.Empty)(nil),                      // 197: google.protobuf.Empty
 }
 var file_dex_proto_depIdxs = []int32{
 	0,   // 0: dex.ServerInfo.server_engine:type_name -> dex.ServerEngine
-	31,  // 1: dex.PollWorkerTaskRequest.register:type_name -> dex.PollWorkerTaskRegister
-	32,  // 2: dex.PollWorkerTaskRequest.task_frame:type_name -> dex.PollWorkerTaskFrame
-	33,  // 3: dex.PollWorkerTaskRequest.reject:type_name -> dex.PollWorkerTaskReject
-	34,  // 4: dex.PollWorkerTaskRequest.pong:type_name -> dex.PollWorkerTaskPong
+	32,  // 1: dex.PollWorkerTaskRequest.register:type_name -> dex.PollWorkerTaskRegister
+	33,  // 2: dex.PollWorkerTaskRequest.task_frame:type_name -> dex.PollWorkerTaskFrame
+	34,  // 3: dex.PollWorkerTaskRequest.reject:type_name -> dex.PollWorkerTaskReject
+	35,  // 4: dex.PollWorkerTaskRequest.pong:type_name -> dex.PollWorkerTaskPong
 	1,   // 5: dex.PollWorkerTaskRegister.slot_kind:type_name -> dex.PollWorkerSlotKind
-	140, // 6: dex.PollWorkerTaskFrame.wait_for:type_name -> dex.InvokeWaitForMethodOutput
-	143, // 7: dex.PollWorkerTaskFrame.execute:type_name -> dex.InvokeExecuteMethodOutput
-	145, // 8: dex.PollWorkerTaskFrame.rpc:type_name -> dex.InvokeWorkerRPCResponse
-	134, // 9: dex.PollWorkerTaskFrame.worker_error:type_name -> dex.WorkerErrorResponse
+	141, // 6: dex.PollWorkerTaskFrame.wait_for:type_name -> dex.InvokeWaitForMethodOutput
+	144, // 7: dex.PollWorkerTaskFrame.execute:type_name -> dex.InvokeExecuteMethodOutput
+	146, // 8: dex.PollWorkerTaskFrame.rpc:type_name -> dex.InvokeWorkerRPCResponse
+	135, // 9: dex.PollWorkerTaskFrame.worker_error:type_name -> dex.WorkerErrorResponse
 	2,   // 10: dex.PollWorkerTaskReject.reason:type_name -> dex.PollWorkerTaskRejectReason
-	36,  // 11: dex.PollWorkerTaskResponse.registered:type_name -> dex.PollWorkerTaskRegistered
-	37,  // 12: dex.PollWorkerTaskResponse.task:type_name -> dex.PollWorkerTask
-	38,  // 13: dex.PollWorkerTaskResponse.cancel_task:type_name -> dex.PollWorkerTaskCancelTask
-	39,  // 14: dex.PollWorkerTaskResponse.reconnect:type_name -> dex.PollWorkerTaskReconnect
-	40,  // 15: dex.PollWorkerTaskResponse.ping:type_name -> dex.PollWorkerTaskPing
-	183, // 16: dex.PollWorkerTask.deadline:type_name -> google.protobuf.Timestamp
-	136, // 17: dex.PollWorkerTask.wait_for:type_name -> dex.InvokeWaitForMethodRequest
-	141, // 18: dex.PollWorkerTask.execute:type_name -> dex.InvokeExecuteMethodRequest
-	144, // 19: dex.PollWorkerTask.rpc:type_name -> dex.InvokeWorkerRPCRequest
-	42,  // 20: dex.Value.obj_value:type_name -> dex.EncodedObject
-	184, // 21: dex.Value.null_value:type_name -> google.protobuf.NullValue
-	41,  // 22: dex.AttributeWrite.value:type_name -> dex.Value
-	48,  // 23: dex.AttributeWrite.index_config:type_name -> dex.IndexConfig
-	46,  // 24: dex.AttributeWrite.sync_config:type_name -> dex.AttributeSyncConfig
-	41,  // 25: dex.ActionPermissionMapping.equal_values:type_name -> dex.Value
-	44,  // 26: dex.ActionPermissionMappings.mappings:type_name -> dex.ActionPermissionMapping
-	41,  // 27: dex.KV.value:type_name -> dex.Value
+	37,  // 11: dex.PollWorkerTaskResponse.registered:type_name -> dex.PollWorkerTaskRegistered
+	38,  // 12: dex.PollWorkerTaskResponse.task:type_name -> dex.PollWorkerTask
+	39,  // 13: dex.PollWorkerTaskResponse.cancel_task:type_name -> dex.PollWorkerTaskCancelTask
+	40,  // 14: dex.PollWorkerTaskResponse.reconnect:type_name -> dex.PollWorkerTaskReconnect
+	41,  // 15: dex.PollWorkerTaskResponse.ping:type_name -> dex.PollWorkerTaskPing
+	194, // 16: dex.PollWorkerTask.deadline:type_name -> google.protobuf.Timestamp
+	137, // 17: dex.PollWorkerTask.wait_for:type_name -> dex.InvokeWaitForMethodRequest
+	142, // 18: dex.PollWorkerTask.execute:type_name -> dex.InvokeExecuteMethodRequest
+	145, // 19: dex.PollWorkerTask.rpc:type_name -> dex.InvokeWorkerRPCRequest
+	43,  // 20: dex.Value.obj_value:type_name -> dex.EncodedObject
+	195, // 21: dex.Value.null_value:type_name -> google.protobuf.NullValue
+	42,  // 22: dex.AttributeWrite.value:type_name -> dex.Value
+	49,  // 23: dex.AttributeWrite.index_config:type_name -> dex.IndexConfig
+	47,  // 24: dex.AttributeWrite.sync_config:type_name -> dex.AttributeSyncConfig
+	42,  // 25: dex.ActionPermissionMapping.equal_values:type_name -> dex.Value
+	45,  // 26: dex.ActionPermissionMappings.mappings:type_name -> dex.ActionPermissionMapping
+	42,  // 27: dex.KV.value:type_name -> dex.Value
 	4,   // 28: dex.IndexConfig.type:type_name -> dex.IndexType
-	163, // 29: dex.Context.recovery_error:type_name -> dex.RecoveryErrorInfo
-	41,  // 30: dex.Context.last_heartbeat_value:type_name -> dex.Value
-	50,  // 31: dex.StepOptions.wait_for_retry_policy:type_name -> dex.RetryPolicy
-	50,  // 32: dex.StepOptions.execute_retry_policy:type_name -> dex.RetryPolicy
+	164, // 29: dex.Context.recovery_error:type_name -> dex.RecoveryErrorInfo
+	42,  // 30: dex.Context.last_heartbeat_value:type_name -> dex.Value
+	51,  // 31: dex.StepOptions.wait_for_retry_policy:type_name -> dex.RetryPolicy
+	51,  // 32: dex.StepOptions.execute_retry_policy:type_name -> dex.RetryPolicy
 	5,   // 33: dex.StepOptions.wait_for_failure_policy:type_name -> dex.WaitForMethodFailurePolicy
 	6,   // 34: dex.StepOptions.execute_failure_policy:type_name -> dex.ExecuteMethodFailurePolicy
-	52,  // 35: dex.StepOptions.execute_failure_proceed_step_options:type_name -> dex.StepOptions
+	53,  // 35: dex.StepOptions.execute_failure_proceed_step_options:type_name -> dex.StepOptions
 	9,   // 36: dex.StepOptions.wait_for_durability_override:type_name -> dex.StepDurability
 	9,   // 37: dex.StepOptions.execute_durability_override:type_name -> dex.StepDurability
-	50,  // 38: dex.FlowTimeoutHandlerOptions.retry_policy:type_name -> dex.RetryPolicy
+	51,  // 38: dex.FlowTimeoutHandlerOptions.retry_policy:type_name -> dex.RetryPolicy
 	6,   // 39: dex.FlowTimeoutHandlerOptions.failure_policy:type_name -> dex.ExecuteMethodFailurePolicy
-	52,  // 40: dex.FlowTimeoutHandlerOptions.failure_proceed_step_options:type_name -> dex.StepOptions
+	53,  // 40: dex.FlowTimeoutHandlerOptions.failure_proceed_step_options:type_name -> dex.StepOptions
 	9,   // 41: dex.FlowTimeoutHandlerOptions.durability_override:type_name -> dex.StepDurability
 	7,   // 42: dex.FlowStartOptions.id_reuse_policy:type_name -> dex.IdReusePolicy
-	51,  // 43: dex.FlowStartOptions.retry_policy:type_name -> dex.FlowRetryPolicy
-	43,  // 44: dex.FlowStartOptions.attributes:type_name -> dex.AttributeWrite
-	56,  // 45: dex.FlowStartOptions.flow_config_override:type_name -> dex.FlowConfig
-	54,  // 46: dex.FlowStartOptions.flow_already_started_options:type_name -> dex.FlowAlreadyStartedOptions
-	53,  // 47: dex.FlowStartOptions.timeout_handler_options:type_name -> dex.FlowTimeoutHandlerOptions
+	52,  // 43: dex.FlowStartOptions.retry_policy:type_name -> dex.FlowRetryPolicy
+	44,  // 44: dex.FlowStartOptions.attributes:type_name -> dex.AttributeWrite
+	57,  // 45: dex.FlowStartOptions.flow_config_override:type_name -> dex.FlowConfig
+	55,  // 46: dex.FlowStartOptions.flow_already_started_options:type_name -> dex.FlowAlreadyStartedOptions
+	54,  // 47: dex.FlowStartOptions.timeout_handler_options:type_name -> dex.FlowTimeoutHandlerOptions
 	8,   // 48: dex.FlowConfig.active_step_search_mode:type_name -> dex.ActiveStepSearchMode
 	9,   // 49: dex.FlowConfig.step_durability:type_name -> dex.StepDurability
-	58,  // 50: dex.FlowConfig.worker_target:type_name -> dex.WorkerTarget
-	57,  // 51: dex.FlowConfig.attribute_store_names:type_name -> dex.AttributeStoreNames
+	59,  // 50: dex.FlowConfig.worker_target:type_name -> dex.WorkerTarget
+	58,  // 51: dex.FlowConfig.attribute_store_names:type_name -> dex.AttributeStoreNames
 	10,  // 52: dex.StartFlowRequest.flow_timeout_policy:type_name -> dex.FlowTimeoutPolicy
-	41,  // 53: dex.StartFlowRequest.step_input:type_name -> dex.Value
-	52,  // 54: dex.StartFlowRequest.step_options:type_name -> dex.StepOptions
-	55,  // 55: dex.StartFlowRequest.flow_start_options:type_name -> dex.FlowStartOptions
-	62,  // 56: dex.PublishToChannelRequest.messages:type_name -> dex.ChannelMessage
-	41,  // 57: dex.ChannelMessage.value:type_name -> dex.Value
-	62,  // 58: dex.GetChannelMessagesResponse.messages:type_name -> dex.ChannelMessage
-	41,  // 59: dex.WriteStreamRequest.value:type_name -> dex.Value
-	72,  // 60: dex.ReadStreamResponse.message:type_name -> dex.StreamMessage
-	72,  // 61: dex.ListStreamMessagesResponse.messages:type_name -> dex.StreamMessage
-	41,  // 62: dex.StreamMessage.value:type_name -> dex.Value
-	183, // 63: dex.StreamMessage.created_time:type_name -> google.protobuf.Timestamp
+	42,  // 53: dex.StartFlowRequest.step_input:type_name -> dex.Value
+	53,  // 54: dex.StartFlowRequest.step_options:type_name -> dex.StepOptions
+	56,  // 55: dex.StartFlowRequest.flow_start_options:type_name -> dex.FlowStartOptions
+	63,  // 56: dex.PublishToChannelRequest.messages:type_name -> dex.ChannelMessage
+	42,  // 57: dex.ChannelMessage.value:type_name -> dex.Value
+	63,  // 58: dex.GetChannelMessagesResponse.messages:type_name -> dex.ChannelMessage
+	42,  // 59: dex.WriteStreamRequest.value:type_name -> dex.Value
+	73,  // 60: dex.ReadStreamResponse.message:type_name -> dex.StreamMessage
+	73,  // 61: dex.ListStreamMessagesResponse.messages:type_name -> dex.StreamMessage
+	42,  // 62: dex.StreamMessage.value:type_name -> dex.Value
+	194, // 63: dex.StreamMessage.created_time:type_name -> google.protobuf.Timestamp
 	11,  // 64: dex.StopFlowRequest.stop_type:type_name -> dex.StopType
-	47,  // 65: dex.GetAttributesResponse.attributes:type_name -> dex.KV
-	43,  // 66: dex.SetAttributesRequest.attributes:type_name -> dex.AttributeWrite
-	45,  // 67: dex.SetAttributesRequest.action_permission_mappings:type_name -> dex.ActionPermissionMappings
-	41,  // 68: dex.LoadBlobRequestEntry.blob_value:type_name -> dex.Value
-	77,  // 69: dex.LoadBlobsRequest.entries:type_name -> dex.LoadBlobRequestEntry
-	172, // 70: dex.LoadBlobsResponse.values:type_name -> dex.LoadBlobsResponse.ValuesEntry
-	41,  // 71: dex.StepCompletionOutput.completed_step_output:type_name -> dex.Value
+	48,  // 65: dex.GetAttributesResponse.attributes:type_name -> dex.KV
+	44,  // 66: dex.SetAttributesRequest.attributes:type_name -> dex.AttributeWrite
+	46,  // 67: dex.SetAttributesRequest.action_permission_mappings:type_name -> dex.ActionPermissionMappings
+	42,  // 68: dex.LoadBlobRequestEntry.blob_value:type_name -> dex.Value
+	78,  // 69: dex.LoadBlobsRequest.entries:type_name -> dex.LoadBlobRequestEntry
+	183, // 70: dex.LoadBlobsResponse.values:type_name -> dex.LoadBlobsResponse.ValuesEntry
+	42,  // 71: dex.StepCompletionOutput.completed_step_output:type_name -> dex.Value
 	12,  // 72: dex.FlowResult.flow_status:type_name -> dex.FlowStatus
-	81,  // 73: dex.FlowResult.results:type_name -> dex.StepCompletionOutput
+	82,  // 73: dex.FlowResult.results:type_name -> dex.StepCompletionOutput
 	13,  // 74: dex.FlowResult.error_type:type_name -> dex.FlowErrorType
-	85,  // 75: dex.SearchFlowsResponse.flow_runs:type_name -> dex.SearchFlowsResponseEntry
-	47,  // 76: dex.SearchFlowsResponseEntry.indexed_attributes:type_name -> dex.KV
+	86,  // 75: dex.SearchFlowsResponse.flow_runs:type_name -> dex.SearchFlowsResponseEntry
+	48,  // 76: dex.SearchFlowsResponseEntry.indexed_attributes:type_name -> dex.KV
 	12,  // 77: dex.SearchFlowsResponseEntry.flow_status:type_name -> dex.FlowStatus
-	183, // 78: dex.SearchFlowsResponseEntry.start_time:type_name -> google.protobuf.Timestamp
-	183, // 79: dex.SearchFlowsResponseEntry.close_time:type_name -> google.protobuf.Timestamp
-	173, // 80: dex.SyncAttributeIndexRequest.attribute_indexes:type_name -> dex.SyncAttributeIndexRequest.AttributeIndexesEntry
-	88,  // 81: dex.GetFlowSummaryResponse.flow_run_id:type_name -> dex.FlowRunID
+	194, // 78: dex.SearchFlowsResponseEntry.start_time:type_name -> google.protobuf.Timestamp
+	194, // 79: dex.SearchFlowsResponseEntry.close_time:type_name -> google.protobuf.Timestamp
+	184, // 80: dex.SyncAttributeIndexRequest.attribute_indexes:type_name -> dex.SyncAttributeIndexRequest.AttributeIndexesEntry
+	89,  // 81: dex.GetFlowSummaryResponse.flow_run_id:type_name -> dex.FlowRunID
 	12,  // 82: dex.GetFlowSummaryResponse.flow_status:type_name -> dex.FlowStatus
-	183, // 83: dex.GetFlowSummaryResponse.start_time:type_name -> google.protobuf.Timestamp
-	183, // 84: dex.GetFlowSummaryResponse.close_time:type_name -> google.protobuf.Timestamp
-	94,  // 85: dex.GetHistoryEventsResponse.events:type_name -> dex.FlowHistoryEvent
-	93,  // 86: dex.GetHistoryEventsResponse.pruned_event_id_range:type_name -> dex.HistoryEventIDRange
-	183, // 87: dex.FlowHistoryEvent.event_time:type_name -> google.protobuf.Timestamp
-	96,  // 88: dex.FlowHistoryEvent.flow_started_or_continued:type_name -> dex.FlowStartedOrContinuedHistoryEvent
-	98,  // 89: dex.FlowHistoryEvent.flow_closed:type_name -> dex.FlowClosedHistoryEvent
-	108, // 90: dex.FlowHistoryEvent.step_wait_for_completed:type_name -> dex.StepWaitForCompletedEvent
-	109, // 91: dex.FlowHistoryEvent.step_wait_for_failed:type_name -> dex.StepWaitForFailedEvent
-	110, // 92: dex.FlowHistoryEvent.step_execute_completed:type_name -> dex.StepExecuteCompletedEvent
-	111, // 93: dex.FlowHistoryEvent.step_execute_failed:type_name -> dex.StepExecuteFailedEvent
-	112, // 94: dex.FlowHistoryEvent.rpc_execution_completed:type_name -> dex.RpcExecutionCompletedEvent
-	113, // 95: dex.FlowHistoryEvent.channel_external_publish:type_name -> dex.ChannelExternalPublishEvent
-	99,  // 96: dex.FlowHistoryEvent.step_wait_for_pending:type_name -> dex.StepMethodPendingEvent
-	99,  // 97: dex.FlowHistoryEvent.step_execute_pending:type_name -> dex.StepMethodPendingEvent
-	95,  // 98: dex.FlowHistoryEvent.time_travel_fork:type_name -> dex.TimeTravelForkHistoryEvent
-	114, // 99: dex.FlowHistoryEvent.channel_external_delete:type_name -> dex.ChannelExternalDeleteEvent
-	88,  // 100: dex.FlowStartedOrContinuedHistoryEvent.flow_run_id:type_name -> dex.FlowRunID
-	56,  // 101: dex.FlowStartedOrContinuedHistoryEvent.flow_config:type_name -> dex.FlowConfig
-	185, // 102: dex.FlowStartedOrContinuedHistoryEvent.flow_timeout:type_name -> google.protobuf.Duration
+	194, // 83: dex.GetFlowSummaryResponse.start_time:type_name -> google.protobuf.Timestamp
+	194, // 84: dex.GetFlowSummaryResponse.close_time:type_name -> google.protobuf.Timestamp
+	95,  // 85: dex.GetHistoryEventsResponse.events:type_name -> dex.FlowHistoryEvent
+	94,  // 86: dex.GetHistoryEventsResponse.pruned_event_id_range:type_name -> dex.HistoryEventIDRange
+	194, // 87: dex.FlowHistoryEvent.event_time:type_name -> google.protobuf.Timestamp
+	97,  // 88: dex.FlowHistoryEvent.flow_started_or_continued:type_name -> dex.FlowStartedOrContinuedHistoryEvent
+	99,  // 89: dex.FlowHistoryEvent.flow_closed:type_name -> dex.FlowClosedHistoryEvent
+	109, // 90: dex.FlowHistoryEvent.step_wait_for_completed:type_name -> dex.StepWaitForCompletedEvent
+	110, // 91: dex.FlowHistoryEvent.step_wait_for_failed:type_name -> dex.StepWaitForFailedEvent
+	111, // 92: dex.FlowHistoryEvent.step_execute_completed:type_name -> dex.StepExecuteCompletedEvent
+	112, // 93: dex.FlowHistoryEvent.step_execute_failed:type_name -> dex.StepExecuteFailedEvent
+	113, // 94: dex.FlowHistoryEvent.rpc_execution_completed:type_name -> dex.RpcExecutionCompletedEvent
+	114, // 95: dex.FlowHistoryEvent.channel_external_publish:type_name -> dex.ChannelExternalPublishEvent
+	100, // 96: dex.FlowHistoryEvent.step_wait_for_pending:type_name -> dex.StepMethodPendingEvent
+	100, // 97: dex.FlowHistoryEvent.step_execute_pending:type_name -> dex.StepMethodPendingEvent
+	96,  // 98: dex.FlowHistoryEvent.time_travel_fork:type_name -> dex.TimeTravelForkHistoryEvent
+	115, // 99: dex.FlowHistoryEvent.channel_external_delete:type_name -> dex.ChannelExternalDeleteEvent
+	89,  // 100: dex.FlowStartedOrContinuedHistoryEvent.flow_run_id:type_name -> dex.FlowRunID
+	57,  // 101: dex.FlowStartedOrContinuedHistoryEvent.flow_config:type_name -> dex.FlowConfig
+	196, // 102: dex.FlowStartedOrContinuedHistoryEvent.flow_timeout:type_name -> google.protobuf.Duration
 	10,  // 103: dex.FlowStartedOrContinuedHistoryEvent.flow_timeout_policy:type_name -> dex.FlowTimeoutPolicy
-	53,  // 104: dex.FlowStartedOrContinuedHistoryEvent.timeout_handler_options:type_name -> dex.FlowTimeoutHandlerOptions
-	97,  // 105: dex.FlowStartedOrContinuedHistoryEvent.initial_start:type_name -> dex.FlowInitialStart
-	41,  // 106: dex.FlowInitialStart.step_input:type_name -> dex.Value
-	52,  // 107: dex.FlowInitialStart.step_options:type_name -> dex.StepOptions
-	47,  // 108: dex.FlowInitialStart.initial_attributes:type_name -> dex.KV
+	54,  // 104: dex.FlowStartedOrContinuedHistoryEvent.timeout_handler_options:type_name -> dex.FlowTimeoutHandlerOptions
+	98,  // 105: dex.FlowStartedOrContinuedHistoryEvent.initial_start:type_name -> dex.FlowInitialStart
+	42,  // 106: dex.FlowInitialStart.step_input:type_name -> dex.Value
+	53,  // 107: dex.FlowInitialStart.step_options:type_name -> dex.StepOptions
+	48,  // 108: dex.FlowInitialStart.initial_attributes:type_name -> dex.KV
 	12,  // 109: dex.FlowClosedHistoryEvent.flow_status:type_name -> dex.FlowStatus
-	81,  // 110: dex.FlowClosedHistoryEvent.results:type_name -> dex.StepCompletionOutput
+	82,  // 110: dex.FlowClosedHistoryEvent.results:type_name -> dex.StepCompletionOutput
 	13,  // 111: dex.FlowClosedHistoryEvent.error_type:type_name -> dex.FlowErrorType
-	102, // 112: dex.StepMethodPendingEvent.input:type_name -> dex.StepMethodEventInput
-	104, // 113: dex.StepMethodPendingEvent.context:type_name -> dex.StepMethodEventContext
+	103, // 112: dex.StepMethodPendingEvent.input:type_name -> dex.StepMethodEventInput
+	105, // 113: dex.StepMethodPendingEvent.context:type_name -> dex.StepMethodEventContext
 	14,  // 114: dex.StepMethodPendingEvent.phase:type_name -> dex.PendingStepMethodPhase
-	133, // 115: dex.StepMethodFailure.details:type_name -> dex.ServiceErrorResponse
-	103, // 116: dex.StepMethodFailure.pull_routing:type_name -> dex.PullRouting
-	50,  // 117: dex.StepMethodOptions.retry_policy:type_name -> dex.RetryPolicy
-	41,  // 118: dex.StepMethodEventInput.step_input:type_name -> dex.Value
-	157, // 119: dex.StepMethodEventInput.condition_results:type_name -> dex.ConditionResults
-	47,  // 120: dex.StepMethodEventInput.attributes:type_name -> dex.KV
-	47,  // 121: dex.StepMethodEventInput.step_execution_locals:type_name -> dex.KV
+	134, // 115: dex.StepMethodFailure.details:type_name -> dex.ServiceErrorResponse
+	104, // 116: dex.StepMethodFailure.pull_routing:type_name -> dex.PullRouting
+	51,  // 117: dex.StepMethodOptions.retry_policy:type_name -> dex.RetryPolicy
+	42,  // 118: dex.StepMethodEventInput.step_input:type_name -> dex.Value
+	158, // 119: dex.StepMethodEventInput.condition_results:type_name -> dex.ConditionResults
+	48,  // 120: dex.StepMethodEventInput.attributes:type_name -> dex.KV
+	48,  // 121: dex.StepMethodEventInput.step_execution_locals:type_name -> dex.KV
 	15,  // 122: dex.PullRouting.source:type_name -> dex.PullRoutingSource
 	9,   // 123: dex.StepMethodEventContext.durability:type_name -> dex.StepDurability
-	183, // 124: dex.StepMethodEventContext.started_time:type_name -> google.protobuf.Timestamp
-	185, // 125: dex.StepMethodEventContext.duration:type_name -> google.protobuf.Duration
-	101, // 126: dex.StepMethodEventContext.method_options:type_name -> dex.StepMethodOptions
-	100, // 127: dex.StepMethodEventContext.last_failure_info:type_name -> dex.StepMethodFailure
-	103, // 128: dex.StepMethodEventContext.pull_routing:type_name -> dex.PullRouting
-	183, // 129: dex.StepMethodEventContext.wait_for_completed_time:type_name -> google.protobuf.Timestamp
-	183, // 130: dex.StepMethodEventContext.scheduled_time:type_name -> google.protobuf.Timestamp
-	150, // 131: dex.StepWaitForCompletedOutput.wait_for_condition:type_name -> dex.WaitingCondition
-	43,  // 132: dex.StepWaitForCompletedOutput.upsert_attributes:type_name -> dex.AttributeWrite
-	62,  // 133: dex.StepWaitForCompletedOutput.publish_to_channel:type_name -> dex.ChannelMessage
-	47,  // 134: dex.StepWaitForCompletedOutput.record_events:type_name -> dex.KV
-	47,  // 135: dex.StepWaitForCompletedOutput.upsert_step_execution_locals:type_name -> dex.KV
-	66,  // 136: dex.StepWaitForCompletedOutput.delete_from_channel:type_name -> dex.ChannelMessageDeletion
-	146, // 137: dex.StepExecuteCompletedOutput.step_decision:type_name -> dex.StepDecision
-	43,  // 138: dex.StepExecuteCompletedOutput.upsert_attributes:type_name -> dex.AttributeWrite
-	62,  // 139: dex.StepExecuteCompletedOutput.publish_to_channel:type_name -> dex.ChannelMessage
-	47,  // 140: dex.StepExecuteCompletedOutput.record_events:type_name -> dex.KV
-	47,  // 141: dex.StepExecuteCompletedOutput.upsert_step_execution_locals:type_name -> dex.KV
-	66,  // 142: dex.StepExecuteCompletedOutput.delete_from_channel:type_name -> dex.ChannelMessageDeletion
-	100, // 143: dex.StepMethodFailedOutput.failure:type_name -> dex.StepMethodFailure
-	102, // 144: dex.StepWaitForCompletedEvent.input:type_name -> dex.StepMethodEventInput
-	105, // 145: dex.StepWaitForCompletedEvent.output:type_name -> dex.StepWaitForCompletedOutput
-	104, // 146: dex.StepWaitForCompletedEvent.context:type_name -> dex.StepMethodEventContext
-	102, // 147: dex.StepWaitForFailedEvent.input:type_name -> dex.StepMethodEventInput
-	107, // 148: dex.StepWaitForFailedEvent.output:type_name -> dex.StepMethodFailedOutput
-	104, // 149: dex.StepWaitForFailedEvent.context:type_name -> dex.StepMethodEventContext
-	102, // 150: dex.StepExecuteCompletedEvent.input:type_name -> dex.StepMethodEventInput
-	106, // 151: dex.StepExecuteCompletedEvent.output:type_name -> dex.StepExecuteCompletedOutput
-	104, // 152: dex.StepExecuteCompletedEvent.context:type_name -> dex.StepMethodEventContext
-	102, // 153: dex.StepExecuteFailedEvent.input:type_name -> dex.StepMethodEventInput
-	107, // 154: dex.StepExecuteFailedEvent.output:type_name -> dex.StepMethodFailedOutput
-	104, // 155: dex.StepExecuteFailedEvent.context:type_name -> dex.StepMethodEventContext
-	41,  // 156: dex.RpcExecutionCompletedEvent.input:type_name -> dex.Value
-	41,  // 157: dex.RpcExecutionCompletedEvent.output:type_name -> dex.Value
-	146, // 158: dex.RpcExecutionCompletedEvent.step_decision:type_name -> dex.StepDecision
-	43,  // 159: dex.RpcExecutionCompletedEvent.upsert_attributes:type_name -> dex.AttributeWrite
-	47,  // 160: dex.RpcExecutionCompletedEvent.record_events:type_name -> dex.KV
-	62,  // 161: dex.RpcExecutionCompletedEvent.publish_to_channel:type_name -> dex.ChannelMessage
-	66,  // 162: dex.RpcExecutionCompletedEvent.delete_from_channel:type_name -> dex.ChannelMessageDeletion
-	62,  // 163: dex.ChannelExternalPublishEvent.messages:type_name -> dex.ChannelMessage
-	66,  // 164: dex.ChannelExternalDeleteEvent.messages:type_name -> dex.ChannelMessageDeletion
+	194, // 124: dex.StepMethodEventContext.started_time:type_name -> google.protobuf.Timestamp
+	196, // 125: dex.StepMethodEventContext.duration:type_name -> google.protobuf.Duration
+	102, // 126: dex.StepMethodEventContext.method_options:type_name -> dex.StepMethodOptions
+	101, // 127: dex.StepMethodEventContext.last_failure_info:type_name -> dex.StepMethodFailure
+	104, // 128: dex.StepMethodEventContext.pull_routing:type_name -> dex.PullRouting
+	194, // 129: dex.StepMethodEventContext.wait_for_completed_time:type_name -> google.protobuf.Timestamp
+	194, // 130: dex.StepMethodEventContext.scheduled_time:type_name -> google.protobuf.Timestamp
+	151, // 131: dex.StepWaitForCompletedOutput.wait_for_condition:type_name -> dex.WaitingCondition
+	44,  // 132: dex.StepWaitForCompletedOutput.upsert_attributes:type_name -> dex.AttributeWrite
+	63,  // 133: dex.StepWaitForCompletedOutput.publish_to_channel:type_name -> dex.ChannelMessage
+	48,  // 134: dex.StepWaitForCompletedOutput.record_events:type_name -> dex.KV
+	48,  // 135: dex.StepWaitForCompletedOutput.upsert_step_execution_locals:type_name -> dex.KV
+	67,  // 136: dex.StepWaitForCompletedOutput.delete_from_channel:type_name -> dex.ChannelMessageDeletion
+	147, // 137: dex.StepExecuteCompletedOutput.step_decision:type_name -> dex.StepDecision
+	44,  // 138: dex.StepExecuteCompletedOutput.upsert_attributes:type_name -> dex.AttributeWrite
+	63,  // 139: dex.StepExecuteCompletedOutput.publish_to_channel:type_name -> dex.ChannelMessage
+	48,  // 140: dex.StepExecuteCompletedOutput.record_events:type_name -> dex.KV
+	48,  // 141: dex.StepExecuteCompletedOutput.upsert_step_execution_locals:type_name -> dex.KV
+	67,  // 142: dex.StepExecuteCompletedOutput.delete_from_channel:type_name -> dex.ChannelMessageDeletion
+	101, // 143: dex.StepMethodFailedOutput.failure:type_name -> dex.StepMethodFailure
+	103, // 144: dex.StepWaitForCompletedEvent.input:type_name -> dex.StepMethodEventInput
+	106, // 145: dex.StepWaitForCompletedEvent.output:type_name -> dex.StepWaitForCompletedOutput
+	105, // 146: dex.StepWaitForCompletedEvent.context:type_name -> dex.StepMethodEventContext
+	103, // 147: dex.StepWaitForFailedEvent.input:type_name -> dex.StepMethodEventInput
+	108, // 148: dex.StepWaitForFailedEvent.output:type_name -> dex.StepMethodFailedOutput
+	105, // 149: dex.StepWaitForFailedEvent.context:type_name -> dex.StepMethodEventContext
+	103, // 150: dex.StepExecuteCompletedEvent.input:type_name -> dex.StepMethodEventInput
+	107, // 151: dex.StepExecuteCompletedEvent.output:type_name -> dex.StepExecuteCompletedOutput
+	105, // 152: dex.StepExecuteCompletedEvent.context:type_name -> dex.StepMethodEventContext
+	103, // 153: dex.StepExecuteFailedEvent.input:type_name -> dex.StepMethodEventInput
+	108, // 154: dex.StepExecuteFailedEvent.output:type_name -> dex.StepMethodFailedOutput
+	105, // 155: dex.StepExecuteFailedEvent.context:type_name -> dex.StepMethodEventContext
+	42,  // 156: dex.RpcExecutionCompletedEvent.input:type_name -> dex.Value
+	42,  // 157: dex.RpcExecutionCompletedEvent.output:type_name -> dex.Value
+	147, // 158: dex.RpcExecutionCompletedEvent.step_decision:type_name -> dex.StepDecision
+	44,  // 159: dex.RpcExecutionCompletedEvent.upsert_attributes:type_name -> dex.AttributeWrite
+	48,  // 160: dex.RpcExecutionCompletedEvent.record_events:type_name -> dex.KV
+	63,  // 161: dex.RpcExecutionCompletedEvent.publish_to_channel:type_name -> dex.ChannelMessage
+	67,  // 162: dex.RpcExecutionCompletedEvent.delete_from_channel:type_name -> dex.ChannelMessageDeletion
+	63,  // 163: dex.ChannelExternalPublishEvent.messages:type_name -> dex.ChannelMessage
+	67,  // 164: dex.ChannelExternalDeleteEvent.messages:type_name -> dex.ChannelMessageDeletion
 	12,  // 165: dex.WaitForHistoryEventResponse.flow_status:type_name -> dex.FlowStatus
 	16,  // 166: dex.ActiveStepExecutionState.phase:type_name -> dex.ActiveStepPhase
-	148, // 167: dex.ActiveStepExecutionState.movement:type_name -> dex.StepMovement
-	151, // 168: dex.ActiveStepExecutionState.waiting_condition:type_name -> dex.WaitingConditionState
-	161, // 169: dex.ActiveStepExecutionState.completed_conditions:type_name -> dex.StepExecutionCompletedConditions
-	47,  // 170: dex.ActiveStepExecutionState.step_execution_locals:type_name -> dex.KV
-	165, // 171: dex.ActiveStepExecutionState.timers:type_name -> dex.TimerInfo
-	100, // 172: dex.ActiveStepExecutionState.last_failure_info:type_name -> dex.StepMethodFailure
-	103, // 173: dex.ActiveStepExecutionState.wait_for_pull_routing:type_name -> dex.PullRouting
-	103, // 174: dex.ActiveStepExecutionState.execute_pull_routing:type_name -> dex.PullRouting
-	118, // 175: dex.ActiveStepExecutionState.wait_for_invocation:type_name -> dex.StepMethodInvocationState
-	118, // 176: dex.ActiveStepExecutionState.execute_invocation:type_name -> dex.StepMethodInvocationState
+	149, // 167: dex.ActiveStepExecutionState.movement:type_name -> dex.StepMovement
+	152, // 168: dex.ActiveStepExecutionState.waiting_condition:type_name -> dex.WaitingConditionState
+	162, // 169: dex.ActiveStepExecutionState.completed_conditions:type_name -> dex.StepExecutionCompletedConditions
+	48,  // 170: dex.ActiveStepExecutionState.step_execution_locals:type_name -> dex.KV
+	166, // 171: dex.ActiveStepExecutionState.timers:type_name -> dex.TimerInfo
+	101, // 172: dex.ActiveStepExecutionState.last_failure_info:type_name -> dex.StepMethodFailure
+	104, // 173: dex.ActiveStepExecutionState.wait_for_pull_routing:type_name -> dex.PullRouting
+	104, // 174: dex.ActiveStepExecutionState.execute_pull_routing:type_name -> dex.PullRouting
+	119, // 175: dex.ActiveStepExecutionState.wait_for_invocation:type_name -> dex.StepMethodInvocationState
+	119, // 176: dex.ActiveStepExecutionState.execute_invocation:type_name -> dex.StepMethodInvocationState
 	17,  // 177: dex.StepMethodInvocationState.phase:type_name -> dex.StepMethodInvocationPhase
 	18,  // 178: dex.StepMethodInvocationState.pending_reason:type_name -> dex.StepMethodPendingReason
-	183, // 179: dex.StepMethodInvocationState.pending_since_time:type_name -> google.protobuf.Timestamp
-	183, // 180: dex.StepMethodInvocationState.attempt_started_time:type_name -> google.protobuf.Timestamp
-	183, // 181: dex.StepMethodInvocationState.backoff_fires_at_time:type_name -> google.protobuf.Timestamp
-	56,  // 182: dex.GetFlowStateResponse.flow_config:type_name -> dex.FlowConfig
-	47,  // 183: dex.GetFlowStateResponse.attributes:type_name -> dex.KV
-	117, // 184: dex.GetFlowStateResponse.active_step_executions:type_name -> dex.ActiveStepExecutionState
-	148, // 185: dex.GetFlowStateResponse.queued_steps:type_name -> dex.StepMovement
-	174, // 186: dex.GetFlowStateResponse.pending_channel_messages:type_name -> dex.GetFlowStateResponse.PendingChannelMessagesEntry
-	81,  // 187: dex.GetFlowStateResponse.completed_steps:type_name -> dex.StepCompletionOutput
+	194, // 179: dex.StepMethodInvocationState.pending_since_time:type_name -> google.protobuf.Timestamp
+	194, // 180: dex.StepMethodInvocationState.attempt_started_time:type_name -> google.protobuf.Timestamp
+	194, // 181: dex.StepMethodInvocationState.backoff_fires_at_time:type_name -> google.protobuf.Timestamp
+	57,  // 182: dex.GetFlowStateResponse.flow_config:type_name -> dex.FlowConfig
+	48,  // 183: dex.GetFlowStateResponse.attributes:type_name -> dex.KV
+	118, // 184: dex.GetFlowStateResponse.active_step_executions:type_name -> dex.ActiveStepExecutionState
+	149, // 185: dex.GetFlowStateResponse.queued_steps:type_name -> dex.StepMovement
+	185, // 186: dex.GetFlowStateResponse.pending_channel_messages:type_name -> dex.GetFlowStateResponse.PendingChannelMessagesEntry
+	82,  // 187: dex.GetFlowStateResponse.completed_steps:type_name -> dex.StepCompletionOutput
 	19,  // 188: dex.ResetFlowRequest.reset_type:type_name -> dex.FlowResetType
 	20,  // 189: dex.ResetFlowRequest.step_method:type_name -> dex.FlowResetStepMethod
-	41,  // 190: dex.InvokeRPCRequest.input:type_name -> dex.Value
-	41,  // 191: dex.InvokeRPCResponse.output:type_name -> dex.Value
-	56,  // 192: dex.UpdateFlowConfigRequest.flow_config:type_name -> dex.FlowConfig
-	131, // 193: dex.WaitForAttributeRequest.match:type_name -> dex.AttributeMatch
-	41,  // 194: dex.WaitForAttributeResponse.matched_value:type_name -> dex.Value
+	42,  // 190: dex.InvokeRPCRequest.input:type_name -> dex.Value
+	42,  // 191: dex.InvokeRPCResponse.output:type_name -> dex.Value
+	57,  // 192: dex.UpdateFlowConfigRequest.flow_config:type_name -> dex.FlowConfig
+	132, // 193: dex.WaitForAttributeRequest.match:type_name -> dex.AttributeMatch
+	42,  // 194: dex.WaitForAttributeResponse.matched_value:type_name -> dex.Value
 	21,  // 195: dex.AttributeMatch.operator:type_name -> dex.AttributeMatchOperator
-	41,  // 196: dex.AttributeMatch.operand:type_name -> dex.Value
+	42,  // 196: dex.AttributeMatch.operand:type_name -> dex.Value
 	22,  // 197: dex.ServiceErrorResponse.sub_status:type_name -> dex.ErrorSubStatus
 	3,   // 198: dex.ServiceErrorResponse.dispatch_task_error_reason:type_name -> dex.DispatchTaskErrorReason
-	49,  // 199: dex.InvokeWaitForMethodRequest.context:type_name -> dex.Context
-	41,  // 200: dex.InvokeWaitForMethodRequest.step_input:type_name -> dex.Value
-	47,  // 201: dex.InvokeWaitForMethodRequest.attributes:type_name -> dex.KV
-	175, // 202: dex.InvokeWaitForMethodRequest.channel_infos:type_name -> dex.InvokeWaitForMethodRequest.ChannelInfosEntry
-	176, // 203: dex.InvokeWaitForMethodRequest.loaded_channel_messages:type_name -> dex.InvokeWaitForMethodRequest.LoadedChannelMessagesEntry
-	43,  // 204: dex.InvokeWaitForMethodResponse.upsert_attributes:type_name -> dex.AttributeWrite
-	150, // 205: dex.InvokeWaitForMethodResponse.waiting_condition:type_name -> dex.WaitingCondition
-	47,  // 206: dex.InvokeWaitForMethodResponse.upsert_step_exe_locals:type_name -> dex.KV
-	47,  // 207: dex.InvokeWaitForMethodResponse.record_events:type_name -> dex.KV
-	62,  // 208: dex.InvokeWaitForMethodResponse.publish_to_channel:type_name -> dex.ChannelMessage
-	66,  // 209: dex.InvokeWaitForMethodResponse.delete_from_channel:type_name -> dex.ChannelMessageDeletion
-	45,  // 210: dex.InvokeWaitForMethodResponse.action_permission_mappings:type_name -> dex.ActionPermissionMappings
-	41,  // 211: dex.StepMethodHeartbeat.value:type_name -> dex.Value
-	41,  // 212: dex.StepStreamWrite.value:type_name -> dex.Value
-	138, // 213: dex.InvokeWaitForMethodOutput.heartbeat:type_name -> dex.StepMethodHeartbeat
-	139, // 214: dex.InvokeWaitForMethodOutput.stream_write:type_name -> dex.StepStreamWrite
-	137, // 215: dex.InvokeWaitForMethodOutput.result:type_name -> dex.InvokeWaitForMethodResponse
-	49,  // 216: dex.InvokeExecuteMethodRequest.context:type_name -> dex.Context
-	41,  // 217: dex.InvokeExecuteMethodRequest.step_input:type_name -> dex.Value
-	47,  // 218: dex.InvokeExecuteMethodRequest.attributes:type_name -> dex.KV
-	47,  // 219: dex.InvokeExecuteMethodRequest.step_exe_locals:type_name -> dex.KV
-	157, // 220: dex.InvokeExecuteMethodRequest.condition_results:type_name -> dex.ConditionResults
-	177, // 221: dex.InvokeExecuteMethodRequest.channel_infos:type_name -> dex.InvokeExecuteMethodRequest.ChannelInfosEntry
-	178, // 222: dex.InvokeExecuteMethodRequest.loaded_channel_messages:type_name -> dex.InvokeExecuteMethodRequest.LoadedChannelMessagesEntry
-	146, // 223: dex.InvokeExecuteMethodResponse.step_decision:type_name -> dex.StepDecision
-	43,  // 224: dex.InvokeExecuteMethodResponse.upsert_attributes:type_name -> dex.AttributeWrite
-	47,  // 225: dex.InvokeExecuteMethodResponse.record_events:type_name -> dex.KV
-	47,  // 226: dex.InvokeExecuteMethodResponse.upsert_step_exe_locals:type_name -> dex.KV
-	62,  // 227: dex.InvokeExecuteMethodResponse.publish_to_channel:type_name -> dex.ChannelMessage
-	66,  // 228: dex.InvokeExecuteMethodResponse.delete_from_channel:type_name -> dex.ChannelMessageDeletion
-	45,  // 229: dex.InvokeExecuteMethodResponse.action_permission_mappings:type_name -> dex.ActionPermissionMappings
-	138, // 230: dex.InvokeExecuteMethodOutput.heartbeat:type_name -> dex.StepMethodHeartbeat
-	139, // 231: dex.InvokeExecuteMethodOutput.stream_write:type_name -> dex.StepStreamWrite
-	142, // 232: dex.InvokeExecuteMethodOutput.result:type_name -> dex.InvokeExecuteMethodResponse
-	49,  // 233: dex.InvokeWorkerRPCRequest.context:type_name -> dex.Context
-	41,  // 234: dex.InvokeWorkerRPCRequest.input:type_name -> dex.Value
-	47,  // 235: dex.InvokeWorkerRPCRequest.attributes:type_name -> dex.KV
-	179, // 236: dex.InvokeWorkerRPCRequest.channel_infos:type_name -> dex.InvokeWorkerRPCRequest.ChannelInfosEntry
-	180, // 237: dex.InvokeWorkerRPCRequest.loaded_channel_messages:type_name -> dex.InvokeWorkerRPCRequest.LoadedChannelMessagesEntry
-	41,  // 238: dex.InvokeWorkerRPCResponse.output:type_name -> dex.Value
-	146, // 239: dex.InvokeWorkerRPCResponse.step_decision:type_name -> dex.StepDecision
-	43,  // 240: dex.InvokeWorkerRPCResponse.upsert_attributes:type_name -> dex.AttributeWrite
-	47,  // 241: dex.InvokeWorkerRPCResponse.record_events:type_name -> dex.KV
-	66,  // 242: dex.InvokeWorkerRPCResponse.delete_from_channel:type_name -> dex.ChannelMessageDeletion
-	62,  // 243: dex.InvokeWorkerRPCResponse.publish_to_channel:type_name -> dex.ChannelMessage
-	45,  // 244: dex.InvokeWorkerRPCResponse.action_permission_mappings:type_name -> dex.ActionPermissionMappings
-	148, // 245: dex.StepDecision.next_steps:type_name -> dex.StepMovement
-	147, // 246: dex.StepDecision.close_decision:type_name -> dex.CloseDecision
+	50,  // 199: dex.InvokeWaitForMethodRequest.context:type_name -> dex.Context
+	42,  // 200: dex.InvokeWaitForMethodRequest.step_input:type_name -> dex.Value
+	48,  // 201: dex.InvokeWaitForMethodRequest.attributes:type_name -> dex.KV
+	186, // 202: dex.InvokeWaitForMethodRequest.channel_infos:type_name -> dex.InvokeWaitForMethodRequest.ChannelInfosEntry
+	187, // 203: dex.InvokeWaitForMethodRequest.loaded_channel_messages:type_name -> dex.InvokeWaitForMethodRequest.LoadedChannelMessagesEntry
+	44,  // 204: dex.InvokeWaitForMethodResponse.upsert_attributes:type_name -> dex.AttributeWrite
+	151, // 205: dex.InvokeWaitForMethodResponse.waiting_condition:type_name -> dex.WaitingCondition
+	48,  // 206: dex.InvokeWaitForMethodResponse.upsert_step_exe_locals:type_name -> dex.KV
+	48,  // 207: dex.InvokeWaitForMethodResponse.record_events:type_name -> dex.KV
+	63,  // 208: dex.InvokeWaitForMethodResponse.publish_to_channel:type_name -> dex.ChannelMessage
+	67,  // 209: dex.InvokeWaitForMethodResponse.delete_from_channel:type_name -> dex.ChannelMessageDeletion
+	46,  // 210: dex.InvokeWaitForMethodResponse.action_permission_mappings:type_name -> dex.ActionPermissionMappings
+	42,  // 211: dex.StepMethodHeartbeat.value:type_name -> dex.Value
+	42,  // 212: dex.StepStreamWrite.value:type_name -> dex.Value
+	139, // 213: dex.InvokeWaitForMethodOutput.heartbeat:type_name -> dex.StepMethodHeartbeat
+	140, // 214: dex.InvokeWaitForMethodOutput.stream_write:type_name -> dex.StepStreamWrite
+	138, // 215: dex.InvokeWaitForMethodOutput.result:type_name -> dex.InvokeWaitForMethodResponse
+	50,  // 216: dex.InvokeExecuteMethodRequest.context:type_name -> dex.Context
+	42,  // 217: dex.InvokeExecuteMethodRequest.step_input:type_name -> dex.Value
+	48,  // 218: dex.InvokeExecuteMethodRequest.attributes:type_name -> dex.KV
+	48,  // 219: dex.InvokeExecuteMethodRequest.step_exe_locals:type_name -> dex.KV
+	158, // 220: dex.InvokeExecuteMethodRequest.condition_results:type_name -> dex.ConditionResults
+	188, // 221: dex.InvokeExecuteMethodRequest.channel_infos:type_name -> dex.InvokeExecuteMethodRequest.ChannelInfosEntry
+	189, // 222: dex.InvokeExecuteMethodRequest.loaded_channel_messages:type_name -> dex.InvokeExecuteMethodRequest.LoadedChannelMessagesEntry
+	147, // 223: dex.InvokeExecuteMethodResponse.step_decision:type_name -> dex.StepDecision
+	44,  // 224: dex.InvokeExecuteMethodResponse.upsert_attributes:type_name -> dex.AttributeWrite
+	48,  // 225: dex.InvokeExecuteMethodResponse.record_events:type_name -> dex.KV
+	48,  // 226: dex.InvokeExecuteMethodResponse.upsert_step_exe_locals:type_name -> dex.KV
+	63,  // 227: dex.InvokeExecuteMethodResponse.publish_to_channel:type_name -> dex.ChannelMessage
+	67,  // 228: dex.InvokeExecuteMethodResponse.delete_from_channel:type_name -> dex.ChannelMessageDeletion
+	46,  // 229: dex.InvokeExecuteMethodResponse.action_permission_mappings:type_name -> dex.ActionPermissionMappings
+	139, // 230: dex.InvokeExecuteMethodOutput.heartbeat:type_name -> dex.StepMethodHeartbeat
+	140, // 231: dex.InvokeExecuteMethodOutput.stream_write:type_name -> dex.StepStreamWrite
+	143, // 232: dex.InvokeExecuteMethodOutput.result:type_name -> dex.InvokeExecuteMethodResponse
+	50,  // 233: dex.InvokeWorkerRPCRequest.context:type_name -> dex.Context
+	42,  // 234: dex.InvokeWorkerRPCRequest.input:type_name -> dex.Value
+	48,  // 235: dex.InvokeWorkerRPCRequest.attributes:type_name -> dex.KV
+	190, // 236: dex.InvokeWorkerRPCRequest.channel_infos:type_name -> dex.InvokeWorkerRPCRequest.ChannelInfosEntry
+	191, // 237: dex.InvokeWorkerRPCRequest.loaded_channel_messages:type_name -> dex.InvokeWorkerRPCRequest.LoadedChannelMessagesEntry
+	42,  // 238: dex.InvokeWorkerRPCResponse.output:type_name -> dex.Value
+	147, // 239: dex.InvokeWorkerRPCResponse.step_decision:type_name -> dex.StepDecision
+	44,  // 240: dex.InvokeWorkerRPCResponse.upsert_attributes:type_name -> dex.AttributeWrite
+	48,  // 241: dex.InvokeWorkerRPCResponse.record_events:type_name -> dex.KV
+	67,  // 242: dex.InvokeWorkerRPCResponse.delete_from_channel:type_name -> dex.ChannelMessageDeletion
+	63,  // 243: dex.InvokeWorkerRPCResponse.publish_to_channel:type_name -> dex.ChannelMessage
+	46,  // 244: dex.InvokeWorkerRPCResponse.action_permission_mappings:type_name -> dex.ActionPermissionMappings
+	149, // 245: dex.StepDecision.next_steps:type_name -> dex.StepMovement
+	148, // 246: dex.StepDecision.close_decision:type_name -> dex.CloseDecision
 	23,  // 247: dex.CloseDecision.close_decision_type:type_name -> dex.CloseDecisionType
-	41,  // 248: dex.CloseDecision.close_input:type_name -> dex.Value
-	41,  // 249: dex.StepMovement.step_input:type_name -> dex.Value
-	52,  // 250: dex.StepMovement.step_options:type_name -> dex.StepOptions
-	163, // 251: dex.StepMovement.recovery_error_internal_only:type_name -> dex.RecoveryErrorInfo
+	42,  // 248: dex.CloseDecision.close_input:type_name -> dex.Value
+	42,  // 249: dex.StepMovement.step_input:type_name -> dex.Value
+	53,  // 250: dex.StepMovement.step_options:type_name -> dex.StepOptions
+	164, // 251: dex.StepMovement.recovery_error_internal_only:type_name -> dex.RecoveryErrorInfo
 	24,  // 252: dex.WaitingCondition.waiting_condition_type:type_name -> dex.WaitingConditionType
-	155, // 253: dex.WaitingCondition.timer_conditions:type_name -> dex.TimerCondition
-	156, // 254: dex.WaitingCondition.channel_conditions:type_name -> dex.ChannelCondition
-	149, // 255: dex.WaitingCondition.condition_combinations:type_name -> dex.ConditionCombination
-	153, // 256: dex.WaitingCondition.sub_flow_conditions:type_name -> dex.SubFlowCondition
+	156, // 253: dex.WaitingCondition.timer_conditions:type_name -> dex.TimerCondition
+	157, // 254: dex.WaitingCondition.channel_conditions:type_name -> dex.ChannelCondition
+	150, // 255: dex.WaitingCondition.condition_combinations:type_name -> dex.ConditionCombination
+	154, // 256: dex.WaitingCondition.sub_flow_conditions:type_name -> dex.SubFlowCondition
 	24,  // 257: dex.WaitingConditionState.waiting_condition_type:type_name -> dex.WaitingConditionType
-	155, // 258: dex.WaitingConditionState.timer_conditions:type_name -> dex.TimerCondition
-	156, // 259: dex.WaitingConditionState.channel_conditions:type_name -> dex.ChannelCondition
-	149, // 260: dex.WaitingConditionState.condition_combinations:type_name -> dex.ConditionCombination
-	154, // 261: dex.WaitingConditionState.sub_flow_conditions:type_name -> dex.SubFlowConditionState
+	156, // 258: dex.WaitingConditionState.timer_conditions:type_name -> dex.TimerCondition
+	157, // 259: dex.WaitingConditionState.channel_conditions:type_name -> dex.ChannelCondition
+	150, // 260: dex.WaitingConditionState.condition_combinations:type_name -> dex.ConditionCombination
+	155, // 261: dex.WaitingConditionState.sub_flow_conditions:type_name -> dex.SubFlowConditionState
 	25,  // 262: dex.SubFlowOptions.reuse_policy:type_name -> dex.SubFlowReusePolicy
-	51,  // 263: dex.SubFlowOptions.retry_policy:type_name -> dex.FlowRetryPolicy
-	43,  // 264: dex.SubFlowOptions.attributes:type_name -> dex.AttributeWrite
-	56,  // 265: dex.SubFlowOptions.flow_config_override:type_name -> dex.FlowConfig
+	52,  // 263: dex.SubFlowOptions.retry_policy:type_name -> dex.FlowRetryPolicy
+	44,  // 264: dex.SubFlowOptions.attributes:type_name -> dex.AttributeWrite
+	57,  // 265: dex.SubFlowOptions.flow_config_override:type_name -> dex.FlowConfig
 	10,  // 266: dex.SubFlowOptions.flow_timeout_policy:type_name -> dex.FlowTimeoutPolicy
-	53,  // 267: dex.SubFlowOptions.timeout_handler_options:type_name -> dex.FlowTimeoutHandlerOptions
-	41,  // 268: dex.SubFlowCondition.step_input:type_name -> dex.Value
-	52,  // 269: dex.SubFlowCondition.step_options:type_name -> dex.StepOptions
-	152, // 270: dex.SubFlowCondition.options:type_name -> dex.SubFlowOptions
-	159, // 271: dex.ConditionResults.channel_results:type_name -> dex.ChannelResult
-	158, // 272: dex.ConditionResults.timer_results:type_name -> dex.TimerResult
-	82,  // 273: dex.ConditionResults.sub_flow_results:type_name -> dex.FlowResult
+	54,  // 267: dex.SubFlowOptions.timeout_handler_options:type_name -> dex.FlowTimeoutHandlerOptions
+	42,  // 268: dex.SubFlowCondition.step_input:type_name -> dex.Value
+	53,  // 269: dex.SubFlowCondition.step_options:type_name -> dex.StepOptions
+	153, // 270: dex.SubFlowCondition.options:type_name -> dex.SubFlowOptions
+	160, // 271: dex.ConditionResults.channel_results:type_name -> dex.ChannelResult
+	159, // 272: dex.ConditionResults.timer_results:type_name -> dex.TimerResult
+	83,  // 273: dex.ConditionResults.sub_flow_results:type_name -> dex.FlowResult
 	26,  // 274: dex.TimerResult.condition_status:type_name -> dex.ConditionStatus
 	26,  // 275: dex.ChannelResult.condition_status:type_name -> dex.ConditionStatus
-	41,  // 276: dex.ChannelResult.values:type_name -> dex.Value
-	62,  // 277: dex.ChannelValues.messages:type_name -> dex.ChannelMessage
-	181, // 278: dex.StepExecutionCompletedConditions.completed_timer_conditions:type_name -> dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry
-	182, // 279: dex.StepExecutionCompletedConditions.completed_sub_flow_results:type_name -> dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry
-	148, // 280: dex.StepExecutionResumeInfo.step:type_name -> dex.StepMovement
-	161, // 281: dex.StepExecutionResumeInfo.completed_conditions:type_name -> dex.StepExecutionCompletedConditions
-	151, // 282: dex.StepExecutionResumeInfo.waiting_condition:type_name -> dex.WaitingConditionState
-	47,  // 283: dex.StepExecutionResumeInfo.step_exe_locals:type_name -> dex.KV
-	103, // 284: dex.StepExecutionResumeInfo.wait_for_pull_routing:type_name -> dex.PullRouting
+	42,  // 276: dex.ChannelResult.values:type_name -> dex.Value
+	63,  // 277: dex.ChannelValues.messages:type_name -> dex.ChannelMessage
+	192, // 278: dex.StepExecutionCompletedConditions.completed_timer_conditions:type_name -> dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry
+	193, // 279: dex.StepExecutionCompletedConditions.completed_sub_flow_results:type_name -> dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry
+	149, // 280: dex.StepExecutionResumeInfo.step:type_name -> dex.StepMovement
+	162, // 281: dex.StepExecutionResumeInfo.completed_conditions:type_name -> dex.StepExecutionCompletedConditions
+	152, // 282: dex.StepExecutionResumeInfo.waiting_condition:type_name -> dex.WaitingConditionState
+	48,  // 283: dex.StepExecutionResumeInfo.step_exe_locals:type_name -> dex.KV
+	104, // 284: dex.StepExecutionResumeInfo.wait_for_pull_routing:type_name -> dex.PullRouting
 	28,  // 285: dex.RecoveryErrorInfo.attempt_progress:type_name -> dex.StepAttemptProgress
-	41,  // 286: dex.AttributeSyncItem.value:type_name -> dex.Value
+	42,  // 286: dex.AttributeSyncItem.value:type_name -> dex.Value
 	27,  // 287: dex.TimerInfo.status:type_name -> dex.InternalTimerStatus
-	185, // 288: dex.StepDownActiveNodeResponse.lease_reacquisition_hold_off:type_name -> google.protobuf.Duration
-	170, // 289: dex.StepDownActiveNodeResponse.taken_over_by_another_process:type_name -> dex.NodeLeaseHolder
-	170, // 290: dex.StepDownActiveNodeResponse.taken_back_by_this_process:type_name -> dex.NodeLeaseHolder
-	171, // 291: dex.StepDownActiveNodeResponse.lease_holder_unknown:type_name -> dex.NodeLeaseHolderUnknown
-	41,  // 292: dex.LoadBlobsResponse.ValuesEntry.value:type_name -> dex.Value
-	4,   // 293: dex.SyncAttributeIndexRequest.AttributeIndexesEntry.value:type_name -> dex.IndexType
-	160, // 294: dex.GetFlowStateResponse.PendingChannelMessagesEntry.value:type_name -> dex.ChannelValues
-	135, // 295: dex.InvokeWaitForMethodRequest.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
-	160, // 296: dex.InvokeWaitForMethodRequest.LoadedChannelMessagesEntry.value:type_name -> dex.ChannelValues
-	135, // 297: dex.InvokeExecuteMethodRequest.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
-	160, // 298: dex.InvokeExecuteMethodRequest.LoadedChannelMessagesEntry.value:type_name -> dex.ChannelValues
-	135, // 299: dex.InvokeWorkerRPCRequest.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
-	160, // 300: dex.InvokeWorkerRPCRequest.LoadedChannelMessagesEntry.value:type_name -> dex.ChannelValues
-	27,  // 301: dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry.value:type_name -> dex.InternalTimerStatus
-	82,  // 302: dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry.value:type_name -> dex.FlowResult
-	186, // 303: dex.FlowService.GetServerInfo:input_type -> google.protobuf.Empty
-	59,  // 304: dex.FlowService.StartFlow:input_type -> dex.StartFlowRequest
-	61,  // 305: dex.FlowService.PublishToChannel:input_type -> dex.PublishToChannelRequest
-	63,  // 306: dex.FlowService.GetChannelMessages:input_type -> dex.GetChannelMessagesRequest
-	65,  // 307: dex.FlowService.DeleteChannelMessage:input_type -> dex.DeleteChannelMessageRequest
-	67,  // 308: dex.FlowService.WriteStream:input_type -> dex.WriteStreamRequest
-	68,  // 309: dex.FlowService.ReadStream:input_type -> dex.ReadStreamRequest
-	70,  // 310: dex.FlowService.ListStreamMessages:input_type -> dex.ListStreamMessagesRequest
-	73,  // 311: dex.FlowService.StopFlow:input_type -> dex.StopFlowRequest
-	74,  // 312: dex.FlowService.GetAttributes:input_type -> dex.GetAttributesRequest
-	76,  // 313: dex.FlowService.SetAttributes:input_type -> dex.SetAttributesRequest
-	78,  // 314: dex.FlowService.LoadBlobs:input_type -> dex.LoadBlobsRequest
-	80,  // 315: dex.FlowService.WaitForFlow:input_type -> dex.WaitForFlowRequest
-	83,  // 316: dex.FlowService.SearchFlows:input_type -> dex.SearchFlowsRequest
-	86,  // 317: dex.FlowService.SyncAttributeIndexes:input_type -> dex.SyncAttributeIndexRequest
-	89,  // 318: dex.FlowService.GetFlowSummary:input_type -> dex.GetFlowSummaryRequest
-	91,  // 319: dex.FlowService.GetHistoryEvents:input_type -> dex.GetHistoryEventsRequest
-	115, // 320: dex.FlowService.WaitForHistoryEvent:input_type -> dex.WaitForHistoryEventRequest
-	119, // 321: dex.FlowService.GetFlowState:input_type -> dex.GetFlowStateRequest
-	121, // 322: dex.FlowService.ResetFlow:input_type -> dex.ResetFlowRequest
-	123, // 323: dex.FlowService.InvokeRPC:input_type -> dex.InvokeRPCRequest
-	125, // 324: dex.FlowService.SkipTimer:input_type -> dex.SkipTimerRequest
-	126, // 325: dex.FlowService.UpdateFlowConfig:input_type -> dex.UpdateFlowConfigRequest
-	127, // 326: dex.FlowService.WaitForStepCompletion:input_type -> dex.WaitForStepCompletionRequest
-	129, // 327: dex.FlowService.WaitForAttribute:input_type -> dex.WaitForAttributeRequest
-	186, // 328: dex.FlowService.HealthCheck:input_type -> google.protobuf.Empty
-	136, // 329: dex.WorkerService.InvokeWaitForMethod:input_type -> dex.InvokeWaitForMethodRequest
-	141, // 330: dex.WorkerService.InvokeExecuteMethod:input_type -> dex.InvokeExecuteMethodRequest
-	144, // 331: dex.WorkerService.InvokeWorkerRPC:input_type -> dex.InvokeWorkerRPCRequest
-	30,  // 332: dex.WorkerTaskService.PollWorkerTask:input_type -> dex.PollWorkerTaskRequest
-	166, // 333: dex.AdminService.DescribeActiveNode:input_type -> dex.DescribeActiveNodeRequest
-	168, // 334: dex.AdminService.StepDownActiveNode:input_type -> dex.StepDownActiveNodeRequest
-	29,  // 335: dex.FlowService.GetServerInfo:output_type -> dex.ServerInfo
-	60,  // 336: dex.FlowService.StartFlow:output_type -> dex.StartFlowResponse
-	186, // 337: dex.FlowService.PublishToChannel:output_type -> google.protobuf.Empty
-	64,  // 338: dex.FlowService.GetChannelMessages:output_type -> dex.GetChannelMessagesResponse
-	186, // 339: dex.FlowService.DeleteChannelMessage:output_type -> google.protobuf.Empty
-	186, // 340: dex.FlowService.WriteStream:output_type -> google.protobuf.Empty
-	69,  // 341: dex.FlowService.ReadStream:output_type -> dex.ReadStreamResponse
-	71,  // 342: dex.FlowService.ListStreamMessages:output_type -> dex.ListStreamMessagesResponse
-	186, // 343: dex.FlowService.StopFlow:output_type -> google.protobuf.Empty
-	75,  // 344: dex.FlowService.GetAttributes:output_type -> dex.GetAttributesResponse
-	186, // 345: dex.FlowService.SetAttributes:output_type -> google.protobuf.Empty
-	79,  // 346: dex.FlowService.LoadBlobs:output_type -> dex.LoadBlobsResponse
-	82,  // 347: dex.FlowService.WaitForFlow:output_type -> dex.FlowResult
-	84,  // 348: dex.FlowService.SearchFlows:output_type -> dex.SearchFlowsResponse
-	87,  // 349: dex.FlowService.SyncAttributeIndexes:output_type -> dex.SyncAttributeIndexResponse
-	90,  // 350: dex.FlowService.GetFlowSummary:output_type -> dex.GetFlowSummaryResponse
-	92,  // 351: dex.FlowService.GetHistoryEvents:output_type -> dex.GetHistoryEventsResponse
-	116, // 352: dex.FlowService.WaitForHistoryEvent:output_type -> dex.WaitForHistoryEventResponse
-	120, // 353: dex.FlowService.GetFlowState:output_type -> dex.GetFlowStateResponse
-	122, // 354: dex.FlowService.ResetFlow:output_type -> dex.ResetFlowResponse
-	124, // 355: dex.FlowService.InvokeRPC:output_type -> dex.InvokeRPCResponse
-	186, // 356: dex.FlowService.SkipTimer:output_type -> google.protobuf.Empty
-	186, // 357: dex.FlowService.UpdateFlowConfig:output_type -> google.protobuf.Empty
-	128, // 358: dex.FlowService.WaitForStepCompletion:output_type -> dex.WaitForStepCompletionResponse
-	130, // 359: dex.FlowService.WaitForAttribute:output_type -> dex.WaitForAttributeResponse
-	132, // 360: dex.FlowService.HealthCheck:output_type -> dex.HealthInfo
-	140, // 361: dex.WorkerService.InvokeWaitForMethod:output_type -> dex.InvokeWaitForMethodOutput
-	143, // 362: dex.WorkerService.InvokeExecuteMethod:output_type -> dex.InvokeExecuteMethodOutput
-	145, // 363: dex.WorkerService.InvokeWorkerRPC:output_type -> dex.InvokeWorkerRPCResponse
-	35,  // 364: dex.WorkerTaskService.PollWorkerTask:output_type -> dex.PollWorkerTaskResponse
-	167, // 365: dex.AdminService.DescribeActiveNode:output_type -> dex.DescribeActiveNodeResponse
-	169, // 366: dex.AdminService.StepDownActiveNode:output_type -> dex.StepDownActiveNodeResponse
-	335, // [335:367] is the sub-list for method output_type
-	303, // [303:335] is the sub-list for method input_type
-	303, // [303:303] is the sub-list for extension type_name
-	303, // [303:303] is the sub-list for extension extendee
-	0,   // [0:303] is the sub-list for field type_name
+	196, // 288: dex.StepDownActiveNodeResponse.lease_reacquisition_hold_off:type_name -> google.protobuf.Duration
+	171, // 289: dex.StepDownActiveNodeResponse.taken_over_by_another_process:type_name -> dex.NodeLeaseHolder
+	171, // 290: dex.StepDownActiveNodeResponse.taken_back_by_this_process:type_name -> dex.NodeLeaseHolder
+	172, // 291: dex.StepDownActiveNodeResponse.lease_holder_unknown:type_name -> dex.NodeLeaseHolderUnknown
+	194, // 292: dex.FlowDefinitionUpload.generated_at:type_name -> google.protobuf.Timestamp
+	173, // 293: dex.UploadFlowDefinitionsRequest.definitions:type_name -> dex.FlowDefinitionUpload
+	29,  // 294: dex.FlowDefinitionUploadResult.outcome:type_name -> dex.FlowDefinitionUploadOutcome
+	194, // 295: dex.FlowDefinitionUploadResult.stored_generated_at:type_name -> google.protobuf.Timestamp
+	175, // 296: dex.UploadFlowDefinitionsResponse.results:type_name -> dex.FlowDefinitionUploadResult
+	194, // 297: dex.FlowDefinitionInfo.generated_at:type_name -> google.protobuf.Timestamp
+	194, // 298: dex.FlowDefinitionInfo.uploaded_at:type_name -> google.protobuf.Timestamp
+	177, // 299: dex.FlowDefinition.info:type_name -> dex.FlowDefinitionInfo
+	181, // 300: dex.GetFlowDefinitionsResponse.definitions:type_name -> dex.FlowDefinition
+	42,  // 301: dex.LoadBlobsResponse.ValuesEntry.value:type_name -> dex.Value
+	4,   // 302: dex.SyncAttributeIndexRequest.AttributeIndexesEntry.value:type_name -> dex.IndexType
+	161, // 303: dex.GetFlowStateResponse.PendingChannelMessagesEntry.value:type_name -> dex.ChannelValues
+	136, // 304: dex.InvokeWaitForMethodRequest.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
+	161, // 305: dex.InvokeWaitForMethodRequest.LoadedChannelMessagesEntry.value:type_name -> dex.ChannelValues
+	136, // 306: dex.InvokeExecuteMethodRequest.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
+	161, // 307: dex.InvokeExecuteMethodRequest.LoadedChannelMessagesEntry.value:type_name -> dex.ChannelValues
+	136, // 308: dex.InvokeWorkerRPCRequest.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
+	161, // 309: dex.InvokeWorkerRPCRequest.LoadedChannelMessagesEntry.value:type_name -> dex.ChannelValues
+	27,  // 310: dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry.value:type_name -> dex.InternalTimerStatus
+	83,  // 311: dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry.value:type_name -> dex.FlowResult
+	197, // 312: dex.FlowService.GetServerInfo:input_type -> google.protobuf.Empty
+	60,  // 313: dex.FlowService.StartFlow:input_type -> dex.StartFlowRequest
+	62,  // 314: dex.FlowService.PublishToChannel:input_type -> dex.PublishToChannelRequest
+	64,  // 315: dex.FlowService.GetChannelMessages:input_type -> dex.GetChannelMessagesRequest
+	66,  // 316: dex.FlowService.DeleteChannelMessage:input_type -> dex.DeleteChannelMessageRequest
+	68,  // 317: dex.FlowService.WriteStream:input_type -> dex.WriteStreamRequest
+	69,  // 318: dex.FlowService.ReadStream:input_type -> dex.ReadStreamRequest
+	71,  // 319: dex.FlowService.ListStreamMessages:input_type -> dex.ListStreamMessagesRequest
+	74,  // 320: dex.FlowService.StopFlow:input_type -> dex.StopFlowRequest
+	75,  // 321: dex.FlowService.GetAttributes:input_type -> dex.GetAttributesRequest
+	77,  // 322: dex.FlowService.SetAttributes:input_type -> dex.SetAttributesRequest
+	79,  // 323: dex.FlowService.LoadBlobs:input_type -> dex.LoadBlobsRequest
+	81,  // 324: dex.FlowService.WaitForFlow:input_type -> dex.WaitForFlowRequest
+	84,  // 325: dex.FlowService.SearchFlows:input_type -> dex.SearchFlowsRequest
+	87,  // 326: dex.FlowService.SyncAttributeIndexes:input_type -> dex.SyncAttributeIndexRequest
+	90,  // 327: dex.FlowService.GetFlowSummary:input_type -> dex.GetFlowSummaryRequest
+	92,  // 328: dex.FlowService.GetHistoryEvents:input_type -> dex.GetHistoryEventsRequest
+	116, // 329: dex.FlowService.WaitForHistoryEvent:input_type -> dex.WaitForHistoryEventRequest
+	120, // 330: dex.FlowService.GetFlowState:input_type -> dex.GetFlowStateRequest
+	122, // 331: dex.FlowService.ResetFlow:input_type -> dex.ResetFlowRequest
+	124, // 332: dex.FlowService.InvokeRPC:input_type -> dex.InvokeRPCRequest
+	126, // 333: dex.FlowService.SkipTimer:input_type -> dex.SkipTimerRequest
+	127, // 334: dex.FlowService.UpdateFlowConfig:input_type -> dex.UpdateFlowConfigRequest
+	128, // 335: dex.FlowService.WaitForStepCompletion:input_type -> dex.WaitForStepCompletionRequest
+	130, // 336: dex.FlowService.WaitForAttribute:input_type -> dex.WaitForAttributeRequest
+	197, // 337: dex.FlowService.HealthCheck:input_type -> google.protobuf.Empty
+	174, // 338: dex.FlowService.UploadFlowDefinitions:input_type -> dex.UploadFlowDefinitionsRequest
+	178, // 339: dex.FlowService.ListFlowDefinitions:input_type -> dex.ListFlowDefinitionsRequest
+	180, // 340: dex.FlowService.GetFlowDefinitions:input_type -> dex.GetFlowDefinitionsRequest
+	137, // 341: dex.WorkerService.InvokeWaitForMethod:input_type -> dex.InvokeWaitForMethodRequest
+	142, // 342: dex.WorkerService.InvokeExecuteMethod:input_type -> dex.InvokeExecuteMethodRequest
+	145, // 343: dex.WorkerService.InvokeWorkerRPC:input_type -> dex.InvokeWorkerRPCRequest
+	31,  // 344: dex.WorkerTaskService.PollWorkerTask:input_type -> dex.PollWorkerTaskRequest
+	167, // 345: dex.AdminService.DescribeActiveNode:input_type -> dex.DescribeActiveNodeRequest
+	169, // 346: dex.AdminService.StepDownActiveNode:input_type -> dex.StepDownActiveNodeRequest
+	30,  // 347: dex.FlowService.GetServerInfo:output_type -> dex.ServerInfo
+	61,  // 348: dex.FlowService.StartFlow:output_type -> dex.StartFlowResponse
+	197, // 349: dex.FlowService.PublishToChannel:output_type -> google.protobuf.Empty
+	65,  // 350: dex.FlowService.GetChannelMessages:output_type -> dex.GetChannelMessagesResponse
+	197, // 351: dex.FlowService.DeleteChannelMessage:output_type -> google.protobuf.Empty
+	197, // 352: dex.FlowService.WriteStream:output_type -> google.protobuf.Empty
+	70,  // 353: dex.FlowService.ReadStream:output_type -> dex.ReadStreamResponse
+	72,  // 354: dex.FlowService.ListStreamMessages:output_type -> dex.ListStreamMessagesResponse
+	197, // 355: dex.FlowService.StopFlow:output_type -> google.protobuf.Empty
+	76,  // 356: dex.FlowService.GetAttributes:output_type -> dex.GetAttributesResponse
+	197, // 357: dex.FlowService.SetAttributes:output_type -> google.protobuf.Empty
+	80,  // 358: dex.FlowService.LoadBlobs:output_type -> dex.LoadBlobsResponse
+	83,  // 359: dex.FlowService.WaitForFlow:output_type -> dex.FlowResult
+	85,  // 360: dex.FlowService.SearchFlows:output_type -> dex.SearchFlowsResponse
+	88,  // 361: dex.FlowService.SyncAttributeIndexes:output_type -> dex.SyncAttributeIndexResponse
+	91,  // 362: dex.FlowService.GetFlowSummary:output_type -> dex.GetFlowSummaryResponse
+	93,  // 363: dex.FlowService.GetHistoryEvents:output_type -> dex.GetHistoryEventsResponse
+	117, // 364: dex.FlowService.WaitForHistoryEvent:output_type -> dex.WaitForHistoryEventResponse
+	121, // 365: dex.FlowService.GetFlowState:output_type -> dex.GetFlowStateResponse
+	123, // 366: dex.FlowService.ResetFlow:output_type -> dex.ResetFlowResponse
+	125, // 367: dex.FlowService.InvokeRPC:output_type -> dex.InvokeRPCResponse
+	197, // 368: dex.FlowService.SkipTimer:output_type -> google.protobuf.Empty
+	197, // 369: dex.FlowService.UpdateFlowConfig:output_type -> google.protobuf.Empty
+	129, // 370: dex.FlowService.WaitForStepCompletion:output_type -> dex.WaitForStepCompletionResponse
+	131, // 371: dex.FlowService.WaitForAttribute:output_type -> dex.WaitForAttributeResponse
+	133, // 372: dex.FlowService.HealthCheck:output_type -> dex.HealthInfo
+	176, // 373: dex.FlowService.UploadFlowDefinitions:output_type -> dex.UploadFlowDefinitionsResponse
+	179, // 374: dex.FlowService.ListFlowDefinitions:output_type -> dex.ListFlowDefinitionsResponse
+	182, // 375: dex.FlowService.GetFlowDefinitions:output_type -> dex.GetFlowDefinitionsResponse
+	141, // 376: dex.WorkerService.InvokeWaitForMethod:output_type -> dex.InvokeWaitForMethodOutput
+	144, // 377: dex.WorkerService.InvokeExecuteMethod:output_type -> dex.InvokeExecuteMethodOutput
+	146, // 378: dex.WorkerService.InvokeWorkerRPC:output_type -> dex.InvokeWorkerRPCResponse
+	36,  // 379: dex.WorkerTaskService.PollWorkerTask:output_type -> dex.PollWorkerTaskResponse
+	168, // 380: dex.AdminService.DescribeActiveNode:output_type -> dex.DescribeActiveNodeResponse
+	170, // 381: dex.AdminService.StepDownActiveNode:output_type -> dex.StepDownActiveNodeResponse
+	347, // [347:382] is the sub-list for method output_type
+	312, // [312:347] is the sub-list for method input_type
+	312, // [312:312] is the sub-list for extension type_name
+	312, // [312:312] is the sub-list for extension extendee
+	0,   // [0:312] is the sub-list for field type_name
 }
 
 func init() { file_dex_proto_init() }
@@ -14219,8 +14965,8 @@ func file_dex_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dex_proto_rawDesc), len(file_dex_proto_rawDesc)),
-			NumEnums:      29,
-			NumMessages:   154,
+			NumEnums:      30,
+			NumMessages:   164,
 			NumExtensions: 0,
 			NumServices:   4,
 		},
