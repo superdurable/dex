@@ -144,7 +144,7 @@ interface HarnessContext {
   readonly instructions: string | null; // system_prompt or system_prompt_file text
   readonly harnessOptions: Readonly<Record<string, unknown>>;
   readonly toolSources: readonly ToolSource[]; // connectors, then local tools
-  readonly mediaStore: MediaStore; // media.store; pass it to an adapter that takes one
+  readonly mediaStore?: MediaStore; // media.store; the runtime always sets it
   resolveTurn(sessionSettings: SessionSettings): ResolvedTurn; // model, instructions, narrowing
   currentTurn(): ResolvedTurn; // the running model call's turn, else the file
   resolveToolStepPermissions(step: { flowId: string; turnId: string }): Promise<ResolvedTurn>; // in a tool Step
@@ -215,7 +215,7 @@ The Python runtime uses the same names in snake case:
 | `AgentHarness` | `AgentHarness` (Protocol) |
 | `name`, `configSection`, `flowType`, `defaultModel`, `replacedLocalTools` | `name`, `config_section`, `flow_type`, `default_model`, `replaced_local_tools` |
 | `createSessionFlow(context)` | `create_session_flow(context)` |
-| `HarnessContext` with `flowType`, `config`, `workspace`, `instructions`, `harnessOptions`, `toolSources`, `mediaStore`, `resolveTurn`, `currentTurn` | `HarnessContext` with the same fields in snake case; `media_store` is `None` only in a context a test builds |
+| `HarnessContext` with `flowType`, `config`, `workspace`, `instructions`, `harnessOptions`, `toolSources`, `mediaStore`, `resolveTurn`, `currentTurn` | `HarnessContext` with the same fields in snake case; `mediaStore` and `media_store` are absent only in a context a test builds |
 | `LocalToolGroup` | `LocalToolGroup` (`files`, `shell`, `web_fetch`, `browser`) |
 | `runAgentCli(harness)` | `run_agent_cli(harness)` |
 | `isLocalToolGroupEnabled`, `isShellCommandApprovalRequired`, `resolveTurnToolPolicy` | the same names in snake case |

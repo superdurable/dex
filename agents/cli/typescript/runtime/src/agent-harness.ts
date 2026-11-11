@@ -152,9 +152,12 @@ export interface HarnessContext {
    * store. A runner shows a user message's images only when it implements `buildUserMessageWithImages`; otherwise
    * the terminal chat says the message was not sent.
    *
+   * The runtime always provides it. It is optional only so that harness tests can build a context without one; with
+   * `exactOptionalPropertyTypes`, spread it as `...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore })`.
+   *
    * @since 0.5.0
    */
-  readonly mediaStore: MediaStore;
+  readonly mediaStore?: MediaStore;
   /**
    * Returns one turn's configuration and instructions from the session settings the turn started with.
    *

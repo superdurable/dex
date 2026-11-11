@@ -15,7 +15,6 @@ import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import { InMemoryMediaStore } from "@superdurable/dex-agents";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -326,8 +325,6 @@ export async function openSessionClient(
     instructions: null,
     harnessOptions: {},
     toolSources: [],
-    // This Client runs no Worker; the command's Worker reads the images from its own store.
-    mediaStore: new InMemoryMediaStore(),
     resolveTurn: (settings) => turns.resolveTurn(settings),
     currentTurn: () => turns.currentTurn(),
     resolveToolStepPermissions: (step) => turns.resolveToolStep(step),

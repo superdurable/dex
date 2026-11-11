@@ -150,7 +150,7 @@ function createScriptedSessionFlow(
     toolSources: context.toolSources,
     tools,
   };
-  if (!supportsImages) {
+  if (!supportsImages || context.mediaStore === undefined) {
     return createBuiltinAgentSessionFlow(definition, context.flowType);
   }
   return createAgentSessionFlow(new ImageScriptedRunner(definition, context.mediaStore), context.flowType, {});
