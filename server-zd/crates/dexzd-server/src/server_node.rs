@@ -26,7 +26,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_api::{
-    AttributeIndexes, DexFlowService, FlowServiceDependencies, HealthStatus, StreamOperations,
+    AttributeIndexes, DexFlowService, FlowDefinitions, FlowServiceDependencies, HealthStatus,
+    StreamOperations,
 };
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
@@ -680,6 +681,11 @@ impl ServerNode {
                     components.flow_service.max_wait,
                 ),
                 attribute_indexes,
+                flow_definitions: Arc::new(FlowDefinitions::new(
+                    object_stores.primary.clone(),
+                    clock.clone(),
+                    &components.flow_definitions,
+                )),
                 search_backend,
             },
         );

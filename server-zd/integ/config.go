@@ -41,4 +41,6 @@ type serverZDTestConfig struct {
 	ServerZDMaxFlowStateBytes int64
 	// Default zero keeps the server's 16 MiB limit; positive values set limits.maxChildFlowResultBytes.
 	ServerZDMaxChildFlowResultBytes int64
+	// Default zero keeps the server's 8 MiB limit; positive values set flowDefinitions.maxDefinitionBytes.
+	FlowDefinitionMaxBytes int64
 }
