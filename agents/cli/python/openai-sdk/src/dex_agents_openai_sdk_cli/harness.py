@@ -82,6 +82,7 @@ class OpenAISdkHarness:
             flow_type=context.flow_type,
             run_config=RunConfig(model_provider=TurnModelProvider(), tracing_disabled=True),
             tool_sources=context.tool_sources,
+            media_store=context.media_store,
         )
 
 

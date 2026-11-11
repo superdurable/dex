@@ -20,6 +20,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from component_changelogs import (
+    DOCS_STYLE,
+    STANDARD_SECTIONS,
+    TARGETS as COMPONENT_CHANGELOGS,
+    ChangelogError,
+    PendingItem,
+    assemble_release,
+    is_legacy_entry_edit,
+    newest_release,
+    readiness_errors,
+)
+
 FRAGMENT_ROOT = "changelog.d"
 FRAGMENT_README = f"{FRAGMENT_ROOT}/README.md"
 FRAGMENT_PLACEHOLDER = ".gitkeep"
@@ -44,7 +56,16 @@ SKILLS_ARCHIVED_CHANGELOG = "skills/CHANGELOG-0.x.md"
 # The mirror publishes the whole skills/ tree, so every file there except release output needs a fragment.
 SKILLS_PUBLISHED_PREFIX = "skills/"
 SKILLS_RELEASE_NOTE_EXEMPT = frozenset((*SKILLS_OUTPUTS, SKILLS_ARCHIVED_CHANGELOG))
-TARGET_OUTPUTS: dict[str, tuple[str, ...]] = {SKILLS_TARGET: SKILLS_OUTPUTS}
+TARGET_OUTPUTS: dict[str, tuple[str, ...]] = {
+    SKILLS_TARGET: SKILLS_OUTPUTS,
+    **{name: (target.output,) for name, target in COMPONENT_CHANGELOGS.items()},
+}
+# A release component is what prepare and check-ready name; agents writes two change logs.
+RELEASE_COMPONENTS: dict[str, tuple[str, ...]] = {
+    **{name: (name,) for name in COMPONENT_CHANGELOGS if name != "agents-packages"},
+    "agents": ("agents", "agents-packages"),
+    SKILLS_TARGET: (SKILLS_TARGET,),
+}
 
 BUMP_LEVELS = ("patch", "minor", "major")
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -57,12 +78,17 @@ FRONT_MATTER_LINE = re.compile(r"^(?P<key>[a-z_]+):[ \t]*(?P<value>.*?)\s*$")
 RELEASE_PREP_LABEL = "release-prep"
 # Pull requests up to this number were opened before fragments and may keep the old flow.
 LEGACY_CHANGELOG_PR_MAX = 1608
+# Component change logs moved to fragments later, with #1612.
+LEGACY_COMPONENT_CHANGELOG_PR_MAX = 1615
 CORRECTION_LINE = re.compile(r"^\s*(?:[-*]\s+)?changelog:\s*correction:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
 SKILLS_NO_BUMP_LINE = re.compile(
     r"^\s*(?:[-*]\s+)?skills-release:\s*no bump needed:[ \t]*\S", re.IGNORECASE | re.MULTILINE
 )
 # Dex material describes source-available Dex only; reject a downstream product name.
 DOWNSTREAM_PRODUCT_NAME = re.compile(r"super[\s_-]*verse", re.IGNORECASE)
+# Docs prose uses bold for identifiers, and MDX treats braces and angle brackets as code.
+INLINE_BACKTICK = re.compile(r"`[^`\n]+`")
+MDX_UNSAFE = re.compile(r"[{}<]")
 
 
 class FragmentError(Exception):
@@ -138,7 +164,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     repository = repository_root()
     try:
         return options.handler(options, repository)
-    except FragmentError as error:
+    except (FragmentError, ChangelogError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
@@ -149,7 +175,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     new = commands.add_parser("new", help="write a new fragment with a unique name")
     new.add_argument("target", choices=sorted(TARGET_OUTPUTS))
-    new.add_argument("--bump", choices=BUMP_LEVELS, required=True, help="release level of a skills change")
+    new.add_argument("--bump", choices=BUMP_LEVELS, help="release level of a skills change")
+    new.add_argument("--section", help=f"change-log section of a component change: one of {', '.join(STANDARD_SECTIONS)}")
     new.add_argument("--slug", help="name stem; defaults to the current branch name")
     new.set_defaults(handler=run_new)
 
@@ -157,10 +184,17 @@ def build_parser() -> argparse.ArgumentParser:
     lint.add_argument("paths", nargs="*")
     lint.set_defaults(handler=run_lint)
 
-    prepare = commands.add_parser("prepare", help="assemble the fragments of a target into a release")
-    prepare.add_argument("target", choices=sorted(TARGET_OUTPUTS))
+    prepare = commands.add_parser("prepare", help="assemble the fragments of release components into a release")
+    prepare.add_argument("components", help=f"comma-separated, from {', '.join(sorted(RELEASE_COMPONENTS))}")
+    prepare.add_argument("--version", help="release version of the components; skills computes its own")
     prepare.add_argument("--date", required=True, help="release date, YYYY-MM-DD")
+    prepare.add_argument("--allow-empty", action="store_true", help="release a component that has no changes")
     prepare.set_defaults(handler=run_prepare)
+
+    ready = commands.add_parser("check-ready", help="fail unless the change logs of a component record its release")
+    ready.add_argument("component", choices=sorted(set(RELEASE_COMPONENTS) - {SKILLS_TARGET}))
+    ready.add_argument("version")
+    ready.set_defaults(handler=run_check_ready)
 
     verify = commands.add_parser("verify-release-prep", help="verify a release-prep commit against its base")
     verify.add_argument("--base-ref", required=True)
@@ -178,20 +212,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_new(options: argparse.Namespace, repository: Path) -> int:
+    if options.target == SKILLS_TARGET:
+        if options.bump is None or options.section is not None:
+            raise FragmentError("a skills fragment takes --bump and no --section")
+        front_matter = f"bump: {options.bump}"
+    else:
+        if options.section is None or options.bump is not None:
+            raise FragmentError(f"a {options.target} fragment takes --section and no --bump")
+        front_matter = f"section: {options.section}"
     stem = slugify(options.slug if options.slug else current_branch(repository))
-    path = write_new_fragment(repository / FRAGMENT_ROOT / options.target, stem, options.bump)
+    path = write_new_fragment(repository / FRAGMENT_ROOT / options.target, stem, front_matter)
     print(path.relative_to(repository).as_posix())
     return 0
 
 
-def write_new_fragment(directory: Path, stem: str, bump: str) -> Path:
+def write_new_fragment(directory: Path, stem: str, front_matter: str) -> Path:
     """Returns the path of a new fragment skeleton, created exclusively so it never overwrites a file."""
     directory.mkdir(parents=True, exist_ok=True)
     for _ in range(FRAGMENT_NAME_ATTEMPTS):
         path = directory / f"{stem}-{secrets.token_hex(FRAGMENT_SUFFIX_BYTES)}.md"
         try:
             with path.open("x", encoding="utf-8") as fragment_file:
-                fragment_file.write(f"---\nbump: {bump}\n---\n- \n")
+                fragment_file.write(f"---\n{front_matter}\n---\n- \n")
         except FileExistsError:
             continue
         return path
@@ -213,13 +255,77 @@ def run_lint(options: argparse.Namespace, repository: Path) -> int:
 
 def run_prepare(options: argparse.Namespace, repository: Path) -> int:
     working_tree = TreeReader(repository, None)
-    release = assemble_skills_release(read_files(working_tree, SKILLS_OUTPUTS), working_tree.fragments(SKILLS_TARGET), options.date)
-    for path, text in release.files.items():
+    components = [component.strip() for component in options.components.split(",") if component.strip()]
+    unknown = sorted(set(components) - set(RELEASE_COMPONENTS))
+    if unknown or not components:
+        raise FragmentError(f"unknown components {unknown}; choose from {', '.join(sorted(RELEASE_COMPONENTS))}")
+    files: dict[str, str] = {}
+    consumed: list[str] = []
+    for component in components:
+        if component == SKILLS_TARGET:
+            if options.version is not None or options.allow_empty:
+                raise FragmentError("skills computes its version from its fragments; pass neither --version nor --allow-empty")
+            release = assemble_skills_release(
+                read_files(working_tree, SKILLS_OUTPUTS), working_tree.fragments(SKILLS_TARGET), options.date
+            )
+            files.update(release.files)
+            consumed.extend(release.consumed_fragments)
+            print(f"prepared skills {release.version} from {len(release.consumed_fragments)} fragments")
+            continue
+        if options.version is None:
+            raise FragmentError(f"{component} needs --version")
+        for target in RELEASE_COMPONENTS[component]:
+            text, fragments = prepare_component_target(working_tree, target, options.version, options.date, options.allow_empty)
+            files[COMPONENT_CHANGELOGS[target].output] = text
+            consumed.extend(fragments)
+        print(f"prepared {component} {options.version}")
+    for path, text in files.items():
         (repository / path).write_text(text, encoding="utf-8")
-    for path in release.consumed_fragments:
+    for path in consumed:
         (repository / path).unlink()
-    print(f"prepared skills {release.version} from {len(release.consumed_fragments)} fragments")
     return 0
+
+
+def run_check_ready(options: argparse.Namespace, repository: Path) -> int:
+    errors = release_readiness_errors(TreeReader(repository, None), options.component, options.version)
+    return report(errors, f"{options.component} {options.version} is recorded in its change logs")
+
+
+def release_readiness_errors(tree: TreeReader, component: str, version: str) -> list[str]:
+    """Returns why the change logs of component do not record version yet, with the prepare command, or no reasons."""
+    errors = []
+    for target_name in RELEASE_COMPONENTS[component]:
+        target = COMPONENT_CHANGELOGS[target_name]
+        changelog = tree.read(target.output)
+        if changelog is None:
+            errors.append(f"{target.output} is missing")
+            continue
+        errors.extend(readiness_errors(target, changelog, len(tree.fragment_paths(target_name)), version))
+    if errors:
+        errors.append(
+            "Merge a release-prep pull request before the tag. From a fresh branch of origin/main run: "
+            f"python3 script/release/changelog_fragments.py prepare {component} --version {version} --date <YYYY-MM-DD>"
+        )
+    return errors
+
+
+def prepare_component_target(
+    tree: TreeReader, target_name: str, version: str, release_date: str, is_empty_allowed: bool
+) -> tuple[str, tuple[str, ...]]:
+    """Returns the prepared change log of target_name and the fragment paths it consumes."""
+    validate_release_date(release_date)
+    target = COMPONENT_CHANGELOGS[target_name]
+    changelog = tree.read(target.output)
+    if changelog is None:
+        raise FragmentError(f"{target.output} is missing")
+    fragments = sorted(tree.fragments(target_name), key=lambda fragment: fragment.path)
+    for fragment in fragments:
+        problems = fragment_problems(fragment)
+        if problems:
+            raise FragmentError("; ".join(problems))
+    items = [PendingItem(fragment.front_matter["section"], tuple(fragment.body.splitlines())) for fragment in fragments]
+    text = assemble_release(target, changelog, items, version, release_date, is_empty_allowed)
+    return text, tuple(fragment.path for fragment in fragments)
 
 
 def run_verify_release_prep(options: argparse.Namespace, repository: Path) -> int:
@@ -251,18 +357,23 @@ def check_pull_request(
 
     is_correction = CORRECTION_LINE.search(pull_request.body) is not None
     is_legacy = pull_request.number is not None and pull_request.number <= LEGACY_CHANGELOG_PR_MAX
-    output_paths = {path for outputs in TARGET_OUTPUTS.values() for path in outputs}
-    changed_outputs = sorted(change.path for change in changes if change.path in output_paths)
-    if changed_outputs and not is_correction:
+    changed_paths = {change.path for change in changes}
+    changed_skills_outputs = sorted(changed_paths & set(SKILLS_OUTPUTS))
+    if changed_skills_outputs and not is_correction:
         if is_legacy:
             errors.extend(legacy_skills_bump_problems(base, head, changes))
         else:
             errors.append(
                 "only a release-prep pull request changes these release files: "
-                + ", ".join(changed_outputs)
+                + ", ".join(changed_skills_outputs)
                 + ". Add a fragment with `python3 script/release/changelog_fragments.py new skills --bump <level>`"
                 " instead, or add a line 'changelog: correction: <reason>' to the pull request description"
             )
+    if not is_correction:
+        is_component_legacy = (
+            pull_request.number is not None and pull_request.number <= LEGACY_COMPONENT_CHANGELOG_PR_MAX
+        )
+        errors.extend(component_output_errors(base, head, changed_paths, is_component_legacy))
     changed_base_fragments = sorted(
         change.path for change in changes if change.status in ("M", "D") and is_fragment_path(change.path)
     )
@@ -273,6 +384,38 @@ def check_pull_request(
             + ". Add a line 'changelog: correction: <reason>' to the pull request description to fix one"
         )
     errors.extend(check_skills_release_note(pull_request, base, head, changes, is_legacy))
+    return errors
+
+
+def component_output_errors(base: TreeReader, head: TreeReader, changed_paths: set[str], is_legacy: bool) -> list[str]:
+    """Returns why component change-log edits need a release-prep pull request; grace allows unreleased-entry edits."""
+    errors = []
+    for name, target in sorted(COMPONENT_CHANGELOGS.items()):
+        if target.output not in changed_paths:
+            continue
+        base_text, head_text = base.read(target.output), head.read(target.output)
+        # Once fragments exist for a target, its unreleased entry is frozen so prepare has one source.
+        has_fragments = bool(base.fragment_paths(name) or head.fragment_paths(name))
+        if (
+            is_legacy
+            and not has_fragments
+            and base_text is not None
+            and head_text is not None
+            and is_legacy_entry_edit(target, base_text, head_text)
+        ):
+            continue
+        hint = "--section <section>" if target.style == DOCS_STYLE else "--section <topic>"
+        errors.append(
+            f"only a release-prep pull request changes {target.output}. Add a fragment with "
+            f"`python3 script/release/changelog_fragments.py new {name} {hint}` instead, or add a line "
+            "'changelog: correction: <reason>' to the pull request description"
+            + (
+                ". A pull request from before fragments may edit only the newest unreleased entry, "
+                "and only while the target has no fragments"
+                if is_legacy
+                else ""
+            )
+        )
     return errors
 
 
@@ -357,12 +500,35 @@ def legacy_skills_bump_problems(base: TreeReader, head: TreeReader, changes: Seq
 def verify_release_prep(base: TreeReader, head: TreeReader, changes: Sequence[FileChange]) -> list[str]:
     """Returns why the changes differ from `prepare` on the base, or no reasons."""
     changed_paths = {change.path for change in changes}
-    if not changed_paths & set(SKILLS_OUTPUTS) and not any(is_fragment_path(path) for path in changed_paths):
+    deleted_paths = {change.path for change in changes if change.status == "D"}
+    targets = sorted(
+        target
+        for target, outputs in TARGET_OUTPUTS.items()
+        if changed_paths & set(outputs) or any(is_fragment_path(path, target) for path in deleted_paths)
+    )
+    if not targets:
         return ["a release-prep pull request must change release files; this one changes none"]
+    errors: list[str] = []
+    allowed_paths: set[str] = set()
+    for target in targets:
+        verify = verify_skills_release_prep if target == SKILLS_TARGET else verify_component_release_prep
+        target_errors, target_paths = verify(target, base, head, deleted_paths)
+        errors.extend(target_errors)
+        allowed_paths |= target_paths
+    unexpected_paths = sorted(changed_paths - allowed_paths)
+    if unexpected_paths:
+        errors.append("a release-prep pull request changes only release files and fragments, not: " + ", ".join(unexpected_paths))
+    return errors
+
+
+def verify_skills_release_prep(
+    target: str, base: TreeReader, head: TreeReader, deleted_paths: set[str]
+) -> tuple[list[str], set[str]]:
+    """Returns why the skills release files differ from `prepare` on the base, and the paths it may change."""
     head_changelog = head.read(SKILLS_CHANGELOG)
     heading = SKILLS_ENTRY_HEADING.search(head_changelog or "")
     if heading is None:
-        return [f"{SKILLS_CHANGELOG} has no '## X.Y.Z - YYYY-MM-DD' entry"]
+        return [f"{SKILLS_CHANGELOG} has no '## X.Y.Z - YYYY-MM-DD' entry"], set(SKILLS_OUTPUTS)
     release_date = heading.group("date")
     reprepare = (
         "Prepare it again on a fresh branch from origin/main: "
@@ -371,25 +537,52 @@ def verify_release_prep(base: TreeReader, head: TreeReader, changes: Sequence[Fi
     try:
         expected = assemble_skills_release(read_files(base, SKILLS_OUTPUTS), base.fragments(SKILLS_TARGET), release_date)
     except FragmentError as error:
-        return [f"the base cannot be prepared: {error}"]
+        return [f"the base cannot be prepared: {error}"], set(SKILLS_OUTPUTS)
 
     errors = []
     if heading.group("version") != expected.version:
         errors.append(f"the new entry is {heading.group('version')}, but the base fragments release {expected.version}")
-    deleted_fragments = {change.path for change in changes if change.status == "D" and is_fragment_path(change.path)}
-    missing_deletions = sorted(set(expected.consumed_fragments) - deleted_fragments)
-    if missing_deletions:
-        errors.append("the base has fragments this release does not consume: " + ", ".join(missing_deletions))
+    errors.extend(consumption_errors(expected.consumed_fragments, deleted_paths, target))
     for path in sorted(expected.files):
         if head.read(path) != expected.files[path]:
             errors.append(f"{path} differs from the prepare output")
-    allowed_paths = set(expected.files) | set(expected.consumed_fragments)
-    unexpected_paths = sorted(changed_paths - allowed_paths)
-    if unexpected_paths:
-        errors.append("a release-prep pull request changes only release files and fragments, not: " + ", ".join(unexpected_paths))
     if errors:
         errors.append(reprepare)
-    return errors
+    return errors, set(expected.files) | set(expected.consumed_fragments)
+
+
+def verify_component_release_prep(
+    target_name: str, base: TreeReader, head: TreeReader, deleted_paths: set[str]
+) -> tuple[list[str], set[str]]:
+    """Returns why a component change log differs from `prepare` on the base, and the paths it may change."""
+    target = COMPONENT_CHANGELOGS[target_name]
+    component = next(name for name, targets in RELEASE_COMPONENTS.items() if target_name in targets)
+    head_changelog = head.read(target.output)
+    release = newest_release(target, head_changelog or "")
+    if release is None:
+        return [f"{target.output}: the newest entry records no {target.tag_prefix} release"], {target.output}
+    version, release_date = release
+    reprepare = (
+        "Prepare it again on a fresh branch from origin/main: "
+        f"python3 script/release/changelog_fragments.py prepare {component} --version {version} --date {release_date}"
+    )
+    try:
+        expected_text, consumed = prepare_component_target(base, target_name, version, release_date, is_empty_allowed=True)
+    except (FragmentError, ChangelogError) as error:
+        return [f"the base cannot be prepared: {error}", reprepare], {target.output}
+    errors = consumption_errors(consumed, deleted_paths, target_name)
+    if head_changelog != expected_text:
+        errors.append(f"{target.output} differs from the prepare output")
+    if errors:
+        errors.append(reprepare)
+    return errors, {target.output, *consumed}
+
+
+def consumption_errors(consumed: Sequence[str], deleted_paths: set[str], target: str) -> list[str]:
+    missing = sorted(set(consumed) - deleted_paths)
+    if not missing:
+        return []
+    return [f"the base has {target} fragments this release does not consume: " + ", ".join(missing)]
 
 
 def assemble_skills_release(files: Mapping[str, str], fragments: Sequence[Fragment], release_date: str) -> SkillsRelease:
@@ -450,12 +643,38 @@ def fragment_problems(fragment: Fragment) -> list[str]:
             f"{fragment.path}: name it <slug>-<6 lowercase hex digits>.md; "
             "`python3 script/release/changelog_fragments.py new` picks a unique name"
         )
-    keys = set(fragment.front_matter)
-    if keys != {"bump"}:
-        problems.append(f"{fragment.path}: a skills fragment has exactly the front matter key 'bump', found {sorted(keys)}")
-    elif fragment.front_matter["bump"] not in BUMP_LEVELS:
-        problems.append(f"{fragment.path}: bump must be one of {', '.join(BUMP_LEVELS)}")
+    problems.extend(front_matter_problems(fragment, parts[1]))
     problems.extend(body_problems(fragment))
+    if parts[1] in COMPONENT_CHANGELOGS and COMPONENT_CHANGELOGS[parts[1]].style == DOCS_STYLE:
+        problems.extend(docs_prose_problems(fragment))
+    return problems
+
+
+def front_matter_problems(fragment: Fragment, target: str) -> list[str]:
+    keys = set(fragment.front_matter)
+    if target == SKILLS_TARGET:
+        if keys != {"bump"}:
+            return [f"{fragment.path}: a skills fragment has exactly the front matter key 'bump', found {sorted(keys)}"]
+        if fragment.front_matter["bump"] not in BUMP_LEVELS:
+            return [f"{fragment.path}: bump must be one of {', '.join(BUMP_LEVELS)}"]
+        return []
+    if keys != {"section"}:
+        return [f"{fragment.path}: a {target} fragment has exactly the front matter key 'section', found {sorted(keys)}"]
+    section = fragment.front_matter["section"]
+    if COMPONENT_CHANGELOGS[target].style == DOCS_STYLE and section not in STANDARD_SECTIONS:
+        return [f"{fragment.path}: section must be one of {', '.join(STANDARD_SECTIONS)}"]
+    if not section or "#" in section:
+        return [f"{fragment.path}: section must be a topic or one of {', '.join(STANDARD_SECTIONS)}"]
+    return []
+
+
+def docs_prose_problems(fragment: Fragment) -> list[str]:
+    """Returns the docs prose rules a Developer reference fragment breaks: bold, not backticks, and MDX-safe text."""
+    problems = []
+    if INLINE_BACKTICK.search(fragment.body):
+        problems.append(f"{fragment.path}: docs prose uses **bold** for identifiers, not inline backticks")
+    if MDX_UNSAFE.search(fragment.body):
+        problems.append(f"{fragment.path}: docs prose must not contain braces or '<', which MDX parses as code")
     return problems
 
 

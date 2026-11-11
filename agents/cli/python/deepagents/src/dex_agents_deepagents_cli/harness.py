@@ -83,6 +83,7 @@ class DeepAgentsHarness:
             lambda: build_deep_agent(file_model),
             flow_type=context.flow_type,
             tool_sources=context.tool_sources,
+            media_store=context.media_store,
         )
 
 

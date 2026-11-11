@@ -44,6 +44,9 @@ func TestVisualizeScriptStepInstancesGolden(t *testing.T) {
 			require.True(t, hasEdge(graph.Edges, "failure_transition", "step:First", "step:Recovery"))
 			require.True(t, hasEdge(graph.Edges, "failure_transition", "step:Second", "step:Recovery"))
 			graph.Source.Path = filepath.Base(sourcePath)
+			require.NotEmpty(t, graph.GeneratedAt)
+			// The goldens hold analyzer output; generatedAt is stamped by the command.
+			graph.GeneratedAt = ""
 			actual, err := flowviz.MarshalJSON(&graph)
 			require.NoError(t, err)
 			goldenPath := filepath.Join(visualizerRepositoryRoot(t), "cli/internal/flowviz/testdata", language, "step_instances.golden.json")

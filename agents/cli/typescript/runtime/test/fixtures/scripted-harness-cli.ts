@@ -13,12 +13,14 @@ import {
   fixedToolSetScriptedHarness,
   scriptedHarness,
   scriptedHarnessVariantVariable,
+  scriptedHarnessWithoutImages,
   shellReplacingScriptedHarness,
 } from "./scripted-harness.js";
 
 const variants: Readonly<Record<string, AgentHarness>> = {
   "shell-replacing": shellReplacingScriptedHarness,
   "fixed-tool-set": fixedToolSetScriptedHarness,
+  "without-images": scriptedHarnessWithoutImages,
 };
 const harness = variants[process.env[scriptedHarnessVariantVariable] ?? ""] ?? scriptedHarness;
 process.exit(await runAgentCli(harness, processAgentCliIo()));

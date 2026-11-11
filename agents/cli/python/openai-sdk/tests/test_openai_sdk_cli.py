@@ -10,11 +10,16 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
+import struct
+import zlib
 from pathlib import Path
 
 from dex_agents_cli import session_flow_type
 from dex_agents_cli_testing import scenarios
-from dex_agents_cli_testing.commands import CommandHome
+from dex_agents_cli_testing.commands import CommandHome, expect, wait_for_exit
 from dex_agents_cli_testing.fixtures import FakeConnectorsMcp
 from dex_agents_openai_sdk_cli import OPENAI_SDK_CLI_FLOW_TYPE
 from tests.conftest import MOCK_API_KEY
@@ -71,6 +76,42 @@ async def test_rejected_local_and_connector_writes_never_run(
     command_home: CommandHome, fake_mcp: FakeConnectorsMcp
 ) -> None:
     await scenarios.rejected_writes_never_run(command_home, DEFAULTS, fake_mcp)
+
+
+async def test_an_attached_image_reaches_the_responses_api(command_home: CommandHome) -> None:
+    png = png_bytes()
+    (command_home.home / "chart.png").write_bytes(png)
+    command_home.write_config(scenarios.NO_CONNECTORS)
+    child = command_home.spawn()
+    await expect(child, "> ")
+    child.sendline("/image ~/chart.png")
+    await expect(child, "[image attached] chart.png (image/png")
+    child.sendline("say hi")
+    await expect(child, "said: hi")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    stored = command_home.home / ".dex" / "agents" / "media" / "sha256"
+    assert (stored / hashlib.sha256(png).hexdigest()).read_bytes() == png
+    encoded = base64.b64encode(png).decode("ascii")
+    bodies = [json.dumps(request.body) for request in command_home.model_api.model_requests()]
+    assert any(encoded in body for body in bodies), bodies
+
+
+def png_bytes() -> bytes:
+    """Return a 1x1 PNG."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        checksum = struct.pack(">I", zlib.crc32(kind + data))
+        return struct.pack(">I", len(data)) + kind + data + checksum
+
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00", 9))
+        + chunk(b"IEND", b"")
+    )
 
 
 def test_without_a_connectors_mcp_server_at_startup_it_says_to_restart(

@@ -89,6 +89,10 @@ public final class Registry {
         return flows;
     }
 
+    Set<String> getFlowTypes() {
+        return registeredFlows.keySet();
+    }
+
     Map<String, IndexType> getAttributeIndexes() {
         return attributeIndexes;
     }

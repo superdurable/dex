@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import importlib
 import logging
 import secrets
 import sys
@@ -37,7 +38,7 @@ from dex import (
     open_blob_cache,
 )
 
-from dex_agents import AgentSessionClient
+from dex_agents import AgentSessionClient, LocalDirectoryMediaStore, MediaStore
 from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli.chat import Terminal, TerminalChat
 from dex_agents_cli.config import AUTO, ConnectorEntry, EffectiveConfig
@@ -74,6 +75,8 @@ from dex_agents_cli.turns import TurnConfigResolver, with_turn_config
 
 #: The Dex Web page where connections are authorized.
 CONNECTORS_WEB_PATH = "/v1/connectors"
+#: The directory under ``~/.dex/agents`` that ``media.store: auto`` keeps images in.
+MEDIA_DIRECTORY = "media"
 _BLOB_CACHE_BYTES = 64 * 1024 * 1024
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
 _SESSION_LIST_PAGE_SIZE = 50
@@ -247,6 +250,7 @@ async def _run(
 ) -> int:
     loaded = _load_config(arguments, environment, harness)
     config = _with_model_override(loaded.config, arguments)
+    media_store = _build_media_store(config, environment)
     prompt_text = _read_system_prompt_file(config, loaded, environment)
     workspace = environment.expand_path(config.workspace, loaded.directory)
     workspace.mkdir(parents=True, exist_ok=True)
@@ -256,7 +260,7 @@ async def _run(
         _report_ignored_settings,
     )
     endpoint = await _resolve_server(config, environment)
-    connectors = await _connect_connectors(config, endpoint, resolver, harness)
+    connectors = await _connect_connectors(config, endpoint, resolver, harness, media_store)
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
@@ -271,6 +275,7 @@ async def _run(
         harness_options=config.harness_options,
         tool_sources=tuple(tool_sources),
         resolver=resolver,
+        media_store=media_store,
     )
     flow = with_turn_config(harness.create_session_flow(context), resolver)
     if flow.get_flow_type() != flow_type:
@@ -304,7 +309,15 @@ async def _run(
         if endpoint.web_url is not None:
             print(f"Dex Web: {endpoint.web_url}/v1/flows/{session_id}?view=session")
         terminal.start()
-        chat = TerminalChat(client, sessions, session_id, terminal, command_name(harness))
+        chat = TerminalChat(
+            client,
+            sessions,
+            session_id,
+            terminal,
+            command_name(harness),
+            media_store=media_store,
+            home=environment.home,
+        )
         is_failed = not await chat.run()
     finally:
         with contextlib.suppress(RuntimeError):
@@ -329,6 +342,32 @@ def _report_on_standard_error(line: str) -> None:
 
 def _report_ignored_settings(warnings: Sequence[str]) -> None:
     print(f"Session settings keys ignored: {', '.join(warnings)}", file=sys.stderr)
+
+
+def _build_media_store(config: EffectiveConfig, environment: RuntimeEnvironment) -> MediaStore:
+    """Build the store of ``media.store``: ``~/.dex/agents/media`` for auto, else the S3 bucket."""
+    media = config.media
+    try:
+        if media.store == AUTO:
+            return LocalDirectoryMediaStore(
+                (environment.agents_directory / MEDIA_DIRECTORY).absolute()
+            )
+        try:
+            # Imported only for an s3 store, so the default store needs no boto3.
+            s3 = importlib.import_module("dex_agents.s3")
+        except ImportError as error:
+            raise CommandError(
+                f"media.store {media.store} needs the S3 support of dex-agents; install it "
+                "into this command's environment with: pip install 'dex-agents[s3]'"
+            ) from error
+        store: MediaStore = s3.S3MediaStore.from_store_uri(
+            media.store,
+            endpoint_url=media.endpoint,
+            force_path_style=media.endpoint is not None,
+        )
+        return store
+    except ValueError as error:
+        raise CommandError(f"media.store {media.store}: {error}") from error
 
 
 def _read_system_prompt_file(
@@ -360,6 +399,7 @@ async def _connect_connectors(
     endpoint: DexServerEndpoint,
     resolver: TurnConfigResolver,
     harness: AgentHarness,
+    media_store: MediaStore,
 ) -> ConnectorsMcpToolSource | None:
     """Check the connectors MCP server and return its source, or ``None`` for no connector tools.
 
@@ -390,10 +430,16 @@ async def _connect_connectors(
         else:
             print(f"{message}. Continuing without connector tools until it answers.")
         return ConnectorsMcpToolSource(
-            url, resolver, is_available=False, report=_report_on_standard_error
+            url,
+            resolver,
+            is_available=False,
+            report=_report_on_standard_error,
+            media_store=media_store,
         )
     _report_unauthorized(config, catalog, endpoint.web_url)
-    source = ConnectorsMcpToolSource(url, resolver, report=_report_on_standard_error)
+    source = ConnectorsMcpToolSource(
+        url, resolver, report=_report_on_standard_error, media_store=media_store
+    )
     await source.list_file_enabled_tools()
     if is_tool_set_fixed and not source.is_available:
         restart = _restart_for_connector_tools(harness)

@@ -54,6 +54,13 @@ wait for approval unless the shell allow list has the command, and the file
 tools stay in the workspace. See the
 [runtime README](../runtime/README.md) for the local tools.
 
+## Images
+
+`/image <path>` attaches an image file to the next message. The command gives
+the Pydantic AI adapter the media store of `media.store`, so the model sees the
+image, and images that tools return go to the same store. See
+[Images](../../README.md#images).
+
 ## Development
 
 Develop with uv 0.12.2. The package resolves `dex-agents`, the adapter, the

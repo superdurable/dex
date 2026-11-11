@@ -140,6 +140,46 @@
         }
       }
     },
+    "media": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where the images of a session are stored: the images attached with /image and the images that connector tools return. Session state keeps only a reference to each image; the bytes stay in this store, one copy per distinct image, named by its SHA-256. Every Worker of a session must reach the same store. Sessions cannot change it: session settings ignore a media key with a warning. Credentials never go in this file: an s3 store reads them from the environment or the standard AWS chain.",
+      "default": {
+        "store": "auto"
+      },
+      "properties": {
+        "store": {
+          "anyOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "type": "string",
+              "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](?:/[!-~]*)?(?![\\s\\S])"
+            }
+          ],
+          "default": "auto",
+          "description": "auto: a directory on this machine, ~/.dex/agents/media, which keeps its own copy of each image, never a link to the original file. Otherwise s3://<bucket> or s3://<bucket>/<prefix> for an S3 bucket, which Workers on other machines can reach too. The bucket name has 3 to 63 lowercase letters, digits, dots, or hyphens and starts and ends with a letter or digit; the prefix is printable ASCII without spaces. An s3 store needs the S3 support of the agents library: the dex-agents[s3] extra in Python, the @aws-sdk/client-s3 package in TypeScript."
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^https?://(?:(?:[A-Za-z0-9-]+\\.)*[A-Za-z][A-Za-z0-9-]*|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}|\\[[0-9A-Fa-f:.]+\\])(?::[0-9]{1,5})?(?:/[!-~]*)?(?![\\s\\S])",
+          "description": "The http or https URL of an S3-compatible service, such as http://127.0.0.1:9000; omitted, AWS S3. Only valid with an s3 store. With an endpoint, the bucket is addressed in the URL path, as most S3-compatible services need. The host rules and the runtime checks are those of dex.server."
+        }
+      },
+      "not": {
+        "type": "object",
+        "properties": {
+          "store": {
+            "const": "auto"
+          },
+          "endpoint": true
+        },
+        "required": [
+          "endpoint"
+        ]
+      }
+    },
     "claude": {
       "$ref": "#/$defs/harness_options",
       "description": "Options of the Claude Agent SDK command. Omitted: its defaults."

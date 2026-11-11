@@ -6,23 +6,34 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { open, stat } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import type { Writable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { DexServiceError, LongPollTimeoutError, RpcLockConflictError, type Client } from "@superdurable/dex";
 import {
+  ImageValidationError,
+  detectImageMimeType,
+  maxImageBytes,
+  maxImagesPerMessage,
   readAgentSnapshot,
   sendAgentUserMessage,
   type AgentEvent,
   type AgentFrameworkRunner,
+  type AgentImageReference,
   type AgentInterrupt,
   type AgentSessionFlow,
   type AgentSnapshot,
   type DeferredToolOutcome,
+  type MediaStore,
 } from "@superdurable/dex-agents";
 
 import { lineWaitAborted, type TerminalInput } from "./terminal-input.js";
 
+/** The command that attaches an image file to the next message: `/image <path>`. */
+const imageCommand = "/image";
+const bytesPerKibibyte = 1024;
 const snapshotPollIntervalMs = 250;
 const eventPollTimeoutMs = 2_000;
 const eventCatchUpTimeoutMs = 2_000;
@@ -54,6 +65,8 @@ export class TerminalChat {
   private isEventStreamAvailable = true;
   private readonly exitController = new AbortController();
 
+  private pendingImages: AgentImageReference[] = [];
+
   /**
    * Creates the chat.
    * @param client - A Client whose Registry contains `flow`.
@@ -61,6 +74,7 @@ export class TerminalChat {
    * @param sessionId - The session.
    * @param input - Terminal input.
    * @param output - Where the chat writes.
+   * @param images - The store that `/image` uploads to, and the home directory a leading `~` means.
    */
   public constructor(
     private readonly client: Client,
@@ -68,6 +82,7 @@ export class TerminalChat {
     private readonly sessionId: string,
     private readonly input: TerminalInput,
     private readonly output: Writable,
+    private readonly images: { readonly mediaStore: MediaStore; readonly homeDirectory: string },
   ) {}
 
   /**
@@ -96,6 +111,10 @@ export class TerminalChat {
         if (text === "/exit" || text === "/quit") {
           break;
         }
+        if (text === imageCommand || text.startsWith(`${imageCommand} `)) {
+          await this.attachImage(text.slice(imageCommand.length));
+          continue;
+        }
         await this.runTurn(text);
       }
     } finally {
@@ -114,12 +133,58 @@ export class TerminalChat {
       this.isExitRequested = true;
       return;
     }
-    const isQueued = await sendAgentUserMessage(this.client, this.flow, this.sessionId, { text });
+    const images = this.pendingImages;
+    this.pendingImages = [];
+    const isQueued = await sendAgentUserMessage(this.client, this.flow, this.sessionId, {
+      text,
+      ...(images.length === 0 ? {} : { images }),
+    });
     if (!isQueued) {
-      this.write("The session did not accept the message.\n");
+      this.write(
+        images.length === 0
+          ? "The session did not accept the message.\n"
+          : `Not sent: this agent does not take images. The attached images (${countOf(images.length, "image")}) were removed; send the message again without them.\n`,
+      );
       return;
     }
     await this.awaitTurnEnd(before.state?.turnCount ?? 0);
+  }
+
+  /** Copies one image file into the media store and keeps it for the next message. */
+  private async attachImage(argument: string): Promise<void> {
+    const pathText = unquote(argument.trim());
+    if (pathText === "") {
+      this.write(`Image not attached: usage: ${imageCommand} <path>\n`);
+      return;
+    }
+    if (this.pendingImages.length >= maxImagesPerMessage) {
+      this.write(`Image not attached: a message carries at most ${maxImagesPerMessage} images.\n`);
+      return;
+    }
+    const path =
+      pathText === "~" || pathText.startsWith("~/")
+        ? join(this.images.homeDirectory, pathText.slice(2))
+        : resolve(process.cwd(), pathText);
+    let data: Uint8Array;
+    let mimeType: string;
+    try {
+      data = await readImageFile(path);
+      mimeType = detectImageMimeType(data);
+    } catch (error: unknown) {
+      this.write(`Image not attached: ${error instanceof ImageValidationError ? `${path}: ` : ""}${describe(error)}\n`);
+      return;
+    }
+    let reference: AgentImageReference;
+    try {
+      reference = await this.images.mediaStore.putImage(data);
+    } catch (error: unknown) {
+      this.write(`Image not attached: cannot store ${path}: ${describe(error)}\n`);
+      return;
+    }
+    this.pendingImages.push(reference);
+    this.write(
+      `Attached ${basename(path)} (${mimeType}, ${formatSize(data.length)}); it goes with your next message (${countOf(this.pendingImages.length, "image")} attached).\n`,
+    );
   }
 
   /** Waits until the session is idle with more than `turnCountBefore` finished turns. */
@@ -331,6 +396,67 @@ export class TerminalChat {
       this.output.write(text);
     }
   }
+}
+
+/** Reads an image file, refusing a missing, special, or oversized file before reading it. */
+async function readImageFile(path: string): Promise<Uint8Array> {
+  let size: number;
+  try {
+    const status = await stat(path);
+    if (!status.isFile()) {
+      throw new Error(`${path} is not a regular file`);
+    }
+    size = status.size;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`${path} does not exist`);
+    }
+    throw error;
+  }
+  if (size > maxImageBytes) {
+    throw new Error(tooLargeMessage(path, size));
+  }
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(maxImageBytes + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
+      if (bytesRead === 0) {
+        break;
+      }
+      length += bytesRead;
+    }
+    if (length > maxImageBytes) {
+      throw new Error(tooLargeMessage(path, length));
+    }
+    return buffer.subarray(0, length);
+  } finally {
+    await handle.close();
+  }
+}
+
+function tooLargeMessage(path: string, size: number): string {
+  return `${path} has ${size.toLocaleString("en-US")} bytes; an image may have at most ${maxImageBytes.toLocaleString("en-US")}`;
+}
+
+function formatSize(size: number): string {
+  if (size < bytesPerKibibyte) {
+    return `${size} bytes`;
+  }
+  if (size < bytesPerKibibyte * bytesPerKibibyte) {
+    return `${Math.round(size / bytesPerKibibyte)} KB`;
+  }
+  return `${(size / (bytesPerKibibyte * bytesPerKibibyte)).toFixed(1)} MB`;
+}
+
+function countOf(count: number, noun: string): string {
+  return count === 1 ? `1 ${noun}` : `${count} ${noun}s`;
+}
+
+/** Drops one pair of matching quotes, which terminals add around a dropped file's path. */
+function unquote(text: string): string {
+  return text.length >= 2 && text[0] === text.at(-1) && (text[0] === "'" || text[0] === '"') ? text.slice(1, -1) : text;
 }
 
 function parsePayload(payload: string): Record<string, unknown> {

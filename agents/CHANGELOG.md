@@ -1,6 +1,6 @@
 # Changelog
 
-All twelve Dex agents packages share this changelog and one version line. A
+All twenty-five published Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
@@ -96,6 +96,34 @@ for the Dex SDK and framework versions each release supports.
   has the command, file tools stay in the workspace, and the tool Step checks an
   approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
   [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- The **dex-agents-pi** command (`@superdurable/dex-agents-pi-cli`, not
+  published yet): a Pi coding agent in the terminal on the shared CLI runtime,
+  where Dex runs the agent loop and pi-ai makes each model call. The model is
+  `<provider>/<model>` from pi-ai's catalog, and the key comes only from the
+  provider's API key variable. pi-coding-agent's `read`, `grep`, `find`, `ls`,
+  `write`, `edit`, and `bash` replace the runtime's file and shell tools, with
+  the same rules: their file access goes through the runtime's workspace file
+  layer. `bash` has the shell tool's 120-second default timeout
+  (`pi.bash_timeout_seconds`) and its 600-second maximum, and a command that
+  ran is a result with its exit status. `grep` and `find` walk the workspace
+  themselves, without `rg` or `fd`; `grep` skips files over 1 MiB, and each
+  call of either has a 10-second budget. Each model call adds the project's
+  `AGENTS.md` files unless `pi.load_project_context` is `false`: a file loads
+  only directly in its own directory, and above the workspace the file, and a
+  link to it, must belong to you or root. See
+  [cli/typescript/pi](cli/typescript/pi/README.md).
+- TypeScript CLI runtime: **WorkspaceFiles**, the workspace file layer of the
+  local file tools, is exported for harnesses that bring their own file tools,
+  with new methods **readFileWithVersion** (with an optional smaller
+  **maximumBytes**), **replaceFileIfUnchanged**, **statExisting**, and
+  **readDirectoryEntries**. A refusal throws the new
+  **WorkspaceFileRefusedError**, a `ToolExecutionError` thrown before anything
+  changed. See
+  [cli/typescript/runtime](cli/typescript/runtime/README.md#the-harness-interface).
+- TypeScript CLI runtime: `read_file`, `edit_file`, and `search_files` open
+  files without blocking, so a FIFO in the workspace fails at once as not a
+  regular file, or is skipped by a search, instead of hanging the call, as in
+  the Python runtime.
 - Python commands for the other harnesses, not published yet, on the shared
   CLI runtime: **dex-agents-openai-sdk** (OpenAI Agents SDK),
   **dex-agents-pydantic-ai** (Pydantic AI), **dex-agents-deepagents** (Deep
@@ -249,6 +277,21 @@ for the Dex SDK and framework versions each release supports.
   another core round-trips, and `send_user_message` returns `false` for a
   message with images.
 - Shared cases: `agents/conformance/images.json`.
+- Agents CLI, Python and TypeScript: a new configuration section **media**.
+  `media.store` is `auto`, a **LocalDirectoryMediaStore** at
+  `~/.dex/agents/media`, or `s3://<bucket>[/<prefix>]`, an **S3MediaStore**
+  with an optional `media.endpoint` for an S3-compatible service. Credentials
+  come from the environment or the standard AWS credential chain, never from
+  the file. Session settings cannot change the store.
+  In the chat, **/image <path>** copies an image file into the store and
+  attaches it to the next message; a harness whose runner takes no images
+  says the message was not sent. **HarnessContext.media_store**
+  (`mediaStore`) hands the store to the harness, and connector tool images go
+  to the same store. The Claude Agent SDK, OpenAI Agents SDK, Pydantic AI,
+  Deep Agents, and Google ADK commands in Python and the Claude Agent SDK,
+  OpenAI Agents SDK, Vercel AI SDK, and Mastra commands in TypeScript pass the
+  store to their adapter, so their models see the images. See
+  [Images](cli/README.md#images).
 
 ### Changed
 

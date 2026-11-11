@@ -60,6 +60,43 @@ func TestLoadFlowDefinitionsRejectsMalformedV2Contract(t *testing.T) {
 	}
 }
 
+func TestLoadFlowDefinitionsAcceptsV2GeneratedAt(t *testing.T) {
+	directory := t.TempDir()
+	stamped := strings.Replace(
+		validFlowDefinitionV2("RefundFlow", true),
+		`{"schemaVersion":"2.0",`,
+		`{"schemaVersion":"2.0","generatedAt":"2026-11-10T08:30:00Z",`,
+		1,
+	)
+	writeFlowDefinitionTestFile(t, directory, "refund.json", stamped)
+
+	handler, err := loadFlowDefinitions(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := handler.V2Definitions()["RefundFlow"]; !found {
+		t.Fatalf("RefundFlow is not enabled: %+v", handler.V2Definitions())
+	}
+}
+
+func TestLoadFlowDefinitionsRejectsMalformedV2GeneratedAt(t *testing.T) {
+	for _, generatedAt := range []string{`"2026-11-10"`, `1762763400`} {
+		directory := t.TempDir()
+		malformed := strings.Replace(
+			validFlowDefinitionV2("RefundFlow", true),
+			`{"schemaVersion":"2.0",`,
+			`{"schemaVersion":"2.0","generatedAt":`+generatedAt+`,`,
+			1,
+		)
+		writeFlowDefinitionTestFile(t, directory, "refund.json", malformed)
+
+		_, err := loadFlowDefinitions(directory)
+		if err == nil || !strings.Contains(err.Error(), "malformed generatedAt") {
+			t.Fatalf("generatedAt %s error = %v", generatedAt, err)
+		}
+	}
+}
+
 // A Flow Definition Graph can reach the server from anywhere, so UI slot rules are enforced here
 // too rather than trusted to whatever produced the file.
 func TestLoadFlowDefinitionsRejectsUnknownV2UISlot(t *testing.T) {

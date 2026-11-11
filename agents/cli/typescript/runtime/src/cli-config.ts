@@ -30,6 +30,12 @@ export const defaultConnectorsMcp = "auto";
  * @since 0.5.0
  */
 export const defaultWorkspace = "~/dex-agent-workspace";
+/**
+ * `media.store` when the file omits it: the local directory `~/.dex/agents/media`.
+ *
+ * @since 0.5.0
+ */
+export const defaultMediaStore = "auto";
 
 const maximumPort = 65535;
 const urlParts = /^https?:\/\/(?<host>\[[^\]]*\]|[^:/]+)(?::(?<port>[0-9]+))?(?:\/.*)?$/s;
@@ -70,6 +76,18 @@ export interface LocalToolsConfig {
 }
 
 /**
+ * The `media` section: where the images of the sessions are stored. Session settings never change it.
+ *
+ * @since 0.5.0
+ */
+export interface MediaConfig {
+  /** `auto` for the local directory `~/.dex/agents/media`, or `s3://<bucket>` or `s3://<bucket>/<prefix>`. */
+  readonly store: string;
+  /** The URL of an S3-compatible service, or `null` for AWS S3. It is only set with an `s3://` store. */
+  readonly endpoint: string | null;
+}
+
+/**
  * The effective configuration of a configuration file: every default filled in, connector entries parsed, and
  * the command's own harness section copied to `harness_options`.
  *
@@ -101,6 +119,8 @@ export interface EffectiveConfig {
   readonly workspace: string;
   /** The local tool switches. */
   readonly local_tools: LocalToolsConfig;
+  /** The media store of the images. A turn's configuration always has the file's. */
+  readonly media: MediaConfig;
   /** The command's own harness section, or `{}`. */
   readonly harness_options: Readonly<Record<string, unknown>>;
 }
@@ -220,6 +240,10 @@ export function resolveConfig(
   const connectorsMcp = file.connectors?.mcp ?? defaultConnectorsMcp;
   throwInvalidUrl(dexServer, "/dex/server");
   throwInvalidUrl(connectorsMcp, "/connectors/mcp");
+  const mediaEndpoint = file.media?.endpoint ?? null;
+  if (mediaEndpoint !== null) {
+    throwInvalidUrl(mediaEndpoint, "/media/endpoint");
+  }
   const enabled = file.connectors?.enabled;
   const entries = enabled === undefined ? null : parseConnectorEntries(enabled, null, false);
   const model = file.model ?? harnessDefaultModel;
@@ -242,6 +266,7 @@ export function resolveConfig(
       web_fetch: file.local_tools?.web_fetch ?? true,
       browser: file.local_tools?.browser ?? true,
     },
+    media: { store: file.media?.store ?? defaultMediaStore, endpoint: mediaEndpoint },
     harness_options: harnessOptions === undefined ? {} : structuredClone(harnessOptions as Record<string, unknown>),
   };
 }
@@ -399,6 +424,7 @@ interface FileConfig {
   readonly approval?: { readonly always?: readonly string[] };
   readonly workspace?: string;
   readonly local_tools?: SessionLocalTools;
+  readonly media?: { readonly store?: string; readonly endpoint?: string };
 }
 
 /** Session settings after the schema accepted them. */
