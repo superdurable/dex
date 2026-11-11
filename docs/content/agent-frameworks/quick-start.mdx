@@ -6,9 +6,25 @@ slug: /agent-frameworks/quick-start
 
 # Agent Quick Start
 
-Run the agent you built with your framework as a durable Dex session. Then stop its Worker in the middle of a conversation, and watch the session continue without losing or repeating anything.
+Run an agent built with your framework as a durable Dex session, then stop it in the middle of a conversation and watch it carry on. It takes about 10 minutes.
 
 Building a new agent without a framework? Start with the [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop).
+
+## What you will build {#what-you-will-build}
+
+A small order support agent. It has two tools on an in-memory order desk:
+
+- **look_up_order** reads an order. It is a read, so Dex may retry it.
+- **cancel_order** cancels an order that has not shipped. It is a write, so it runs at most once, and only after a person approves it.
+
+You install the adapter, wrap the agent in a session, and ask it to cancel an order. While the cancellation waits for approval, you stop the Worker and start it again. Then you approve the call and check what ran.
+
+## Before you start {#before-you-start}
+
+- **dexcli**, installed as [Run Locally](/components/run-locally) shows.
+- **Python with uv**, or **Node.js with npm**, depending on your framework.
+- An API key for your framework's model provider, such as **OPENAI_API_KEY** or **ANTHROPIC_API_KEY**.
+- A clone of the [Dex repository](https://github.com/superdurable/dex). The example lives under **examples**.
 
 ## 1. Install {#install}
 
@@ -1223,6 +1239,8 @@ The agent looked up order 1002 and asked to cancel it. **cancel_order** needs ap
 2. Start the example again, with the same command as in step 3.
 3. Open Dex Web at **http://127.0.0.1:8802**. Open the session's run, select the **Agent session** tab, and approve **cancel_order**.
 4. Open the **Timeline**. **look_up_order** and the model calls before the restart ran once. **cancel_order** ran once, after the approval. The agent answered from the recorded results.
+
+You have run your first durable agent. Its Worker went away in the middle of a conversation, and the session lost nothing and repeated nothing.
 
 ## Next
 
