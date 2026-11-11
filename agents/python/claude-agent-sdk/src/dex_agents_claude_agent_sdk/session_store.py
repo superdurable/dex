@@ -16,6 +16,7 @@ from typing import cast
 from claude_agent_sdk import SessionKey, SessionStore, SessionStoreEntry
 
 from dex_agents_claude_agent_sdk.transcript import LEAF_POINTER_ENTRY_TYPE, TranscriptEntry
+from dex_agents_claude_agent_sdk.transcript_images import TranscriptImageCodec
 
 
 class TurnSegmentSessionStore(SessionStore):
@@ -26,9 +27,14 @@ class TurnSegmentSessionStore(SessionStore):
     list_subkeys = SessionStore.list_subkeys
 
     def __init__(
-        self, session_id: str | None, committed_entries: Sequence[TranscriptEntry]
+        self,
+        session_id: str | None,
+        committed_entries: Sequence[TranscriptEntry],
+        image_codec: TranscriptImageCodec | None = None,
     ) -> None:
         self._resumed_session_id = session_id
+        # Committed entries hold image references; the CLI reads them with the bytes restored.
+        self._image_codec = image_codec
         self._committed_entries = list(committed_entries)
         self._known_entry_uuids = {
             entry["uuid"] for entry in committed_entries if isinstance(entry.get("uuid"), str)
@@ -50,14 +56,21 @@ class TurnSegmentSessionStore(SessionStore):
                 if entry_uuid in self._known_entry_uuids:
                     continue
                 self._known_entry_uuids.add(entry_uuid)
-            session_entries.append(dict(entry))
+            if self._image_codec is None:
+                session_entries.append(dict(entry))
+            else:
+                session_entries.append(await self._image_codec.strip_image_bytes(entry))
 
     async def load(self, key: SessionKey) -> list[SessionStoreEntry] | None:
         if key.get("subpath") or key["session_id"] != self._resumed_session_id:
             return None
         if not self._committed_entries:
             return None
-        return [cast(SessionStoreEntry, dict(entry)) for entry in self._committed_entries]
+        entries = [cast(SessionStoreEntry, dict(entry)) for entry in self._committed_entries]
+        if self._image_codec is None:
+            return entries
+        restored: list[SessionStoreEntry] = await self._image_codec.restore_image_bytes(entries)
+        return restored
 
     def take_segment_transcript(self) -> tuple[str, list[TranscriptEntry]]:
         if not self._appended_entries_by_session:
