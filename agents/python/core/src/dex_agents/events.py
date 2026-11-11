@@ -208,7 +208,11 @@ class AgentEventWriter:
         with self._pending_events_lock:
             self._pending_events.append(event)
         # The Dex Step output queue belongs to the event loop and is not thread-safe.
-        self._loop.call_soon_threadsafe(self._write_pending_events)
+        try:
+            self._loop.call_soon_threadsafe(self._write_pending_events)
+        except RuntimeError:
+            self._discard_pending_event(event)
+            raise
 
     def _write_pending_events(self) -> None:
         while True:
@@ -217,6 +221,14 @@ class AgentEventWriter:
                     return
                 event = self._pending_events.popleft()
             self._write_agent_event(event)
+
+    def _discard_pending_event(self, event: AgentEvent) -> None:
+        # A closed loop never drains, so the failed write must not stay queued.
+        with self._pending_events_lock:
+            for index, pending_event in enumerate(self._pending_events):
+                if pending_event is event:
+                    del self._pending_events[index]
+                    return
 
     def write_text_delta(self, text: str) -> None:
         """Write a chunk of visible model text.

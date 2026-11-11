@@ -72,6 +72,31 @@ async def test_a_loop_write_follows_earlier_writes_from_another_thread() -> None
     ]
 
 
+def test_a_thread_write_after_the_loop_closed_raises_and_queues_nothing() -> None:
+    delivered: list[AgentEvent] = []
+
+    async def create_writer() -> AgentEventWriter:
+        return AgentEventWriter(delivered.append, "turn-1", 1)
+
+    writer = asyncio.run(create_writer())
+    errors: list[RuntimeError] = []
+
+    def write_from_thread() -> None:
+        try:
+            writer.write_text_delta("after the loop closed")
+        except RuntimeError as error:
+            errors.append(error)
+
+    for _ in range(3):
+        thread = threading.Thread(target=write_from_thread)
+        thread.start()
+        thread.join()
+
+    assert len(errors) == 3
+    assert delivered == []
+    assert len(writer._pending_events) == 0
+
+
 def test_a_writer_created_outside_an_event_loop_writes_directly() -> None:
     delivered: list[AgentEvent] = []
     writer = AgentEventWriter(delivered.append, None, 1)
