@@ -75,6 +75,7 @@ from dex.flow_options import (
     TimeTravelStepMethod,
     TimeTravelType,
 )
+from dex.join import Join, JoinRound
 from dex.flow_service_tls_options import FlowServiceTlsOptions
 from dex.flow_result import FlowResult, StepCompletion
 from dex.pull_registration import (
@@ -204,6 +205,8 @@ __all__ = [
     "IdReusePolicy",
     "InvalidStepResultError",
     "IndexType",
+    "Join",
+    "JoinRound",
     "JsonCodec",
     "LongPollTimeoutError",
     "RequestTimeoutError",

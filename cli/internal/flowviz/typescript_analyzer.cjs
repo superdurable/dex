@@ -38,6 +38,7 @@ class TypeScriptAnalyzer {
     this.stepInstances = new Map();
     this.registeredIdentities = new Map();
     this.resourceNodes = new Map();
+    this.joinResourceIDs = new Set();
     this.targetFailures = new Map();
     this.currentFrame = {};
     this.connectorSteps = new Map();
@@ -154,14 +155,17 @@ class TypeScriptAnalyzer {
     expression = this.unwrap(expression);
     if (!expression || !this.ts.isNewExpression(expression)) return;
     const constructor = this.dexName(expression.expression);
-    const kind = {Attribute:"attribute",AttributeMap:"attribute",Channel:"channel",ChannelMap:"channel",Stream:"stream"}[constructor];
+    const kind = {Attribute:"attribute",AttributeMap:"attribute",Channel:"channel",ChannelMap:"channel",Join:"channel",Stream:"stream"}[constructor];
     if (!kind) return;
     const resourceName = this.staticLiteral(expression.arguments?.[0]);
     if (typeof resourceName !== "string") { this.error("dynamic_resource_name",`resource ${name} must use a static name`,expression); return; }
     const nodeID = `resource:${kind}:${name}`;
     this.resources.set(name,nodeID);
     this.resourceNodes.set(expression,nodeID);
-    this.graph.nodes.push({id:nodeID,kind,name:resourceName,span:this.span(expression),resource:{valueType:this.resourceValueType(expression),map:constructor.endsWith("Map")}});
+    // A Join is a ChannelMap of branch results keyed by round.
+    const isJoin = constructor === "Join";
+    if (isJoin) this.joinResourceIDs.add(nodeID);
+    this.graph.nodes.push({id:nodeID,kind,name:resourceName,span:this.span(expression),resource:{valueType:this.resourceValueType(expression),map:isJoin || constructor.endsWith("Map")}});
   }
 
   resourceValueType(expression) {
@@ -616,6 +620,7 @@ class TypeScriptAnalyzer {
 
   decisionType(expression) {
     if (!this.ts.isCallExpression(expression)) return undefined;
+    if (this.isJoinMethodCall(expression,["endBranch"])) return "deadEnd";
     const name = this.dexName(expression.expression);
     if (cancelingDecisions.has(name)) return this.decisionType(this.unwrap(expression.arguments[0]));
     return name === "goTo" || name === "goToMany" || terminalDecisions.has(name) ? name : undefined;
@@ -649,7 +654,8 @@ class TypeScriptAnalyzer {
     if (this.ts.isSpreadElement(argument)) {
       const spread = this.unwrap(argument.expression);
       if (this.ts.isArrayLiteralExpression(spread)) return spread.elements.flatMap(element => this.movementArgument(element,locals));
-      if (this.ts.isIdentifier(spread)) return (locals.get(spread.text) || []).map(movement => ({...movement,multiplicity:movement.multiplicity || "×N"}));
+      if (this.ts.isIdentifier(spread)) return (locals.get(spread.text) || []).map(movement => movement.hasExactMultiplicity ? movement : {...movement,multiplicity:movement.multiplicity || "×N"});
+      if (this.isJoinMethodCall(spread,["fork","forkWithRoundKey"])) return this.joinForkMovements(spread);
       return this.callbackMovements(spread);
     }
     const movement = this.parseMovement(argument);
@@ -663,6 +669,195 @@ class TypeScriptAnalyzer {
     if (!expression || !this.ts.isCallExpression(expression) || !this.ts.isPropertyAccessExpression(expression.expression)) return undefined;
     if (expression.expression.name.text !== "of" || this.dexName(expression.expression.expression) !== "StepMovement" || !expression.arguments.length) return undefined;
     return {kind:"transition",target:this.stepTarget(expression.arguments[0]),targetNode:expression.arguments[0],label:"fan-out",span:this.span(expression)};
+  }
+
+  isJoinMethodCall(expression,methodNames) {
+    if (!this.ts.isCallExpression(expression) || !this.ts.isPropertyAccessExpression(expression.expression)) return false;
+    if (!methodNames.includes(expression.expression.name.text)) return false;
+    return this.joinResourceIDs.has(this.resourceFor(expression.expression.expression));
+  }
+
+  // Join.fork and forkWithRoundKey take branch builders second and the join builder third.
+  joinForkMovements(call) {
+    const [, branchBuilders, joinBuilder] = call.arguments;
+    const movements = branchBuilders ? this.branchBuilderListMovements(call,branchBuilders) : [];
+    if (joinBuilder) movements.push(...this.builderMovements(joinBuilder));
+    return movements.map(movement => ({...movement,hasExactMultiplicity:true}));
+  }
+
+  branchBuilderListMovements(call,branchBuilders) {
+    const builders = this.unwrap(branchBuilders);
+    const dynamicMessage = "Join branch builders must build their movements directly in the handler";
+    if (builders && this.ts.isIdentifier(builders)) {
+      const listed = this.localListMovements(call,builders,builder => this.builderMovements(builder));
+      if (!listed?.movements) this.dynamicTarget(dynamicMessage,branchBuilders);
+      return listed?.movements || [];
+    }
+    const movements = [];
+    if (builders && this.ts.isArrayLiteralExpression(builders)) {
+      for (const builder of builders.elements) movements.push(...this.builderMovements(builder));
+      return movements;
+    }
+    if (builders && this.ts.isCallExpression(builders)) movements.push(...this.callbackMovements(builders));
+    if (!movements.length) this.dynamicTarget(dynamicMessage,branchBuilders);
+    return movements;
+  }
+
+  // Reads a local list's movements as they stand at `use`.
+  // Returns undefined when the list is not a local array, or {movements: undefined} when its contents are undetermined.
+  localListMovements(use,listIdentifier,movementsOfElement) {
+    const declaration = this.localBindingDeclaration(listIdentifier);
+    if (!declaration || !this.ts.isVariableDeclaration(declaration) || !declaration.initializer) return undefined;
+    const initializer = this.unwrap(declaration.initializer);
+    let movements;
+    if (this.ts.isArrayLiteralExpression(initializer)) {
+      movements = initializer.elements.flatMap(element => movementsOfElement(element));
+    } else if (this.ts.isCallExpression(initializer) && !this.isJoinMethodCall(initializer,["fork","forkWithRoundKey"])) {
+      movements = this.callbackMovements(initializer);
+      if (!movements.length) return {movements:undefined};
+    } else {
+      return undefined;
+    }
+    let isDetermined = true;
+    this.walk(this.declaringScope(declaration),node => {
+      if (!isDetermined || !this.ts.isIdentifier(node) || node === listIdentifier || node === declaration.name || node.text !== listIdentifier.text) return;
+      if (this.localBindingDeclaration(node) !== declaration || this.isListRead(node) || node.pos >= use.pos) return;
+      const push = this.pushOnList(node);
+      const placement = this.placementBefore(push || node,use);
+      if (placement === "unreachable") return;
+      if (!push || placement === "unknown") { isDetermined = false; return; }
+      for (const argument of push.arguments) {
+        const pushed = movementsOfElement(argument);
+        movements.push(...(placement === "repeated" ? pushed.map(movement => ({...movement,multiplicity:"×N"})) : pushed));
+      }
+    });
+    return {movements:isDetermined ? movements : undefined};
+  }
+
+  pushOnList(identifier) {
+    const access = identifier.parent;
+    if (!access || !this.ts.isPropertyAccessExpression(access) || access.expression !== identifier || access.name.text !== "push") return undefined;
+    return this.ts.isCallExpression(access.parent) && access.parent.expression === access ? access.parent : undefined;
+  }
+
+  // Reads leave a list unchanged: its length, a spread into goToMany, or a Join fork argument.
+  isListRead(identifier) {
+    const parent = identifier.parent;
+    if (this.ts.isPropertyAccessExpression(parent) && parent.expression === identifier && parent.name.text === "length") return true;
+    if (this.ts.isSpreadElement(parent) && this.ts.isCallExpression(parent.parent) && this.dexName(parent.parent.expression) === "goToMany") return true;
+    return this.isJoinMethodCall(parent,["fork","forkWithRoundKey"]) && parent.arguments[1] === identifier;
+  }
+
+  // Classifies a list change relative to its use: "once", "repeated", "unreachable", or "unknown".
+  placementBefore(change,use) {
+    const useAncestors = new Set();
+    for (let node = use; node; node = node.parent) useAncestors.add(node);
+    let placement = "once";
+    let child = change;
+    for (let node = change.parent; node; child = node, node = node.parent) {
+      if (useAncestors.has(node)) {
+        const isExclusiveBranch = this.ts.isIfStatement(node) || this.ts.isConditionalExpression(node) || this.ts.isCaseBlock(node);
+        if (isExclusiveBranch && child !== node.expression && child !== node.condition) return "unreachable";
+        return placement;
+      }
+      if (this.ts.isIterationStatement(node,false) && child === node.statement) placement = "repeated";
+      else if (this.isIterationCallback(node)) placement = "repeated";
+      else if (this.ts.isFunctionLike(node) || this.ts.isIfStatement(node) || this.ts.isConditionalExpression(node) || this.ts.isCaseClause(node) || this.ts.isDefaultClause(node) || this.ts.isTryStatement(node) || this.ts.isCatchClause(node) || this.ts.isLabeledStatement(node) || (this.ts.isBinaryExpression(node) && [this.ts.SyntaxKind.AmpersandAmpersandToken,this.ts.SyntaxKind.BarBarToken,this.ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind))) return "unknown";
+    }
+    return "unknown";
+  }
+
+  // Only synchronous Array iteration callbacks run as loops; other callbacks may never run.
+  isIterationCallback(node) {
+    if (!this.ts.isArrowFunction(node) && !this.ts.isFunctionExpression(node)) return false;
+    const call = node.parent;
+    if (!this.ts.isCallExpression(call) || call.arguments[0] !== node || !this.ts.isPropertyAccessExpression(call.expression)) return false;
+    if (!["forEach","map","flatMap","filter","reduce","some","every"].includes(call.expression.name.text)) return false;
+    return this.isProvableArray(call.expression.expression,new Set());
+  }
+
+  // Accepts an array literal, Array.from, an array-returning call on a provable array, or a binding to one.
+  isProvableArray(expression,seen) {
+    const value = this.unwrap(expression);
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    if (this.ts.isArrayLiteralExpression(value)) return true;
+    if (this.ts.isCallExpression(value) && this.ts.isPropertyAccessExpression(value.expression)) {
+      const receiver = value.expression.expression;
+      const method = value.expression.name.text;
+      if (method === "from" && this.ts.isIdentifier(receiver) && receiver.text === "Array") return true;
+      return ["map","filter","flatMap","slice","concat"].includes(method) && this.isProvableArray(receiver,seen);
+    }
+    if (!this.ts.isIdentifier(value)) return false;
+    const declaration = this.localBindingDeclaration(value);
+    if (!declaration) return false;
+    if (declaration.type && this.isArrayTypeNode(declaration.type)) return true;
+    return this.ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined && this.isProvableArray(declaration.initializer,seen);
+  }
+
+  isArrayTypeNode(typeNode) {
+    if (this.ts.isArrayTypeNode(typeNode)) return true;
+    if (this.ts.isTypeOperatorNode(typeNode) && typeNode.operator === this.ts.SyntaxKind.ReadonlyKeyword) return this.isArrayTypeNode(typeNode.type);
+    return this.ts.isTypeReferenceNode(typeNode) && this.ts.isIdentifier(typeNode.typeName) && ["Array","ReadonlyArray"].includes(typeNode.typeName.text);
+  }
+
+  // Classifies how often a push runs within its handler: "once", "repeated", or "unknown".
+  pushRepetition(push) {
+    for (let node = push.parent; node; node = node.parent) {
+      if (this.ts.isIterationStatement(node,false) && this.isWithin(push,node.statement)) return "repeated";
+      if (this.isIterationCallback(node)) return "repeated";
+      if (this.ts.isFunctionLike(node)) return this.ts.isArrowFunction(node) || this.ts.isFunctionExpression(node) ? "unknown" : "once";
+    }
+    return "once";
+  }
+
+  isWithin(node,ancestor) {
+    for (let current = node; current; current = current.parent) if (current === ancestor) return true;
+    return false;
+  }
+
+  declaringScope(declaration) {
+    let scope = declaration.parent;
+    while (scope && !this.ts.isBlock(scope) && !this.ts.isSourceFile(scope)) scope = scope.parent;
+    return scope;
+  }
+
+  // Finds the nearest enclosing declaration of an identifier's name within its handler.
+  localBindingDeclaration(identifier) {
+    const name = identifier.text;
+    const matches = candidate => candidate && this.ts.isIdentifier(candidate.name) && candidate.name.text === name;
+    for (let scope = identifier.parent; scope; scope = scope.parent) {
+      if (this.ts.isBlock(scope) || this.ts.isSourceFile(scope)) {
+        for (const statement of scope.statements) {
+          if (!this.ts.isVariableStatement(statement)) continue;
+          const declaration = statement.declarationList.declarations.find(matches);
+          if (declaration) return declaration;
+        }
+      } else if (this.ts.isFunctionLike(scope)) {
+        const parameter = scope.parameters.find(matches);
+        if (parameter) return parameter;
+        if (!this.ts.isArrowFunction(scope)) return undefined;
+      } else if ((this.ts.isForStatement(scope) || this.ts.isForOfStatement(scope) || this.ts.isForInStatement(scope)) && scope.initializer && this.ts.isVariableDeclarationList(scope.initializer)) {
+        const declaration = scope.initializer.declarations.find(matches);
+        if (declaration) return declaration;
+      } else if (this.ts.isCatchClause(scope) && matches(scope.variableDeclaration)) {
+        return scope.variableDeclaration;
+      }
+    }
+    return undefined;
+  }
+
+  builderMovements(builder) {
+    const value = this.unwrap(builder);
+    const movements = [];
+    if (value && (this.ts.isArrowFunction(value) || this.ts.isFunctionExpression(value))) {
+      this.walk(value.body,node => {
+        const movement = this.parseMovement(node);
+        if (movement) movements.push(movement);
+      });
+    }
+    if (!movements.length) this.dynamicTarget("Join builders must return StepMovement.of with a static target",builder);
+    return movements;
   }
 
   callbackMovements(expression) {
@@ -685,9 +880,9 @@ class TypeScriptAnalyzer {
         const value = this.unwrap(node.initializer);
         const movement = this.parseMovement(value);
         if (movement) result.set(node.name.text,[movement]);
-        else if (this.ts.isArrayLiteralExpression(value)) result.set(node.name.text,value.elements.flatMap(element => this.movementArgument(element,result)));
+        else if (this.ts.isArrayLiteralExpression(value)) result.set(node.name.text,value.elements.flatMap(element => this.movementArgument(element,result)).map(movement => ({...movement,hasExactMultiplicity:true})));
         else if (this.ts.isCallExpression(value)) {
-          const movements = this.callbackMovements(value);
+          const movements = this.isJoinMethodCall(value,["fork","forkWithRoundKey"]) ? this.joinForkMovements(value) : this.callbackMovements(value);
           if (movements.length) result.set(node.name.text,movements);
         }
       }
@@ -696,7 +891,9 @@ class TypeScriptAnalyzer {
           const movement = this.parseMovement(argument);
           if (!movement) continue;
           const name = node.expression.expression.text;
-          result.set(name,[...(result.get(name) || []),{...movement,multiplicity:"×N"}]);
+          // A push outside loops and callbacks adds one movement, even under a condition.
+          const multiplicity = this.pushRepetition(node) === "once" ? undefined : "×N";
+          result.set(name,[...(result.get(name) || []),{...movement,multiplicity,hasExactMultiplicity:true}]);
         }
       }
     });

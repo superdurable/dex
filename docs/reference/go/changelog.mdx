@@ -8,9 +8,17 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Go SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.44 {#v1-44}
+
+Not released yet. The next minor release, sdk-go/v1.44.0, ships these changes.
+
+### Added
+
+- **Join** and **JoinRound** synchronize parallel branches of one Flow. **DefineJoin** defines a Join over a ChannelMap of branch results. **Join.Fork** starts the branches and the join Step with one **JoinRound**; **Join.ForkWithRoundKey** takes an explicit round key for RPCs. Branches report with **Join.EndBranch** or **Join.ReportBranchResult**. The join Step waits with **Join.ForAllBranches**, **Join.ForFirstBranch**, or **Join.ForBranches** and reads **Join.BranchResults**. The next round's split Step resets the previous round with **Join.ForRemainingBranches** and reads **Join.RemainingBranchResults**. **Join.ChannelMap** returns the underlying ChannelMap for reading or loading a round's pending results. [API reference](pathname:///api/go/latest/dex/#type-join).
+
 ## 1.43 {#v1-43}
 
-Not released yet. The next minor release, sdk-go/v1.43.0, ships these changes.
+Released 2026-11-10 as [sdk-go/v1.43.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.43.0).
 
 ### Breaking
 
@@ -105,7 +113,7 @@ Released 2026-11-01 as [sdk-go/v1.32.0](https://github.com/superdurable/dex/rele
 
 ## 1.30 {#v1-30}
 
-Released 2026-10-31 as [sdk-go/v1.30.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.30.0). Reference: [1.30.x](/reference/go/1.30.x/).
+Released 2026-10-31 as [sdk-go/v1.30.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.30.0). Reference: [1.30.x](/reference/go/).
 
 ### Added
 

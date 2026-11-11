@@ -8,9 +8,17 @@ sidebar_label: Change log
 
 This page lists user-visible changes to Dex Web, newest first; each section covers the changes since the previous release of this component.
 
+## 1.44 {#v1-44}
+
+Not released yet. The next minor release, web/v1.44.0, ships these changes.
+
+### Changed
+
+- The Flow design graph on the **Design** tab and on **Designs** opens left to right. **Direction** still switches it to top to bottom. [Reference](/reference/web/dex-web#flow-canvas).
+
 ## 1.43 {#v1-43}
 
-Not released yet. The next minor release, web/v1.43.0, ships these changes.
+Released 2026-11-10 as [web/v1.43.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.43.0).
 
 ### Breaking
 
@@ -29,7 +37,6 @@ Not released yet. The next minor release, web/v1.43.0, ships these changes.
 
 ### Changed
 
-- The Flow design graph on the **Design** tab and on **Designs** opens left to right. **Direction** still switches it to top to bottom. [Reference](/reference/web/dex-web#flow-canvas).
 - Without local Connector setup, the **/api/v2/connector-** routes return HTTP 404 with the code **CONNECTOR_SETUP_UNAVAILABLE**. [Reference](/reference/web/embed-dex-web#limits).
 - Connector UI files send **frame-ancestors**, **sandbox allow-scripts**, and **X-Content-Type-Options: nosniff**. A file with an unknown extension is sent as **application/octet-stream**. [Reference](/reference/web/dex-web#frame-ancestors).
 - The **Agent session** message box sends between turns through **send_user_message**. While a turn runs, **Queue** keeps the message for the next turn and **Steer** steers the running turn. [Reference](/reference/web/dex-web#agent-session-view).
@@ -153,7 +160,7 @@ Released 2026-11-06 as [web/v1.35.0](https://github.com/superdurable/dex/release
 
 ## 1.32 {#v1-32}
 
-Released 2026-11-01 as [web/v1.32.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.32.0). Reference: [1.32.x](/reference/web/1.32.x/).
+Released 2026-11-01 as [web/v1.32.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.32.0). Reference: [1.32.x](/reference/web/).
 
 No Dex Web behavior changes were identified in this release; the Web source is unchanged from 1.30.
 

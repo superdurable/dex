@@ -75,7 +75,8 @@ class Channel(Generic[ValueT]):
     Channel size metadata loads automatically. Pending message envelopes require
     explicit load options; ChannelMessagesNotLoadedError means the snapshot did
     not load them, not that the queue is empty. A Channel cannot be observed
-    through Client.get_attributes.
+    through Client.get_attributes. To wait for parallel branches of a Flow, use
+    :class:`~dex.Join` instead of counting signals on a Channel.
 
     Attributes:
         name: The non-empty Channel name without ``/``, unique within its Flow.
@@ -285,7 +286,9 @@ class ChannelMap(Generic[ValueT]):
     Instance keys must be non-empty and must not contain ``/``.
     Each instance follows Channel consumption and publication rules. Select exact
     instance messages with load_messages in RPC invocation options; declaring a
-    map does not load all of its pending values.
+    map does not load all of its pending values. To wait for parallel branches of
+    a Flow, use :class:`~dex.Join`, which builds on a ChannelMap and chooses the
+    instance key and branch count for you.
 
     Attributes:
         name: The non-empty Channel name without ``/``, unique within its Flow.

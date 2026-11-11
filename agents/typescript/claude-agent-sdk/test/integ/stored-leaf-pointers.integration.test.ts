@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-// Transcripts that adapter 0.4.0 stored with last-prompt entries resume without them. The test drives the calls
-// runModelStep makes to rebuild a segment's transcript; no CLI run can store a leaf pointer any more.
+// Rebuilds transcripts the way runModelStep does, from data stored by adapter 0.4.0.
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";

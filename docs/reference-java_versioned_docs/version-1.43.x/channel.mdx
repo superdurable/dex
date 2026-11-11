@@ -1,0 +1,32 @@
+---
+id: channel
+title: Channel
+sidebar_label: Channel
+---
+
+# Channel
+
+This page lists the Java SDK names for [Channels](/concepts/primitives/channel).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Java SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Java API | Dex behavior |
+| --- | --- | --- |
+| Define a Channel | **Channel.define** | [Channels](/reference/server/runtime-data#channels) |
+| Define a ChannelMap | **ChannelMap.define** | [ChannelMap](/reference/server/runtime-data#channelmap) |
+| Declare it in the Flow | **PersistenceSchema.of**, returned from **getPersistenceSchema** | [Flow definition](./flow.mdx#flow-definition) |
+| Publish a message from a Step or RPC | **publish** | [Commits](./step.mdx#commit-boundary) |
+| Wait for messages | **forOne**, **forN**, **atLeast**, **atMost**, and **range** | [Wait conditions](/reference/server/runtime-data#channel-conditions) |
+| Read the messages a wait consumed | **getConditionResults** | [Channel results](./waits.mdx#channel-results) |
+| Load pending messages for a method | **addWaitForLoadChannel**, **addExecuteLoadChannel**, and their ChannelMap variants of **StepOptions.Builder**, or **loadChannels**, **loadChannelMaps**, and **loadChannelMapInstances** of **@RPC** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Read loaded pending messages | **pendingMessages** and **findPendingMessage** | [Pending messages](/reference/server/runtime-data#manage-pending-messages) |
+| Delete a pending message | **delete** | [Pending messages](/reference/server/runtime-data#manage-pending-messages) |
+| Read the number of pending messages | **size** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Count ChannelMap instances and list their keys | **ChannelMap.getMapSize** and **ChannelMap.getAllInstanceKeys** | [ChannelMap](/reference/server/runtime-data#channelmap) |
+| Complete the Flow only when Channels are empty | **StepDecision.forceCompleteIfChannelsEmpty** | [ForceCompleteIfChannelsEmpty](./step-decisions.mdx#forcecompleteifchannelsempty) |
+
+## Example {#example}
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java)

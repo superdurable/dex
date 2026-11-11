@@ -1,8 +1,9 @@
 # Paper: the Dex expressiveness theorem
 
-This directory holds the LaTeX source of the paper "A Machine-Checked
-Expressiveness Theorem for the Dex Durable Workflow Programming Model". The
-paper describes the semantics in
+This directory holds the LaTeX source of the paper "Machine-Checked
+Expressiveness and Failure Transparency for the Dex Durable Workflow
+Programming Model". The PDF keeps its original file name. The paper
+describes the semantics in
 [`formal/semantics/dex-core-semantics.md`](../semantics/dex-core-semantics.md)
 and the Lean proof in [`formal/lean/`](../lean/README.md).
 
@@ -41,7 +42,8 @@ together with the source change.
   they differ, follow the code.
 - Give Lean names exactly, with `\lean{...}`, and file paths with
   `\file{...}`.
-- Numbers in the paper are for one commit of `formal/lean/`, named at the end
-  of the introduction. Recount them when that commit changes: `wc -l` for
-  the sizes, `lake exe inductiveness-fuzz` for the fuzz.
+- Numbers in the paper are for the commits of `formal/lean/` named at the
+  end of the introduction. Recount them when a commit changes: `wc -l` for
+  the sizes, `lake exe inductiveness-fuzz` and `lake exe failure-fuzz` for
+  the fuzzes.
 - Do not name products built on Dex or commercial workflow products.
