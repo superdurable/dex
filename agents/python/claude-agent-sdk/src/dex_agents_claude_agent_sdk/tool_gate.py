@@ -35,12 +35,10 @@ from dex_agents import (
     AgentToolCall,
     AgentTurnContext,
     DeferredToolCall,
-    MediaStore,
     ToolCallStatus,
     ToolEffect,
     ToolPolicy,
     describe_tool_call_outcome,
-    load_images,
 )
 from dex_agents_claude_agent_sdk.tool_sources import ListedSourceTool
 
@@ -263,11 +261,12 @@ class ToolCallGate:
         turn: AgentTurnContext,
         tool_catalog: ToolCatalog,
         settled_tool_use_ids: Collection[str],
-        media_store: MediaStore | None = None,
+        recorded_images: Mapping[str, bytes] | None = None,
     ) -> None:
         self._turn = turn
         self._tool_catalog = tool_catalog
-        self._media_store = media_store
+        # Loaded before the CLI starts: a store failure must fail the attempt, not reach the model.
+        self._recorded_images = dict(recorded_images or {})
         # Calls the stored transcript already answers: only a pending deferral may replay.
         self._settled_tool_use_ids = frozenset(settled_tool_use_ids)
         self._replayed_tool_use_ids: set[str] = set()
@@ -426,7 +425,7 @@ class ToolCallGate:
                 UNPERMITTED_TOOL_CALL_MESSAGE.format(tool_name=custom_tool_name), is_error=True
             )
         if plan.recorded_tool_call is not None:
-            return await self._recorded_tool_call_result_with_images(plan.recorded_tool_call)
+            return self._recorded_tool_call_result_with_images(plan.recorded_tool_call)
         if run_handler is None:
             return _text_tool_result(
                 UNPERMITTED_TOOL_CALL_MESSAGE.format(tool_name=custom_tool_name), is_error=True
@@ -438,16 +437,15 @@ class ToolCallGate:
             return _text_tool_result(validation_error, is_error=True)
         return await run_handler(arguments)
 
-    async def _recorded_tool_call_result_with_images(self, record: AgentToolCall) -> dict[str, Any]:
+    def _recorded_tool_call_result_with_images(self, record: AgentToolCall) -> dict[str, Any]:
         result = recorded_tool_call_result(record)
-        if self._media_store is None or not record.images:
+        if not self._recorded_images:
             return result
         # MCP image content, which the CLI passes to the model inside the tool_result.
-        images = await load_images(self._media_store, record.images)
         result["content"] += [
             {
                 "type": "image",
-                "data": base64.b64encode(images[image.sha256]).decode("ascii"),
+                "data": base64.b64encode(self._recorded_images[image.sha256]).decode("ascii"),
                 "mimeType": image.mime_type,
             }
             for image in record.images

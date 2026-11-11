@@ -54,6 +54,7 @@ from dex_agents import (
     ToolExecutionResult,
     TurnCompleted,
     collect_turn_images,
+    load_images,
 )
 from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from dex_agents_claude_agent_sdk.custom_tool_server import build_custom_tool_server
@@ -297,7 +298,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 images in user messages. Every ``RunModel`` attempt reads the
                 session's images from it, and the runner uploads to it every
                 image the CLI produces itself, such as one an inline tool
-                returns, so stored entries never hold image bytes. A deferred
+                returns, so stored image blocks hold references. A deferred
                 custom tool's ``image`` content is uploaded too and recorded as
                 ``ToolExecutionResult.images``. A store read failure fails the
                 attempt, which the ``RunModel`` retry policy retries.
@@ -432,7 +433,10 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             },
         )
         tool_call_gate = ToolCallGate(
-            turn, tool_catalog, answered_tool_use_ids(stored_entries), self._media_store
+            turn,
+            tool_catalog,
+            answered_tool_use_ids(stored_entries),
+            await self._load_recorded_tool_images(turn),
         )
         options = self._build_turn_options(
             turn, session_id, session_store, tool_catalog, tool_call_gate
@@ -575,6 +579,12 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             return None
         options = provide(replace(tool_call, tool_source_reference=reference))
         return options if isinstance(options, ToolCallStepOptions) else None
+
+    async def _load_recorded_tool_images(self, turn: AgentTurnContext) -> Mapping[str, bytes]:
+        if self._media_store is None:
+            return {}
+        references = [image for record in turn.tool_calls.values() for image in record.images]
+        return await load_images(self._media_store, references) if references else {}
 
     def _transcript_image_codec(
         self, turn: AgentTurnContext, stored_values: Sequence[object]

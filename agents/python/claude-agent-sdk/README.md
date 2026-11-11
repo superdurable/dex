@@ -310,10 +310,13 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
   base64 image `source` with `{"dex_image_reference": {<reference fields>}}`,
   keeping every other key in place; this covers `framework_item`, the run
   state of a suspended turn, and copies such as `toolUseResult`. An image
-  without a known reference, such as one an inline `read` tool or Claude
-  Code's `Read` returned, is uploaded first. When the CLI resumes the
-  session, the runner reads the bytes back and restores each entry exactly,
-  so the replayed model input is the same on any Worker.
+  without a known reference, such as one an inline `read` tool returned, is
+  uploaded first. When the CLI resumes the session, the runner reads the
+  bytes back and restores each entry exactly, so the replayed model input is
+  the same on any Worker.
+- Only Claude `image` blocks are rewritten. Other base64 content, such as a
+  PDF `document` block, or a copy that a Claude Code tool keeps in a shape of
+  its own, such as `Read` of an image file, is stored as the CLI wrote it.
 - A store read failure fails the `RunModel` attempt, which retries. An image
   the store refuses, or base64 that would not restore to the same text,
   fails the attempt too, rather than storing bytes.
