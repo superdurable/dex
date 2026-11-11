@@ -131,9 +131,9 @@ function stubDexWeb({
         flowTypes: flowTypes.map((name) => ({ flowType: name, source: 'directory' })),
       });
     }
-    if (url.pathname.startsWith('/api/flow-definitions/')) {
+    if (url.pathname === '/api/flow-definitions/by-type') {
       await definitionsReleased;
-      const requested = decodeURIComponent(url.pathname.slice('/api/flow-definitions/'.length));
+      const requested = url.searchParams.get('flowType') ?? '';
       const matches = definitions.filter((definition) => definition.flowName === requested);
       if (matches.length === 0) return json({ code: 'FLOW_DEFINITION_NOT_FOUND', error: 'not found' }, 404);
       const operatorFlow = operatorFlows?.find((candidate) => candidate.flowType === requested);
@@ -262,7 +262,7 @@ describe('Run page experimental tabs', () => {
     renderRun();
     await waitFor(() => expect(tabLabels()).toContain('design'));
     const definitionRequests = requests.filter((path) => path.includes('definition') || path === '/api/v2/catalog');
-    expect(definitionRequests).toEqual(['/api/flow-definition-types', '/api/flow-definitions/OrderFlow']);
+    expect(definitionRequests).toEqual(['/api/flow-definition-types', '/api/flow-definitions/by-type']);
   });
 
   it('opens a running Flow on Design without reading history, state, stored values or waiting', async () => {
@@ -433,6 +433,6 @@ describe('Run page experimental tabs', () => {
     await settle();
     expect(screen.queryByRole('region', { name: 'Actions' })).toBeNull();
     expect(screen.queryByTestId('session-view')).toBeNull();
-    expect(requests.filter((path) => path.startsWith('/api/v2/') && path !== '/api/v2/catalog')).toEqual([]);
+    expect(requests.filter((path) => path.startsWith('/api/v2/') && path !== '/api/v2/catalog' && path !== '/api/v2/connector-connections')).toEqual([]);
   });
 });

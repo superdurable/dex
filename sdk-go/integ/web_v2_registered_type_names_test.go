@@ -284,7 +284,7 @@ func (web *dexWebV2Client) definitionStepNames(t *testing.T, flowTypes []string)
 	stepNames := make(map[string][]string)
 	for _, flowType := range flowTypes {
 		var definitions dexWebFlowDefinitions
-		status, err := web.getJSON("/api/flow-definitions/"+url.PathEscape(flowType), &definitions)
+		status, err := web.getJSON("/api/flow-definitions/by-type?flowType="+url.QueryEscape(flowType), &definitions)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, status, flowType)
 		for _, definition := range definitions.Definitions {

@@ -121,7 +121,7 @@ func TestDexWebOnServerZDShowsUploadedDefinitions(t *testing.T) {
 func readDexWebFlowTypeDefinitions(t *testing.T, web *dexWebV2Client, flowType string) dexWebFlowTypeDefinitions {
 	t.Helper()
 	var definitions dexWebFlowTypeDefinitions
-	status, err := web.getJSON("/api/flow-definitions/"+url.PathEscape(flowType), &definitions)
+	status, err := web.getJSON("/api/flow-definitions/by-type?flowType="+url.QueryEscape(flowType), &definitions)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, status, "definitions of %s", flowType)
 	require.NotEmpty(t, definitions.Definitions, "definitions of %s", flowType)

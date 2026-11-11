@@ -49,49 +49,13 @@ function useFlowDefinitionTypes(pathname: string): FlowDefinitionTypeList | null
   return flowTypes;
 }
 
-/** The part of the local Connector setup listing that says whether the page has anything to show. */
-interface ConnectorSetupListing {
-  enabled: boolean;
-  connections: unknown[];
-}
-
-/** Connector setup applies wherever local Connector setup runs, even before any connection exists. */
-export function isConnectorSetupApplicable(listing: ConnectorSetupListing | null): boolean {
-  return listing?.enabled === true;
-}
-
-/**
- * Reports whether the Connectors page applies.
- * The listing exists only where Dex Web runs local Connector setup, so other servers never show it.
- */
-function useHasConnectorSetup(canUseOperatorAPI: boolean): boolean {
-  const [hasConnectors, setHasConnectors] = useState(false);
-  useEffect(() => {
-    if (!canUseOperatorAPI) {
-      setHasConnectors(false);
-      return undefined;
-    }
-    const controller = new AbortController();
-    fetch(webURL('/api/v2/connector-connections'), { signal: controller.signal })
-      .then((response) => readResponseJSON<ConnectorSetupListing>(response))
-      .then((listing) => setHasConnectors(isConnectorSetupApplicable(listing)))
-      // Without local Connector setup the route does not exist, so the link stays hidden.
-      .catch(() => {
-        if (!controller.signal.aborted) setHasConnectors(false);
-      });
-    return () => controller.abort();
-  }, [canUseOperatorAPI]);
-  return hasConnectors;
-}
-
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
-  const { canUseOperatorAPI, canUseV2 } = useWebCatalog();
+  const { canUseV2, hasConnectorSetup: hasConnectors } = useWebCatalog();
   const location = useLocation();
   const flowTypes = useFlowDefinitionTypes(location.pathname);
   const hasFlowDefinitions = hasLoadedFlowDefinitions(flowTypes);
   const hasWorkQueue = isWorkQueueApplicable(flowTypes, canUseV2);
-  const hasConnectors = useHasConnectorSetup(canUseOperatorAPI);
   const experimentalPages: ExperimentalPage[] = [
     ...(hasFlowDefinitions ? [{
       path: DESIGNS_PATH, label: 'Designs', Icon: PencilRuler,

@@ -46,7 +46,7 @@ function graphEntry(flowName: string, steps: string[]) {
     sourcePath: `${flowName}.go`,
     valid: true,
     source: 'directory',
-    graph: { nodes: steps.map((name) => ({ id: `step:${name}`, kind: 'step', name })), edges: [] },
+    graph: { nodes: steps.map((name) => ({ id: `step:${name}`, kind: 'step', name })), edges: [], diagnostics: [] },
   };
 }
 
@@ -87,8 +87,8 @@ function stubServer(flowsFor: (body: SearchBody) => unknown[], nextPageToken = '
         flowTypes: Object.keys(graphs).map((flowType) => ({ flowType, source: 'directory' })),
       });
     }
-    if (url.startsWith('/api/flow-definitions/')) {
-      const flowType = decodeURIComponent(url.slice('/api/flow-definitions/'.length));
+    if (url.startsWith('/api/flow-definitions/by-type?')) {
+      const flowType = new URL(url, 'http://dex.test').searchParams.get('flowType') ?? '';
       definitionReads.push(flowType);
       return json({ flowType, definitionRevision: `r-${flowType}`, definitions: [graphs[flowType]], v2: null });
     }

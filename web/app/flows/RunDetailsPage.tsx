@@ -70,6 +70,7 @@ import { useRunHistory } from './useRunHistory';
 import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
 import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
+import { DesignCanvasErrorBoundary } from '../design/DesignCanvasErrorBoundary';
 import { FlowDefinitionDiagnostics } from '../rendering/FlowDefinitionDiagnostics';
 import { useFlowTypeDefinitions, useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
@@ -1074,13 +1075,15 @@ export function RunDetailsPage({
             />
           )}
           {shownTab === 'design' && designDefinition && (
-            <>
-              <FlowDesignGraph key={designDefinition.id} definition={designDefinition} />
+            <DesignCanvasErrorBoundary key={designDefinition.id}>
+              <FlowDesignGraph definition={designDefinition} />
               <FlowDefinitionDiagnostics definition={designDefinition} />
-            </>
+            </DesignCanvasErrorBoundary>
           )}
           {shownTab === 'stream' && summary && (
-            <StreamPanel definition={designDefinition} flowId={flowId} flowType={summary.flowType} />
+            <DesignCanvasErrorBoundary key={designDefinition?.id ?? 'stream'} title="Streams could not be shown">
+              <StreamPanel definition={designDefinition} flowId={flowId} flowType={summary.flowType} />
+            </DesignCanvasErrorBoundary>
           )}
           {shownTab === 'session' && sessionSchema && catalogEntry && (
             <AgentSessionTab

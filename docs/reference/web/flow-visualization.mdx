@@ -50,17 +50,19 @@ Since 1.45, Dex Web reads Flow Definition Graphs from two sources:
 
 When both sources have a definition for one Flow type, the directory wins, even when its file is invalid. The two never conflict. Uploaded definitions must use schema version 2.0. A directory may hold Version 1.0 and Version 2.0 files.
 
-Dex Web validates each definition on its own. An invalid or oversized definition is marked invalid, with the reason, and the other definitions keep working. Two valid Version 2.0 directory files for one Flow type mark both invalid. When the Dex Server cannot be read, the definition list still shows the directory and reports the failure, while a page that needs one uploaded Flow type gets **FLOW_DEFINITION_SOURCE_UNAVAILABLE**.
+Dex Web validates each definition on its own. An invalid or oversized definition is marked invalid, with the reason, and the other definitions keep working. Two valid Version 2.0 directory files for one Flow type mark both invalid. A directory file larger than the document size limit is invalid too, but Dex Web still reads its **flow.name**, so the file keeps its Flow type and an upload does not replace it.
+
+Every node, edge, and diagnostic must be a JSON object. Each node needs string **id**, **kind**, and **name**, each edge string **id**, **kind**, **from**, and **to**, and each diagnostic string **severity**, **code**, and **message**. The other fields that Dex Web reads, such as **metadata**, **resource**, **wait**, **decision**, and **span**, must have their documented JSON types when present; **null** is not accepted for them. A group Step ID that names no Step node is ignored. When the Dex Server cannot be read, the definition list still shows the directory and reports the failure, while a page that needs one uploaded Flow type gets **FLOW_DEFINITION_SOURCE_UNAVAILABLE**.
 
 Dex Web loads definitions only where they are used:
 
 | Page or route | What it reads |
 | --- | --- |
 | The header and **/readyz** | The Flow types that have a definition, without their content. |
-| A run page, its **Design**, **Actions**, and **Agent session** tabs, and the v2 routes for one Flow type | The definitions of that one Flow type, through **GET /api/flow-definitions/FLOW_TYPE**. The browser keeps the answer and asks again with its revision, so an unchanged definition is not sent again. |
+| A run page, its **Design**, **Actions**, and **Agent session** tabs, and the v2 routes for one Flow type | The definitions of that one Flow type, through **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE**. The Flow type is a query parameter, so Flow types such as **.** work. The browser keeps the answer and asks again with its revision, so an unchanged definition is not sent again. The route answers 304 to an **If-None-Match** that names the revision, weak or strong, or **\***. |
 | **Designs** | Every definition without its graph, through **GET /api/flow-definitions**, then the graph of the selected one. |
 | **Work Queue** and **New session** | Every Version 2.0 contract, through **GET /api/v2/catalog**, and the graphs of the Flow types being searched. |
-| **Connectors** | Every definition, to find the connections that Flows use. |
+| **Connectors** | Every definition, to find the connections that Flows use. The app asks for the Connectors listing once when it loads, not on every page. |
 
 Dex Web rejects a definition that exceeds one of these limits. The canvas also refuses to draw a larger graph and says that it is too large.
 
@@ -72,6 +74,10 @@ Dex Web rejects a definition that exceeds one of these limits. The canvas also r
 | Characters in one JSON string or field name | 16,384 |
 | JSON nesting depth | 128 |
 | Connector Steps | 200 |
+| Diagnostics | 1,000 |
+| Step groups | 1,000 |
+| Step IDs in all groups | 2,000 |
+| Items in each Version 2.0 list, such as Actions, Display fields, or one Action's input fields | 256 |
 
 Since 1.45, Dex Web ignores top-level fields that it does not know, such as **generatedAt**, so a newer **dexcli visualize** does not break an older Dex Web. Every field that Dex Web knows is still validated strictly, including unknown fields inside it. Dex Web 1.44 and older reject a Version 2.0 file with an unknown top-level field.
 

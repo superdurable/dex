@@ -17,7 +17,10 @@ interface DesignCanvasErrorBoundaryState {
  *
  * Give it a key per definition, so choosing another definition draws again.
  */
-export class DesignCanvasErrorBoundary extends Component<{ children: ReactNode }, DesignCanvasErrorBoundaryState> {
+export class DesignCanvasErrorBoundary extends Component<
+  { children: ReactNode; title?: string },
+  DesignCanvasErrorBoundaryState
+> {
   state: DesignCanvasErrorBoundaryState = { message: null };
 
   static getDerivedStateFromError(error: unknown): DesignCanvasErrorBoundaryState {
@@ -30,7 +33,7 @@ export class DesignCanvasErrorBoundary extends Component<{ children: ReactNode }
 
   render() {
     if (this.state.message === null) return this.props.children;
-    return <DesignUnavailable title="This Flow design graph could not be drawn" detail={this.state.message} />;
+    return <DesignUnavailable title={this.props.title ?? 'This Flow design graph could not be drawn'} detail={this.state.message} />;
   }
 }
 

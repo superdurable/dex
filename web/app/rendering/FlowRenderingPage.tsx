@@ -11,7 +11,8 @@ import { readResponseJSON } from '@/lib/http';
 import { formatDate } from '@/lib/format';
 import type { FlowDefinitionCatalog, FlowDefinitionEntry, FlowDefinitionSummary } from '@/lib/types';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
-import { DesignUnavailable } from '../design/DesignCanvasErrorBoundary';
+import { DesignCanvasErrorBoundary, DesignUnavailable } from '../design/DesignCanvasErrorBoundary';
+import { flowDefinitionShapeProblem } from '../design/definitionLimits';
 import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { drawableDefinitions, fetchFlowTypeDefinitions } from '../catalog/flowTypeDefinitionCache';
@@ -58,10 +59,17 @@ export function FlowRenderingPage() {
     setSelectedGraph({ state: 'loading' });
     fetchFlowTypeDefinitions(selected.flowName, controller.signal)
       .then((value) => {
+        // A response that arrives after the reader chose another definition must not replace it.
+        if (controller.signal.aborted) return;
+        const found = value?.definitions.find((candidate) => candidate.id === selected.id);
         const definition = drawableDefinitions(value).find((candidate) => candidate.id === selected.id);
-        setSelectedGraph(definition
-          ? { state: 'ready', definition }
-          : { state: 'failed', message: 'This definition changed or was removed. Refresh the page.' });
+        if (definition) {
+          setSelectedGraph({ state: 'ready', definition });
+        } else if (found?.graph !== undefined) {
+          setSelectedGraph({ state: 'failed', message: flowDefinitionShapeProblem(found.graph) ?? 'The graph cannot be read.' });
+        } else {
+          setSelectedGraph({ state: 'failed', message: 'This definition changed or was removed. Refresh the page.' });
+        }
       })
       .catch((loadError: unknown) => {
         if (controller.signal.aborted) return;
@@ -74,6 +82,7 @@ export function FlowRenderingPage() {
     const links: Record<string, string> = {};
     if (selectedGraph.state !== 'ready') return links;
     for (const node of selectedGraph.definition.graph.nodes) {
+      if (typeof node !== 'object' || node === null) continue;
       if (node.kind !== 'subflow' || typeof node.metadata?.flowType !== 'string') continue;
       const children = catalog?.definitions.filter((definition) => (
         definition.valid && !definition.error && definition.flowName === node.metadata?.flowType
@@ -134,11 +143,9 @@ export function FlowRenderingPage() {
               <DesignUnavailable title="The Flow definition could not be read" detail={selectedGraph.message} />
             )}
             {selected && !selected.error && selectedGraph.state === 'ready' && (
-              <DefinitionCanvas
-                key={selectedGraph.definition.id}
-                definition={selectedGraph.definition}
-                subFlowLinks={subFlowLinks}
-              />
+              <DesignCanvasErrorBoundary key={selectedGraph.definition.id}>
+                <DefinitionCanvas definition={selectedGraph.definition} subFlowLinks={subFlowLinks} />
+              </DesignCanvasErrorBoundary>
             )}
           </div>
         </div>

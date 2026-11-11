@@ -33,6 +33,8 @@ interface WebCatalogValue {
   ready: boolean;
   /** True when a Dex server answers, whether or not Flow definitions are loaded. */
   canUseOperatorAPI: boolean;
+  /** True where Dex Web runs local Connector setup; read once per app load. */
+  hasConnectorSetup: boolean;
   canUseV2: boolean;
   /** Every Flow type with a definition; reading it reads no definition. */
   flowTypes: FlowDefinitionTypeList | null;
@@ -67,40 +69,60 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
   const [flowTypeDefinitions, setFlowTypeDefinitions] = useState<Record<string, FlowTypeDefinitionsState>>({});
   const [definitionUpdateKey, setDefinitionUpdateKey] = useState(0);
   const [notice, setNotice] = useState('');
+  const [hasConnectorSetup, setHasConnectorSetup] = useState(false);
   const isCatalogRequested = useRef(false);
   const requestedFlowTypes = useRef(new Set<string>());
+  // Each load takes a number; only the newest load of a kind may apply, so a slow older answer never wins.
+  const latestLoads = useRef(new Map<string, number>());
+  const loadCount = useRef(0);
+  const startLoad = useCallback((kind: string) => {
+    loadCount.current += 1;
+    latestLoads.current.set(kind, loadCount.current);
+    const load = loadCount.current;
+    return () => latestLoads.current.get(kind) === load;
+  }, []);
 
   const loadFlowTypes = useCallback(async (signal?: AbortSignal) => {
+    const isLatest = startLoad('flow-types');
     const response = await fetch(webURL('/api/flow-definition-types'), { cache: 'no-store', signal });
-    setFlowTypes(await readResponseJSON<FlowDefinitionTypeList>(response));
+    const value = await readResponseJSON<FlowDefinitionTypeList>(response);
+    if (!isLatest()) return;
+    setFlowTypes(value);
     setError('');
-  }, []);
+  }, [startLoad]);
 
   const loadCatalog = useCallback(async () => {
+    const isLatest = startLoad('catalog');
     try {
       const response = await fetch(webURL('/api/v2/catalog'), { cache: 'no-store' });
-      setCatalog(await readResponseJSON<V2Catalog>(response));
+      const value = await readResponseJSON<V2Catalog>(response);
+      if (!isLatest()) return;
+      setCatalog(value);
       setCatalogError('');
     } catch (loadError) {
+      if (!isLatest()) return;
       setCatalogError(loadError instanceof Error ? loadError.message : 'Dex Web catalog failed to load');
     }
-  }, []);
+  }, [startLoad]);
 
   const loadFlowTypeDefinitions = useCallback(async (flowType: string) => {
+    const isLatest = startLoad(`flow-type:${flowType}`);
     try {
       const value = await fetchFlowTypeDefinitions(flowType);
+      if (!isLatest()) return;
       setFlowTypeDefinitions((current) => ({
         ...current,
         [flowType]: { status: value ? 'ready' : 'missing', value, error: '' },
       }));
     } catch (loadError) {
+      if (!isLatest()) return;
       const message = loadError instanceof Error ? loadError.message : 'Flow definition failed to load';
       setFlowTypeDefinitions((current) => ({
         ...current,
         [flowType]: { status: 'failed', value: current[flowType]?.value ?? null, error: message },
       }));
     }
-  }, []);
+  }, [startLoad]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -113,6 +135,22 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     });
     return () => controller.abort();
   }, [loadFlowTypes]);
+
+  // The listing exists only where Dex Web runs local Connector setup, which does not change while it runs, and
+  // the listing reads every definition, so the app asks once instead of on every page.
+  const isOperatorAPI = flowTypes?.operatorAPI === true;
+  useEffect(() => {
+    if (!isOperatorAPI) return undefined;
+    const controller = new AbortController();
+    fetch(webURL('/api/v2/connector-connections'), { signal: controller.signal })
+      .then((response) => readResponseJSON<{ enabled: boolean }>(response))
+      .then((listing) => setHasConnectorSetup(isConnectorSetupApplicable(listing)))
+      // Without local Connector setup the route does not exist, so the link stays hidden.
+      .catch(() => {
+        if (!controller.signal.aborted) setHasConnectorSetup(false);
+      });
+    return () => controller.abort();
+  }, [isOperatorAPI]);
 
   const requestCatalog = useCallback(() => {
     if (isCatalogRequested.current) return;
@@ -155,6 +193,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WebCatalogValue>(() => ({
     ready,
     canUseOperatorAPI: flowTypes?.operatorAPI === true,
+    hasConnectorSetup,
     canUseV2: flowTypes?.operatorAPI === true && flowTypes.configured,
     flowTypes,
     catalog,
@@ -174,6 +213,7 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
     flowTypeDefinitions,
     flowTypes,
     handleDefinitionError,
+    hasConnectorSetup,
     ready,
     requestCatalog,
     requestFlowTypeDefinitions,
@@ -186,6 +226,11 @@ export function WebCatalogProvider({ children }: { children: ReactNode }) {
       {children}
     </WebCatalogContext.Provider>
   );
+}
+
+/** Connector setup applies wherever local Connector setup runs, even before any connection exists. */
+export function isConnectorSetupApplicable(listing: { enabled: boolean } | null): boolean {
+  return listing?.enabled === true;
 }
 
 /** The catalog, or null outside a WebCatalogProvider, such as a page rendered on its own in a test. */

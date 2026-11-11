@@ -48,6 +48,46 @@ export function flowDefinitionLimitProblem(graph: unknown): string | null {
   return null;
 }
 
+const NODE_STRINGS = ['id', 'kind', 'name'] as const;
+const EDGE_STRINGS = ['id', 'kind', 'from', 'to'] as const;
+const DIAGNOSTIC_STRINGS = ['severity', 'code', 'message'] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Why the graph's elements cannot be read, or null when they can.
+ *
+ * The server checks the same shapes in web/flow_definition_shape.go; the browser checks again before drawing.
+ */
+export function flowDefinitionShapeProblem(graph: unknown): string | null {
+  if (!isRecord(graph)) return 'The Flow Definition Graph is not an object.';
+  const lists: [string, unknown, readonly string[]][] = [
+    ['node', graph.nodes, NODE_STRINGS],
+    ['edge', graph.edges, EDGE_STRINGS],
+    ['diagnostic', graph.diagnostics, DIAGNOSTIC_STRINGS],
+  ];
+  for (const [label, list, requiredStrings] of lists) {
+    if (!Array.isArray(list)) return `The Flow Definition Graph has no ${label}s array.`;
+    for (const [index, element] of list.entries()) {
+      if (!isRecord(element) || requiredStrings.some((field) => typeof element[field] !== 'string')) {
+        return `Its ${label} ${index} is malformed.`;
+      }
+    }
+  }
+  if (graph.groups !== undefined) {
+    if (!Array.isArray(graph.groups)) return 'Its groups are malformed.';
+    for (const [index, group] of graph.groups.entries()) {
+      if (!isRecord(group) || typeof group.id !== 'string' || typeof group.label !== 'string'
+        || !Array.isArray(group.stepIds) || group.stepIds.some((stepId) => typeof stepId !== 'string')) {
+        return `Its group ${index} is malformed.`;
+      }
+    }
+  }
+  return null;
+}
+
 /** Counts code points, as the server does, but only for a string whose UTF-16 length could exceed the limit. */
 function isLongerThan(value: string, limit: number): boolean {
   if (value.length <= limit) return false;

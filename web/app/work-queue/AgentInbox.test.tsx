@@ -83,7 +83,7 @@ function stubServer(sessions: Record<string, Session>, actionReply: (body: Recor
         ],
       });
     }
-    if (path.pathname.startsWith('/api/flow-definitions/')) return json({ error: 'no graphs in this test' }, 404);
+    if (path.pathname === '/api/flow-definitions/by-type') return json({ error: 'no graphs in this test' }, 404);
     if (url === '/api/v2/search') {
       searches.push(JSON.parse(String(init?.body)));
       return json({

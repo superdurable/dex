@@ -177,7 +177,7 @@ client that sends no fetch metadata, the **Origin** host must equal the request
 do not override these checks. A client that sends neither **Origin** nor
 **Sec-Fetch-Site**, such as **curl**, is accepted when it sends JSON.
 
-A request about a Flow type, such as a search, a Display read, an edit, an Action, or a start, sends the revision of that Flow type's definition in **X-Dex-Flow-Definition-Revision**. Changed in 1.45: each Flow type has its own revision, read from **definitionRevision** of **GET /api/flow-definitions/FLOW_TYPE** or of each **GET /api/v2/catalog** entry. A search of several Flow types sends their revisions separated by commas. When a definition changed since the page read it, the request fails with HTTP 409 **FLOW_DEFINITION_CHANGED**, and the page reloads the definition. The top-level **definitionRevision** of the catalog no longer passes this check.
+A request about a Flow type, such as a search, a Display read, an edit, an Action, or a start, sends the revision of that Flow type's definition in **X-Dex-Flow-Definition-Revision**. Changed in 1.45: each Flow type has its own revision, read from **definitionRevision** of **GET /api/flow-definitions/by-type?flowType=FLOW_TYPE** or of each **GET /api/v2/catalog** entry. A search of several Flow types sends their revisions separated by commas. When a definition changed since the page read it, the request fails with HTTP 409 **FLOW_DEFINITION_CHANGED**, and the page reloads the definition. The top-level **definitionRevision** of the catalog no longer passes this check.
 
 Without the [Host check](#allowed-hosts), these checks do not stop DNS rebinding. Restrict accepted host names at the
 reverse proxy, and keep direct access to the Dex Web port limited to trusted

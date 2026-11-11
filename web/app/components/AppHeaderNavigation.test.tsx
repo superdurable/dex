@@ -188,6 +188,18 @@ describe('Dex Web header experimental pages', () => {
     expect(experimentalMenuButton()).toBeNull();
   });
 
+  it('asks for the Connector setup listing once per app load, not on every page', async () => {
+    stubOperatorDexWeb({ flows: 1, connectors: 1 });
+    renderHeader('/v1/flows');
+    await waitFor(() => expect(experimentalItem('Connectors')).not.toBeNull());
+    fireEvent.click(screen.getByText('Open run a'));
+    fireEvent.click(screen.getByText('Open run b'));
+    await waitFor(() => expect(
+      vi.mocked(fetch).mock.calls.filter(([input]) => input === '/api/flow-definition-types').length,
+    ).toBeGreaterThanOrEqual(4));
+    expect(vi.mocked(fetch).mock.calls.filter(([input]) => input === '/api/v2/connector-connections')).toHaveLength(1);
+  });
+
   it('offers Work Queue once any Flow type has a definition, before reading any definition', async () => {
     stubOperatorDexWeb({ flows: 1, connectors: 'missing' });
     renderHeader('/v1/flows');
