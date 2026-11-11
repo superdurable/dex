@@ -6,15 +6,25 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { LocalDirectoryMediaStore } from "@superdurable/dex-agents";
 import { runAgentWorkerProcess } from "@superdurable/dex-agents/testing";
 
 import {
   createScriptedMastraAgentFlow,
   scriptedMastraMarkerDirectoryVariable,
+  scriptedMastraMediaDirectoryVariable,
 } from "./scripted-mastra-agent.js";
 
 const markerDirectory = process.env[scriptedMastraMarkerDirectoryVariable];
 if (markerDirectory === undefined || markerDirectory === "") {
   throw new Error(`${scriptedMastraMarkerDirectoryVariable} is not set`);
 }
-await runAgentWorkerProcess([createScriptedMastraAgentFlow(markerDirectory)]);
+const mediaDirectory = process.env[scriptedMastraMediaDirectoryVariable];
+await runAgentWorkerProcess([
+  createScriptedMastraAgentFlow(
+    markerDirectory,
+    mediaDirectory === undefined || mediaDirectory === ""
+      ? {}
+      : { mediaStore: new LocalDirectoryMediaStore(mediaDirectory) },
+  ),
+]);
