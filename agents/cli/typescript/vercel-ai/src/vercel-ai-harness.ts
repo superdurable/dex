@@ -24,7 +24,7 @@ export const vercelAiCliFlowType = "DexAgentsVercelAiCliSession";
  *
  * @since 0.5.0
  */
-export const defaultVercelAiModel = "openai/gpt-5-mini";
+export const defaultVercelAiModel = "openai/gpt-5.2";
 
 /**
  * The instructions the agent gets when the configuration sets none.

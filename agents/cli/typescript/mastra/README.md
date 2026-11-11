@@ -26,7 +26,7 @@ command prints the `--resume` line that continues it. See the
 
 ## Models and keys
 
-The model defaults to `openai/gpt-5-mini`; set `model` in the file or pass
+The model defaults to `openai/gpt-5.2`; set `model` in the file or pass
 `--model` to change it. The model ID goes to Mastra's model router unchanged,
 so any `<provider>/<model>` ID that Mastra knows works, such as
 `anthropic/claude-sonnet-4-5`. Mastra reads the provider's standard

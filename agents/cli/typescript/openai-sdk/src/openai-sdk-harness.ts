@@ -22,7 +22,7 @@ export const openaiSdkCliFlowType = "DexAgentsOpenAISdkCliSession";
  *
  * @since 0.5.0
  */
-export const defaultOpenAIModel = "gpt-5-mini";
+export const defaultOpenAIModel = "gpt-5.2";
 
 /**
  * The instructions the agent gets when the configuration sets none.
@@ -40,7 +40,7 @@ const openaiModelPrefix = "openai/";
  *
  * The agent offers the runtime's connector and local tools and calls the OpenAI Responses API through the SDK's
  * `OpenAIProvider`, which reads `OPENAI_API_KEY` and `OPENAI_BASE_URL`. The model is an OpenAI model name, such as
- * `gpt-5-mini`; an `openai/` prefix is accepted and dropped. Each turn uses the model and instructions its session
+ * `gpt-5.2`; an `openai/` prefix is accepted and dropped. Each turn uses the model and instructions its session
  * settings resolve to. The SDK's trace upload is off, because the Dex session already records every model and tool
  * call. The `openai` section has no options yet; any key in it is a configuration error.
  *

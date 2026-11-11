@@ -78,7 +78,7 @@ describe("dex-agents-openai-sdk with the OpenAI Agents SDK provider against a sc
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
 
-    assert.equal(api.modelRequests()[0]?.["model"], "gpt-5-mini");
+    assert.equal(api.modelRequests()[0]?.["model"], "gpt-5.2");
     assert.deepEqual([...new Set(api.requests.map((request) => request.authorization))], [`Bearer ${mockApiKey}`]);
     const output = first.stdout.all + first.stderr.all + second.stdout.all + second.stderr.all;
     assert.doesNotMatch(output, new RegExp(mockApiKey));

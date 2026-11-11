@@ -20,7 +20,7 @@ import type { LanguageModelV4 } from "@ai-sdk/provider";
 export const supportedModelProviders: readonly string[] = Object.freeze(["openai", "anthropic"]);
 
 /**
- * Returns the AI SDK language model of a `<provider>/<model>` model ID, such as `openai/gpt-5-mini` or
+ * Returns the AI SDK language model of a `<provider>/<model>` model ID, such as `openai/gpt-5.2` or
  * `anthropic/claude-sonnet-4-5`. OpenAI models use the Responses API.
  *
  * A model ID string is never passed to the AI SDK itself, which would send it to the Vercel AI Gateway.

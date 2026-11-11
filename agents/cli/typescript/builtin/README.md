@@ -27,12 +27,12 @@ and the command prints the `--resume` line that continues it. See the
 
 ## Models and keys
 
-The model defaults to `openai/gpt-5-mini`; set `model` in the file or pass
+The model defaults to `openai/gpt-5.2`; set `model` in the file or pass
 `--model` to change it. A model ID names its provider:
 
 | Model ID | Provider package | Environment variables |
 | --- | --- | --- |
-| `openai/<model>`, such as `openai/gpt-5-mini` | `@ai-sdk/openai`, Responses API | `OPENAI_API_KEY`, optional `OPENAI_BASE_URL` |
+| `openai/<model>`, such as `openai/gpt-5.2` | `@ai-sdk/openai`, Responses API | `OPENAI_API_KEY`, optional `OPENAI_BASE_URL` |
 | `anthropic/<model>`, such as `anthropic/claude-sonnet-4-5` | `@ai-sdk/anthropic` | `ANTHROPIC_API_KEY`, optional `ANTHROPIC_BASE_URL` |
 
 Any other model ID stops the command, or fails the turn when session settings

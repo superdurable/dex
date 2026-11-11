@@ -22,7 +22,7 @@ export const mastraCliFlowType = "DexAgentsMastraCliSession";
  *
  * @since 0.5.0
  */
-export const defaultMastraModel = "openai/gpt-5-mini";
+export const defaultMastraModel = "openai/gpt-5.2";
 
 /**
  * The instructions the agent gets when the configuration sets none.
@@ -37,7 +37,7 @@ export const defaultInstructions =
  * The `dex-agents-mastra` command: a Mastra agent in the terminal.
  *
  * The agent offers the runtime's connector and local tools. The model ID is any Mastra model router ID, such as
- * `openai/gpt-5-mini` or `anthropic/claude-sonnet-4-5`, and Mastra reads the provider's standard API key variable.
+ * `openai/gpt-5.2` or `anthropic/claude-sonnet-4-5`, and Mastra reads the provider's standard API key variable.
  * Each turn uses the model and instructions its session settings resolve to. The `mastra` section has no options
  * yet; any key in it is a configuration error.
  *

@@ -78,7 +78,7 @@ describe("dex-agents-vercel-ai with the AI SDK OpenAI provider against a scripte
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
 
-    assert.equal(api.modelRequests()[0]?.["model"], "gpt-5-mini");
+    assert.equal(api.modelRequests()[0]?.["model"], "gpt-5.2");
     assert.deepEqual([...new Set(api.requests.map((request) => request.authorization))], [`Bearer ${mockApiKey}`]);
     const output = first.stdout.all + first.stderr.all + second.stdout.all + second.stderr.all;
     assert.doesNotMatch(output, new RegExp(mockApiKey));
@@ -149,7 +149,7 @@ describe("dex-agents-vercel-ai with the AI SDK OpenAI provider against a scripte
   });
 
   test("a model without a supported provider stops the command", async () => {
-    const cli = start(newHome({ ...noConnectors, model: "gpt-5-mini" }));
+    const cli = start(newHome({ ...noConnectors, model: "gpt-5.2" }));
     assert.equal(await cli.waitForExit(), 1);
     assert.match(cli.stderr.all, /the model must be openai\/<model> or anthropic\/<model>/);
     assert.deepEqual(api.modelRequests(), []);

@@ -29,7 +29,7 @@ export const builtinCliFlowType = "DexAgentsBuiltinCliSession";
  *
  * @since 0.5.0
  */
-export const defaultBuiltinModel = "openai/gpt-5-mini";
+export const defaultBuiltinModel = "openai/gpt-5.2";
 
 /**
  * The instructions the agent gets when the configuration sets none.

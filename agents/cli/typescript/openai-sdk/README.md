@@ -27,9 +27,9 @@ and the command prints the `--resume` line that continues it. See the
 
 ## Models and keys
 
-The model defaults to `gpt-5-mini`; set `model` in the file or pass `--model`
+The model defaults to `gpt-5.2`; set `model` in the file or pass `--model`
 to change it. The model is an OpenAI model name. An `openai/` prefix, as in
-`openai/gpt-5-mini`, is accepted and dropped. The SDK's `OpenAIProvider` calls
+`openai/gpt-5.2`, is accepted and dropped. The SDK's `OpenAIProvider` calls
 the Responses API and reads `OPENAI_API_KEY` and, optionally,
 `OPENAI_BASE_URL`. The command never prints or stores the key.
 
