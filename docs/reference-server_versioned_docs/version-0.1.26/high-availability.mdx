@@ -12,24 +12,31 @@ The node holds a lease object in object storage. **lease.duration** defaults to
 
 **dex-server-zd dev** defaults **lease.duration** to 30 seconds, unless its
 override file sets it. A dev node has no standby, so the longer lease costs no
-failover time. It lets the node ride out longer host stalls. A dev node holds an
-exclusive lock on **dev.lock** in its data directory, so a second dev process on
-that directory fails to start. While it holds the lock, a held lease belongs to
-a stopped process. The dev node then takes the lease over at once with a raised
-epoch, so a restart does not wait, even after a crash. On a filesystem that
-cannot lock files, the dev node logs a warning and waits for the lease to
-expire, up to 31 seconds. The default **dev.durabilityMode**, **strict**,
-flushes every write with fsync before the reply. It keeps every acknowledged
-write across such a crash or kill, and across a host crash or power loss.
-**processCrashSafe** skips fsync, so it is faster, but a host crash or power
-loss can lose recent writes. The **--durability** flag of **dex-server-zd dev**
-overrides the setting. After an abrupt exit in **relaxed** mode, the dev node
-refuses to start until you delete its data directory. See
+failover time, and it lets the node survive longer host stalls.
+
+A dev node holds an exclusive lock on **dev.lock** in its data directory, so a
+second dev process on that directory fails to start. While a dev node holds the
+lock, any lease that is still held belongs to a stopped process. The dev node
+takes that lease over at once with a raised epoch, so a restart does not wait,
+even after a crash. On a filesystem that cannot lock files, the dev node logs a
+warning and waits for the lease to expire, up to 31 seconds.
+
+The default **dev.durabilityMode**, **strict**, flushes every write with fsync
+before the reply. Every acknowledged write survives a process crash or kill,
+and also a host crash or power loss. **processCrashSafe** skips fsync, so it is
+faster, but a host crash or power loss can lose recent writes. **relaxed**
+keeps writes in memory until a graceful stop. The **--durability** flag of **dex-server-zd dev** overrides the setting. After an
+abrupt exit in **relaxed** mode, the dev node refuses to start until you delete
+its data directory. See
 [local development](/reference/web/dex-web#run-against-server-zd).
 
+**dex-server-zd local** uses the same lease default, lock, takeover, and
+durability modes. See
+[Single node on local disk](/reference/server/0.1.26/configuration#single-node-local).
+
 Data safety does not depend on the duration. Each lease acquisition raises the
-node epoch, and every log write is conditional. Together they fence a process
-that lost its lease.
+node epoch, and every log write is conditional. Together they ensure that a
+process that lost its lease can no longer write.
 
 The duration affects takeover time after a crash. A graceful shutdown releases
 the lease, so the replacement starts at once. After a crash, a SIGKILL, or the
@@ -37,8 +44,8 @@ loss of a Kubernetes node, the replacement waits until the old lease expires,
 plus 1 second. That wait is at most **lease.duration** plus 1 second. Recovery
 starts after it. Recovery fails each attempt that a Worker had received with
 NOT_COMPLETED, and the attempt consumes a retry. The exception is an ASYNC
-attempt whose start was not yet durable when the node crashed. It runs again
-with the same attempt number and consumes no retry.
+attempt whose start the node had not yet made durable when it crashed. That
+attempt runs again with the same attempt number and consumes no retry.
 
 The duration only partly affects object storage outages:
 
@@ -52,20 +59,20 @@ The duration only partly affects object storage outages:
   attempt fails, the node stops.
 - A renewal write that lands after its attempt was cut off still counts if a
   later attempt finds it. A later attempt finds it by reading the lease after
-  its own write fails. The node adopts that write only before the renewal
+  its own write fails. The node accepts that write only before the renewal
   cutoff.
 - A renewal lost to another holder, or a permanent storage error, stops the
   node at once.
 - A log write that object storage does not accept within 10 seconds also stops
   the node. This limit is fixed and does not depend on the lease duration.
 
-A longer lease therefore lets an idle node ride out a stalled object store or a
-stalled host for longer. After any of these stops, the process exits 1.
+So a longer lease lets an idle node survive a stalled object store or a stalled
+host for longer. After any of these stops, the process exits 1.
 
 For a single-replica deployment, set **lease.duration** to 60 seconds. Lease
 renewals then make about 180 PUT requests per hour, compared with about 1,080 at
 10 seconds. Keep the duration at or below about 120 seconds. A longer lease
-saves few requests, but the unavailable time after a crash keeps growing.
+saves few more requests, but the downtime after a crash keeps growing.
 
 By default, a starting node waits while another process holds the lease. Set
 **lease.failIfHeld** to true to fail startup instead.
@@ -96,11 +103,11 @@ The other **standby** fields have defaults that fit most deployments:
 | **laggingTakeoverDelay** | 1500ms | Hot mode only. How long a standby that is not hot waits before it takes an available lease. |
 | **behindLagThreshold** | 10s | Hot mode only. The lag above which a standby is behind instead of hot. |
 
-**hot** needs **lease.failIfHeld** set to false. **dex-server-zd dev** accepts
-only **cold**. In hot mode, **stepDownHoldOff** must be longer than
-**laggingTakeoverDelay** plus **heldLeasePollInterval**. A release without hot
-standby rejects a configuration that has a **standby** section. Upgrade every
-process before you add the section.
+**hot** needs **lease.failIfHeld** set to false. **dex-server-zd dev** and
+**dex-server-zd local** accept only **cold**. In hot mode, **stepDownHoldOff**
+must be longer than **laggingTakeoverDelay** plus **heldLeasePollInterval**. A
+release without hot standby rejects a configuration that has a **standby**
+section, so upgrade every process before you add the section.
 
 A hot standby only reads object storage. It runs no Steps or timers, and it
 answers public API calls with **UNAVAILABLE**. Give it a local volume of the
@@ -109,20 +116,20 @@ same size as the active process.
 ### Takeover {#hot-standby-takeover}
 
 A hot standby takes a released lease within about one
-**heldLeasePollInterval**. After a crash it still waits until the old lease
-expires, plus 1 second, as described in [Lease](#lease). It shortens the
-recovery after that wait, not the wait itself.
+**heldLeasePollInterval**. After a crash, it still waits until the old lease
+expires, plus 1 second, as described in [Lease](#lease). Hot standby shortens
+the recovery after that wait, not the wait itself.
 
 Before it writes the lease, a hot standby waits 0 to 50 ms. A standby that is
 not hot waits about **laggingTakeoverDelay** first. A standby is not hot while
 it bootstraps from a snapshot, restarts after an error, or trails the log by
-more than **behindLagThreshold**. A hot standby therefore wins when there is
-one. The conditional lease write alone decides which process takes over.
+more than **behindLagThreshold**. So when a hot standby exists, it wins. The
+conditional lease write alone decides which process takes over.
 
 If a takeover fails before the standby holds the lease, the standby keeps
-following the log. It tries again after a backoff from 1 to 30 seconds. A
-failure after it holds the lease releases the lease and exits the process with
-status 1.
+following the log. It tries again after a backoff of 1 to 30 seconds. If the
+takeover fails after the standby holds the lease, the standby releases the
+lease and the process exits with status 1.
 
 ### Health and probes {#hot-standby-health}
 
@@ -139,21 +146,21 @@ A standby never passes a startup or liveness probe on gRPC health. Give it a
 TCP or exec startup probe and liveness probe.
 
 A standby closes each client connection after about 3 seconds. A client that
-reached it, such as through a Service endpoint that was not yet updated, then
-reconnects and reaches the active process.
+reached it, for example through a Service endpoint that was not yet updated,
+then reconnects and reaches the active process.
 
-A process whose node lease is no longer valid, such as one resumed after a
-freeze longer than its lease, answers public API calls with **UNAVAILABLE** and
-readiness names with **NOT_SERVING** at once, before it exits. It answers no
-call from state that another process may have changed since, and it hands
-Workers no new task. Two kinds of open streams are exceptions until it stops
-serving moments later. An open **PollWorkerTask** stream still carries pings and
-the frames of a task that a Worker already runs. A gRPC health **Watch** stream
-keeps reporting its last status.
+A process can find that its node lease is no longer valid, for example when it
+resumes after a freeze longer than its lease. It then immediately answers public
+API calls with **UNAVAILABLE** and readiness checks with **NOT_SERVING**, and
+then exits. It answers no call from state that another process may have changed
+since, and it hands Workers no new task. Until it stops serving moments later,
+two kinds of open streams continue. An open **PollWorkerTask** stream still
+carries pings and the frames of a task that a Worker is already running. A gRPC
+health **Watch** stream keeps reporting its last status.
 
 ### Kubernetes {#hot-standby-kubernetes}
 
-Change the [StatefulSet example](/reference/server/0.1.19/kubernetes#one-replica-in-a-statefulset) as follows:
+Change the [StatefulSet example](/reference/server/0.1.26/kubernetes#one-replica-in-a-statefulset) as follows:
 
 - Set **replicas** to 2 and **podManagementPolicy** to **Parallel**. Each pod
   gets its own volume from the claim template.
@@ -176,12 +183,13 @@ over.
 
 ### Lease duration and alerts {#hot-standby-lease-and-alerts}
 
-Keep **lease.duration** at about 10 seconds, the default, when a standby is
-deployed. After a crash, the standby waits until the old lease expires, plus 1
+Keep **lease.duration** at about 10 seconds, the default, when you deploy a
+standby. After a crash, the standby waits until the old lease expires, plus 1
 second, so the lease bounds the failover time. Do not lower it much when you use
-[Attribute Store sync](/reference/server/0.1.19/attribute-store-sync): a write transaction lasts at most a
-quarter of **lease.duration**, 2.5 seconds with a 10-second lease. See
-[Write timeout](/reference/server/0.1.19/attribute-store-sync#attribute-store-write-timeout).
+[Attribute Store sync](/reference/server/0.1.26/attribute-store-sync): a write
+transaction lasts at most a quarter of **lease.duration**, which is 2.5 seconds
+with a 10-second lease. See
+[Write timeout](/reference/server/0.1.26/attribute-store-sync#attribute-store-write-timeout).
 
 Alert when no standby is ready to take over, when a standby failed or keeps
 restarting, and when its lag grows:
@@ -200,30 +208,33 @@ dexzd_hot_standby_lag_seconds > 5
 ## Step down the active process {#step-down}
 
 **dexcli admin step-down** asks the active process of a node ID to give up its
-lease. The process stops handing out new Step tasks and drains running attempts
-as described under [graceful shutdown](/reference/server/0.1.19/kubernetes#graceful-shutdown), using the same
-**lifecycle.attemptDrainTimeout**. It keeps renewing the lease and accepting
-Worker heartbeats and final output until the drain ends. Busy Worker streams
+lease. The process stops handing out new Step tasks and drains running attempts,
+as described under
+[graceful shutdown](/reference/server/0.1.26/kubernetes#graceful-shutdown), with the
+same **lifecycle.attemptDrainTimeout**. Until the drain ends, it keeps renewing
+the lease and accepting Worker heartbeats and final output. Busy Worker streams
 stay open until their results commit or the timeout expires.
 
 The process then releases the lease and keeps running as a standby. Calls that
 finish before the release keep their answers. Calls still open at the release
-answer **UNAVAILABLE**, so clients retry on the new active process. Attempts
-still running when the drain expires are interrupted. The new active process
-fails them with **NOT_COMPLETED**, consuming a retry according to their retry
-policy. Attempts not yet handed to a Worker do not fail; the new active process
-dispatches them. Another process with the same node ID, including a hot standby,
-can take the lease only after the active releases it, as after a graceful
-shutdown. The stepped-down process waits for a hold-off,
-**standby.stepDownHoldOff**, before it competes for the lease again. If no other
-process takes over in that time, it takes the lease back. With **standby.mode**
-set to **hot**, it follows the log as a [hot standby](#hot-standby) while it
-waits.
+return **UNAVAILABLE**, so clients retry on the new active process. Attempts
+still running when the drain timeout expires are interrupted. The new active
+process fails them with **NOT_COMPLETED**, and each consumes a retry according
+to its retry policy. Attempts not yet handed to a Worker do not fail; the new
+active process dispatches them.
+
+As after a graceful shutdown, another process with the same node ID, including
+a hot standby, can take the lease only after the active process releases it.
+The stepped-down process waits for **standby.stepDownHoldOff** before it
+competes for the lease again. If no other process takes over in that time, it
+takes the lease back. With **standby.mode** set to **hot**, it follows the log
+as a [hot standby](#hot-standby) while it waits.
 
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
 **holderProcessId** of the active process, and changes nothing. Every lease
 acquisition raises the node epoch. Both commands need an
-[admin credential](/reference/server/0.1.19/authentication#admin-credentials). Step down also needs the **--yes** flag.
+[admin credential](/reference/server/0.1.26/authentication#admin-credentials). Step
+down also needs the **--yes** flag.
 
 ~~~bash
 dexcli --server dex.example.internal:8801 admin describe \
@@ -247,27 +258,29 @@ its flags as follows:
 - With both flags, it sends them as they are and does not describe.
 - **--expected-node-epoch** alone is a usage error.
 
-A step down that reaches a standby connection of a process that has just taken
-over answers **FAILED_PRECONDITION** at once and changes nothing. Run it again;
-it then reaches the active process.
+A process may have just taken over while its client connection was still open
+from its time as a standby. A step down that arrives on such a connection
+returns **FAILED_PRECONDITION** at once and changes nothing. Run it again; it
+then reaches the active process.
 
-If the first describe fails, the command steps nothing down. A step down in
-progress may be one that you or someone else already started. Wait past the
-hold-off, run **dexcli admin describe**, and step down again only if the
-switchover you wanted has not happened.
+If the first describe fails, the command steps nothing down. The failure can
+mean that a step down is already in progress, started by you or someone else.
+Wait past the hold-off, run **dexcli admin describe**, and step down again only
+if the switchover you wanted has not happened.
 
 After the release, the step down call watches the lease. It returns as soon as
 another process takes over. Otherwise it returns after the hold-off and one
-attempt to take the lease back. The call therefore lasts at most the attempt
-drain timeout, the commit drain bound, the release, the hold-off, and one lease
+attempt to take the lease back. So the call lasts at most the sum of the attempt
+drain timeout, the wait for writes already in flight to commit, the release,
+the hold-off, and one lease
 acquisition attempt.
 
 There is one exception. The process competes for the lease again only after the
-local store of its stopped serving period has closed. If a stuck task keeps that
-store open, the process waits up to about 64 seconds after the release. If no
-other process has taken over by then, the call returns **INTERNAL**. Either way,
-the process then exits 1 without taking the lease. The restart releases the
-store. Meanwhile another process of the same node ID can take over.
+local store it used while serving has closed. If a stuck task keeps that store
+open, the process waits up to about 64 seconds after the release. If no other
+process has taken over by then, the call returns **INTERNAL**. In both cases,
+the process then exits 1 without taking the lease, and the restart releases the
+store. Meanwhile, another process with the same node ID can take over.
 
 **dexcli admin step-down** waits up to 2 minutes unless you set **--timeout**.
 This covers the default **30s** attempt drain. If you raise
@@ -331,10 +344,10 @@ new node epoch.
 
 A stepped-down process reports **NOT_SERVING** while it keeps running. Before
 you step down a process, make sure that its liveness probe does not use gRPC
-health, as described in [health checks](/reference/server/0.1.19/kubernetes#health-checks). Otherwise Kubernetes
+health, as described in [health checks](/reference/server/0.1.26/kubernetes#health-checks). Otherwise Kubernetes
 restarts the stepped-down process.
 
 Without authentication, anyone who can reach **api.listen** can step the node
-down, again and again. Configure [admin credentials](/reference/server/0.1.19/authentication#admin-credentials), or
+down repeatedly. Configure [admin credentials](/reference/server/0.1.26/authentication#admin-credentials), or
 restrict access to **api.listen**. A server without **AdminService** answers
 **UNIMPLEMENTED**.
