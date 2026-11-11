@@ -3,17 +3,27 @@ id: index
 title: Quick Start
 sidebar_label: Quick Start
 slug: /quick-start
+description: Run a Flow that charges an order, waits on a Timer, and ships it. Stop its Worker during the wait and watch Dex finish the Flow without charging again.
 ---
 
 # Quick Start
 
 Run your first Flow, stop its Worker in the middle of a wait, and watch Dex continue the Flow after a restart. It takes about 10 minutes.
 
-:::note Draft
+## What you will build
 
-The steps after Install need a new example under **examples/quick-start** in all five SDKs. This preview shows the page outline. The [Order Processing](/use-cases/order-processing) example has the full code until then.
+An order Flow with two Steps:
 
-:::
+- **Charge** charges the order through a mock payment API.
+- **Ship** waits 30 seconds on a Timer, then ships the order through a mock shipping API.
+
+The mock API prints each call, so the Worker's output shows which Steps ran. You start a Flow, stop the Worker while Ship waits, and start the Worker again. Ship runs when the Timer fires. Charge does not run a second time.
+
+## Before you start
+
+- **dexcli**, installed in step 1.
+- The toolchain for your language. Python needs Python 3.11 or later and uv.
+- Git, to get the example code.
 
 ## Build it with your coding agent
 
@@ -36,30 +46,174 @@ installing anything else.
 
 Or follow the steps below yourself.
 
-## 1. Install Dex
+## 1. Install Dex and get the code
+
+Install **dexcli** and start Dex on your machine:
 
 ```bash
 brew install superdurable/tap/dexcli
 dexcli dev
 ```
 
-**dexcli dev** starts Dex Server and Dex Web. [Run Locally](/components/run-locally) lists the addresses and options.
+**dexcli dev** starts Dex Server at **127.0.0.1:8801** and Dex Web at [http://127.0.0.1:8802](http://127.0.0.1:8802). Keep it running. [Run Locally](/components/run-locally) lists the options.
+
+In a second terminal, get the example code:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/quick-start',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+git clone https://github.com/superdurable/dex.git
+cd dex/examples/python/quick-start
+uv sync --locked
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## 2. Write the Flow
 
-The Flow charges a buyer, waits 30 seconds on a Timer, and then ships.
+A Flow is a process that Dex runs to completion. Each Step is one unit of work in it. Dex saves the result of each Step, so a Step that finished does not run again.
 
-## 3. Register a Worker and a Client
+**Charge** calls the payment API and moves to **Ship**. **Ship** waits on a 30-second Timer before it runs. The mock API comes in through the constructor.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/quick-start',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class Charge(Step[str]):
+    def __init__(self, shop: ShopApi) -> None:
+        self.shop = shop
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        self.shop.charge(input)
+        return go_to(Ship, input)
+
+
+class Ship(Step[str]):
+    def __init__(self, shop: ShopApi) -> None:
+        self.shop = shop
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        return Wait.until(
+            Timer.by_duration(timedelta(seconds=30), condition_id=SHIP_DELAY_TIMER)
+        )
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        self.shop.ship(input)
+        return graceful_complete(f"shipped {input}")
+
+
+class OrderFlow(Flow[str]):
+    def __init__(self, shop: ShopApi) -> None:
+        self.charge = Charge(shop)
+        self.ship = Ship(shop)
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.charge).other_steps(self.ship)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker.
+
+## 3. Add a Worker and a Client
+
+The Worker runs the Steps. It connects out to Dex for work, so it needs no open port. The Client starts Flows. Both register the same Flow.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/quick-start',
+  }}>
+<SdkSnippet lang="python">
+
+The Worker, in **worker.py**:
+
+```python
+def main() -> None:
+    order_flow = OrderFlow(ShopApi())
+    registry = Registry((order_flow,))
+    cache = open_cache(Path(".dex-blob-cache/worker"))
+    worker = Worker(registry, cache, WorkerOptions(server_address=SERVER_ADDRESS))
+    thread = threading.Thread(target=worker.start, daemon=True)
+    try:
+        thread.start()
+        worker.wait_pull_registered(timeout=30)
+        print("Worker is ready. Press Ctrl+C to stop it.", flush=True)
+        thread.join()
+    except KeyboardInterrupt:
+        print("Stopping the Worker.", flush=True)
+    finally:
+        worker.close()
+        cache.close()
+```
+
+The Client, in **start.py**:
+
+```python
+def main() -> None:
+    order_id = sys.argv[1] if len(sys.argv) > 1 else f"order-{uuid.uuid4().hex[:8]}"
+    order_flow = OrderFlow(ShopApi())
+    registry = Registry((order_flow,))
+    cache = open_cache(Path(".dex-blob-cache/client"))
+    client = Client(registry, cache, ClientOptions(server_address=SERVER_ADDRESS))
+    try:
+        client.start_flow(order_flow, order_id, order_id)
+        print(f"Started Flow {order_id}. Ship runs in 30 seconds.", flush=True)
+    finally:
+        client.close()
+        cache.close()
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The order ID is also the Flow ID. Dex runs one Flow for each ID.
 
 ## 4. Start a Flow
 
+Start the Worker in the second terminal:
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```bash
+uv run --frozen python worker.py
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Start a Flow in a third terminal:
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```bash
+uv run --frozen python start.py
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Worker prints **Charged order-...**. Ship now waits on its Timer.
+
 ## 5. Stop the Worker
 
-Stop the Worker while the Flow waits on its Timer. Start it again. The Flow completes, and Charge does not run again.
+Within 30 seconds, press Ctrl+C in the Worker's terminal. Then start the Worker again with the same command.
+
+When the Timer fires, the new Worker prints **Shipped order-...**. It does not print **Charged** again. Dex had saved the result of Charge, so only Ship ran.
 
 ## 6. See the run in Dex Web
 
-Open the Flow in Dex Web. The Execution graph shows each Step that ran:
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802) and select your Flow. The Execution graph shows each Step that ran:
 
 ![Dex Web Execution graph](/img/quick-start/step-graph.png)
 
@@ -71,6 +225,6 @@ You have run your first durable Flow. Its Worker stopped in the middle of a wait
 
 ## Next
 
-- [Order Processing](/use-cases/order-processing): a full product example with approvals and a refund.
-- [Concepts](/concepts)
-- [Agent Quick Start](/agent-frameworks/quick-start)
+- [Concepts](/concepts): Flows, Steps, waits, and the other building blocks.
+- [Order Processing](/use-cases/order-processing): a full product example with approvals, retries, and a refund.
+- [Agent Quick Start](/agent-frameworks/quick-start): run an AI agent as a durable session.
