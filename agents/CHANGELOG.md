@@ -248,8 +248,7 @@ for the Dex SDK and framework versions each release supports.
   it; a missing object fails the turn with **MediaStoreError**.
 - `send_user_message` returns `false` for invalid images, or for images when
   the runner does not implement **ImageUserMessageBuilder**
-  (`buildUserMessageWithImages`). The built-in loop and the framework adapters
-  implement it when built with a media store.
+  (`buildUserMessageWithImages`). The built-in loop does not implement it yet.
 - Framework adapters show images to their model when built with a media
   store: a new optional **media_store** (`mediaStore`) on each adapter's
   runner and session-flow factory. With a store, the runner accepts images,
@@ -259,32 +258,6 @@ for the Dex SDK and framework versions each release supports.
   images reach the model in the framework's tool-result form. Without a
   store the adapter refuses images, as before. See each adapter README,
   "Images".
-- Built-in agent loop, Python and TypeScript: images reach the model when the
-  session Flow has a media store, a new optional **media_store** on
-  **builtin_agent_session_flow** and **BuiltinLoopAgentRunner**
-  (`mediaStore` in the new third argument of `createBuiltinAgentSessionFlow`,
-  **BuiltinAgentSessionFlowOptions**, and the second argument of
-  `BuiltinLoopAgentRunner`). With a store, the runner implements
-  **ImageUserMessageBuilder**, its stored `user_text` and `tool_result` items
-  keep image references in a new `images` list (written only when non-empty,
-  so other items are unchanged), and it reads the bytes right before each
-  model call into the new **ModelRequest.image_bytes** (`imageBytes`). New
-  **UserTextItem.images** and **ToolResultItem.images**
-  (`ModelUserTextItem.images`, `ModelToolResultItem.images`). A store read
-  failure fails that `RunModel` attempt, which retries. Context summary calls
-  see text only. Without a store the session refuses images, as before, and
-  a tool result's references are stored but not shown to the model. See the
-  core README, "Images on the built-in loop".
-- **LiteLLMModelClient** sends images as base64 `data:` URLs: `input_image`
-  parts in Responses API messages and `function_call_output` outputs;
-  `image_url` parts in Chat Completions user messages, and in tool messages
-  for Anthropic, Bedrock, Gemini, and Vertex AI. Other Chat Completions
-  providers, such as OpenAI, get the tool result's images in a user message
-  after the run of tool messages, with **TOOL_RESULT_IMAGES_TEXT**.
-  `estimate_input_tokens` counts **ESTIMATED_IMAGE_INPUT_TOKENS** per image.
-- **createAiSdkModelClient** sends images as AI SDK `file` parts in user
-  messages and in tool result `content` output. `estimateInputTokens` counts
-  **estimatedImageInputTokens** per image.
 - Python and TypeScript cores: **McpToolSource** takes an optional
   **media_store** (`mediaStore`). With one, the `image` content of a
   successful result is uploaded inside the tool Step and returned in
@@ -314,11 +287,10 @@ for the Dex SDK and framework versions each release supports.
   attaches it to the next message; a harness whose runner takes no images
   says the message was not sent. **HarnessContext.media_store**
   (`mediaStore`) hands the store to the harness, and connector tool images go
-  to the same store. The built-in, Claude Agent SDK, OpenAI Agents SDK,
-  Pydantic AI, Deep Agents, and Google ADK commands in Python and the
-  built-in, Claude Agent SDK, OpenAI Agents SDK, Vercel AI SDK, and Mastra
-  commands in TypeScript pass the store to their runner or adapter, so their
-  models see the images. See
+  to the same store. The Claude Agent SDK, OpenAI Agents SDK, Pydantic AI,
+  Deep Agents, and Google ADK commands in Python and the Claude Agent SDK,
+  OpenAI Agents SDK, Vercel AI SDK, and Mastra commands in TypeScript pass the
+  store to their adapter, so their models see the images. See
   [Images](cli/README.md#images).
 
 ### Changed
