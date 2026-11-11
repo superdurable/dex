@@ -167,11 +167,6 @@ latest run of the Flow ID. When they match, it returns that Run ID if
 it is off. It does not apply the ID reuse policy. When they differ, it applies
 the ID reuse policy and returns the already-started error for a rejected start.
 
-Changed in server-zd 0.1.26: before, Dex compared RequestIDs only when the ID
-reuse policy rejected the start. A policy that allowed another run started
-one, and **IDReuseTerminateIfRunning** terminated the run that the retried
-request had started.
-
 ## StartFlow best practices {#start-flow-best-practices}
 
 Call **StartFlow** directly with a stable business **Flow ID**. Do not read,
