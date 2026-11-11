@@ -43,7 +43,8 @@ TypeScript commands need Node.js 22 or 24. **dex-agents-pi** needs Node.js
 | **dex-agents-mastra** | **@superdurable/dex-agents-mastra-cli** | Mastra | **openai/gpt-5.2** | Any **provider/model** that Mastra's model router knows |
 | **dex-agents-pi** | **@superdurable/dex-agents-pi-cli** | Pi coding agent on the built-in agent loop | **anthropic/claude-opus-5-5** | pi-ai name, **provider/model**, such as **openrouter/anthropic/claude-sonnet-5** |
 
-The Python and TypeScript commands with the same name behave the same.
+The Python and TypeScript commands share the configuration format, the chat,
+and the session rules. This page notes the differences where they apply.
 **--model** overrides the configured model for one run.
 
 ## Install and run {#install}
@@ -85,13 +86,17 @@ store a key.
 | **dex-agents-claude-sdk** | **ANTHROPIC_API_KEY** |
 | **dex-agents-openai-sdk** | **OPENAI_API_KEY**; optional **OPENAI_BASE_URL** |
 | **dex-agents-google-adk** | **GOOGLE_API_KEY** or **GEMINI_API_KEY** |
-| **dex-agents-builtin**, **dex-agents-pydantic-ai**, **dex-agents-deepagents**, **dex-agents-vercel-ai**, **dex-agents-mastra** | The key of the model's provider, such as **OPENAI_API_KEY** (optional **OPENAI_BASE_URL**), **ANTHROPIC_API_KEY** (optional **ANTHROPIC_BASE_URL**), or **GOOGLE_API_KEY** for a Google model |
+| **dex-agents-builtin** (Python) | LiteLLM reads each provider's standard variables, such as **OPENAI_API_KEY** and **OPENAI_BASE_URL** for **openai/** models and **ANTHROPIC_API_KEY** for **anthropic/** models |
+| **dex-agents-pydantic-ai** | **OPENAI_API_KEY** for **openai:**, optional **OPENAI_BASE_URL**; **ANTHROPIC_API_KEY** for **anthropic:**, optional **ANTHROPIC_BASE_URL**; **GOOGLE_API_KEY** for **google-gla:** |
+| **dex-agents-deepagents** | **OPENAI_API_KEY** for **openai:**, optional **OPENAI_BASE_URL**; **ANTHROPIC_API_KEY** for **anthropic:**; **GOOGLE_API_KEY** for **google_genai:** |
+| **dex-agents-builtin** (TypeScript), **dex-agents-vercel-ai** | **OPENAI_API_KEY** for **openai/**, optional **OPENAI_BASE_URL**; **ANTHROPIC_API_KEY** for **anthropic/**, optional **ANTHROPIC_BASE_URL** |
+| **dex-agents-mastra** | The provider's standard variable, such as **OPENAI_API_KEY**, optional **OPENAI_BASE_URL**, or **ANTHROPIC_API_KEY** |
 | **dex-agents-pi** | The key that pi-ai names for the provider, such as **ANTHROPIC_API_KEY**, **OPENAI_API_KEY**, or **GEMINI_API_KEY** |
 
 **dex-agents-pi** stops before the chat when the configured model's key is
 missing, and names the variable. A turn whose session settings pick a model
-without a key fails with the same message. Use a real API key: pi-ai treats an
-**ANTHROPIC_API_KEY** that starts with **sk-ant-oat** as an OAuth token.
+without a key fails with the same message. An **ANTHROPIC_API_KEY** that
+starts with **sk-ant-oat** is not treated as an API key; use a real API key.
 
 The OpenAI Agents SDK commands turn off the SDK's trace upload. Dex records
 every model call and tool call in the session.
