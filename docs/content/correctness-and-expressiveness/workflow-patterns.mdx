@@ -58,8 +58,11 @@ native join.
 Ten patterns stay **+/-**, for these reasons:
 
 - WCP-15 and WCP-36 add instances while others run. A Join needs the branch
-  count when it forks. So these examples keep a start counter, an intake flag,
-  a loop that waits again, and a lock.
+  count when it forks, so neither example uses one. WCP-15 keeps a start
+  counter and an intake flag under a lock, and its join waits again after
+  each result. WCP-36 keeps a flag that closes admission, an AttributeMap of
+  started bids, and a lock, and its join waits again after each result until
+  its condition holds.
 - WCP-33 queues the triggers of each incoming branch separately and keeps
   extra triggers for later firings. A Join counts results per round. It does
   not queue them per branch.
@@ -67,7 +70,8 @@ Ten patterns stay **+/-**, for these reasons:
   reach the merge. That is a reachability question, not a count.
 - WCP-17 and WCP-40 rest on an Attribute lock, which covers one **Execute**
   only.
-- WCP-18, WCP-20, WCP-23, and WCP-39 are not joins.
+- WCP-18, WCP-20, WCP-23, and WCP-39 are not joins, so the Join does not
+  change them. Their rows give the reasons for their ratings.
 
 ### Limits of the Join {#join-limits}
 
@@ -85,11 +89,15 @@ branch Steps. These limits follow.
 - Canceling a branch from outside does not change the ratings. In Petri nets and YAWL,
   canceling a task inside a synchronized region also deadlocks the AND-join,
   unless the cancel region includes the join.
+- A cancelling join's round is never reset. Its canceled branches never
+  report, so a wait for the rest would never finish. In a loop, the next
+  round forks a new round directly. Its round key keeps it apart from the old
+  round.
 - A join Step can be canceled after its wait consumed results but before its
   **Execute** result is saved. Whether those results return to the round
-  depends on the server version. See the
-  [server change log](/reference/server/changelog). When they are lost, a new
-  join for the same round never fires.
+  depends on the server version. See
+  [canceled Steps and consumed messages](/reference/server/runtime-data#canceled-step-messages).
+  When they are lost, a new join for the same round never fires.
 
 ## How the ratings were checked {#how-the-ratings-were-checked}
 
@@ -182,7 +190,9 @@ The ratings depend on these Dex behaviors.
 - A Step method publishes only when it succeeds. So a retried branch reports
   its result once.
 - A decision can limit its cancellation to sibling Steps. Siblings are the
-  Steps that one decision started together.
+  Steps that one decision started together. When an RPC forked a round with
+  an explicit round key, the branches are siblings of every Step that this
+  RPC name ever started. Cancel such branches explicitly by Step type.
 
 See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 [SubFlow](/concepts/primitives/subflow) for these concepts.

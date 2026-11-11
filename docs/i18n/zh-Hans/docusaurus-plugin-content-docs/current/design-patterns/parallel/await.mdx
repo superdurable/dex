@@ -325,7 +325,7 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 
 ## 规则
 
-- 汇合 Step 要和各分支在同一次 fork 中启动。一个 Step 方法里，同一个 Join 最多 fork 一次。
+- 汇合 Step 要和各分支在同一次 fork 中启动。一个 Step 方法里，同一个 Join 最多 fork 一次。用显式 round key fork 是例外：它可以在一个方法里运行多次，每一轮用不同的 key。
 - 每个分支每轮恰好上报一个结果，所有退出路径都要上报，包括失败路由去往的 Step。从不上报的分支会让汇合一直等下去。上报两次的分支会被计两次。
 - 由多个 Step 组成的分支，要把 round token 一直传到最后一个 Step，并且只由这个 Step 上报。
 - 分支自己不等待汇合。只有汇合 Step 等待它这一轮。
@@ -334,9 +334,9 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 
 ## 只等待部分分支
 
-汇合 Step 也可以只等待第一个分支，或者等待 n 个分支。它可以用一个取消 sibling Step 的 decision 取消其余分支。fork 把分支和汇合一起启动，所以这些 sibling 正好是本轮的分支。
+汇合 Step 也可以只等待第一个分支，或者等待 n 个分支。它可以用一个取消 sibling Step 的 decision 取消其余分支。fork 把分支和汇合一起启动，所以这些 sibling 正好是本轮的分支。如果 RPC 用显式 round key fork 一轮，这些分支是该 RPC 名称启动过的所有 Step 的 sibling，所以要按 Step type 显式取消。带取消的汇合，它的那一轮永远不复位：被取消的分支不会上报。在循环中，下一轮直接 fork 新的一轮。
 
-如果其余分支继续运行，它们的结果会晚到。在循环中，下一轮的拆分 Step 先复位上一轮：它的 **WaitFor** 等待上一轮剩下的结果，它的 **Execute** 可以读取这些结果。然后它 fork 下一轮。如果不复位，晚到的结果会一直待处理，直到 Flow 关闭。[Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns#wcp-30)链接了这两种写法的可运行示例。
+如果其余分支不取消、继续运行，它们的结果会晚到。在循环中，下一轮的拆分 Step 先复位上一轮：它的 **WaitFor** 等待上一轮剩下的结果，它的 **Execute** 可以读取这些结果。然后它 fork 下一轮。如果不复位，晚到的结果会一直待处理，直到 Flow 关闭。[Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns#wcp-30)链接了这两种写法的可运行示例。
 
 ## 相关内容
 

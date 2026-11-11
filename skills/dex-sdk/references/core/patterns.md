@@ -110,9 +110,9 @@ AwaitAll.execute(round) -> gracefulComplete(combine(Completed.branchResults(roun
 - Fork starts the branches and the join Step in one decision and gives all of them one round token: the round key and the branch count. The round key comes from the forking Step execution, so the application keeps no counter and no key. Pass the token unchanged in Step inputs.
 - Each branch reports exactly one result per round, on every exit path: success, early exit, and the failure recovery route. endBranch reports and ends the branch; reportBranchResult only reports.
 - A branch of several Steps passes the token to its last Step, and only that Step reports. A branch never waits on the join's conditions. Exactly one join Step waits for each round; two waiters split the results.
-- Fork one Join at most once per Step method. For a second independent join, define a second Join or fork with an explicit round key. An RPC has no Step execution, so an RPC forks with an explicit round key.
+- Fork one Join at most once per Step method. For a second independent join, define a second Join or fork with an explicit round key. A fork with an explicit round key is not limited to once per method; give each round a key that no other round of that Join in the Flow run uses. An RPC has no Step execution, so an RPC forks with an explicit round key.
 - Results are durable. A result reported before the join waits still counts. A report commits with the method's result, so a retried branch reports once.
-- Handle an empty branch list before forking: continue without a join. A first-branch wait on a round with no branches fails.
+- An empty branch list is a round with no branches. A forAllBranches wait on it is satisfied at once, but forFirstBranch and forBranches on it fail the wait, so check the list before a first-branch or n-branch join. Continuing without a join when nothing was selected is still the clearer shape.
 - A canceled branch never reports, and its failure route does not run, so a join that waits for every branch never fires. The canceller cannot report for it: Dex picks the cancel set at commit time, and the branch may already have reported. Cancel the join together with the branches, or wait `AnyOf(Completed.forAllBranches(round), Timer(deadline))` and handle the deadline in Execute.
 - The join Step consumes results like any Channel wait. When it is canceled after its wait matched, the consumed results follow the canceled-Step rule in [channel.md](channel.md#wait-and-consume).
 - The Join's ChannelMap accessor reads a round's pending results, for example in a read-only RPC. Never publish to it directly.
@@ -145,11 +145,13 @@ AcceptBids.execute(n, round)
     goTo(ConfirmBooking(Bids.branchResults(round))).cancelSiblingSteps(BidFromA, BidFromB, BidFromC)
 ```
 
+A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
+
 - The count passed to forRemainingBranches equals the count the join consumed: n, or 1 after forFirstBranch. It is the pattern's parameter, not a counter.
 - The next round's branches start only after the reset, so a round blocks the next one by construction. Enablement messages for the next round stay queued until then.
 - Results of one round never satisfy another round's join, even without a reset.
-- In a loop, always reset. Without it, each round leaves its late results pending until the Flow closes.
-- Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches. It does not reach later Steps of a multi-Step branch, which are not siblings; cancel those by Step type only when one round runs at a time.
+- In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
+- Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches. It does not reach later Steps of a multi-Step branch, which are not siblings; cancel those by Step type only when one round runs at a time. When an RPC forked the round with an explicit round key, its branches are siblings of every Step that this RPC name ever started, so cancel them explicitly by Step type instead.
 - A branch that reported before the cancel committed is complete, not canceled. Its result stays pending in the round.
 
 ### First-win parallel Steps
