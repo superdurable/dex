@@ -28,7 +28,7 @@ import {
   paneHeightForWholeDrawing,
   type CameraView,
 } from './camera';
-import { OPEN_FLOOR } from './zoom';
+import { OPEN_FLOOR, WHOLE_DRAWING_MIN_ZOOM } from './zoom';
 
 describe('focus framing', () => {
   it('shows every card a transition joins to the Step, legibly and never magnified', async () => {
@@ -114,6 +114,37 @@ describe('pane height for the whole drawing', () => {
       expect(drawing.y * opened.view.zoom + opened.view.y).toBeGreaterThanOrEqual(insetTopPx - 0.5);
       expect((drawing.y + drawing.h) * opened.view.zoom + opened.view.y).toBeLessThanOrEqual(paneHeight + 0.5);
     }
+  });
+});
+
+describe('opening on the whole drawing at the whole-drawing floor', () => {
+  it('opens a drawing too large to read whole on its start by default, and on the whole of it at the whole-drawing floor', async () => {
+    const { scene } = await expanded();
+    const drawing = drawingRect(scene);
+    const paneWidth = 520;
+    const room = cameraRoom(paneWidth, 400, null, 60);
+    expect(openingView(scene, room, 'tb', 1).scope).toBe('start');
+    const opened = openingView(scene, room, 'tb', 1, WHOLE_DRAWING_MIN_ZOOM);
+    const fit = Math.min(room.width / drawing.w, room.height / drawing.h);
+    expect(fit).toBeLessThan(OPEN_FLOOR);
+    expect(opened.scope).toBe('whole');
+    expect(opened.view.zoom).toBeCloseTo(fit, 6);
+  });
+
+  it('sizes the pane for the width fit above the whole-drawing floor, so the whole drawing opens in it', async () => {
+    const { scene } = await expanded();
+    const drawing = drawingRect(scene);
+    const paneWidth = 520;
+    const insetTopPx = 60;
+    const widthFit = cameraRoom(paneWidth, 1, null).width / drawing.w;
+    expect(widthFit).toBeLessThan(OPEN_FLOOR);
+    const paneHeight = paneHeightForWholeDrawing(scene, paneWidth, 1, insetTopPx, WHOLE_DRAWING_MIN_ZOOM);
+    expect(paneHeight).toBeLessThan(paneHeightForWholeDrawing(scene, paneWidth, 1, insetTopPx));
+    const opened = openingView(scene, cameraRoom(paneWidth, paneHeight, null, insetTopPx), 'tb', 1, WHOLE_DRAWING_MIN_ZOOM);
+    expect(opened.scope).toBe('whole');
+    expect(opened.view.zoom).toBeCloseTo(widthFit, 6);
+    expect(drawing.y * opened.view.zoom + opened.view.y).toBeGreaterThanOrEqual(insetTopPx - 0.5);
+    expect((drawing.y + drawing.h) * opened.view.zoom + opened.view.y).toBeLessThanOrEqual(paneHeight + 0.5);
   });
 });
 
