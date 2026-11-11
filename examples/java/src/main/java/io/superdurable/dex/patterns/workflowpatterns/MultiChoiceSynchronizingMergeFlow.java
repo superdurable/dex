@@ -16,9 +16,10 @@
 
 package io.superdurable.dex.patterns.workflowpatterns;
 
-import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.Join;
+import io.superdurable.dex.JoinRound;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
@@ -29,13 +30,14 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
-/** WCP-6, WCP-7, and WCP-37: the decision starts chosen branches and passes their count to the join. */
+/** WCP-6, WCP-7, and WCP-37: the decision forks only the chosen branches, so the join waits for them. */
 @Component
 public class MultiChoiceSynchronizingMergeFlow
         implements Flow<MultiChoiceSynchronizingMergeFlow.NotificationSelection> {
-    public static final Channel<String> notificationSent =
-            Channel.define("notificationSent", String.class);
+    public static final Join<String> notificationSent =
+            Join.define("notificationSent", String.class);
 
     /** Which notification branches to run. */
     public record NotificationSelection(boolean sendEmail, boolean sendSms, boolean sendPush) {
@@ -67,78 +69,76 @@ public class MultiChoiceSynchronizingMergeFlow
 
         @Override
         public StepDecision execute(final Context context, final NotificationSelection selection) {
-            final List<StepMovement<?>> branches = new ArrayList<StepMovement<?>>();
+            final List<Function<JoinRound, StepMovement<?>>> branches =
+                    new ArrayList<Function<JoinRound, StepMovement<?>>>();
             if (selection.sendEmail()) {
-                branches.add(StepMovement.of(SendEmail.class, null));
+                branches.add(round -> StepMovement.of(SendEmail.class, round));
             }
             if (selection.sendSms()) {
-                branches.add(StepMovement.of(SendSms.class, null));
+                branches.add(round -> StepMovement.of(SendSms.class, round));
             }
             if (selection.sendPush()) {
-                branches.add(StepMovement.of(SendPush.class, null));
+                branches.add(round -> StepMovement.of(SendPush.class, round));
             }
             if (branches.isEmpty()) {
                 return StepDecision.gracefulComplete(List.of());
             }
-            branches.add(0, StepMovement.of(SynchronizingMerge.class, branches.size()));
-            return StepDecision.goToMany(branches.toArray(new StepMovement<?>[0]));
+            return StepDecision.goToMany(notificationSent.fork(
+                    context, branches, round -> StepMovement.of(SynchronizingMerge.class, round)));
         }
     }
 
-    static final class SendEmail implements Step<Void> {
+    static final class SendEmail implements Step<JoinRound> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            notificationSent.publish(context, getStepType());
-            return StepDecision.deadEnd();
-        }
-    }
-
-    static final class SendSms implements Step<Void> {
-        @Override
-        public Class<Void> getInputType() {
-            return Void.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Void input) {
-            notificationSent.publish(context, getStepType());
-            return StepDecision.deadEnd();
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return notificationSent.endBranch(context, round, getStepType());
         }
     }
 
-    static final class SendPush implements Step<Void> {
+    static final class SendSms implements Step<JoinRound> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            notificationSent.publish(context, getStepType());
-            return StepDecision.deadEnd();
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return notificationSent.endBranch(context, round, getStepType());
         }
     }
 
-    static final class SynchronizingMerge implements Step<Integer> {
+    static final class SendPush implements Step<JoinRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer selectedBranchCount) {
-            return Wait.until(notificationSent.forN(selectedBranchCount));
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return notificationSent.endBranch(context, round, getStepType());
+        }
+    }
+
+    static final class SynchronizingMerge implements Step<JoinRound> {
+        @Override
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer selectedBranchCount) {
+        public Wait waitFor(final Context context, final JoinRound round) {
+            return Wait.until(notificationSent.forAllBranches(round));
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final JoinRound round) {
             return StepDecision.gracefulComplete(
-                    notificationSent.getConditionResults(context).stream().sorted().toList());
+                    notificationSent.getBranchResults(context, round).stream().sorted().toList());
         }
     }
 }

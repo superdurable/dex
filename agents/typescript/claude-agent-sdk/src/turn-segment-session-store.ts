@@ -10,9 +10,6 @@ import type { SessionKey, SessionStore, SessionStoreEntry } from "@anthropic-ai/
 
 import { leafPointerEntryType, type ClaudeTranscriptEntry } from "./claude-transcript.js";
 
-// Claude Code's entry that names the leaf a resume continues from.
-const leafPointerEntryType = "last-prompt";
-
 interface SegmentTranscript {
   readonly sessionId: string;
   readonly entries: readonly ClaudeTranscriptEntry[];

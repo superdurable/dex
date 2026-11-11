@@ -18,21 +18,24 @@
 // WCP-30), blocking (WCP-28, WCP-31), and cancelling (WCP-29, WCP-32).
 
 import {
+  Attribute,
   Channel,
-  ChannelMap,
+  Join,
   StepList,
   StepMovement,
   Wait,
-  deadEnd,
   doubleCodec,
   goTo,
   goToMany,
   gracefulComplete,
+  joinRoundCodec,
+  jsonCodec,
   rpc,
   stringCodec,
-  withCancelingSteps,
+  withCancelingSiblingSteps,
   type Context,
   type Flow,
+  type JoinRound,
   type PersistenceSchema,
   type RPCResult,
   type Step,
@@ -40,7 +43,6 @@ import {
 } from "@superdurable/dex";
 
 const BRANCH_LETTERS = ["A", "B", "C"] as const;
-const BRANCH_COUNT = BRANCH_LETTERS.length;
 type BranchLetter = (typeof BRANCH_LETTERS)[number];
 
 function requireBranchLetter(value: string): BranchLetter {
@@ -51,19 +53,20 @@ function requireBranchLetter(value: string): BranchLetter {
   return letter;
 }
 
-// Signals are keyed by round, so a later signal never counts toward an earlier round.
-function roundInstance(round: number): string {
-  return `round-${round}`;
-}
-
 // WCP-9 (requiredQuotes 1) and WCP-30 (requiredQuotes 2).
 
-// A reset Step consumes the late quotes of a round, then re-enables the join.
+// The next round's split resets the Join: it consumes the late quotes of the previous round first.
 
 export interface QuoteRound {
   readonly requiredQuotes: number;
   readonly round: number;
   readonly roundCount: number;
+  readonly previousRound?: JoinRound;
+}
+
+export interface QuoteJoin {
+  readonly quoteRound: QuoteRound;
+  readonly round: JoinRound;
 }
 
 export interface AcceptedQuotes {
@@ -80,92 +83,122 @@ const supplierAReleased = new Channel("supplierAReleased", stringCodec);
 const supplierBReleased = new Channel("supplierBReleased", stringCodec);
 const supplierCReleased = new Channel("supplierCReleased", stringCodec);
 const supplierReleased = { A: supplierAReleased, B: supplierBReleased, C: supplierCReleased };
-const quoteReceived = new ChannelMap("quoteReceived", stringCodec);
+const quoteReceived = new Join("quoteReceived", stringCodec);
+// The late quotes of the most recently reset round.
+export const ignoredQuotes = new Attribute(
+  "ignoredQuotes",
+  jsonCodec<IgnoredQuotes>({ typeName: "IgnoredQuotes" }),
+);
 
 class RequestQuotes implements Step<QuoteRound> {
   public getStepType(): string {
     return "RequestQuotes";
   }
 
-  public execute(_context: Context, quoteRound: QuoteRound): StepDecision {
+  public waitFor(_context: Context, quoteRound: QuoteRound): Wait {
+    if (quoteRound.previousRound === undefined) {
+      return Wait.skipImmediately();
+    }
+    return Wait.until(quoteReceived.forRemainingBranches(quoteRound.previousRound, quoteRound.requiredQuotes));
+  }
+
+  public execute(context: Context, quoteRound: QuoteRound): StepDecision {
+    if (quoteRound.previousRound !== undefined) {
+      ignoredQuotes.set(context, {
+        round: quoteRound.round - 1,
+        ignoredQuotes: [...quoteReceived.remainingBranchResults(context, quoteRound.previousRound)].sort(),
+      });
+    }
     return goToMany(
-      StepMovement.of(QuoteFromSupplierA, quoteRound.round),
-      StepMovement.of(QuoteFromSupplierB, quoteRound.round),
-      StepMovement.of(QuoteFromSupplierC, quoteRound.round),
-      StepMovement.of(AcceptQuotes, quoteRound),
+      ...quoteReceived.fork(
+        context,
+        [
+          (round) => StepMovement.of(QuoteFromSupplierA, round),
+          (round) => StepMovement.of(QuoteFromSupplierB, round),
+          (round) => StepMovement.of(QuoteFromSupplierC, round),
+        ],
+        (round) => StepMovement.of(AcceptQuotes, { quoteRound, round }),
+      ),
     );
   }
 }
 
-class QuoteFromSupplierA implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class QuoteFromSupplierA implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "QuoteFromSupplierA";
   }
 
-  public waitFor(_context: Context, _round: number): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(supplierAReleased.forOne());
   }
 
-  public execute(context: Context, round: number): StepDecision {
-    quoteReceived.publish(context, roundInstance(round), "A");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return quoteReceived.endBranch(context, round, "A");
   }
 }
 
-class QuoteFromSupplierB implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class QuoteFromSupplierB implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "QuoteFromSupplierB";
   }
 
-  public waitFor(_context: Context, _round: number): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(supplierBReleased.forOne());
   }
 
-  public execute(context: Context, round: number): StepDecision {
-    quoteReceived.publish(context, roundInstance(round), "B");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return quoteReceived.endBranch(context, round, "B");
   }
 }
 
-class QuoteFromSupplierC implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class QuoteFromSupplierC implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "QuoteFromSupplierC";
   }
 
-  public waitFor(_context: Context, _round: number): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(supplierCReleased.forOne());
   }
 
-  public execute(context: Context, round: number): StepDecision {
-    quoteReceived.publish(context, roundInstance(round), "C");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return quoteReceived.endBranch(context, round, "C");
   }
 }
 
-class AcceptQuotes implements Step<QuoteRound> {
+class AcceptQuotes implements Step<QuoteJoin> {
   public getStepType(): string {
     return "AcceptQuotes";
   }
 
-  public waitFor(_context: Context, quoteRound: QuoteRound): Wait {
-    return Wait.until(quoteReceived.forN(roundInstance(quoteRound.round), quoteRound.requiredQuotes));
+  public waitFor(_context: Context, join: QuoteJoin): Wait {
+    return Wait.until(quoteReceived.forBranches(join.round, join.quoteRound.requiredQuotes));
   }
 
-  public execute(context: Context, quoteRound: QuoteRound): StepDecision {
+  public execute(context: Context, join: QuoteJoin): StepDecision {
+    const { quoteRound, round } = join;
     const acceptedQuotes: AcceptedQuotes = {
       round: quoteRound.round,
-      acceptedQuotes: [...quoteReceived.results(context, roundInstance(quoteRound.round))].sort(),
+      acceptedQuotes: [...quoteReceived.branchResults(context, round)].sort(),
     };
-    return goToMany(
-      StepMovement.of(PlaceOrder, acceptedQuotes),
-      StepMovement.of(ResetQuoteJoin, quoteRound),
-    );
+    if (quoteRound.round < quoteRound.roundCount) {
+      return goToMany(
+        StepMovement.of(PlaceOrder, acceptedQuotes),
+        StepMovement.of(RequestQuotes, {
+          requiredQuotes: quoteRound.requiredQuotes,
+          round: quoteRound.round + 1,
+          roundCount: quoteRound.roundCount,
+          previousRound: round,
+        }),
+      );
+    }
+    // The last round's late quotes stay pending until the Flow closes.
+    return goTo(PlaceOrder, acceptedQuotes);
   }
 }
 
@@ -179,28 +212,6 @@ class PlaceOrder implements Step<AcceptedQuotes> {
   }
 }
 
-class ResetQuoteJoin implements Step<QuoteRound> {
-  public getStepType(): string {
-    return "ResetQuoteJoin";
-  }
-
-  public waitFor(_context: Context, quoteRound: QuoteRound): Wait {
-    const remainingQuotes = BRANCH_COUNT - quoteRound.requiredQuotes;
-    return Wait.until(quoteReceived.forN(roundInstance(quoteRound.round), remainingQuotes));
-  }
-
-  public execute(context: Context, quoteRound: QuoteRound): StepDecision {
-    if (quoteRound.round < quoteRound.roundCount) {
-      return goTo(RequestQuotes, { ...quoteRound, round: quoteRound.round + 1 });
-    }
-    const ignoredQuotes: IgnoredQuotes = {
-      round: quoteRound.round,
-      ignoredQuotes: [...quoteReceived.results(context, roundInstance(quoteRound.round))].sort(),
-    };
-    return gracefulComplete(ignoredQuotes);
-  }
-}
-
 export class StructuredPartialJoinFlow implements Flow<QuoteRound> {
   private readonly requestQuotes = new RequestQuotes();
   private readonly quoteFromSupplierA = new QuoteFromSupplierA();
@@ -208,7 +219,6 @@ export class StructuredPartialJoinFlow implements Flow<QuoteRound> {
   private readonly quoteFromSupplierC = new QuoteFromSupplierC();
   private readonly acceptQuotes = new AcceptQuotes();
   private readonly placeOrder = new PlaceOrder();
-  private readonly resetQuoteJoin = new ResetQuoteJoin();
 
   public getFlowType(): string {
     return "StructuredPartialJoinFlow";
@@ -221,12 +231,14 @@ export class StructuredPartialJoinFlow implements Flow<QuoteRound> {
       this.quoteFromSupplierC,
       this.acceptQuotes,
       this.placeOrder,
-      this.resetQuoteJoin,
     );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [supplierAReleased, supplierBReleased, supplierCReleased, quoteReceived] };
+    return {
+      attributes: [ignoredQuotes],
+      channels: [supplierAReleased, supplierBReleased, supplierCReleased, quoteReceived],
+    };
   }
 
   @rpc({ inputCodec: stringCodec })
@@ -237,11 +249,17 @@ export class StructuredPartialJoinFlow implements Flow<QuoteRound> {
 
 // WCP-28 (requiredSignals 1) and WCP-31 (requiredSignals 2).
 
-// No Step waits on round k + 1 before round k resets, so a next-round signal stays queued.
+// Round k + 1 starts only after the Join resets round k, so a next-round signal stays queued.
 
 export interface BlockingJoinRound {
   readonly requiredSignals: number;
   readonly round: number;
+  readonly previousRound?: JoinRound;
+}
+
+export interface BlockingJoinInput {
+  readonly blockingRound: BlockingJoinRound;
+  readonly round: JoinRound;
 }
 
 export interface ProcessedRound {
@@ -253,7 +271,7 @@ const branchASignal = new Channel("branchASignal", stringCodec);
 const branchBSignal = new Channel("branchBSignal", stringCodec);
 const branchCSignal = new Channel("branchCSignal", stringCodec);
 const branchSignals = { A: branchASignal, B: branchBSignal, C: branchCSignal };
-const branchCompleted = new ChannelMap("branchCompleted", stringCodec);
+const branchCompleted = new Join("branchCompleted", stringCodec);
 const BLOCKING_JOIN_ROUNDS = 2;
 
 class StartBlockingRound implements Step<BlockingJoinRound> {
@@ -261,85 +279,103 @@ class StartBlockingRound implements Step<BlockingJoinRound> {
     return "StartBlockingRound";
   }
 
-  public execute(_context: Context, joinRound: BlockingJoinRound): StepDecision {
+  public waitFor(_context: Context, blockingRound: BlockingJoinRound): Wait {
+    if (blockingRound.previousRound === undefined) {
+      return Wait.skipImmediately();
+    }
+    return Wait.until(branchCompleted.forRemainingBranches(blockingRound.previousRound, blockingRound.requiredSignals));
+  }
+
+  public execute(context: Context, blockingRound: BlockingJoinRound): StepDecision {
     return goToMany(
-      StepMovement.of(SignalFromBranchA, joinRound.round),
-      StepMovement.of(SignalFromBranchB, joinRound.round),
-      StepMovement.of(SignalFromBranchC, joinRound.round),
-      StepMovement.of(BlockingJoin, joinRound),
+      ...branchCompleted.fork(
+        context,
+        [
+          (round) => StepMovement.of(SignalFromBranchA, round),
+          (round) => StepMovement.of(SignalFromBranchB, round),
+          (round) => StepMovement.of(SignalFromBranchC, round),
+        ],
+        (round) => StepMovement.of(BlockingJoin, { blockingRound, round }),
+      ),
     );
   }
 }
 
-class SignalFromBranchA implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class SignalFromBranchA implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "SignalFromBranchA";
   }
 
-  public waitFor(_context: Context, _round: number): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(branchASignal.forOne());
   }
 
-  public execute(context: Context, round: number): StepDecision {
-    branchCompleted.publish(context, roundInstance(round), "A");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return branchCompleted.endBranch(context, round, "A");
   }
 }
 
-class SignalFromBranchB implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class SignalFromBranchB implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "SignalFromBranchB";
   }
 
-  public waitFor(_context: Context, _round: number): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(branchBSignal.forOne());
   }
 
-  public execute(context: Context, round: number): StepDecision {
-    branchCompleted.publish(context, roundInstance(round), "B");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return branchCompleted.endBranch(context, round, "B");
   }
 }
 
-class SignalFromBranchC implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class SignalFromBranchC implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "SignalFromBranchC";
   }
 
-  public waitFor(_context: Context, _round: number): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(branchCSignal.forOne());
   }
 
-  public execute(context: Context, round: number): StepDecision {
-    branchCompleted.publish(context, roundInstance(round), "C");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return branchCompleted.endBranch(context, round, "C");
   }
 }
 
-class BlockingJoin implements Step<BlockingJoinRound> {
+class BlockingJoin implements Step<BlockingJoinInput> {
   public getStepType(): string {
     return "BlockingJoin";
   }
 
-  public waitFor(_context: Context, joinRound: BlockingJoinRound): Wait {
-    return Wait.until(branchCompleted.forN(roundInstance(joinRound.round), joinRound.requiredSignals));
+  public waitFor(_context: Context, input: BlockingJoinInput): Wait {
+    return Wait.until(branchCompleted.forBranches(input.round, input.blockingRound.requiredSignals));
   }
 
-  public execute(context: Context, joinRound: BlockingJoinRound): StepDecision {
+  public execute(context: Context, input: BlockingJoinInput): StepDecision {
+    const { blockingRound, round } = input;
     const processedRound: ProcessedRound = {
-      round: joinRound.round,
-      branches: [...branchCompleted.results(context, roundInstance(joinRound.round))].sort(),
+      round: blockingRound.round,
+      branches: [...branchCompleted.branchResults(context, round)].sort(),
     };
-    return goToMany(
-      StepMovement.of(ProcessRound, processedRound),
-      StepMovement.of(ResetBlockingJoin, joinRound),
-    );
+    if (blockingRound.round < BLOCKING_JOIN_ROUNDS) {
+      return goToMany(
+        StepMovement.of(ProcessRound, processedRound),
+        StepMovement.of(StartBlockingRound, {
+          requiredSignals: blockingRound.requiredSignals,
+          round: blockingRound.round + 1,
+          previousRound: round,
+        }),
+      );
+    }
+    // The last round's late signals stay pending until the Flow closes.
+    return goTo(ProcessRound, processedRound);
   }
 }
 
@@ -353,24 +389,6 @@ class ProcessRound implements Step<ProcessedRound> {
   }
 }
 
-class ResetBlockingJoin implements Step<BlockingJoinRound> {
-  public getStepType(): string {
-    return "ResetBlockingJoin";
-  }
-
-  public waitFor(_context: Context, joinRound: BlockingJoinRound): Wait {
-    const remainingSignals = BRANCH_COUNT - joinRound.requiredSignals;
-    return Wait.until(branchCompleted.forN(roundInstance(joinRound.round), remainingSignals));
-  }
-
-  public execute(_context: Context, joinRound: BlockingJoinRound): StepDecision {
-    if (joinRound.round < BLOCKING_JOIN_ROUNDS) {
-      return goTo(StartBlockingRound, { ...joinRound, round: joinRound.round + 1 });
-    }
-    return gracefulComplete(joinRound.round);
-  }
-}
-
 export class BlockingPartialJoinFlow implements Flow<BlockingJoinRound> {
   private readonly startBlockingRound = new StartBlockingRound();
   private readonly signalFromBranchA = new SignalFromBranchA();
@@ -378,7 +396,6 @@ export class BlockingPartialJoinFlow implements Flow<BlockingJoinRound> {
   private readonly signalFromBranchC = new SignalFromBranchC();
   private readonly blockingJoin = new BlockingJoin();
   private readonly processRound = new ProcessRound();
-  private readonly resetBlockingJoin = new ResetBlockingJoin();
 
   public getFlowType(): string {
     return "BlockingPartialJoinFlow";
@@ -391,7 +408,6 @@ export class BlockingPartialJoinFlow implements Flow<BlockingJoinRound> {
       this.signalFromBranchC,
       this.blockingJoin,
       this.processRound,
-      this.resetBlockingJoin,
     );
   }
 
@@ -418,8 +434,13 @@ const carrierAReleased = new Channel("carrierAReleased", stringCodec);
 const carrierBReleased = new Channel("carrierBReleased", stringCodec);
 const carrierCReleased = new Channel("carrierCReleased", stringCodec);
 const carrierReleased = { A: carrierAReleased, B: carrierBReleased, C: carrierCReleased };
-const bidReceived = new Channel("bidReceived", stringCodec);
+const bidReceived = new Join("bidReceived", stringCodec);
 const carrierBookingConfirmed = new Channel("carrierBookingConfirmed", stringCodec);
+
+interface BidJoinInput {
+  readonly requiredBids: number;
+  readonly round: JoinRound;
+}
 
 class RequestBids implements Step<number> {
   public readonly inputCodec = doubleCodec;
@@ -428,75 +449,81 @@ class RequestBids implements Step<number> {
     return "RequestBids";
   }
 
-  public execute(_context: Context, requiredBids: number): StepDecision {
+  public execute(context: Context, requiredBids: number): StepDecision {
     return goToMany(
-      StepMovement.of(BidFromCarrierA, undefined),
-      StepMovement.of(BidFromCarrierB, undefined),
-      StepMovement.of(BidFromCarrierC, undefined),
-      StepMovement.of(AcceptBids, requiredBids),
+      ...bidReceived.fork(
+        context,
+        [
+          (round) => StepMovement.of(BidFromCarrierA, round),
+          (round) => StepMovement.of(BidFromCarrierB, round),
+          (round) => StepMovement.of(BidFromCarrierC, round),
+        ],
+        (round) => StepMovement.of(AcceptBids, { requiredBids, round }),
+      ),
     );
   }
 }
 
-class BidFromCarrierA implements Step<void> {
+class BidFromCarrierA implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "BidFromCarrierA";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(carrierAReleased.forOne());
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    bidReceived.publish(context, "A");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return bidReceived.endBranch(context, round, "A");
   }
 }
 
-class BidFromCarrierB implements Step<void> {
+class BidFromCarrierB implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "BidFromCarrierB";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(carrierBReleased.forOne());
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    bidReceived.publish(context, "B");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return bidReceived.endBranch(context, round, "B");
   }
 }
 
-class BidFromCarrierC implements Step<void> {
+class BidFromCarrierC implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
+
   public getStepType(): string {
     return "BidFromCarrierC";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
+  public waitFor(_context: Context, _round: JoinRound): Wait {
     return Wait.until(carrierCReleased.forOne());
   }
 
-  public execute(context: Context, _input: void): StepDecision {
-    bidReceived.publish(context, "C");
-    return deadEnd();
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return bidReceived.endBranch(context, round, "C");
   }
 }
 
-class AcceptBids implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class AcceptBids implements Step<BidJoinInput> {
   public getStepType(): string {
     return "AcceptBids";
   }
 
-  public waitFor(_context: Context, requiredBids: number): Wait {
-    return Wait.until(bidReceived.forN(requiredBids));
+  public waitFor(_context: Context, input: BidJoinInput): Wait {
+    return Wait.until(bidReceived.forBranches(input.round, input.requiredBids));
   }
 
-  public execute(context: Context, _requiredBids: number): StepDecision {
-    return withCancelingSteps(
-      goTo(ConfirmCarrierBooking, [...bidReceived.results(context)].sort()),
+  public execute(context: Context, input: BidJoinInput): StepDecision {
+    return withCancelingSiblingSteps(
+      goTo(ConfirmCarrierBooking, [...bidReceived.branchResults(context, input.round)].sort()),
       BidFromCarrierA,
       BidFromCarrierB,
       BidFromCarrierC,

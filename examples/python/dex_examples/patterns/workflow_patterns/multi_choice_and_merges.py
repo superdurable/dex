@@ -17,13 +17,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from dex import (
     Attribute,
     Channel,
     Context,
     Flow,
+    Join,
+    JoinRound,
     PersistenceSchema,
     Step,
     StepDecision,
@@ -37,7 +39,7 @@ from dex import (
     graceful_complete,
 )
 
-# WCP-6 Multi-Choice, WCP-7 and WCP-37 synchronizing merges: the join gets the count.
+# WCP-6 Multi-Choice, WCP-7 and WCP-37 synchronizing merges: the Join counts the chosen branches.
 
 
 @dataclass(frozen=True)
@@ -47,12 +49,18 @@ class NotificationChoice:
     send_push: bool
 
 
-NOTIFICATION_SENT = Channel("notificationSent", str)
+NOTIFICATION_SENT = Join("notificationSent", str)
+
+
+def build_notification_branch(
+    step_type: type[Step[JoinRound]],
+) -> Callable[[JoinRound], StepMovement[JoinRound]]:
+    return lambda join_round: StepMovement.of(step_type, join_round)
 
 
 class SelectNotificationChannels(Step[NotificationChoice]):
     def execute(self, context: Context, input: NotificationChoice) -> StepDecision:
-        selected: list[type[Step[None]]] = []
+        selected: list[type[Step[JoinRound]]] = []
         if input.send_email:
             selected.append(SendEmail)
         if input.send_sms:
@@ -61,37 +69,36 @@ class SelectNotificationChannels(Step[NotificationChoice]):
             selected.append(SendPush)
         if not selected:
             return graceful_complete([])
-        movements: list[StepMovement[Any]] = [
-            StepMovement.of(SynchronizingMerge, len(selected))
-        ]
-        movements.extend(StepMovement.of(branch, None) for branch in selected)
-        return go_to_many(*movements)
+        return go_to_many(
+            *NOTIFICATION_SENT.fork(
+                context,
+                [build_notification_branch(branch) for branch in selected],
+                lambda join_round: StepMovement.of(SynchronizingMerge, join_round),
+            )
+        )
 
 
-class SendEmail(Step[None]):
-    def execute(self, context: Context, input: None) -> StepDecision:
-        NOTIFICATION_SENT.publish(context, "SendEmail")
-        return dead_end()
+class SendEmail(Step[JoinRound]):
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return NOTIFICATION_SENT.end_branch(context, input, "SendEmail")
 
 
-class SendSms(Step[None]):
-    def execute(self, context: Context, input: None) -> StepDecision:
-        NOTIFICATION_SENT.publish(context, "SendSms")
-        return dead_end()
+class SendSms(Step[JoinRound]):
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return NOTIFICATION_SENT.end_branch(context, input, "SendSms")
 
 
-class SendPush(Step[None]):
-    def execute(self, context: Context, input: None) -> StepDecision:
-        NOTIFICATION_SENT.publish(context, "SendPush")
-        return dead_end()
+class SendPush(Step[JoinRound]):
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return NOTIFICATION_SENT.end_branch(context, input, "SendPush")
 
 
-class SynchronizingMerge(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.until(NOTIFICATION_SENT.for_n(input))
+class SynchronizingMerge(Step[JoinRound]):
+    def wait_for(self, context: Context, input: JoinRound) -> Wait:
+        return Wait.until(NOTIFICATION_SENT.for_all_branches(input))
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        return graceful_complete(sorted(NOTIFICATION_SENT.results(context)))
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return graceful_complete(sorted(NOTIFICATION_SENT.branch_results(context, input)))
 
 
 class MultiChoiceSynchronizingMergeFlow(Flow[NotificationChoice]):

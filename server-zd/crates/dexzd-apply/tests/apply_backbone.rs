@@ -58,6 +58,8 @@ mod dispatch_queue;
 mod retry_snapshots;
 #[path = "apply_backbone/run_state_limit.rs"]
 mod run_state_limit;
+#[path = "apply_backbone/start_flow_request_retry.rs"]
+mod start_flow_request_retry;
 #[path = "apply_backbone/time_travel_staging.rs"]
 mod time_travel_staging;
 

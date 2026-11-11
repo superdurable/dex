@@ -19,17 +19,19 @@
 
 import {
   Channel,
+  Join,
   StepList,
   StepMovement,
   Wait,
-  deadEnd,
   doubleCodec,
   goToMany,
   gracefulComplete,
+  joinRoundCodec,
   rpc,
   stringCodec,
   type Context,
   type Flow,
+  type JoinRound,
   type PersistenceSchema,
   type Step,
   type StepDecision,
@@ -116,10 +118,15 @@ export class GeneralizedAndJoinFlow implements Flow<InvoicePaymentMatching> {
   }
 }
 
-// WCP-42 Thread Split and WCP-41 Thread Merge: GoToMany starts several threads
-// of one Step type, and ForN merges them.
+// WCP-42 Thread Split and WCP-41 Thread Merge: the Join forks several threads
+// of one Step type, and the merge waits for every thread.
 
-const parcelPacked = new Channel("parcelPacked", doubleCodec);
+interface ParcelThread {
+  readonly parcelIndex: number;
+  readonly round: JoinRound;
+}
+
+const parcelPacked = new Join("parcelPacked", doubleCodec);
 
 class SplitShipment implements Step<number> {
   public readonly inputCodec = doubleCodec;
@@ -128,40 +135,45 @@ class SplitShipment implements Step<number> {
     return "SplitShipment";
   }
 
-  public execute(_context: Context, parcelCount: number): StepDecision {
+  public execute(context: Context, parcelCount: number): StepDecision {
     return goToMany(
-      ...Array.from({ length: parcelCount }, (_, index) => StepMovement.of(PackParcel, index)),
-      StepMovement.of(MergeParcels, parcelCount),
+      ...parcelPacked.fork(
+        context,
+        Array.from(
+          { length: parcelCount },
+          (_, parcelIndex) => (round: JoinRound) => StepMovement.of(PackParcel, { parcelIndex, round }),
+        ),
+        (round) => StepMovement.of(MergeParcels, round),
+      ),
     );
   }
 }
 
-class PackParcel implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class PackParcel implements Step<ParcelThread> {
   public getStepType(): string {
     return "PackParcel";
   }
 
-  public execute(context: Context, parcelIndex: number): StepDecision {
-    parcelPacked.publish(context, parcelIndex);
-    return deadEnd();
+  public execute(context: Context, thread: ParcelThread): StepDecision {
+    return parcelPacked.endBranch(context, thread.round, thread.parcelIndex);
   }
 }
 
-class MergeParcels implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+class MergeParcels implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
 
   public getStepType(): string {
     return "MergeParcels";
   }
 
-  public waitFor(_context: Context, parcelCount: number): Wait {
-    return Wait.until(parcelPacked.forN(parcelCount));
+  public waitFor(_context: Context, round: JoinRound): Wait {
+    return Wait.until(parcelPacked.forAllBranches(round));
   }
 
-  public execute(context: Context, _parcelCount: number): StepDecision {
-    return gracefulComplete([...parcelPacked.results(context)].sort((left, right) => left - right));
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return gracefulComplete(
+      [...parcelPacked.branchResults(context, round)].sort((left, right) => left - right),
+    );
   }
 }
 

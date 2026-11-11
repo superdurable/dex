@@ -19,6 +19,8 @@ package io.superdurable.dex.patterns.workflowpatterns;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.Join;
+import io.superdurable.dex.JoinRound;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.Step;
@@ -28,14 +30,15 @@ import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /** WCP-2 Parallel Split and WCP-3 Synchronization: two branches run, then one join fires. */
 @Component
 public class ParallelSplitSynchronizationFlow implements Flow<Void> {
-    public static final Channel<String> fulfillmentBranchCompleted =
-            Channel.define("fulfillmentBranchCompleted", String.class);
+    public static final Join<String> fulfillmentBranchCompleted =
+            Join.define("fulfillmentBranchCompleted", String.class);
     public static final Channel<String> paymentApproved =
             Channel.define("paymentApproved", String.class);
-    private static final int BRANCH_COUNT = 2;
 
     private final SplitOrder splitOrder = new SplitOrder();
     private final PackItems packItems = new PackItems();
@@ -66,59 +69,59 @@ public class ParallelSplitSynchronizationFlow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.goToMany(
-                    StepMovement.of(PackItems.class, null),
-                    StepMovement.of(ChargePayment.class, null),
-                    StepMovement.of(SynchronizeFulfillment.class, null));
+            return StepDecision.goToMany(fulfillmentBranchCompleted.fork(
+                    context,
+                    List.of(
+                            round -> StepMovement.of(PackItems.class, round),
+                            round -> StepMovement.of(ChargePayment.class, round)),
+                    round -> StepMovement.of(SynchronizeFulfillment.class, round)));
         }
     }
 
-    static final class PackItems implements Step<Void> {
+    static final class PackItems implements Step<JoinRound> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            fulfillmentBranchCompleted.publish(context, getStepType());
-            return StepDecision.deadEnd();
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return fulfillmentBranchCompleted.endBranch(context, round, getStepType());
         }
     }
 
-    static final class ChargePayment implements Step<Void> {
+    static final class ChargePayment implements Step<JoinRound> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Void input) {
+        public Wait waitFor(final Context context, final JoinRound round) {
             return Wait.until(paymentApproved.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            fulfillmentBranchCompleted.publish(context, getStepType());
-            return StepDecision.deadEnd();
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return fulfillmentBranchCompleted.endBranch(context, round, getStepType());
         }
     }
 
-    static final class SynchronizeFulfillment implements Step<Void> {
+    static final class SynchronizeFulfillment implements Step<JoinRound> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Void input) {
-            return Wait.until(fulfillmentBranchCompleted.forN(BRANCH_COUNT));
+        public Wait waitFor(final Context context, final JoinRound round) {
+            return Wait.until(fulfillmentBranchCompleted.forAllBranches(round));
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.gracefulComplete(
-                    fulfillmentBranchCompleted.getConditionResults(context).stream().sorted().toList());
+        public StepDecision execute(final Context context, final JoinRound round) {
+            return StepDecision.gracefulComplete(fulfillmentBranchCompleted
+                    .getBranchResults(context, round).stream().sorted().toList());
         }
     }
 }

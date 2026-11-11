@@ -16,9 +16,10 @@
 
 package io.superdurable.dex.patterns.workflowpatterns;
 
-import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.Join;
+import io.superdurable.dex.JoinRound;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
@@ -27,10 +28,18 @@ import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
+
 /** WCP-42 Thread Split and WCP-41 Thread Merge: k executions of one Step type, then one join. */
 @Component
 public class ThreadSplitMergeFlow implements Flow<Integer> {
-    public static final Channel<Integer> parcelPacked = Channel.define("parcelPacked", Integer.class);
+    public static final Join<Integer> parcelPacked = Join.define("parcelPacked", Integer.class);
+
+    /** One parcel thread: its index and the join round it reports to. */
+    public record ParcelThread(int parcelIndex, JoinRound round) {
+    }
 
     private final SplitShipment splitShipment = new SplitShipment();
     private final PackParcel packParcel = new PackParcel();
@@ -54,43 +63,45 @@ public class ThreadSplitMergeFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer parcelCount) {
-            final StepMovement<?>[] movements = new StepMovement<?>[parcelCount + 1];
+            final List<Function<JoinRound, StepMovement<?>>> threads =
+                    new ArrayList<Function<JoinRound, StepMovement<?>>>();
             for (int index = 0; index < parcelCount; index++) {
-                movements[index] = StepMovement.of(PackParcel.class, index);
+                final int parcelIndex = index;
+                threads.add(round ->
+                        StepMovement.of(PackParcel.class, new ParcelThread(parcelIndex, round)));
             }
-            movements[parcelCount] = StepMovement.of(MergeParcels.class, parcelCount);
-            return StepDecision.goToMany(movements);
+            return StepDecision.goToMany(parcelPacked.fork(
+                    context, threads, round -> StepMovement.of(MergeParcels.class, round)));
         }
     }
 
-    static final class PackParcel implements Step<Integer> {
+    static final class PackParcel implements Step<ParcelThread> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<ParcelThread> getInputType() {
+            return ParcelThread.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer parcelIndex) {
-            parcelPacked.publish(context, parcelIndex);
-            return StepDecision.deadEnd();
+        public StepDecision execute(final Context context, final ParcelThread thread) {
+            return parcelPacked.endBranch(context, thread.round(), thread.parcelIndex());
         }
     }
 
-    static final class MergeParcels implements Step<Integer> {
+    static final class MergeParcels implements Step<JoinRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<JoinRound> getInputType() {
+            return JoinRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer parcelCount) {
-            return Wait.until(parcelPacked.forN(parcelCount));
+        public Wait waitFor(final Context context, final JoinRound round) {
+            return Wait.until(parcelPacked.forAllBranches(round));
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer parcelCount) {
+        public StepDecision execute(final Context context, final JoinRound round) {
             return StepDecision.gracefulComplete(
-                    parcelPacked.getConditionResults(context).stream().sorted().toList());
+                    parcelPacked.getBranchResults(context, round).stream().sorted().toList());
         }
     }
 }

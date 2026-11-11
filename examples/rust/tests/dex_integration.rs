@@ -230,7 +230,10 @@ fn pull_worker_stops_when_startup_fails() {
         }
         Err(failure) => failure,
     };
-    assert!(failure.to_string().contains("GetServerInfo failed"));
+    let Some(SdkError::Service { service }) = failure.downcast_ref::<SdkError>() else {
+        panic!("pull Worker startup failed with an unexpected error: {failure:?}");
+    };
+    assert_eq!(service.operation(), "get_server_info", "{failure:?}");
     assert!(started_at.elapsed() < Duration::from_secs(45));
     cache.close().expect("close Rust pull timeout cache");
 }

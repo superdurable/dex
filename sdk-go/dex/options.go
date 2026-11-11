@@ -389,8 +389,8 @@ type StartFlowOptions struct {
 	// and RequestID matches the request that started that run.
 	// Without IgnoreError, the retry returns FlowAlreadyStartedError even when the first attempt
 	// created the Flow.
-	// The match applies only when IDReusePolicy rejects the start.
-	// A policy that permits another run starts a new run instead.
+	// The match uses the latest run of the Flow ID and takes precedence over IDReusePolicy.
+	// A retry never starts a second run or terminates the run it started.
 	// Dex compares only request IDs, not input or other options.
 	// Never reuse a request ID for a different logical start.
 	// See StartFlowOptions for an example that sets both fields.
