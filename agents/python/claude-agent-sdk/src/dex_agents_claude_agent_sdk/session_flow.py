@@ -21,6 +21,7 @@ from dex_agents import (
     AgentSessionFlow,
     AgentSessionOptions,
     AgentTracingOptions,
+    MediaStore,
     ModelSpendLimit,
     RunModelLimit,
     ToolEffect,
@@ -51,6 +52,7 @@ def claude_agent_session_flow(
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     claude_code_tool_permission: ClaudeCodeToolPermission | None = None,
+    media_store: MediaStore | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for one Claude Agent SDK agent.
 
@@ -154,6 +156,12 @@ def claude_agent_session_flow(
             ``ToolPolicy`` for that call, ``ClaudeCodeToolDenial`` to refuse
             it, or ``None`` for ``tool_policies`` and ``default_tool_effect``.
             See ``ClaudeCodeToolPermission``. Defaults to none.
+        media_store: The store that holds the session's images, such as
+            ``S3MediaStore``; pass the store your clients upload to, on every
+            Worker. With a store, the session accepts user messages with
+            images, and the model sees them and tool result images as Claude
+            ``image`` blocks; the session stores only references. See
+            ``ClaudeAgentRunner``. ``None``, the default, refuses images.
 
             .. versionadded:: 0.5.0
 
@@ -177,6 +185,7 @@ def claude_agent_session_flow(
             tool_sources=tool_sources,
             tool_source_listing_timeout=tool_source_listing_timeout,
             claude_code_tool_permission=claude_code_tool_permission,
+            media_store=media_store,
         ),
         flow_type=flow_type,
         options=AgentSessionOptions(

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
@@ -36,6 +37,7 @@ from claude_agent_sdk.types import HookEvent
 
 from dex_agents import (
     AgentFrameworkRunner,
+    AgentImageReference,
     AgentToolCall,
     AgentTurnContext,
     AgentTurnOutcome,
@@ -43,6 +45,7 @@ from dex_agents import (
     DeferredToolExecution,
     DeferredToolOutcome,
     FrameworkMessage,
+    MediaStore,
     MessageRole,
     ModelCallMetadata,
     ToolCallsRequested,
@@ -50,6 +53,7 @@ from dex_agents import (
     ToolExecutionError,
     ToolExecutionResult,
     TurnCompleted,
+    collect_turn_images,
 )
 from dex_agents.stepwise import DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT, ToolSource
 from dex_agents_claude_agent_sdk.custom_tool_server import build_custom_tool_server
@@ -71,6 +75,10 @@ from dex_agents_claude_agent_sdk.transcript import (
     load_session_transcript,
     project_turn_entries,
     tool_result_text,
+)
+from dex_agents_claude_agent_sdk.transcript_images import (
+    TranscriptImageCodec,
+    image_references_in,
 )
 
 #: Name of the in-process MCP server that serves custom tools unless you pass another.
@@ -195,6 +203,17 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     deferrable call is refused, and the model sees the earlier result before
     it calls again.
 
+    With a ``media_store``, the runner takes images. A user message's images
+    reach the model as Claude ``image`` blocks after its text, and a tool
+    result's images as ``image`` blocks inside its ``tool_result``. The
+    session stores only references: the runner swaps image bytes for
+    references before it stores a transcript entry and loads them again when
+    the CLI resumes the session. Without a store, the runner has no
+    ``build_user_message_with_images``, so the session refuses images.
+
+    .. versionchanged:: 0.5.0
+        The runner takes images with a ``media_store``.
+
     Most applications use ``claude_agent_session_flow`` instead of
     constructing the runner directly.
 
@@ -233,6 +252,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         tool_sources: Sequence[ToolSource] = (),
         tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
         claude_code_tool_permission: ClaudeCodeToolPermission | None = None,
+        media_store: MediaStore | None = None,
     ) -> None:
         """Create a runner for one agent.
 
@@ -280,6 +300,20 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 The ``allowed_tools`` check keeps using the session's
                 policies. Defaults to none: every call uses the session's
                 policies.
+            media_store: The store that holds the session's images, such as
+                ``S3MediaStore`` or ``LocalDirectoryMediaStore``. Use the
+                store your clients upload to, on every Worker of the Flow
+                type. With a store, the runner implements
+                ``build_user_message_with_images``, so the session accepts
+                images in user messages. Every ``RunModel`` attempt reads the
+                session's images from it, and the runner uploads to it every
+                image the CLI produces itself, such as one an inline tool
+                returns, so stored entries never hold image bytes. A deferred
+                custom tool's ``image`` content is uploaded too and recorded as
+                ``ToolExecutionResult.images``. A store read failure fails the
+                attempt, which the ``RunModel`` retry policy retries.
+                ``None``, the default, keeps images out: the session refuses
+                user messages with images.
 
                 .. versionadded:: 0.5.0
 
@@ -306,6 +340,10 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             tool_source_listing_timeout,
             {custom_tool.name for custom_tool in custom_tools} | CLAUDE_CODE_BUILT_IN_TOOL_NAMES,
         )
+        self._media_store = media_store
+        # The session takes images only from a runner that has this method.
+        if media_store is not None:
+            self.build_user_message_with_images = self._build_user_message_with_images
 
     def build_user_message(self, text: str) -> FrameworkMessage:
         """Store user text, or a turn-failure note, as a prompt for the CLI.
@@ -324,6 +362,29 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         """
         return FrameworkMessage(
             role=MessageRole.USER, text=text, framework_item=encode_user_prompt_item(text)
+        )
+
+    def _build_user_message_with_images(
+        self, text: str, images: Sequence[AgentImageReference]
+    ) -> FrameworkMessage:
+        """Store user text and its images as a prompt for the CLI.
+
+        Bound as ``build_user_message_with_images`` only when the runner has a
+        media store. The next turn's prompt sends the text, then each image
+        as a Claude ``image`` block with the bytes read from the store, in
+        reference order.
+
+        Args:
+            text: The user message text.
+            images: The message's images.
+
+        Returns:
+            A ``MessageRole.USER`` message whose ``framework_item`` is
+            ``{"kind": "user_prompt", "text": text, "images": [...]}``, each
+            image as its ``AgentImageReference`` fields.
+        """
+        return FrameworkMessage(
+            role=MessageRole.USER, text=text, framework_item=encode_user_prompt_item(text, images)
         )
 
     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
@@ -360,7 +421,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 transcript could not be stored.
         """
         committed_transcript = load_session_transcript(turn.messages)
-        prompt_content: str | list[dict[str, str]] | None
+        prompt_content: str | list[dict[str, Any]] | None
         if turn.framework_run_state is None:
             session_id = committed_transcript.session_id
             earlier_turn_entries: list[TranscriptEntry] = []
@@ -371,7 +432,8 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             earlier_turn_entries = suspended_turn.turn_entries
             prompt_content = None
         stored_entries = [*committed_transcript.entries, *earlier_turn_entries]
-        session_store = TurnSegmentSessionStore(session_id, stored_entries)
+        image_codec = self._transcript_image_codec(turn, [stored_entries, prompt_content])
+        session_store = TurnSegmentSessionStore(session_id, stored_entries, image_codec)
         # A source's listing may lack a tool the turn already called; its record must still replay.
         tool_catalog = self._tool_catalog.with_source_tools(
             await self._tool_sources.list_source_tools(),
@@ -386,6 +448,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             tool_catalog,
             answered_tool_use_ids(stored_entries),
             self._claude_code_tool_permission,
+            self._media_store,
         )
         options = self._build_turn_options(
             turn, session_id, session_store, tool_catalog, tool_call_gate
@@ -396,6 +459,8 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         try:
             await client.connect()
             if prompt_content is not None:
+                if image_codec is not None:
+                    prompt_content = await image_codec.restore_image_bytes(prompt_content)
                 await client.query(_single_user_message(prompt_content))
             async for message in client.receive_response():
                 observer.observe(message)
@@ -444,7 +509,8 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             The source's outcome; the custom tool's text output; or
             ``APPROVED_CLI_TOOL_OUTPUT`` for a tool that runs inside the CLI.
             Non-text content of a custom tool is replaced by a short
-            placeholder.
+            placeholder. With a media store, its ``image`` content is uploaded
+            and returned as ``images`` instead.
 
         Raises:
             ToolExecutionError: The arguments do not match the tool's input
@@ -481,10 +547,19 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             result = await custom_tool.handler(arguments)
         finally:
             _running_deferred_tool_execution.reset(token)
-        text = tool_result_text(result.get("content", []))
+        content = list(result.get("content", []))
+        images: list[AgentImageReference] = []
+        if self._media_store is not None and not result.get("is_error"):
+            images = [
+                await self._media_store.put_image(base64.b64decode(block["data"], validate=True))
+                for block in content
+                if _is_mcp_image_content(block)
+            ]
+            content = [block for block in content if not _is_mcp_image_content(block)]
+        text = tool_result_text(content)
         if result.get("is_error"):
             raise ToolExecutionError(text)
-        return ToolExecutionResult(output=text)
+        return ToolExecutionResult(output=text, images=images)
 
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
         """Return a tool source's options for one call's tool Step.
@@ -516,6 +591,18 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             return None
         options = provide(replace(tool_call, tool_source_reference=reference))
         return options if isinstance(options, ToolCallStepOptions) else None
+
+    def _transcript_image_codec(
+        self, turn: AgentTurnContext, stored_values: Sequence[object]
+    ) -> TranscriptImageCodec | None:
+        if self._media_store is None:
+            if image_references_in(list(stored_values)):
+                raise RuntimeError(
+                    "the session stored image references, but ClaudeAgentRunner has no "
+                    "media_store to read them from"
+                )
+            return None
+        return TranscriptImageCodec(self._media_store, collect_turn_images(turn))
 
     def _build_turn_options(
         self,
@@ -734,8 +821,16 @@ def _gen_ai_provider_name_of_claude_provider(claude_provider: str) -> str | None
     return _GEN_AI_PROVIDER_NAMES.get(claude_provider, claude_provider)
 
 
+def _is_mcp_image_content(block: object) -> bool:
+    return (
+        isinstance(block, Mapping)
+        and block.get("type") == "image"
+        and isinstance(block.get("data"), str)
+    )
+
+
 async def _single_user_message(
-    content: str | list[dict[str, str]],
+    content: str | list[dict[str, Any]],
 ) -> AsyncIterator[dict[str, Any]]:
     yield {
         "type": "user",
