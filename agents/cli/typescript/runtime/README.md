@@ -46,8 +46,8 @@ configuration, and 0 otherwise.
 
 ### Sessions belong to one execution environment
 
-The runtime registers the session Flow type `<flowType>-<hash>`. The hash is
-the first 12 hexadecimal digits of the SHA-256 of
+The runtime registers the session Flow type `<flowType>-<suffix>`. The suffix
+is 6 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of
 `<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8:
 
 - the user is the numeric user ID, or the user name where the platform has
@@ -56,10 +56,22 @@ the first 12 hexadecimal digits of the SHA-256 of
   `defaults` without a file;
 - the workspace is its canonical real path.
 
+Read the digest's first 8 bytes as an unsigned big-endian integer, reduce it
+modulo 36^6, write it in base36, and left-pad it with `0` to 6 characters.
+`namespaceSessionFlowType` computes it, and every CLI runtime passes the cases
+in
+[`agents/conformance/cli_session_flow_types.json`](../../../conformance/cli_session_flow_types.json).
+
+Each new session records these values in its start input,
+`AgentSessionStartInput.startEnvironment`, so a run shows where it was
+started: `host_name`, `user_id`, `config_identity`, and `workspace` are the
+hashed values, and `user_name` is the user's name, left out when the system
+cannot tell it. They are not session settings and cannot change.
+
 A Worker takes only the Steps of its own Flow type, so an approved write or
 shell command always runs as the same user, with the same configuration file
 and workspace it was approved under. Tool settings, such as the shell allow
-list, are not part of the hash, so changing them keeps `--resume` working.
+list, are not part of the suffix, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.

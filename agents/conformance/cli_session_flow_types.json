@@ -1,0 +1,69 @@
+{
+  "description": "Session Flow types of the Dex Agents CLI. A runtime registers <harness Flow type>-<suffix>. The suffix is 6 lowercase base36 characters (0-9a-z): take the SHA-256 of the UTF-8 text \"<host_name>\\n<user_id>\\n<config_identity>\\n<workspace>\", read its first 8 bytes as an unsigned big-endian integer, reduce it modulo 36^6 (2176782336), write the remainder in base36 with lowercase letters, and left-pad it with 0 to 6 characters. Every CLI runtime must produce flow_type from harness_flow_type and the four inputs of each case. Hand-written; see README.md and agents/cli/README.md.",
+  "harness_flow_type": "Agent",
+  "cases": [
+    {
+      "name": "ascii-defaults",
+      "description": "A POSIX user ID, no configuration file.",
+      "host_name": "host",
+      "user_id": "501",
+      "config_identity": "defaults",
+      "workspace": "/home/a/w",
+      "flow_type": "Agent-ujnoef"
+    },
+    {
+      "name": "ascii-config-file",
+      "description": "A configuration file and a project workspace.",
+      "host_name": "build-01.example.com",
+      "user_id": "1000",
+      "config_identity": "/home/dev/.dex/agents/claude-sdk.yaml",
+      "workspace": "/home/dev/projects/api",
+      "flow_type": "Agent-6iwcuc"
+    },
+    {
+      "name": "another-user",
+      "description": "The same paths as ascii-config-file under another user ID.",
+      "host_name": "build-01.example.com",
+      "user_id": "1001",
+      "config_identity": "/home/dev/.dex/agents/claude-sdk.yaml",
+      "workspace": "/home/dev/projects/api",
+      "flow_type": "Agent-mm4u81"
+    },
+    {
+      "name": "windows-user-name",
+      "description": "A user name where the system has no numeric user ID, with Windows paths.",
+      "host_name": "DESKTOP-7Q2K",
+      "user_id": "alice",
+      "config_identity": "C:\\Users\\alice\\.dex\\agents\\openai.yaml",
+      "workspace": "C:\\Users\\alice\\dex-agent-workspace",
+      "flow_type": "Agent-u50slo"
+    },
+    {
+      "name": "unicode-host-name",
+      "description": "A host name and workspace outside ASCII, hashed as UTF-8.",
+      "host_name": "café-mac",
+      "user_id": "501",
+      "config_identity": "defaults",
+      "workspace": "/Users/zoë/w",
+      "flow_type": "Agent-su4ykl"
+    },
+    {
+      "name": "unicode-paths",
+      "description": "CJK and emoji paths, hashed as UTF-8.",
+      "host_name": "host",
+      "user_id": "501",
+      "config_identity": "/home/李雷/.dex/agents/x.yaml",
+      "workspace": "/home/李雷/工作区 😀",
+      "flow_type": "Agent-pelghp"
+    },
+    {
+      "name": "left-padded",
+      "description": "A remainder below 36**5, so the suffix starts with 0.",
+      "host_name": "host",
+      "user_id": "501",
+      "config_identity": "defaults",
+      "workspace": "/w/64",
+      "flow_type": "Agent-049m3j"
+    }
+  ]
+}

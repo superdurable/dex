@@ -266,7 +266,8 @@ class AgentCliCommand {
       (flowId) => this.readTurnSessionSettings(flowId),
     );
     const workspace = this.prepareWorkspace(effective, loaded);
-    const flowType = this.sessionFlowType(loaded, workspace);
+    const identity = this.sessionEnvironmentIdentity(loaded, workspace);
+    const flowType = namespaceSessionFlowType(this.harness.flowType, identity);
     // Both sources stay registered even when switched off, so they refuse calls another process requested.
     const connectorSource = (await this.connectConnectors(effective, server, turns, true)) ?? new DisabledConnectorsToolSource();
     this.localTools = new LocalToolSource(workspace, this.offeredLocalToolGroups(effective), turns, this.log);
@@ -303,7 +304,7 @@ class AgentCliCommand {
     });
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
-    const sessionId = await this.openSession(this.client, flow, flowType);
+    const sessionId = await this.openSession(this.client, flow, flowType, identity);
     this.io.stdout.write(
       `Session ${sessionId}. Type a message; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
     );
@@ -323,28 +324,29 @@ class AgentCliCommand {
   }
 
   /**
-   * Returns this command's session Flow type: the harness's Flow type with a hash of the host, the user, the
-   * configuration file, and the workspace. So only Workers of the same execution environment take a session's
-   * Steps, and editing tool settings in the file keeps its sessions.
+   * Returns the execution environment this command's session Flow type hashes: the host, the user, the configuration
+   * file, and the workspace. So only Workers of the same execution environment take a session's Steps, and editing
+   * tool settings in the file keeps its sessions.
    */
-  private sessionFlowType(loaded: LoadedConfig, workspace: string): string {
-    return namespaceSessionFlowType(this.harness.flowType, {
+  private sessionEnvironmentIdentity(loaded: LoadedConfig, workspace: string): SessionEnvironmentIdentity {
+    return {
       hostName: hostname(),
       userId: currentUserId(),
       configIdentity: loaded.isFromFile ? realpathSync(loaded.configPath) : defaultsConfigIdentity,
       workspace,
-    });
+    };
   }
 
   private async openSession(
     client: Client,
     flow: Parameters<typeof startAgentSession>[1],
     flowType: string,
+    identity: SessionEnvironmentIdentity,
   ): Promise<string> {
     const resumeSessionId = this.parsed.resumeSessionId;
     if (resumeSessionId === undefined) {
       const sessionId = newSessionId(this.harness);
-      await startAgentSession(client, flow, sessionId, {});
+      await startAgentSession(client, flow, sessionId, { startEnvironment: sessionStartEnvironment(identity) });
       return sessionId;
     }
     let info;
@@ -472,7 +474,9 @@ class AgentCliCommand {
     loaded: LoadedConfig,
     server: DexServerConnection,
   ): Promise<number> {
-    const flowType = this.sessionFlowType(loaded, this.prepareWorkspace(effective, loaded));
+    const workspace = this.prepareWorkspace(effective, loaded);
+    const identity = this.sessionEnvironmentIdentity(loaded, workspace);
+    const flowType = namespaceSessionFlowType(this.harness.flowType, identity);
     const registry = new Registry([]);
     this.blobCacheDirectory = mkdtempSync(join(tmpdir(), `dex-agents-${this.harness.name}-cache-`));
     this.blobCache = openBlobCache({ directory: this.blobCacheDirectory, maxBytes: blobCacheBytes });
@@ -524,7 +528,8 @@ class AgentCliCommand {
 const defaultsConfigIdentity = "defaults";
 
 /**
- * The execution environment a session's Steps must run in, as {@link namespaceSessionFlowType} hashes it.
+ * The execution environment a session's Steps must run in, as {@link namespaceSessionFlowType} hashes it. The runtime
+ * also records it in each new session's start input.
  *
  * @since 0.5.0
  */
@@ -539,11 +544,24 @@ export interface SessionEnvironmentIdentity {
   readonly workspace: string;
 }
 
+/** The number of base36 characters in a session Flow type suffix. */
+const flowTypeSuffixLength = 6;
+/** 36 to the power of {@link flowTypeSuffixLength}: the number of distinct suffixes. */
+const flowTypeSuffixCount = 36n ** BigInt(flowTypeSuffixLength);
+
 /**
- * Returns the session Flow type of a harness in one execution environment: `<flowType>-<hash>`, where the hash
- * is the first 12 hexadecimal digits of the SHA-256 of `<host name>\n<user>\n<configuration identity>\n<workspace>`
- * in UTF-8. Tool settings, such as the shell allow list, are not part of it, so they can change without breaking
- * `--resume`.
+ * Returns the session Flow type of a harness in one execution environment: `<flowType>-<suffix>`.
+ *
+ * The suffix is 6 lowercase base36 characters (`0-9a-z`). Take the SHA-256 of
+ * `<host name>\n<user>\n<configuration identity>\n<workspace>` in UTF-8. Read its first 8 bytes as an unsigned
+ * big-endian integer, reduce it modulo 36^6, write it in base36, and left-pad it with `0` to 6 characters. Tool
+ * settings, such as the shell allow list, are not part of it, so they can change without breaking `--resume`.
+ *
+ * @example
+ * ```ts
+ * const identity = { hostName: "host", userId: "501", configIdentity: "defaults", workspace: "/home/a/w" };
+ * namespaceSessionFlowType("Agent", identity); // "Agent-ujnoef"
+ * ```
  *
  * @param harnessFlowType - {@link AgentHarness.flowType}.
  * @param identity - The host, user, configuration file, and workspace.
@@ -552,13 +570,35 @@ export interface SessionEnvironmentIdentity {
  */
 export function namespaceSessionFlowType(harnessFlowType: string, identity: SessionEnvironmentIdentity): string {
   const hashInput = `${identity.hostName}\n${identity.userId}\n${identity.configIdentity}\n${identity.workspace}`;
-  const hash = createHash("sha256").update(hashInput, "utf8").digest("hex").slice(0, 12);
-  return `${harnessFlowType}-${hash}`;
+  const digest = createHash("sha256").update(hashInput, "utf8").digest();
+  const suffix = (digest.readBigUInt64BE(0) % flowTypeSuffixCount).toString(36).padStart(flowTypeSuffixLength, "0");
+  return `${harnessFlowType}-${suffix}`;
+}
+
+/** Returns the hashed identity plus `user_name`, recorded as the session's `startEnvironment`. */
+function sessionStartEnvironment(identity: SessionEnvironmentIdentity): Record<string, string> {
+  const userName = currentUserName();
+  return {
+    host_name: identity.hostName,
+    user_id: identity.userId,
+    config_identity: identity.configIdentity,
+    workspace: identity.workspace,
+    ...(userName === undefined ? {} : { user_name: userName }),
+  };
 }
 
 /** Returns the numeric user ID where the platform has one, else the user name. */
 function currentUserId(): string {
   return typeof process.getuid === "function" ? String(process.getuid()) : userInfo().username;
+}
+
+/** Returns the user name, or `undefined` when the user ID has none, as in some containers. */
+function currentUserName(): string | undefined {
+  try {
+    return userInfo().username;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseCommandArguments(argv: readonly string[]): ParsedArguments {
