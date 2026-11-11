@@ -204,6 +204,7 @@ jobs:
               - 'script/release/**'
               - 'script/regenerate_derived.py'
               - 'script/regenerate_derived_integ_test.py'
+              - 'Makefile'
               - 'skills/script/check-package.py'
               - '.github/workflows/release-changed-components.yml'
               - '.github/workflows/release-tooling-ci.yml'

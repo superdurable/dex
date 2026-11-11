@@ -21,10 +21,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-DEFAULT_UPSTREAM = "origin/main"
+FALLBACK_UPSTREAM = "origin/main"
+REMOTE_TAG_TIMEOUT_SECONDS = 15
 
 CARGO_WORKSPACES = ("server-zd", "sdk-rust", "s3local", "examples/rust")
-# Keep in sync with GENERATED_CODE_PATHS in the root Makefile.
+# Keep in sync with GENERATED_CODE_PATHS in the root Makefile; a test compares them.
 GENERATED_CODE_PATHS = (
     "sdk-go/gen/dexpb",
     "sdk-java/src/main/java/io/superdurable/gen",
@@ -34,9 +35,12 @@ GENERATED_CODE_PATHS = (
 FLOW_DEFINITIONS_PATH = "docs/src/data/flow-definitions"
 FORMAT_COMPAT_TESTDATA = "server-zd/testdata"
 FORMAT_COMPAT_PIN_FILE = "server-zd/crates/dexzd-engine/tests/format_compat/golden_replay.rs"
-FORMAT_COMPAT_VERSION_PATTERN = re.compile(r"^server-zd/testdata/(v[0-9]+)/(objects/.+|state\.txt)$")
-FORMAT_COMPAT_PIN_LINE = re.compile(r'^\s*\("v[0-9]+", "[0-9a-f]{32}"\),\s*$')
+FORMAT_COMPAT_VERSION_PATH = re.compile(r"^server-zd/testdata/(v[0-9]+)/(.+)$")
+FORMAT_COMPAT_GENERATED_FILE = re.compile(r"^(objects/.+|state\.txt)$")
+FORMAT_COMPAT_PIN_ENTRY = re.compile(r'\("(v[0-9]+)", "([0-9a-f]{32})"\)')
+FORMAT_COMPAT_PIN_LINE = re.compile(r'^\s*\("(v[0-9]+)", "[0-9a-f]{32}"\),\s*$')
 FORMAT_COMPAT_MOVED_DIGEST = re.compile(r'testdata/(v[0-9]+) changed[^\n]*\n\s*left: "([0-9a-f]{32})"')
+SERVER_ZD_STABLE_TAG_PATTERN = "server-zd/v1.*"
 SIMULATION_CRATE = "server-zd/crates/dexzd-simulation"
 SIMULATION_PIN_PATHS = (
     f"{SIMULATION_CRATE}/regression-seeds.txt",
@@ -49,7 +53,7 @@ SIMULATION_README_SECTION = f"{SIMULATION_CRATE}/README.md, section 'Pinned traj
 
 
 class RegenerationError(Exception):
-    """A condition that stops the command before or while it changes files."""
+    """A condition that stops the command while it runs a generator."""
 
 
 @dataclass
@@ -71,12 +75,12 @@ class DerivedGroup:
 class Repository:
     """Git and generator access rooted at one working tree."""
 
-    def __init__(self, root: Path, upstream: str, generator_commands: dict[str, str]) -> None:
+    def __init__(self, root: Path, generator_commands: dict[str, str]) -> None:
         self.root = root
-        self.upstream = upstream
+        self.upstream = FALLBACK_UPSTREAM
         self.generator_commands = generator_commands
 
-    def git(self, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def git(self, *arguments: str, check: bool = True, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ("git", *arguments),
             cwd=self.root,
@@ -84,6 +88,7 @@ class Repository:
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=timeout,
         )
 
     def run(self, command: list[str] | str, directory: str = ".", **options: object) -> subprocess.CompletedProcess[str]:
@@ -101,13 +106,23 @@ class Repository:
         if result.returncode != 0:
             raise RegenerationError(f"command failed with exit code {result.returncode}: {command}")
 
-    def is_merge_or_rebase_in_progress(self) -> bool:
-        markers = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")
-        for marker in markers:
-            path = Path(self.git("rev-parse", "--git-path", marker).stdout.strip())
-            if (path if path.is_absolute() else self.root / path).exists():
-                return True
-        return False
+    def git_path(self, name: str) -> Path:
+        path = Path(self.git("rev-parse", "--git-path", name).stdout.strip())
+        return path if path.is_absolute() else self.root / path
+
+    def operation_upstream(self) -> tuple[str, str] | None:
+        """Returns the ref whose copy wins for the operation in progress and its description, or None."""
+        for directory in ("rebase-merge", "rebase-apply"):
+            onto = self.git_path(f"{directory}/onto")
+            if onto.exists():
+                return onto.read_text(encoding="utf-8").strip(), "the rebase onto commit"
+        merge_head = self.git_path("MERGE_HEAD")
+        if merge_head.exists():
+            return merge_head.read_text(encoding="utf-8").split()[0], "MERGE_HEAD"
+        for marker in ("CHERRY_PICK_HEAD", "REVERT_HEAD"):
+            if self.git_path(marker).exists():
+                return "HEAD", f"HEAD, the target branch of the {marker.split('_')[0].lower()}"
+        return None
 
     def unmerged_paths(self) -> list[str]:
         output = self.git("ls-files", "--unmerged", "-z").stdout
@@ -118,15 +133,38 @@ class Repository:
         output = self.git("diff", "--name-only", "-z", self.upstream, "--").stdout
         return sorted(path for path in output.split("\0") if path)
 
-    def exists_upstream(self, path: str) -> bool:
-        return self.git("cat-file", "-e", f"{self.upstream}:{path}", check=False).returncode == 0
+    def dirty_paths(self, pathspecs: list[str]) -> set[str]:
+        """Returns paths whose working-tree copy differs from the index, plus untracked files."""
+        if not pathspecs:
+            return set()
+        modified = self.git("diff", "--name-only", "-z", "--", *pathspecs).stdout
+        untracked = self.git("ls-files", "--others", "--exclude-standard", "-z", "--", *pathspecs).stdout
+        return {path for path in (modified + untracked).split("\0") if path}
+
+    def upstream_text(self, path: str) -> str | None:
+        result = self.git("show", f"{self.upstream}:{path}", check=False)
+        return result.stdout if result.returncode == 0 else None
 
     def take_upstream_copy(self, path: str) -> None:
-        if self.exists_upstream(path):
+        if self.git("cat-file", "-e", f"{self.upstream}:{path}", check=False).returncode == 0:
             self.git("checkout", self.upstream, "--", path)
             return
         self.git("rm", "--cached", "--quiet", "--ignore-unmatch", "--", path)
         (self.root / path).unlink(missing_ok=True)
+
+    def stable_server_zd_tags(self) -> tuple[list[str], str]:
+        """Returns the server-zd 1.x tags and where they were looked up."""
+        try:
+            remote = self.git(
+                "ls-remote", "--tags", "origin", f"refs/tags/{SERVER_ZD_STABLE_TAG_PATTERN}",
+                check=False, timeout=REMOTE_TAG_TIMEOUT_SECONDS,
+            )
+            if remote.returncode == 0:
+                return [line.split("\t", 1)[1] for line in remote.stdout.splitlines() if "\t" in line], "origin"
+        except subprocess.TimeoutExpired:
+            pass
+        local = self.git("tag", "--list", SERVER_ZD_STABLE_TAG_PATTERN).stdout.split()
+        return local, "local tags; origin was unreachable"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -136,17 +174,22 @@ def main(argv: list[str] | None = None) -> int:
             ("git", "rev-parse", "--show-toplevel"), check=True, text=True, stdout=subprocess.PIPE
         ).stdout.strip()
     )
-    repository = Repository(root, arguments.upstream, parse_generator_commands(arguments.generator_command))
+    repository = Repository(root, parse_generator_commands(arguments.generator_command))
+    repository.upstream, upstream_source = choose_upstream(repository, arguments.upstream)
     try:
-        return regenerate_derived(repository, is_dry_run=arguments.dry_run, should_run_all=arguments.all)
+        return regenerate_derived(repository, upstream_source, is_dry_run=arguments.dry_run, should_run_all=arguments.all)
     except RegenerationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
 
 def parse_arguments(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--upstream", default=DEFAULT_UPSTREAM, help="ref whose copy resolves a conflict")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--upstream",
+        help="ref whose copy resolves a conflict; defaults to the rebase onto commit, MERGE_HEAD,"
+        f" HEAD for a cherry-pick or revert, and {FALLBACK_UPSTREAM} otherwise",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the plan and change nothing")
     parser.add_argument("--all", action="store_true", help="run every generator")
     parser.add_argument(
@@ -169,27 +212,37 @@ def parse_generator_commands(values: list[str]) -> dict[str, str]:
     return commands
 
 
-def regenerate_derived(repository: Repository, is_dry_run: bool, should_run_all: bool) -> int:
+def choose_upstream(repository: Repository, explicit_upstream: str | None) -> tuple[str, str]:
+    if explicit_upstream:
+        return explicit_upstream, "--upstream"
+    operation = repository.operation_upstream()
+    if operation is not None:
+        return operation
+    return FALLBACK_UPSTREAM, "the default; no merge or rebase is in progress, pass --upstream to change it"
+
+
+def regenerate_derived(repository: Repository, upstream_source: str, is_dry_run: bool, should_run_all: bool) -> int:
     if repository.git("rev-parse", "--verify", "--quiet", f"{repository.upstream}^{{commit}}", check=False).returncode:
-        raise RegenerationError(f"upstream ref {repository.upstream} does not exist; fetch it or pass --upstream")
-    groups = derived_groups()
-    unmerged = repository.unmerged_paths()
-    unowned_conflicts = classify_paths(groups, unmerged, repository.paths_differing_from_upstream())
-    blockers = find_blockers(repository, groups, unowned_conflicts)
+        print(f"Blocked: upstream ref {repository.upstream} does not exist; fetch it or pass --upstream")
+        return 1
+    newest_version = newest_format_compat_version(repository.root)
+    groups = derived_groups(newest_version)
+    unowned_conflicts = classify_paths(groups, repository.unmerged_paths(), repository.paths_differing_from_upstream())
     selected = [
         group
         for group in groups
         if not group.is_manual and (should_run_all or group.conflicted or group.changed)
     ]
-    print_plan(repository, groups, selected, blockers)
+    blockers = find_blockers(repository, groups, selected, unowned_conflicts, newest_version)
+    print_plan(repository, upstream_source, groups, selected, blockers)
     if blockers:
         return 1
     if is_dry_run:
         return 0
+    should_stage = repository.operation_upstream() is not None
     for group in selected:
         for path in group.conflicted:
             repository.take_upstream_copy(path)
-    is_operation_in_progress = repository.is_merge_or_rebase_in_progress()
     for group in selected:
         print(f"== regenerating {group.name}", flush=True)
         override = repository.generator_commands.get(group.name)
@@ -197,9 +250,12 @@ def regenerate_derived(repository: Repository, is_dry_run: bool, should_run_all:
             repository.run_checked(override)
         else:
             group.regenerate(repository)
-        existing_pathspecs = [path for path in group.pathspecs if (repository.root / path).exists()]
-        if (group.conflicted or is_operation_in_progress) and existing_pathspecs:
-            repository.git("add", "--all", "--", *existing_pathspecs)
+        produced = repository.dirty_paths(existing_pathspecs(repository, group))
+        if group.name.startswith("cargo-lock:") and produced:
+            print(f"Review the lock file diff: git diff -- {group.pathspecs[0]}")
+        to_stage = sorted(produced | set(group.conflicted)) if (group.conflicted or should_stage) else []
+        if to_stage:
+            repository.git("add", "--all", "--", *to_stage)
     return report_result(repository, groups, selected)
 
 
@@ -223,47 +279,109 @@ def owning_group(groups: list[DerivedGroup], path: str) -> DerivedGroup | None:
     return next((group for group in groups if group.matches(path)), None)
 
 
-def find_blockers(repository: Repository, groups: list[DerivedGroup], unowned_conflicts: list[str]) -> list[str]:
+def find_blockers(
+    repository: Repository,
+    groups: list[DerivedGroup],
+    selected: list[DerivedGroup],
+    unowned_conflicts: list[str],
+    newest_version: str | None,
+) -> list[str]:
+    """Returns every reason to refuse; all of them are checked before any file or index change."""
     blockers = []
     if unowned_conflicts:
         blockers.append(
-            "resolve these conflicts by hand first; they are not derived files:\n"
-            + "\n".join(f"    {path}" for path in unowned_conflicts)
+            "resolve these conflicts by hand first; they are not derived files:\n" + indented(unowned_conflicts)
         )
     for group in groups:
         if group.is_manual and group.conflicted:
             blockers.append(
                 f"{group.name} cannot be regenerated; follow {SIMULATION_README_SECTION}:\n"
-                + "\n".join(f"    {path}" for path in group.conflicted)
+                + indented(group.conflicted)
             )
-    if FORMAT_COMPAT_PIN_FILE in repository.unmerged_paths() and not are_conflicts_only_in_pins(
-        (repository.root / FORMAT_COMPAT_PIN_FILE).read_text(encoding="utf-8")
-    ):
-        blockers.append(
-            f"{FORMAT_COMPAT_PIN_FILE} conflicts outside PINNED_VERSION_DIGESTS; resolve the other hunks by hand,"
-            " keep either pin line, and run this command again"
-        )
+    format_compat = next(group for group in groups if group.name == "format-compat")
+    blockers.extend(format_compat_blockers(repository, format_compat, newest_version))
+    for group in selected:
+        unrelated = repository.dirty_paths(existing_pathspecs(repository, group)) - set(group.conflicted)
+        if unrelated:
+            blockers.append(
+                f"{group.name} has uncommitted changes that are not conflicts; commit or discard them first:\n"
+                + indented(sorted(unrelated))
+            )
+    if format_compat in selected:
+        tags, tag_source = repository.stable_server_zd_tags()
+        if tags:
+            blockers.append(
+                f"server-zd 1.0 is released ({tags[0]}, from {tag_source}), so recorded format_compat"
+                " versions are immutable; add a new version as server-zd/testdata/README.md describes"
+            )
+        elif tag_source != "origin":
+            print(f"Note: checked {SERVER_ZD_STABLE_TAG_PATTERN} in {tag_source}.")
+        if newest_version is None and "format-compat" not in repository.generator_commands:
+            blockers.append(f"no v<N> directory under {FORMAT_COMPAT_TESTDATA}")
     return blockers
 
 
-def are_conflicts_only_in_pins(text: str) -> bool:
+def format_compat_blockers(repository: Repository, group: DerivedGroup, newest_version: str | None) -> list[str]:
+    frozen = [
+        path
+        for path in group.conflicted + group.changed
+        if path != FORMAT_COMPAT_PIN_FILE and not is_newest_generated_file(path, newest_version)
+    ]
+    blockers = []
+    if frozen:
+        blockers.append(
+            f"only the newest format_compat version ({newest_version}) is regenerated; older versions are"
+            " frozen, so restore these paths from main:\n" + indented(sorted(frozen))
+        )
+    if FORMAT_COMPAT_PIN_FILE in group.conflicted:
+        text = (repository.root / FORMAT_COMPAT_PIN_FILE).read_text(encoding="utf-8")
+        if not are_conflicts_only_in_newest_pin(text, newest_version):
+            blockers.append(
+                f"{FORMAT_COMPAT_PIN_FILE} conflicts outside the {newest_version} pin; resolve the other hunks by"
+                " hand, keep either newest pin line, and run this command again"
+            )
+    elif FORMAT_COMPAT_PIN_FILE in group.changed:
+        upstream_text = repository.upstream_text(FORMAT_COMPAT_PIN_FILE) or ""
+        working_text = (repository.root / FORMAT_COMPAT_PIN_FILE).read_text(encoding="utf-8")
+        if older_pins(working_text, newest_version) != older_pins(upstream_text, newest_version):
+            blockers.append(
+                f"{FORMAT_COMPAT_PIN_FILE} changes the pin of an older, frozen format_compat version;"
+                " restore it from main"
+            )
+    return blockers
+
+
+def is_newest_generated_file(path: str, newest_version: str | None) -> bool:
+    match = FORMAT_COMPAT_VERSION_PATH.match(path)
+    return bool(match and match.group(1) == newest_version and FORMAT_COMPAT_GENERATED_FILE.match(match.group(2)))
+
+
+def are_conflicts_only_in_newest_pin(text: str, newest_version: str | None) -> bool:
     is_inside_conflict = False
     for line in text.splitlines():
         if line.startswith("<<<<<<<"):
             is_inside_conflict = True
         elif line.startswith(">>>>>>>"):
             is_inside_conflict = False
-        elif is_inside_conflict and not (
-            line.startswith("=======") or line.startswith("|||||||") or FORMAT_COMPAT_PIN_LINE.match(line)
-        ):
-            return False
+        elif is_inside_conflict and not line.startswith(("=======", "|||||||")):
+            pin_line = FORMAT_COMPAT_PIN_LINE.match(line)
+            if pin_line is None or pin_line.group(1) != newest_version:
+                return False
     return True
 
 
+def older_pins(text: str, newest_version: str | None) -> dict[str, str]:
+    return {version: digest for version, digest in FORMAT_COMPAT_PIN_ENTRY.findall(text) if version != newest_version}
+
+
 def print_plan(
-    repository: Repository, groups: list[DerivedGroup], selected: list[DerivedGroup], blockers: list[str]
+    repository: Repository,
+    upstream_source: str,
+    groups: list[DerivedGroup],
+    selected: list[DerivedGroup],
+    blockers: list[str],
 ) -> None:
-    print(f"Upstream: {repository.upstream}")
+    print(f"Upstream: {repository.upstream} ({upstream_source})")
     for group in groups:
         if group.is_manual:
             state = "manual" if group.conflicted or group.changed else "unchanged"
@@ -271,10 +389,10 @@ def print_plan(
             state = "regenerate" if group in selected else "skip"
         print(f"  {group.name}: {state}")
         for path in group.conflicted:
-            action = "conflicted, left as is" if group.is_manual else f"conflicted, take {repository.upstream} copy"
+            action = "conflicted, left as is" if group.is_manual else "conflicted, take upstream copy"
             print(f"      {action}: {path}")
         for path in group.changed[:5]:
-            print(f"      differs from {repository.upstream}: {path}")
+            print(f"      differs from upstream: {path}")
         if len(group.changed) > 5:
             print(f"      ... and {len(group.changed) - 5} more")
     for blocker in blockers:
@@ -282,30 +400,25 @@ def print_plan(
 
 
 def report_result(repository: Repository, groups: list[DerivedGroup], selected: list[DerivedGroup]) -> int:
-    pathspecs = [
-        pathspec
-        for group in selected
-        for pathspec in group.pathspecs
-        if (repository.root / pathspec).exists()
-    ]
+    pathspecs = [pathspec for group in selected for pathspec in existing_pathspecs(repository, group)]
     if pathspecs:
         status = repository.git("status", "--short", "--", *pathspecs).stdout
         print("Derived files now differing from HEAD:" if status else "Derived files match HEAD.")
         if status:
             print(status, end="")
-    manual = [group for group in groups if group.is_manual and group.changed]
-    for group in manual:
-        print(
-            f"Note: {group.name} differ from {repository.upstream}. They cannot be regenerated."
-            f" If a pinned digest moved, follow {SIMULATION_README_SECTION}."
-        )
+    for group in groups:
+        if group.is_manual and group.changed:
+            print(
+                f"Note: {group.name} differ from upstream. They cannot be regenerated."
+                f" If a pinned digest moved, follow {SIMULATION_README_SECTION}."
+            )
     if repository.unmerged_paths():
         print("Unmerged paths remain; resolve them before continuing.")
         return 1
     return 0
 
 
-def derived_groups() -> list[DerivedGroup]:
+def derived_groups(newest_version: str | None) -> list[DerivedGroup]:
     groups = [cargo_lock_group(workspace) for workspace in CARGO_WORKSPACES]
     groups.append(
         DerivedGroup(
@@ -325,11 +438,16 @@ def derived_groups() -> list[DerivedGroup]:
             ),
         )
     )
+    newest_pathspecs = (
+        (f"{FORMAT_COMPAT_TESTDATA}/{newest_version}/objects", f"{FORMAT_COMPAT_TESTDATA}/{newest_version}/state.txt")
+        if newest_version
+        else ()
+    )
     groups.append(
         DerivedGroup(
             name="format-compat",
-            pathspecs=(FORMAT_COMPAT_TESTDATA, FORMAT_COMPAT_PIN_FILE),
-            matches=lambda path: path == FORMAT_COMPAT_PIN_FILE or bool(FORMAT_COMPAT_VERSION_PATTERN.match(path)),
+            pathspecs=(*newest_pathspecs, FORMAT_COMPAT_PIN_FILE),
+            matches=lambda path: path == FORMAT_COMPAT_PIN_FILE or bool(FORMAT_COMPAT_VERSION_PATH.match(path)),
             regenerate=regenerate_format_compat,
         )
     )
@@ -346,7 +464,7 @@ def derived_groups() -> list[DerivedGroup]:
 
 def cargo_lock_group(workspace: str) -> DerivedGroup:
     lock_path = f"{workspace}/Cargo.lock"
-    # cargo metadata only completes the lock file; it never upgrades a locked dependency.
+    # Keeps locked versions that satisfy the manifests; updates a package only when a constraint requires it.
     return DerivedGroup(
         name=f"cargo-lock:{workspace}",
         pathspecs=(lock_path,),
@@ -358,12 +476,9 @@ def cargo_lock_group(workspace: str) -> DerivedGroup:
 
 
 def regenerate_format_compat(repository: Repository) -> None:
-    if repository.git("tag", "--list", "server-zd/v1.*").stdout.strip():
-        raise RegenerationError(
-            "server-zd 1.0 is released, so recorded format_compat versions are immutable;"
-            " add a new version as server-zd/testdata/README.md describes"
-        )
     version = newest_format_compat_version(repository.root)
+    if version is None:
+        raise RegenerationError(f"no v<N> directory under {FORMAT_COMPAT_TESTDATA}")
     version_directory = repository.root / FORMAT_COMPAT_TESTDATA / version
     with tempfile.TemporaryDirectory() as temporary:
         output_directory = Path(temporary) / version
@@ -381,15 +496,14 @@ def regenerate_format_compat(repository: Repository) -> None:
     update_format_compat_pin(repository, version)
 
 
-def newest_format_compat_version(root: Path) -> str:
+def newest_format_compat_version(root: Path) -> str | None:
+    testdata = root / FORMAT_COMPAT_TESTDATA
+    if not testdata.is_dir():
+        return None
     versions = [
-        int(path.name[1:])
-        for path in (root / FORMAT_COMPAT_TESTDATA).iterdir()
-        if path.is_dir() and re.fullmatch(r"v[0-9]+", path.name)
+        int(path.name[1:]) for path in testdata.iterdir() if path.is_dir() and re.fullmatch(r"v[0-9]+", path.name)
     ]
-    if not versions:
-        raise RegenerationError(f"no v<N> directory under {FORMAT_COMPAT_TESTDATA}")
-    return f"v{max(versions)}"
+    return f"v{max(versions)}" if versions else None
 
 
 def update_format_compat_pin(repository: Repository, version: str) -> None:
@@ -415,8 +529,16 @@ def update_format_compat_pin(repository: Repository, version: str) -> None:
     repository.run_checked(pin_test, "server-zd")
 
 
+def existing_pathspecs(repository: Repository, group: DerivedGroup) -> list[str]:
+    return [path for path in group.pathspecs if (repository.root / path).exists()]
+
+
 def environment_with(**variables: str) -> dict[str, str]:
     return {**os.environ, **variables}
+
+
+def indented(paths: list[str]) -> str:
+    return "\n".join(f"    {path}" for path in paths)
 
 
 def is_under(path: str, prefix: str) -> bool:
