@@ -41,7 +41,10 @@ const sidebars: SidebarsConfig = {
       // Each framework is a tab on these pages. The built-in loop comes last because most agents use a framework.
       items: [
         'agent-frameworks/quick-start',
-        'agent-frameworks/tools-and-approvals',
+        'agent-frameworks/sessions',
+        'agent-frameworks/tool-calls',
+        'agent-frameworks/approvals',
+        'agent-frameworks/connectors-as-tools',
         'agent-frameworks/built-in-agent-loop',
       ],
     },
@@ -165,8 +168,9 @@ const sidebars: SidebarsConfig = {
       customProps: {section: 'product-examples'},
       link: {type: 'doc', id: 'use-cases/index'},
       items: [
-        'use-cases/order-processing',
         'use-cases/ai-agent',
+        'use-cases/order-support-agent',
+        'use-cases/order-processing',
         'use-cases/subscription',
         'use-cases/user-onboarding-process',
         'use-cases/money-transfer',

@@ -412,7 +412,7 @@ Open the session's run in Dex Web and select the **Agent session** tab. Choose *
 
 ## Connect Connectors {#connect-connectors}
 
-The agent can call [Connector](/concepts/connector) operations as tools, as [Connectors as tools](/agent-frameworks/tools-and-approvals#connectors-as-tools) describes. The example adds the Slack tool **slack_post_thread_reply**, which replies in a Slack thread.
+The agent can call [Connector](/concepts/connector) operations as tools, as [Connectors as tools](/agent-frameworks/connectors-as-tools#connectors-as-tools) describes. The example adds the Slack tool **slack_post_thread_reply**, which replies in a Slack thread.
 
 ### Offer the tool {#offer-connector-tools}
 
@@ -566,7 +566,7 @@ The agent takes the Slack tool source next to the MCP tool source:
 
 ### How a call runs {#connector-tool-calls}
 
-Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttemptTool** Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/quick-start#slack-connector-tool) explains why.
+Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttemptTool** Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
 
 ### Configure the connection {#configure-connector-connection}
 
@@ -585,7 +585,7 @@ The post waits for **Approve** before it runs.
 - Each model call and each tool call adds a Step round trip.
 - **AgentEvents** is best effort. Read the session snapshot for the conversation.
 - A failed **RunModel** repeats its model call.
-- See [Limits for long sessions](/reference/agents/session-limits) for the server limits, and [At-most-once has one exception](/agent-frameworks/tools-and-approvals#tool-runs-twice) for single-attempt tools.
+- See [Limits for long sessions](/reference/agents/session-limits) for the server limits, and [At-most-once has one exception](/agent-frameworks/tool-calls#tool-runs-twice) for single-attempt tools.
 
 ## Related
 

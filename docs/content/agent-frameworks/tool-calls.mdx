@@ -1,0 +1,64 @@
+---
+title: Tool Calls
+sidebar_label: Tool Calls
+slug: /agent-frameworks/tool-calls
+---
+
+# Tool Calls
+
+Every tool gets a policy, whatever framework runs the agent. The policy's effect class decides whether Dex may run a call again after a failure. So a read can retry, and a write runs at most once.
+
+## Tool policies {#tool-policies-and-approvals}
+
+Each tool gets a **ToolPolicy**. The policy sets the tool's effect class, which decides whether Dex may run a call again. It also says whether a call waits for approval.
+
+### Effect classes {#effect-classes}
+
+| Effect class | What the tool does | Runs in |
+| --- | --- | --- |
+| **read** | Only reads. Running it again is harmless. | **CallTool**, with retries |
+| **idempotent_write** | Writes, and a repeat with the same idempotency key has no further effect. | **CallTool**, with retries |
+| **non_idempotent_write** | Writes, and a repeat can repeat the effect. | **CallSingleAttemptTool**, once |
+| **unclassified** | Nothing is known about it. Dex treats it as a non-idempotent write. | **CallSingleAttemptTool**, once |
+
+Every attempt of a call gets the same idempotency key: the session's Flow ID, the turn ID, and the tool call ID, joined by slashes, such as **session-42/turn-3/call-7**. Pass it to the service that the tool writes to. When the service drops a repeated key, classify the tool as **idempotent_write**, so Dex can retry it after a failure.
+
+A recorded tool call keeps the effect class and approval rule that applied when the model asked for it. A changed policy applies to later calls.
+
+## Tool call outcomes {#tool-call-outcomes}
+
+Each tool call ends with one record:
+
+| Record | Meaning |
+| --- | --- |
+| **succeeded** | The tool returned a result. |
+| **failed** | The tool reported a failure, or Dex knows that the tool did not run. |
+| **rejected** | A person rejected the call, or its approval deadline passed. |
+| **outcome_unknown** | The tool may or may not have taken effect. |
+
+The model reads every record and decides what to do next. A failed or unknown call does not fail the session.
+
+A call that Dex knows never ran records **failed**. Its error starts with "the tool did not run, so it is safe to call again", and the model can call the tool again. A call that may have run records **outcome_unknown** instead, unless it is a read. Dex never runs such a call again. See [A call that never ran](/reference/agents/failures#never-run-outcome-unknown) for how Dex decides.
+
+### At-most-once has one exception {#tool-runs-twice}
+
+A single-attempt tool runs in **CallSingleAttemptTool**. Dex hands each attempt to one Worker and never hands the same attempt to another. If the Worker dies or loses its connection to Dex while the tool runs, the call records **outcome_unknown**, and the session does not run the tool again.
+
+One narrow case can still run a single-attempt tool twice. Dex cannot force a running attempt to stop. When Dex cancels an attempt, the interrupted run may keep going while Dex records the failure and the turn moves on. To make a second run harmless, pass the call's idempotency key to the service that the tool writes to. See [Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
+
+### Reconcile outcome_unknown {#reconcile-outcome-unknown}
+
+**outcome_unknown** means the effect may or may not have happened. The session never retries such a call, and the model sees that the outcome is unknown. Reconcile it outside the session:
+
+1. Find the call. While the turn runs, **get_agent_snapshot** lists it under **tool_calls**, with the failure in **error**. The **AgentEvents** Stream has a **tool_call_finished** event with the status **outcome_unknown**. After the turn, its tool result in the message history says that the outcome is unknown.
+2. Check the target system for the effect, by the call's idempotency key or by your own business key.
+3. If the Flow's history shows that the tool Step's attempt never reached a Worker, the tool did not run. This can happen for a call that started before a server upgrade.
+4. Tell the session the real outcome with **send_user_message**, so the next turn's model works from it.
+
+No search finds these calls for you, because no Step waits on them.
+
+## Related
+
+- [Approvals](/agent-frameworks/approvals)
+- [Connectors as Tools](/agent-frameworks/connectors-as-tools)
+- [Failures reference](/reference/agents/failures)

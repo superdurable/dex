@@ -412,7 +412,7 @@ Python 与 TypeScript package 都会安装 **dex-agents-session-graph**。在 **
 
 ## 连接 Connector {#connect-connectors}
 
-Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks/tools-and-approvals#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
+Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks/connectors-as-tools#connectors-as-tools)。这个 example 加入了 Slack tool **slack_post_thread_reply**，用来在 Slack thread 中回复。
 
 ### 提供 tool {#offer-connector-tools}
 
@@ -566,7 +566,7 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 
 ### 调用如何运行 {#connector-tool-calls}
 
-每次调用 **slack_post_thread_reply** 都要先经人批准，然后在自己的 **CallSingleAttemptTool** Step 中只运行一次。原因见 [Slack Connector tool](/agent-frameworks/quick-start#slack-connector-tool)。
+每次调用 **slack_post_thread_reply** 都要先经人批准，然后在自己的 **CallSingleAttemptTool** Step 中只运行一次。原因见 [Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool)。
 
 ### 配置 connection {#configure-connector-connection}
 
@@ -585,7 +585,7 @@ Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，�
 - 每次模型调用和每次 tool call 都会增加一次 Step 往返。
 - **AgentEvents** 是 best effort。对话内容请读取 session snapshot。
 - 失败的 **RunModel** 会重复它的模型调用。
-- Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。Single-attempt tool 的例外参见 [最多一次有一个例外](/agent-frameworks/tools-and-approvals#tool-runs-twice)。
+- Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。Single-attempt tool 的例外参见 [最多一次有一个例外](/agent-frameworks/tool-calls#tool-runs-twice)。
 
 ## 相关内容 {#related}
 

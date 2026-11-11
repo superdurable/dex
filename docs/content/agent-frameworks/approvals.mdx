@@ -1,0 +1,35 @@
+---
+title: Approvals
+sidebar_label: Approvals
+slug: /agent-frameworks/approvals
+---
+
+# Approvals
+
+An approval asks whether a tool call should happen at all. A call that needs approval waits until a person answers, for minutes or for days, without holding a Worker.
+
+## How an approval works {#approvals}
+
+Approval asks whether a call should happen at all. It is separate from retry: a refund with an idempotency key is still a real refund.
+
+A tool call that needs approval waits in its own **AwaitToolApproval** Step until someone answers. The wait holds no Worker slot, and it survives Worker restarts and deploys. A person approves or rejects the call from your application or from [Dex Web](/reference/web/dex-web#agent-session-view). The model sees a rejection and can react to it.
+
+While an approval waits, the turn waits with it, and new user messages queue until the turn ends. If an approval must not wait forever, set an approval deadline. Dex rejects a call that is still pending at the deadline. See [Approval deadlines](/reference/agents/approvals#approval-deadlines).
+
+## Approve in Dex Web {#approve-in-dex-web}
+
+While an example runs, you can approve a call in Dex Web instead of with an HTTP request:
+
+1. Open the session's run. Its Flow ID is the session ID.
+2. Select the **Agent session** tab.
+3. Set **Working as** to **order-support.operate**, the permission you rendered into the session graph.
+4. Select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you.
+
+Dex Web shows this tab only when it started with the session graph. Each framework page renders the graph before it starts Dex. For production, see [Show sessions in Dex Web](/reference/agents/dex-web).
+
+Instead of the last command, you can approve the call in Dex Web. Follow the steps in [Approve in Dex Web](/agent-frameworks/approvals#approve-in-dex-web).
+
+## Related
+
+- [Tool Calls](/agent-frameworks/tool-calls)
+- [Approvals reference](/reference/agents/approvals)
