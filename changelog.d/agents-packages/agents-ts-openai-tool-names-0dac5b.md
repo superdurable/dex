@@ -8,6 +8,4 @@ section: Fixed
   `hacker_news_daily_list_story_ids` for `hacker-news-daily_list_story_ids`,
   and two tools that differ only by `-` and `_` could not both be offered.
   Only a character the OpenAI API refuses, one other than a letter, digit,
-  `_`, or `-`, still reaches the model as `_`. A turn that waits on a call of
-  a tool with `-` while its Worker upgrades fails when it resumes, because its
-  saved run state names the tool with `_`.
+  `_`, or `-`, still reaches the model as `_`.
