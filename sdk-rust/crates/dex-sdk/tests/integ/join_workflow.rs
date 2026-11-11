@@ -147,6 +147,8 @@ impl JoinWorkflow {
     pub(crate) const FORK_JOIN_ROUND: Rpc<String, RpcForkOutput> = Rpc::new("fork_join_round");
     pub(crate) const GET_PENDING_RESULTS: Rpc<String, Vec<String>> =
         Rpc::new("get_pending_results");
+    pub(crate) const GET_PENDING_RELEASE_COUNT: Rpc<String, usize> =
+        Rpc::new("get_pending_release_count");
     pub(crate) const FINISH_FLOW: Rpc<(), ()> = Rpc::new("finish_flow");
 
     pub(crate) fn new(state: Arc<JoinTestState>) -> Self {
@@ -231,6 +233,15 @@ impl JoinWorkflow {
         Ok(RpcResult::new(pending_results))
     }
 
+    fn get_pending_release_count(
+        &self,
+        context: &mut Context,
+        label: String,
+    ) -> HandlerResult<RpcResult<usize>> {
+        let pending_releases = BRANCH_RELEASES.pending_messages(context, &label)?;
+        Ok(RpcResult::new(pending_releases.len()))
+    }
+
     fn finish_flow(&self, context: &mut Context) -> HandlerResult<()> {
         FINISH.publish(context, ())
     }
@@ -274,6 +285,10 @@ impl Flow for JoinWorkflow {
             .function(
                 Self::GET_PENDING_RESULTS.load_channel_map(&BRANCH_RESULT_MAP),
                 Self::get_pending_results,
+            )
+            .function(
+                Self::GET_PENDING_RELEASE_COUNT.load_channel_map(&BRANCH_RELEASES),
+                Self::get_pending_release_count,
             )
             .procedure_without_input(Self::FINISH_FLOW, Self::finish_flow)
     }

@@ -166,6 +166,17 @@ fn test_join_partial_rounds_reset_before_the_next_round() {
     // Round 2 enablement arrives before the reset; its branches do not exist yet.
     run.release_branch("round-2-a");
     run.release_branch("round-2-b");
+    for label in ["round-2-a", "round-2-b"] {
+        let pending_release_count: usize = run
+            .client()
+            .invoke_rpc(
+                &run.flow_id,
+                JoinWorkflow::GET_PENDING_RELEASE_COUNT,
+                label.to_string(),
+            )
+            .expect("read pending round 2 enablement");
+        assert_eq!(1, pending_release_count, "{label}");
+    }
     run.release_branch("round-1-c");
 
     assert_eq!(
