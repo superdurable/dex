@@ -8,10 +8,13 @@ enough to express a conventional concurrent language: every well-formed
 program of \Lang{}, with its threads, mutexes, condition variables, timed
 receives, cancellation, and exceptions, translates into a Flow with the
 same observable finite traces and the same fair maximal traces, in a
-failure-free environment. We have also shown that, in the same fragment,
-failures are transparent: crashes, takeovers, Worker retries, zombie
-Workers, and duplicate deliveries add nothing observable except repeated
-external effects, each equal to an earlier one. The statements are
+failure-free environment. We have also shown that, in the same fragment
+and under explicit hypotheses, erasing the repeated external effects from
+a finite trace with crashes, takeovers, Worker retries, zombie Workers, and
+duplicate deliveries gives a failure-free trace, and that every
+failure-free trace remains possible; for fair runs the erasure keeps the
+marker, and the reverse inclusion holds for words without StartFlow
+retries. The statements are
 precise, their scope is explicit, and their proofs are checked by the Lean
 kernel from three standard axioms.
 

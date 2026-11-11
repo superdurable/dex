@@ -82,17 +82,18 @@ across many Steps and waits.
 - **A precise description of Dex.** Every rule for how Flows, Steps,
   Channels, Attributes, and Timers behave is written down, with the server
   code that implements it. Reviewers checked each rule against the code.
-- **A computer-checked proof.** The proof is written in the Lean 4 proof
+- **A computer-checked proof.** The proof is written in the Lean proof
   assistant, which checks every step. No step is skipped or taken on trust.
 
 ## Failures {#what-it-does-not-cover}
 
 This proof assumes no crashes, retries, or redelivery. The
 [Failure transparency proof](/concepts/correctness-and-expressiveness/failure-transparency-proof)
-adds them. It shows that these failures do not change what a Flow does, except
-that external effects may repeat. Together, the two proofs say that a program
-runs on Dex as if no failure had happened, apart from those repeats. Both
-proofs hold under the assumptions that their pages list.
+adds them. Under its assumptions, removing the repeated external effects from
+a run with failures leaves a run without failures. Together, the two proofs
+say that a well-formed program of the language runs on Dex with the events of
+a run without failures, except that its external effects may repeat. Both
+proofs hold only under the assumptions that their pages list.
 
 ## Related evidence {#related-evidence}
 

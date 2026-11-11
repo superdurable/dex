@@ -54,9 +54,12 @@ place where a real deployment can leave the theorem.
   timer early in real time.
 \item \emph{Publications retried by the client.} A publication has no
   request ID. A client that sends it again after a lost response has sent a
-  second request, which the server accepts as a second message. That is
-  outside failure transparency. Exactly-once publication needs another
-  route, such as an RPC with a caller-chosen request ID.
+  second request; when both commit, the Flow receives the message twice.
+  That is outside failure transparency. Exactly-once publication needs
+  another route, such as an RPC with a caller-chosen request ID, once the
+  SDKs expose one. Its deduplication covers only repeats within one run
+  whose request record has not been evicted from the bounded request
+  table.
 \item \emph{StartFlow retries after the purge.} A retry deduplicates only
   while the run is still in the Flow directory; after the purge it starts a
   new run. The theorem assumes every retry comes before the purge, and the
@@ -82,9 +85,14 @@ effect after a newer attempt of the same method has finished. So an
 idempotent effect is not enough for exactly-once in effect. Idempotent
 does not mean commutative: a zombie's late \emph{set $x$ to 1} can
 overwrite a later \emph{set $x$ to 2}, although each call is idempotent.
-Exactly-once in effect needs idempotency keys, commutative effects, or
-effects fenced by attempt. A fence reads the attempt number, so such a
-handler is outside H3, although it is still good practice. The server's deterministic simulation harness
+Exactly-once in effect needs more, and each remedy has conditions. An
+idempotency key must tell apart runs after a Flow ID is reused, the
+methods of a Step, and the distinct effects of one method. A commutative
+effect still accumulates when it repeats, so it needs a key too, unless
+repeating it is harmless. A fence by attempt rejects an older write only
+after the external system has recorded the newer attempt's fence, and a
+handler that sends its attempt number is outside H3, although the fence is
+still good practice. The server's deterministic simulation harness
 with injected crashes checks that a recovered store equals one that never
 crashed; it is complementary evidence and is not connected to the model.
 

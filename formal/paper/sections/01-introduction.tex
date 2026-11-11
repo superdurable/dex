@@ -39,9 +39,11 @@ no failures.}
 \end{quote}
 
 \begin{quote}
-\emph{In the same fragment, crashes, takeovers, retries, zombie Workers,
-and duplicate deliveries change no observable event of a Flow, except that
-external effects may repeat.}
+\emph{In the same fragment and under explicit hypotheses, erasing the
+repeated external effects from a finite trace with crashes, takeovers,
+retries, zombie Workers, and duplicate deliveries gives a failure-free
+trace, and every failure-free trace remains possible. For fair runs the
+erasure keeps the termination, deadlock, or divergence marker.}
 \end{quote}
 
 The first claim is about expressiveness, and \S\ref{sec:language} to
@@ -118,13 +120,15 @@ and Timers.
 \item \textbf{Failure transparency} (\S\ref{sec:failures}): a failure
   model written against the server, with crashes, takeovers, Worker
   failures, zombie Workers, stale results, and StartFlow retries; an
-  abstraction map with ghost history that turns every failure into a
+  abstraction map with ghost history under which every failure step is a
   stutter; and the Lean theorems \lean{safety_failure_forward},
   \lean{liveness_failure}, \lean{endToEnd_safety}, and
-  \lean{endToEnd_liveness}, with the same three axioms, kernel-checked
-  witnesses for safety and for liveness with the markers \mterm{} and
-  \mdead{}, and counterexamples that show the hypotheses H1, H3, H4, and
-  the treatment of re-sent publications are needed.
+  \lean{endToEnd_liveness}, with the same three axioms. Kernel-checked
+  witnesses apply the safety statement and the forward liveness inclusion
+  with the markers \mterm{} and \mdead{}. Counterexamples show that H1
+  and H3 are needed and that a re-sent publication is a second request;
+  the H4 counterexample also violates H1, of which H4 is a special case in
+  the model.
 \end{enumerate}
 
 \paragraph{What is not claimed.}
