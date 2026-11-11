@@ -46,11 +46,7 @@ export interface RecordedModelRequest {
 /** Picks the reply to one request of a session; `index` counts that session's requests from zero. */
 export type FakeModelResponder = (request: RecordedModelRequest, index: number) => FakeModelReply | Promise<FakeModelReply>;
 
-/**
- * A local provider that speaks OpenAI Chat Completions and Anthropic Messages streams.
- *
- * Each test registers a responder under a unique token that appears in its session's messages.
- */
+/** A local OpenAI Chat Completions and Anthropic Messages provider; responders are keyed by a session token. */
 export class FakeModelServer {
   private readonly responders = new Map<string, FakeModelResponder>();
   private readonly requestsByToken = new Map<string, RecordedModelRequest[]>();

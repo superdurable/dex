@@ -123,13 +123,15 @@ export interface PiAgentFunctionToolOptions {
  * @example
  * ```ts
  * import type { AgentTool } from "@earendil-works/pi-agent-core";
+ * import { obj, str } from "@earendil-works/pi-schema";
  * import { piAgentFunctionTool } from "@superdurable/dex-agents-pi";
  *
- * const lookupOrder: AgentTool = {
+ * const orderArguments = obj({ orderId: str() });
+ * const lookupOrder: AgentTool<typeof orderArguments> = {
  *   name: "lookup_order",
  *   label: "Look up order",
  *   description: "Look up an order by its ID.",
- *   parameters: { type: "object", properties: { orderId: { type: "string" } }, required: ["orderId"] },
+ *   parameters: orderArguments,
  *   replay: "safe",
  *   execute: async (_toolCallId, { orderId }) => ({
  *     content: [{ type: "text", text: JSON.stringify(await orders.get(orderId)) }],

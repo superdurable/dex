@@ -190,8 +190,7 @@ DEXCLI=/path/to/dexcli agents/script/smoke-test-built-packages.sh all
 `Agents CI` finds every executable `agents/*/*/ci.sh` and runs each in its own
 job, so a new package needs no workflow change. Add a new package to the
 package lists in the stamping script, the smoke test, both publish workflows,
-and the tables above. Before the first release that publishes a new package
-name, an owner sets up trusted publishing for that name on PyPI or npm; until
-then the publish job fails for the new package. Source
+and the tables above. A new package name needs its trusted publishing set up
+on PyPI or npm before the first release that publishes it. Source
 files use the
 Sustainable Use License header; `make copyright-check` verifies it.

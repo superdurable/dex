@@ -44,10 +44,7 @@ export interface PiTestAgentOptions {
   readonly prepareRequest?: PiAiModelClientOptions["prepareRequest"];
 }
 
-/**
- * A Stepwise agent with pi-ai models and Pi tools. `sessionSettings.model` picks `openai` (default) or
- * `anthropic`, which thinks at `medium`.
- */
+/** A Stepwise agent with Pi tools; session settings `model` picks `openai` (default) or `anthropic`. */
 export function createPiTestAgentFlow(options: PiTestAgentOptions) {
   const clientOptions: PiAiModelClientOptions = {
     apiKey: "test-key",
@@ -91,7 +88,7 @@ export function createPiTestAgentFlow(options: PiTestAgentOptions) {
   );
 }
 
-/** Pi tools that log each run to `<tool>.log` and, for an argument starting with `gated`, wait on the gate named by it. */
+/** Pi tools that log each run and wait on the gate named by an argument starting with `gated`. */
 class PiTestTools {
   public constructor(private readonly markerDirectory: string) {}
 

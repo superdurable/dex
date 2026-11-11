@@ -35,33 +35,40 @@ copy of the core. Requirements: Node `^22.19.0 || ^24.0.0` (pi-ai needs
 22.19), `@superdurable/dex` 1.38.0, and `@earendil-works/pi-ai` `^1.5.1` (the
 tests run 1.5.1). The package does not depend on `@earendil-works/pi-agent-core`
 or `@earendil-works/pi-durable`: it reads their tools through structural types.
+The example below also imports `@earendil-works/pi-agent-core` for the
+`AgentTool` type and `@earendil-works/pi-schema` for typed argument schemas;
+install them when you use them.
 
 ## Usage
 
 ```ts
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getModel } from "@earendil-works/pi-ai/compat";
+import { obj, str } from "@earendil-works/pi-schema";
 import { Client, Registry, Worker, openBlobCache } from "@superdurable/dex";
 import { startAgentSession } from "@superdurable/dex-agents";
 import { createStepwiseAgentSessionFlow } from "@superdurable/dex-agents/stepwise";
 import { createPiAiModelClient, piAgentFunctionTool } from "@superdurable/dex-agents-pi";
 
-const searchOrders: AgentTool = {
+const customerArguments = obj({ customerId: str() });
+const orderArguments = obj({ orderId: str() });
+
+const searchOrders: AgentTool<typeof customerArguments> = {
   name: "search_orders",
   label: "Search orders",
   description: "Find a customer's orders.",
-  parameters: { type: "object", properties: { customerId: { type: "string" } }, required: ["customerId"] },
+  parameters: customerArguments,
   replay: "safe",
   execute: async (_toolCallId, { customerId }) => ({
     content: [{ type: "text", text: JSON.stringify(await ordersApi.search(customerId)) }],
     details: undefined,
   }),
 };
-const refundOrder: AgentTool = {
+const refundOrder: AgentTool<typeof orderArguments> = {
   name: "refund_order",
   label: "Refund order",
   description: "Refund one order.",
-  parameters: { type: "object", properties: { orderId: { type: "string" } }, required: ["orderId"] },
+  parameters: orderArguments,
   replay: "never",
   execute: async (_toolCallId, { orderId }) => ({
     content: [{ type: "text", text: JSON.stringify(await ordersApi.refund(orderId)) }],

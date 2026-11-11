@@ -91,7 +91,7 @@ export interface PiAiModelClientOptions {
  * Model settings map as follows. `maxOutputTokens` is pi-ai's `maxTokens`. `reasoningEffort` is pi-ai's thinking
  * level, one of `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`, or `off`; any other value throws a
  * `TypeError`. `providerOptions[model.provider]` is merged into pi-ai's stream options, such as
- * `{ anthropic: { thinkingBudgets: { medium: 4096 } } }`. When a call continues a tool loop whose last response
+ * `{ anthropic: { thinkingBudgets: { medium: 4096 } } }`, except `reasoning`, which only `reasoningEffort` sets. When a call continues a tool loop whose last response
  * came from another model, as after a deploy that changed the model during a turn, the call sends no thinking
  * level, because a provider such as Anthropic rejects thinking that does not start with the turn. The next turn
  * thinks again.
@@ -192,9 +192,11 @@ class PiAiModelClient implements ModelClient {
   private buildStreamOptions(request: ModelRequest): SimpleStreamOptions {
     const settings = request.settings;
     const reasoning = this.resolveThinkingLevel(request);
-    const providerOptions = settings.providerOptions?.[this.model.provider];
+    // The thinking level comes only from reasoningEffort, so the model-change guard cannot be bypassed.
+    const { reasoning: _ignoredReasoning, ...providerOptions } = (settings.providerOptions?.[this.model.provider] ??
+      {}) as SimpleStreamOptions;
     return {
-      ...(providerOptions === undefined ? {} : (providerOptions as SimpleStreamOptions)),
+      ...providerOptions,
       signal: request.cancellationSignal,
       maxRetries: 0,
       ...(request.tools.length === 0 ? {} : { toolChoice: toPiAiToolChoice(request.toolChoice) }),

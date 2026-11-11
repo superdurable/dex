@@ -49,9 +49,7 @@ export function encodeStoredPiAiMessage(message: AssistantMessage): string {
 }
 
 /**
- * Parses a stored pi-ai item back into the message pi-ai returned.
- *
- * Only the fields replay depends on are checked, so optional fields a later pi-ai adds still replay.
+ * Parses a stored item; it checks only replay's fields, so later pi-ai fields still replay.
  * @throws {TypeError} When the item is not an envelope this package wrote.
  */
 export function decodeStoredPiAiMessage(itemText: string): AssistantMessage {
@@ -81,11 +79,7 @@ export function readStoredModelIdentity(item: ModelOutputItem): PiAiModelIdentit
   return { provider: message.provider, api: message.api, model: message.model };
 }
 
-/**
- * Converts the Dex conversation to pi-ai messages.
- *
- * A pi-ai item replays unchanged for every model, because pi-ai converts messages between providers itself.
- */
+/** Converts the conversation; pi-ai items replay unchanged, since pi-ai converts between providers itself. */
 export function toPiAiMessages(items: readonly ModelInputItem[]): Message[] {
   const messages: Message[] = [];
   for (const item of items) {
@@ -117,11 +111,7 @@ export function toPiAiMessages(items: readonly ModelInputItem[]): Message[] {
   return messages;
 }
 
-/**
- * The tool calls Dex runs for a response: none unless pi-ai stopped for tool use.
- *
- * A stream cut after a complete tool call stops with `error`, so its calls never run.
- */
+/** Tool calls Dex runs: none unless pi-ai stopped for tool use, so a broken stream runs none. */
 export function readModelToolCalls(message: AssistantMessage): ModelToolCall[] {
   if (message.stopReason !== "toolUse") {
     return [];
@@ -138,10 +128,7 @@ export function readMessageText(message: AssistantMessage): string {
   return message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
 
-/**
- * The call's arguments as JSON text. Invalid arguments become a JSON string, which the tool Step rejects as
- * not an object, so a write never runs with the empty object pi-ai substitutes.
- */
+/** Invalid arguments become a JSON string, which the tool Step rejects instead of running with `{}`. */
 function serializeToolCallArguments(toolCall: ToolCall): string {
   if (toolCall.argumentsError !== undefined) {
     return JSON.stringify(toolCall.argumentsError);
