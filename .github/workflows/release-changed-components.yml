@@ -225,11 +225,14 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "docs: snapshot component references ${RELEASE_VERSION}"
           git push origin "${branch}"
-          compare_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+          # Check Gate CI accepts the change-log link rewrites of a snapshot only with this description line.
+          compare_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1&body=changelog%3A%20correction%3A%20reference%20snapshot"
           {
             echo "## Reference snapshots for ${RELEASE_VERSION}"
             echo
             echo "Pushed \`${branch}\`. Open its pull request: ${compare_url}"
+            echo
+            echo "Keep the description line \`changelog: correction: reference snapshot\`."
             echo
             echo "Merge reference snapshot branches in release order."
             echo

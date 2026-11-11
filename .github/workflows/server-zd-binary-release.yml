@@ -86,6 +86,25 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "publish=${publish}" >> "${GITHUB_OUTPUT}"
+      # The tag already exists here, so a missing change-log entry warns instead of blocking the binaries.
+      - name: Warn when the change log does not record this release
+        if: steps.version.outputs.publish == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          report="$(mktemp)"
+          if ! python3 script/release/changelog_fragments.py check-ready server "${VERSION}" 2> "${report}"; then
+            echo "::warning::The server change log does not record server-zd/v${VERSION}; see the job summary."
+            {
+              echo "## Change log not ready for server-zd ${VERSION}"
+              echo
+              echo '```text'
+              cat "${report}"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
 
   build:
     name: Build and smoke ${{ matrix.os }} ${{ matrix.arch }}
@@ -462,11 +481,14 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "docs: snapshot server reference ${VERSION}"
           git push origin "${branch}"
-          compare_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+          # Check Gate CI accepts the change-log link rewrites of a snapshot only with this description line.
+          compare_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1&body=changelog%3A%20correction%3A%20reference%20snapshot"
           {
             echo "## Server reference snapshot for ${VERSION}"
             echo
             echo "Pushed \`${branch}\`. Open its pull request: ${compare_url}"
+            echo
+            echo "Keep the description line \`changelog: correction: reference snapshot\`."
             echo
             echo "Merge reference snapshot branches in release order."
             echo

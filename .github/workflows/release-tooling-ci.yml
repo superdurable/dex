@@ -6,6 +6,8 @@ on:
     paths:
       - "script/release/**"
       - "skills/script/check-package.py"
+      - "docs/reference/*/changelog.mdx"
+      - "agents/CHANGELOG.md"
       - ".github/workflows/release-changed-components.yml"
       - ".github/workflows/cli-release.yml"
       - ".github/workflows/docker-image-web-release.yml"
@@ -15,6 +17,8 @@ on:
     paths:
       - "script/release/**"
       - "skills/script/check-package.py"
+      - "docs/reference/*/changelog.mdx"
+      - "agents/CHANGELOG.md"
       - ".github/workflows/release-changed-components.yml"
       - ".github/workflows/cli-release.yml"
       - ".github/workflows/docker-image-web-release.yml"

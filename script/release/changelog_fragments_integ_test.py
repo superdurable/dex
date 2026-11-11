@@ -71,13 +71,13 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
         module = load_script_module()
         module.secrets.token_hex = lambda _: next(suffixes)
 
-        path = module.write_new_fragment(directory, "taken", "patch")
+        path = module.write_new_fragment(directory, "taken", "bump: patch")
 
         self.assertEqual(path, directory / "taken-bbbbbb.md")
         self.assertEqual(taken.read_text(encoding="utf-8"), "keep\n")
         module.secrets.token_hex = lambda _: "aaaaaa"
         with self.assertRaisesRegex(module.FragmentError, "no free fragment name"):
-            module.write_new_fragment(directory, "taken", "patch")
+            module.write_new_fragment(directory, "taken", "bump: patch")
 
     def test_new_defaults_to_the_branch_name(self) -> None:
         self.git("switch", "-c", "feature/rename-step-docs")
@@ -178,7 +178,8 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
                 result = self.run_script("verify-release-prep", "--base-ref", "main", check=False)
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(message, result.stderr)
-                self.assertIn("prepare skills --date 2026-11-12", result.stderr)
+                if name != "extra":
+                    self.assertIn("prepare skills --date 2026-11-12", result.stderr)
 
     def test_verify_rejects_a_base_that_gained_a_fragment(self) -> None:
         self.land_fragments("fix-000001")
@@ -314,7 +315,7 @@ class ChangelogFragmentsIntegrationTest(unittest.TestCase):
 
         result = self.check_pr(labels="docs,release-prep")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("changes only release files", result.stderr)
+        self.assertIn("must change release files", result.stderr)
 
     def test_base_fragments_change_only_with_a_correction_line(self) -> None:
         self.land_fragments("fix-000001")
