@@ -175,14 +175,16 @@ def test_rejected_upload_does_not_stop_worker(
     blob_cache: BlobCache, caplog: pytest.LogCaptureFixture
 ) -> None:
     flow_type = unique_flow_type("PyRejectedFlow")
-    rejected = json.dumps(
-        {"schemaVersion": "1.0", "flow": {"name": flow_type}}
-    ).encode()
+    rejected = flow_definition_json(flow_type, "workflow.py")
     flow = UploadedBasicFlow(flow_type)
     registry = Registry([flow])
     options = WorkerOptions(
         server_address=SERVER_ADDRESS,
-        flow_definitions=(FlowDefinitionDocument(flow_type, rejected, GENERATED_AT),),
+        flow_definitions=(
+            FlowDefinitionDocument(
+                flow_type, rejected, datetime.now(timezone.utc) + timedelta(days=3)
+            ),
+        ),
     )
     with caplog.at_level(logging.WARNING, logger="dex._flow_definition_upload"):
         with running_worker(registry, blob_cache, options):

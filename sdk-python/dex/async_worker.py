@@ -130,6 +130,7 @@ class AsyncWorker:
             grpc_max_message_bytes=self.options.grpc_max_message_bytes,
         )
         self._stopped = asyncio.Event()
+        self._upload_task: asyncio.Future[None] | None = None
 
     async def __aenter__(self) -> AsyncWorker:
         """Return this Worker for asynchronous context-manager use.
@@ -306,15 +307,28 @@ class AsyncWorker:
             await self._close_failed_start_channel()
             self._stopped.set()
             raise RuntimeError("cannot synchronize Attribute indexes") from failure
-        await upload_worker_flow_definitions_async(
-            lambda request: self._flow_service.UploadFlowDefinitions(
-                request,
-                timeout=self.options.attribute_index_sync_timeout.total_seconds(),
-            ),
-            self._flow_definitions,
-            self.registry._registered_flows.keys(),
-            flow_definition_uploader(self._sdk_version),
+        self._state = "uploading"
+        self._upload_task = asyncio.ensure_future(
+            upload_worker_flow_definitions_async(
+                lambda request, timeout: self._flow_service.UploadFlowDefinitions(
+                    request, timeout=timeout
+                ),
+                self._flow_definitions,
+                self.registry._registered_flows.keys(),
+                flow_definition_uploader(self._sdk_version),
+                self.options.attribute_index_sync_timeout.total_seconds(),
+            )
         )
+        try:
+            await self._upload_task
+        except asyncio.CancelledError:
+            # Stop cancels the upload; any other cancellation belongs to start.
+            if self._state == "uploading":
+                raise
+        finally:
+            self._upload_task = None
+        if self._state != "uploading":
+            return
         self._state = "running"
         await self._pull.run()
         self._stopped.set()
@@ -347,6 +361,8 @@ class AsyncWorker:
         if self._state in ("stopped", "closed"):
             return
         self._state = "stopping"
+        if self._upload_task is not None:
+            self._upload_task.cancel()
         await self._pull.stop()
         try:
             await self._flow_channel.close(None)

@@ -149,13 +149,16 @@ class WorkerOptions:
             limits both directions. A negative value raises ``ValueError``.
 
             .. versionadded:: 1.38.0
-        flow_definition_paths: Flow Definition Graph (FDG 2.0) JSON files, or
-            directories searched recursively for ``*.json`` files, that the
-            Worker uploads when it starts. Defaults to none. Each file's
-            ``flow.name`` is its Flow type. Its top-level ``generatedAt``
-            (RFC 3339) is the generation time; without it the file's
-            modification time is used. Files are read when the Worker is
-            constructed. See "Flow definitions" below.
+        flow_definition_paths: Flow Definition Graph (FDG 2.x) JSON files, or
+            directories searched recursively for files whose extension is
+            ``.json`` in any letter case, that the Worker uploads when it
+            starts. Defaults to none. Each file's ``flow.name`` is its Flow
+            type. Its top-level ``generatedAt`` is the generation time; without
+            it the file's modification time is used. Either time is truncated to
+            whole milliseconds. Files are read when the Worker is constructed.
+            A JSON file in a directory that is not an FDG 2.x document, such as
+            ``package.json``, is skipped and logged at INFO. See "Flow
+            definitions" below.
 
             .. versionadded:: 1.45.0
         flow_definitions: In-memory FDG documents that the Worker uploads when
@@ -169,7 +172,9 @@ class WorkerOptions:
         stores for its Flow type. A Worker configured with
         ``flow_definition_paths`` or ``flow_definitions`` uploads them once per
         start, after protocol negotiation and Attribute index synchronization
-        and before it opens task streams. It uploads only definitions whose Flow
+        and before it opens task streams. All upload requests share one deadline,
+        ``attribute_index_sync_timeout``, and ``stop`` cancels an upload in
+        flight. It uploads only definitions whose Flow
         type this Worker registers and logs the skipped ones at INFO level. It
         rewrites an absolute ``source.path`` inside each document to a path
         relative to the current working directory, or to the file name.
@@ -182,11 +187,13 @@ class WorkerOptions:
         ``Client.upload_flow_definitions`` with ``force=True`` to roll a
         definition back.
 
-        The Worker constructor raises ``ValueError`` for a missing path, a file
-        that is not a JSON object with a ``flow.name`` string, an invalid
-        ``generatedAt``, an in-memory document whose ``flow.name`` differs from
-        its Flow type, or two definitions for the same Flow type from any
-        sources.
+        The Worker constructor raises ``ValueError`` for a missing or unreadable
+        path, an explicitly listed file or an in-memory document that is not a
+        JSON object with a ``schemaVersion`` starting with ``"2."`` and a
+        ``flow.name`` string, a ``generatedAt`` that is not strict RFC 3339
+        (``T`` separator and a ``Z`` or ``+HH:MM`` offset are required), an
+        in-memory document whose ``flow.name`` differs from its Flow type, or
+        two definitions for the same Flow type from any sources.
 
     Examples:
         >>> options = WorkerOptions(

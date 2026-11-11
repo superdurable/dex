@@ -18,11 +18,12 @@
  * `generatedAt` every time its content is the same, such as the release time of the code that
  * renders it.
  *
- * The SDK checks that `content` is a JSON object whose `flow.name` equals `flowType`. The Server
- * also checks that `schemaVersion` starts with `"2."` and enforces its size and depth limits.
- * Before uploading, the SDK rewrites an absolute `source.path` inside the document to a path
- * relative to the current working directory, or to the file name when the file is outside it, so
- * local paths are not shared. It leaves the other bytes unchanged.
+ * The SDK checks that `content` is a JSON object whose `schemaVersion` starts with `"2."` and whose
+ * `flow.name` equals `flowType`. The Server also enforces its size and depth limits. Before
+ * uploading, the SDK rewrites an absolute top-level `source.path` inside the document to a path
+ * relative to the current working directory, or to the file name when the file is outside it or
+ * the directory is unknown, so local paths are not shared. The comparison is lexical: "." and ".."
+ * are resolved and symbolic links are not. It leaves the other bytes unchanged.
  *
  * @since 1.45.0
  * @example
@@ -43,8 +44,8 @@ export interface FlowDefinitionDocument {
   /**
    * When the document was generated.
    *
-   * The Server rejects a time more than 24 hours after its own clock. JavaScript dates carry
-   * millisecond precision.
+   * The Server rejects a time more than 24 hours after its own clock. Every Dex SDK truncates the
+   * time to whole milliseconds, which is the precision of a JavaScript Date.
    */
   readonly generatedAt: Date;
 }

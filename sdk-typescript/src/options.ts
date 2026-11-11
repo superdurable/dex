@@ -677,20 +677,25 @@ export interface StopFlowOptions {
  * Dex Web draws a run's graph from the Flow definition that the Server stores for its Flow type.
  * A Worker configured with `flowDefinitionPaths` or `flowDefinitions` uploads them once per start,
  * after protocol negotiation and Attribute index synchronization and before it opens task streams.
+ * All upload requests share one deadline, `attributeIndexSyncTimeoutMs`, and `close` cancels an upload
+ * in flight.
  * It uploads only definitions whose Flow type this Worker registers and logs the skipped ones. It
  * rewrites an absolute `source.path` inside each document to a path relative to
  * the current working directory, or to the file name.
  *
  * The Server replaces a stored definition only with a different one generated later. The Worker
- * logs every upload message with `console.warn`, so the messages go to stderr and never mix with
- * protocol output on stdout. It logs skipped, created, replaced, and kept newer definitions, but not
- * unchanged ones. Upload failures, including a Server without this API, never stop the Worker from
+ * never writes upload messages to stdout, so they never mix with protocol output there. It writes
+ * skipped, created, and replaced definitions to stderr as lines starting with `dex info: `, and logs
+ * a kept newer definition, an unknown outcome, or a failure with `console.warn`. It does not log
+ * unchanged definitions. Upload failures, including a Server without this API, never stop the Worker from
  * starting. Use
  * `Client.uploadFlowDefinitions` with `force` to roll a definition back.
  *
- * The Worker constructor throws for a missing path, a file that is not a JSON object with a
- * `flow.name` string, an invalid `generatedAt`, an in-memory document whose `flow.name` differs
- * from its Flow type, or two definitions for the same Flow type from any sources.
+ * The Worker constructor throws for a missing or unreadable path, an explicitly listed file or an
+ * in-memory document that is not a JSON object with a `schemaVersion` starting with `"2."` and a
+ * `flow.name` string, a `generatedAt` that is not strict RFC 3339 (a `T` separator and a `Z` or
+ * `+HH:MM` offset are required), an in-memory document whose `flow.name` differs from its Flow
+ * type, or two definitions for the same Flow type from any sources.
  *
  * Changed in 1.45.0: added `flowDefinitionPaths` and `flowDefinitions`.
  *
@@ -728,11 +733,14 @@ export interface WorkerOptions {
    */
   readonly grpcMaxMessageBytes?: number;
   /**
-   * Flow Definition Graph (FDG 2.0) files or directories that the Worker uploads when it starts.
+   * Flow Definition Graph (FDG 2.x) files or directories that the Worker uploads when it starts.
    *
-   * Defaults to none. A directory is searched recursively for `*.json` files.
-   * Each file's `flow.name` is its Flow type. Its top-level `generatedAt` (RFC 3339) is the
-   * generation time; without it the file's modification time is used. The Worker constructor reads
+   * Defaults to none. A directory is searched recursively for files whose extension is `.json` in any
+   * letter case; a JSON file there that is not an FDG 2.x document, such as `package.json`, is skipped
+   * and logged. An explicitly listed file must be an FDG 2.x document whatever its extension.
+   * Each file's `flow.name` is its Flow type. Its top-level `generatedAt` (strict RFC 3339) is the
+   * generation time; without it the file's modification time is used. Either time is truncated to
+   * whole milliseconds. The Worker constructor reads
    * the files. See {@link WorkerOptions} for when and how the Worker uploads them.
    *
    * @since 1.45.0

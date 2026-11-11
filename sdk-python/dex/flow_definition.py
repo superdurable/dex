@@ -28,13 +28,14 @@ class FlowDefinitionDocument:
     content is the same, such as the release time of the code that renders it.
     A changing ``generated_at`` with changing content lets the newest upload win.
 
-    The SDK checks that ``content`` is a JSON object whose ``flow.name`` equals
-    ``flow_type``. The Server also checks that ``schemaVersion`` starts with
-    ``"2."`` and enforces its size and depth limits. Before uploading, the SDK
-    rewrites an absolute ``source.path`` inside the document to a path relative
+    The SDK checks that ``content`` is a JSON object whose ``schemaVersion``
+    starts with ``"2."`` and whose ``flow.name`` equals ``flow_type``. The Server
+    also enforces its size and depth limits. Before uploading, the SDK rewrites
+    an absolute top-level ``source.path`` inside the document to a path relative
     to the current working directory, or to the file name when the file is
-    outside it, so local paths are not shared. It leaves the other bytes
-    unchanged.
+    outside it or the directory is unknown, so local paths are not shared. The
+    comparison is lexical: "." and ".." are resolved and symbolic links are not.
+    It leaves the other bytes unchanged.
 
     .. versionadded:: 1.45.0
 
@@ -44,7 +45,8 @@ class FlowDefinitionDocument:
         content: The FDG JSON document as UTF-8 bytes or as a string, which the
             SDK encodes as UTF-8.
         generated_at: When the document was generated. A naive datetime is
-            treated as UTC. The Server rejects a time more than 24 hours after
+            treated as UTC. The SDK truncates it to whole milliseconds, as every
+            Dex SDK does, so the same document gets the same time everywhere. The Server rejects a time more than 24 hours after
             its own clock and keeps microsecond precision.
 
     Examples:

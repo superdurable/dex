@@ -318,15 +318,20 @@ class Worker:
                 self._flow_channel.close()
                 self._executor.shutdown(wait=True, cancel_futures=True)
                 raise RuntimeError("cannot synchronize Attribute indexes") from failure
-            upload_worker_flow_definitions(
-                lambda request: self._flow_service.UploadFlowDefinitions(
-                    request,
-                    timeout=self.options.attribute_index_sync_timeout.total_seconds(),
-                ),
-                self._flow_definitions,
-                self.registry._registered_flows.keys(),
-                flow_definition_uploader(self._sdk_version),
-            )
+            self._state = "uploading"
+        # Stop closes the channel, which cancels an in-flight upload.
+        upload_worker_flow_definitions(
+            lambda request, timeout: self._flow_service.UploadFlowDefinitions(
+                request, timeout=timeout
+            ),
+            self._flow_definitions,
+            self.registry._registered_flows.keys(),
+            flow_definition_uploader(self._sdk_version),
+            self.options.attribute_index_sync_timeout.total_seconds(),
+        )
+        with self._lock:
+            if self._state != "uploading":
+                return
             self._state = "running"
         asyncio.run(self._pull.run())
 
@@ -367,7 +372,7 @@ class Worker:
                 raise RuntimeError(
                     "pull Worker.stop() must be called from another thread"
                 )
-            was_created = self._state == "created"
+            was_created = self._state in ("created", "uploading")
             self._state = "stopping"
         self._pull.registration.record_stopping()
         if not was_created:

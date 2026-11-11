@@ -86,7 +86,8 @@ test("Worker uploads registered definitions from paths and memory", async () => 
 
 test("rejected upload does not stop the Worker", async () => {
   const flowType = uniqueFlowType("TsRejectedFlow");
-  const rejected = JSON.stringify({ schemaVersion: "1.0", flow: { name: flowType } });
+  const rejected = flowDefinitionJson(flowType, "workflow.ts");
+  const tooFarAhead = new Date(Date.now() + 3 * 86_400_000);
   const flow = new UploadedBasicFlow(flowType);
   const warnings: string[] = [];
   const originalWarn = console.warn;
@@ -94,7 +95,7 @@ test("rejected upload does not stop the Worker", async () => {
     warnings.push(values.map(String).join(" "));
   };
   try {
-    await withWorker([flow], { flowDefinitions: [{ flowType, content: rejected, generatedAt }] }, async (client) => {
+    await withWorker([flow], { flowDefinitions: [{ flowType, content: rejected, generatedAt: tooFarAhead }] }, async (client) => {
       const id = `rejected-definition-${randomUUID()}`;
       await client.startFlow(flow, id, 10);
       assert.equal((await client.waitForFlow(id)).singleOutput(doubleCodec), 12);

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Metadata } from "@grpc/grpc-js";
+import { Metadata, type ClientUnaryCall } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
 import { credentialInterceptors } from "./credential.js";
@@ -61,6 +61,7 @@ type WorkerState = "created" | "starting" | "running" | "stopping" | "stopped" |
 export class Worker {
   private readonly flowService: InstanceType<typeof FlowServiceClient>;
   private readonly flowDefinitions: readonly PreparedFlowDefinition[];
+  private flowDefinitionUploadCall: ClientUnaryCall | undefined;
   private readonly pullWorker: PullWorker;
   private readonly stopped: Promise<void>;
   private resolveStopped!: () => void;
@@ -124,8 +125,9 @@ export class Worker {
    * @throws {Error} The Server is incompatible, unreachable (the gRPC error is the cause), or startup fails.
    * @throws {Error} maxConcurrentTasks exceeds matching.maxConcurrentTasksCap; the Worker half-closes its streams.
    * @throws {PullRegistrationError} The Server permanently rejects every stream before any registers.
-   * Changed in 1.45.0: uploads the configured Flow definitions before opening task streams. An upload
-   * failure is logged with `console.warn` and does not fail start.
+   * Changed in 1.45.0: uploads the configured Flow definitions before opening task streams, within
+   * `attributeIndexSyncTimeoutMs` in total. An upload failure is logged and does not fail start;
+   * `close` cancels an upload in flight.
    */
   public async start(): Promise<void> {
     if (this.state !== "created") {
@@ -141,11 +143,13 @@ export class Worker {
       this.negotiatedProtocolVersion = negotiateServerProtocol(serverInfo, sdkVersion);
       await syncAttributeIndexes(this.flowService, this.registry, timeoutMs);
       await uploadWorkerFlowDefinitions(
-        (request) => uploadFlowDefinitions(this.flowService, request, timeoutMs),
+        (request, deadline) => this.uploadFlowDefinitions(request, deadline),
         this.flowDefinitions,
         registeredFlowTypes(this.registry),
         flowDefinitionUploader(sdkVersion),
+        timeoutMs,
       );
+      if (this.state !== "starting") throw new Error("Worker stopped during startup");
       this.pullWorker.start();
       await this.pullWorker.waitStarted();
       if (this.state !== "starting") throw new Error("Worker stopped during startup");
@@ -227,6 +231,27 @@ export class Worker {
     return this.pullWorker.registration.snapshot();
   }
 
+  private uploadFlowDefinitions(
+    request: UploadFlowDefinitionsRequest,
+    deadline: Date,
+  ): Promise<UploadFlowDefinitionsResponse> {
+    return new Promise((resolve, reject) => {
+      this.flowDefinitionUploadCall = this.flowService.uploadFlowDefinitions(
+        request,
+        new Metadata(),
+        { deadline },
+        (error, response) => {
+          this.flowDefinitionUploadCall = undefined;
+          if (error !== null) {
+            reject(error);
+            return;
+          }
+          resolve(response);
+        },
+      );
+    });
+  }
+
   private stopAfterPermanentRejection(): void {
     this.close().catch((failure: unknown) => {
       this.shutdownError = failure;
@@ -256,6 +281,7 @@ export class Worker {
     }
     if (this.state === "created" || this.state === "starting") {
       this.state = "closed";
+      this.flowDefinitionUploadCall?.cancel();
       await this.pullWorker.close();
       this.flowService.close();
       this.resolveStopped();
@@ -313,18 +339,3 @@ function syncAttributeIndexes(
   });
 }
 
-function uploadFlowDefinitions(
-  service: InstanceType<typeof FlowServiceClient>,
-  request: UploadFlowDefinitionsRequest,
-  timeoutMs: number,
-): Promise<UploadFlowDefinitionsResponse> {
-  return new Promise((resolve, reject) => {
-    service.uploadFlowDefinitions(request, new Metadata(), { deadline: Date.now() + timeoutMs }, (error, response) => {
-      if (error !== null) {
-        reject(error);
-        return;
-      }
-      resolve(response);
-    });
-  });
-}

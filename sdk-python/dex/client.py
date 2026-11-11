@@ -1303,7 +1303,8 @@ class Client:
             One result for each document, in the order given.
 
         Raises:
-            ValueError: If a document is not a JSON object whose ``flow.name``
+            ValueError: If a document is not a JSON object whose
+                ``schemaVersion`` starts with ``"2."`` and whose ``flow.name``
                 equals its Flow type, or two documents share a Flow type.
             DexServiceError: If FlowService rejects or cannot store a batch,
                 for example with ``INVALID_ARGUMENT`` for a document the Server

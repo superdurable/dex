@@ -12,10 +12,12 @@ import hashlib
 import json
 import logging
 import os
+import re
 from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from time import monotonic
 from typing import Any, Awaitable, Callable
 
 import grpc
@@ -32,8 +34,29 @@ _LOGGER = logging.getLogger(__name__)
 
 MAX_FLOW_DEFINITIONS_PER_UPLOAD = 256
 MAX_FLOW_DEFINITION_UPLOAD_CONTENT_BYTES = 16 * 1024 * 1024
+_SCHEMA_VERSION_PREFIX = "2."
 _JSON_WHITESPACE = " \t\n\r"
 _JSON_DECODER = json.JSONDecoder()
+_RFC3339_PATTERN = re.compile(
+    r"(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?"
+    r"(?:([Zz])|([+-])(\d{2}):(\d{2}))"
+)
+_DRIVE_PATTERN = re.compile(r"[A-Za-z]:")
+_ABSOLUTE_DRIVE_PATTERN = re.compile(r"[A-Za-z]:[\\/]")
+_PATH_SEPARATOR_PATTERN = re.compile(r"[\\/]")
+_JSON_SHORT_ESCAPES = {
+    '"': '\\"',
+    "\\": "\\\\",
+    "\b": "\\b",
+    "\f": "\\f",
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+}
+
+
+class _InvalidFlowDefinition(ValueError):
+    """A file is not a Flow Definition Graph 2.x document."""
 
 
 @dataclass(frozen=True)
@@ -44,6 +67,15 @@ class PreparedFlowDefinition:
     origin: str
 
 
+UploadCall = Callable[
+    [pb.UploadFlowDefinitionsRequest, float], pb.UploadFlowDefinitionsResponse
+]
+AsyncUploadCall = Callable[
+    [pb.UploadFlowDefinitionsRequest, float],
+    Awaitable[pb.UploadFlowDefinitionsResponse],
+]
+
+
 def prepare_flow_definitions(
     paths: Sequence[str | os.PathLike[str]],
     documents: Sequence[FlowDefinitionDocument],
@@ -51,19 +83,21 @@ def prepare_flow_definitions(
     """Load, validate, and merge the configured Flow definitions.
 
     Returns:
-        One prepared definition for each Flow type, files first in sorted path
-        order, then in-memory documents in the given order. Each content has its
-        absolute ``source.path`` rewritten.
+        One prepared definition for each Flow type, files first, then in-memory
+        documents in the given order. Each content has its absolute
+        ``source.path`` rewritten and each time is truncated to milliseconds.
 
     Raises:
-        ValueError: A file cannot be read or parsed, a document is invalid, or
-            two definitions describe the same Flow type.
+        ValueError: A path is missing or unreadable, an explicit file or an
+            in-memory document is invalid, a directory FDG has an invalid
+            generatedAt, or two definitions describe the same Flow type.
     """
+    working_directory = _working_directory()
     prepared: list[PreparedFlowDefinition] = []
-    for file_path in _flow_definition_files(paths):
-        prepared.append(_load_flow_definition_file(file_path))
+    for configured_path in paths:
+        prepared.extend(_load_configured_path(Path(configured_path), working_directory))
     for document in documents:
-        prepared.append(_prepare_document(document))
+        prepared.append(_prepare_document(document, working_directory))
     origins_by_flow_type: dict[str, str] = {}
     for definition in prepared:
         existing_origin = origins_by_flow_type.get(definition.flow_type)
@@ -94,26 +128,6 @@ def select_registered_flow_definitions(
     return selected
 
 
-def upload_requests(
-    definitions: Sequence[PreparedFlowDefinition],
-    uploader: str,
-    is_forced: bool,
-) -> Iterator[tuple[pb.UploadFlowDefinitionsRequest, Sequence[PreparedFlowDefinition]]]:
-    for batch in flow_definition_batches(definitions):
-        request = pb.UploadFlowDefinitionsRequest(uploader=uploader, force=is_forced)
-        for definition in batch:
-            generated_at = Timestamp()
-            generated_at.FromDatetime(definition.generated_at)
-            request.definitions.append(
-                pb.FlowDefinitionUpload(
-                    flow_type=definition.flow_type,
-                    content=definition.content,
-                    generated_at=generated_at,
-                )
-            )
-        yield request, batch
-
-
 def flow_definition_batches(
     definitions: Sequence[PreparedFlowDefinition],
 ) -> list[Sequence[PreparedFlowDefinition]]:
@@ -142,6 +156,26 @@ def flow_definition_batches(
     return batches
 
 
+def upload_requests(
+    definitions: Sequence[PreparedFlowDefinition],
+    uploader: str,
+    is_forced: bool,
+) -> Iterator[tuple[pb.UploadFlowDefinitionsRequest, Sequence[PreparedFlowDefinition]]]:
+    for batch in flow_definition_batches(definitions):
+        request = pb.UploadFlowDefinitionsRequest(uploader=uploader, force=is_forced)
+        for definition in batch:
+            generated_at = Timestamp()
+            generated_at.FromDatetime(definition.generated_at)
+            request.definitions.append(
+                pb.FlowDefinitionUpload(
+                    flow_type=definition.flow_type,
+                    content=definition.content,
+                    generated_at=generated_at,
+                )
+            )
+        yield request, batch
+
+
 def upload_results_from_response(
     response: pb.UploadFlowDefinitionsResponse,
 ) -> list[FlowDefinitionUploadResult]:
@@ -159,18 +193,22 @@ def upload_results_from_response(
 
 
 def upload_worker_flow_definitions(
-    upload: Callable[
-        [pb.UploadFlowDefinitionsRequest], pb.UploadFlowDefinitionsResponse
-    ],
+    upload: UploadCall,
     definitions: Sequence[PreparedFlowDefinition],
     registered_flow_types: Collection[str],
     uploader: str,
+    timeout_seconds: float,
 ) -> None:
-    """Upload a Worker's Flow definitions, logging every failure instead of raising."""
+    """Upload a Worker's Flow definitions within one total deadline, logging every failure."""
     selected = select_registered_flow_definitions(definitions, registered_flow_types)
+    deadline = monotonic() + timeout_seconds
     for request, batch in upload_requests(selected, uploader, False):
+        remaining_seconds = deadline - monotonic()
+        if remaining_seconds <= 0:
+            _log_upload_deadline_exceeded()
+            return
         try:
-            response = upload(request)
+            response = upload(request, remaining_seconds)
             _log_worker_upload_results(batch, response)
         except Exception as failure:
             _log_worker_upload_failure(failure)
@@ -178,18 +216,22 @@ def upload_worker_flow_definitions(
 
 
 async def upload_worker_flow_definitions_async(
-    upload: Callable[
-        [pb.UploadFlowDefinitionsRequest], Awaitable[pb.UploadFlowDefinitionsResponse]
-    ],
+    upload: AsyncUploadCall,
     definitions: Sequence[PreparedFlowDefinition],
     registered_flow_types: Collection[str],
     uploader: str,
+    timeout_seconds: float,
 ) -> None:
-    """Upload a Worker's Flow definitions, logging every failure instead of raising."""
+    """Upload a Worker's Flow definitions within one total deadline, logging every failure."""
     selected = select_registered_flow_definitions(definitions, registered_flow_types)
+    deadline = monotonic() + timeout_seconds
     for request, batch in upload_requests(selected, uploader, False):
+        remaining_seconds = deadline - monotonic()
+        if remaining_seconds <= 0:
+            _log_upload_deadline_exceeded()
+            return
         try:
-            response = await upload(request)
+            response = await upload(request, remaining_seconds)
             _log_worker_upload_results(batch, response)
         except Exception as failure:
             _log_worker_upload_failure(failure)
@@ -198,6 +240,109 @@ async def upload_worker_flow_definitions_async(
 
 def flow_definition_uploader(sdk_version: str) -> str:
     return f"sdk-python/{sdk_version}"
+
+
+def shareable_source_path(
+    source_path: str, working_directory: str | None
+) -> str | None:
+    """Return the shared form of an absolute ``source.path``.
+
+    Returns:
+        None when ``source_path`` is not absolute and stays unchanged. Otherwise
+        the path relative to ``working_directory`` joined with "/", or the base
+        name when it is outside the directory or the directory is unknown.
+    """
+    if not _is_absolute_source_path(source_path):
+        return None
+    path_segments = _lexical_path_segments(source_path)
+    if working_directory is not None:
+        directory_segments = _lexical_path_segments(working_directory)
+        if (
+            len(path_segments) > len(directory_segments)
+            and path_segments[: len(directory_segments)] == directory_segments
+        ):
+            return "/".join(path_segments[len(directory_segments) :])
+    return path_segments[-1]
+
+
+def encode_json_string(value: str) -> str:
+    """Encode a JSON string escaping only quotes, backslashes, and control characters.
+
+    Returns:
+        The quoted JSON string.
+    """
+    encoded = []
+    for character in value:
+        escape = _JSON_SHORT_ESCAPES.get(character)
+        if escape is not None:
+            encoded.append(escape)
+        elif ord(character) < 0x20:
+            encoded.append(f"\\u{ord(character):04x}")
+        else:
+            encoded.append(character)
+    return '"' + "".join(encoded) + '"'
+
+
+def parse_rfc3339_milliseconds(value: str) -> datetime:
+    """Parse a strict RFC 3339 time and truncate it to whole milliseconds.
+
+    Returns:
+        An aware UTC datetime.
+
+    Raises:
+        ValueError: ``value`` is not a strict RFC 3339 date and time with an offset.
+    """
+    match = _RFC3339_PATTERN.fullmatch(value)
+    if match is None:
+        raise ValueError(f"{value!r} is not an RFC 3339 time")
+    (
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        fraction,
+        _,
+        sign,
+        offset_hour,
+        offset_minute,
+    ) = match.groups()
+    offset = timedelta(0)
+    if sign is not None:
+        offset = timedelta(hours=int(offset_hour), minutes=int(offset_minute))
+        if sign == "-":
+            offset = -offset
+    milliseconds = int((fraction or "").ljust(3, "0")[:3])
+    local_time = datetime(
+        int(year),
+        int(month),
+        int(day),
+        int(hour),
+        int(minute),
+        int(second),
+        milliseconds * 1000,
+        tzinfo=timezone(offset),
+    )
+    return local_time.astimezone(timezone.utc)
+
+
+def truncate_to_milliseconds(value: datetime) -> datetime:
+    """Return ``value`` as an aware UTC datetime truncated to whole milliseconds.
+
+    Returns:
+        The truncated time; a naive ``value`` is treated as UTC.
+    """
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    utc_time = aware.astimezone(timezone.utc)
+    return utc_time.replace(microsecond=utc_time.microsecond // 1000 * 1000)
+
+
+def _log_upload_deadline_exceeded() -> None:
+    _LOGGER.warning(
+        "Flow definition upload ran out of time before every batch was sent; "
+        "the Worker continues starting"
+    )
 
 
 def _log_worker_upload_failure(failure: Exception) -> None:
@@ -224,7 +369,9 @@ def _log_worker_upload_results(
     definitions_by_flow_type = {
         definition.flow_type: definition for definition in batch
     }
-    for result in upload_results_from_response(response):
+    for raw_result, result in zip(
+        response.results, upload_results_from_response(response)
+    ):
         definition = definitions_by_flow_type.get(result.flow_type)
         origin = definition.origin if definition is not None else "unknown"
         if result.outcome is FlowDefinitionUploadOutcome.UNCHANGED:
@@ -236,8 +383,8 @@ def _log_worker_upload_results(
             )
         elif result.outcome is FlowDefinitionUploadOutcome.UNSPECIFIED:
             _LOGGER.warning(
-                "Dex Server returned an unknown Flow definition upload outcome: "
-                "flow_type=%s origin=%s stored_digest=%s",
+                "unknown upload outcome %d: flow_type=%s origin=%s stored_digest=%s",
+                raw_result.outcome,
                 result.flow_type,
                 origin,
                 result.stored_digest,
@@ -287,64 +434,87 @@ def _upload_outcome(outcome: int) -> FlowDefinitionUploadOutcome:
     return FlowDefinitionUploadOutcome.UNSPECIFIED
 
 
-def _flow_definition_files(paths: Sequence[str | os.PathLike[str]]) -> list[Path]:
-    files: list[Path] = []
-    for configured_path in paths:
-        path = Path(configured_path)
-        if path.is_dir():
-            files.extend(
-                sorted(
-                    candidate
-                    for candidate in path.rglob("*.json")
-                    if candidate.is_file()
-                )
-            )
-        elif path.is_file():
-            files.append(path)
-        else:
-            raise ValueError(f"Flow definition path {str(path)!r} does not exist")
-    return files
+def _load_configured_path(
+    path: Path, working_directory: str | None
+) -> list[PreparedFlowDefinition]:
+    if path.is_dir():
+        return _load_flow_definition_directory(path, working_directory)
+    if path.is_file():
+        try:
+            return [_load_flow_definition_file(path, working_directory)]
+        except _InvalidFlowDefinition as failure:
+            raise ValueError(str(failure)) from failure
+    raise ValueError(f"Flow definition path {str(path)!r} does not exist")
 
 
-def _load_flow_definition_file(file_path: Path) -> PreparedFlowDefinition:
+def _load_flow_definition_directory(
+    directory: Path, working_directory: str | None
+) -> list[PreparedFlowDefinition]:
+    candidates = sorted(
+        (
+            candidate
+            for candidate in directory.rglob("*")
+            if candidate.suffix.lower() == ".json" and candidate.is_file()
+        ),
+        key=str,
+    )
+    loaded: list[PreparedFlowDefinition] = []
+    for candidate in candidates:
+        try:
+            loaded.append(_load_flow_definition_file(candidate, working_directory))
+        except _InvalidFlowDefinition as failure:
+            _LOGGER.info("skipping a file that is not a Flow definition: %s", failure)
+    return loaded
+
+
+def _load_flow_definition_file(
+    file_path: Path, working_directory: str | None
+) -> PreparedFlowDefinition:
     origin = f"file {str(file_path)!r}"
     try:
         content = file_path.read_bytes()
-        modified_at = datetime.fromtimestamp(file_path.stat().st_mtime, timezone.utc)
+        modified_at_milliseconds = file_path.stat().st_mtime_ns // 1_000_000
     except OSError as failure:
         raise ValueError(
             f"cannot read Flow definition {origin}: {failure}"
         ) from failure
     document = _parse_flow_definition(content, origin)
     flow_type = _flow_name(document, origin)
-    generated_at = modified_at
+    generated_at = datetime.fromtimestamp(0, timezone.utc) + timedelta(
+        milliseconds=modified_at_milliseconds
+    )
     if "generatedAt" in document:
         generated_at = _parse_generated_at(document["generatedAt"], origin)
     return PreparedFlowDefinition(
         flow_type=flow_type,
-        content=_rewrite_source_path(content, document),
+        content=_rewrite_source_path(content, document, working_directory),
         generated_at=generated_at,
         origin=origin,
     )
 
 
-def _prepare_document(document: FlowDefinitionDocument) -> PreparedFlowDefinition:
+def _prepare_document(
+    document: FlowDefinitionDocument, working_directory: str | None
+) -> PreparedFlowDefinition:
     origin = f"in-memory document for Flow type {document.flow_type!r}"
     content = (
         document.content.encode("utf-8")
         if isinstance(document.content, str)
         else bytes(document.content)
     )
-    parsed = _parse_flow_definition(content, origin)
-    flow_name = _flow_name(parsed, origin)
+    try:
+        parsed = _parse_flow_definition(content, origin)
+        flow_name = _flow_name(parsed, origin)
+    except _InvalidFlowDefinition as failure:
+        raise ValueError(str(failure)) from failure
     if flow_name != document.flow_type:
         raise ValueError(
             f"Flow definition {origin} has flow.name {flow_name!r}; it must equal the Flow type"
         )
     return PreparedFlowDefinition(
         flow_type=document.flow_type,
-        content=_rewrite_source_path(content, parsed),
-        generated_at=document.generated_at,
+        content=_rewrite_source_path(content, parsed, working_directory),
+        generated_at=truncate_to_milliseconds(document.generated_at),
         origin=origin,
     )
 
@@ -353,11 +523,19 @@ def _parse_flow_definition(content: bytes, origin: str) -> dict[str, Any]:
     try:
         document = json.loads(content.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as failure:
-        raise ValueError(
+        raise _InvalidFlowDefinition(
             f"Flow definition {origin} is not UTF-8 JSON: {failure}"
         ) from failure
     if not isinstance(document, dict):
-        raise ValueError(f"Flow definition {origin} is not a JSON object")
+        raise _InvalidFlowDefinition(f"Flow definition {origin} is not a JSON object")
+    schema_version = document.get("schemaVersion")
+    if not isinstance(schema_version, str) or not schema_version.startswith(
+        _SCHEMA_VERSION_PREFIX
+    ):
+        raise _InvalidFlowDefinition(
+            f"Flow definition {origin} has schemaVersion {schema_version!r}; it must "
+            'start with "2."'
+        )
     return document
 
 
@@ -365,7 +543,9 @@ def _flow_name(document: dict[str, Any], origin: str) -> str:
     flow = document.get("flow")
     name = flow.get("name") if isinstance(flow, dict) else None
     if not isinstance(name, str) or not name:
-        raise ValueError(f"Flow definition {origin} has no flow.name string")
+        raise _InvalidFlowDefinition(
+            f"Flow definition {origin} has no flow.name string"
+        )
     return name
 
 
@@ -375,19 +555,16 @@ def _parse_generated_at(value: object, origin: str) -> datetime:
             f"Flow definition {origin} has a generatedAt that is not a string"
         )
     try:
-        generated_at = datetime.fromisoformat(value)
+        return parse_rfc3339_milliseconds(value)
     except ValueError as failure:
         raise ValueError(
             f"Flow definition {origin} has generatedAt {value!r}, which is not RFC 3339"
         ) from failure
-    if generated_at.tzinfo is None:
-        raise ValueError(
-            f"Flow definition {origin} has generatedAt {value!r} without a time zone offset"
-        )
-    return generated_at
 
 
-def _rewrite_source_path(content: bytes, document: dict[str, Any]) -> bytes:
+def _rewrite_source_path(
+    content: bytes, document: dict[str, Any], working_directory: str | None
+) -> bytes:
     source = document.get("source")
     if not isinstance(source, dict) or not isinstance(source.get("path"), str):
         return content
@@ -400,14 +577,10 @@ def _rewrite_source_path(content: bytes, document: dict[str, Any]) -> bytes:
             if member_key != "path" or text[value_start] != '"':
                 continue
             original_path, _ = _JSON_DECODER.raw_decode(text, value_start)
-            shared_path = _shareable_source_path(original_path)
-            if shared_path != original_path:
+            shared_path = shareable_source_path(original_path, working_directory)
+            if shared_path is not None and shared_path != original_path:
                 replacements.append(
-                    (
-                        value_start,
-                        value_end,
-                        json.dumps(shared_path, ensure_ascii=False),
-                    )
+                    (value_start, value_end, encode_json_string(shared_path))
                 )
     if not replacements:
         return content
@@ -416,17 +589,46 @@ def _rewrite_source_path(content: bytes, document: dict[str, Any]) -> bytes:
     return text.encode("utf-8")
 
 
-def _shareable_source_path(path: str) -> str:
-    if PurePosixPath(path).is_absolute():
-        absolute_path = Path(path)
-        try:
-            return absolute_path.relative_to(Path.cwd()).as_posix()
-        except ValueError:
-            return absolute_path.name
-    windows_path = PureWindowsPath(path)
-    if windows_path.is_absolute():
-        return windows_path.name
-    return path
+def _working_directory() -> str | None:
+    try:
+        return os.getcwd()
+    except OSError:
+        return None
+
+
+def _is_absolute_source_path(path: str) -> bool:
+    return (
+        path.startswith("/")
+        or path.startswith("\\\\")
+        or _ABSOLUTE_DRIVE_PATTERN.match(path) is not None
+    )
+
+
+def _lexical_path_segments(path: str) -> list[str]:
+    """Split a path on both separators and resolve "." and ".." lexically.
+
+    Returns:
+        The root ("/", "//" for UNC, an uppercase drive such as "C:", or "")
+        followed by the normalized segments, never popping above the root.
+    """
+    if _DRIVE_PATTERN.match(path) is not None:
+        root, remainder = path[:2].upper(), path[2:]
+    elif path.startswith("\\\\"):
+        root, remainder = "//", path[2:]
+    elif path.startswith("/"):
+        root, remainder = "/", path
+    else:
+        root, remainder = "", path
+    segments: list[str] = []
+    for segment in _PATH_SEPARATOR_PATTERN.split(remainder):
+        if segment in ("", "."):
+            continue
+        if segment == "..":
+            if segments:
+                segments.pop()
+            continue
+        segments.append(segment)
+    return [root, *segments]
 
 
 def _object_members(text: str, start: int) -> Iterator[tuple[str, int, int]]:

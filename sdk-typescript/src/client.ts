@@ -1447,8 +1447,8 @@ export class Client {
    * @param force - Whether to replace stored documents with a different digest even when they were
    * generated later. Defaults to `false`.
    * @returns One result for each document, in the order given.
-   * @throws {Error} When a document is not a JSON object whose `flow.name` equals its Flow type, or
-   * two documents share a Flow type.
+   * @throws {Error} When a document is not a JSON object whose `schemaVersion` starts with `"2."` and
+   * whose `flow.name` equals its Flow type, or two documents share a Flow type.
    * @throws {@link DexServiceError} When FlowService rejects or cannot store a batch, for example
    * with INVALID_ARGUMENT for a document the Server rejects or UNIMPLEMENTED for a Server without
    * this API.
