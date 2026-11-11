@@ -14,6 +14,8 @@ import { createPiAiModelClient } from "@superdurable/dex-agents-pi";
 /** What pi-ai's `getEnvApiKey` returns for ambient credentials, such as an AWS profile. */
 const ambientCredentialsMarker = "<authenticated>";
 
+// Errors never echo the model ID: a turn's error reaches snapshots, and the ID may come from session settings.
+
 /** The API key variables of common providers, named in the missing-key error. */
 const apiKeyVariablesByProvider: Readonly<Record<string, string>> = Object.freeze({
   anthropic: "ANTHROPIC_API_KEY",
@@ -53,9 +55,7 @@ export interface PiModelId {
 export function parsePiModelId(model: string): PiModelId {
   const separator = model.indexOf("/");
   if (separator <= 0 || separator === model.length - 1) {
-    throw new Error(
-      `the model ${JSON.stringify(model)} is not <provider>/<model>; use a pi-ai provider and model, such as anthropic/claude-opus-5-5`,
-    );
+    throw new Error("the model is not <provider>/<model>; use a pi-ai provider and model, such as anthropic/claude-opus-5-5");
   }
   return { provider: model.slice(0, separator), modelId: model.slice(separator + 1) };
 }
@@ -83,8 +83,8 @@ export function resolvePiProviderApiKey(provider: string, environment: NodeJS.Pr
     const variable = apiKeyVariablesByProvider[provider];
     throw new Error(
       variable === undefined
-        ? `no API key for the pi-ai provider ${provider}: set the API key environment variable that pi-ai reads for it`
-        : `no API key for the pi-ai provider ${provider}: set ${variable}`,
+        ? "no API key for the model's provider: set the API key environment variable that pi-ai reads for it"
+        : `no API key for the model's provider: set ${variable}`,
     );
   }
   return apiKey;
@@ -125,7 +125,7 @@ export class PiModelClients {
     const { provider, modelId } = parsePiModelId(model);
     const catalogModel = (getModel as (provider: string, modelId: string) => Model<Api> | undefined)(provider, modelId);
     if (catalogModel === undefined) {
-      throw new Error(`pi-ai does not know the model ${modelId} of the provider ${provider}`);
+      throw new Error("pi-ai's model catalog does not have the model");
     }
     const baseUrl = this.providerBaseUrls[provider];
     const apiKey = resolvePiProviderApiKey(provider, this.environment);

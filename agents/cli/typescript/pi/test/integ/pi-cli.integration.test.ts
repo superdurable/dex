@@ -299,7 +299,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     home.providerEnvironment["ANTHROPIC_OAUTH_TOKEN"] = "sk-ant-oat-mock-token";
     const cli = start(home);
     assert.equal(await cli.waitForExit(), 1);
-    assert.match(cli.stderr.all, /no API key for the pi-ai provider anthropic: set ANTHROPIC_API_KEY/);
+    assert.match(cli.stderr.all, /no API key for the model's provider: set ANTHROPIC_API_KEY/);
     assert.deepEqual(api.modelRequests(), []);
   });
 

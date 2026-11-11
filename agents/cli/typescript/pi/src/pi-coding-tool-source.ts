@@ -79,11 +79,6 @@ export const piCodingLocalTools: Readonly<Record<string, PiCodingLocalTool>> = O
 
 const refusalReferenceKey = "refused";
 
-/** Records whether a call reached its first side effect, so earlier failures are definite. */
-interface EffectProgress {
-  hasEffectStarted: boolean;
-}
-
 /**
  * pi-coding-agent's `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` tools as a {@link ToolSource}, so each
  * call runs in its own Dex tool Step with the CLI runtime's local tool rules.
@@ -116,9 +111,8 @@ export class PiCodingToolSource implements ToolSource {
    */
   public constructor(private readonly context: HarnessContext) {
     this.boundary = new WorkspacePathBoundary(context.workspace);
-    const progress: EffectProgress = { hasEffectStarted: false };
     this.definitions = Object.keys(piCodingLocalTools).map((toolName) => {
-      const tool = this.createPiTool(toolName, progress);
+      const tool = this.createPiTool(toolName, new PiToolCallOperations(this.boundary, toolName));
       return { name: tool.name, description: tool.description, inputSchema: tool.parameters as Record<string, unknown> };
     });
   }
@@ -205,11 +199,12 @@ export class PiCodingToolSource implements ToolSource {
     if (pathRefusal !== null) {
       throw new ToolExecutionError(`${pathRefusal}; the call did not run`);
     }
-    const progress: EffectProgress = { hasEffectStarted: false };
+    const operations = new PiToolCallOperations(this.boundary, toolName);
     // The recorded effect picked the tool Step, so it also decides how a failure is recorded.
-    const functionTool = piAgentFunctionTool(definiteFailuresBeforeEffect(this.createPiTool(toolName, progress), progress), {
-      effect: call.toolCall.effect,
-    });
+    const functionTool = piAgentFunctionTool(
+      definiteFailuresBeforeEffect(this.createPiTool(toolName, operations), operations),
+      { effect: call.toolCall.effect },
+    );
     const context: ToolCallContext = {
       flowId: call.flowId,
       turnId: call.toolCall.turnId,
@@ -244,10 +239,7 @@ export class PiCodingToolSource implements ToolSource {
     });
   }
 
-  /**
-   * Checks the call again on the Worker that runs it, with this Worker's file and the turn's settings, because
-   * another process with another configuration may have requested it. A refused call did not run.
-   */
+  /** Checks the call with this Worker's file, because another process may have requested it. */
   private async authorizeOnThisWorker(
     call: DeferredToolExecution,
     tool: PiCodingLocalTool,
@@ -290,11 +282,8 @@ export class PiCodingToolSource implements ToolSource {
     return this.boundary.refusalReason(toolName, toolArguments["path"]);
   }
 
-  /**
-   * Creates a pi-coding-agent tool in the workspace. The write and shell tools report their first side effect to
-   * `progress`, and the write tools check the exact path Pi opens.
-   */
-  private createPiTool(toolName: string, progress: EffectProgress): PiAgentToolLike {
+  /** Creates a pi-coding-agent tool in the workspace, with the call's guarded operations. */
+  private createPiTool(toolName: string, operations: PiToolCallOperations): PiAgentToolLike {
     const workspace = this.boundary.workspace;
     switch (toolName) {
       case "read":
@@ -308,71 +297,84 @@ export class PiCodingToolSource implements ToolSource {
       case "write":
         return createWriteTool(workspace, {
           operations: {
-            mkdir: async (directory) => {
-              this.requireInside(toolName, directory);
-              await mkdir(directory, { recursive: true });
-            },
-            writeFile: async (absolutePath, content) => {
-              this.requireInside(toolName, absolutePath);
-              progress.hasEffectStarted = true;
-              await writeFile(absolutePath, content, "utf-8");
-            },
+            mkdir: (directory) => operations.makeDirectory(directory),
+            writeFile: (absolutePath, content) => operations.writeTextFile(absolutePath, content),
           },
         });
       case "edit":
         return createEditTool(workspace, {
           operations: {
-            access: async (absolutePath) => {
-              this.requireInside(toolName, absolutePath);
-              await access(absolutePath, constants.R_OK | constants.W_OK);
-            },
-            readFile: async (absolutePath) => {
-              this.requireInside(toolName, absolutePath);
-              return readFile(absolutePath);
-            },
-            writeFile: async (absolutePath, content) => {
-              this.requireInside(toolName, absolutePath);
-              progress.hasEffectStarted = true;
-              await writeFile(absolutePath, content, "utf-8");
-            },
+            access: (absolutePath) => operations.checkReadWriteAccess(absolutePath),
+            readFile: (absolutePath) => operations.readFileBytes(absolutePath),
+            writeFile: (absolutePath, content) => operations.writeTextFile(absolutePath, content),
           },
         });
-      case "bash": {
-        const localOperations = createLocalBashOperations();
+      case "bash":
         return createBashTool(workspace, {
-          operations: {
-            exec: (command, cwd, options) => {
-              progress.hasEffectStarted = true;
-              return localOperations.exec(command, cwd, options);
-            },
-          },
+          operations: { exec: (command, cwd, options) => operations.executeCommand(command, cwd, options) },
         });
-      }
       default:
         throw new ToolExecutionError(`unknown Pi tool ${toolName}`);
     }
   }
+}
 
-  private requireInside(toolName: string, absolutePath: string): void {
+type BashExecution = ReturnType<typeof createLocalBashOperations>;
+
+/** One call's file and shell operations: paths stay inside the workspace, and the first effect is noted. */
+class PiToolCallOperations {
+  /** Whether the call wrote a file or started its command. */
+  public hasEffectStarted = false;
+  private readonly localBash: BashExecution = createLocalBashOperations();
+
+  public constructor(
+    private readonly boundary: WorkspacePathBoundary,
+    private readonly toolName: string,
+  ) {}
+
+  public async makeDirectory(directory: string): Promise<void> {
+    this.requireInside(directory);
+    await mkdir(directory, { recursive: true });
+  }
+
+  public async writeTextFile(absolutePath: string, content: string): Promise<void> {
+    this.requireInside(absolutePath);
+    this.hasEffectStarted = true;
+    await writeFile(absolutePath, content, "utf-8");
+  }
+
+  public async checkReadWriteAccess(absolutePath: string): Promise<void> {
+    this.requireInside(absolutePath);
+    await access(absolutePath, constants.R_OK | constants.W_OK);
+  }
+
+  public async readFileBytes(absolutePath: string): Promise<Buffer> {
+    this.requireInside(absolutePath);
+    return readFile(absolutePath);
+  }
+
+  public executeCommand(...execution: Parameters<BashExecution["exec"]>): ReturnType<BashExecution["exec"]> {
+    this.hasEffectStarted = true;
+    return this.localBash.exec(...execution);
+  }
+
+  private requireInside(absolutePath: string): void {
     if (!this.boundary.isInside(absolutePath)) {
-      throw new ToolExecutionError(this.boundary.outsideMessage(toolName));
+      throw new ToolExecutionError(this.boundary.outsideMessage(this.toolName));
     }
   }
 }
 
-/**
- * Wraps a Pi tool so that an error thrown before its first side effect becomes a {@link ToolExecutionError}: the
- * call records `failed` and the model sees the reason. Errors after it propagate, so a single-attempt call records
- * `outcome_unknown`.
- */
-function definiteFailuresBeforeEffect(tool: PiAgentToolLike, progress: EffectProgress): PiAgentToolLike {
+/** Makes an error thrown before the call's first effect a failure the model sees. */
+function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolCallOperations): PiAgentToolLike {
   return {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate) => {
       try {
         return await tool.execute(toolCallId, params, signal, onUpdate);
       } catch (error: unknown) {
-        if (progress.hasEffectStarted || signal?.aborted === true || error instanceof ToolExecutionError) {
+        // After the first effect the outcome is unknown, so the error propagates.
+        if (operations.hasEffectStarted || signal?.aborted === true || error instanceof ToolExecutionError) {
           throw error;
         }
         throw new ToolExecutionError(describe(error), { cause: error });
