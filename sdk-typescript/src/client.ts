@@ -1425,9 +1425,10 @@ export class Client {
    * purpose. An identical document is always `UNCHANGED`.
    *
    * The SDK validates every document first and rewrites an absolute `source.path` as
-   * {@link FlowDefinitionDocument} describes. It sends at most 256 documents in each request, so a
-   * larger upload takes several requests and is not atomic: an error can leave earlier batches
-   * stored. The Server rejects a whole request, storing nothing from it, when any of its documents
+   * {@link FlowDefinitionDocument} describes. It sends at most 256 documents, and at most 16 MiB of
+   * content, in each request; a larger single document goes alone. A larger upload therefore takes
+   * several requests and is not atomic: an error can leave earlier batches stored. An outcome this
+   * SDK does not know is reported as `UNSPECIFIED`. The Server rejects a whole request, storing nothing from it, when any of its documents
    * is invalid.
    *
    * @since 1.45.0

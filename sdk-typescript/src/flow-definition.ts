@@ -73,6 +73,13 @@ export const FlowDefinitionUploadOutcome = Object.freeze({
    * Upload with `force` to replace it anyway.
    */
   KEPT_EXISTING: "keptExisting",
+  /**
+   * The Server returned no outcome or one this SDK version does not know.
+   *
+   * A newer Server can return such an outcome. Check `storedDigest` and `storedGeneratedAt` for the
+   * stored document.
+   */
+  UNSPECIFIED: "unspecified",
 } as const);
 
 /**

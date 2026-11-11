@@ -677,14 +677,15 @@ export interface StopFlowOptions {
  * Dex Web draws a run's graph from the Flow definition that the Server stores for its Flow type.
  * A Worker configured with `flowDefinitionPaths` or `flowDefinitions` uploads them once per start,
  * after protocol negotiation and Attribute index synchronization and before it opens task streams.
- * It uploads only definitions whose Flow type this Worker registers and logs the skipped ones with
- * `console.info`. It rewrites an absolute `source.path` inside each document to a path relative to
+ * It uploads only definitions whose Flow type this Worker registers and logs the skipped ones. It
+ * rewrites an absolute `source.path` inside each document to a path relative to
  * the current working directory, or to the file name.
  *
  * The Server replaces a stored definition only with a different one generated later. The Worker
- * logs created and replaced definitions with `console.info` and a kept newer definition with
- * `console.warn`. It does not log unchanged definitions. Upload failures, including a Server without
- * this API, are logged with `console.warn` and never stop the Worker from starting. Use
+ * logs every upload message with `console.warn`, so the messages go to stderr and never mix with
+ * protocol output on stdout. It logs skipped, created, replaced, and kept newer definitions, but not
+ * unchanged ones. Upload failures, including a Server without this API, never stop the Worker from
+ * starting. Use
  * `Client.uploadFlowDefinitions` with `force` to roll a definition back.
  *
  * The Worker constructor throws for a missing path, a file that is not a JSON object with a

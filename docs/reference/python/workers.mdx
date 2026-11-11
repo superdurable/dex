@@ -153,4 +153,6 @@ in-memory document whose **flow.name** differs from its Flow type, or the same
 Flow type in two documents.
 
 **upload_flow_definitions** sends documents without a Worker and returns each outcome. It sends
-at most 256 documents per request. Pass **force=True** to roll a definition back.
+at most 256 documents and 16 MiB of content per request; a larger single
+document goes alone. An outcome the SDK does not know is reported as
+**UNSPECIFIED**. Pass **force=True** to roll a definition back.

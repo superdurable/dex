@@ -140,9 +140,11 @@ check and before opening task streams:
   the working directory, or by the file name when the file is outside it.
   The rest of the document is sent unchanged.
 - The uploader is **sdk-typescript/&lt;version&gt;**.
-- Created and replaced definitions are logged with **console.info**, and a kept newer definition with **console.warn**. Unchanged definitions are not logged.
+- Every upload message is logged with **console.warn**, so it goes to stderr
+  and never mixes with protocol output on stdout. Skipped, created, replaced,
+  and kept newer definitions are logged. Unchanged definitions are not.
 - A failed upload, including a server older than 0.1.26 that returns
-  **UNIMPLEMENTED**, is logged with **console.warn**. The Worker still starts.
+  **UNIMPLEMENTED**, is logged. The Worker still starts.
 
 The Worker constructor throws an **Error** for a missing path, a file that is not a
 JSON object with a **flow.name** string, an invalid **generatedAt**, an
@@ -150,4 +152,6 @@ in-memory document whose **flow.name** differs from its Flow type, or the same
 Flow type in two documents.
 
 **uploadFlowDefinitions** sends documents without a Worker and returns each outcome. It sends
-at most 256 documents per request. Pass **force** set to true to roll a definition back.
+at most 256 documents and 16 MiB of content per request; a larger single
+document goes alone. An outcome the SDK does not know is reported as
+**UNSPECIFIED**. Pass **force** set to true to roll a definition back.

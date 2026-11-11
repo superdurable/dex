@@ -85,6 +85,9 @@ class FlowDefinitionUploadOutcome(Enum):
         KEPT_EXISTING: The stored document differs and its generated_at is the
             same or later, so it stays stored. Upload with ``force=True`` to
             replace it anyway.
+        UNSPECIFIED: The Server returned no outcome or one this SDK version does
+            not know, for example from a newer Server. Check ``stored_digest``
+            and ``stored_generated_at`` for the stored document.
 
     Examples:
         >>> results = client.upload_flow_definitions([document])
@@ -96,6 +99,7 @@ class FlowDefinitionUploadOutcome(Enum):
     REPLACED = "replaced"
     UNCHANGED = "unchanged"
     KEPT_EXISTING = "kept_existing"
+    UNSPECIFIED = "unspecified"
 
 
 @dataclass(frozen=True)

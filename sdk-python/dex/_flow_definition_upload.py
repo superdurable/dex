@@ -31,6 +31,7 @@ from dex.flow_definition import (
 _LOGGER = logging.getLogger(__name__)
 
 MAX_FLOW_DEFINITIONS_PER_UPLOAD = 256
+MAX_FLOW_DEFINITION_UPLOAD_CONTENT_BYTES = 16 * 1024 * 1024
 _JSON_WHITESPACE = " \t\n\r"
 _JSON_DECODER = json.JSONDecoder()
 
@@ -98,8 +99,7 @@ def upload_requests(
     uploader: str,
     is_forced: bool,
 ) -> Iterator[tuple[pb.UploadFlowDefinitionsRequest, Sequence[PreparedFlowDefinition]]]:
-    for offset in range(0, len(definitions), MAX_FLOW_DEFINITIONS_PER_UPLOAD):
-        batch = definitions[offset : offset + MAX_FLOW_DEFINITIONS_PER_UPLOAD]
+    for batch in flow_definition_batches(definitions):
         request = pb.UploadFlowDefinitionsRequest(uploader=uploader, force=is_forced)
         for definition in batch:
             generated_at = Timestamp()
@@ -112,6 +112,34 @@ def upload_requests(
                 )
             )
         yield request, batch
+
+
+def flow_definition_batches(
+    definitions: Sequence[PreparedFlowDefinition],
+) -> list[Sequence[PreparedFlowDefinition]]:
+    """Split definitions into upload batches in their given order.
+
+    Returns:
+        Batches of at most 256 definitions whose content totals at most 16 MiB.
+        A larger single definition forms its own batch.
+    """
+    batches: list[Sequence[PreparedFlowDefinition]] = []
+    batch_start = 0
+    batch_bytes = 0
+    for index, definition in enumerate(definitions):
+        content_bytes = len(definition.content)
+        is_batch_full = (
+            index - batch_start == MAX_FLOW_DEFINITIONS_PER_UPLOAD
+            or batch_bytes + content_bytes > MAX_FLOW_DEFINITION_UPLOAD_CONTENT_BYTES
+        )
+        if index > batch_start and is_batch_full:
+            batches.append(definitions[batch_start:index])
+            batch_start = index
+            batch_bytes = 0
+        batch_bytes += content_bytes
+    if batch_start < len(definitions):
+        batches.append(definitions[batch_start:])
+    return batches
 
 
 def upload_results_from_response(
@@ -206,6 +234,14 @@ def _log_worker_upload_results(
                 origin,
                 result.stored_digest,
             )
+        elif result.outcome is FlowDefinitionUploadOutcome.UNSPECIFIED:
+            _LOGGER.warning(
+                "Dex Server returned an unknown Flow definition upload outcome: "
+                "flow_type=%s origin=%s stored_digest=%s",
+                result.flow_type,
+                origin,
+                result.stored_digest,
+            )
         elif result.outcome is FlowDefinitionUploadOutcome.KEPT_EXISTING:
             uploaded_digest = (
                 hashlib.sha256(definition.content).hexdigest()
@@ -248,9 +284,7 @@ def _upload_outcome(outcome: int) -> FlowDefinitionUploadOutcome:
         return FlowDefinitionUploadOutcome.UNCHANGED
     if outcome == pb.FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING:
         return FlowDefinitionUploadOutcome.KEPT_EXISTING
-    raise RuntimeError(
-        f"Dex Server returned an unknown Flow definition upload outcome {outcome}"
-    )
+    return FlowDefinitionUploadOutcome.UNSPECIFIED
 
 
 def _flow_definition_files(paths: Sequence[str | os.PathLike[str]]) -> list[Path]:

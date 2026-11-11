@@ -24,6 +24,7 @@ import {
 } from "./gen/dex.js";
 
 export const maxFlowDefinitionsPerUpload = 256;
+export const maxFlowDefinitionUploadContentBytes = 16 * 1024 * 1024;
 
 const rfc3339Pattern = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
 const jsonWhitespace = " \t\n\r";
@@ -74,8 +75,7 @@ export function uploadRequests(
   isForced: boolean,
 ): { readonly request: UploadFlowDefinitionsRequest; readonly batch: readonly PreparedFlowDefinition[] }[] {
   const requests = [];
-  for (let offset = 0; offset < definitions.length; offset += maxFlowDefinitionsPerUpload) {
-    const batch = definitions.slice(offset, offset + maxFlowDefinitionsPerUpload);
+  for (const batch of flowDefinitionBatches(definitions)) {
     requests.push({
       request: {
         definitions: batch.map((definition) => ({
@@ -90,6 +90,34 @@ export function uploadRequests(
     });
   }
   return requests;
+}
+
+/**
+ * Splits definitions into upload batches in their given order.
+ * @returns Batches of at most 256 definitions whose content totals at most 16 MiB; a larger single
+ * definition forms its own batch.
+ */
+export function flowDefinitionBatches(
+  definitions: readonly PreparedFlowDefinition[],
+): (readonly PreparedFlowDefinition[])[] {
+  const batches: (readonly PreparedFlowDefinition[])[] = [];
+  let batchStart = 0;
+  let batchBytes = 0;
+  definitions.forEach((definition, index) => {
+    const contentBytes = definition.content.byteLength;
+    const isBatchFull = index - batchStart === maxFlowDefinitionsPerUpload
+      || batchBytes + contentBytes > maxFlowDefinitionUploadContentBytes;
+    if (index > batchStart && isBatchFull) {
+      batches.push(definitions.slice(batchStart, index));
+      batchStart = index;
+      batchBytes = 0;
+    }
+    batchBytes += contentBytes;
+  });
+  if (batchStart < definitions.length) {
+    batches.push(definitions.slice(batchStart));
+  }
+  return batches;
 }
 
 export function uploadResultsFromResponse(response: UploadFlowDefinitionsResponse): FlowDefinitionUploadResult[] {
@@ -114,7 +142,7 @@ export async function uploadWorkerFlowDefinitions(
 ): Promise<void> {
   const selected = definitions.filter((definition) => {
     if (registeredFlowTypes.has(definition.flowType)) return true;
-    console.info(
+    console.warn(
       `skipping Flow definition upload because this Worker does not register the Flow type: flowType=${definition.flowType} origin=${definition.origin}`,
     );
     return false;
@@ -155,7 +183,7 @@ function logWorkerUploadResults(
   for (const result of uploadResultsFromResponse(response)) {
     const definition = definitionsByFlowType.get(result.flowType);
     const origin = definition?.origin ?? "unknown";
-    // Node has no log levels, so an unchanged definition stays silent on every restart.
+    // Every upload log goes to stderr, so an unchanged definition stays silent on each restart.
     if (result.outcome === FlowDefinitionUploadOutcome.UNCHANGED) {
       continue;
     }
@@ -169,8 +197,12 @@ function logWorkerUploadResults(
           + `uploadedGeneratedAt=${definition?.generatedAt.toISOString() ?? "unknown"} `
           + `storedDigest=${result.storedDigest} storedGeneratedAt=${result.storedGeneratedAt.toISOString()}`,
       );
+    } else if (result.outcome === FlowDefinitionUploadOutcome.UNSPECIFIED) {
+      console.warn(
+        `Dex Server returned an unknown Flow definition upload outcome: flowType=${result.flowType} origin=${origin} storedDigest=${result.storedDigest}`,
+      );
     } else {
-      console.info(
+      console.warn(
         `Flow definition ${result.outcome}: flowType=${result.flowType} origin=${origin} digest=${result.storedDigest}`,
       );
     }
@@ -188,7 +220,7 @@ function uploadOutcome(outcome: ProtoFlowDefinitionUploadOutcome): FlowDefinitio
     case ProtoFlowDefinitionUploadOutcome.FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING:
       return FlowDefinitionUploadOutcome.KEPT_EXISTING;
     default:
-      throw new Error(`Dex Server returned an unknown Flow definition upload outcome ${String(outcome)}`);
+      return FlowDefinitionUploadOutcome.UNSPECIFIED;
   }
 }
 
