@@ -7,13 +7,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
-import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
+import type { FunctionTool, FunctionToolResult, ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
 
 import {
   buildPiFunctionTool,
   describePiToolContent,
   throwPiToolArgumentsFailure,
   throwPiToolExecutionFailure,
+  toPiFunctionToolResult,
   validatePiToolArguments,
   type PiToolContentPart,
 } from "./pi-tool-content.js";
@@ -24,7 +25,10 @@ import {
  * @since 0.5.0
  */
 export interface PiDurableToolResultLike {
-  /** Content for the model. Text parts reach the model; each image becomes a note naming its type. */
+  /**
+   * Content for the model. Text parts reach the model. With a media store on the session Flow, each image reaches
+   * the model after the text; otherwise it becomes a note naming its type.
+   */
   readonly output?: readonly PiToolContentPart[];
   /** Whether the result reports a failure. `true` records the call as failed and shows the output to the model. */
   readonly isError?: boolean;
@@ -92,9 +96,13 @@ export interface PiDurableFunctionToolOptions {
  * Each call runs `tool.execute(args, api, context)`. `prepareArguments`, when the tool has one, repairs the raw
  * arguments before the built-in agent loop runner checks them against `parameters`; pi-ai's validation then
  * coerces them, as in `pi-durable`. `context.abortSignal` is the attempt's cancellation signal; the context has no
- * values and a no-op `telemetry`. The result's text parts, joined by newlines, are the output the model sees, and
- * each image part becomes `[image omitted: <mime type>]`. A result with `isError: true`, a thrown
- * `ToolExecutionError`, or arguments that fail conversion or validation become a `ToolExecutionError`, so the model
+ * values and a no-op `telemetry`. The result's text parts, joined by newlines, are the output the model sees. With a
+ * media store on the session Flow, each image part is uploaded to it during the call, and the model sees the images
+ * after the text, in content order; the session stores only their references. An image the store refuses, such as
+ * an SVG, and every image without a store, become `[image omitted: <mime type>]` in the text instead. A failed
+ * upload fails the attempt: a `read` or `idempotent_write` call retries, and a single-attempt call records
+ * `outcome_unknown`. The text of an `isError` result always shows images as notes. A result with `isError: true`, a
+ * thrown `ToolExecutionError`, or arguments that fail conversion or validation become a `ToolExecutionError`, so the model
  * sees the failure. Any other thrown error is handled by the call's effect, which is the effect after
  * `AgentDefinition.toolPolicies` when a policy overrides the wrapped one. For `read` and `idempotent_write` it
  * becomes a `ToolExecutionError` too. For `non_idempotent_write` and `unclassified` the tool may have changed
@@ -154,7 +162,7 @@ async function executePiDurableTool(
   tool: PiDurableToolLike,
   args: unknown,
   context: ToolCallContext,
-): Promise<string> {
+): Promise<string | FunctionToolResult> {
   let validatedArguments: unknown;
   try {
     validatedArguments = validatePiToolArguments(tool, args, context.toolCallId);
@@ -172,11 +180,11 @@ async function executePiDurableTool(
       `pi-durable tool ${tool.name} returned control ${JSON.stringify(result.control)}, which is not supported on Dex`,
     );
   }
-  const output = describePiToolContent(result?.output);
   if (result?.isError === true) {
+    const output = describePiToolContent(result.output);
     throw new ToolExecutionError(output === "" ? `${tool.name} failed` : output);
   }
-  return output;
+  return await toPiFunctionToolResult(context, result?.output);
 }
 
 /** An `api` whose every operation throws, naming it; awaiting or logging the object itself still works. */

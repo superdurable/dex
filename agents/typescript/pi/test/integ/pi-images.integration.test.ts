@@ -35,7 +35,14 @@ import {
 } from "@superdurable/dex-agents/builtin-loop";
 import { AgentSessionTestClient, AgentTestEnvironment, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
-import { createPiAiModelClient, piAiEstimatedImageInputTokens } from "../../src/index.js";
+import {
+  createPiAiModelClient,
+  piAgentFunctionTool,
+  piAiEstimatedImageInputTokens,
+  piDurableFunctionTool,
+  type PiAgentToolLike,
+  type PiDurableToolLike,
+} from "../../src/index.js";
 import { FakeModelServer, createFakeAnthropicModel, createFakeOpenAiModel } from "../fixtures/fake-model-server.js";
 
 const conformanceImages = new Map(
@@ -49,6 +56,37 @@ const png = conformanceImages.get("png") as Uint8Array;
 const jpeg = conformanceImages.get("jpeg") as Uint8Array;
 const gif = conformanceImages.get("gif") as Uint8Array;
 const screenshotToolName = "take_screenshot";
+const piScreenshotToolName = "pi_screenshot";
+const piDurablePhotoToolName = "pi_durable_photo";
+// Not PNG, JPEG, GIF, or WebP, so the media store refuses it.
+const svg = new Uint8Array(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'));
+
+const piScreenshotTool: PiAgentToolLike = {
+  name: piScreenshotToolName,
+  description: "Take a screenshot with a Pi tool.",
+  parameters: { type: "object", properties: {} },
+  replay: "safe",
+  execute: async () => ({
+    content: [
+      { type: "text", text: "Took a Pi screenshot." },
+      { type: "image", data: base64(png), mimeType: "image/png" },
+      { type: "image", data: base64(svg), mimeType: "image/svg+xml" },
+    ],
+  }),
+};
+
+const piDurablePhotoTool: PiDurableToolLike = {
+  name: piDurablePhotoToolName,
+  description: "Take a photo with a pi-durable tool.",
+  parameters: { type: "object", properties: {} },
+  replay: "safe",
+  execute: async () => ({
+    output: [
+      { type: "text", text: "Took a photo." },
+      { type: "image", data: base64(jpeg), mimeType: "image/jpeg" },
+    ],
+  }),
+};
 
 describe("images through a Pi agent session", () => {
   let engine: PrivateDexEngine;
@@ -78,6 +116,10 @@ describe("images through a Pi agent session", () => {
         instructions: "You look at images.",
         model: openAiModel,
         resolveModel: (settings) => modelsBySetting.get(String(settings["model"])) ?? openAiModel,
+        tools: [
+          piAgentFunctionTool(piScreenshotTool, { effect: "read" }),
+          piDurableFunctionTool(piDurablePhotoTool, { effect: "read" }),
+        ],
         toolSources: [new ScreenshotToolSource(store)],
       },
       "PiImageAgent",
@@ -208,6 +250,68 @@ describe("images through a Pi agent session", () => {
         { type: "image", source: { type: "base64", media_type: "image/png", data: base64(png) } },
       ],
     );
+  });
+
+  test("a Pi tool's image reaches the model through the media store, and a refused image stays a note", async () => {
+    const token = newToken();
+    const sessionId = `pi-images-pi-tool-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? { toolCalls: [{ id: "call_pi_screenshot", name: piScreenshotToolName, arguments: "{}" }] }
+        : { text: "Pi screenshot taken" },
+    );
+    await sessions.startSession(sessionId, `pi screenshot ${token}`);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const requests = modelServer.requests(token);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[1]?.body["messages"].slice(-2), [
+      {
+        role: "tool",
+        content: "Took a Pi screenshot.\n[image omitted: image/svg+xml]",
+        tool_call_id: "call_pi_screenshot",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Attached image(s) from tool result:" },
+          { type: "image_url", image_url: { url: dataUrl(png, "image/png") } },
+        ],
+      },
+    ]);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    const toolMessage = snapshot.messages.find((message) => message.role === "tool");
+    assert.deepEqual(toolMessage?.images, [await store.putImage(png)]);
+    assertNoImageBytes(snapshot, png);
+  });
+
+  test("a pi-durable tool's image reaches the next Anthropic request inside the tool_result block", async () => {
+    const token = newToken();
+    const sessionId = `pi-images-pi-durable-tool-${token}`;
+    modelServer.script(token, (_request, index) =>
+      index === 0
+        ? { toolCalls: [{ id: "toolu_photo", name: piDurablePhotoToolName, arguments: "{}" }] }
+        : { text: "photo taken" },
+    );
+    await sessions.startSession(sessionId, `photo ${token}`, {}, { model: "anthropic" });
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const requests = modelServer.requests(token);
+    assert.equal(requests.length, 2);
+    const toolResults = (requests[1]?.body["messages"].at(-1).content as readonly Record<string, any>[]).filter(
+      (block) => block["type"] === "tool_result",
+    );
+    assert.equal(toolResults.length, 1);
+    assert.deepEqual(
+      (toolResults[0]?.["content"] as readonly Record<string, unknown>[]).map(
+        ({ cache_control: _cacheControl, ...block }) => block,
+      ),
+      [
+        { type: "text", text: "Took a photo." },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64(jpeg) } },
+      ],
+    );
+    assertNoImageBytes(await sessions.getAgentSnapshot(sessionId), jpeg);
   });
 
   test("a model whose input lacks image gets pi-ai's placeholder text instead of the image", async () => {

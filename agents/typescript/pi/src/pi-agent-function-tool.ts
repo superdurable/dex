@@ -7,13 +7,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
-import type { FunctionTool, ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
+import type { FunctionTool, FunctionToolResult, ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
 
 import {
   buildPiFunctionTool,
   describePiToolContent,
   throwPiToolArgumentsFailure,
   throwPiToolExecutionFailure,
+  toPiFunctionToolResult,
   validatePiToolArguments,
   writePiToolProgress,
   type PiToolContentPart,
@@ -26,7 +27,10 @@ import {
  * @since 0.5.0
  */
 export interface PiAgentToolResultLike {
-  /** Text and image content for the model. Text parts reach the model; each image becomes a note naming its type. */
+  /**
+   * Text and image content for the model. Text parts reach the model. With a media store on the session Flow, each
+   * image reaches the model after the text; otherwise it becomes a note naming its type.
+   */
   readonly content: readonly PiToolContentPart[];
   /** Structured data for a UI. Dex does not store it. */
   readonly details?: unknown;
@@ -117,8 +121,13 @@ export interface PiAgentFunctionToolOptions {
  * - `signal` is the attempt's cancellation signal.
  * - The text of each `onUpdate` partial result is written as a `pi.tool_progress` event with `tool_call_id`,
  *   `tool_name`, and `text`.
- * - The result's text parts, joined by newlines, are the output the model sees. Each image part becomes
- *   `[image omitted: <mime type>]`. `details` is not stored.
+ * - The result's text parts, joined by newlines, are the output the model sees. `details` is not stored.
+ * - With a media store on the session Flow, each image part is uploaded to it during the call, and the model sees
+ *   the images after the output text, in content order. The session stores only their references. An image the
+ *   store refuses, such as an SVG, and every image without a store, become `[image omitted: <mime type>]` in the
+ *   text instead. A failed upload fails the attempt: a `read` or `idempotent_write` call retries, and a
+ *   single-attempt call records `outcome_unknown`. Progress text and the text of an `isError` result always show
+ *   images as notes.
  * - A result with `isError: true`, a thrown `ToolExecutionError`, or arguments that fail conversion or validation
  *   become a `ToolExecutionError`: the call is recorded as failed, the model sees the failure, and the session
  *   continues.
@@ -207,7 +216,7 @@ async function executePiAgentTool(
   tool: PiAgentToolLike,
   args: unknown,
   context: ToolCallContext,
-): Promise<string> {
+): Promise<string | FunctionToolResult> {
   let params: unknown;
   try {
     params = validatePiToolArguments(tool, args, context.toolCallId);
@@ -222,9 +231,9 @@ async function executePiAgentTool(
   } catch (error) {
     throwPiToolExecutionFailure(context, error);
   }
-  const output = describePiToolContent(result?.content);
   if (result?.isError === true) {
+    const output = describePiToolContent(result.content);
     throw new ToolExecutionError(output === "" ? `${tool.name} failed` : output);
   }
-  return output;
+  return await toPiFunctionToolResult(context, result?.content);
 }

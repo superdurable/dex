@@ -163,7 +163,7 @@ The context holds each image as pi-ai image content with its base64 bytes.
 ### Images
 
 Give the session Flow a media store, and the model sees the images of user
-messages and of tool source results:
+messages, of tool source results, and of Pi tool results:
 
 ```ts
 import { S3MediaStore } from "@superdurable/dex-agents/s3";
@@ -193,8 +193,9 @@ const flow = createBuiltinAgentSessionFlow(definition, "SupportAgent", { mediaSt
 - **Estimates.** `estimateInputTokens` counts
   `piAiEstimatedImageInputTokens` (1600) for each image.
 - **Which tools return images.** A tool source's
-  `ToolExecutionResult.images`, such as an MCP tool's image content. A Pi
-  tool's image content still becomes a text note; see Tools.
+  `ToolExecutionResult.images`, such as an MCP tool's image content, and the
+  image content of a Pi tool from `piAgentFunctionTool` or
+  `piDurableFunctionTool`; see Tools.
 
 ### Stored messages
 
@@ -261,9 +262,16 @@ their effect. A call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
 - `signal` is the attempt's cancellation signal.
 - Each `onUpdate` writes its text as a `pi.tool_progress` event with
   `tool_call_id`, `tool_name`, and `text`.
-- The result's text parts, joined by newlines, are what the model sees. An
-  image part becomes `[image omitted: <mime type>]`, because a built-in loop
-  function tool returns text only. `details` is not stored.
+- The result's text parts, joined by newlines, are what the model sees.
+  `details` is not stored.
+- With a media store on the session Flow, each image part is uploaded to the
+  store during the call, and the model sees the images after the text, in
+  content order. The session stores only their references. An image the store
+  refuses, such as an SVG, and every image without a store become
+  `[image omitted: <mime type>]` in the text. A failed upload fails the
+  attempt: a `read` or `idempotent_write` call retries, and a single-attempt
+  call records `outcome_unknown`. Progress text and the text of an
+  `isError: true` result show images as notes.
 - A result with `isError: true`, a thrown `ToolExecutionError`, or arguments
   that fail conversion or validation become a `ToolExecutionError`: the call is
   recorded as failed, the model sees the message, and the session continues.
@@ -294,6 +302,7 @@ effect comes from `effect`, or else from `replay`: `safe` gives
   `non_idempotent_write` or `unclassified` call records `outcome_unknown`.
   Rewrite such a tool as a Pi `AgentTool` or a Dex `functionTool`.
 - `prepareArguments` runs before the schema check, as for `AgentTool`.
+- Image parts of `output` reach the model as for `AgentTool` content.
 - A result with `control` fails the call with a `ToolExecutionError`. The
   tool's effect has already happened by then.
 - The `context` argument carries the attempt's cancellation signal as
@@ -374,9 +383,6 @@ A compatibility layer for the `pi-durable` API is tracked in
   profile's `max_attempts`. Dex's `RunModel` retries multiply them. Model calls
   have no side effects, so results stay correct; only latency and request
   counts grow.
-- Images in Pi tool results: each image becomes a text note, because a
-  built-in loop function tool cannot return images yet. User images and tool
-  source images reach the model; see Images.
 - `pi-durable` Harness features: `api`, `control`, Extensions, and fork.
 - Pi's `Agent`, `agentLoop`, and session files.
 
