@@ -19,7 +19,7 @@ dependencies = [
     "dex-agents==0.1.0",
     "dex-agents-cli==0.1.0",
     "dex-agents-langgraph==0.1.0",
-    "dex-python-sdk==1.38.0",
+    "dex-python-sdk==1.44.0",
     "langchain>=1.4.7,<2",
     "langchain-core>=1.7.3,<2",
     "langchain-openai>=1.0,<2",
