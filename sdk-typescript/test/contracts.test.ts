@@ -27,6 +27,7 @@ import {
   ConditionCombination,
   FlowDefinitionError,
   InvalidStepResultError,
+  Join,
   Registry,
   Stream,
   StepList,
@@ -39,6 +40,7 @@ import {
   declareRPCMethod,
   gracefulComplete,
   int64Codec,
+  joinRoundCodec,
   jsonCodec,
   openBlobCache,
   rpc,
@@ -54,6 +56,7 @@ import {
   type ClientOptions,
   type Flow,
   type FlowConfig,
+  type JoinRound,
   type RPCResult,
   type RPCInvokeOptions,
   type Step,
@@ -894,6 +897,101 @@ class UnsupportedSynchronousHeartbeatStep implements Step<string> {
 }
 
 void UnsupportedSynchronousHeartbeatStep;
+
+test("JoinRound JSON field names are a stable persistent format", () => {
+  const round: JoinRound = { roundKey: "RequestQuotes-2", branchCount: 3 };
+  assert.deepEqual(joinRoundCodec.encode(round), {
+    kind: "json",
+    data: '{"roundKey":"RequestQuotes-2","branchCount":3}',
+  });
+  assert.deepEqual(
+    joinRoundCodec.decode({ kind: "json", data: '{"branchCount":0,"roundKey":"r-1","addedLater":true}' }),
+    { roundKey: "r-1", branchCount: 0 },
+  );
+  assert.throws(
+    () => joinRoundCodec.decode({ kind: "json", data: '{"round_key":"r-1","branch_count":1}' }),
+    TypeError,
+  );
+  assert.throws(() => joinRoundCodec.decode({ kind: "json", data: '{"roundKey":"a/b","branchCount":1}' }), TypeError);
+  assert.throws(() => joinRoundCodec.decode({ kind: "json", data: '{"roundKey":"r-1","branchCount":-1}' }), TypeError);
+});
+
+test("Join registers its ChannelMap and publishes to the round instance", () => {
+  const quoteReceived = new Join("quoteReceived", stringCodec);
+  class JoinContractFlow implements Flow<void> {
+    public getFlowType(): string {
+      return "JoinContractFlow";
+    }
+
+    public getSteps(): StepList<void> {
+      return StepList.empty();
+    }
+
+    public getPersistenceSchema() {
+      return { channels: [quoteReceived] };
+    }
+  }
+  const registry = new Registry([new JoinContractFlow()]);
+  const context = new InvocationContext(
+    "execute",
+    registeredFlowByName(registry, "JoinContractFlow"),
+    ProtoContext.create({ stepExecutionId: "RequestQuotes-2" }),
+    [],
+  );
+  const rounds: JoinRound[] = [];
+  const recordMovement = (round: JoinRound) => {
+    rounds.push(round);
+    return { step: "Placeholder" as never, input: round };
+  };
+  const movements = quoteReceived.fork(context, [recordMovement], recordMovement);
+  assert.equal(movements.length, 2);
+  assert.deepEqual(rounds, [
+    { roundKey: "RequestQuotes-2", branchCount: 1 },
+    { roundKey: "RequestQuotes-2", branchCount: 1 },
+  ]);
+  assert.throws(() => quoteReceived.fork(context, [], recordMovement), /already forked/);
+  const round = rounds[0]!;
+  quoteReceived.reportBranchResult(context, round, "A");
+  assert.deepEqual(
+    context.getPublications().map((publication) => publication.channelName),
+    ["quoteReceived/RequestQuotes-2"],
+  );
+  assert.deepEqual(quoteReceived.forAllBranches(round), {
+    kind: "channel",
+    channelName: "quoteReceived",
+    instance: "RequestQuotes-2",
+    atLeast: 1,
+    atMost: 1,
+  });
+  assert.throws(() => quoteReceived.forBranches(round, 0), RangeError);
+  assert.throws(() => quoteReceived.forBranches(round, 2), RangeError);
+  assert.throws(() => quoteReceived.forRemainingBranches(round, -1), RangeError);
+  assert.throws(() => quoteReceived.forRemainingBranches(round, 2), RangeError);
+  assert.equal(quoteReceived.forRemainingBranches(round, 1).atMost, 0);
+  assert.throws(() => quoteReceived.forkWithRoundKey("a/b", [], recordMovement), TypeError);
+  const rpcContext = new InvocationContext(
+    "rpc",
+    registeredFlowByName(registry, "JoinContractFlow"),
+    ProtoContext.create(),
+    [],
+  );
+  assert.throws(() => quoteReceived.fork(rpcContext, [], recordMovement), /forkWithRoundKey/);
+  const duplicate = new ChannelMap("quoteReceived", stringCodec);
+  class DuplicateJoinFlow implements Flow<void> {
+    public getFlowType(): string {
+      return "DuplicateJoinFlow";
+    }
+
+    public getSteps(): StepList<void> {
+      return StepList.empty();
+    }
+
+    public getPersistenceSchema() {
+      return { channels: [quoteReceived, duplicate] };
+    }
+  }
+  assert.throws(() => new Registry([new DuplicateJoinFlow()]), FlowDefinitionError);
+});
 
 test("map introspection tracks buffered changes", () => {
   const attributes = new AttributeMap("items", stringCodec);

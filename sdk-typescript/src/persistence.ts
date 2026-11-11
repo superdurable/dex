@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { Join } from "./join.js";
 import type { Channel, ChannelMap } from "./wait.js";
 import {
   markHardDeleteOnNull,
@@ -577,8 +578,13 @@ export type AttributeReadValues<Reads extends readonly AttributeRead<unknown>[]>
 export interface PersistenceSchema {
   /** Singleton and map Attribute definitions with unique names. */
   readonly attributes?: readonly (Attribute<unknown> | AttributeMap<unknown>)[];
-  /** Singleton and map Channel definitions with unique names. */
-  readonly channels?: readonly (Channel<unknown> | ChannelMap<unknown>)[];
+  /**
+   * Singleton Channel, ChannelMap, and Join definitions with unique names.
+   *
+   * A {@link Join} registers as the ChannelMap that carries its branch results.
+   * Changed in 1.41.0: also accepts Join definitions.
+   */
+  readonly channels?: readonly (Channel<unknown> | ChannelMap<unknown> | Join<unknown>)[];
   /** Best-effort Stream definitions with unique names. */
   readonly streams?: readonly Stream<unknown>[];
 }

@@ -17,6 +17,8 @@ export { ApiKeyCredential, FileCredential } from "./credential.js";
 export type { ApiKeyCredentialOptions, Credential } from "./credential.js";
 export * from "./errors.js";
 export { Registry } from "./flow.js";
+export { Join, joinRoundCodec } from "./join.js";
+export type { JoinRound } from "./join.js";
 export type { Flow } from "./flow.js";
 export type { FlowResult, StepCompletion } from "./flow-result.js";
 export { DEFAULT_GRPC_MAX_MESSAGE_BYTES } from "./message-size.js";
