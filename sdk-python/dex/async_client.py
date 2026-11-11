@@ -14,6 +14,7 @@ import asyncio
 from datetime import timedelta, timezone
 from time import monotonic
 from types import TracebackType
+from collections.abc import Sequence
 from typing import Any, Callable, TypeVar, cast, overload
 from uuid import uuid4
 
@@ -23,6 +24,12 @@ from google.protobuf import empty_pb2
 from dex._attribute_reads import plan_attribute_reads
 from dex._credential_transport import AsyncCredentialRunner, async_channel
 from dex._async_value_hydrator import AsyncValueHydrator
+from dex._flow_definition_upload import (
+    flow_definition_uploader,
+    prepare_flow_definitions,
+    upload_requests,
+    upload_results_from_response,
+)
 from dex._grpc_errors import FlowTargetRequirement, translate_rpc_error
 from dex._server_protocol import (
     NegotiatedServerProtocol,
@@ -52,6 +59,10 @@ from dex.context import Context
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Flow, Registry, RPCResult, _RegisteredFlow
+from dex.flow_definition import (
+    FlowDefinitionDocument,
+    FlowDefinitionUploadResult,
+)
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_info import FlowInfo, FlowStatus, SearchFlowEntry, SearchFlowsPage
 from dex.flow_options import (
@@ -1222,6 +1233,89 @@ class AsyncClient:
             flow_id,
             "active",
         )
+
+    async def upload_flow_definitions(
+        self,
+        documents: Sequence[FlowDefinitionDocument],
+        force: bool = False,
+    ) -> list[FlowDefinitionUploadResult]:
+        """Store Flow Definition Graph documents on the Server for Dex Web.
+
+        Use it from a CI or deploy script to publish definitions without
+        starting a Worker. A Worker configured with ``flow_definition_paths`` or
+        ``flow_definitions`` uploads its own definitions at start instead.
+
+        The Server keeps one document for each Flow type. It stores an uploaded
+        document when none exists, or when the stored one has a different digest
+        and an earlier ``generated_at``. Otherwise it keeps the stored document
+        and reports ``KEPT_EXISTING``. With ``force=True`` it replaces every
+        stored document whose digest differs, whatever its ``generated_at``; use
+        that to roll a definition back on purpose. An identical document is
+        always ``UNCHANGED``.
+
+        The SDK validates every document first and rewrites an absolute
+        ``source.path`` as ``FlowDefinitionDocument`` describes. It sends at most
+        256 documents, and at most 16 MiB of content, in each request; a larger
+        single document goes alone. A larger upload therefore takes several
+        requests and is not atomic: an error can leave earlier batches stored.
+        An outcome this SDK does not know is reported as ``UNSPECIFIED``. The
+        Server rejects a whole request, storing nothing from it, when any of
+        its documents is invalid.
+
+        .. versionadded:: 1.45.0
+
+        Examples:
+            >>> from datetime import datetime, timezone
+            >>> from pathlib import Path
+            >>> path = Path("build/flow-definitions/order-flow.json")
+            >>> results = await client.upload_flow_definitions(
+            ...     [
+            ...         FlowDefinitionDocument(
+            ...             "OrderFlow",
+            ...             path.read_bytes(),
+            ...             datetime.fromtimestamp(path.stat().st_mtime, timezone.utc),
+            ...         )
+            ...     ]
+            ... )
+            >>> for result in results:
+            ...     print(result.flow_type, result.outcome.value)
+
+        Args:
+            documents: Documents to store, each with a distinct Flow type. The
+                Flow types do not need to be registered in this Client's
+                Registry. An empty sequence sends no request.
+            force: Whether to replace stored documents with a different digest
+                even when they were generated later.
+
+        Returns:
+            One result for each document, in the order given.
+
+        Raises:
+            ValueError: If a document is not a JSON object whose
+                ``schemaVersion`` starts with ``"2."`` and whose ``flow.name``
+                equals its Flow type, or two documents share a Flow type.
+            DexServiceError: If FlowService rejects or cannot store a batch,
+                for example with ``INVALID_ARGUMENT`` for a document the Server
+                rejects or ``UNIMPLEMENTED`` for a Server without this API.
+            RuntimeError: If the Server reports a protocol range without protocol 4.
+        """
+        definitions = prepare_flow_definitions((), documents)
+        results: list[FlowDefinitionUploadResult] = []
+        for request, _ in upload_requests(
+            definitions, flow_definition_uploader(sdk_version()), force
+        ):
+            response = cast(
+                pb.UploadFlowDefinitionsResponse,
+                await self._call(
+                    self._service.UploadFlowDefinitions,
+                    request,
+                    "upload_flow_definitions",
+                    None,
+                    "none",
+                ),
+            )
+            results.extend(upload_results_from_response(response))
+        return results
 
     async def health_check(self) -> bool:
         """Await the FlowService health endpoint.
