@@ -734,6 +734,21 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   `require_short_image_uris`, build each reference with
   `build_image_reference(data, store_uri)`, and check reads with
   `require_store_image_reference` and `verify_image_bytes`.
+- **Local directory.** `LocalDirectoryMediaStore(root)` keeps images on one
+  machine, for a client and Workers that share a file system, such as a
+  command-line tool in local mode; use `S3MediaStore` across machines. `root`
+  must be an absolute path. An image's file is `<root>/sha256/<sha256>`, and
+  its `uri` is `file://<root>/sha256/<sha256>`: the root is made absolute as
+  text, without resolving symbolic links or normalizing Unicode, and every
+  byte other than ASCII letters, digits, `-._~`, and `/` is percent-encoded,
+  the same in every core. `put_image` copies the bytes into a temporary file
+  in the same directory and renames it into place; an existing file with the
+  same bytes is success. Directories it creates get mode `0700` and files
+  `0600`. It follows no symbolic link under the root, and refuses a link or a
+  special file there with `MediaStoreError`. Reads check the file's size
+  first, read at most one byte past `size_bytes`, and run
+  `verify_image_bytes`. It needs a POSIX file system. Deleting a session
+  deletes no file.
 - **Built-in runners.** In this release no built-in runner shows images to a
   model: Stepwise and the framework adapters do not implement
   `ImageUserMessageBuilder`, so their sessions refuse images.

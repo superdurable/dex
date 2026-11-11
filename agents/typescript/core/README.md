@@ -683,6 +683,17 @@ return { output: "Took a screenshot.", images: [reference] };
   on each read. A store of your own implements `MediaStore`: check its location with `requireShortImageUris`, build
   each reference with `buildImageReference(data, storeUri)`, and check reads with `requireStoreImageReference` and
   `verifyImageBytes`.
+- **Local directory.** `new LocalDirectoryMediaStore(root)`, from the main export, keeps images on one machine, for a
+  client and Workers that share a file system, such as a command-line tool in local mode; use `S3MediaStore` across
+  machines. `root` must be an absolute path. An image's file is `<root>/sha256/<sha256>`, and its `uri` is
+  `file://<root>/sha256/<sha256>`: the root is made absolute as text, without resolving symbolic links or normalizing
+  Unicode, and every byte other than ASCII letters, digits, `-._~`, and `/` is percent-encoded, the same in every core.
+  `putImage` copies the bytes into a temporary file in the same directory and renames it into place; an existing file
+  with the same bytes is success. Directories it creates get mode `0700` and files `0600`. It follows no symbolic link
+  under the root, and refuses a link or a special file there with `MediaStoreError`. Node.js has no `openat`, so the
+  `sha256` directory is checked with `lstat` before the file is opened with `O_NOFOLLOW`. Reads check the file's size
+  first, read at most one byte past `sizeBytes`, and run `verifyImageBytes`. It needs a POSIX file system. Deleting a
+  session deletes no file.
 - **Built-in runners.** In this release no built-in runner shows images to a model: Stepwise and the framework
   adapters do not implement `buildUserMessageWithImages`, so their sessions refuse images.
 - **Retention.** Deleting a session deletes no object. A runner reads the images again whenever a model call replays

@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -18,6 +18,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 import {
   ImageValidationError,
   InMemoryMediaStore,
+  LocalDirectoryMediaStore,
   imageUri,
   outcomeUnknownToolResult,
   sendAgentUserMessage,
@@ -33,7 +34,6 @@ import {
   PrivateDexEngine,
 } from "../../src/testing/index.js";
 import { readConformanceJson } from "../fixtures/conformance-suite.js";
-import { DirectoryMediaStore } from "../fixtures/directory-media-store.js";
 import {
   createImageTestAgentFlow,
   imageLoadsLogName,
@@ -64,6 +64,16 @@ function newSessionId(label: string): string {
 /** Drops one object from an in-memory store, as an expired bucket object would be gone. */
 function forgetImage(store: InMemoryMediaStore, sha256: string): void {
   (store as unknown as { readonly images: Map<string, Uint8Array> }).images.delete(sha256);
+}
+
+/** Lists the image files of the Worker's local directory store, skipping temporary files. */
+function imageFileNames(stateDirectory: string): string[] {
+  const directory = join(stateDirectory, mediaDirectoryName, "sha256");
+  return existsSync(directory)
+    ? readdirSync(directory)
+        .filter((name) => !name.startsWith("."))
+        .sort()
+    : [];
 }
 
 function sha256Of(data: Uint8Array): string {
@@ -318,7 +328,7 @@ describe("images in a session with an in-process Worker and the in-memory store"
   });
 });
 
-describe("images in a session whose Worker is killed after the upload", () => {
+describe("images in a session whose Worker process is killed", () => {
   let engine: PrivateDexEngine;
   let environment: AgentTestEnvironment;
   let sessions: AgentSessionTestClient;
@@ -377,11 +387,38 @@ describe("images in a session whose Worker is killed after the upload", () => {
       `upload ${sha256} attempt 1`,
       `upload ${sha256} attempt 2`,
     ]);
-    assert.deepEqual(new DirectoryMediaStore(join(stateDirectory, mediaDirectoryName)).imageFileNames(), [sha256]);
+    assert.deepEqual(imageFileNames(stateDirectory), [sha256]);
     const toolMessages = snapshot.messages.filter((message) => message.role === "tool");
     assert.deepEqual(
       toolMessages.map((message) => [message.toolOutput, (message.images ?? []).map((image) => image.sha256)]),
       [["took a screenshot", [sha256]]],
     );
+  });
+
+  test("an image replays from the local directory after a Worker restart", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "restart-"));
+    const store = new LocalDirectoryMediaStore(join(stateDirectory, mediaDirectoryName));
+    const worker = await startWorker(stateDirectory);
+    const pngReference = await store.putImage(png);
+    const sessionId = newSessionId("restart");
+    await sessions.startSession(sessionId);
+    assert.equal(await sessions.sendUserMessage(sessionId, "describe", false, [pngReference]), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    await worker.kill();
+    await startWorker(stateDirectory);
+    assert.equal(await sessions.sendUserMessage(sessionId, "describe"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    assert.ok(pngReference.uri.startsWith("file://"));
+    assert.deepEqual(snapshot.messages[0]?.images, [pngReference]);
+    assert.equal(snapshot.messages.at(-1)?.text, "saw 1 images");
+    // The new Worker process read the bytes from the same directory.
+    assert.deepEqual(new InvocationLog(join(stateDirectory, imageLoadsLogName)).names(), [
+      `turn-1:1:${loaded(pngReference)}`,
+      `turn-2:1:${loaded(pngReference)}`,
+    ]);
+    assert.deepEqual(imageFileNames(stateDirectory), [pngReference.sha256]);
   });
 });

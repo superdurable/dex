@@ -64,6 +64,15 @@ for the Dex SDK and framework versions each release supports.
   `@superdurable/dex-agents/s3`, optional peer `@aws-sdk/client-s3`) keeps
   images in AWS S3 or an S3-compatible bucket, with credentials from the
   standard AWS chain. **InMemoryMediaStore** is for tests.
+- **LocalDirectoryMediaStore** (`dex_agents`; `@superdurable/dex-agents`)
+  keeps images in a local directory when every client and Worker runs on one
+  machine, such as a command-line tool in local mode. An image's file is
+  `<root>/sha256/<sha256>`, and its `uri` is `file://<root>/sha256/<sha256>`
+  with the absolute root percent-encoded, the same in every core. Writes go
+  through a temporary file and a rename, an existing file with the same bytes
+  is success, and new directories and files get modes `0700` and `0600`. It
+  follows no symbolic link under the root and checks the SHA-256, size, and
+  type on read. It needs a POSIX file system.
 - PNG, JPEG, GIF, and WebP, detected from the bytes with a cheap structural
   check, up to **MAX_IMAGE_BYTES** (`maxImageBytes`, 3,750,000 bytes,
   5,000,000 bytes as base64) each, and at most **MAX_IMAGES_PER_MESSAGE**

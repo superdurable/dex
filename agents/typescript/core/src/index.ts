@@ -65,6 +65,7 @@ export {
   type TurnCompleted,
   type ToolCallsRequested,
 } from "./agent-framework-runner.js";
+export { LocalDirectoryMediaStore } from "./agent-local-directory-media-store.js";
 export {
   ImageValidationError,
   InMemoryMediaStore,
