@@ -29,6 +29,30 @@ def has_image_content(result: CallToolResult) -> bool:
     return any(isinstance(block, ImageContent) for block in result.content)
 
 
+def render_tool_failure_text(result: CallToolResult) -> str:
+    """Render a failed result's text with ``[image <n> omitted]`` for each image block.
+
+    The text becomes ``AgentToolCall.error``, so image bytes never reach session state.
+    """
+    if not has_image_content(result):
+        return render_tool_result_text(result)
+    parts: list[str] = []
+    image_count = 0
+    for block in result.content:
+        if isinstance(block, TextContent):
+            parts.append(block.text)
+        elif isinstance(block, ImageContent):
+            image_count += 1
+            parts.append(f"[image {image_count} omitted]")
+        else:
+            parts.append(
+                serialize_tool_output_json(
+                    block.model_dump(mode="json", by_alias=True, exclude_none=True)
+                )
+            )
+    return "\n".join(parts)
+
+
 async def store_tool_result_images(
     result: CallToolResult, store: MediaStore, tool_name: str
 ) -> ToolExecutionResult:
@@ -70,12 +94,14 @@ async def store_tool_result_images(
 async def _store_image(
     block: ImageContent, store: MediaStore, tool_name: str, number: int
 ) -> AgentImageReference:
-    if not _BASE64_PATTERN.fullmatch(block.data):
+    data = base64.b64decode(block.data) if _BASE64_PATTERN.fullmatch(block.data) else None
+    # Re-encoding refuses unused trailing bits, so one image has one accepted text.
+    if data is None or base64.b64encode(data).decode("ascii") != block.data:
         raise ToolExecutionError(
             f"MCP tool {tool_name} returned image {number}, which is not valid base64"
         )
     try:
-        return await store.put_image(base64.b64decode(block.data))
+        return await store.put_image(data)
     except ImageValidationError as error:
         raise ToolExecutionError(
             f"MCP tool {tool_name} returned image {number}, which is not a supported image: {error}"

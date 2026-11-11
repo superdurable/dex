@@ -149,8 +149,13 @@ for the Dex SDK and framework versions each release supports.
   successful result is uploaded inside the tool Step and returned in
   `ToolExecutionResult.images`, and the output text shows `[image <n>]` in
   its place. More than 20 images, invalid base64, or bytes that are not a
-  supported image fail the call. Without a store, image content stays JSON
-  text, as before. Cases: `mcp_image_content` in
+  supported image fail the call. Base64 must be canonical: padded, without
+  line breaks or unused trailing bits. Without a store, the image content of
+  a successful result stays JSON text, as before.
+- Both cores: a failed MCP result (`isError`, or the Dex outcome `rejected`
+  or `unknown`) shows `[image <n> omitted]` for each image block in its
+  text, with or without a media store, so the recorded error holds no image
+  bytes. It used to hold each image block as JSON with its base64. Cases: `mcp_image_content` in
   `agents/conformance/images.json`.
 - Runners read bytes with **load_images** (`loadImages`) and may choose them
   with **collect_turn_images** (`collectTurnImages`).

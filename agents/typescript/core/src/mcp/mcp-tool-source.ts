@@ -59,7 +59,7 @@ import {
   unknownOutcomeFallbackMessage,
 } from "./mcp-dex-conventions.js";
 import type { MediaStore } from "../agent-media.js";
-import { hasImageContent, storeToolResultImages } from "./mcp-image-content.js";
+import { hasImageContent, renderToolFailureText, storeToolResultImages } from "./mcp-image-content.js";
 import { redactMcpServerConfigSecrets, validateMcpServerConfig, type McpServerConfig } from "./mcp-server-config.js";
 
 /**
@@ -380,6 +380,8 @@ const nodeInspectSymbol = Symbol.for("nodejs.util.inspect.custom");
  * - With {@link McpToolSourceOptions.mediaStore}, a successful result's `image` blocks are uploaded and returned
  *   as {@link ToolExecutionResult.images}, and the text shows `[image <n>]` in their place. More than
  *   `maxImagesPerMessage` images, invalid base64, or bytes the store refuses throw {@link ToolExecutionError}.
+ * - A failed result's text, with or without a media store, shows `[image <n> omitted]` for each `image` block, so
+ *   no image bytes reach the recorded error.
  * - An `isError` result, a JSON-RPC error response other than an internal error, and a failed,
  *   cancelled, or `input_required` task throw {@link ToolExecutionError}, so the session records
  *   `failed` and the model sees the text. The 2025-11-25 tasks deliver input requests as server requests
@@ -1666,19 +1668,19 @@ function savedTaskFromCheckpoint(
 }
 
 export function outcomeFromToolResult(result: CallToolResult): ToolCallOutcome {
-  const text = renderToolResultText(result);
+  const failureText = hasImageContent(result) ? renderToolFailureText(result) : renderToolResultText(result);
   // The Dex outcome wins over isError in both directions.
   const dexOutcome = readDexToolOutcome(result._meta);
   if (dexOutcome === "unknown") {
-    return { kind: "outcome_unknown", message: text === "" ? unknownOutcomeFallbackMessage : text };
+    return { kind: "outcome_unknown", message: failureText === "" ? unknownOutcomeFallbackMessage : failureText };
   }
   if (dexOutcome === "rejected") {
-    return { kind: "failed", message: text === "" ? rejectedOutcomeFallbackMessage : text };
+    return { kind: "failed", message: failureText === "" ? rejectedOutcomeFallbackMessage : failureText };
   }
   if (result.isError === true) {
-    return { kind: "failed", message: text === "" ? "the MCP tool reported an error" : text };
+    return { kind: "failed", message: failureText === "" ? "the MCP tool reported an error" : failureText };
   }
-  return { kind: "succeeded", output: text, result };
+  return { kind: "succeeded", output: renderToolResultText(result), result };
 }
 
 /** Maps a JSON-RPC error answer; `undefined` leaves the outcome open, so the effect class decides. */

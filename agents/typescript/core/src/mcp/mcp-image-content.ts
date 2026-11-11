@@ -26,6 +26,27 @@ export function hasImageContent(result: CallToolResult): boolean {
 }
 
 /**
+ * Renders a failed result's text with `[image <n> omitted]` for each image block.
+ *
+ * The text becomes the record's `error`, so image bytes never reach session state.
+ */
+export function renderToolFailureText(result: CallToolResult): string {
+  let imageCount = 0;
+  return result.content
+    .map((block) => {
+      if (block.type === "text") {
+        return block.text;
+      }
+      if (block.type === "image") {
+        imageCount += 1;
+        return `[image ${imageCount} omitted]`;
+      }
+      return serializeToolOutputJson(block);
+    })
+    .join("\n");
+}
+
+/**
  * Uploads a successful result's image blocks and returns the tool output with their references.
  *
  * Each image block becomes `[image <n>]` in the output text, `n` counting from 1 in `images` order. The caller
@@ -65,11 +86,14 @@ async function storeImage(
   toolName: string,
   imageNumber: number,
 ): Promise<AgentImageReference> {
-  if (typeof block.data !== "string" || !base64Pattern.test(block.data)) {
+  const data =
+    typeof block.data === "string" && base64Pattern.test(block.data) ? Buffer.from(block.data, "base64") : undefined;
+  // Re-encoding refuses unused trailing bits, so one image has one accepted text.
+  if (data === undefined || data.toString("base64") !== block.data) {
     throw new ToolExecutionError(`MCP tool ${toolName} returned image ${imageNumber}, which is not valid base64`);
   }
   try {
-    return await store.putImage(new Uint8Array(Buffer.from(block.data, "base64")));
+    return await store.putImage(new Uint8Array(data));
   } catch (error: unknown) {
     if (error instanceof ImageValidationError) {
       throw new ToolExecutionError(
