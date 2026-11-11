@@ -12,6 +12,10 @@ This page lists user-visible changes to the TypeScript SDK, newest first; each s
 
 Not released yet. The next release, sdk-typescript/v1.45.0, ships these changes.
 
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash let two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; under the default policy the Flow fails. The Worker logs a warning that names the Step type. To migrate, rename the Step type that **getStepType** returns so it has no "-". Step types with "-" that never start SubFlows are unaffected. [Reference](/reference/typescript/subflow#step-types-that-start-subflows).
+
 ### Fixed
 
 - The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/typescript/waits).

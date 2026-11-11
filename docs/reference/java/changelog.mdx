@@ -12,6 +12,10 @@ This page lists user-visible changes to the Java SDK, newest first; each section
 
 Not released yet. The next release, sdk-java/v1.45.0, ships these changes.
 
+### Breaking
+
+- A Step whose Step type contains **-** can no longer start SubFlows. The child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with **-**, so a dash made two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; with the default failure policy, the Flow fails. Steps that start no SubFlows are unaffected. To migrate, rename the Step type, for example by overriding **getStepType**; the rename changes the child Flow IDs of new SubFlow starts. [Reference](/reference/java/subflow#step-types-that-start-subflows).
+
 ### Fixed
 
 - The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/java/waits).
