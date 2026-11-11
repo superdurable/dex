@@ -10,6 +10,7 @@
 
 package io.superdurable.dex;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -34,7 +35,8 @@ import java.util.stream.Stream;
 /** Collects the Flow definitions configured on a Worker from files and in-memory documents. */
 final class FlowDefinitionSources {
     private static final Logger LOGGER = Logger.getLogger(FlowDefinitionSources.class.getName());
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     private FlowDefinitionSources() {
     }
@@ -105,6 +107,30 @@ final class FlowDefinitionSources {
             throw new IllegalArgumentException("Flow definition for Flow type " + document.getFlowType()
                     + " has flow.name " + inspected.flowName + "; they must be equal");
         }
+        try {
+            inspected.contentGeneratedAt();
+        } catch (IllegalArgumentException invalid) {
+            throw new IllegalArgumentException("Flow definition for Flow type " + document.getFlowType()
+                    + ": " + invalid.getMessage(), invalid);
+        }
+    }
+
+    /** Returns whether content is a Flow Definition Graph 2.x, ignoring its generatedAt. */
+    static boolean isDefinition(final byte[] content) {
+        return InspectedDefinition.inspect(content).notDefinitionReason == null;
+    }
+
+    /**
+     * Requires content to be a Flow Definition Graph 2.x with a valid generatedAt, if any.
+     *
+     * @throws IllegalArgumentException if it is not
+     */
+    static void requireValidContent(final byte[] content) {
+        final InspectedDefinition inspected = InspectedDefinition.inspect(content);
+        if (inspected.notDefinitionReason != null) {
+            throw new IllegalArgumentException("Flow definition " + inspected.notDefinitionReason);
+        }
+        inspected.contentGeneratedAt();
     }
 
     private static void recordSource(
@@ -163,23 +189,19 @@ final class FlowDefinitionSources {
             final Path file,
             final byte[] content,
             final InspectedDefinition inspected) {
-        final Instant generatedAt;
-        if (inspected.generatedAt == null) {
+        Instant generatedAt;
+        try {
+            generatedAt = inspected.contentGeneratedAt();
+        } catch (IllegalArgumentException invalid) {
+            throw new IllegalArgumentException("Flow definition file " + file + ": " + invalid.getMessage(),
+                    invalid);
+        }
+        if (generatedAt == null) {
             try {
                 generatedAt = FlowDefinitionRules.truncateToMillis(Files.getLastModifiedTime(file).toInstant());
             } catch (IOException failure) {
                 throw new IllegalArgumentException("cannot read the modification time of Flow definition file "
                         + file, failure);
-            }
-        } else if (!inspected.generatedAt.isTextual()) {
-            throw new IllegalArgumentException("Flow definition file " + file
-                    + " has a generatedAt that is not a string");
-        } else {
-            try {
-                generatedAt = FlowDefinitionRules.parseGeneratedAt(inspected.generatedAt.asText());
-            } catch (IllegalArgumentException invalid) {
-                throw new IllegalArgumentException("Flow definition file " + file + ": " + invalid.getMessage(),
-                        invalid);
             }
         }
         return new FlowDefinitionDocument(inspected.flowName, content, generatedAt);
@@ -225,6 +247,21 @@ final class FlowDefinitionSources {
                 return notDefinition("has no flow.name");
             }
             return new InspectedDefinition(null, flowName, root.get("generatedAt"));
+        }
+
+        /**
+         * Returns the strict generatedAt of the content, or null when it has none.
+         *
+         * @throws IllegalArgumentException if generatedAt is not a strict RFC 3339 string
+         */
+        Instant contentGeneratedAt() {
+            if (generatedAt == null) {
+                return null;
+            }
+            if (!generatedAt.isTextual()) {
+                throw new IllegalArgumentException("generatedAt is not a string");
+            }
+            return FlowDefinitionRules.parseGeneratedAt(generatedAt.asText());
         }
 
         private static InspectedDefinition notDefinition(final String reason) {

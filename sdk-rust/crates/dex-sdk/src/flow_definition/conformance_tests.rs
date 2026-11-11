@@ -13,10 +13,12 @@ use dex_protocol::dex::{
 };
 use serde_json::Value as JsonValue;
 
+use super::definition_sources::{is_definition, validate_content};
 use super::generated_at::parse_generated_at;
 use super::source_path::{encode_json_string, relative_source_path, rewrite_source_path};
 use super::{
     FlowDefinitionDocument, FlowDefinitionUploadOutcome, map_upload_results, upload_requests,
+    validate_document,
 };
 
 fn fixture() -> JsonValue {
@@ -82,6 +84,48 @@ fn parses_generated_at_like_every_sdk() {
                 "{value}"
             );
         }
+    }
+}
+
+#[test]
+fn validates_documents_like_every_sdk() {
+    for case in cases("documentValidity") {
+        let document = case["document"].as_str().expect("document").as_bytes();
+        let is_valid = case["valid"].as_bool().expect("valid");
+        assert_eq!(
+            is_valid,
+            validate_content(document).is_ok(),
+            "{}",
+            case["name"]
+        );
+        let in_memory = FlowDefinitionDocument::new("A", document, SystemTime::UNIX_EPOCH);
+        assert_eq!(
+            is_valid,
+            validate_document(&in_memory).is_ok(),
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            case["generatedAtError"].as_bool().unwrap_or(false),
+            !is_valid && is_definition(document),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+#[test]
+fn rewrites_documents_like_every_sdk() {
+    for case in cases("documentRewrite") {
+        let document = case["document"].as_str().expect("document");
+        let rewritten = rewrite_source_path(document.as_bytes(), case["cwd"].as_str())
+            .expect("valid JSON document");
+        assert_eq!(
+            case["expected"].as_str().map(str::as_bytes),
+            rewritten.as_deref(),
+            "{}",
+            case["name"]
+        );
     }
 }
 

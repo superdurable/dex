@@ -124,7 +124,7 @@ can draw the graph of each Flow type. Since 1.45.0.
 | In-memory documents | **flowDefinitions** |
 
 - Each configured path must exist and be readable. An explicitly listed file
-  must be a Flow Definition Graph 2.x: a UTF-8 JSON object whose
+  must be a Flow Definition Graph 2.x: a strict UTF-8 JSON object whose
   **schemaVersion** starts with **2.** and whose **flow.name** is a non-empty
   string. The file extension is not checked.
 - A directory is read recursively for files whose extension is **.json** in
@@ -139,14 +139,16 @@ can draw the graph of each Flow type. Since 1.45.0.
 - A **FlowDefinitionDocument** carries its Flow type, JSON bytes, and
   generation time. Pass a fixed time for a document built from a template.
 - Every generation time is truncated to whole milliseconds before upload.
-- The **Worker** constructor reads the files. It throws **IllegalArgumentException** for a missing or unreadable path, an invalid explicit file, an invalid **generatedAt**, two sources with the same Flow type, or an in-memory document that is not a Flow Definition Graph 2.x naming its Flow type.
+- The **Worker** constructor reads the files. It throws **IllegalArgumentException** for a missing or unreadable path, an invalid explicit file, an invalid **generatedAt**, two sources with the same Flow type, or an in-memory document that is not a Flow Definition Graph 2.x naming its Flow type with a valid **generatedAt**, if any.
 - **start** uploads the documents after protocol negotiation and Attribute index synchronization, before it opens task streams. It uploads only the Flow types that the **Registry** registers
   and logs the others at INFO. When nothing is left, it sends no request.
 - Before upload, an absolute top-level **source.path** becomes relative.
   Paths starting with **/**, a drive such as **C:\\**, or **\\\\** count as
   absolute on every operating system. Under the working directory, the result
   is the remaining segments joined with **/**. Elsewhere, or when the working
-  directory is unknown, it is the file name. Only the bytes of that string
+  directory is unknown, it is the file name. The rewrite needs exactly one
+  top-level **source** object with exactly one string **path**; otherwise the
+  original bytes are sent. Only the bytes of that string
   change. A relative path is sent unchanged.
 - Documents are sent in requests of at most 256 documents and 16 MiB of
   content. All requests share one deadline, **attributeIndexSyncTimeout**. Stopping

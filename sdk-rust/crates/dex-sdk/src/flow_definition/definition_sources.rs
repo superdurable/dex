@@ -8,6 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use serde_json::Value as JsonValue;
 
@@ -90,7 +91,7 @@ fn configuration_error(message: String) -> SdkError {
 
 /// Returns why an in-memory document is not a Flow Definition Graph 2.x naming its Flow type.
 pub(crate) fn validate_document(document: &FlowDefinitionDocument) -> Result<(), String> {
-    let (flow_name, _) = inspect_definition(&document.content).map_err(|reason| {
+    let (flow_name, generated_at) = inspect_definition(&document.content).map_err(|reason| {
         format!(
             "Flow definition for Flow type {} {reason}",
             document.flow_type
@@ -102,7 +103,35 @@ pub(crate) fn validate_document(document: &FlowDefinitionDocument) -> Result<(),
             document.flow_type
         ));
     }
+    content_generated_at(generated_at).map_err(|message| {
+        format!(
+            "Flow definition for Flow type {}: {message}",
+            document.flow_type
+        )
+    })?;
     Ok(())
+}
+
+/// Returns the strict `generatedAt` inside a document, or `None` when it has none.
+fn content_generated_at(generated_at: Option<JsonValue>) -> Result<Option<SystemTime>, String> {
+    match generated_at {
+        None => Ok(None),
+        Some(JsonValue::String(value)) => parse_generated_at(&value).map(Some),
+        Some(_) => Err("generatedAt is not a string".to_string()),
+    }
+}
+
+/// Returns whether content is a Flow Definition Graph 2.x, ignoring its `generatedAt`.
+#[cfg(test)]
+pub(super) fn is_definition(content: &[u8]) -> bool {
+    inspect_definition(content).is_ok()
+}
+
+/// Returns why content is not a Flow Definition Graph 2.x with a valid `generatedAt`.
+#[cfg(test)]
+pub(super) fn validate_content(content: &[u8]) -> Result<(), String> {
+    let (_, generated_at) = inspect_definition(content).map_err(str::to_string)?;
+    content_generated_at(generated_at).map(|_| ())
 }
 
 fn record_source(
@@ -167,7 +196,13 @@ fn read_definition_file(
             )));
         }
     };
-    let generated_at = match generated_at {
+    let generated_at = match content_generated_at(generated_at).map_err(|message| {
+        configuration_error(format!(
+            "Flow definition file {}: {message}",
+            file.display()
+        ))
+    })? {
+        Some(generated_at) => generated_at,
         None => std::fs::metadata(file)
             .and_then(|metadata| metadata.modified())
             .map(truncate_to_millis)
@@ -177,18 +212,6 @@ fn read_definition_file(
                     file.display()
                 ))
             })?,
-        Some(JsonValue::String(value)) => parse_generated_at(&value).map_err(|message| {
-            configuration_error(format!(
-                "Flow definition file {}: {message}",
-                file.display()
-            ))
-        })?,
-        Some(_) => {
-            return Err(configuration_error(format!(
-                "Flow definition file {} has a generatedAt that is not a string",
-                file.display()
-            )));
-        }
     };
     Ok(Some(FlowDefinitionDocument {
         flow_type,

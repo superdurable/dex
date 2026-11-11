@@ -129,58 +129,80 @@ final class FlowDefinitionUploads {
      * Returns the same array when nothing changes.
      */
     static byte[] rewriteSourcePath(final byte[] content, final String workingDirectory) throws IOException {
-        final List<int[]> spans = new ArrayList<int[]>();
-        final List<String> replacements = new ArrayList<String>();
-        try (JsonParser parser = JSON_FACTORY.createParser(content)) {
-            if (parser.nextToken() != JsonToken.START_OBJECT) {
-                return content;
-            }
-            while (parser.nextToken() == JsonToken.FIELD_NAME) {
-                final String field = parser.currentName();
-                final JsonToken value = parser.nextToken();
-                if ("source".equals(field) && value == JsonToken.START_OBJECT) {
-                    collectSourcePathSpans(parser, workingDirectory, spans, replacements);
-                } else {
-                    parser.skipChildren();
-                }
-            }
+        final SourcePathLocation location = SourcePathLocation.find(content);
+        if (location == null) {
+            return content;
         }
-        if (spans.isEmpty()) {
+        final String relativePath = FlowDefinitionRules.relativeSourcePath(location.sourcePath, workingDirectory);
+        if (relativePath == null || relativePath.equals(location.sourcePath)) {
             return content;
         }
         final ByteArrayOutputStream output = new ByteArrayOutputStream(content.length);
-        int copied = 0;
-        for (int index = 0; index < spans.size(); index++) {
-            final int[] span = spans.get(index);
-            output.write(content, copied, span[0] - copied);
-            output.write(FlowDefinitionRules.encodeJsonString(replacements.get(index))
-                    .getBytes(StandardCharsets.UTF_8));
-            copied = span[1];
-        }
-        output.write(content, copied, content.length - copied);
+        output.write(content, 0, location.start);
+        output.write(FlowDefinitionRules.encodeJsonString(relativePath).getBytes(StandardCharsets.UTF_8));
+        output.write(content, location.end, content.length - location.end);
         return output.toByteArray();
     }
 
-    private static void collectSourcePathSpans(
-            final JsonParser parser,
-            final String workingDirectory,
-            final List<int[]> spans,
-            final List<String> replacements) throws IOException {
-        while (parser.nextToken() == JsonToken.FIELD_NAME) {
-            final String field = parser.currentName();
-            final JsonToken value = parser.nextToken();
-            if (!"path".equals(field) || value != JsonToken.VALUE_STRING) {
-                parser.skipChildren();
-                continue;
+    /** Locates the only string {@code path} of the only top-level {@code source} object. */
+    private static final class SourcePathLocation {
+        private final int start;
+        private final int end;
+        private final String sourcePath;
+
+        private SourcePathLocation(final int start, final int end, final String sourcePath) {
+            this.start = start;
+            this.end = end;
+            this.sourcePath = sourcePath;
+        }
+
+        /** Returns the location, or null when there is not exactly one such string. */
+        static SourcePathLocation find(final byte[] content) throws IOException {
+            SourcePathLocation location = null;
+            int sourceCount = 0;
+            try (JsonParser parser = JSON_FACTORY.createParser(content)) {
+                if (parser.nextToken() != JsonToken.START_OBJECT) {
+                    return null;
+                }
+                while (parser.nextToken() == JsonToken.FIELD_NAME) {
+                    final boolean isSource = "source".equals(parser.currentName());
+                    final JsonToken value = parser.nextToken();
+                    if (isSource) {
+                        sourceCount++;
+                        location = value == JsonToken.START_OBJECT ? findPath(parser) : null;
+                        if (value != JsonToken.START_OBJECT) {
+                            parser.skipChildren();
+                        }
+                    } else {
+                        parser.skipChildren();
+                    }
+                }
             }
-            final long start = parser.currentTokenLocation().getByteOffset();
-            final String sourcePath = parser.getText();
-            final long end = parser.currentLocation().getByteOffset();
-            final String relativePath = FlowDefinitionRules.relativeSourcePath(sourcePath, workingDirectory);
-            if (relativePath != null && !relativePath.equals(sourcePath)) {
-                spans.add(new int[] {(int) start, (int) end});
-                replacements.add(relativePath);
+            return sourceCount == 1 ? location : null;
+        }
+
+        private static SourcePathLocation findPath(final JsonParser parser) throws IOException {
+            SourcePathLocation location = null;
+            int pathCount = 0;
+            while (parser.nextToken() == JsonToken.FIELD_NAME) {
+                final boolean isPath = "path".equals(parser.currentName());
+                final JsonToken value = parser.nextToken();
+                if (isPath) {
+                    pathCount++;
+                }
+                if (isPath && value == JsonToken.VALUE_STRING) {
+                    final long start = parser.currentTokenLocation().getByteOffset();
+                    final String sourcePath = parser.getText();
+                    final long end = parser.currentLocation().getByteOffset();
+                    location = new SourcePathLocation((int) start, (int) end, sourcePath);
+                } else {
+                    if (isPath) {
+                        location = null;
+                    }
+                    parser.skipChildren();
+                }
             }
+            return pathCount == 1 ? location : null;
         }
     }
 

@@ -75,14 +75,44 @@ fn is_strict_rfc_3339(bytes: &[u8]) -> bool {
         }
     }
     let offset = &bytes[index..];
-    match offset {
+    let is_offset_valid = match offset {
         [b'Z' | b'z'] => true,
         [b'+' | b'-', ..] => {
             offset.len() == 6
                 && offset[1..3].iter().all(u8::is_ascii_digit)
                 && offset[3] == b':'
                 && offset[4..6].iter().all(u8::is_ascii_digit)
+                && number(&offset[1..3]) <= 23
+                && number(&offset[4..6]) <= 59
         }
         _ => false,
+    };
+    let year = number(&bytes[0..4]);
+    let month = number(&bytes[5..7]);
+    let day = number(&bytes[8..10]);
+    is_offset_valid
+        && (1..=12).contains(&month)
+        && day >= 1
+        && day <= days_in_month(year, month)
+        && number(&bytes[11..13]) <= 23
+        && number(&bytes[14..16]) <= 59
+        && number(&bytes[17..19]) <= 59
+}
+
+/// Returns the value of ASCII digits that the caller already checked.
+fn number(digits: &[u8]) -> u32 {
+    digits
+        .iter()
+        .fold(0, |value, digit| value * 10 + u32::from(digit - b'0'))
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    let is_leap_year =
+        (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400);
+    match month {
+        2 if is_leap_year => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
     }
 }

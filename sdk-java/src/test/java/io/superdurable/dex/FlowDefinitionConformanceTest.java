@@ -65,6 +65,47 @@ final class FlowDefinitionConformanceTest {
     }
 
     @Test
+    void validatesDocumentsLikeEverySdk() throws Exception {
+        final JsonNode cases = fixture().get("documentValidity");
+        assertTrue(cases.size() > 0);
+        for (JsonNode testCase : cases) {
+            final byte[] document = testCase.get("document").asText().getBytes(StandardCharsets.UTF_8);
+            final String name = testCase.get("name").asText();
+            final FlowDefinitionDocument inMemory = new FlowDefinitionDocument(
+                    "A", document, java.time.Instant.parse("2026-11-01T00:00:00Z"));
+            if (testCase.get("valid").asBoolean()) {
+                FlowDefinitionSources.requireValidContent(document);
+                FlowDefinitionSources.requireValidDocument(inMemory);
+            } else {
+                assertThrows(IllegalArgumentException.class,
+                        () -> FlowDefinitionSources.requireValidContent(document), name);
+                assertThrows(IllegalArgumentException.class,
+                        () -> FlowDefinitionSources.requireValidDocument(inMemory), name);
+            }
+            assertEquals(testCase.path("generatedAtError").asBoolean(false),
+                    !testCase.get("valid").asBoolean() && FlowDefinitionSources.isDefinition(document), name);
+        }
+    }
+
+    @Test
+    void rewritesDocumentsLikeEverySdk() throws Exception {
+        final JsonNode cases = fixture().get("documentRewrite");
+        assertTrue(cases.size() > 0);
+        for (JsonNode testCase : cases) {
+            final byte[] document = testCase.get("document").asText().getBytes(StandardCharsets.UTF_8);
+            final byte[] rewritten = FlowDefinitionUploads.rewriteSourcePath(
+                    document, testCase.get("cwd").asText());
+            final String name = testCase.get("name").asText();
+            if (testCase.get("expected").isNull()) {
+                assertSame(document, rewritten, name);
+            } else {
+                assertEquals(testCase.get("expected").asText(), new String(rewritten, StandardCharsets.UTF_8),
+                        name);
+            }
+        }
+    }
+
+    @Test
     void rewritesOnlyTheSourcePathBytes() throws Exception {
         final String content = "{ \"schemaVersion\":\"2.0\",\n \"source\" : {\"path\": \"/work/über/a.json\","
                 + " \"language\":\"java\"}, \"n\": 1.50 }";
