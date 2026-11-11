@@ -301,6 +301,8 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 The ``allowed_tools`` check keeps using the session's
                 policies. Defaults to none: every call uses the session's
                 policies.
+
+                .. versionadded:: 0.5.0
             media_store: The store that holds the session's images, such as
                 ``S3MediaStore`` or ``LocalDirectoryMediaStore``. Use the
                 store your clients upload to, on every Worker of the Flow

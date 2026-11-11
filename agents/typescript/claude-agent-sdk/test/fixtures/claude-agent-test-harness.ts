@@ -56,9 +56,10 @@ export class ClaudeAgentTestHarness {
     isWorkerInProcess: boolean,
     cli?: (stateDirectory: string) => ClaudeTestAgentCli,
     sessionOptions?: ClaudeAgentSessionOptions,
+    hasMediaStore = false,
   ): Promise<ClaudeAgentTestHarness> {
     const stateDirectory = mkdtempSync(join(engine.stateDirectory, "claude-agent-"));
-    const flow = createClaudeTestAgentFlow(stateDirectory, cli?.(stateDirectory), sessionOptions);
+    const flow = createClaudeTestAgentFlow(stateDirectory, cli?.(stateDirectory), sessionOptions, hasMediaStore);
     const environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
       flows: [flow],
@@ -86,13 +87,13 @@ export class ClaudeAgentTestHarness {
     return `${prefix}-${randomUUID()}`;
   }
 
-  /** Starts a Worker child that a test can kill with SIGKILL. */
-  public async startWorker(): Promise<KillableWorkerProcess> {
+  /** Starts a Worker child that a test can kill with SIGKILL; `environment` adds variables, such as the CLI. */
+  public async startWorker(environment: Readonly<Record<string, string>> = {}): Promise<KillableWorkerProcess> {
     const worker = await KillableWorkerProcess.start({
       entryModulePath: workerEntryModulePath,
       serverAddress: this.engine.serverAddress,
       logPath: join(this.stateDirectory, "worker.log"),
-      environment: { [fakeClaudeStateDirectoryVariable]: this.stateDirectory },
+      environment: { ...environment, [fakeClaudeStateDirectoryVariable]: this.stateDirectory },
     });
     this.workers.push(worker);
     return worker;

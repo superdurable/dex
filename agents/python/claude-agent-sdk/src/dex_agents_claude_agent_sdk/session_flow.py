@@ -156,6 +156,8 @@ def claude_agent_session_flow(
             ``ToolPolicy`` for that call, ``ClaudeCodeToolDenial`` to refuse
             it, or ``None`` for ``tool_policies`` and ``default_tool_effect``.
             See ``ClaudeCodeToolPermission``. Defaults to none.
+
+            .. versionadded:: 0.5.0
         media_store: The store that holds the session's images, such as
             ``S3MediaStore``; pass the store your clients upload to, on every
             Worker. With a store, the session accepts user messages with
