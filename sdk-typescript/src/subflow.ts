@@ -85,6 +85,16 @@ export interface SubFlowOptions {
 export const SubFlow = Object.freeze({
   /**
    * Creates a condition that starts or reuses a registered Flow and awaits completion.
+   *
+   * Only a Step whose Step type contains no "-" can start SubFlows.
+   * The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index
+   * with "-", so a dash in the Step type would let two parents share one child.
+   * When a waitFor whose Step type contains "-" returns a SubFlow condition, the server rejects
+   * the result as an invalid Worker response.
+   * It fails the attempt without retry, so under the default policy the Flow fails.
+   * The Worker logs a warning that names the Step type.
+   * To fix it, rename the Step type returned by `getStepType`, for example from "b-C" to "bC".
+   * Changed in 1.45.0: a Step whose Step type contains "-" can no longer start SubFlows.
    * @typeParam Input - Target starting Step input type.
    * @param flow - Exact target Flow instance registered by the Worker.
    * @param input - Input accepted by its starting Step.

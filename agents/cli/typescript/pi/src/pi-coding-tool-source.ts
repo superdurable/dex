@@ -245,6 +245,7 @@ export class PiCodingToolSource implements ToolSource {
       turnId: call.toolCall.turnId,
       toolCallId: call.toolCall.toolCallId,
       idempotencyKey: call.idempotencyKey,
+      effect: call.toolCall.effect,
       attempt: call.attempt,
       events: call.events,
       cancellationSignal: call.cancellationSignal,

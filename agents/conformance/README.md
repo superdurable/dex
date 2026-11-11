@@ -61,8 +61,8 @@ so the suite parses it and serializes it canonically before comparing. The
 `wire` of each `AgentEvent` case keeps the Python writer's bytes, and its
 `canonical` holds the canonical payload.
 
-**The Stepwise tool source envelope compares in canonical JSON too.** A call
-that a Stepwise tool source built stores `AgentToolCall.tool_source_reference`
+**The built-in loop tool source envelope compares in canonical JSON too.** A call
+that a built-in loop tool source built stores `AgentToolCall.tool_source_reference`
 as `{"stepwise_tool_source": "<source name>", "reference": <the source's own
 reference or null>}`. The model never sees it. Python writes it with
 `json.dumps` defaults (spaced, non-ASCII escaped), and TypeScript writes it
@@ -139,7 +139,7 @@ sweep an enum. The `AgentEvent` cases have one event per event type.
 - `keys`, `ids`, and `timestamps`: map instance keys, turn and interrupt ID
   formats, and the RFC 3339 format with examples;
 - `limits`: snapshot and page limits, the default list page size, the default
-  durable wait and Stepwise model call limits, the channel read limit,
+  durable wait and built-in loop model call limits, the channel read limit,
   `max_session_settings_bytes`, `session_settings_size_tolerance_bytes`, and
   the default message window size, chunk size, chunk byte cap, chunks moved per
   commit, and retention limit, each taken from the Python core's constants;
@@ -204,7 +204,7 @@ graph yet.
 Each file in `transcripts/` is one scenario: a read, an approval, a question,
 a durable wait, a steer, plan execution, compaction, a tool task, and a call
 to an unknown tool. Every
-core builds the same Stepwise agent, plays the `actions` against a private
+core builds the same built-in loop agent, plays the `actions` against a private
 Dex engine, and compares the result with `expected`.
 
 The agent, as built in
@@ -318,7 +318,7 @@ A new core, such as Go at `agents/go/core`, passes the suite like this:
    Read every written form of the tool source envelope, and check that the
    core's own form canonicalizes to `canonical`. Validate each built-in tool argument
    case and compare the error text.
-6. Build the conformance agent above with the core's Stepwise runner and
+6. Build the conformance agent above with the core's built-in loop runner and
    scripted model client. Keep `send_email`'s output keys in the order
    `sent_to`, `body`; in Go, return an ordered struct, not a map. Then play
    every scenario in `transcripts/` on a private engine, normalize as above

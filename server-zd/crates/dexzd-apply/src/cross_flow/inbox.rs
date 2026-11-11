@@ -23,7 +23,10 @@ use crate::command_handlers::command_replies::{error_reply, ok_reply};
 use crate::command_handlers::flow_start::{RunStart, run_settings_with_offload_choice, start_run};
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
-use crate::cross_flow::outbox::{report_terminal_to_parent, validate_child_start_parameters};
+use crate::cross_flow::outbox::{
+    acknowledge_child_starts_of_reporting_child, report_terminal_to_parent,
+    validate_child_start_parameters,
+};
 use crate::cross_flow::sub_flow_result_key;
 use crate::state_access::{FlowTransaction, RunRows, read_flow_directory};
 use crate::values::{ValueHolder, release_stored_value, store_value};
@@ -364,6 +367,7 @@ fn apply_child_completed(
         },
     );
     put_inbox_dedup(transaction, rows, source, &command.message_id, cursor.seq);
+    acknowledge_child_starts_of_reporting_child(transaction, &mut cursor, scope, parent_reference)?;
     if cursor.record.status == FlowStatus::Running as i32 {
         crate::steps::wait_conditions::on_child_result(
             transaction,

@@ -446,6 +446,57 @@ impl Harness {
             .collect()
     }
 
+    /// Writes an unacknowledged child start into the parent's outbox, as `start_child_flows` does.
+    fn put_pending_parent_start(&mut self, message_id: &[u8], start: ChildFlowStartMessage) {
+        let parent_hash = self.hasher.flow_hash(TenantId::DEFAULT, "parent");
+        let target = CrossFlowEndpoint {
+            tenant_id: 0,
+            flow_id: start.child_flow_id.clone(),
+            run_id: Vec::new(),
+            run_attempt: 0,
+        };
+        self.state.rows.insert(
+            (
+                ColumnFamily::Flow,
+                outbox_key(parent_hash, RunId(PARENT_RUN), message_id),
+            ),
+            OutboxRecord {
+                message_id: message_id.to_vec(),
+                target: Some(target),
+                payload: Some(outbox_record::Payload::ChildStart(start)),
+                written_seq: 1,
+                acknowledged_at_micros: 0,
+                held_values: Vec::new(),
+            }
+            .encode_to_vec(),
+        );
+        self.state.rows.insert(
+            (
+                ColumnFamily::PartitionIndex,
+                self.parent_pending_index(message_id),
+            ),
+            Vec::new(),
+        );
+    }
+
+    fn is_parent_outbox_pending(&self, message_id: &[u8]) -> bool {
+        self.state.rows.contains_key(&(
+            ColumnFamily::PartitionIndex,
+            self.parent_pending_index(message_id),
+        ))
+    }
+
+    fn parent_pending_index(&self, message_id: &[u8]) -> Vec<u8> {
+        let parent_hash = self.hasher.flow_hash(TenantId::DEFAULT, "parent");
+        run_item_index_key(
+            self.hasher.partition_of(parent_hash),
+            IndexKind::OutboxPending,
+            parent_hash,
+            RunId(PARENT_RUN),
+            message_id,
+        )
+    }
+
     fn parent_history_time(&self, seq: u64) -> i64 {
         let parent_hash = self.hasher.flow_hash(TenantId::DEFAULT, "parent");
         let bytes = self
@@ -1205,6 +1256,98 @@ fn child_start_completion_dedup_ack_retention_and_purge() {
                 .windows(signature.len())
                 .any(|window| window == signature)
     }));
+}
+
+/// A purge erases inbox deduplication, so a redelivered start would start a second child.
+#[test]
+fn child_completion_acknowledges_the_parent_child_start_before_the_child_can_be_purged() {
+    let mut harness = Harness::new();
+    harness.start_parent();
+    let start = harness.register_sub_flow_wait(SubFlowReusePolicy::Unspecified);
+    let parent_hash = harness.hasher.flow_hash(TenantId::DEFAULT, "parent");
+    let start_key = outbox_key(parent_hash, RunId(PARENT_RUN), &start.message_id);
+    let start_pending_index = run_item_index_key(
+        harness.hasher.partition_of(parent_hash),
+        IndexKind::OutboxPending,
+        parent_hash,
+        RunId(PARENT_RUN),
+        &start.message_id,
+    );
+    assert_ok(&harness.deliver_start_outbox(&start, FIRST_CHILD_RUN));
+    // The engine's OutboxAck for the start is lost, so the start stays pending.
+    assert!(
+        harness
+            .state
+            .rows
+            .contains_key(&(ColumnFamily::PartitionIndex, start_pending_index.clone()))
+    );
+    harness.apply(
+        CHILD_ID,
+        &FIRST_CHILD_RUN,
+        Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                stop_type: StopType::Terminate as i32,
+                ..StopFlowRequest::default()
+            }),
+        }),
+    );
+    let report = harness
+        .outbox(CHILD_ID, FIRST_CHILD_RUN)
+        .pop()
+        .expect("child completion report");
+    let completed = harness.deliver_completion(&report);
+    assert_ok(&completed);
+
+    let acknowledged_start = OutboxRecord::decode(
+        harness
+            .state
+            .get(ColumnFamily::Flow, &start_key)
+            .expect("memory reads")
+            .expect("the acknowledged start is retained")
+            .as_slice(),
+    )
+    .expect("outbox decodes");
+    assert_eq!(
+        acknowledged_start.acknowledged_at_micros,
+        harness.now_micros
+    );
+    assert!(
+        !harness
+            .state
+            .rows
+            .contains_key(&(ColumnFamily::PartitionIndex, start_pending_index)),
+        "delivery stops redelivering an acknowledged start"
+    );
+    let retention_timer = TimerId {
+        run_attempt: 0,
+        kind: Some(timer_id::Kind::OutboxRetention(OutboxRetentionTimerId {
+            message_id: start.message_id.clone(),
+        })),
+    };
+    assert!(
+        harness
+            .state
+            .get(
+                ColumnFamily::Flow,
+                &timer_key(
+                    parent_hash,
+                    RunId(PARENT_RUN),
+                    &retention_timer.encode_to_vec()
+                ),
+            )
+            .expect("memory reads")
+            .is_some(),
+        "the acknowledged start is released after outbox retention"
+    );
+    let late_ack = harness.apply(
+        "parent",
+        &PARENT_RUN,
+        Command::OutboxAck(OutboxAckCommand {
+            message_ids: vec![start.message_id],
+        }),
+    );
+    assert_ok(&late_ack);
+    assert!(late_ack.writes.is_empty(), "the late OutboxAck is a no-op");
 }
 
 #[test]
@@ -2092,6 +2235,24 @@ fn always_restart_old_child_result_does_not_complete_new_attempt_wait() {
     let parent_hash = harness.hasher.flow_hash(TenantId::DEFAULT, "parent");
     let record_key = run_singleton_key(parent_hash, RunId(PARENT_RUN), RunTable::RunRecord);
     let mut parent_record = harness.record("parent", PARENT_RUN);
+    let fork_seq = parent_record.next_run_seq - 1;
+    // A checkpoint of the forged attempt 2 needs its attempt record.
+    harness.state.rows.insert(
+        (
+            ColumnFamily::Flow,
+            attempt_record_key(parent_hash, RunId(PARENT_RUN), 2),
+        ),
+        AttemptRecord {
+            attempt: 2,
+            parent_attempt: 1,
+            parent_seq: fork_seq,
+            start_seq: fork_seq,
+            created_at_micros: harness.now_micros,
+            reason: "forged second attempt".to_owned(),
+            checkpoint_seqs: Vec::new(),
+        }
+        .encode_to_vec(),
+    );
     parent_record.current_attempt = 2;
     harness.state.rows.insert(
         (ColumnFamily::Flow, record_key),
@@ -2133,11 +2294,25 @@ fn always_restart_old_child_result_does_not_complete_new_attempt_wait() {
         .expect("SubFlow options")
         .reuse_policy = SubFlowReusePolicy::AlwaysRestart as i32;
     let source = restarted_parent.parent.clone();
+    // The parent keeps attempt 2's start, and another child's start, pending.
+    let restarted_message_id = vec![1; 16];
+    let mut other_child_start = restarted_start.clone();
+    let other_parent = other_child_start.parent.as_mut().expect("parent reference");
+    other_parent.step_execution_id = "OtherStep-1".to_owned();
+    other_parent
+        .parent
+        .as_mut()
+        .expect("parent endpoint")
+        .run_attempt = 1;
+    other_child_start.child_flow_id = "SubFlow:parent-OtherStep-1-0".to_owned();
+    let other_message_id = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    harness.put_pending_parent_start(&restarted_message_id, restarted_start.clone());
+    harness.put_pending_parent_start(&other_message_id, other_child_start);
     assert_ok(&harness.apply(
         CHILD_ID,
         &[],
         Command::InboxMessage(InboxMessageCommand {
-            message_id: vec![77; 16],
+            message_id: restarted_message_id.clone(),
             source,
             payload: Some(inbox_message_command::Payload::ChildStart(restarted_start)),
             new_run_id: SECOND_CHILD_RUN.to_vec(),
@@ -2154,6 +2329,15 @@ fn always_restart_old_child_result_does_not_complete_new_attempt_wait() {
     assert_eq!(
         harness.step("parent", PARENT_RUN, "StartStep-1").phase,
         StepExecutionPhase::Waiting as i32
+    );
+    assert!(!harness.is_parent_outbox_pending(&first_start.message_id));
+    assert!(
+        harness.is_parent_outbox_pending(&restarted_message_id),
+        "attempt 1's report does not acknowledge attempt 2's start"
+    );
+    assert!(
+        harness.is_parent_outbox_pending(&other_message_id),
+        "a report does not acknowledge another child's start"
     );
     harness.apply(
         CHILD_ID,
@@ -2172,6 +2356,8 @@ fn always_restart_old_child_result_does_not_complete_new_attempt_wait() {
         harness.step("parent", PARENT_RUN, "StartStep-1").phase,
         StepExecutionPhase::Execute as i32
     );
+    assert!(!harness.is_parent_outbox_pending(&restarted_message_id));
+    assert!(harness.is_parent_outbox_pending(&other_message_id));
 }
 
 #[test]

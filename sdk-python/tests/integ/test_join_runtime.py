@@ -31,9 +31,11 @@ from .environment import DexDevTestEnvironment
 from .join_flow import (
     AllBranchesJoinFlow,
     AsyncMultiInstanceJoinFlow,
+    CancelJoinWithBranchesFlow,
     CancellingFirstBranchJoinFlow,
     DuplicateJoinNameFlow,
     ForkTwiceJoinFlow,
+    HandoffReport,
     JoinConditionValidationFlow,
     JoinDeadlineFlow,
     JoinDeadlineOutcome,
@@ -42,7 +44,6 @@ from .join_flow import (
     MultiInstanceJoinFlow,
     PartialJoinRoundsFlow,
     QuoteRequest,
-    ReportForCanceledBranchJoinFlow,
     RpcForkJoinFlow,
 )
 from .shared import unique_id
@@ -186,24 +187,33 @@ async def _first_branch_join_cancels_siblings_and_keeps_late_results_pending() -
         assert result.single_output(str) == "A"
 
 
-def test_rpc_reports_for_a_canceled_branch_so_the_join_fires() -> None:
-    asyncio.run(_rpc_reports_for_a_canceled_branch_so_the_join_fires())
+def test_cancel_the_join_with_its_branches() -> None:
+    asyncio.run(_cancel_the_join_with_its_branches())
 
 
-async def _rpc_reports_for_a_canceled_branch_so_the_join_fires() -> None:
-    flow = ReportForCanceledBranchJoinFlow()
+async def _cancel_the_join_with_its_branches() -> None:
+    flow = CancelJoinWithBranchesFlow()
     async with AsyncDexDevTestEnvironment(flow) as environment:
         client = environment.client
-        flow_id = unique_id("python-join-report-canceled")
+        flow_id = unique_id("python-join-cancel-join")
         await client.start_flow(flow, flow_id, None)
-        await _wait_for_step(client, flow_id, "SplitTwoBranches")
-        await client.invoke_rpc(
-            flow.cancel_branch_b, flow_id, JoinRound("SplitTwoBranches-1", 2)
-        )
-        await _wait_for_step(client, flow_id, "JoinBranchB")
         await client.invoke_rpc(flow.release_branch, flow_id, "A")
+        await _wait_for_step(client, flow_id, "JoinBranchA")
+        await client.invoke_rpc(flow.cancel_join_with_branches, flow_id)
+
+        # Branch B was canceled, so its release stays pending and A's result stays.
+        await client.invoke_rpc(flow.release_branch, flow_id, "B")
+        assert (
+            await client.invoke_rpc(flow.get_pending_release_count, flow_id, "B") == 1
+        )
+        pending_results = await client.invoke_rpc(
+            flow.get_pending_results, flow_id, "SplitTwoBranches-1"
+        )
+        assert pending_results == ["A"]
+
+        await client.invoke_rpc(flow.release_join, flow_id)
         result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
-        assert result.single_output(JoinOutcome) == JoinOutcome(2, ["B-canceled", "A"])
+        assert result.single_output(str) == "join canceled"
 
 
 def test_second_fork_of_one_join_in_an_invocation_fails_the_step() -> None:
@@ -240,9 +250,16 @@ async def _rpc_forks_only_with_an_explicit_round_key() -> None:
         assert "must not contain '/'" in key_failure.value.worker_error_detail
 
         await client.invoke_rpc(flow.fork_with_key_in_rpc, flow_id, "rpc-round-1")
+        await client.invoke_rpc(
+            flow.report_handoff_result,
+            flow_id,
+            HandoffReport(JoinRound("rpc-round-1", 2), "handoff-result"),
+        )
         await client.invoke_rpc(flow.release_branch, flow_id, "A")
         result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
-        assert result.single_output(JoinOutcome) == JoinOutcome(1, ["A"])
+        assert result.single_output(JoinOutcome) == JoinOutcome(
+            2, ["handoff-result", "A"]
+        )
 
 
 @pytest.mark.parametrize(

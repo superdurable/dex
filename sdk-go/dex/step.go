@@ -38,6 +38,14 @@ type StepSelector interface {
 	// generic Step type, which has no default. Returning an empty string selects
 	// the default.
 	//
+	// A Step type that contains "-" cannot start SubFlows, because the child
+	// Flow ID joins its parts with "-". The server rejects a WaitFor result
+	// with a SubFlow Condition from such a Step and fails the attempt without
+	// retry. Choose a name without "-" for any Step that starts SubFlows.
+	//
+	// Changed in 1.45.0: a Step whose Step type contains "-" can no longer
+	// start SubFlows.
+	//
 	//	func (shipOrder) GetStepType() string {
 	//		return "ShipOrder"
 	//	}

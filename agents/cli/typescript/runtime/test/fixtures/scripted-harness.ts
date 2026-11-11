@@ -27,11 +27,14 @@ import { isLocalToolGroupEnabled, type AgentHarness, type HarnessContext } from 
 
 /** Environment variable naming the directory where the scripted model writes gate markers. */
 export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
-/** Environment variable that selects `shell-replacing` for {@link shellReplacingScriptedHarness}. */
+/**
+ * Environment variable that selects `shell-replacing` for {@link shellReplacingScriptedHarness} or `fixed-tool-set`
+ * for {@link fixedToolSetScriptedHarness}.
+ */
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
 /**
- * A Stepwise test harness whose model follows commands in the user's text:
+ * A built-in loop test harness whose model follows commands in the user's text:
  *
  * - `tools`: answers with the offered tool names.
  * - `model`: answers with the turn's model.
@@ -48,6 +51,9 @@ export const scriptedHarness: AgentHarness = {
   defaultModel: "scripted/default",
   createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, []),
 };
+
+/** The scripted harness declaring that its runner fixes its tools when the Flow is built. */
+export const fixedToolSetScriptedHarness: AgentHarness = { ...scriptedHarness, isToolSetFixedAtBuild: true };
 
 /**
  * The scripted harness with the `shell` group replaced by its own `replacement_shell` function tool, which answers
