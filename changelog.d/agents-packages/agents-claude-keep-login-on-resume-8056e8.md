@@ -1,7 +1,7 @@
 ---
 section: Fixed
 ---
-- Python and TypeScript Claude Agent SDK adapters: a Claude Code subscription
+- Python and TypeScript Claude Agent SDK adapters: a stored Claude Code
   login keeps working after the first turn. Every later turn segment resumes
   from a temporary `CLAUDE_CONFIG_DIR` that the Claude Agent SDK prepares, and
   on macOS and Linux Claude Code then looked for its stored login, such as the

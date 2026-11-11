@@ -221,7 +221,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
     .. versionchanged:: 0.5.1
         The runner sets ``CLAUDE_SECURESTORAGE_CONFIG_DIR`` in ``env``, so a
-        later turn keeps a Claude Code subscription login.
+        later turn keeps a stored Claude Code login.
 
     Most applications use ``claude_agent_session_flow`` instead of
     constructing the runner directly.
@@ -243,7 +243,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     Worker's environment sets it. The value is the effective
     ``CLAUDE_CONFIG_DIR``, or ``""`` without one. The SDK resumes a session
     from a temporary ``CLAUDE_CONFIG_DIR``, and the variable keeps the CLI on
-    the login that the Claude Code subscription stored, such as the macOS
+    the login that Claude Code stored, such as the macOS
     Keychain entry. A turn
     attempt fails with ``ValueError`` when the factory sets ``can_use_tool``,
     ``permission_prompt_tool_name``, ``session_store``, ``resume``,

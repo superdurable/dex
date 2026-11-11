@@ -42,10 +42,13 @@ DEXCLI=/path/to/dexcli ./ci.sh
 
 The Worker needs Claude Code credentials, such as `ANTHROPIC_API_KEY`, exactly
 as a plain Claude Agent SDK program does.
+Per Anthropic's terms, products built on the Claude Agent SDK authenticate with
+an API key (`ANTHROPIC_API_KEY`); see the
+[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview).
 
 Every segment after the first resumes the Claude session from a temporary
-config directory that the Claude Agent SDK prepares. A Claude Code subscription
-login, such as one kept in the macOS Keychain, keeps working across turns. Claude
+config directory that the Claude Agent SDK prepares. A login that Claude Code stored,
+such as one in the macOS Keychain, keeps working across turns. Claude
 Code finds that login by `CLAUDE_SECURESTORAGE_CONFIG_DIR`, so the adapter sets
 it in the CLI environment to the effective `CLAUDE_CONFIG_DIR`, or to `""` when
 none is set. A resumed segment then uses the login of the first one. To choose
