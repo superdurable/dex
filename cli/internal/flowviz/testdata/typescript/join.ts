@@ -23,6 +23,15 @@ class RequestReviews implements Step<readonly string[]> {
   }
 
   execute(context: Context, reviewers: readonly string[]): StepDecision {
+    if (reviewers.length > 2) {
+      const branchBuilders = reviewers.map((reviewer) => (round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer, round}));
+      return goToMany(...reviewCompleted.fork(context, branchBuilders, (round) => StepMovement.of(CollectReviews, round)));
+    }
+    if (reviewers.length > 1) {
+      const pairBuilders = [(round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer: "lead", round})];
+      pairBuilders.push((round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer: "backup", round}));
+      return goToMany(...reviewCompleted.fork(context, pairBuilders, (round) => StepMovement.of(CollectReviews, round)));
+    }
     if (reviewers.length > 0) {
       return goToMany(...reviewCompleted.fork(
         context,

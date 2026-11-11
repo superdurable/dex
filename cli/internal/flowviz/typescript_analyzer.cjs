@@ -680,19 +680,48 @@ class TypeScriptAnalyzer {
   // Join.fork and forkWithRoundKey take branch builders second and the join builder third.
   joinForkMovements(call) {
     const [, branchBuilders, joinBuilder] = call.arguments;
-    const movements = [];
-    const builders = this.unwrap(branchBuilders);
-    if (builders && this.ts.isArrayLiteralExpression(builders)) {
-      for (const builder of builders.elements) movements.push(...this.builderMovements(builder));
-    } else if (builders && this.ts.isCallExpression(builders)) {
-      const mapped = this.callbackMovements(builders);
-      if (!mapped.length) this.dynamicTarget("Join branch builders must build their movements directly in the handler",builders);
-      movements.push(...mapped);
-    } else if (builders) {
-      this.dynamicTarget("Join branch builders must build their movements directly in the handler",builders);
-    }
+    const movements = branchBuilders ? this.branchBuilderListMovements(call,branchBuilders) : [];
     if (joinBuilder) movements.push(...this.builderMovements(joinBuilder));
     return movements.map(movement => ({...movement,isJoinFork:true}));
+  }
+
+  branchBuilderListMovements(call,branchBuilders) {
+    const builders = this.unwrap(branchBuilders);
+    // A local list variable resolves to its initializer; pushes add more builders.
+    const list = builders && this.ts.isIdentifier(builders) ? this.localListInitializer(call,builders.text) : builders;
+    const movements = [];
+    if (list && this.ts.isArrayLiteralExpression(list)) {
+      for (const builder of list.elements) movements.push(...this.builderMovements(builder));
+      if (this.ts.isIdentifier(builders)) movements.push(...this.pushedBuilderMovements(call,builders.text));
+      return movements;
+    }
+    if (list && this.ts.isCallExpression(list)) movements.push(...this.callbackMovements(list));
+    if (!movements.length) this.dynamicTarget("Join branch builders must build their movements directly in the handler",branchBuilders);
+    return movements;
+  }
+
+  localListInitializer(call,listName) {
+    for (let scope = call.parent; scope && !this.ts.isFunctionLike(scope); scope = scope.parent) {
+      if (!this.ts.isBlock(scope)) continue;
+      for (const statement of scope.statements) {
+        if (statement.pos >= call.pos || !this.ts.isVariableStatement(statement)) continue;
+        const declaration = statement.declarationList.declarations.find(candidate => this.ts.isIdentifier(candidate.name) && candidate.name.text === listName);
+        if (declaration?.initializer) return this.unwrap(declaration.initializer);
+      }
+    }
+    return undefined;
+  }
+
+  pushedBuilderMovements(call,listName) {
+    const movements = [];
+    const handler = this.enclosingNonArrowFunction(call);
+    if (!handler?.body) return movements;
+    this.walk(handler.body,node => {
+      if (!this.ts.isCallExpression(node) || !this.ts.isPropertyAccessExpression(node.expression)) return;
+      if (node.expression.name.text !== "push" || !this.ts.isIdentifier(node.expression.expression) || node.expression.expression.text !== listName) return;
+      for (const builder of node.arguments) movements.push(...this.builderMovements(builder).map(movement => ({...movement,multiplicity:"×N"})));
+    });
+    return movements;
   }
 
   builderMovements(builder) {

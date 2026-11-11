@@ -9,9 +9,9 @@
     "name": "ReviewJoinFlow",
     "startStepId": "step:RequestReviews",
     "span": {
-      "startLine": 71,
+      "startLine": 80,
       "startColumn": 1,
-      "endLine": 83,
+      "endLine": 92,
       "endColumn": 2
     }
   },
@@ -25,20 +25,20 @@
       "span": {
         "startLine": 25,
         "startColumn": 3,
-        "endLine": 42,
+        "endLine": 51,
         "endColumn": 4
       }
     },
     {
-      "id": "decision:step:CollectReviews:67:12",
+      "id": "decision:step:CollectReviews:76:12",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:CollectReviews",
       "phase": "execute",
       "span": {
-        "startLine": 67,
+        "startLine": 76,
         "startColumn": 12,
-        "endLine": 67,
+        "endLine": 76,
         "endColumn": 75
       },
       "decision": {
@@ -46,16 +46,50 @@
       }
     },
     {
-      "id": "decision:step:RequestReviews:27:14",
+      "id": "decision:step:RequestReviews:28:14",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "reviewers.length \u003e 0",
+      "condition": "reviewers.length \u003e 2",
       "phase": "execute",
       "span": {
-        "startLine": 27,
+        "startLine": 28,
         "startColumn": 14,
-        "endLine": 31,
+        "endLine": 28,
+        "endColumn": 123
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:RequestReviews:33:14",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:RequestReviews",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 reviewers.length \u003e 1",
+      "phase": "execute",
+      "span": {
+        "startLine": 33,
+        "startColumn": 14,
+        "endLine": 33,
+        "endColumn": 121
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:RequestReviews:36:14",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:RequestReviews",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 reviewers.length \u003e 0",
+      "phase": "execute",
+      "span": {
+        "startLine": 36,
+        "startColumn": 14,
+        "endLine": 40,
         "endColumn": 9
       },
       "decision": {
@@ -63,16 +97,16 @@
       }
     },
     {
-      "id": "decision:step:RequestReviews:41:12",
+      "id": "decision:step:RequestReviews:50:12",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:RequestReviews",
-      "condition": "!(reviewers.length \u003e 0)",
+      "condition": "!(reviewers.length \u003e 2) \u0026\u0026 !(reviewers.length \u003e 1) \u0026\u0026 !(reviewers.length \u003e 0)",
       "phase": "execute",
       "span": {
-        "startLine": 41,
+        "startLine": 50,
         "startColumn": 12,
-        "endLine": 41,
+        "endLine": 50,
         "endColumn": 34
       },
       "decision": {
@@ -80,15 +114,15 @@
       }
     },
     {
-      "id": "decision:step:ReviewDocument:53:12",
+      "id": "decision:step:ReviewDocument:62:12",
       "kind": "decision",
       "name": "deadEnd",
       "parentId": "step:ReviewDocument",
       "phase": "execute",
       "span": {
-        "startLine": 53,
+        "startLine": 62,
         "startColumn": 12,
-        "endLine": 53,
+        "endLine": 62,
         "endColumn": 75
       },
       "decision": {
@@ -116,9 +150,9 @@
       "name": "CollectReviews",
       "phase": "execute",
       "span": {
-        "startLine": 77,
+        "startLine": 86,
         "startColumn": 86,
-        "endLine": 77,
+        "endLine": 86,
         "endColumn": 106
       },
       "metadata": {
@@ -132,9 +166,9 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 77,
+        "startLine": 86,
         "startColumn": 31,
-        "endLine": 77,
+        "endLine": 86,
         "endColumn": 51
       },
       "metadata": {
@@ -147,9 +181,9 @@
       "name": "ReviewDocument",
       "phase": "execute",
       "span": {
-        "startLine": 77,
+        "startLine": 86,
         "startColumn": 64,
-        "endLine": 77,
+        "endLine": 86,
         "endColumn": 84
       },
       "metadata": {
@@ -161,66 +195,133 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:27:14",
+      "from": "decision:step:RequestReviews:28:14",
       "to": "step:CollectReviews",
       "label": "fan-out",
       "span": {
-        "startLine": 30,
-        "startColumn": 20,
-        "endLine": 30,
-        "endColumn": 58
+        "startLine": 28,
+        "startColumn": 83,
+        "endLine": 28,
+        "endColumn": 121
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:27:14",
+      "from": "decision:step:RequestReviews:28:14",
       "to": "step:ReviewDocument",
       "label": "fan-out",
       "multiplicity": "×N",
       "span": {
-        "startLine": 29,
-        "startColumn": 59,
-        "endLine": 29,
-        "endColumn": 109
+        "startLine": 27,
+        "startColumn": 80,
+        "endLine": 27,
+        "endColumn": 130
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:41:12",
+      "from": "decision:step:RequestReviews:33:14",
       "to": "step:CollectReviews",
       "label": "fan-out",
       "span": {
-        "startLine": 39,
-        "startColumn": 18,
-        "endLine": 39,
-        "endColumn": 56
+        "startLine": 33,
+        "startColumn": 81,
+        "endLine": 33,
+        "endColumn": 119
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:41:12",
+      "from": "decision:step:RequestReviews:33:14",
       "to": "step:ReviewDocument",
       "label": "fan-out",
       "span": {
-        "startLine": 36,
-        "startColumn": 20,
-        "endLine": 36,
-        "endColumn": 79
+        "startLine": 31,
+        "startColumn": 51,
+        "endLine": 31,
+        "endColumn": 109
       }
     },
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:RequestReviews:41:12",
+      "from": "decision:step:RequestReviews:33:14",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 32,
+        "startColumn": 47,
+        "endLine": 32,
+        "endColumn": 107
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:36:14",
+      "to": "step:CollectReviews",
+      "label": "fan-out",
+      "span": {
+        "startLine": 39,
+        "startColumn": 20,
+        "endLine": 39,
+        "endColumn": 58
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:36:14",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 38,
+        "startColumn": 59,
+        "endLine": 38,
+        "endColumn": 109
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:50:12",
+      "to": "step:CollectReviews",
+      "label": "fan-out",
+      "span": {
+        "startLine": 48,
+        "startColumn": 18,
+        "endLine": 48,
+        "endColumn": 56
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:50:12",
       "to": "step:ReviewDocument",
       "label": "fan-out",
       "span": {
-        "startLine": 37,
+        "startLine": 45,
         "startColumn": 20,
-        "endLine": 37,
+        "endLine": 45,
+        "endColumn": 79
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "transition",
+      "from": "decision:step:RequestReviews:50:12",
+      "to": "step:ReviewDocument",
+      "label": "fan-out",
+      "span": {
+        "startLine": 46,
+        "startColumn": 20,
+        "endLine": 46,
         "endColumn": 81
       }
     }
