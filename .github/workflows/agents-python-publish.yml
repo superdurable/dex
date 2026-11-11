@@ -91,8 +91,8 @@ jobs:
             echo "Invalid agents release version: ${version}" >&2
             exit 1
           fi
-          # Only CLI commands may be skipped: nothing else in the release depends on them.
-          read -r -a skip_packages <<< "${DISPATCH_SKIP_PACKAGES}"
+          # Only CLI commands, which nothing depends on, may be skipped; every input line is read.
+          read -r -d '' -a skip_packages <<< "${DISPATCH_SKIP_PACKAGES}" || true
           for skipped in "${skip_packages[@]}"; do
             if [[ "${skipped}" != dex-agents-*-cli || " ${AGENTS_PYTHON_DISTRIBUTIONS} " != *" ${skipped} "* ]]; then
               echo "skip_packages names ${skipped}, which is not a CLI command distribution" >&2
@@ -184,7 +184,7 @@ jobs:
             exit 1
           fi
       # The core publishes first so every adapter's dex-agents==<version> requirement resolves.
-      # Versions already on PyPI are skipped, so a rerun uploads only the rest.
+      # Files already on PyPI are skipped, so a rerun uploads only the rest.
       - name: Publish distributions with trusted publishing
         shell: bash
         env:
@@ -198,10 +198,18 @@ jobs:
               echo "::notice::Skipped ${distribution} ${RELEASE_VERSION}; publish it in a later run"
               continue
             fi
-            if curl --silent --fail --output /dev/null "https://pypi.org/pypi/${distribution}/${RELEASE_VERSION}/json"; then
-              echo "${distribution} ${RELEASE_VERSION} is already published"
-              continue
+            # An unknown version or a failed lookup lists nothing; --check-url still skips identical files.
+            published_files="$(curl --silent --fail "https://pypi.org/pypi/${distribution}/${RELEASE_VERSION}/json" |
+              jq -r '.urls[].filename' || true)"
+            pending_files=()
+            for file in dist/"${distribution//-/_}"-[0-9]*; do
+              if grep -qxF "${file#dist/}" <<< "${published_files}"; then
+                echo "${file#dist/} is already on PyPI"
+              else
+                pending_files+=("${file}")
+              fi
+            done
+            if [[ "${#pending_files[@]}" -gt 0 ]]; then
+              uv publish --trusted-publishing always --check-url https://pypi.org/simple "${pending_files[@]}"
             fi
-            files=(dist/"${distribution//-/_}"-[0-9]*)
-            uv publish --trusted-publishing always --check-url https://pypi.org/simple "${files[@]}"
           done

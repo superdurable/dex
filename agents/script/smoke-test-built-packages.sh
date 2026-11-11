@@ -80,6 +80,22 @@ python_distribution_name() {
   esac
 }
 
+# Installs agents distributions, and the agents distributions they need, only from the built wheels.
+install_built_python() {
+  local venv="$1" constraints="$2"
+  shift 2
+  local requirements=()
+  while IFS= read -r requirement; do
+    requirements+=("$requirement")
+  done < <(run_python "$agents_dir/script/built_python_wheels.py" requirements "$dist_dir/python" "$@")
+  if [[ "${#requirements[@]}" -eq 0 ]]; then
+    echo "found no built wheels for $*" >&2
+    exit 1
+  fi
+  uv pip install --quiet --python "$venv" --constraint "$constraints" "${requirements[@]}"
+  "$venv/bin/python" "$agents_dir/script/built_python_wheels.py" check "$dist_dir/python"
+}
+
 smoke_test_python() {
   local release_version
   release_version="$(run_python -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' "$agents_dir/python/core/pyproject.toml")"
@@ -100,11 +116,9 @@ smoke_test_python() {
     uv export --quiet --project "$agents_dir/python/$package" --frozen --no-dev --all-extras --no-emit-project \
       --no-emit-package dex-agents --no-hashes --output-file "$project_dir/constraints.txt"
     # The core installs first, then the adapter resolves dex-agents==<version> from the built wheels.
-    uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
-      --constraint "$project_dir/constraints.txt" "dex-agents==$release_version"
+    install_built_python "$project_dir/.venv" "$project_dir/constraints.txt" dex-agents
     if [[ "$package" != "core" ]]; then
-      uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
-        --constraint "$project_dir/constraints.txt" "$distribution==$release_version"
+      install_built_python "$project_dir/.venv" "$project_dir/constraints.txt" "$distribution"
     fi
     (cd "$project_dir" && .venv/bin/python - "$distribution" "$(python_module_name "$package")" "$release_version" <<'PY'
 import importlib
@@ -136,11 +150,11 @@ PY
   local session_dir="$work_dir/python-pydantic-ai"
   cp -R "$agents_dir/python/pydantic-ai/tests" "$session_dir/tests"
   # The dev group names dex-agents[connectors] by its source path; install that extra from the built wheels instead.
-  uv pip install --quiet --python "$session_dir/.venv" --find-links "$dist_dir/python" \
-    --constraint "$session_dir/constraints.txt" "dex-agents[connectors]==$release_version"
+  install_built_python "$session_dir/.venv" "$session_dir/constraints.txt" "dex-agents[connectors]"
   uv export --quiet --project "$agents_dir/python/pydantic-ai" --frozen --only-group dev --no-hashes \
     --no-emit-package dex-agents --output-file "$session_dir/test-requirements.txt"
   uv pip install --quiet --python "$session_dir/.venv" --requirement "$session_dir/test-requirements.txt"
+  "$session_dir/.venv/bin/python" "$agents_dir/script/built_python_wheels.py" check "$dist_dir/python"
   (cd "$session_dir" && .venv/bin/python - <<'PY'
 import importlib
 from pathlib import Path
@@ -178,8 +192,7 @@ smoke_test_python_cli() {
     # Every agents package is a path dependency here, so the built wheels must provide them all.
     uv export --quiet --project "$(agents_package_dir python "$package")" --frozen --no-dev --all-extras \
       --no-emit-project --no-emit-local --no-hashes --output-file "$project_dir/constraints.txt"
-    uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
-      --constraint "$project_dir/constraints.txt" "$distribution==$release_version"
+    install_built_python "$project_dir/.venv" "$project_dir/constraints.txt" "$distribution"
     (cd "$project_dir" && .venv/bin/python - "$distribution" "$(python_module_name "$package")" <<'PY'
 import importlib
 import importlib.metadata
@@ -246,8 +259,7 @@ else:
     raise SystemExit("dex_agents.litellm imported without the litellm extra")
 PY
   )
-  uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
-    --constraint "$project_dir/constraints.txt" "dex-agents[litellm]==$release_version"
+  install_built_python "$project_dir/.venv" "$project_dir/constraints.txt" "dex-agents[litellm]"
   (cd "$project_dir" && .venv/bin/python -c 'import dex_agents.litellm; print("dex_agents.litellm imports with the litellm extra")')
 }
 
@@ -265,8 +277,7 @@ else:
     raise SystemExit("dex_agents.mcp imported without the mcp extra installed")
 PY
   )
-  uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
-    --constraint "$project_dir/constraints.txt" "dex-agents[mcp]==$release_version"
+  install_built_python "$project_dir/.venv" "$project_dir/constraints.txt" "dex-agents[mcp]"
   (cd "$project_dir" && .venv/bin/python -c \
     'import dex_agents.mcp; print("dex_agents.mcp exports", ", ".join(dex_agents.mcp.__all__))')
 }
@@ -274,8 +285,7 @@ PY
 # dex_agents.connectors imports with dex-agents[connectors], which installs the Connector SDK.
 smoke_test_python_connectors_extra() {
   local project_dir="$1" release_version="$2"
-  uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
-    --constraint "$project_dir/constraints.txt" "dex-agents[connectors]==$release_version"
+  install_built_python "$project_dir/.venv" "$project_dir/constraints.txt" "dex-agents[connectors]"
   (cd "$project_dir" && .venv/bin/python -c \
     'import dex_agents.connectors; print("dex_agents.connectors exports", ", ".join(dex_agents.connectors.__all__))')
 }

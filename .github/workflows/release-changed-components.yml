@@ -354,6 +354,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           AGENTS_VERSION: ${{ needs.plan.outputs.agents_version }}
+          AGENTS_TAG: ${{ needs.plan.outputs.agents_tag }}
           PUBLISHER_NAME: ${{ matrix.publisher.name }}
           PUBLISHER_WORKFLOW: ${{ matrix.publisher.workflow }}
           PYTHON_SKIP_PACKAGES: ${{ inputs.agents_python_skip_packages }}
@@ -363,9 +364,10 @@ jobs:
           if [[ "${PUBLISHER_WORKFLOW}" == "agents-python-publish.yml" && -n "${PYTHON_SKIP_PACKAGES}" ]]; then
             inputs+=(-f "skip_packages=${PYTHON_SKIP_PACKAGES}")
           fi
+          # On the new tag, the publishers build the released commit even if main moves on.
           gh workflow run "${PUBLISHER_WORKFLOW}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --ref main \
+            --ref "${AGENTS_TAG}" \
             "${inputs[@]}"
           for _ in {1..30}; do
             run_id="$({
@@ -373,7 +375,7 @@ jobs:
                 --repo "${GITHUB_REPOSITORY}" \
                 --workflow "${PUBLISHER_WORKFLOW}" \
                 --event workflow_dispatch \
-                --branch main \
+                --commit "${GITHUB_SHA}" \
                 --limit 20 \
                 --json databaseId,displayTitle
             } | jq -r --arg title "${title}" \

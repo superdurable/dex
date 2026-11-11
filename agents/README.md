@@ -161,8 +161,11 @@ uploads to PyPI and
 uploads to npm with provenance, both through trusted publishing. A prerelease
 version such as `0.2.0-rc.1` gets the npm dist-tag `next`. Running either
 workflow by hand stamps, builds, and smoke-tests without uploading unless
-`publish` is selected. **Release changed components** releases the family
-when `agents/**` changed and its `agents_version` input is set.
+`publish` is selected. A run that uploads starts from `main` or from the
+release tag `agents/v<version>` on `main`. **Release changed components**
+releases the family when `agents/**` changed and its `agents_version` input
+is set. It creates the tag, then runs both workflows on that tag, so they
+publish the released commit even if `main` has moved on.
 
 Both workflows stamp the release version first with
 [`script/stamp_agents_release_version.py`](script/stamp_agents_release_version.py).
@@ -198,22 +201,31 @@ CLI packages has seven new names: `dex-agents-cli` and six commands.
 The PyPI workflow's `skip_packages` input leaves CLI command distributions
 out of one upload. It accepts only command names, because nothing else in the
 release depends on a command. It always builds and smoke-tests all thirteen
-distributions. A later run skips every version PyPI already has. Do not
+distributions. A later run skips every file PyPI already has. Do not
 publish such a release by hand from the GitHub Releases page: the `release`
 event has no skip input and would upload all seven new names.
 
-1. Day 1: run **Release changed components** with `agents_version` set and
-   `agents_python_skip_packages` set to the last two commands, such as
-   `dex-agents-google-adk-cli dex-agents-builtin-cli`. It creates the
-   Release, publishes every npm package, and uploads every other PyPI
-   distribution.
+1. Day 1: run **Release changed components** from `main` with all three
+   inputs. `version` is its required shared version for the other changed
+   components, the next Dex release version, such as `1.45.0`.
+   `agents_version` is the agents version, such as `0.5.0`.
+   `agents_python_skip_packages` names the last two commands. It creates
+   the Release, publishes every npm package, and uploads every other PyPI
+   distribution:
+
+   ```bash
+   gh workflow run release-changed-components.yml --ref main \
+     -f version=1.45.0 -f agents_version=0.5.0 \
+     -f agents_python_skip_packages="dex-agents-google-adk-cli dex-agents-builtin-cli"
+   ```
+
 2. Day 2: run **Publish agents Python packages to PyPI** on the release tag,
    so it builds the released commit, with `publish` selected and
    `skip_packages` empty. It uploads the two skipped commands:
 
    ```bash
-   gh workflow run agents-python-publish.yml --ref agents/v<version> \
-     -f version=<version> -f publish=true
+   gh workflow run agents-python-publish.yml --ref agents/v0.5.0 \
+     -f version=0.5.0 -f publish=true
    ```
 
 Each new name needs its PyPI pending trusted publisher before the run that
