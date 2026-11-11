@@ -65,6 +65,7 @@ import {
   cancellingPartialJoinForMultipleInstancesFlow,
   designTimeMultipleInstancesFlow,
   dynamicPartialJoinForMultipleInstancesFlow,
+  ignoredInspections,
   isBidAdmissionClosed,
   multipleInstancesWithoutSynchronizationFlow,
   noPriorKnowledgeMultipleInstancesFlow,
@@ -74,6 +75,7 @@ import {
 import {
   blockingPartialJoinFlow,
   cancellingPartialJoinFlow,
+  ignoredQuotes,
   structuredPartialJoinFlow,
 } from "../../src/patterns/workflow-patterns/partial-joins.js";
 import {
@@ -319,7 +321,10 @@ test("WCP-9 Structured Discriminator fires on the first quote and resets for a s
     { round: 1, acceptedQuotes: ["A"] },
     { round: 2, acceptedQuotes: ["B"] },
   ]);
-  assert.deepEqual(outputsOf(completions, "ResetQuoteJoin"), [{ round: 2, ignoredQuotes: ["A", "C"] }]);
+  assert.deepEqual((await environment.client.getAttributes(flowId, ignoredQuotes))[0], {
+    round: 1,
+    ignoredQuotes: ["B", "C"],
+  });
 });
 
 test("WCP-30 Structured Partial Join fires after two of three quotes in each round", async () => {
@@ -344,7 +349,10 @@ test("WCP-30 Structured Partial Join fires after two of three quotes in each rou
     { round: 1, acceptedQuotes: ["A", "B"] },
     { round: 2, acceptedQuotes: ["A", "C"] },
   ]);
-  assert.deepEqual(outputsOf(completions, "ResetQuoteJoin"), [{ round: 2, ignoredQuotes: ["B"] }]);
+  assert.deepEqual((await environment.client.getAttributes(flowId, ignoredQuotes))[0], {
+    round: 1,
+    ignoredQuotes: ["C"],
+  });
 });
 
 async function releaseSupplierQuotes(flowId: string, ...suppliers: string[]): Promise<void> {
@@ -549,10 +557,10 @@ test("WCP-34 Static Partial Join for Multiple Instances fires after two of three
   for (const batch of approved) {
     assert.equal(new Set(batch.unitIndexes).size, 2);
   }
-  const reset = outputsOf(completions, "ResetInspectionJoin") as { round: number; unitIndexes: number[] }[];
-  assert.equal(reset.length, 1);
-  assert.equal(reset[0]!.round, 2);
-  assert.deepEqual([...approved[1]!.unitIndexes, ...reset[0]!.unitIndexes].sort(), [0, 1, 2]);
+  const reset = (await environment.client.getAttributes(flowId, ignoredInspections))[0]!;
+  assert.equal(reset.round, 1);
+  assert.equal(reset.unitIndexes.length, 1);
+  assert.deepEqual([...approved[0]!.unitIndexes, ...reset.unitIndexes].sort(), [0, 1, 2]);
 });
 
 test("WCP-35 Cancelling Partial Join for Multiple Instances stops the last inspection from running", async () => {
