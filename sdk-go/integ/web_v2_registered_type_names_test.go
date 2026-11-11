@@ -145,7 +145,7 @@ func TestDexWebV2ServesGoFlowsWithoutTypeOverrides(t *testing.T) {
 		status, err := web.getJSON("/api/v2/catalog", &catalog)
 		return err == nil && status == http.StatusOK && len(catalog.Flows) == len(flows)
 	}, dexWebV2ConvergenceTimeout, dexWebV2PollInterval, "Dex Web v2 catalog did not list both Flow Definition Graphs")
-	web.revision = catalog.DefinitionRevision
+	web.useCatalogRevisions(t)
 	catalogStartSteps := make(map[string]string, len(catalog.Flows))
 	for _, entry := range catalog.Flows {
 		require.NotNil(t, entry.Definition.Start, entry.FlowType)
@@ -325,6 +325,25 @@ func (web *dexWebV2Client) historyStepTypes(t *testing.T, flowID string) []strin
 
 func (web *dexWebV2Client) displayPath(flowType string, flowID string) string {
 	return "/api/v2/display?" + url.Values{"flowType": {flowType}, "flowId": {flowID}}.Encode()
+}
+
+// useCatalogRevisions sends every Flow type's revision; Dex Web checks the one each request is about.
+func (web *dexWebV2Client) useCatalogRevisions(t *testing.T) {
+	t.Helper()
+	var catalog struct {
+		Flows []struct {
+			DefinitionRevision string `json:"definitionRevision"`
+		} `json:"flows"`
+	}
+	status, err := web.getJSON("/api/v2/catalog", &catalog)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+	revisions := make([]string, 0, len(catalog.Flows))
+	for _, entry := range catalog.Flows {
+		require.NotEmpty(t, entry.DefinitionRevision)
+		revisions = append(revisions, entry.DefinitionRevision)
+	}
+	web.revision = strings.Join(revisions, ",")
 }
 
 func (web *dexWebV2Client) getJSON(path string, output any) (int, error) {
