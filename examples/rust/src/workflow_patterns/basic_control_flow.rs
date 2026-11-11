@@ -18,11 +18,11 @@
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
-    StepList, StepMovement, Wait,
+    Channel, Context, Flow, HandlerResult, Join, JoinRound, PersistenceSchema, Rpc, RpcList, Step,
+    StepDecision, StepList, StepMovement, Wait,
 };
 
-use super::{extend_trail, sorted};
+use super::{extend_trail, round_branch, sorted};
 
 /// Claims at or above this amount need a manual review.
 pub const MANUAL_REVIEW_CLAIM_AMOUNT: i64 = 1000;
@@ -87,17 +87,15 @@ impl Step for ShipOrder {
     }
 }
 
-static FULFILLMENT_BRANCH_COMPLETED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("fulfillmentBranchCompleted"));
+static FULFILLMENT_BRANCH_COMPLETED: LazyLock<Join<String>> =
+    LazyLock::new(|| Join::new("fulfillmentBranchCompleted"));
 static PAYMENT_APPROVED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("paymentApproved"));
 
 pub const APPROVE_PAYMENT: Rpc<(), ()> = Rpc::new("approve_payment");
 
-const FULFILLMENT_BRANCH_COUNT: usize = 2;
-
-/// WCP-2 Parallel Split and WCP-3 Synchronization: GoToMany starts both
-/// branches, and the join waits for one Channel message per branch.
+/// WCP-2 Parallel Split and WCP-3 Synchronization: a Join forks both
+/// branches, and the join waits for one result per branch.
 #[derive(Default)]
 pub struct ParallelSplitSynchronizationFlow {
     split_order: SplitOrder,
@@ -124,7 +122,7 @@ impl Flow for ParallelSplitSynchronizationFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&FULFILLMENT_BRANCH_COMPLETED)
+            .join(&FULFILLMENT_BRANCH_COMPLETED)
             .channel(&PAYMENT_APPROVED)
     }
 
@@ -139,12 +137,13 @@ struct SplitOrder;
 impl Step for SplitOrder {
     type Input = ();
 
-    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::go_to_many([
-            StepMovement::to(&PackItems, ()),
-            StepMovement::to(&ChargePayment, ()),
-            StepMovement::to(&SynchronizeFulfillment, ()),
-        ]))
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let movements = FULFILLMENT_BRANCH_COMPLETED.fork(
+            context,
+            vec![round_branch(PackItems), round_branch(ChargePayment)],
+            |round| StepMovement::to(&SynchronizeFulfillment, round),
+        )?;
+        Ok(StepDecision::go_to_many(movements))
     }
 }
 
@@ -152,11 +151,10 @@ impl Step for SplitOrder {
 pub struct PackItems;
 
 impl Step for PackItems {
-    type Input = ();
+    type Input = JoinRound;
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        FULFILLMENT_BRANCH_COMPLETED.publish(context, self.step_type().to_string())?;
-        Ok(StepDecision::dead_end())
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        FULFILLMENT_BRANCH_COMPLETED.end_branch(context, &round, self.step_type().to_string())
     }
 }
 
@@ -164,15 +162,14 @@ impl Step for PackItems {
 struct ChargePayment;
 
 impl Step for ChargePayment {
-    type Input = ();
+    type Input = JoinRound;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(PAYMENT_APPROVED.for_one()))
     }
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        FULFILLMENT_BRANCH_COMPLETED.publish(context, self.step_type().to_string())?;
-        Ok(StepDecision::dead_end())
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        FULFILLMENT_BRANCH_COMPLETED.end_branch(context, &round, self.step_type().to_string())
     }
 }
 
@@ -180,16 +177,16 @@ impl Step for ChargePayment {
 struct SynchronizeFulfillment;
 
 impl Step for SynchronizeFulfillment {
-    type Input = ();
+    type Input = JoinRound;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(
-            FULFILLMENT_BRANCH_COMPLETED.for_n(FULFILLMENT_BRANCH_COUNT),
+            FULFILLMENT_BRANCH_COMPLETED.for_all_branches(&round),
         ))
     }
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        let branches = FULFILLMENT_BRANCH_COMPLETED.condition_results(context)?;
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        let branches = FULFILLMENT_BRANCH_COMPLETED.branch_results(context, &round)?;
         Ok(StepDecision::graceful_complete(sorted(branches)))
     }
 }

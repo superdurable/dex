@@ -87,7 +87,7 @@ remain split so their orchestration boundaries are visible.
 | Manual recovery | [`ManualRecoveryFlow`](src/patterns/intervention/flow.rs) | Exhausted retry recovery and manual Channel decision |
 | Static parallel Steps | [`StaticParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A fixed set of concurrent Step types |
 | Dynamic parallel Steps | [`DynamicParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A runtime-sized set of one Step type |
-| Await parallel Steps | [`AwaitParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | Wait for every worker's Channel message |
+| Await parallel Steps | [`AwaitParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | Join every worker's result |
 | First-win parallel Steps | [`FirstWinParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | Keep the first result and cancel siblings |
 | Basic SubFlow fan-out | [`BasicParentFlow`](src/patterns/parallel_subflows/flow.rs) | Wait for half of the SubFlows and cancel the remaining IDs |
 | Long-lived SubFlow parent | [`AdvancedLongLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Bounded workers, request Channel, stop Attribute, and SubFlow loop |
