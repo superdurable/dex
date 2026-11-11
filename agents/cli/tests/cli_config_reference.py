@@ -38,6 +38,7 @@ SESSION_SETTINGS_VALIDATOR = Draft202012Validator(SESSION_SETTINGS_SCHEMA)
 DEFAULT_DEX_SERVER = "auto"
 DEFAULT_CONNECTORS_MCP = "auto"
 DEFAULT_WORKSPACE = "~/dex-agent-workspace"
+DEFAULT_MEDIA_STORE = "auto"
 MAX_PORT = 65535
 URL_PARTS = re.compile(r"https?://(?P<host>\[[^\]]*\]|[^:/]+)(?::(?P<port>[0-9]+))?(?:/.*)?", re.S)
 
@@ -82,6 +83,10 @@ def resolve_config(
     connectors = config.get("connectors", {})
     raise_invalid_url(config.get("dex", {}).get("server", DEFAULT_DEX_SERVER), "/dex/server")
     raise_invalid_url(connectors.get("mcp", DEFAULT_CONNECTORS_MCP), "/connectors/mcp")
+    media = config.get("media", {})
+    endpoint = media.get("endpoint")
+    if endpoint is not None:
+        raise_invalid_url(endpoint, "/media/endpoint")
     enabled = connectors.get("enabled")
     entries = None if enabled is None else parse_connector_entries(enabled)
     model = config.get("model", harness_default_model)
@@ -109,6 +114,7 @@ def resolve_config(
             "web_fetch": local_tools.get("web_fetch", True),
             "browser": local_tools.get("browser", True),
         },
+        "media": {"store": media.get("store", DEFAULT_MEDIA_STORE), "endpoint": endpoint},
         "harness_options": copy.deepcopy(config.get(harness_section, {})),
     }
 
