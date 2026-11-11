@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import {
@@ -60,6 +61,8 @@ interface ScriptedModelReply {
  * process returns the same reply. User commands:
  * - `call <tool> [and <tool> ...]`: one response calls every listed tool that has no result yet,
  *   then the answer is `<tool> -> <result>` per tool, joined with ` | `.
+ * - `call <tools> then call <tools>`: like `call`, but a later response calls the tools after `then call`
+ *   once every earlier tool has a result.
  * - `call <tool> ... then fail`: like `call`, but the model call after the tool results throws.
  * - `call <tool> ... then pause`: like `call`, but the model call after the tool results first waits
  *   at the `turn` FileGate.
@@ -74,10 +77,16 @@ interface ScriptedModelReply {
  * - `slow stream`: like `slow`, after streaming partial text.
  * - anything else: the answer is `echo: <text>`.
  *
- * Every model call records the last user text in `model.log`, so tests count model calls.
+ * Every model call records the last user text in `model.log`, so tests count model calls. With
+ * `shouldRecordRequests`, it also records `<call> input <sha256>` of its whole input in `model-requests.log`,
+ * then `<call> image <owner> <image>` per `input_image` part, where `<call>` counts the log's calls from 1 and the
+ * owner is `user` or the tool call ID.
  */
 export class ScriptedOpenAIModel implements Model {
-  public constructor(private readonly markerDirectory: string) {}
+  public constructor(
+    private readonly markerDirectory: string,
+    private readonly shouldRecordRequests = false,
+  ) {}
 
   public async getResponse(request: ModelRequest): Promise<ModelResponse> {
     this.recordModelCall(request);
@@ -117,7 +126,11 @@ export class ScriptedOpenAIModel implements Model {
 
   private recordModelCall(request: ModelRequest): void {
     const input = typeof request.input === "string" ? [userItem(request.input)] : request.input;
-    new InvocationLog(join(this.markerDirectory, "model.log")).record(readText(input[findLastUserIndex(input)]));
+    const modelLog = new InvocationLog(join(this.markerDirectory, "model.log"));
+    modelLog.record(readText(input[findLastUserIndex(input)]));
+    if (this.shouldRecordRequests) {
+      recordRequest(new InvocationLog(join(this.markerDirectory, "model-requests.log")), modelLog.names().length, input);
+    }
   }
 
   private async waitAtTurnGate(reply: ScriptedModelReply, signal: AbortSignal | undefined): Promise<void> {
@@ -173,7 +186,11 @@ function decideScriptedReply(request: ModelRequest): ScriptedModelReply {
     command = command.slice("handoff ".length);
   }
   if (command.startsWith("call ")) {
-    const toolNames = command.slice("call ".length).split(" and ").map((toolName) => toolName.trim());
+    const rounds = command
+      .slice("call ".length)
+      .split(" then call ")
+      .map((round) => round.split(" and ").map((toolName) => toolName.trim()));
+    const toolNames = rounds.flat();
     const results = new Map(
       turnItems.flatMap((item) =>
         item.type === "function_call_result"
@@ -181,7 +198,8 @@ function decideScriptedReply(request: ModelRequest): ScriptedModelReply {
           : [],
       ),
     );
-    const missingToolNames = toolNames.filter((toolName) => !results.has(toolName));
+    const missingRound = rounds.find((round) => round.some((toolName) => !results.has(toolName))) ?? [];
+    const missingToolNames = missingRound.filter((toolName) => !results.has(toolName));
     if (missingToolNames.length > 0 || shouldReuseAfterTools) {
       return toolCallsReply(
         (shouldReuseAfterTools && missingToolNames.length === 0 ? toolNames : missingToolNames).map((toolName) => ({
@@ -304,8 +322,32 @@ function readFunctionCallOutput(output: unknown): string {
   if (typeof output === "string") {
     return output;
   }
+  if (Array.isArray(output)) {
+    // Image parts carry their bytes, which must never reach an answer the session stores.
+    return output
+      .map((part: { type?: unknown; text?: unknown }) =>
+        part.type === "input_text" && typeof part.text === "string" ? part.text : "",
+      )
+      .join("");
+  }
   if (typeof output === "object" && output !== null && "text" in output && typeof output.text === "string") {
     return output.text;
   }
   return JSON.stringify(output);
+}
+
+function recordRequest(requestLog: InvocationLog, callNumber: number, input: readonly AgentInputItem[]): void {
+  const digest = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  requestLog.record(`${callNumber} input ${digest}`);
+  for (const item of input) {
+    const isUser = isUserMessage(item);
+    const parts: unknown = isUser ? (item as { content?: unknown }).content : (item as { output?: unknown }).output;
+    const owner = isUser ? "user" : String((item as { callId?: unknown }).callId);
+    for (const part of Array.isArray(parts) ? parts : []) {
+      const imagePart = part as { type?: unknown; image?: unknown };
+      if (imagePart.type === "input_image") {
+        requestLog.record(`${callNumber} image ${owner} ${String(imagePart.image)}`);
+      }
+    }
+  }
 }

@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from dex import CodecRegistry
 from dex.codec import Value, WireKind
+from mcp_types import CallToolResult
 
 from dex_agents import (
     MAX_IMAGE_BYTES,
@@ -44,6 +45,13 @@ from dex_agents import (
     validate_image_reference,
     validate_image_references,
 )
+from dex_agents.mcp._image_content import store_tool_result_images
+from dex_agents.mcp._tool_source import (
+    _outcome_from_tool_result,
+    _ToolCallFailed,
+    _ToolCallOutcomeUnknown,
+)
+from dex_agents.runner import ToolExecutionError
 from dex_agents.s3 import S3MediaStore
 
 IMAGES_FILE = Path(__file__).resolve().parents[3] / "conformance" / "images.json"
@@ -284,3 +292,37 @@ def test_collect_turn_images_takes_messages_then_records_each_image_once() -> No
     )
 
     assert collect_turn_images(turn) == [png, jpeg, gif, webp]
+
+
+@pytest.mark.parametrize("case", SUITE["mcp_image_content"]["cases"], ids=lambda case: case["name"])
+async def test_mcp_image_content_becomes_references_with_the_shared_text(
+    case: dict[str, Any],
+) -> None:
+    store = InMemoryMediaStore("mcp-conformance")
+    result = CallToolResult.model_validate({"content": case["content"]})
+    tool_name = SUITE["mcp_image_content"]["tool_name"]
+    if "expected_error" in case:
+        with pytest.raises(ToolExecutionError) as raised:
+            await store_tool_result_images(result, store, tool_name)
+        assert str(raised.value) == case["expected_error"]
+        return
+    converted = await store_tool_result_images(result, store, tool_name)
+    assert converted.output == case["expected"]["output"]
+    assert [
+        {"sha256": image.sha256, "mime_type": image.mime_type, "size_bytes": image.size_bytes}
+        for image in converted.images
+    ] == case["expected"]["images"]
+    known_bytes = {known["sha256"]: image_bytes(known) for known in SUITE["images"]}
+    for image in converted.images:
+        assert await store.get_image(image) == known_bytes[image.sha256]
+
+
+@pytest.mark.parametrize(
+    "case", SUITE["mcp_image_content"]["failure_cases"], ids=lambda case: case["name"]
+)
+def test_a_failed_mcp_result_with_images_records_no_image_bytes(case: dict[str, Any]) -> None:
+    outcome = _outcome_from_tool_result(CallToolResult.model_validate(case["result"]))
+
+    kinds = {_ToolCallFailed: "failed", _ToolCallOutcomeUnknown: "outcome_unknown"}
+    assert isinstance(outcome, _ToolCallFailed | _ToolCallOutcomeUnknown)
+    assert {"kind": kinds[type(outcome)], "message": outcome.message} == case["expected"]

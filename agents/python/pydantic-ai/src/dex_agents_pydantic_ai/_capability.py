@@ -33,7 +33,8 @@ from pydantic_ai.capabilities import AbstractCapability, CapabilityOrdering
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool, WrapperToolset
 
-from dex_agents import AgentTurnContext, ModelCallMetadata, ToolEffect, ToolPolicy
+from dex_agents import AgentTurnContext, MediaStore, ModelCallMetadata, ToolEffect, ToolPolicy
+from dex_agents_pydantic_ai._images import inline_image_bytes
 
 TOOL_SEARCH_TOOL_KIND = "tool-search"
 
@@ -68,6 +69,7 @@ class DexModelStepCapability(AbstractCapability[Any]):
     turn: AgentTurnContext
     # Source tools offered only to replay recorded calls; their refusal body runs in the run.
     replay_only_tool_names: frozenset[str] = frozenset()
+    media_store: MediaStore | None = None
     tool_definitions: dict[str, ToolDefinition] = field(default_factory=dict)
     recorded_model_calls: list[RecordedModelCall] = field(default_factory=list)
 
@@ -112,6 +114,17 @@ class DexModelStepCapability(AbstractCapability[Any]):
             if single_response is None or single_response.finish_reason is None
             else (single_response.finish_reason,),
         )
+
+    async def before_model_request(
+        self,
+        ctx: RunContext[Any],
+        request_context: ModelRequestContext,
+    ) -> ModelRequestContext:
+        messages = await inline_image_bytes(request_context.messages, self.media_store)
+        if messages is None:
+            return request_context
+        # Replacing the request's list leaves the run's history, and so stored state, unchanged.
+        return replace(request_context, messages=messages)
 
     async def after_model_request(
         self,

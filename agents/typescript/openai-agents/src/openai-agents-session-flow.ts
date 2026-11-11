@@ -11,6 +11,7 @@ import {
   createAgentSessionFlow,
   type AgentSessionFlow,
   type AgentSessionOptions,
+  type MediaStore,
   type ToolPolicy,
   type ToolSource,
 } from "@superdurable/dex-agents";
@@ -109,6 +110,31 @@ export interface OpenAIAgentsSessionOptions<TContext = undefined> extends AgentS
    * @since 0.4.0
    */
   readonly toolSourceListingTimeoutMs?: number;
+  /**
+   * The store that holds the session's images, such as `S3MediaStore` from `@superdurable/dex-agents/s3` or
+   * `LocalDirectoryMediaStore` from `@superdurable/dex-agents`. Use the store that clients and tools upload to. Defaults to none.
+   *
+   * With a store, the runner has `buildUserMessageWithImages`, so `sendUserMessage` accepts images, and a tool result
+   * with images shows them to the model. The model sees a user message's images as `input_image` parts after its
+   * `input_text` part, and a tool result's images as `input_image` parts after the text of its
+   * `function_call_result` output. A function tool with an output schema keeps a text output. Stored items and the
+   * `RunState` keep each image's `uri`, never its bytes. Every model call reads the bytes from the store and sends
+   * each image as a `data:` URL, after `runConfig.callModelInputFilter`; a failed read fails the `RunModel`
+   * attempt, which retries. Without a store the session refuses user images, and the model reads only the text of a
+   * tool result with images.
+   *
+   * @example
+   * ```ts
+   * import { LocalDirectoryMediaStore } from "@superdurable/dex-agents";
+   *
+   * const mediaStore = new LocalDirectoryMediaStore("/var/lib/agent-media");
+   * const flow = createOpenAIAgentsSessionFlow(agent, "SupportAgent", { mediaStore });
+   * const reference = await mediaStore.putImage(screenshotPng);
+   * await sessions.sendUserMessage("session-42", "What does this screenshot show?", { images: [reference] });
+   * ```
+   * @since 0.5.0
+   */
+  readonly mediaStore?: MediaStore;
 }
 
 /**
@@ -217,6 +243,7 @@ export function createOpenAIAgentsSessionFlow<TContext = undefined>(
     summaryModel: options.summaryModel,
     toolSources: options.toolSources ?? [],
     toolSourceListingTimeoutMs: options.toolSourceListingTimeoutMs,
+    mediaStore: options.mediaStore,
   });
   return createAgentSessionFlow(runner, flowType, {
     ...(options.toolPolicies === undefined ? {} : { toolPolicies: options.toolPolicies }),

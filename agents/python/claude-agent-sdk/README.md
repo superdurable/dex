@@ -293,6 +293,57 @@ flow = claude_agent_session_flow(
   A new call of that tool is denied in the turn ("its tool source does not
   offer this tool now"), so it never starts a tool Step under a new Call ID.
 
+## Images
+
+Pass `media_store`, the store your clients upload to, and the session accepts
+user messages with images. Without it, `send_user_message` with images
+returns `False`, as before. See the core's
+[Images](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#images)
+section for references and stores.
+
+```python
+from dex_agents.s3 import S3MediaStore
+
+media = S3MediaStore("agent-media", "sessions")
+flow = claude_agent_session_flow(build_options, [lookup_order], flow_type="SupportAgent",
+                                 media_store=media)
+
+reference = await media.put_image(Path("chart.png").read_bytes())
+await sessions.send_user_message("session-42", "What does this chart show?", images=[reference])
+```
+
+- **User images.** The prompt sends the message text, then each image as a
+  Claude `image` block, `{"type": "image", "source": {"type": "base64",
+  "media_type": ..., "data": ...}}`, in reference order. The stored
+  `user_prompt` item adds `"images"`, the reference fields of each image.
+- **Tool result images.** A deferred call's `ToolExecutionResult.images`
+  reach the model inside its `tool_result`, as `image` blocks after the
+  output text: the custom tool server answers the resumed call with MCP
+  `image` content, which the CLI turns into Claude `image` blocks. No
+  separate message is added. A deferred custom tool's own MCP `image`
+  content is uploaded in its tool Step and recorded as `images`, so it
+  replays the same way. The stored tool result message's `images` are the
+  references the model saw.
+- **References in storage.** The CLI writes image bytes into its transcript.
+  Before an entry reaches Dex state, the runner replaces the `data` of each
+  base64 image `source` with `{"dex_image_reference": {<reference fields>}}`,
+  keeping every other key in place; this covers `framework_item`, the run
+  state of a suspended turn, and copies such as `toolUseResult`. An image
+  without a known reference, such as one an inline `read` tool returned, is
+  uploaded first. When the CLI resumes the session, the runner reads the
+  bytes back and restores each entry exactly, so the replayed model input is
+  the same on any Worker.
+- Only Claude `image` blocks are rewritten. Other base64 content, such as a
+  PDF `document` block, or a copy that a Claude Code tool keeps in a shape of
+  its own, such as `Read` of an image file, is stored as the CLI wrote it.
+- A store read failure fails the `RunModel` attempt, which retries. An image
+  the store refuses, or base64 that would not restore to the same text,
+  fails the attempt too, rather than storing bytes.
+- The CLI also writes each image to a local file and adds a
+  `[Image: source: <path>]` text after it. That text replays as stored.
+- A runner without a store fails a turn whose stored history holds image
+  references.
+
 ## How a turn runs
 
 1. `build_user_message` stores the prompt as
