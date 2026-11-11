@@ -1,0 +1,33 @@
+---
+title: Compared to Existing Durable Execution
+sidebar_label: Compared to Durable Execution
+slug: /intro/compared-to-durable-execution
+---
+
+# Compared to Existing Durable Execution
+
+Dex shares the goal of other durable execution tools: a process that survives crashes, restarts, and long waits. It reaches that goal without replaying your code.
+
+:::note Draft
+
+Each section below needs a term map and an example that an engineer checks against the current Dex semantics before it ships. The page shows a last checked date.
+
+:::
+
+## What they share
+
+## Replay-based workflow engines
+
+Traditional Durable Execution engines rebuild a workflow function's state by **replaying** its event history. Side effects must go in **activities**. Workflow code must be **deterministic**.
+
+Dex has no replayed workflow function. You declare Steps and the movements between them. Worker handlers are ordinary code. **Attribute** data lives in a **blob store**, not in an event history.
+
+## Journal-based durable function runtimes
+
+## Database-backed workflow libraries
+
+## Event-driven step function services
+
+## Agent framework checkpoints
+
+## When another tool is the better fit

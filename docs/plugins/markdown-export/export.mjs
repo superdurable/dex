@@ -270,6 +270,7 @@ async function expandJsx(node, context) {
   if (name === 'DocsFlowDefinitionGraph') return expandGraph(node, context);
   if (name === 'DexSkillHostTabs') return expandHostTabs(node, context);
   if (name === 'DocsSection') return expandDocsSection(node, context);
+  if (name === 'FrameworkTabs') return expandFrameworkTabs(node, context);
   if (name === 'img') {
     const image = {type: 'image', ...imageProperties(node, context)};
     return node.type === 'mdxJsxTextElement' ? [image] : [{type: 'paragraph', children: [image]}];
@@ -280,6 +281,24 @@ async function expandJsx(node, context) {
     children: await transformChildren(node.children, context)}];
   if (name === 'a') return expandAnchorElement(node, context);
   fail(context, node, `Unknown JSX component <${name}>`);
+}
+
+// Mirrors FrameworkTabs.tsx: each framework's content under a bold label, in tab order.
+const frameworkLabels = {
+  'built-in-agent-loop': 'Built-in loop', 'claude-agent-sdk': 'Claude Agent SDK',
+  'openai-agents-sdk': 'OpenAI Agents SDK', 'pydantic-ai': 'Pydantic AI',
+  'langchain-langgraph': 'LangChain and LangGraph', 'google-adk': 'Google ADK',
+  'vercel-ai-sdk': 'Vercel AI SDK', mastra: 'Mastra',
+};
+async function expandFrameworkTabs(node, context) {
+  const output = [];
+  for (const child of node.children.filter(child => child.type === 'mdxJsxFlowElement')) {
+    if (child.name !== 'FrameworkTab') fail(context, child, 'FrameworkTabs children must be FrameworkTab elements');
+    const framework = attribute(child, 'framework', context);
+    if (!Object.hasOwn(frameworkLabels, framework)) fail(context, child, `Unknown agent framework ${framework}`);
+    output.push(paragraph(frameworkLabels[framework], true), ...await transformChildren(child.children, context));
+  }
+  return output;
 }
 
 // Mirrors DocsSection.tsx: a linked section name followed by its description.

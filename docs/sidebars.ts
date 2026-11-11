@@ -20,7 +20,7 @@ const sidebars: SidebarsConfig = {
       label: 'Get Started',
       customProps: {section: 'intro'},
       link: {type: 'doc', id: 'intro/what-is-dex'},
-      items: ['quick-start/index', 'intro/compared-to-database'],
+      items: ['quick-start/index', 'intro/compared-to-database', 'intro/compared-to-durable-execution'],
     },
     {
       type: 'category',
@@ -39,23 +39,11 @@ const sidebars: SidebarsConfig = {
       label: 'Durable Agents',
       customProps: {section: 'agent-frameworks'},
       link: {type: 'doc', id: 'agent-frameworks'},
+      // Each framework is a tab on these pages, not a sidebar entry.
       items: [
-        {
-          type: 'category',
-          label: 'Frameworks',
-          // The Durable Agents rewrite replaces these pages with framework tabs.
-          collapsed: true,
-          items: [
-            'agent-frameworks/built-in-agent-loop',
-            'agent-frameworks/claude-agent-sdk',
-            'agent-frameworks/openai-agents-sdk',
-            'agent-frameworks/pydantic-ai',
-            'agent-frameworks/langchain-langgraph',
-            'agent-frameworks/google-adk',
-            'agent-frameworks/vercel-ai-sdk',
-            'agent-frameworks/mastra',
-          ],
-        },
+        'agent-frameworks/quick-start',
+        'agent-frameworks/how-sessions-work',
+        'agent-frameworks/any-other-framework',
         'use-cases/ai-agent',
       ],
     },
@@ -70,8 +58,8 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Primitives',
+          link: {type: 'doc', id: 'concepts/primitives/attribute'},
           items: [
-            'concepts/primitives/attribute',
             'concepts/primitives/rpc',
             'concepts/primitives/channel',
             'concepts/primitives/stream',
@@ -203,6 +191,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'use-cases/index'},
       items: [
         // The AI Agent page lives under Durable Agents; this link keeps it visible here too.
+        'use-cases/order-processing',
         {type: 'link', label: 'AI Agent', href: '/use-cases/ai-agent/'},
         'use-cases/subscription',
         'use-cases/user-onboarding-process',
@@ -220,6 +209,8 @@ const sidebars: SidebarsConfig = {
       customProps: {section: 'components'},
       link: {type: 'doc', id: 'components/index'},
       items: [
+        'components/run-locally',
+        'components/add-dex-to-your-app',
         'components/application',
         'components/server',
         'components/cli',

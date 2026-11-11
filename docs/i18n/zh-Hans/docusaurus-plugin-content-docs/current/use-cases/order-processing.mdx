@@ -1,30 +1,17 @@
 ---
-id: index
-title: Quick Start
-sidebar_label: Quick Start
-slug: /quick-start
+title: Order Processing
+sidebar_label: Order Processing
+slug: /use-cases/order-processing
 ---
 
-# Quick Start
+# Order Processing
 
-从头构建并运行 [为什么是 Dex？](/intro/what-is-dex) 里的 order-processing Flow。你会安装 Dex，注册 Worker 和 Client，用 HTTP controller 启动 Flow，批准发货，再在 Dex Web 里查看 Execution graph。
+从头构建并运行 [为什么是 Dex？](/intro/what-is-dex) 里的 order-processing Flow。你会启动 Dex，注册 Worker 和 Client，用 HTTP controller 启动 Flow，批准发货，再在 Dex Web 里查看 Execution graph。
 
-## 1. 安装 Dex
+## 1. 启动 Dex
 
-```bash
-brew install superdurable/tap/dexcli
-brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
-dexcli dev
-```
+按 [本地运行](/components/run-locally) 的说明，用 **dexcli dev** 启动本地 Dex，并保持运行。
 
-**dexcli dev** 会启动 **Dex Server**（server-zd）和 **Dex Web**。状态保存在本地磁盘上的 **RocksDB** 和内嵌的 **s3local** 对象存储中。默认端口空闲时，地址如下：
-
-| Service | Address |
-| --- | --- |
-| Dex Web | **http://127.0.0.1:8802** |
-| Dex Server | **127.0.0.1:8801** |
-
-在同一台机器上再开一个 **dexcli dev**，它会改用其他空闲端口和独立的状态目录。把它打印出的 **Dex Server** 地址传给 **--server**。flag 和持久化选项见 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。
 
 ## 2. Flow、Step 和 RPC
 

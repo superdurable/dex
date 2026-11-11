@@ -3234,5 +3234,69 @@
   {
     "from": "/zh-Hans/reference/server/0.1.19/workers/",
     "to": "/zh-Hans/reference/server/workers/"
+  },
+  {
+    "from": "/agent-frameworks/built-in-agent-loop",
+    "to": "/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/built-in-agent-loop",
+    "to": "/zh-Hans/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/agent-frameworks/claude-agent-sdk",
+    "to": "/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/claude-agent-sdk",
+    "to": "/zh-Hans/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/agent-frameworks/openai-agents-sdk",
+    "to": "/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/openai-agents-sdk",
+    "to": "/zh-Hans/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/agent-frameworks/pydantic-ai",
+    "to": "/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/pydantic-ai",
+    "to": "/zh-Hans/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/agent-frameworks/langchain-langgraph",
+    "to": "/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/langchain-langgraph",
+    "to": "/zh-Hans/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/agent-frameworks/google-adk",
+    "to": "/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/google-adk",
+    "to": "/zh-Hans/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/agent-frameworks/vercel-ai-sdk",
+    "to": "/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/vercel-ai-sdk",
+    "to": "/zh-Hans/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/agent-frameworks/mastra",
+    "to": "/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/mastra",
+    "to": "/zh-Hans/agent-frameworks/quick-start"
   }
 ]

@@ -1,0 +1,42 @@
+---
+title: Run Locally
+sidebar_label: Run Locally
+slug: /components/run-locally
+---
+
+# Run Locally
+
+**dexcli dev** runs a complete Dex on your machine: Dex Server and Dex Web. Use it to build and test Flows before you deploy.
+
+## Install dexcli
+
+```bash
+brew install superdurable/tap/dexcli
+brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
+```
+
+## Start Dex
+
+```bash
+dexcli dev
+```
+
+**dexcli dev** starts **Dex Server** (server-zd) and **Dex Web**. It stores state
+on local disk, in **RocksDB** and an embedded **s3local** object store. When the
+default ports are free, the addresses are:
+
+| Service | Address |
+| --- | --- |
+| Dex Web | **http://127.0.0.1:8802** |
+| Dex Server | **127.0.0.1:8801** |
+
+## Run a second Dex
+
+A second **dexcli dev** on the same machine picks other free ports and its own
+state directory. Pass the **Dex Server** address that it prints to **--server**.
+
+## Reference
+
+The [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)
+lists the flags and persistence options. The [CLI reference](/reference/cli)
+covers every command.

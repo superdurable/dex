@@ -15,6 +15,7 @@ import SdkTabs, {SdkSnippet} from '@site/src/components/SdkTabs';
 import ScreenshotPlaceholder from '@site/src/components/ScreenshotPlaceholder';
 import DocsFlowDefinitionGraph from '@site/src/components/DocsFlowDefinitionGraph';
 import DocsSection from '@site/src/components/DocsSection';
+import FrameworkTabs, {FrameworkTab} from '@site/src/components/FrameworkTabs';
 
 function DocTitleHeading(props: ComponentProps<'h1'>): ReactNode {
   const isDocTitle = useContext(DocMarkdownLinkScope);
@@ -35,4 +36,6 @@ export default {
   ScreenshotPlaceholder,
   DocsFlowDefinitionGraph,
   DocsSection,
+  FrameworkTabs,
+  FrameworkTab,
 };

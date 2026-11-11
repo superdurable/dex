@@ -7,7 +7,7 @@ sidebar_label: Crashes
 
 A crash repeats at most the one call that was running. This page lists what
 each failure repeats, and how a tool Step's failure decides the call's record.
-[Agent Frameworks](/agent-frameworks#tool-call-outcomes) explains the outcomes
+[Agent Frameworks](/agent-frameworks/how-sessions-work#tool-call-outcomes) explains the outcomes
 and how to reconcile **outcome_unknown**.
 
 ## Crash matrix {#worker-failures}
@@ -64,7 +64,7 @@ step down are covered at the server level: see the
 
 A single-attempt tool can still run twice in one narrow case: a cancelled
 attempt that keeps running. See
-[At-most-once has one exception](/agent-frameworks#tool-runs-twice). For
+[At-most-once has one exception](/agent-frameworks/how-sessions-work#tool-runs-twice). For
 deploys and the drain timeout, see
 [Graceful stop](/reference/agents/0.4.x/workers#graceful-stop).
 
@@ -89,7 +89,7 @@ Go.
 **outcome_unknown**. For example, the server crashed after it recorded the
 attempt start but before the task reached the Worker. Treat that outcome as
 unknown. To check it, see
-[Reconcile outcome_unknown](/agent-frameworks#reconcile-outcome-unknown).
+[Reconcile outcome_unknown](/agent-frameworks/how-sessions-work#reconcile-outcome-unknown).
 
 A tool Step that waits in the queue does not fail and uses no attempt. See
 [Keep tool Steps dispatchable](/reference/agents/0.4.x/workers#dispatchable).

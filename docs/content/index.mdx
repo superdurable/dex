@@ -10,33 +10,88 @@ Dex is a **Durable Execution** platform. A database stores your data. Dex also s
 
 You write the process as ordinary application code, with Flows, Steps, Attributes, Channels, RPCs, and Connectors.
 
+## Build with your coding agent
+
+Paste this into a coding agent that has [Dex Skills](/build-with-ai/dex-developer-skill):
+
+```text
+Build the Dex Quick Start app in this folder. Read
+https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
+```
+
+## New to Dex
+
 <div className="docs-home-sections">
-  <DocsSection section="intro" to="/intro/what-is-dex" title="Get Started">
-    Why Dex, your first Flow in the Quick Start, and how Dex compares to a database.
+  <DocsSection section="intro" to="/quick-start" title="Quick Start">
+    Run a Flow, stop its Worker, and watch Dex continue it. About 10 minutes.
   </DocsSection>
   <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Build with AI">
-    Install the Dex skills so a coding agent writes correct Dex code.
+    Install Dex Skills so a coding agent writes correct Dex code.
   </DocsSection>
-  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable Agents">
-    Run an AI agent as a durable session, with the built-in agent loop or your agent framework.
+  <DocsSection section="intro" to="/intro/what-is-dex" title="Why Dex">
+    The order process, from charge to ship or refund.
   </DocsSection>
   <DocsSection section="concepts" to="/concepts" title="Concepts">
-    Flow, Step, Attribute, RPC, Channel, Stream, Timer, SubFlow, Client, and Connector.
+    Flow, Step, and the six primitives.
+  </DocsSection>
+</div>
+
+## What you can build
+
+<div className="docs-home-sections">
+  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable agents">
+    Keep your agent framework. Tool calls run at most once, and approvals can wait for days.
+  </DocsSection>
+  <DocsSection section="product-examples" to="/use-cases" title="Business processes">
+    Orders, subscriptions, onboarding, and money transfer.
+  </DocsSection>
+  <DocsSection section="design-patterns" to="/design-patterns/durable-timer" title="Timers and schedules">
+    Reminders, deadlines, and cron.
+  </DocsSection>
+  <DocsSection section="product-examples" to="/use-cases/microservice-orchestration" title="Service orchestration">
+    Retries, compensation, and parallel calls across services.
+  </DocsSection>
+</div>
+
+## Compared to
+
+<div className="docs-home-sections">
+  <DocsSection section="intro" to="/intro/compared-to-database" title="A database and queues">
+    The same order process built both ways.
+  </DocsSection>
+  <DocsSection section="intro" to="/intro/compared-to-durable-execution" title="Existing durable execution">
+    How Dex differs from replay-based engines, and when to pick another tool.
+  </DocsSection>
+</div>
+
+## Run Dex
+
+<div className="docs-home-sections">
+  <DocsSection section="components" to="/components/run-locally" title="Run locally">
+    Start Dex Server and Dex Web on your machine with dexcli dev.
+  </DocsSection>
+  <DocsSection section="components" to="/components/add-dex-to-your-app" title="Add Dex to your app">
+    Run a Worker and a Client inside your service.
+  </DocsSection>
+  <DocsSection section="components" to="/components/server" title="Dex Server">
+    What the server stores and how it hands work to Workers.
+  </DocsSection>
+  <DocsSection section="components" to="/components/web" title="Dex Web">
+    Inspect and act on Flow runs.
+  </DocsSection>
+</div>
+
+## Reference
+
+<div className="docs-home-sections">
+  <DocsSection section="reference" to="/reference" title="Developer Reference">
+    Versioned details for every SDK, the server, the CLI, Web, and the agents packages.
   </DocsSection>
   <DocsSection section="design-patterns" to="/design-patterns" title="Design Patterns">
-    Reusable Flow shapes for parallel work, timers, failures, polling, and draining channels.
-  </DocsSection>
-  <DocsSection section="product-examples" to="/use-cases" title="Examples">
-    Complete processes such as an AI agent, subscriptions, and money transfer.
-  </DocsSection>
-  <DocsSection section="components" to="/components" title="Run Dex">
-    The Application, server, CLI, Web, and how they run together.
-  </DocsSection>
-  <DocsSection section="reference" to="/reference" title="Developer Reference">
-    Versioned details for every SDK, the server, the CLI, and Web.
+    Reusable Flow shapes for parallel work, timers, failures, and messaging.
   </DocsSection>
   <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
-    A machine-checked proof of what Dex can express, and its rating against the Workflow Patterns.
+    A machine-checked proof of what Dex can express.
   </DocsSection>
   <DocsSection section="glossary" to="/glossary" title="Glossary">
     Every Dex term in one place.

@@ -1,0 +1,37 @@
+---
+title: Run Locally
+sidebar_label: 本地运行
+slug: /components/run-locally
+---
+
+# 本地运行
+
+**dexcli dev** 在你的机器上运行一套完整的 Dex：Dex Server 和 Dex Web。部署之前，用它来构建和测试 Flow。
+
+## 安装 dexcli
+
+```bash
+brew install superdurable/tap/dexcli
+brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
+```
+
+## 启动 Dex
+
+```bash
+dexcli dev
+```
+
+**dexcli dev** 会启动 **Dex Server**（server-zd）和 **Dex Web**。状态保存在本地磁盘上的 **RocksDB** 和内嵌的 **s3local** 对象存储中。默认端口空闲时，地址如下：
+
+| Service | Address |
+| --- | --- |
+| Dex Web | **http://127.0.0.1:8802** |
+| Dex Server | **127.0.0.1:8801** |
+
+## 再运行一个 Dex
+
+在同一台机器上再开一个 **dexcli dev**，它会改用其他空闲端口和独立的状态目录。把它打印出的 **Dex Server** 地址传给 **--server**。
+
+## 参考
+
+flag 和持久化选项见 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。每个命令见英文的 [CLI reference](/reference/cli)。
