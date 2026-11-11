@@ -113,9 +113,9 @@ export function throwPiToolArgumentsFailure(context: ToolCallContext, error: unk
 }
 
 /** A plain error propagates unless the call's effect after policies is `read` or `idempotent_write`. */
-export function throwPiToolExecutionFailure(context: ToolCallContext, wrappedEffect: ToolEffect, error: unknown): never {
-  const effect: ToolEffect = context.effect ?? wrappedEffect;
-  const isRetrySafe = effect === "read" || effect === "idempotent_write";
+export function throwPiToolExecutionFailure(context: ToolCallContext, error: unknown): never {
+  // An absent effect is unknown, so the call may have written.
+  const isRetrySafe = context.effect === "read" || context.effect === "idempotent_write";
   if (!isRetrySafe && !(error instanceof ToolExecutionError)) {
     throw error;
   }

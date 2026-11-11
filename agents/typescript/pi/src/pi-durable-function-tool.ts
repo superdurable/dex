@@ -98,14 +98,15 @@ export interface PiDurableFunctionToolOptions {
  * sees the failure. Any other thrown error is handled by the call's effect, which is the effect after
  * `AgentDefinition.toolPolicies` when a policy overrides the wrapped one. For `read` and `idempotent_write` it
  * becomes a `ToolExecutionError` too. For `non_idempotent_write` and `unclassified` the tool may have changed
- * state, so the error propagates and the session records `outcome_unknown` without running the call again.
+ * state, so the error propagates and the session records `outcome_unknown` without running the call again. A
+ * context without an effect, such as one built by hand in a test, is handled like `unclassified`.
  *
  * Dex does not support the Harness parts of a `pi-durable` tool:
  * - Reading any property of `api`, such as `api.commit` or `api.executeTool`, throws an error that names it, which
  *   the rule above handles like any thrown error. A tool that uses `api` must be rewritten as a Pi `AgentTool` for `piAgentFunctionTool`, or as a Dex
  *   `functionTool`.
  * - A result with `control` fails the call with a `ToolExecutionError`. The tool's effect has already happened by
- *   then. Use the built-in agent loop's `decideTurnContinuation` hook to end a turn after tools.
+ *   then.
  * - `executionMode: "sequential"` throws here, because Dex runs the calls of one model response in parallel.
  *
  * @example
@@ -145,13 +146,12 @@ export function piDurableFunctionTool(tool: PiDurableToolLike, options: PiDurabl
     effect,
     requiresApproval: undefined,
     prepareArguments: tool.prepareArguments?.bind(tool),
-    execute: (args, context) => executePiDurableTool(tool, effect, args, context),
+    execute: (args, context) => executePiDurableTool(tool, args, context),
   });
 }
 
 async function executePiDurableTool(
   tool: PiDurableToolLike,
-  effect: ToolEffect,
   args: unknown,
   context: ToolCallContext,
 ): Promise<string> {
@@ -165,7 +165,7 @@ async function executePiDurableTool(
   try {
     result = await tool.execute(validatedArguments, createUnsupportedHarnessApi(tool.name), createToolContext(context));
   } catch (error) {
-    throwPiToolExecutionFailure(context, effect, error);
+    throwPiToolExecutionFailure(context, error);
   }
   if (result?.control !== undefined) {
     throw new ToolExecutionError(

@@ -127,12 +127,12 @@ export interface PiAgentFunctionToolOptions {
  *   when a policy overrides the wrapped one. For `read` and `idempotent_write` it becomes a `ToolExecutionError`
  *   too, as in Pi. For `non_idempotent_write` and `unclassified` the tool may have changed state, so the error
  *   propagates and the session records `outcome_unknown`, as for any `CallSingleAttemptTool`; the call never runs
- *   again. To report a definite failure from such a tool, return `isError: true` or throw `ToolExecutionError`.
+ *   again. A context without an effect, such as one built by hand in a test, is handled like `unclassified`. To
+ *   report a definite failure from such a tool, return `isError: true` or throw `ToolExecutionError`.
  * - An error thrown after Dex cancelled the attempt is rethrown unchanged.
  *
  * Dex runs the calls of one model response in parallel, so `executionMode: "sequential"` is not supported. Dex
- * ignores the result's `terminate` hint; the built-in agent loop's `decideTurnContinuation` hook ends a turn after
- * tools.
+ * ignores the result's `terminate` hint.
  *
  * Pass the idempotency key yourself when a tool writes: Pi tools do not receive Dex's `ToolCallContext`, so wrap
  * such a tool with `functionTool` instead when it needs `idempotencyKey`.
@@ -184,7 +184,7 @@ export function piAgentFunctionTool(tool: PiAgentToolLike, options: PiAgentFunct
     effect,
     requiresApproval: options.requiresApproval,
     prepareArguments: tool.prepareArguments?.bind(tool),
-    execute: (args, context) => executePiAgentTool(tool, effect, args, context),
+    execute: (args, context) => executePiAgentTool(tool, args, context),
   });
 }
 
@@ -206,7 +206,6 @@ function inferPiAgentToolEffect(tool: PiAgentToolLike, effect: ToolEffect | unde
 
 async function executePiAgentTool(
   tool: PiAgentToolLike,
-  effect: ToolEffect,
   args: unknown,
   context: ToolCallContext,
 ): Promise<string> {
@@ -222,7 +221,7 @@ async function executePiAgentTool(
       writePiToolProgress(context, tool.name, describePiToolContent(partialResult?.content)),
     );
   } catch (error) {
-    throwPiToolExecutionFailure(context, effect, error);
+    throwPiToolExecutionFailure(context, error);
   }
   const output = describePiToolContent(result?.content);
   if (result?.isError === true) {

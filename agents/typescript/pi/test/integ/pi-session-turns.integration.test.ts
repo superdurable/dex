@@ -13,11 +13,18 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 import type { Context } from "@earendil-works/pi-ai";
-import { outcomeUnknownToolResult, type AgentMessage } from "@superdurable/dex-agents";
+import {
+  ToolExecutionError,
+  outcomeUnknownToolResult,
+  type AgentEventWriter,
+  type AgentMessage,
+  type ToolEffect,
+} from "@superdurable/dex-agents";
 import {
   contextSummaryRequest,
   createBuiltinAgentSessionFlow,
   type ModelClient,
+  type ToolCallContext,
 } from "@superdurable/dex-agents/builtin-loop";
 import {
   AgentSessionTestClient,
@@ -30,7 +37,12 @@ import {
   readStepHistory,
 } from "@superdurable/dex-agents/testing";
 
-import { createPiAiModelClient, piAgentFunctionTool, piToolProgressEventType } from "../../src/index.js";
+import {
+  createPiAiModelClient,
+  piAgentFunctionTool,
+  piDurableFunctionTool,
+  piToolProgressEventType,
+} from "../../src/index.js";
 import { FakeModelServer, createFakeOpenAiModel } from "../fixtures/fake-model-server.js";
 import { createPiTestAgentFlow } from "../fixtures/pi-test-agent.js";
 
@@ -461,6 +473,39 @@ describe("Pi agents on the built-in agent loop session Flow with an in-process W
     );
     const runs = new InvocationLog(join(markerDirectory, "rename_customer.log")).names().filter((name) => name.includes(token));
     assert.deepEqual(runs, [`n-${token} ${convertedCallId}`]);
+  });
+
+  test("a hand-built context without an effect lets a plain error of a read-wrapped Pi tool propagate", async () => {
+    const plainError = new Error("backend offline");
+    const agentTool = piAgentFunctionTool(
+      {
+        name: "absent_effect_lookup",
+        description: "A lookup that fails.",
+        parameters: { type: "object", properties: {} },
+        execute: async () => {
+          throw plainError;
+        },
+      },
+      { effect: "read" },
+    );
+    const durableTool = piDurableFunctionTool(
+      {
+        name: "absent_effect_durable_lookup",
+        description: "A pi-durable lookup that fails.",
+        parameters: { type: "object", properties: {} },
+        execute: async () => {
+          throw plainError;
+        },
+      },
+      { effect: "read" },
+    );
+    for (const tool of [agentTool, durableTool]) {
+      await assert.rejects(tool.execute({}, createHandBuiltToolCallContext(undefined)), (error) => error === plainError);
+      await assert.rejects(
+        tool.execute({}, createHandBuiltToolCallContext("read")),
+        (error) => error instanceof ToolExecutionError && error.message === "backend offline",
+      );
+    }
   });
 
   test("a tool policy that raises a Pi tool to non_idempotent_write or unclassified records outcome_unknown for a plain error", async () => {
@@ -917,6 +962,24 @@ const storedItemModelClients = new Map<string, ModelClient>([
     }),
   ],
 ]);
+
+/** A context as a unit test builds it by hand; the runner always sets `effect`. */
+function createHandBuiltToolCallContext(effect: ToolEffect | undefined): ToolCallContext {
+  return {
+    flowId: "hand-built-flow",
+    turnId: "turn-1",
+    toolCallId: "call_hand_built",
+    idempotencyKey: "hand-built-flow/turn-1/call_hand_built",
+    attempt: 1,
+    ...(effect === undefined ? {} : { effect }),
+    events: { turnId: "turn-1", attempt: 1, writeEvent: () => undefined } as unknown as AgentEventWriter,
+    cancellationSignal: new AbortController().signal,
+    deadline: undefined,
+    inputAnswers: [],
+    inputContinuation: null,
+    heartbeat: async () => undefined,
+  };
+}
 
 function newToken(): string {
   return randomUUID().slice(0, 8);

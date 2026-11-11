@@ -239,7 +239,11 @@ their effect. A call runs `tool.execute(toolCallId, params, signal, onUpdate)`:
   so the error propagates: the session records `outcome_unknown`, as for any
   `CallSingleAttemptTool`, and the call never runs again. Return
   `isError: true` or throw `ToolExecutionError` to report a definite failure.
+  A `ToolCallContext` without an effect, such as one built by hand in a test,
+  is handled like `unclassified`.
 - An error thrown after Dex cancelled the attempt propagates unchanged.
+- The schema check runs before pi-ai's coercion, so arguments must already
+  have the schema's types: `{ "count": "42" }` fails a `number` property.
 
 ### `pi-durable` tools
 
@@ -268,17 +272,10 @@ effect comes from `effect`, or else from `replay`: `safe` gives
 | `afterToolCall` result changes | Change the result inside your tool |
 | `transformContext` (trimming, compaction) | The core's context compaction; `prepareRequest` for a change to one request |
 | `prepareRequest` | The `prepareRequest` option of `createPiAiModelClient` |
-| `finishTurn` returns `end`: end after the tools | The `decideTurnContinuation` hook returns `"end"` |
-| `finishTurn` returns `continue`: run again after an answer | The `decideTurnContinuation` hook returns `{ action: "continue", message }` |
+| `finishTurn` | No equivalent yet; the built-in agent loop decides when the turn ends |
 | `subscribe()` events | The `AgentEvents` Stream and the UI stream |
 | `abort()` | The session's `cancel_turn` |
 | `pi-durable` | Dex itself |
-
-The `decideTurnContinuation` hook belongs to the core's built-in agent loop
-`AgentDefinition`, not to this package. It returns `"end"` to end the turn,
-`"default"` to let the loop decide, or `{ action: "continue", message }` to
-call the model again. The `message` is stored as a user message of the turn
-and reaches the model with the next call.
 
 ## Moving from pi-durable
 
@@ -331,8 +328,8 @@ A compatibility layer for the `pi-durable` API is tracked in
 
 - `executionMode: "sequential"`: Dex runs the tool calls of one model response
   in parallel. Both wrappers throw a `TypeError` for such a tool.
-- `AgentToolResult.terminate`: Dex ignores it. End a turn after tools with the
-  built-in agent loop's `decideTurnContinuation` hook.
+- `AgentToolResult.terminate` and `finishTurn`: Dex ignores `terminate`, and
+  has no equivalent of `finishTurn` yet.
 - Forced tool choices: see the model client.
 - Bedrock retries inside one attempt: with pi-ai 1.5.1, the
   `bedrock-converse-stream` API ignores `maxRetries` and leaves retries to the
