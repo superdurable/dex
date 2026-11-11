@@ -21,12 +21,14 @@ import {
 import {
   describeToolCallOutcome,
   isFinalToolCallStatus,
+  resolveToolPolicy,
   toolEffectFromMcpToolAnnotations,
   type AgentToolCall,
   type AgentTurnContext,
   type DeferredToolCall,
   type ResolvedToolPolicy,
   type ToolEffect,
+  type ToolPolicy,
 } from "@superdurable/dex-agents";
 
 import type { ListedSourceTool } from "./claude-tool-sources.js";
@@ -57,6 +59,8 @@ const soloDeferralRequiredMessage = (toolName: string): string =>
 const subagentDeferralRefusedMessage = (toolName: string): string =>
   `${toolName} did not run. It must run outside this turn, which a subagent cannot do. Call it ` +
   "from the main conversation instead.";
+const failedPermissionCheckMessage = (toolName: string, error: unknown): string =>
+  `${toolName} did not run: its permission check failed: ${error instanceof Error ? error.message : String(error)}`;
 const unpermittedToolCallMessage = (toolName: string): string =>
   `${toolName} did not run: the session's tool policies do not permit this call.`;
 const orderedWriteDeferralMessage = (toolName: string): string =>
@@ -74,6 +78,61 @@ const repeatedReplayMessage = (toolName: string, toolUseId: string): string =>
   `${toolName} did not run: the recorded call ${toolUseId} was already resumed in this turn segment.`;
 
 /** Names and classifies every tool a Claude agent can call in one turn segment. */
+/**
+ * Refuses one call of a tool that runs inside the Claude Code CLI.
+ *
+ * Return it from a {@link ClaudeCodeToolPermission} to deny the call before it runs or waits for approval. The model
+ * sees the reason as the tool result, after Claude Code's `PreToolUse:<tool> hook error:` prefix.
+ *
+ * @example
+ * ```ts
+ * const permission: ClaudeCodeToolPermission = (turn, toolName, toolInput) =>
+ *   toolName === "Bash" && String(toolInput["command"]).startsWith("rm ")
+ *     ? new ClaudeCodeToolDenial("rm commands never run in this session")
+ *     : undefined;
+ * ```
+ * @since 0.5.0
+ */
+export class ClaudeCodeToolDenial {
+  /**
+   * Creates a denial.
+   *
+   * @param reason - Why the call did not run, such as `"shell commands are switched off for this session"`.
+   */
+  public constructor(public readonly reason: string) {}
+}
+
+/**
+ * Decides one call of a tool that runs inside the Claude Code CLI, from its input.
+ *
+ * The runner calls it in the PreToolUse hook for every new call of a Claude Code tool, such as `Bash`, `Read`, or an
+ * external MCP server's `mcp__<server>__<tool>`, with the `RunModel` context, the tool's CLI name, and the input the
+ * hook receives. Return a `ToolPolicy` for this call, a {@link ClaudeCodeToolDenial} to refuse it, or `undefined` to
+ * use the session's `toolPolicies` and `defaultToolEffect`. A policy without `requiresApproval` needs approval for
+ * `non_idempotent_write` and `unclassified`. A call whose policy needs approval defers and waits; otherwise it runs
+ * inside the turn at once. A thrown error denies the call. It is never asked about custom or source tools, or about
+ * a resumed call that already has a final record.
+ *
+ * @example
+ * ```ts
+ * const permission: ClaudeCodeToolPermission = (turn, toolName, toolInput) =>
+ *   toolName === "Bash" && toolInput["command"] === "git status"
+ *     ? { effect: "non_idempotent_write", requiresApproval: false }
+ *     : undefined;
+ * const runner = new ClaudeAgentRunner(buildOptions, { claudeCodeToolPermission: permission });
+ * ```
+ * @param turn - The `RunModel` context of the segment.
+ * @param toolName - The tool's Claude Code name, such as `Bash`.
+ * @param toolInput - The call's input as the hook receives it.
+ * @returns The call's policy, a denial, or `undefined` for the session's policies.
+ * @since 0.5.0
+ */
+export type ClaudeCodeToolPermission = (
+  turn: AgentTurnContext,
+  toolName: string,
+  toolInput: Readonly<Record<string, unknown>>,
+) => ToolPolicy | ClaudeCodeToolDenial | undefined;
+
 export class ToolCatalog {
   private readonly customToolPrefix: string;
   private readonly customToolsByName: ReadonlyMap<string, ClaudeCustomTool>;
@@ -213,6 +272,7 @@ export class ToolCallGate {
     private readonly turn: AgentTurnContext,
     private readonly toolCatalog: ToolCatalog,
     private readonly settledToolUseIds: ReadonlySet<string>,
+    private readonly claudeCodeToolPermission?: ClaudeCodeToolPermission,
   ) {}
 
   /** Returns the policy of a custom or CLI tool, or `undefined` for a source or replay-only tool. */
@@ -272,7 +332,19 @@ export class ToolCallGate {
       return preToolUseDecision("deny", unlistedSourceToolMessage(policyToolName));
     }
     const sourceTool = servedToolName === undefined ? undefined : this.toolCatalog.sourceTool(servedToolName);
-    const policy = this.resolvePolicy(cliToolName);
+    let policy: ResolvedToolPolicy | undefined;
+    if (servedToolName === undefined && this.claudeCodeToolPermission !== undefined) {
+      const decision = this.decideClaudeCodeToolPermission(this.claudeCodeToolPermission, cliToolName, toolInput);
+      if (decision instanceof ClaudeCodeToolDenial) {
+        return preToolUseDecision("deny", decision.reason);
+      }
+      policy =
+        decision === undefined
+          ? this.resolvePolicy(cliToolName)
+          : resolveToolPolicy(cliToolName, { [cliToolName]: decision }, decision.effect);
+    } else {
+      policy = this.resolvePolicy(cliToolName);
+    }
     if (!this.toolCatalog.requiresDeferral(policyToolName, policy)) {
       this.permitInlineToolCall(callId, policyToolName);
       return preToolUseDecision("allow");
@@ -294,6 +366,19 @@ export class ToolCallGate {
     this.deferredSourceTool = sourceTool;
     return preToolUseDecision("defer", "Dex runs this call in its own Step.");
   };
+
+  private decideClaudeCodeToolPermission(
+    permission: ClaudeCodeToolPermission,
+    cliToolName: string,
+    toolInput: Readonly<Record<string, unknown>>,
+  ): ToolPolicy | ClaudeCodeToolDenial | undefined {
+    try {
+      return permission(this.turn, cliToolName, toolInput);
+    } catch (error) {
+      // A hook error would not stop the CLI, so a failed check must deny the call.
+      return new ClaudeCodeToolDenial(failedPermissionCheckMessage(cliToolName, error));
+    }
+  }
 
   /**
    * Answers a permission request the CLI sends after the hook did not settle a call.

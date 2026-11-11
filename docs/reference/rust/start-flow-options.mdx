@@ -120,27 +120,34 @@ Dex applies them in this order:
    generates a new UUID, so each StartFlow call is a new request. Reuse a
    RequestID only to retry the exact same start. Dex compares only the
    RequestID, not the start input or options.
-2. **IDReusePolicy** decides whether that request may start another run with
-   this Flow ID.
-3. **AlreadyStartedOptions.IgnoreError** matters only when the ID reuse policy
-   rejects the start as already started. It returns the existing Run ID only
-   when the RequestID matches.
+2. If the latest run of this Flow ID was started with the same RequestID, the
+   call retries that start. The ID reuse policy does not apply, so a retry
+   never starts a second run or terminates the run it started.
+   **AlreadyStartedOptions.IgnoreError** chooses the result. On returns the
+   existing Run ID. Off returns an already-started error.
+3. Otherwise, **IDReusePolicy** decides whether the request may start another
+   run with this Flow ID. A rejected start returns an already-started error,
+   whether **IgnoreError** is on or off.
 
-| Retry request | **AlreadyStartedOptions.IgnoreError** | When the ID reuse policy rejects the start |
-|---------------|---------------------------------------|---------------------------------------------|
-| No **RequestID** | Off or on | The SDK sends a new UUID. Dex returns an already-started error. |
-| A different **RequestID** | Off or on | Dex returns an already-started error. |
-| Same **RequestID** | Off | Dex returns an already-started error. |
-| Same **RequestID** | On | Dex returns the existing Run ID. |
+| Retry request | **AlreadyStartedOptions.IgnoreError** | Result |
+|---------------|---------------------------------------|--------|
+| No **RequestID** | Off or on | The SDK sends a new UUID, so the ID reuse policy decides. A rejected start returns an already-started error. |
+| A different **RequestID** | Off or on | The ID reuse policy decides. A rejected start returns an already-started error. |
+| Same **RequestID** | Off | Dex returns an already-started error under every ID reuse policy. |
+| Same **RequestID** | On | Dex returns the existing Run ID under every ID reuse policy. |
 
-The ID reuse policy determines whether Dex rejects the start in the first place:
+Same **RequestID** means the RequestID that started the latest run of the Flow
+ID.
+
+For a request with a new RequestID, the ID reuse policy determines whether Dex
+rejects the start:
 
 | **IDReusePolicy** | Existing active Flow | Existing closed Flow |
 |-------------------|----------------------|----------------------|
-| **IDReuseDefault** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
-| **IDReuseAllowIfPreviousFailed** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run when the latest run failed, was canceled, or was terminated. A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy; under the handler policy, the handler's outcome decides. Rejects the start after a completed run. |
-| **IDReuseAllowIfNotRunning** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run. |
-| **IDReuseDisallow** | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
+| **IDReuseDefault** | Rejects the start. | Rejects the start. |
+| **IDReuseAllowIfPreviousFailed** | Rejects the start. | Starts a new run when the latest run failed, was canceled, or was terminated. A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy; under the handler policy, the handler's outcome decides. Rejects the start after a completed run. |
+| **IDReuseAllowIfNotRunning** | Rejects the start. | Starts a new run. |
+| **IDReuseDisallow** | Rejects the start. | Rejects the start. |
 | **IDReuseTerminateIfRunning** | Terminates the active run and starts a replacement. It does not produce an already-started error. | Starts a new run. |
 
 <a id="what-dex-server-does"></a>
@@ -149,15 +156,16 @@ The ID reuse policy determines whether Dex rejects the start in the first place:
 ### What Dex Server does {#start-request-server-behavior}
 
 Dex Server requires a non-empty **RequestID**; the SDK fills one in when you
-omit it. The server records the RequestID with the Flow run, then applies the
-ID reuse policy. **IDReuseDefault** uses the server default, which rejects
-every Flow ID used before. To start a new run on a closed Flow ID, choose
+omit it. The server records the RequestID with the Flow run.
+**IDReuseDefault** uses the server default, which rejects every Flow ID used
+before. To start a new run on a closed Flow ID, choose
 **IDReuseAllowIfNotRunning**.
 
-If the Flow is already started, Dex checks
-**AlreadyStartedOptions.IgnoreError**. When it is on, Dex reads the existing
-run's recorded RequestID. It returns that Run ID only when the two RequestIDs
-match. Otherwise it returns the already-started error.
+On each start, Dex first compares the RequestID with the one recorded on the
+latest run of the Flow ID. When they match, it returns that Run ID if
+**AlreadyStartedOptions.IgnoreError** is on, and the already-started error if
+it is off. It does not apply the ID reuse policy. When they differ, it applies
+the ID reuse policy and returns the already-started error for a rejected start.
 
 ## StartFlow best practices {#start-flow-best-practices}
 
@@ -168,9 +176,10 @@ owner, or initial Attributes you supplied.
 
 To retry one start safely, combine a stable **RequestID**,
 **IDReuseDisallow**, and the ignore-already-started option. Send the same
-input and options on every retry. **IDReuseDisallow** matters because it
-blocks a new run after the Flow closes. A policy that allows a new run would
-start one instead of returning the run that matches the RequestID.
+input and options on every retry. **IDReuseDisallow** matters because Dex
+matches a retry only against the latest run of the Flow ID. Under a policy that
+allows a new run, another request can start a newer run, and a later retry of
+the first start then counts as a new request.
 
 In the helper below, a validated integer input and a stable Flow ID are the
 only business inputs, so the RequestID is built from both. All other start

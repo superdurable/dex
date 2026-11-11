@@ -68,6 +68,7 @@ type invocationContext struct {
 	loadedChannelNames          map[string]struct{}
 	loadedChannelMapInstances   map[string]struct{}
 	outputFinalizers            []invocationOutputFinalizer
+	forkedJoinNames             map[string]struct{}
 }
 
 type invocationOutputFinalizer interface {
@@ -913,6 +914,23 @@ func decodeReflectValue(
 		return reflect.Value{}, err
 	}
 	return target.Elem(), nil
+}
+
+func (invocation *invocationContext) recordJoinFork(joinName string) error {
+	if err := invocation.requireActive(invocationExecute); err != nil {
+		return err
+	}
+	if _, found := invocation.forkedJoinNames[joinName]; found {
+		return fmt.Errorf(
+			"dex: Join %q was already forked in this invocation; use another Join or ForkWithRoundKey",
+			joinName,
+		)
+	}
+	if invocation.forkedJoinNames == nil {
+		invocation.forkedJoinNames = make(map[string]struct{})
+	}
+	invocation.forkedJoinNames[joinName] = struct{}{}
+	return nil
 }
 
 func (invocation *invocationContext) requireActive(

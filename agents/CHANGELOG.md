@@ -66,6 +66,22 @@ for the Dex SDK and framework versions each release supports.
   in the terminal with inline approvals and Ctrl-C to cancel a turn. Harness
   packages implement **AgentHarness**. See
   [cli/python/runtime](cli/python/runtime/README.md).
+- The **dex-agents-claude-sdk** command, in Python (`dex-agents-claude-sdk-cli`)
+  and TypeScript (`@superdurable/dex-agents-claude-sdk-cli`), not published
+  yet: a Claude Agent SDK agent in the terminal on the shared CLI runtime.
+  Claude Code's own Read, Grep, Glob, Write, Edit, Bash, and WebFetch tools
+  replace the runtime's file, shell, and web fetch tools, with the same rules:
+  each turn offers only the groups its session settings switch on, reads run at
+  once, writes and shell commands wait for approval unless the shell allow list
+  has the command, file tools stay in the workspace, and the tool Step checks an
+  approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
+  [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
+  (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
+  Claude Code CLI from its input. It returns a **ToolPolicy** for that call,
+  **ClaudeCodeToolDenial** to refuse it, or nothing for the session's policies,
+  so `Bash` can run allow-listed commands without approval. See
+  [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
 
 ### Images
 
@@ -84,6 +100,20 @@ for the Dex SDK and framework versions each release supports.
   `@superdurable/dex-agents/s3`, optional peer `@aws-sdk/client-s3`) keeps
   images in AWS S3 or an S3-compatible bucket, with credentials from the
   standard AWS chain. **InMemoryMediaStore** is for tests.
+- **LocalDirectoryMediaStore** (`dex_agents`; `@superdurable/dex-agents`)
+  keeps images in a local directory when every client and Worker runs on one
+  machine, such as a command-line tool in local mode. An image's file is
+  `<root>/sha256/<sha256>`, and its `uri` is `file://<root>/sha256/<sha256>`
+  with the absolute root percent-encoded, the same in every core. Writes go
+  through a temporary file and a rename, an existing file with the same bytes
+  is success, new directories and files get modes `0700` and `0600`, and
+  every put syncs the `sha256` directory, the root, and the root's parent
+  before it returns. It refuses symbolic links, special
+  files, and files with more than one hard link under the root, and checks the
+  SHA-256, size, and type on read. Python opens every path relative to an open
+  directory; TypeScript, without `openat`, checks the directory and the file
+  before and after each operation, which a same-user process that can write
+  the root can still race. It needs a POSIX file system.
 - PNG, JPEG, GIF, and WebP, detected from the bytes with a cheap structural
   check, up to **MAX_IMAGE_BYTES** (`maxImageBytes`, 3,750,000 bytes,
   5,000,000 bytes as base64) each, and at most **MAX_IMAGES_PER_MESSAGE**
@@ -156,6 +186,13 @@ for the Dex SDK and framework versions each release supports.
 
 ### Fixed
 
+- Python and TypeScript Claude Agent SDK adapters: the stored transcript no
+  longer keeps Claude Code's `last-prompt` entries. Such an entry names the
+  leaf a resume continues from, so after a deferred call a later segment could
+  resume at an earlier message: the model lost the previous answer, and a
+  resumed segment lost the turn's prompt and its tool call. Entries that 0.4.0
+  already stored, in messages or in a suspended turn's run state, are dropped
+  when the next segment reads them, so existing sessions recover too.
 - Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI
   returns an error result, the turn's error now reads "the Claude Code CLI
   returned an error result (subtype ...)". It used to read "reported success"

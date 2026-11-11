@@ -56,6 +56,7 @@ from dex_agents_claude_agent_sdk.custom_tool_server import build_custom_tool_ser
 from dex_agents_claude_agent_sdk.session_store import TurnSegmentSessionStore
 from dex_agents_claude_agent_sdk.tool_gate import (
     CLAUDE_CODE_BUILT_IN_TOOL_NAMES,
+    ClaudeCodeToolPermission,
     ToolCallGate,
     ToolCatalog,
 )
@@ -231,6 +232,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         custom_tool_server_name: str = DEFAULT_CUSTOM_TOOL_SERVER_NAME,
         tool_sources: Sequence[ToolSource] = (),
         tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+        claude_code_tool_permission: ClaudeCodeToolPermission | None = None,
     ) -> None:
         """Create a runner for one agent.
 
@@ -269,6 +271,17 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 seconds.
 
                 .. versionadded:: 0.4.0
+            claude_code_tool_permission: Decides each new call of a tool that
+                runs inside the Claude Code CLI from its input: a
+                ``ToolPolicy`` for that call, ``ClaudeCodeToolDenial`` to
+                refuse it, or ``None`` for the session's policies. Use it when
+                one tool needs different approval per call, such as ``Bash``
+                commands on an allow list, or must stay inside a directory.
+                The ``allowed_tools`` check keeps using the session's
+                policies. Defaults to none: every call uses the session's
+                policies.
+
+                .. versionadded:: 0.5.0
 
         Raises:
             ValueError: If the server name is not letters, digits, ``-``, and
@@ -286,6 +299,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 "custom_tool_server_name must be letters, digits, '-', and single underscores"
             )
         self._options_factory = options_factory
+        self._claude_code_tool_permission = claude_code_tool_permission
         self._tool_catalog = ToolCatalog(list(custom_tools), custom_tool_server_name)
         self._tool_sources = ToolSourceRouter(
             list(tool_sources),
@@ -367,7 +381,12 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 if self._tool_sources.is_source_call(record)
             },
         )
-        tool_call_gate = ToolCallGate(turn, tool_catalog, answered_tool_use_ids(stored_entries))
+        tool_call_gate = ToolCallGate(
+            turn,
+            tool_catalog,
+            answered_tool_use_ids(stored_entries),
+            self._claude_code_tool_permission,
+        )
         options = self._build_turn_options(
             turn, session_id, session_store, tool_catalog, tool_call_gate
         )

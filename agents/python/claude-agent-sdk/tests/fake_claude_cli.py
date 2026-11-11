@@ -280,6 +280,17 @@ class FakeTranscript:
             )
         return entry
 
+    def append_leaf_pointer(self) -> None:
+        """Write a ``last-prompt`` entry naming the current leaf, as the real CLI sometimes does."""
+        entry = {"type": "last-prompt", "leafUuid": self._last_uuid(), "sessionId": self.session_id}
+        with self.path.open("a") as transcript_file:
+            transcript_file.write(json.dumps(entry) + "\n")
+        self.entries.append(entry)
+        if self._has_session_mirror:
+            self._channel.emit(
+                {"type": "transcript_mirror", "filePath": str(self.path), "entries": [entry]}
+            )
+
     def pending_deferred_tool_use(self) -> ToolUse | None:
         for index in range(len(self.entries) - 1, -1, -1):
             attachment = self.entries[index].get("attachment")
@@ -925,6 +936,7 @@ class FakeClaudeCli:
             result["deferred_tool_use"] = deferred_tool_use
         if errors is not None:
             result["errors"] = errors
+        self._require_transcript().append_leaf_pointer()
         self._channel.emit(result)
 
     async def _answer_later_control_requests(self) -> None:

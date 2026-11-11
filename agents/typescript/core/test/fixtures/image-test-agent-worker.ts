@@ -8,8 +8,8 @@
 
 import { join } from "node:path";
 
+import { LocalDirectoryMediaStore } from "../../src/index.js";
 import { runAgentWorkerProcess } from "../../src/testing/index.js";
-import { DirectoryMediaStore } from "./directory-media-store.js";
 import {
   createImageTestAgentFlow,
   imageTestAgentStateDirectoryVariable,
@@ -21,5 +21,5 @@ if (stateDirectory === undefined || stateDirectory === "") {
   throw new Error(`${imageTestAgentStateDirectoryVariable} is not set`);
 }
 await runAgentWorkerProcess([
-  createImageTestAgentFlow(stateDirectory, new DirectoryMediaStore(join(stateDirectory, mediaDirectoryName))),
+  createImageTestAgentFlow(stateDirectory, new LocalDirectoryMediaStore(join(stateDirectory, mediaDirectoryName))),
 ]);

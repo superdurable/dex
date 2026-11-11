@@ -65,16 +65,17 @@ A completed seed followed by a suite-wide coverage assertion does not count as m
 
 | Isolated mutation | Seed | Current detector |
 | --- | --- | --- |
-| Apply `testdata/seeded-bugs/immediate-reclaim.patch`. | `1592590336` | `I1-window-value-reference`, command 207. |
-| Apply `testdata/seeded-bugs/retry-fresh-snapshot.patch`. | `1592590336`, `161503589` | `S5-retained-snapshot`, commands 35 and 254. |
-| Remove the history-rebuild return from `mark_attribute_sync_entries`. | `879068896` | `apply-error`: synced Attribute has no live value, command 265. |
-| Remove `\|\| scope.is_replay` from both request-deduplication guards in `command_handlers/client_writes.rs`. | `879068896` | `apply-error`: replayed command rejected, command 265. |
+| Apply `testdata/seeded-bugs/immediate-reclaim.patch` with `patch -p1`. | `1592590336` | `H4-segment-values`, command 333. |
+| Apply `testdata/seeded-bugs/retry-fresh-snapshot.patch`. | `1592590336`, `161503589` | `S5-retained-snapshot`, commands 44 and 26. |
+| Remove the history-rebuild return from `mark_attribute_sync_entries`. | none | No regression seed detects it; the deterministic test below does. |
+| Remove `\|\| scope.is_replay` from both request-deduplication guards in `command_handlers/client_writes.rs`. | `1592590341` | `apply-error`: replayed command rejected, command 500. |
 
 Seeds `161503589` and `4200525811` complete all 1,000 commands without detecting the
 Attribute Sync mutant after lock retention; they remain historical cases for that defect.
 Likewise, `476371529` (488 commands) and `476371563` (580 commands) complete without detecting
-the replay-deduplication mutant after the Worker fence merge. Seed `879068896` supplies active
-detection for both defects. No historical seed was removed.
+the replay-deduplication mutant after the Worker fence merge. Seed `879068896` supplied active
+detection for both defects until the same-request StartFlow change moved its trajectory; it is
+now a historical case for both. No historical seed was removed.
 
 The deterministic `dexzd-apply` tests
 `time_travel_replays_synced_references_after_their_values_are_collected` and
@@ -506,6 +507,41 @@ complete (#1457) moved no pin. No apply pin moved.
 | Engine seed | Previous digest | Pending-close publication digest |
 | --- | --- | --- |
 | `3856990760` | `0x153b7b678ce434545188c8476452f1f6` | `0xfb67f16a9fceb155788e9de4e4cc110e` |
+
+### Same-request StartFlow digest change
+
+A StartFlow retry with the request ID that started the latest run now returns that run, or
+ALREADY_EXISTS, before the ID reuse policy applies (#1551). Before, a reuse policy that allowed
+another run started one, and AllowTerminateIfRunning terminated the latest run. The apply
+model draws StartFlow request IDs from a pool of four, so the changed replies move every
+apply pin. No engine pin moved.
+
+| Apply seed | Previous digest | Same-request digest |
+| --- | --- | --- |
+| `1592590336` | `0x2eba20c9d0b009634b362b789f433d83` | `0xde71a5d00be995541e752e2277234f20` |
+| `476371529` | `0x1b4b85596d7f968dad528d63417a0ef2` | `0xfb5a1b5f3571c8e251d28d4a1647fe45` |
+| `161503589` | `0xaf251c8ea221c2a1f1973d9dfd983aff` | `0x89cfc020d33093e9f448d97a6e167d41` |
+| `879068896` | `0x8003a440f091ec3c6121d31006e39189` | `0x2d4fc0d1b8ec0b2732b6baff2d5d1687` |
+| `4200525811` | `0xe727fb405e0291d4c05d319de46cfff9` | `0xcc7816d6a6bf4e2ba15487c715b522e8` |
+| `10906685018` | `0x520bdc64da48af20c90cce59a6b8afd2` | `0xb95beccf7bc5b70317378e10d4b8622a` |
+| `2204788261` | `0x6722d637210293c209702c49a160f91a` | `0x6059c273d8270309e9698970a825c1e7` |
+| `476371563` | `0x0dc4e6e6bb6eabc28964d2f876421f80` | `0xb0f815948d3907a5ab60c5fecf729811` |
+| `1592590450` | `0x730a5b68a4c1d5da88fd1241c7facc78` | `0x7f192f3b6c035aea3631f9f6e3d6ea93` |
+| `1592590341` | not pinned | `0x559525ffdfb7b6ea24ef40a52d9edd20` |
+
+The mutations in the current detector table were rerun one at a time. The immediate-reclaim
+and retry-fresh-snapshot mutants ran on their table seeds and are still detected. The
+Attribute Sync and replay-deduplication mutants ran on all nine previous regression seeds with
+their pinned command counts. No regression seed detects the Attribute Sync or the
+replay-deduplication mutant any more. The deterministic test
+`time_travel_replays_synced_references_after_their_values_are_collected` still fails for the
+Attribute Sync mutant. No deterministic test fails for the replay-deduplication mutant, so the
+new regression line `1592590341 501` restores its randomized detection. The model-stamp
+revert for `2204788261` was not rerun.
+
+The time travel target simulation lost every history page that ended at the 4,096-byte response
+limit: in 64 seeds, one seed produced all six such pages. Its small response limit is now 1,024 bytes, which ends
+thousands of pages in the default budget at the same cost.
 
 ### Running
 

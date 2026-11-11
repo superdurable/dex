@@ -21,7 +21,7 @@ import {
   type ClaudeAgentQueryOptions,
   type ClaudeAgentRunnerOptions,
 } from "./claude-agent-runner.js";
-import type { ClaudeCustomTool } from "./claude-tool-call-gate.js";
+import type { ClaudeCodeToolPermission, ClaudeCustomTool } from "./claude-tool-call-gate.js";
 
 /** One Claude agent: its Claude Agent SDK options, custom tools, and tool policies. */
 export interface ClaudeAgentDefinition {
@@ -69,6 +69,12 @@ export interface ClaudeAgentDefinition {
    * @since 0.4.0
    */
   readonly toolSourceListingTimeoutMs?: number;
+  /**
+   * Decides each new call of a tool that runs inside the Claude Code CLI, such as `Bash`, from its input. See
+   * {@link ClaudeAgentRunnerOptions.claudeCodeToolPermission}. Defaults to none.
+   * @since 0.5.0
+   */
+  readonly claudeCodeToolPermission?: ClaudeCodeToolPermission;
 }
 
 /** Session options of {@link createClaudeAgentSessionFlow}; tool policies belong to the agent definition. */
@@ -151,6 +157,9 @@ export function createClaudeAgentSessionFlow(
     ...(agent.toolSourceListingTimeoutMs === undefined
       ? {}
       : { toolSourceListingTimeoutMs: agent.toolSourceListingTimeoutMs }),
+    ...(agent.claudeCodeToolPermission === undefined
+      ? {}
+      : { claudeCodeToolPermission: agent.claudeCodeToolPermission }),
   });
   return createAgentSessionFlow(runner, flowType, {
     ...sessionOptions,

@@ -27,6 +27,7 @@ mod flow_info;
 mod flow_result;
 mod flow_timeout_handler_options;
 mod handler_error;
+mod join;
 mod persistence;
 mod pull_registration;
 mod registry;
@@ -74,6 +75,7 @@ pub use flow_info::{FlowErrorType, FlowInfo, FlowStatus, SearchFlowEntry, Search
 pub use flow_result::{FlowResult, StepCompletion};
 pub use flow_timeout_handler_options::{FlowTimeoutHandlerFailure, FlowTimeoutHandlerOptions};
 pub use handler_error::{HandlerError, HandlerResult};
+pub use join::{Join, JoinRound};
 pub use persistence::PersistenceSchema;
 pub use pull_registration::{
     PullQueueRegistrationState, PullRegistrationError, PullRegistrationState,

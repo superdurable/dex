@@ -390,6 +390,8 @@ class Context(Protocol):
         definition: ChannelMap[object],
     ) -> tuple[str, ...]: ...
 
+    def _begin_join_fork(self, definition: ChannelMap[Any]) -> str: ...
+
     def _write_stream(
         self,
         definition: Stream[ValueT],

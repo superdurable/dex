@@ -913,6 +913,19 @@ Waiting results contribute no values. Duplicate results for the same concrete
 channel are intentionally concatenated. A malformed status, empty channel
 name, or undecodable value fails the invocation.
 
+`Join[T]` is a typed view over the `ChannelMap[T]` of the same name. It
+implements the sealed `ChannelDef` as a map, so registration, the duplicate-name
+check, and loads reuse the ChannelMap paths. `Fork` reads the Step execution ID
+as the round key and records the Join name in the invocation Context, so a
+second `Fork` of the same Join in one invocation fails deterministically.
+Branch reports publish to the round's instance. `Join.ChannelMap` returns that
+same-name `ChannelMap[T]` for reads and loads; applications never publish to it.
+Join conditions are `ForN`
+conditions on that instance; an invalid round or count is stored as the
+Condition error and rejects the Wait at serialization. `JoinRound` is the only
+new persisted shape: `{"roundKey": string, "branchCount": integer}` in Step
+inputs, additive only.
+
 RPC channel sizes start from `InvokeWorkerRPCRequest.channel_infos`. Missing
 entries read as zero. Each successful Publish earlier in the same RPC
 increments the matching concrete size, so `Size` observes invocation-local

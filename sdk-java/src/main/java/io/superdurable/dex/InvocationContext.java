@@ -78,6 +78,7 @@ final class InvocationContext implements Context {
             new ArrayList<ChannelMessageDeletion>();
     private final List<StepOutputFinalizer> stepOutputFinalizers =
             new ArrayList<StepOutputFinalizer>();
+    private final Set<String> forkedJoinNames = new HashSet<String>();
     private boolean stepOutputsFinalized;
 
     InvocationContext(
@@ -505,6 +506,15 @@ final class InvocationContext implements Context {
             final ChannelMap<T> channel,
             final String instance) {
         return channelResultsValue(channel, instance, channel.getValueType());
+    }
+
+    /**
+     * Records that this invocation forked the named Join.
+     *
+     * @return {@code true} on the first fork of the Join in this invocation, {@code false} after
+     */
+    boolean recordJoinFork(final String joinName) {
+        return forkedJoinNames.add(joinName);
     }
 
     List<AttributeWrite> getAttributeWrites() {
