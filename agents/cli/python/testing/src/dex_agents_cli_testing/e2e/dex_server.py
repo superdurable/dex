@@ -6,7 +6,7 @@
 #
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-"""The local dexcli dev: reuse or start it, read sessions, and list connector tools."""
+"""The dexcli dev of the e2e: a private or a named one; read sessions and list tools."""
 
 from __future__ import annotations
 
@@ -16,18 +16,23 @@ import contextlib
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-_READY_SECONDS = 120.0
+_READY_SECONDS = 180.0
+CONNECTIONS_SCHEMA_VERSION = "connectors.dex.dev/local-connections/v1alpha1"
+HACKER_NEWS_CONNECTOR_ID = "hacker-news-daily"
+HACKER_NEWS_MODULE_PATH = "github.com/superdurable/dex-connectors-library/connectors/hackernews/go"
 _DEXCLI_TIMEOUT_SECONDS = 60
 _STEP_EXECUTION_NUMBER = re.compile(r"-\d+$")
 
@@ -51,20 +56,71 @@ class ConnectorTool:
     input_schema: Mapping[str, Any]
 
 
+@dataclass(frozen=True)
+class HackerNewsConnectionSeed:
+    """A Hacker News connection written into a private dexcli dev's connector directory.
+
+    Attributes:
+        module_version: The Hacker News Connector release, such as ``v0.24.0``.
+        connection_name: The connection name.
+    """
+
+    module_version: str
+    connection_name: str = "public"
+
+    def connections_file(self) -> Mapping[str, Any]:
+        """Return a ``connections.json`` with only this connection, which needs no credentials."""
+        return {
+            "schemaVersion": CONNECTIONS_SCHEMA_VERSION,
+            "connections": [
+                {
+                    "connectorId": HACKER_NEWS_CONNECTOR_ID,
+                    "modulePath": HACKER_NEWS_MODULE_PATH,
+                    "moduleVersion": self.module_version,
+                    "provider": "hacker-news",
+                    "connectionName": self.connection_name,
+                    "configuration": {},
+                    "credentials": {},
+                }
+            ],
+        }
+
+
 @dataclass
 class DexServer:
-    """A dexcli dev on 127.0.0.1, reused when it answers, else started privately.
+    """The dexcli dev the e2e uses: a private one on free ports, or one named with --reuse-server.
+
+    A private server has its own home, zd data directory, and connector configuration
+    directory, so no session and no connector call reaches another server or account.
 
     Attributes:
         dexcli: The dexcli executable.
         dex_port: The Dex port.
         web_port: The Dex Web port.
+        is_private: Whether this object starts and stops the server.
     """
 
     dexcli: Path
     dex_port: int
     web_port: int
+    is_private: bool
     _process: subprocess.Popen[bytes] | None = None
+
+    @staticmethod
+    def private(dexcli: Path) -> DexServer:
+        """Plan a private server on two free ports."""
+        dex_port, web_port = _free_ports(2)
+        return DexServer(dexcli, dex_port, web_port, is_private=True)
+
+    @staticmethod
+    def reused(dexcli: Path, web_url: str, dex_port: int) -> DexServer:
+        """Name a running dexcli dev by its Dex Web URL on 127.0.0.1 and its Dex port."""
+        parsed = urllib.parse.urlsplit(web_url)
+        if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost"):
+            raise ValueError(f"--reuse-server must be an http URL on 127.0.0.1: {web_url}")
+        if parsed.port is None:
+            raise ValueError(f"--reuse-server needs a port: {web_url}")
+        return DexServer(dexcli, dex_port, parsed.port, is_private=False)
 
     @property
     def address(self) -> str:
@@ -91,15 +147,33 @@ class DexServer:
             return True
         return False
 
-    def ensure_running(self, work_dir: Path) -> str:
-        """Reuse a running dexcli dev, or start one with a private home; return what happened."""
-        if self.is_answering():
-            return f"reused the dexcli dev on {self.address} and {self.web_url}"
-        home = work_dir / "dexcli-home"
-        home.mkdir(parents=True, exist_ok=True)
+    def start(
+        self,
+        work_dir: Path,
+        seed: HackerNewsConnectionSeed | None,
+        connectors_mcp_binary: Path | None,
+    ) -> str:
+        """Start the private server, or check the reused one; return what happened.
+
+        ``connectors_mcp_binary`` replaces the Connectors MCP release dexcli dev downloads.
+        """
+        if not self.is_private:
+            if not self.is_answering():
+                raise RuntimeError(f"nothing answers on {self.web_url} and {self.address}")
+            return f"reused the dexcli dev on {self.address} and {self.web_url} (--reuse-server)"
+        server_dir = work_dir / "dexcli-dev"
+        shutil.rmtree(server_dir, ignore_errors=True)
+        home = server_dir / "home"
+        connector_dir = server_dir / "connectors"
+        zd_data_dir = server_dir / "zd"
+        home.mkdir(parents=True)
+        connector_dir.mkdir(mode=0o700)
+        if seed is not None:
+            connections_path = connector_dir / "connections.json"
+            connections_path.write_text(json.dumps(seed.connections_file(), indent=2) + "\n")
+            connections_path.chmod(0o600)
         log_path = work_dir / "logs" / "dexcli-dev.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        environment = {**os.environ, "HOME": str(home)}
         with log_path.open("ab") as log:
             self._process = subprocess.Popen(
                 [
@@ -110,8 +184,17 @@ class DexServer:
                     str(self.dex_port),
                     "-web-port",
                     str(self.web_port),
+                    "-zd-data-dir",
+                    str(zd_data_dir),
+                    "-connector-config-dir",
+                    str(connector_dir),
+                    *(
+                        ["-connectors-mcp-binary", str(connectors_mcp_binary)]
+                        if connectors_mcp_binary is not None
+                        else []
+                    ),
                 ],
-                env=environment,
+                env={**os.environ, "HOME": str(home)},
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
@@ -119,14 +202,17 @@ class DexServer:
         deadline = time.monotonic() + _READY_SECONDS
         while time.monotonic() < deadline:
             if self.is_answering():
-                return f"started a private dexcli dev (home {home}, log {log_path})"
+                return (
+                    f"started a private dexcli dev on {self.address} and {self.web_url} "
+                    f"(directory {server_dir}, log {log_path})"
+                )
             if self._process.poll() is not None:
                 break
             time.sleep(1)
         raise RuntimeError(f"dexcli dev did not become ready; see {log_path}")
 
     def stop_if_started(self) -> None:
-        """Stop the dexcli dev this object started; never one it reused."""
+        """Stop the dexcli dev this object started; never a reused one."""
         if self._process is not None and self._process.poll() is None:
             os.killpg(self._process.pid, signal.SIGTERM)
             try:
@@ -309,3 +395,14 @@ def _post_json_rpc(
         if line.startswith("data: "):
             return json.loads(line.removeprefix("data: ")), response_headers
     return json.loads(text), response_headers
+
+
+def _free_ports(count: int) -> list[int]:
+    sockets = [socket.socket() for _ in range(count)]
+    try:
+        for probe in sockets:
+            probe.bind(("127.0.0.1", 0))
+        return [int(probe.getsockname()[1]) for probe in sockets]
+    finally:
+        for probe in sockets:
+            probe.close()

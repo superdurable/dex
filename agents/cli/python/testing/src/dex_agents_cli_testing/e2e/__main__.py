@@ -20,7 +20,7 @@ from pathlib import Path
 
 from dex_agents_cli_testing.e2e.command_cases import COMMAND_CASES
 from dex_agents_cli_testing.e2e.command_suite import COMMAND_STEPS, run_command_suite
-from dex_agents_cli_testing.e2e.dex_server import DexServer
+from dex_agents_cli_testing.e2e.dex_server import DexServer, HackerNewsConnectionSeed
 from dex_agents_cli_testing.e2e.framework_suite import (
     FRAMEWORK_CASES,
     FRAMEWORK_STEPS,
@@ -30,6 +30,8 @@ from dex_agents_cli_testing.e2e.results import ResultTable
 from dex_agents_cli_testing.e2e.toolchain import PackageSource, Toolchain
 
 _SUPPORTED_NODE_MAJORS = ("22", "24")
+# A private dexcli dev downloads the Connectors MCP server and the Connector release first.
+_CONNECTOR_WAIT_SECONDS = 240.0
 _NODE_CANDIDATE_DIRS = ("/opt/homebrew/opt/node@24/bin", "/opt/homebrew/opt/node@22/bin")
 
 
@@ -48,16 +50,27 @@ def main(argv: list[str] | None = None) -> None:
         published_version=arguments.published_version,
     )
     only = set(arguments.only.split(",")) if arguments.only else None
-    server = DexServer(toolchain.dexcli, arguments.dex_port, arguments.web_port)
-    print(server.ensure_running(work_dir), flush=True)
+    server = (
+        DexServer.reused(toolchain.dexcli, arguments.reuse_server, arguments.reuse_dex_port)
+        if arguments.reuse_server
+        else DexServer.private(toolchain.dexcli)
+    )
+    seed = (
+        HackerNewsConnectionSeed(arguments.hacker_news_version)
+        if arguments.seed_hacker_news and server.is_private
+        else None
+    )
     print(f"source: {toolchain.source.value}; checkout {toolchain.checkout}; work dir {work_dir}")
     tables: list[ResultTable] = []
     try:
+        print(server.start(work_dir, seed, arguments.connectors_mcp_binary), flush=True)
         if arguments.suite in ("commands", "all"):
             table = ResultTable(f"Commands ({toolchain.source.value})", COMMAND_STEPS)
             tables.append(table)
             cases = [case for case in COMMAND_CASES if only is None or case.name in only]
-            run_command_suite(cases, toolchain, server, table)
+            run_command_suite(
+                cases, toolchain, server, table, _CONNECTOR_WAIT_SECONDS if seed else 15.0
+            )
         if arguments.suite in ("frameworks", "all"):
             table = ResultTable(f"Framework examples ({toolchain.source.value})", FRAMEWORK_STEPS)
             tables.append(table)
@@ -102,8 +115,31 @@ def _parser() -> argparse.ArgumentParser:
         help="builds, homes, transcripts, request logs, and the report",
     )
     parser.add_argument("--dexcli", type=Path, help="dexcli 1.45.0 or later")
-    parser.add_argument("--dex-port", type=int, default=8801)
-    parser.add_argument("--web-port", type=int, default=8802)
+    parser.add_argument(
+        "--reuse-server",
+        metavar="DEX_WEB_URL",
+        help="use this running dexcli dev, such as http://127.0.0.1:8802, not a private one; "
+        "its sessions and authorized connections are used",
+    )
+    parser.add_argument(
+        "--reuse-dex-port", type=int, default=8801, help="the Dex port of --reuse-server"
+    )
+    parser.add_argument(
+        "--seed-hacker-news",
+        action="store_true",
+        help="give the private dexcli dev a Hacker News connection for the connector step",
+    )
+    parser.add_argument(
+        "--connectors-mcp-binary",
+        type=Path,
+        default=Path(os.environ["DEX_CONNECTORS_MCP_BINARY"])
+        if os.environ.get("DEX_CONNECTORS_MCP_BINARY")
+        else None,
+        help="dex-connectors-mcp for the private dexcli dev (default DEX_CONNECTORS_MCP_BINARY)",
+    )
+    parser.add_argument(
+        "--hacker-news-version", default="v0.24.0", help="Hacker News Connector release to seed"
+    )
     parser.add_argument("--node-bin-dir", type=Path, help="Node.js 22 or 24 directory")
     parser.add_argument("--python", default="3.13", help="Python version of the environments")
     parser.add_argument("--only", help="comma-separated case names, such as py-openai-sdk")

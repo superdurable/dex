@@ -21,7 +21,8 @@ It serves, on one port of 127.0.0.1:
 Replies come from a scenario file (see ``model_scenario``) that reloads when
 it changes, and fall back to the ``say`` / ``call`` / ``recall`` script. Any
 model name is accepted. Every request is appended to a JSONL log, with
-credential headers reduced to their names.
+credential headers reduced to their names and query values and
+credential-like body keys redacted.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import json
 import signal
 import threading
 import time
+import urllib.parse
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,11 @@ from dex_agents_cli_testing.scripted_model import ScriptedConversation, Scripted
 
 READY_LINE_PREFIX = "Mock model API listening on "
 CREDENTIAL_HEADERS = ("authorization", "x-api-key", "x-goog-api-key", "api-key")
+CREDENTIAL_BODY_KEYS = frozenset(
+    ("api_key", "apikey", "key", "authorization", "token", "access_token", "password", "secret")
+)
+REDACTED = "<redacted>"
+_LOGGED_QUERY_PARAMETERS = frozenset(("alt", "beta"))
 _LOGGED_OUTPUT_CHARACTERS = 4000
 
 
@@ -59,7 +66,12 @@ class MockModelApi(ModelApiStub):
         self._log_lock = threading.Lock()
         self._choice = threading.local()
         self._apis: dict[str, ModelApiStub] = {
-            "responses": ResponsesApiStub(self._choose_reply),
+            "responses": ResponsesApiStub(
+                self._choose_reply,
+                None
+                if request_log_path is None
+                else request_log_path.with_name(request_log_path.name + ".responses-items"),
+            ),
             "chat_completions": ChatCompletionsApiStub(self._choose_reply),
             "messages": MessagesApiStub(self._choose_reply),
             "gemini": GeminiApiStub(self._choose_reply),
@@ -114,7 +126,7 @@ class MockModelApi(ModelApiStub):
             "time": time.time(),
             "api": api_name,
             "method": request.method,
-            "path": request.path,
+            "path": _redacted_path(request.path),
             "status": status,
             "credential_headers": sorted(
                 name for name in request.headers if name in CREDENTIAL_HEADERS
@@ -132,9 +144,34 @@ class MockModelApi(ModelApiStub):
         )
         if choice is not None:
             record.update(_conversation_record(*choice))
-        record["body"] = request.body
+        record["body"] = _redacted_value(request.body)
         with self._log_lock, self._request_log_path.open("a", encoding="utf-8") as log:
             log.write(json.dumps(record) + "\n")
+
+
+def _redacted_path(path: str) -> str:
+    """Return the path with every query value except ``alt`` replaced, as ``key=`` can be a key."""
+    route, separator, query = path.partition("?")
+    if not separator:
+        return route
+    parameters = urllib.parse.parse_qsl(query, keep_blank_values=True)
+    redacted = [
+        (name, value if name in _LOGGED_QUERY_PARAMETERS else REDACTED)
+        for name, value in parameters
+    ]
+    return f"{route}?{urllib.parse.urlencode(redacted)}"
+
+
+def _redacted_value(value: object) -> object:
+    """Return a JSON value with the values of credential-like keys replaced."""
+    if isinstance(value, Mapping):
+        return {
+            key: REDACTED if str(key).lower() in CREDENTIAL_BODY_KEYS else _redacted_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redacted_value(item) for item in value]
+    return value
 
 
 def _conversation_record(

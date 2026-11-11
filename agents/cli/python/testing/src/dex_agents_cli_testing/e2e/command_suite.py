@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -118,6 +119,7 @@ class CommandRun:
     toolchain: Toolchain
     server: DexServer
     hacker_news: HackerNewsCall | None
+    hacker_news_skip_reason: str
     table: ResultTable
 
     def __post_init__(self) -> None:
@@ -344,12 +346,7 @@ class CommandRun:
 
     def _step_connector(self, chat: TerminalChat) -> None:
         if self.hacker_news is None:
-            self.record(
-                "e-connector",
-                StepStatus.SKIP,
-                "the connectors MCP server lists no Hacker News list_story_ids tool: "
-                "no Hacker News connection is authorized in this dexcli dev",
-            )
+            self.record("e-connector", StepStatus.SKIP, self.hacker_news_skip_reason)
             return
         outcome = self._turn(chat, "e-connector", None)
         problems = self._turn_problems(outcome, "e-connector", expects_approval=False)
@@ -487,9 +484,40 @@ class CommandRun:
 
 
 def run_command_suite(
-    cases: Sequence[CommandCase], toolchain: Toolchain, server: DexServer, table: ResultTable
+    cases: Sequence[CommandCase],
+    toolchain: Toolchain,
+    server: DexServer,
+    table: ResultTable,
+    connector_wait_seconds: float,
 ) -> None:
     """Run the scenario for each command case."""
-    hacker_news = HackerNewsCall.find(server.list_connector_tools())
+    hacker_news, skip_reason = find_hacker_news_call(server, connector_wait_seconds)
+    print(f"Hacker News connector step: {skip_reason or hacker_news}", flush=True)
     for case in cases:
-        CommandRun(case, toolchain, server, hacker_news, table).run()
+        CommandRun(case, toolchain, server, hacker_news, skip_reason, table).run()
+
+
+def find_hacker_news_call(
+    server: DexServer, wait_seconds: float
+) -> tuple[HackerNewsCall | None, str]:
+    """Wait up to ``wait_seconds`` for the Hacker News tool; return it, or why step (e) skips.
+
+    A connectors MCP server that does not answer, such as one with no
+    connections, skips the step instead of failing the suite.
+    """
+    deadline = time.monotonic() + wait_seconds
+    reason = "the connectors MCP server was not asked"
+    while True:
+        try:
+            call = HackerNewsCall.find(server.list_connector_tools())
+            if call is not None:
+                return call, ""
+            reason = (
+                "the connectors MCP server lists no Hacker News list_story_ids tool: "
+                "no Hacker News connection is authorized (pass --seed-hacker-news)"
+            )
+        except Exception as error:
+            reason = f"the connectors MCP server is unavailable: {type(error).__name__}: {error}"
+        if time.monotonic() >= deadline:
+            return None, reason
+        time.sleep(3)

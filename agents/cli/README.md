@@ -208,7 +208,7 @@ cd agents/cli/python/testing
 uv sync --locked
 uv run --frozen dex-agents-cli-e2e                       # local build of this checkout
 uv run --frozen dex-agents-cli-e2e --source published    # the published 0.5.0 packages
-uv run --frozen dex-agents-cli-e2e --suite commands --only py-openai-sdk,ts-pi
+uv run --frozen dex-agents-cli-e2e --suite commands --only py-openai-sdk,ts-pi --seed-hacker-news
 ```
 
 - **Builds.** By default it builds each command from `--checkout`, this
@@ -221,9 +221,10 @@ uv run --frozen dex-agents-cli-e2e --suite commands --only py-openai-sdk,ts-pi
   and Chat Completions APIs, the Anthropic Messages API, and the Gemini API
   on one port of 127.0.0.1. It accepts any model name. Replies come from a
   JSON or YAML scenario keyed by the turn's prompt and the step within the
-  turn, and every request goes to a JSONL log. Each command reaches it
-  through its documented variables: `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`,
-  `GOOGLE_GEMINI_BASE_URL`, or `pi.provider_base_urls`.
+  turn, and every request goes to a JSONL log with credentials redacted.
+  Each command reaches it through its documented variables:
+  `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, or
+  `pi.provider_base_urls`.
 - **Command suite.** Each command reads a workspace file, writes a file
   after approval, has a write rejected, runs an allowed shell command and
   one that asks, calls the Hacker News `list_story_ids` connector operation
@@ -234,9 +235,13 @@ uv run --frozen dex-agents-cli-e2e --suite commands --only py-openai-sdk,ts-pi
 - **Framework suite.** The order support agent of each framework example
   looks up an order, cancels one after approval, and has a cancellation
   rejected in a second session, through the example's HTTP session routes.
-- **Dex server.** It reuses the `dexcli dev` on `--dex-port` and
-  `--web-port`, 8801 and 8802 by default, or starts a private one. It never
-  stops a server it did not start, and never changes connections.
+- **Dex server.** It starts a private `dexcli dev` on free ports, with its
+  own home, zd data directory, and connector configuration directory, and
+  stops it at the end. No session or connector call reaches another server.
+  `--seed-hacker-news` gives that server a Hacker News connection for the
+  connector step; without one, the step is skipped. `--reuse-server
+  http://127.0.0.1:8802` uses a running `dexcli dev` instead, with its
+  sessions and authorized connections; the run never stops it.
 
 Builds, private homes, terminal transcripts, request logs, and the report
 go to `--work-dir`. The exit code is 1 when a step failed.
