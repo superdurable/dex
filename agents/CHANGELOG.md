@@ -36,6 +36,14 @@ for the Dex SDK and framework versions each release supports.
   polling. It used to fail the poll attempt.
 - `agents/conformance/mcp_dex_conventions.json` fixes the conventions for every
   core.
+- Python core: `McpToolSource.execute_deferred_tool_call` takes
+  `request_meta`, more `_meta` entries for the `tools/call` request, such as
+  the identity a caller expects the server to check. The idempotency key wins
+  over an entry of the same name. New
+  `McpToolSource.will_resume_tool_task_without_sending` tells whether
+  executing a call resumes a task an earlier attempt started and can never send
+  `tools/call` again.
+
 - TypeScript core: **McpToolSource.executeDeferredToolCall** takes an optional
   second argument, `executeDeferredToolCall(call, { requestMeta })`, and
   **McpToolCallOptions** has `requestMeta`: more entries for the `tools/call`
@@ -46,6 +54,18 @@ for the Dex SDK and framework versions each release supports.
   task that an earlier attempt started and can never send `tools/call` for the
   call. A task polled inside the tool Step, such as one bound to a protocol
   session, may be called again when the server no longer knows it.
+
+### Added
+
+- Python CLI runtime (`dex-agents-cli`, not published yet): the shared runtime
+  of the Python harness commands. It reads `~/.dex/agents/<harness>.yaml` and
+  asks the init questions on first run, reuses or starts `dexcli dev`
+  (downloading a checksum-verified `dexcli` when none is installed), offers the
+  connectors MCP server's tools and local file, shell, web fetch, and browser
+  tools as Dex tool Steps, narrows each turn by the session settings, and chats
+  in the terminal with inline approvals and Ctrl-C to cancel a turn. Harness
+  packages implement **AgentHarness**. See
+  [cli/python/runtime](cli/python/runtime/README.md).
 
 ### Images
 

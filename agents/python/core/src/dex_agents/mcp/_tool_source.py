@@ -818,7 +818,10 @@ class McpToolSource:
         return {tool.name: self.execute_deferred_tool_call for tool in await self.list_tools()}
 
     async def execute_deferred_tool_call(
-        self, call: DeferredToolExecution
+        self,
+        call: DeferredToolExecution,
+        *,
+        request_meta: Mapping[str, str] | None = None,
     ) -> ToolExecutionResult | ToolTaskStarted:
         """Run one deferred MCP tool call in its tool Step.
 
@@ -833,8 +836,20 @@ class McpToolSource:
         checkpoint first; a retried attempt that reads it returns the same
         task without calling the tool again.
 
+        Example:
+            >>> await tools.execute_deferred_tool_call(
+            ...     call, request_meta={"com.example/expectedAccount": "work"})
+
+        .. versionchanged:: 0.5.0
+            ``request_meta`` adds ``_meta`` entries to the ``tools/call`` request.
+
         Args:
             call: The approved call from the tool Step.
+            request_meta: More ``_meta`` entries for the ``tools/call``
+                request, such as the identity a caller expects the server to
+                check before it runs the call. ``None``, the default, sends
+                only the idempotency key, which always wins over an entry of
+                the same name.
 
         Returns:
             The tool output the model sees, or ``ToolTaskStarted`` for a
@@ -871,6 +886,51 @@ class McpToolSource:
             heartbeat_checkpoint=call.heartbeat_checkpoint,
             save_heartbeat_checkpoint=call.save_heartbeat_checkpoint,
             is_task_polled_by_session=is_task_polled_by_session,
+            request_meta=request_meta,
+        )
+
+    def will_resume_tool_task_without_sending(self, call: DeferredToolExecution) -> bool:
+        """Report whether executing a call resumes a started task and can never send ``tools/call``.
+
+        ``execute_deferred_tool_call`` returns the task an earlier attempt of
+        the same call saved as its heartbeat checkpoint when the session polls
+        tasks and the server uses Streamable HTTP. That path never contacts
+        the server. When a task is polled inside the call instead, such as for
+        a stdio server or a runner without ``poll_tool_task``, the source
+        polls the saved task and sends ``tools/call`` again when the server no
+        longer knows it, so this returns ``False``. A caller that checks
+        something before every ``tools/call`` it may send, such as what the
+        tool runs now, skips that check only when this returns ``True``.
+
+        Example:
+            >>> if not tools.will_resume_tool_task_without_sending(call):
+            ...     await check_before_sending(call)
+            >>> return await tools.execute_deferred_tool_call(call)
+
+        .. versionadded:: 0.5.0
+
+        Args:
+            call: The approved call from the tool Step, as built by ``deferred_tool_call``.
+
+        Returns:
+            ``True`` only when the call supports tool tasks, its server uses
+            Streamable HTTP, and its heartbeat checkpoint names a task of the
+            server and tool on its record; ``False`` otherwise, including for
+            a call whose server this source no longer configures.
+        """
+        record = call.tool_call
+        try:
+            target = self._target_from_reference(record.tool_name, record.tool_source_reference)
+        except ToolExecutionError:
+            return False
+        if target is None:
+            return False
+        is_task_polled_by_session = call.supports_tool_tasks and isinstance(
+            target.server, McpStreamableHttpServerConfig
+        )
+        return (
+            is_task_polled_by_session
+            and _task_id_from_checkpoint(call.heartbeat_checkpoint, target) is not None
         )
 
     async def poll_tool_task(self, poll: ToolTaskPoll) -> ToolTaskPollOutcome:
@@ -1058,12 +1118,16 @@ class McpToolSource:
         heartbeat_checkpoint: str | None,
         save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None,
         is_task_polled_by_session: bool,
+        request_meta: Mapping[str, str] | None = None,
     ) -> ToolExecutionResult | ToolTaskStarted:
+        meta = dict(request_meta or {})
+        if idempotency_key is not None:
+            meta[IDEMPOTENCY_KEY_META_KEY] = idempotency_key
         call = _McpToolCall(
             source=self,
             target=target,
             arguments=arguments,
-            meta={} if idempotency_key is None else {IDEMPOTENCY_KEY_META_KEY: idempotency_key},
+            meta=meta,
             reporter=_McpToolCallReporter(target.tool_name, tool_call_id, events),
             heartbeat=heartbeat,
             save_heartbeat_checkpoint=save_heartbeat_checkpoint,
