@@ -43,7 +43,8 @@ option java_outer_classname = "DexProto";
 //   Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
 //                       held by another RPC or a Step
 //                       sub_status WORKER_API_ERROR
-//   ResourceExhausted — message size, Stream capacity, and search scan limits
+//   ResourceExhausted — message size, Stream capacity, search scan, and Flow
+//                       definition response limits
 //   DeadlineExceeded  — transport long poll or caller-visible request deadline
 //                       sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
 //   Canceled          — caller canceled the RPC context
@@ -96,6 +97,54 @@ service FlowService {
   rpc WaitForStepCompletion(WaitForStepCompletionRequest) returns (WaitForStepCompletionResponse);
   rpc WaitForAttribute(WaitForAttributeRequest) returns (WaitForAttributeResponse);
   rpc HealthCheck(google.protobuf.Empty) returns (HealthInfo);
+
+  // Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+  //
+  // Workers call it at startup so that Dex Web can render their Flows without
+  // a definition directory. The server keeps one document for each Flow type
+  // and decides each item separately. The outcome is CREATED when no document
+  // was stored for the Flow type. It is UNCHANGED when the stored document has
+  // the same SHA-256 digest; nothing is written then. It is REPLACED when the
+  // digest differs and generated_at is strictly later than the stored
+  // generated_at, compared at microsecond precision, or when force is set.
+  // Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+  // reports its digest and generation time.
+  //
+  // Items are independent. Concurrent uploads of one Flow type are safe: each
+  // item's outcome is decided against the document stored when its write
+  // commits. If the call fails partway, earlier items may already be stored;
+  // repeating the call is safe and reports them as UNCHANGED.
+  //
+  // The server checks only that each document is a JSON object of at most
+  // flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+  // "2.", and that its flow.name equals flow_type. Dex Web validates the full
+  // graph when it reads it.
+  //
+  // Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+  // anything, for an invalid item, more than 256 items, a repeated flow_type, a
+  // missing generated_at, or a generated_at more than 24 hours after the
+  // server's clock. Fails with Unavailable when object storage fails; the call
+  // is then safe to retry.
+  rpc UploadFlowDefinitions(UploadFlowDefinitionsRequest) returns (UploadFlowDefinitionsResponse);
+
+  // Lists the Flow types that have a stored definition, one page at a time.
+  //
+  // It returns names only; call GetFlowDefinitions for content and metadata.
+  // Pages follow the order of the stored object keys, which is stable but is
+  // not exactly the order of Flow types. A Flow type first stored during a
+  // listing may or may not appear. Fails with InvalidArgument for a negative
+  // page_size or an invalid page token, and with Unavailable when object
+  // storage fails.
+  rpc ListFlowDefinitions(ListFlowDefinitionsRequest) returns (ListFlowDefinitionsResponse);
+
+  // Returns the stored Flow definitions of the requested Flow types, with content.
+  //
+  // A requested Flow type that has no stored definition is left out of the
+  // response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+  // Flow types, more than 256, or an invalid Flow type. Fails with
+  // ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+  // would not fit in one response message; request fewer Flow types.
+  rpc GetFlowDefinitions(GetFlowDefinitionsRequest) returns (GetFlowDefinitionsResponse);
 }
 
 // Identifies the engine behind a Dex Server. Clients use it only to adapt behavior that differs
@@ -1447,6 +1496,12 @@ enum ErrorSubStatus {
   ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED = 9;
   // An indexed Keyword value or KeywordArray element exceeds the byte limit.
   ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10;
+  // A Flow definition request breaks a validation rule, such as invalid JSON,
+  // a Flow type mismatch, or a size or item count limit.
+  ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID = 11;
+  // The Flow definitions that GetFlowDefinitions requested would not fit in
+  // one response message.
+  ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE = 12;
 }
 
 message WorkerErrorResponse {
@@ -1893,4 +1948,125 @@ message NodeLeaseHolder {
 message NodeLeaseHolderUnknown {
   // What could not be confirmed, for example because a lease read failed.
   string detail = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Flow definitions
+// ---------------------------------------------------------------------------
+
+// One Flow Definition Graph (FDG 2.0) JSON document to store.
+message FlowDefinitionUpload {
+  // Flow type that the document describes. It must equal flow.name in content,
+  // must not be empty, and must not exceed matching.maxFlowTypeLength bytes.
+  string flow_type = 1;
+  // The FDG JSON document, at most flowDefinitions.maxDefinitionBytes. It must
+  // be a JSON object whose schemaVersion starts with "2.", nested at most 128
+  // levels deep. The server stores these exact bytes and returns them unchanged.
+  bytes content = 2;
+  // When the document was generated, normally the document's generatedAt or the
+  // file modification time. Required. A newer generated_at replaces a stored
+  // document with a different digest. The server keeps microsecond precision
+  // and rejects a time more than 24 hours after its own clock.
+  google.protobuf.Timestamp generated_at = 3;
+}
+
+// Stores Flow definitions. See FlowService.UploadFlowDefinitions.
+message UploadFlowDefinitionsRequest {
+  // Documents to store, at most 256, each with a distinct flow_type.
+  repeated FlowDefinitionUpload definitions = 1;
+  // Identifies the uploading software for diagnostics, such as an SDK name and
+  // version. At most 128 bytes. GetFlowDefinitions reports it for each stored
+  // document. May be empty.
+  string uploader = 2;
+  // Replaces every stored document whose digest differs, whatever its
+  // generated_at; an identical document is still UNCHANGED. Use it to roll a
+  // definition back on purpose, or to replace a document whose generated_at
+  // came from a fast clock. The 24-hour limit on generated_at still applies.
+  bool force = 3;
+}
+
+// What UploadFlowDefinitions did with one Flow type.
+enum FlowDefinitionUploadOutcome {
+  FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED = 0;
+  // No document was stored for the Flow type; the uploaded one is now stored.
+  FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED = 1;
+  // The uploaded document replaced a different, older one.
+  FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED = 2;
+  // The stored document has the same digest; nothing was written.
+  FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED = 3;
+  // The stored document differs and its generated_at is the same or later, so
+  // it stays. Upload with force to replace it anyway.
+  FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING = 4;
+}
+
+// The outcome for one uploaded Flow type and the document stored afterwards.
+message FlowDefinitionUploadResult {
+  // Flow type of the uploaded document.
+  string flow_type = 1;
+  // What the server did with the uploaded document.
+  FlowDefinitionUploadOutcome outcome = 2;
+  // Lowercase hexadecimal SHA-256 digest of the document stored after the call.
+  // It differs from the uploaded document's digest only for KEPT_EXISTING.
+  string stored_digest = 3;
+  // generated_at of the document stored after the call, at microsecond precision.
+  google.protobuf.Timestamp stored_generated_at = 4;
+}
+
+// Reports the outcome of each uploaded document.
+message UploadFlowDefinitionsResponse {
+  // One result for each request item, in request order.
+  repeated FlowDefinitionUploadResult results = 1;
+}
+
+// Describes one stored Flow definition.
+message FlowDefinitionInfo {
+  // Flow type that the document describes.
+  string flow_type = 1;
+  // Lowercase hexadecimal SHA-256 digest of the stored document. It changes
+  // whenever the content changes, so clients can use it as a cache key.
+  string digest = 2;
+  // generated_at of the upload that stored this document, at microsecond precision.
+  google.protobuf.Timestamp generated_at = 3;
+  // When the server stored this document.
+  google.protobuf.Timestamp uploaded_at = 4;
+  // uploader of the request that stored this document.
+  string uploader = 5;
+}
+
+// Requests one page of the Flow types that have a stored definition.
+message ListFlowDefinitionsRequest {
+  // Most Flow types in the page. 0 and values above 1000 mean 1000.
+  int32 page_size = 1;
+  // next_page_token of the previous page, or empty for the first page.
+  string next_page_token = 2;
+}
+
+// One page of the Flow types that have a stored definition.
+message ListFlowDefinitionsResponse {
+  // Flow types in object key order.
+  repeated string flow_types = 1;
+  // Pass as ListFlowDefinitionsRequest.next_page_token to read the next page.
+  // Empty when this is the last page.
+  string next_page_token = 2;
+}
+
+// Requests the stored Flow definitions of some Flow types.
+message GetFlowDefinitionsRequest {
+  // Flow types to return, at least 1 and at most 256.
+  repeated string flow_types = 1;
+}
+
+// One stored Flow definition with its content.
+message FlowDefinition {
+  // Metadata of the stored document.
+  FlowDefinitionInfo info = 1;
+  // The stored FDG JSON document, byte for byte as uploaded.
+  bytes content = 2;
+}
+
+// Returns the requested stored Flow definitions.
+message GetFlowDefinitionsResponse {
+  // The stored definitions of the requested Flow types, in request order.
+  // Flow types without a stored definition are left out.
+  repeated FlowDefinition definitions = 1;
 }

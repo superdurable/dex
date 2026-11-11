@@ -652,6 +652,20 @@ Each Flow run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
 starts. A new value applies only to Flow runs that start after the node
 restarts with it.
 
+## Flow definitions {#flow-definitions}
+
+Since 0.1.26. **flowDefinitions.maxDefinitionBytes** (default 8388608, 8 MiB,
+must be positive) is the largest Flow Definition Graph document that
+**UploadFlowDefinitions** stores. A larger document fails with
+**INVALID_ARGUMENT**. One upload request must also fit in
+**api.grpcMaxMessageBytes**. See
+[Flow definitions](/reference/server/runtime-client#flow-definitions).
+
+~~~yaml
+flowDefinitions:
+  maxDefinitionBytes: 8388608
+~~~
+
 ## Performance tuning {#performance-tuning}
 
 The defaults suit most nodes. Change these keys only when a load test shows a

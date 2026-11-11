@@ -126,6 +126,24 @@ impl Default for MatchingConfig {
     }
 }
 
+/// Limits the Flow Definition Graph documents that UploadFlowDefinitions stores.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct FlowDefinitionsConfig {
+    /// Defaults to 8 MiB and must be positive; largest content of one uploaded Flow definition.
+    /// A larger document fails with INVALID_ARGUMENT. One upload request also stays within
+    /// api.grpcMaxMessageBytes.
+    pub max_definition_bytes: u64,
+}
+
+impl Default for FlowDefinitionsConfig {
+    fn default() -> Self {
+        Self {
+            max_definition_bytes: 8 << 20,
+        }
+    }
+}
+
 /// Selects the supported Stream Store backend.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
