@@ -15,10 +15,7 @@ from typing import cast
 
 from claude_agent_sdk import SessionKey, SessionStore, SessionStoreEntry
 
-from dex_agents_claude_agent_sdk.transcript import TranscriptEntry
-
-# Claude Code's entry that names the leaf a resume continues from.
-LEAF_POINTER_ENTRY_TYPE = "last-prompt"
+from dex_agents_claude_agent_sdk.transcript import LEAF_POINTER_ENTRY_TYPE, TranscriptEntry
 
 
 class TurnSegmentSessionStore(SessionStore):

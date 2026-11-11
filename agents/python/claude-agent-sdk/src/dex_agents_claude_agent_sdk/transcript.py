@@ -11,6 +11,8 @@
 The Claude Code CLI writes one JSON object per transcript line. The adapter
 stores those entries, unchanged, inside ``AgentMessage.framework_item`` and
 inside ``FrameworkRunState``, and hands them back to the CLI on the next turn.
+The one exception is ``last-prompt`` entries, which it neither stores nor
+hands back, including ones that adapter 0.4.0 stored.
 """
 
 from __future__ import annotations
@@ -27,6 +29,8 @@ USER_PROMPT_ITEM_KIND = "user_prompt"
 #: ``framework_item`` ``kind`` of a message that carries Claude Code transcript entries.
 CLAUDE_TRANSCRIPT_ITEM_KIND = "claude_transcript"
 RUN_STATE_FORMAT_VERSION = 1
+# Claude Code's entry that names the leaf a resume continues from.
+LEAF_POINTER_ENTRY_TYPE = "last-prompt"
 
 TranscriptEntry = dict[str, Any]
 
@@ -80,7 +84,7 @@ def load_session_transcript(messages: Iterable[AgentMessage]) -> ClaudeSessionTr
             continue
         session_id = item["session_id"]
         entries.extend(item["entries"])
-    return ClaudeSessionTranscript(session_id, entries)
+    return ClaudeSessionTranscript(session_id, without_leaf_pointers(entries))
 
 
 def encode_run_state(session_id: str, turn_entries: Sequence[TranscriptEntry]) -> str:
@@ -98,7 +102,12 @@ def decode_run_state(framework_run_state: str) -> SuspendedClaudeTurn:
     state = json.loads(framework_run_state)
     if state.get("version") != RUN_STATE_FORMAT_VERSION:
         raise ValueError(f"unsupported Claude run state version {state.get('version')!r}")
-    return SuspendedClaudeTurn(state["session_id"], list(state["turn_entries"]))
+    return SuspendedClaudeTurn(state["session_id"], without_leaf_pointers(state["turn_entries"]))
+
+
+def without_leaf_pointers(entries: Iterable[TranscriptEntry]) -> list[TranscriptEntry]:
+    """Drop ``last-prompt`` entries: a stored leaf pointer would resume at a stale message."""
+    return [entry for entry in entries if entry.get("type") != LEAF_POINTER_ENTRY_TYPE]
 
 
 def project_turn_entries(
