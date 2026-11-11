@@ -1,0 +1,26 @@
+---
+id: subflow
+title: SubFlow
+sidebar_label: SubFlow
+---
+
+# SubFlow
+
+This page lists the Python SDK names for [SubFlows](/concepts/primitives/subflow).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Python SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Python API | Dex behavior |
+| --- | --- | --- |
+| Start a child Flow and wait for it | **SubFlow.run** in **wait_for** | [SubFlows](/reference/server/runtime-data#subflows) |
+| Set the child timeout, Attributes, and configuration | **SubFlowOptions** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
+| Choose what happens to an existing child | **reuse_policy** of **SubFlowOptions**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Read the child result | **SubFlow.get_condition_results** in **execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
+| Read the generated child Flow ID | **SubFlow.get_flow_id** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Stop a child that lost an **AnyOf** | **Client.stop_flow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+
+## Example {#example}
+
+Example: [examples/python/dex_examples/primitives/subflow/parent_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/subflow/parent_flow.py)

@@ -1,0 +1,178 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to Dex Web, newest first; each section covers the changes since the previous release of this component.
+
+## 1.43 {#v1-43}
+
+Not released yet. The next minor release, web/v1.43.0, ships these changes.
+
+### Breaking
+
+- The **/api/flows/search** request no longer forwards **includeContinuedAsNew**. Run lists no longer offer **Continued as new** as a status. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+
+### Added
+
+- **--base-path** (**DEX_WEB_BASE_PATH**) serves the pages, assets, and **/api** routes under a URL path prefix, such as **/dex**. Requests outside the prefix get HTTP 404, and **/healthz** and **/readyz** stay at the root. [Reference](/reference/web/1.43.x/dex-web#base-path).
+- **--frame-ancestors** (**DEX_WEB_FRAME_ANCESTORS**) lists the sites that may show Dex Web in a frame. By default no site may. Every response carries the framing headers. [Reference](/reference/web/1.43.x/dex-web#frame-ancestors).
+- Under a base path, recent and saved Flow searches are stored per base path, so Dex Webs on one origin keep them apart. [Reference](/reference/web/1.43.x/embed-dex-web#browser-storage).
+- The Go module **github.com/superdurable/dex/web/embedded** serves Dex Web for many Dex Servers from a host application's own Go HTTP server, under a path prefix chosen per request. Each **web/vX.Y.Z** release publishes it as **web/embedded/vX.Y.Z**. [Reference](/reference/web/1.43.x/embed-dex-web).
+- The **Agent session** tab has **Session settings**, which shows the session's settings as JSON and saves an edit through **update_session_settings**. The change applies from the next turn. [Reference](/reference/web/1.43.x/dex-web#agent-session-settings).
+- **New session** starts a Dex Agents session with a session ID, a first message, and the **model**, **system_prompt**, and other settings. It is on the **Agent session** tab, and in **Work Queue** on a session Flow type. [Reference](/reference/web/1.43.x/dex-web#agent-new-session).
+- **POST /api/v2/agent-sessions/start**, **/messages**, and **/settings** start a session, call **send_user_message**, and call **update_session_settings**. [Reference](/reference/web/1.43.x/dex-web#agent-session-controls).
+- Each connection record in **connections.json** gets a top-level **authorizationId**, a random non-secret UUID. Dex Web replaces it whenever an authorization completes: adding a connection, an OAuth authorization, or an edit that changes the stored credentials. It identifies the account behind the credentials; a change of **configuration** shows in the configuration itself. Other edits and credential write-backs keep it, and records without it stay valid. Dex Web 1.42 and older reject unknown record fields and fail to load a file that has **authorizationId**, so do not downgrade, or remove the field first. [Reference](/reference/web/1.43.x/local-connector-setup#choose-the-storage-directory).
+
+### Changed
+
+- Without local Connector setup, the **/api/v2/connector-** routes return HTTP 404 with the code **CONNECTOR_SETUP_UNAVAILABLE**. [Reference](/reference/web/1.43.x/embed-dex-web#limits).
+- Connector UI files send **frame-ancestors**, **sandbox allow-scripts**, and **X-Content-Type-Options: nosniff**. A file with an unknown extension is sent as **application/octet-stream**. [Reference](/reference/web/1.43.x/dex-web#frame-ancestors).
+- The **Agent session** message box sends between turns through **send_user_message**. While a turn runs, **Queue** keeps the message for the next turn and **Steer** steers the running turn. [Reference](/reference/web/1.43.x/dex-web#agent-session-view).
+- Writes to **connections.json** hold an exclusive lock on **connections.json.lock**, which the connectors Go SDK also takes when it writes back a refreshed credential. Dex Web checks a save against the file as read inside the lock, and a write that waits more than 15 seconds fails with HTTP 503 **CONNECTOR_CONNECTIONS_FILE_BUSY**. An OAuth callback that fails with **CONNECTOR_CONNECTION_CHANGED** says to start the authorization again. [Reference](/reference/web/1.43.x/local-connector-setup#choose-the-storage-directory).
+
+## 1.42 {#v1-42}
+
+Released 2026-11-10 as [web/v1.42.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.42.0).
+
+### Added
+
+- **Connectors** can add a named connection that no loaded Flow uses, such as the Slack connection an agent tool opens. **+ Add** picks a Connector from the catalog and names the connection, and the usual authorization panel saves it to **connections.json**. [Reference](/reference/web/1.43.x/local-connector-setup#add-a-connection).
+- **Connectors** lists every saved connection that no loaded Flow uses, and **Delete connection** deletes one. [Reference](/reference/web/1.43.x/local-connector-setup#start-dex-web).
+- **--allowed-hosts** (**DEX_WEB_ALLOWED_HOSTS**) turns on a **Host** check for **/api** requests that stops DNS rebinding. It accepts loopback names, IP addresses, the bind address, and the listed hosts, and refuses any other **Host** with HTTP 403 **HOST_NOT_ALLOWED**. [Reference](/reference/web/1.43.x/dex-web#allowed-hosts).
+
+### Changed
+
+- The **Experimental** menu offers **Connectors** wherever local Connector setup runs, even with no Flow Definition Graph files or connections. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+- After an OAuth authorization, **Connectors** selects the connection that was authorized. [Reference](/reference/web/1.43.x/local-connector-setup#configure-an-account).
+- With local Connector setup on, as in **dexcli dev**, the **Host** check is always on. [Reference](/reference/web/1.43.x/dex-web#allowed-hosts).
+- A Connector connection save, OAuth authorization, delete, or Trigger binding save fails with **CONNECTOR_CONNECTION_CHANGED** and changes nothing when, while it ran, the connection was deleted or added again, a Flow moved it to another release, or another save changed it. [Reference](/reference/web/1.43.x/local-connector-setup#add-a-connection).
+- On a phone, **Connectors** stacks the connection list above the selected connection. [Reference](/reference/web/1.43.x/local-connector-setup#start-dex-web).
+
+## 1.41 {#v1-41}
+
+Released 2026-11-09 as [web/v1.41.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.41.0). Patch release [web/v1.41.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.41.1) followed on 2026-11-10.
+
+### Breaking
+
+- The **v2** pages are removed, including the Run workspace, its run overlay, and the **Debug** view. Every **/v2** URL redirects to its **/v1** equivalent and keeps its query and hash, and **/** opens **/v1/flows**. The **/api/v2** endpoints are unchanged. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+
+### Added
+
+- A **Docs** link in the header opens the Dex documentation.
+- A **Design** tab on the run page draws the Flow design graph from the loaded Flow Definition Graph, with no history. [Reference](/reference/web/1.43.x/dex-web#flow-canvas).
+- One **Experimental** header menu holds **Designs**, **Work Queue**, and **Connectors**. [Reference](/reference/web/1.43.x/dex-web#run-tabs).
+- **?view=design**, **?view=session**, and **?view=actions** open a run tab directly. [Reference](/reference/web/1.43.x/dex-web#run-tabs).
+
+### Changed
+
+- Since 1.41.1: A run opens on the **Timeline** tab unless the browser remembers another tab, and a linked tab that does not apply opens **Timeline**. [Reference](/reference/web/1.43.x/dex-web#run-tabs).
+- Since 1.41.1: Clicking a bar in the Timeline overview selects its event and centers it in the strip. A bar of several events selects its most important event: a failed one first, then a retried, waiting, or canceled one. Dragging the brush still only scrolls. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+- Since 1.41.1: The **Agent session** tab shows a connector write that waits for an earlier write of its turn as **waiting for an earlier write**, and a write that write ordering skipped as **skipped**. [Reference](/reference/web/1.43.x/dex-web#agent-session-view).
+- The version picker is gone. **Work Queue**, **Connectors**, **Agent session**, and **Actions** are **Experimental**, and each shows only when it applies. **Agent session** and **Actions** are run tabs, and **Start Flow** is in the **Work Queue** list header. [Reference](/reference/web/1.43.x/dex-web#run-tabs).
+- **Flow Rendering** is now **Designs**, at the same **/v1/rendering** URL, and draws both schema versions with one graph. [Reference](/reference/web/1.43.x/flow-visualization).
+- The agent inbox URL is **/v1/work-queue?view=agents**. [Reference](/reference/web/1.43.x/dex-web#agent-inbox).
+- Step cards no longer show outcome chips. The Step panel lists outcomes under **Paths out**. [Reference](/reference/web/1.43.x/dex-web#flow-canvas).
+- The Timeline overview is a histogram: bars count events over time, red marks failed events and Steps retried after a failed attempt, and a shaded brush shows the events in the strip. A Step event that succeeded only after failed attempts carries a retry badge. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+- In the Flow design graph, the zoom controls and the **Legend** sit at the top right of the canvas. The legend opens downward, scrolls inside the canvas, and closes from the same corner. The fit button is labeled **Fit the whole Flow**. [Reference](/reference/web/1.43.x/dex-web#flow-canvas).
+- The **Streams** tab offers the Stream names of a matching Flow Definition Graph in a menu, with **Other name…** for any other name. Its output shows a live status, text as a flowing transcript, structured values as collapsible JSON, and progress values as bars. Entries show the newest message at the top, keep your place when you scroll down, and offer **Back to latest**. **Keep last** keeps the newest 100, 500, or 1,000 messages, and the browser remembers the choice. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+
+### Fixed
+
+- The Flow design graph legend no longer overlaps or clips its text, and the stage swatch shows. On the **Design** tab the legend is a panel over the canvas that keeps its size when you zoom. [Reference](/reference/web/1.43.x/dex-web#flow-canvas).
+- The Flow design graph fit button returns to a view of the whole Flow. Before, it did nothing. [Reference](/reference/web/1.43.x/dex-web#flow-canvas).
+- A selected or focused WaitFor segment in the **Execution graph** keeps its whole outline, including the chevron tip, and each Channel name of its condition shows on its own line. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+
+## 1.40 {#v1-40}
+
+Released 2026-11-09 as [web/v1.40.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.0). Patch releases [web/v1.40.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.1) and [web/v1.40.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.2) followed the same day.
+
+### Added
+
+- **History settings** on the Run page shows the run's retention window, and **Edit** changes it through UpdateFlowConfig while the run is active. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+
+### Changed
+
+- The **v1** Run page is redesigned with a horizontal Timeline, a minimap, and a selected event panel with **Input**, **Output**, and **Context** columns. [Reference](/reference/web/1.43.x/dex-web#v1-pages).
+
+### Fixed
+
+- Long values stay inside their column in the event panel. This arrived in 1.40.1.
+- Attribute and Context rows stack in the narrow Execution graph panel. This arrived in 1.40.2.
+
+## 1.39 {#v1-39}
+
+Released 2026-11-09 as [web/v1.39.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.39.0).
+
+### Added
+
+- A **Session** tab shows Dex Agents sessions in Dex Web v2. [Reference](/reference/web/1.43.x/dex-web#agent-session-view).
+- The Work Queue shows an agent inbox. [Reference](/reference/web/1.43.x/dex-web#agent-inbox).
+- Dex Web sends the declared RPC locks when a person runs an Action, and a Flow Definition Graph is available for Dex Agents session Flows. [Reference](/reference/web/1.43.x/dex-web#actions).
+
+### Changed
+
+- Dex Web sends LoadBlobs requests in batches of at most 1,000 entries.
+
+## 1.38 {#v1-38}
+
+Released 2026-11-07 as [web/v1.38.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.38.0).
+
+### Added
+
+- Dex Web v2 searches by active Step type and across several Flow types. [Reference](/reference/web/1.43.x/dex-web#search-several-flow-types).
+- An Action RPC returns its output to the page, and an Action may have no condition. [Reference](/reference/web/1.43.x/dex-web#actions).
+
+### Changed
+
+- Large values in history events appear as value references, and Dex Web loads them on demand because server-zd 0.1.21 bounds history pages by the gRPC response limit. [Reference](/reference/server/changelog#v0-1-21).
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [web/v1.37.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.37.0). Reference: [1.37.x](/reference/web/1.37.x/).
+
+### Fixed
+
+- Dex Web stops promptly even while a Flow history long poll is open. [Release notes](https://github.com/superdurable/dex/releases/tag/web%2Fv1.37.0).
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [web/v1.35.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.35.0). Reference: [1.35.x](/reference/web/1.35.x/).
+
+### Breaking
+
+- Active Step invocation details require server-zd 0.1.17 or later and protocol version 4. Upgrade the server before upgrading Dex Web. [Reference](/reference/web/1.43.x/dex-web#worker-routing).
+
+### Added
+
+- Active Steps show each method’s phase, pending reason, attempt number, and wait time. History also shows when the attempt became scheduled. [Reference](/reference/web/1.43.x/dex-web#worker-routing).
+
+## 1.32 {#v1-32}
+
+Released 2026-11-01 as [web/v1.32.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.32.0). Reference: [1.32.x](/reference/web/1.43.x/).
+
+No Dex Web behavior changes were identified in this release; the Web source is unchanged from 1.30.
+
+## 1.30 {#v1-30}
+
+Released 2026-10-31 as [web/v1.30.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.30.0). Reference: [1.30.x](/reference/web/1.43.x/).
+
+No Dex Web behavior changes were identified in this release; the Web source is unchanged from 1.29.
+
+## 1.29 {#v1-29}
+
+Released 2026-10-31 as [web/v1.29.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.29.0). Reference: [1.29.x](/reference/web/1.43.x/).
+
+### Added
+
+- Related-event links jump to other pages and distinguish pruned events from unloaded events. The oldest retained page shows the pruned event range. [Reference](/reference/web/1.43.x/dex-web#run-against-server-zd).
+
+### Changed
+
+- The Run details Timeline loads history in pages of at most 1,000 events, with Older, Newer, Newest, and Back navigation. Event numbers are event IDs. [Reference](/reference/web/1.43.x/dex-web#run-against-server-zd).
+- The v2 canvas loads a bounded recent history window and appends new events on polls. The Execution graph, Overview, and time-travel dialog also use the newest window. [Reference](/reference/web/1.43.x/dex-web#run-against-server-zd).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=web%2F&expanded=true).

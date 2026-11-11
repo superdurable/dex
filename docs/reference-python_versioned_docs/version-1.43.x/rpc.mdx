@@ -1,0 +1,31 @@
+---
+id: rpc
+title: RPC
+sidebar_label: RPC
+---
+
+# RPC
+
+This page lists the Python SDK names for [RPCs](/concepts/primitives/rpc).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Python SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Python API | Dex behavior |
+| --- | --- | --- |
+| Define an RPC handler | **@rpc** on a Flow method | [Flow definition](./flow.mdx#flow-definition) |
+| Set the durable RPC name | **name** of **@rpc**. It defaults to the method name. | [Flow definition](./flow.mdx#flow-definition) |
+| Set the RPC timeout | **timeout** of **@rpc** | [RPC timeout](/reference/server/runtime-data#rpc-timeout) |
+| Lock Attributes for the whole call | **lock_attributes** of **@rpc** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Request transactional reads and writes without locks | **is_transactional** of **@rpc** | [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes) |
+| Load AttributeMap values and Channel messages | **load_attribute_maps**, **load_attribute_map_instances**, **load_channels**, **load_channel_maps**, and **load_channel_map_instances** of **@rpc** | [Selective state loading](/reference/server/runtime-data#load-collection-state) |
+| Return the output and start next Steps | **RPCResult** | [RPCs](/reference/server/runtime-data#rpcs) |
+| Cancel running Steps | **RPCResult.with_canceling_steps** | [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) |
+| Let a person invoke the RPC from Dex Web | **action** of **@rpc**, with **Action** | [Actions](/reference/web/dex-web#actions) |
+| Invoke the RPC from a Client | **Client.invoke_rpc** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
+| Lock or load map instances chosen at call time | **RPCInvokeOptions** | [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances) |
+
+## Example {#example}
+
+Example: [examples/python/dex_examples/primitives/rpc/rpc_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/rpc/rpc_flow.py)
