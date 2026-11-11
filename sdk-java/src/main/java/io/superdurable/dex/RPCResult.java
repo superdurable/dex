@@ -17,6 +17,7 @@ package io.superdurable.dex;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Carries a typed RPC output, optional next-Step movements, and Step type cancellation.
@@ -78,6 +79,35 @@ public final class RPCResult<O> {
                 output,
                 Arrays.<StepMovement<?>>asList(nextSteps.clone()),
                 Collections.<Class<? extends Step<?>>>emptyList());
+    }
+
+    /**
+     * Creates an RPC result that also schedules a list of next Steps.
+     *
+     * <p>Use this overload when the movements are already in a {@link List}, such as the result of
+     * {@link Join#forkWithRoundKey}. It behaves exactly like
+     * {@link #of(Object, StepMovement[])} with the same movements in list order. The result keeps
+     * its own copy, so later changes to the list do not affect it. An empty list schedules no next
+     * Step.
+     *
+     * <pre>{@code
+     * List<StepMovement<?>> movements =
+     *         quoteReceived.forkWithRoundKey(roundKey, branchBuilders, joinBuilder);
+     * return RPCResult.of(null, movements);
+     * }</pre>
+     *
+     * @param output the typed RPC output, which may be {@code null}
+     * @param nextSteps the movements to schedule, in order
+     * @param <O> the output type
+     * @return the RPC result
+     * @throws NullPointerException if {@code nextSteps} is {@code null}
+     * @since 1.42.0
+     */
+    public static <O> RPCResult<O> of(
+            final O output,
+            final List<? extends StepMovement<?>> nextSteps) {
+        Objects.requireNonNull(nextSteps, "nextSteps");
+        return of(output, nextSteps.toArray(new StepMovement<?>[0]));
     }
 
     /**

@@ -34,6 +34,7 @@ import io.superdurable.dex.Credential;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Join;
 import io.superdurable.dex.JoinRound;
+import io.superdurable.dex.PackagePrivateTestAccess;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCAttributeMapLock;
@@ -179,6 +180,58 @@ public class UserContractsTest {
         Assertions.assertNotNull(PersistenceSchema.of(
                 Collections.<Attribute<?>>emptyList(),
                 Collections.singletonList(quotes)));
+    }
+
+    @Test
+    public void movementListOverloadsMatchVarargsAndKeepExistingCallsUnambiguous() {
+        final StepMovement<OrderInput> first = StepMovement.of(ApproveStep.class, orderInput("a"));
+        final StepMovement<OrderInput> second = StepMovement.of(ApproveStep.class, orderInput("b"));
+        final List<StepMovement<?>> movements = new ArrayList<StepMovement<?>>();
+        movements.add(first);
+        movements.add(second);
+
+        final StepDecision fromList = StepDecision.goToMany(movements);
+        movements.clear();
+        Assertions.assertEquals(
+                Arrays.<StepMovement<?>>asList(first, second),
+                PackagePrivateTestAccess.movementsOf(fromList));
+        Assertions.assertEquals(
+                Collections.singletonList(first),
+                PackagePrivateTestAccess.movementsOf(
+                        StepDecision.goToMany(Collections.singletonList(first))));
+        Assertions.assertEquals(
+                Collections.emptyList(),
+                PackagePrivateTestAccess.movementsOf(StepDecision.goToMany()));
+        Assertions.assertEquals(
+                Collections.singletonList(first),
+                PackagePrivateTestAccess.movementsOf(StepDecision.goToMany(first)));
+        Assertions.assertEquals(
+                Arrays.<StepMovement<?>>asList(first, second),
+                PackagePrivateTestAccess.movementsOf(StepDecision.goToMany(first, second)));
+        Assertions.assertThrows(
+                NullPointerException.class,
+                () -> StepDecision.goToMany((List<StepMovement<?>>) null));
+
+        final List<StepMovement<OrderInput>> typedMovements = Arrays.asList(first, second);
+        final RPCResult<String> rpcFromList = RPCResult.of("accepted", typedMovements);
+        Assertions.assertEquals("accepted", PackagePrivateTestAccess.outputOf(rpcFromList));
+        Assertions.assertEquals(
+                Arrays.<StepMovement<?>>asList(first, second),
+                PackagePrivateTestAccess.nextStepsOf(rpcFromList));
+        Assertions.assertEquals(
+                Collections.singletonList(first),
+                PackagePrivateTestAccess.nextStepsOf(RPCResult.of("accepted", first)));
+        // A List output with no movements still selects the one-argument factory.
+        final RPCResult<List<String>> listOutput = RPCResult.of(Arrays.asList("x", "y"));
+        Assertions.assertEquals(
+                Arrays.asList("x", "y"),
+                PackagePrivateTestAccess.outputOf(listOutput));
+        Assertions.assertEquals(
+                Collections.emptyList(),
+                PackagePrivateTestAccess.nextStepsOf(listOutput));
+        Assertions.assertThrows(
+                NullPointerException.class,
+                () -> RPCResult.of("accepted", (List<StepMovement<?>>) null));
     }
 
     @Test

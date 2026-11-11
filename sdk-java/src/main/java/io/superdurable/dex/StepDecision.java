@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Describes the durable action Dex takes after a Step executes.
@@ -106,6 +107,30 @@ public final class StepDecision {
                 null,
                 Collections.<Class<? extends Step<?>>>emptyList(),
                 Collections.<Class<? extends Step<?>>>emptyList());
+    }
+
+    /**
+     * Schedules a list of next-Step movements together.
+     *
+     * <p>Use this overload when the movements are already in a {@link List}, such as the result of
+     * {@link Join#fork} or {@link Join#forkWithRoundKey}, optionally with more movements appended.
+     * It behaves exactly like {@link #goToMany(StepMovement[])} with the same movements in list
+     * order. The decision keeps its own copy, so later changes to the list do not affect it. An
+     * empty list schedules no next Step, like a call without arguments.
+     *
+     * <pre>{@code
+     * List<StepMovement<?>> movements = quoteReceived.fork(context, branchBuilders, joinBuilder);
+     * return StepDecision.goToMany(movements);
+     * }</pre>
+     *
+     * @param movements the movements to schedule, in order
+     * @return a multi-movement decision
+     * @throws NullPointerException if {@code movements} is {@code null}
+     * @since 1.42.0
+     */
+    public static StepDecision goToMany(final List<? extends StepMovement<?>> movements) {
+        Objects.requireNonNull(movements, "movements");
+        return goToMany(movements.toArray(new StepMovement<?>[0]));
     }
 
     /**

@@ -73,6 +73,13 @@ with `forAllBranches`, `forFirstBranch`, or `forBranches` and reads
 as a `ChannelMap` with the same name; `JoinRound` is stored in Step inputs as
 `{"roundKey", "branchCount"}`. [Reference](https://docs.superdurable.io/reference/java/waits)
 
+Added `StepDecision.goToMany(List<? extends StepMovement<?>>)` and
+`RPCResult.of(O, List<? extends StepMovement<?>>)`. They accept a list of
+movements, such as the result of `Join.fork`, and behave like the varargs
+forms. Existing calls keep their meaning; only a call with a literal `null`
+argument, which always threw at run time, is now ambiguous and no longer
+compiles. [Reference](https://docs.superdurable.io/reference/java/step-decisions#gotomulti)
+
 Added `FlowConfig.Builder.offloadHistory(boolean)` to choose whether a run
 offloads its history to object storage. Omitting it means `true`. Pass `false`
 for many short runs that close soon, to avoid object storage requests. Set it at
