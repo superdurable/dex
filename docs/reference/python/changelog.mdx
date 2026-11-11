@@ -10,7 +10,16 @@ This page lists user-visible changes to the Python SDK, newest first; each secti
 
 ## 1.45 {#v1-45}
 
-Not released yet. The next release, sdk-python/v1.45.0, ships these changes.
+Not released yet. The next minor release, sdk-python/v1.45.0, ships these changes.
+
+### Added
+
+- **WorkerOptions.flow_definition_paths** and **WorkerOptions.flow_definitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/python/workers#flow-definitions).
+- **Client.upload_flow_definitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. **AsyncClient** has the same coroutine. [Reference](/reference/python/workers#flow-definitions).
+
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. A dash made the generated child Flow ID ambiguous, so two parents could share one child. When such a Step returns a Wait that contains **SubFlow.run**, the server rejects the result as an invalid Worker response and fails the attempt without retry. The Worker logs a warning first. Default Step types are class names and are not affected. To migrate, change **get_step_type** to return a Step type without a dash. [Reference](/reference/python/subflow#step-types-that-start-subflows).
 
 ### Fixed
 

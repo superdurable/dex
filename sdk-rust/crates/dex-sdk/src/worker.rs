@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -17,11 +17,12 @@ use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
 
+use crate::flow_definition::{collect_flow_definitions, upload_flow_definitions_at_worker_start};
 use crate::server_protocol::{NegotiatedServerProtocolVersion, negotiate_server_protocol};
 use crate::value_hydrator::ValueHydrator;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::worker_pull::PullWorker;
-use crate::{BlobCache, Registry, SdkError, SdkResult, WorkerOptions};
+use crate::{BlobCache, FlowDefinitionDocument, Registry, SdkError, SdkResult, WorkerOptions};
 
 const CREATED: u8 = 0;
 const RUNNING: u8 = 1;
@@ -51,6 +52,8 @@ pub struct Worker {
     runtime: Runtime,
     flow_service: FlowServiceClient<CredentialChannel>,
     attribute_indexes: HashMap<String, i32>,
+    flow_types: BTreeSet<String>,
+    flow_definitions: Vec<FlowDefinitionDocument>,
     attribute_index_sync_timeout: std::time::Duration,
     pull: PullWorker,
     shutdown: watch::Sender<bool>,
@@ -77,11 +80,19 @@ impl Worker {
     /// Returns [`SdkError::FlowDefinition`] for invalid Worker options, or Service for runtime
     /// and endpoint initialization failures. Invalid TLS options return [`SdkError::InvalidArgument`].
     /// The connection is lazy; certificate and handshake failures occur during [`Self::start`].
+    /// Changed in 1.45.0: this method reads the configured Flow definition files. It returns
+    /// [`SdkError::FlowDefinition`] when two Flow definition sources share a Flow type, or an
+    /// in-memory document is not a Flow Definition Graph 2.x naming its Flow type, or a
+    /// Flow definition path is missing or invalid.
     pub fn try_new(
         registry: Registry,
         blob_cache: Arc<BlobCache>,
-        options: WorkerOptions,
+        mut options: WorkerOptions,
     ) -> SdkResult<Self> {
+        let (flow_definition_paths, flow_definition_documents) =
+            options.take_flow_definition_sources();
+        let flow_definitions =
+            collect_flow_definitions(flow_definition_paths, flow_definition_documents)?;
         let runtime = Runtime::new().map_err(service_error)?;
         if options.attribute_index_sync_timeout_value().is_zero() {
             return Err(SdkError::FlowDefinition {
@@ -105,6 +116,7 @@ impl Worker {
             crate::worker_pull::outbound_task_channel(endpoint.clone(), options.credential_value())
         };
         let attribute_indexes = registry.attribute_indexes().clone();
+        let flow_types = registry.flow_types().into_iter().collect();
         let hydrator = ValueHydrator::new(flow_service.clone(), blob_cache);
         let negotiated_protocol_version = NegotiatedServerProtocolVersion::default();
         let dispatcher =
@@ -115,6 +127,8 @@ impl Worker {
             runtime,
             flow_service,
             attribute_indexes,
+            flow_types,
+            flow_definitions,
             attribute_index_sync_timeout: options.attribute_index_sync_timeout_value(),
             pull,
             shutdown,
@@ -127,6 +141,11 @@ impl Worker {
     ///
     /// Changed in 1.23.0: busy streams send transport keepalives during handler execution.
     /// These preserve the connection; handlers must still record progress within their heartbeat timeout.
+    ///
+    /// Changed in 1.45.0: after Attribute-index synchronization and before opening task streams,
+    /// the Worker uploads the Flow definitions configured with
+    /// [`WorkerOptions::flow_definition_paths`] and [`WorkerOptions::flow_definitions`]. An upload
+    /// failure is logged as a warning and does not stop the Worker.
     ///
     /// Stream errors are logged and retried. After [`Self::stop`], this method drains
     /// active handlers for the configured timeout, cancels any remaining handlers, and waits for
@@ -206,6 +225,21 @@ impl Worker {
                 self.state.store(STOPPED, Ordering::Release);
                 return Err(service_error(elapsed));
             }
+        }
+        if !self.flow_definitions.is_empty() {
+            let mut upload_shutdown = self.shutdown.subscribe();
+            self.runtime.block_on(async {
+                // Stop cancels an in-flight upload by dropping its future.
+                tokio::select! {
+                    () = upload_flow_definitions_at_worker_start(
+                        &flow_service,
+                        self.attribute_index_sync_timeout,
+                        &self.flow_definitions,
+                        &self.flow_types,
+                    ) => {}
+                    _ = upload_shutdown.wait_for(|is_stopped| *is_stopped) => {}
+                }
+            });
         }
         let result = self.runtime.block_on(self.pull.run(shutdown));
         self.state.store(STOPPED, Ordering::Release);

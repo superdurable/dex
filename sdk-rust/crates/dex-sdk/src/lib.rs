@@ -23,6 +23,7 @@ mod context;
 mod credential;
 mod flow;
 mod flow_config;
+mod flow_definition;
 mod flow_info;
 mod flow_result;
 mod flow_timeout_handler_options;
@@ -71,6 +72,9 @@ pub use credential::{Credential, CredentialError, FileCredential};
 pub use dex_blob_cache::{BlobCache, BlobCacheConfig};
 pub use flow::{Flow, FlowTimeoutHandler};
 pub use flow_config::{ActiveStepSearchMode, FlowConfig};
+pub use flow_definition::{
+    FlowDefinitionDocument, FlowDefinitionUploadOutcome, FlowDefinitionUploadResult,
+};
 pub use flow_info::{FlowErrorType, FlowInfo, FlowStatus, SearchFlowEntry, SearchFlowsPage};
 pub use flow_result::{FlowResult, StepCompletion};
 pub use flow_timeout_handler_options::{FlowTimeoutHandlerFailure, FlowTimeoutHandlerOptions};

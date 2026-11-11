@@ -140,17 +140,23 @@ func TestDexWebV2ServesGoFlowsWithoutTypeOverrides(t *testing.T) {
 	require.Equal(t, "ReplyFlow", flows[1].flowType)
 	require.Equal(t, "awaitDecision", flows[0].startStepType)
 
-	var catalog dexWebV2Catalog
+	// Other tests on the same server may upload more definitions, so only these two Flow types count.
+	catalogStartSteps := make(map[string]string, len(flows))
 	require.Eventually(t, func() bool {
+		var catalog dexWebV2Catalog
 		status, err := web.getJSON("/api/v2/catalog", &catalog)
-		return err == nil && status == http.StatusOK && len(catalog.Flows) == len(flows)
+		if err != nil || status != http.StatusOK {
+			return false
+		}
+		clear(catalogStartSteps)
+		for _, entry := range catalog.Flows {
+			if (entry.FlowType == flows[0].flowType || entry.FlowType == flows[1].flowType) && entry.Definition.Start != nil {
+				catalogStartSteps[entry.FlowType] = entry.Definition.Start.StepType
+			}
+		}
+		return len(catalogStartSteps) == len(flows)
 	}, dexWebV2ConvergenceTimeout, dexWebV2PollInterval, "Dex Web v2 catalog did not list both Flow Definition Graphs")
-	web.revision = catalog.DefinitionRevision
-	catalogStartSteps := make(map[string]string, len(catalog.Flows))
-	for _, entry := range catalog.Flows {
-		require.NotNil(t, entry.Definition.Start, entry.FlowType)
-		catalogStartSteps[entry.FlowType] = entry.Definition.Start.StepType
-	}
+	web.useCatalogRevisions(t)
 	require.Equal(t, map[string]string{
 		flows[0].flowType: flows[0].startStepType,
 		flows[1].flowType: flows[1].startStepType,
@@ -211,7 +217,7 @@ func TestDexWebV2ServesGoFlowsWithoutTypeOverrides(t *testing.T) {
 		require.Equal(t, dex.FlowCompleted, waitForFlow(t, webStartedFlowID, false).Status)
 	})
 
-	stepNames := web.definitionStepNames(t)
+	stepNames := web.definitionStepNames(t, []string{flows[0].flowType, flows[1].flowType})
 	for flowType, flowIDs := range runIDsByFlowType {
 		require.NotEmpty(t, stepNames[flowType], flowType)
 		for _, flowID := range flowIDs {
@@ -272,20 +278,23 @@ func (web *dexWebV2Client) searchSummary(flowType string, flowID string) (map[st
 	return nil, false, nil
 }
 
-func (web *dexWebV2Client) definitionStepNames(t *testing.T) map[string][]string {
+// definitionStepNames reads each Flow type's graphs from its own route, as a run page does.
+func (web *dexWebV2Client) definitionStepNames(t *testing.T, flowTypes []string) map[string][]string {
 	t.Helper()
-	var definitions dexWebFlowDefinitions
-	status, err := web.getJSON("/api/flow-definitions", &definitions)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, status)
 	stepNames := make(map[string][]string)
-	for _, definition := range definitions.Definitions {
-		if definition.SchemaVersion != "2.0" || !definition.Valid {
-			continue
-		}
-		for _, node := range definition.Graph.Nodes {
-			if node.Kind == "step" {
-				stepNames[definition.FlowName] = append(stepNames[definition.FlowName], node.Name)
+	for _, flowType := range flowTypes {
+		var definitions dexWebFlowDefinitions
+		status, err := web.getJSON("/api/flow-definitions/by-type?flowType="+url.QueryEscape(flowType), &definitions)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, status, flowType)
+		for _, definition := range definitions.Definitions {
+			if definition.SchemaVersion != "2.0" || !definition.Valid {
+				continue
+			}
+			for _, node := range definition.Graph.Nodes {
+				if node.Kind == "step" {
+					stepNames[definition.FlowName] = append(stepNames[definition.FlowName], node.Name)
+				}
 			}
 		}
 	}
@@ -325,6 +334,25 @@ func (web *dexWebV2Client) historyStepTypes(t *testing.T, flowID string) []strin
 
 func (web *dexWebV2Client) displayPath(flowType string, flowID string) string {
 	return "/api/v2/display?" + url.Values{"flowType": {flowType}, "flowId": {flowID}}.Encode()
+}
+
+// useCatalogRevisions sends every Flow type's revision; Dex Web checks the one each request is about.
+func (web *dexWebV2Client) useCatalogRevisions(t *testing.T) {
+	t.Helper()
+	var catalog struct {
+		Flows []struct {
+			DefinitionRevision string `json:"definitionRevision"`
+		} `json:"flows"`
+	}
+	status, err := web.getJSON("/api/v2/catalog", &catalog)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+	revisions := make([]string, 0, len(catalog.Flows))
+	for _, entry := range catalog.Flows {
+		require.NotEmpty(t, entry.DefinitionRevision)
+		revisions = append(revisions, entry.DefinitionRevision)
+	}
+	web.revision = strings.Join(revisions, ",")
 }
 
 func (web *dexWebV2Client) getJSON(path string, output any) (int, error) {

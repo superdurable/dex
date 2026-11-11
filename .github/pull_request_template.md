@@ -10,4 +10,6 @@
 
 <!-- What ran locally, and what CI covers. -->
 
+<!-- A skills/ change adds a fragment: python3 script/release/changelog_fragments.py new skills --bump <level>. A user-visible component change adds one per component: new <target> --section <section>. -->
+
 <!-- Fixes #123 -->

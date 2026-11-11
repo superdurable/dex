@@ -102,8 +102,7 @@ export interface PiAgentFunctionToolOptions {
 }
 
 /**
- * Wraps a Pi `AgentTool` as a built-in agent loop {@link FunctionTool}, so each of its calls runs in its own Dex
- * tool Step.
+ * Wraps a Pi `AgentTool` as a built-in loop {@link FunctionTool}, so each of its calls runs in its own Dex tool Step.
  *
  * Every Dex tool declares its side-effect class. Pass `effect`, or declare `replay` on the tool:
  * `replay: "safe"` runs as `idempotent_write`, which `CallTool` retries, and `replay: "never"` runs as

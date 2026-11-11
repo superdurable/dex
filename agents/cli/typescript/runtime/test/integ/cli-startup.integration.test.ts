@@ -91,6 +91,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       connectors: { mcp: "auto", enabled: ["hackernews"] },
       workspace: "~/dex-agent-workspace",
       local_tools: { files: true, shell: { enabled: true, allow: [] }, web_fetch: false, browser: false },
+      media: { store: "auto" },
       builtin: {},
     });
     stdin.write("model\n");
@@ -162,6 +163,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       connectors: { mcp: "auto" },
       workspace: "~/dex-agent-workspace",
       local_tools: { files: true, shell: { enabled: true, allow: [] }, web_fetch: true, browser: true },
+      media: { store: "auto" },
       builtin: {},
     });
     cli.writeLine("/exit");

@@ -292,7 +292,8 @@ async function probeDexFlowService(serverAddress: string): Promise<string | unde
       () => undefined,
       (error: unknown) => (error instanceof FlowNotFoundError ? undefined : describeError(error)),
     );
-    const timeout = delay(identityProbeTimeoutMs).then(() => "it did not answer within 5 seconds");
+    // Unreferenced, so an answered probe leaves no 5-second timer behind.
+    const timeout = delay(identityProbeTimeoutMs, undefined, { ref: false }).then(() => "it did not answer within 5 seconds");
     return await Promise.race([answer, timeout]);
   } finally {
     await client.close().catch(() => undefined);

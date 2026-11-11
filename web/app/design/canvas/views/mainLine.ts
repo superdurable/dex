@@ -43,14 +43,28 @@ export function longestPathRanks(order: string[], edges: GraphEdge[]): Map<strin
   const seen = new Set<string>()
   const back = new Set<string>()
   const key = (a: string, b: string): string => `${a}\u0000${b}`
-  const visit = (v: string): void => {
-    seen.add(v)
-    onStack.add(v)
-    for (const w of out.get(v) ?? []) {
-      if (onStack.has(w)) back.add(key(v, w))
-      else if (!seen.has(w)) visit(w)
+  // Depth-first with an explicit stack, so a long chain cannot exhaust the call stack; it visits in recursive order.
+  const visit = (root: string): void => {
+    const frames: { node: string; next: number }[] = [{ node: root, next: 0 }]
+    seen.add(root)
+    onStack.add(root)
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1]
+      const targets = out.get(frame.node) ?? []
+      if (frame.next >= targets.length) {
+        onStack.delete(frame.node)
+        frames.pop()
+        continue
+      }
+      const w = targets[frame.next]
+      frame.next += 1
+      if (onStack.has(w)) back.add(key(frame.node, w))
+      else if (!seen.has(w)) {
+        seen.add(w)
+        onStack.add(w)
+        frames.push({ node: w, next: 0 })
+      }
     }
-    onStack.delete(v)
   }
   for (const id of order) if (!seen.has(id)) visit(id)
 

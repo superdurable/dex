@@ -23,6 +23,7 @@ from dex_agents import (
     AgentTurnContext,
     DeferredToolCall,
     DeferredToolExecution,
+    MediaStore,
     ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
@@ -237,6 +238,7 @@ class ConnectorsMcpToolSource:
         *,
         is_available: bool = True,
         report: Callable[[str], None] | None = None,
+        media_store: MediaStore | None = None,
     ) -> None:
         """Connect to one connectors MCP server.
 
@@ -246,6 +248,12 @@ class ConnectorsMcpToolSource:
             is_available: Whether the server answered when the command started.
             report: Prints a line when the server stops or starts answering;
                 ``None`` prints nothing.
+            media_store: The store for the images that tool results carry.
+                With a store, each image of a successful result is uploaded
+                in the tool Step and reaches the model as an image reference.
+                ``None``, the default, keeps images as JSON in the output text.
+
+                .. versionadded:: 0.5.0
         """
         self._url = url
         self._resolver = resolver
@@ -254,6 +262,7 @@ class ConnectorsMcpToolSource:
         self._mcp = McpToolSource(
             [McpStreamableHttpServerConfig(name=_MCP_SERVER_NAME, url=url)],
             client_name=_CLIENT_NAME,
+            media_store=media_store,
         )
         self._last_listing: tuple[ConnectorToolDefinition, ...] = ()
 

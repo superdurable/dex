@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { rename, symlink, unlink } from "node:fs/promises";
 import { setImmediate as setImmediatePromise } from "node:timers/promises";
@@ -14,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 
-import type { AgentTurnContext, DeferredToolExecution, ToolPolicy } from "@superdurable/dex-agents";
+import { ToolExecutionError, type AgentTurnContext, type DeferredToolExecution, type ToolPolicy } from "@superdurable/dex-agents";
 
 import {
   LocalToolSource,
@@ -23,7 +24,7 @@ import {
   resolveConfig,
   resolveTurnToolPolicy,
 } from "../../src/index.js";
-import { WorkspaceFiles } from "../../src/local-tools/workspace-files.js";
+import { WorkspaceFileRefusedError, WorkspaceFiles } from "../../src/local-tools/workspace-files.js";
 
 function newWorkspace(): { root: string; workspace: string; files: WorkspaceFiles } {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "dex-agents-boundary-")));
@@ -131,6 +132,105 @@ describe("the workspace boundary of the file tools", () => {
     await assert.rejects(files.editFile("missing.txt", "a", "b"), /does not exist/);
     assert.equal(await files.editFile("todo.txt", "milk", "oat milk $&"), "edited todo.txt: replaced 1 occurrence");
     assert.equal(readFileSync(join(workspace, "todo.txt"), "utf8"), "buy oat milk $&\nbuy bread\n");
+  });
+
+  test("the byte, stat, and listing methods refuse outside links and hard links", async () => {
+    const { root, workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "notes.txt"), "inside");
+    symlinkSync(join(root, "outside.txt"), join(workspace, "secret.txt"));
+    symlinkSync(join(root, "outside-dir"), join(workspace, "secret-dir"));
+    linkSync(join(root, "outside.txt"), join(workspace, "linked.txt"));
+    assert.equal((await files.readFileWithVersion("notes.txt")).bytes.toString("utf8"), "inside");
+    assert.equal((await files.readFileWithVersion("notes.txt", 6)).bytes.length, 6);
+    await assert.rejects(files.readFileWithVersion("notes.txt", 5), /larger than 5 bytes/);
+    for (const invalidLimit of [Number.NaN, -1, 1.5, 64 * 1024 * 1024 + 1]) {
+      await assert.rejects(files.readFileWithVersion("notes.txt", invalidLimit), TypeError);
+    }
+    await assert.rejects(files.readFileWithVersion("secret.txt"), /outside the workspace/);
+    await assert.rejects(files.readFileWithVersion(join(workspace, "linked.txt")), /has 2 hard links/);
+    await assert.rejects(files.statExisting("secret.txt"), /outside the workspace/);
+    await assert.rejects(files.readDirectoryEntries("secret-dir"), /outside the workspace/);
+    assert.ok((await files.statExisting(".")).isDirectory());
+    assert.deepEqual(
+      (await files.readDirectoryEntries(".")).map((entry) => [entry.name, entry.isDirectory, entry.isSymbolicLink]),
+      [
+        ["linked.txt", false, false],
+        ["notes.txt", false, false],
+        ["secret-dir", false, true],
+        ["secret.txt", false, true],
+      ],
+    );
+  });
+
+  test("the byte, stat, and listing methods refuse a path swapped for an outside link after a check", async () => {
+    const { root, workspace, files } = newWorkspace();
+    mkdirSync(join(workspace, "notes"));
+    writeFileSync(join(workspace, "notes", "a.txt"), "inside");
+    assert.ok((await files.statExisting("notes/a.txt")).isFile());
+    assert.equal((await files.readDirectoryEntries("notes")).length, 1);
+    renameSync(join(workspace, "notes"), join(workspace, "notes-old"));
+    symlinkSync(join(root, "outside-dir"), join(workspace, "notes"));
+    writeFileSync(join(root, "outside-dir", "a.txt"), "outside secret");
+    await assert.rejects(files.statExisting("notes/a.txt"), /outside the workspace/);
+    await assert.rejects(files.readDirectoryEntries("notes"), /outside the workspace/);
+    await assert.rejects(files.readFileWithVersion("notes/a.txt"), /outside the workspace/);
+  });
+
+  test("a FIFO in the workspace is refused at once, never blocking a read or a search", async () => {
+    const { workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "notes.txt"), "inside");
+    const fifoCreation = spawnSync("mkfifo", [join(workspace, "pipe")]);
+    assert.equal(fifoCreation.status, 0, String(fifoCreation.stderr));
+    const startedAt = Date.now();
+    await assert.rejects(files.readFile("pipe"), (error: unknown) => error instanceof WorkspaceFileRefusedError && /not a regular file/.test(error.message));
+    await assert.rejects(files.readFileWithVersion("pipe"), /not a regular file/);
+    assert.equal(await files.searchFiles("inside", "."), "notes.txt:1: inside");
+    assert.ok(Date.now() - startedAt < 5_000, "nothing blocked on the FIFO");
+    const pipeEntry = (await files.readDirectoryEntries(".")).find((entry) => entry.name === "pipe");
+    assert.deepEqual([pipeEntry?.isFile, pipeEntry?.isDirectory, pipeEntry?.isSymbolicLink], [false, false, false]);
+  });
+
+  test("refusals are WorkspaceFileRefusedError, and a failure after the rename is not", async () => {
+    const { root, workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "draft.txt"), "before");
+    symlinkSync(join(root, "outside.txt"), join(workspace, "secret.txt"));
+    linkSync(join(root, "outside.txt"), join(workspace, "linked.txt"));
+    const isRefusal = (error: unknown): boolean => error instanceof WorkspaceFileRefusedError;
+    await assert.rejects(files.readFileWithVersion("secret.txt"), isRefusal);
+    await assert.rejects(files.writeFile("linked.txt", "x"), isRefusal);
+    await assert.rejects(files.writeFile("secret.txt", "x"), isRefusal);
+    await assert.rejects(files.readDirectoryEntries("draft.txt"), (error: unknown) => isRefusal(error) && /is not a directory/.test(String(error)));
+    const { version } = await files.readFileWithVersion("draft.txt");
+    writeFileSync(join(workspace, "draft.txt"), "changed");
+    await assert.rejects(files.replaceFileIfUnchanged("draft.txt", "after", version), isRefusal);
+
+    // The post-rename check fails as if the directory had been swapped right after the rename.
+    (files as unknown as { isOpenedFileAt: () => Promise<boolean> }).isOpenedFileAt = () => Promise.resolve(false);
+    await assert.rejects(
+      files.writeFile("draft.txt", "after"),
+      (error: unknown) => error instanceof ToolExecutionError && !isRefusal(error) && /changed while it was written/.test(error.message),
+    );
+  });
+
+  test("replaceFileIfUnchanged writes the read version and refuses a changed file, a link, or a hard link", async () => {
+    const { root, workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "draft.txt"), "first\n");
+    const { version } = await files.readFileWithVersion("draft.txt");
+    assert.equal(await files.replaceFileIfUnchanged("draft.txt", "second\n", version), "wrote 7 bytes to draft.txt");
+    assert.equal(readFileSync(join(workspace, "draft.txt"), "utf8"), "second\n");
+
+    const { version: secondVersion } = await files.readFileWithVersion("draft.txt");
+    writeFileSync(join(workspace, "draft.txt"), "edited meanwhile\n");
+    await assert.rejects(files.replaceFileIfUnchanged("draft.txt", "third\n", secondVersion), /changed after/);
+    assert.equal(readFileSync(join(workspace, "draft.txt"), "utf8"), "edited meanwhile\n");
+
+    const { version: thirdVersion } = await files.readFileWithVersion("draft.txt");
+    renameSync(join(workspace, "draft.txt"), join(workspace, "draft-old.txt"));
+    symlinkSync(join(root, "outside.txt"), join(workspace, "draft.txt"));
+    await assert.rejects(files.replaceFileIfUnchanged("draft.txt", "third\n", thirdVersion), /symbolic link/);
+    linkSync(join(root, "outside.txt"), join(workspace, "linked.txt"));
+    await assert.rejects(files.replaceFileIfUnchanged("linked.txt", "third\n", thirdVersion), /has 2 hard links/);
+    assert.equal(readFileSync(join(root, "outside.txt"), "utf8"), "outside secret");
   });
 });
 

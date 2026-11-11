@@ -46,8 +46,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.logging.Logger;
 
 final class WorkerDispatcher {
+    private static final Logger LOGGER = Logger.getLogger(WorkerDispatcher.class.getName());
     private static final String TIMEOUT_HANDLER_STEP_TYPE = "sys:timeout_handler";
 
     private final Registry registry;
@@ -332,10 +334,23 @@ final class WorkerDispatcher {
         } else {
             throw new InvalidStepResultException(source + " returned an unsupported Wait kind");
         }
+        if (!mapper.subFlows.isEmpty()) {
+            warnSubFlowFromDashedStepType(source, step.getName());
+        }
         waiting.addAllTimerConditions(mapper.timers);
         waiting.addAllChannelConditions(mapper.channels);
         waiting.addAllSubFlowConditions(mapper.subFlows);
         return waiting.build();
+    }
+
+    private static void warnSubFlowFromDashedStepType(
+            final String source,
+            final String stepType) {
+        if (stepType.contains("-")) {
+            LOGGER.warning(source + ": Step type \"" + stepType
+                    + "\" contains \"-\" and cannot start SubFlows; the server rejects this"
+                    + " WaitFor result without retry. Rename the Step type.");
+        }
     }
 
     private static void addConditions(

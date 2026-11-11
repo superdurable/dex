@@ -26,7 +26,7 @@ The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `ai` is a peer dependency too, and `zod` is a peer
 dependency of `ai`. Requirements: Node `^22.0.0 || ^24.0.0`,
-`@superdurable/dex` 1.38.0, and `ai` 7.0.159 or a later 7.x release.
+`@superdurable/dex` 1.44.0, and `ai` 7.0.159 or a later 7.x release.
 
 Develop the package inside this repository with `./ci.sh`. There
 `@superdurable/dex-agents` is a `file:../core` devDependency, and the
@@ -299,6 +299,40 @@ Step execution. Usage counts one model call per AI SDK step; cached input
 tokens come from `inputTokenDetails.cacheReadTokens` and reasoning tokens from
 `outputTokenDetails.reasoningTokens`.
 
+## Images
+
+Pass a media store to show images to the model. The core README's Images
+section describes references, stores, and limits.
+
+```ts
+import { S3MediaStore } from "@superdurable/dex-agents/s3";
+
+const mediaStore = new S3MediaStore({ bucket: "agent-media", prefix: "sessions" });
+const flow = createVercelAiAgentSessionFlow(supportAgent, "SupportAgent", { mediaStore });
+```
+
+- **User images.** With `mediaStore`, `send_user_message` accepts images. The
+  model sees the user message as its text, then one AI SDK file part per image,
+  in the message's order: `{ type: "file", mediaType, data: { type: "data",
+  data: <bytes> } }`.
+- **Tool result images.** A tool source's `ToolExecutionResult.images`, such as
+  a connector or MCP result, reach the model as the tool result's `content`
+  output: the output's text, then one file part per image. The stored tool
+  result message's `images` lists them, each once and at most 20; the model
+  still sees every image when parallel results share one message.
+- **What is stored.** `framework_item` and `FrameworkRunState` hold each image
+  as a text part `[image <uri>]` whose `providerOptions.dexAgents.imageReference`
+  is the reference, never the bytes. Right before each `streamText` call, the
+  runner reads the images with `loadImages` and replaces each such part with a
+  file part. A store that cannot return an image fails the model call, and the
+  `RunModel` Step retries. A replay after a crash sends the same prompt.
+- **Without a store**, `send_user_message` refuses images and tool result
+  images do not reach the model. A history that holds image placeholders, from
+  a Worker that had a store, reaches the model as the placeholder text.
+- An AI SDK tool's `toModelOutput` that returns file data still stores its bytes
+  in `framework_item`, because it runs in `RunModel`. Return images from a tool
+  source instead.
+
 ## Tracing
 
 With the session's `tracing` option, each `RunModel` returns
@@ -427,7 +461,8 @@ DEXCLI=/path/to/dexcli ./ci.sh
 free ports and need no model key. `test/fixtures/scripted-language-model.ts`
 is an AI SDK `MockLanguageModelV4` that decides only from its prompt, so the
 tests prove history and tool result replay. It records every model call in an
-`InvocationLog`, and reports provider `dex-test`, model `scripted-model`, and
+`InvocationLog` and its prompt in `model-prompts.jsonl`, with bytes as base64,
+and reports provider `dex-test`, model `scripted-model`, and
 response model `scripted-model-2026-11`. Commands in the last user message:
 
 | Command | Model response |
@@ -471,4 +506,8 @@ The tests check each turn's Step shape with `readStepHistory` and cover:
   OpenTelemetry exporter;
 - approval across a Worker restart; `outcome_unknown` after a SIGKILL during
   `CallSingleAttemptTool`; and SIGKILL during `RunModel`, which reruns only that
-  model call, before and after streamed output.
+  model call, before and after streamed output;
+- with a `LocalDirectoryMediaStore`, a user image and a `take_screenshot` tool
+  source image in the model prompt as file parts with their exact bytes, only
+  references in stored messages and the run state, the same prompt after a
+  SIGKILL during `RunModel`, and a session without a store refusing images.

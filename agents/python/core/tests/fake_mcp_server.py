@@ -50,6 +50,10 @@ real tool run appends ``<tool> <idempotency key>`` to the ``InvocationLog`` in
   ``data._meta``. ``"crash_after_apply": true`` exits right after it applies a
   new key.
 
+* ``take_screenshot`` (``readOnlyHint``): answers the text ``captured the page``
+  and an image block with ``SCREENSHOT_PNG_BASE64``; ``"broken": true`` sends
+  bytes that are not an image instead.
+
 ``long_report`` also takes ``"outcome": "unknown"``, which completes its task
 with a result that reports the Dex outcome ``unknown``.
 
@@ -82,6 +86,7 @@ from mcp_types import (
     CallToolResult,
     ElicitRequest,
     ElicitRequestFormParams,
+    ImageContent,
     InputRequiredResult,
     RequestParams,
     TextContent,
@@ -107,6 +112,11 @@ REQUEST_META_LOG_NAME = "mcp-request-meta.jsonl"
 READY_LINE = "Uvicorn running on"
 
 _READ_ONLY = ToolAnnotations(read_only_hint=True)
+#: The 1x1 PNG of agents/conformance/images.json that ``take_screenshot`` returns.
+SCREENSHOT_PNG_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAF"
+    "igKvNUXJWQAAAABJRU5ErkJggg=="
+)
 
 
 class _TaskIdParams(RequestParams):
@@ -419,6 +429,19 @@ def send_payment(
     if crash_after_apply:
         os._exit(1)
     return CallToolResult(content=[TextContent(text=f"paid {amount}")])
+
+
+@server.tool(annotations=_READ_ONLY)
+def take_screenshot(ctx: Context, broken: bool = False) -> CallToolResult:
+    """Take a screenshot of the page."""
+    _record("take_screenshot", ctx.request_context)
+    data = "aGVsbG8=" if broken else SCREENSHOT_PNG_BASE64
+    return CallToolResult(
+        content=[
+            TextContent(text="captured the page"),
+            ImageContent(data=data, mime_type="image/png"),
+        ]
+    )
 
 
 @server.resource(

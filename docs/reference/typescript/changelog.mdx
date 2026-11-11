@@ -10,7 +10,16 @@ This page lists user-visible changes to the TypeScript SDK, newest first; each s
 
 ## 1.45 {#v1-45}
 
-Not released yet. The next release, sdk-typescript/v1.45.0, ships these changes.
+Not released yet. The next minor release, sdk-typescript/v1.45.0, ships these changes.
+
+### Added
+
+- **WorkerOptions.flowDefinitionPaths** and **WorkerOptions.flowDefinitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/typescript/workers#flow-definitions).
+- **Client.uploadFlowDefinitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/typescript/workers#flow-definitions).
+
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. The generated child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash let two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; under the default policy the Flow fails. The Worker logs a warning that names the Step type. To migrate, rename the Step type that **getStepType** returns so it has no "-". Step types with "-" that never start SubFlows are unaffected. [Reference](/reference/typescript/subflow#step-types-that-start-subflows).
 
 ### Fixed
 

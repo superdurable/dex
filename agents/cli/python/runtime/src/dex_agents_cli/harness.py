@@ -20,7 +20,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
-from dex_agents import AgentSessionFlow, DeferredToolExecution
+from dex_agents import AgentSessionFlow, DeferredToolExecution, MediaStore
 from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli.config import EffectiveConfig
 from dex_agents_cli.turns import (
@@ -122,7 +122,9 @@ class AgentHarness(Protocol):
         source in ``context.tool_sources`` to the model; a runner-based
         adapter passes them as ``tool_sources``, and a built-in loop harness puts
         them in ``AgentDefinition.tool_sources``. Choose each model call's
-        model and instructions with ``context.resolve_turn``.
+        model and instructions with ``context.resolve_turn``. Pass
+        ``context.media_store`` to an adapter that takes a media store, so
+        the model sees the images the user attaches.
 
         Args:
             context: The configuration, workspace, and tool sources.
@@ -148,6 +150,17 @@ class HarnessContext:
         tool_sources: The connector and local tool sources, which apply each
             turn's session settings themselves. Offer all of them.
         resolver: The turn configuration resolver behind ``resolve_turn``.
+        media_store: The store of the session's images, built from the
+            file's ``media`` section: the images the user attaches with
+            ``/image`` and the images connector tools return. Pass it to the
+            adapter, such as ``media_store=context.media_store``, so its
+            runner reads them from the same store. A runner shows a user
+            message's images only when it implements
+            ``build_user_message_with_images``; otherwise the chat refuses
+            them. The runtime always sets it; ``None`` only in a context a
+            test builds without one.
+
+            .. versionadded:: 0.5.0
     """
 
     flow_type: str
@@ -157,6 +170,7 @@ class HarnessContext:
     harness_options: Mapping[str, Any]
     tool_sources: Sequence[ToolSource]
     resolver: TurnConfigResolver = field(repr=False)
+    media_store: MediaStore | None = field(default=None, repr=False)
 
     def resolve_turn(self, session_settings: Mapping[str, Any] | None) -> ResolvedTurn:
         """Return a turn's model, instructions, and narrowed configuration.

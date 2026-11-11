@@ -82,8 +82,8 @@ export interface PiDurableFunctionToolOptions {
 }
 
 /**
- * Wraps a `pi-durable` tool made with `defineTool` as a built-in agent loop {@link FunctionTool}, for tools that do
- * not use the Harness `api`.
+ * Wraps a `pi-durable` tool made with `defineTool` as a built-in loop {@link FunctionTool}, for tools that do not use
+ * the Harness `api`.
  *
  * Use it to move simple tools from `pi-durable` to Dex unchanged. The effect comes from `options.effect` or from
  * the tool's `replay`: `safe` runs as `idempotent_write`, which `CallTool` retries, and anything else runs as

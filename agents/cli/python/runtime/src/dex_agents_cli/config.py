@@ -26,7 +26,7 @@ from jsonschema import Draft202012Validator, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-#: ``dex.server`` and ``connectors.mcp`` value that lets the runtime choose.
+#: ``dex.server``, ``connectors.mcp``, and ``media.store`` value that lets the runtime choose.
 AUTO = "auto"
 #: ``workspace`` when the file omits it.
 DEFAULT_WORKSPACE = "~/dex-agent-workspace"
@@ -215,6 +215,25 @@ class LocalToolsConfig:
 
 
 @dataclass(frozen=True)
+class MediaConfig:
+    """The ``media`` section: where the images of the sessions are stored.
+
+    Session settings never change it.
+
+    Attributes:
+        store: ``auto`` for the local directory ``~/.dex/agents/media``, or
+            ``s3://<bucket>`` or ``s3://<bucket>/<prefix>``.
+        endpoint: The URL of an S3-compatible service, or ``None`` for AWS S3.
+            It is only set with an ``s3://`` store.
+
+    .. versionadded:: 0.5.0
+    """
+
+    store: str = AUTO
+    endpoint: str | None = None
+
+
+@dataclass(frozen=True)
 class EffectiveConfig:
     """A configuration with every default applied: a file's, or one turn's.
 
@@ -231,6 +250,9 @@ class EffectiveConfig:
         workspace: The local tools' directory.
         local_tools: The local tools.
         harness_options: The command's own harness section, ``{}`` by default.
+        media: The media store of the images. Session settings never change it.
+
+            .. versionadded:: 0.5.0
     """
 
     model: str
@@ -242,6 +264,7 @@ class EffectiveConfig:
     workspace: str = DEFAULT_WORKSPACE
     local_tools: LocalToolsConfig = field(default_factory=LocalToolsConfig)
     harness_options: Mapping[str, Any] = field(default_factory=dict)
+    media: MediaConfig = field(default_factory=MediaConfig)
 
     def to_json(self) -> dict[str, Any]:
         """Return the configuration in the conformance file's JSON shape.
@@ -279,6 +302,7 @@ class EffectiveConfig:
                 "web_fetch": self.local_tools.web_fetch,
                 "browser": self.local_tools.browser,
             },
+            "media": {"store": self.media.store, "endpoint": self.media.endpoint},
             "harness_options": json.loads(json.dumps(self.harness_options)),
         }
 
@@ -345,6 +369,10 @@ def resolve_config(
     mcp = connectors.get("mcp", AUTO)
     _raise_invalid_url(server, "/dex/server")
     _raise_invalid_url(mcp, "/connectors/mcp")
+    media = config.get("media", {})
+    endpoint = media.get("endpoint")
+    if endpoint is not None:
+        _raise_invalid_url(endpoint, "/media/endpoint")
     enabled = connectors.get("enabled")
     entries = None if enabled is None else _parse_connector_entries(enabled, None)
     model = config.get("model", harness_default_model)
@@ -369,6 +397,7 @@ def resolve_config(
             browser=local_tools.get("browser", True),
         ),
         harness_options=json.loads(json.dumps(config.get(harness_section, {}))),
+        media=MediaConfig(store=media.get("store", AUTO), endpoint=endpoint),
     )
 
 

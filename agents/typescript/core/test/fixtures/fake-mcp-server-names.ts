@@ -18,3 +18,6 @@ export const fakeMcpReadyLine = "fake MCP server listening";
 export const fakeMcpServerModulePath = fileURLToPath(new URL("./fake-mcp-server.js", import.meta.url));
 /** Compiled entry module of the fake MCP gateway. */
 export const fakeMcpGatewayModulePath = fileURLToPath(new URL("./fake-mcp-gateway.js", import.meta.url));
+/** The 1x1 PNG of agents/conformance/images.json that the fake server's take_screenshot returns. */
+export const screenshotPngBase64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==";

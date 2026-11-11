@@ -87,8 +87,8 @@ pub(crate) fn apply_step_command(
         StepCommandOutcome::Ignored(reply) => {
             Ok(StepHandlerResult::Done(HandlerResult::Rejected(reply)))
         }
-        outcome @ (StepCommandOutcome::RejectedResult(_)
-        | StepCommandOutcome::MismatchedResult(_)) => {
+        outcome
+        @ (StepCommandOutcome::RejectedResult(_) | StepCommandOutcome::InvalidResult(_)) => {
             let (invocation, attempt, task_id) = match command {
                 Command::StepAttemptHeartbeat(heartbeat) => (
                     heartbeat.invocation.clone(),
@@ -124,7 +124,7 @@ fn rejected_result_failure(
         StepCommandOutcome::RejectedResult(rejection @ ValueRejection::UnknownReference { .. }) => {
             (StepAttemptFailureKind::InvalidResponse, rejection.message())
         }
-        StepCommandOutcome::MismatchedResult(detail) => {
+        StepCommandOutcome::InvalidResult(detail) => {
             (StepAttemptFailureKind::InvalidResponse, detail.clone())
         }
         StepCommandOutcome::Applied(_)

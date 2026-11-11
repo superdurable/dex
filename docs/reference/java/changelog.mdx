@@ -10,7 +10,16 @@ This page lists user-visible changes to the Java SDK, newest first; each section
 
 ## 1.45 {#v1-45}
 
-Not released yet. The next release, sdk-java/v1.45.0, ships these changes.
+Not released yet. The next minor release, sdk-java/v1.45.0, ships these changes.
+
+### Added
+
+- **WorkerOptions.Builder.flowDefinitionPaths** and **WorkerOptions.Builder.flowDefinitions** make a **Worker** upload Flow Definition Graph documents when it starts, so Dex Web can draw the Flow types it registers. **FlowDefinitionDocument** holds an in-memory document. Upload failures, including a Server without Flow definition storage, are logged as warnings and never stop the Worker. [Reference](/reference/java/workers#upload-flow-definitions).
+- **Client.uploadFlowDefinitions** uploads documents from a deploy or CI script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/java/client#api-names).
+
+### Breaking
+
+- A Step whose Step type contains **-** can no longer start SubFlows. The child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with **-**, so a dash made two parents share one child. When such a Step's **waitFor** returns a **SubFlow.run** condition, the server rejects the result as an invalid Worker response and fails the attempt without retry; with the default failure policy, the Flow fails. Steps that start no SubFlows are unaffected. To migrate, rename the Step type, for example by overriding **getStepType**; the rename changes the child Flow IDs of new SubFlow starts. [Reference](/reference/java/subflow#step-types-that-start-subflows).
 
 ### Fixed
 

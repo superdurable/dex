@@ -21,7 +21,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8.5"
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
@@ -36,7 +37,6 @@ api-key-credential = ["dep:reqwest"]
 axum = "0.8"
 h2 = "0.4"
 rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
-sha2.workspace = true
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tempfile.workspace = true
 tonic-prost.workspace = true

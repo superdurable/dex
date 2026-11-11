@@ -12,7 +12,13 @@ import type {
   MastraMessagePart,
   MastraToolInvocationPart,
 } from "@mastra/core/agent/message-list";
-import type { AgentMessage, FrameworkMessage } from "@superdurable/dex-agents";
+import type { AgentImageReference, AgentMessage, FrameworkMessage } from "@superdurable/dex-agents";
+
+import {
+  buildToolResultImageProviderOptions,
+  buildUserImagePlaceholderPart,
+  listDisplayImages,
+} from "./mastra-message-images.js";
 
 /** ID prefix that replay gives stored messages without an ID, such as user messages. */
 export const replayedMessageIdPrefix = "dex-message-";
@@ -35,10 +41,17 @@ export interface MastraTurnRunState {
 }
 
 /** Omits `id` and `createdAt` to stay deterministic; {@link decodeStoredMastraMessages} fills both. */
-export function buildMastraUserFrameworkMessage(text: string): FrameworkMessage {
+export function buildMastraUserFrameworkMessage(
+  text: string,
+  images: readonly AgentImageReference[] = [],
+): FrameworkMessage {
   const storedUserMessage: Omit<MastraDBMessage, "id" | "createdAt"> = {
     role: "user",
-    content: { format: 2, parts: [{ type: "text", text }], content: text },
+    content: {
+      format: 2,
+      parts: [{ type: "text", text }, ...images.map(buildUserImagePlaceholderPart)],
+      content: text,
+    },
   };
   return {
     role: "user",
@@ -77,6 +90,7 @@ export function projectMastraMessage(message: MastraDBMessage): FrameworkMessage
   const texts = parts.flatMap((part) => (part.type === "text" && part.text !== "" ? [part.text] : []));
   const toolInvocations = parts.filter(isToolInvocationPart);
   const onlyToolInvocation = toolInvocations.length === 1 ? toolInvocations[0]?.toolInvocation : undefined;
+  const images = listDisplayImages(message);
   return {
     role: message.role === "assistant" ? "assistant" : "user",
     text: texts.length === 0 ? null : texts.join("\n\n"),
@@ -90,6 +104,7 @@ export function projectMastraMessage(message: MastraDBMessage): FrameworkMessage
           ? formatMastraToolOutputText(onlyToolInvocation.result)
           : (onlyToolInvocation.errorText ?? null),
     frameworkItem: JSON.stringify(message),
+    ...(images.length === 0 ? {} : { images }),
   };
 }
 
@@ -116,6 +131,7 @@ export function listPendingMastraToolInvocations(
 export function buildMastraToolResultMessage(
   toolCall: PendingMastraToolCall,
   outputText: string,
+  images: readonly AgentImageReference[] = [],
 ): AIV5Type.ToolModelMessage {
   return {
     role: "tool",
@@ -125,6 +141,7 @@ export function buildMastraToolResultMessage(
         toolCallId: toolCall.toolCallId,
         toolName: toolCall.toolName,
         output: { type: "text", value: outputText },
+        ...(images.length === 0 ? {} : { providerOptions: buildToolResultImageProviderOptions(outputText, images) }),
       },
     ],
   };

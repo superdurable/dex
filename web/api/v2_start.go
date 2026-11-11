@@ -64,7 +64,7 @@ func (h *v2Handler) startFlow(response http.ResponseWriter, request *http.Reques
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	snapshot, ok := h.loadSnapshot(response, request, true)
+	snapshot, ok := h.loadSnapshot(response, request, []string{body.FlowType}, true)
 	if !ok {
 		return
 	}

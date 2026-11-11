@@ -52,7 +52,7 @@ export interface PiTestAgentOptions {
   readonly toolPolicies?: Readonly<Record<string, ToolPolicy>>;
 }
 
-/** A built-in agent loop agent with Pi tools; session settings `model` picks `openai` (default) or `anthropic`. */
+/** A built-in loop agent with Pi tools; session settings `model` picks `openai` (default) or `anthropic`. */
 export function createPiTestAgentFlow(options: PiTestAgentOptions) {
   const clientOptions: PiAiModelClientOptions = {
     apiKey: "test-key",

@@ -14,10 +14,26 @@ import { join } from "node:path";
 
 const [distDirectory, releaseVersion, ...packages] = process.argv.slice(2);
 const corePackageName = "@superdurable/dex-agents";
+const cliRuntimePackageName = `${corePackageName}-cli`;
 const problems = [];
 
+// Maps an agents package, such as core, vercel-ai, cli/runtime, or cli/builtin, to its npm name and directory.
+function describePackage(packageId) {
+  if (packageId === "core") return { packageName: corePackageName, directory: "agents/typescript/core" };
+  if (packageId === "cli/runtime") return { packageName: cliRuntimePackageName, directory: "agents/cli/typescript/runtime" };
+  if (packageId.startsWith("cli/")) {
+    const name = packageId.slice("cli/".length);
+    return { packageName: `${corePackageName}-${name}-cli`, directory: `agents/cli/typescript/${name}`, command: `dex-agents-${name}` };
+  }
+  return { packageName: `${corePackageName}-${packageId}`, directory: `agents/typescript/${packageId}` };
+}
+
+function isAgentsPackageName(name) {
+  return name === corePackageName || name.startsWith(`${corePackageName}-`);
+}
+
 for (const packageDirectoryName of packages) {
-  const packageName = packageDirectoryName === "core" ? corePackageName : `${corePackageName}-${packageDirectoryName}`;
+  const { packageName, directory, command } = describePackage(packageDirectoryName);
   const tarball = join(distDirectory, `${packageName.slice(1).replace("/", "-")}-${releaseVersion}.tgz`);
   if (!existsSync(tarball)) {
     problems.push(`missing ${tarball}`);
@@ -27,12 +43,25 @@ for (const packageDirectoryName of packages) {
   const manifest = JSON.parse(execFileSync("tar", ["-xzOf", tarball, "package/package.json"], { encoding: "utf8" }));
   const label = `${packageName}@${releaseVersion}`;
 
-  for (const member of ["package/LICENSE", "package/README.md", "package/dist/src/index.js", "package/dist/src/index.d.ts"]) {
+  // The CLI runtime also ships the shared configuration schemas.
+  const schemaMembers = packageName === cliRuntimePackageName
+    ? ["package/dist/schemas/config.schema.json", "package/dist/schemas/session-settings.schema.json"]
+    : [];
+  for (const member of ["package/LICENSE", "package/README.md", "package/dist/src/index.js", "package/dist/src/index.d.ts", ...schemaMembers]) {
     if (!members.includes(member)) problems.push(`${label} lacks ${member}`);
   }
   for (const member of members) {
-    if (!member.startsWith("package/dist/src/") && !["package/LICENSE", "package/README.md", "package/package.json"].includes(member)) {
+    if (!member.startsWith("package/dist/src/") && !["package/LICENSE", "package/README.md", "package/package.json", ...schemaMembers].includes(member)) {
       problems.push(`${label} contains ${member}`);
+    }
+  }
+  if (command !== undefined) {
+    const binFile = manifest.bin?.[command];
+    if (typeof binFile !== "string" || !members.includes(`package/${binFile.replace(/^\.\//, "")}`)) {
+      problems.push(`${label} bin ${command} is ${binFile}, not a packed file`);
+    } else {
+      const binSource = execFileSync("tar", ["-xzOf", tarball, `package/${binFile.replace(/^\.\//, "")}`], { encoding: "utf8" });
+      if (!binSource.startsWith("#!/usr/bin/env node\n")) problems.push(`${label} bin ${binFile} lacks the node shebang`);
     }
   }
   if (manifest.name !== packageName || manifest.version !== releaseVersion) {
@@ -55,7 +84,7 @@ for (const packageDirectoryName of packages) {
       problems.push(`${label} peerDependenciesMeta.${dependency} names no peer dependency`);
     }
   }
-  if (manifest.repository?.directory !== `agents/typescript/${packageDirectoryName}`) {
+  if (manifest.repository?.directory !== directory) {
     problems.push(`${label} repository.directory is ${manifest.repository?.directory}`);
   }
   for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
@@ -82,11 +111,19 @@ for (const packageDirectoryName of packages) {
     }
   }
   if (packageDirectoryName !== "core") {
-    if (manifest.peerDependencies?.[corePackageName] !== `^${releaseVersion}`) {
-      problems.push(`${label} must peer-depend on ${corePackageName}@^${releaseVersion}`);
+    const requiredPeers = command === undefined ? [corePackageName] : [corePackageName, cliRuntimePackageName];
+    for (const peer of requiredPeers) {
+      if (manifest.peerDependencies?.[peer] === undefined) problems.push(`${label} must peer-depend on ${peer}@^${releaseVersion}`);
     }
-    if (manifest.dependencies?.[corePackageName] !== undefined) {
-      problems.push(`${label} must not bundle its own ${corePackageName} dependency`);
+    for (const [peer, range] of Object.entries(manifest.peerDependencies ?? {})) {
+      if (isAgentsPackageName(peer) && range !== `^${releaseVersion}`) {
+        problems.push(`${label} must peer-depend on ${peer}@^${releaseVersion}, not ${range}`);
+      }
+    }
+    for (const field of ["dependencies", "optionalDependencies"]) {
+      for (const dependency of Object.keys(manifest[field] ?? {})) {
+        if (isAgentsPackageName(dependency)) problems.push(`${label} must not bundle its own ${dependency} dependency`);
+      }
     }
   }
 }

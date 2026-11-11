@@ -18,7 +18,8 @@ import { AGENT_INBOX_VIEW, RUN_VIEW_PARAM, runPath, sessionRunPath, workQueuePat
 import '../workspace/css/workspace.css';
 import '../workspace/css/experimental.css';
 import { RUN_COPY } from '../workspace/runCopy';
-import { useWebCatalog } from '../catalog/WebCatalogProvider';
+import { useFlowTypesDefinitions, useV2Catalog } from '../catalog/WebCatalogProvider';
+import { drawableDefinitions } from '../catalog/flowTypeDefinitionCache';
 import { PageBreadcrumb } from '../components/PageBreadcrumb';
 import { StartFlowDialog } from '../start/StartFlowDialog';
 import { SESSION_COPY } from '../agents/copy';
@@ -59,8 +60,9 @@ function RunQueueWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
   const {
-    ready, canUseV2, catalog, definitions, error, definitionUpdateKey, handleDefinitionError,
-  } = useWebCatalog();
+    ready, canUseV2, catalog, catalogError, error: listError, definitionUpdateKey, handleDefinitionError, revisionFor,
+  } = useV2Catalog();
+  const error = listError || catalogError;
   const [startOpen, setStartOpen] = useState(false);
   const [startNotice, setStartNotice] = useState('');
   const [isNewSessionOpen, setNewSessionOpen] = useState(false);
@@ -83,6 +85,9 @@ function RunQueueWorkspace() {
     runQuery.appliedFilters,
     workQueuePermissions,
   );
+  // Only the Step type filter reads graphs, and only those of the Flow types being searched.
+  const stepTypeDefinitions = useFlowTypesDefinitions(searchedFlowTypes(runQuery.query.flowTypes, flowType))
+    .flatMap((definitions) => drawableDefinitions(definitions));
   const { strandedFlowIDs, rememberStranded } = useStrandedRuns();
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -95,7 +100,7 @@ function RunQueueWorkspace() {
       navigate(workQueuePath(flowType || undefined), { replace: true });
     }
   }, [definitionUpdateKey, flowType, navigate]);
-  useEffect(() => { setStartOpen(false); setStartNotice(''); }, [flowType, catalog?.definitionRevision]);
+  useEffect(() => { setStartOpen(false); setStartNotice(''); }, [flowType, entry?.definitionRevision]);
 
   if (!ready) return <div className="page-loading">Loading Dex Web…</div>;
   if (!canUseV2) return <Navigate to="/v1/flows" replace />;
@@ -120,7 +125,7 @@ function RunQueueWorkspace() {
   if (!entry) return <Navigate to={workQueuePath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
-  const sessionFlowTypes = agentSessionFlowTypes(catalog, definitions);
+  const sessionFlowTypes = agentSessionFlowTypes(catalog);
   const isSessionFlowType = sessionFlowTypes.includes(entry.flowType);
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
@@ -148,7 +153,7 @@ function RunQueueWorkspace() {
                 </button>
               )}
               <WorkQueueModeSwitch
-                hasAgents={inboxSessionSchemas(catalog.flows, definitions?.definitions ?? []).size > 0}
+                hasAgents={inboxSessionSchemas(catalog.flows).size > 0}
                 mode="runs"
               />
             </>
@@ -163,7 +168,7 @@ function RunQueueWorkspace() {
               flowType={entry.flowType}
               flowTypes={catalog.flows.map((candidate) => candidate.flowType)}
               stepTypes={stepTypeOptions(
-                definitions?.definitions ?? [],
+                stepTypeDefinitions,
                 searchedFlowTypes(runQuery.query.flowTypes, entry.flowType),
                 runQuery.query.activeStepTypes,
               )}
@@ -229,7 +234,7 @@ function RunQueueWorkspace() {
       {startNotice && <div className="sfd-notice" role="status">{startNotice}</div>}
       {isNewSessionOpen && isSessionFlowType && (
         <NewSessionDialog
-          definitionRevision={catalog.definitionRevision}
+          definitionRevisionFor={(sessionFlowType) => revisionFor([sessionFlowType])}
           flowTypes={sessionFlowTypes}
           initialFlowType={entry.flowType}
           onClose={() => setNewSessionOpen(false)}
@@ -243,7 +248,7 @@ function RunQueueWorkspace() {
       {startOpen && entry.definition.start && (
         <StartFlowDialog
           definition={entry.definition.start}
-          definitionRevision={catalog.definitionRevision}
+          definitionRevision={revisionFor([entry.flowType])}
           flowType={entry.flowType}
           onClose={() => setStartOpen(false)}
           onDefinitionChanged={handleDefinitionError}

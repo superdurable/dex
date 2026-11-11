@@ -53,6 +53,10 @@ def test_shared_definitions_are_identical() -> None:
         assert CONFIG_SCHEMA["$defs"][name] == definition, name
 
 
+def test_session_settings_cannot_set_the_media_store() -> None:
+    assert "media" not in SESSION_SETTINGS_SCHEMA["properties"]
+
+
 def test_harness_sections_match_the_schema() -> None:
     sections = FIXTURE["harness_sections"]
     for section in sections:
@@ -61,7 +65,7 @@ def test_harness_sections_match_the_schema() -> None:
             "description": CONFIG_SCHEMA["properties"][section]["description"],
         }
     common = {"model", "system_prompt", "system_prompt_file", "dex", "connectors"}
-    common |= {"approval", "workspace", "local_tools"}
+    common |= {"approval", "workspace", "local_tools", "media"}
     assert set(CONFIG_SCHEMA["properties"]) == common | set(sections)
 
 
@@ -71,7 +75,7 @@ def test_every_property_is_described_and_every_config_default_is_stated() -> Non
             child_path = f"{path}/{name}"
             assert "description" in child, child_path
             walk(child, child_path, is_config)
-        if is_config and path in {"/dex", "/connectors", "/approval", "/local_tools"}:
+        if is_config and path in {"/dex", "/connectors", "/approval", "/local_tools", "/media"}:
             assert "default" in schema, path
 
     walk(CONFIG_SCHEMA, "", True)
@@ -79,6 +83,7 @@ def test_every_property_is_described_and_every_config_default_is_stated() -> Non
     assert CONFIG_SCHEMA["properties"]["workspace"]["default"] == "~/dex-agent-workspace"
     assert CONFIG_SCHEMA["properties"]["dex"]["properties"]["server"]["default"] == "auto"
     assert CONFIG_SCHEMA["properties"]["connectors"]["properties"]["mcp"]["default"] == "auto"
+    assert CONFIG_SCHEMA["properties"]["media"]["properties"]["store"]["default"] == "auto"
 
 
 def test_schema_defaults_are_the_empty_file_defaults() -> None:
@@ -88,6 +93,8 @@ def test_schema_defaults_are_the_empty_file_defaults() -> None:
     assert properties["approval"]["default"] == effective["approval"]
     assert properties["local_tools"]["default"] == effective["local_tools"]
     assert properties["connectors"]["default"] == {"mcp": effective["connectors"]["mcp"]}
+    assert properties["media"]["default"] == {"store": effective["media"]["store"]}
+    assert effective["media"]["endpoint"] is None
     local_tools = properties["local_tools"]["properties"]
     for switch in ("files", "web_fetch", "browser"):
         assert local_tools[switch]["default"] == effective["local_tools"][switch]

@@ -27,7 +27,7 @@ vi.mock('./useAgentSession', () => ({
     loadEarlierMessages: vi.fn(),
   }),
 }));
-vi.mock('../catalog/WebCatalogProvider', () => ({ useWebCatalog: () => ({ catalog: null }) }));
+vi.mock('../catalog/WebCatalogProvider', () => ({ useWebCatalog: () => ({ revisionFor: () => '' }) }));
 
 afterEach(cleanup);
 

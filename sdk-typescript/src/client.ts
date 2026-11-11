@@ -12,6 +12,13 @@ import { appendInitialWorkQueuePermissions } from "./action.js";
 import type { BlobCache } from "./blob-cache.js";
 import { AttributeMatch } from "./attribute-match.js";
 import { credentialInterceptors } from "./credential.js";
+import type { FlowDefinitionDocument, FlowDefinitionUploadResult } from "./flow-definition.js";
+import {
+  flowDefinitionUploader,
+  prepareFlowDefinitions,
+  uploadRequests,
+  uploadResultsFromResponse,
+} from "./flow-definition-upload.js";
 import { createFlowServiceChannel } from "./flow-service-tls.js";
 import {
   isHardDeleteOnNullDefinition,
@@ -42,6 +49,7 @@ import {
   type SearchFlowsResponse,
   type SearchFlowsResponseEntry,
   type StartFlowResponse,
+  type UploadFlowDefinitionsResponse,
   type AttributeWrite,
   type ServerInfo,
   StartFlowRequest,
@@ -1401,6 +1409,65 @@ export class Client {
         callback,
       ),
     );
+  }
+
+  /**
+   * Stores Flow Definition Graph documents on the Server for Dex Web.
+   *
+   * Use it from a CI or deploy script to publish definitions without starting a Worker. A Worker
+   * configured with `flowDefinitionPaths` or `flowDefinitions` uploads its own definitions at start
+   * instead.
+   *
+   * The Server keeps one document for each Flow type. It stores an uploaded document when none
+   * exists, or when the stored one has a different digest and an earlier `generatedAt`. Otherwise it
+   * keeps the stored document and reports `KEPT_EXISTING`. With `force`, it replaces every stored
+   * document whose digest differs, whatever its `generatedAt`; use that to roll a definition back on
+   * purpose. An identical document is always `UNCHANGED`.
+   *
+   * The SDK validates every document first and rewrites an absolute `source.path` as
+   * {@link FlowDefinitionDocument} describes. It sends at most 256 documents, and at most 16 MiB of
+   * content, in each request; a larger single document goes alone. A larger upload therefore takes
+   * several requests and is not atomic: an error can leave earlier batches stored. An outcome this
+   * SDK does not know is reported as `UNSPECIFIED`. The Server rejects a whole request, storing nothing from it, when any of its documents
+   * is invalid.
+   *
+   * @since 1.45.0
+   * @example
+   * ```ts
+   * import { readFileSync, statSync } from "node:fs";
+   *
+   * const file = "build/flow-definitions/order-flow.json";
+   * const results = await client.uploadFlowDefinitions([
+   *   { flowType: "OrderFlow", content: readFileSync(file), generatedAt: statSync(file).mtime },
+   * ]);
+   * for (const result of results) console.log(result.flowType, result.outcome);
+   * ```
+   * @param documents - Documents to store, each with a distinct Flow type. The Flow types do not
+   * need to be registered in this Client's Registry. An empty array sends no request.
+   * @param force - Whether to replace stored documents with a different digest even when they were
+   * generated later. Defaults to `false`.
+   * @returns One result for each document, in the order given.
+   * @throws {Error} When a document is not a JSON object whose `schemaVersion` starts with `"2."` and
+   * whose `flow.name` equals its Flow type, or two documents share a Flow type.
+   * @throws {@link DexServiceError} When FlowService rejects or cannot store a batch, for example
+   * with INVALID_ARGUMENT for a document the Server rejects or UNIMPLEMENTED for a Server without
+   * this API.
+   * @throws {@link Error} When the Server is incompatible with required protocol version 4.
+   */
+  public async uploadFlowDefinitions(
+    documents: readonly FlowDefinitionDocument[],
+    force = false,
+  ): Promise<FlowDefinitionUploadResult[]> {
+    const definitions = prepareFlowDefinitions([], documents);
+    const results: FlowDefinitionUploadResult[] = [];
+    for (const { request } of uploadRequests(definitions, flowDefinitionUploader(sdkVersion), force)) {
+      const response = await this.unary<UploadFlowDefinitionsResponse>(
+        { operation: "uploadFlowDefinitions", requirement: "none" },
+        (callback) => this.service.uploadFlowDefinitions(request, callback),
+      );
+      results.push(...uploadResultsFromResponse(response));
+    }
+    return results;
   }
 
   /**

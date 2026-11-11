@@ -11,12 +11,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel
 
-from dex_agents import AgentMessage, FrameworkMessage, MessageRole
+from dex_agents import AgentMessage, AgentToolCall, FrameworkMessage, MessageRole
+from dex_agents_openai_agents._images import has_input_image_parts
 
 _TEXT_PART_TYPES = ("input_text", "output_text", "text")
 
@@ -32,6 +33,7 @@ def read_input_items(messages: Sequence[AgentMessage]) -> list[Any]:
 def project_input_items(
     history: Sequence[AgentMessage],
     new_items: Sequence[Mapping[str, Any]],
+    recorded_tool_call: Callable[[str], AgentToolCall | None],
 ) -> list[FrameworkMessage]:
     tool_names_by_call_id = {
         message.tool_call_id: message.tool_name
@@ -40,7 +42,7 @@ def project_input_items(
     }
     projected: list[FrameworkMessage] = []
     for item in new_items:
-        message = _project_input_item(item, tool_names_by_call_id)
+        message = _project_input_item(item, tool_names_by_call_id, recorded_tool_call)
         if message.tool_call_id is not None and message.tool_name is not None:
             tool_names_by_call_id.setdefault(message.tool_call_id, message.tool_name)
         projected.append(message)
@@ -64,6 +66,7 @@ def format_tool_output(output: Any) -> str:
 def _project_input_item(
     item: Mapping[str, Any],
     tool_names_by_call_id: Mapping[str, str],
+    recorded_tool_call: Callable[[str], AgentToolCall | None],
 ) -> FrameworkMessage:
     framework_item = json.dumps(item, ensure_ascii=False)
     item_type = item.get("type")
@@ -89,15 +92,47 @@ def _project_input_item(
             tool_arguments=str(item.get("arguments") or ""),
         )
     if isinstance(item_type, str) and item_type.endswith("_output"):
+        output = item.get("output")
+        if has_input_image_parts(output):
+            return _project_image_tool_output(
+                item, framework_item, tool_names_by_call_id, recorded_tool_call
+            )
         return FrameworkMessage(
             role=MessageRole.TOOL,
             framework_item=framework_item,
             tool_call_id=call_id,
             tool_name=tool_names_by_call_id.get(call_id) if call_id is not None else None,
-            tool_output=format_tool_output(item.get("output")),
+            tool_output=format_tool_output(output),
         )
     return FrameworkMessage(
         role=MessageRole.ASSISTANT, framework_item=framework_item, tool_call_id=call_id
+    )
+
+
+def _project_image_tool_output(
+    item: Mapping[str, Any],
+    framework_item: str,
+    tool_names_by_call_id: Mapping[str, str],
+    recorded_tool_call: Callable[[str], AgentToolCall | None],
+) -> FrameworkMessage:
+    call_id = str(item.get("call_id") or "")
+    record = recorded_tool_call(call_id)
+    if record is None:
+        raise RuntimeError(f"tool call {call_id} returned images but has no record in this turn")
+    texts = [
+        part["text"]
+        for part in item["output"]
+        if isinstance(part, Mapping)
+        and part.get("type") == "input_text"
+        and isinstance(part.get("text"), str)
+    ]
+    return FrameworkMessage(
+        role=MessageRole.TOOL,
+        framework_item=framework_item,
+        tool_call_id=call_id,
+        tool_name=tool_names_by_call_id.get(call_id),
+        tool_output="".join(texts),
+        images=record.images,
     )
 
 

@@ -419,8 +419,21 @@ class Step(Generic[InputT], ABC):
         Multiple instances of one class must return distinct Step types. Address
         them by their registered instance or StepRef; class targets are ambiguous.
 
+        A Step whose Step type contains ``-`` cannot start SubFlows. A SubFlow
+        Flow ID joins the parent Flow ID, the Step execution ID, and the SubFlow
+        index with ``-``. The Step execution ID starts with the Step type, so a
+        dash would let two parents produce the same child Flow ID. The default
+        class name never contains ``-``. Such a Step may still wait on Timers
+        and Channels.
+
         .. versionchanged:: 1.28.0
            Several instances of a Step class can register with distinct Step types.
+
+        .. versionchanged:: 1.45.0
+           A Step whose Step type contains ``-`` can no longer start SubFlows.
+           When its returned Wait contains a SubFlow Condition, the server
+           rejects the result and fails the attempt without retry. Rename the
+           Step type to start SubFlows from it.
 
         Returns:
             A non-empty name unique within the containing Flow.

@@ -832,7 +832,7 @@ func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, meth
 			waitID := fmt.Sprintf("wait:%s:%d:%d", stepType, position.Line, position.Column)
 			analyzer.graph.AddNode(Node{
 				ID: waitID, Kind: "wait", Name: "failure", ParentID: ownerID,
-				Phase: "wait_for", Span: analyzer.span(method), Wait: &WaitDetails{Type: "failure"},
+				Phase: "wait_for", Span: analyzer.span(method), Wait: &WaitDetails{Type: "failure", Conditions: []WaitCondition{}},
 			})
 			analyzer.analyzeResourceAccess(ownerID, method, "wait_for")
 			return

@@ -33,7 +33,7 @@ are peer dependencies. The application installs exactly one copy of each,
 because the Dex Registry matches Flow classes and RPC registrations by
 identity, and the session recognizes `ToolExecutionError` only from its own
 copy of the core. Requirements: Node `^22.19.0 || ^24.0.0` (pi-ai needs
-22.19), `@superdurable/dex` 1.38.0, and `@earendil-works/pi-ai` `^1.5.1` (the
+22.19), `@superdurable/dex` 1.44.0, and `@earendil-works/pi-ai` `^1.5.1` (the
 tests run 1.5.1). The package does not depend on `@earendil-works/pi-agent-core`
 or `@earendil-works/pi-durable`: it reads their tools through structural types.
 The example below also imports `@earendil-works/pi-agent-core` for the
@@ -116,8 +116,8 @@ await client.invokeRPC(flow.sendUserMessage, "session-42", { text: "Thanks" });
 ```
 
 Everything else about the session, such as `resolveModel`, tool sources,
-built-in tools, plan mode, compaction, and spend limits, is the built-in agent
-loop `AgentDefinition` of the core. See the core README.
+built-in tools, plan mode, compaction, and spend limits, is the built-in loop
+`AgentDefinition` of the core. See the core README.
 
 ## The model client
 
@@ -200,8 +200,7 @@ calls after it think again.
 ### Pi `AgentTool`
 
 `piAgentFunctionTool(tool, { effect, requiresApproval })` wraps a Pi
-`AgentTool` as a built-in agent loop function tool, so each call runs in its own
-tool Step.
+`AgentTool` as a built-in loop function tool, so each call runs in its own tool Step.
 
 Every Dex tool declares its side-effect class:
 

@@ -10,7 +10,16 @@ This page lists user-visible changes to the Rust SDK, newest first; each section
 
 ## 1.45 {#v1-45}
 
-Not released yet. The next release, sdk-rust/v1.45.0, ships these changes.
+Not released yet. The next minor release, sdk-rust/v1.45.0, ships these changes.
+
+### Added
+
+- **WorkerOptions::flow_definition_paths** and **WorkerOptions::flow_definitions** make a **Worker** upload Flow Definition Graph documents when it starts, so Dex Web can draw the Flow types it registers. **FlowDefinitionDocument** holds an in-memory document. Upload failures, including a Server without Flow definition storage, are logged as warnings and never stop the Worker. [Reference](/reference/rust/workers#upload-flow-definitions).
+- **Client::upload_flow_definitions** uploads documents from a deploy or CI script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. [Reference](/reference/rust/client#api-names).
+
+### Breaking
+
+- A Step whose Step type contains a dash (-) can no longer start SubFlows. When its **wait_for** returns a **SubFlow** Condition, the server rejects the result as an invalid Worker response and fails the attempt without retry, so under the default policy the Flow fails. The Worker logs a warning but still sends the result. A dash made child Flow IDs ambiguous, so two parents could share one child. To migrate, rename the Step type, for example by overriding **Step::step_type** with a name without a dash. [Reference](/reference/rust/subflow#step-type-rule).
 
 ### Fixed
 

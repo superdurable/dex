@@ -71,7 +71,7 @@ export interface PiAiModelClientOptions {
 }
 
 /**
- * Creates a built-in agent loop {@link ModelClient} that makes each model call with pi-ai.
+ * Creates a built-in loop {@link ModelClient} that makes each model call with pi-ai.
  *
  * Dex runs the agent loop: each model call is one `RunModel` Step and each tool call is its own Step. pi-ai only
  * talks to the provider. Each `callModel` makes one `streamSimple` request with pi-ai's client retries off, so every
