@@ -22,8 +22,8 @@ use dexzd_metrics::{AttributeSyncFailureKind, NodeMetrics};
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig as WriteSyncConfig, AttributeWrite, CloseDecision,
     CloseDecisionType, FlowConfig, FlowResetType, FlowStartOptions, FlowStatus, IdReusePolicy,
-    InvokeExecuteMethodResponse, ResetFlowRequest, SetAttributesRequest, StepDecision, StepOptions,
-    Value,
+    InvokeExecuteMethodResponse, ResetFlowRequest, SetAttributesRequest, StartFlowRequest,
+    StepDecision, StepOptions, Value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributeSyncOutboxRecord, AttributesSetCommand, FlowCommand,
@@ -378,6 +378,13 @@ impl ProjectorFixture {
         start_synced_flow(&self.harness, flow_id, store_names, writes)
     }
 
+    /// Starts a newer run of `flow_id` from a different StartFlow request.
+    fn start_newer_run(&self, flow_id: &str, writes: Vec<AttributeWrite>) -> RunId {
+        let mut request = synced_start_request(flow_id, &[STORE], writes);
+        request.request_id = format!("newer-request-{flow_id}");
+        self.harness.start_flow(request, settings())
+    }
+
     /// Returns the committed seq of a pending entry, or `None` once it was acknowledged.
     fn pending_written_seq(
         &self,
@@ -565,6 +572,17 @@ fn start_synced_flow(
     store_names: &[&str],
     writes: Vec<AttributeWrite>,
 ) -> RunId {
+    harness.start_flow(
+        synced_start_request(flow_id, store_names, writes),
+        settings(),
+    )
+}
+
+fn synced_start_request(
+    flow_id: &str,
+    store_names: &[&str],
+    writes: Vec<AttributeWrite>,
+) -> StartFlowRequest {
     let mut request = start_request(flow_id);
     request.flow_start_options = Some(FlowStartOptions {
         id_reuse_policy: IdReusePolicy::AllowTerminateIfRunning as i32,
@@ -577,7 +595,7 @@ fn start_synced_flow(
         }),
         ..FlowStartOptions::default()
     });
-    harness.start_flow(request, settings())
+    request
 }
 
 /// Returns the first `{prefix}{n}` Flow ID whose partition satisfies `is_wanted`.
@@ -817,7 +835,7 @@ async fn assert_a_reused_flow_id_keeps_run_order(failure: AttributeSyncWriteErro
             synced("Owner", Some(string_value("alice"))),
         ],
     );
-    fixture.start_flow("order-6", vec![synced("Status", Some(string_value("new")))]);
+    fixture.start_newer_run("order-6", vec![synced("Status", Some(string_value("new")))]);
     fixture
         .wait_until("both runs are pending and failing", |fixture| {
             fixture.store.attempt_count() >= 2 && fixture.pending_run_count() == 2

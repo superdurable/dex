@@ -93,6 +93,21 @@ pub(crate) fn start_run(
     let policy =
         IdReusePolicy::try_from(options.id_reuse_policy).unwrap_or(IdReusePolicy::Unspecified);
     let latest = directory.runs.last();
+    let should_ignore_already_started_error = options
+        .flow_already_started_options
+        .as_ref()
+        .is_some_and(|already| already.ignore_already_started_error);
+    // A retry of the request that started the latest run never goes through ID reuse.
+    if let Some(latest) = latest
+        && !request.request_id.is_empty()
+        && latest.start_request_id == request.request_id
+    {
+        return Ok(HandlerResult::Rejected(already_started_reply(
+            scope,
+            latest,
+            should_ignore_already_started_error,
+        )));
+    }
     let latest_status =
         latest.map(|run| FlowStatus::try_from(run.status).unwrap_or(FlowStatus::Unspecified));
     let is_latest_running = latest_status == Some(FlowStatus::Running);
@@ -108,25 +123,11 @@ pub(crate) fn start_run(
         IdReusePolicy::AllowTerminateIfRunning => false,
     };
     if let (true, Some(latest)) = (is_conflict, latest) {
-        let is_same_request = options
-            .flow_already_started_options
-            .as_ref()
-            .is_some_and(|already| already.ignore_already_started_error)
-            && latest.start_request_id == request.request_id;
-        if is_same_request {
-            return Ok(HandlerResult::Rejected(CommandReply {
-                reply: Some(command_reply::Reply::StartFlow(
-                    dexzd_protocol::dexzd::v1::StartFlowReply {
-                        run_id: latest.run_id.clone(),
-                        is_existing_run: true,
-                    },
-                )),
-            }));
-        }
-        return Ok(HandlerResult::Rejected(error_reply(
-            grpc_code::ALREADY_EXISTS,
-            ErrorSubStatus::FlowAlreadyStarted,
-            format!("Flow {} is already started", scope.flow_id()),
+        let is_same_request = latest.start_request_id == request.request_id;
+        return Ok(HandlerResult::Rejected(already_started_reply(
+            scope,
+            latest,
+            should_ignore_already_started_error && is_same_request,
         )));
     }
     let mut terminated_run_effects = Vec::new();
@@ -306,6 +307,30 @@ pub(crate) fn start_run(
     terminated_run_effects.extend(output.effects);
     output.effects = terminated_run_effects;
     Ok(HandlerResult::Applied(output))
+}
+
+/// Returns `latest` as the existing run when `should_return_existing_run`, else
+/// ALREADY_EXISTS / FLOW_ALREADY_STARTED.
+fn already_started_reply(
+    scope: &CommandScope<'_>,
+    latest: &FlowDirectoryRun,
+    should_return_existing_run: bool,
+) -> CommandReply {
+    if should_return_existing_run {
+        return CommandReply {
+            reply: Some(command_reply::Reply::StartFlow(
+                dexzd_protocol::dexzd::v1::StartFlowReply {
+                    run_id: latest.run_id.clone(),
+                    is_existing_run: true,
+                },
+            )),
+        };
+    }
+    error_reply(
+        grpc_code::ALREADY_EXISTS,
+        ErrorSubStatus::FlowAlreadyStarted,
+        format!("Flow {} is already started", scope.flow_id()),
+    )
 }
 
 /// Returns `settings` with the run's history offload choice: the Flow config's when the owner

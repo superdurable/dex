@@ -19,10 +19,15 @@ Not released yet. The next release, server-zd/v0.1.26, ships these changes.
 - A search query that compares **ExecutionStatus** with **ContinuedAsNew**, such as **ExecutionStatus = 'ContinuedAsNew'** or **ExecutionStatus != 'ContinuedAsNew'**, fails with INVALID_ARGUMENT. Remove that predicate from stored queries. [Reference](/reference/server/runtime-client#search-flows).
 - Removed **WaitForStepCompletionRequest.internal_handler_timeout_seconds** (5) and **WaitForAttributeRequest.internal_handler_timeout_seconds** (4). The server ignored positive values. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
 - Renamed **FlowExecutionID** to **FlowRunID** and both **flow_execution_id** fields to **flow_run_id** without changing field numbers. ProtoJSON field names change from **flowExecutionId** to **flowRunId**; update JSON clients and generated-code consumers. [Reference](/reference/server/runtime-client#describe-a-flow).
+- Apply results change. Stop the standby and the active process, upgrade both binaries, then start the active process before the standby. A mixed-version pair diverges. [Reference](/reference/server/upgrades).
 
 ### Added
 
 - **dev** and **local** accept **--application-s3-listen** and **--application-s3-bucket**. They serve one more S3-compatible bucket for applications on a loopback address, with its own store in **application-s3** in the data directory. Applications cannot reach the server's own bucket through it. [Reference](/reference/server/configuration#single-node-application-bucket).
+
+### Fixed
+
+- A **StartFlow** retry with the **request_id** that started the latest run of the Flow ID no longer goes through the ID reuse policy. It returns that run with **ignore_already_started_error**, or ALREADY_EXISTS / FLOW_ALREADY_STARTED without it. Before, **ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING** and **ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY** started a second run for the retry, and **ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING** terminated the run that the retried request had started. [Reference](/reference/go/start-flow-options#start-request-server-behavior).
 
 ## 0.1.25 {#v0-1-25}
 
