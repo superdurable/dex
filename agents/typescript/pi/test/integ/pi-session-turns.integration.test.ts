@@ -74,9 +74,8 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
         instructions: "",
         model: createPiAiModelClient(createFakeOpenAiModel(modelServer.baseUrl), { apiKey: "test-key" }),
         resolveModel: (settings) =>
-          settings["model"] === "future"
-            ? futurePiAiModelClient
-            : createPiAiModelClient(createFakeOpenAiModel(modelServer.baseUrl), { apiKey: "test-key" }),
+          storedItemModelClients.get(String(settings["model"])) ??
+          createPiAiModelClient(createFakeOpenAiModel(modelServer.baseUrl), { apiKey: "test-key" }),
       },
       "PiUnknownItemAgent",
     );
@@ -135,6 +134,14 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
     assert.equal(envelope.format, 1);
     assert.equal(envelope.piAiVersion, "1.5.1");
     assert.equal(envelope.message.stopReason, "toolUse");
+    assert.deepEqual(
+      [envelope.message.role, envelope.message.api, envelope.message.provider, envelope.message.model],
+      ["assistant", "openai-completions", "fake-openai", "fake-gpt"],
+    );
+    for (const localField of ["timestamp", "durationMs", "diagnostics"]) {
+      assert.equal(localField in envelope.message, false, `${localField} is not stored`);
+    }
+    assert.deepEqual(envelope.message.usage, { input: 10, output: 5, cacheRead: 4, cacheWrite: 0, reasoning: 0, totalTokens: 19 });
     assert.deepEqual(snapshot.usage, {
       modelCalls: 2,
       inputTokens: 34,
@@ -409,18 +416,25 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
     assert.equal(toolMessage?.toolOutput, `renamed to n-${token}`);
   });
 
-  test("a tool loop whose model changed mid-turn sends no thinking, and the next turn thinks again", async () => {
+  test("a tool loop whose model changed mid-turn sends no thinking for the rest of it, and the next turn thinks", async () => {
     const token = newToken();
     const sessionId = `pi-model-change-${token}`;
     const gateName = `gated-${token}`;
-    modelServer.script(token, (_request, index) =>
-      index === 0
-        ? {
+    modelServer.script(token, (_request, index) => {
+      switch (index) {
+        case 0:
+          return {
             thinking: { text: "Look it up.", signature: `sig-${token}` },
             toolCalls: [{ id: "toolu_gated", name: "lookup_order", arguments: JSON.stringify({ order_id: gateName }) }],
-          }
-        : { text: `answer ${index}` },
-    );
+          };
+        case 1:
+          return {
+            toolCalls: [{ id: "toolu_again", name: "lookup_order", arguments: JSON.stringify({ order_id: `again-${token}` }) }],
+          };
+        default:
+          return { text: `answer ${index}` };
+      }
+    });
     try {
       await sessions.startSession(sessionId, `change ${token}`, {}, { model: "anthropic" });
       const gate = new FileGate(markerDirectory, gateName);
@@ -435,10 +449,15 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
     }
 
     const requests = modelServer.requests(token);
-    assert.deepEqual(requests.map((request) => request.body["model"]), ["claude-fake-1", "claude-fake-2", "claude-fake-2"]);
-    assert.equal(requests[0]?.body["thinking"]?.type, "enabled");
-    assert.notEqual(requests[1]?.body["thinking"]?.type, "enabled");
-    assert.equal(requests[2]?.body["thinking"]?.type, "enabled");
+    assert.deepEqual(
+      requests.map((request) => [request.body["model"], request.body["thinking"]?.type === "enabled"]),
+      [
+        ["claude-fake-1", true],
+        ["claude-fake-2", false],
+        ["claude-fake-2", false],
+        ["claude-fake-2", true],
+      ],
+    );
   });
 
   test("an AgentTool's replay gives its effect, and a tool with neither replay nor effect fails at definition", async () => {
@@ -552,21 +571,44 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
     assert.equal(outputs.get("durable_charge"), `charged 5-${token}`);
   });
 
-  test("a stored pi-ai item in a format this pi-ai cannot read fails the turn with both versions named", async () => {
+  test("a stored pi-ai item that replay cannot read fails the turn naming both versions and the field", async () => {
+    const cases: readonly [string, RegExp][] = [
+      ["future", /from pi-ai 9\.0\.0 cannot be replayed by pi-ai 1\.5\.1: its format is 2, not 1/],
+      [
+        "mistyped-signature",
+        /from pi-ai 1\.6\.0 cannot be replayed by pi-ai 1\.5\.1: message\.content\[0\]\.thinkingSignature is not a string/,
+      ],
+      ["missing-tool-call-name", /from pi-ai 1\.5\.1 cannot be replayed by pi-ai 1\.5\.1: message\.content\[0\]\.name is missing/],
+    ];
+    for (const [storedModel, expectedError] of cases) {
+      const token = newToken();
+      const sessionId = `pi-unknown-item-${storedModel}-${token}`;
+      modelServer.script(token, () => ({ text: "never sent" }));
+      await unknownItemSessions.startSession(sessionId, `stored ${token}`, {}, { model: storedModel });
+      await unknownItemSessions.waitForCompletedTurns(sessionId, 1);
+      assert.equal(await unknownItemSessions.updateSessionSettings(sessionId, { model: "openai" }), true);
+      assert.equal(await unknownItemSessions.sendUserMessage(sessionId, `now ${token}`), true);
+      const state = await unknownItemSessions.waitForCompletedTurns(sessionId, 2, { timeoutMs: 120_000 });
+      assert.match(state.lastTurnError ?? "", expectedError);
+      assert.equal(modelServer.requests(token).length, 0);
+    }
+  });
+
+  test("a stored pi-ai item from another pi-ai version with extra fields replays", async () => {
     const token = newToken();
-    const sessionId = `pi-unknown-item-${token}`;
-    modelServer.script(token, () => ({ text: "never sent" }));
-    await unknownItemSessions.startSession(sessionId, `future ${token}`, {}, { model: "future" });
+    const sessionId = `pi-older-item-${token}`;
+    modelServer.script(token, () => ({ text: "replayed fine" }));
+    await unknownItemSessions.startSession(sessionId, `older ${token}`, {}, { model: "older-with-extras" });
     await unknownItemSessions.waitForCompletedTurns(sessionId, 1);
     assert.equal(await unknownItemSessions.updateSessionSettings(sessionId, { model: "openai" }), true);
     assert.equal(await unknownItemSessions.sendUserMessage(sessionId, `now ${token}`), true);
-    const state = await unknownItemSessions.waitForCompletedTurns(sessionId, 2, { timeoutMs: 120_000 });
+    const state = await unknownItemSessions.waitForCompletedTurns(sessionId, 2);
 
-    assert.match(
-      state.lastTurnError ?? "",
-      /a stored pi-ai model output from pi-ai 9\.0\.0 cannot be replayed by pi-ai 1\.5\.1: its format is 2, not 1/,
-    );
-    assert.equal(modelServer.requests(token).length, 0);
+    assert.equal(state.lastTurnError, null);
+    const messages = modelServer.requests(token)[0]?.body["messages"] as { role: string; content: unknown }[];
+    assert.deepEqual(messages.map((message) => message.role), ["user", "assistant", "user"]);
+    assert.equal(messages[1]?.content, "answer from an older pi-ai");
+    assert.equal((await unknownItemSessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text, "replayed fine");
   });
 
   /** Each call's name, effect, and approval from `tool_call_deferred`, and its final status from `tool_call_finished`. */
@@ -591,21 +633,72 @@ describe("Pi agents on the Stepwise session Flow with an in-process Worker", () 
   }
 });
 
-/** Writes a pi-ai item as a future version of this package might, to test that replay refuses it. */
-const futurePiAiModelClient: ModelClient = {
-  async callModel() {
-    const item = JSON.stringify({ format: 2, piAiVersion: "9.0.0", message: { role: "assistant", content: [] } });
-    return {
-      outputItems: [{ type: "model_output", provider: "fake-openai", api: "pi-ai", item, text: "from the future", toolCalls: [] }],
-      text: "from the future",
-      toolCalls: [],
-      usage: { modelCalls: 1, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0 },
-      responseModel: "future",
-      finishReason: "stop",
-    };
-  },
-  estimateInputTokens: () => 0,
-};
+/** A model client that answers with one fixed stored pi-ai item, as another version of this package might. */
+function createStoredItemModelClient(stored: Record<string, unknown>): ModelClient {
+  return {
+    async callModel() {
+      return {
+        outputItems: [
+          { type: "model_output", provider: "fake-openai", api: "pi-ai", item: JSON.stringify(stored), text: "stored", toolCalls: [] },
+        ],
+        text: "stored",
+        toolCalls: [],
+        usage: { modelCalls: 1, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0 },
+        responseModel: "stored",
+        finishReason: "stop",
+      };
+    },
+    estimateInputTokens: () => 0,
+  };
+}
+
+function storedMessage(content: unknown[], extraFields: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    role: "assistant",
+    content,
+    api: "openai-completions",
+    provider: "fake-openai",
+    model: "fake-gpt",
+    stopReason: "stop",
+    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+    ...extraFields,
+  };
+}
+
+const storedItemModelClients = new Map<string, ModelClient>([
+  ["future", createStoredItemModelClient({ format: 2, piAiVersion: "9.0.0", message: storedMessage([]) })],
+  [
+    "older-with-extras",
+    createStoredItemModelClient({
+      format: 1,
+      piAiVersion: "1.4.0",
+      futureEnvelopeField: true,
+      message: storedMessage(
+        [
+          { type: "thinking", thinking: "old thoughts", thinkingSignature: "reasoning_content", futurePartField: 1 },
+          { type: "text", text: "answer from an older pi-ai", futurePartField: "x" },
+        ],
+        { endTurn: true, futureMessageField: { nested: true } },
+      ),
+    }),
+  ],
+  [
+    "mistyped-signature",
+    createStoredItemModelClient({
+      format: 1,
+      piAiVersion: "1.6.0",
+      message: storedMessage([{ type: "thinking", thinking: "t", thinkingSignature: 5 }]),
+    }),
+  ],
+  [
+    "missing-tool-call-name",
+    createStoredItemModelClient({
+      format: 1,
+      piAiVersion: "1.5.1",
+      message: storedMessage([{ type: "toolCall", id: "call_1", arguments: {} }]),
+    }),
+  ],
+]);
 
 function newToken(): string {
   return randomUUID().slice(0, 8);

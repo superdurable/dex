@@ -26,13 +26,21 @@ export const piAiModelClientApi = "pi-ai";
 
 /** Format number of the stored item envelope; a new number is added only for an incompatible envelope. */
 const storedMessageFormat = 1;
-const assistantContentTypes: ReadonlySet<string> = new Set(["text", "thinking", "toolCall"]);
 
-/** The JSON stored in `ModelOutputItem.item`: the pi-ai version that produced it and its whole message. */
+/** Token counts of a stored response; pi-ai's catalog `cost` is local and not stored. */
+type StoredUsage = Omit<Usage, "cost">;
+
+/** The replay fields of an assistant message; local telemetry such as `timestamp` is not stored. */
+type StoredAssistantMessage = Pick<
+  AssistantMessage,
+  "role" | "content" | "api" | "provider" | "model" | "responseModel" | "responseId" | "providerThinkingLevel" | "stopReason"
+> & { readonly usage: StoredUsage };
+
+/** The JSON stored in `ModelOutputItem.item`: the pi-ai version that produced it and its replay fields. */
 interface StoredPiAiMessage {
   readonly format: typeof storedMessageFormat;
   readonly piAiVersion: string;
-  readonly message: AssistantMessage;
+  readonly message: StoredAssistantMessage;
 }
 
 /** Identifies the model a pi-ai assistant message came from, as pi-ai compares them. */
@@ -42,9 +50,25 @@ export interface PiAiModelIdentity {
   readonly model: string;
 }
 
-/** Serializes a pi-ai assistant message, unchanged, with the running pi-ai version. */
+/** Serializes a response's content, identity, and token usage, with the running pi-ai version. */
 export function encodeStoredPiAiMessage(message: AssistantMessage): string {
-  const stored: StoredPiAiMessage = { format: storedMessageFormat, piAiVersion: PI_AI_VERSION, message };
+  const { cost: _localCost, ...usage } = message.usage;
+  const stored: StoredPiAiMessage = {
+    format: storedMessageFormat,
+    piAiVersion: PI_AI_VERSION,
+    message: {
+      role: "assistant",
+      content: message.content,
+      api: message.api,
+      provider: message.provider,
+      model: message.model,
+      ...(message.responseModel === undefined ? {} : { responseModel: message.responseModel }),
+      ...(message.responseId === undefined ? {} : { responseId: message.responseId }),
+      ...(message.providerThinkingLevel === undefined ? {} : { providerThinkingLevel: message.providerThinkingLevel }),
+      stopReason: message.stopReason,
+      usage,
+    },
+  };
   return JSON.stringify(stored);
 }
 
@@ -63,11 +87,13 @@ export function decodeStoredPiAiMessage(itemText: string): AssistantMessage {
   if (stored?.format !== storedMessageFormat) {
     throw new TypeError(unrecognizedItemMessage(storedVersion, `its format is ${JSON.stringify(stored?.format)}, not 1`));
   }
-  const problem = findAssistantMessageProblem(stored.message);
+  const problem = findStoredMessageProblem(stored.message);
   if (problem !== undefined) {
     throw new TypeError(unrecognizedItemMessage(storedVersion, problem));
   }
-  return stored.message as AssistantMessage;
+  const message = stored.message as StoredAssistantMessage;
+  // Fixed values for the local fields pi-ai's type requires, so a replayed request never depends on a clock.
+  return { ...message, usage: { ...message.usage, cost: zeroCost() }, timestamp: 0 };
 }
 
 /** The pi-ai model of a stored item, or `undefined` when another client stored it. */
@@ -171,30 +197,91 @@ function parseToolCallArguments(argumentsText: string): JsonObject {
   }
 }
 
-function findAssistantMessageProblem(message: unknown): string | undefined {
-  if (typeof message !== "object" || message === null) {
-    return "it has no message object";
+function findStoredMessageProblem(message: unknown): string | undefined {
+  if (!isRecord(message)) {
+    return "message is not an object";
   }
-  const record = message as Readonly<Record<string, unknown>>;
-  if (record["role"] !== "assistant") {
-    return `its message role is ${JSON.stringify(record["role"])}, not "assistant"`;
+  if (message["role"] !== "assistant") {
+    return `message.role is ${JSON.stringify(message["role"])}, not "assistant"`;
   }
-  for (const field of ["api", "provider", "model", "stopReason"]) {
-    if (typeof record[field] !== "string") {
-      return `its message field ${field} is not a string`;
-    }
+  const fieldProblem =
+    findFieldProblem(message, "message", ["api", "provider", "model", "stopReason"], "string") ??
+    findFieldProblem(message, "message", ["responseModel", "responseId", "providerThinkingLevel"], "string", true);
+  if (fieldProblem !== undefined) {
+    return fieldProblem;
   }
-  const content = record["content"];
+  const usage = message["usage"];
+  if (!isRecord(usage)) {
+    return "message.usage is not an object";
+  }
+  const usageProblem =
+    findFieldProblem(usage, "message.usage", ["input", "output", "cacheRead", "cacheWrite", "totalTokens"], "number") ??
+    findFieldProblem(usage, "message.usage", ["reasoning", "cacheWrite1h"], "number", true);
+  if (usageProblem !== undefined) {
+    return usageProblem;
+  }
+  const content = message["content"];
   if (!Array.isArray(content)) {
-    return "its message content is not an array";
+    return "message.content is not an array";
   }
-  for (const part of content as unknown[]) {
-    const partType = (part as { readonly type?: unknown } | null)?.type;
-    if (typeof partType !== "string" || !assistantContentTypes.has(partType)) {
-      return `its message has a content part of type ${JSON.stringify(partType)}`;
+  for (const [index, part] of content.entries()) {
+    const problem = findContentPartProblem(part, `message.content[${index}]`);
+    if (problem !== undefined) {
+      return problem;
     }
   }
   return undefined;
+}
+
+/** Checks the fields replay reads from one content part; unknown extra fields are allowed. */
+function findContentPartProblem(part: unknown, path: string): string | undefined {
+  if (!isRecord(part)) {
+    return `${path} is not an object`;
+  }
+  switch (part["type"]) {
+    case "text":
+      return findFieldProblem(part, path, ["text"], "string") ?? findFieldProblem(part, path, ["textSignature"], "string", true);
+    case "thinking":
+      return (
+        findFieldProblem(part, path, ["thinking"], "string") ??
+        findFieldProblem(part, path, ["thinkingSignature"], "string", true) ??
+        findFieldProblem(part, path, ["redacted"], "boolean", true)
+      );
+    case "toolCall": {
+      const problem =
+        findFieldProblem(part, path, ["id", "name"], "string") ??
+        findFieldProblem(part, path, ["thoughtSignature", "namespace", "argumentsError"], "string", true);
+      if (problem !== undefined) {
+        return problem;
+      }
+      return isRecord(part["arguments"]) ? undefined : `${path}.arguments is not an object`;
+    }
+    default:
+      return `${path}.type is ${JSON.stringify(part["type"])}, not text, thinking, or toolCall`;
+  }
+}
+
+function findFieldProblem(
+  record: Readonly<Record<string, unknown>>,
+  path: string,
+  fields: readonly string[],
+  expectedType: "string" | "number" | "boolean",
+  isOptional = false,
+): string | undefined {
+  for (const field of fields) {
+    const value = record[field];
+    if (isOptional && value === undefined) {
+      continue;
+    }
+    if (typeof value !== expectedType) {
+      return value === undefined ? `${path}.${field} is missing` : `${path}.${field} is not a ${expectedType}`;
+    }
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function unrecognizedItemMessage(storedVersion: string | undefined, problem: string): string {
@@ -203,12 +290,9 @@ function unrecognizedItemMessage(storedVersion: string | undefined, problem: str
 }
 
 function emptyUsage(): Usage {
-  return {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  };
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: zeroCost() };
+}
+
+function zeroCost(): Usage["cost"] {
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 }

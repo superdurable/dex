@@ -91,10 +91,10 @@ export interface PiAiModelClientOptions {
  * Model settings map as follows. `maxOutputTokens` is pi-ai's `maxTokens`. `reasoningEffort` is pi-ai's thinking
  * level, one of `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`, or `off`; any other value throws a
  * `TypeError`. `providerOptions[model.provider]` is merged into pi-ai's stream options, such as
- * `{ anthropic: { thinkingBudgets: { medium: 4096 } } }`, except `reasoning`, which only `reasoningEffort` sets. When a call continues a tool loop whose last response
- * came from another model, as after a deploy that changed the model during a turn, the call sends no thinking
- * level, because a provider such as Anthropic rejects thinking that does not start with the turn. The next turn
- * thinks again.
+ * `{ anthropic: { thinkingBudgets: { medium: 4096 } } }`, except `reasoning`, which only `reasoningEffort` sets.
+ * When another model answered earlier in the current tool loop, as after a deploy that changed the model during a
+ * turn, every later call of that loop sends no thinking level, because a provider such as Anthropic rejects thinking
+ * that does not start with the turn. The loop ends at the next user message, and the calls after it think again.
  *
  * pi-ai's provider-neutral tool choice is `auto` or `none`, so a request that forces a tool, such as a planning
  * turn with `planningToolChoice: "required"`, throws a `TypeError`.
@@ -224,21 +224,24 @@ class PiAiModelClient implements ModelClient {
     return reasoningEffort as ThinkingLevel;
   }
 
-  /** Whether this call answers tool results of a response that another model produced. */
+  /** Whether this call continues a tool loop, since the last user text, in which another model answered. */
   private isContinuingToolLoopOfAnotherModel(items: readonly ModelInputItem[]): boolean {
     if (items.at(-1)?.type !== "tool_result") {
       return false;
     }
-    const lastModelOutput = [...items].reverse().find((item): item is ModelOutputItem => item.type === "model_output");
-    if (lastModelOutput === undefined) {
-      return false;
-    }
-    const identity = readStoredModelIdentity(lastModelOutput);
+    const lastUserTextIndex = items.map((item) => item.type).lastIndexOf("user_text");
+    return items
+      .slice(lastUserTextIndex + 1)
+      .some((item) => item.type === "model_output" && !this.isOwnModelOutput(item));
+  }
+
+  private isOwnModelOutput(item: ModelOutputItem): boolean {
+    const identity = readStoredModelIdentity(item);
     return (
-      identity === undefined ||
-      identity.provider !== this.model.provider ||
-      identity.api !== this.model.api ||
-      identity.model !== this.model.id
+      identity !== undefined &&
+      identity.provider === this.model.provider &&
+      identity.api === this.model.api &&
+      identity.model === this.model.id
     );
   }
 

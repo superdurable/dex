@@ -161,9 +161,13 @@ stored messages again. An exception fails the attempt, which Dex retries.
 
 Each response is stored as one `ModelOutputItem` with `api` `"pi-ai"` and
 `provider` set to the model's provider. Its `item` is
-`{"format":1,"piAiVersion":"<version>","message":<AssistantMessage>}`: pi-ai's
-whole assistant message, with thinking signatures, provider, API, and model,
-plus the pi-ai version that produced it.
+`{"format":1,"piAiVersion":"<version>","message":{...}}`, with the pi-ai
+version that produced it. The message keeps what replay needs: the content
+with thinking signatures; `api`, `provider`, and `model`; `stopReason`;
+`responseModel`, `responseId`, and `providerThinkingLevel` when pi-ai set
+them; and the token counts of `usage`. Local telemetry is not stored:
+`timestamp`, `durationMs`, `usage.cost`, and diagnostics. Replay fills the
+fields pi-ai's type requires with fixed values, never a clock.
 
 Every later model call replays that message unchanged, whatever the model. The
 core's convention replays an item unchanged only to the same provider and API;
@@ -175,13 +179,16 @@ between turns. Messages of another client, such as `/ai-sdk`, replay as their
 text and tool calls. User text and tool results are converted at call time.
 
 A stored message whose shape the running pi-ai cannot read fails the model call
-with a `TypeError` that names both pi-ai versions. The check reads only the
-fields replay needs, so fields a later pi-ai adds still replay.
+with a `TypeError` that names both pi-ai versions and the bad field, such as
+`message.content[1].thinkingSignature is not a string`. The check covers every
+field replay reads, per content part, and ignores unknown fields, so a message
+from an older or newer pi-ai with extra fields still replays.
 
-When a call continues a tool loop whose last response came from another model,
-for example after a deploy changed the model during a turn, the call sends no
-thinking level. Anthropic rejects thinking that does not start with the turn.
-The next turn thinks again.
+When another model answered earlier in the current tool loop, for example
+after a deploy changed the model during a turn, every later call of that loop
+sends no thinking level. Anthropic rejects thinking that does not start with
+the turn. The loop ends at the next user message; the calls after it think
+again.
 
 ## Tools
 
@@ -310,6 +317,17 @@ A compatibility layer for the `pi-durable` API is tracked in
 - `AgentToolResult.terminate`: Dex ignores it. End a turn after tools with the
   Stepwise `decideTurnContinuation` hook.
 - Forced tool choices: see the model client.
+- A tool policy that raises a Pi tool to `non_idempotent_write`: the wrappers
+  decide how to report a thrown error from the effect the tool was wrapped
+  with, not the effect the policy sets. A plain error thrown after the write
+  is then recorded as `failed`, not `outcome_unknown`, so the model may call
+  the tool again. Wrap such a tool with `effect: "non_idempotent_write"`
+  instead of raising it by policy.
+- Bedrock retries inside one attempt: with pi-ai 1.5.1, the
+  `bedrock-converse-stream` API builds its AWS client without a retry limit and
+  ignores `maxRetries`, so one `RunModel` attempt may send up to three
+  requests, and Dex's retries multiply them. Model calls have no side effects,
+  so results stay correct; only latency and request counts grow.
 - Images in tool results: each image becomes a text note.
 - `prepareArguments` before the schema check: the Stepwise runner checks raw
   arguments against `parameters` before the tool runs, so `prepareArguments`

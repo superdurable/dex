@@ -15,8 +15,20 @@ import { functionTool, type FunctionTool, type ToolCallContext } from "@superdur
  * @since 0.5.0
  */
 export type PiToolContentPart =
-  | { readonly type: "text"; readonly text: string }
-  | { readonly type: "image"; readonly data: string; readonly mimeType: string };
+  | {
+      /** Discriminator: a text part. */
+      readonly type: "text";
+      /** Text the model sees. */
+      readonly text: string;
+    }
+  | {
+      /** Discriminator: an image part, shown to the model as `[image omitted: <mimeType>]`. */
+      readonly type: "image";
+      /** Image bytes, base64-encoded. Dex does not store them. */
+      readonly data: string;
+      /** MIME type of the image, such as `image/png`. */
+      readonly mimeType: string;
+    };
 
 /**
  * `AgentEvent.type` of the progress text a Pi tool reports through `onUpdate`. Its payload has `tool_call_id`,
