@@ -85,6 +85,7 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
       writeQueued: false,
       skipped: false,
       truncatedOutputBytes: null,
+      runnerToolState: null,
     });
     assert.deepEqual(decodeAgentInterrupt(interruptOf010), {
       interruptId: "call-1",
@@ -149,6 +150,7 @@ describe("wire compatibility between 0.1.0 and 0.2.0", () => {
       writeQueued: false,
       skipped: false,
       truncatedOutputBytes: null,
+      runnerToolState: null,
     });
     // A question with no taskId is not a task's question, so steering may still cancel it.
     assert.equal(isCancellableByTurnControl(handBuiltRecord), true);

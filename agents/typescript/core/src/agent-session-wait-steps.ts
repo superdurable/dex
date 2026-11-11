@@ -435,7 +435,13 @@ function recordToolTaskPoll(toolCall: AgentToolCallRecord, outcome: ToolTaskPoll
   if (typeof outcome?.output !== "string") {
     throw new TypeError("pollToolTask must return a ToolExecutionResult, a ToolInputRequested, or a ToolTaskPending");
   }
-  return { ...polled, status: "succeeded", output: outcome.output, ...toolResultImages(outcome.images) };
+  return {
+    ...polled,
+    status: "succeeded",
+    output: outcome.output,
+    runnerToolState: outcome.runnerToolState ?? null,
+    ...toolResultImages(outcome.images),
+  };
 }
 
 /** Returns the text the model sees for a declined question; an empty message reads as none, as in Python. */

@@ -59,7 +59,7 @@ its policy asks for it.
 | --- | --- |
 | `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep` | Removed. The runtime's local tools provide `read_file`, `write_file`, `edit_file`, `list_directory`, and `search_files` on the real workspace, with the runtime's rules: reads run at once, writes wait for approval. |
 | `execute` | Removed. The runtime's `run_shell_command` runs in the workspace and waits for approval unless `local_tools.shell.allow` has the command. |
-| `task` (subagents) | Removed. A subagent would make its own model and tool calls inside one tool Step, without their own Steps or approvals. |
+| `task` (subagents) | Excluded with the adapter's `excluded_tool_names`. A subagent would make its own model and tool calls inside one tool Step, without their own Steps or approvals. |
 | `write_todos` | Kept, as a read-only tool that runs at once. Its result repeats the plan, so the plan stays in the conversation. |
 
 - The runtime's web fetch, browser, and connector tools are offered as well.
@@ -67,8 +67,10 @@ its policy asks for it.
   command.
 - Deep Agents' own file tools work on a virtual file system in the agent
   state, and their names are the runtime's. The command replaces Deep
-  Agents' `FilesystemMiddleware` and `SubAgentMiddleware` with ones that add
-  no tools.
+  Agents' `FilesystemMiddleware` with one that adds no tools. The session
+  Flow excludes `task`, defers each tool call before any middleware tool
+  wrapper, and gives every model call the turn's model through the adapter's
+  `select_turn_chat_model`.
 - LangChain's own todo tool updates the agent state with a graph `Command`.
   A tool Step returns only content, so this command's `write_todos` returns
   the plan as text instead.

@@ -2110,7 +2110,7 @@ The snapshot JSON is the `get_agent_snapshot` wire format without the fields
 only the session's Steps use. Messages leave out `framework_item`, the
 framework's replay data, which can hold the agent's instructions. Tool calls
 leave out `tool_source_reference`, `trace_context`, `input_continuation`,
-`input_answers`, and `task_answer_pending`. Read them with `getAgentSnapshot` on the server when needed. It
+`input_answers`, `task_answer_pending`, and `runner_tool_state`. Read them with `getAgentSnapshot` on the server when needed. It
 includes `session_settings` as stored, so keep anything a browser must not see out of session settings, or
 remove the key.
 

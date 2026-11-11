@@ -503,6 +503,14 @@ export interface AgentToolCall {
    * @since 0.5.0
    */
   readonly images?: readonly AgentImageReference[];
+  /**
+   * Opaque text from {@link ToolExecutionResult.runnerToolState} after `succeeded`, which only the runner reads;
+   * otherwise `null`. The session never shows it to the model, in the browser snapshot, or in trace attributes. A
+   * record written before 0.5.0 has none, and a Worker before 0.5.0 ignores it. Wire field: `runner_tool_state`.
+   * A missing value means `null`.
+   * @since 0.5.0
+   */
+  readonly runnerToolState?: string | null;
 }
 
 /**

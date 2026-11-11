@@ -17,13 +17,15 @@ import tomllib
 from pathlib import Path
 
 lock = tomllib.loads(Path("uv.lock").read_text())
-sdk = next(package for package in lock["package"] if package["name"] == "dex-python-sdk")
-if "registry" not in sdk.get("source", {}):
-    raise SystemExit("dex-python-sdk must come from the package registry, not a path")
-installed = importlib.metadata.version("dex-python-sdk")
-if installed != sdk["version"]:
-    raise SystemExit(f"installed dex-python-sdk {installed}, uv.lock {sdk['version']}")
-print(f"dex-python-sdk {installed} from {sdk['source']['registry']}")
+# deepagents is a test dependency; the Deep Agents CLI checks that it pins the same version.
+for name in ("dex-python-sdk", "deepagents"):
+    locked = next(package for package in lock["package"] if package["name"] == name)
+    if "registry" not in locked.get("source", {}):
+        raise SystemExit(f"{name} must come from the package registry, not a path")
+    installed = importlib.metadata.version(name)
+    if installed != locked["version"]:
+        raise SystemExit(f"installed {name} {installed}, uv.lock {locked['version']}")
+    print(f"{name} {installed} from {locked['source']['registry']}")
 PY
 
 uv run --frozen ruff check

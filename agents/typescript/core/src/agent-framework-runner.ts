@@ -535,6 +535,16 @@ export interface ToolExecutionResult {
    * @since 0.5.0
    */
   readonly images?: readonly AgentImageReference[];
+  /**
+   * Opaque text the runner keeps with the call's result for its own later model calls, such as the framework
+   * state that the tool changed. The session stores it as {@link AgentToolCall.runnerToolState} of the
+   * `succeeded` record, and `runModelStep` reads it from `AgentTurnContext.toolCalls`. The session never interprets
+   * it and never shows it to the model, in the browser snapshot from `agentSnapshotToJson`, or in trace attributes.
+   * Only the attempt that commits the result stores it, so a retried attempt never adds a second copy. Omit it to
+   * store nothing.
+   * @since 0.5.0
+   */
+  readonly runnerToolState?: string;
 }
 
 /**
