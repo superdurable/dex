@@ -95,8 +95,9 @@ impl Wait {
 
 /// Represents one durable timer, Channel, or SubFlow predicate.
 ///
-/// Conditions are created by [`crate::Timer`], [`crate::Channel`], or [`crate::ChannelMap`]. Assign
-/// an ID when identifying a timer independently or using [`Wait::any_combination_of`].
+/// Conditions are created by [`crate::Timer`], [`crate::Channel`], [`crate::ChannelMap`], or
+/// [`crate::Join`]. Assign an ID when identifying a timer independently or using
+/// [`Wait::any_combination_of`].
 #[derive(Clone)]
 pub struct Condition {
     pub(crate) identity: Arc<ConditionIdentity>,
@@ -116,6 +117,8 @@ pub(crate) enum ConditionKind {
         at_most: Option<usize>,
     },
     SubFlow(Box<SubFlowDefinition>),
+    /// Fails Wait mapping with this reason; builders defer validation errors this way.
+    Invalid(String),
 }
 
 #[derive(Clone)]
@@ -159,6 +162,14 @@ impl Condition {
             identity: Arc::new(ConditionIdentity),
             id,
             kind: ConditionKind::SubFlow(Box::new(definition)),
+        }
+    }
+
+    pub(crate) fn invalid(reason: String) -> Self {
+        Self {
+            identity: Arc::new(ConditionIdentity),
+            id: None,
+            kind: ConditionKind::Invalid(reason),
         }
     }
 
