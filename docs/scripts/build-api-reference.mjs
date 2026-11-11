@@ -149,7 +149,23 @@ async function buildPython(sourceRoot, generatedRoot, version, temporaryRoot) {
   }
   await run(pythonPath, ['-m', 'pdoc', '--docformat', 'google', '--no-show-source', '-o', generatedRoot,
     'dex', '!dex.dexpb', '!dex._native'], sourceRoot, {PYTHONPATH: sourceRoot});
+  await retargetMissingPdocMemberAnchors(join(generatedRoot, 'dex.html'));
   await writeFile(join(generatedRoot, 'index.html'), htmlDocument(`Dex Python SDK ${version} API`, '<h1>Python SDK API reference</h1><p><a href="dex.html">Open the dex package</a></p>'));
+}
+
+async function retargetMissingPdocMemberAnchors(htmlPath) {
+  const html = await readFile(htmlPath, 'utf8');
+  const anchors = new Set([...html.matchAll(/\b(?:id|name)="([^"]+)"/g)].map((match) => match[1]));
+  const updated = html.replace(/href="#([^"]+)"/g, (link, fragment) => {
+    if (anchors.has(fragment)) return link;
+    let parent = fragment;
+    while (parent.includes('.')) {
+      parent = parent.slice(0, parent.lastIndexOf('.'));
+      if (anchors.has(parent)) return `href="#${parent}"`;
+    }
+    return link;
+  });
+  if (updated !== html) await writeFile(htmlPath, updated);
 }
 
 async function buildTypeScript(sourceRoot, generatedRoot, version) {

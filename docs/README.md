@@ -220,6 +220,13 @@ Until then, a person opens each pull request:
 If a snapshot job fails, run the snapshot command above by hand and open its
 pull request.
 
+The snapshot job does not advance the generated SDK API reference window.
+After an SDK release, follow [Advancing the version window](#advancing-the-version-window)
+in a separate docs change. That change must include the manifest, matching SDK
+reference index links, and the Python generation locks when Python is released.
+The release workflow cannot update the manifest alone: `npm run check` requires
+the index links and locks to agree with it.
+
 ### Tests and upgrade risks
 
 `npm run test:reference` checks version boundaries, retention, file pruning,
@@ -378,7 +385,10 @@ the site size against the GitHub Pages 1 GB limit.
    match. `npm run check` fails until the links match the manifest.
 3. For Python, run `scripts/api-reference-tools/lock-python-dependencies.sh`
    to regenerate the per-version locks.
-4. Deploy. Assembly no longer publishes the retired version, so its URLs
+4. Retarget links in current reference pages from retired API versions to
+   `/api/<language>/latest/`. Archived reference snapshots keep their original
+   links and use the site's 404 fallback.
+5. Deploy. Assembly no longer publishes the retired version, so its URLs
    return the site's 404 page. That page detects
    `/api/<language>/<minor>/...` for a minor that is not in the manifest. It
    sends the reader to the same page under `/api/<language>/latest/`, or to
