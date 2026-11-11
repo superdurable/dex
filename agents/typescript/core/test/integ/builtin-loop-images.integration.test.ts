@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -20,6 +20,7 @@ import {
   AgentSessionTestClient,
   AgentTestEnvironment,
   FileGate,
+  InvocationLog,
   KillableWorkerProcess,
   PrivateDexEngine,
 } from "../../src/testing/index.js";
@@ -28,8 +29,11 @@ import {
   createBuiltinImageAgentFlows,
   readLoggedPrompts,
   seenImage,
+  storeReadsFailFileName,
+  storeReadsLogName,
   type SeenMessage,
 } from "../fixtures/builtin-image-agent.js";
+import { screenshotPngBase64 } from "../fixtures/fake-mcp-server-names.js";
 import { readConformanceJson } from "../fixtures/conformance-suite.js";
 import { mediaDirectoryName, screenshotPng } from "../fixtures/image-test-agent.js";
 
@@ -176,6 +180,59 @@ describe("images through a built-in loop session", () => {
     assert.ok(resumedPrompt.includes(JSON.stringify(seenImage(screenshotPng(), "image/png"))));
     assert.equal(snapshot.messages.at(-1)?.text, "screenshot taken");
     assertNoImageBytes(snapshot, png, screenshotPng());
+  });
+
+  test("an MCP image reaches the prompt as a file part in the tool result", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "mcp-"));
+    await startWorker(stateDirectory);
+    const sessionId = `builtin-images-mcp-${randomUUID()}`;
+    await sessions.startSession(sessionId, "mcp-screenshot");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    const mcpPng = new Uint8Array(Buffer.from(screenshotPngBase64, "base64"));
+    assert.deepEqual(lastMessage(readLoggedPrompts(stateDirectory).at(-1)), {
+      role: "tool",
+      parts: [
+        {
+          type: "tool-result",
+          toolName: "local__take_screenshot",
+          output: [{ type: "text", text: "captured the page\n[image 1]" }, seenImage(mcpPng, "image/png")],
+        },
+      ],
+    });
+    assert.equal(snapshot.messages.at(-1)?.text, "mcp screenshot taken");
+    assertNoImageBytes(snapshot, mcpPng);
+  });
+
+  test("a failed store read fails the model call and the retry succeeds", async () => {
+    const stateDirectory = mkdtempSync(join(engine.stateDirectory, "read-failure-"));
+    const store = new LocalDirectoryMediaStore(join(stateDirectory, mediaDirectoryName));
+    await startWorker(stateDirectory);
+    const pngReference = await store.putImage(png);
+    const sessionId = `builtin-images-read-failure-${randomUUID()}`;
+    await sessions.startSession(sessionId);
+    const readsFail = join(stateDirectory, storeReadsFailFileName);
+    writeFileSync(readsFail, "");
+    const reads = new InvocationLog(join(stateDirectory, storeReadsLogName));
+
+    assert.equal(await sessions.sendUserMessage(sessionId, "describe", false, [pngReference]), true);
+    const deadline = Date.now() + 60_000;
+    while (reads.count(`read-failed ${pngReference.sha256}`) === 0) {
+      assert.ok(Date.now() < deadline, "no store read failed in time");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    rmSync(readsFail);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+
+    // The failed read made no model call; the retried attempt showed the image.
+    assert.deepEqual(
+      readLoggedPrompts(stateDirectory).map((prompt) => prompt.slice(1)),
+      [[{ role: "user", parts: [{ type: "text", text: "describe" }, seenImage(png, "image/png")] }]],
+    );
+    assert.equal(snapshot.messages.at(-1)?.text, "saw 1 images");
+    assert.equal(snapshot.state?.lastTurnError ?? null, null);
   });
 
   test("a runner without a media store refuses images and hides tool images", async () => {

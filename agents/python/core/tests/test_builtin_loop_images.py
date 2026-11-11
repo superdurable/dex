@@ -13,8 +13,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -28,15 +29,24 @@ from dex_agents import (
     LocalDirectoryMediaStore,
     MessageRole,
 )
-from dex_agents.testing import AgentTestStack, FileGate, InvocationLog, wait_for_agent_snapshot
+from dex_agents.testing import (
+    AgentTestStack,
+    FileGate,
+    InvocationLog,
+    wait_for_agent_snapshot,
+    wait_until,
+)
 from tests.builtin_loop_image_agent import (
     MEDIA_DIRECTORY_NAME,
     MODEL_REQUESTS_LOG_NAME,
     STATE_DIR_ENVIRONMENT_VARIABLE,
+    STORE_READS_FAIL_FILE_NAME,
+    STORE_READS_LOG_NAME,
     build_builtin_image_agent_flows,
     screenshot_png,
 )
 from tests.conftest import CORE_DIR
+from tests.fake_mcp_server import SCREENSHOT_PNG_BASE64
 
 WORKER_MODULE = "tests.builtin_loop_image_worker"
 IMAGES: dict[str, Any] = {
@@ -225,3 +235,67 @@ async def test_a_runner_without_a_media_store_refuses_images_and_hides_tool_imag
         "text": "Took a screenshot.",
         "images": [],
     }
+
+
+async def test_an_mcp_image_reaches_the_model_input_as_bytes(
+    image_harness: BuiltinImageHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    session_id = f"session-{uuid4().hex}"
+    await image_harness.sessions.start_session(session_id, "mcp-screenshot")
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    mcp_png = base64.b64decode(SCREENSHOT_PNG_BASE64)
+    assert image_harness.model_requests()[-1]["items"][-1] == {
+        "kind": "tool_result",
+        "text": "captured the page\n[image 1]",
+        "images": [image_seen(mcp_png, "image/png")],
+    }
+    assert snapshot.messages[-1].text == "mcp screenshot taken"
+    tool_message = next(
+        message for message in snapshot.messages if message.role is MessageRole.TOOL
+    )
+    assert [image.sha256 for image in tool_message.images] == [hashlib.sha256(mcp_png).hexdigest()]
+    assert_no_image_bytes(snapshot, mcp_png)
+
+
+async def test_a_failed_store_read_fails_the_model_call_and_the_retry_succeeds(
+    image_harness: BuiltinImageHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    png = await image_harness.media.put_image(PNG)
+    session_id = f"session-{uuid4().hex}"
+    await image_harness.sessions.start_session(session_id)
+    reads_fail = image_harness.state_dir / STORE_READS_FAIL_FILE_NAME
+    reads_fail.touch()
+    reads = InvocationLog(image_harness.state_dir / STORE_READS_LOG_NAME)
+
+    assert await image_harness.sessions.send_user_message(session_id, "describe", images=[png])
+    await wait_until_true(lambda: reads.count(f"read-failed {png.sha256}") >= 1)
+    reads_fail.unlink()
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    # The failed read made no model call; the retried attempt showed the image.
+    assert image_harness.model_requests() == [
+        {
+            "instructions": "You look at images.",
+            "items": [
+                {"kind": "user", "text": "describe", "images": [image_seen(PNG, "image/png")]}
+            ],
+        }
+    ]
+    assert snapshot.messages[-1].text == "saw 1 images"
+    assert snapshot.state is not None and snapshot.state.last_turn_error is None
+    history = await image_harness.stack.read_step_history(session_id)
+    assert max(entry.final_attempt for entry in history if entry.step_type == "RunModel") >= 2
+
+
+async def wait_until_true(predicate: Callable[[], bool]) -> None:
+    await wait_until("the condition", _as_async(predicate), timeout=timedelta(seconds=60))
+
+
+def _as_async(predicate: Callable[[], bool]) -> Callable[[], Awaitable[bool]]:
+    async def check() -> bool:
+        return predicate()
+
+    return check

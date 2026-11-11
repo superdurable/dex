@@ -13,10 +13,15 @@
 // - `screenshot` calls `take_screenshot`, which uploads a PNG and returns its reference, then answers
 //   `screenshot taken`.
 // - `screenshot-hold <gate>` does the same, but the second model call waits at that FileGate after it logs.
+// - `mcp-screenshot` calls `local__take_screenshot` of an McpToolSource with the media store, whose fake stdio
+//   server returns an image block, then answers `mcp screenshot taken`.
+// While the file `store-reads-fail` exists in the state directory, every image read fails with MediaStoreError and
+// is logged as `read-failed <sha256>` in `store-reads.log`.
 // Every call appends one JSON line to `model-prompts.log`: each prompt message's role and parts, with each file
 // part as its media type and the SHA-256 and size of its bytes.
 
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { MockLanguageModelV4 } from "ai/test";
@@ -30,7 +35,8 @@ import type {
   ToolTaskPollOutcome,
 } from "../../src/agent-framework-runner.js";
 import type { AgentSessionFlow } from "../../src/agent-session-flow.js";
-import type { MediaStore } from "../../src/agent-media.js";
+import { MediaStoreError, type MediaStore } from "../../src/agent-media.js";
+import type { AgentImageReference } from "../../src/agent-session-values.js";
 import { createAiSdkModelClient } from "../../src/ai-sdk/index.js";
 import {
   createBuiltinAgentSessionFlow,
@@ -38,7 +44,9 @@ import {
   type SourceToolDefinition,
   type ToolSource,
 } from "../../src/builtin-loop/index.js";
+import { McpToolSource } from "../../src/mcp/index.js";
 import { FileGate, InvocationLog } from "../../src/testing/index.js";
+import { fakeMcpServerModulePath, fakeMcpStateDirectoryVariable } from "./fake-mcp-server-names.js";
 import { screenshotPng } from "./image-test-agent.js";
 
 export const builtinImageAgentFlowType = "BuiltinImageAgent";
@@ -46,6 +54,9 @@ export const builtinNoStoreImageAgentFlowType = "BuiltinNoStoreImageAgent";
 export const builtinImageAgentStateDirectoryVariable = "BUILTIN_IMAGE_AGENT_STATE_DIR";
 export const modelPromptsLogName = "model-prompts.log";
 export const screenshotToolName = "take_screenshot";
+export const mcpScreenshotToolName = "local__take_screenshot";
+export const storeReadsFailFileName = "store-reads-fail";
+export const storeReadsLogName = "store-reads.log";
 
 type LanguageModelCallOptions = Parameters<MockLanguageModelV4["doStream"]>[0];
 type LanguageModelPrompt = LanguageModelCallOptions["prompt"];
@@ -75,14 +86,27 @@ export function createBuiltinImageAgentFlows(
   stateDirectory: string,
   store: MediaStore,
 ): AgentSessionFlow<BuiltinLoopAgentRunner>[] {
+  const switchableStore = new SwitchableReadMediaStore(store, stateDirectory);
+  const mcpTools = new McpToolSource(
+    [
+      {
+        transport: "stdio",
+        name: "local",
+        command: process.execPath,
+        args: [fakeMcpServerModulePath, "stdio"],
+        env: { [fakeMcpStateDirectoryVariable]: stateDirectory },
+      },
+    ],
+    { mediaStore: switchableStore },
+  );
   const definition = {
     name: "image-agent",
     instructions: "You look at images.",
     model: createAiSdkModelClient(createImageLanguageModel(stateDirectory)),
-    toolSources: [new ScreenshotToolSource(store)],
+    toolSources: [new ScreenshotToolSource(switchableStore), mcpTools],
   };
   return [
-    createBuiltinAgentSessionFlow(definition, builtinImageAgentFlowType, { mediaStore: store }),
+    createBuiltinAgentSessionFlow(definition, builtinImageAgentFlowType, { mediaStore: switchableStore }),
     createBuiltinAgentSessionFlow(definition, builtinNoStoreImageAgentFlowType),
   ];
 }
@@ -106,6 +130,26 @@ export function readLoggedPrompts(stateDirectory: string): SeenMessage[][] {
  */
 export function seenImage(data: Uint8Array, mediaType: string): SeenPart {
   return { type: "file", mediaType, sha256: sha256Of(data), size: data.length };
+}
+
+/** A media store whose reads fail while the test's flag file exists. */
+class SwitchableReadMediaStore implements MediaStore {
+  public constructor(
+    private readonly store: MediaStore,
+    private readonly stateDirectory: string,
+  ) {}
+
+  public putImage(data: Uint8Array): Promise<AgentImageReference> {
+    return this.store.putImage(data);
+  }
+
+  public getImage(reference: AgentImageReference): Promise<Uint8Array> {
+    if (existsSync(join(this.stateDirectory, storeReadsFailFileName))) {
+      new InvocationLog(join(this.stateDirectory, storeReadsLogName)).record(`read-failed ${reference.sha256}`);
+      return Promise.reject(new MediaStoreError(`the test made reads of ${reference.uri} fail`));
+    }
+    return this.store.getImage(reference);
+  }
 }
 
 class ScreenshotToolSource implements ToolSource {
@@ -182,6 +226,15 @@ async function* streamImageResponse(
       await gate.waitForRelease(options.abortSignal);
     }
     yield* streamAnswer("screenshot taken");
+    return;
+  }
+  if (command === "mcp-screenshot") {
+    if (!hasToolResult) {
+      yield { type: "tool-call", toolCallId: `call-${seen.length}`, toolName: mcpScreenshotToolName, input: "{}" };
+      yield finishPart("tool-calls");
+      return;
+    }
+    yield* streamAnswer("mcp screenshot taken");
     return;
   }
   throw new Error(`unknown image command ${command}`);
