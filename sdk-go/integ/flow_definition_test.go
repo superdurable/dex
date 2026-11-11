@@ -110,12 +110,60 @@ func TestWorkerUploadsFlowDefinitionsFromPathsAndMemory(t *testing.T) {
 
 	expectedFileContent := strings.Replace(fileContent, underWorkingDirectory, "workflows/order.go", 1)
 	require.Equal(t, expectedFileContent, string(stored[fileFlowType].GetContent()))
-	require.True(t, fileModificationTime.Equal(stored[fileFlowType].GetInfo().GetGeneratedAt().AsTime()))
+	require.True(t, fileModificationTime.Truncate(time.Millisecond).Equal(stored[fileFlowType].GetInfo().GetGeneratedAt().AsTime()))
 	require.True(t, strings.HasPrefix(stored[fileFlowType].GetInfo().GetUploader(), "sdk-go/"))
 
 	expectedMemoryContent := strings.Replace(memoryContent, "/outside/the/working/directory/memory.go", "memory.go", 1)
 	require.Equal(t, expectedMemoryContent, string(stored[memoryFlowType].GetContent()))
 	require.True(t, memoryGeneratedAt.Equal(stored[memoryFlowType].GetInfo().GetGeneratedAt().AsTime()))
+}
+
+// A directory may hold other JSON files; only valid FDG 2.x files are uploaded, the rest are skipped.
+func TestWorkerUploadsOnlyFlowDefinitionsFromMixedDirectory(t *testing.T) {
+	validFlowType := "MixedDirectoryFlowDefinition-" + uuid.NewString()
+	upperCaseFlowType := "UpperCaseExtensionFlowDefinition-" + uuid.NewString()
+	oldSchemaFlowType := "OldSchemaFlowDefinition-" + uuid.NewString()
+	directory := t.TempDir()
+	files := map[string]string{
+		"package.json":     `{"name":"application","version":"1.0.0"}`,
+		"array.json":       `[1, 2, 3]`,
+		"broken.json":      `{"schemaVersion":`,
+		"old-schema.json":  `{"schemaVersion":"1.0","flow":{"name":"` + oldSchemaFlowType + `"}}`,
+		"valid.json":       flowDefinitionJSON(validFlowType, "flow.go"),
+		"UPPER.JSON":       flowDefinitionJSON(upperCaseFlowType, "flow.go"),
+		"not-a-graph.yaml": flowDefinitionJSON("YamlFlow", "flow.go"),
+	}
+	for name, content := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(directory, name), []byte(content), 0o600))
+	}
+	worker := startFlowDefinitionWorker(t, []dex.Flow{
+		flowDefinitionUploadFlow{flowType: validFlowType},
+		flowDefinitionUploadFlow{flowType: upperCaseFlowType},
+		flowDefinitionUploadFlow{flowType: oldSchemaFlowType},
+	}, dex.WorkerOptions{FlowDefinitionPaths: []string{directory}}, nil)
+	require.NoError(t, worker.WaitPullRegistered(integrationContext(t)))
+	stored := getStoredFlowDefinitions(t, validFlowType, upperCaseFlowType, oldSchemaFlowType)
+	require.Len(t, stored, 2)
+	require.Contains(t, stored, validFlowType)
+	require.Contains(t, stored, upperCaseFlowType)
+
+	invalidGeneratedAtDirectory := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(invalidGeneratedAtDirectory, "flow.json"), []byte(
+		`{"schemaVersion":"2.0","generatedAt":"2026-11-01 00:00:00+00:00","flow":{"name":"`+validFlowType+`"}}`,
+	), 0o600))
+	registry, err := dex.NewRegistry([]dex.Flow{flowDefinitionUploadFlow{flowType: validFlowType}})
+	require.NoError(t, err)
+	_, err = dex.NewWorker(registry, newPullSDKCache(t), dex.WorkerOptions{
+		FlowServiceAddress:  flowServiceAddress(),
+		FlowDefinitionPaths: []string{invalidGeneratedAtDirectory},
+	})
+	require.ErrorContains(t, err, "must be an RFC 3339 time")
+
+	_, err = dex.NewWorker(registry, newPullSDKCache(t), dex.WorkerOptions{
+		FlowServiceAddress:  flowServiceAddress(),
+		FlowDefinitionPaths: []string{filepath.Join(directory, "package.json")},
+	})
+	require.ErrorContains(t, err, `schemaVersion must start with "2."`)
 }
 
 func TestWorkerFlowDefinitionTopLevelGeneratedAtWins(t *testing.T) {

@@ -728,7 +728,8 @@ through an older dexcli or SDK, or a direct gRPC request; see
 
 `dexcli flow-definition upload <path>... [--force]` stores Flow Definition
 Graph 2.0 JSON files on the server. Directories are read recursively for
-`*.json` files, with the same rules as the Go SDK's `ReadFlowDefinitionFiles`.
+`*.json` files, with the same rules as the Go SDK's `ReadFlowDefinitionFiles`;
+other JSON files, such as `package.json`, are skipped with a note on stderr.
 The output lists each Flow type with its outcome: `CREATED`, `REPLACED`,
 `UNCHANGED`, or `KEPT_EXISTING`. `--force` replaces a stored definition even
 when it has a later generated time. `dexcli flow-definition list` prints every

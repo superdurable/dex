@@ -81,6 +81,7 @@ func TestFlowDefinitionUploadAndListAgainstLocalStack(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(directory, flowType+".json"), []byte(content), 0o600))
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(definitionDirectory, "README.md"), []byte("ignored"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(nestedDirectory, "package.json"), []byte(`{"name":"skipped"}`), 0o600))
 
 	upload := runFlowDefinitionCommand[flowDefinitionUploadOutput](t, "flow-definition", "upload", definitionDirectory, "--server", dexAddress)
 	require.Len(t, upload.Definitions, flowTypeCount)

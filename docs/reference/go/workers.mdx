@@ -165,17 +165,30 @@ Dex server at startup. Since 1.45.0.
 | Read files with the same rules | **ReadFlowDefinitionFiles** |
 | Upload from a script | **Client.UploadFlowDefinitions** |
 
-- A directory is read recursively. Only its **.json** files are read.
-- Each file must have a **schemaVersion** that starts with **2.** and a
-  **flow.name**. **flow.name** is the Flow type.
+- A missing or unreadable path is an error.
+- A file you name must be a valid FDG 2.x document, whatever its extension: a
+  UTF-8 JSON object whose **schemaVersion** starts with **2.** and whose
+  **flow.name** is a non-empty string. **flow.name** is the Flow type.
+- A directory is read recursively. Only files whose extension is **.json**, in
+  any letter case, are considered. A considered file that is not an FDG 2.x
+  document, such as **package.json** or an FDG 1.x file, is skipped and logged at
+  info level.
 - The generated time is the top-level **generatedAt**. Without it, the file
-  modification time is used.
+  modification time is used. **generatedAt** must look like
+  **2026-11-01T00:00:00Z**: a **T** separator, optional fractional seconds, and
+  **Z** or a **±HH:MM** offset. Any other form is an error, also in a directory.
+- Generated times, including those of in-memory documents, are truncated to
+  whole milliseconds.
 - **NewWorker** returns an error for an invalid file and for a Flow type given
-  twice, including once in each option.
+  twice, within one option or once in each.
 - **Start** uploads only the documents of Flow types in the Registry. It logs the
   others and skips them.
-- An absolute **source.path** is uploaded relative to the working directory, or
-  as its base name when the file lies outside it.
+- An absolute **source.path**, POSIX or Windows, is uploaded relative to the
+  working directory with **/** separators, or as its base name when it lies
+  outside it. The paths are compared lexically, without resolving symbolic
+  links. A relative **source.path** is uploaded unchanged.
+- Upload uses one deadline, **AttributeIndexSyncTimeout**, for all requests.
+  **Stop** cancels an upload in progress.
 - Upload failures are warnings. The Worker still starts, also against a server
   without the upload API.
 - The server keeps the document with the latest generated time. Give every

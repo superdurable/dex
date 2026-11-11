@@ -803,7 +803,8 @@ if err := worker.Start(); err != nil {
 Since 1.45.0, a Worker can store the Flow Definition Graph (FDG 2.0) JSON of its
 Flows on the Dex server, so Dex Web does not need a local
 `--flow-rendering-dir`. `WorkerOptions.FlowDefinitionPaths` names files or
-directories; directories are read recursively for `*.json` files.
+directories; directories are read recursively for `*.json` files, and JSON
+files that are not FDG 2.x documents, such as `package.json`, are skipped.
 `WorkerOptions.FlowDefinitions` passes documents built in memory. Generate the
 files with `dexcli visualize --schema-version 2.0 --json`.
 
@@ -813,12 +814,14 @@ worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
 })
 ```
 
-`NewWorker` returns an error for an invalid file or a Flow type given twice.
+`NewWorker` returns an error for a missing path, an invalid named file, an
+invalid `generatedAt`, or a Flow type given twice.
 `Start` uploads only the documents of Flow types in the Registry, after it
 negotiates the Server protocol and before it opens task streams. An absolute
 `source.path` is uploaded as a path relative to the working directory, or as
 its base name. Upload failures, including an older server without the API,
-are logged as warnings; the Worker still starts. The server keeps the document
+are logged as warnings; the Worker still starts, and `Stop` cancels an upload
+in progress. The server keeps the document
 with the latest generated time, so give every process of one release the same
 time. Deployment scripts can call `dex.ReadFlowDefinitionFiles` and
 `Client.UploadFlowDefinitions` instead, with `force` to roll a definition back.

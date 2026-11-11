@@ -1,0 +1,129 @@
+{
+  "description": "Cross-SDK conformance cases for Worker-side Flow Definition Graph upload. Every SDK must produce exactly these results.",
+  "sourcePathRewrite": [
+    {
+      "name": "absolute under cwd",
+      "cwd": "/work",
+      "sourcePath": "/work/flows/a.json",
+      "expected": "flows/a.json"
+    },
+    {
+      "name": "dot segments escape cwd",
+      "cwd": "/work",
+      "sourcePath": "/work/dir/../../secret.json",
+      "expected": "secret.json"
+    },
+    {
+      "name": "dot segments stay under cwd",
+      "cwd": "/work",
+      "sourcePath": "/work/a/./b/../c.json",
+      "expected": "a/c.json"
+    },
+    {
+      "name": "absolute outside cwd",
+      "cwd": "/work",
+      "sourcePath": "/other/x.json",
+      "expected": "x.json"
+    },
+    {
+      "name": "cwd prefix is not a parent",
+      "cwd": "/work",
+      "sourcePath": "/workspace/x.json",
+      "expected": "x.json"
+    },
+    {
+      "name": "relative path unchanged",
+      "cwd": "/work",
+      "sourcePath": "flows/a.json",
+      "expected": null
+    },
+    {
+      "name": "windows drive path on posix cwd",
+      "cwd": "/work",
+      "sourcePath": "C:\\repo\\flow.json",
+      "expected": "flow.json"
+    },
+    {
+      "name": "windows drive path under windows cwd",
+      "cwd": "C:\\work",
+      "sourcePath": "C:\\work\\f\\a.json",
+      "expected": "f/a.json"
+    },
+    {
+      "name": "windows forward slashes under windows cwd",
+      "cwd": "C:/work",
+      "sourcePath": "C:/work/f/a.json",
+      "expected": "f/a.json"
+    },
+    {
+      "name": "unc path",
+      "cwd": "/work",
+      "sourcePath": "\\\\server\\share\\a.json",
+      "expected": "a.json"
+    },
+    {
+      "name": "non-ascii kept unescaped",
+      "cwd": "/work",
+      "sourcePath": "/work/über/ä.json",
+      "expected": "über/ä.json"
+    },
+    {
+      "name": "cwd unavailable",
+      "cwd": null,
+      "sourcePath": "/work/flows/a.json",
+      "expected": "a.json"
+    }
+  ],
+  "jsonStringEncoding": [
+    {
+      "value": "a\"b.json",
+      "encoded": "\"a\\\"b.json\""
+    },
+    {
+      "value": "a\\b.json",
+      "encoded": "\"a\\\\b.json\""
+    },
+    {
+      "value": "<&>/ä.json",
+      "encoded": "\"<&>/ä.json\""
+    },
+    {
+      "value": "tab\there\u0001",
+      "encoded": "\"tab\\there\\u0001\""
+    }
+  ],
+  "generatedAt": [
+    {
+      "value": "2026-11-01T00:00:00Z",
+      "unixMillis": 1793491200000
+    },
+    {
+      "value": "2026-11-01T00:00:00.123456Z",
+      "unixMillis": 1793491200123
+    },
+    {
+      "value": "2026-11-01T02:00:00.5+02:00",
+      "unixMillis": 1793491200500
+    },
+    {
+      "value": "2026-11-01t00:00:00z",
+      "unixMillis": 1793491200000
+    },
+    {
+      "value": "2026-11-01 00:00:00+00:00",
+      "error": true
+    },
+    {
+      "value": "2026-11-01T00:00:00",
+      "error": true
+    },
+    {
+      "value": "2026-11-01",
+      "error": true
+    },
+    {
+      "value": "2026-11-01T00:00:00+0200",
+      "error": true
+    }
+  ]
+}

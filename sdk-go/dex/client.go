@@ -1136,7 +1136,7 @@ func (client *Client) HealthCheck(ctx context.Context) (HealthInfo, error) {
 // 256 documents per request; the server validates each request as a whole, so a
 // rejected request stores none of its documents.
 //
-//	documents, err := dex.ReadFlowDefinitionFiles([]string{"flow-definitions"})
+//	documents, err := dex.ReadFlowDefinitionFiles([]string{"flow-definitions"}, nil)
 //	if err != nil {
 //		return err
 //	}

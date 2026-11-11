@@ -278,7 +278,7 @@ func TestPublicContractsCompile(t *testing.T) {
 		FlowDefinitionPaths: []string{"flow-definitions"},
 		FlowDefinitions:     []dex.FlowDefinitionDocument{{FlowType: "OrderFlow", Content: []byte("{}"), GeneratedAt: time.Unix(0, 0)}},
 	}
-	var readFlowDefinitionFiles func([]string) ([]dex.FlowDefinitionDocument, error) = dex.ReadFlowDefinitionFiles
+	var readFlowDefinitionFiles func([]string, dex.Logger) ([]dex.FlowDefinitionDocument, error) = dex.ReadFlowDefinitionFiles
 	_ = readFlowDefinitionFiles
 	var uploadFlowDefinitions func(*dex.Client, context.Context, []dex.FlowDefinitionDocument, bool) ([]dex.FlowDefinitionUploadResult, error) = (*dex.Client).UploadFlowDefinitions
 	_ = uploadFlowDefinitions

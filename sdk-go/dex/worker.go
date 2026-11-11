@@ -228,6 +228,8 @@ type Worker struct {
 	logger                    Logger
 	pull                      *pullWorker
 	flowDefinitions           []FlowDefinitionDocument
+	// cancelFlowDefinitionUpload is set under lifecycleMu before Start uploads; Stop calls it when set.
+	cancelFlowDefinitionUpload context.CancelFunc
 
 	lifecycleMu sync.Mutex
 	state       workerState
@@ -270,7 +272,8 @@ func NewWorker(
 	if err != nil {
 		return nil, err
 	}
-	flowDefinitions, err := resolveWorkerFlowDefinitions(options)
+	logger := resolveLogger(options.Logger, cache.Logger())
+	flowDefinitions, err := resolveWorkerFlowDefinitions(options, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +289,6 @@ func NewWorker(
 		return nil, fmt.Errorf("dex: create FlowService client: %w", err)
 	}
 
-	logger := resolveLogger(options.Logger, cache.Logger())
 	flowService := dexpb.NewFlowServiceClient(flowConn)
 	serverProtocol := &negotiatedServerProtocol{}
 	service := newWorkerService(
@@ -353,10 +355,10 @@ func resolveWorkerOptions(
 	return flowServiceAddress, syncTimeout, nil
 }
 
-func resolveWorkerFlowDefinitions(options WorkerOptions) ([]FlowDefinitionDocument, error) {
+func resolveWorkerFlowDefinitions(options WorkerOptions, logger Logger) ([]FlowDefinitionDocument, error) {
 	var fromPaths []FlowDefinitionDocument
 	if len(options.FlowDefinitionPaths) > 0 {
-		documents, err := ReadFlowDefinitionFiles(options.FlowDefinitionPaths)
+		documents, err := ReadFlowDefinitionFiles(options.FlowDefinitionPaths, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -439,9 +441,12 @@ func (worker *Worker) Start() (startErr error) {
 		worker.finish()
 		return fmt.Errorf("dex: sync attribute indexes: %w", err)
 	}
-	worker.uploadRegisteredFlowDefinitions()
+	uploadCtx, cancelUpload := context.WithTimeout(context.Background(), worker.attributeIndexSyncTimeout)
+	worker.cancelFlowDefinitionUpload = cancelUpload
 	worker.state = workerRunning
 	worker.lifecycleMu.Unlock()
+	worker.uploadRegisteredFlowDefinitions(uploadCtx)
+	cancelUpload()
 	startErr = worker.pull.run()
 	worker.lifecycleMu.Lock()
 	worker.state = workerStopped
@@ -451,7 +456,8 @@ func (worker *Worker) Start() (startErr error) {
 }
 
 // uploadRegisteredFlowDefinitions logs every failure because upload must never stop Start.
-func (worker *Worker) uploadRegisteredFlowDefinitions() {
+// uploadCtx is one deadline for every batch; Stop cancels it.
+func (worker *Worker) uploadRegisteredFlowDefinitions(uploadCtx context.Context) {
 	if len(worker.flowDefinitions) == 0 {
 		return
 	}
@@ -466,8 +472,6 @@ func (worker *Worker) uploadRegisteredFlowDefinitions() {
 	if len(documents) == 0 {
 		return
 	}
-	uploadCtx, cancelUpload := context.WithTimeout(context.Background(), worker.attributeIndexSyncTimeout)
-	defer cancelUpload()
 	results, err := uploadFlowDefinitionDocuments(
 		uploadCtx, worker.flowService, documents, goSDKFlowDefinitionUploader(worker.sdkVersion), false,
 	)
@@ -496,7 +500,9 @@ func (worker *Worker) logFlowDefinitionUploadResult(result *dexpb.FlowDefinition
 		worker.logger.Info("dex: uploaded Flow definition", keyValues...)
 	case FlowDefinitionUploadUnchanged:
 		worker.logger.Debug("dex: Flow definition unchanged", keyValues...)
-	default:
+	case FlowDefinitionUploadOutcomeUnknown:
+		worker.logger.Warn(fmt.Sprintf("dex: unknown upload outcome %s", result.GetOutcome()), keyValues...)
+	case FlowDefinitionUploadKeptExisting:
 		worker.logger.Warn(
 			"dex: the Dex server kept a different Flow definition with the same or a later generated time",
 			append(keyValues,
@@ -621,6 +627,9 @@ func (worker *Worker) Stop(ctx context.Context) error {
 		return nil
 	case workerRunning:
 		worker.state = workerStopping
+		if worker.cancelFlowDefinitionUpload != nil {
+			worker.cancelFlowDefinitionUpload()
+		}
 		worker.pull.stop()
 	case workerStopping:
 	case workerStopped:

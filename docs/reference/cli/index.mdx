@@ -217,14 +217,17 @@ dexcli flow-definition upload ./flow-definitions --server dex.example.com:8801
 
 It reads files with the Go SDK rules:
 
-- A directory is read recursively. Only its **.json** files are read.
-- Each file must have a **schemaVersion** that starts with **2.** and a
-  **flow.name**. **flow.name** is the Flow type.
-- The generated time is the top-level **generatedAt**. Without it, the file
-  modification time is used.
+- A missing path, or a named file that is not a valid FDG 2.x document, fails
+  the command with a usage error. **flow.name** is the Flow type.
+- A directory is read recursively. Files whose extension is **.json**, in any
+  letter case, are considered. Other JSON files, such as **package.json** or FDG
+  1.x files, are skipped and logged on stderr.
+- The generated time is the top-level **generatedAt**, which must look like
+  **2026-11-01T00:00:00Z**. Without it, the file modification time is used. It
+  is truncated to whole milliseconds.
 - Two files with the same Flow type fail the command before anything is sent.
 - An absolute **source.path** is sent relative to the working directory, or as
-  its base name.
+  its base name. A relative one is sent unchanged.
 
 The output lists each Flow type with its **outcome**, **storedDigest**, and
 **storedGeneratedAt**. The outcome is **CREATED**, **REPLACED**, **UNCHANGED**,

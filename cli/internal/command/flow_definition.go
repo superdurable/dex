@@ -13,6 +13,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -63,9 +64,10 @@ func (a *App) executeFlowDefinitionUpload(ctx context.Context, args []string, op
 	if flags.NArg() == 0 {
 		return newUsageError("flow-definition upload", errors.New("expected at least one file or directory"))
 	}
-	documents, err := dex.ReadFlowDefinitionFiles(flags.Args())
+	skippedFileLogger := slog.New(slog.NewTextHandler(a.stderr, nil))
+	documents, err := dex.ReadFlowDefinitionFiles(flags.Args(), skippedFileLogger)
 	if err != nil {
-		return newOperationError("flow-definition upload", err)
+		return newUsageError("flow-definition upload", err)
 	}
 	if len(documents) == 0 {
 		return newOperationError("flow-definition upload", errors.New("no .json files found"))
@@ -161,7 +163,7 @@ func splitFlowDefinitionUploads(documents []dex.FlowDefinitionDocument) [][]*dex
 		batch = append(batch, &dexpb.FlowDefinitionUpload{
 			FlowType:    document.FlowType,
 			Content:     document.Content,
-			GeneratedAt: timestamppb.New(document.GeneratedAt),
+			GeneratedAt: timestamppb.New(document.GeneratedAt.Truncate(time.Millisecond)),
 		})
 		batchBytes += len(document.Content)
 	}
