@@ -152,15 +152,23 @@ request, when only the session options enable that built-in.
 `builtin_agent_session_flow` derives the `AgentSessionOptions` from it.
 
 `@function_tool(effect=..., requires_approval=None, name=None,
-description=None, parameters_schema=None)` turns a plain sync or async
+description=None, parameters_schema=None, prepare_arguments=None)` turns a plain sync or async
 function into a tool. The name defaults to the function name, the description
 to the docstring, and the JSON Schema is derived from the type hints with the
 standard library: `str`, `int`, `float`, `bool`, `None`, `list`, `dict`,
 `Literal`, `Enum`, unions, dataclasses, `TypedDict`, and
 `Annotated[T, "description"]`. A parameter typed `ToolCallContext` receives the
 idempotency key, attempt, Flow ID, turn ID, tool call ID, event writer,
-heartbeat, and the answers to the tool's questions. A sync function runs in a
-worker thread. Arguments that break the schema, and an unknown tool name,
+heartbeat, the answers to the tool's questions, and `effect`: the call's effect
+after the tool policies, which chose its tool Step. A wrapper that turns errors
+into `ToolExecutionError` lets them propagate for `NON_IDEMPOTENT_WRITE` and
+`UNCLASSIFIED`, the default of a hand-built context. A sync function runs in a
+worker thread. `prepare_arguments`, a synchronous and deterministic function,
+converts the decoded arguments before the schema check, such as an argument
+shape an earlier version of the tool took; an exception it raises fails the
+call like a schema violation, `CancelledError` passes through, and an
+awaitable result is refused. The stored tool call and the approval interrupt
+keep the model's original arguments. Arguments that break the schema, and an unknown tool name,
 raise `ToolExecutionError`, which the model sees: arguments that are not JSON
 give `invalid arguments for <tool>: arguments are not valid JSON`. A `str` result is the
 output; any other result is serialized as JSON.
