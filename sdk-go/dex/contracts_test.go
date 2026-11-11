@@ -726,6 +726,14 @@ func TestJoinRoundJSONContract(t *testing.T) {
 	if decoded != (dex.JoinRound{RoundKey: "round-1", BranchCount: 0}) {
 		t.Fatalf("unexpected decoded JoinRound: %#v", decoded)
 	}
+	var decodedWithUnknownField dex.JoinRound
+	withUnknownField := []byte(`{"roundKey":"RequestQuotes-3","branchCount":2,"addedLater":"ignored"}`)
+	if err := json.Unmarshal(withUnknownField, &decodedWithUnknownField); err != nil {
+		t.Fatal(err)
+	}
+	if decodedWithUnknownField != (dex.JoinRound{RoundKey: "RequestQuotes-3", BranchCount: 2}) {
+		t.Fatalf("unexpected JoinRound decoded with an unknown field: %#v", decodedWithUnknownField)
+	}
 	quoteReceived := dex.DefineJoin[string]("quoteReceived")
 	schema := dex.PersistenceSchema{Channels: []dex.ChannelDef{quoteReceived}}
 	if len(schema.Channels) != 1 {

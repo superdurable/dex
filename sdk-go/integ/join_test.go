@@ -378,6 +378,8 @@ func (joinStep) Execute(ctx dex.Context, input joinStepInput) (*dex.StepDecision
 	switch {
 	case plan.Scenario == joinFirstAndCancel:
 		return dex.GoTo(joinFinishStep{}, plan.Summary).CancelSiblingSteps(joinBranchStep{}), nil
+	case plan.Scenario == joinRPCReportsCanceled:
+		return dex.GoTo(joinFinishStep{}, plan.Summary), nil
 	case plan.RoundNumber < plan.RoundCount:
 		nextPlan := plan
 		nextPlan.RoundNumber++
@@ -550,12 +552,25 @@ func TestJoinRPCReportsAResultForACanceledBranch(t *testing.T) {
 		ReleasedBranches: []string{"A"},
 	})
 	round := dex.JoinRound{RoundKey: "joinSplitStep-1", BranchCount: 2}
+	// The split's commit creates branch B, so CancelSteps finds it.
+	waitForJoinStep(t, flowID, joinSplitStep{}, 1)
 	invokeJoinRPC(t, flowID, joinFlow{}.ReportJoinBranchResult, joinReportInput{
 		Round:             round,
 		Result:            "B-canceled",
 		CancelsBranchStep: true,
 	}, nil)
 	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "A", nil)
+	waitForJoinStep(t, flowID, joinStep{}, 1)
+
+	// A waiting branch B would consume this release at once; it stays pending only after cancellation.
+	invokeJoinRPC(t, flowID, joinFlow{}.ReleaseJoinBranch, "B", nil)
+	var sizes joinChannelSizes
+	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: round.RoundKey, BranchName: "B"}, &sizes)
+	require.Equal(t, joinChannelSizes{PendingResults: 0, PendingReleases: 1}, sizes)
+	requireJoinStepStillRunning(t, flowID, joinFinishStep{}, 1)
+	invokeJoinRPC(t, flowID, joinFlow{}.GetJoinChannelSizes, joinChannelSizesInput{RoundKey: round.RoundKey, BranchName: "B"}, &sizes)
+	require.Equal(t, joinChannelSizes{PendingResults: 0, PendingReleases: 1}, sizes)
+	invokeJoinRPC(t, flowID, joinFlow{}.OpenJoinGate, nil, nil)
 
 	summary := waitForJoinSummary(t, flowID)
 	require.Equal(t, [][]string{{"B-canceled", "A"}}, summary.BranchResults)
