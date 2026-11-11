@@ -10,4 +10,6 @@
 
 <!-- What ran locally, and what CI covers. -->
 
+<!-- A skills/ change adds a fragment: python3 script/release/changelog_fragments.py new skills --bump <level> -->
+
 <!-- Fixes #123 -->
