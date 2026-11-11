@@ -439,7 +439,11 @@ async def test_a_command_whose_log_file_cannot_be_written_starts_without_logging
 ) -> None:
     log_path = cli_home.home / ".dex" / "agents" / "scripted.log"
     log_path.mkdir(parents=True)
-    completed = await asyncio.to_thread(cli_home.run, stdin="hello\n")
+    with mcp_server_that_fails_listing("the catalog is not ready") as url:
+        cli_home.write_config(
+            config_yaml({"connectors": {"mcp": url}, "local_tools": NO_LOCAL_TOOLS})
+        )
+        completed = await asyncio.to_thread(cli_home.run, stdin="hello\n")
     assert completed.returncode == 0, completed.stderr
     assert "echo: hello" in completed.stdout
     assert f"Logging is off: cannot write {log_path}: " in completed.stderr
@@ -487,11 +491,15 @@ async def test_connectors_lists_the_tools_and_whether_the_config_enables_them(
     )
 
 
-async def test_an_unavailable_auto_mcp_server_prints_one_short_line_across_turns(
+async def test_an_unavailable_mcp_server_prints_one_short_line_across_turns(
     cli_home: CliHome,
 ) -> None:
-    # This dexcli dev serves no connectors MCP server, so connectors.mcp: auto only warns.
-    completed = await asyncio.to_thread(cli_home.run, stdin="hello\nagain\n")
+    # The server answers initialize but no listing, so the explicit URL only warns.
+    with mcp_server_that_fails_listing("the catalog is not ready") as url:
+        cli_home.write_config(
+            config_yaml({"connectors": {"mcp": url}, "local_tools": NO_LOCAL_TOOLS})
+        )
+        completed = await asyncio.to_thread(cli_home.run, stdin="hello\nagain\n")
     assert completed.returncode == 0, completed.stderr
     assert "echo: hello" in completed.stdout
     assert "echo: again" in completed.stdout

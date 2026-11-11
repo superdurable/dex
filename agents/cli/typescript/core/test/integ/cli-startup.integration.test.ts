@@ -120,16 +120,22 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
   });
 
   test("an unavailable connectors server prints one short line across turns, and its errors go to the log file", async () => {
-    // This private engine's dexcli dev serves no connectors MCP server, so connectors.mcp: auto only warns.
+    // The fake answers initialize but no listing, so the explicit URL only warns.
+    connectors.listingFailureReason = "the catalog is not ready";
     const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\nlocal_tools: {browser: false}\n`);
     const cli = start(home);
-    await cli.waitForSession();
-    cli.writeLine("hello");
-    await cli.stdout.waitFor("echo: hello");
-    cli.writeLine("again");
-    await cli.stdout.waitFor("echo: again");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
+    try {
+      await cli.waitForSession();
+      cli.writeLine("hello");
+      await cli.stdout.waitFor("echo: hello");
+      cli.writeLine("again");
+      await cli.stdout.waitFor("echo: again");
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+    } finally {
+      connectors.listingFailureReason = undefined;
+    }
 
     const logPath = join(home.directory, ".dex", "agents", "scripted.log");
     const connectorLines = cli.stderr.all.split("\n").filter((line) => /Connector tools|MCP server|tool listing/i.test(line));

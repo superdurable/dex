@@ -22,7 +22,10 @@ section: Fixed
   `report` prints no longer carries the error, which goes to the `logging`
   warning log. `ConnectorsMcpAvailability` in TypeScript carries the HTTP
   status of a server that answered, and Python raises
-  `ConnectorsMcpAccessDeniedError` for HTTP 401 and 403.
+  `ConnectorsMcpAccessDeniedError` for HTTP 401 and 403. In TypeScript,
+  `readIdentities` and `listConnectorToolIdentities` take an `AbortSignal`,
+  and each of their requests waits at most 15 seconds, so a failed listing
+  is reported without waiting for a server that does not answer.
 - Python and TypeScript cores: **McpToolListingError** carries the HTTP
   status a Streamable HTTP server answered to the failed listing, as
   `httpStatus` in TypeScript and `http_status` in Python.

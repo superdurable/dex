@@ -546,6 +546,37 @@ describe("terminal chat with connectors and session settings", () => {
     ]);
   });
 
+  test("a fast listing failure prints its line while the identity listing hangs, and closes that request", async () => {
+    const effective = resolveConfig({ connectors: { mcp: connectorsUrl } }, "builtin", "scripted/default");
+    const lines: string[] = [];
+    const source = new ConnectorsMcpToolSource(
+      connectorsUrl,
+      new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined)),
+      (line) => lines.push(line),
+      undefined,
+      { writeLogLine: () => undefined, describeUnavailable: describeWithLogHint },
+    );
+    connectors.listingAccessDeniedStatus = 403;
+    connectors.isIdentityListingHanging = true;
+    const closedBefore = connectors.closedHangingRequests;
+    try {
+      const started = Date.now();
+      assert.deepEqual(await source.listTools(), []);
+      assert.ok(Date.now() - started < 5_000, `the listing took ${Date.now() - started} ms`);
+      assert.deepEqual(lines, [
+        "Connector tools are unavailable. The connectors MCP server denied access (HTTP 403). " +
+          "Check its access settings and that connectors.mcp names the right server. See the log file.",
+      ]);
+      await pollUntil(() => (connectors.closedHangingRequests > closedBefore ? true : undefined), {
+        description: "the hanging identity listing request to close",
+        timeoutMs: 5_000,
+      });
+    } finally {
+      connectors.listingAccessDeniedStatus = undefined;
+      connectors.isIdentityListingHanging = false;
+    }
+  });
+
   test("a server that denies access prints one line that says so", async () => {
     const effective = resolveConfig({ connectors: { mcp: connectorsUrl } }, "builtin", "scripted/default");
     const lines: string[] = [];

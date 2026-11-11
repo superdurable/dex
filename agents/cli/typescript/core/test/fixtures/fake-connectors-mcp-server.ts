@@ -46,6 +46,10 @@ export class FakeConnectorsMcpServer {
   public accessDeniedStatus: number | undefined;
   /** When set, `initialize` answers but every `tools/list` answers this HTTP status. */
   public listingAccessDeniedStatus: number | undefined;
+  /** When `true`, the identity listing's `initialize` (client version 0.5.0) never answers. */
+  public isIdentityListingHanging = false;
+  /** How many hanging identity listing requests the client closed. */
+  public closedHangingRequests = 0;
   /** The connection that `slack_post_thread_reply` names; tests rebind it. */
   public slackConnection = "support-slack";
   /** The connection that the `reports_long_report` task tool names; tests rebind it. */
@@ -70,6 +74,12 @@ export class FakeConnectorsMcpServer {
           return;
         }
         const body = await readJsonBody(request);
+        if (this.isIdentityListingHanging && isIdentityListingInitialize(body)) {
+          response.on("close", () => {
+            this.closedHangingRequests += 1;
+          });
+          return;
+        }
         if (this.listingAccessDeniedStatus !== undefined && isToolsListRequest(body)) {
           response.writeHead(this.listingAccessDeniedStatus, { "content-type": "text/plain" }).end("access denied");
           return;
@@ -231,6 +241,15 @@ function identityMeta(connector: string, connection: string, operation: string):
     [connectorToolMetaKeys.operationName]: canonicalOperationName(operation),
     [connectorToolMetaKeys.connectorVersion]: "1.0.0",
   };
+}
+
+/** The CLI core's identity listing introduces itself as version 0.5.0; the wrapped McpToolSource does not. */
+function isIdentityListingInitialize(body: unknown): boolean {
+  if (!isInitializeRequest(body)) {
+    return false;
+  }
+  const clientInfo = (body as { params?: { clientInfo?: { version?: unknown } } }).params?.clientInfo;
+  return clientInfo?.version === "0.5.0";
 }
 
 function isToolsListRequest(body: unknown): boolean {

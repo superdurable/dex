@@ -54,6 +54,7 @@ export const connectorToolMetaKeys = Object.freeze({
 
 const mcpServerName = "connectors";
 const identityListingTtlMs = 30_000;
+const identityRequestTimeoutMs = 15_000;
 const probeTimeoutMs = 5_000;
 const disabledReferenceKey = "disabled_tool";
 const mcpReferenceKey = "mcp_reference";
@@ -219,17 +220,21 @@ export class ConnectorsMcpToolSource implements ToolSource {
    */
   public async listTools(): Promise<readonly SourceToolDefinition[]> {
     const turn = this.turns.currentTurn();
-    const [toolsResult, identitiesResult] = await Promise.allSettled([this.mcp.listTools(), this.readIdentities()]);
-    if (toolsResult.status === "rejected" || identitiesResult.status === "rejected") {
-      const failures = [toolsResult, identitiesResult]
-        .filter((result) => result.status === "rejected")
-        .map((result) => result.reason as unknown);
-      this.reportListingFailure(failures);
+    const identityListing = new AbortController();
+    let tools: readonly McpTool[];
+    let identities: ReadonlyMap<string, ConnectorToolIdentity>;
+    try {
+      // The first failure decides; Promise.all handles the other rejection.
+      [tools, identities] = await Promise.all([
+        this.mcp.listTools(),
+        this.readIdentities(false, identityListing.signal),
+      ]);
+    } catch (error: unknown) {
+      identityListing.abort(error);
+      this.reportListingFailure(error);
       this.lastListing = [];
       return [];
     }
-    const tools = toolsResult.value;
-    const identities = identitiesResult.value;
     if (this.unavailability !== undefined) {
       this.log("Connector tools are available again.");
       this.writeLogLine(`connectors MCP server ${this.url} is available again`);
@@ -440,15 +445,19 @@ export class ConnectorsMcpToolSource implements ToolSource {
   /**
    * Returns the connector identity of every tool the server lists now, whatever the configuration enables.
    * @param isFresh - Whether to list the server again instead of using a listing from the last 30 seconds.
+   * @param signal - Aborts the listing and closes its connection. Since 0.6.0.
    * @returns The identities, by tool name.
-   * @throws {Error} When the server cannot be listed.
+   * @throws {Error} When the server cannot be listed within 15 seconds, or `signal` aborts the listing.
    */
-  public async readIdentities(isFresh = false): Promise<ReadonlyMap<string, ConnectorToolIdentity>> {
+  public async readIdentities(
+    isFresh = false,
+    signal?: AbortSignal,
+  ): Promise<ReadonlyMap<string, ConnectorToolIdentity>> {
     if (!isFresh && Date.now() < this.identities.expiresAt) {
       return this.identities.byToolName;
     }
     const byToolName = new Map<string, ConnectorToolIdentity>();
-    for (const identity of await listConnectorToolIdentities(this.url)) {
+    for (const identity of await listConnectorToolIdentities(this.url, signal)) {
       byToolName.set(identity.toolName, identity);
     }
     this.identities = { expiresAt: Date.now() + identityListingTtlMs, byToolName };
@@ -456,10 +465,10 @@ export class ConnectorsMcpToolSource implements ToolSource {
   }
 
   /** Logs every failure; the terminal gets one line only when the availability changes. */
-  private reportListingFailure(failures: readonly unknown[]): void {
+  private reportListingFailure(failure: unknown): void {
     const previous = this.unavailability;
-    const reason = failures.map(describeError).join("; ");
-    const httpStatus = failures.map(httpStatusOfListingFailure).find((status) => status !== undefined);
+    const reason = describeError(failure);
+    const httpStatus = httpStatusOfListingFailure(failure);
     const unavailability: ConnectorsMcpUnavailability = {
       isAvailable: false,
       reason,
@@ -577,19 +586,26 @@ export class DisabledConnectorsToolSource implements ToolSource {
  * Lists the connector identity of each tool a connectors MCP server offers, from the tools' `_meta`. A tool without
  * a connector and a connection in `_meta` is left out.
  *
+ * Each request waits at most 15 seconds. The connection is closed when the listing ends, fails, or is aborted.
+ *
  * @param url - The server's Streamable HTTP URL.
+ * @param signal - Aborts the listing. Since 0.6.0.
  * @returns The identities, in listing order.
- * @throws {Error} When the server cannot be reached or listed.
+ * @throws {Error} When the server cannot be reached or listed, a request times out, or `signal` aborts the listing.
  * @since 0.5.0
  */
-export async function listConnectorToolIdentities(url: string): Promise<ConnectorToolIdentity[]> {
+export async function listConnectorToolIdentities(
+  url: string,
+  signal?: AbortSignal,
+): Promise<ConnectorToolIdentity[]> {
   const client = new McpClient({ name: "dex-agents-cli", version: "0.5.0" });
-  await client.connect(new StreamableHTTPClientTransport(new URL(url)));
+  const requestOptions = { timeout: identityRequestTimeoutMs, ...(signal === undefined ? {} : { signal }) };
   try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(url)), requestOptions);
     const identities: ConnectorToolIdentity[] = [];
     let cursor: string | undefined;
     do {
-      const page = await client.listTools(cursor === undefined ? {} : { cursor });
+      const page = await client.listTools(cursor === undefined ? {} : { cursor }, requestOptions);
       for (const tool of page.tools) {
         const meta = (tool._meta ?? {}) as Record<string, unknown>;
         const connector = readMetaString(meta, connectorToolMetaKeys.connector);
