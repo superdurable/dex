@@ -47,8 +47,16 @@ export interface AgentSessionUIMessages {
  * assistant and tool messages of one turn become one assistant message with ID
  * {@link agentAssistantUIMessageId}: a `step-start` part before each model call, a text part per model
  * text, and a dynamic tool part per tool call. A stored tool result shows the text the model saw, so a
- * failed or rejected call appears as `output-available` with that text. A turn-failure note is a stored
- * user message and appears as one.
+ * failed or rejected call appears as `output-available` with that text. A turn-failure, steered, or cancelled
+ * note is the last stored user message of a turn that has ended, and it appears as a user message. Any other user
+ * message after the turn's first model output, such as the message of a built-in loop continuation, is not shown;
+ * it starts the step of the next model call, also while that call is still running, as the UI stream does.
+ * Changed in 0.5.0: such a message no longer appears as a user message that splits the turn.
+ *
+ * The UI stream starts a step for every `RunModel` Step, and this function one for every model call. They differ
+ * only where a `RunModel` makes no model call, such as when `decideTurnContinuation` ends a turn after its tools:
+ * the stream then sends one more `start-step` and `finish-step` with no visible part, which leaves no part in the
+ * AI SDK message, so the message still matches the converted snapshot.
  *
  * The session stores a turn's messages when the turn ends, or after each model call for a runner such as
  * the built-in loop runner. For the active turn the function shows each tool call of `snapshot.toolCalls` once in
@@ -68,9 +76,14 @@ export interface AgentSessionUIMessages {
  */
 export function convertAgentSnapshotToUIMessages(snapshot: AgentSnapshot): AgentUIMessage[] {
   const uiMessages: AgentUIMessage[] = [];
+  const activeTurnId = snapshot.state?.activeTurnId ?? null;
   let assistantMessage: AgentAssistantUIMessageBuilder | undefined;
-  for (const message of snapshot.messages) {
+  for (const [index, message] of snapshot.messages.entries()) {
     if (message.role === "user") {
+      if (assistantMessage?.turnId === message.turnId && !isTurnEndingNote(snapshot, index, activeTurnId)) {
+        assistantMessage.startModelCall();
+        continue;
+      }
       assistantMessage = undefined;
       uiMessages.push({
         id: agentUserUIMessageId(message.sequence),
@@ -85,7 +98,6 @@ export function convertAgentSnapshotToUIMessages(snapshot: AgentSnapshot): Agent
     }
     assistantMessage.appendStoredMessage(message);
   }
-  const activeTurnId = snapshot.state?.activeTurnId ?? null;
   if (activeTurnId !== null && snapshot.toolCalls.length > 0) {
     if (assistantMessage?.turnId !== activeTurnId) {
       assistantMessage = new AgentAssistantUIMessageBuilder(activeTurnId);
@@ -94,6 +106,14 @@ export function convertAgentSnapshotToUIMessages(snapshot: AgentSnapshot): Agent
     assistantMessage.appendActiveToolCalls(snapshot.toolCalls);
   }
   return uiMessages;
+}
+
+/** Whether a user message after the turn's model output is a note: the last stored message of an ended turn. */
+function isTurnEndingNote(snapshot: AgentSnapshot, index: number, activeTurnId: string | null): boolean {
+  const message = snapshot.messages[index]!;
+  const following = snapshot.messages[index + 1];
+  const isLastOfTurn = following === undefined || following.turnId !== message.turnId;
+  return isLastOfTurn && message.turnId !== activeTurnId;
 }
 
 /**
@@ -142,6 +162,12 @@ class AgentAssistantUIMessageBuilder {
       role: "assistant",
       parts: [{ type: "step-start" }],
     };
+  }
+
+  /** Starts the step of a model call that follows a user message within the turn. */
+  public startModelCall(): void {
+    this.message.parts.push({ type: "step-start" });
+    this.isAfterToolResult = false;
   }
 
   public appendStoredMessage(message: AgentMessage): void {

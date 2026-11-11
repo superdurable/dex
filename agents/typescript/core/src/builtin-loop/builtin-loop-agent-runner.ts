@@ -40,11 +40,12 @@ import {
 import { buildPlanNote } from "../agent-plans.js";
 import {
   describeToolCallOutcome,
+  emptyAgentUsage,
   type AgentToolCall,
   type FrameworkMessage,
   type SessionSettings,
 } from "../agent-session-values.js";
-import type { AgentDefinition } from "./agent-definition.js";
+import type { AgentDefinition, ContinueTurn, TurnContinuation } from "./agent-definition.js";
 import type { FunctionTool, ToolCallContext } from "./function-tool.js";
 import { findJsonSchemaViolation, serializeJsonWithSpacedSeparators } from "./json-schema-validation.js";
 import type {
@@ -82,9 +83,32 @@ const unlistedSourceToolPolicy: ResolvedToolPolicy = { effect: "unclassified", r
 
 export const defaultMaxModelCallsPerTurn = 100;
 
+/**
+ * How many {@link ContinueTurn} results of {@link AgentDefinition.decideTurnContinuation} may follow answers without
+ * tool calls in a row. A model response with tool calls resets the count.
+ * @since 0.5.0
+ */
+export const maxConsecutiveTurnContinuations = 8;
+
 /** Result of a tool call the model made after the turn's model call limit; the same text as the Python core. */
 export function buildToolCallLimitReachedResult(maxModelCallsPerTurn: number): string {
   return `The tool call was not run: this turn reached its limit of ${maxModelCallsPerTurn} model calls.`;
+}
+
+/**
+ * The `lastTurnError` of a turn whose `decideTurnContinuation` returned a {@link ContinueTurn} once too often in a
+ * row; the same text as the Python core.
+ * @param limit - {@link maxConsecutiveTurnContinuations}.
+ * @returns The error text.
+ */
+export function buildTurnContinuationLimitError(limit: number): string {
+  return `the turn reached its limit of ${limit} consecutive continuations without a tool call`;
+}
+
+/** The runner's `FrameworkRunState`; `consecutive_continuations` is absent until a turn first continues. */
+interface BuiltinLoopRunState {
+  readonly modelCalls: number;
+  readonly consecutiveContinuations: number;
 }
 
 // The summary is not the assistant's answer, so its live text goes nowhere.
@@ -130,8 +154,8 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
   /**
    * Creates the runner and checks the definition.
    * @param definition - The agent definition.
-   * @throws {TypeError} When the name, instructions, model, or tools are invalid, two tools share a
-   * name, a function tool uses the name of an enabled built-in tool, `planModeEnabled` is set without
+   * @throws {TypeError} When the name, instructions, model, tools, or `decideTurnContinuation` are invalid, two tools
+   * share a name, a function tool uses the name of an enabled built-in tool, `planModeEnabled` is set without
    * `write_todos`, `planningToolChoice` is neither `auto` nor `required`, or a tool source lacks a
    * {@link ToolSource} method.
    * @throws {RangeError} When `maxModelCallsPerTurn` is not a positive integer.
@@ -148,6 +172,9 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     }
     if (definition.resolveModel !== undefined && typeof definition.resolveModel !== "function") {
       throw new TypeError("AgentDefinition.resolveModel must be a function");
+    }
+    if (definition.decideTurnContinuation !== undefined && typeof definition.decideTurnContinuation !== "function") {
+      throw new TypeError("AgentDefinition.decideTurnContinuation must be a function");
     }
     const enabledBuiltInTools = new Set<string>(definition.builtInTools ?? []);
     const functionToolsByName = new Map<string, FunctionTool>();
@@ -204,34 +231,71 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
    * Makes the turn's next model call.
    * @param turn - The turn context.
    * @returns {@link TurnCompleted} with the results and final answer not stored yet, or
-   * {@link ToolCallsRequested} with the previous results, this response, and its tool calls.
+   * {@link ToolCallsRequested} with the previous results, this response, and its tool calls. When
+   * {@link AgentDefinition.decideTurnContinuation} returns `"end"` after tool calls, a {@link TurnCompleted} with only
+   * the results and zero usage, without a model call. When it continues after tool calls, its message follows the
+   * results in the request and in the stored messages. When it continues after an answer, a {@link TurnContinued}
+   * with the previous results, this response, and the message as user text, or a {@link TurnCompleted} with
+   * {@link TurnCompleted.turnError} once {@link maxConsecutiveTurnContinuations} is exceeded.
    * @throws {TypeError} When a function tool uses the name of an enabled built-in tool, or a tool source lists a
    * name that repeats a function tool, an enabled built-in tool, or another source's tool. No model request is
-   * made.
-   * @throws Any error of the model call or of a tool source's `listTools`, which retries the `RunModel` attempt.
+   * made. Also when `decideTurnContinuation` returns another value.
+   * @throws Any error of the model call, of a tool source's `listTools`, or of `decideTurnContinuation`, which
+   * retries the `RunModel` attempt.
    */
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     this.requireNoBuiltInToolNameClash(turn);
-    const modelCallCount = readModelCallCount(turn.frameworkRunState);
+    const runState = readBuiltinLoopRunState(turn.frameworkRunState);
+    const modelCallCount = runState.modelCalls;
     const unstoredToolResults = buildUnstoredToolResults(turn);
+    const unstoredItems: ModelInputItem[] = [...unstoredToolResults];
+    if (unstoredToolResults.length > 0 && this.definition.decideTurnContinuation !== undefined) {
+      const decision = await this.decideTurnContinuation(turn, readLatestModelOutput(turn), unstoredToolResults);
+      if (decision === "end") {
+        return {
+          kind: "completed",
+          newMessages: unstoredToolResults.map(toBuiltinLoopFrameworkMessage),
+          usage: emptyAgentUsage(),
+        };
+      }
+      if (decision !== "default") {
+        unstoredItems.push({ type: "user_text", text: decision.message });
+      }
+    }
     const isToolBudgetSpent = modelCallCount >= this.maxModelCallsPerTurn;
     const sourceTools: ListedSourceTools =
       isToolBudgetSpent || turn.interactionMode === "planning"
         ? new Map()
         : await this.toolSources.listSourceTools(turn.enabledBuiltInTools ?? new Set<string>());
-    const request = await this.buildModelRequest(
-      turn,
-      unstoredToolResults,
-      modelCallCount,
-      isToolBudgetSpent,
-      sourceTools,
-    );
+    const request = await this.buildModelRequest(turn, unstoredItems, modelCallCount, isToolBudgetSpent, sourceTools);
     const response = await this.resolveModel(turn.sessionSettings).callModel(request, turn.events);
     requireModelResponse(response);
     const usage = { ...response.usage, modelCalls: 1 };
-    const newMessages = [...unstoredToolResults, ...response.outputItems].map(toBuiltinLoopFrameworkMessage);
+    const newMessages = [...unstoredItems, ...response.outputItems].map(toBuiltinLoopFrameworkMessage);
     if (response.toolCalls.length === 0) {
-      return { kind: "completed", newMessages, usage };
+      const decision = await this.decideTurnContinuation(turn, response.outputItems, []);
+      if (decision === "end" || decision === "default") {
+        return { kind: "completed", newMessages, usage };
+      }
+      const consecutiveContinuations = runState.consecutiveContinuations + 1;
+      if (consecutiveContinuations > maxConsecutiveTurnContinuations) {
+        return {
+          kind: "completed",
+          newMessages,
+          usage,
+          turnError: buildTurnContinuationLimitError(maxConsecutiveTurnContinuations),
+        };
+      }
+      return {
+        kind: "turn_continued",
+        frameworkRunState: serializeJsonWithSpacedSeparators({
+          model_calls: modelCallCount + 1,
+          consecutive_continuations: consecutiveContinuations,
+        }),
+        // The message makes the next request end with user text, as every provider requires.
+        newMessages: [...newMessages, toBuiltinLoopFrameworkMessage({ type: "user_text", text: decision.message })],
+        usage,
+      };
     }
     if (isToolBudgetSpent) {
       // The model asked for tools although none were offered; end the turn so it cannot loop.
@@ -380,7 +444,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
    * when it has one, else from the runner's last listing, as in the Python core.
    */
   public async estimateInputTokens(turn: AgentTurnContext): Promise<number> {
-    const modelCallCount = readModelCallCount(turn.frameworkRunState);
+    const modelCallCount = readBuiltinLoopRunState(turn.frameworkRunState).modelCalls;
     const isToolBudgetSpent = modelCallCount >= this.maxModelCallsPerTurn;
     const request = await this.buildModelRequest(
       turn,
@@ -507,7 +571,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
 
   private async buildModelRequest(
     turn: AgentTurnContext,
-    unstoredToolResults: readonly ModelToolResultItem[],
+    unstoredItems: readonly ModelInputItem[],
     modelCallCount: number,
     isToolBudgetSpent: boolean,
     sourceTools: ListedSourceTools,
@@ -525,7 +589,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
       inputItems: pairToolCallsWithResults([
         ...summaryItems,
         ...readStoredInputItemsWithPlanNote(turn),
-        ...unstoredToolResults,
+        ...unstoredItems,
       ]),
       tools: isToolBudgetSpent ? [] : this.listOfferedTools(turn, sourceTools),
       toolChoice,
@@ -637,6 +701,53 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     }
     return resolved;
   }
+
+  /** Returns the hook's decision for one iteration, or `"default"` without a hook. */
+  private async decideTurnContinuation(
+    turn: AgentTurnContext,
+    modelOutput: readonly ModelOutputItem[],
+    toolResults: readonly ModelToolResultItem[],
+  ): Promise<TurnContinuation> {
+    const decide = this.definition.decideTurnContinuation;
+    if (decide === undefined) {
+      return "default";
+    }
+    const decision: unknown = await decide({
+      flowId: turn.flowId,
+      turnId: turn.turnId,
+      sessionSettings: turn.sessionSettings ?? {},
+      modelOutput,
+      toolResults,
+    });
+    if (decision === "end" || decision === "default") {
+      return decision;
+    }
+    const continuation = decision as Partial<ContinueTurn> | null;
+    if (
+      typeof continuation === "object" &&
+      continuation !== null &&
+      continuation.action === "continue" &&
+      typeof continuation.message === "string" &&
+      continuation.message.trim() !== ""
+    ) {
+      return { action: "continue", message: continuation.message };
+    }
+    throw new TypeError(
+      `decideTurnContinuation of agent ${this.definition.name} must return "end", "default", or ` +
+        `{ action: "continue", message } with a non-blank message, not ${describeTurnContinuation(decision)}`,
+    );
+  }
+}
+
+/** Names an invalid hook result without its message text, which may hold application data. */
+function describeTurnContinuation(decision: unknown): string {
+  if (typeof decision === "string") {
+    return JSON.stringify(decision);
+  }
+  if (typeof decision === "object" && decision !== null) {
+    return `an object with action ${JSON.stringify((decision as { readonly action?: unknown }).action) ?? "undefined"}`;
+  }
+  return String(decision);
 }
 
 /** A planning turn without a draft drafts one first; feedback on a draft may only answer. */
@@ -753,15 +864,34 @@ function isCancellation(error: unknown, cancellationSignal: AbortSignal): boolea
   return (error as { readonly name?: unknown } | null)?.name === "AbortError";
 }
 
-function readModelCallCount(frameworkRunState: string | null): number {
+function readBuiltinLoopRunState(frameworkRunState: string | null): BuiltinLoopRunState {
   if (frameworkRunState === null) {
-    return 0;
+    return { modelCalls: 0, consecutiveContinuations: 0 };
   }
-  const parsed = JSON.parse(frameworkRunState) as { readonly model_calls?: unknown };
-  if (typeof parsed.model_calls !== "number" || !Number.isSafeInteger(parsed.model_calls)) {
+  const parsed = JSON.parse(frameworkRunState) as {
+    readonly model_calls?: unknown;
+    readonly consecutive_continuations?: unknown;
+  };
+  const consecutiveContinuations = parsed.consecutive_continuations ?? 0;
+  if (
+    typeof parsed.model_calls !== "number" ||
+    !Number.isSafeInteger(parsed.model_calls) ||
+    typeof consecutiveContinuations !== "number" ||
+    !Number.isSafeInteger(consecutiveContinuations)
+  ) {
     throw new TypeError("FrameworkRunState is not a built-in loop run state");
   }
-  return parsed.model_calls;
+  return { modelCalls: parsed.model_calls, consecutiveContinuations };
+}
+
+/** The output items of the turn's latest model response: the turn's trailing stored `model_output` items. */
+function readLatestModelOutput(turn: AgentTurnContext): ModelOutputItem[] {
+  const items = turn.messages.filter((message) => message.turnId === turn.turnId).map(readStoredModelInputItem);
+  let start = items.length;
+  while (start > 0 && items[start - 1]?.type === "model_output") {
+    start -= 1;
+  }
+  return items.slice(start) as ModelOutputItem[];
 }
 
 function requireModelResponse(response: ModelResponse): void {
