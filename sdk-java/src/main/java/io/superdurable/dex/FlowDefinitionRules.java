@@ -41,7 +41,10 @@ final class FlowDefinitionRules {
         }
         final LocalDateTime localDateTime;
         try {
-            localDateTime = LocalDateTime.parse(matcher.group(1) + "T" + matcher.group(2));
+            // LocalDateTime accepts at most nine fraction digits; later digits never reach a millisecond.
+            final String time = matcher.group(2);
+            final int fractionEnd = Math.min(time.length(), "HH:MM:SS.".length() + 9);
+            localDateTime = LocalDateTime.parse(matcher.group(1) + "T" + time.substring(0, fractionEnd));
         } catch (DateTimeParseException invalid) {
             throw new IllegalArgumentException("generatedAt " + value + " is not an RFC 3339 time", invalid);
         }

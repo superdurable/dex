@@ -65,6 +65,12 @@ final class FlowDefinitionConformanceTest {
     }
 
     @Test
+    void acceptsFractionsLongerThanNanoseconds() {
+        assertEquals(1793491200123L,
+                FlowDefinitionRules.parseGeneratedAt("2026-11-01T00:00:00.1234567890Z").toEpochMilli());
+    }
+
+    @Test
     void acceptsOffsetsBeyondEighteenHours() {
         assertEquals(1793491200000L,
                 FlowDefinitionRules.parseGeneratedAt("2026-11-01T23:30:00+23:30").toEpochMilli());
