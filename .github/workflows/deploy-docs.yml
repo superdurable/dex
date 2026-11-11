@@ -5,7 +5,8 @@ on:
     paths:
       - 'docs/**'
       - 'packages/flow-definition-renderer/**'
-      - 'web/app/v2/**'
+      - 'web/app/design/**'
+      - 'web/app/workspace/**'
       - '.github/workflows/deploy-docs.yml'
   push:
     branches:
@@ -13,47 +14,28 @@ on:
     paths:
       - 'docs/**'
       - 'packages/flow-definition-renderer/**'
-      - 'web/app/v2/**'
+      - 'web/app/design/**'
+      - 'web/app/workspace/**'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: deploy-docs-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  api-versions:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      matrix: ${{ steps.versions.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - id: versions
-        env:
-          VERSION_SCOPE: ${{ github.event_name == 'pull_request' && 'latest' || 'all' }}
-        run: echo "matrix=$(node docs/scripts/build-api-reference.mjs --matrix "$VERSION_SCOPE")" >> "$GITHUB_OUTPUT"
-
-  api-reference:
-    needs: api-versions
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.api-versions.outputs.matrix) }}
     defaults:
       run:
         working-directory: docs
+    env:
+      VERSION_SCOPE: ${{ github.event_name == 'pull_request' && 'latest' || 'all' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,60 +44,45 @@ jobs:
           cache: npm
           cache-dependency-path: docs/scripts/api-reference-tools/package-lock.json
       - uses: actions/setup-python@v5
-        if: matrix.language == 'python'
         with:
           python-version: '3.12'
       - uses: actions/setup-go@v5
-        if: matrix.language == 'go'
         with:
           go-version-file: sdk-go/go.mod
           cache-dependency-path: sdk-go/go.sum
-      - name: Fetch SDK release tag
-        if: matrix.language != 'java'
+      - name: Fetch SDK release tags and plan API reference cache
+        id: api-plan
         env:
-          TAG: sdk-${{ matrix.language }}/v${{ matrix.version }}
-        run: git fetch --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
-      - id: source
-        env:
-          LANGUAGE: ${{ matrix.language }}
-          SDK_VERSION: ${{ matrix.version }}
+          DEX_API_TOOL_HASH: ${{ hashFiles('docs/scripts/build-api-reference.mjs', 'docs/scripts/refresh-api-reference-cache.mjs', 'docs/scripts/api-reference-tools/**') }}
         run: |
-          if [ "$LANGUAGE" = java ]; then
-            # Maven Central artifacts are immutable, so the version identifies the Javadoc.
-            echo "revision=maven-central" >> "$GITHUB_OUTPUT"
-          else
-            echo "revision=$(git rev-parse "sdk-$LANGUAGE/v$SDK_VERSION^{commit}")" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/cache@v4
-        id: generated
+          echo "tool-hash=$DEX_API_TOOL_HASH" >> "$GITHUB_OUTPUT"
+          entries_hash=$(node scripts/refresh-api-reference-cache.mjs plan "$VERSION_SCOPE")
+          echo "entries-hash=$entries_hash" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        id: api-cache
         with:
-          path: docs/.cache/api-reference/${{ matrix.language }}/${{ matrix.minor }}
-          key: api-${{ runner.os }}-${{ matrix.language }}-${{ matrix.version }}-${{ steps.source.outputs.revision }}-${{ hashFiles('docs/scripts/build-api-reference.mjs', 'docs/scripts/api-reference-tools/**') }}
-      - name: Generate API reference
-        if: steps.generated.outputs.cache-hit != 'true'
+          path: docs/.cache/api-reference
+          key: api-reference-tree-${{ runner.os }}-${{ steps.api-plan.outputs.entries-hash }}
+          restore-keys: |
+            api-reference-tree-${{ runner.os }}-${{ steps.api-plan.outputs.entries-hash }}-
+            api-reference-tree-${{ runner.os }}-
+      - name: Generate stale API references
+        id: api-refresh
         env:
-          LANGUAGE: ${{ matrix.language }}
-          SDK_VERSION: ${{ matrix.version }}
-        run: node scripts/build-api-reference.mjs "$LANGUAGE" "sdk-$LANGUAGE/v$SDK_VERSION"
+          DEX_API_TOOL_HASH: ${{ steps.api-plan.outputs.tool-hash }}
+        run: node scripts/refresh-api-reference-cache.mjs refresh "$VERSION_SCOPE"
+      # Saved before the docs build, so a later failure keeps the generated trees.
+      # Partial sets are safe: stamps follow successful generation, and the run id prevents an exact hit.
+      # An unchanged tree is already cached, so it is not saved again.
+      - uses: actions/cache/save@v4
+        if: ${{ !cancelled() && fromJSON(steps.api-refresh.outputs.changed-tree-count || '0') > 0 }}
+        with:
+          path: docs/.cache/api-reference
+          key: ${{ steps.api-cache.outputs.cache-primary-key }}-${{ github.run_id }}
       - name: Assemble and audit API HTML
         run: |
           node scripts/assemble-api-reference.mjs --allow-missing-versions --destination .cache/api-assembled
           npm run test:api -- .cache/api-assembled
-      - uses: actions/upload-artifact@v4
-        with:
-          name: api-${{ matrix.language }}-${{ matrix.version }}
-          path: docs/.cache/api-reference/
-          if-no-files-found: error
-          retention-days: 1
-
-  build:
-    needs: api-reference
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: docs
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -129,11 +96,6 @@ jobs:
         run: |
           npm run build
           touch build/.nojekyll
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: api-*
-          path: docs/.cache/api-reference
-          merge-multiple: true
       - name: Assemble API reference
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -162,6 +124,10 @@ jobs:
     if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

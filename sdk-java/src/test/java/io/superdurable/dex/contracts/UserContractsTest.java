@@ -15,6 +15,7 @@
 package io.superdurable.dex.contracts;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.AttributeMap;
@@ -31,6 +32,9 @@ import io.superdurable.dex.ClientOptions;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Credential;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.Join;
+import io.superdurable.dex.JoinRound;
+import io.superdurable.dex.PackagePrivateTestAccess;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCAttributeMapLock;
@@ -40,6 +44,7 @@ import io.superdurable.dex.Registry;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Stream;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WorkerOptions;
@@ -56,6 +61,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 public class UserContractsTest {
     private static final BlobCache BLOB_CACHE = new ContractBlobCache();
@@ -113,6 +119,161 @@ public class UserContractsTest {
         Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> AttributeLock.of(items, "orders/by-id"));
+    }
+
+    @Test
+    public void joinRoundJsonFieldNamesAreStable() throws Exception {
+        final String expected = "{\"roundKey\":\"RequestQuotes-2\",\"branchCount\":3}";
+        final JoinRound round = new JoinRound("RequestQuotes-2", 3);
+        final ObjectMapper defaultMapper = new ObjectMapper().findAndRegisterModules();
+        Assertions.assertEquals(
+                defaultMapper.readTree(expected),
+                defaultMapper.readTree(defaultMapper.writeValueAsString(round)));
+        final ObjectMapper snakeCaseMapper = new ObjectMapper()
+                .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+        Assertions.assertEquals(
+                defaultMapper.readTree(expected),
+                defaultMapper.readTree(snakeCaseMapper.writeValueAsString(round)));
+        Assertions.assertEquals(round, defaultMapper.readValue(expected, JoinRound.class));
+        Assertions.assertEquals(
+                round,
+                snakeCaseMapper.readValue(
+                        "{\"roundKey\":\"RequestQuotes-2\",\"branchCount\":3,\"addedLater\":1}",
+                        JoinRound.class));
+    }
+
+    @Test
+    public void joinForkWithRoundKeyBuildsOneRoundForEveryMovement() {
+        final Join<String> quotes = Join.define("quotes", String.class);
+        final List<JoinRound> builtRounds = new ArrayList<JoinRound>();
+        final List<Function<JoinRound, StepMovement<?>>> branchBuilders =
+                new ArrayList<Function<JoinRound, StepMovement<?>>>();
+        for (String orderId : Arrays.asList("a", "b", "c")) {
+            branchBuilders.add(round -> {
+                builtRounds.add(round);
+                return StepMovement.of(ApproveStep.class, orderInput(orderId));
+            });
+        }
+        final List<StepMovement<?>> movements = quotes.forkWithRoundKey(
+                "round-1",
+                branchBuilders,
+                round -> {
+                    builtRounds.add(round);
+                    return StepMovement.of(ApproveStep.class, orderInput("join"));
+                });
+        Assertions.assertEquals(4, movements.size());
+        Assertions.assertEquals(4, builtRounds.size());
+        for (JoinRound round : builtRounds) {
+            Assertions.assertEquals(new JoinRound("round-1", 3), round);
+        }
+        Assertions.assertEquals("quotes", quotes.getName());
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> quotes.forkWithRoundKey("round/1", branchBuilders, round -> null));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> quotes.forkWithRoundKey(" ", branchBuilders, round -> null));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> Join.define("quotes/by-id", String.class));
+        Assertions.assertNotNull(PersistenceSchema.of(Collections.singletonList(quotes)));
+        Assertions.assertNotNull(PersistenceSchema.of(
+                Collections.<Attribute<?>>emptyList(),
+                Collections.singletonList(quotes)));
+    }
+
+    @Test
+    public void movementListOverloadsMatchVarargsAndKeepExistingCallsUnambiguous() {
+        final StepMovement<OrderInput> first = StepMovement.of(ApproveStep.class, orderInput("a"));
+        final StepMovement<OrderInput> second = StepMovement.of(ApproveStep.class, orderInput("b"));
+        final List<StepMovement<?>> movements = new ArrayList<StepMovement<?>>();
+        movements.add(first);
+        movements.add(second);
+
+        final StepDecision fromList = StepDecision.goToMany(movements);
+        movements.clear();
+        Assertions.assertEquals(
+                Arrays.<StepMovement<?>>asList(first, second),
+                PackagePrivateTestAccess.movementsOf(fromList));
+        Assertions.assertEquals(
+                Collections.singletonList(first),
+                PackagePrivateTestAccess.movementsOf(
+                        StepDecision.goToMany(Collections.singletonList(first))));
+        Assertions.assertEquals(
+                Collections.emptyList(),
+                PackagePrivateTestAccess.movementsOf(StepDecision.goToMany()));
+        Assertions.assertEquals(
+                Collections.singletonList(first),
+                PackagePrivateTestAccess.movementsOf(StepDecision.goToMany(first)));
+        Assertions.assertEquals(
+                Arrays.<StepMovement<?>>asList(first, second),
+                PackagePrivateTestAccess.movementsOf(StepDecision.goToMany(first, second)));
+        Assertions.assertThrows(
+                NullPointerException.class,
+                () -> StepDecision.goToMany((List<StepMovement<?>>) null));
+
+        final List<StepMovement<OrderInput>> typedMovements = Arrays.asList(first, second);
+        final RPCResult<String> rpcFromList = RPCResult.of("accepted", typedMovements);
+        Assertions.assertEquals("accepted", PackagePrivateTestAccess.outputOf(rpcFromList));
+        Assertions.assertEquals(
+                Arrays.<StepMovement<?>>asList(first, second),
+                PackagePrivateTestAccess.nextStepsOf(rpcFromList));
+        Assertions.assertEquals(
+                Collections.singletonList(first),
+                PackagePrivateTestAccess.nextStepsOf(RPCResult.of("accepted", first)));
+        // A List output with no movements still selects the one-argument factory.
+        final RPCResult<List<String>> listOutput = RPCResult.of(Arrays.asList("x", "y"));
+        Assertions.assertEquals(
+                Arrays.asList("x", "y"),
+                PackagePrivateTestAccess.outputOf(listOutput));
+        Assertions.assertEquals(
+                Collections.emptyList(),
+                PackagePrivateTestAccess.nextStepsOf(listOutput));
+        Assertions.assertThrows(
+                NullPointerException.class,
+                () -> RPCResult.of("accepted", (List<StepMovement<?>>) null));
+    }
+
+    @Test
+    public void joinChannelMapIsTheRegisteredDefinition() {
+        final Join<String> quotes = Join.define("quotes", String.class);
+        final ChannelMap<String> channelMap = quotes.getChannelMap();
+        Assertions.assertSame(channelMap, quotes.getChannelMap());
+        final PersistenceSchema schema = PersistenceSchema.of(quotes);
+        Assertions.assertNotNull(schema);
+        Assertions.assertSame(channelMap, PackagePrivateTestAccess.channelsOf(schema).get(0));
+    }
+
+    @Test
+    public void joinConditionsRejectCountsOutsideTheRound() {
+        final Join<String> quotes = Join.define("quotes", String.class);
+        final JoinRound round = new JoinRound("RequestQuotes-1", 3);
+        Assertions.assertNotNull(quotes.forAllBranches(round));
+        Assertions.assertNotNull(quotes.forFirstBranch(round, "first"));
+        Assertions.assertNotNull(quotes.forBranches(round, 3));
+        Assertions.assertNotNull(quotes.forRemainingBranches(round, 0));
+        Assertions.assertNotNull(quotes.forRemainingBranches(round, 3));
+        Assertions.assertNotNull(quotes.forAllBranches(new JoinRound("Split-1", 0)));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> quotes.forBranches(round, 0));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> quotes.forBranches(round, 4));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> quotes.forRemainingBranches(round, -1));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> quotes.forRemainingBranches(round, 4));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> quotes.forFirstBranch(new JoinRound("Split-1", 0)));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> quotes.forAllBranches(new JoinRound("Split-1", -1)));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> quotes.forAllBranches(new JoinRound("", 1)));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> quotes.forAllBranches(new JoinRound("a/b", 1)));
     }
 
     @Test
@@ -582,6 +743,12 @@ public class UserContractsTest {
         public Wait waitFor(final Context context, final OrderInput input) {
             return Wait.until(COMMANDS.forOne());
         }
+    }
+
+    private static OrderInput orderInput(final String orderId) {
+        final OrderInput input = new OrderInput();
+        input.orderId = orderId;
+        return input;
     }
 
     public static class OrderInput {

@@ -1,0 +1,31 @@
+---
+id: stream
+title: Stream
+sidebar_label: Stream
+---
+
+# Stream
+
+This page lists the Java SDK names for [Streams](/concepts/primitives/stream).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Java SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Java API | Dex behavior |
+| --- | --- | --- |
+| Define a Stream and its byte capacity | **Stream.define**, with **streamCapacityBytes** | [Capacity and trimming](/reference/server/runtime-data#stream-capacity) |
+| Declare it in the Flow | **PersistenceSchema.of**, returned from **getPersistenceSchema** | [Flow definition](./flow.mdx#flow-definition) |
+| Write a message from a Step | **Stream.write** | [Write semantics](/reference/server/runtime-data#stream-write-semantics) |
+| Write text chunks in batches from a Step | **BufferedTextStream.create** | [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text) |
+| Write a message from a Client | **Client.writeStream** | [Write semantics](/reference/server/runtime-data#stream-write-semantics) |
+| Read the next message | **Client.readStream**, with the **getResumeToken** value of the last message | [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) |
+| List retained messages, newest first | **Client.listStreamMessages** | [List messages](/reference/server/runtime-data#stream-listing) |
+
+**Stream.write** works in **waitFor**, **execute**, and the Flow timeout
+handler. An RPC handler cannot write a Stream; there, the call throws
+**IllegalStateException**. **Stream.write** sends the message immediately.
+
+## Example {#example}
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamFlow.java)

@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dex Agents CLI configuration",
+  "description": "The configuration file of a Dex Agents CLI command, ~/.dex/agents/<harness>.yaml by default. It is YAML 1.2; this schema checks the parsed value. Every harness command in Python and TypeScript reads the same common fields and its own harness section. Do not put secrets in this file: provider keys come from the environment, and connector credentials stay in the connections that Dex Web authorizes. The schema cannot enforce this inside the open harness sections. Omit a field to take its default; null is never a valid value. The settings of one session may change model and system_prompt and may only narrow the rest; see session-settings.schema.json.",
+  "$comment": "Patterns end with (?![\\s\\S]) rather than $, because Python's re lets $ match before a trailing newline and ECMAScript does not. The not schema repeats properties so that Ajv's strictRequired mode accepts it.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "model": {
+      "$ref": "#/$defs/model",
+      "description": "The model the agent calls, in the harness's own format, such as claude-opus-5-5 or a <provider>/<model> ID. Omitted: the harness command's default model. A harness command without a default model refuses to run until this is set."
+    },
+    "system_prompt": {
+      "type": "string",
+      "description": "The agent's instructions. Omitted, together with system_prompt_file: the harness's default instructions. Mutually exclusive with system_prompt_file."
+    },
+    "system_prompt_file": {
+      "$ref": "#/$defs/single_line_text",
+      "description": "A UTF-8 text file whose content is the agent's instructions, read when the command starts. A leading ~ means the home directory; a relative path is relative to the directory of this configuration file. Mutually exclusive with system_prompt."
+    },
+    "dex": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The Dex server the Worker connects to.",
+      "default": {
+        "server": "auto"
+      },
+      "properties": {
+        "server": {
+          "anyOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "type": "string",
+              "pattern": "^https?://(?:(?:[A-Za-z0-9-]+\\.)*[A-Za-z][A-Za-z0-9-]*|[0-9]{1,3}(?:\\.[0-9]{1,3}){3}|\\[[0-9A-Fa-f:.]+\\])(?::[0-9]{1,5})?(?:/[!-~]*)?(?![\\s\\S])"
+            }
+          ],
+          "default": "auto",
+          "description": "auto: reuse the running dexcli dev server of this machine, or start one. Otherwise the http or https URL of a Dex server, without user info. Its host is a DNS name whose last label starts with a letter, a dotted IPv4 address, or a bracketed IPv6 address. After the schema, the runtime also checks that each IPv4 part is 0 or a decimal from 1 to 255 without a leading zero, that an IPv6 address is valid, that no DNS label starts with xn--, and that the port is at most 65535."
+        }
+      }
+    },
+    "connectors": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The connector tools the agent may call.",
+      "default": {
+        "mcp": "auto"
+      },
+      "properties": {
+        "mcp": {
+          "anyOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "type": "string",
+              "pattern": "^https?://(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{1,5})?(?:/[!-~]*)?(?![\\s\\S])"
+            }
+          ],
+          "default": "auto",
+          "description": "The connectors MCP server. auto: the server that dexcli dev provides. Otherwise its http or https URL on a loopback host: 127.0.0.1, localhost, or [::1], without user info. After the schema, the runtime also checks that the port is at most 65535."
+        },
+        "enabled": {
+          "$ref": "#/$defs/connector_entries",
+          "description": "The connections whose operations the agent may call. Omitted: every authorized connection, with every operation its connector offers to agents. An empty list: no connector tools. An entry names a connector, which covers all of its connections, or connector/connection. A single-key map {\"connector/connection\": {\"tools\": [...]}} or {\"connector\": {\"tools\": [...]}} also limits the operations. Two entries must not cover the same connection."
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Approval beyond what each tool already requires.",
+      "default": {
+        "always": []
+      },
+      "properties": {
+        "always": {
+          "$ref": "#/$defs/tool_names",
+          "default": [],
+          "description": "Tool names, as the agent sees them, whose every call waits for approval, in addition to the tools whose connector or local tool policy asks for it."
+        }
+      }
+    },
+    "workspace": {
+      "$ref": "#/$defs/single_line_text",
+      "default": "~/dex-agent-workspace",
+      "description": "The only directory the local file tools may read and write, and the working directory of shell commands. A leading ~ means the home directory; a relative path is relative to the directory of this configuration file."
+    },
+    "local_tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Tools that act on this machine. Reads run without approval; writes, browser clicks, form fills, and submits wait for approval; each shell command waits for approval unless it matches the allow list.",
+      "default": {
+        "files": true,
+        "shell": {
+          "enabled": true,
+          "allow": []
+        },
+        "web_fetch": true,
+        "browser": true
+      },
+      "properties": {
+        "files": {
+          "type": "boolean",
+          "default": true,
+          "description": "Read, write, list, and search files inside workspace."
+        },
+        "shell": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Run shell commands in workspace.",
+          "default": {
+            "enabled": true,
+            "allow": []
+          },
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether the agent may run shell commands at all."
+            },
+            "allow": {
+              "$ref": "#/$defs/shell_commands",
+              "default": [],
+              "description": "Commands that run without approval. A command matches only when its whole text equals an entry exactly; every other command waits for approval."
+            }
+          }
+        },
+        "web_fetch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Fetch web pages."
+        },
+        "browser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Drive a local browser. The browser is downloaded the first time the agent uses it."
+        }
+      }
+    },
+    "claude": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the Claude Agent SDK command. Omitted: its defaults."
+    },
+    "openai": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the OpenAI Agents SDK command. Omitted: its defaults."
+    },
+    "pydantic_ai": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the Pydantic AI command. Omitted: its defaults."
+    },
+    "langgraph": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the LangGraph command. Omitted: its defaults."
+    },
+    "google_adk": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the Google ADK command. Omitted: its defaults."
+    },
+    "vercel_ai": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the Vercel AI SDK command. Omitted: its defaults."
+    },
+    "mastra": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the Mastra command. Omitted: its defaults."
+    },
+    "pi": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the Pi command. Omitted: its defaults."
+    },
+    "builtin": {
+      "$ref": "#/$defs/harness_options",
+      "description": "Options of the built-in agent loop command. Omitted: its defaults."
+    }
+  },
+  "not": {
+    "type": "object",
+    "properties": {
+      "system_prompt": true,
+      "system_prompt_file": true
+    },
+    "required": [
+      "system_prompt",
+      "system_prompt_file"
+    ]
+  },
+  "$defs": {
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A model ID in the harness's own format, such as claude-opus-5-5 or openai/gpt-5-mini. Any non-empty string; the harness checks it."
+    },
+    "single_line_text": {
+      "type": "string",
+      "pattern": "^[^\\x00-\\x1f\\x7f]+(?![\\s\\S])",
+      "description": "Non-empty text without control characters."
+    },
+    "tool_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,128}(?![\\s\\S])",
+      "description": "A tool name: 1 to 128 ASCII letters, digits, underscores, hyphens, or dots."
+    },
+    "tool_names": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/tool_name"
+      }
+    },
+    "operation_name": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,127}(?![\\s\\S])",
+      "description": "A connector operation: its snake-case name, such as get_message, or its operationId, such as getMessage. Both spellings name the same operation: an operationId is compared after the connectors library's lowerCamelToSnake conversion, which keeps acronym runs together, so listStoryIDs is list_story_ids and getHTTPResponse is get_http_response."
+    },
+    "connector_key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,62}(?:/[^/\\x00-\\x20\\x7f-\\x9f](?:[^/\\x00-\\x1f\\x7f-\\x9f]{0,254}[^/\\x00-\\x20\\x7f-\\x9f])?)?(?![\\s\\S])",
+      "description": "A connector ID, or connector/connection. A connection name has at most 256 characters, no slash, no control character, and no leading or trailing space, as Dex Web requires."
+    },
+    "connector_entry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/connector_key"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/connector_key"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tools"
+            ],
+            "properties": {
+              "tools": {
+                "type": "array",
+                "uniqueItems": true,
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/operation_name"
+                },
+                "description": "The connector operations the agent may call, by snake-case name or operationId. Two entries must not name the same operation."
+              }
+            }
+          }
+        }
+      ]
+    },
+    "connector_entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/connector_entry"
+      }
+    },
+    "shell_commands": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/single_line_text"
+      }
+    },
+    "harness_options": {
+      "type": "object",
+      "description": "Harness options. Each harness command defines its own fields and ignores the sections of other harnesses."
+    }
+  }
+}
