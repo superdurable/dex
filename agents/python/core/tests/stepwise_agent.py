@@ -35,6 +35,18 @@ The model reads the current turn's user text:
   call, then calls ``lookup_order`` and ``publish_note`` in one response.
 * ``parallel <gate> <query> | <message>`` calls ``lookup_order``, which waits
   at the gate, and ``publish_note`` in one response.
+* ``effect`` calls ``update_record``, which declares ``IDEMPOTENT_WRITE`` and
+  answers with its ``ToolCallContext.effect``. A tool policy raises it to
+  ``NON_IDEMPOTENT_WRITE`` without approval.
+* ``send-unclassified`` calls ``send_record``, which declares
+  ``IDEMPOTENT_WRITE``; a tool policy makes it ``UNCLASSIFIED`` without
+  approval. It fails after sending, and its wrapper lets the error propagate
+  unless ``ToolCallContext.effect`` is ``READ`` or ``IDEMPOTENT_WRITE``.
+* ``old-shape`` calls ``get_order`` with the old ``{"id": "7"}`` shape, which
+  ``prepare_arguments`` converts to ``order_id``; ``bad-shape`` calls it with
+  ``{"bad": true}``, which ``prepare_arguments`` rejects.
+* ``approve-old-shape`` calls ``cancel_order``, which needs approval, with the
+  old ``{"id": "9"}`` shape.
 
 ``STEPWISE_AGENT_CANCEL_RPC_GATE`` makes ``cancel_turn`` wait at that gate
 after it decided and before it commits, and
@@ -77,7 +89,9 @@ from dex_agents import (
     CancelTurnRequest,
     FrameworkMessage,
     ToolEffect,
+    ToolExecutionError,
     ToolInputRequested,
+    ToolPolicy,
 )
 from dex_agents.builtin_loop import (
     DEFAULT_MAX_MODEL_CALLS_PER_TURN,
@@ -238,6 +252,33 @@ def build_stepwise_agent_flow(
         continued_amount = json.loads(context.input_continuation or "{}")["amount"]
         return f"moved {continued_amount} from {account}"
 
+    @function_tool(effect=ToolEffect.IDEMPOTENT_WRITE)
+    def update_record(context: ToolCallContext) -> str:
+        """Update a record."""
+        return f"effect {context.effect}"
+
+    @function_tool(effect=ToolEffect.IDEMPOTENT_WRITE)
+    def send_record(context: ToolCallContext) -> str:
+        """Send a record."""
+        try:
+            raise ConnectionResetError("connection reset after send")
+        except ConnectionResetError as error:
+            if context.effect not in (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE):
+                raise
+            raise ToolExecutionError(str(error)) from error
+
+    @function_tool(effect=ToolEffect.READ, prepare_arguments=_prepare_order_arguments)
+    def get_order(order_id: str) -> dict[str, str]:
+        """Get an order."""
+        return {"order_id": order_id}
+
+    @function_tool(
+        effect=ToolEffect.NON_IDEMPOTENT_WRITE, prepare_arguments=_prepare_order_arguments
+    )
+    def cancel_order(order_id: str) -> dict[str, str]:
+        """Cancel an order."""
+        return {"cancelled": order_id}
+
     async def respond(model_name: str, request: ModelRequest) -> ScriptedModelReply:
         command = ScriptedModelClient.user_texts(request)[-1]
         results = ScriptedModelClient.tool_results(request)
@@ -289,6 +330,16 @@ def build_stepwise_agent_flow(
             )
         if verb == "say":
             return ScriptedModelReply(text=f"said: {rest}", reasoning="thinking about it")
+        if verb == "effect":
+            return _call("update_record", {})
+        if verb == "send-unclassified":
+            return _call("send_record", {})
+        if verb == "old-shape":
+            return _call("get_order", {"id": "7"})
+        if verb == "bad-shape":
+            return _call("get_order", {"bad": True})
+        if verb == "approve-old-shape":
+            return _call("cancel_order", {"id": "9"})
         if verb == "recall":
             earlier = ScriptedModelClient.user_texts(request)[:-1]
             output_items = sum(1 for item in request.input_items if hasattr(item, "provider"))
@@ -369,7 +420,20 @@ def build_stepwise_agent_flow(
         instructions=instructions,
         model=models["default"],
         resolve_model=resolve_model,
-        tools=[lookup_order, publish_note, slow_write, transfer_funds],
+        tools=[
+            lookup_order,
+            publish_note,
+            slow_write,
+            transfer_funds,
+            update_record,
+            send_record,
+            get_order,
+            cancel_order,
+        ],
+        tool_policies={
+            "update_record": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
+            "send_record": ToolPolicy(ToolEffect.UNCLASSIFIED, requires_approval=False),
+        },
         built_in_tools=frozenset({BuiltInTool.ASK_USER, BuiltInTool.DURABLE_WAIT}),
         interrupt_deadline=interrupt_deadline,
         max_model_calls_per_turn=max_model_calls_per_turn,
@@ -401,6 +465,14 @@ def build_stepwise_agent_flow_from_environment() -> AgentSessionFlow:
         os.environ.get(CANCEL_RPC_GATE_ENVIRONMENT_VARIABLE),
         os.environ.get(FINISH_CANCELLATION_GATE_ENVIRONMENT_VARIABLE),
     )
+
+
+def _prepare_order_arguments(arguments: Any) -> Any:
+    if "bad" in arguments:
+        raise ValueError("unsupported argument shape")
+    if "id" in arguments:
+        return {"order_id": arguments["id"]}
+    return arguments
 
 
 def _named_respond(

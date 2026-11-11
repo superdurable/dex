@@ -18,7 +18,7 @@ import { findFreeLoopbackPorts, PrivateDexEngine } from "@superdurable/dex-agent
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
 import { CliProcess, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
-import { scriptedHarness } from "../fixtures/scripted-harness.js";
+import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
 
 describe("CLI startup: configuration, the Dex server, and connectors", () => {
   let engine: PrivateDexEngine;
@@ -117,6 +117,38 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     await cli.stdout.waitFor("echo: hello");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("a harness that fixes its tools at build says a restart brings connector tools back", async () => {
+    const home = new TestHome(enginePorts(engine), fixedToolSetScriptedHarness);
+    const cli = start(home);
+    await cli.waitForSession();
+    await cli.stderr.waitFor(
+      "dex-agents-scripted fixes its tools when it starts, so this run has no connector tools. " +
+        "Restart it once the connectors MCP server answers.",
+    );
+    assert.doesNotMatch(cli.stderr.all, /each turn tries again/);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("a harness that fixes its tools at build warns and continues when the startup catalog read fails", async () => {
+    connectors.listingFailureReason = "the catalog is not ready";
+    try {
+      const home = new TestHome(enginePorts(engine), fixedToolSetScriptedHarness);
+      home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\n`);
+      const cli = start(home);
+      await cli.waitForSession();
+      await cli.stderr.waitFor("The connectors MCP server could not be listed: ");
+      await cli.stderr.waitFor(
+        "dex-agents-scripted fixes its tools when it starts, so this run has no connector tools. " +
+          "Restart it once the connectors MCP server answers.",
+      );
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+    } finally {
+      connectors.listingFailureReason = undefined;
+    }
   });
 
   test("--yes writes the default configuration and init --yes writes it again", async () => {

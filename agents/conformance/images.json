@@ -1062,6 +1062,106 @@
           }
         ],
         "expected_error": "MCP tool files__take_screenshot returned image 1, which is not a supported image: image is not a well-formed PNG"
+      },
+      {
+        "name": "base64 with unused trailing bits",
+        "content": [
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggh==",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected_error": "MCP tool files__take_screenshot returned image 1, which is not valid base64"
+      }
+    ],
+    "failure_description": "A failed result keeps its failure and its text, with [image <n> omitted] for the n-th image block counting from 1, so image bytes never reach the recorded error. It holds with and without a media store. kind is failed or outcome_unknown.",
+    "failure_cases": [
+      {
+        "name": "an isError result with text and an image",
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "the page did not load"
+            },
+            {
+              "type": "image",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+              "mimeType": "image/png"
+            }
+          ],
+          "isError": true
+        },
+        "expected": {
+          "kind": "failed",
+          "message": "the page did not load\n[image 1 omitted]"
+        }
+      },
+      {
+        "name": "a rejected result with only an image",
+        "result": {
+          "content": [
+            {
+              "type": "image",
+              "data": "/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBAMDAwQFBAQEBAUHBQUFBQUHCAcHBwcHBwgICAgICAgICgoKCgoKCwsLCwsNDQ0NDQ0NDQ0N/9sAQwECAgIDAwMGAwMGDQkHCQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0N/90ABAAB/9oADAMBAAIRAxEAPwCSiiiv7AP5vP/Z",
+              "mimeType": "image/jpeg"
+            }
+          ],
+          "_meta": {
+            "io.superdurable.dex/outcome": "rejected"
+          }
+        },
+        "expected": {
+          "kind": "failed",
+          "message": "[image 1 omitted]"
+        }
+      },
+      {
+        "name": "an unknown outcome with two images",
+        "result": {
+          "content": [
+            {
+              "type": "image",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+              "mimeType": "image/png"
+            },
+            {
+              "type": "image",
+              "data": "/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBAMDAwQFBAQEBAUHBQUFBQUHCAcHBwcHBwgICAgICAgICgoKCgoKCwsLCwsNDQ0NDQ0NDQ0N/9sAQwECAgIDAwMGAwMGDQkHCQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0N/90ABAAB/9oADAMBAAIRAxEAPwCSiiiv7AP5vP/Z",
+              "mimeType": "image/jpeg"
+            }
+          ],
+          "isError": true,
+          "_meta": {
+            "io.superdurable.dex/outcome": "unknown"
+          }
+        },
+        "expected": {
+          "kind": "outcome_unknown",
+          "message": "[image 1 omitted]\n[image 2 omitted]"
+        }
+      },
+      {
+        "name": "an isError result whose image is not an image",
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "broken"
+            },
+            {
+              "type": "image",
+              "data": "aGVsbG8=",
+              "mimeType": "image/png"
+            }
+          ],
+          "isError": true
+        },
+        "expected": {
+          "kind": "failed",
+          "message": "broken\n[image 1 omitted]"
+        }
       }
     ]
   }

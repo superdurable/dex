@@ -43,7 +43,7 @@ pub(crate) enum JoinScenario {
     PartialJoinRounds,
     KeyIsolation,
     CancellingFirstBranch,
-    RpcReportsCanceledBranch,
+    CancelJoinWithBranches,
     DoubleFork,
     RpcFork,
     InvalidConditions,
@@ -126,6 +126,7 @@ pub(crate) struct JoinWorkflow {
     start: StartJoinScenario,
     start_failure: ReportStartFailure,
     released_branch: ReleasedBranch,
+    handoff_branch: HandoffBranch,
     join_gate: JoinGate,
     all_of_join: AllOfJoin,
     request_round: RequestRound,
@@ -139,8 +140,7 @@ pub(crate) struct JoinWorkflow {
 impl JoinWorkflow {
     pub(crate) const RELEASE_BRANCH: Rpc<String, ()> = Rpc::new("release_branch");
     pub(crate) const REPORT_BRANCH_RESULT: Rpc<BranchReport, ()> = Rpc::new("report_branch_result");
-    pub(crate) const CANCEL_BRANCH_AND_REPORT_RESULT: Rpc<BranchReport, ()> =
-        Rpc::new("cancel_branch_and_report_result");
+    pub(crate) const CANCEL_JOIN_WITH_BRANCHES: Rpc<(), ()> = Rpc::new("cancel_join_with_branches");
     pub(crate) const FORK_JOIN_ROUND: Rpc<String, RpcForkOutput> = Rpc::new("fork_join_round");
     pub(crate) const GET_PENDING_RESULTS: Rpc<String, Vec<String>> =
         Rpc::new("get_pending_results");
@@ -148,11 +148,14 @@ impl JoinWorkflow {
         Rpc::new("get_pending_release_count");
     pub(crate) const FINISH_FLOW: Rpc<(), ()> = Rpc::new("finish_flow");
 
+    pub(crate) const JOIN_CANCELED: &str = "join canceled";
+
     pub(crate) fn new(state: Arc<JoinTestState>) -> Self {
         Self {
             start: StartJoinScenario(Arc::clone(&state)),
             start_failure: ReportStartFailure,
             released_branch: ReleasedBranch,
+            handoff_branch: HandoffBranch,
             join_gate: JoinGate,
             all_of_join: AllOfJoin,
             request_round: RequestRound,
@@ -176,13 +179,14 @@ impl JoinWorkflow {
         BRANCH_RESULTS.report_branch_result(context, &report.round, report.result)
     }
 
-    fn cancel_branch_and_report_result(
-        &self,
-        context: &mut Context,
-        report: BranchReport,
-    ) -> HandlerResult<RpcResult<()>> {
-        BRANCH_RESULTS.report_branch_result(context, &report.round, report.result)?;
-        Ok(RpcResult::new(()).cancel_step(&self.released_branch))
+    fn cancel_join_with_branches(&self, _context: &mut Context) -> HandlerResult<RpcResult<()>> {
+        Ok(RpcResult::new(())
+            .cancel_step(&self.all_of_join)
+            .cancel_step(&self.released_branch)
+            .then(StepMovement::to(
+                &self.hold_until_finished,
+                JoinWorkflow::JOIN_CANCELED.to_string(),
+            )))
     }
 
     fn fork_join_round(
@@ -203,11 +207,15 @@ impl JoinWorkflow {
                 Ok(_) => return Err(HandlerError::new("JoinFailure", "slash key accepted")),
                 Err(error) => error.to_string(),
             };
-        let movements = BRANCH_RESULTS.fork_with_round_key(
-            &round_key,
-            released_branch_builders(&["rpc-a", "rpc-b"]),
-            |round| StepMovement::to(&self.all_of_join, round),
-        )?;
+        let mut branch_builders = released_branch_builders(&["rpc-a"]);
+        // The handoff branch ends without reporting; a later RPC call reports its result.
+        branch_builders.push(Box::new(|round: &JoinRound| {
+            StepMovement::to(&self.handoff_branch, round.clone())
+        }));
+        let movements =
+            BRANCH_RESULTS.fork_with_round_key(&round_key, branch_builders, |round| {
+                StepMovement::to(&self.all_of_join, round)
+            })?;
         let output = RpcForkOutput {
             fork_error,
             slash_key_error,
@@ -252,6 +260,7 @@ impl Flow for JoinWorkflow {
         StepList::start(&self.start)
             .and(&self.start_failure)
             .and(&self.released_branch)
+            .and(&self.handoff_branch)
             .and(&self.join_gate)
             .and(&self.all_of_join)
             .and(&self.request_round)
@@ -275,9 +284,9 @@ impl Flow for JoinWorkflow {
         RpcList::new()
             .procedure(Self::RELEASE_BRANCH, Self::release_branch)
             .procedure(Self::REPORT_BRANCH_RESULT, Self::report_branch_result)
-            .function(
-                Self::CANCEL_BRANCH_AND_REPORT_RESULT,
-                Self::cancel_branch_and_report_result,
+            .function_without_input(
+                Self::CANCEL_JOIN_WITH_BRANCHES,
+                Self::cancel_join_with_branches,
             )
             .function(Self::FORK_JOIN_ROUND, Self::fork_join_round)
             .function(
@@ -362,9 +371,9 @@ impl Step for StartJoinScenario {
                 released_branch_builders(&["first-a", "first-b", "first-c"]),
                 |round| StepMovement::to(&CancellingFirstJoin(Arc::clone(&self.0)), round),
             )?,
-            JoinScenario::RpcReportsCanceledBranch => BRANCH_RESULTS.fork(
+            JoinScenario::CancelJoinWithBranches => BRANCH_RESULTS.fork(
                 context,
-                released_branch_builders(&["reported-a", "reported-b"]),
+                released_branch_builders(&["cancel-a", "cancel-b"]),
                 all_of_join_movement,
             )?,
             JoinScenario::DoubleFork => {
@@ -435,6 +444,17 @@ impl Step for ReleasedBranch {
 
     fn execute(&self, context: &mut Context, input: BranchInput) -> HandlerResult<StepDecision> {
         BRANCH_RESULTS.end_branch(context, &input.round, input.label)
+    }
+}
+
+/// Ends without reporting; an RPC reports this branch's result.
+pub(crate) struct HandoffBranch;
+
+impl Step for HandoffBranch {
+    type Input = JoinRound;
+
+    fn execute(&self, _context: &mut Context, _round: JoinRound) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::dead_end())
     }
 }
 

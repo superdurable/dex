@@ -58,6 +58,19 @@ class SubFlow:
         Dex generates stable Flow and request IDs so retries of the same start
         attach rather than creating duplicate child executions.
 
+        Only a Step whose Step type contains no ``-`` can start SubFlows. The
+        generated child Flow ID joins the parent Flow ID, the Step execution ID,
+        and the SubFlow index with ``-``. A dash in the Step type would make
+        that ID ambiguous between two parents. Default Step types are class
+        names and contain no dash. Rename a Step type set by ``get_step_type``
+        if it contains one.
+
+        .. versionchanged:: 1.45.0
+           The server rejects a SubFlow started by a Step whose Step type
+           contains ``-``. It treats the Wait as an invalid Worker response and
+           fails the attempt without retry. The Worker logs a warning before it
+           sends the Wait.
+
         Args:
             flow: The exact target Flow instance registered by the Worker.
             input: Input accepted by the target Flow's starting Step.

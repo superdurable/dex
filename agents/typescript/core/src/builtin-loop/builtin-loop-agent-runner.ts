@@ -270,14 +270,16 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
   }
 
   /**
-   * Runs one function tool call after checking its arguments against the tool's schema, or passes a call that a
+   * Runs one function tool call after converting its arguments with the tool's `prepareArguments`, when it has
+   * one, and checking them against the tool's schema, or passes a call that a
    * tool source built in `runModelStep` to that source, with the source's own `toolSourceReference` and without a
    * listing. Any other name is an unknown tool and never reaches a source.
    * @param call - The deferred call.
    * @returns The output: a `string` result unchanged, any other result as JSON; the tool's
    * {@link ToolInputRequested}; or a source's outcome, such as {@link ToolTaskStarted}.
    * @throws {ToolExecutionError} For an unknown tool, arguments that are not a JSON object or break the
-   * schema, or a `ToolExecutionError` from the tool or its source.
+   * schema, a non-cancellation error or a thenable result of the tool's `prepareArguments`, or a
+   * `ToolExecutionError` from the tool or its source.
    * @throws {RangeError} When a source built the call but the definition no longer has it, so the effect decides
    * the outcome.
    * @throws Any other error of the tool source.
@@ -291,7 +293,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
       }
       return this.toolSources.executeDeferredToolCall(call);
     }
-    const toolArguments = parseToolArguments(tool.name, toolCall.arguments);
+    const toolArguments = prepareToolArguments(tool, toolCall.arguments, call.cancellationSignal);
     const violation = findJsonSchemaViolation(toolArguments, tool.parameters, "arguments");
     if (violation !== undefined) {
       throw new ToolExecutionError(`invalid arguments for ${tool.name}: ${violation}`);
@@ -302,6 +304,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
       toolCallId: toolCall.toolCallId,
       idempotencyKey: call.idempotencyKey,
       attempt: call.attempt,
+      effect: toolCall.effect,
       events: call.events,
       cancellationSignal: call.cancellationSignal,
       deadline: call.deadline,
@@ -686,18 +689,68 @@ function buildUnstoredToolResults(turn: AgentTurnContext): ModelToolResultItem[]
     }));
 }
 
-function parseToolArguments(toolName: string, argumentsText: string): Readonly<Record<string, unknown>> {
+function prepareToolArguments(
+  tool: FunctionTool,
+  argumentsText: string,
+  cancellationSignal: AbortSignal,
+): Readonly<Record<string, unknown>> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(argumentsText === "" ? "{}" : argumentsText);
   } catch {
     // A fixed text, because the two cores' JSON parsers word their errors differently.
-    throw new ToolExecutionError(`invalid arguments for ${toolName}: arguments are not valid JSON`);
+    throw new ToolExecutionError(`invalid arguments for ${tool.name}: arguments are not valid JSON`);
+  }
+  if (tool.prepareArguments !== undefined) {
+    try {
+      parsed = tool.prepareArguments(parsed);
+    } catch (error: unknown) {
+      if (isCancellation(error, cancellationSignal)) {
+        throw error;
+      }
+      // Any other error, so a failed conversion never retries or records outcome_unknown.
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ToolExecutionError(`invalid arguments for ${tool.name}: ${message}`);
+    }
+    if (isThenable(parsed)) {
+      if (parsed instanceof Promise) {
+        observePromiseRejection(parsed);
+      }
+      throw new ToolExecutionError(`invalid arguments for ${tool.name}: argument conversion must be synchronous`);
+    }
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new ToolExecutionError(`invalid arguments for ${toolName}: expected a JSON object`);
+    throw new ToolExecutionError(`invalid arguments for ${tool.name}: expected a JSON object`);
   }
   return parsed as Readonly<Record<string, unknown>>;
+}
+
+/** Reads `then` without calling it; a throwing `then` getter counts as a thenable, so it is refused too. */
+function isThenable(value: unknown): boolean {
+  if ((typeof value !== "object" || value === null) && typeof value !== "function") {
+    return false;
+  }
+  try {
+    return typeof (value as { readonly then?: unknown }).then === "function";
+  } catch {
+    return true;
+  }
+}
+
+/** Observes a refused Promise's rejection through the native `then`, so a subclass's own `then` never runs. */
+function observePromiseRejection(promise: Promise<unknown>): void {
+  try {
+    void Promise.prototype.then.call(promise, undefined, () => undefined);
+  } catch {
+    // A subclass constructor may throw; the result is refused either way.
+  }
+}
+
+function isCancellation(error: unknown, cancellationSignal: AbortSignal): boolean {
+  if (cancellationSignal.aborted && error === cancellationSignal.reason) {
+    return true;
+  }
+  return (error as { readonly name?: unknown } | null)?.name === "AbortError";
 }
 
 function readModelCallCount(frameworkRunState: string | null): number {

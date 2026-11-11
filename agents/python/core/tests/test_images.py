@@ -46,6 +46,11 @@ from dex_agents import (
     validate_image_references,
 )
 from dex_agents.mcp._image_content import store_tool_result_images
+from dex_agents.mcp._tool_source import (
+    _outcome_from_tool_result,
+    _ToolCallFailed,
+    _ToolCallOutcomeUnknown,
+)
 from dex_agents.runner import ToolExecutionError
 from dex_agents.s3 import S3MediaStore
 
@@ -310,3 +315,14 @@ async def test_mcp_image_content_becomes_references_with_the_shared_text(
     known_bytes = {known["sha256"]: image_bytes(known) for known in SUITE["images"]}
     for image in converted.images:
         assert await store.get_image(image) == known_bytes[image.sha256]
+
+
+@pytest.mark.parametrize(
+    "case", SUITE["mcp_image_content"]["failure_cases"], ids=lambda case: case["name"]
+)
+def test_a_failed_mcp_result_with_images_records_no_image_bytes(case: dict[str, Any]) -> None:
+    outcome = _outcome_from_tool_result(CallToolResult.model_validate(case["result"]))
+
+    kinds = {_ToolCallFailed: "failed", _ToolCallOutcomeUnknown: "outcome_unknown"}
+    assert isinstance(outcome, _ToolCallFailed | _ToolCallOutcomeUnknown)
+    assert {"kind": kinds[type(outcome)], "message": outcome.message} == case["expected"]

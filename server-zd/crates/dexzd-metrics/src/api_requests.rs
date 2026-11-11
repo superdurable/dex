@@ -254,6 +254,9 @@ pub fn classify_rpc(path: &str) -> Option<RpcClass> {
         "/dex.FlowService/WaitForStepCompletion" => Some(RpcClass::FlowRead),
         "/dex.FlowService/WaitForAttribute" => Some(RpcClass::FlowRead),
         "/dex.FlowService/HealthCheck" => None,
+        "/dex.FlowService/UploadFlowDefinitions" => Some(RpcClass::FlowWrite),
+        "/dex.FlowService/ListFlowDefinitions" => Some(RpcClass::FlowRead),
+        "/dex.FlowService/GetFlowDefinitions" => Some(RpcClass::FlowRead),
         "/dex.WorkerTaskService/PollWorkerTask" => Some(RpcClass::WorkerPoll),
         _ => None,
     }

@@ -25,7 +25,7 @@ npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex
 The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `@mastra/core` is a peer dependency too.
-Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.38.0, and
+Requirements: Node `^22.0.0 || ^24.0.0`, `@superdurable/dex` 1.44.0, and
 `@mastra/core` `^1.81.0` (the tests run 1.81.0).
 
 Develop the package inside this repository with `./ci.sh`. There
@@ -248,6 +248,53 @@ the core's turn-failure note, built with `buildUserMessage`, as the failed
 turn's last message. It is an ordinary Mastra user message, so the next turn's
 model reads which tools already ran and does not repeat a write.
 
+## Images
+
+Pass a media store to show images to the model. The core README's Images
+section describes references, stores, and limits.
+
+```ts
+import { S3MediaStore } from "@superdurable/dex-agents/s3";
+
+const mediaStore = new S3MediaStore({ bucket: "agent-media", prefix: "sessions" });
+const flow = createMastraAgentSessionFlow(supportAgent, "SupportAgent", { mediaStore });
+```
+
+`new MastraAgentRunner(agent, { mediaStore })` takes the same option.
+
+- **User images.** With `mediaStore`, `send_user_message` accepts images. The
+  model sees the user message's text, then one file part per image, with the
+  image bytes, in the message's order.
+- **Tool result images.** A tool source's `ToolExecutionResult.images`, such as
+  a connector or MCP result, reach the model as the tool result's `content`
+  output: the result text, then one image per reference (`media` in the AI SDK
+  v5 prompt, which Mastra converts for the model's specification, such as
+  `image-data` for v3). The runner sets it as the tool result's
+  `providerOptions.mastra.modelOutput`, which Mastra keeps on the tool
+  invocation and sends instead of the plain result. The display `tool_output`
+  stays the result text. The stored assistant message's `images` lists the
+  turn's tool images, each once and at most 20; the model still sees every
+  image.
+- **What is stored.** `framework_item` and `FrameworkRunState` hold each image
+  as a text part `[image <uri>]` with the reference under `dexAgents`: in the
+  part's `providerMetadata` for a user image, and in the item's
+  `providerOptions` inside `mastra.modelOutput` for a tool image. They never
+  hold the bytes.
+- **Where the bytes go in.** Before a `RunModel` whose input holds an image,
+  the runner reads the images with `loadImages`, then passes `agent.stream()`
+  the agent's configured input processors followed by one with
+  `processLLMRequest`. That processor replaces each placeholder in the prompt of
+  each model request; Mastra does not store the change. A store that cannot
+  return an image fails the model call, and the `RunModel` Step retries. A
+  `RunModel` without images passes no input processors, as before. A replay
+  after a crash sends the same prompt.
+- **Without a store**, `send_user_message` refuses images and tool result
+  images do not reach the model. A history that holds image placeholders, from
+  a Worker that had a store, reaches the model as the placeholder text.
+- A Mastra tool that returns its own image content, such as an MCP-style
+  `{ content: [{ type: "image" }] }` result, is stored as JSON text with the
+  base64 data, as before. Return images from a tool source instead.
+
 ## Tool sources
 
 `toolSources` in the runner or session options takes the core's tool sources,
@@ -461,7 +508,12 @@ cover:
   ahead;
 - snapshots and message paging;
 - the model call metadata on each `chat` span, read from an in-memory
-  OpenTelemetry exporter.
+  OpenTelemetry exporter;
+- with a `LocalDirectoryMediaStore`, a user image and a `take_screenshot` tool
+  source image in the prompt the scripted model records, with their exact
+  bytes, only references in stored messages and the run state, the same prompt
+  after a SIGKILL during `RunModel`, and a session without a store refusing
+  images.
 
 ## Design decisions
 

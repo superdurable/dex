@@ -26,6 +26,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Run known, distinct branches in parallel | [Static parallel Steps](#static-parallel-steps) |
 | Run one Step per input item | [Dynamic parallel Steps](#dynamic-parallel-steps) |
 | Proceed only after every branch finishes | [Await parallel Steps](#await-parallel-steps) |
+| Proceed after the first branch or n of m branches, optionally in rounds | [Partial join and reset](#partial-join-and-reset) |
 | Keep the first result, cancel the rest | [First-win parallel Steps](#first-win-parallel-steps) |
 | Child Flow runs with their own lifecycle, after the SubFlow gate | [Parallel SubFlows](#parallel-subflows) |
 | Wait for an external system to become ready or finish | [Polling](#polling) |
@@ -65,7 +66,7 @@ Full rules: [error-handling.md](error-handling.md#start-identity-and-duplicate-s
 
 ## Parallel Steps
 
-Parallel Steps are the default when branches share one Flow identity and lifecycle. All four shapes fan out with GoToMany. Do not turn a fixed graph into runtime fan-out only to shorten source code. Go folder: `parallel`.
+Parallel Steps are the default when branches share one Flow identity and lifecycle. Every shape fans out with GoToMany. Do not turn a fixed graph into runtime fan-out only to shorten source code. Go folder: `parallel`.
 
 ### Static parallel Steps
 
@@ -93,18 +94,65 @@ DoWork.execute(item) -> do the work; deadEnd()
 
 ### Await parallel Steps
 
-Use when the Flow continues only after every branch finishes.
+Use when the Flow continues only after every branch finishes. Join the branches with a Join: a named ChannelMap of branch results that counts the branches and keys each round for you.
 
 ```text
-Init.execute(items) -> goToMany(AwaitAll(count), for each item: DoWork(item))
-DoWork.execute(item) -> do the work; Completed.publish(result); deadEnd()
-AwaitAll.waitFor(count) -> Until(Completed.ForN(count))
-AwaitAll.execute -> gracefulComplete(combine(results))
+Completed = Join<Result>("work-completed")        // register it with the Flow's Channels
+
+Init.execute(items) -> goToMany(Completed.fork(
+                           for each item: round -> DoWork(item, round),
+                           round -> AwaitAll(round)))
+DoWork.execute(item, round) -> do the work; return Completed.endBranch(round, result)
+AwaitAll.waitFor(round) -> Until(Completed.forAllBranches(round))
+AwaitAll.execute(round) -> gracefulComplete(combine(Completed.branchResults(round)))
 ```
 
-- Start the join together with the workers. Channel messages are durable, so completions published before the join waits still count.
-- Each worker publishes exactly one completion.
-- Decide whether an exhausted branch fails the operation, or routes to recovery while the join still waits for the rest.
+- Fork starts the branches and the join Step in one decision and gives all of them one round token: the round key and the branch count. The round key comes from the forking Step execution, so the application keeps no counter and no key. Pass the token unchanged in Step inputs.
+- Each branch reports exactly one result per round, on every exit path: success, early exit, and the failure recovery route. endBranch reports and ends the branch; reportBranchResult only reports.
+- A branch of several Steps passes the token to its last Step, and only that Step reports. A branch never waits on the join's conditions. Exactly one join Step waits for each round; two waiters split the results.
+- Fork one Join at most once per Step method. For a second independent join, define a second Join or fork with an explicit round key. A fork with an explicit round key is not limited to once per method; give each round a key that no other round of that Join in the Flow run uses. An RPC has no Step execution, so an RPC forks with an explicit round key.
+- Results are durable. A result reported before the join waits still counts. A report commits with the method's result, so a retried branch reports once.
+- An empty branch list is a round with no branches. A forAllBranches wait on it is satisfied at once, but forFirstBranch and forBranches on it fail the wait, so check the list before a first-branch or n-branch join. Continuing without a join when nothing was selected is still the clearer shape.
+- A canceled branch never reports, and its failure route does not run, so a join that waits for every branch never fires. The canceller cannot report for it: Dex picks the cancel set at commit time, and the branch may already have reported. Cancel the join together with the branches, or wait `AnyOf(Completed.forAllBranches(round), Timer(deadline))` and handle the deadline in Execute.
+- The join Step consumes results like any Channel wait. When it is canceled after its wait matched, the consumed results follow the canceled-Step rule in [channel.md](channel.md#wait-and-consume).
+- The Join's ChannelMap accessor reads a round's pending results, for example in a read-only RPC. Never publish to it directly.
+- Decide whether an exhausted branch fails the operation, or routes to a recovery Step that reports a failed result so the join still fires.
+
+### Partial join and reset
+
+Use when the Flow continues after the first branch or after n of m branches. With rounds, the next round's split Step resets the previous round before it forks again. Go folder: `workflow-patterns`, in [partial_joins.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go); Rust keeps it in [examples/rust/src/workflow_patterns](https://github.com/superdurable/dex/tree/main/examples/rust/src/workflow_patterns).
+
+```text
+Split.waitFor(input)
+    if input.previousRound is none: skipImmediately()
+    else: Until(Quotes.forRemainingBranches(input.previousRound, input.n))   // the reset
+Split.execute(input)
+    if input.previousRound: record Quotes.remainingBranchResults(input.previousRound)
+    goToMany(Quotes.fork(for each supplier: round -> RequestQuote(supplier, round),
+                         round -> AcceptQuotes(input, round)))
+RequestQuote.execute(supplier, round) -> return Quotes.endBranch(round, quote)
+AcceptQuotes.waitFor(input, round) -> Until(Quotes.forBranches(round, input.n))   // forFirstBranch(round) when n is 1
+AcceptQuotes.execute(input, round)
+    accepted = Quotes.branchResults(round)
+    another round: goToMany(PlaceOrder(accepted), Split(next input with previousRound = round))
+    last round:    goTo(PlaceOrder(accepted))       // late results stay pending until the Flow closes
+```
+
+Cancelling variant: the join Step cancels the rest instead of waiting for them.
+
+```text
+AcceptBids.execute(n, round)
+    goTo(ConfirmBooking(Bids.branchResults(round))).cancelSiblingSteps(BidFromA, BidFromB, BidFromC)
+```
+
+A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
+
+- The count passed to forRemainingBranches equals the count the join consumed: n, or 1 after forFirstBranch. It is the pattern's parameter, not a counter.
+- The next round's branches start only after the reset, so a round blocks the next one by construction. Enablement messages for the next round stay queued until then.
+- Results of one round never satisfy another round's join, even without a reset.
+- In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
+- Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches. It does not reach later Steps of a multi-Step branch, which are not siblings; cancel those by Step type only when one round runs at a time. When an RPC forked the round with an explicit round key, its branches are siblings of every Step that this RPC name ever started, so cancel them explicitly by Step type instead.
+- A branch that reported before the cancel committed is complete, not canceled. Its result stays pending in the round.
 
 ### First-win parallel Steps
 
@@ -454,7 +502,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Sequence | Execute returns GoTo to the next Step | Each Step is one commit. Split Steps by recovery boundary, not by line of code. |
 | Exclusive choice | Execute returns one GoTo, chosen from its input and Attributes | Execute picks exactly one branch. |
 | Parallel split | GoToMany | Each branch is its own Step execution and runs concurrently. A branch ends with DeadEnd or a closing decision. |
-| Fork and join | GoToMany starts the branches and a join Step; the join waits `Done.ForN(n)` | Start the join with the branches; messages published before it waits still count. Every branch publishes exactly one signal on every exit path: success, early exit, and the failure recovery route. A canceled Step publishes nothing and its failure route does not run, so the join never reaches its count. The canceller cannot publish for it: Dex picks the cancel set at commit time, and the branch may already have published. Cancel the join together with the branches, or do not cancel branches the join counts. |
+| Fork and join | A Join's fork starts the branches and the join Step; each branch ends with endBranch; the join waits forAllBranches, forFirstBranch, or forBranches(n) | Fork starts the join with the branches; results reported before it waits still count. Every branch reports exactly one result on every exit path: success, early exit, and the failure recovery route. A canceled Step reports nothing and its failure route does not run, so a join that waits for every branch never fires. The canceller cannot report for it: Dex picks the cancel set at commit time, and the branch may already have reported. Cancel the join together with the branches, wait for the join and a Timer with AnyOf, or do not cancel branches the join counts. See [Await parallel Steps](#await-parallel-steps). |
 | Several waiters for one event | One message per waiter | One message satisfies one wait. It is never copied to other waiting Steps. Use a ChannelMap with one key per waiter and publish to every key, or publish one message per waiter. |
 | First result of internal work | GoToMany of one Step type; the first to finish returns its result with a decision that cancels its sibling Steps | The sibling selector cancels executions of the same Step type started by the same parent. Losers must be safe to cancel or harmless to finish; cancellation does not undo an external effect. |
 | First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. When several Channel Conditions are ready at once, the first declared wins. Execute checks the Timer explicitly, then the Channel results, and moves to one branch. |
@@ -464,7 +512,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Cancel the case and its child Flows | The Step that starts the SubFlow waits AnyOf(cancel Channel, SubFlow) and, on cancel, stops the child with Client StopFlow before ForceFail | List the cancel condition first in every wait. Every later waiting Step also waits for the cancel Channel. A closing parent never stops its children, so give every child its own Flow timeout. |
 | Loop | Execute returns GoTo to the same or an earlier Step with the next input | Each iteration is a new Step execution and a new commit. Bound the loop. Keep accumulated results in Attributes, not in a growing Step input. Wait between iterations with a Timer in WaitFor. Poll an external system inside one Execute instead. |
 | Repeat on a schedule | A scheduler Step waits for a Timer to the next occurrence, then GoToMany starts the run Step and the next scheduler wait together | Starting the next wait with the run keeps a slow run from drifting the schedule. Make each run's external effect idempotent per occurrence. Stop the schedule with a Channel message or a closing decision. |
-| Multiple instances | GoToMany of one Step type, one execution per item | Bound the fan-out and batch large inputs. Join with ForN when the Flow needs every result. Use child Flows only for instances with their own lifecycle. |
+| Multiple instances | GoToMany of one Step type, one execution per item | Bound the fan-out and batch large inputs. When the Flow needs the results, fork a Join with one branch per item. A Join needs the instance count when it forks; instances added while others run need an explicit count and a loop. Use child Flows only for instances with their own lifecycle. |
 
 ### Deferred choice
 

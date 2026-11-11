@@ -37,6 +37,7 @@ import {
 } from "../../src/index.js";
 import { decodeAgentImageReference, encodeAgentImageReference } from "../../src/agent-session-codecs.js";
 import { storeToolResultImages } from "../../src/mcp/mcp-image-content.js";
+import { outcomeFromToolResult } from "../../src/mcp/mcp-tool-source.js";
 import { S3MediaStore } from "../../src/s3/index.js";
 import { readConformanceJson, serializeCanonicalJson } from "../fixtures/conformance-suite.js";
 
@@ -110,6 +111,11 @@ interface ImageSuite {
         readonly images: readonly { readonly sha256: string; readonly mime_type: string; readonly size_bytes: number }[];
       };
       readonly expected_error?: string;
+    }[];
+    readonly failure_cases: readonly {
+      readonly name: string;
+      readonly result: CallToolResult;
+      readonly expected: { readonly kind: string; readonly message: string };
     }[];
   };
 }
@@ -403,6 +409,14 @@ describe("MCP image content conformance cases", () => {
       for (const image of images) {
         assert.deepEqual(await store.getImage(image), knownBytes.get(image.sha256));
       }
+    });
+  }
+
+  for (const testCase of suite.mcp_image_content.failure_cases) {
+    test(`a failed result: ${testCase.name}`, () => {
+      const outcome = outcomeFromToolResult(testCase.result);
+      assert.ok(outcome.kind === "failed" || outcome.kind === "outcome_unknown");
+      assert.deepEqual({ kind: outcome.kind, message: outcome.message }, testCase.expected);
     });
   }
 });

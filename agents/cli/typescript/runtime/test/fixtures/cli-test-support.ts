@@ -28,6 +28,7 @@ import {
   type HarnessContext,
 } from "../../src/index.js";
 import {
+  fixedToolSetScriptedHarness,
   scriptedHarness,
   scriptedHarnessDirectoryVariable,
   scriptedHarnessVariantVariable,
@@ -147,9 +148,17 @@ export class CliProcess {
    * @returns The exit code.
    */
   public async waitForExit(timeoutMs = defaultWaitMs): Promise<number | null> {
-    // An unreferenced timer, so a command that exited early does not keep the test process alive.
-    const timeout = delay(timeoutMs, undefined, { ref: false }).then(() => "timeout" as const);
-    const result = await Promise.race([this.exited, timeout]);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), timeoutMs);
+    });
+    let result: number | null | "timeout";
+    try {
+      result = await Promise.race([this.exited, timeout]);
+    } finally {
+      // A pending timer would keep the test process alive after the suite ends.
+      clearTimeout(timer);
+    }
     if (result === "timeout") {
       throw new Error(`the command did not exit; stdout:\n${this.stdout.all}\nstderr:\n${this.stderr.all}`);
     }
@@ -247,6 +256,7 @@ export class TestHome {
       [scriptedHarnessDirectoryVariable]: this.markerDirectory,
       ...(this.harness === shellReplacingScriptedHarness ? { [scriptedHarnessVariantVariable]: "shell-replacing" } : {}),
       ...(this.harness === scriptedHarnessWithoutImages ? { [scriptedHarnessVariantVariable]: "without-images" } : {}),
+      ...(this.harness === fixedToolSetScriptedHarness ? { [scriptedHarnessVariantVariable]: "fixed-tool-set" } : {}),
     };
   }
 

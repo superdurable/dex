@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type {
@@ -31,6 +32,27 @@ export function scriptedResponseModelId(modelId: string): string {
   return `${modelId}-2026-11`;
 }
 
+/** File in the marker directory with one {@link RecordedModelPrompt} JSON line per model call. */
+export const modelPromptsLogName = "model-prompts.jsonl";
+
+/** The prompt of one model call, as the language model received it; bytes appear as `{ base64 }`. */
+export interface RecordedModelPrompt {
+  readonly modelId: string;
+  readonly prompt: unknown;
+}
+
+/** Reads every recorded prompt in the marker directory, in call order. */
+export function readRecordedModelPrompts(markerDirectory: string): RecordedModelPrompt[] {
+  const path = join(markerDirectory, modelPromptsLogName);
+  if (!existsSync(path)) {
+    return [];
+  }
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as RecordedModelPrompt);
+}
+
 type ScriptedModelResponse =
   | { readonly kind: "answer"; readonly text: string; readonly partialText?: string }
   | { readonly kind: "call_tools"; readonly toolNames: readonly string[]; readonly userText: string };
@@ -42,6 +64,7 @@ type ScriptedModelResponse =
  * The last user message decides the response:
  * - `call <tool> [and <tool> ...]`: calls every listed tool without a result in one response, with ID
  *   `call-<user message count>-<tool>`, then answers `<tool> -> <result>` per tool, joined with ` | `.
+ * - `call <tools> then <tools>`: calls each group in turn, after the previous group has results.
  * - `call ... then fail`: like `call`, but the model call fails once every tool has a result.
  * - `call ... then pause`: like `call`, but the model call after the tools waits at the `turn` FileGate.
  * - `history`: answers with every earlier user and assistant text in the prompt.
@@ -50,7 +73,8 @@ type ScriptedModelResponse =
  * - `slow stream`: like `slow`, after streaming `partial text `.
  * - anything else: answers `echo: <text>`.
  *
- * Every call records `<modelId> <user text>` in `model-calls.log`, so tests count model calls. Each response
+ * Every call records `<modelId> <user text>` in `model-calls.log`, so tests count model calls, and its prompt in
+ * {@link modelPromptsLogName}. Each response
  * reports the ID `scripted-response-<prompt message count>` and the model {@link scriptedResponseModelId}.
  */
 export class ScriptedLanguageModel implements LanguageModelV3 {
@@ -70,6 +94,8 @@ export class ScriptedLanguageModel implements LanguageModelV3 {
   public async doStream(options: LanguageModelV3CallOptions): Promise<LanguageModelV3StreamResult> {
     const userText = lastUserText(options.prompt);
     new InvocationLog(join(this.markerDirectory, "model-calls.log")).record(`${this.modelId} ${userText}`);
+    const recordedPrompt: RecordedModelPrompt = { modelId: this.modelId, prompt: encodeBytesAsBase64(options.prompt) };
+    appendFileSync(join(this.markerDirectory, modelPromptsLogName), `${JSON.stringify(recordedPrompt)}\n`);
     const response = decideScriptedModelResponse(options);
     const isSlow =
       userText === "slow" ||
@@ -138,13 +164,17 @@ function decideScriptedModelResponse(options: LanguageModelV3CallOptions): Scrip
     return { kind: "answer", text: `tools: ${toolNames.join(", ")}` };
   }
   if (userText.startsWith("call ")) {
-    const toolNames = userText
+    const toolNameGroups = userText
       .slice("call ".length)
       .replace(/ then (fail|pause)$/, "")
-      .split(" and ")
-      .map((toolName) => toolName.trim());
+      .split(" then ")
+      .map((group) => group.split(" and ").map((toolName) => toolName.trim()));
+    const toolNames = toolNameGroups.flat();
     const results = toolResultsSinceLastUserMessage(prompt);
-    const missingToolNames = toolNames.filter((toolName) => !results.has(toolName));
+    const missingToolNames =
+      toolNameGroups
+        .map((group) => group.filter((toolName) => !results.has(toolName)))
+        .find((group) => group.length > 0) ?? [];
     if (missingToolNames.length > 0) {
       return { kind: "call_tools", toolNames: missingToolNames, userText };
     }
@@ -211,9 +241,27 @@ function describeToolResultOutput(output: LanguageModelV3ToolResultOutput): stri
       return output.value;
     case "execution-denied":
       return output.reason ?? "execution denied";
+    case "content":
+      return output.value.flatMap((item) => (item.type === "text" ? [item.text] : [])).join("\n");
     default:
       return JSON.stringify(output.value);
   }
+}
+
+function encodeBytesAsBase64(value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return { base64: Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64") };
+  }
+  if (value instanceof URL) {
+    return { url: value.toString() };
+  }
+  if (Array.isArray(value)) {
+    return value.map(encodeBytesAsBase64);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, encodeBytesAsBase64(nested)]));
+  }
+  return value;
 }
 
 function enqueueText(

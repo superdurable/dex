@@ -118,11 +118,25 @@ export enum ExecuteMethodFailurePolicy {
   UNRECOGNIZED = -1,
 }
 
+/**
+ * Decides whether StartFlow may start a new run for a Flow ID that already has a run.
+ * Dex checks the latest run only. A Flow ID without runs always starts.
+ * A retry of the latest run's start request skips this policy; see StartFlowRequest.request_id.
+ */
 export enum IdReusePolicy {
+  /** ID_REUSE_POLICY_UNSPECIFIED - Same as ID_REUSE_POLICY_DISALLOW_REUSE. */
   ID_REUSE_POLICY_UNSPECIFIED = 0,
+  /**
+   * ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY - Starts a new run when the latest run closed as FAILED, CANCELED, or TERMINATED.
+   * Rejects the start when the latest run is RUNNING or COMPLETED.
+   * A Flow timeout closes a run as FAILED or CANCELED under FAIL or CANCEL; under HANDLER, the handler decides.
+   */
   ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY = 1,
+  /** ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING - Starts a new run when the latest run is closed, whatever its status. */
   ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING = 2,
+  /** ID_REUSE_POLICY_DISALLOW_REUSE - Rejects the start whenever the Flow ID has a run. */
   ID_REUSE_POLICY_DISALLOW_REUSE = 3,
+  /** ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING - Terminates a running latest run, then starts a new run. Never rejects a new request. */
   ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING = 4,
   UNRECOGNIZED = -1,
 }
@@ -287,6 +301,16 @@ export enum ErrorSubStatus {
   ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED = 9,
   /** ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG - An indexed Keyword value or KeywordArray element exceeds the byte limit. */
   ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG = 10,
+  /**
+   * ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID - A Flow definition request breaks a validation rule, such as invalid JSON,
+   * a Flow type mismatch, or a size or item count limit.
+   */
+  ERROR_SUB_STATUS_FLOW_DEFINITION_INVALID = 11,
+  /**
+   * ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE - The Flow definitions that GetFlowDefinitions requested would not fit in
+   * one response message.
+   */
+  ERROR_SUB_STATUS_FLOW_DEFINITION_RESPONSE_TOO_LARGE = 12,
   UNRECOGNIZED = -1,
 }
 
@@ -346,6 +370,23 @@ export enum StepAttemptProgress {
    * (for example every ASYNC failure).
    */
   STEP_ATTEMPT_PROGRESS_NOT_COMPLETED = 2,
+  UNRECOGNIZED = -1,
+}
+
+/** What UploadFlowDefinitions did with one Flow type. */
+export enum FlowDefinitionUploadOutcome {
+  FLOW_DEFINITION_UPLOAD_OUTCOME_UNSPECIFIED = 0,
+  /** FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED - No document was stored for the Flow type; the uploaded one is now stored. */
+  FLOW_DEFINITION_UPLOAD_OUTCOME_CREATED = 1,
+  /** FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED - The uploaded document replaced a different, older one. */
+  FLOW_DEFINITION_UPLOAD_OUTCOME_REPLACED = 2,
+  /** FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED - The stored document has the same digest; nothing was written. */
+  FLOW_DEFINITION_UPLOAD_OUTCOME_UNCHANGED = 3,
+  /**
+   * FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING - The stored document differs and its generated_at is the same or later, so
+   * it stays. Upload with force to replace it anyway.
+   */
+  FLOW_DEFINITION_UPLOAD_OUTCOME_KEPT_EXISTING = 4,
   UNRECOGNIZED = -1,
 }
 
@@ -690,7 +731,12 @@ export interface FlowTimeoutHandlerOptions {
   loadChannelMapInstances: string[];
 }
 
+/** Chooses the StartFlow result when Dex does not start a new run. */
 export interface FlowAlreadyStartedOptions {
+  /**
+   * True returns the latest run's ID when the request ID matches that run's start request ID.
+   * Otherwise, and whenever this is false, StartFlow fails with ALREADY_EXISTS (FLOW_ALREADY_STARTED).
+   */
   ignoreAlreadyStartedError: boolean;
 }
 
@@ -815,7 +861,14 @@ export interface StartFlowRequest {
   startStepType: string;
   stepInput: Value | undefined;
   stepOptions: StepOptions | undefined;
-  flowStartOptions: FlowStartOptions | undefined;
+  flowStartOptions:
+    | FlowStartOptions
+    | undefined;
+  /**
+   * Required. Identifies one logical start; Dex records it on the run it starts.
+   * A request with the latest run's request ID is a retry: Dex never applies the ID reuse policy.
+   * flow_already_started_options then chooses the result. Dex compares only the ID, not input or options.
+   */
   requestId: string;
 }
 
@@ -1965,6 +2018,135 @@ export interface NodeLeaseHolder {
 export interface NodeLeaseHolderUnknown {
   /** What could not be confirmed, for example because a lease read failed. */
   detail: string;
+}
+
+/** One Flow Definition Graph (FDG 2.0) JSON document to store. */
+export interface FlowDefinitionUpload {
+  /**
+   * Flow type that the document describes. It must equal flow.name in content,
+   * must not be empty, and must not exceed matching.maxFlowTypeLength bytes.
+   * Its percent-encoded object key, with the object store prefix, must fit in
+   * 1024 bytes.
+   */
+  flowType: string;
+  /**
+   * The FDG JSON document, at most flowDefinitions.maxDefinitionBytes. It must
+   * be a JSON object whose schemaVersion starts with "2.", nested at most 128
+   * levels deep. The server stores these exact bytes and returns them unchanged.
+   */
+  content: Uint8Array;
+  /**
+   * When the document was generated, normally the document's generatedAt or the
+   * file modification time. Required, and within the protobuf Timestamp range. A newer generated_at replaces a stored
+   * document with a different digest. The server keeps microsecond precision
+   * and rejects a time more than 24 hours after its own clock.
+   */
+  generatedAt: Date | undefined;
+}
+
+/** Stores Flow definitions. See FlowService.UploadFlowDefinitions. */
+export interface UploadFlowDefinitionsRequest {
+  /** Documents to store, at most 256, each with a distinct flow_type. */
+  definitions: FlowDefinitionUpload[];
+  /**
+   * Identifies the uploading software for diagnostics, such as an SDK name and
+   * version. At most 128 bytes. GetFlowDefinitions reports it for each stored
+   * document. May be empty.
+   */
+  uploader: string;
+  /**
+   * Replaces every stored document whose digest differs, whatever its
+   * generated_at; an identical document is still UNCHANGED. Use it to roll a
+   * definition back on purpose, or to replace a document whose generated_at
+   * came from a fast clock. The 24-hour limit on generated_at still applies.
+   */
+  force: boolean;
+}
+
+/** The outcome for one uploaded Flow type and the document stored afterwards. */
+export interface FlowDefinitionUploadResult {
+  /** Flow type of the uploaded document. */
+  flowType: string;
+  /** What the server did with the uploaded document. */
+  outcome: FlowDefinitionUploadOutcome;
+  /**
+   * Lowercase hexadecimal SHA-256 digest of the document stored after the call.
+   * It differs from the uploaded document's digest only for KEPT_EXISTING.
+   */
+  storedDigest: string;
+  /** generated_at of the document stored after the call, at microsecond precision. */
+  storedGeneratedAt: Date | undefined;
+}
+
+/** Reports the outcome of each uploaded document. */
+export interface UploadFlowDefinitionsResponse {
+  /** One result for each request item, in request order. */
+  results: FlowDefinitionUploadResult[];
+}
+
+/** Describes one stored Flow definition. */
+export interface FlowDefinitionInfo {
+  /** Flow type that the document describes. */
+  flowType: string;
+  /**
+   * Lowercase hexadecimal SHA-256 digest of the stored document. It changes
+   * whenever the content changes, so clients can use it as a cache key.
+   */
+  digest: string;
+  /** generated_at of the upload that stored this document, at microsecond precision. */
+  generatedAt:
+    | Date
+    | undefined;
+  /** When the server stored this document. */
+  uploadedAt:
+    | Date
+    | undefined;
+  /** uploader of the request that stored this document. */
+  uploader: string;
+}
+
+/** Requests one page of the Flow types that have a stored definition. */
+export interface ListFlowDefinitionsRequest {
+  /** Most Flow types in the page. 0 and values above 1000 mean 1000. */
+  pageSize: number;
+  /** next_page_token of the previous page, or empty for the first page. */
+  nextPageToken: string;
+}
+
+/** One page of the Flow types that have a stored definition. */
+export interface ListFlowDefinitionsResponse {
+  /** Flow types in object key order. */
+  flowTypes: string[];
+  /**
+   * Pass as ListFlowDefinitionsRequest.next_page_token to read the next page.
+   * Empty when this is the last page.
+   */
+  nextPageToken: string;
+}
+
+/** Requests the stored Flow definitions of some Flow types. */
+export interface GetFlowDefinitionsRequest {
+  /** Flow types to return, at least 1 and at most 256. */
+  flowTypes: string[];
+}
+
+/** One stored Flow definition with its content. */
+export interface FlowDefinition {
+  /** Metadata of the stored document. */
+  info:
+    | FlowDefinitionInfo
+    | undefined;
+  /** The stored FDG JSON document, byte for byte as uploaded. */
+  content: Uint8Array;
+}
+
+/** Returns the requested stored Flow definitions. */
+export interface GetFlowDefinitionsResponse {
+  /**
+   * The stored definitions of the requested Flow types, in request order.
+   * Flow types without a stored definition are left out.
+   */
+  definitions: FlowDefinition[];
 }
 
 function createBaseServerInfo(): ServerInfo {
@@ -15870,6 +16052,638 @@ export const NodeLeaseHolderUnknown: MessageFns<NodeLeaseHolderUnknown> = {
   },
 };
 
+function createBaseFlowDefinitionUpload(): FlowDefinitionUpload {
+  return { flowType: "", content: new Uint8Array(0), generatedAt: undefined };
+}
+
+export const FlowDefinitionUpload: MessageFns<FlowDefinitionUpload> = {
+  encode(message: FlowDefinitionUpload, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowType !== "") {
+      writer.uint32(10).string(message.flowType);
+    }
+    if (message.content.length !== 0) {
+      writer.uint32(18).bytes(message.content);
+    }
+    if (message.generatedAt !== undefined) {
+      Timestamp.encode(toTimestamp(message.generatedAt), writer.uint32(26).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FlowDefinitionUpload {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowDefinitionUpload();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowType = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.content = reader.bytes();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.generatedAt = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<FlowDefinitionUpload>, I>>(base?: I): FlowDefinitionUpload {
+    return FlowDefinitionUpload.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowDefinitionUpload>, I>>(object: I): FlowDefinitionUpload {
+    const message = createBaseFlowDefinitionUpload();
+    message.flowType = object.flowType ?? "";
+    message.content = object.content ?? new Uint8Array(0);
+    message.generatedAt = object.generatedAt ?? undefined;
+    return message;
+  },
+};
+
+function createBaseUploadFlowDefinitionsRequest(): UploadFlowDefinitionsRequest {
+  return { definitions: [], uploader: "", force: false };
+}
+
+export const UploadFlowDefinitionsRequest: MessageFns<UploadFlowDefinitionsRequest> = {
+  encode(message: UploadFlowDefinitionsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.definitions) {
+      FlowDefinitionUpload.encode(v!, writer.uint32(10).fork()).join();
+    }
+    if (message.uploader !== "") {
+      writer.uint32(18).string(message.uploader);
+    }
+    if (message.force !== false) {
+      writer.uint32(24).bool(message.force);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): UploadFlowDefinitionsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUploadFlowDefinitionsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.definitions.push(FlowDefinitionUpload.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.uploader = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.force = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<UploadFlowDefinitionsRequest>, I>>(base?: I): UploadFlowDefinitionsRequest {
+    return UploadFlowDefinitionsRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<UploadFlowDefinitionsRequest>, I>>(object: I): UploadFlowDefinitionsRequest {
+    const message = createBaseUploadFlowDefinitionsRequest();
+    message.definitions = object.definitions?.map((e) => FlowDefinitionUpload.fromPartial(e)) || [];
+    message.uploader = object.uploader ?? "";
+    message.force = object.force ?? false;
+    return message;
+  },
+};
+
+function createBaseFlowDefinitionUploadResult(): FlowDefinitionUploadResult {
+  return { flowType: "", outcome: 0, storedDigest: "", storedGeneratedAt: undefined };
+}
+
+export const FlowDefinitionUploadResult: MessageFns<FlowDefinitionUploadResult> = {
+  encode(message: FlowDefinitionUploadResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowType !== "") {
+      writer.uint32(10).string(message.flowType);
+    }
+    if (message.outcome !== 0) {
+      writer.uint32(16).int32(message.outcome);
+    }
+    if (message.storedDigest !== "") {
+      writer.uint32(26).string(message.storedDigest);
+    }
+    if (message.storedGeneratedAt !== undefined) {
+      Timestamp.encode(toTimestamp(message.storedGeneratedAt), writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FlowDefinitionUploadResult {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowDefinitionUploadResult();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowType = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.outcome = reader.int32() as any;
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.storedDigest = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.storedGeneratedAt = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<FlowDefinitionUploadResult>, I>>(base?: I): FlowDefinitionUploadResult {
+    return FlowDefinitionUploadResult.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowDefinitionUploadResult>, I>>(object: I): FlowDefinitionUploadResult {
+    const message = createBaseFlowDefinitionUploadResult();
+    message.flowType = object.flowType ?? "";
+    message.outcome = object.outcome ?? 0;
+    message.storedDigest = object.storedDigest ?? "";
+    message.storedGeneratedAt = object.storedGeneratedAt ?? undefined;
+    return message;
+  },
+};
+
+function createBaseUploadFlowDefinitionsResponse(): UploadFlowDefinitionsResponse {
+  return { results: [] };
+}
+
+export const UploadFlowDefinitionsResponse: MessageFns<UploadFlowDefinitionsResponse> = {
+  encode(message: UploadFlowDefinitionsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.results) {
+      FlowDefinitionUploadResult.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): UploadFlowDefinitionsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseUploadFlowDefinitionsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.results.push(FlowDefinitionUploadResult.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<UploadFlowDefinitionsResponse>, I>>(base?: I): UploadFlowDefinitionsResponse {
+    return UploadFlowDefinitionsResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<UploadFlowDefinitionsResponse>, I>>(
+    object: I,
+  ): UploadFlowDefinitionsResponse {
+    const message = createBaseUploadFlowDefinitionsResponse();
+    message.results = object.results?.map((e) => FlowDefinitionUploadResult.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseFlowDefinitionInfo(): FlowDefinitionInfo {
+  return { flowType: "", digest: "", generatedAt: undefined, uploadedAt: undefined, uploader: "" };
+}
+
+export const FlowDefinitionInfo: MessageFns<FlowDefinitionInfo> = {
+  encode(message: FlowDefinitionInfo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowType !== "") {
+      writer.uint32(10).string(message.flowType);
+    }
+    if (message.digest !== "") {
+      writer.uint32(18).string(message.digest);
+    }
+    if (message.generatedAt !== undefined) {
+      Timestamp.encode(toTimestamp(message.generatedAt), writer.uint32(26).fork()).join();
+    }
+    if (message.uploadedAt !== undefined) {
+      Timestamp.encode(toTimestamp(message.uploadedAt), writer.uint32(34).fork()).join();
+    }
+    if (message.uploader !== "") {
+      writer.uint32(42).string(message.uploader);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FlowDefinitionInfo {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowDefinitionInfo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowType = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.digest = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.generatedAt = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.uploadedAt = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.uploader = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<FlowDefinitionInfo>, I>>(base?: I): FlowDefinitionInfo {
+    return FlowDefinitionInfo.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowDefinitionInfo>, I>>(object: I): FlowDefinitionInfo {
+    const message = createBaseFlowDefinitionInfo();
+    message.flowType = object.flowType ?? "";
+    message.digest = object.digest ?? "";
+    message.generatedAt = object.generatedAt ?? undefined;
+    message.uploadedAt = object.uploadedAt ?? undefined;
+    message.uploader = object.uploader ?? "";
+    return message;
+  },
+};
+
+function createBaseListFlowDefinitionsRequest(): ListFlowDefinitionsRequest {
+  return { pageSize: 0, nextPageToken: "" };
+}
+
+export const ListFlowDefinitionsRequest: MessageFns<ListFlowDefinitionsRequest> = {
+  encode(message: ListFlowDefinitionsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.pageSize !== 0) {
+      writer.uint32(8).int32(message.pageSize);
+    }
+    if (message.nextPageToken !== "") {
+      writer.uint32(18).string(message.nextPageToken);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListFlowDefinitionsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListFlowDefinitionsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.pageSize = reader.int32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.nextPageToken = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ListFlowDefinitionsRequest>, I>>(base?: I): ListFlowDefinitionsRequest {
+    return ListFlowDefinitionsRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListFlowDefinitionsRequest>, I>>(object: I): ListFlowDefinitionsRequest {
+    const message = createBaseListFlowDefinitionsRequest();
+    message.pageSize = object.pageSize ?? 0;
+    message.nextPageToken = object.nextPageToken ?? "";
+    return message;
+  },
+};
+
+function createBaseListFlowDefinitionsResponse(): ListFlowDefinitionsResponse {
+  return { flowTypes: [], nextPageToken: "" };
+}
+
+export const ListFlowDefinitionsResponse: MessageFns<ListFlowDefinitionsResponse> = {
+  encode(message: ListFlowDefinitionsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.flowTypes) {
+      writer.uint32(10).string(v!);
+    }
+    if (message.nextPageToken !== "") {
+      writer.uint32(18).string(message.nextPageToken);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListFlowDefinitionsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListFlowDefinitionsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowTypes.push(reader.string());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.nextPageToken = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ListFlowDefinitionsResponse>, I>>(base?: I): ListFlowDefinitionsResponse {
+    return ListFlowDefinitionsResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ListFlowDefinitionsResponse>, I>>(object: I): ListFlowDefinitionsResponse {
+    const message = createBaseListFlowDefinitionsResponse();
+    message.flowTypes = object.flowTypes?.map((e) => e) || [];
+    message.nextPageToken = object.nextPageToken ?? "";
+    return message;
+  },
+};
+
+function createBaseGetFlowDefinitionsRequest(): GetFlowDefinitionsRequest {
+  return { flowTypes: [] };
+}
+
+export const GetFlowDefinitionsRequest: MessageFns<GetFlowDefinitionsRequest> = {
+  encode(message: GetFlowDefinitionsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.flowTypes) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetFlowDefinitionsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetFlowDefinitionsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowTypes.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<GetFlowDefinitionsRequest>, I>>(base?: I): GetFlowDefinitionsRequest {
+    return GetFlowDefinitionsRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetFlowDefinitionsRequest>, I>>(object: I): GetFlowDefinitionsRequest {
+    const message = createBaseGetFlowDefinitionsRequest();
+    message.flowTypes = object.flowTypes?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseFlowDefinition(): FlowDefinition {
+  return { info: undefined, content: new Uint8Array(0) };
+}
+
+export const FlowDefinition: MessageFns<FlowDefinition> = {
+  encode(message: FlowDefinition, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.info !== undefined) {
+      FlowDefinitionInfo.encode(message.info, writer.uint32(10).fork()).join();
+    }
+    if (message.content.length !== 0) {
+      writer.uint32(18).bytes(message.content);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FlowDefinition {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFlowDefinition();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.info = FlowDefinitionInfo.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.content = reader.bytes();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<FlowDefinition>, I>>(base?: I): FlowDefinition {
+    return FlowDefinition.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<FlowDefinition>, I>>(object: I): FlowDefinition {
+    const message = createBaseFlowDefinition();
+    message.info = (object.info !== undefined && object.info !== null)
+      ? FlowDefinitionInfo.fromPartial(object.info)
+      : undefined;
+    message.content = object.content ?? new Uint8Array(0);
+    return message;
+  },
+};
+
+function createBaseGetFlowDefinitionsResponse(): GetFlowDefinitionsResponse {
+  return { definitions: [] };
+}
+
+export const GetFlowDefinitionsResponse: MessageFns<GetFlowDefinitionsResponse> = {
+  encode(message: GetFlowDefinitionsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.definitions) {
+      FlowDefinition.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetFlowDefinitionsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetFlowDefinitionsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.definitions.push(FlowDefinition.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<GetFlowDefinitionsResponse>, I>>(base?: I): GetFlowDefinitionsResponse {
+    return GetFlowDefinitionsResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GetFlowDefinitionsResponse>, I>>(object: I): GetFlowDefinitionsResponse {
+    const message = createBaseGetFlowDefinitionsResponse();
+    message.definitions = object.definitions?.map((e) => FlowDefinition.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 /** Hosted by Dex server; SDKs call these RPCs. */
 export type FlowServiceService = typeof FlowServiceService;
 export const FlowServiceService = {
@@ -16129,6 +16943,87 @@ export const FlowServiceService = {
     responseSerialize: (value: HealthInfo): Buffer => Buffer.from(HealthInfo.encode(value).finish()),
     responseDeserialize: (value: Buffer): HealthInfo => HealthInfo.decode(value),
   },
+  /**
+   * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+   *
+   * Workers call it at startup so that Dex Web can render their Flows without
+   * a definition directory. The server keeps one document for each Flow type
+   * and decides each item separately. The outcome is CREATED when no document
+   * was stored for the Flow type. It is UNCHANGED when the stored document has
+   * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+   * digest differs and generated_at is strictly later than the stored
+   * generated_at, compared at microsecond precision, or when force is set.
+   * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+   * reports its digest and generation time.
+   *
+   * Items are independent. Concurrent uploads of one Flow type are safe: each
+   * item's outcome is decided against the document stored when its write
+   * commits. If the call fails partway, earlier items may already be stored;
+   * repeating the call is safe and reports them as UNCHANGED.
+   *
+   * The server checks only that each document is a JSON object of at most
+   * flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+   * "2.", and that its flow.name equals flow_type. Dex Web validates the full
+   * graph when it reads it.
+   *
+   * Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+   * anything, for an invalid item, more than 256 items, a repeated flow_type, a
+   * missing generated_at, or a generated_at more than 24 hours after the
+   * server's clock. Fails with Unavailable when object storage fails; the call
+   * is then safe to retry.
+   */
+  uploadFlowDefinitions: {
+    path: "/dex.FlowService/UploadFlowDefinitions" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: UploadFlowDefinitionsRequest): Buffer =>
+      Buffer.from(UploadFlowDefinitionsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): UploadFlowDefinitionsRequest => UploadFlowDefinitionsRequest.decode(value),
+    responseSerialize: (value: UploadFlowDefinitionsResponse): Buffer =>
+      Buffer.from(UploadFlowDefinitionsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): UploadFlowDefinitionsResponse => UploadFlowDefinitionsResponse.decode(value),
+  },
+  /**
+   * Lists the Flow types that have a stored definition, one page at a time.
+   *
+   * It returns names only; call GetFlowDefinitions for content and metadata.
+   * Pages follow the order of the stored object keys, which is stable but is
+   * not exactly the order of Flow types. A Flow type first stored during a
+   * listing may or may not appear. Fails with InvalidArgument for a negative
+   * page_size or an invalid page token, and with Unavailable when object
+   * storage fails.
+   */
+  listFlowDefinitions: {
+    path: "/dex.FlowService/ListFlowDefinitions" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListFlowDefinitionsRequest): Buffer =>
+      Buffer.from(ListFlowDefinitionsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListFlowDefinitionsRequest => ListFlowDefinitionsRequest.decode(value),
+    responseSerialize: (value: ListFlowDefinitionsResponse): Buffer =>
+      Buffer.from(ListFlowDefinitionsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListFlowDefinitionsResponse => ListFlowDefinitionsResponse.decode(value),
+  },
+  /**
+   * Returns the stored Flow definitions of the requested Flow types, with content.
+   *
+   * A requested Flow type that has no stored definition is left out of the
+   * response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+   * Flow types, more than 256, or an invalid Flow type. Fails with
+   * ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+   * would not fit in one response message; request fewer Flow types.
+   */
+  getFlowDefinitions: {
+    path: "/dex.FlowService/GetFlowDefinitions" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: GetFlowDefinitionsRequest): Buffer =>
+      Buffer.from(GetFlowDefinitionsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): GetFlowDefinitionsRequest => GetFlowDefinitionsRequest.decode(value),
+    responseSerialize: (value: GetFlowDefinitionsResponse): Buffer =>
+      Buffer.from(GetFlowDefinitionsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): GetFlowDefinitionsResponse => GetFlowDefinitionsResponse.decode(value),
+  },
 } as const;
 
 export interface FlowServiceServer extends UntypedServiceImplementation {
@@ -16159,6 +17054,57 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   waitForStepCompletion: handleUnaryCall<WaitForStepCompletionRequest, WaitForStepCompletionResponse>;
   waitForAttribute: handleUnaryCall<WaitForAttributeRequest, WaitForAttributeResponse>;
   healthCheck: handleUnaryCall<Empty, HealthInfo>;
+  /**
+   * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+   *
+   * Workers call it at startup so that Dex Web can render their Flows without
+   * a definition directory. The server keeps one document for each Flow type
+   * and decides each item separately. The outcome is CREATED when no document
+   * was stored for the Flow type. It is UNCHANGED when the stored document has
+   * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+   * digest differs and generated_at is strictly later than the stored
+   * generated_at, compared at microsecond precision, or when force is set.
+   * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+   * reports its digest and generation time.
+   *
+   * Items are independent. Concurrent uploads of one Flow type are safe: each
+   * item's outcome is decided against the document stored when its write
+   * commits. If the call fails partway, earlier items may already be stored;
+   * repeating the call is safe and reports them as UNCHANGED.
+   *
+   * The server checks only that each document is a JSON object of at most
+   * flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+   * "2.", and that its flow.name equals flow_type. Dex Web validates the full
+   * graph when it reads it.
+   *
+   * Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+   * anything, for an invalid item, more than 256 items, a repeated flow_type, a
+   * missing generated_at, or a generated_at more than 24 hours after the
+   * server's clock. Fails with Unavailable when object storage fails; the call
+   * is then safe to retry.
+   */
+  uploadFlowDefinitions: handleUnaryCall<UploadFlowDefinitionsRequest, UploadFlowDefinitionsResponse>;
+  /**
+   * Lists the Flow types that have a stored definition, one page at a time.
+   *
+   * It returns names only; call GetFlowDefinitions for content and metadata.
+   * Pages follow the order of the stored object keys, which is stable but is
+   * not exactly the order of Flow types. A Flow type first stored during a
+   * listing may or may not appear. Fails with InvalidArgument for a negative
+   * page_size or an invalid page token, and with Unavailable when object
+   * storage fails.
+   */
+  listFlowDefinitions: handleUnaryCall<ListFlowDefinitionsRequest, ListFlowDefinitionsResponse>;
+  /**
+   * Returns the stored Flow definitions of the requested Flow types, with content.
+   *
+   * A requested Flow type that has no stored definition is left out of the
+   * response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+   * Flow types, more than 256, or an invalid Flow type. Fails with
+   * ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+   * would not fit in one response message; request fewer Flow types.
+   */
+  getFlowDefinitions: handleUnaryCall<GetFlowDefinitionsRequest, GetFlowDefinitionsResponse>;
 }
 
 export interface FlowServiceClient extends Client {
@@ -16543,6 +17489,99 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: HealthInfo) => void,
+  ): ClientUnaryCall;
+  /**
+   * Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+   *
+   * Workers call it at startup so that Dex Web can render their Flows without
+   * a definition directory. The server keeps one document for each Flow type
+   * and decides each item separately. The outcome is CREATED when no document
+   * was stored for the Flow type. It is UNCHANGED when the stored document has
+   * the same SHA-256 digest; nothing is written then. It is REPLACED when the
+   * digest differs and generated_at is strictly later than the stored
+   * generated_at, compared at microsecond precision, or when force is set.
+   * Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+   * reports its digest and generation time.
+   *
+   * Items are independent. Concurrent uploads of one Flow type are safe: each
+   * item's outcome is decided against the document stored when its write
+   * commits. If the call fails partway, earlier items may already be stored;
+   * repeating the call is safe and reports them as UNCHANGED.
+   *
+   * The server checks only that each document is a JSON object of at most
+   * flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+   * "2.", and that its flow.name equals flow_type. Dex Web validates the full
+   * graph when it reads it.
+   *
+   * Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+   * anything, for an invalid item, more than 256 items, a repeated flow_type, a
+   * missing generated_at, or a generated_at more than 24 hours after the
+   * server's clock. Fails with Unavailable when object storage fails; the call
+   * is then safe to retry.
+   */
+  uploadFlowDefinitions(
+    request: UploadFlowDefinitionsRequest,
+    callback: (error: ServiceError | null, response: UploadFlowDefinitionsResponse) => void,
+  ): ClientUnaryCall;
+  uploadFlowDefinitions(
+    request: UploadFlowDefinitionsRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: UploadFlowDefinitionsResponse) => void,
+  ): ClientUnaryCall;
+  uploadFlowDefinitions(
+    request: UploadFlowDefinitionsRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: UploadFlowDefinitionsResponse) => void,
+  ): ClientUnaryCall;
+  /**
+   * Lists the Flow types that have a stored definition, one page at a time.
+   *
+   * It returns names only; call GetFlowDefinitions for content and metadata.
+   * Pages follow the order of the stored object keys, which is stable but is
+   * not exactly the order of Flow types. A Flow type first stored during a
+   * listing may or may not appear. Fails with InvalidArgument for a negative
+   * page_size or an invalid page token, and with Unavailable when object
+   * storage fails.
+   */
+  listFlowDefinitions(
+    request: ListFlowDefinitionsRequest,
+    callback: (error: ServiceError | null, response: ListFlowDefinitionsResponse) => void,
+  ): ClientUnaryCall;
+  listFlowDefinitions(
+    request: ListFlowDefinitionsRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ListFlowDefinitionsResponse) => void,
+  ): ClientUnaryCall;
+  listFlowDefinitions(
+    request: ListFlowDefinitionsRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ListFlowDefinitionsResponse) => void,
+  ): ClientUnaryCall;
+  /**
+   * Returns the stored Flow definitions of the requested Flow types, with content.
+   *
+   * A requested Flow type that has no stored definition is left out of the
+   * response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+   * Flow types, more than 256, or an invalid Flow type. Fails with
+   * ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+   * would not fit in one response message; request fewer Flow types.
+   */
+  getFlowDefinitions(
+    request: GetFlowDefinitionsRequest,
+    callback: (error: ServiceError | null, response: GetFlowDefinitionsResponse) => void,
+  ): ClientUnaryCall;
+  getFlowDefinitions(
+    request: GetFlowDefinitionsRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: GetFlowDefinitionsResponse) => void,
+  ): ClientUnaryCall;
+  getFlowDefinitions(
+    request: GetFlowDefinitionsRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: GetFlowDefinitionsResponse) => void,
   ): ClientUnaryCall;
 }
 

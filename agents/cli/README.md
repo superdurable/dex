@@ -64,7 +64,7 @@ claude: {}
 | `local_tools.browser` | `true` | Drive a local browser. Reads (navigating and text snapshots) run at once; clicks, form fills, and submits wait for approval. The browser tools take no screenshots. The browser is downloaded on first use. |
 | `media.store` | `auto` | Where the session's images are stored. `auto` is the directory `~/.dex/agents/media` on this machine. `s3://<bucket>` or `s3://<bucket>/<prefix>` is an S3 bucket, for Workers on other machines. See Images below. |
 | `media.endpoint` | none (AWS S3) | The `http` or `https` URL of an S3-compatible service, such as `http://127.0.0.1:9000`. Only valid with an `s3://` store. It follows the URL rules of `dex.server`. |
-| `claude`, `openai`, `pydantic_ai`, `langgraph`, `google_adk`, `vercel_ai`, `mastra`, `pi`, `builtin` | `{}` | Options of one harness. Each command defines its own section's fields and ignores the other sections. |
+| `claude`, `openai`, `pydantic_ai`, `deepagents`, `google_adk`, `vercel_ai`, `mastra`, `pi`, `builtin` | `{}` | Options of one harness. Each command defines its own section's fields and ignores the other sections. |
 
 Other keys are errors, and `null` is never a valid value: omit the field to
 take its default. In `system_prompt_file` and `workspace`, a leading `~` is the

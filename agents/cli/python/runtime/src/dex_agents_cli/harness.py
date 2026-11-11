@@ -30,7 +30,9 @@ from dex_agents_cli.turns import (
     recorded_turn_settings,
 )
 
-_FLOW_TYPE_SUFFIX_DIGITS = 12
+_FLOW_TYPE_SUFFIX_LENGTH = 6
+_FLOW_TYPE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
+_DEFAULTS_CONFIG_IDENTITY = "defaults"
 
 
 class LocalToolGroup(StrEnum):
@@ -260,6 +262,115 @@ def _no_running_turn() -> ResolvedTurn:
     )
 
 
+@dataclass(frozen=True, kw_only=True)
+class SessionEnvironmentIdentity:
+    """Name the execution environment a session's Steps must run in.
+
+    ``namespace_session_flow_type`` hashes it into the session Flow type, and
+    the command records it in each new session's start input.
+
+    Example:
+        >>> identity = current_session_environment_identity(config_path, workspace)
+        >>> namespace_session_flow_type("DexAgentsClaudeSdkCliSession", identity)
+        'DexAgentsClaudeSdkCliSession-k3x9q0'
+
+    Attributes:
+        host_name: The host name.
+        user_id: The numeric user ID where the system has one, else the user name.
+        config_identity: The configuration file's real path, or ``defaults``
+            without a file.
+        workspace: The workspace's real path.
+
+    .. versionadded:: 0.5.0
+    """
+
+    host_name: str
+    user_id: str
+    config_identity: str
+    workspace: str
+
+
+def current_session_environment_identity(
+    config_path: Path | None,
+    workspace: Path,
+    *,
+    user: str | None = None,
+) -> SessionEnvironmentIdentity:
+    """Return this process's execution environment for a configuration file and workspace.
+
+    Example:
+        >>> current_session_environment_identity(None, Path("~/w").expanduser())
+        SessionEnvironmentIdentity(host_name='laptop', user_id='501', ...)
+
+    Args:
+        config_path: The configuration file, or ``None`` when the command runs on defaults.
+        workspace: The workspace directory.
+        user: The user part; ``None`` uses this process's user.
+
+    Returns:
+        The host name, the user, the configuration file's real path or
+        ``defaults``, and the workspace's real path.
+
+    .. versionadded:: 0.5.0
+    """
+    return SessionEnvironmentIdentity(
+        host_name=socket.gethostname(),
+        user_id=_current_user() if user is None else user,
+        config_identity=(
+            _DEFAULTS_CONFIG_IDENTITY if config_path is None else os.path.realpath(config_path)
+        ),
+        workspace=os.path.realpath(workspace),
+    )
+
+
+def namespace_session_flow_type(
+    harness_flow_type: str, identity: SessionEnvironmentIdentity
+) -> str:
+    """Return the session Flow type of a harness in one execution environment.
+
+    Commands with the same harness but another machine, user, configuration
+    file, or workspace register different Flow types against one Dex server.
+    Their Workers then never take each other's tool Steps, so an approved
+    write always runs with the workspace, tools, and connections it was
+    approved under. ``sessions`` and ``--resume`` use the same type.
+
+    The Flow type is ``<harness_flow_type>-<suffix>``. The suffix is 6
+    lowercase base36 characters (``0-9a-z``). Take the SHA-256 of the UTF-8
+    text ``"<host name>\\n<user ID>\\n<config identity>\\n<workspace>"``.
+    Read its first 8 bytes as an unsigned big-endian integer, reduce it
+    modulo 36**6, write it in base36, and left-pad it with ``0`` to 6
+    characters. The file's contents, such as tool settings, do not count, so
+    editing them keeps the sessions.
+
+    Example:
+        >>> identity = SessionEnvironmentIdentity(
+        ...     host_name="host", user_id="501", config_identity="defaults", workspace="/home/a/w")
+        >>> namespace_session_flow_type("Agent", identity)
+        'Agent-ujnoef'
+
+    Args:
+        harness_flow_type: The harness's ``flow_type``.
+        identity: The host, user, configuration file, and workspace.
+
+    Returns:
+        ``<harness_flow_type>-<6 base36 characters>``.
+
+    .. versionadded:: 0.5.0
+    """
+    text = (
+        f"{identity.host_name}\n{identity.user_id}\n"
+        f"{identity.config_identity}\n{identity.workspace}"
+    )
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    radix = len(_FLOW_TYPE_SUFFIX_ALPHABET)
+    remaining = int.from_bytes(digest[:8], "big") % radix**_FLOW_TYPE_SUFFIX_LENGTH
+    characters: list[str] = []
+    for _ in range(_FLOW_TYPE_SUFFIX_LENGTH):
+        remaining, digit = divmod(remaining, radix)
+        characters.append(_FLOW_TYPE_SUFFIX_ALPHABET[digit])
+    return f"{harness_flow_type}-{''.join(reversed(characters))}"
+
+
 def session_flow_type(
     harness_flow_type: str,
     config_path: Path | None,
@@ -269,22 +380,12 @@ def session_flow_type(
 ) -> str:
     """Return the Flow type a command registers: the harness's, namespaced by environment.
 
-    Commands with the same harness but another machine, user, configuration
-    file, or workspace register different Flow types against one Dex server.
-    Their Workers then never take each other's tool Steps, so an approved
-    write always runs with the workspace, tools, and connections it was
-    approved under. ``sessions`` and ``--resume`` use the same type.
-
-    The suffix is the first 12 hex digits of the SHA-256 of the UTF-8 text
-    ``"<hostname>\\n<user>\\n<config identity>\\n<workspace>"``: the user is
-    the numeric user ID where the system has one, else the user name; the
-    config identity is the configuration file's real path, or ``defaults``
-    without a file; the workspace is its real path. The file's contents,
-    such as tool settings, do not count, so editing them keeps the sessions.
+    It is ``namespace_session_flow_type`` of
+    ``current_session_environment_identity``; see there for the rule.
 
     Example:
         >>> session_flow_type("DexAgentsClaudeSdkCliSession", config_path, workspace)
-        'DexAgentsClaudeSdkCliSession-3f9a1c0b7d2e'
+        'DexAgentsClaudeSdkCliSession-k3x9q0'
 
     Args:
         harness_flow_type: The harness's ``flow_type``.
@@ -293,17 +394,47 @@ def session_flow_type(
         user: The user part; ``None`` uses this process's user.
 
     Returns:
-        ``<harness_flow_type>-<12 hex digits>``.
+        ``<harness_flow_type>-<6 base36 characters>``.
     """
-    config_identity = "defaults" if config_path is None else os.path.realpath(config_path)
-    user_identity = _current_user() if user is None else user
-    text = (
-        f"{socket.gethostname()}\n{user_identity}\n{config_identity}\n{os.path.realpath(workspace)}"
+    return namespace_session_flow_type(
+        harness_flow_type, current_session_environment_identity(config_path, workspace, user=user)
     )
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    return f"{harness_flow_type}-{digest[:_FLOW_TYPE_SUFFIX_DIGITS]}"
+
+
+def session_start_environment(identity: SessionEnvironmentIdentity) -> dict[str, str]:
+    """Return what a new session records about where the command runs.
+
+    The command passes it as ``AgentSessionStartInput.start_environment``.
+    ``host_name``, ``user_id``, ``config_identity``, and ``workspace`` are the
+    values the Flow type suffix hashes. ``user_name`` is the user's name, left
+    out when the system cannot tell it.
+
+    Args:
+        identity: The environment the session's Flow type names.
+
+    Returns:
+        The string keys and values to record.
+    """
+    environment = {
+        "host_name": identity.host_name,
+        "user_id": identity.user_id,
+        "config_identity": identity.config_identity,
+        "workspace": identity.workspace,
+    }
+    user_name = _current_user_name()
+    if user_name is not None:
+        environment["user_name"] = user_name
+    return environment
 
 
 def _current_user() -> str:
     get_user_id = getattr(os, "getuid", None)
     return str(get_user_id()) if get_user_id is not None else getpass.getuser()
+
+
+def _current_user_name() -> str | None:
+    try:
+        return getpass.getuser()
+    except (OSError, KeyError):
+        # A container may run as a user ID that has no name.
+        return None

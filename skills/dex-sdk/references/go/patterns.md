@@ -9,7 +9,7 @@ idiom matters. Examples live under
 | --- | --- | --- |
 | Static parallel Steps | [parallel/static.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/static.go) | `dex.GoToMany(dex.MovementOf(a, x), dex.MovementOf(b, x))` |
 | Dynamic parallel Steps | [parallel/dynamic.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/dynamic.go) | Build `[]dex.StepMovement` from input |
-| Await all | [parallel/await_parallel.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/await_parallel.go) | Skeleton below |
+| Await all | [parallel/await_parallel.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/await_parallel.go) | `dex.DefineJoin`; skeleton below |
 | First win | [parallel/first_win.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/first_win.go) | Winner returns a decision with `.CancelSiblingSteps(...)` |
 | Parallel SubFlows | [parallel-subflows/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/parallel-subflows) | `dex.AllOf` over `dex.SubFlow` conditions |
 | Polling | [polling/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling/workflow.go) | Skeleton below |
@@ -34,41 +34,68 @@ idiom matters. Examples live under
 ## Await all
 
 ```go
-var ShardDone = dex.DefineChannel[int]("shard-done")
+var WorkCompletedJoin = dex.DefineJoin[int]("parallel-complete")
 
-type shardFanOut struct{ dex.StepDefaultsNoWaitFor[int] }
+type awaitInit struct{ dex.StepDefaultsNoWaitFor[int] }
 
-type processShard struct{ dex.StepDefaultsNoWaitFor[int] }
+func (awaitInit) GetStepType() string { return "Init" }
 
-type awaitShards struct{ dex.StepDefaults }
-
-func (shardFanOut) Execute(_ dex.Context, shardCount int) (*dex.StepDecision, error) {
-	movements := []dex.StepMovement{dex.MovementOf(awaitShards{}, shardCount)}
-	for shard := 0; shard < shardCount; shard++ {
-		movements = append(movements, dex.MovementOf(processShard{}, shard))
+func (awaitInit) Execute(ctx dex.Context, count int) (*dex.StepDecision, error) {
+	branchBuilders := make([]func(dex.JoinRound) dex.StepMovement, 0, count)
+	for index := range count {
+		branchBuilders = append(branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+			return dex.MovementOf(awaitWork{}, WorkItem{Index: index, Round: round})
+		})
+	}
+	movements, err := WorkCompletedJoin.Fork(ctx, branchBuilders, func(round dex.JoinRound) dex.StepMovement {
+		return dex.MovementOf(awaitStep{}, round)
+	})
+	if err != nil {
+		return nil, err
 	}
 	return dex.GoToMany(movements...), nil
 }
 
-func (processShard) Execute(ctx dex.Context, shard int) (*dex.StepDecision, error) {
-	// Process the shard idempotently, then report exactly once.
-	if err := ShardDone.Publish(ctx, shard); err != nil {
+// WorkItem is the input of one DoWork branch.
+type WorkItem struct {
+	Index int           `json:"index"`
+	Round dex.JoinRound `json:"round"`
+}
+
+type awaitWork struct {
+	dex.StepDefaultsNoWaitFor[WorkItem]
+}
+
+func (awaitWork) GetStepType() string { return "DoWork" }
+
+func (awaitWork) Execute(ctx dex.Context, input WorkItem) (*dex.StepDecision, error) {
+	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
+	return WorkCompletedJoin.EndBranch(ctx, input.Round, input.Index)
+}
+
+type awaitStep struct{ dex.StepDefaults }
+
+func (awaitStep) GetStepType() string { return "Await" }
+
+func (awaitStep) WaitFor(_ dex.Context, round dex.JoinRound) (*dex.Wait, error) {
+	return dex.Until(WorkCompletedJoin.ForAllBranches(round)), nil
+}
+
+func (awaitStep) Execute(ctx dex.Context, round dex.JoinRound) (*dex.StepDecision, error) {
+	completedIndexes, err := WorkCompletedJoin.BranchResults(ctx, round)
+	if err != nil {
 		return nil, err
 	}
-	return dex.DeadEnd(), nil
-}
-
-func (awaitShards) WaitFor(_ dex.Context, shardCount int) (*dex.Wait, error) {
-	return dex.Until(ShardDone.ForN(shardCount)), nil
-}
-
-func (awaitShards) Execute(_ dex.Context, shardCount int) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(shardCount), nil
+	return dex.GracefulComplete(len(completedIndexes)), nil
 }
 ```
 
-- Move the coordinator in the same `GoToMany` as the workers. Each worker
-  publishes once, then returns `dex.DeadEnd()`.
+- Register the Join in `PersistenceSchema.Channels`. `Fork` returns the branch
+  and join movements for one `dex.GoToMany`; each worker returns
+  `EndBranch`, and the join Step reads `BranchResults`.
+- A partial join waits `ForBranches(round, n)` or `ForFirstBranch(round)`, and
+  the next round's split Step resets with `ForRemainingBranches`; see
+  [partial_joins.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go).
 
 ## Polling
 

@@ -49,7 +49,7 @@ from dex_agents.mcp._dex_conventions import (
     read_dex_error_outcome,
     read_dex_tool_outcome,
 )
-from dex_agents.mcp._image_content import store_tool_result_images
+from dex_agents.mcp._image_content import render_tool_failure_text, store_tool_result_images
 from dex_agents.mcp._resource_and_prompt_tools import (
     RESOURCE_AND_PROMPT_TOOL_NAMES,
     build_resource_and_prompt_tools,
@@ -358,6 +358,9 @@ class McpToolSource:
       shows ``[image <n>]`` in their place. More than
       ``MAX_IMAGES_PER_MESSAGE`` images, invalid base64, or bytes the store
       refuses raise ``ToolExecutionError``.
+    * A failed result's text, with or without ``media_store``, shows
+      ``[image <n> omitted]`` for each ``image`` block, so no image bytes
+      reach the recorded error.
     * An ``isError`` result, a JSON-RPC error response other than an internal
       error, a failed or cancelled task, and an ``input_required`` answer
       raise ``ToolExecutionError``, so the session records ``failed`` and the
@@ -1760,16 +1763,16 @@ def _outcome_from_mcp_error(error: MCPError) -> _ToolCallOutcome:
 
 
 def _outcome_from_tool_result(result: CallToolResult) -> _ToolCallOutcome:
-    text = render_tool_result_text(result)
+    failure_text = render_tool_failure_text(result)
     # The Dex outcome wins over isError in both directions.
     dex_outcome = read_dex_tool_outcome(result.meta)
     if dex_outcome == "unknown":
-        return _ToolCallOutcomeUnknown(text or UNKNOWN_OUTCOME_FALLBACK_MESSAGE)
+        return _ToolCallOutcomeUnknown(failure_text or UNKNOWN_OUTCOME_FALLBACK_MESSAGE)
     if dex_outcome == "rejected":
-        return _ToolCallFailed(text or REJECTED_OUTCOME_FALLBACK_MESSAGE)
+        return _ToolCallFailed(failure_text or REJECTED_OUTCOME_FALLBACK_MESSAGE)
     if result.is_error:
-        return _ToolCallFailed(text or "the MCP tool reported an error")
-    return _ToolCallSucceeded(text, result)
+        return _ToolCallFailed(failure_text or "the MCP tool reported an error")
+    return _ToolCallSucceeded(render_tool_result_text(result), result)
 
 
 def _outcome_from_terminal_task(task: McpTaskSnapshot) -> _ToolCallOutcome:

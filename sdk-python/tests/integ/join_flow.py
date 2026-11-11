@@ -77,6 +77,12 @@ class QuoteJoinInput:
 
 
 @dataclass
+class HandoffReport:
+    join_round: JoinRound
+    result: str
+
+
+@dataclass
 class JoinDeadlineOutcome:
     has_timer_fired: bool
     results: list[str]
@@ -406,20 +412,38 @@ class SplitTwoBranches(Step[None]):
         return go_to_many(*movements)
 
 
-class ReportForCanceledBranchJoinFlow(ReleasableJoinFlow[None]):
+class JoinCanceledFallback(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.until(JOIN_RELEASE.for_one())
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete("join canceled")
+
+
+class CancelJoinWithBranchesFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:
-        return "PythonReportForCanceledBranchJoinFlow"
+        return "PythonCancelJoinWithBranchesFlow"
 
     @rpc
-    def cancel_branch_b(
-        self, context: Context, join_round: JoinRound
-    ) -> RPCResult[None]:
-        BRANCH_RESULT.report_branch_result(context, join_round, "B-canceled")
-        return RPCResult(None).with_canceling_steps(JoinBranchB)
+    def cancel_join_with_branches(self, context: Context) -> RPCResult[None]:
+        return RPCResult(
+            None, next_steps=(StepMovement.of(JoinCanceledFallback, None),)
+        ).with_canceling_steps(CollectAllBranches, JoinBranchA, JoinBranchB)
+
+    @rpc(load_channel_maps=(BRANCH_RESULT.channel_map,))
+    def get_pending_results(
+        self, context: Context, round_key: str
+    ) -> RPCResult[list[str]]:
+        pending = BRANCH_RESULT.channel_map.pending_messages(context, round_key)
+        return RPCResult([message.value for message in pending])
+
+    @rpc
+    def get_pending_release_count(self, context: Context, label: str) -> RPCResult[int]:
+        return RPCResult(BRANCH_RELEASE.size(context, label))
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(SplitTwoBranches()).other_steps(
-            JoinBranchA(), JoinBranchB(), CollectAllBranches()
+            JoinBranchA(), JoinBranchB(), CollectAllBranches(), JoinCanceledFallback()
         )
 
 
@@ -462,6 +486,13 @@ class IdleStart(Step[None]):
         return dead_end()
 
 
+class HandoffBranch(Step[JoinRound]):
+    """Ends without reporting; an RPC reports this branch's result."""
+
+    def execute(self, context: Context, input: JoinRound) -> StepDecision:
+        return dead_end()
+
+
 class RpcForkJoinFlow(ReleasableJoinFlow[None]):
     def get_flow_type(self) -> str:
         return "PythonRpcForkJoinFlow"
@@ -476,13 +507,22 @@ class RpcForkJoinFlow(ReleasableJoinFlow[None]):
     @rpc
     def fork_with_key_in_rpc(self, context: Context, round_key: str) -> RPCResult[None]:
         movements = BRANCH_RESULT.fork_with_round_key(
-            round_key, [build_branch(JoinBranchA)], build_collect_all
+            round_key,
+            [
+                build_branch(JoinBranchA),
+                lambda join_round: StepMovement.of(HandoffBranch, join_round),
+            ],
+            build_collect_all,
         )
         return RPCResult(None, next_steps=movements)
 
+    @rpc
+    def report_handoff_result(self, context: Context, report: HandoffReport) -> None:
+        BRANCH_RESULT.report_branch_result(context, report.join_round, report.result)
+
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(IdleStart()).other_steps(
-            JoinBranchA(), CollectAllBranches()
+            JoinBranchA(), HandoffBranch(), CollectAllBranches()
         )
 
 

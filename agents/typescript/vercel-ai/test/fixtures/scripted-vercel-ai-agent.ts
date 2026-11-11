@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { jsonSchema, tool, type StopCondition, type ToolSet } from "ai";
 import { z } from "zod";
 
-import type { AgentTracingOptions } from "@superdurable/dex-agents";
+import type { AgentTracingOptions, MediaStore } from "@superdurable/dex-agents";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 
 import {
@@ -21,17 +21,22 @@ import {
   type AgentSessionFlow,
 } from "../../src/index.js";
 import { createScriptedLanguageModel } from "./scripted-language-model.js";
+import { ScreenshotToolSource } from "./screenshot-tool-source.js";
 
 /** Flow type of the scripted AI SDK agent. */
 export const scriptedVercelAiAgentFlowType = "ScriptedVercelAiAgent";
 /** Environment variable naming the directory where the scripted tools and model write marker files. */
 export const scriptedAgentMarkerDirectoryVariable = "SCRIPTED_AGENT_MARKER_DIRECTORY";
+/** Environment variable naming the root of the Worker's `LocalDirectoryMediaStore`; unset means no store. */
+export const scriptedAgentMediaDirectoryVariable = "SCRIPTED_AGENT_MEDIA_DIRECTORY";
 
 /** Options of {@link createScriptedVercelAiAgentFlow}. */
 export interface ScriptedVercelAiAgentFlowOptions {
   readonly flowType?: string;
   readonly stopWhen?: StopCondition<ToolSet>;
   readonly tracing?: AgentTracingOptions;
+  /** Shows images to the model and adds the `take_screenshot` source tool, which uploads to this store. */
+  readonly mediaStore?: MediaStore;
 }
 
 interface ScriptedToolInput {
@@ -191,8 +196,12 @@ export function createScriptedVercelAiAgentFlow(
       },
       shouldTrustMcpToolAnnotations: true,
       ...(flowOptions.stopWhen === undefined ? {} : { stopWhen: flowOptions.stopWhen }),
+      ...(flowOptions.mediaStore === undefined ? {} : { toolSources: [new ScreenshotToolSource(flowOptions.mediaStore)] }),
     },
     flowOptions.flowType ?? scriptedVercelAiAgentFlowType,
-    flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing },
+    {
+      ...(flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing }),
+      ...(flowOptions.mediaStore === undefined ? {} : { mediaStore: flowOptions.mediaStore }),
+    },
   );
 }

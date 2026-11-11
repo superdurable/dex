@@ -10,6 +10,7 @@
 
 import { processAgentCliIo, runAgentCli, type AgentHarness } from "../../src/index.js";
 import {
+  fixedToolSetScriptedHarness,
   scriptedHarness,
   scriptedHarnessVariantVariable,
   scriptedHarnessWithoutImages,
@@ -18,6 +19,7 @@ import {
 
 const variants: Readonly<Record<string, AgentHarness>> = {
   "shell-replacing": shellReplacingScriptedHarness,
+  "fixed-tool-set": fixedToolSetScriptedHarness,
   "without-images": scriptedHarnessWithoutImages,
 };
 const harness = variants[process.env[scriptedHarnessVariantVariable] ?? ""] ?? scriptedHarness;

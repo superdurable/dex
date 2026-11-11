@@ -21,6 +21,34 @@ them in the [TypeScript SDK API reference](./index.mdx#api-reference).
 | Read the generated child Flow ID | **SubFlow.getFlowId** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
 | Stop a child that lost an **AnyOf** | **Client.stopFlow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
 
+## Step types that start SubFlows {#step-types-that-start-subflows}
+
+Changed in 1.45: a Step whose Step type contains "-" cannot start SubFlows.
+
+The generated child Flow ID joins the parent Flow ID, the Step execution ID,
+and the SubFlow index with "-". The Step execution ID itself is the Step type,
+"-", and a counter:
+
+```text
+SubFlow:{parent Flow ID}-{Step execution ID}-{index}
+{Step execution ID} = {Step type}-{n}
+```
+
+A dash in the Step type makes the child Flow ID ambiguous. In this example two
+parents would share one child:
+
+```text
+parent Flow ID "a-b", Step type "C"   -> SubFlow:a-b-C-1-0
+parent Flow ID "a",   Step type "b-C" -> SubFlow:a-b-C-1-0
+```
+
+When a **waitFor** whose Step type contains "-" returns a **SubFlow.run**
+condition, the server rejects the result as an invalid Worker response. It fails
+the attempt without retry, so under the default policy the Flow fails. The
+Worker logs a warning that names the Step type. A Step type with "-" that never
+starts SubFlows still works. To fix the error, rename the Step type that
+**getStepType** returns, for example from "b-C" to "bC".
+
 ## Example {#example}
 
 Example: [examples/typescript/src/primitives/subflow/subflow-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/subflow/subflow-flow.ts)

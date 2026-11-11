@@ -41,7 +41,7 @@ import { isLocalToolGroupEnabled, type AgentHarness, type HarnessContext } from 
 export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
 /**
  * Environment variable that selects a harness variant: `shell-replacing` for {@link shellReplacingScriptedHarness},
- * `without-images` for {@link scriptedHarnessWithoutImages}.
+ * `fixed-tool-set` for {@link fixedToolSetScriptedHarness}, or `without-images` for {@link scriptedHarnessWithoutImages}.
  */
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
@@ -77,6 +77,9 @@ export const scriptedHarnessWithoutImages: AgentHarness = {
   flowType: "DexAgentsCliScriptedNoImagesSession",
   createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, [], false),
 };
+
+/** The scripted harness declaring that its runner fixes its tools when the Flow is built. */
+export const fixedToolSetScriptedHarness: AgentHarness = { ...scriptedHarness, isToolSetFixedAtBuild: true };
 
 /**
  * The scripted harness with the `shell` group replaced by its own `replacement_shell` function tool, which answers

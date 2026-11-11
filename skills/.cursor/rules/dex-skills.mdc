@@ -103,12 +103,14 @@ depend on a repository-root file that an Agent Skills installer omits.
 Never add a skill submodule or a floating branch reference to an application
 repository; the coding-agent host supplies the installed Dex Skills release.
 
-Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
-changes: a rule, a Primitive concept or relation, a Component, a design
-pattern, skill routing, or packaging. A typo, link, or wording-only change
-needs no bump; its pull request description contains a line
-`skills-release: no bump needed: <reason>`, which Check Gate CI accepts
-instead of the bump. A Dex release never requires a skills change.
+A stable content change (a rule, a Primitive concept or relation, a
+Component, a design pattern, skill routing, or packaging) adds a change-log
+fragment under the Dex repository's `changelog.d/skills/` with its bump level.
+A typo, link, or wording-only change needs no fragment; its pull request
+description contains a line `skills-release: no bump needed: <reason>`, which
+Check Gate CI accepts instead. Never edit `VERSION`, `dex-sdk/VERSION`, the
+manifests, or `CHANGELOG.md` by hand; a release-prep pull request assembles
+the fragments and writes them. A Dex release never requires a skills change.
 
 `doc-map.yaml` maps each skills file to the docs pages that hold the same
 stable knowledge. Check Gate CI fails a pull request that changes a mapped

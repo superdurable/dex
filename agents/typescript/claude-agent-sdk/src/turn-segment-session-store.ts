@@ -8,6 +8,7 @@
 
 import type { SessionKey, SessionStore, SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
 
+import type { TranscriptImageCodec } from "./claude-transcript-images.js";
 import { leafPointerEntryType, type ClaudeTranscriptEntry } from "./claude-transcript.js";
 
 interface SegmentTranscript {
@@ -21,9 +22,11 @@ export class TurnSegmentSessionStore implements SessionStore {
   private readonly knownEntryUuids = new Set<string>();
   private readonly appendedEntriesBySession = new Map<string, ClaudeTranscriptEntry[]>();
 
+  // Committed entries hold image references; the CLI reads them with the bytes restored.
   public constructor(
     private readonly resumedSessionId: string | null,
     committedEntries: readonly ClaudeTranscriptEntry[],
+    private readonly imageCodec: TranscriptImageCodec | undefined = undefined,
   ) {
     this.committedEntries = committedEntries;
     for (const entry of committedEntries) {
@@ -49,13 +52,18 @@ export class TurnSegmentSessionStore implements SessionStore {
         continue;
       }
       // Retried mirror batches may overlap; the SDK asks stores to deduplicate by uuid.
+      if (typeof entry.uuid === "string" && this.knownEntryUuids.has(entry.uuid)) {
+        continue;
+      }
+      // Stripped before the uuid counts as known, so a failed upload's retry stores the entry.
+      const storedEntry =
+        this.imageCodec === undefined
+          ? { ...entry }
+          : ((await this.imageCodec.stripImageBytes(entry)) as ClaudeTranscriptEntry);
       if (typeof entry.uuid === "string") {
-        if (this.knownEntryUuids.has(entry.uuid)) {
-          continue;
-        }
         this.knownEntryUuids.add(entry.uuid);
       }
-      sessionEntries.push({ ...entry });
+      sessionEntries.push(storedEntry);
     }
   }
 
@@ -66,7 +74,8 @@ export class TurnSegmentSessionStore implements SessionStore {
     if (this.committedEntries.length === 0) {
       return null;
     }
-    return this.committedEntries.map((entry) => ({ ...entry }) as SessionStoreEntry);
+    const entries = this.committedEntries.map((entry) => ({ ...entry }) as SessionStoreEntry);
+    return this.imageCodec === undefined ? entries : this.imageCodec.restoreImageBytes(entries);
   }
 
   // Fails when the CLI mirrored nothing, several sessions, or a session it did not resume.
