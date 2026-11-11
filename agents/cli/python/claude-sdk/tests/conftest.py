@@ -103,6 +103,8 @@ class CliHome:
         }
         environment.update(
             HOME=str(self.home),
+            # A dexcli dev the command starts runs no published Connectors MCP release.
+            DEX_CONNECTORS_MCP_BINARY=str(self.home / "dex-connectors-mcp-not-installed"),
             DEX_AGENTS_DEX_PORT=str(self.dex_port),
             DEX_AGENTS_WEB_PORT=str(self.web_port),
             CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK="1",

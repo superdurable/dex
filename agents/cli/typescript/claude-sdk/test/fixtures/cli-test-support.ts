@@ -253,6 +253,8 @@ export class TestHome {
     return {
       PATH: process.env.PATH ?? "",
       HOME: this.directory,
+      // A dexcli dev the command starts runs no published Connectors MCP release.
+      DEX_CONNECTORS_MCP_BINARY: join(this.directory, "dex-connectors-mcp-not-installed"),
       DEXCLI: dexcli,
       ...(process.env.DEX_SERVER_ZD_BINARY === undefined ? {} : { DEX_SERVER_ZD_BINARY: process.env.DEX_SERVER_ZD_BINARY }),
       DEX_AGENTS_DEX_PORT: String(this.ports.dexPort),

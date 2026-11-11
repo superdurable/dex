@@ -122,6 +122,25 @@ def resolve_server_zd_path(dexcli: Path) -> Path:
 _ENGINE_START_ATTEMPTS = 3
 # A config file also works with dexcli releases that predate --durability.
 _PROCESS_CRASH_SAFE_SERVER_ZD_CONFIG = "dev:\n  durabilityMode: processCrashSafe\n"
+_CONNECTORS_MCP_FLAG = "-connectors-mcp"
+
+
+def _connectors_mcp_off_arguments(dexcli: Path) -> list[str]:
+    """Return the flag that turns the Connectors MCP server off, or none for a dexcli without it."""
+    try:
+        completed = subprocess.run(
+            [str(dexcli), "dev", "-h"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"cannot run {dexcli} dev -h: {error}") from error
+    if _CONNECTORS_MCP_FLAG in completed.stdout + completed.stderr:
+        return [f"{_CONNECTORS_MCP_FLAG}=false"]
+    return []
 
 
 class KillableProcess:
@@ -275,6 +294,16 @@ class PrivateDexEngine:
     engine. State lives under ``state_dir``, so a killed engine started again
     resumes every Flow. Use it as an async context manager to kill it on exit.
 
+    The engine runs ``dexcli dev`` with ``HOME`` set to ``state_dir / "home"``,
+    so it never reads or writes the user's ``~/.dex``. It also passes
+    ``-connectors-mcp=false`` when that ``dexcli`` supports the flag, so the
+    engine serves no Connectors MCP server at ``/mcp`` and downloads no
+    release. Start a fake MCP server when a test needs connector tools.
+
+    .. versionchanged:: 0.5.1
+       The engine no longer starts a Connectors MCP server or uses the
+       user's ``HOME``.
+
     Example:
         >>> async with PrivateDexEngine(tmp_path / "engine") as engine:
         ...     client = AsyncClient(registry, cache, ClientOptions(engine.address))
@@ -348,6 +377,12 @@ class PrivateDexEngine:
             config_path = self._state_dir / "zd-overrides.yaml"
             config_path.write_text(_PROCESS_CRASH_SAFE_SERVER_ZD_CONFIG)
         config_arguments = ["-zd-config", str(config_path)]
+        # A downloaded Connectors MCP release would make tests depend on what is published.
+        connectors_mcp_arguments = _connectors_mcp_off_arguments(self._dexcli)
+        # A private HOME keeps dexcli dev out of the user's ~/.dex.
+        home = self._state_dir / "home"
+        home.mkdir(exist_ok=True)
+        environment = {**os.environ, "HOME": str(home)}
         for attempt in range(1, _ENGINE_START_ATTEMPTS + 1):
             # A failed attempt may leave state behind, so each retry gets its own data directory.
             data_dir = self._state_dir / ("zd" if attempt == 1 else f"zd-{attempt}")
@@ -372,8 +407,10 @@ class PrivateDexEngine:
                         str(self.web_port),
                         "-open=false",
                         *config_arguments,
+                        *connectors_mcp_arguments,
                     ],
                     ENGINE_READY_LINE,
+                    env=environment,
                     ready_timeout=ready_timeout,
                 )
                 return
