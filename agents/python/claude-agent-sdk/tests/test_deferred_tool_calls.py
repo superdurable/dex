@@ -29,7 +29,11 @@ from dex_agents.testing import wait_for_agent_snapshot
 from dex_agents_claude_agent_sdk import APPROVED_CLI_TOOL_OUTPUT, CLAUDE_TRANSCRIPT_ITEM_KIND
 from dex_agents_claude_agent_sdk.tool_gate import REPEATED_REPLAY_MESSAGE, SETTLED_REPLAY_MESSAGE
 from tests.claude_test_agent import (
+    DENIED_BASH_COMMAND_PREFIX,
+    DENIED_BASH_COMMAND_REASON,
     DENY_FLAG_FILE_NAME,
+    FAILING_PERMISSION_BASH_COMMAND,
+    INLINE_BASH_COMMAND,
     ORIGINAL_BASH_COMMAND,
     REWRITTEN_BASH_COMMAND,
 )
@@ -335,6 +339,46 @@ async def test_rejected_built_in_tool_never_runs(harness: ClaudeAgentHarness) ->
     snapshot = await harness.wait_for_turns(session_id, 1)
     # Claude Code prefixes a hook denial; only custom tools return their rejection themselves.
     assert snapshot.messages[-1].text == "Bash: PreToolUse:Bash hook error: no shell"
+    assert harness.invocations.count("Bash") == 0
+
+
+async def test_claude_code_tool_permission_decides_each_call_from_its_input(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, f"call Bash {json.dumps({'command': INLINE_BASH_COMMAND})}"
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == f"Bash: ran {INLINE_BASH_COMMAND}"
+    assert snapshot.pending_interrupts == []
+    assert harness.invocations.count("Bash") == 1
+
+    denied_command = f"{DENIED_BASH_COMMAND_PREFIX} rm -rf build"
+    assert await harness.sessions.send_user_message(
+        session_id, f"call Bash {json.dumps({'command': denied_command})}"
+    )
+    snapshot = await harness.wait_for_turns(session_id, 2)
+    assert snapshot.messages[-1].text == (
+        f"Bash: PreToolUse:Bash hook error: {DENIED_BASH_COMMAND_REASON}"
+    )
+    assert harness.invocations.count("Bash") == 1
+
+
+async def test_a_failing_claude_code_tool_permission_denies_the_call(
+    harness: ClaudeAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, f"call Bash {json.dumps({'command': FAILING_PERMISSION_BASH_COMMAND})}"
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == (
+        "Bash: PreToolUse:Bash hook error: Bash did not run: its permission check failed: "
+        "the permission check broke"
+    )
     assert harness.invocations.count("Bash") == 0
 
 

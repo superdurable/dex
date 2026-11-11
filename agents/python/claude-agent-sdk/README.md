@@ -219,6 +219,25 @@ an MCP error result, and the model reads its text. An inline READ tool
 therefore cannot ask for a `RunModel` retry. Retry transient failures inside
 the handler before it raises.
 
+### Per-call decisions for Claude Code tools
+
+A policy names a tool, so every call of `Bash` gets the same approval.
+`claude_code_tool_permission` decides each new call of a tool that runs inside
+the CLI from its input instead, such as `Bash` commands on an allow list or file
+paths that must stay in one directory. The adapter calls it in its PreToolUse
+hook with the `RunModel` context, the tool's CLI name, and the input the hook
+receives:
+
+- a `ToolPolicy` is the call's policy;
+- `ClaudeCodeToolDenial(reason)` denies the call, and the model sees
+  `PreToolUse:<tool> hook error: <reason>`;
+- `None` keeps the session's `tool_policies` and `default_tool_effect`;
+- an exception denies the call with the exception's text.
+
+It is not asked about custom or source tools, or about a resumed call that
+already has a final record, and the `allowed_tools` check keeps using the
+session's policies. Since 0.5.0.
+
 ## Tool sources and connector tools
 
 `tool_sources` takes the core's tool sources, such as `ConnectorToolSource`,
@@ -466,6 +485,9 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
 - Files the CLI changes in `cwd`. Point `cwd` at storage that survives the
   Worker, such as a sandbox owned by the session, for file-editing agents.
 - Subagent transcripts. Resume needs only the main transcript.
+- Claude Code's `last-prompt` entries. Each names the leaf a resume continues
+  from, and one stored from an earlier segment would make a later resume skip
+  every entry after it.
 
 ## Limits
 
@@ -604,7 +626,8 @@ written in different languages:
   `claude_transcript` message, oldest first: a plain string for one text, one
   text block per text otherwise. A resumed segment sends no prompt.
 - Turn message `framework_item`: `{"kind": "claude_transcript", "session_id": "<uuid>", "entries": [...]}`
-  with the CLI's transcript entries unchanged.
+  with the CLI's transcript entries unchanged, except that `last-prompt`
+  entries are left out.
 - `FrameworkRunState`: `{"version": 1, "session_id": "<uuid>", "turn_entries": [...]}`.
 - Records name custom tools by their own name and CLI tools by their CLI name.
   Custom tool names must not be Claude Code tool names.

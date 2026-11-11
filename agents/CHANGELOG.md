@@ -66,6 +66,22 @@ for the Dex SDK and framework versions each release supports.
   in the terminal with inline approvals and Ctrl-C to cancel a turn. Harness
   packages implement **AgentHarness**. See
   [cli/python/runtime](cli/python/runtime/README.md).
+- The **dex-agents-claude-sdk** command, in Python (`dex-agents-claude-sdk-cli`)
+  and TypeScript (`@superdurable/dex-agents-claude-sdk-cli`), not published
+  yet: a Claude Agent SDK agent in the terminal on the shared CLI runtime.
+  Claude Code's own Read, Grep, Glob, Write, Edit, Bash, and WebFetch tools
+  replace the runtime's file, shell, and web fetch tools, with the same rules:
+  each turn offers only the groups its session settings switch on, reads run at
+  once, writes and shell commands wait for approval unless the shell allow list
+  has the command, file tools stay in the workspace, and the tool Step checks an
+  approved call again. `ANTHROPIC_API_KEY` reaches Claude Code unchanged. See
+  [cli/python/claude-sdk](cli/python/claude-sdk/README.md).
+- Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
+  (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
+  Claude Code CLI from its input. It returns a **ToolPolicy** for that call,
+  **ClaudeCodeToolDenial** to refuse it, or nothing for the session's policies,
+  so `Bash` can run allow-listed commands without approval. See
+  [Per-call decisions for Claude Code tools](python/claude-agent-sdk/README.md#per-call-decisions-for-claude-code-tools).
 
 ### Images
 
@@ -156,6 +172,11 @@ for the Dex SDK and framework versions each release supports.
 
 ### Fixed
 
+- Python and TypeScript Claude Agent SDK adapters: the stored transcript no
+  longer keeps Claude Code's `last-prompt` entries. Such an entry names the
+  leaf a resume continues from, so after a deferred call a later segment could
+  resume at an earlier message: the model lost the previous answer, and a
+  resumed segment lost the turn's prompt and its tool call.
 - Python and TypeScript Claude Agent SDK adapters: when the Claude Code CLI
   returns an error result, the turn's error now reads "the Claude Code CLI
   returned an error result (subtype ...)". It used to read "reported success"

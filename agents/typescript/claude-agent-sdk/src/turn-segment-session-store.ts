@@ -10,6 +10,9 @@ import type { SessionKey, SessionStore, SessionStoreEntry } from "@anthropic-ai/
 
 import type { ClaudeTranscriptEntry } from "./claude-transcript.js";
 
+// Claude Code's entry that names the leaf a resume continues from.
+const leafPointerEntryType = "last-prompt";
+
 interface SegmentTranscript {
   readonly sessionId: string;
   readonly entries: readonly ClaudeTranscriptEntry[];
@@ -44,6 +47,10 @@ export class TurnSegmentSessionStore implements SessionStore {
       this.appendedEntriesBySession.set(key.sessionId, sessionEntries);
     }
     for (const entry of entries) {
+      // A leaf pointer from an earlier segment would resume a later one at a stale message.
+      if (entry.type === leafPointerEntryType) {
+        continue;
+      }
       // Retried mirror batches may overlap; the SDK asks stores to deduplicate by uuid.
       if (typeof entry.uuid === "string") {
         if (this.knownEntryUuids.has(entry.uuid)) {

@@ -32,6 +32,7 @@ from dex_agents_claude_agent_sdk.runner import (
     ClaudeAgentOptionsFactory,
     ClaudeAgentRunner,
 )
+from dex_agents_claude_agent_sdk.tool_gate import ClaudeCodeToolPermission
 
 
 def claude_agent_session_flow(
@@ -49,6 +50,7 @@ def claude_agent_session_flow(
     spend_limit: ModelSpendLimit | None = None,
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    claude_code_tool_permission: ClaudeCodeToolPermission | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for one Claude Agent SDK agent.
 
@@ -147,6 +149,13 @@ def claude_agent_session_flow(
             for each source's ``list_tools``. Defaults to 10 seconds.
 
             .. versionadded:: 0.4.0
+        claude_code_tool_permission: Decides each new call of a tool that runs
+            inside the Claude Code CLI, such as ``Bash``, from its input: a
+            ``ToolPolicy`` for that call, ``ClaudeCodeToolDenial`` to refuse
+            it, or ``None`` for ``tool_policies`` and ``default_tool_effect``.
+            See ``ClaudeCodeToolPermission``. Defaults to none.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``ClaudeAgentRunner``.
@@ -167,6 +176,7 @@ def claude_agent_session_flow(
             custom_tool_server_name=custom_tool_server_name,
             tool_sources=tool_sources,
             tool_source_listing_timeout=tool_source_listing_timeout,
+            claude_code_tool_permission=claude_code_tool_permission,
         ),
         flow_type=flow_type,
         options=AgentSessionOptions(
