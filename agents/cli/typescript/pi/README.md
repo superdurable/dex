@@ -178,12 +178,32 @@ you questions.
   directories, and a leading `!` excludes. A matching directory includes or
   excludes its whole subtree. Unlike `rg`, globs match case-sensitively with
   `minimatch` syntax, and only one glob is accepted.
-- Images that `read` returns reach the model as a note naming the image type.
 
 The command imports pi-coding-agent's package root, because the package exports
 no path for single tools. That import loads Pi's terminal UI library and calls
 pi-agent-core's `setDefaultStreamFn`, which this command never uses: pi-ai's
 own stream makes every model call.
+
+## Images
+
+`/image <path>` attaches an image file to the next message, and the model sees
+it. The command gives the built-in loop the media store of `media.store`, as
+the runtime describes in [Images](../../README.md#images).
+
+`read` of a PNG, JPEG, GIF, or WebP file in the workspace returns the image
+too. Its tool Step reads the file through the workspace file layer, uploads
+the image to the same media store, and the next model call sees it after the
+result's text, such as `Read image file [image/png]`. Pi may shrink a large
+image first. Any other Pi tool that returns images is handled the same way.
+
+- A tool result carries at most 20 images (`maxImagesPerMessage`). Each image
+  after those becomes the note `[image omitted: <mime type>]`, and the text
+  ends with `(more than 20 images; the rest were omitted)`.
+- An image whose type the media store refuses becomes the same note and does
+  not count toward the limit. The call still succeeds.
+- A failed upload fails the attempt, and `read` retries.
+- A model that pi-ai does not list with image input gets pi-ai's placeholder
+  text instead of the image.
 
 ## Sessions and other machines
 

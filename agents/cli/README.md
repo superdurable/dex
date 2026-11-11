@@ -133,7 +133,7 @@ Images that connector tools return go to the same store.
 
 The model sees the images only when the harness's runner takes images. The
 built-in, Claude Agent SDK, OpenAI Agents SDK, Pydantic AI, Deep Agents,
-Google ADK, Vercel AI SDK, and Mastra commands do. With another harness, the
+Google ADK, Vercel AI SDK, Mastra, and Pi commands do. With another harness, the
 command says the message was not sent and removes the attached images; send
 the message again without them.
 

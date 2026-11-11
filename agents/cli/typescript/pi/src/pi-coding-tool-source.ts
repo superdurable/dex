@@ -24,7 +24,9 @@ import {
   type DeferredToolExecution,
   type DeferredToolOutcome,
   type SourceToolDefinition,
+  type AgentImageReference,
   type ToolEffect,
+  type ToolExecutionResult,
   type ToolSource,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
@@ -117,6 +119,9 @@ const refusalReferenceKey = "refused";
  *   `outcome_unknown`, and the call never runs again. A call without `timeout` gets the source's default timeout;
  *   no timeout may exceed {@link maximumBashTimeoutSeconds}. When the output was cut, the result says so instead of
  *   naming Pi's temporary file, which the source deletes.
+ * - With `HarnessContext.mediaStore`, the images a tool returns, such as `read` of a PNG, are uploaded to it in the
+ *   tool Step and reach the model after the output text: at most `maxImagesPerMessage` accepted images, and a
+ *   refused or excess image becomes `[image omitted: <mime type>]`. Without a store, every image is that note.
  *
  * The working directory is the workspace. Register the source even when the file switches both groups off, so it
  * refuses calls that another process requested.
@@ -253,13 +258,13 @@ export class PiCodingToolSource implements ToolSource {
       inputAnswers: call.inputAnswers ?? [],
       inputContinuation: call.toolCall.inputContinuation ?? null,
       heartbeat: () => call.heartbeat(),
+      ...(this.context.mediaStore === undefined ? {} : { mediaStore: this.context.mediaStore }),
     };
     const executedArguments =
       toolName === "bash" && toolArguments["timeout"] === undefined
         ? { ...toolArguments, timeout: this.bashTimeoutSeconds }
         : toolArguments;
-    const output = await functionTool.execute(executedArguments, context);
-    return { output: typeof output === "string" ? output : JSON.stringify(output) };
+    return toToolExecutionResult(await functionTool.execute(executedArguments, context));
   }
 
   /**
@@ -451,6 +456,15 @@ function bashResultsAsOutput(tool: PiAgentToolLike, operations: PiToolCallOperat
       return { content: [{ type: "text", text: await outputFiles.removeFromText(text, isThrownMessage) }] };
     },
   };
+}
+
+/** Converts the Pi wrapper's result, its text or a `functionToolResult` with images, into the call's result. */
+function toToolExecutionResult(result: unknown): ToolExecutionResult {
+  if (typeof result === "string") {
+    return { output: result };
+  }
+  const { output, images } = result as { readonly output: string; readonly images?: readonly AgentImageReference[] };
+  return images === undefined || images.length === 0 ? { output } : { output, images };
 }
 
 function readRecordedRefusal(toolSourceReference: string | null | undefined): string | null {

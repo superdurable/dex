@@ -96,6 +96,10 @@ export const piHarness: AgentHarness = {
  * It builds the model client of the file's model at once, so a missing API key stops the command before the chat
  * starts. A turn whose session settings pick another model builds that model's client in its first model call.
  *
+ * With `context.mediaStore`, the session takes the images the user attaches with `/image`, and the images that the
+ * Pi tools return, such as `read` of an image file, reach the model too. Without it, the session refuses user images
+ * and each tool image reaches the model as a text note.
+ *
  * @param context - The configuration, workspace, and tool sources.
  * @param environment - The environment the API keys come from; defaults to `process.env`.
  * @returns The Flow, with `context.flowType` as its type.
@@ -126,6 +130,7 @@ export function createPiSessionFlow(
       builtInTools: ["ask_user"],
     },
     context.flowType,
+    context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore },
   );
 }
 
