@@ -27,7 +27,7 @@
   round's pending results; applications never publish to it.
   `JoinRound` is stored in Step inputs as
   `{"roundKey": string, "branchCount": integer}`.
-  [Reference](https://docs.superdurable.io/reference/go/waits)
+  [API reference](https://docs.superdurable.io/api/go/latest/dex/#type-join)
 
 - Add `NewStandaloneContext` and `StandaloneContextOptions` to create a
   `Context` for running Step code outside a Worker, for example in a tool

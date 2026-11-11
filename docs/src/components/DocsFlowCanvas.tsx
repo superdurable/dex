@@ -33,6 +33,7 @@ export default function DocsFlowCanvas({graph, isExpanded}: DocsFlowCanvasProps)
         graphKey={`${graph.source.path}#${graph.flow.name}`}
         wholeMaxZoom={isExpanded ? undefined : INLINE_MAX_ZOOM}
         onPreferredHeight={isExpanded ? undefined : setPreferredHeightPx}
+        opensWholeFlow={!isExpanded}
       />
     </div>
   );

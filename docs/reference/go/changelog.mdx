@@ -8,9 +8,9 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Go SDK, newest first; each section covers the changes since the previous release of this component.
 
-## 1.41 {#v1-41}
+## 1.43 {#v1-43}
 
-Not released yet. The next minor release, sdk-go/v1.41.0, ships these changes.
+Not released yet. The next minor release, sdk-go/v1.43.0, ships these changes.
 
 ### Breaking
 
@@ -20,7 +20,8 @@ Not released yet. The next minor release, sdk-go/v1.41.0, ships these changes.
 
 ### Added
 
-- **Join** and **JoinRound** synchronize parallel branches of one Flow. **DefineJoin** defines a Join over a ChannelMap of branch results. **Join.Fork** starts the branches and the join Step with one **JoinRound**; **Join.ForkWithRoundKey** takes an explicit round key for RPCs. Branches report with **Join.EndBranch** or **Join.ReportBranchResult**. The join Step waits with **Join.ForAllBranches**, **Join.ForFirstBranch**, or **Join.ForBranches** and reads **Join.BranchResults**. The next round's split Step resets the previous round with **Join.ForRemainingBranches** and reads **Join.RemainingBranchResults**. **Join.ChannelMap** returns the underlying ChannelMap for reading or loading a round's pending results. [Reference](/reference/go/waits).
+- **NewStandaloneContext** and **StandaloneContextOptions** create a **Context** for running Step code outside a Worker, such as in a tool server or a test. The caller supplies the metadata, including the required **Attempt**, and seeds the last heartbeat value and step-execution locals. The **OnRecordHeartbeat**, **OnSetStepExecutionLocal**, and **OnRecordEvent** hooks receive what the Step code records, so the caller can persist it. [API reference](pathname:///api/go/latest/dex/#type-standalonecontextoptions).
+- **Join** and **JoinRound** synchronize parallel branches of one Flow. **DefineJoin** defines a Join over a ChannelMap of branch results. **Join.Fork** starts the branches and the join Step with one **JoinRound**; **Join.ForkWithRoundKey** takes an explicit round key for RPCs. Branches report with **Join.EndBranch** or **Join.ReportBranchResult**. The join Step waits with **Join.ForAllBranches**, **Join.ForFirstBranch**, or **Join.ForBranches** and reads **Join.BranchResults**. The next round's split Step resets the previous round with **Join.ForRemainingBranches** and reads **Join.RemainingBranchResults**. **Join.ChannelMap** returns the underlying ChannelMap for reading or loading a round's pending results. [API reference](pathname:///api/go/latest/dex/#type-join).
 
 ## 1.40 {#v1-40}
 

@@ -5,7 +5,7 @@ sidebar_label: Built-in Agent Loop
 
 # 内置 Agent Loop
 
-内置 agent loop 是 Dex Agents 的 Stepwise 模式。它不需要任何 agent framework。会话由 Dex 管理，每次模型输入都从 durable state 构建。因此 Agent 不依赖 LLM provider 的 conversation API。
+内置 agent loop 不需要任何 agent framework 就能运行 Agent。会话由 Dex 管理，每次模型输入都从 durable state 构建。因此 Agent 不依赖 LLM provider 的 conversation API。Dex Agents 的 API 把这个 loop 叫作 Stepwise 模式，例如 **stepwise_agent_session_flow**。
 
 ## 何时使用 {#when-to-use-it}
 
