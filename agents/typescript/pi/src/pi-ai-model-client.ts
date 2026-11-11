@@ -119,7 +119,7 @@ export interface PiAiModelClientOptions {
  * keeps the tool message text-only and adds a user message with the tool result's images after it. A model whose
  * `input` lacks `"image"` gets pi-ai's placeholder text in place of each image. A request whose `imageBytes` lacks an
  * image's bytes throws a `TypeError` before pi-ai sends anything. `estimateInputTokens` counts
- * {@link piAiEstimatedImageInputTokens} for each image. Changed in 0.5.0: sends images.
+ * {@link piAiEstimatedImageInputTokens} for each image.
  *
  * pi-ai's provider-neutral tool choice is `auto` or `none`, so a request that forces a tool, such as a planning
  * turn with `planningToolChoice: "required"`, throws a `TypeError`.
