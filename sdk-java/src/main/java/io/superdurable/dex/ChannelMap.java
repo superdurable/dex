@@ -21,6 +21,9 @@ import java.util.Objects;
  * same instance key when publishing, waiting, and reading condition results. Instance keys must
  * be nonblank and must not contain {@code /}.
  *
+ * <p>To wait for parallel branches of the same Flow, use a {@link Join}. It is built on a
+ * ChannelMap and keeps the round keys and branch counts for you.
+ *
  * <pre>{@code
  * private final ChannelMap<String> commands =
  *         ChannelMap.define("commands", String.class);

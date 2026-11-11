@@ -27,6 +27,9 @@ import java.util.Objects;
  * to one Flow execution and is consumed by one matching wait, once. Publications can arrive before
  * any Step waits; Dex retains them until consumption or deletion.
  *
+ * <p>To wait for parallel branches of the same Flow, use a {@link Join} instead of publishing
+ * completion signals to a Channel.
+ *
  * <pre>{@code
  * private final Channel<String> approvals = Channel.define("approvals", String.class);
  *
