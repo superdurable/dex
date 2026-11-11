@@ -184,7 +184,7 @@ import (
 //		return dex.ForceComplete(acceptedQuotes), nil
 //	}
 //
-// Since 1.43.0.
+// Since 1.44.0.
 type Join[T any] struct {
 	channelMap ChannelMap[T]
 }
@@ -196,7 +196,7 @@ type Join[T any] struct {
 // or change one by hand. Its JSON form is {"roundKey": string, "branchCount": integer}. Dex stores
 // it in Step inputs, so these field names never change.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 type JoinRound struct {
 	// RoundKey is the ChannelMap instance key of this round. Fork uses the split Step's execution
 	// ID, such as "RequestQuotes-2". It is never empty and never contains "/".
@@ -214,7 +214,7 @@ type JoinRound struct {
 // To migrate a hand-written join over a ChannelMap[T] without breaking running Flows, keep the name
 // and T, and fork with ForkWithRoundKey using the old instance keys.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func DefineJoin[T any](name string) Join[T] {
 	return Join[T]{channelMap: ChannelMap[T]{name: name}}
 }
@@ -233,7 +233,7 @@ func DefineJoin[T any](name string) Join[T] {
 // Step execution ID; use ForkWithRoundKey), when a builder is nil, and when the same Join was already
 // forked in this invocation. The duplicate check is deterministic, so a retry fails the same way.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 //
 // The returned slice holds the branch movements in builder order, then the join movement.
 func (join Join[T]) Fork(
@@ -272,7 +272,7 @@ func (join Join[T]) Fork(
 //
 // It returns an error when roundKey is empty or contains "/", or when a builder is nil.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 //
 // The returned slice holds the branch movements in builder order, then the join movement.
 func (join Join[T]) ForkWithRoundKey(
@@ -298,7 +298,7 @@ func (join Join[T]) ForkWithRoundKey(
 // It returns an error when ctx is not a Dex invocation, when round is invalid, when the Join is not
 // registered in the Flow, or when result cannot be encoded.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 //
 // On success it returns a DeadEnd decision.
 func (join Join[T]) EndBranch(ctx Context, round JoinRound, result T) (*StepDecision, error) {
@@ -318,7 +318,7 @@ func (join Join[T]) EndBranch(ctx Context, round JoinRound, result T) (*StepDeci
 // It returns an error when ctx is not a Dex invocation, when round is invalid, when the Join is not
 // registered in the Flow, or when result cannot be encoded.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) ReportBranchResult(ctx Context, round JoinRound, result T) error {
 	if err := validateJoinRound(join.channelMap.name, round); err != nil {
 		return err
@@ -332,7 +332,7 @@ func (join Join[T]) ReportBranchResult(ctx Context, round JoinRound, result T) e
 // satisfied immediately. Combine it with a Timer in AnyOf to bound the wait. An invalid round fails
 // when Dex serializes the returned Wait.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) ForAllBranches(round JoinRound, options ...ConditionOption) Condition {
 	return join.newRoundCondition(round, round.BranchCount, nil, options)
 }
@@ -344,7 +344,7 @@ func (join Join[T]) ForAllBranches(round JoinRound, options ...ConditionOption) 
 // Put the winner's identity in T when Execute needs it. An invalid round, or a round with zero
 // branches, fails when Dex serializes the returned Wait.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) ForFirstBranch(round JoinRound, options ...ConditionOption) Condition {
 	return join.newRoundCondition(round, 1, validateJoinBranchCount(join.channelMap.name, round, 1), options)
 }
@@ -355,7 +355,7 @@ func (join Join[T]) ForFirstBranch(round JoinRound, options ...ConditionOption) 
 // order. count must be between 1 and round.BranchCount. An invalid round or count fails when Dex
 // serializes the returned Wait.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) ForBranches(round JoinRound, count int, options ...ConditionOption) Condition {
 	return join.newRoundCondition(round, count, validateJoinBranchCount(join.channelMap.name, round, count), options)
 }
@@ -368,7 +368,7 @@ func (join Join[T]) ForBranches(round JoinRound, count int, options ...Condition
 // It returns an error when ctx is not an Execute invocation, when round is invalid, or when a
 // result cannot be decoded.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) BranchResults(ctx Context, round JoinRound) ([]T, error) {
 	if err := validateJoinRound(join.channelMap.name, round); err != nil {
 		return nil, err
@@ -385,7 +385,7 @@ func (join Join[T]) BranchResults(ctx Context, round JoinRound) ([]T, error) {
 // When it equals round.BranchCount, the Condition is satisfied immediately. An invalid round or
 // receivedCount fails when Dex serializes the returned Wait.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) ForRemainingBranches(
 	round JoinRound,
 	receivedCount int,
@@ -411,14 +411,14 @@ func (join Join[T]) ForRemainingBranches(
 // It returns an error when ctx is not an Execute invocation, when round is invalid, or when a
 // result cannot be decoded.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) RemainingBranchResults(ctx Context, round JoinRound) ([]T, error) {
 	return join.BranchResults(ctx, round)
 }
 
 // JoinName returns the stable name of the Join, which is also the name of its ChannelMap.
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) JoinName() string {
 	return join.channelMap.name
 }
@@ -439,7 +439,7 @@ func (join Join[T]) JoinName() string {
 //		return &dex.RPCResult[int]{Output: QuoteReceived.ChannelMap().Size(ctx, round.RoundKey)}, nil
 //	}
 //
-// See the Join example. Since 1.43.0.
+// See the Join example. Since 1.44.0.
 func (join Join[T]) ChannelMap() ChannelMap[T] {
 	return join.channelMap
 }
