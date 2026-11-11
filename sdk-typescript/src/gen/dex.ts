@@ -1999,6 +1999,8 @@ export interface FlowDefinitionUpload {
   /**
    * Flow type that the document describes. It must equal flow.name in content,
    * must not be empty, and must not exceed matching.maxFlowTypeLength bytes.
+   * Its percent-encoded object key, with the object store prefix, must fit in
+   * 1024 bytes.
    */
   flowType: string;
   /**
@@ -2009,7 +2011,7 @@ export interface FlowDefinitionUpload {
   content: Uint8Array;
   /**
    * When the document was generated, normally the document's generatedAt or the
-   * file modification time. Required. A newer generated_at replaces a stored
+   * file modification time. Required, and within the protobuf Timestamp range. A newer generated_at replaces a stored
    * document with a different digest. The server keeps microsecond precision
    * and rejects a time more than 24 hours after its own clock.
    */

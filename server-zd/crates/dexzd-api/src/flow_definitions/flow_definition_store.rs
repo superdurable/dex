@@ -6,23 +6,40 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dexzd_keyspace::TenantId;
-use dexzd_object_store::{ObjectStore, ObjectStoreError};
+use dexzd_object_store::{ByteRange, ObjectStore, ObjectStoreError};
 use dexzd_protocol::dexzd::v1::FlowDefinitionRecord;
 use prost::Message;
 
 use super::flow_definition_digest::FlowDefinitionDigest;
+use super::upload_validation::MAX_UPLOADER_BYTES;
 use crate::FlowOperationError;
 
-/// Longest percent-encoded Flow type in an object key; S3 keys hold at most 1024 bytes.
-const MAX_ENCODED_FLOW_TYPE_BYTES: usize = 768;
+/// Longest full object key, including the store prefix; S3 keys hold at most 1024 bytes.
+const MAX_OBJECT_KEY_BYTES: usize = 1024;
 
-/// One stored record with the ETag that conditional replacement needs.
+/// One stored record, checked against its key, with the ETag that conditional replacement needs.
 #[derive(Debug, Clone)]
 pub(super) struct StoredFlowDefinition {
     pub(super) record: FlowDefinitionRecord,
     pub(super) digest: FlowDefinitionDigest,
     pub(super) etag: String,
+}
+
+/// What a size-capped read of a record object found.
+#[derive(Debug)]
+pub(super) enum FlowDefinitionRead {
+    /// No definition is stored.
+    Missing,
+    /// The stored record.
+    Stored(StoredFlowDefinition),
+    /// The object is larger than the read cap; nothing was decoded.
+    TooLarge {
+        /// Size of the whole object.
+        object_size: u64,
+    },
 }
 
 /// Returns `registry/flow-definitions/<tenant_id>/types/`, the prefix of every record of a tenant.
@@ -37,17 +54,38 @@ pub(super) fn flow_definition_key(tenant_id: TenantId, flow_type: &str) -> Strin
     key
 }
 
-/// Reports whether the encoded `flow_type` would make an object key too long.
-pub(super) fn encoded_flow_type_exceeds_key_limit(flow_type: &str) -> bool {
-    encode_flow_type_key_segment(flow_type).len() > MAX_ENCODED_FLOW_TYPE_BYTES
+/// Reports whether the full object key of `flow_type`, with the store prefix, is too long.
+pub(super) fn object_key_exceeds_limit(
+    object_key_prefix_bytes: usize,
+    tenant_id: TenantId,
+    flow_type: &str,
+) -> bool {
+    object_key_prefix_bytes.saturating_add(flow_definition_key(tenant_id, flow_type).len())
+        > MAX_OBJECT_KEY_BYTES
 }
 
-/// Reports whether an untrusted page token can be an encoded Flow type key segment.
-pub(super) fn is_valid_encoded_key_segment(segment: &str) -> bool {
-    segment.len() <= MAX_ENCODED_FLOW_TYPE_BYTES
-        && segment
-            .bytes()
-            .all(|byte| byte == b'%' || is_unreserved_key_byte(byte))
+/// Decodes a key segment that this server wrote; `None` for a foreign or non-canonical segment.
+///
+/// A canonical segment is valid percent-encoding of non-empty UTF-8 that encodes back to itself.
+pub(super) fn decode_canonical_key_segment(segment: &str) -> Option<String> {
+    let flow_type = decode_percent_encoding(segment)?;
+    (!flow_type.is_empty() && encode_flow_type_key_segment(&flow_type) == segment)
+        .then_some(flow_type)
+}
+
+/// Encodes the key segment that the next listing page starts after as an opaque token.
+pub(super) fn encode_page_token(start_after_segment: &str) -> String {
+    URL_SAFE_NO_PAD.encode(start_after_segment)
+}
+
+/// Decodes an untrusted page token; `None` unless this server could have returned it.
+pub(super) fn decode_page_token(token: &str) -> Option<String> {
+    if token.len() > MAX_OBJECT_KEY_BYTES.div_ceil(3) * 4 {
+        return None;
+    }
+    let bytes = URL_SAFE_NO_PAD.decode(token).ok()?;
+    let segment = String::from_utf8(bytes).ok()?;
+    (!segment.is_empty() && segment.len() <= MAX_OBJECT_KEY_BYTES).then_some(segment)
 }
 
 /// Percent-encodes every byte outside `[A-Za-z0-9._-]`, and the dots of `.` and `..`.
@@ -66,8 +104,7 @@ fn encode_flow_type_key_segment(flow_type: &str) -> String {
     segment
 }
 
-/// Decodes a stored key segment back to its Flow type; `None` when it is not valid percent-encoded UTF-8.
-pub(super) fn decode_flow_type_key_segment(segment: &str) -> Option<String> {
+fn decode_percent_encoding(segment: &str) -> Option<String> {
     let bytes = segment.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut position = 0;
@@ -88,34 +125,55 @@ fn is_unreserved_key_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
 }
 
-/// Reads the record at `key`; `None` when no definition is stored.
+/// Reads at most `max_object_bytes` of the record of `flow_type` at `key` and checks it.
 ///
-/// Returns `Unavailable` when object storage fails and `Internal` for a corrupt record.
+/// Returns `Unavailable` when object storage fails, and `Internal` when the record does not decode,
+/// names another Flow type, or its digest does not match its content.
 pub(super) async fn read_flow_definition(
     object_store: &dyn ObjectStore,
     key: &str,
-) -> Result<Option<StoredFlowDefinition>, FlowOperationError> {
+    flow_type: &str,
+    max_object_bytes: u64,
+) -> Result<FlowDefinitionRead, FlowOperationError> {
+    let range = ByteRange {
+        start: 0,
+        end_inclusive: max_object_bytes.saturating_sub(1),
+    };
     let Some(object) = object_store
-        .get(key)
+        .get_range(key, range)
         .await
         .map_err(|error| object_store_unavailable("read", key, &error))?
     else {
-        return Ok(None);
+        return Ok(FlowDefinitionRead::Missing);
     };
-    let record = FlowDefinitionRecord::decode(object.bytes).map_err(|error| {
-        FlowOperationError::Internal {
-            detail: format!("Flow definition object {key} does not decode: {error}"),
-        }
-    })?;
-    let digest = FlowDefinitionDigest::from_stored_bytes(&record.digest).ok_or_else(|| {
-        FlowOperationError::Internal {
-            detail: format!(
-                "Flow definition object {key} has a {}-byte digest",
-                record.digest.len()
-            ),
-        }
-    })?;
-    Ok(Some(StoredFlowDefinition {
+    if object.object_size > max_object_bytes {
+        return Ok(FlowDefinitionRead::TooLarge {
+            object_size: object.object_size,
+        });
+    }
+    let record = FlowDefinitionRecord::decode(object.bytes)
+        .map_err(|error| corrupt_record(key, format!("does not decode: {error}")))?;
+    if record.flow_type != flow_type {
+        return Err(corrupt_record(
+            key,
+            format!("names Flow type {:?}", record.flow_type),
+        ));
+    }
+    if record.uploader.len() > MAX_UPLOADER_BYTES {
+        return Err(corrupt_record(
+            key,
+            format!("has a {}-byte uploader", record.uploader.len()),
+        ));
+    }
+    let digest = FlowDefinitionDigest::from_stored_bytes(&record.digest)
+        .ok_or_else(|| corrupt_record(key, format!("has a {}-byte digest", record.digest.len())))?;
+    if FlowDefinitionDigest::of_content(&record.content) != digest {
+        return Err(corrupt_record(
+            key,
+            "has a digest that does not match its content",
+        ));
+    }
+    Ok(FlowDefinitionRead::Stored(StoredFlowDefinition {
         record,
         digest,
         etag: object.etag,
@@ -130,6 +188,12 @@ pub(super) fn object_store_unavailable(
 ) -> FlowOperationError {
     FlowOperationError::Unavailable {
         detail: format!("{operation} Flow definition object {key}: {error}"),
+    }
+}
+
+fn corrupt_record(key: &str, detail: impl std::fmt::Display) -> FlowOperationError {
+    FlowOperationError::Internal {
+        detail: format!("Flow definition object {key} {detail}"),
     }
 }
 
@@ -148,17 +212,27 @@ mod tests {
         assert_eq!(encode_flow_type_key_segment("."), "%2E");
         assert_eq!(encode_flow_type_key_segment(".."), "%2E%2E");
         assert_eq!(encode_flow_type_key_segment("..."), "...");
-        assert!(!encoded_flow_type_exceeds_key_limit(&"/".repeat(256)));
-        assert!(encoded_flow_type_exceeds_key_limit(&"/".repeat(257)));
         for flow_type in ["Order_Flow-v1.2", "a/b c%", "é", ".", "..", "..."] {
+            let segment = encode_flow_type_key_segment(flow_type);
             assert_eq!(
-                decode_flow_type_key_segment(&encode_flow_type_key_segment(flow_type)).as_deref(),
+                decode_canonical_key_segment(&segment).as_deref(),
                 Some(flow_type)
             );
         }
-        assert_eq!(decode_flow_type_key_segment("%2"), None);
-        assert_eq!(decode_flow_type_key_segment("%FF"), None);
-        assert!(is_valid_encoded_key_segment("a%2Fb"));
-        assert!(!is_valid_encoded_key_segment("a/b"));
+        for segment in ["", "%", "%2", "%FF", "foo/bar", "%41", "%2f", "a b"] {
+            assert_eq!(decode_canonical_key_segment(segment), None, "{segment}");
+        }
+    }
+
+    #[test]
+    fn page_tokens_round_trip_any_listed_segment() {
+        for segment in ["foo/bar", "%FF", "a%2Fb"] {
+            assert_eq!(
+                decode_page_token(&encode_page_token(segment)).as_deref(),
+                Some(segment)
+            );
+        }
+        assert_eq!(decode_page_token("not base64!"), None);
+        assert_eq!(decode_page_token(&URL_SAFE_NO_PAD.encode([0xFF])), None);
     }
 }

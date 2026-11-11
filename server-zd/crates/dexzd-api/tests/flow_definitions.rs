@@ -10,16 +10,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::Duration;
 
+use bytes::Bytes;
 use dexzd_api::{FlowDefinitions, FlowDefinitionsConfig};
 use dexzd_clock::WallClock;
 use dexzd_keyspace::TenantId;
 use dexzd_object_store::{
     FaultAction, FaultInjector, InMemoryObjectStore, ObjectStore, ObjectStoreOperation,
+    WriteCondition,
 };
 use dexzd_protocol::dex::{
     ErrorSubStatus, FlowDefinitionUpload, FlowDefinitionUploadOutcome, GetFlowDefinitionsRequest,
     ListFlowDefinitionsRequest, ServiceErrorResponse, UploadFlowDefinitionsRequest,
 };
+use dexzd_protocol::dexzd::v1::FlowDefinitionRecord;
 use prost::Message;
 use tonic::Code;
 
@@ -387,7 +390,19 @@ async fn invalid_uploads_store_nothing() {
     });
     let mut mismatch = upload("Named", 1, 1);
     mismatch.flow_type = "Other".to_owned();
+    let mut year_10000 = upload("Year10000", 1, 0);
+    year_10000.generated_at = Some(prost_types::Timestamp {
+        seconds: 253_402_300_800,
+        nanos: 0,
+    });
+    let mut before_year_1 = upload("BeforeYear1", 1, 0);
+    before_year_1.generated_at = Some(prost_types::Timestamp {
+        seconds: -62_135_596_801,
+        nanos: 0,
+    });
     for definitions_batch in [
+        vec![upload("Valid", 1, 1), year_10000],
+        vec![upload("Valid", 1, 1), before_year_1],
         vec![upload("Valid", 1, 1), future],
         vec![upload("Valid", 1, 1), mismatch],
         vec![upload("Valid", 1, 1), upload("Valid", 2, 2)],
@@ -418,4 +433,233 @@ fn sub_status(status: &tonic::Status) -> ErrorSubStatus {
     ServiceErrorResponse::decode(envelope.details[0].value.as_slice())
         .expect("ServiceErrorResponse decodes")
         .sub_status()
+}
+
+fn config_with(change: impl FnOnce(&mut FlowDefinitionsConfig)) -> FlowDefinitionsConfig {
+    let mut config = FlowDefinitionsConfig::default();
+    change(&mut config);
+    config
+}
+
+fn flow_definitions_with_config(
+    store: Arc<InMemoryObjectStore>,
+    config: &FlowDefinitionsConfig,
+) -> FlowDefinitions {
+    FlowDefinitions::new(
+        store,
+        Arc::new(FixedWallClock(AtomicI64::new(NOW_UNIX_MICROS))),
+        config,
+    )
+}
+
+async fn rewrite_stored_record(
+    store: &InMemoryObjectStore,
+    key: &str,
+    change: impl FnOnce(&mut FlowDefinitionRecord),
+) {
+    let object = store
+        .get(key)
+        .await
+        .expect("the object reads")
+        .expect("the object exists");
+    let mut record = FlowDefinitionRecord::decode(object.bytes).expect("the record decodes");
+    change(&mut record);
+    store
+        .put(
+            key,
+            Bytes::from(record.encode_to_vec()),
+            WriteCondition::Unconditional,
+        )
+        .await
+        .expect("the object writes");
+}
+
+#[tokio::test]
+async fn corrupt_records_fail_as_internal_instead_of_unchanged() {
+    let store = Arc::new(InMemoryObjectStore::new());
+    let definitions = flow_definitions(store.clone());
+    definitions
+        .upload_flow_definitions(
+            TenantId::DEFAULT,
+            request(vec![upload("WrongDigest", 1, 1), upload("WrongType", 1, 1)]),
+        )
+        .await
+        .unwrap();
+    rewrite_stored_record(&store, &format!("{TYPES_PREFIX}WrongDigest"), |record| {
+        record.content = document("WrongDigest", 2);
+    })
+    .await;
+    rewrite_stored_record(&store, &format!("{TYPES_PREFIX}WrongType"), |record| {
+        record.flow_type = "OtherType".to_owned();
+    })
+    .await;
+    for flow_type in ["WrongDigest", "WrongType"] {
+        let status = definitions
+            .upload_flow_definitions(TenantId::DEFAULT, request(vec![upload(flow_type, 1, 1)]))
+            .await
+            .unwrap_err()
+            .into_status();
+        assert_eq!(status.code(), Code::Internal, "{flow_type}: {status:?}");
+        assert_eq!(sub_status(&status), ErrorSubStatus::Uncategorized);
+        let status = definitions
+            .get_flow_definitions(
+                TenantId::DEFAULT,
+                GetFlowDefinitionsRequest {
+                    flow_types: vec![flow_type.to_owned()],
+                },
+            )
+            .await
+            .unwrap_err()
+            .into_status();
+        assert_eq!(status.code(), Code::Internal, "{flow_type}: {status:?}");
+    }
+}
+
+#[tokio::test]
+async fn flow_types_whose_full_key_is_too_long_are_rejected_before_writing() {
+    let store = Arc::new(InMemoryObjectStore::new());
+    // 900 prefix bytes and the 34-byte registry path leave 90 bytes for the encoded Flow type.
+    let config = config_with(|config| config.object_key_prefix_bytes = 900);
+    let definitions = flow_definitions_with_config(store.clone(), &config);
+    let fitting = "/".repeat(30);
+    let response = definitions
+        .upload_flow_definitions(TenantId::DEFAULT, request(vec![upload(&fitting, 1, 1)]))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.results[0].outcome(),
+        FlowDefinitionUploadOutcome::Created
+    );
+    let too_long = "/".repeat(31);
+    let status = definitions
+        .upload_flow_definitions(TenantId::DEFAULT, request(vec![upload(&too_long, 1, 1)]))
+        .await
+        .unwrap_err()
+        .into_status();
+    assert_eq!(status.code(), Code::InvalidArgument);
+    assert_eq!(sub_status(&status), ErrorSubStatus::FlowDefinitionInvalid);
+    let status = definitions
+        .get_flow_definitions(
+            TenantId::DEFAULT,
+            GetFlowDefinitionsRequest {
+                flow_types: vec![too_long],
+            },
+        )
+        .await
+        .unwrap_err()
+        .into_status();
+    assert_eq!(status.code(), Code::InvalidArgument);
+    assert_eq!(store.call_count(ObjectStoreOperation::Put, TYPES_PREFIX), 1);
+}
+
+#[tokio::test]
+async fn list_skips_foreign_and_non_canonical_keys_on_every_page() {
+    let store = Arc::new(InMemoryObjectStore::new());
+    let definitions = flow_definitions(store.clone());
+    definitions
+        .upload_flow_definitions(
+            TenantId::DEFAULT,
+            request(vec![upload("Alpha", 1, 1), upload("zeta", 1, 1)]),
+        )
+        .await
+        .unwrap();
+    // "foo/bar" sorts after "Alpha", so with one key per page it ends a page.
+    for foreign in ["%", "%FF", "%41", "foo/bar", "foo/zzz"] {
+        store
+            .put(
+                &format!("{TYPES_PREFIX}{foreign}"),
+                Bytes::from_static(b"foreign"),
+                WriteCondition::Unconditional,
+            )
+            .await
+            .unwrap();
+    }
+    for page_size in [1, 2, 1000] {
+        let mut listed = Vec::new();
+        let mut next_page_token = String::new();
+        loop {
+            let page = definitions
+                .list_flow_definitions(
+                    TenantId::DEFAULT,
+                    ListFlowDefinitionsRequest {
+                        page_size,
+                        next_page_token,
+                    },
+                )
+                .await
+                .unwrap();
+            listed.extend(page.flow_types);
+            if page.next_page_token.is_empty() {
+                break;
+            }
+            next_page_token = page.next_page_token;
+        }
+        assert_eq!(listed, vec!["Alpha".to_owned(), "zeta".to_owned()]);
+    }
+    for token in ["%", "%FF", "foo/bar", "not base64!"] {
+        let status = definitions
+            .list_flow_definitions(
+                TenantId::DEFAULT,
+                ListFlowDefinitionsRequest {
+                    page_size: 1,
+                    next_page_token: token.to_owned(),
+                },
+            )
+            .await
+            .unwrap_err()
+            .into_status();
+        assert_eq!(status.code(), Code::InvalidArgument, "{token}");
+    }
+}
+
+#[tokio::test]
+async fn get_stops_reading_once_the_response_budget_is_spent() {
+    let store = Arc::new(InMemoryObjectStore::new());
+    let writer = flow_definitions(store.clone());
+    let mut large = upload("Large", 1, 1);
+    large.content = format!(
+        r#"{{"schemaVersion":"2.0","flow":{{"name":"Large"}},"pad":"{}"}}"#,
+        "x".repeat(2_000)
+    )
+    .into_bytes();
+    writer
+        .upload_flow_definitions(
+            TenantId::DEFAULT,
+            request(vec![upload("Small", 1, 1), large, upload("Later", 1, 1)]),
+        )
+        .await
+        .unwrap();
+    let config = config_with(|config| config.max_response_bytes = 1_000);
+    let reader = flow_definitions_with_config(store.clone(), &config);
+    let reads_before = store.call_count(ObjectStoreOperation::Get, TYPES_PREFIX);
+    let status = reader
+        .get_flow_definitions(
+            TenantId::DEFAULT,
+            GetFlowDefinitionsRequest {
+                flow_types: vec!["Small".to_owned(), "Large".to_owned(), "Later".to_owned()],
+            },
+        )
+        .await
+        .unwrap_err()
+        .into_status();
+    assert_eq!(status.code(), Code::ResourceExhausted);
+    assert_eq!(
+        sub_status(&status),
+        ErrorSubStatus::FlowDefinitionResponseTooLarge
+    );
+    assert_eq!(
+        store.call_count(ObjectStoreOperation::Get, TYPES_PREFIX) - reads_before,
+        2,
+        "the read of Later never starts"
+    );
+    let response = reader
+        .get_flow_definitions(
+            TenantId::DEFAULT,
+            GetFlowDefinitionsRequest {
+                flow_types: vec!["Small".to_owned(), "Later".to_owned()],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.definitions.len(), 2);
 }

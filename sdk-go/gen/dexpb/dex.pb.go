@@ -12504,13 +12504,15 @@ type FlowDefinitionUpload struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Flow type that the document describes. It must equal flow.name in content,
 	// must not be empty, and must not exceed matching.maxFlowTypeLength bytes.
+	// Its percent-encoded object key, with the object store prefix, must fit in
+	// 1024 bytes.
 	FlowType string `protobuf:"bytes,1,opt,name=flow_type,json=flowType,proto3" json:"flow_type,omitempty"`
 	// The FDG JSON document, at most flowDefinitions.maxDefinitionBytes. It must
 	// be a JSON object whose schemaVersion starts with "2.", nested at most 128
 	// levels deep. The server stores these exact bytes and returns them unchanged.
 	Content []byte `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
 	// When the document was generated, normally the document's generatedAt or the
-	// file modification time. Required. A newer generated_at replaces a stored
+	// file modification time. Required, and within the protobuf Timestamp range. A newer generated_at replaces a stored
 	// document with a different digest. The server keeps microsecond precision
 	// and rejects a time more than 24 hours after its own clock.
 	GeneratedAt   *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=generated_at,json=generatedAt,proto3" json:"generated_at,omitempty"`
