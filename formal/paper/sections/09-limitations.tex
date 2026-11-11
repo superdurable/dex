@@ -79,7 +79,7 @@ place where a real deployment can leave the theorem.
   Multi-node partition ownership is not: the server runs one node per
   cluster, and the model has one log writer at a time.
 \end{itemize}
-About effects, the theorem guarantees only that every extra external call
+The theorem guarantees only that every extra external call
 repeats an earlier one. A retry can run a Step method's external calls
 again, and an older attempt can make a call late, after a newer attempt's
 call. An application must therefore make each external call safe to repeat and safe to arrive late, for
