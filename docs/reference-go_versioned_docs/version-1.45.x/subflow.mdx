@@ -1,0 +1,44 @@
+---
+id: subflow
+title: SubFlow
+sidebar_label: SubFlow
+---
+
+# SubFlow
+
+This page lists the Go SDK names for [SubFlows](/concepts/primitives/subflow).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Go SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Go API | Dex behavior |
+| --- | --- | --- |
+| Start a child Flow and wait for it | **SubFlow** in **WaitFor** | [SubFlows](/reference/server/runtime-data#subflows) |
+| Set the child timeout, Attributes, and configuration | **SubFlowOptions** | [SubFlowOptions](/reference/server/runtime-data#subflow-options) |
+| Choose what happens to an existing child | **ReusePolicy** of **SubFlowOptions**, with **SubFlowReusePolicy** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Read the child result | **SubFlowResult** in **Execute**. It returns a **FlowResult**. | [SubFlow results](./waits.mdx#subflow-results) |
+| Read the generated child Flow ID | **SubFlowID** | [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) |
+| Stop a child that lost an **AnyOf** | **Client.StopFlow** with the child Flow ID | [Stop a Flow](/reference/server/runtime-client#stop-a-flow) |
+
+## Step types that start SubFlows {#step-type-rule}
+
+Changed in 1.45: a Step whose Step type contains "-" cannot start SubFlows.
+
+The child Flow ID is "SubFlow:" followed by the parent Flow ID, the Step
+execution ID, and the SubFlow index, joined with "-". The Step execution ID is
+the Step type and a counter, also joined with "-". A dash in the Step type makes
+the child Flow ID ambiguous, so two parents could share one child.
+
+Default Step types are Go type names and never contain "-". Only a
+**GetStepType** override can return one. When such a Step returns a **Wait**
+with a **SubFlow** Condition, the Worker logs a warning and sends the
+**WaitFor** result unchanged. Dex Server rejects it as an invalid Worker
+response and fails the attempt without retry. Under the default policy, the
+Flow fails. Steps with a dash that never start SubFlows are not affected.
+
+To migrate, rename the Step type to a name without "-".
+
+## Example {#example}
+
+Example: [examples/go/primitives/subflow/parent_flow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/subflow/parent_flow.go)

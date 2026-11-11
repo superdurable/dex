@@ -1,0 +1,162 @@
+---
+id: waits
+title: Waits
+sidebar_label: Waits
+---
+
+# Waits
+
+**WaitFor** returns a **Wait**: a wait type and the conditions to wait for.
+Dex stores the wait durably and checks the conditions whenever related state
+changes. A condition waits for a [Timer](/concepts/primitives/timer), a
+[Channel](/concepts/primitives/channel), or a [SubFlow](/concepts/primitives/subflow).
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** do not need condition IDs. Read Channel
+results from the Channel definition, and check Timer outcomes through the
+**Context**. Add a condition ID only where an API requires one, such as
+**AnyCombinationOf** or a Timer that you select by ID.
+
+```java
+return Wait.anyOf(
+        channelA.forOne(),
+        Timer.byDuration(timeout));
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
+
+```java
+return Wait.allOf(
+        channelA.forOne(),
+        channelB.forOne());
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
+
+<a id="step-execution-local"></a>To pass a value from **WaitFor** to **Execute**, see
+[Step execution local](./step.mdx#step-execution-local).
+
+## Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/concepts/primitives/channel), call **getConditionResults** on the Channel to read the
+messages the wait consumed. For a [SubFlow](/concepts/primitives/subflow),
+call **SubFlow.getConditionResults** to read the child Flow result.
+
+In an **AnyOf**, Dex consumes messages only from the Channel condition that it
+selects to satisfy the Wait. Other Channel conditions consume nothing, even if
+they are also ready, and their messages stay queued.
+
+When several **AnyOf** conditions are ready at the same check, Dex selects the
+first ready one in this order: Timer conditions, then Channel conditions, then
+SubFlow conditions, each kind in the order you declared them. A condition that
+is not ready does not block a later one that is. So across kinds, the order of
+the arguments in your call does not decide which condition wins.
+
+Use **AnyOf** when any ready condition may win. If the Step must keep waiting
+for a higher-priority input, return only that condition until it resolves.
+
+<a id="channel-结果"></a>
+
+### Channel results {#channel-results}
+
+```java
+final class ChannelWaitStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.anyOf(
+                approval.forOne(),
+                Timer.byDuration(Duration.ofSeconds(input)));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        if (context.hasTimerFired()) {
+            return StepDecision.gracefulComplete("approval timed out");
+        }
+        final List<String> approvals = approval.getConditionResults(context);
+        return StepDecision.gracefulComplete(approvals.get(0));
+    }
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java)
+
+<a id="subflow-结果"></a>
+
+### SubFlow results {#subflow-results}
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    final Integer output =
+            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
+    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java)
+
+## Join parallel branches {#join}
+
+Since 1.44.0. A **Join** waits for the parallel branches that one Step
+started. It stores branch results in a ChannelMap with the Join's name, so
+its conditions are Channel conditions. They combine with **AnyOf**, **AllOf**,
+and Timers.
+
+- **Join.define** defines a Join. Pass it to **PersistenceSchema.of**, like a ChannelMap.
+- **Join.fork** starts one round from a split Step. It returns the branch movements
+  and the join Step movement. **Join.forkWithRoundKey** does the same with an explicit
+  round key, for example in an RPC.
+- A branch reports its result with **Join.endBranch** or **Join.reportBranchResult**.
+- The join Step waits with **Join.forAllBranches**, **Join.forFirstBranch**, or **Join.forBranches**, and reads **Join.getBranchResults**.
+- The next round's split Step resets the previous round with
+  **Join.forRemainingBranches**, and reads **Join.getRemainingBranchResults**.
+- **Join.getChannelMap** returns the underlying ChannelMap, for reading a round's
+  pending results. Never publish to it directly.
+
+The [Join API reference](pathname:///api/java/latest/io/superdurable/dex/Join.html) documents each method. The
+[Await Parallel Steps](/design-patterns/parallel/await) pattern shows the whole
+shape.
+
+Example: [examples/java/src/main/java/io/superdurable/dex/patterns/parallel/AwaitParallelStepsFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/parallel/AwaitParallelStepsFlow.java)
+
+## AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** is met when every condition in any one group is met. Each
+group is an all-of combination.
+
+Dex consumes messages only from the Channel conditions of the group it selects.
+Conditions that belong only to other ready groups consume nothing, and their
+messages stay queued.
+
+Every condition in the groups needs a unique **condition ID**.
+
+```java
+return Wait.anyCombinationOf(
+        ConditionCombination.of(
+                channelA.forOne("signal-a"),
+                Timer.byDuration(timeout, "timeout")),
+        ConditionCombination.of(channelB.forOne("signal-b")));
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
+
+## Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it when **WaitFor**
+decides at run time that the Step should not wait.
+
+```java
+return Wait.skipImmediately();
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java)

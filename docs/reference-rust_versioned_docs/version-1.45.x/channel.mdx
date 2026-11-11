@@ -1,0 +1,32 @@
+---
+id: channel
+title: Channel
+sidebar_label: Channel
+---
+
+# Channel
+
+This page lists the Rust SDK names for [Channels](/concepts/primitives/channel).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Rust SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Rust API | Dex behavior |
+| --- | --- | --- |
+| Define a Channel | **Channel** | [Channels](/reference/server/runtime-data#channels) |
+| Define a ChannelMap | **ChannelMap** | [ChannelMap](/reference/server/runtime-data#channelmap) |
+| Declare it in the Flow | **PersistenceSchema::channel** and **PersistenceSchema::channel_map**, returned from **Flow::persistence** | [Flow definition](./flow.mdx#flow-definition) |
+| Publish a message from a Step or RPC | **publish** | [Commits](./step.mdx#commit-boundary) |
+| Wait for messages | **for_one**, **for_n**, **at_least**, **at_most**, and **range** | [Wait conditions](/reference/server/runtime-data#channel-conditions) |
+| Read the messages a wait consumed | **condition_results** | [Channel results](./waits.mdx#channel-results) |
+| Load pending messages for a method | **ChannelMap::load_messages**, with the load methods of **StepOptions** or **Rpc** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Read loaded pending messages | **pending_messages** and **find_pending_message** | [Pending messages](/reference/server/runtime-data#manage-pending-messages) |
+| Delete a pending message | **delete** | [Pending messages](/reference/server/runtime-data#manage-pending-messages) |
+| Read the number of pending messages | **size** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Count ChannelMap instances and list their keys | **ChannelMap::map_size** and **ChannelMap::all_instance_keys** | [ChannelMap](/reference/server/runtime-data#channelmap) |
+| Complete the Flow only when Channels are empty | **StepDecision::force_complete_if_channels_empty**, with **when_empty** | [ForceCompleteIfChannelsEmpty](./step-decisions.mdx#forcecompleteifchannelsempty) |
+
+## Example {#example}
+
+Example: [examples/rust/src/primitives/channel/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/channel/flow.rs)

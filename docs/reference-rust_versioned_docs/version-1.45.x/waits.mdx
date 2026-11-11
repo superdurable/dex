@@ -1,0 +1,172 @@
+---
+id: waits
+title: Waits
+sidebar_label: Waits
+---
+
+# Waits
+
+**WaitFor** returns a **Wait**: a wait type and the conditions to wait for.
+Dex stores the wait durably and checks the conditions whenever related state
+changes. A condition waits for a [Timer](/concepts/primitives/timer), a
+[Channel](/concepts/primitives/channel), or a [SubFlow](/concepts/primitives/subflow).
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** do not need condition IDs. Read Channel
+results from the Channel definition, and check Timer outcomes through the
+**Context**. Add a condition ID only where an API requires one, such as
+**AnyCombinationOf** or a Timer that you select by ID.
+
+```rust
+Ok(Wait::any_of([
+    signal_a_channel().for_one(),
+    Timer::by_duration(timeout),
+]))
+```
+
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
+
+```rust
+Ok(Wait::all_of([
+    signal_a_channel().for_one(),
+    signal_b_channel().for_one(),
+]))
+```
+
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
+
+<a id="step-execution-local"></a>To pass a value from **WaitFor** to **Execute**, see
+[Step execution local](./step.mdx#step-execution-local).
+
+## Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/concepts/primitives/channel), call **condition_results** on the Channel to read the
+messages the wait consumed. For a [SubFlow](/concepts/primitives/subflow),
+call **SubFlow::condition_result** to read the child Flow result.
+
+In an **AnyOf**, Dex consumes messages only from the Channel condition that it
+selects to satisfy the Wait. Other Channel conditions consume nothing, even if
+they are also ready, and their messages stay queued.
+
+When several **AnyOf** conditions are ready at the same check, Dex selects the
+first ready one in this order: Timer conditions, then Channel conditions, then
+SubFlow conditions, each kind in the order you declared them. A condition that
+is not ready does not block a later one that is. So across kinds, the order of
+the arguments in your call does not decide which condition wins.
+
+Use **AnyOf** when any ready condition may win. If the Step must keep waiting
+for a higher-priority input, return only that condition until it resolves.
+
+<a id="channel-结果"></a>
+
+### Channel results {#channel-results}
+
+```rust
+static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
+
+#[derive(Default)]
+struct ChannelWait;
+
+impl Step for ChannelWait {
+    type Input = i32;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            APPROVAL.for_one(),
+            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete(
+                "approval timed out".to_owned(),
+            ));
+        }
+        let approvals = APPROVAL.condition_results(context)?;
+        Ok(StepDecision::graceful_complete(approvals[0].clone()))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/channel/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/channel/flow.rs)
+
+<a id="subflow-结果"></a>
+
+### SubFlow results {#subflow-results}
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let result = SubFlow::condition_result(context)?;
+    let output: i32 = result
+        .single_output()
+        .map_err(HandlerError::from_error)?;
+    let flow_id = SubFlow::flow_id_at(context, 0)?;
+    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
+}
+```
+
+Example: [examples/rust/src/primitives/subflow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/subflow/flow.rs)
+
+## Join parallel branches {#join}
+
+Since 1.44.0. A **Join** waits for the parallel branches that one Step
+started. It stores branch results in a ChannelMap with the Join's name, so
+its conditions are Channel conditions. They combine with **AnyOf**, **AllOf**,
+and Timers.
+
+- **Join::new** defines a Join. Register it with **PersistenceSchema::join**.
+- **Join::fork** starts one round from a split Step. It returns the branch movements
+  and the join Step movement. **Join::fork_with_round_key** does the same with an explicit
+  round key, for example in an RPC.
+- A branch reports its result with **Join::end_branch** or **Join::report_branch_result**.
+- The join Step waits with **Join::for_all_branches**, **Join::for_first_branch**, or **Join::for_branches**, and reads **Join::branch_results**.
+- The next round's split Step resets the previous round with
+  **Join::for_remaining_branches**, and reads **Join::remaining_branch_results**.
+- **Join::channel_map** returns the underlying ChannelMap, for reading a round's
+  pending results. Never publish to it directly.
+
+The [Join API reference](https://docs.rs/dex-sdk/latest/dex_sdk/struct.Join.html) documents each method. The
+[Await Parallel Steps](/design-patterns/parallel/await) pattern shows the whole
+shape.
+
+Example: [examples/rust/src/patterns/parallel/parallel_step_flows.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/parallel/parallel_step_flows.rs)
+
+## AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** is met when every condition in any one group is met. Each
+group is an all-of combination.
+
+Dex consumes messages only from the Channel conditions of the group it selects.
+Conditions that belong only to other ready groups consume nothing, and their
+messages stay queued.
+
+Every condition in the groups needs a unique **condition ID**.
+
+```rust
+Ok(Wait::any_combination_of([
+    ConditionCombination::all_of([
+        signal_a_channel().for_one().with_id("signal-a"),
+        Timer::by_duration(timeout).with_id("timeout"),
+    ]),
+    ConditionCombination::all_of([signal_b_channel().for_one().with_id("signal-b")]),
+]))
+```
+
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
+
+## Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it when **WaitFor**
+decides at run time that the Step should not wait.
+
+```rust
+Ok(Wait::skip_immediately())
+```
+
+Example: [examples/rust/src/primitives/flow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/flow/flow.rs)

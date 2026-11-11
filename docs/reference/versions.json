@@ -1,11 +1,11 @@
 {
   "server": "0.1.25",
-  "cli": "1.43.x",
-  "go": "1.43.x",
-  "python": "1.43.x",
-  "java": "1.43.x",
-  "typescript": "1.43.x",
-  "rust": "1.43.x",
-  "web": "1.43.x",
+  "cli": "1.45.x",
+  "go": "1.45.x",
+  "python": "1.45.x",
+  "java": "1.45.x",
+  "typescript": "1.45.x",
+  "rust": "1.45.x",
+  "web": "1.45.x",
   "agents": "0.4.x"
 }

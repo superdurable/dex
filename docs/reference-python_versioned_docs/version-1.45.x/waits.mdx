@@ -1,0 +1,160 @@
+---
+id: waits
+title: Waits
+sidebar_label: Waits
+---
+
+# Waits
+
+**WaitFor** returns a **Wait**: a wait type and the conditions to wait for.
+Dex stores the wait durably and checks the conditions whenever related state
+changes. A condition waits for a [Timer](/concepts/primitives/timer), a
+[Channel](/concepts/primitives/channel), or a [SubFlow](/concepts/primitives/subflow).
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** do not need condition IDs. Read Channel
+results from the Channel definition, and check Timer outcomes through the
+**Context**. Add a condition ID only where an API requires one, such as
+**AnyCombinationOf** or a Timer that you select by ID.
+
+```python
+return Wait.any_of(
+    channel_a.for_one(),
+    Timer.by_duration(timeout),
+)
+```
+
+Example: [examples/python/dex_examples/primitives/wait_types/wait_types_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/wait_types/wait_types_flow.py)
+
+```python
+return Wait.all_of(
+    channel_a.for_one(),
+    channel_b.for_one(),
+)
+```
+
+Example: [examples/python/dex_examples/primitives/wait_types/wait_types_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/wait_types/wait_types_flow.py)
+
+<a id="step-execution-local"></a>To pass a value from **WaitFor** to **Execute**, see
+[Step execution local](./step.mdx#step-execution-local).
+
+## Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/concepts/primitives/channel), call **results** on the Channel to read the
+messages the wait consumed. For a [SubFlow](/concepts/primitives/subflow),
+call **SubFlow.get_condition_results** to read the child Flow result.
+
+In an **AnyOf**, Dex consumes messages only from the Channel condition that it
+selects to satisfy the Wait. Other Channel conditions consume nothing, even if
+they are also ready, and their messages stay queued.
+
+When several **AnyOf** conditions are ready at the same check, Dex selects the
+first ready one in this order: Timer conditions, then Channel conditions, then
+SubFlow conditions, each kind in the order you declared them. A condition that
+is not ready does not block a later one that is. So across kinds, the order of
+the arguments in your call does not decide which condition wins.
+
+Use **AnyOf** when any ready condition may win. If the Step must keep waiting
+for a higher-priority input, return only that condition until it resolves.
+
+<a id="channel-结果"></a>
+
+### Channel results {#channel-results}
+
+```python
+class ChannelWaitStep(Step[int]):
+    def __init__(self, approval: Channel[str]) -> None:
+        self.approval = approval
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        return Wait.any_of(
+            self.approval.for_one(),
+            Timer.by_duration(timedelta(seconds=input)),
+        )
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        if context.has_timer_fired():
+            return graceful_complete("approval timed out")
+        approvals = self.approval.results(context)
+        return graceful_complete(approvals[0])
+```
+
+Example: [examples/python/dex_examples/primitives/channel/channel_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/channel/channel_flow.py)
+
+<a id="subflow-结果"></a>
+
+### SubFlow results {#subflow-results}
+
+```python
+def execute(self, context: Context, input: int) -> StepDecision:
+    result = SubFlow.get_condition_results(context)
+    output = result.single_output(int)
+    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
+```
+
+Example: [examples/python/dex_examples/primitives/subflow/parent_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/subflow/parent_flow.py)
+
+## Join parallel branches {#join}
+
+Since 1.44.0. A **Join** waits for the parallel branches that one Step
+started. It stores branch results in a ChannelMap with the Join's name, so
+its conditions are Channel conditions. They combine with **AnyOf**, **AllOf**,
+and Timers.
+
+- **Join** defines a Join. Add it to **channels** of **PersistenceSchema**, like a ChannelMap.
+- **Join.fork** starts one round from a split Step. It returns the branch movements
+  and the join Step movement. **Join.fork_with_round_key** does the same with an explicit
+  round key, for example in an RPC.
+- A branch reports its result with **Join.end_branch** or **Join.report_branch_result**.
+- The join Step waits with **Join.for_all_branches**, **Join.for_first_branch**, or **Join.for_branches**, and reads **Join.branch_results**.
+- The next round's split Step resets the previous round with
+  **Join.for_remaining_branches**, and reads **Join.remaining_branch_results**.
+- **Join.channel_map** returns the underlying ChannelMap, for reading a round's
+  pending results. Never publish to it directly.
+
+The [Join API reference](pathname:///api/python/latest/dex.html#Join) documents each method. The
+[Await Parallel Steps](/design-patterns/parallel/await) pattern shows the whole
+shape.
+
+Example: [examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py)
+
+## AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** is met when every condition in any one group is met. Each
+group is an all-of combination.
+
+Dex consumes messages only from the Channel conditions of the group it selects.
+Conditions that belong only to other ready groups consume nothing, and their
+messages stay queued.
+
+Every condition in the groups needs a unique **condition ID**.
+
+```python
+return Wait.any_combination_of(
+    ConditionCombination.of(
+        channel_a.for_one(condition_id="signal-a"),
+        Timer.by_duration(timeout, condition_id="timeout"),
+    ),
+    ConditionCombination.of(
+        channel_b.for_one(condition_id="signal-b"),
+    ),
+)
+```
+
+Example: [examples/python/dex_examples/primitives/wait_types/wait_types_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/wait_types/wait_types_flow.py)
+
+## Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it when **WaitFor**
+decides at run time that the Step should not wait.
+
+```python
+return Wait.skip_immediately()
+```
+
+Example: [examples/python/dex_examples/primitives/flow/example_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/flow/example_flow.py)

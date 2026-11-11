@@ -1,0 +1,182 @@
+---
+title: Python Workers
+sidebar_label: Workers
+---
+
+# Python Workers
+
+This page shows how to start a Python Worker and lists the Python names of its
+settings. [Workers and the task queue](/reference/server/workers) describes
+how these settings behave in every SDK.
+
+## Start a Worker
+
+This example serves a Greeting Flow through a pull Worker. Its Step stores a
+greeting, and the greeting RPC reads it. The Worker allows eight concurrent tasks
+and keeps one slot for RPCs. See the [Python SDK README](https://github.com/superdurable/dex/blob/main/sdk-python/README.md#workers) for
+startup details.
+
+```python
+async def start_pull_greeting(
+    cache: BlobCache, server_address: str
+) -> tuple[GreetingFlow, AsyncWorker, AsyncClient, asyncio.Task[None]]:
+    flow = GreetingFlow()
+    registry = Registry((flow,), allow_async_handlers=True)
+    worker = AsyncWorker(
+        registry,
+        cache,
+        WorkerOptions(
+            server_address=server_address,
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=8,
+                # Keep one slot for RPCs so Flows stay responsive.
+                reserved_rpc_tasks=1,
+            ),
+        ),
+    )
+    worker_task = asyncio.create_task(worker.start())
+    client = AsyncClient(
+        registry,
+        cache,
+        ClientOptions(server_address=server_address),
+    )
+    try:
+        await worker.wait_pull_registered(timeout=30)
+    except BaseException:
+        await stop_pull_greeting(worker, client, worker_task)
+        raise
+    return flow, worker, client, worker_task
+
+
+async def stop_pull_greeting(
+    worker: AsyncWorker, client: AsyncClient, worker_task: asyncio.Task[None]
+) -> None:
+    await client.close()
+    await worker.close()
+    await worker_task
+```
+
+Example: [examples/python/dex_examples/production/pull_workers.py](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/production/pull_workers.py)
+
+## Readiness
+
+**wait_pull_registered(timeout)** waits until the Worker's slot streams have registered with
+Dex. **pull_registration_state()** reports the current registration state. By default,
+a Worker keeps retrying when Dex permanently rejects a slot stream. Set
+**stop_on_permanent_stream_rejection** to stop and drain the Worker instead when a permanent
+rejection leaves a slot kind without registered streams. Since 1.14.0.
+
+**Worker** and **AsyncWorker** both have these methods. Await the
+**AsyncWorker** wait.
+
+A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
+kind.
+
+Call the boolean helper from your probe endpoint and return 200 when true or
+503 when false.
+
+```python
+def is_pull_greeting_ready(worker: AsyncWorker) -> bool:
+    return worker.pull_registration_state().is_ready
+```
+
+Example: [examples/python/dex_examples/production/pull_workers.py](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/production/pull_workers.py)
+
+## Capacity and shutdown
+
+| Setting | Python name |
+| --- | --- |
+| Concurrent tasks | **max_concurrent_tasks** |
+| Reserved RPC slots | **reserved_rpc_tasks** |
+| Stop drain timeout | **stop_drain_timeout** |
+| Shutdown | **stop** |
+
+The idle stream option, **idle_streams_per_queue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **pull_reserved_rpc_declines**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+Report registration readiness instead, as this diagnostics helper does. A Worker with every slot busy stays ready.
+
+```python
+@dataclass(frozen=True)
+class PullGreetingDiagnostics:
+    is_ready: bool
+
+
+def get_pull_greeting_diagnostics(worker: AsyncWorker) -> PullGreetingDiagnostics:
+    return PullGreetingDiagnostics(
+        is_ready=worker.pull_registration_state().is_ready,
+    )
+```
+
+Example: [examples/python/dex_examples/production/pull_workers.py](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/production/pull_workers.py)
+
+## Flow definitions {#flow-definitions}
+
+Since 1.45. A Worker can upload Flow Definition Graph (FDG 2.x) documents to
+Dex so that Dex Web can draw its Flows without a definition directory.
+[Flow definitions](/reference/server/runtime-client#flow-definitions) describes
+how the server stores them.
+
+| Setting | Python name |
+| --- | --- |
+| Files or directories to upload | **flow_definition_paths** |
+| In-memory documents to upload | **flow_definitions**, a list of **FlowDefinitionDocument** with **flow_type**, **content**, and **generated_at** |
+| Upload from a deploy script | **upload_flow_definitions** on the Client, with optional **force** |
+
+**flow_definition_paths** accepts files and directories:
+
+- An explicitly listed file must be an FDG 2.x document, whatever its
+  extension: a strict UTF-8 JSON object, without **NaN**, **Infinity**, or text
+  after it, whose **schemaVersion** starts with **2.** and that has a
+  **flow.name** string.
+- A directory is searched recursively for files whose extension is **.json** in
+  any letter case. A file there that is not an FDG 2.x document, such as
+  **package.json** or an FDG 1.x file, is skipped and logged.
+- Each file's **flow.name** is its Flow type. Its top-level **generatedAt** is
+  the generation time. It must be strict RFC 3339: a **T** or **t** separator,
+  an optional fraction with at least one digit, and a **Z**, **z**, **+HH:MM**,
+  or **-HH:MM** offset, as in **2026-11-01T08:00:00Z** or
+  **2026-11-01T03:00:00.5-05:00**. Every field must be in range: no leap second,
+  no hour 24, and offsets up to 23:59. A file without it uses its modification
+  time.
+- Every Dex SDK truncates the generation time to whole milliseconds, including
+  the time of an in-memory document.
+
+Use **flow_definitions** when the application renders its graph in code. Give the same
+content the same generation time on every start.
+
+**Worker** and **AsyncWorker** upload the documents once per start, after the server protocol
+check and before opening task streams. All upload requests of one start share
+one deadline, **attribute_index_sync_timeout**, and **stop** cancels an upload in flight:
+
+- Only documents whose Flow type the Worker registers are uploaded. The others
+  are skipped and logged.
+- **source.path** is rewritten only when the top-level object has exactly one
+  **source** key, its value is an object with exactly one **path** key, and that
+  value is a string. An absolute top-level **source.path** (one that starts with **/**, a drive
+  such as **C:\\**, or **\\\\**) is replaced by a path relative to the
+  working directory, joined with **/**. The comparison is lexical: **.** and
+  **..** are resolved and symbolic links are not. A path outside the working
+  directory, or any path when the working directory is unknown, becomes its file
+  name. A relative path and the rest of the document are sent unchanged.
+- The uploader is **sdk-python/&lt;version&gt;**.
+- Created and replaced definitions are logged at INFO, unchanged ones at DEBUG, and a kept newer definition or an unknown outcome at WARNING, on the **dex._flow_definition_upload** logger.
+- A failed upload, including a server older than 0.1.26 that returns
+  **UNIMPLEMENTED**, is logged at WARNING. The Worker still starts.
+
+The Worker constructor raises **ValueError** for a missing or unreadable path,
+an explicitly listed file or an in-memory document that is not an FDG 2.x
+document, a **generatedAt** that is not strict RFC 3339 (also inside an
+in-memory document, whose caller-supplied time is still the one uploaded), an in-memory document
+whose **flow.name** differs from its Flow type, or the same Flow type in two
+documents.
+
+**upload_flow_definitions** sends documents without a Worker and returns each outcome. It sends
+at most 256 documents and 16 MiB of content per request; a larger single
+document goes alone. An outcome the SDK does not know is reported as
+**UNSPECIFIED**. Pass **force=True** to roll a definition back.

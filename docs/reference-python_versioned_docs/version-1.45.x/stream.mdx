@@ -1,0 +1,32 @@
+---
+id: stream
+title: Stream
+sidebar_label: Stream
+---
+
+# Stream
+
+This page lists the Python SDK names for [Streams](/concepts/primitives/stream).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Python SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Python API | Dex behavior |
+| --- | --- | --- |
+| Define a Stream and its byte capacity | **Stream**, with **stream_capacity_bytes** | [Capacity and trimming](/reference/server/runtime-data#stream-capacity) |
+| Declare it in the Flow | **PersistenceSchema.of**, returned from **get_persistence_schema** | [Flow definition](./flow.mdx#flow-definition) |
+| Write a message from a Step | **Stream.write** | [Write semantics](/reference/server/runtime-data#stream-write-semantics) |
+| Write text chunks in batches from a Step | **Stream.buffered_text** | [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text) |
+| Write a message from a Client | **Client.write_stream** | [Write semantics](/reference/server/runtime-data#stream-write-semantics) |
+| Read the next message | **Client.read_stream**, with the **resume_token** of the last message | [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) |
+| List retained messages, newest first | **Client.list_stream_messages** | [List messages](/reference/server/runtime-data#stream-listing) |
+
+**Stream.write** works in **wait_for**, **execute**, and the Flow timeout
+handler. An RPC handler cannot write a Stream. In a synchronous handler,
+**Stream.write** returns a **StepOutput** that the handler must yield. In an
+asynchronous handler, it enqueues the message and returns nothing.
+
+## Example {#example}
+
+Example: [examples/python/dex_examples/primitives/stream/stream_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/stream/stream_flow.py)
