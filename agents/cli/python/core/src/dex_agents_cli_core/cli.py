@@ -136,7 +136,7 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     reused ``dexcli dev`` stops during the command, the command fails with a
     short error that says so.
 
-    .. versionchanged:: 0.5.1
+    .. versionchanged:: 0.6.0
        A started ``dexcli dev`` stops when the command exits instead of
        running on.
 

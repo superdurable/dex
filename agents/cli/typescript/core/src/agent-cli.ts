@@ -125,7 +125,7 @@ export function processAgentCliIo(): AgentCliIo {
  * sessions, run `dexcli dev` yourself first. When a reused `dexcli dev` stops during the command, the command fails
  * with a short error that says so.
  *
- * Changed in 0.5.1: a started `dexcli dev` stops when the command exits instead of running on.
+ * Changed in 0.6.0: a started `dexcli dev` stops when the command exits instead of running on.
  *
  * A harness command's bin calls it and exits with its result, because open connections can keep Node running:
  *

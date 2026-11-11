@@ -163,13 +163,13 @@ Web:
   starting, it waits up to a minute.
 - When anything else answers, the command stops with exit code 1.
 
-Changed in 0.5.1: a **dexcli dev** that the command started stops when the
+Changed in 0.6.0: a **dexcli dev** that the command started stops when the
 command exits, and Dex Web stops with it. This happens on **/exit**, at the end
 of input, on the Ctrl-C that exits, on a failure, and on SIGTERM or SIGHUP. The
 command stops the whole process group of **dexcli dev**, which includes
 **dex-server-zd**. It sends SIGTERM, and SIGKILL after 20 seconds. It then
 removes **~/.dex/agents/dexcli-dev.json** and prints
-"Stopped the dexcli dev this command started." Before 0.5.1, the started
+"Stopped the dexcli dev this command started." Before 0.6.0, the started
 **dexcli dev** kept running after the command exited.
 
 A **dexcli dev** that the command reused keeps running. This includes one you
