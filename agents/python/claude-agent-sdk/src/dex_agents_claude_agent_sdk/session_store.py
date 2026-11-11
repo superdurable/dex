@@ -52,14 +52,17 @@ class TurnSegmentSessionStore(SessionStore):
                 continue
             entry_uuid = entry.get("uuid")
             # Retried mirror batches may overlap; the SDK asks stores to dedupe by uuid.
+            if isinstance(entry_uuid, str) and entry_uuid in self._known_entry_uuids:
+                continue
+            # Stripped before the uuid counts as known, so a failed upload's retry stores the entry.
+            stored_entry = (
+                dict(entry)
+                if self._image_codec is None
+                else await self._image_codec.strip_image_bytes(entry)
+            )
             if isinstance(entry_uuid, str):
-                if entry_uuid in self._known_entry_uuids:
-                    continue
                 self._known_entry_uuids.add(entry_uuid)
-            if self._image_codec is None:
-                session_entries.append(dict(entry))
-            else:
-                session_entries.append(await self._image_codec.strip_image_bytes(entry))
+            session_entries.append(stored_entry)
 
     async def load(self, key: SessionKey) -> list[SessionStoreEntry] | None:
         if key.get("subpath") or key["session_id"] != self._resumed_session_id:

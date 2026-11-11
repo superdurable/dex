@@ -311,7 +311,7 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
 - A store read failure fails the `RunModel` attempt, which retries. An image the store refuses, or base64 that would
   not restore to the same text, fails the attempt too, rather than storing bytes.
 - The CLI also writes each image to a local file and adds a `[Image: source: <path>]` text after it. That text
-  replays as stored; the file is not needed on another Worker.
+  replays as stored.
 - A runner without a store fails a turn whose stored history holds image references.
 
 ## How a turn runs

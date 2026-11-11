@@ -321,8 +321,7 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
   the store refuses, or base64 that would not restore to the same text,
   fails the attempt too, rather than storing bytes.
 - The CLI also writes each image to a local file and adds a
-  `[Image: source: <path>]` text after it. That text replays as stored; the
-  file is not needed on another Worker.
+  `[Image: source: <path>]` text after it. That text replays as stored.
 - A runner without a store fails a turn whose stored history holds image
   references.
 

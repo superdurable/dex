@@ -52,17 +52,18 @@ export class TurnSegmentSessionStore implements SessionStore {
         continue;
       }
       // Retried mirror batches may overlap; the SDK asks stores to deduplicate by uuid.
-      if (typeof entry.uuid === "string") {
-        if (this.knownEntryUuids.has(entry.uuid)) {
-          continue;
-        }
-        this.knownEntryUuids.add(entry.uuid);
+      if (typeof entry.uuid === "string" && this.knownEntryUuids.has(entry.uuid)) {
+        continue;
       }
-      sessionEntries.push(
+      // Stripped before the uuid counts as known, so a failed upload's retry stores the entry.
+      const storedEntry =
         this.imageCodec === undefined
           ? { ...entry }
-          : ((await this.imageCodec.stripImageBytes(entry)) as ClaudeTranscriptEntry),
-      );
+          : ((await this.imageCodec.stripImageBytes(entry)) as ClaudeTranscriptEntry);
+      if (typeof entry.uuid === "string") {
+        this.knownEntryUuids.add(entry.uuid);
+      }
+      sessionEntries.push(storedEntry);
     }
   }
 
