@@ -6,17 +6,25 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { AgentUsage } from "../agent-session-values.js";
+import type { AgentImageReference, AgentUsage } from "../agent-session-values.js";
 
 /**
  * User text in a model input, stored for a user message and for Dex notes such as the turn-failure note.
- * Wire shape: `{"type":"user_text","text"}`.
+ * Wire shape: `{"type":"user_text","text"}`, plus `"images"` when the message has images.
  */
 export interface ModelUserTextItem {
   /** Discriminator. Wire field: `type`. */
   readonly type: "user_text";
   /** The text. Wire field: `text`. */
   readonly text: string;
+  /**
+   * The images of a user message, after the text, in order. The item holds references only; the request's
+   * {@link ModelRequest.imageBytes} holds their bytes. Omitted or empty for a message without images and for every
+   * note Dex adds. Wire field: `images`, a list of snake_case image references, written only when non-empty.
+   *
+   * @since 0.5.0
+   */
+  readonly images?: readonly AgentImageReference[];
 }
 
 /** One tool call of a model response, in provider-neutral form. */
@@ -56,7 +64,8 @@ export interface ModelOutputItem {
 
 /**
  * The result of one tool call in a model input, in provider-neutral form.
- * Wire shape: `{"type":"tool_result","tool_call_id","tool_name","output"}`.
+ * Wire shape: `{"type":"tool_result","tool_call_id","tool_name","output"}`, plus `"images"` when the tool returned
+ * images.
  */
 export interface ModelToolResultItem {
   /** Discriminator. Wire field: `type`. */
@@ -67,6 +76,14 @@ export interface ModelToolResultItem {
   readonly toolName: string;
   /** Model-visible result text, from `describeToolCallOutcome`. Wire field: `output`. */
   readonly output: string;
+  /**
+   * The images the tool returned with {@link output}, from `AgentToolCall.images`, in order. The item holds
+   * references only; the request's {@link ModelRequest.imageBytes} holds their bytes. Wire field: `images`, written
+   * only when non-empty.
+   *
+   * @since 0.5.0
+   */
+  readonly images?: readonly AgentImageReference[];
 }
 
 /**
@@ -131,6 +148,14 @@ export interface ModelRequest {
   readonly metadata: ModelRequestMetadata;
   /** Signal aborted when Dex cancels the attempt; pass it to the provider request. */
   readonly cancellationSignal: AbortSignal;
+  /**
+   * The bytes of every image of {@link inputItems}, keyed by `AgentImageReference.sha256`. The runner reads them
+   * from its media store right before `callModel`, so a client never reads a store. Omitted when the input has no
+   * images, and in the requests passed to `estimateInputTokens`, which count each image without its bytes.
+   *
+   * @since 0.5.0
+   */
+  readonly imageBytes?: ReadonlyMap<string, Uint8Array>;
 }
 
 /** Result of one model call. */
@@ -177,6 +202,10 @@ export interface ModelOutputWriter {
  *   thinking signatures or encrypted reasoning, from display text.
  * - Dex-authored items, {@link ModelUserTextItem} and {@link ModelToolResultItem}, are converted at call
  *   time. An item from another provider or API is replayed as its text and tool calls.
+ * - Images. A user text or tool result item may carry `images`. A client that sends images converts each one to
+ *   the provider's image part, with its bytes from {@link ModelRequest.imageBytes}, and throws when they are
+ *   missing. A client that ignores `images` shows the model the text only. The runner sends images only when it
+ *   has a media store; see `BuiltinLoopAgentRunner`.
  *
  * @example
  * ```ts

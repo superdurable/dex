@@ -37,9 +37,11 @@ import {
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
 } from "../agent-framework-runner.js";
+import { loadImages, type MediaStore } from "../agent-media.js";
 import { buildPlanNote } from "../agent-plans.js";
 import {
   describeToolCallOutcome,
+  type AgentImageReference,
   type AgentToolCall,
   type FrameworkMessage,
   type SessionSettings,
@@ -108,6 +110,14 @@ const discardedModelOutput: ModelOutputWriter = {
  * tasks. Its {@link cancelToolTask} passes a task that `cancel_turn` abandoned to that source's optional
  * `cancelToolTask`.
  *
+ * With a media store, the runner shows images to the model. It has {@link buildUserMessageWithImages}, so
+ * `send_user_message` accepts images: the stored `user_text` item keeps their references after the text. A tool
+ * result item keeps the references of `AgentToolCall.images`. Before each model call, the runner reads the bytes of
+ * every image in the request with `loadImages` and passes them in `ModelRequest.imageBytes`; the model client
+ * converts each image to the provider's image part. A failed read fails that `RunModel` attempt, which retries. The
+ * model call that writes a context summary sees the text of the items only. Without a store the session refuses
+ * user images, and a tool result's images are stored but not shown to the model.
+ *
  * @example
  * ```ts
  * const runner = new BuiltinLoopAgentRunner(definition);
@@ -123,20 +133,42 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
   public readonly definition: AgentDefinition;
   /** The runner honors {@link AgentTurnContext.interactionMode}, so plan mode can be enabled. */
   public readonly supportsPlanMode = true;
+  /**
+   * Stores user text and its images as one `user_text` item that holds the references, not the bytes.
+   *
+   * It is present only when the runner has a media store, so a session without one refuses images. Each model call
+   * reads the bytes from the store and the model client sends every image after the text, in reference order.
+   *
+   * @param text - The user message text.
+   * @param images - The message's images, uploaded to the runner's media store.
+   * @returns The `user` message the session stores as the turn's first message.
+   * @since 0.5.0
+   */
+  public readonly buildUserMessageWithImages?: (
+    text: string,
+    images: readonly AgentImageReference[],
+  ) => FrameworkMessage;
   private readonly functionToolsByName: ReadonlyMap<string, FunctionTool>;
   private readonly toolSources: ToolSourceRouter;
   private readonly maxModelCallsPerTurn: number;
+  private readonly mediaStore: MediaStore | undefined;
 
   /**
    * Creates the runner and checks the definition.
    * @param definition - The agent definition.
+   * @param mediaStore - The store that holds the session's images, such as `S3MediaStore`. With it, the runner
+   * accepts user messages with images and shows them and tool result images to the model, reading the bytes for
+   * each model call; stored messages hold only references. Use the store the clients and tools upload to. Omit it
+   * to refuse user images and show tool result images to the model as text only. Since 0.5.0.
+   *
+   * Changed in 0.5.0: takes `mediaStore`.
    * @throws {TypeError} When the name, instructions, model, or tools are invalid, two tools share a
    * name, a function tool uses the name of an enabled built-in tool, `planModeEnabled` is set without
    * `write_todos`, `planningToolChoice` is neither `auto` nor `required`, or a tool source lacks a
    * {@link ToolSource} method.
    * @throws {RangeError} When `maxModelCallsPerTurn` is not a positive integer.
    */
-  public constructor(definition: AgentDefinition) {
+  public constructor(definition: AgentDefinition, mediaStore: MediaStore | undefined = undefined) {
     if (typeof definition?.name !== "string" || definition.name.trim() === "") {
       throw new TypeError("AgentDefinition.name must be a non-blank string");
     }
@@ -189,6 +221,12 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     this.functionToolsByName = functionToolsByName;
     this.toolSources = toolSources;
     this.maxModelCallsPerTurn = maxModelCallsPerTurn;
+    this.mediaStore = mediaStore;
+    if (mediaStore !== undefined) {
+      // The session accepts images only from a runner with this method.
+      this.buildUserMessageWithImages = (text, images) =>
+        toBuiltinLoopFrameworkMessage({ type: "user_text", text, images: [...images] });
+    }
   }
 
   /**
@@ -208,7 +246,8 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
    * @throws {TypeError} When a function tool uses the name of an enabled built-in tool, or a tool source lists a
    * name that repeats a function tool, an enabled built-in tool, or another source's tool. No model request is
    * made.
-   * @throws Any error of the model call or of a tool source's `listTools`, which retries the `RunModel` attempt.
+   * @throws Any error of the model call, of the media store, or of a tool source's `listTools`, which retries the
+   * `RunModel` attempt.
    */
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     this.requireNoBuiltInToolNameClash(turn);
@@ -226,7 +265,10 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
       isToolBudgetSpent,
       sourceTools,
     );
-    const response = await this.resolveModel(turn.sessionSettings).callModel(request, turn.events);
+    const response = await this.resolveModel(turn.sessionSettings).callModel(
+      await this.addImageBytes(request),
+      turn.events,
+    );
     requireModelResponse(response);
     const usage = { ...response.usage, modelCalls: 1 };
     const newMessages = [...unstoredToolResults, ...response.outputItems].map(toBuiltinLoopFrameworkMessage);
@@ -389,7 +431,7 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
       isToolBudgetSpent,
       this.toolSources.readCachedSourceTools(),
     );
-    return this.resolveModel(turn.sessionSettings).estimateInputTokens(request);
+    return this.resolveModel(turn.sessionSettings).estimateInputTokens(this.keepShownImagesOnly(request));
   }
 
   /**
@@ -451,7 +493,11 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     if (budget !== undefined) {
       // Estimate by parts, then leave out the oldest items up to the first cut that fits.
       const itemTokens = rangeItems.map((item) =>
-        model.estimateInputTokens({ ...this.buildSummaryRequest(request, [], 0), instructions: "", inputItems: [item] }),
+        model.estimateInputTokens({
+          ...this.buildSummaryRequest(request, [], 0),
+          instructions: "",
+          inputItems: stripImages([item]),
+        }),
       );
       let tokens =
         model.estimateInputTokens(this.buildSummaryRequest(request, [], rangeItems.length)) +
@@ -488,7 +534,8 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     if (omittedCount > 0) {
       items.push({ type: "user_text", text: buildContextSummaryOmissionNote(omittedCount) });
     }
-    items.push(...rangeItems, { type: "user_text", text: contextSummaryRequest });
+    // The summary call reads no image bytes, so it sees each item's text only.
+    items.push(...stripImages(rangeItems), { type: "user_text", text: contextSummaryRequest });
     return {
       instructions: contextSummaryInstructions,
       inputItems: pairToolCallsWithResults(items),
@@ -541,13 +588,32 @@ export class BuiltinLoopAgentRunner implements AgentFrameworkRunner<DeferredTool
     }
     return this.resolveModel(turn.sessionSettings).estimateInputTokens({
       instructions: "",
-      inputItems: items,
+      inputItems: this.mediaStore === undefined ? stripImages(items) : items,
       tools: [],
       toolChoice: "none",
       settings: this.definition.modelSettings ?? {},
       metadata: modelRequestMetadata(turn),
       cancellationSignal: turn.cancellationSignal,
     });
+  }
+
+  /** Returns the request with the bytes of its images, read from the store right now. */
+  private async addImageBytes(request: ModelRequest): Promise<ModelRequest> {
+    if (this.mediaStore === undefined) {
+      return this.keepShownImagesOnly(request);
+    }
+    const references = request.inputItems.flatMap((item) =>
+      item.type === "model_output" ? [] : (item.images ?? []),
+    );
+    if (references.length === 0) {
+      return request;
+    }
+    return { ...request, imageBytes: await loadImages(this.mediaStore, references) };
+  }
+
+  private keepShownImagesOnly(request: ModelRequest): ModelRequest {
+    // Without a store the model sees no image, such as a tool source's.
+    return this.mediaStore === undefined ? { ...request, inputItems: stripImages(request.inputItems) } : request;
   }
 
   /** A built-in enabled only in the session options must not share a function tool's name. */
@@ -686,7 +752,18 @@ function buildUnstoredToolResults(turn: AgentTurnContext): ModelToolResultItem[]
       toolCallId: record.toolCallId,
       toolName: record.toolName,
       output: describeToolCallOutcome(record),
+      ...((record.images ?? []).length === 0 ? {} : { images: record.images }),
     }));
+}
+
+function stripImages(items: readonly ModelInputItem[]): ModelInputItem[] {
+  return items.map((item): ModelInputItem => {
+    if (item.type === "model_output" || (item.images ?? []).length === 0) {
+      return item;
+    }
+    const { images: _images, ...withoutImages } = item;
+    return withoutImages;
+  });
 }
 
 function prepareToolArguments(

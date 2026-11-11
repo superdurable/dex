@@ -767,9 +767,13 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   `MediaStoreError`. Reads check the file's size first, read at most one byte past `size_bytes`, and run
   `verify_image_bytes`. It needs a POSIX file system. Deleting a session
   deletes no file.
-- **Built-in runners.** In this release no built-in runner shows images to a
-  model: the built-in loop and the framework adapters do not implement
-  `ImageUserMessageBuilder`, so their sessions refuse images.
+- **Built-in runners.** The built-in loop shows images to its model when
+  built with a media store, `builtin_agent_session_flow(definition,
+  flow_type=..., media_store=store)` or `BuiltinLoopAgentRunner(definition,
+  media_store=store)`; see [Images on the built-in loop](#images-on-the-built-in-loop).
+  Without a store it has no `build_user_message_with_images`, so its
+  sessions refuse images. The framework adapters do not implement
+  `ImageUserMessageBuilder` in this release, so their sessions refuse images.
 - **Retention.** Deleting a session deletes no object. A runner reads the
   images again whenever a model call replays them, so a bucket lifecycle rule
   must keep each object at least as long as any session that references it
@@ -779,6 +783,54 @@ return ToolExecutionResult(output="Took a screenshot.", images=[reference])
   image fail the same way.
 - Send images only after every Worker of the Flow type runs 0.5.0: an earlier
   Worker drops them.
+
+### Images on the built-in loop
+
+```python
+store = S3MediaStore("agent-media", "sessions")
+flow = builtin_agent_session_flow(support_agent, flow_type="SupportAgent", media_store=store)
+```
+
+- **Stored items.** The `user_text` item of a message with images, and the
+  `tool_result` item of a call whose record has images, add an `images` list
+  of references after their other fields:
+  `{"type":"user_text","text":"...","images":[{"type":"image","uri":"...","mime_type":"image/png","sha256":"...","size_bytes":48213}]}`.
+  An item without images has no `images` key, so its bytes are unchanged.
+  The tool result message also shows the references in `images`. Session
+  state never holds image bytes.
+- **Model calls.** `UserTextItem.images` and `ToolResultItem.images` carry the
+  references into the `ModelRequest`. Right before each model call, the
+  runner reads the bytes of every image in the request with `load_images`
+  and passes them in `ModelRequest.image_bytes`, keyed by SHA-256. A retried
+  `RunModel` attempt, or one on a new Worker after a crash, builds the same
+  request from the same references and bytes. A store read that fails fails
+  that attempt, which retries; after the last attempt the turn records the
+  error in `last_turn_error`.
+- **Summaries and estimates.** The model call that writes a context summary
+  sees the text of the summarized items, without their images.
+  `estimate_input_tokens` gets requests without image bytes; the LiteLLM
+  client counts `ESTIMATED_IMAGE_INPUT_TOKENS` (1600) for each image.
+- **Without a store.** A tool result's references are still stored for
+  display, but the model sees only the text.
+- **LiteLLM.** `LiteLLMModelClient` sends each image after the item's text as
+  a base64 `data:` URL. On the Responses API, a user message's `content` and
+  a `function_call_output`'s `output` are an `input_text` part and one
+  `input_image` part per image, with `detail` `"auto"`. On Chat Completions, a
+  user message's `content` is a `text` part and one `image_url` part per
+  image. For Anthropic, Bedrock, Gemini, and Vertex AI, whose LiteLLM
+  conversion keeps images in a tool result, a tool message's `content` is the
+  same list of parts. Every other provider, such as OpenAI Chat Completions,
+  takes only text in a tool message: the tool message keeps the text, and
+  after the last tool message of that run follows one user message per tool
+  result with images, holding `TOOL_RESULT_IMAGES_TEXT` (`The <tool_name> tool
+  call <tool_call_id> returned these images.`) and then the image parts.
+- **Your own model client.** Convert each reference in `images` to the
+  provider's image part with its bytes from `ModelRequest.image_bytes`, and
+  raise when they are missing. A client that ignores `images` shows the
+  model the text only.
+- **Which tools return images.** A tool source's
+  `ToolExecutionResult.images`, such as an MCP tool's image content. A
+  function tool returns text only.
 
 ## The runner contract
 
@@ -2266,8 +2318,9 @@ The plan records each of these decisions too.
   wrong `readOnlyHint` on a write makes that write run without approval and
   retry; set `trusts_tool_annotations=False` or a `ToolPolicy` for servers you
   do not control.
-- Images: no built-in runner sends images to a model yet, and the media
-  stores keep no local read cache, so each `load_images` reads the store.
+- Images: the framework adapters send no images to a model yet, a function
+  tool of the built-in loop cannot return images, and the media stores keep
+  no local read cache, so each `load_images` reads the store.
 - Tracing covers the session's Steps only. The Dex SDK emits no spans, so Dex
   Server and Worker internals do not appear in the traces.
 - The adapters report only the model information their framework exposes, so
