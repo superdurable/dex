@@ -20,4 +20,8 @@ slug: /correctness-and-expressiveness
 
 ## 正确性 {#correctness}
 
-[Step 的保证](/concepts/step#guarantees)说明 Step 方法失败或重复运行时 Dex 的承诺。第二个证明将说明崩溃、重试和消息重投不会改变 Flow 的行为，进展见 [issue 1514](https://github.com/superdurable/dex/issues/1514)。
+[Step 的保证](/concepts/step#guarantees)说明 Step 方法失败或重复运行时 Dex 的承诺。
+
+[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)覆盖 server 崩溃、备用 server 接管、重试、Dex 放弃后仍在运行的 Worker，以及重复的结果。这些故障只会带来重复的外部副作用：去掉它们，剩下的就是这个 Flow 在没有故障时能产生的事件序列。对公平的运行，结局也不变。证明的页面列出了它的条件，例如只覆盖 **SYNC** 方法、重试不会用完。这个证明同样经计算机检查，完整论证见同一篇[论文](/papers/dex-expressiveness.pdf)。
+
+两个证明合起来，覆盖那门小型并发语言中每个格式良好的程序。这样的程序在 Dex 上产生的是一次无故障运行的事件，只是外部副作用可能重复，重复也可能来得很晚。[这对你的代码意味着什么](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)说明怎样让重复变得安全。
