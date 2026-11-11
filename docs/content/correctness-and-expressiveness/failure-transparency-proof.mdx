@@ -74,7 +74,8 @@ run a Step method's external calls again. An older attempt can make a call
 late, after a newer attempt made the same call. The proof does not prevent
 these repeats.
 
-A common way is an idempotency key that the external system deduplicates on.
+A common way to do this is an idempotency key that the external system
+deduplicates on.
 Build it from the Flow run, the Step execution, the method, and the effect.
 The [Step guarantees](/concepts/step#guarantees) say more about keys.
 
