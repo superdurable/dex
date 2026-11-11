@@ -351,7 +351,7 @@ class AgentCliCommand {
       ...connection,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
     });
-    // As in the Python CLI core, library warnings such as a lost Worker stream go to the log file, not the chat.
+    // Like the Python CLI core, send library warnings, such as a lost Worker stream, to the log file.
     mkdirSync(this.environment.agentsDirectory, { recursive: true });
     this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath());
     await this.worker.start();

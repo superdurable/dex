@@ -39,10 +39,7 @@ import {
 const cliEntryPath = fileURLToPath(new URL("./scripted-harness-cli.js", import.meta.url));
 const defaultWaitMs = 90_000;
 
-/**
- * Runs a command on a pseudo-terminal of 50 rows and 400 columns and copies bytes both ways, because Node has no
- * pseudo-terminal of its own. SIGTERM and SIGHUP go on to the command; its exit status becomes the bridge's.
- */
+/** Runs a command on a 50x400 pseudo-terminal, which Node lacks, forwarding bytes, SIGTERM, SIGHUP, and its exit status. */
 const terminalBridgeScript = `
 import fcntl, os, pty, select, signal, struct, sys, termios
 pid, fd = pty.fork()
@@ -149,8 +146,7 @@ export class CliProcess {
   }
 
   /**
-   * Starts the scripted harness command on a pseudo-terminal, as a person at a terminal runs it. Its stdout holds
-   * everything the terminal shows, stderr included.
+   * Starts the command on a pseudo-terminal; stdout then holds all terminal output, stderr included.
    * @param home - The test home.
    * @param commandArguments - Arguments after the command name.
    * @returns The process.

@@ -98,10 +98,7 @@ export async function resolveDexServer(
   return resolveDexServerForCommand(server, environment, log, undefined);
 }
 
-/**
- * Returns the Dex server of `dex.server`, as {@link resolveDexServer} does. A `dexcli dev` it starts belongs to
- * `startedDexcliDev`, which stops it when the command exits.
- */
+/** Resolves `dex.server` as {@link resolveDexServer} does; `startedDexcliDev` owns a `dexcli dev` it starts. */
 export async function resolveDexServerForCommand(
   server: string,
   environment: CliEnvironment,
@@ -162,10 +159,7 @@ export function readStartedDexcliDev(environment: CliEnvironment): StartedDexcli
   }
 }
 
-/**
- * The `dexcli dev` that one command started, from its spawn on. Stopping it ends its process group, which holds
- * dex-server-zd too, and removes its record. A `dexcli dev` the command reused never belongs to it.
- */
+/** The `dexcli dev` one command spawned; stopping it ends its process group and removes its record. */
 export class StartedDexcliDevProcess {
   private child: ChildProcess | undefined;
   private exited: Promise<void> = Promise.resolve();
@@ -173,9 +167,9 @@ export class StartedDexcliDevProcess {
   private readonly signalListeners = new Map<NodeJS.Signals, () => void>();
 
   /**
-   * Creates the owner of no process yet.
-   * @param environment - The command's environment settings, which locate the record.
-   * @param log - Writes the line that says the server stopped.
+   * Owns no process yet.
+   * @param environment - Locates the record.
+   * @param log - Writes the stopped line.
    */
   public constructor(
     private readonly environment: CliEnvironment,
@@ -183,9 +177,8 @@ export class StartedDexcliDevProcess {
   ) {}
 
   /**
-   * Takes ownership of a spawned `dexcli dev`. Until the command stops it, SIGTERM, SIGHUP, and SIGINT stop it
-   * and exit the command.
-   * @param child - The spawned process, the leader of its own process group.
+   * Owns a spawned `dexcli dev`; until it stops, SIGTERM, SIGHUP, and SIGINT stop it and exit.
+   * @param child - The spawned group leader.
    */
   public track(child: ChildProcess): void {
     this.child = child;
@@ -209,9 +202,8 @@ export class StartedDexcliDevProcess {
   }
 
   /**
-   * Stops the process group, SIGTERM first and SIGKILL after a grace period, and removes the record. It does
-   * nothing when the command started no `dexcli dev`, and stops it only once.
-   * @returns A Promise that resolves after the group exited.
+   * Stops the group once, SIGTERM then SIGKILL, and removes the record.
+   * @returns A Promise that resolves after the group exited, at once when nothing was started.
    */
   public stop(): Promise<void> {
     this.stopping ??= this.doStop();
@@ -222,14 +214,20 @@ export class StartedDexcliDevProcess {
     for (const signal of [...this.signalListeners.keys()]) {
       this.removeSignalListener(signal);
     }
-    const pid = this.child?.pid;
-    if (pid === undefined) {
+    const child = this.child;
+    const pid = child?.pid;
+    if (child === undefined || pid === undefined) {
       return;
     }
-    signalProcessGroup(pid, "SIGTERM");
+    const hasLeaderExited = child.exitCode !== null || child.signalCode !== null;
     if (readStartedDexcliDev(this.environment)?.pid === pid) {
       rmSync(startedRecordPath(this.environment), { force: true });
     }
+    // An exited, reaped group's ID may belong to another process group by now.
+    if (hasLeaderExited && !isProcessGroupAlive(pid)) {
+      return;
+    }
+    signalProcessGroup(pid, "SIGTERM");
     if (!(await waitForProcessGroupExit(pid, this.exited, stopGracePeriodMs))) {
       signalProcessGroup(pid, "SIGKILL");
       await waitForProcessGroupExit(pid, this.exited, killWaitMs);
@@ -260,11 +258,9 @@ export class StartedDexcliDevProcess {
 }
 
 /**
- * Returns the short error for a reused `dexcli dev` that stopped during the command, or `undefined` while it still
- * answers.
- *
+ * Describes a reused `dexcli dev` that stopped.
  * @param webUrl - Its Dex Web URL.
- * @returns The error text.
+ * @returns The short error text, or `undefined` while it still answers.
  */
 export async function describeLostDexcliDev(webUrl: string): Promise<string | undefined> {
   if ((await probeReadiness(webUrl)).state !== "absent") {
@@ -440,11 +436,25 @@ async function probeDexFlowService(serverAddress: string): Promise<string | unde
   }
 }
 
+/** Returns the `process.kill` target of a group leader's group; Windows has no process groups. */
+function processGroupTarget(pid: number): number {
+  return process.platform === "win32" ? pid : -pid;
+}
+
 function signalProcessGroup(pid: number, signal: NodeJS.Signals): void {
   try {
-    process.kill(-pid, signal);
+    process.kill(processGroupTarget(pid), signal);
   } catch {
     // The group already exited.
+  }
+}
+
+function isProcessGroupAlive(pid: number): boolean {
+  try {
+    process.kill(processGroupTarget(pid), 0);
+    return true;
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
 
@@ -460,12 +470,8 @@ async function waitForProcessGroupExit(pid: number, leaderExited: Promise<void>,
     return false;
   }
   while (Date.now() < deadline) {
-    try {
-      process.kill(-pid, 0);
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") {
-        return true;
-      }
+    if (!isProcessGroupAlive(pid)) {
+      return true;
     }
     await delay(pollIntervalMs);
   }

@@ -86,12 +86,7 @@ class DexServerEndpoint:
 
 
 class StartedDexcliDevProcess:
-    """The ``dexcli dev`` that one command started, from its spawn on.
-
-    Stopping it ends its process group, which holds ``dex-server-zd`` too,
-    and removes its record. A ``dexcli dev`` the command reused never
-    belongs to it.
-    """
+    """The ``dexcli dev`` one command spawned; stopping it ends its process group."""
 
     def __init__(self, environment: CommandEnvironment) -> None:
         """Own no process yet.
@@ -111,22 +106,22 @@ class StartedDexcliDevProcess:
         self._process = process
 
     def stop(self, report: Callable[[str], None]) -> None:
-        """Stop the process group and remove the record; do nothing without a process.
-
-        It sends SIGTERM, and SIGKILL after a grace period. Calling it again
-        does nothing.
+        """Stop the process group once, SIGTERM then SIGKILL, and remove the record.
 
         Args:
-            report: Prints the line that says the server stopped.
+            report: Prints the stopped line.
         """
         process, self._process = self._process, None
         if process is None:
+            return
+        _remove_record_of(self._environment, process.pid)
+        # An exited, reaped group's ID may belong to another process group by now.
+        if process.poll() is not None and not _is_process_group_alive(process.pid):
             return
         _signal_process_group(process.pid, signal.SIGTERM)
         if not _wait_for_process_group_exit(process, _STOP_GRACE_SECONDS):
             _signal_process_group(process.pid, signal.SIGKILL)
             _wait_for_process_group_exit(process, _KILL_WAIT_SECONDS)
-        _remove_record_of(self._environment, process.pid)
         # After SIGHUP the terminal may be gone; the server is stopped either way.
         with contextlib.suppress(OSError, ValueError):
             report(_STOPPED_LINE)
@@ -425,14 +420,20 @@ def _wait_for_process_group_exit(process: subprocess.Popen[bytes], timeout: floa
     except subprocess.TimeoutExpired:
         return False
     while time.monotonic() < deadline:
-        try:
-            os.killpg(process.pid, 0)
-        except ProcessLookupError:
+        if not _is_process_group_alive(process.pid):
             return True
-        except PermissionError:
-            pass  # A member still runs, under another user.
         time.sleep(_POLL_INTERVAL_SECONDS)
     return False
+
+
+def _is_process_group_alive(pid: int) -> bool:
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # A member still runs, under another user.
+    return True
 
 
 def _remove_record_of(environment: CommandEnvironment, pid: int) -> None:
