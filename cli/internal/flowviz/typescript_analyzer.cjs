@@ -654,7 +654,14 @@ class TypeScriptAnalyzer {
     if (this.ts.isSpreadElement(argument)) {
       const spread = this.unwrap(argument.expression);
       if (this.ts.isArrayLiteralExpression(spread)) return spread.elements.flatMap(element => this.movementArgument(element,locals));
-      if (this.ts.isIdentifier(spread)) return (locals.get(spread.text) || []).map(movement => movement.isJoinFork ? movement : {...movement,multiplicity:movement.multiplicity || "×N"});
+      if (this.ts.isIdentifier(spread)) {
+        const listed = this.ts.isCallExpression(argument.parent) ? this.localListMovements(argument.parent,spread,element => this.listElementMovements(element)) : undefined;
+        if (listed) {
+          if (!listed.movements) this.dynamicTarget("fan-out movements must be built directly in the handler",argument);
+          return listed.movements || [];
+        }
+        return (locals.get(spread.text) || []).map(movement => movement.isJoinFork ? movement : {...movement,multiplicity:movement.multiplicity || "×N"});
+      }
       if (this.isJoinMethodCall(spread,["fork","forkWithRoundKey"])) return this.joinForkMovements(spread);
       return this.callbackMovements(spread);
     }
@@ -662,6 +669,11 @@ class TypeScriptAnalyzer {
     if (movement) return [movement];
     const value = this.unwrap(argument);
     return value && this.ts.isIdentifier(value) ? locals.get(value.text) || [] : [];
+  }
+
+  listElementMovements(element) {
+    const movement = this.parseMovement(element);
+    return movement ? [movement] : [];
   }
 
   parseMovement(expression) {
@@ -689,9 +701,9 @@ class TypeScriptAnalyzer {
     const builders = this.unwrap(branchBuilders);
     const dynamicMessage = "Join branch builders must build their movements directly in the handler";
     if (builders && this.ts.isIdentifier(builders)) {
-      const movements = this.localBuilderListMovements(call,builders);
-      if (!movements) this.dynamicTarget(dynamicMessage,branchBuilders);
-      return movements || [];
+      const listed = this.localListMovements(call,builders,builder => this.builderMovements(builder));
+      if (!listed?.movements) this.dynamicTarget(dynamicMessage,branchBuilders);
+      return listed?.movements || [];
     }
     const movements = [];
     if (builders && this.ts.isArrayLiteralExpression(builders)) {
@@ -703,74 +715,76 @@ class TypeScriptAnalyzer {
     return movements;
   }
 
-  // Returns undefined when the list's contents at the fork cannot be determined statically.
-  localBuilderListMovements(call,listIdentifier) {
+  // Reads a local list's movements as they stand at `use`.
+  // Returns undefined when the list is not a local array, or {movements: undefined} when its contents are undetermined.
+  localListMovements(use,listIdentifier,movementsOfElement) {
     const declaration = this.localBindingDeclaration(listIdentifier);
     if (!declaration || !this.ts.isVariableDeclaration(declaration) || !declaration.initializer) return undefined;
     const initializer = this.unwrap(declaration.initializer);
-    if (this.ts.isCallExpression(initializer)) {
-      const mapped = this.callbackMovements(initializer);
-      return mapped.length && this.isOnlyReadAt(declaration,listIdentifier) ? mapped : undefined;
+    let movements;
+    if (this.ts.isArrayLiteralExpression(initializer)) {
+      movements = initializer.elements.flatMap(element => movementsOfElement(element));
+    } else if (this.ts.isCallExpression(initializer) && !this.isJoinMethodCall(initializer,["fork","forkWithRoundKey"])) {
+      movements = this.callbackMovements(initializer);
+      if (!movements.length) return {movements:undefined};
+    } else {
+      return undefined;
     }
-    if (!this.ts.isArrayLiteralExpression(initializer)) return undefined;
-    const movements = [];
-    for (const builder of initializer.elements) movements.push(...this.builderMovements(builder));
-    const pushed = this.pushedBuilderMovements(call,listIdentifier,declaration);
-    return pushed && [...movements,...pushed];
-  }
-
-  // Counts pushes on the same binding that run before the fork on its path; undefined if unknown.
-  pushedBuilderMovements(call,listIdentifier,declaration) {
-    const movements = [];
     let isDetermined = true;
     this.walk(this.declaringScope(declaration),node => {
-      if (!isDetermined || !this.ts.isIdentifier(node) || node === listIdentifier || node.text !== listIdentifier.text) return;
-      if (node === declaration.name || this.localBindingDeclaration(node) !== declaration) return;
-      const access = node.parent;
-      const push = access && this.ts.isPropertyAccessExpression(access) && access.expression === node && access.name.text === "push" && this.ts.isCallExpression(access.parent) && access.parent.expression === access ? access.parent : undefined;
-      if (!push) {
-        const isLengthRead = access && this.ts.isPropertyAccessExpression(access) && access.expression === node && access.name.text === "length";
-        const isOtherForkArgument = access && this.isJoinMethodCall(access,["fork","forkWithRoundKey"]) && access.arguments[1] === node;
-        if (!isLengthRead && !isOtherForkArgument) isDetermined = false;
-        return;
-      }
-      if (push.pos >= call.pos) return;
-      const placement = this.pushPlacement(push,call);
+      if (!isDetermined || !this.ts.isIdentifier(node) || node === listIdentifier || node === declaration.name || node.text !== listIdentifier.text) return;
+      if (this.localBindingDeclaration(node) !== declaration || this.isListRead(node) || node.pos >= use.pos) return;
+      const push = this.pushOnList(node);
+      const placement = this.placementBefore(push || node,use);
       if (placement === "unreachable") return;
-      if (placement === "unknown") { isDetermined = false; return; }
-      for (const builder of push.arguments) {
-        const pushedMovements = this.builderMovements(builder);
-        movements.push(...(placement === "repeated" ? pushedMovements.map(movement => ({...movement,multiplicity:"×N"})) : pushedMovements));
+      if (!push || placement === "unknown") { isDetermined = false; return; }
+      for (const argument of push.arguments) {
+        const pushed = movementsOfElement(argument);
+        movements.push(...(placement === "repeated" ? pushed.map(movement => ({...movement,multiplicity:"×N"})) : pushed));
       }
     });
-    return isDetermined ? movements : undefined;
+    return {movements:isDetermined ? movements : undefined};
   }
 
-  // Classifies a push relative to the fork: "once", "repeated", "unreachable", or "unknown".
-  pushPlacement(push,call) {
-    const callAncestors = new Set();
-    for (let node = call; node; node = node.parent) callAncestors.add(node);
+  pushOnList(identifier) {
+    const access = identifier.parent;
+    if (!access || !this.ts.isPropertyAccessExpression(access) || access.expression !== identifier || access.name.text !== "push") return undefined;
+    return this.ts.isCallExpression(access.parent) && access.parent.expression === access ? access.parent : undefined;
+  }
+
+  // Reads leave a list unchanged: its length, a spread into goToMany, or a Join fork argument.
+  isListRead(identifier) {
+    const parent = identifier.parent;
+    if (this.ts.isPropertyAccessExpression(parent) && parent.expression === identifier && parent.name.text === "length") return true;
+    if (this.ts.isSpreadElement(parent) && this.ts.isCallExpression(parent.parent) && this.dexName(parent.parent.expression) === "goToMany") return true;
+    return this.isJoinMethodCall(parent,["fork","forkWithRoundKey"]) && parent.arguments[1] === identifier;
+  }
+
+  // Classifies a list change relative to its use: "once", "repeated", "unreachable", or "unknown".
+  placementBefore(change,use) {
+    const useAncestors = new Set();
+    for (let node = use; node; node = node.parent) useAncestors.add(node);
     let placement = "once";
-    let child = push;
-    for (let node = push.parent; node; child = node, node = node.parent) {
-      if (callAncestors.has(node)) {
+    let child = change;
+    for (let node = change.parent; node; child = node, node = node.parent) {
+      if (useAncestors.has(node)) {
         const isExclusiveBranch = this.ts.isIfStatement(node) || this.ts.isConditionalExpression(node) || this.ts.isCaseBlock(node);
         if (isExclusiveBranch && child !== node.expression && child !== node.condition) return "unreachable";
         return placement;
       }
       if (this.ts.isIterationStatement(node,false) && child === node.statement) placement = "repeated";
-      else if ((this.ts.isArrowFunction(node) || this.ts.isFunctionExpression(node)) && this.ts.isCallExpression(node.parent) && node.parent.arguments.includes(node)) placement = "repeated";
+      else if (this.isIterationCallback(node)) placement = "repeated";
       else if (this.ts.isFunctionLike(node) || this.ts.isIfStatement(node) || this.ts.isConditionalExpression(node) || this.ts.isCaseClause(node) || this.ts.isDefaultClause(node) || this.ts.isTryStatement(node) || this.ts.isCatchClause(node) || this.ts.isLabeledStatement(node) || (this.ts.isBinaryExpression(node) && [this.ts.SyntaxKind.AmpersandAmpersandToken,this.ts.SyntaxKind.BarBarToken,this.ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind))) return "unknown";
     }
     return "unknown";
   }
 
-  isOnlyReadAt(declaration,listIdentifier) {
-    let isOnlyRead = true;
-    this.walk(this.declaringScope(declaration),node => {
-      if (this.ts.isIdentifier(node) && node !== listIdentifier && node !== declaration.name && node.text === listIdentifier.text && this.localBindingDeclaration(node) === declaration) isOnlyRead = false;
-    });
-    return isOnlyRead;
+  // Only synchronous Array iteration callbacks run as loops; other callbacks may never run.
+  isIterationCallback(node) {
+    if (!this.ts.isArrowFunction(node) && !this.ts.isFunctionExpression(node)) return false;
+    const call = node.parent;
+    if (!this.ts.isCallExpression(call) || call.arguments[0] !== node || !this.ts.isPropertyAccessExpression(call.expression)) return false;
+    return ["forEach","map","flatMap","filter","reduce","some","every"].includes(call.expression.name.text);
   }
 
   declaringScope(declaration) {

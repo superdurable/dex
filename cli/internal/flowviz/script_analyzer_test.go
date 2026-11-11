@@ -83,18 +83,23 @@ func TestTypeScriptJoinGolden(t *testing.T) {
 }
 
 func TestTypeScriptJoinUndeterminedBuilderListIsDynamic(t *testing.T) {
-	cases := map[string]string{
-		"conditional push":  "if (reviewers.length > 5) pairBuilders.push(",
-		"list passed along": "reorderBuilders(pairBuilders);\n      pairBuilders.push(",
+	singlePush := `pairBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer: "backup", round}));`
+	plainPush := `plainMovements.push(StepMovement.of(EscalateReview, {reviewer: "plain", round: {roundKey: "plain", branchCount: 2}}));`
+	cases := map[string]struct{ original, replacement string }{
+		"conditional push":         {singlePush, "if (reviewers.length > 5) " + singlePush},
+		"list passed along":        {singlePush, "reorderBuilders(pairBuilders);\n      " + singlePush},
+		"push in another callback": {singlePush, "scheduleLater(() => " + strings.TrimSuffix(singlePush, ";") + ");"},
+		"plain conditional push":   {plainPush, "if (reviewers.length > 5) " + plainPush},
 	}
-	for name, replacement := range cases {
+	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, "typescript")), "join.ts")
 			source, err := os.ReadFile(sourcePath)
 			require.NoError(t, err)
-			modified := strings.Replace(string(source), "pairBuilders.push(", replacement, 1)
+			modified := strings.Replace(string(source), testCase.original, testCase.replacement, 1)
 			require.NotEqual(t, string(source), modified)
 			modified += "\nfunction reorderBuilders(builders: unknown[]): void {\n  builders.reverse();\n}\n"
+			modified += "\nfunction scheduleLater(callback: () => unknown): void {\n  void callback;\n}\n"
 			require.NoError(t, os.WriteFile(sourcePath, []byte(modified), 0o644))
 			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
 			require.NoError(t, err)

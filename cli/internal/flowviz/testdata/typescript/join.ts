@@ -42,11 +42,24 @@ class RequestReviews implements Step<readonly string[]> {
       return goToMany(...reviewCompleted.fork(context, loopBuilders, (round) => StepMovement.of(CollectReviews, round)));
     }
     if (reviewers.includes("late")) {
-      // A push after the fork does not change its branches.
+      // A push or another use after the fork does not change its branches.
       const lateBuilders = [(round: JoinRound) => StepMovement.of(ReviewDocument, {reviewer: "early", round})];
       const lateMovements = reviewCompleted.fork(context, lateBuilders, (round) => StepMovement.of(CollectReviews, round));
       lateBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer: "late", round}));
+      lateBuilders.reverse();
       return goToMany(...lateMovements);
+    }
+    if (reviewers.includes("each")) {
+      // A push in a forEach callback adds repeated branches.
+      const eachBuilders: ((round: JoinRound) => StepMovement<ReviewInput>)[] = [];
+      reviewers.forEach((reviewer) => eachBuilders.push((round: JoinRound) => StepMovement.of(EscalateReview, {reviewer, round})));
+      return goToMany(...reviewCompleted.fork(context, eachBuilders, (round) => StepMovement.of(CollectReviews, round)));
+    }
+    if (reviewers.includes("plain")) {
+      // A single push onto a plain movement list adds one movement.
+      const plainMovements = [StepMovement.of(ReviewDocument, {reviewer: "plain", round: {roundKey: "plain", branchCount: 2}})];
+      plainMovements.push(StepMovement.of(EscalateReview, {reviewer: "plain", round: {roundKey: "plain", branchCount: 2}}));
+      return goToMany(...plainMovements);
     }
     if (reviewers.includes("sibling")) {
       // A push in the other branch of an if never reaches this fork.
