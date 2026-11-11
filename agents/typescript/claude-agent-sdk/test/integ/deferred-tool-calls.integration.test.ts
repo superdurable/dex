@@ -138,6 +138,29 @@ describe("Claude agent tool calls deferred to their own Steps", () => {
     assert.equal(stepTypes.filter((stepType) => stepType === "CallSingleAttemptTool").length, 1);
   });
 
+  test("stored transcripts leave out leaf pointers", async () => {
+    const agent = await startHarness();
+    const sessionId = agent.newSessionId("leaf-pointers");
+    await agent.sessions.startSession(sessionId, 'call publish {"message":"leaf"}');
+    const interrupt = await agent.waitForNewInterrupt(sessionId, "publish");
+    assert.equal(await agent.sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await agent.waitForTurns(sessionId, 1);
+    assert.equal(await agent.sessions.sendUserMessage(sessionId, "say next"), true);
+    const snapshot = await agent.waitForTurns(sessionId, 2);
+
+    // The fake CLI ends every segment with a last-prompt entry, which would name a stale leaf.
+    const storedEntryTypes = new Set(
+      snapshot.messages
+        .filter((message) => message.frameworkItem !== "")
+        .map((message) => JSON.parse(message.frameworkItem) as { kind: string; entries?: Record<string, unknown>[] })
+        .filter((item) => item.kind === claudeTranscriptItemKind)
+        .flatMap((item) => item.entries ?? [])
+        .map((entry) => entry["type"]),
+    );
+    assert.ok(storedEntryTypes.has("assistant"));
+    assert.ok(!storedEntryTypes.has("last-prompt"));
+  });
+
   test("the Claude Code tool permission decides each call from its input", async () => {
     const agent = await startHarness();
     const sessionId = agent.newSessionId("permission");

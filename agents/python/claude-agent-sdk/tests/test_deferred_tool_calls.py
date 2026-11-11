@@ -342,6 +342,30 @@ async def test_rejected_built_in_tool_never_runs(harness: ClaudeAgentHarness) ->
     assert harness.invocations.count("Bash") == 0
 
 
+async def test_stored_transcripts_leave_out_leaf_pointers(harness: ClaudeAgentHarness) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call publish {"message": "leaf"}')
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    await harness.wait_for_turns(session_id, 1)
+    assert await harness.sessions.send_user_message(session_id, "say next")
+    snapshot = await harness.wait_for_turns(session_id, 2)
+
+    # The fake CLI ends every segment with a last-prompt entry, which would name a stale leaf.
+    stored_entry_types = {
+        entry["type"]
+        for message in snapshot.messages
+        if message.framework_item is not None
+        and json.loads(message.framework_item)["kind"] == CLAUDE_TRANSCRIPT_ITEM_KIND
+        for entry in json.loads(message.framework_item)["entries"]
+    }
+    assert "assistant" in stored_entry_types
+    assert "last-prompt" not in stored_entry_types
+
+
 async def test_claude_code_tool_permission_decides_each_call_from_its_input(
     harness: ClaudeAgentHarness,
 ) -> None:
