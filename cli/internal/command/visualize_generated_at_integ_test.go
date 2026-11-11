@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	neturl "net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,24 +87,26 @@ func TestVisualizeV2RenderingAcceptsGeneratedAt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app.openBrowser = func(url string) error {
-		response, err := http.Get(strings.TrimSuffix(url, "/v1/rendering") + "/api/flow-definitions")
-		if err != nil {
-			return err
-		}
-		defer response.Body.Close()
-		require.Equal(t, http.StatusOK, response.StatusCode)
+		baseURL := strings.TrimSuffix(url, "/v1/rendering")
 		var catalog struct {
 			Definitions []struct {
 				SchemaVersion string `json:"schemaVersion"`
-				Graph         struct {
+				FlowName      string `json:"flowName"`
+			} `json:"definitions"`
+		}
+		getGeneratedAtTestJSON(t, baseURL+"/api/flow-definitions", &catalog)
+		require.Len(t, catalog.Definitions, 1)
+		require.Equal(t, "2.0", catalog.Definitions[0].SchemaVersion)
+		var flowTypeDefinitions struct {
+			Definitions []struct {
+				Graph struct {
 					GeneratedAt string `json:"generatedAt"`
 				} `json:"graph"`
 			} `json:"definitions"`
 		}
-		require.NoError(t, json.NewDecoder(response.Body).Decode(&catalog))
-		require.Len(t, catalog.Definitions, 1)
-		require.Equal(t, "2.0", catalog.Definitions[0].SchemaVersion)
-		require.Equal(t, "2025-11-10T08:30:00Z", catalog.Definitions[0].Graph.GeneratedAt)
+		getGeneratedAtTestJSON(t, baseURL+"/api/flow-definitions/by-type?flowType="+neturl.QueryEscape(catalog.Definitions[0].FlowName), &flowTypeDefinitions)
+		require.Len(t, flowTypeDefinitions.Definitions, 1)
+		require.Equal(t, "2025-11-10T08:30:00Z", flowTypeDefinitions.Definitions[0].Graph.GeneratedAt)
 		cancel()
 		return nil
 	}
@@ -139,4 +142,13 @@ func generatedAtTestEnvironment(environment map[string]string) func(string) (str
 		value, exists := environment[name]
 		return value, exists
 	}
+}
+
+func getGeneratedAtTestJSON(t *testing.T, url string, target any) {
+	t.Helper()
+	response, err := http.Get(url)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.NoError(t, json.NewDecoder(response.Body).Decode(target))
 }
