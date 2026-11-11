@@ -166,13 +166,33 @@ interface ModelCallResult {
  * With a media store it shows images to the model; without one the session refuses images.
  */
 export class VercelAiAgentRunner implements AgentFrameworkRunner {
-  /** Present only with a media store, so a session without one refuses images. */
+  /**
+   * Stores user text and its images as one user message whose image parts hold references, not bytes.
+   *
+   * It is present only when the runner has a media store, so a session without one refuses images. Each model call
+   * reads the bytes from the store and sends every image as a `file` part after the text, in reference order.
+   *
+   * @param text - The user message text.
+   * @param images - The message's images, uploaded to the runner's media store.
+   * @returns The `"user"` message the session stores as the turn's first message.
+   * @since 0.5.0
+   */
   public readonly buildUserMessageWithImages?: (
     text: string,
     images: readonly AgentImageReference[],
   ) => FrameworkMessage;
   private fixedInputTokens: number | undefined;
 
+  /**
+   * Creates a runner for one resolved agent definition. Most applications call `createVercelAiAgentSessionFlow`.
+   *
+   * @param agent - The resolved agent: model, instructions, tools, and tool sources.
+   * @param mediaStore - The store that holds the session's images. With it, the runner accepts user messages with
+   * images and shows them and tool result images to the model, reading the bytes for each model call; stored
+   * messages hold only references. Omit it to refuse images. Since 0.5.0.
+   *
+   * Changed in 0.5.0: takes `mediaStore`.
+   */
   public constructor(
     private readonly agent: ResolvedVercelAiAgentDefinition,
     private readonly mediaStore: MediaStore | undefined = undefined,
