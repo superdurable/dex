@@ -12,6 +12,10 @@ import sys
 
 # Each of these builtins can run code or read and write attributes by computed name.
 DYNAMIC_BUILTIN_CALLS = {"getattr", "setattr", "delattr", "__import__", "import_module", "exec", "eval", "globals", "locals"}
+CHANNEL_WAIT_METHODS = {"for_one", "for_n", "at_least", "at_most", "for_range"}
+# A Join is a ChannelMap; these methods wait on its round instance or build its movements.
+JOIN_WAIT_METHODS = {"for_all_branches", "for_first_branch", "for_branches", "for_remaining_branches"}
+JOIN_FORK_METHODS = {"fork", "fork_with_round_key"}
 
 
 class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
@@ -42,6 +46,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.parents = {}
         self.resources = {}
         self.resource_calls = {}
+        self.join_resources = set()
         self.step_resources = {}
         self.failure_transitions = set()
         self.node_ids = set()
@@ -281,6 +286,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             self.resources[key] = node_id
             self.resources[target.id] = node_id
             self.resource_calls[value] = node_id
+            self.record_join_resource(value, node_id)
             resource = self.resource_details(value)
             if resource["valueType"] == "unknown":
                 self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(value))
@@ -395,6 +401,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.resources[key] = node_id
         self.resources[target_name] = node_id
         self.resource_calls[call] = node_id
+        self.record_join_resource(call, node_id)
         resource = self.resource_details(call)
         if resource["valueType"] == "unknown":
             self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(call))
@@ -927,6 +934,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             return None
         if isinstance(expression.func, ast.Attribute) and expression.func.attr in {"with_canceling_steps", "with_canceling_sibling_steps"}:
             return self.decision_type(expression.func.value, rpc)
+        if not rpc and self.is_join_call(expression, {"end_branch"}):
+            return "deadEnd"
         short = self.symbol(expression.func).rsplit(".", 1)[-1]
         names = {
             "go_to": "goTo",
@@ -996,7 +1005,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
     def conditional_wait_resource(self, wait_call):
         for node in ast.walk(wait_call):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.IfExp):
-                if node.func.attr in {"for_one", "for_n", "at_least", "at_most", "for_range"}:
+                if node.func.attr in CHANNEL_WAIT_METHODS | JOIN_WAIT_METHODS:
                     return node.func.value
         return None
 
@@ -1017,7 +1026,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 self.add_edge("subflow", wait_id, subflow_id, label="start", span=self.span(call))
                 conditions.append({"kind": "subflow", "label": name, "subFlowId": subflow_id, "span": self.span(call)})
                 continue
-            if not isinstance(call.func, ast.Attribute) or call.func.attr not in {"for_one", "for_n", "at_least", "at_most", "for_range"}:
+            if not isinstance(call.func, ast.Attribute) or call.func.attr not in CHANNEL_WAIT_METHODS | JOIN_WAIT_METHODS:
                 continue
             resource_expression = resource_override if isinstance(call.func.value, ast.IfExp) and resource_override is not None else call.func.value
             resource_id = self.resource_for(resource_expression, owner_id)
@@ -1042,7 +1051,15 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             instance = f"[{arguments[0]}]"
             counts = arguments[1:]
         keywords = {keyword.arg: self.unparse(keyword.value) for keyword in call.keywords if keyword.arg}
-        if call.func.attr == "for_one":
+        if call.func.attr == "for_all_branches":
+            suffix = "for all branches"
+        elif call.func.attr == "for_first_branch":
+            suffix = "for first branch"
+        elif call.func.attr == "for_branches":
+            suffix = f"for {counts[0] if counts else 'N'} branches"
+        elif call.func.attr == "for_remaining_branches":
+            suffix = f"for remaining branches after {counts[0] if counts else 'N'}"
+        elif call.func.attr == "for_one":
             suffix = "for 1"
         elif call.func.attr == "for_n":
             suffix = f"for {counts[0] if counts else 'N'}"
@@ -1177,6 +1194,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             for argument in expression.args:
                 transitions.append({"kind": "cancel", "target": self.step_target(argument), "targetNode": argument, "label": expression.func.attr, "condition": condition, "span": self.span(argument)})
             return transitions
+        if not rpc and self.is_join_call(expression, {"end_branch"}):
+            return [{"kind": "terminal", "target": "dead_end", "label": "Dead end", "condition": condition, "span": self.span(expression)}]
         symbol = self.symbol(expression.func)
         short = symbol.rsplit(".", 1)[-1]
         if short == "go_to" and self.is_dex_reference(expression.func, "go_to"):
@@ -1187,7 +1206,11 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             for argument in expression.args:
                 if isinstance(argument, ast.Starred) and isinstance(argument.value, ast.Name):
                     for movement in locals_map.get(argument.value.id, []):
-                        result.append({**movement, "condition": condition, "multiplicity": movement.get("multiplicity") or "×N"})
+                        multiplicity = movement.get("multiplicity") or ("" if movement.get("hasExactMultiplicity") else "×N")
+                        result.append({**movement, "condition": condition, "multiplicity": multiplicity})
+                elif isinstance(argument, ast.Starred) and self.is_join_call(argument.value, JOIN_FORK_METHODS):
+                    for movement in self.join_fork_movements(argument.value):
+                        result.append({**movement, "condition": condition})
                 elif isinstance(argument, ast.Starred) and isinstance(argument.value, (ast.GeneratorExp, ast.ListComp)):
                     movement = self.parse_movement(argument.value.elt, condition)
                     if movement:
@@ -1223,6 +1246,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 movement = self.parse_movement(node, condition)
                 if movement:
                     result.append(movement)
+                elif isinstance(node, ast.Name):
+                    result.extend({**local_movement, "condition": condition} for local_movement in locals_map.get(node.id, []))
             return result
         if rpc:
             movement = self.parse_movement(expression, condition)
@@ -1245,7 +1270,9 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 if not targets or not isinstance(targets[0], ast.Name):
                     continue
                 name = targets[0].id
-                if isinstance(value, (ast.List, ast.Tuple)):
+                if self.is_join_call(value, JOIN_FORK_METHODS):
+                    result[name] = self.join_fork_movements(value)
+                elif isinstance(value, (ast.List, ast.Tuple)):
                     result[name] = [movement for element in value.elts if (movement := self.parse_movement(element, ""))]
                 elif isinstance(value, ast.ListComp):
                     movement = self.parse_movement(value.elt, "")
@@ -1413,6 +1440,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         known = {"go_to", "go_to_many", "graceful_complete", "force_complete", "force_fail", "dead_end", "force_complete_if_channels_empty", "RPCResult"}
         for node in ast.walk(method):
             if isinstance(node, ast.Return) and isinstance(node.value, ast.Call):
+                if self.is_join_call(node.value, {"end_branch"}):
+                    continue
                 short = self.symbol(node.value.func).rsplit(".", 1)[-1]
                 if short not in known or not self.is_dex_reference(node.value.func, short):
                     return True
@@ -1471,7 +1500,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         short = name.rsplit(".", 1)[-1]
         if short in {"Attribute", "AttributeMap"}:
             return "attribute"
-        if short in {"Channel", "ChannelMap"}:
+        if short in {"Channel", "ChannelMap", "Join"}:
             return "channel"
         if short == "Stream":
             return "stream"
@@ -1486,16 +1515,76 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 value_type = "None"
         elif isinstance(call.func, ast.Subscript):
             value_type = self.unparse(call.func.slice)
-        return {"valueType": value_type or "unknown", "map": short in {"AttributeMap", "ChannelMap"}}
+        return {"valueType": value_type or "unknown", "map": short in {"AttributeMap", "ChannelMap", "Join"}}
+
+    def record_join_resource(self, call, node_id):
+        if self.symbol(call.func).rsplit(".", 1)[-1] == "Join":
+            self.join_resources.add(node_id)
+
+    def is_join_call(self, expression, methods):
+        return (
+            isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Attribute)
+            and expression.func.attr in methods
+            and self.resource_for(expression.func.value, "") in self.join_resources
+        )
+
+    def join_fork_movements(self, call):
+        """Return the branch movements, then the join movement, built by one Join fork call."""
+        keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg}
+        branch_builders = keywords.get("branch_builders", call.args[1] if len(call.args) > 1 else None)
+        join_builder = keywords.get("join_builder", call.args[2] if len(call.args) > 2 else None)
+        movements = []
+        if isinstance(branch_builders, (ast.List, ast.Tuple)):
+            for builder in branch_builders.elts:
+                movements.extend(self.join_builder_movements(builder, ""))
+        elif isinstance(branch_builders, (ast.ListComp, ast.GeneratorExp)):
+            movements.extend(self.join_builder_movements(branch_builders.elt, "×N"))
+        else:
+            self.dynamic_target("Join fork branch builders must be a list literal or a comprehension", branch_builders or call)
+        if join_builder is None:
+            self.dynamic_target("Join fork must pass a join builder", call)
+        else:
+            movements.extend(self.join_builder_movements(join_builder, ""))
+        return movements
+
+    def join_builder_movements(self, builder, multiplicity):
+        expression = self.join_builder_movement_expression(builder)
+        movement = self.parse_movement(expression, "") if expression is not None else None
+        if movement is None:
+            self.dynamic_target("Join fork builders must be lambdas or module functions that return StepMovement.of", builder)
+            return []
+        movement["multiplicity"] = multiplicity
+        movement["hasExactMultiplicity"] = True
+        return [movement]
+
+    def join_builder_movement_expression(self, builder):
+        if isinstance(builder, ast.Lambda):
+            return builder.body
+        if isinstance(builder, ast.Name):
+            return self.function_return_value(self.functions.get(builder.id))
+        if isinstance(builder, ast.Call) and isinstance(builder.func, ast.Name):
+            factory_result = self.function_return_value(self.functions.get(builder.func.id))
+            if isinstance(factory_result, ast.Lambda):
+                return factory_result.body
+        return None
+
+    def function_return_value(self, function):
+        if function is None:
+            return None
+        for statement in function.body:
+            if isinstance(statement, ast.Return) and statement.value is not None:
+                return statement.value
+        return None
 
     def resource_edge_kind(self, method, phase):
-        if phase == "wait_for" and method in {"for_one", "for_n", "at_least", "at_most", "for_range"}:
+        if phase == "wait_for" and method in CHANNEL_WAIT_METHODS | JOIN_WAIT_METHODS:
             return "wait_condition"
-        if method in {"get", "size", "map_size", "all_instance_keys", "get_map_size", "get_all_instance_keys", "results", "pending_messages", "find_pending_message"}:
+        if method in {"get", "size", "map_size", "all_instance_keys", "get_map_size", "get_all_instance_keys", "results", "pending_messages", "find_pending_message", "branch_results", "remaining_branch_results"}:
             return "resource_read"
         if method in {"set", "delete", "write"}:
             return "resource_write"
-        if method == "publish":
+        if method in {"publish", "end_branch", "report_branch_result"}:
             return "resource_publish"
         return None
 
