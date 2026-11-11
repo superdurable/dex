@@ -111,3 +111,43 @@ export function getPullGreetingDiagnostics(worker: Worker): PullGreetingDiagnost
 ```
 
 Example: [examples/typescript/src/production/pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts)
+
+## Flow definitions {#flow-definitions}
+
+Since 1.45. A Worker can upload Flow Definition Graph (FDG 2.0) documents to
+Dex so that Dex Web can draw its Flows without a definition directory.
+[Flow definitions](/reference/server/runtime-client#flow-definitions) describes
+how the server stores them.
+
+| Setting | TypeScript name |
+| --- | --- |
+| Files or directories to upload | **flowDefinitionPaths** |
+| In-memory documents to upload | **flowDefinitions**, a list of **FlowDefinitionDocument** with **flowType**, **content**, and **generatedAt** |
+| Upload from a deploy script | **uploadFlowDefinitions** on the Client, with optional **force** |
+
+**flowDefinitionPaths** accepts files and directories. A directory is searched recursively
+for **\*.json** files. Each file's **flow.name** is its Flow type. Its top-level
+**generatedAt** (RFC 3339) is the generation time. A file without it uses its
+modification time. Use **flowDefinitions** when the application renders its graph in code.
+Give the same content the same generation time on every start.
+
+Workers upload the documents once per start, after the server protocol
+check and before opening task streams:
+
+- Only documents whose Flow type the Worker registers are uploaded. The others
+  are skipped and logged.
+- An absolute **source.path** in a document is replaced by a path relative to
+  the working directory, or by the file name when the file is outside it.
+  The rest of the document is sent unchanged.
+- The uploader is **sdk-typescript/&lt;version&gt;**.
+- Created and replaced definitions are logged with **console.info**, unchanged ones with **console.debug**, and a kept newer definition with **console.warn**.
+- A failed upload, including a server older than 0.1.26 that returns
+  **UNIMPLEMENTED**, is logged with **console.warn**. The Worker still starts.
+
+The Worker constructor throws an **Error** for a missing path, a file that is not a
+JSON object with a **flow.name** string, an invalid **generatedAt**, an
+in-memory document whose **flow.name** differs from its Flow type, or the same
+Flow type in two documents.
+
+**uploadFlowDefinitions** sends documents without a Worker and returns each outcome. It sends
+at most 256 documents per request. Pass **force** set to true to roll a definition back.

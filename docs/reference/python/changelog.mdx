@@ -8,6 +8,15 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Python SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.45 {#v1-45}
+
+Not released yet. The next minor release, sdk-python/v1.45.0, ships these changes.
+
+### Added
+
+- **WorkerOptions.flow_definition_paths** and **WorkerOptions.flow_definitions** make a Worker upload Flow Definition Graph documents when it starts, so Dex Web can draw its Flows without a definition directory. The Worker uploads only registered Flow types, shares **source.path** only as a relative path, and keeps starting when the upload fails. **FlowDefinitionDocument** describes an in-memory document. Requires server-zd 0.1.26 or later. [Reference](/reference/python/workers#flow-definitions).
+- **Client.upload_flow_definitions** uploads Flow definitions from a deploy script and returns a **FlowDefinitionUploadResult** with a **FlowDefinitionUploadOutcome** for each document. **AsyncClient** has the same coroutine. [Reference](/reference/python/workers#flow-definitions).
+
 ## 1.44 {#v1-44}
 
 Released 2026-11-10 as [sdk-python/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-python%2Fv1.44.0).

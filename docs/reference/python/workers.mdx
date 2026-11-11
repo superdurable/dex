@@ -114,3 +114,43 @@ def get_pull_greeting_diagnostics(worker: AsyncWorker) -> PullGreetingDiagnostic
 ```
 
 Example: [examples/python/dex_examples/production/pull_workers.py](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/production/pull_workers.py)
+
+## Flow definitions {#flow-definitions}
+
+Since 1.45. A Worker can upload Flow Definition Graph (FDG 2.0) documents to
+Dex so that Dex Web can draw its Flows without a definition directory.
+[Flow definitions](/reference/server/runtime-client#flow-definitions) describes
+how the server stores them.
+
+| Setting | Python name |
+| --- | --- |
+| Files or directories to upload | **flow_definition_paths** |
+| In-memory documents to upload | **flow_definitions**, a list of **FlowDefinitionDocument** with **flow_type**, **content**, and **generated_at** |
+| Upload from a deploy script | **upload_flow_definitions** on the Client, with optional **force** |
+
+**flow_definition_paths** accepts files and directories. A directory is searched recursively
+for **\*.json** files. Each file's **flow.name** is its Flow type. Its top-level
+**generatedAt** (RFC 3339) is the generation time. A file without it uses its
+modification time. Use **flow_definitions** when the application renders its graph in code.
+Give the same content the same generation time on every start.
+
+**Worker** and **AsyncWorker** upload the documents once per start, after the server protocol
+check and before opening task streams:
+
+- Only documents whose Flow type the Worker registers are uploaded. The others
+  are skipped and logged.
+- An absolute **source.path** in a document is replaced by a path relative to
+  the working directory, or by the file name when the file is outside it.
+  The rest of the document is sent unchanged.
+- The uploader is **sdk-python/&lt;version&gt;**.
+- Created and replaced definitions are logged at INFO, unchanged ones at DEBUG, and a kept newer definition at WARNING, on the **dex._flow_definition_upload** logger.
+- A failed upload, including a server older than 0.1.26 that returns
+  **UNIMPLEMENTED**, is logged at WARNING. The Worker still starts.
+
+The Worker constructor raises **ValueError** for a missing path, a file that is not a
+JSON object with a **flow.name** string, an invalid **generatedAt**, an
+in-memory document whose **flow.name** differs from its Flow type, or the same
+Flow type in two documents.
+
+**upload_flow_definitions** sends documents without a Worker and returns each outcome. It sends
+at most 256 documents per request. Pass **force=True** to roll a definition back.
