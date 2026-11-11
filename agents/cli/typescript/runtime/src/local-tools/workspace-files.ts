@@ -18,13 +18,36 @@ const maximumEditBytes = 4 * 1024 * 1024;
 const maximumSearchMatches = 200;
 const maximumSearchFileBytes = 1024 * 1024;
 const maximumListedEntries = 1000;
+const maximumWholeFileBytes = 64 * 1024 * 1024;
 const skippedDirectories = new Set([".git", "node_modules"]);
 const noFollowFlag = constants.O_NOFOLLOW ?? 0;
 
-/** What edit_file read: the file's stats and the SHA-256 of its content. */
-interface FileVersion {
+/**
+ * The version of a file that {@link WorkspaceFiles.readFileWithVersion} read: its identity, size, modification time,
+ * and the SHA-256 of its content. Pass it back to {@link WorkspaceFiles.replaceFileIfUnchanged} unchanged.
+ *
+ * @since 0.5.0
+ */
+export interface WorkspaceFileVersion {
+  /** The file's stats when it was read. */
   readonly stats: Stats;
+  /** The SHA-256 of the content that was read, in hexadecimal. */
   readonly sha256: string;
+}
+
+/**
+ * One entry of a workspace directory, as {@link WorkspaceFiles.readDirectoryEntries} lists it, without following
+ * links.
+ *
+ * @since 0.5.0
+ */
+export interface WorkspaceDirectoryEntry {
+  /** The entry's name. */
+  readonly name: string;
+  /** Whether the entry is a directory. A symbolic link to a directory is not. */
+  readonly isDirectory: boolean;
+  /** Whether the entry is a symbolic link. */
+  readonly isSymbolicLink: boolean;
 }
 
 /** A regular file opened inside the workspace, with the path it was checked at. */
@@ -48,6 +71,26 @@ interface OpenedFile {
  * call runs. Reads, listings, and searches check each opened file after the open and never return a file outside.
  * Node has no `openat` or `renameat`, so a write whose directory is swapped at the last moment is detected after
  * the rename and fails loudly instead of being prevented.
+ *
+ * A harness that replaces the `files` group with its own tools runs their file access through it, so its tools
+ * keep the same boundary. Every method throws a {@link ToolExecutionError} for a refused or failed operation.
+ *
+ * @example
+ * ```ts
+ * import { realpathSync } from "node:fs";
+ * import { functionTool } from "@superdurable/dex-agents/builtin-loop";
+ * import { WorkspaceFiles } from "@superdurable/dex-agents-cli";
+ *
+ * const files = new WorkspaceFiles(realpathSync.native(context.workspace));
+ * const readNotes = functionTool<{ path: string }>({
+ *   name: "read_notes",
+ *   description: "Read a notes file in the workspace.",
+ *   parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+ *   effect: "read",
+ *   execute: ({ path }) => files.readFile(path),
+ * });
+ * ```
+ * @since 0.5.0
  */
 export class WorkspaceFiles {
   /**
@@ -95,7 +138,7 @@ export class WorkspaceFiles {
     }
     const file = await this.openRegularFile(path);
     let text: string;
-    let readVersion: FileVersion;
+    let readVersion: WorkspaceFileVersion;
     try {
       const read = await readText(file.handle, maximumEditBytes);
       if (read.isCut) {
@@ -132,6 +175,83 @@ export class WorkspaceFiles {
       .sort()
       .slice(0, maximumListedEntries);
     return names.length === 0 ? "(empty directory)" : names.join("\n");
+  }
+
+  /**
+   * Reads a whole regular file as bytes, with the version that {@link replaceFileIfUnchanged} checks.
+   *
+   * The file opens without following a final link, must be the file its path names after the open, and must have
+   * one hard link, as for {@link readFile}.
+   *
+   * @param path - The file, relative to the workspace or absolute inside it.
+   * @returns The content and its version.
+   * @throws {ToolExecutionError} When the path is outside, missing, not a regular file, hard-linked, or larger than
+   * 64 MiB.
+   * @since 0.5.0
+   */
+  public async readFileWithVersion(path: string): Promise<{ bytes: Buffer; version: WorkspaceFileVersion }> {
+    const file = await this.openRegularFile(path);
+    try {
+      if (file.stats.size > maximumWholeFileBytes) {
+        throw new ToolExecutionError(`${path} is larger than ${maximumWholeFileBytes} bytes`);
+      }
+      const bytes = await file.handle.readFile();
+      return { bytes, version: { stats: file.stats, sha256: sha256Of(bytes) } };
+    } finally {
+      await file.handle.close();
+    }
+  }
+
+  /**
+   * Replaces an existing file with new content when it still has the version that {@link readFileWithVersion}
+   * returned.
+   *
+   * It writes a temporary file in the checked directory and renames it over the target, as {@link editFile} does.
+   * A file that changed after the read fails with a conflict and keeps its content. The check reads at most 4 MiB,
+   * so a file larger than that always reports a conflict.
+   *
+   * @param path - The file, relative to the workspace or absolute inside it.
+   * @param content - The whole new content, as UTF-8.
+   * @param version - The version the caller read.
+   * @returns What was written.
+   * @throws {ToolExecutionError} When the path is outside, missing, a link, hard-linked, or changed after the read.
+   * @since 0.5.0
+   */
+  public async replaceFileIfUnchanged(path: string, content: string, version: WorkspaceFileVersion): Promise<string> {
+    const target = await this.replaceFile(path, content, false, version);
+    return `wrote ${Buffer.byteLength(content, "utf8")} bytes to ${this.displayPath(target)}`;
+  }
+
+  /**
+   * Returns the stats of an existing path inside the workspace, following links that stay inside.
+   *
+   * @param path - The path, relative to the workspace or absolute inside it.
+   * @returns The stats of the file or directory the path names.
+   * @throws {ToolExecutionError} When the path is outside, missing, or changed while it was checked.
+   * @since 0.5.0
+   */
+  public async statExisting(path: string): Promise<Stats> {
+    const realPath = await this.resolveExisting(path);
+    const stats = await lstat(realPath);
+    await this.requireUnchanged(realPath, path);
+    return stats;
+  }
+
+  /**
+   * Lists a directory's entries in name order, without following links.
+   *
+   * @param path - The directory, relative to the workspace or absolute inside it.
+   * @returns Every entry.
+   * @throws {ToolExecutionError} When the path is outside, missing, or changed while it was listed.
+   * @since 0.5.0
+   */
+  public async readDirectoryEntries(path: string): Promise<WorkspaceDirectoryEntry[]> {
+    const directory = await this.resolveExisting(path);
+    const entries = await readdir(directory, { withFileTypes: true });
+    await this.requireUnchanged(directory, path);
+    return entries
+      .map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory(), isSymbolicLink: entry.isSymbolicLink() }))
+      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   }
 
   /**
@@ -229,7 +349,7 @@ export class WorkspaceFiles {
     path: string,
     content: string,
     isCreatingMissing: boolean,
-    expectedVersion?: FileVersion,
+    expectedVersion?: WorkspaceFileVersion,
   ): Promise<string> {
     const candidate = resolve(this.workspace, path);
     if (candidate === this.workspace) {
@@ -287,7 +407,7 @@ export class WorkspaceFiles {
   }
 
   /** Checks that a file still has the identity, size, modification time, and content that edit_file read. */
-  private async requireVersionUnchanged(target: string, expected: FileVersion, path: string): Promise<void> {
+  private async requireVersionUnchanged(target: string, expected: WorkspaceFileVersion, path: string): Promise<void> {
     const conflict = (): never => {
       throw new ToolExecutionError(`${path} changed after edit_file read it; read the file again and retry the edit`);
     };

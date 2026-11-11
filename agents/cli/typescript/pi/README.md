@@ -87,6 +87,13 @@ model call on the Worker that runs it, so an edited file applies from the next
 model call, and two turns of one session may see different instructions. Set
 `pi.load_project_context: false` to add none.
 
+Each picked file is read with the runtime's workspace file rules, scoped to the
+directory it is in. A file that is a symbolic link out of its directory, such
+as `~/.pi/agent/AGENTS.md` linked to a dotfiles repository, that has more than
+one hard link, or that is not a regular file is skipped, and the command prints
+a warning. A link to another file in the same directory, or below it, loads.
+This holds whatever `local_tools.files` says.
+
 ## Tools and approvals
 
 pi-coding-agent's tools replace the runtime's `files` and `shell` groups. The
@@ -100,16 +107,27 @@ you questions.
 | `shell` | `bash` | single-attempt write | Unless `local_tools.shell.allow` has the whole command text |
 
 - Each call is one Dex tool Step, recorded in the session. A `write`, `edit`,
-  or `bash` call never runs twice: one that fails before it writes or starts
-  its command records `failed` and the model sees why; one whose Worker dies
-  after that records `outcome_unknown`.
+  or `bash` call never runs twice. A failed `write` or `edit` records `failed`
+  and the model sees why. A `bash` call that fails before its command starts,
+  such as with an invalid `timeout`, records `failed`; one that fails after
+  it started, or whose Worker dies while it runs, records `outcome_unknown`.
 - Each turn offers only the groups its session settings switch on.
   `approval.always` adds approval by tool name, such as `read`.
-- File tools refuse a path outside the workspace, through `..`, an absolute
-  path, `~`, or a symbolic link, before they ask for approval. `write` and
-  `edit` check the exact file again when they open it. This is not a sandbox:
-  an approved `bash` command, or any other program, can change the workspace
-  while a call runs.
+- Every file access of the file tools goes through the runtime's workspace
+  file layer (`WorkspaceFiles`, see the
+  [runtime README](../runtime/README.md#local-tools)), with the path Pi
+  finally opens, including `read`'s fallbacks for curly quotes, Unicode
+  normalization, and screenshot file names. So the runtime's rules apply: a
+  path that leaves the workspace through `..`, an absolute path, `~`, or a
+  symbolic link fails; files open without following a final link and must
+  still be the file the path names; a file with more than one hard link is
+  refused; `write` and `edit` write a temporary file and rename it over the
+  target, and never write through a link; `edit` fails with a conflict when
+  the file changed after it read it. The check runs in the tool Step, so a
+  `write` or `edit` to an outside path still asks for approval and then
+  fails. This is not a sandbox: an approved `bash` command, or any other
+  program, can change the workspace while a call runs, and the runtime
+  README describes the remaining write race.
 - The working directory of every tool is the workspace. A `bash` command
   without a `timeout` argument is killed after `pi.bash_timeout_seconds`, 120
   by default, as the runtime's shell tool. A command killed by its timeout
@@ -118,10 +136,15 @@ you questions.
   configuration of the Worker that runs it and the settings its turn started
   with. A call whose group is off there, or that ran without approval but now
   needs one, records `failed` and does not run.
-- `grep` and `find` use `rg` and `fd`. When they are not on `PATH` or in
-  `~/.pi/agent/bin`, pi-coding-agent downloads them from GitHub into
-  `~/.pi/agent/bin` on first use. Set `PI_OFFLINE=1` to stop the download; the
-  tools then fail until you install them.
+- `find` walks the workspace through the workspace file layer instead of
+  running `fd`. It matches Pi's glob rules, skips `.git` and `node_modules`,
+  never follows links, and does not read `.gitignore`.
+- `grep` checks its search directory through the workspace file layer, then
+  runs `rg` on it. `rg` does not follow links below that directory, but it
+  reads a file with more than one hard link. When `rg` is not on `PATH` or in
+  `~/.pi/agent/bin`, pi-coding-agent downloads it from GitHub into
+  `~/.pi/agent/bin` on first use. Set `PI_OFFLINE=1` to stop the download;
+  `grep` then fails until you install `rg`.
 - Images that `read` returns reach the model as a note naming the image type.
 
 The command imports pi-coding-agent's package root, because the package exports
@@ -129,25 +152,19 @@ no path for single tools. That import loads Pi's terminal UI library and calls
 pi-agent-core's `setDefaultStreamFn`, which this command never uses: pi-ai's
 own stream makes every model call.
 
-## Dex cloud and other machines
+## Sessions and other machines
 
-`dex.server` may point at a Dex server instead of `dexcli dev`. The runtime
-handles the connection and `--resume`; this command adds nothing to it. When
-another machine continues a session:
-
-- The command builds its session Flow with the runtime's Flow type, so it
-  follows the runtime's routing.
-- Its tools check permissions only through the runtime's helpers, so they
-  follow the runtime's checks.
-- Each machine reads its own API key from its environment and its own
-  `AGENTS.md` from its own workspace. Keep the workspaces in sync yourself,
-  such as with git.
-- Model replies are stored in pi-ai's format with the pi-ai version. A machine
-  whose pi-ai cannot read a stored reply fails the model call with an error
-  that names both versions.
-
-Until the runtime routes a session's Steps to one machine, run the command on
-one machine at a time.
+`dex.server` may point at a Dex server instead of `dexcli dev`; the runtime
+handles the connection. A session belongs to the execution environment that
+started it: the runtime names the session Flow type after the host, the user,
+the configuration file, and the workspace, and `--resume` works only in that
+environment. See
+[the runtime README](../runtime/README.md#sessions-belong-to-one-execution-environment).
+This command builds its Flow with the runtime's Flow type and checks tool
+permissions only through the runtime's helpers, so it follows the runtime's
+rules. Model replies are stored in pi-ai's format with the pi-ai version; a
+pi-ai that cannot read a stored reply fails the model call with an error that
+names both versions.
 
 ## Development
 

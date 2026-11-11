@@ -31,4 +31,4 @@ export {
   type PiCodingLocalTool,
 } from "./pi-coding-tool-source.js";
 export { PiModelClients, parsePiModelId, resolvePiProviderApiKey, type PiModelId } from "./pi-model-clients.js";
-export { WorkspacePathBoundary } from "./workspace-path-boundary.js";
+export { ProjectContextFiles, type ProjectContextFile } from "./project-context-files.js";

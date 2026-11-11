@@ -82,9 +82,17 @@ for the Dex SDK and framework versions each release supports.
   `<provider>/<model>` from pi-ai's catalog, and the key comes only from the
   provider's API key variable. pi-coding-agent's `read`, `grep`, `find`, `ls`,
   `write`, `edit`, and `bash` replace the runtime's file and shell tools, with
-  the same rules, and each model call adds the workspace's `AGENTS.md` unless
-  `pi.load_project_context` is `false`. See
+  the same rules: their file access goes through the runtime's workspace file
+  layer, and `bash` has the shell tool's 120-second default timeout
+  (`pi.bash_timeout_seconds`). Each model call adds the workspace's
+  `AGENTS.md` unless `pi.load_project_context` is `false`; a context file
+  linked out of its directory is skipped. See
   [cli/typescript/pi](cli/typescript/pi/README.md).
+- TypeScript CLI runtime: **WorkspaceFiles**, the workspace file layer of the
+  local file tools, is exported for harnesses that bring their own file tools,
+  with new methods **readFileWithVersion**, **replaceFileIfUnchanged**,
+  **statExisting**, and **readDirectoryEntries**. See
+  [cli/typescript/runtime](cli/typescript/runtime/README.md#the-harness-interface).
 - Python and TypeScript Claude Agent SDK adapters: **claude_code_tool_permission**
   (`claudeCodeToolPermission`) decides each call of a tool that runs inside the
   Claude Code CLI from its input. It returns a **ToolPolicy** for that call,

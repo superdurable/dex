@@ -6,13 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { getAgentDir, loadProjectContextFiles } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createBuiltinAgentSessionFlow, type BuiltinLoopAgentRunner } from "@superdurable/dex-agents/builtin-loop";
 import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli";
 
 import { defaultBashTimeoutSeconds, maximumBashTimeoutSeconds, PiCodingToolSource } from "./pi-coding-tool-source.js";
 import { PiModelClients } from "./pi-model-clients.js";
+import { ProjectContextFiles, type ProjectContextFile } from "./project-context-files.js";
 
 /**
  * The base Flow type of the command's sessions, before the runtime namespaces it.
@@ -108,13 +108,14 @@ export function createPiSessionFlow(
 ): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const section = readPiSection(context.harnessOptions);
   const modelClients = new PiModelClients(section.providerBaseUrls, environment);
+  const projectContext = new ProjectContextFiles(context.workspace, (line) => process.stderr.write(`${line}\n`));
   return createBuiltinAgentSessionFlow(
     {
       name: "pi",
-      instructions: (turn) =>
+      instructions: async (turn) =>
         buildInstructions(
           context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? defaultInstructions,
-          section.isProjectContextLoaded ? loadProjectContextFiles({ cwd: context.workspace, agentDir: getAgentDir() }) : [],
+          section.isProjectContextLoaded ? await projectContext.load() : [],
         ),
       model: modelClients.clientFor(context.config.model),
       resolveModel: (settings) => modelClients.clientFor(context.resolveTurn(settings).model),
@@ -176,7 +177,7 @@ export function readPiSection(options: Readonly<Record<string, unknown>>): PiSec
 const piSectionKeys: readonly string[] = ["bash_timeout_seconds", "load_project_context", "provider_base_urls"];
 
 /** Appends the project context files to the instructions, in Pi's own format. */
-function buildInstructions(instructions: string, contextFiles: readonly { path: string; content: string }[]): string {
+function buildInstructions(instructions: string, contextFiles: readonly ProjectContextFile[]): string {
   if (contextFiles.length === 0) {
     return instructions;
   }

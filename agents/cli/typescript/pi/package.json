@@ -38,7 +38,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.1",
-    "@earendil-works/pi-coding-agent": "1.5.1"
+    "@earendil-works/pi-coding-agent": "1.5.1",
+    "minimatch": "11.0.3"
   },
   "peerDependencies": {
     "@superdurable/dex": "1.38.0",

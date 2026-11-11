@@ -7,10 +7,22 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
@@ -64,6 +76,14 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
   function offeredToolNames(): string[] {
     const tools = (api.modelRequests().at(-1)?.["tools"] as Record<string, unknown>[] | undefined) ?? [];
     return tools.map((tool) => String(tool["name"]));
+  }
+
+  function lastToolResults(): string {
+    const messages = (api.modelRequests().at(-1)?.["messages"] as Record<string, unknown>[] | undefined) ?? [];
+    const blocks = messages.flatMap((message) =>
+      Array.isArray(message["content"]) ? (message["content"] as Record<string, unknown>[]) : [],
+    );
+    return JSON.stringify(blocks.filter((block) => block["type"] === "tool_result"));
   }
 
   function lastSystemPrompt(): string {
@@ -200,11 +220,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
       (tool) => tool["name"] === "bash",
     );
     assert.match(JSON.stringify(bashTool), /defaults to 1/);
-    const messages = (api.modelRequests().at(-1)?.["messages"] as Record<string, unknown>[] | undefined) ?? [];
-    const toolResult = JSON.stringify(
-      messages.flatMap((message) => (Array.isArray(message["content"]) ? (message["content"] as Record<string, unknown>[]) : []))
-        .filter((block) => block["type"] === "tool_result"),
-    );
+    const toolResult = lastToolResults();
     assert.match(toolResult, /The tool call failed: started/);
     assert.match(toolResult, /Command timed out after 1 seconds/);
     assert.doesNotMatch(toolResult, /finished|outcome is unknown/);
@@ -279,17 +295,143 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     await cli.waitForSession();
     for (const path of [join(outside, "secret.txt"), `../../${basename(outside)}/secret.txt`, `@${outside}/secret.txt`]) {
       cli.writeLine(call("read", { path }));
-      await cli.stdout.waitFor("read may only use paths inside the workspace");
+      await cli.stdout.waitFor("is outside the workspace");
     }
     cli.writeLine(call("ls", { path: outside }));
-    await cli.stdout.waitFor("ls may only use paths inside the workspace");
+    await cli.stdout.waitFor("is outside the workspace");
+    cli.writeLine(call("find", { pattern: "*.txt", path: outside }));
+    await cli.stdout.waitFor("is outside the workspace");
     cli.writeLine(call("write", { path: "link.txt", content: "x" }));
-    await cli.stdout.waitFor("write may only use paths inside the workspace");
+    await cli.stdout.waitFor("Approve write?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("is a symbolic link");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
-    assert.doesNotMatch(cli.stdout.all, /Approve (read|ls|write)/);
+    assert.doesNotMatch(cli.stdout.all, /Approve (read|ls|find)/);
     assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
     assert.equal(existsSync(join(outside, "created.txt")), false);
+  });
+
+  test("read's file name fallbacks never reach a link out of the workspace", async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
+    writeFileSync(join(outside, "secret.txt"), "do not read");
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    const variants: readonly (readonly [string, string])[] = [
+      ["a'b.txt", "a’b.txt"],
+      ["Shot 10.00.00 AM.txt", "Shot 10.00.00 AM.txt"],
+      ["café.txt", "café.txt"],
+    ];
+    for (const [, linkName] of variants) {
+      symlinkSync(join(outside, "secret.txt"), join(home.workspace, linkName));
+    }
+    const cli = start(home);
+    await cli.waitForSession();
+    for (const [requested] of variants) {
+      cli.writeLine(call("read", { path: requested }));
+      await cli.stdout.waitFor("read: ");
+      await cli.stdout.waitFor("> ");
+    }
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(cli.stdout.all, /Approve read/);
+    assert.equal(cli.stdout.all.match(/is outside the workspace/g)?.length, variants.length);
+    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
+  });
+
+  test("a path swapped for a link out of the workspace after the call was requested is refused", async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
+    writeFileSync(join(outside, "a.txt"), "do not read");
+    const home = newHome({ ...noConnectors, approval: { always: ["read", "ls", "grep", "find"] } });
+    const notes = join(home.workspace, "notes");
+    mkdirSync(notes, { recursive: true });
+    writeFileSync(join(notes, "a.txt"), "inside note");
+    const cli = start(home);
+    await cli.waitForSession();
+    const calls: readonly (readonly [string, Readonly<Record<string, unknown>>])[] = [
+      ["read", { path: "notes/a.txt" }],
+      ["ls", { path: "notes" }],
+      ["grep", { pattern: "read", path: "notes" }],
+      ["find", { pattern: "*.txt", path: "notes" }],
+    ];
+    for (const [toolName, toolInput] of calls) {
+      cli.writeLine(call(toolName, toolInput));
+      await cli.stdout.waitFor(`Approve ${toolName}?`);
+      renameSync(notes, `${notes}-real`);
+      symlinkSync(outside, notes);
+      cli.writeLine("y");
+      await cli.stdout.waitFor(`${toolName}: `);
+      await cli.stdout.waitFor("> ");
+      unlinkSync(notes);
+      renameSync(`${notes}-real`, notes);
+    }
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    // grep reports its own error when rg is missing; either way nothing outside reaches the model.
+    assert.ok((cli.stdout.all.match(/is outside the workspace/g)?.length ?? 0) >= 3);
+    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
+  });
+
+  test("a hard link to an outside file is refused for read, write, and edit", async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
+    writeFileSync(join(outside, "secret.txt"), "do not read");
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    linkSync(join(outside, "secret.txt"), join(home.workspace, "linked.txt"));
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("read", { path: "linked.txt" }));
+    await cli.stdout.waitFor("has 2 hard links");
+    cli.writeLine(call("write", { path: "linked.txt", content: "overwritten" }));
+    await cli.stdout.waitFor("Approve write?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("has 2 hard links");
+    cli.writeLine(call("edit", { path: "linked.txt", edits: [{ oldText: "read", newText: "write" }] }));
+    await cli.stdout.waitFor("Approve edit?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("has 2 hard links");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(readFileSync(join(outside, "secret.txt"), "utf8"), "do not read");
+    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
+  });
+
+  test("a bash call with an invalid timeout records a failure and never runs", async () => {
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("bash", { command: "echo ran > ran.txt", timeout: -1 }));
+    await cli.stdout.waitFor("Approve bash?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("bash: ");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const toolResult = lastToolResults();
+    assert.match(toolResult, /The tool call failed: timeout must be a number of seconds/);
+    assert.doesNotMatch(toolResult, /outcome is unknown/);
+    assert.equal(existsSync(join(home.workspace, "ran.txt")), false);
+  });
+
+  test("a bash command whose Worker dies after it started records outcome_unknown and never runs again", async () => {
+    const command = "echo started >> runs.txt; sleep 20";
+    const home = newHome({ ...noConnectors, local_tools: { browser: false, shell: { enabled: true, allow: [command] } } });
+    const first = start(home);
+    const sessionId = await first.waitForSession();
+    first.writeLine(call("bash", { command }));
+    const runs = join(home.workspace, "runs.txt");
+    const deadline = Date.now() + 60_000;
+    while (!existsSync(runs) && Date.now() < deadline) {
+      await delay(100);
+    }
+    assert.ok(existsSync(runs), "the command started");
+    await first.kill();
+
+    const second = start(home, ["--resume", sessionId]);
+    await second.stdout.waitFor("bash: The tool call's outcome is unknown", 240_000);
+    second.writeLine("/exit");
+    assert.equal(await second.waitForExit(), 0);
+    assert.equal(readFileSync(runs, "utf8"), "started\n");
   });
 
   test("each model call adds the workspace's AGENTS.md, unless pi.load_project_context is false", async () => {
@@ -321,6 +463,40 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
     assert.ok(!lastSystemPrompt().includes(marker), "the system prompt has no AGENTS.md");
+  });
+
+  test("a project context file linked out of its directory is skipped, also with the file tools off", async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
+    for (const scope of ["workspace", "ancestor", "global"]) {
+      writeFileSync(join(outside, `${scope}.md`), `Outside ${scope} instructions.\n`);
+    }
+    const home = newHome({ ...noConnectors, local_tools: { browser: false, files: false } });
+    mkdirSync(join(home.workspace, "docs"), { recursive: true });
+    writeFileSync(join(home.workspace, "docs", "rules.md"), "Inside workspace rules.\n");
+    symlinkSync(join(home.workspace, "docs", "rules.md"), join(home.workspace, "AGENTS.md"));
+    symlinkSync(join(outside, "ancestor.md"), join(home.directory, "AGENTS.md"));
+    mkdirSync(join(home.directory, ".pi", "agent"), { recursive: true });
+    symlinkSync(join(outside, "global.md"), join(home.directory, ".pi", "agent", "AGENTS.md"));
+    const first = start(home);
+    await first.waitForSession();
+    first.writeLine("say hi");
+    await first.stdout.waitFor("said: hi");
+    assert.ok(lastSystemPrompt().includes("Inside workspace rules."), "a link inside its directory loads");
+    assert.doesNotMatch(lastSystemPrompt(), /Outside (ancestor|global) instructions/);
+    first.writeLine("/exit");
+    assert.equal(await first.waitForExit(), 0);
+    assert.match(first.stderr.all, /skipped the project context file .*\.pi\/agent\/AGENTS\.md: .*outside the workspace/);
+    assert.match(first.stderr.all, new RegExp(`skipped the project context file ${home.directory}/AGENTS\\.md`));
+
+    unlinkSync(join(home.workspace, "AGENTS.md"));
+    symlinkSync(join(outside, "workspace.md"), join(home.workspace, "AGENTS.md"));
+    const second = start(home);
+    await second.waitForSession();
+    second.writeLine("say again");
+    await second.stdout.waitFor("said: again");
+    second.writeLine("/exit");
+    assert.equal(await second.waitForExit(), 0);
+    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /Outside (workspace|ancestor|global) instructions/);
   });
 
   test("without an API key the command stops and names the variable, even with an OAuth token", async () => {

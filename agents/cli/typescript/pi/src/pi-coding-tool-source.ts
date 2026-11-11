@@ -6,15 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { realpathSync } from "node:fs";
 
 import {
   createBashTool,
   createEditTool,
   createFindTool,
   createGrepTool,
-  createLocalBashOperations,
   createLsTool,
   createReadTool,
   createWriteTool,
@@ -33,6 +31,7 @@ import {
 } from "@superdurable/dex-agents";
 import type { ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
 import {
+  WorkspaceFiles,
   isLocalToolGroupEnabled,
   isShellCommandApprovalRequired,
   resolveTurnToolPolicy,
@@ -42,7 +41,7 @@ import {
 } from "@superdurable/dex-agents-cli";
 import { piAgentFunctionTool, type PiAgentToolLike } from "@superdurable/dex-agents-pi";
 
-import { WorkspacePathBoundary } from "./workspace-path-boundary.js";
+import { PiToolCallOperations } from "./pi-tool-call-operations.js";
 
 /**
  * How the command runs one of pi-coding-agent's tools: the local tool group that switches it, its effect, and
@@ -57,8 +56,6 @@ export interface PiCodingLocalTool {
   readonly effect: ToolEffect;
   /** Whether every call waits for approval; `bash` waits unless the allow list has the command. */
   readonly isApprovalRequired: boolean;
-  /** Whether the tool takes a `path` argument that must stay inside the workspace. */
-  readonly hasPathArgument: boolean;
 }
 
 /**
@@ -68,13 +65,13 @@ export interface PiCodingLocalTool {
  * @since 0.5.0
  */
 export const piCodingLocalTools: Readonly<Record<string, PiCodingLocalTool>> = Object.freeze({
-  read: { group: "files", effect: "read", isApprovalRequired: false, hasPathArgument: true },
-  grep: { group: "files", effect: "read", isApprovalRequired: false, hasPathArgument: true },
-  find: { group: "files", effect: "read", isApprovalRequired: false, hasPathArgument: true },
-  ls: { group: "files", effect: "read", isApprovalRequired: false, hasPathArgument: true },
-  write: { group: "files", effect: "non_idempotent_write", isApprovalRequired: true, hasPathArgument: true },
-  edit: { group: "files", effect: "non_idempotent_write", isApprovalRequired: true, hasPathArgument: true },
-  bash: { group: "shell", effect: "non_idempotent_write", isApprovalRequired: true, hasPathArgument: false },
+  read: { group: "files", effect: "read", isApprovalRequired: false },
+  grep: { group: "files", effect: "read", isApprovalRequired: false },
+  find: { group: "files", effect: "read", isApprovalRequired: false },
+  ls: { group: "files", effect: "read", isApprovalRequired: false },
+  write: { group: "files", effect: "non_idempotent_write", isApprovalRequired: true },
+  edit: { group: "files", effect: "non_idempotent_write", isApprovalRequired: true },
+  bash: { group: "shell", effect: "non_idempotent_write", isApprovalRequired: true },
 });
 
 /**
@@ -93,8 +90,6 @@ export const defaultBashTimeoutSeconds = 120;
 export const maximumBashTimeoutSeconds = 2_147_483;
 
 const refusalReferenceKey = "refused";
-/** Prefix of the error that pi-coding-agent's shell execution throws when its timeout kills the command. */
-const shellTimeoutErrorPrefix = "timeout:";
 
 /**
  * pi-coding-agent's `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` tools as a {@link ToolSource}, so each
@@ -103,14 +98,18 @@ const shellTimeoutErrorPrefix = "timeout:";
  * - Each model call lists the tools whose group the running turn switches on.
  * - Reads run at once. `write` and `edit` wait for approval on every call. A `bash` command waits unless the turn's
  *   shell allow list has its exact text. `approval.always` adds approval by tool name.
- * - File tools refuse a `path` outside the workspace before asking for approval, and again in the tool Step.
- *   `write` and `edit` also check the exact file Pi opens.
  * - In its tool Step, a call is checked again with the executing Worker's configuration through
  *   `HarnessContext.resolveToolStepPermissions`. A call refused there records `failed` and does not run.
- * - A `write`, `edit`, or `bash` call that fails before it writes or starts its command records `failed`, and the
- *   model sees why. A failure after that records `outcome_unknown`, and the call never runs again.
- * - A `bash` call without `timeout` gets the source's default timeout. A command killed by its timeout records
- *   `failed`, and the model sees its output and the timeout.
+ * - Every file access of the file tools goes through the runtime's `WorkspaceFiles`, with the path Pi finally
+ *   opens, so the runtime's workspace boundary applies: no path outside the workspace, no final symbolic link
+ *   followed, no file with more than one hard link, and writes by temporary file and rename. `edit` fails with a
+ *   conflict when the file changed after it read it. `find` walks the workspace through it instead of running
+ *   `fd`. `grep` checks its search directory through it, then runs `rg`.
+ * - A file tool's failure records `failed`, and the model sees why: writes replace the file by rename, so a failed
+ *   write leaves it unchanged.
+ * - A `bash` call that fails before its command starts records `failed`. A failure after that records
+ *   `outcome_unknown`, and the call never runs again, except that a command killed by its timeout records `failed`
+ *   with its output. A call without `timeout` gets the source's default timeout.
  *
  * The working directory is the workspace. Register the source even when the file switches both groups off, so it
  * refuses calls that another process requested.
@@ -120,7 +119,8 @@ const shellTimeoutErrorPrefix = "timeout:";
 export class PiCodingToolSource implements ToolSource {
   /** The stable source name stored with each call. */
   public readonly sourceName = "pi_coding_tools";
-  private readonly boundary: WorkspacePathBoundary;
+  private readonly workspace: string;
+  private readonly files: WorkspaceFiles;
   private readonly definitions: readonly SourceToolDefinition[];
 
   /**
@@ -138,9 +138,10 @@ export class PiCodingToolSource implements ToolSource {
     if (!Number.isSafeInteger(bashTimeoutSeconds) || bashTimeoutSeconds < 1 || bashTimeoutSeconds > maximumBashTimeoutSeconds) {
       throw new RangeError(`bashTimeoutSeconds must be a whole number from 1 to ${maximumBashTimeoutSeconds}`);
     }
-    this.boundary = new WorkspacePathBoundary(context.workspace);
+    this.workspace = realpathSync.native(context.workspace);
+    this.files = new WorkspaceFiles(this.workspace);
     this.definitions = Object.keys(piCodingLocalTools).map((toolName) => {
-      const tool = this.createPiTool(toolName, new PiToolCallOperations(this.boundary, toolName));
+      const tool = this.createPiTool(toolName, new PiToolCallOperations(this.files));
       const parameters = tool.parameters as Record<string, unknown>;
       return {
         name: tool.name,
@@ -170,7 +171,7 @@ export class PiCodingToolSource implements ToolSource {
 
   /**
    * Builds the deferred call with the tool's policy, the shell allow list, and `approval.always`. A call of a
-   * switched-off tool, or with a path outside the workspace, is refused without approval.
+   * switched-off tool is refused without approval.
    *
    * @param turn - The `RunModel` context.
    * @param call - The model's call.
@@ -182,17 +183,13 @@ export class PiCodingToolSource implements ToolSource {
   ): DeferredToolCall {
     const turnConfig = this.context.resolveTurn(turn.sessionSettings ?? {});
     const tool = Object.hasOwn(piCodingLocalTools, call.toolName) ? piCodingLocalTools[call.toolName] : undefined;
-    const refusal =
-      tool === undefined || !isLocalToolGroupEnabled(turnConfig, tool.group)
-        ? `${call.toolName} is switched off for this session`
-        : this.pathRefusal(call.toolName, tool, readArguments(call.arguments));
-    if (tool === undefined || refusal !== null) {
+    if (tool === undefined || !isLocalToolGroupEnabled(turnConfig, tool.group)) {
       return {
         toolCallId: call.toolCallId,
         toolName: call.toolName,
         arguments: call.arguments,
         policy: { effect: "read", requiresApproval: false },
-        toolSourceReference: JSON.stringify({ [refusalReferenceKey]: refusal }),
+        toolSourceReference: JSON.stringify({ [refusalReferenceKey]: `${call.toolName} is switched off for this session` }),
       };
     }
     let isApprovalRequired = tool.isApprovalRequired;
@@ -213,8 +210,8 @@ export class PiCodingToolSource implements ToolSource {
    *
    * @param call - The approved call.
    * @returns The tool's output.
-   * @throws {ToolExecutionError} When the call is refused, its arguments are invalid, or the tool fails before its
-   * side effect.
+   * @throws {ToolExecutionError} When the call is refused, its arguments are invalid, or the tool fails with a known
+   * outcome.
    */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     const { toolName, toolSourceReference } = call.toolCall;
@@ -228,11 +225,7 @@ export class PiCodingToolSource implements ToolSource {
     }
     const toolArguments = parseArguments(call.toolCall.arguments);
     await this.authorizeOnThisWorker(call, tool, toolArguments);
-    const pathRefusal = this.pathRefusal(toolName, tool, toolArguments);
-    if (pathRefusal !== null) {
-      throw new ToolExecutionError(`${pathRefusal}; the call did not run`);
-    }
-    const operations = new PiToolCallOperations(this.boundary, toolName);
+    const operations = new PiToolCallOperations(this.files);
     // The recorded effect picked the tool Step, so it also decides how a failure is recorded.
     const functionTool = piAgentFunctionTool(
       definiteFailuresBeforeEffect(this.createPiTool(toolName, operations), operations),
@@ -323,42 +316,49 @@ export class PiCodingToolSource implements ToolSource {
     }
   }
 
-  private pathRefusal(
-    toolName: string,
-    tool: PiCodingLocalTool,
-    toolArguments: Readonly<Record<string, unknown>> | undefined,
-  ): string | null {
-    if (!tool.hasPathArgument || toolArguments === undefined) {
-      return null;
-    }
-    return this.boundary.refusalReason(toolName, toolArguments["path"]);
-  }
-
-  /** Creates a pi-coding-agent tool in the workspace, with the call's guarded operations. */
+  /** Creates a pi-coding-agent tool in the workspace whose file and shell access goes through `operations`. */
   private createPiTool(toolName: string, operations: PiToolCallOperations): PiAgentToolLike {
-    const workspace = this.boundary.workspace;
+    const workspace = this.workspace;
     switch (toolName) {
       case "read":
-        return createReadTool(workspace);
+        return createReadTool(workspace, {
+          operations: {
+            access: (absolutePath) => operations.requireRegularFile(absolutePath),
+            readFile: (absolutePath) => operations.readFileBytes(absolutePath),
+            detectImageMimeType: (absolutePath) => operations.detectImageMimeType(absolutePath),
+          },
+        });
       case "grep":
-        return createGrepTool(workspace);
+        return createGrepTool(workspace, { operations: { isDirectory: (absolutePath) => operations.isDirectory(absolutePath) } });
       case "find":
-        return createFindTool(workspace);
+        return createFindTool(workspace, {
+          operations: {
+            exists: (absolutePath) => operations.requireExisting(absolutePath),
+            glob: (pattern, searchPath, options) => operations.findMatchingPaths(pattern, searchPath, options.limit),
+          },
+        });
       case "ls":
-        return createLsTool(workspace);
+        return createLsTool(workspace, {
+          operations: {
+            exists: (absolutePath) => operations.requireExisting(absolutePath),
+            stat: (absolutePath) => operations.describeDirectoryOrEntry(absolutePath),
+            readdir: (absolutePath) => operations.readDirectoryNames(absolutePath),
+          },
+        });
       case "write":
         return createWriteTool(workspace, {
           operations: {
-            mkdir: (directory) => operations.makeDirectory(directory),
-            writeFile: (absolutePath, content) => operations.writeTextFile(absolutePath, content),
+            // WorkspaceFiles.writeFile creates the missing directories inside the workspace itself.
+            mkdir: () => Promise.resolve(),
+            writeFile: (absolutePath, content) => operations.writeWholeFile(absolutePath, content),
           },
         });
       case "edit":
         return createEditTool(workspace, {
           operations: {
-            access: (absolutePath) => operations.checkReadWriteAccess(absolutePath),
+            access: (absolutePath) => operations.requireRegularFile(absolutePath),
             readFile: (absolutePath) => operations.readFileBytes(absolutePath),
-            writeFile: (absolutePath, content) => operations.writeTextFile(absolutePath, content),
+            writeFile: (absolutePath, content) => operations.replaceReadFile(absolutePath, content),
           },
         });
       case "bash":
@@ -371,60 +371,7 @@ export class PiCodingToolSource implements ToolSource {
   }
 }
 
-type BashExecution = ReturnType<typeof createLocalBashOperations>;
-
-/** One call's file and shell operations: paths stay inside the workspace, and the first effect is noted. */
-class PiToolCallOperations {
-  /** Whether the call wrote a file or started its command. */
-  public hasEffectStarted = false;
-  /** Whether the command's timeout killed it, so its outcome is known. */
-  public hasTimedOut = false;
-  private readonly localBash: BashExecution = createLocalBashOperations();
-
-  public constructor(
-    private readonly boundary: WorkspacePathBoundary,
-    private readonly toolName: string,
-  ) {}
-
-  public async makeDirectory(directory: string): Promise<void> {
-    this.requireInside(directory);
-    await mkdir(directory, { recursive: true });
-  }
-
-  public async writeTextFile(absolutePath: string, content: string): Promise<void> {
-    this.requireInside(absolutePath);
-    this.hasEffectStarted = true;
-    await writeFile(absolutePath, content, "utf-8");
-  }
-
-  public async checkReadWriteAccess(absolutePath: string): Promise<void> {
-    this.requireInside(absolutePath);
-    await access(absolutePath, constants.R_OK | constants.W_OK);
-  }
-
-  public async readFileBytes(absolutePath: string): Promise<Buffer> {
-    this.requireInside(absolutePath);
-    return readFile(absolutePath);
-  }
-
-  public async executeCommand(...execution: Parameters<BashExecution["exec"]>): ReturnType<BashExecution["exec"]> {
-    this.hasEffectStarted = true;
-    try {
-      return await this.localBash.exec(...execution);
-    } catch (error: unknown) {
-      this.hasTimedOut = error instanceof Error && error.message.startsWith(shellTimeoutErrorPrefix);
-      throw error;
-    }
-  }
-
-  private requireInside(absolutePath: string): void {
-    if (!this.boundary.isInside(absolutePath)) {
-      throw new ToolExecutionError(this.boundary.outsideMessage(this.toolName));
-    }
-  }
-}
-
-/** Makes an error before the call's first effect, or a timeout kill, a failure the model sees. */
+/** Makes an error with a known outcome a failure the model sees: any before the command started, or a timeout kill. */
 function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolCallOperations): PiAgentToolLike {
   return {
     ...tool,
@@ -432,7 +379,6 @@ function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolC
       try {
         return await tool.execute(toolCallId, params, signal, onUpdate);
       } catch (error: unknown) {
-        // After the first effect the outcome is unknown, unless the timeout killed the command.
         const isOutcomeUnknown = operations.hasEffectStarted && !operations.hasTimedOut;
         if (isOutcomeUnknown || signal?.aborted === true || error instanceof ToolExecutionError) {
           throw error;

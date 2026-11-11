@@ -132,6 +132,64 @@ describe("the workspace boundary of the file tools", () => {
     assert.equal(await files.editFile("todo.txt", "milk", "oat milk $&"), "edited todo.txt: replaced 1 occurrence");
     assert.equal(readFileSync(join(workspace, "todo.txt"), "utf8"), "buy oat milk $&\nbuy bread\n");
   });
+
+  test("the byte, stat, and listing methods refuse outside links and hard links", async () => {
+    const { root, workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "notes.txt"), "inside");
+    symlinkSync(join(root, "outside.txt"), join(workspace, "secret.txt"));
+    symlinkSync(join(root, "outside-dir"), join(workspace, "secret-dir"));
+    linkSync(join(root, "outside.txt"), join(workspace, "linked.txt"));
+    assert.equal((await files.readFileWithVersion("notes.txt")).bytes.toString("utf8"), "inside");
+    await assert.rejects(files.readFileWithVersion("secret.txt"), /outside the workspace/);
+    await assert.rejects(files.readFileWithVersion(join(workspace, "linked.txt")), /has 2 hard links/);
+    await assert.rejects(files.statExisting("secret.txt"), /outside the workspace/);
+    await assert.rejects(files.readDirectoryEntries("secret-dir"), /outside the workspace/);
+    assert.ok((await files.statExisting(".")).isDirectory());
+    assert.deepEqual(
+      (await files.readDirectoryEntries(".")).map((entry) => [entry.name, entry.isDirectory, entry.isSymbolicLink]),
+      [
+        ["linked.txt", false, false],
+        ["notes.txt", false, false],
+        ["secret-dir", false, true],
+        ["secret.txt", false, true],
+      ],
+    );
+  });
+
+  test("the byte, stat, and listing methods refuse a path swapped for an outside link after a check", async () => {
+    const { root, workspace, files } = newWorkspace();
+    mkdirSync(join(workspace, "notes"));
+    writeFileSync(join(workspace, "notes", "a.txt"), "inside");
+    assert.ok((await files.statExisting("notes/a.txt")).isFile());
+    assert.equal((await files.readDirectoryEntries("notes")).length, 1);
+    renameSync(join(workspace, "notes"), join(workspace, "notes-old"));
+    symlinkSync(join(root, "outside-dir"), join(workspace, "notes"));
+    writeFileSync(join(root, "outside-dir", "a.txt"), "outside secret");
+    await assert.rejects(files.statExisting("notes/a.txt"), /outside the workspace/);
+    await assert.rejects(files.readDirectoryEntries("notes"), /outside the workspace/);
+    await assert.rejects(files.readFileWithVersion("notes/a.txt"), /outside the workspace/);
+  });
+
+  test("replaceFileIfUnchanged writes the read version and refuses a changed file, a link, or a hard link", async () => {
+    const { root, workspace, files } = newWorkspace();
+    writeFileSync(join(workspace, "draft.txt"), "first\n");
+    const { version } = await files.readFileWithVersion("draft.txt");
+    assert.equal(await files.replaceFileIfUnchanged("draft.txt", "second\n", version), "wrote 7 bytes to draft.txt");
+    assert.equal(readFileSync(join(workspace, "draft.txt"), "utf8"), "second\n");
+
+    const { version: secondVersion } = await files.readFileWithVersion("draft.txt");
+    writeFileSync(join(workspace, "draft.txt"), "edited meanwhile\n");
+    await assert.rejects(files.replaceFileIfUnchanged("draft.txt", "third\n", secondVersion), /changed after/);
+    assert.equal(readFileSync(join(workspace, "draft.txt"), "utf8"), "edited meanwhile\n");
+
+    const { version: thirdVersion } = await files.readFileWithVersion("draft.txt");
+    renameSync(join(workspace, "draft.txt"), join(workspace, "draft-old.txt"));
+    symlinkSync(join(root, "outside.txt"), join(workspace, "draft.txt"));
+    await assert.rejects(files.replaceFileIfUnchanged("draft.txt", "third\n", thirdVersion), /symbolic link/);
+    linkSync(join(root, "outside.txt"), join(workspace, "linked.txt"));
+    await assert.rejects(files.replaceFileIfUnchanged("linked.txt", "third\n", thirdVersion), /has 2 hard links/);
+    assert.equal(readFileSync(join(root, "outside.txt"), "utf8"), "outside secret");
+  });
 });
 
 describe("tool Step authorization on the executing Worker", () => {

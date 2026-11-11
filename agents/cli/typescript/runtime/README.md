@@ -167,7 +167,12 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   - `context.resolveToolStepPermissions({ flowId, turnId })`: the permissions
     inside the harness's own tool Step, which runs outside the model call and
     maybe on another Worker: this Worker's file narrowed by the settings the
-    turn started with. Check them right before acting.
+    turn started with. Check them right before acting;
+  - `WorkspaceFiles`: the workspace file layer of the local file tools, with
+    the rules under Local tools. A harness's own file tools read, list, and
+    write through it, including `readFileWithVersion`,
+    `replaceFileIfUnchanged`, `statExisting`, and `readDirectoryEntries` for
+    tools that need bytes, versions, stats, or raw entries.
 
   Reads run at once, writes and shell commands wait for approval, and the
   working directory is `context.workspace`. A replacement shell tool, for
