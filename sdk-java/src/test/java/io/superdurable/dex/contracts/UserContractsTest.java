@@ -235,6 +235,16 @@ public class UserContractsTest {
     }
 
     @Test
+    public void joinChannelMapIsTheRegisteredDefinition() {
+        final Join<String> quotes = Join.define("quotes", String.class);
+        final ChannelMap<String> channelMap = quotes.getChannelMap();
+        Assertions.assertSame(channelMap, quotes.getChannelMap());
+        final PersistenceSchema schema = PersistenceSchema.of(quotes);
+        Assertions.assertNotNull(schema);
+        Assertions.assertSame(channelMap, PackagePrivateTestAccess.channelsOf(schema).get(0));
+    }
+
+    @Test
     public void joinConditionsRejectCountsOutsideTheRound() {
         final Join<String> quotes = Join.define("quotes", String.class);
         final JoinRound round = new JoinRound("RequestQuotes-1", 3);

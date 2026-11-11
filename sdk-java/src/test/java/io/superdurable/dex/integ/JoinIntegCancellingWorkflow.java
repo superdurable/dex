@@ -19,7 +19,6 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.Join;
 import io.superdurable.dex.JoinRound;
-import io.superdurable.dex.PackagePrivateTestAccess;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
 import io.superdurable.dex.RPCResult;
@@ -69,7 +68,7 @@ class JoinIntegCancellingWorkflow implements Flow<JoinIntegCancellingWorkflow.Ca
 
     @RPC
     public RPCResult<PendingBids> getPendingBids(final Context context, final String roundKey) {
-        final ChannelMap<String> bidMessages = PackagePrivateTestAccess.channelMapOf(bidReceived);
+        final ChannelMap<String> bidMessages = bidReceived.getChannelMap();
         final PendingBids pendingBids = new PendingBids();
         pendingBids.size = bidMessages.size(context, roundKey);
         pendingBids.values = new ArrayList<String>();

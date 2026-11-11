@@ -70,7 +70,9 @@ Branches report with `endBranch` or `reportBranchResult`. The join Step waits
 with `forAllBranches`, `forFirstBranch`, or `forBranches` and reads
 `getBranchResults`. The next round's split Step resets the previous round with
 `forRemainingBranches` and reads `getRemainingBranchResults`. A Join is stored
-as a `ChannelMap` with the same name; `JoinRound` is stored in Step inputs as
+as a `ChannelMap` with the same name, which `getChannelMap` returns for
+reading a round's pending results; never publish to it directly. `JoinRound`
+is stored in Step inputs as
 `{"roundKey", "branchCount"}`. [Reference](https://docs.superdurable.io/reference/java/waits)
 
 Added `StepDecision.goToMany(List<? extends StepMovement<?>>)` and

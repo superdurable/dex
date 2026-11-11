@@ -267,7 +267,29 @@ public final class Join<T> extends PersistenceDefinition {
         return channelMap.getValueType();
     }
 
-    ChannelMap<T> getChannelMap() {
+    /**
+     * Returns the ChannelMap that stores this Join's branch results.
+     *
+     * <p>Use it to inspect a round's pending results with the existing ChannelMap API, passing the
+     * round's {@link JoinRound#getRoundKey()} as the instance key. For example, an RPC can load the
+     * round's instance with {@link RPCInvokeOptions.Builder#addLoadChannelMapInstance}, then read
+     * {@link ChannelMap#pendingMessages} and {@link ChannelMap#size}. Late results that no reset
+     * consumed stay there until the Flow closes.
+     *
+     * <p>The returned object is the definition registered for this Join, so every API that checks
+     * the registered ChannelMap accepts it. Never publish to it or delete from it directly. Report
+     * branch results only with {@link #endBranch} or {@link #reportBranchResult}; a direct
+     * publication or deletion breaks the exactly-once result count of the round.
+     *
+     * <pre>{@code
+     * List<ChannelMessage<String>> pending =
+     *         quoteReceived.getChannelMap().pendingMessages(context, round.getRoundKey());
+     * }</pre>
+     *
+     * @return the registered ChannelMap with the same name as this Join
+     * @since 1.42.0
+     */
+    public ChannelMap<T> getChannelMap() {
         return channelMap;
     }
 

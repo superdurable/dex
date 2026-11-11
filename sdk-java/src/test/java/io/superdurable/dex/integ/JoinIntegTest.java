@@ -16,7 +16,6 @@ import io.superdurable.dex.Flow;
 import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.JoinRound;
-import io.superdurable.dex.PackagePrivateTestAccess;
 import io.superdurable.dex.RPCInvokeOptions;
 import io.superdurable.dex.Registry;
 import io.superdurable.dex.StepCompletion;
@@ -207,7 +206,7 @@ public final class JoinIntegTest {
                     roundKey,
                     RPCInvokeOptions.newBuilder()
                             .addLoadChannelMapInstance(
-                                    PackagePrivateTestAccess.channelMapOf(workflow.bidReceived),
+                                    workflow.bidReceived.getChannelMap(),
                                     roundKey)
                             .build());
             assertEquals(1, pendingBids.size);

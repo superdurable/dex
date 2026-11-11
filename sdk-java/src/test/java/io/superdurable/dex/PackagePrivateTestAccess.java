@@ -17,8 +17,8 @@ public final class PackagePrivateTestAccess {
     private PackagePrivateTestAccess() {
     }
 
-    public static <T> ChannelMap<T> channelMapOf(final Join<T> join) {
-        return join.getChannelMap();
+    public static List<PersistenceDefinition> channelsOf(final PersistenceSchema schema) {
+        return schema.getChannels();
     }
 
     public static List<StepMovement<?>> movementsOf(final StepDecision decision) {
