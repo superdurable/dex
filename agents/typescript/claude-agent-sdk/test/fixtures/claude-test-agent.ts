@@ -149,11 +149,15 @@ const testToolPolicies: Readonly<Record<string, ToolPolicy>> = {
   draw: { effect: "non_idempotent_write", requiresApproval: false },
 };
 
-/** The test agent's CLI: the fake when `executablePath` is unset, else `environment` is the whole environment. */
+/**
+ * The test agent's CLI: the fake when `executablePath` is unset, else `environment` is the whole environment.
+ * `hasConfigDirectory: false` leaves `CLAUDE_CONFIG_DIR` out of the CLI environment.
+ */
 export interface ClaudeTestAgentCli {
   readonly flowType: string;
   readonly executablePath?: string;
   readonly environment?: Readonly<Record<string, string>>;
+  readonly hasConfigDirectory?: boolean;
   readonly model?: string;
   readonly permissionMode?: PermissionMode;
   readonly allowedTools?: readonly string[];
@@ -179,7 +183,10 @@ export function createClaudeTestAgentFlow(
   const buildOptions = (context: ClaudeAgentOptionsContext): ClaudeAgentQueryOptions => ({
     pathToClaudeCodeExecutable: cli?.executablePath ?? fakeClaudeCliPath,
     cwd: join(stateDirectory, "workspace"),
-    env: { ...environment, CLAUDE_CONFIG_DIR: join(stateDirectory, "claude-config") },
+    env:
+      cli?.hasConfigDirectory === false
+        ? environment
+        : { ...environment, CLAUDE_CONFIG_DIR: join(stateDirectory, "claude-config") },
     ...(cli?.model === undefined ? {} : { model: cli.model }),
     ...(cli?.permissionMode === undefined ? {} : { permissionMode: cli.permissionMode }),
     systemPrompt: `You are scripted agent ${context.flowId}.`,

@@ -17,7 +17,9 @@ import { createInterface } from "node:readline";
 import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 
 import {
+  fakeClaudeEnvironmentLogName,
   fakeClaudeInvocationLogName,
+  fakeClaudeRecordedVariables,
   fakeClaudeRequestModel,
   fakeClaudeResponseModel,
   fakeClaudeResumeWithoutHooksVariable,
@@ -506,6 +508,7 @@ class FakeClaudeCli {
     this.channel.respond(initialize["request_id"], { commands: [], output_style: "default" });
     const isResume = this.cliArguments.resumeSessionId !== undefined;
     this.invocations.record(isResume ? "cli:resume" : "cli:new");
+    this.recordEnvironment(isResume ? "resume" : "new");
     this.transcript = FakeTranscript.open(this.cliArguments, this.channel);
     let exitCode = 0;
     try {
@@ -532,6 +535,14 @@ class FakeClaudeCli {
       await this.channel.nextUserMessage();
     }
     return exitCode;
+  }
+
+  private recordEnvironment(kind: string): void {
+    const record: Record<string, string | null> = { kind };
+    for (const name of fakeClaudeRecordedVariables) {
+      record[name] = process.env[name] ?? null;
+    }
+    appendFileSync(join(this.stateDirectory, fakeClaudeEnvironmentLogName), `${JSON.stringify(record)}\n`);
   }
 
   private async runTurn(turnBody: () => Promise<void>): Promise<void> {

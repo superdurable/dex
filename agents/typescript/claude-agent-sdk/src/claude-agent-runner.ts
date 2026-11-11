@@ -122,6 +122,13 @@ export interface ClaudeAgentOptionsContext {
  *
  * The adapter also wraps each callback of your PreToolUse hooks, so it is skipped for a resumed call that
  * already has a final record. Changed in 0.4.0: your PreToolUse hooks no longer run for such a call.
+ *
+ * The adapter also sets `CLAUDE_SECURESTORAGE_CONFIG_DIR` in `env` unless your `env` sets it. Without your
+ * `env`, it passes a copy of `process.env`, which may already set it. The value is the effective
+ * `CLAUDE_CONFIG_DIR`, or `""` without one. The SDK resumes a session from a temporary `CLAUDE_CONFIG_DIR`, and
+ * the variable keeps the CLI on the login that the Claude Code subscription stored, such as the macOS Keychain
+ * entry. Changed in 0.6.0: the adapter sets `CLAUDE_SECURESTORAGE_CONFIG_DIR`, so a later turn keeps a Claude
+ * Code subscription login.
  */
 export type ClaudeAgentQueryOptions = Omit<
   Options,
@@ -256,6 +263,16 @@ const adapterOwnedOptionNames = [
 ] as const;
 const permissionModesThatSkipTheAdapter = new Set(["acceptEdits", "auto", "bypassPermissions"]);
 const customToolServerNamePattern = /^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*$/;
+// Claude Code keys its stored login by this directory; a store resume moves CLAUDE_CONFIG_DIR.
+const secureStorageConfigDirectoryVariable = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
+// The SDK sets or strips these itself only when `env` leaves them out.
+const sdkManagedEnvironmentVariables: ReadonlySet<string> = new Set([
+  "TRACEPARENT",
+  "TRACESTATE",
+  "CLAUDE_CODE_QUESTION_EXTENDED",
+  "CLAUDE_CODE_QUESTION_OPTIONAL_DESCRIPTIONS",
+  "CLAUDE_CODE_AGENT_PROGRESS_SUMMARIES",
+]);
 const runningDeferredToolExecution = new AsyncLocalStorage<DeferredToolExecution>();
 
 /**
@@ -681,6 +698,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
       includePartialMessages: true,
       abortController: segment.abortController,
       extraArgs,
+      env: withSecureStorageConfigDirectory(applicationOptions.env),
     };
   }
 
@@ -904,6 +922,21 @@ class TurnSegmentObserver {
       }
     }
   }
+}
+
+/**
+ * Returns the CLI environment with the secure-storage directory the CLI would use without a resume.
+ *
+ * `env` replaces the Worker's environment for the CLI, so without one the result copies `process.env`.
+ * An empty value selects Claude Code's default login.
+ */
+function withSecureStorageConfigDirectory(applicationEnvironment: Options["env"]): NonNullable<Options["env"]> {
+  const environment =
+    applicationEnvironment === undefined
+      ? Object.fromEntries(Object.entries(process.env).filter(([name]) => !sdkManagedEnvironmentVariables.has(name)))
+      : { ...applicationEnvironment };
+  environment[secureStorageConfigDirectoryVariable] ??= environment["CLAUDE_CONFIG_DIR"] ?? "";
+  return environment;
 }
 
 function parseCustomToolArguments(

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextvars import ContextVar
@@ -92,6 +93,9 @@ APPROVED_CLI_TOOL_OUTPUT = "approved; Claude Code runs this tool when the turn r
 _PERMISSION_MODES_THAT_SKIP_THE_ADAPTER = ("acceptEdits", "auto", "bypassPermissions")
 AWAIT_INITIALIZE_CLI_FLAG = "await-initialize"
 _ADAPTER_OWNED_CLI_FLAGS = (AWAIT_INITIALIZE_CLI_FLAG, "mcp-config", "resume", "session-id")
+# Claude Code keys its stored login by this directory; a store resume moves CLAUDE_CONFIG_DIR.
+_SECURE_STORAGE_CONFIG_DIR_VARIABLE = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
+_CONFIG_DIR_VARIABLE = "CLAUDE_CONFIG_DIR"
 _SERVER_NAME_PATTERN = re.compile(r"[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*")
 # Claude Code's ModelUsage provider values that have a well-known gen_ai.provider.name.
 _GEN_AI_PROVIDER_NAMES = {
@@ -215,6 +219,10 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     .. versionchanged:: 0.5.0
         The runner takes images with a ``media_store``.
 
+    .. versionchanged:: 0.6.0
+        The runner sets ``CLAUDE_SECURESTORAGE_CONFIG_DIR`` in ``env``, so a
+        later turn keeps a Claude Code subscription login.
+
     Most applications use ``claude_agent_session_flow`` instead of
     constructing the runner directly.
 
@@ -230,7 +238,13 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     The runner sets ``mcp_servers[custom_tool_server_name]``, a PreToolUse
     hook, ``can_use_tool``, ``session_store``, ``resume``,
     ``include_partial_messages``, and the ``--await-initialize`` CLI flag in
-    ``extra_args`` on the options your factory returns. A turn
+    ``extra_args`` on the options your factory returns. It also adds
+    ``CLAUDE_SECURESTORAGE_CONFIG_DIR`` to ``env`` unless your ``env`` or the
+    Worker's environment sets it. The value is the effective
+    ``CLAUDE_CONFIG_DIR``, or ``""`` without one. The SDK resumes a session
+    from a temporary ``CLAUDE_CONFIG_DIR``, and the variable keeps the CLI on
+    the login that the Claude Code subscription stored, such as the macOS
+    Keychain entry. A turn
     attempt fails with ``ValueError`` when the factory sets ``can_use_tool``,
     ``permission_prompt_tool_name``, ``session_store``, ``resume``,
     ``session_id``, ``continue_conversation``, ``fork_session``,
@@ -653,6 +667,7 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             session_store=session_store,
             resume=session_id,
             include_partial_messages=True,
+            env=_with_secure_storage_config_dir(options.env),
             # The CLI waits for the hooks before it resumes a deferred call.
             extra_args={**options.extra_args, AWAIT_INITIALIZE_CLI_FLAG: None},
         )
@@ -808,6 +823,29 @@ class _TurnSegmentObserver:
             self._turn.events.write_text_delta(str(delta.get("text", "")))
         elif delta.get("type") == "thinking_delta":
             self._turn.events.write_reasoning_delta(str(delta.get("thinking", "")))
+
+
+def _with_secure_storage_config_dir(application_env: dict[str, str]) -> dict[str, str]:
+    """Return ``application_env`` with the secure-storage directory the CLI would use unresumed.
+
+    The CLI inherits this process's environment under ``application_env``, so
+    each variable comes from ``application_env`` first. An empty value selects
+    Claude Code's default login.
+    """
+    secure_storage_config_dir = next(
+        (
+            value
+            for value in (
+                application_env.get(_SECURE_STORAGE_CONFIG_DIR_VARIABLE),
+                os.environ.get(_SECURE_STORAGE_CONFIG_DIR_VARIABLE),
+                application_env.get(_CONFIG_DIR_VARIABLE),
+                os.environ.get(_CONFIG_DIR_VARIABLE),
+            )
+            if value is not None
+        ),
+        "",
+    )
+    return {**application_env, _SECURE_STORAGE_CONFIG_DIR_VARIABLE: secure_storage_config_dir}
 
 
 def _only_value(values: set[str]) -> str | None:
