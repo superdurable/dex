@@ -12,6 +12,10 @@ This page lists user-visible changes to the Python SDK, newest first; each secti
 
 Not released yet. The next release, sdk-python/v1.45.0, ships these changes.
 
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. A dash made the generated child Flow ID ambiguous, so two parents could share one child. When such a Step returns a Wait that contains **SubFlow.run**, the server rejects the result as an invalid Worker response and fails the attempt without retry. The Worker logs a warning first. Default Step types are class names and are not affected. To migrate, change **get_step_type** to return a Step type without a dash. [Reference](/reference/python/subflow#step-types-that-start-subflows).
+
 ### Fixed
 
 - The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [Reference](/reference/python/waits).

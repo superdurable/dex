@@ -13,6 +13,34 @@ const toolNamePattern = /^[A-Za-z0-9_-]{1,64}$/;
 const toolEffects: readonly ToolEffect[] = ["read", "idempotent_write", "non_idempotent_write", "unclassified"];
 
 /**
+ * A value that {@link FunctionToolDefinition.prepareArguments} may return: any value except a Promise or another
+ * object with a `then` method, because the conversion must be synchronous.
+ *
+ * Return an object for arguments that can pass the schema check. Any other value fails the call with
+ * `expected a JSON object`. An argument named `then` is allowed when its value is JSON, such as a string;
+ * only a function there is refused. To return the decoded arguments unchanged, narrow them first, such as
+ * with `args as object`.
+ * @since 0.5.0
+ */
+export type PreparedToolArguments =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly unknown[]
+  | { readonly then?: PreparedToolArgumentThenValue; readonly [key: string]: unknown }
+  | (object & { readonly then?: PreparedToolArgumentThenValue });
+
+/** JSON values that an argument named `then` may hold; a function there would make the arguments a thenable. */
+type PreparedToolArgumentThenValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly unknown[]
+  | Readonly<Record<string, unknown>>;
+
+/**
  * What a function tool receives besides its arguments, for one run of one tool call.
  *
  * Pass {@link idempotencyKey} to services that deduplicate requests: it is the same on every attempt
@@ -29,6 +57,34 @@ export interface ToolCallContext {
   readonly idempotencyKey: string;
   /** One-based attempt of the tool Step; `read` and `idempotent_write` calls get up to three. */
   readonly attempt: number;
+  /**
+   * Effect of this call after the tool policies are applied.
+   *
+   * It is the effect stored on the call, which chose `CallTool` or `CallSingleAttemptTool` and the default
+   * approval. It can differ from {@link FunctionToolDefinition.effect} when a policy in
+   * {@link AgentDefinition.toolPolicies} or a session policy overrides it.
+   *
+   * The runner always sets it. It is `undefined` only in a context built by hand, such as in a unit test.
+   * Treat `undefined` as an unknown effect, and handle the call as a write whose outcome may be unknown.
+   *
+   * Use it in a wrapper that turns errors into {@link ToolExecutionError}. `non_idempotent_write` and
+   * `unclassified` calls run once in `CallSingleAttemptTool`. For them, and for an unknown effect, let an error
+   * whose outcome is unknown propagate, so the session records `outcome_unknown` and never repeats the call.
+   *
+   * @example
+   * ```ts
+   * execute: async (args, context) => {
+   *   try {
+   *     return await client.send(args);
+   *   } catch (error) {
+   *     if (context.effect !== "read" && context.effect !== "idempotent_write") throw error;
+   *     throw new ToolExecutionError(String(error));
+   *   }
+   * },
+   * ```
+   * @since 0.5.0
+   */
+  readonly effect?: ToolEffect;
   /** Events writer bound to the turn and attempt, for progress text. */
   readonly events: AgentEventWriter;
   /** Signal aborted when Dex cancels the attempt; pass it to network calls. */
@@ -71,6 +127,33 @@ export interface FunctionToolDefinition<Arguments> {
    */
   readonly requiresApproval?: boolean;
   /**
+   * Converts the model's arguments before the {@link parameters} check, such as an argument shape that an
+   * earlier version of the tool accepted.
+   *
+   * The runner calls it with the arguments decoded from JSON, which may be any JSON value. It checks the
+   * returned value against {@link parameters} and passes it to {@link execute}. A throw fails the call like
+   * a schema violation: the model sees `invalid arguments for <tool>: <message>`, and {@link execute} does not
+   * run. Absent, the decoded arguments are checked unchanged.
+   *
+   * It must be synchronous and deterministic, and it must have no side effects. Every attempt converts the
+   * stored arguments again. A Promise or another object with a `then` method fails the call with
+   * `invalid arguments for <tool>: argument conversion must be synchronous`. The stored tool call, the approval
+   * interrupt, and the transcript keep the model's original arguments.
+   *
+   * @example
+   * ```ts
+   * // Version 1 took { id }; version 2 takes { order_id }.
+   * prepareArguments: (args) => {
+   *   const record = args as Record<string, unknown>;
+   *   return "id" in record && !("order_id" in record) ? { order_id: record["id"] } : record;
+   * },
+   * ```
+   * @param args - The model's arguments, decoded from JSON.
+   * @returns The arguments to check against {@link parameters}.
+   * @since 0.5.0
+   */
+  readonly prepareArguments?: (args: unknown) => PreparedToolArguments;
+  /**
    * Runs the tool once, inside its own tool Step.
    *
    * A `string` result is the output the model sees. A {@link ToolInputRequested} result asks the user a
@@ -99,6 +182,14 @@ export interface FunctionTool {
   readonly effect: ToolEffect;
   /** Approval override, or `undefined` for the effect's default. */
   readonly requiresApproval: boolean | undefined;
+  /**
+   * Converts the model's decoded arguments before the schema check, or `undefined` to check them unchanged.
+   * See {@link FunctionToolDefinition.prepareArguments}.
+   * @param args - The model's arguments, decoded from JSON.
+   * @returns The arguments to check against {@link parameters}.
+   * @since 0.5.0
+   */
+  readonly prepareArguments?: (args: unknown) => PreparedToolArguments;
   /**
    * Runs the tool with checked arguments.
    * @param args - Arguments that passed the schema check.
@@ -138,9 +229,10 @@ export interface FunctionTool {
  * });
  * ```
  * @typeParam Arguments - Type of the checked arguments; it is not checked against the schema.
- * @param definition - Name, description, schema, effect, approval, and implementation.
+ * @param definition - Name, description, schema, effect, approval, argument conversion, and implementation.
  * @returns The tool, to pass in {@link AgentDefinition.tools}.
- * @throws {TypeError} When the name, description, schema, effect, or implementation is invalid.
+ * @throws {TypeError} When the name, description, schema, effect, argument conversion, or implementation is
+ * invalid.
  */
 export function functionTool<Arguments = Record<string, unknown>>(
   definition: FunctionToolDefinition<Arguments>,
@@ -164,6 +256,9 @@ export function functionTool<Arguments = Record<string, unknown>>(
   if (typeof definition.execute !== "function") {
     throw new TypeError(`function tool ${definition.name} needs an execute function`);
   }
+  if (definition.prepareArguments !== undefined && typeof definition.prepareArguments !== "function") {
+    throw new TypeError(`function tool ${definition.name} prepareArguments must be a function`);
+  }
   const execute = definition.execute;
   return Object.freeze({
     kind: "function_tool",
@@ -172,6 +267,7 @@ export function functionTool<Arguments = Record<string, unknown>>(
     parameters,
     effect: definition.effect,
     requiresApproval: definition.requiresApproval,
+    ...(definition.prepareArguments === undefined ? {} : { prepareArguments: definition.prepareArguments }),
     execute: async (args: unknown, context: ToolCallContext) => await execute(args as Arguments, context),
   });
 }

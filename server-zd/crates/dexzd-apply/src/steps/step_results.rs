@@ -43,7 +43,7 @@ use crate::steps::{
 use crate::values::{
     ValueHolder, ValueRejection, hold_stored_value, release_stored_value, store_value,
 };
-use crate::{ApplyEffect, ApplyError};
+use crate::{ApplyEffect, ApplyError, cross_flow};
 use dexzd_protocol::dexzd::v1::CommandReply;
 
 /// Outcome of a Step command handler.
@@ -56,8 +56,8 @@ pub(crate) enum StepCommandOutcome {
     /// failure of the attempt instead.
     RejectedResult(ValueRejection),
     RebuildUnavailable(PermissionRebuildUnavailable),
-    /// The result is missing or belongs to the other method; also a non-retryable failure.
-    MismatchedResult(String),
+    /// The result is missing, belongs to the other method, or breaks a Step rule; also non-retryable.
+    InvalidResult(String),
 }
 
 impl From<FlowDataRejection> for StepCommandOutcome {
@@ -871,11 +871,14 @@ pub(crate) fn apply_method_completed(
         return Ok(StepCommandOutcome::Ignored(ok_reply()));
     };
     let Some(response) = response_for_invocation(&step, command) else {
-        return Ok(StepCommandOutcome::MismatchedResult(format!(
+        return Ok(StepCommandOutcome::InvalidResult(format!(
             "the Worker result for Step execution {} does not match its running method",
             step.step_execution_id
         )));
     };
+    if let Some(detail) = cross_flow::sub_flow_step_type_error(scope, &step, response) {
+        return Ok(StepCommandOutcome::InvalidResult(detail));
+    }
     if let step_method_completed_command::Response::WaitFor(wait_response) = response
         && let Some(condition) = wait_response.waiting_condition.as_ref()
         && !condition.sub_flow_conditions.is_empty()

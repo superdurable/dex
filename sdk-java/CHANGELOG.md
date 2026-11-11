@@ -60,6 +60,15 @@ Removed the Continue-As-New and internal handler timeout APIs:
 - Generated bindings rename `FlowExecutionID` to `FlowRunID` and
   `getFlowExecutionId` to `getFlowRunId`. ProtoJSON uses `flowRunId`.
 
+A Step whose Step type contains `-` can no longer start SubFlows. The child
+Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with
+`-`, so a dash made two parents share one child. When such a Step's `waitFor`
+returns a `SubFlow.run` condition, the server rejects the result as an invalid
+Worker response and fails the attempt without retry; with the default failure
+policy, the Flow fails. The Worker logs a warning. Steps that start no SubFlows
+are unaffected. To migrate, rename the Step type, for example by overriding
+`getStepType`. [Reference](https://docs.superdurable.io/reference/java/subflow#step-types-that-start-subflows)
+
 ### Added
 
 Added `Join<T>` and `JoinRound` to synchronize parallel branches of one Flow.
