@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from dex_agents import (
     AgentSessionOptions,
     AgentTracingOptions,
     AgentTurnContext,
+    AgentTurnOutcome,
     DeferredToolExecution,
     DeferredToolOutcome,
     RunModelLimit,
@@ -86,7 +88,10 @@ CLAUDE_CODE_LOCAL_TOOLS: Mapping[str, _ClaudeCodeLocalTool] = {
     "Bash": _ClaudeCodeLocalTool(LocalToolGroup.SHELL, ToolEffect.NON_IDEMPOTENT_WRITE, True, None),
     "WebFetch": _ClaudeCodeLocalTool(LocalToolGroup.WEB_FETCH, ToolEffect.READ, False, None),
 }
+_RUNNING_TURN: ContextVar[AgentTurnContext] = ContextVar("dex_agents_claude_sdk_cli_turn")
 _GLOB_CHARACTERS = frozenset("*?[{")
+# The input field of each file tool that holds a glob pattern.
+_GLOB_PATTERN_ARGUMENTS = {"Glob": "pattern", "Grep": "glob"}
 
 
 class ClaudeSdkHarness:
@@ -185,15 +190,18 @@ class ClaudeCodeLocalTools:
             RuntimeError: Outside a model call, which never happens.
         """
         turn = current_turn_config()
-        if turn is None:
+        turn_context = _RUNNING_TURN.get(None)
+        if turn is None or turn_context is None:
             raise RuntimeError("the Claude options need the running turn's configuration")
+        # A resumed CLI must find a recorded call's tool to replay it; new calls stay denied.
+        recorded_tool_names = {record.tool_name for record in turn_context.tool_calls.values()}
         return ClaudeAgentOptions(
             model=turn.model,
             system_prompt=turn.instructions or DEFAULT_INSTRUCTIONS,
             tools=[
                 tool_name
                 for tool_name, tool in CLAUDE_CODE_LOCAL_TOOLS.items()
-                if is_local_tool_group_enabled(turn, tool.group)
+                if is_local_tool_group_enabled(turn, tool.group) or tool_name in recorded_tool_names
             ],
             cwd=str(self._context.workspace),
             # Settings files could allow tools before the session's policy sees them.
@@ -254,8 +262,13 @@ class ClaudeCodeLocalTools:
         paths = []
         if tool.path_argument is not None and isinstance(tool_input.get(tool.path_argument), str):
             paths.append(str(tool_input[tool.path_argument]))
-        if tool_name == "Glob" and isinstance(tool_input.get("pattern"), str):
-            paths.append(_glob_base(str(tool_input["pattern"])))
+        pattern_argument = _GLOB_PATTERN_ARGUMENTS.get(tool_name)
+        pattern = None if pattern_argument is None else tool_input.get(pattern_argument)
+        if isinstance(pattern, str):
+            # Brace expansion can produce .. from any part of a pattern, so none may contain it.
+            if ".." in pattern:
+                return f"{tool_name} may only use paths inside the workspace {self._workspace}"
+            paths.append(_glob_base(pattern))
         for path in paths:
             if not self._is_inside_workspace(path):
                 return f"{tool_name} may only use paths inside the workspace {self._workspace}"
@@ -267,6 +280,7 @@ class ClaudeCodeLocalTools:
         candidate = Path(os.path.expanduser(path_text))
         if not candidate.is_absolute():
             candidate = self._workspace / candidate
+        # realpath also follows a dangling link to the target it would create.
         resolved = Path(os.path.realpath(candidate))
         return resolved == self._workspace or self._workspace in resolved.parents
 
@@ -282,7 +296,7 @@ def _glob_base(pattern: str) -> str:
 
 
 class _ReauthorizingClaudeAgentRunner(ClaudeAgentRunner):
-    """Check an approved Claude Code tool call again in its tool Step, on its Worker."""
+    """Give the options their turn, and check an approved Claude Code tool call in its tool Step."""
 
     def __init__(
         self,
@@ -294,6 +308,13 @@ class _ReauthorizingClaudeAgentRunner(ClaudeAgentRunner):
         super().__init__(*args, **kwargs)
         self._context = context
         self._local_tools = local_tools
+
+    async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
+        token = _RUNNING_TURN.set(turn)
+        try:
+            return await super().run_model_step(turn)
+        finally:
+            _RUNNING_TURN.reset(token)
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
         tool_name = call.tool_call.tool_name

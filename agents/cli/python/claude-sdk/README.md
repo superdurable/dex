@@ -57,14 +57,18 @@ Claude Code's own tools replace the runtime's `files`, `shell`, and
   `Read`.
 - Claude Code runs in the workspace. The file tools refuse a path outside it,
   after resolving `~`, symbolic links, and relative paths, and refuse any
-  path with `..`. `Bash` is not confined: an approved command runs with your
-  permissions.
+  path with `..`. A dangling symbolic link counts as the target it would
+  create. A `Glob` pattern or a `Grep` `glob` must not contain `..` at all,
+  and an absolute one must start inside the workspace. `Bash` is not confined:
+  an approved command runs with your permissions.
 - Claude Code reads no settings files, so their allow rules cannot skip an
   approval. Its other tools, such as subagents, are not offered.
 - An approved call is checked again in its tool Step, on the Worker that runs
   it, with that Worker's configuration file narrowed by the turn's session
   settings. It fails without running when its group is off there or its path
-  is outside the workspace.
+  is outside the workspace, and the model sees why. The session settings
+  count as the turn started with them, so a change takes effect from the next
+  turn.
 - These tools run inside the Claude Code CLI, not in their own Dex Steps. A
   Worker that dies during a turn segment runs the segment again, so a tool
   call in it can run twice. Connector and browser tools run in their own
@@ -87,7 +91,10 @@ bundled Claude Code CLI calls `tests/mock_messages_api.py`, a scripted
 Messages API on 127.0.0.1; a refused proxy stops any other request. A fake
 connectors MCP server serves a connector read and write. The tests cover a
 chat turn and `--resume`, a connector read and an approved connector write
-that runs once, `Read` without approval, `Write` and `Bash` after approval, an
-allow-listed command run in the workspace, a path outside the workspace,
-session settings that switch the shell off, and the environment that reaches
-Claude Code with and without a key.
+that runs once, `Read`, `Glob`, `Grep`, and `WebFetch` without approval,
+`Write`, `Edit`, and `Bash` after approval, an allow-listed command run in the
+workspace and an allow-listed background command that still waits, paths and
+patterns that leave the workspace, a dangling link to outside, session
+settings that switch the shell off, an approved call that the Worker running
+it refuses after its file switched the group off, and the environment that
+reaches Claude Code with and without a key.

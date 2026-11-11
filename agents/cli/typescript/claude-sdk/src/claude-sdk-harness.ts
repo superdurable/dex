@@ -6,15 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { realpathSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   createAgentSessionFlow,
   ToolExecutionError,
   type AgentSessionFlow,
   type AgentTurnContext,
+  type AgentTurnOutcome,
   type DeferredToolExecution,
   type ToolEffect,
   type ToolExecutionResult,
@@ -93,7 +95,9 @@ export const claudeCodeLocalTools: Readonly<Record<string, ClaudeCodeLocalTool>>
   WebFetch: { group: "web_fetch", effect: "read", isApprovalRequired: false, pathArgument: null },
 });
 
+const runningTurn = new AsyncLocalStorage<AgentTurnContext>();
 const globCharacters = /[*?[{]/;
+const maximumSymbolicLinkHops = 40;
 
 /**
  * The `dex-agents-claude-sdk` command: a Claude Agent SDK agent in the terminal.
@@ -184,11 +188,13 @@ export class ClaudeCodeLocalTools {
    */
   public buildOptions(): ClaudeAgentQueryOptions {
     const turn = this.context.currentTurn();
+    // A resumed CLI must find a recorded call's tool to replay it; new calls stay denied.
+    const recordedToolNames = new Set((runningTurn.getStore()?.toolCalls ?? []).map((record) => record.toolName));
     return {
       model: turn.model,
       systemPrompt: turn.instructions ?? defaultInstructions,
       tools: Object.entries(claudeCodeLocalTools)
-        .filter(([, tool]) => isLocalToolGroupEnabled(turn, tool.group))
+        .filter(([toolName, tool]) => isLocalToolGroupEnabled(turn, tool.group) || recordedToolNames.has(toolName))
         .map(([toolName]) => toolName),
       cwd: this.context.workspace,
       // Settings files could allow tools before the session's policy sees them.
@@ -254,8 +260,14 @@ export class ClaudeCodeLocalTools {
     if (typeof pathValue === "string") {
       paths.push(pathValue);
     }
-    if (toolName === "Glob" && typeof toolInput["pattern"] === "string") {
-      paths.push(globBase(toolInput["pattern"]));
+    const patternArgument = toolName === "Glob" ? "pattern" : toolName === "Grep" ? "glob" : undefined;
+    const pattern = patternArgument === undefined ? undefined : toolInput[patternArgument];
+    if (typeof pattern === "string") {
+      // Brace expansion can produce .. from any part of a pattern, so none may contain it.
+      if (pattern.includes("..")) {
+        return `${toolName} may only use paths inside the workspace ${this.workspace}`;
+      }
+      paths.push(globBase(pattern));
     }
     for (const path of paths) {
       if (!this.isInsideWorkspace(path)) {
@@ -271,14 +283,17 @@ export class ClaudeCodeLocalTools {
     }
     const expanded = pathText === "~" || pathText.startsWith("~/") ? join(homedir(), pathText.slice(1)) : pathText;
     const candidate = isAbsolute(expanded) ? expanded : join(this.workspace, expanded);
-    const resolved = realpathOfExistingPrefix(candidate);
+    const resolved = resolveSymbolicLinks(candidate);
+    if (resolved === null) {
+      return false;
+    }
     const fromWorkspace = relative(this.workspace, resolved);
     const isOutside = fromWorkspace === ".." || fromWorkspace.startsWith(`..${sep}`) || isAbsolute(fromWorkspace);
     return !isOutside;
   }
 }
 
-/** Checks an approved Claude Code tool call again in its tool Step, on the Worker that runs it. */
+/** Gives the options their turn, and checks an approved Claude Code tool call in its tool Step. */
 class ReauthorizingClaudeAgentRunner extends ClaudeAgentRunner {
   public constructor(
     private readonly context: HarnessContext,
@@ -287,6 +302,10 @@ class ReauthorizingClaudeAgentRunner extends ClaudeAgentRunner {
     runnerOptions: ClaudeAgentRunnerOptions,
   ) {
     super(options, runnerOptions);
+  }
+
+  public override async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
+    return runningTurn.run(turn, () => super.runModelStep(turn));
   }
 
   public override async executeDeferredToolCall(call: DeferredToolExecution): Promise<ToolExecutionResult> {
@@ -318,22 +337,51 @@ function globBase(pattern: string): string {
   return base === "" ? (pattern.startsWith("/") ? "/" : ".") : base;
 }
 
-/** Resolves links in the longest existing prefix of a path, so a file that does not exist yet still resolves. */
-function realpathOfExistingPrefix(path: string): string {
-  let existing = resolve(path);
-  const missing: string[] = [];
-  for (;;) {
-    try {
-      return join(realpathSync.native(existing), ...missing.reverse());
-    } catch {
-      const parent = resolve(existing, "..");
-      if (parent === existing) {
-        return resolve(path);
-      }
-      missing.push(existing.slice(parent.length + (parent.endsWith(sep) ? 0 : 1)));
-      existing = parent;
+/**
+ * Resolves every symbolic link of an absolute path, one component at a time, as the kernel would.
+ *
+ * A dangling link resolves to the target it would create, so a write through it is checked where it lands. Names
+ * after the first missing component cannot be links and stay as they are.
+ *
+ * @param path - The absolute path.
+ * @returns The resolved path, or `null` after more than {@link maximumSymbolicLinkHops} links.
+ */
+function resolveSymbolicLinks(path: string): string | null {
+  let pending = path.split(sep).filter((name) => name !== "");
+  let current: string = sep;
+  let hops = 0;
+  while (pending.length > 0) {
+    const [name, ...rest] = pending as [string, ...string[]];
+    pending = rest;
+    if (name === ".") {
+      continue;
     }
+    if (name === "..") {
+      current = dirname(current);
+      continue;
+    }
+    const candidate = join(current, name);
+    let isSymbolicLink: boolean;
+    try {
+      isSymbolicLink = lstatSync(candidate).isSymbolicLink();
+    } catch {
+      return resolve(candidate, ...pending);
+    }
+    if (!isSymbolicLink) {
+      current = candidate;
+      continue;
+    }
+    hops += 1;
+    if (hops > maximumSymbolicLinkHops) {
+      return null;
+    }
+    const target = readlinkSync(candidate);
+    if (isAbsolute(target)) {
+      current = sep;
+    }
+    pending = [...target.split(sep).filter((targetName) => targetName !== ""), ...pending];
   }
+  return current;
 }
 
 function parseToolInput(text: string): Readonly<Record<string, unknown>> {

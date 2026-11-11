@@ -35,8 +35,9 @@ type ResponseBlock =
  *
  * - `say <text>` answers `said: <text>`.
  * - `recall` answers with every earlier prompt.
- * - `call <tool> <json>` calls one tool. A tool name matches the request's tool list exactly or as the
- *   `mcp__<server>__<name>` suffix. Once the call has a result, it answers `<tool>: <result>`.
+ * - `call <tool> <json>` calls one tool; join calls with ` && ` for one reply with several tool uses. A tool name
+ *   matches the request's tool list exactly or as the `mcp__<server>__<name>` suffix. Once every call has a
+ *   result, it answers `<tool>: <result>` joined with `; `.
  */
 export class MockMessagesApi {
   /** Every request, in arrival order. */
@@ -143,36 +144,53 @@ function scriptedReply(body: JsonObject): JsonObject {
 }
 
 function nextToolContent(command: string, messages: readonly JsonObject[], toolNames: readonly string[]): ResponseBlock[] {
-  const [, requestedName = "", ...inputParts] = command.split(" ");
-  const toolName = toolNames.find((name) => name === requestedName || name.endsWith(`__${requestedName}`)) ?? requestedName;
-  const toolInput = JSON.parse(inputParts.join(" ")) as JsonObject;
-  const result = latestToolResult(messages);
-  if (result === undefined || result.includes(callAloneMarker)) {
-    return [{ type: "tool_use", id: `toolu_0_${randomUUID().replaceAll("-", "").slice(0, 12)}`, name: toolName, input: toolInput }];
+  const requests = command.split(" && ").map((call, requestIndex) => {
+    const [, requestedName = "", ...inputParts] = call.split(" ");
+    const toolName =
+      toolNames.find((name) => name === requestedName || name.endsWith(`__${requestedName}`)) ?? requestedName;
+    return { requestIndex, toolName, toolInput: JSON.parse(inputParts.join(" ")) as JsonObject };
+  });
+  const toolUse = (request: (typeof requests)[number]): ResponseBlock => ({
+    type: "tool_use",
+    id: `toolu_${request.requestIndex}_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+    name: request.toolName,
+    input: request.toolInput,
+  });
+  const results = latestResultsByRequest(messages);
+  if (results.size === 0) {
+    return requests.map(toolUse);
   }
-  return [{ type: "text", text: `${toolName.split("__").at(-1) ?? toolName}: ${result}` }];
+  const callAgain = requests.find((request) => (results.get(request.requestIndex) ?? "").includes(callAloneMarker));
+  if (callAgain !== undefined) {
+    return [toolUse(callAgain)];
+  }
+  const summary = requests
+    .map((request) => `${request.toolName.split("__").at(-1) ?? request.toolName}: ${results.get(request.requestIndex) ?? ""}`)
+    .join("; ");
+  return [{ type: "text", text: summary }];
 }
 
-function latestToolResult(messages: readonly JsonObject[]): string | undefined {
+function latestResultsByRequest(messages: readonly JsonObject[]): Map<number, string> {
   let lastPromptIndex = -1;
   messages.forEach((message, index) => {
     if (promptText(message) !== undefined) {
       lastPromptIndex = index;
     }
   });
-  let result: string | undefined;
+  const results = new Map<number, string>();
   for (const message of messages.slice(lastPromptIndex + 1)) {
     const content = message["content"];
     if (!Array.isArray(content)) {
       continue;
     }
     for (const block of content as JsonObject[]) {
-      if (block["type"] === "tool_result") {
-        result = blockText(block["content"]);
+      const toolUseId = String(block["tool_use_id"] ?? "");
+      if (block["type"] === "tool_result" && toolUseId.startsWith("toolu_")) {
+        results.set(Number(toolUseId.split("_")[1]), blockText(block["content"]));
       }
     }
   }
-  return result;
+  return results;
 }
 
 function promptText(message: JsonObject): string | undefined {

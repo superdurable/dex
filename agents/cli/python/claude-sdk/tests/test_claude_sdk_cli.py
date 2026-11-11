@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 from pathlib import Path
 from typing import Any
 
@@ -162,6 +163,139 @@ async def test_file_tools_refuse_paths_outside_the_workspace(
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert "do not read" not in json.dumps(cli_home.model_requests())
+
+
+async def test_a_write_through_a_dangling_link_to_outside_is_refused(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    cli_home.workspace.mkdir()
+    (cli_home.workspace / "link.txt").symlink_to(outside / "created.txt")
+    cli_home.write_config(NO_CONNECTORS)
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    child.sendline(
+        call("Write", {"file_path": str(cli_home.workspace / "link.txt"), "content": "x"})
+    )
+    await expect(child, "Write may only use paths inside the workspace")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert "[approval]" not in (child.before or "")
+    assert not (outside / "created.txt").exists()
+
+
+async def test_glob_and_grep_run_at_once_inside_the_workspace_only(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("do not read")
+    cli_home.workspace.mkdir()
+    (cli_home.workspace / "notes.txt").write_text("buy milk\n")
+    cli_home.write_config(NO_CONNECTORS)
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    child.sendline(call("Glob", {"pattern": "*.txt"}))
+    await expect(child, "Glob: ")
+    await expect(child, "notes.txt")
+    await expect(child, "> ")
+    child.sendline(call("Grep", {"pattern": "milk"}))
+    await expect(child, "Grep: ")
+    await expect(child, "notes.txt")
+    await expect(child, "> ")
+    for pattern in ("*/../../outside/secret.txt", "**/../../outside/secret.txt"):
+        child.sendline(call("Glob", {"pattern": pattern}))
+        await expect(child, "Glob may only use paths inside the workspace")
+        await expect(child, "> ")
+    child.sendline(call("Grep", {"pattern": "read", "glob": "../outside/*"}))
+    await expect(child, "Grep may only use paths inside the workspace")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert "[approval]" not in (child.before or "")
+    assert "do not read" not in json.dumps(cli_home.model_requests())
+
+
+async def test_edit_waits_for_approval_and_runs_after_it(cli_home: CliHome) -> None:
+    cli_home.workspace.mkdir()
+    notes = cli_home.workspace / "notes.txt"
+    notes.write_text("buy milk\n")
+    cli_home.write_config(NO_CONNECTORS)
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    edit = {"file_path": str(notes), "old_string": "milk", "new_string": "bread"}
+    child.sendline(f"{call('Read', {'file_path': str(notes)})} && {call('Edit', edit)}")
+    await expect(child, "[approval] Edit")
+    await expect(child, APPROVE_PROMPT)
+    assert notes.read_text() == "buy milk\n"
+    child.sendline("y")
+    await expect(child, "Edit: ")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert notes.read_text() == "buy bread\n"
+
+
+async def test_web_fetch_runs_without_approval(cli_home: CliHome) -> None:
+    cli_home.write_config(NO_CONNECTORS)
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    # The refused proxy fails the fetch itself; the test checks only that no approval gates it.
+    child.sendline(call("WebFetch", {"url": "https://example.com/", "prompt": "the title"}))
+    await expect(child, "WebFetch: ")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert "[approval]" not in (child.before or "")
+    assert "WebFetch" in offered_tool_names(cli_home)
+
+
+async def test_an_allow_listed_background_command_still_waits_for_approval(
+    cli_home: CliHome,
+) -> None:
+    cli_home.write_config(
+        {**NO_CONNECTORS, "local_tools": {"shell": {"enabled": True, "allow": ["sleep 0"]}}}
+    )
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    child.sendline(call("Bash", {"command": "sleep 0", "run_in_background": True}))
+    await expect(child, "[approval] Bash")
+    await expect(child, APPROVE_PROMPT)
+    child.sendline("n not in the background")
+    await expect(child, "Bash: ")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
+async def test_an_approved_call_is_checked_again_by_the_worker_that_runs_it(
+    cli_home: CliHome,
+) -> None:
+    cli_home.write_config(NO_CONNECTORS)
+    first = cli_home.spawn()
+    session_id = await read_session_id(first)
+    await expect(first, "> ")
+    todo_path = str(cli_home.workspace / "todo.txt")
+    first.sendline(call("Write", {"file_path": todo_path, "content": "call mom"}))
+    await expect(first, "[approval] Write")
+    await expect(first, APPROVE_PROMPT)
+    # Killed while it waits: the approval stays pending in the session.
+    first.kill(signal.SIGKILL)
+    first.close(force=True)
+
+    # The file now switches the file tools off; the Worker that runs the approved call applies it.
+    cli_home.write_config({**NO_CONNECTORS, "local_tools": {"files": False}})
+    second = cli_home.spawn("--resume", session_id)
+    await expect(second, "[approval] Write")
+    await expect(second, APPROVE_PROMPT)
+    second.sendline("y")
+    await expect(second, "Write is switched off for this session; the call did not run")
+    await expect(second, "> ")
+    second.sendeof()
+    assert await wait_for_exit(second) == 0
+    assert not (cli_home.workspace / "todo.txt").exists()
 
 
 async def test_session_settings_that_switch_the_shell_off_remove_bash(
