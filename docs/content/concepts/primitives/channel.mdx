@@ -21,6 +21,10 @@ reply, or a new work item. Use an [Attribute](/concepts/primitives/attribute) fo
 that you overwrite and read many times. Use a [Stream](/concepts/primitives/stream) for
 live progress that a user can afford to lose.
 
+To wait for parallel branches to finish, use a **Join**. A Join is built on a
+ChannelMap, and it counts the branches and keys each round for you. See
+[Await Parallel Steps](/design-patterns/parallel/await).
+
 ## Guarantees
 
 - Dex stores every message durably with the Flow.

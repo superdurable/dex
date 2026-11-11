@@ -212,19 +212,26 @@ class WireRecordReader {
 }
 
 export function encodeAgentSessionStartInput(value: AgentSessionStartInput): unknown {
-  return { initial_message: value.initialMessage, session_settings: value.sessionSettings ?? null };
+  return {
+    initial_message: value.initialMessage,
+    session_settings: value.sessionSettings ?? null,
+    start_environment: value.startEnvironment ?? null,
+  };
 }
 
 export function decodeAgentSessionStartInput(value: unknown): AgentSessionStartInput {
   if (value === null || value === undefined) {
-    return { initialMessage: null, sessionSettings: null };
+    return { initialMessage: null, sessionSettings: null, startEnvironment: null };
   }
   const reader = new WireRecordReader(value, "AgentSessionStartInput");
   const sessionSettings = reader.readObject("session_settings");
+  const startEnvironment = reader.readObject("start_environment");
   return {
     initialMessage: reader.readNullableString("initial_message"),
     // Kept as sent: StartAgentSession refuses a value that is not an object, failing the session at once.
     sessionSettings: sessionSettings == null ? null : (sessionSettings as SessionSettings),
+    // Kept as sent: the session never reads it.
+    startEnvironment: startEnvironment == null ? null : (startEnvironment as Record<string, string>),
   };
 }
 

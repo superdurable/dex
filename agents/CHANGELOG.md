@@ -105,6 +105,13 @@ for the Dex SDK and framework versions each release supports.
   fails when the definition is built. **piDurableFunctionTool(tool, { effect })**
   wraps a `pi-durable` tool that does not use the Harness `api`. See
   [typescript/pi](typescript/pi/README.md).
+- Python, TypeScript, and Go cores: **AgentSessionStartInput** has an optional
+  `start_environment` (`startEnvironment`, `StartEnvironment`), string keys and
+  values that say where the program that started the session ran. The session
+  never reads it; it stays in the Flow's start input. Python
+  `AgentSessionClient.start_session` and TypeScript `startAgentSession` take
+  it. Workers before 0.5.0 ignore it. The CLI runtimes record their host name,
+  user ID and user name, configuration identity, and workspace there.
 
 ### Images
 
@@ -202,6 +209,17 @@ for the Dex SDK and framework versions each release supports.
   Python loggers are now named `dex_agents.builtin_loop.*`, and the Go core's
   panic messages for a nil model client or definition start with
   `builtinloop:` instead of `stepwise:`.
+- Breaking, Python and TypeScript CLI runtimes: the session Flow type suffix is
+  now 6 lowercase base36 characters instead of 12 hex digits, from the same
+  SHA-256 of the host name, user, configuration identity, and workspace: the
+  digest's first 8 bytes as an unsigned big-endian integer, modulo 36^6, in
+  base36, left-padded with `0`. Every CLI Flow type changes, so the new CLI
+  cannot resume or list sessions started under the old 12-hex names. The owner
+  authorized this break before launch. New Python `namespace_session_flow_type`,
+  `current_session_environment_identity`, and `SessionEnvironmentIdentity`
+  match the TypeScript `namespaceSessionFlowType`.
+  `agents/conformance/cli_session_flow_types.json` fixes the suffix for every
+  CLI runtime.
 - Breaking, Python and TypeScript cores: a connector tool's default name now
   uses the Connector library's snake case (connectorctl `lowerCamelToSnake`),
   which also names the Python Step factories. An acronym run stays one word.

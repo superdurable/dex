@@ -247,6 +247,11 @@ that fails the session at once, with no retry, with a reason that starts with
 `InvalidStartSessionSettingsReason`. Start sessions with settings only after
 every Worker of the Flow type runs 0.2.0. JSON numbers decode as `float64`.
 
+`AgentSessionStartInput.StartEnvironment` is different: string keys and values
+that say where the starting program ran. Set it through `Client.StartFlow`. It
+stays in the Flow's start input and the session never reads it, so it is not a
+setting and cannot change.
+
 ## The runner contract
 
 A framework adapter implements `AgentFrameworkRunner`:
