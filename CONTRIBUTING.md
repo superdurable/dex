@@ -105,6 +105,27 @@ make generated-code
 make generated-code-check
 ```
 
+### Conflicts in derived files
+
+Never hand-merge a derived file: a `Cargo.lock`, generated code, the docs
+Flow definition JSON, or the newest server-zd format_compat testdata and its
+pin. When a rebase or merge stops on one, resolve the other conflicts, then run:
+
+```bash
+make regenerate-derived                  # take the upstream copy, rerun the affected generators, stage
+make regenerate-derived ARGS=--dry-run   # print the plan only
+make regenerate-derived ARGS=--all       # run every generator
+```
+
+The upstream is the rebase onto commit, MERGE_HEAD in a merge, or HEAD in a
+cherry-pick or revert; outside these it is origin/main. Override it with
+`ARGS=--upstream=<ref>`. Older format_compat versions are frozen, so the
+command refuses changes to them. When origin is unreachable, it cannot confirm
+that server-zd 1.0 is unreleased, so format_compat regeneration needs
+`ARGS=--assume-before-1-0`. The dexzd-simulation
+regression pins cannot be regenerated; follow "Pinned trajectories" in
+[`server-zd/crates/dexzd-simulation/README.md`](server-zd/crates/dexzd-simulation/README.md).
+
 ## Java
 
 ```bash

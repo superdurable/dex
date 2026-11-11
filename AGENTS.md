@@ -341,6 +341,31 @@ root and commit every resulting change. Proto-changing PRs must refresh all
 checked-in generated code across the server and SDKs. Do not use component-only
 codegen targets for these PRs; they leave stale outputs for the next PR.
 
+### Derived Files
+
+These files are generated. Never hand-merge them:
+
+- every `Cargo.lock` of a hand-written Rust workspace (`server-zd`,
+  `sdk-rust`, `s3local`, `examples/rust`);
+- generated code from `make generated-code`;
+- `docs/src/data/flow-definitions/**/*.json`;
+- the newest server-zd format_compat testdata version (`objects/`,
+  `state.txt`) and its pin in `golden_replay.rs`.
+
+When a rebase or merge conflicts in one of them, run
+`make regenerate-derived`. It takes the upstream copy of each conflicted
+derived file: the rebase onto commit, or MERGE_HEAD in a merge. It then runs
+only the affected generators and stages what they wrote. Pass
+`ARGS=--dry-run` to print the plan or `ARGS=--all` to run every generator.
+It changes nothing while a non-derived path is still unmerged. Older
+format_compat versions and their pins are frozen; it refuses changes to them.
+It also refuses format_compat regeneration when origin cannot confirm that no
+`server-zd/v1.*` tag exists, unless you pass `ARGS=--assume-before-1-0`.
+
+The dexzd-simulation regression pins and their README digests cannot be
+regenerated. Resolve them with the revert-and-confirm procedure in
+`server-zd/crates/dexzd-simulation/README.md` ("Pinned trajectories").
+
 ### Preserve Protobuf Compatibility
 
 Dex is in Beta. Preserve wire compatibility and decoding of persisted payloads.
