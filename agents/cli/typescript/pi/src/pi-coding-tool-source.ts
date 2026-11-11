@@ -77,7 +77,24 @@ export const piCodingLocalTools: Readonly<Record<string, PiCodingLocalTool>> = O
   bash: { group: "shell", effect: "non_idempotent_write", isApprovalRequired: true, hasPathArgument: false },
 });
 
+/**
+ * Seconds a `bash` command runs before it is killed when the model passes no `timeout`: the runtime shell tool's
+ * default.
+ *
+ * @since 0.5.0
+ */
+export const defaultBashTimeoutSeconds = 120;
+
+/**
+ * The largest `bash` timeout in seconds that pi-coding-agent accepts.
+ *
+ * @since 0.5.0
+ */
+export const maximumBashTimeoutSeconds = 2_147_483;
+
 const refusalReferenceKey = "refused";
+/** Prefix of the error that pi-coding-agent's shell execution throws when its timeout kills the command. */
+const shellTimeoutErrorPrefix = "timeout:";
 
 /**
  * pi-coding-agent's `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` tools as a {@link ToolSource}, so each
@@ -92,6 +109,8 @@ const refusalReferenceKey = "refused";
  *   `HarnessContext.resolveToolStepPermissions`. A call refused there records `failed` and does not run.
  * - A `write`, `edit`, or `bash` call that fails before it writes or starts its command records `failed`, and the
  *   model sees why. A failure after that records `outcome_unknown`, and the call never runs again.
+ * - A `bash` call without `timeout` gets the source's default timeout. A command killed by its timeout records
+ *   `failed`, and the model sees its output and the timeout.
  *
  * The working directory is the workspace. Register the source even when the file switches both groups off, so it
  * refuses calls that another process requested.
@@ -108,12 +127,26 @@ export class PiCodingToolSource implements ToolSource {
    * Creates the source.
    *
    * @param context - The harness context: the workspace, the per-turn configuration, and the tool Step permissions.
+   * @param bashTimeoutSeconds - Seconds a `bash` command runs when the model passes no `timeout`; defaults to
+   * {@link defaultBashTimeoutSeconds}.
+   * @throws {RangeError} When `bashTimeoutSeconds` is not a whole number from 1 to {@link maximumBashTimeoutSeconds}.
    */
-  public constructor(private readonly context: HarnessContext) {
+  public constructor(
+    private readonly context: HarnessContext,
+    private readonly bashTimeoutSeconds: number = defaultBashTimeoutSeconds,
+  ) {
+    if (!Number.isSafeInteger(bashTimeoutSeconds) || bashTimeoutSeconds < 1 || bashTimeoutSeconds > maximumBashTimeoutSeconds) {
+      throw new RangeError(`bashTimeoutSeconds must be a whole number from 1 to ${maximumBashTimeoutSeconds}`);
+    }
     this.boundary = new WorkspacePathBoundary(context.workspace);
     this.definitions = Object.keys(piCodingLocalTools).map((toolName) => {
       const tool = this.createPiTool(toolName, new PiToolCallOperations(this.boundary, toolName));
-      return { name: tool.name, description: tool.description, inputSchema: tool.parameters as Record<string, unknown> };
+      const parameters = tool.parameters as Record<string, unknown>;
+      return {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: toolName === "bash" ? this.describeBashTimeout(parameters) : parameters,
+      };
     });
   }
 
@@ -218,7 +251,11 @@ export class PiCodingToolSource implements ToolSource {
       inputContinuation: call.toolCall.inputContinuation ?? null,
       heartbeat: () => call.heartbeat(),
     };
-    const output = await functionTool.execute(toolArguments, context);
+    const executedArguments =
+      toolName === "bash" && toolArguments["timeout"] === undefined
+        ? { ...toolArguments, timeout: this.bashTimeoutSeconds }
+        : toolArguments;
+    const output = await functionTool.execute(executedArguments, context);
     return { output: typeof output === "string" ? output : JSON.stringify(output) };
   }
 
@@ -230,6 +267,21 @@ export class PiCodingToolSource implements ToolSource {
    */
   public pollToolTask(_poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
     return Promise.reject(new ToolExecutionError("Pi tools start no tasks"));
+  }
+
+  /** Replaces Pi's "no default timeout" text, since this source applies one. */
+  private describeBashTimeout(parameters: Record<string, unknown>): Record<string, unknown> {
+    const properties = parameters["properties"] as Record<string, Record<string, unknown>>;
+    return {
+      ...parameters,
+      properties: {
+        ...properties,
+        timeout: {
+          ...properties["timeout"],
+          description: `Timeout in seconds; defaults to ${this.bashTimeoutSeconds}`,
+        },
+      },
+    };
   }
 
   private offeredTools(turn: TurnConfig): readonly SourceToolDefinition[] {
@@ -325,6 +377,8 @@ type BashExecution = ReturnType<typeof createLocalBashOperations>;
 class PiToolCallOperations {
   /** Whether the call wrote a file or started its command. */
   public hasEffectStarted = false;
+  /** Whether the command's timeout killed it, so its outcome is known. */
+  public hasTimedOut = false;
   private readonly localBash: BashExecution = createLocalBashOperations();
 
   public constructor(
@@ -353,9 +407,14 @@ class PiToolCallOperations {
     return readFile(absolutePath);
   }
 
-  public executeCommand(...execution: Parameters<BashExecution["exec"]>): ReturnType<BashExecution["exec"]> {
+  public async executeCommand(...execution: Parameters<BashExecution["exec"]>): ReturnType<BashExecution["exec"]> {
     this.hasEffectStarted = true;
-    return this.localBash.exec(...execution);
+    try {
+      return await this.localBash.exec(...execution);
+    } catch (error: unknown) {
+      this.hasTimedOut = error instanceof Error && error.message.startsWith(shellTimeoutErrorPrefix);
+      throw error;
+    }
   }
 
   private requireInside(absolutePath: string): void {
@@ -365,7 +424,7 @@ class PiToolCallOperations {
   }
 }
 
-/** Makes an error thrown before the call's first effect a failure the model sees. */
+/** Makes an error before the call's first effect, or a timeout kill, a failure the model sees. */
 function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolCallOperations): PiAgentToolLike {
   return {
     ...tool,
@@ -373,8 +432,9 @@ function definiteFailuresBeforeEffect(tool: PiAgentToolLike, operations: PiToolC
       try {
         return await tool.execute(toolCallId, params, signal, onUpdate);
       } catch (error: unknown) {
-        // After the first effect the outcome is unknown, so the error propagates.
-        if (operations.hasEffectStarted || signal?.aborted === true || error instanceof ToolExecutionError) {
+        // After the first effect the outcome is unknown, unless the timeout killed the command.
+        const isOutcomeUnknown = operations.hasEffectStarted && !operations.hasTimedOut;
+        if (isOutcomeUnknown || signal?.aborted === true || error instanceof ToolExecutionError) {
           throw error;
         }
         throw new ToolExecutionError(describe(error), { cause: error });

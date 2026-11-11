@@ -11,7 +11,7 @@ import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createBuiltinAgentSessionFlow, type BuiltinLoopAgentRunner } from "@superdurable/dex-agents/builtin-loop";
 import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli";
 
-import { PiCodingToolSource } from "./pi-coding-tool-source.js";
+import { defaultBashTimeoutSeconds, maximumBashTimeoutSeconds, PiCodingToolSource } from "./pi-coding-tool-source.js";
 import { PiModelClients } from "./pi-model-clients.js";
 
 /**
@@ -53,6 +53,12 @@ export interface PiSection {
    * `{ anthropic: "https://llm-proxy.example.com" }`. `provider_base_urls` in the file; defaults to none.
    */
   readonly providerBaseUrls: Readonly<Record<string, string>>;
+  /**
+   * Seconds a `bash` command runs before it is killed when the model passes no `timeout`.
+   * `bash_timeout_seconds` in the file, a whole number from 1 to `maximumBashTimeoutSeconds`; defaults to
+   * `defaultBashTimeoutSeconds`, 120, as the runtime shell tool.
+   */
+  readonly bashTimeoutSeconds: number;
 }
 
 /**
@@ -112,7 +118,7 @@ export function createPiSessionFlow(
         ),
       model: modelClients.clientFor(context.config.model),
       resolveModel: (settings) => modelClients.clientFor(context.resolveTurn(settings).model),
-      toolSources: [...context.toolSources, new PiCodingToolSource(context)],
+      toolSources: [...context.toolSources, new PiCodingToolSource(context, section.bashTimeoutSeconds)],
       builtInTools: ["ask_user"],
     },
     context.flowType,
@@ -129,9 +135,19 @@ export function createPiSessionFlow(
  */
 export function readPiSection(options: Readonly<Record<string, unknown>>): PiSection {
   for (const key of Object.keys(options).sort()) {
-    if (key !== "load_project_context" && key !== "provider_base_urls") {
+    if (!piSectionKeys.includes(key)) {
       throw new ConfigError("schema", `/pi/${escapeJsonPointer(key)}`, "additionalProperties");
     }
+  }
+  const bashTimeoutSeconds = options["bash_timeout_seconds"] ?? defaultBashTimeoutSeconds;
+  if (typeof bashTimeoutSeconds !== "number" || !Number.isSafeInteger(bashTimeoutSeconds)) {
+    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "type");
+  }
+  if (bashTimeoutSeconds < 1) {
+    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "minimum");
+  }
+  if (bashTimeoutSeconds > maximumBashTimeoutSeconds) {
+    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "maximum");
   }
   const isProjectContextLoaded = options["load_project_context"] ?? true;
   if (typeof isProjectContextLoaded !== "boolean") {
@@ -154,8 +170,10 @@ export function readPiSection(options: Readonly<Record<string, unknown>>): PiSec
     }
     providerBaseUrls[provider] = url;
   }
-  return { isProjectContextLoaded, providerBaseUrls };
+  return { isProjectContextLoaded, providerBaseUrls, bashTimeoutSeconds };
 }
+
+const piSectionKeys: readonly string[] = ["bash_timeout_seconds", "load_project_context", "provider_base_urls"];
 
 /** Appends the project context files to the instructions, in Pi's own format. */
 function buildInstructions(instructions: string, contextFiles: readonly { path: string; content: string }[]): string {

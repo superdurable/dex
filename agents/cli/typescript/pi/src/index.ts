@@ -23,6 +23,12 @@ export {
   readPiSection,
   type PiSection,
 } from "./pi-harness.js";
-export { PiCodingToolSource, piCodingLocalTools, type PiCodingLocalTool } from "./pi-coding-tool-source.js";
+export {
+  PiCodingToolSource,
+  defaultBashTimeoutSeconds,
+  maximumBashTimeoutSeconds,
+  piCodingLocalTools,
+  type PiCodingLocalTool,
+} from "./pi-coding-tool-source.js";
 export { PiModelClients, parsePiModelId, resolvePiProviderApiKey, type PiModelId } from "./pi-model-clients.js";
 export { WorkspacePathBoundary } from "./workspace-path-boundary.js";

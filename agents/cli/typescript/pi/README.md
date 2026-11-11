@@ -48,7 +48,7 @@ pick a model without a key, that turn fails with the same message.
 
 ## Configuration
 
-The `pi` section has two options:
+The `pi` section has three options:
 
 ```yaml
 model: anthropic/claude-opus-5-5
@@ -58,6 +58,7 @@ local_tools:
   shell: {enabled: true, allow: ["git status", "ls"]}
 pi:
   load_project_context: true      # add AGENTS.md files to the instructions
+  bash_timeout_seconds: 120       # bash timeout when the model passes none
   provider_base_urls:             # optional: replace a provider's URL
     anthropic: https://llm-proxy.example.com
 ```
@@ -65,6 +66,7 @@ pi:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `pi.load_project_context` | `true` | Whether each model call adds the project context files, as Pi does. See below. |
+| `pi.bash_timeout_seconds` | `120` | Seconds a `bash` command runs before it is killed when the model passes no `timeout`, the same default as the runtime's shell tool. A whole number from 1 to 2147483. |
 | `pi.provider_base_urls` | `{}` | An `http` or `https` URL per provider, which replaces the URL in pi-ai's catalog, such as a proxy or a compatible endpoint. |
 
 Any other key in the section is a configuration error.
@@ -108,9 +110,10 @@ you questions.
   `edit` check the exact file again when they open it. This is not a sandbox:
   an approved `bash` command, or any other program, can change the workspace
   while a call runs.
-- The working directory of every tool is the workspace. `bash` has no time
-  limit of its own unless the model passes `timeout`; the tool Step's limit
-  applies.
+- The working directory of every tool is the workspace. A `bash` command
+  without a `timeout` argument is killed after `pi.bash_timeout_seconds`, 120
+  by default, as the runtime's shell tool. A command killed by its timeout
+  records `failed`, and the model sees its output and the timeout.
 - The tool Step checks every call again, right before it runs, with the
   configuration of the Worker that runs it and the settings its turn started
   with. A call whose group is off there, or that ran without approval but now

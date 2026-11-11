@@ -180,6 +180,36 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(readFileSync(join(home.workspace, "bash.txt"), "utf8"), "approved\n");
   });
 
+  test("a bash command without a timeout is killed after pi.bash_timeout_seconds, and the model sees it", async () => {
+    const home = newHome({
+      ...noConnectors,
+      local_tools: { browser: false, shell: { enabled: true, allow: ["echo started; sleep 30; echo finished"] } },
+      pi: { bash_timeout_seconds: 1 },
+    });
+    const cli = start(home);
+    await cli.waitForSession();
+    const startedAt = Date.now();
+    cli.writeLine(call("bash", { command: "echo started; sleep 30; echo finished" }));
+    await cli.stdout.waitFor("bash: ");
+    await cli.stdout.waitFor("> ");
+    const elapsedMs = Date.now() - startedAt;
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.ok(elapsedMs < 20_000, `the command was killed early, after ${elapsedMs} ms`);
+    const bashTool = ((api.modelRequests().at(-1)?.["tools"] as Record<string, unknown>[] | undefined) ?? []).find(
+      (tool) => tool["name"] === "bash",
+    );
+    assert.match(JSON.stringify(bashTool), /defaults to 1/);
+    const messages = (api.modelRequests().at(-1)?.["messages"] as Record<string, unknown>[] | undefined) ?? [];
+    const toolResult = JSON.stringify(
+      messages.flatMap((message) => (Array.isArray(message["content"]) ? (message["content"] as Record<string, unknown>[]) : []))
+        .filter((block) => block["type"] === "tool_result"),
+    );
+    assert.match(toolResult, /The tool call failed: started/);
+    assert.match(toolResult, /Command timed out after 1 seconds/);
+    assert.doesNotMatch(toolResult, /finished|outcome is unknown/);
+  });
+
   test("a group switched off in the file is not offered", async () => {
     const home = newHome({ ...noConnectors, local_tools: { browser: false, files: false } });
     mkdirSync(home.workspace, { recursive: true });
