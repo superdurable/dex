@@ -28,6 +28,7 @@ import {
   type HarnessContext,
 } from "../../src/index.js";
 import {
+  fixedToolSetScriptedHarness,
   scriptedHarness,
   scriptedHarnessDirectoryVariable,
   scriptedHarnessVariantVariable,
@@ -146,8 +147,17 @@ export class CliProcess {
    * @returns The exit code.
    */
   public async waitForExit(timeoutMs = defaultWaitMs): Promise<number | null> {
-    const timeout = delay(timeoutMs).then(() => "timeout" as const);
-    const result = await Promise.race([this.exited, timeout]);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), timeoutMs);
+    });
+    let result: number | null | "timeout";
+    try {
+      result = await Promise.race([this.exited, timeout]);
+    } finally {
+      // A pending timer would keep the test process alive after the suite ends.
+      clearTimeout(timer);
+    }
     if (result === "timeout") {
       throw new Error(`the command did not exit; stdout:\n${this.stdout.all}\nstderr:\n${this.stderr.all}`);
     }
@@ -244,6 +254,7 @@ export class TestHome {
       DEX_AGENTS_WEB_PORT: String(this.ports.webPort),
       [scriptedHarnessDirectoryVariable]: this.markerDirectory,
       ...(this.harness === shellReplacingScriptedHarness ? { [scriptedHarnessVariantVariable]: "shell-replacing" } : {}),
+      ...(this.harness === fixedToolSetScriptedHarness ? { [scriptedHarnessVariantVariable]: "fixed-tool-set" } : {}),
     };
   }
 }
