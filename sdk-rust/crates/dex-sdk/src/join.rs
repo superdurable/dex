@@ -90,6 +90,10 @@ pub struct JoinRound {
 ///   round split its results between them.
 /// - The `received_count` of [`Self::for_remaining_branches`] equals the number of results the
 ///   join consumed: `count` after [`Self::for_branches`], and `1` after [`Self::for_first_branch`].
+/// - A reset waits for every branch that has not reported yet, so it never completes while a
+///   canceled branch has not reported. Do not reset the round of a cancelling join, unless an RPC
+///   reports a result for each canceled branch with [`Self::report_branch_result`]. Without a
+///   reset, the round's late results stay pending until the Flow closes.
 /// - One invocation forks one Join at most once with [`Self::fork`]. Use a second Join, or
 ///   [`Self::fork_with_round_key`] with distinct keys, for two independent joins.
 /// - An RPC has no Step execution ID, so it must use [`Self::fork_with_round_key`].
@@ -104,9 +108,11 @@ pub struct JoinRound {
 ///   join Step together with its branches, add a [`crate::Timer`] deadline with
 ///   [`crate::Wait::any_of`], or let the canceling RPC report a result for the canceled branch with
 ///   [`Self::report_branch_result`]. That RPC's input then carries the `JoinRound`.
-/// - When a join Step is canceled after its wait matched, server-zd 0.1.26 and later return the
-///   consumed results to the front of the round's instance, unless the canceling decision closes
-///   the Flow. Older servers drop them, and a new join Step for that round never completes.
+/// - When a join Step is canceled after its wait matched, what happens to the results it consumed
+///   depends on the server version. A server that requeues them puts them back at the front of
+///   the round's instance, unless the canceling decision closes the Flow. On a server that drops
+///   them, a new join Step for that round never completes. See the server-zd change log at
+///   <https://docs.superdurable.io/reference/server/changelog>.
 ///
 /// # Examples
 ///
@@ -470,6 +476,10 @@ impl<T> Join<T> {
     /// consumes, `round.branch_count - received_count` results. `received_count` is the number of
     /// results the join consumed: the `count` of [`Self::for_branches`], or `1` for
     /// [`Self::for_first_branch`]. When nothing remains, it completes immediately.
+    ///
+    /// `received_count` counts only results the join consumed. Never count a canceled branch, which
+    /// does not report. The reset therefore waits for every canceled branch too; see the rules on
+    /// [`Join`] for cancelling joins.
     ///
     /// A `received_count` greater than `round.branch_count`, or an invalid round, makes the Step's
     /// `wait_for` fail when the SDK sends the Wait.

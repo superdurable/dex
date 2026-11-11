@@ -18,6 +18,10 @@ Not released yet. The next minor release, sdk-rust/v1.41.0, ships these changes.
 - Removed **WaitForStepCompletionOptions::internal_handler_timeout** and **WaitForAttributeOptions::internal_handler_timeout**. Request IDs remain accepted but the server does not read them for these waits. [Reference](/reference/server/runtime-client#wait-timeouts-and-limits).
 - Generated bindings rename **FlowExecutionId** to **FlowRunId** and **flow_execution_id** to **flow_run_id**. ProtoJSON uses **flowRunId**. [Reference](/reference/server/runtime-client#describe-a-flow).
 
+### Added
+
+- **Join** and **JoinRound** join parallel branches of one Flow. **Join::fork** starts the branches and one join Step from a split Step, keyed by its Step execution ID; **Join::fork_with_round_key** takes an explicit key, as in an RPC. Branches report with **Join::end_branch** or **Join::report_branch_result**. The join Step waits with **Join::for_all_branches**, **Join::for_first_branch**, or **Join::for_branches** and reads **Join::branch_results**. **Join::for_remaining_branches** and **Join::remaining_branch_results** reset a round before the next one. Register a Join with **PersistenceSchema::join**. [Reference](/reference/rust/waits).
+
 ## 1.40 {#v1-40}
 
 Released 2026-11-09 as [sdk-rust/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.40.0).
