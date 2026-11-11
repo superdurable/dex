@@ -41,7 +41,7 @@ class FlowConfig:
     Construct ``FlowConfig`` with keyword arguments. Field positions are not
     part of the API.
 
-    .. versionchanged:: 1.41.0
+    .. versionchanged:: 1.43.0
         Removed ``continue_as_new_threshold`` and
         ``continue_as_new_page_size_bytes``. Every later field moved two
         positions forward, so a positional call can set the wrong field.
