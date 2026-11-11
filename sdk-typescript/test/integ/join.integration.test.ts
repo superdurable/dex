@@ -200,6 +200,7 @@ const invalidConditionCases: readonly ConditionValidationCase[] = [
   "forBranchesAboveCount",
   "forRemainingNegative",
   "forRemainingAboveCount",
+  "forFirstBranchWithoutBranches",
 ];
 
 test("out-of-range join counts fail waitFor", async () => {

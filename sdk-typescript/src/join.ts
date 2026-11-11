@@ -297,8 +297,8 @@ const forkedJoinNamesByContext = new WeakMap<Context, Set<string>>();
  *   }
  * }
  * ```
- * For a runtime number of branches, map the inputs to branch builders:
- * `reviewers.map((reviewer) => (round: JoinRound) => StepMovement.of(ReviewDocument, { reviewer, round }))`.
+ * For a runtime number of branches, map the inputs to branch builders, as the
+ * {@link Join.forkWithRoundKey} example does.
  * @typeParam T - Result type that each branch reports.
  * @since 1.41.0
  */
@@ -378,13 +378,74 @@ export class Join<T> {
    *
    * @example
    * ```ts
+   * import {
+   *   Join,
+   *   StepList,
+   *   StepMovement,
+   *   Wait,
+   *   gracefulComplete,
+   *   joinRoundCodec,
+   *   rpc,
+   *   stringCodec,
+   *   type Context,
+   *   type Flow,
+   *   type JoinRound,
+   *   type PersistenceSchema,
+   *   type RPCResult,
+   *   type Step,
+   *   type StepDecision,
+   * } from "@superdurable/dex";
+   *
+   * const reviewCompleted = new Join("reviewCompleted", stringCodec);
+   *
    * interface ReviewRequest {
    *   readonly requestId: string;
    *   readonly reviewers: readonly string[];
    * }
    *
-   * class ReviewFlow implements Flow<void> {
-   *   // getFlowType, getSteps, and getPersistenceSchema register the Steps and reviewCompleted.
+   * interface ReviewerInput {
+   *   readonly reviewer: string;
+   *   readonly round: JoinRound;
+   * }
+   *
+   * class ReviewByReviewer implements Step<ReviewerInput> {
+   *   public getStepType(): string {
+   *     return "ReviewByReviewer";
+   *   }
+   *
+   *   public execute(context: Context, input: ReviewerInput): StepDecision {
+   *     return reviewCompleted.endBranch(context, input.round, `${input.reviewer}: approved`);
+   *   }
+   * }
+   *
+   * class CollectReviews implements Step<JoinRound> {
+   *   public readonly inputCodec = joinRoundCodec;
+   *
+   *   public getStepType(): string {
+   *     return "CollectReviews";
+   *   }
+   *
+   *   public waitFor(_context: Context, round: JoinRound): Wait {
+   *     return Wait.until(reviewCompleted.forAllBranches(round));
+   *   }
+   *
+   *   public execute(context: Context, round: JoinRound): StepDecision {
+   *     return gracefulComplete(reviewCompleted.branchResults(context, round));
+   *   }
+   * }
+   *
+   * export class ReviewFlow implements Flow<never> {
+   *   public getFlowType(): string {
+   *     return "ReviewFlow";
+   *   }
+   *
+   *   public getSteps() {
+   *     return StepList.withoutStartStep().otherSteps(new ReviewByReviewer(), new CollectReviews());
+   *   }
+   *
+   *   public getPersistenceSchema(): PersistenceSchema {
+   *     return { channels: [reviewCompleted] };
+   *   }
    *
    *   @rpc()
    *   public requestReviews(_context: Context, request: ReviewRequest): RPCResult<void> {
@@ -393,7 +454,7 @@ export class Join<T> {
    *       nextSteps: reviewCompleted.forkWithRoundKey(
    *         `review-${request.requestId}`,
    *         request.reviewers.map((reviewer) => (round: JoinRound) =>
-   *           StepMovement.of(ReviewDocument, { reviewer, round })),
+   *           StepMovement.of(ReviewByReviewer, { reviewer, round })),
    *         (round) => StepMovement.of(CollectReviews, round),
    *       ),
    *     };
@@ -476,6 +537,9 @@ export class Join<T> {
    * It consumes exactly one result, the earliest one Dex committed. Put the branch's identity in the
    * result when the join must know which branch won. The reset of this round uses a
    * `receivedCount` of 1. See {@link Join} for an example.
+   *
+   * It behaves like `forBranches(round, 1)`. A round with 0 branches has no first result and would
+   * wait forever, so this method throws for it, which fails the `waitFor` attempt.
    * @param round - Round that the fork passed to the join Step.
    * @param conditionId - Optional stable Condition ID, required inside `Wait.anyCombinationOf`.
    * @returns A Channel Condition on the round's ChannelMap instance.

@@ -688,7 +688,8 @@ export type ConditionValidationCase =
   | "forBranchesZero"
   | "forBranchesAboveCount"
   | "forRemainingNegative"
-  | "forRemainingAboveCount";
+  | "forRemainingAboveCount"
+  | "forFirstBranchWithoutBranches";
 
 interface ValidationJoinInput {
   readonly validationCase: ConditionValidationCase;
@@ -709,7 +710,7 @@ class ValidationSplit implements Step<ConditionValidationCase> {
   public execute(context: Context, validationCase: ConditionValidationCase): StepDecision {
     return goToMany(...validationResult.fork(
       context,
-      [branchBuilder(this.flow.branch, "A")],
+      validationCase === "forFirstBranchWithoutBranches" ? [] : [branchBuilder(this.flow.branch, "A")],
       (round) => StepMovement.of(this.flow.accept, { validationCase, round }),
     ));
   }
@@ -737,6 +738,8 @@ class ValidationAccept implements Step<ValidationJoinInput> {
         return Wait.until(validationResult.forRemainingBranches(round, -1));
       case "forRemainingAboveCount":
         return Wait.until(validationResult.forRemainingBranches(round, round.branchCount + 1));
+      case "forFirstBranchWithoutBranches":
+        return Wait.until(validationResult.forFirstBranch(round));
     }
   }
 
