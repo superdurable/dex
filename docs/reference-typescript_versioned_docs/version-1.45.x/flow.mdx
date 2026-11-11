@@ -1,0 +1,49 @@
+---
+id: flow
+title: Flow
+sidebar_label: Flow
+---
+
+# Flow
+
+For the Flow concept, read [Flow](/concepts/flow).
+
+## Flow definition {#flow-definition}
+
+A Flow registers its Steps, its persistence schema, and its RPC handlers.
+
+- **getSteps** registers one start Step and every other Step type the Flow
+  can move to through a Step decision. The start Step input type is also the
+  Flow start input type. An empty Step list, or one without a start Step, is
+  valid when only RPCs drive the Flow. Those RPCs can later move it into Steps.
+- The persistence schema lists every Attribute and Channel used from Steps or
+  RPCs. Dex rejects reads and writes to names that are not declared.
+- Declare RPC methods with **@rpc** or **declareRPCMethod**. The durable
+  RPC name is the method name unless the options supply **name**.
+
+Implement **getFlowType** and **getStepType** to supply the durable Flow type
+and Step type.
+A Step type that starts SubFlows must not contain "-". The server rejects such
+a SubFlow and fails the attempt without retry. See
+[Step types that start SubFlows](./subflow.mdx#step-types-that-start-subflows).
+
+## FlowConfig {#flow-config}
+
+**FlowConfig** holds Flow settings that you can change after the Flow starts.
+**StartFlowOptions** cannot change after start.
+
+To change the initial configuration of one Flow, set **ConfigOverride** in
+**StartFlowOptions**. Dex applies only the fields you set, over the Dex Server
+defaults. Omitted fields keep their default values.
+
+| Field | Behavior |
+|-------|----------|
+| **ActiveStepSearchMode** | Which active Steps Dex indexes for search: every active Step, only Steps that ran **WaitFor**, or none. The built-in server default indexes none. Set a mode to opt in. |
+| **StepDurability** | Default durability for methods without a Step override. Dex resolves a method override first, then this value, then **SYNC**. Dex fixes the durability of a method call when the call becomes pending, so a change affects only method calls scheduled afterward. |
+| **AttributeStoreNames** | Dex Server Attribute Stores for Attributes that opt in to Attribute sync. |
+
+### Update FlowConfig with a Client {#update-flow-config-with-a-client}
+
+Call **updateFlowConfig** while the Flow is active. Send only the fields
+you want to change. Dex merges them into the existing configuration. This call
+does not change which Workers serve the Flow.

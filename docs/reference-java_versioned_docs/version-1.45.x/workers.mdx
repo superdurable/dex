@@ -1,0 +1,201 @@
+---
+title: Java Workers
+sidebar_label: Workers
+---
+
+# Java Workers
+
+This page shows how to start a Java Worker and lists the Java names of its
+settings. [Workers and the task queue](/reference/server/workers) describes
+how these settings behave in every SDK.
+
+## Start a Worker
+
+This example serves a Greeting Flow through a pull Worker. Its Step stores a
+greeting, and the greeting RPC reads it. The Worker allows eight concurrent tasks
+and keeps one slot for RPCs. See the [Java SDK README](https://github.com/superdurable/dex/blob/main/sdk-java/README.md#pull-workers) for
+startup details.
+
+```java
+public final class PullGreetingExample {
+    private PullGreetingExample() {
+    }
+
+    public static RunningPullGreeting start(
+            final BlobCache cache, final String serverAddress) throws InterruptedException, TimeoutException {
+        final GreetingFlow flow = new GreetingFlow();
+        final Registry registry = new Registry(List.<Flow<?>>of(flow));
+        final Worker worker = new Worker(registry, cache, WorkerOptions.newBuilder()
+                .serverAddress(serverAddress)
+                .pull(PullWorkerOptions.newBuilder()
+                        .maxConcurrentTasks(8)
+                        // Keep one slot for RPCs so Flows stay responsive.
+                        .reservedRpcTasks(1)
+                        .build())
+                .build());
+        final Client client = new Client(registry, cache, new ClientOptions(serverAddress));
+        final CompletableFuture<Void> workerResult = new CompletableFuture<>();
+        final Thread workerThread = new Thread(() -> {
+            try {
+                worker.start();
+                workerResult.complete(null);
+            } catch (final Throwable failure) {
+                workerResult.completeExceptionally(failure);
+            }
+        }, "pull-greeting-worker");
+        workerThread.start();
+        final RunningPullGreeting running = new RunningPullGreeting(
+                flow, worker, client, workerThread, workerResult);
+        try {
+            worker.waitPullRegistered(Duration.ofSeconds(30));
+        } catch (final InterruptedException | TimeoutException | RuntimeException | Error failure) {
+            try {
+                running.close();
+            } catch (final InterruptedException | RuntimeException | Error cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+                if (cleanupFailure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            throw failure;
+        }
+        return running;
+    }
+
+    public static boolean isPullGreetingReady(final Worker worker) {
+        return worker.getPullRegistrationState().isReady();
+    }
+
+    public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
+        return new PullGreetingDiagnostics(
+                worker.getPullRegistrationState().isReady(), 0L);
+    }
+
+    // reservedRpcDeclines is deprecated and always 0: reserved execution slots never decline tasks.
+    public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
+    }
+
+    public record RunningPullGreeting(
+            GreetingFlow flow, Worker worker, Client client, Thread workerThread,
+            CompletableFuture<Void> workerResult) implements AutoCloseable {
+        @Override
+        public void close() throws InterruptedException {
+            client.close();
+            worker.close();
+            workerThread.join();
+            workerResult.join();
+        }
+    }
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)
+
+## Readiness
+
+**waitPullRegistered(Duration)** waits until the Worker's slot streams have registered with
+Dex. **getPullRegistrationState()** reports the current registration state. By default,
+a Worker keeps retrying when Dex permanently rejects a slot stream. Set
+**stopOnPermanentStreamRejection** to stop and drain the Worker instead when a permanent
+rejection leaves a slot kind without registered streams. Since 1.14.0.
+
+A **PullRegistrationError** reports **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or
+**POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind.
+
+Call the boolean helper from your probe endpoint and return 200 when true or
+503 when false.
+
+```java
+    public static boolean isPullGreetingReady(final Worker worker) {
+        return worker.getPullRegistrationState().isReady();
+    }
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)
+
+## Upload Flow definitions {#upload-flow-definitions}
+
+A Worker can upload Flow Definition Graph documents when it starts, so Dex Web
+can draw the graph of each Flow type. Since 1.45.0.
+
+| Setting | Java name |
+| --- | --- |
+| Files and directories of documents | **flowDefinitionPaths** |
+| In-memory documents | **flowDefinitions** |
+
+- Each configured path must exist and be readable. An explicitly listed file
+  must be a Flow Definition Graph 2.x: a strict UTF-8 JSON object whose
+  **schemaVersion** starts with **2.** and whose **flow.name** is a non-empty
+  string. The file extension is not checked.
+- A directory is read recursively for files whose extension is **.json** in
+  any case. A file that is not a Flow Definition Graph 2.x, such as
+  **package.json** or a 1.x document, is skipped with an INFO line.
+- A file's Flow type is its **flow.name**. Its generation time is its
+  top-level **generatedAt**, or the file modification time when it has none.
+  **generatedAt** must be strict RFC 3339, such as
+  **2026-11-01T00:00:00Z** or **2026-11-01T02:00:00.5+02:00**. A space
+  separator, a missing offset, a date alone, or an offset such as **+0200** is
+  an error, also for a file found in a directory.
+- A **FlowDefinitionDocument** carries its Flow type, JSON bytes, and
+  generation time. Pass a fixed time for a document built from a template.
+- Every generation time is truncated to whole milliseconds before upload.
+- The **Worker** constructor reads the files. It throws **IllegalArgumentException** for a missing or unreadable path, an invalid explicit file, an invalid **generatedAt**, two sources with the same Flow type, or an in-memory document that is not a Flow Definition Graph 2.x naming its Flow type with a valid **generatedAt**, if any.
+- **start** uploads the documents after protocol negotiation and Attribute index synchronization, before it opens task streams. It uploads only the Flow types that the **Registry** registers
+  and logs the others at INFO. When nothing is left, it sends no request.
+- Before upload, an absolute top-level **source.path** becomes relative.
+  Paths starting with **/**, a drive such as **C:\\**, or **\\\\** count as
+  absolute on every operating system. Under the working directory, the result
+  is the remaining segments joined with **/**. Elsewhere, or when the working
+  directory is unknown, it is the file name. The rewrite needs exactly one
+  top-level **source** object with exactly one string **path**; otherwise the
+  original bytes are sent. Only the bytes of that string
+  change. A relative path is sent unchanged.
+- Documents are sent in requests of at most 256 documents and 16 MiB of
+  content. All requests share one deadline, **attributeIndexSyncTimeout**. Stopping
+  the Worker cancels an upload in progress.
+- The uploader is **sdk-java/** followed by the SDK version.
+- Results are logged through **java.util.logging**: CREATED and REPLACED at INFO,
+  UNCHANGED at FINE, and KEPT_EXISTING at WARNING with both digests and
+  generation times. An outcome the SDK does not know is logged at WARNING as an
+  unknown upload outcome.
+- Every upload failure is logged at WARNING and the Worker keeps starting.
+  This includes a Server without Flow definition storage, which returns
+  UNIMPLEMENTED.
+
+Deploy scripts can call **Client.uploadFlowDefinitions** instead. See
+[Flow definitions](/reference/server/runtime-client#flow-definitions) for how
+the Server decides between a stored and an uploaded document.
+
+## Capacity and shutdown
+
+| Setting | Java name |
+| --- | --- |
+| Concurrent tasks | **maxConcurrentTasks** |
+| Reserved RPC slots | **reservedRpcTasks** |
+| Stop drain timeout | **stopDrainTimeout** |
+| Shutdown | **stop** |
+
+The option names are builder methods.
+
+The idle stream option, **idleStreamsPerQueue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **getPullReservedRpcDeclines()**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+Report registration readiness instead, as this diagnostics helper does. Its reserve-decline field
+is always zero. A Worker with every slot busy stays ready.
+
+```java
+    public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
+        return new PullGreetingDiagnostics(
+                worker.getPullRegistrationState().isReady(), 0L);
+    }
+
+    public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
+    }
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)

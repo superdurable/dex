@@ -392,6 +392,7 @@ export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
     skipped: value.skipped ?? false,
     truncated_output_bytes: value.truncatedOutputBytes ?? null,
     images: encodeImages(value.images),
+    runner_tool_state: value.runnerToolState ?? null,
   };
 }
 
@@ -424,6 +425,7 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
     writeQueued: reader.readBooleanOrDefault("write_queued", false),
     skipped: reader.readBooleanOrDefault("skipped", false),
     truncatedOutputBytes: reader.readNullableInteger("truncated_output_bytes"),
+    runnerToolState: reader.readNullableString("runner_tool_state"),
     ...(traceContext === null ? {} : { traceContext }),
     ...decodeImages(reader),
   };

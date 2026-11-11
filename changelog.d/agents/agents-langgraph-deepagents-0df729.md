@@ -1,0 +1,5 @@
+---
+section: Added
+---
+- Python, TypeScript, and Go cores: **ToolExecutionResult** and **AgentToolCall** have an optional **runner_tool_state** (**runnerToolState**, **RunnerToolState**), opaque text a runner keeps with a tool's result for its own later model calls. The session stores it on the succeeded record of the attempt that commits, apart from the output, and never shows it to the model, the browser snapshot, or trace attributes. Records written before 0.5.0 read it as absent, and Workers before 0.5.0 ignore it.
+- Python LangGraph adapter: Deep Agents agents from **create_deep_agent** run as agent sessions. A **DeltaChannel** in the root graph is accepted. Tools with a **ToolRuntime** or **InjectedState** parameter read and write graph state in their own tool Steps, and tools may return a **Command**; their state writes travel in **runner_tool_state** and apply once. New options: **excluded_tool_names**, **select_turn_chat_model**, and **should_defer_tool_calls_before_middleware**. A replayed tool result now has a fixed message ID made of the turn ID and the tool call ID; other graphs behave as before.

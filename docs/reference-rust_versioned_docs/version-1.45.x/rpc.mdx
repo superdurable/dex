@@ -1,0 +1,31 @@
+---
+id: rpc
+title: RPC
+sidebar_label: RPC
+---
+
+# RPC
+
+This page lists the Rust SDK names for [RPCs](/concepts/primitives/rpc).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Rust SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Rust API | Dex behavior |
+| --- | --- | --- |
+| Define an RPC handler | **Rpc**, bound to a Flow method with **RpcList::function**, **function_without_input**, **procedure**, or **procedure_without_input** in **Flow::rpcs** | [Flow definition](./flow.mdx#flow-definition) |
+| Set the durable RPC name | The name argument of **Rpc::new**. It has no default. | [Flow definition](./flow.mdx#flow-definition) |
+| Set the RPC timeout | **timeout** of **Rpc** | [RPC timeout](/reference/server/runtime-data#rpc-timeout) |
+| Lock Attributes for the whole call | **lock** of **Rpc** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Request transactional reads and writes without locks | **is_transactional** of **Rpc** | [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes) |
+| Load AttributeMap values and Channel messages | **load_attribute_map**, **load_attribute_map_instance**, **load_channel**, **load_channel_map**, and **load_channel_map_instance** of **Rpc** | [Selective state loading](/reference/server/runtime-data#load-collection-state) |
+| Return the output and start next Steps | **RpcResult**, with **RpcResult::then** | [RPCs](/reference/server/runtime-data#rpcs) |
+| Cancel running Steps | **RpcResult::cancel_step** | [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) |
+| Let a person invoke the RPC from Dex Web | Not available in the Rust SDK. | [Actions](/reference/web/dex-web#actions) |
+| Invoke the RPC from a Client | **Client::invoke_rpc** and **Client::invoke_rpc_without_input** | [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc) |
+| Lock or load map instances chosen at call time | **RpcInvokeOptions**, with **Client::invoke_rpc_with_options** | [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances) |
+
+## Example {#example}
+
+Example: [examples/rust/src/primitives/rpc/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/rpc/flow.rs)

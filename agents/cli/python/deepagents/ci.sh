@@ -20,7 +20,7 @@ from pathlib import Path
 ADAPTER_LOCK = "../../../python/langgraph/uv.lock"
 PINNED = {
     "dex-python-sdk": None,
-    "deepagents": None,
+    "deepagents": ADAPTER_LOCK,
     "langchain": ADAPTER_LOCK,
     "langchain-core": ADAPTER_LOCK,
     "langgraph": ADAPTER_LOCK,
