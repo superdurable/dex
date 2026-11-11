@@ -11,14 +11,16 @@
 from __future__ import annotations
 
 import base64
+import binascii
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any, TypeVar
 
 from dex_agents import (
-    SUPPORTED_IMAGE_MIME_TYPES,
     AgentImageReference,
+    ImageValidationError,
     MediaStore,
+    ToolExecutionError,
     load_images,
 )
 from langchain_core.messages import BaseMessage
@@ -88,21 +90,54 @@ async def inline_message_images(
 
 
 async def upload_content_images(
-    content: list[Any], media_store: MediaStore
+    content: list[Any], media_store: MediaStore, tool_name: str
 ) -> tuple[list[Any], list[AgentImageReference]]:
+    """Upload a tool's inline image blocks and return the other blocks and the references.
+
+    An image block with ``base64`` data or a ``data:`` URL is uploaded; the store
+    detects its type from the bytes, whatever ``mime_type`` declares. Other
+    blocks, such as an image ``url`` on the web, stay in the content.
+
+    Raises:
+        ToolExecutionError: An inline image is not valid base64 or not an image
+            the store accepts, so its bytes never reach the tool output.
+    """
     remaining: list[Any] = []
     references: list[AgentImageReference] = []
     for block in content:
-        if (
-            isinstance(block, Mapping)
-            and block.get("type") == "image"
-            and isinstance(block.get("base64"), str)
-            and block.get("mime_type") in SUPPORTED_IMAGE_MIME_TYPES
-        ):
-            references.append(await media_store.put_image(base64.b64decode(block["base64"])))
-        else:
+        encoded = _inline_image_base64(block)
+        if encoded is None:
             remaining.append(block)
+            continue
+        number = len(references) + 1
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except binascii.Error:
+            data = None
+        if data is None or base64.b64encode(data).decode("ascii") != encoded:
+            raise ToolExecutionError(
+                f"tool {tool_name} returned image {number}, which is not valid base64"
+            )
+        try:
+            references.append(await media_store.put_image(data))
+        except ImageValidationError as error:
+            raise ToolExecutionError(
+                f"tool {tool_name} returned image {number}, which is not a supported image: {error}"
+            ) from None
     return remaining, references
+
+
+def _inline_image_base64(block: object) -> str | None:
+    if not isinstance(block, Mapping) or block.get("type") != "image":
+        return None
+    if isinstance(block.get("base64"), str):
+        return str(block["base64"])
+    url = block.get("url")
+    if isinstance(url, str) and url.startswith("data:"):
+        header, separator, encoded = url.partition(",")
+        # Only base64 data URLs carry image bytes; refuse other encodings instead of keeping them.
+        return encoded if separator and header.endswith(";base64") else ""
+    return None
 
 
 def _inline_content_images(content: Any, images: Mapping[str, bytes]) -> list[Any]:

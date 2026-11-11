@@ -13,7 +13,10 @@ Both use the scripted chat model, which records the images it receives in
 
 * ``take_screenshot`` comes from a tool source. It uploads a PNG and returns it
   as a reference.
-* ``render_chart`` is the graph's own tool. It returns a PNG as a base64 image block.
+* ``render_chart`` is the graph's own tool. It returns a PNG as a base64 image
+  block; ``form`` picks a ``data:`` URL (``data_url``), the nonstandard
+  ``image/jpg`` type (``jpg_mime``), or bytes that are not an image
+  (``not_an_image``) instead.
 
 The store is a ``LocalDirectoryMediaStore`` under the state directory, shared
 by the test and the Worker. The custom graph's model node calls
@@ -69,6 +72,10 @@ TOOL_POLICIES = {
     "take_screenshot": ToolPolicy(ToolEffect.READ),
     "render_chart": ToolPolicy(ToolEffect.READ),
 }
+
+
+#: Bytes ``render_chart`` returns as an image with ``form`` ``not_an_image``.
+NOT_AN_IMAGE = b"this is not an image, only text bytes"
 
 
 def solid_png(red: int, green: int, blue: int) -> bytes:
@@ -195,16 +202,20 @@ def build_image_state_graph(state_dir: Path) -> CompiledGraph:
 
 def build_render_chart_tool() -> BaseTool:
     @tool
-    def render_chart() -> list[dict[str, str]]:
+    def render_chart(form: str = "base64") -> list[dict[str, str]]:
         """Render a chart."""
-        return [
-            {"type": "text", "text": "rendered a chart"},
-            {
+        encoded = base64.b64encode(chart_png()).decode()
+        image = {
+            "base64": {"type": "image", "base64": encoded, "mime_type": "image/png"},
+            "data_url": {"type": "image", "url": f"data:image/png;base64,{encoded}"},
+            "jpg_mime": {"type": "image", "base64": encoded, "mime_type": "image/jpg"},
+            "not_an_image": {
                 "type": "image",
-                "base64": base64.b64encode(chart_png()).decode(),
+                "base64": base64.b64encode(NOT_AN_IMAGE).decode(),
                 "mime_type": "image/png",
             },
-        ]
+        }[form]
+        return [{"type": "text", "text": "rendered a chart"}, image]
 
     return render_chart
 

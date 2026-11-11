@@ -613,7 +613,9 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             )
         images: list[AgentImageReference] = []
         if self._media_store is not None and isinstance(result.content, list):
-            remaining, images = await upload_content_images(result.content, self._media_store)
+            remaining, images = await upload_content_images(
+                result.content, self._media_store, record.tool_name
+            )
             result = result.model_copy(update={"content": remaining})
         output = _tool_message_output(result)
         if result.status == "error":

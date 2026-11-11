@@ -484,8 +484,11 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
   This is LangChain's native form for images in a tool result; each chat
   model integration sends it as its provider allows. Images come from a tool
   source's `ToolExecutionResult.images`, or from a tool of the graph that
-  returns base64 image blocks: its tool Step uploads them and records the
-  references, and the rest of the content is the output.
+  returns image blocks with `base64` data or a `data:` URL: its tool Step
+  uploads them and records the references, and the rest of the content is
+  the output. The store takes each image's type from its bytes, whatever
+  `mime_type` says. An inline image that is not valid base64 or not a
+  supported image fails the tool call, so its bytes never reach the output.
 - **What is stored.** Stored messages and the checkpoint in the run state
   hold each image as a placeholder block,
   `{"type": "image", "url": <uri>, "mime_type": ..., "extras": {"dex_image_reference": <reference>}}`.

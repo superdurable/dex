@@ -35,6 +35,7 @@ from tests.image_agents import (
     IMAGE_AGENT_FLOW_TYPES,
     IMAGE_CREATE_AGENT_FLOW_TYPE,
     MODEL_INPUTS_LOG_NAME,
+    NOT_AN_IMAGE,
     STATE_DIR_ENVIRONMENT_VARIABLE,
     build_image_agent_flows,
     build_media_store,
@@ -174,12 +175,15 @@ async def test_a_tool_source_image_reaches_the_model_inside_the_tool_message(
 
 
 @pytest.mark.parametrize("image_flow_type", IMAGE_AGENT_FLOW_TYPES)
-async def test_a_tool_that_returns_a_base64_image_block_records_a_reference(
-    image_harness: ImageAgentHarness,
+@pytest.mark.parametrize("form", ["base64", "data_url", "jpg_mime"])
+async def test_a_tool_that_returns_an_inline_image_block_records_a_reference(
+    image_harness: ImageAgentHarness, form: str
 ) -> None:
     await image_harness.stack.start_worker()
     session_id = image_harness.new_session_id()
-    await image_harness.sessions.start_session(session_id, "call render_chart {}")
+    await image_harness.sessions.start_session(
+        session_id, f'call render_chart {{"form": "{form}"}}'
+    )
     snapshot = await image_harness.wait_for_turns(session_id, 1)
 
     chart = tool_image_reference(image_harness, chart_png())
@@ -192,6 +196,26 @@ async def test_a_tool_that_returns_a_base64_image_block_records_a_reference(
     assert [message.images for message in tool_messages] == [[chart]]
     assert [message.tool_output for message in tool_messages] == [output]
     assert_no_image_bytes_stored(snapshot, chart_png())
+
+
+@pytest.mark.parametrize("image_flow_type", IMAGE_AGENT_FLOW_TYPES)
+async def test_a_tool_image_the_store_refuses_fails_the_call_without_storing_its_bytes(
+    image_harness: ImageAgentHarness,
+) -> None:
+    await image_harness.stack.start_worker()
+    session_id = image_harness.new_session_id()
+    await image_harness.sessions.start_session(
+        session_id, 'call render_chart {"form": "not_an_image"}'
+    )
+    snapshot = await image_harness.wait_for_turns(session_id, 1)
+
+    tool_messages = [message for message in snapshot.messages if message.role is MessageRole.TOOL]
+    assert [message.tool_output for message in tool_messages] == [
+        "The tool call failed: tool render_chart returned image 1, which is not a supported "
+        "image: image is not PNG, JPEG, GIF, or WebP"
+    ]
+    assert [message.images for message in tool_messages] == [[]]
+    assert_no_image_bytes_stored(snapshot, NOT_AN_IMAGE)
 
 
 @pytest.mark.parametrize("image_flow_type", IMAGE_AGENT_FLOW_TYPES)
