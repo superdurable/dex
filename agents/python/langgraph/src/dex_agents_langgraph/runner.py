@@ -672,7 +672,8 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         the graph state that ``RunModel`` stored with the call, without the
         message list. Its runtime has the compiled graph's ``store``, which
         is ``None`` unless the graph was compiled with one, and no
-        ``context``, as the runner runs graphs without a run context. It reads
+        ``context``, as the runner runs graphs without a run context.
+        ``get_store()`` and ``get_runtime()`` do not work there. It reads
         and writes state as in a graph task, which Deep Agents'
         ``StateBackend`` does. A tool may also return a ``Command`` whose
         ``update`` mapping holds its ``ToolMessage``. Its state writes go in the

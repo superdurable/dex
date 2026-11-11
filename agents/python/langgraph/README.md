@@ -245,12 +245,13 @@ research_agent = langchain_agent_session_flow(
   with the tool's. `RunModel` replays the wrapped result and never runs the
   wrappers. The runner changes only its own copy of the root graph, so the
   graph you pass is unchanged.
-- A tool's `ToolRuntime` in its tool Step has the compiled graph's `store`,
-  so a `StoreBackend` works when you compile the agent with a store. It has
-  no `context`: the session runs the graph without a run context, in
-  `RunModel` too. A store such as `InMemoryStore` lives in one Worker
-  process, so use a shared store when Workers restart or run on several
-  machines.
+- A tool's `ToolRuntime` in its tool Step has the compiled graph's `store`.
+  It has no `context`: the session runs the graph without a run context, in
+  `RunModel` too. `get_store()` and `get_runtime()` do not work in a tool
+  Step, so give a `StoreBackend` its store and a fixed namespace, as in
+  `StoreBackend(store=store, namespace=...)`. A store such as `InMemoryStore`
+  lives in one Worker process, so use a shared store when Workers restart or
+  run on several machines.
 - `excluded_tool_names=["task"]` turns off subagents. The model is not
   offered `task`, and a tool Step never runs it. See the limits below.
 - Deep Agents keeps `messages` and `files` in `DeltaChannel` state channels.
