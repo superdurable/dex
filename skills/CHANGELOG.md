@@ -11,6 +11,10 @@ Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 - `dex-app-builder` maps the n8n Merge node and fan-out to a Join instead of a Channel count.
 - `channel.md`, `step.md`, the Java and Rust primitives tables, and `dex-app-builder` product discovery point joins to the Join, which is built on a ChannelMap.
 
+## 1.0.13 - 2026-11-10
+
+- Correct the ID reuse table in `dex-sdk` `flow.md`: allow-if-previous-failed starts a new run after a failed, canceled, or terminated run, not only a failed one.
+
 ## 1.0.12 - 2026-11-10
 
 - Correct the start identity rule in `dex-sdk` `error-handling.md`: a StartFlow retry whose Request ID matches the latest run's start returns that run under every ID reuse policy and never starts a second run or terminates the first. A rejecting policy still keeps the original run the latest one.

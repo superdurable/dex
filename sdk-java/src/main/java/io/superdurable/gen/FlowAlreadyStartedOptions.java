@@ -6,6 +6,10 @@
 package io.superdurable.gen;
 
 /**
+ * <pre>
+ * Chooses the StartFlow result when Dex does not start a new run.
+ * </pre>
+ *
  * Protobuf type {@code dex.FlowAlreadyStartedOptions}
  */
 @com.google.protobuf.Generated
@@ -51,6 +55,11 @@ private static final long serialVersionUID = 0L;
   public static final int IGNORE_ALREADY_STARTED_ERROR_FIELD_NUMBER = 1;
   private boolean ignoreAlreadyStartedError_ = false;
   /**
+   * <pre>
+   * True returns the latest run's ID when the request ID matches that run's start request ID.
+   * Otherwise, and whenever this is false, StartFlow fails with ALREADY_EXISTS (FLOW_ALREADY_STARTED).
+   * </pre>
+   *
    * <code>bool ignore_already_started_error = 1;</code>
    * @return The ignoreAlreadyStartedError.
    */
@@ -222,6 +231,10 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
+   * <pre>
+   * Chooses the StartFlow result when Dex does not start a new run.
+   * </pre>
+   *
    * Protobuf type {@code dex.FlowAlreadyStartedOptions}
    */
   public static final class Builder extends
@@ -359,6 +372,11 @@ private static final long serialVersionUID = 0L;
 
     private boolean ignoreAlreadyStartedError_ ;
     /**
+     * <pre>
+     * True returns the latest run's ID when the request ID matches that run's start request ID.
+     * Otherwise, and whenever this is false, StartFlow fails with ALREADY_EXISTS (FLOW_ALREADY_STARTED).
+     * </pre>
+     *
      * <code>bool ignore_already_started_error = 1;</code>
      * @return The ignoreAlreadyStartedError.
      */
@@ -367,6 +385,11 @@ private static final long serialVersionUID = 0L;
       return ignoreAlreadyStartedError_;
     }
     /**
+     * <pre>
+     * True returns the latest run's ID when the request ID matches that run's start request ID.
+     * Otherwise, and whenever this is false, StartFlow fails with ALREADY_EXISTS (FLOW_ALREADY_STARTED).
+     * </pre>
+     *
      * <code>bool ignore_already_started_error = 1;</code>
      * @param value The ignoreAlreadyStartedError to set.
      * @return This builder for chaining.
@@ -379,6 +402,11 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * True returns the latest run's ID when the request ID matches that run's start request ID.
+     * Otherwise, and whenever this is false, StartFlow fails with ALREADY_EXISTS (FLOW_ALREADY_STARTED).
+     * </pre>
+     *
      * <code>bool ignore_already_started_error = 1;</code>
      * @return This builder for chaining.
      */

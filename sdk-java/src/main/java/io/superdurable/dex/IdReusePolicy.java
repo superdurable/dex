@@ -17,10 +17,18 @@ package io.superdurable.dex;
  * the server against prior and currently running executions with the same Flow ID.
  */
 public enum IdReusePolicy {
-    /** Uses the Dex server default, which rejects every previously used Flow ID. */
+    /**
+     * Rejects the start whenever the Flow ID has a run, the same as {@link #DISALLOW}. The server
+     * does not make this default configurable.
+     */
     DEFAULT,
 
-    /** Allows reuse only when the previous execution ended abnormally. */
+    /**
+     * Starts a new run only when the latest run closed abnormally: failed, canceled, or terminated.
+     * A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy.
+     * Under the handler policy, the timeout handler's outcome decides. A running or completed latest
+     * run rejects the start.
+     */
     ALLOW_IF_PREVIOUS_FAILED,
 
     /** Allows reuse when no execution with the ID is currently running. */

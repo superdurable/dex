@@ -6,28 +6,56 @@
 package io.superdurable.gen;
 
 /**
+ * <pre>
+ * Decides whether StartFlow may start a new run for a Flow ID that already has a run.
+ * Dex checks the latest run only. A Flow ID without runs always starts.
+ * A retry of the latest run's start request skips this policy; see StartFlowRequest.request_id.
+ * </pre>
+ *
  * Protobuf enum {@code dex.IdReusePolicy}
  */
 @com.google.protobuf.Generated
 public enum IdReusePolicy
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
+   * <pre>
+   * Same as ID_REUSE_POLICY_DISALLOW_REUSE.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_UNSPECIFIED = 0;</code>
    */
   ID_REUSE_POLICY_UNSPECIFIED(0),
   /**
+   * <pre>
+   * Starts a new run when the latest run closed as FAILED, CANCELED, or TERMINATED.
+   * Rejects the start when the latest run is RUNNING or COMPLETED.
+   * A Flow timeout closes a run as FAILED or CANCELED under FAIL or CANCEL; under HANDLER, the handler decides.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY = 1;</code>
    */
   ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY(1),
   /**
+   * <pre>
+   * Starts a new run when the latest run is closed, whatever its status.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING = 2;</code>
    */
   ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING(2),
   /**
+   * <pre>
+   * Rejects the start whenever the Flow ID has a run.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_DISALLOW_REUSE = 3;</code>
    */
   ID_REUSE_POLICY_DISALLOW_REUSE(3),
   /**
+   * <pre>
+   * Terminates a running latest run, then starts a new run. Never rejects a new request.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING = 4;</code>
    */
   ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING(4),
@@ -44,22 +72,44 @@ public enum IdReusePolicy
       "IdReusePolicy");
   }
   /**
+   * <pre>
+   * Same as ID_REUSE_POLICY_DISALLOW_REUSE.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_UNSPECIFIED = 0;</code>
    */
   public static final int ID_REUSE_POLICY_UNSPECIFIED_VALUE = 0;
   /**
+   * <pre>
+   * Starts a new run when the latest run closed as FAILED, CANCELED, or TERMINATED.
+   * Rejects the start when the latest run is RUNNING or COMPLETED.
+   * A Flow timeout closes a run as FAILED or CANCELED under FAIL or CANCEL; under HANDLER, the handler decides.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY = 1;</code>
    */
   public static final int ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY_VALUE = 1;
   /**
+   * <pre>
+   * Starts a new run when the latest run is closed, whatever its status.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING = 2;</code>
    */
   public static final int ID_REUSE_POLICY_ALLOW_IF_NO_RUNNING_VALUE = 2;
   /**
+   * <pre>
+   * Rejects the start whenever the Flow ID has a run.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_DISALLOW_REUSE = 3;</code>
    */
   public static final int ID_REUSE_POLICY_DISALLOW_REUSE_VALUE = 3;
   /**
+   * <pre>
+   * Terminates a running latest run, then starts a new run. Never rejects a new request.
+   * </pre>
+   *
    * <code>ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING = 4;</code>
    */
   public static final int ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING_VALUE = 4;
