@@ -134,8 +134,24 @@ for the Dex SDK and framework versions each release supports.
   it; a missing object fails the turn with **MediaStoreError**.
 - `send_user_message` returns `false` for invalid images, or for images when
   the runner does not implement **ImageUserMessageBuilder**
-  (`buildUserMessageWithImages`). No built-in runner implements it yet; image
-  input for Stepwise and the framework adapters comes later.
+  (`buildUserMessageWithImages`). Stepwise does not implement it yet.
+- Framework adapters show images to their model when built with a media
+  store: a new optional **media_store** (`mediaStore`) on each adapter's
+  runner and session-flow factory. With a store, the runner accepts images,
+  keeps only references in its stored items and run state, and loads the
+  bytes right before each model call, so a replay sends the same input.
+  A user image becomes the framework's image part, and a tool result's
+  images reach the model in the framework's tool-result form. Without a
+  store the adapter refuses images, as before. See each adapter README,
+  "Images".
+- Python and TypeScript cores: **McpToolSource** takes an optional
+  **media_store** (`mediaStore`). With one, the `image` content of a
+  successful result is uploaded inside the tool Step and returned in
+  `ToolExecutionResult.images`, and the output text shows `[image <n>]` in
+  its place. More than 20 images, invalid base64, or bytes that are not a
+  supported image fail the call. Without a store, image content stays JSON
+  text, as before. Cases: `mcp_image_content` in
+  `agents/conformance/images.json`.
 - Runners read bytes with **load_images** (`loadImages`) and may choose them
   with **collect_turn_images** (`collectTurnImages`).
 - Go core: no image input. Its values carry `images`, so a value written by
