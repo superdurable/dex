@@ -534,5 +534,535 @@
     "not_regular_file": "image {uri} is a symbolic link or not a regular file in the media store",
     "not_directory": "media store directory {path} is a symbolic link or not a directory",
     "hard_link": "image {uri} has more than one hard link in the media store"
+  },
+  "mcp_image_content": {
+    "description": "How McpToolSource with a media store turns the image blocks of a successful tools/call result into image references: the output text, with [image <n>] for the n-th image counting from 1, the references in order, and the exact ToolExecutionError text. tool_name is the agent tool name in the error texts.",
+    "tool_name": "files__take_screenshot",
+    "cases": [
+      {
+        "name": "text then one image",
+        "content": [
+          {
+            "type": "text",
+            "text": "captured the page"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected": {
+          "output": "captured the page\n[image 1]",
+          "images": [
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            }
+          ]
+        }
+      },
+      {
+        "name": "only an image",
+        "content": [
+          {
+            "type": "image",
+            "data": "/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBAMDAwQFBAQEBAUHBQUFBQUHCAcHBwcHBwgICAgICAgICgoKCgoKCwsLCwsNDQ0NDQ0NDQ0N/9sAQwECAgIDAwMGAwMGDQkHCQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0N/90ABAAB/9oADAMBAAIRAxEAPwCSiiiv7AP5vP/Z",
+            "mimeType": "image/jpeg"
+          }
+        ],
+        "expected": {
+          "output": "[image 1]",
+          "images": [
+            {
+              "sha256": "0f0095ec3c25b3284003175c5a6c2ec3f4d65568ba757f6b7380038c671cc9c4",
+              "mime_type": "image/jpeg",
+              "size_bytes": 639
+            }
+          ]
+        }
+      },
+      {
+        "name": "two images around text, in content order",
+        "content": [
+          {
+            "type": "image",
+            "data": "/9j/4AAQSkZJRgABAQAASABIAAD/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBAMDAwQFBAQEBAUHBQUFBQUHCAcHBwcHBwgICAgICAgICgoKCgoKCwsLCwsNDQ0NDQ0NDQ0N/9sAQwECAgIDAwMGAwMGDQkHCQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0N/90ABAAB/9oADAMBAAIRAxEAPwCSiiiv7AP5vP/Z",
+            "mimeType": "image/jpeg"
+          },
+          {
+            "type": "text",
+            "text": "before and after"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected": {
+          "output": "[image 1]\nbefore and after\n[image 2]",
+          "images": [
+            {
+              "sha256": "0f0095ec3c25b3284003175c5a6c2ec3f4d65568ba757f6b7380038c671cc9c4",
+              "mime_type": "image/jpeg",
+              "size_bytes": 639
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            }
+          ]
+        }
+      },
+      {
+        "name": "the same image twice keeps two entries",
+        "content": [
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected": {
+          "output": "[image 1]\n[image 2]",
+          "images": [
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            }
+          ]
+        }
+      },
+      {
+        "name": "a declared type that differs from the bytes takes the bytes' type",
+        "content": [
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/jpeg"
+          }
+        ],
+        "expected": {
+          "output": "[image 1]",
+          "images": [
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            }
+          ]
+        }
+      },
+      {
+        "name": "twenty images is the limit",
+        "content": [
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected": {
+          "output": "[image 1]\n[image 2]\n[image 3]\n[image 4]\n[image 5]\n[image 6]\n[image 7]\n[image 8]\n[image 9]\n[image 10]\n[image 11]\n[image 12]\n[image 13]\n[image 14]\n[image 15]\n[image 16]\n[image 17]\n[image 18]\n[image 19]\n[image 20]",
+          "images": [
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            },
+            {
+              "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+              "mime_type": "image/png",
+              "size_bytes": 70
+            }
+          ]
+        }
+      },
+      {
+        "name": "twenty-one images",
+        "content": [
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected_error": "MCP tool files__take_screenshot returned 21 images; a tool result carries at most 20"
+      },
+      {
+        "name": "base64 with a character outside the alphabet",
+        "content": [
+          {
+            "type": "text",
+            "text": "x"
+          },
+          {
+            "type": "image",
+            "data": "iVBO*w0K",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected_error": "MCP tool files__take_screenshot returned image 1, which is not valid base64"
+      },
+      {
+        "name": "base64 without its padding",
+        "content": [
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          },
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected_error": "MCP tool files__take_screenshot returned image 2, which is not valid base64"
+      },
+      {
+        "name": "base64 with line breaks",
+        "content": [
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf\nFcSJAAAADUlEQVR42mPw77r2HwAFigKvNUXJWQAAAABJRU5ErkJggg==",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected_error": "MCP tool files__take_screenshot returned image 1, which is not valid base64"
+      },
+      {
+        "name": "empty data",
+        "content": [
+          {
+            "type": "image",
+            "data": "",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected_error": "MCP tool files__take_screenshot returned image 1, which is not a supported image: image is empty"
+      },
+      {
+        "name": "bytes that are not an image",
+        "content": [
+          {
+            "type": "image",
+            "data": "aGVsbG8=",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected_error": "MCP tool files__take_screenshot returned image 1, which is not a supported image: image is not PNG, JPEG, GIF, or WebP"
+      },
+      {
+        "name": "a malformed PNG",
+        "content": [
+          {
+            "type": "image",
+            "data": "iVBORw0KGgoAAAANSUhEUgAAAAE=",
+            "mimeType": "image/png"
+          }
+        ],
+        "expected_error": "MCP tool files__take_screenshot returned image 1, which is not a supported image: image is not a well-formed PNG"
+      }
+    ]
   }
 }
