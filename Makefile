@@ -12,6 +12,13 @@ GENERATED_CODE_PATHS := \
 release-tooling-test: ## Verify changed-component selection and release preflight
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s script/release -p '*_test.py'
 
+.PHONY: regenerate-derived regenerate-derived-test
+regenerate-derived: ## Take main's copy of conflicted derived files and rerun their generators (ARGS=--dry-run|--all)
+	python3 script/regenerate_derived.py $(ARGS)
+
+regenerate-derived-test: ## Verify derived-file conflict resolution against fixture repositories
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s script -p 'regenerate_derived_integ_test.py'
+
 .PHONY: server-zd-simulation-runner-test
 server-zd-simulation-runner-test: ## Verify nightly process supervision and seed partitioning
 	PYTHONDONTWRITEBYTECODE=1 python3 script/test_server_zd_simulation_run.py

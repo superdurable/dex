@@ -105,6 +105,22 @@ make generated-code
 make generated-code-check
 ```
 
+### Conflicts in derived files
+
+Never hand-merge a derived file: a `Cargo.lock`, generated code, the docs
+Flow definition JSON, or the newest server-zd format_compat testdata and its
+pin. When a rebase or merge stops on one, resolve the other conflicts, then run:
+
+```bash
+make regenerate-derived                  # take origin/main's copy, rerun the affected generators, stage
+make regenerate-derived ARGS=--dry-run   # print the plan only
+make regenerate-derived ARGS=--all       # run every generator
+```
+
+Override the upstream ref with `ARGS=--upstream=<ref>`. The dexzd-simulation
+regression pins cannot be regenerated; follow "Pinned trajectories" in
+[`server-zd/crates/dexzd-simulation/README.md`](server-zd/crates/dexzd-simulation/README.md).
+
 ## Java
 
 ```bash
