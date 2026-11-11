@@ -13,6 +13,8 @@
 
 ### Added and fixed
 
+- The Join documentation no longer recommends reporting a result for a cancelled
+  branch from the cancelling RPC, which could count that branch twice.
 - Add `Join` and `JoinRound` to synchronize parallel branches. `Join.fork(context,
   branchBuilders, joinBuilder)` starts one round from a Step, keyed by the Step
   execution ID, and counts the branches; `Join.forkWithRoundKey` takes an explicit

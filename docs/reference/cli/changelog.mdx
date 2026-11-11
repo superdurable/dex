@@ -14,7 +14,11 @@ Not released yet. The next minor release, cli-v1.45.0, ships these changes.
 
 ### Added
 
-- **dexcli flow-definition upload** stores Flow Definition Graph 2.0 JSON files or directories on the server and prints the outcome for each Flow type. **--force** replaces a stored definition with a later generated time. **dexcli flow-definition list** lists the Flow types that have a stored definition. [Reference](/reference/cli/#flow-definition).
+- **dexcli flow-definition upload** stores Flow Definition Graph 2.0 JSON files or directories on the server and prints the outcome for each Flow type. **--force** replaces a stored definition even when its generation time is later. **dexcli flow-definition list** lists the Flow types that have a stored definition. [Reference](/reference/cli/#flow-definition).
+
+### Changed
+
+- **dexcli dev** bundles server-zd 0.1.26, which stores uploaded Flow Definition Graphs. [Reference](/reference/server/changelog#v0-1-26).
 
 ## 1.44 {#v1-44}
 

@@ -73,6 +73,8 @@ An upload validates every item first, then decides each item alone. A missing ob
 with `If-None-Match: *`. A record with the same SHA-256 digest is left unwritten. A record with an
 older `generated_at`, or any different record when `force` is set, is replaced with `If-Match` on
 the ETag that was read. A failed precondition re-reads the object and decides again. An unknown
-write outcome re-reads it and succeeds when it finds this call's record. List pages through a key
-listing and never reads objects. Get reads the objects and stops when the response would exceed
-the gRPC message limit.
+write outcome re-reads it and succeeds when it finds this call's record. Every read checks that
+the record names the Flow type of its key and that its digest matches its content; a mismatch is
+`INTERNAL`. List pages through a key listing, never reads objects, skips keys that are not
+canonical encodings, and returns opaque tokens. Get reads objects one at a time, each capped at
+the remaining response budget, and stops at the gRPC message limit.

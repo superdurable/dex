@@ -113,6 +113,30 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 
 Example: [examples/rust/src/primitives/subflow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/subflow/flow.rs)
 
+## Join parallel branches {#join}
+
+Since 1.44.0. A **Join** waits for the parallel branches that one Step
+started. It stores branch results in a ChannelMap with the Join's name, so
+its conditions are Channel conditions. They combine with **AnyOf**, **AllOf**,
+and Timers.
+
+- **Join::new** defines a Join. Register it with **PersistenceSchema::join**.
+- **Join::fork** starts one round from a split Step. It returns the branch movements
+  and the join Step movement. **Join::fork_with_round_key** does the same with an explicit
+  round key, for example in an RPC.
+- A branch reports its result with **Join::end_branch** or **Join::report_branch_result**.
+- The join Step waits with **Join::for_all_branches**, **Join::for_first_branch**, or **Join::for_branches**, and reads **Join::branch_results**.
+- The next round's split Step resets the previous round with
+  **Join::for_remaining_branches**, and reads **Join::remaining_branch_results**.
+- **Join::channel_map** returns the underlying ChannelMap, for reading a round's
+  pending results. Never publish to it directly.
+
+The [Join API reference](https://docs.rs/dex-sdk/latest/dex_sdk/struct.Join.html) documents each method. The
+[Await Parallel Steps](/design-patterns/parallel/await) pattern shows the whole
+shape.
+
+Example: [examples/rust/src/patterns/parallel/parallel_step_flows.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/parallel/parallel_step_flows.rs)
+
 ## AnyCombinationOf {#anycombinationof}
 
 **AnyCombinationOf** is met when every condition in any one group is met. Each

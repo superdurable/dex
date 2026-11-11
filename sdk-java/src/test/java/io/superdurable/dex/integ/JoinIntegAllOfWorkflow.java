@@ -39,6 +39,7 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
     static final String JOIN_STEP_TYPE = "JoinIntegAllOfJoin";
     static final String TIMER_WON = "timer";
     static final String BRANCHES_WON = "branches";
+    static final String JOIN_CANCELED = "join canceled";
 
     enum JoinMode {
         ALL_BRANCHES,
@@ -54,10 +55,12 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
     private final JoinIntegAllOfGate gate = new JoinIntegAllOfGate();
     private final JoinIntegAllOfJoin join = new JoinIntegAllOfJoin();
     private final JoinIntegAllOfReset reset = new JoinIntegAllOfReset();
+    private final JoinIntegAllOfHandoffBranch handoffBranch = new JoinIntegAllOfHandoffBranch();
+    private final JoinIntegAllOfCanceledJoin canceledJoin = new JoinIntegAllOfCanceledJoin();
 
     @Override
     public StepList<SplitInput> getSteps() {
-        return StepList.startStep(split).otherSteps(branch, gate, join, reset);
+        return StepList.startStep(split).otherSteps(branch, gate, join, reset, handoffBranch, canceledJoin);
     }
 
     @Override
@@ -81,11 +84,17 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
     }
 
     @RPC
-    public RPCResult<Void> cancelBranchesAndReport(
-            final Context context,
-            final RoundReport report) {
-        branchResults.reportBranchResult(context, report.round, report.result);
-        return RPCResult.<Void>of(null).withCancelingSteps(JoinIntegAllOfBranch.class);
+    public RPCResult<Void> cancelJoinWithBranches(final Context context) {
+        return RPCResult.<Void>of(null, StepMovement.of(JoinIntegAllOfCanceledJoin.class, JOIN_CANCELED))
+                .withCancelingSteps(JoinIntegAllOfJoin.class, JoinIntegAllOfBranch.class);
+    }
+
+    @RPC
+    public RPCResult<PendingCounts> getPendingCounts(final Context context, final PendingQuery query) {
+        final PendingCounts counts = new PendingCounts();
+        counts.results = branchResults.getChannelMap().size(context, query.roundKey);
+        counts.releases = branchReleased.size(context, query.branchName);
+        return RPCResult.of(counts);
     }
 
     @RPC
@@ -95,9 +104,14 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
 
     @RPC
     public RPCResult<Void> forkFromRpc(final Context context, final RpcFork rpcFork) {
+        final List<Function<JoinRound, StepMovement<?>>> builders = branchBuilders(rpcFork.names);
+        // The handoff branch ends without reporting; a later RPC call reports its result.
+        builders.add(round -> StepMovement.of(
+                JoinIntegAllOfHandoffBranch.class,
+                new BranchInput("handoff", round)));
         final List<StepMovement<?>> movements = branchResults.forkWithRoundKey(
                 rpcFork.roundKey,
-                branchBuilders(rpcFork.names),
+                builders,
                 joinBuilder(JoinMode.ALL_BRANCHES));
         return RPCResult.of(null, movements);
     }
@@ -151,6 +165,39 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
         @Override
         public StepDecision execute(final Context context, final BranchInput input) {
             return branchResults.endBranch(context, input.round, input.name);
+        }
+    }
+
+    final class JoinIntegAllOfHandoffBranch implements Step<BranchInput> {
+        @Override
+        public Class<BranchInput> getInputType() {
+            return BranchInput.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final BranchInput input) {
+            return StepDecision.deadEnd();
+        }
+    }
+
+    // Runs after an RPC canceled the join Step and its branches.
+    final class JoinIntegAllOfCanceledJoin implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String input) {
+            return Wait.until(joinGate.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            final JoinOutcome outcome = new JoinOutcome();
+            outcome.winner = input;
+            outcome.results = new ArrayList<String>();
+            return StepDecision.gracefulComplete(outcome);
         }
     }
 
@@ -295,6 +342,24 @@ class JoinIntegAllOfWorkflow implements Flow<JoinIntegAllOfWorkflow.SplitInput> 
             this.round = round;
             this.result = result;
         }
+    }
+
+    public static final class PendingQuery {
+        public String roundKey;
+        public String branchName;
+
+        public PendingQuery() {
+        }
+
+        PendingQuery(final String roundKey, final String branchName) {
+            this.roundKey = roundKey;
+            this.branchName = branchName;
+        }
+    }
+
+    public static final class PendingCounts {
+        public int results;
+        public int releases;
     }
 
     public static final class RpcFork {

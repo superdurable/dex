@@ -102,13 +102,6 @@ impl JoinScenarioRun {
     }
 }
 
-fn start_round(branch_count: usize) -> JoinRound {
-    JoinRound {
-        round_key: START_ROUND_KEY.to_string(),
-        branch_count,
-    }
-}
-
 fn sorted(mut values: Vec<String>) -> Vec<String> {
     values.sort();
     values
@@ -255,29 +248,34 @@ fn test_join_first_branch_cancels_sibling_branches() {
 
 #[test]
 #[ignore = "requires dexcli dev"]
-fn test_join_rpc_reports_for_a_canceled_branch() {
+fn test_join_cancel_the_join_with_its_branches() {
     let run = JoinScenarioRun::start(
-        JoinScenario::RpcReportsCanceledBranch,
-        "rust-join-rpc-reports-canceled",
+        JoinScenario::CancelJoinWithBranches,
+        "rust-join-cancel-join",
     );
-    run.release_branch("reported-a");
+    run.release_branch("cancel-a");
     run.wait_for_released_branch(1);
     run.client()
+        .invoke_rpc_without_input(&run.flow_id, JoinWorkflow::CANCEL_JOIN_WITH_BRANCHES)
+        .expect("cancel the join with its branches");
+
+    // cancel-b was canceled, so its release stays pending and nothing consumes cancel-a's result.
+    run.release_branch("cancel-b");
+    let pending_releases = run
+        .client()
         .invoke_rpc(
             &run.flow_id,
-            JoinWorkflow::CANCEL_BRANCH_AND_REPORT_RESULT,
-            BranchReport {
-                round: start_round(2),
-                result: "reported-b-canceled".to_string(),
-            },
+            JoinWorkflow::GET_PENDING_RELEASE_COUNT,
+            "cancel-b".to_string(),
         )
-        .expect("cancel branch and report its result");
+        .expect("read pending releases");
+    assert_eq!(1, pending_releases);
+    assert_eq!(strings(&["cancel-a"]), run.pending_results(START_ROUND_KEY));
+    run.client()
+        .invoke_rpc_without_input(&run.flow_id, JoinWorkflow::FINISH_FLOW)
+        .expect("finish Flow");
 
-    let output = run.output::<JoinOutput>();
-    assert_eq!(
-        strings(&["reported-a", "reported-b-canceled"]),
-        output.results
-    );
+    assert_eq!(JoinWorkflow::JOIN_CANCELED, run.output::<String>());
 }
 
 #[test]
@@ -318,13 +316,25 @@ fn test_join_rpc_forks_only_with_an_explicit_round_key() {
         "{}",
         fork_output.slash_key_error
     );
+    run.client()
+        .invoke_rpc(
+            &run.flow_id,
+            JoinWorkflow::REPORT_BRANCH_RESULT,
+            BranchReport {
+                round: JoinRound {
+                    round_key: "rpc-round-1".to_string(),
+                    branch_count: 2,
+                },
+                result: "rpc-handoff".to_string(),
+            },
+        )
+        .expect("report the handoff branch result");
     run.release_branch("rpc-a");
-    run.release_branch("rpc-b");
 
     let output = run.output::<JoinOutput>();
     assert_eq!("rpc-round-1", output.round_key);
     assert_eq!(2, output.branch_count);
-    assert_eq!(strings(&["rpc-a", "rpc-b"]), sorted(output.results));
+    assert_eq!(strings(&["rpc-a", "rpc-handoff"]), sorted(output.results));
 }
 
 #[test]

@@ -253,7 +253,7 @@ n8n 1.96; earlier tags use PascalCase names):
 | Error Trigger, workflow `errorWorkflow` | An Execute-failure route to an explicit recovery Step. |
 | Set (Edit Fields) | A typed Go mapping inside the consuming application Step. |
 | IF, Filter, Switch | A Go predicate in an application Step that chooses the movement. An unconnected output ends without a movement. |
-| Merge | An await-all join with a Channel count, where each branch's success and failure routes both publish, so each branch counts once. Replicate the merge mode exactly: append, combine by key or position, or choose a branch. Under execution order `v1`, choose-branch requires inputs 1 and 2, so when one never receives items the Merge and everything after it never run and the execution ends without an error; the other modes run with the missing input empty. |
+| Merge | An await-all Join: the split Step forks the branches and the merge Step, and each branch's success and failure routes both end the branch with one result, so each branch counts once. Replicate the merge mode exactly: append, combine by key or position, or choose a branch. Under execution order `v1`, choose-branch requires inputs 1 and 2, so when one never receives items the Merge and everything after it never run and the execution ends without an error; the other modes run with the missing input empty. |
 | Loop Over Items | Bounded dynamic parallel Steps when the body is application Steps, or batched Steps when the source paces a rate limit. When the body reaches a Connector Step, process items one at a time with a persisted cursor, because a Connector result carries no item context. |
 | Split Out, Aggregate, Sort, Limit, Remove Duplicates, Date & Time | Pure Go transforms. Deduplication across executions needs durable state. |
 | Code, Function, Function Item | A pure Go function in an application Step, with golden parity tests. |
@@ -392,7 +392,7 @@ through the single mode question in [workflow import](workflow-import.md).
 | Send-and-wait, resume webhooks, and forms | A Dex Web Action with a permission, backed by an RPC and a Channel, with Summary and Display | Approvals are authenticated and recorded |
 | Remove Duplicates, node static data, or a table used as workflow state | Flow identity (a stable Flow ID, IDReuseDisallow, and a request ID) with Attributes and AttributeMaps | No state store to maintain; duplicates are rejected at start |
 | An error workflow, continue-on-fail, retry-on-fail, or one failure stopping a batch | StepOptions retry policies, Execute-failure recovery Steps, per-item isolation, and uncertain sends routed to recovery | One item's failure no longer stops the rest |
-| Fan-out, Merge, and Loop Over Items | Dynamic parallel Steps over an AttributeMap with a Channel-count join and an ordering stated on purpose | Independent branches run concurrently; canvas position no longer decides order |
+| Fan-out, Merge, and Loop Over Items | Dynamic parallel Steps over an AttributeMap with a Join and an ordering stated on purpose | Independent branches run concurrently; canvas position no longer decides order |
 | An agent output parser, or Code that parses model text | `llm` structured output with typed results and every branch routed | No parse failure after a paid call |
 | Literal addresses and IDs, or a configuration Set node | Typed start input and validated Actions | Values are editable without code; no behavior change |
 | Chains of Set, IF, and Code nodes | One typed application Step per real commit boundary | Fewer, testable Steps; no behavior change |

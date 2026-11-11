@@ -11,7 +11,7 @@ application types.
 | --- | --- | --- |
 | Static parallel Steps | `goToMany(StepMovement.of(A, x), StepMovement.of(B, x))` | `patterns/parallel/parallel-step-flows.ts` |
 | Dynamic parallel Steps | `goToMany(...items.map((item) => StepMovement.of(Work, item)))` | same file |
-| Await all parallel Steps | each branch publishes once and returns `deadEnd()`; a waiter uses `channel.forN(count)` | same file; [skeleton](#await-all-parallel-steps) |
+| Await all parallel Steps | `join.fork(...)` starts the branches and the waiter; each branch returns `join.endBranch(...)`; the waiter uses `join.forAllBranches(round)` | same file; [skeleton](#await-all-parallel-steps) |
 | First win | `withCancelingSiblingSteps(gracefulComplete(x), Work)` | same file |
 | Parallel SubFlows: basic, wait for half, long-lived and short-lived parent, partitioning, back pressure | `Wait.allOf(...SubFlow.run(...))`, quorum Channel, bounded request Channel | `patterns/parallel-subflows/parallel-subflows.ts` |
 | Polling | one async `execute` loop with heartbeats | `patterns/polling/polling-flow.ts`; [skeleton](#polling) |
@@ -113,55 +113,63 @@ class RecordJobWaitFailure implements Step<string> {
 ## Await all parallel Steps
 
 ```typescript
-const branchDone = new Channel("branch-done", voidCodec);
+const workCompleted = new Join("parallel-complete", doubleCodec);
 
-class ProcessShard implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+interface WorkItem {
+  readonly index: number;
+  readonly round: JoinRound;
+}
 
+class AwaitDoWork implements Step<WorkItem> {
   public getStepType(): string {
-    return "ProcessShard";
+    return "DoWork";
   }
-
-  public async execute(context: Context, _shard: number): Promise<StepDecision> {
-    branchDone.publish(context, undefined);
-    return deadEnd();
+  public async execute(context: Context, item: WorkItem): Promise<StepDecision> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
+    });
+    return workCompleted.endBranch(context, item.round, item.index);
   }
 }
 
-class AwaitShards implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class Await implements Step<JoinRound> {
+  public readonly inputCodec = joinRoundCodec;
   public getStepType(): string {
-    return "AwaitShards";
+    return "Await";
   }
-
-  public waitFor(_context: Context, count: number): Wait {
-    return Wait.until(branchDone.forN(count));
+  public waitFor(_context: Context, round: JoinRound): Wait {
+    return Wait.until(workCompleted.forAllBranches(round));
   }
-
-  public execute(_context: Context, count: number): StepDecision {
-    return gracefulComplete(count);
+  public execute(context: Context, round: JoinRound): StepDecision {
+    return gracefulComplete(workCompleted.branchResults(context, round).length);
   }
 }
 
-class SplitShards implements Step<number> {
+class AwaitInit implements Step<number> {
   public readonly inputCodec = doubleCodec;
-
   public getStepType(): string {
-    return "SplitShards";
+    return "Init";
   }
-
-  public execute(_context: Context, count: number): StepDecision {
+  public execute(context: Context, count: number): StepDecision {
     return goToMany(
-      StepMovement.of(AwaitShards, count),
-      ...Array.from({ length: count }, (_, shard) => StepMovement.of(ProcessShard, shard)),
+      ...workCompleted.fork(
+        context,
+        Array.from({ length: count }, (_, index) => (round: JoinRound) =>
+          StepMovement.of(AwaitDoWork, { index, round }),
+        ),
+        (round) => StepMovement.of(Await, round),
+      ),
     );
   }
 }
 ```
 
-- Register the completion Channel in `getPersistenceSchema().channels` and
-  register all three Steps in `getSteps()`.
+- Register the Join in `getPersistenceSchema().channels` and register all three
+  Steps in `getSteps()`. A Step whose input is a bare `JoinRound` uses
+  `inputCodec = joinRoundCodec`.
+- A partial join waits `forBranches(round, n)` or `forFirstBranch(round)`, and
+  the next round's split Step resets with `forRemainingBranches`; see
+  `patterns/workflow-patterns/partial-joins.ts`.
 
 ## TypeScript notes for other patterns
 

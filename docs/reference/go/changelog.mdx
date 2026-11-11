@@ -16,6 +16,10 @@ Not released yet. The next minor release, sdk-go/v1.45.0, ships these changes.
 
 - **WorkerOptions.FlowDefinitionPaths** and **WorkerOptions.FlowDefinitions** upload the Flow Definition Graph 2.0 documents of the Worker's registered Flow types when the Worker starts. A failed upload only logs a warning. **ReadFlowDefinitionFiles** reads documents with the same rules, and **Client.UploadFlowDefinitions** uploads them from a deployment script and reports each **FlowDefinitionUploadOutcome**. [Reference](/reference/go/workers#flow-definitions).
 
+### Fixed
+
+- The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [API reference](pathname:///api/go/latest/dex/#type-join).
+
 ## 1.44 {#v1-44}
 
 Released 2026-11-10 as [sdk-go/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.44.0).
@@ -89,14 +93,14 @@ Released 2026-11-06 as [sdk-go/v1.35.0](https://github.com/superdurable/dex/rele
 
 - Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
 - Worker startup fails when **MaxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/go/workers#capacity-and-shutdown).
-- **RetryPolicy.TotalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/go/1.35/dex/#type-retrypolicy).
+- **RetryPolicy.TotalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/go/latest/dex/#type-retrypolicy).
 - A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
 - A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/go/failure-and-retries#same-attempt-redelivery).
 
 ### Added
 
-- **RecoveryErrorInfo.AttemptProgress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/go/1.35/dex/#type-recoveryerrorinfo).
-- **RPCOptions.Name** sets an RPC’s protocol name while Go callers continue referring to its bound method. [API reference](pathname:///api/go/1.35/dex/#type-rpcoptions).
+- **RecoveryErrorInfo.AttemptProgress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/go/latest/dex/#type-recoveryerrorinfo).
+- **RPCOptions.Name** sets an RPC’s protocol name while Go callers continue referring to its bound method. [API reference](pathname:///api/go/latest/dex/#type-rpcoptions).
 
 ### Changed
 
@@ -109,7 +113,7 @@ Released 2026-11-06 as [sdk-go/v1.35.0](https://github.com/superdurable/dex/rele
 
 ### Fixed
 
-- A Worker accepts omitted input for an RPC whose input type is **dex.None**, allowing TypeScript Clients to invoke it. Missing input for other RPC types still fails with **INVALID_ARGUMENT**. [API reference](pathname:///api/go/1.35/dex/).
+- A Worker accepts omitted input for an RPC whose input type is **dex.None**, allowing TypeScript Clients to invoke it. Missing input for other RPC types still fails with **INVALID_ARGUMENT**. [API reference](pathname:///api/go/latest/dex/).
 
 ## 1.32 {#v1-32}
 

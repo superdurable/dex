@@ -11,6 +11,11 @@ public interface FlowAlreadyStartedOptionsOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
+   * <pre>
+   * True returns the latest run's ID when the request ID matches that run's start request ID.
+   * Otherwise, and whenever this is false, StartFlow fails with ALREADY_EXISTS (FLOW_ALREADY_STARTED).
+   * </pre>
+   *
    * <code>bool ignore_already_started_error = 1;</code>
    * @return The ignoreAlreadyStartedError.
    */

@@ -651,6 +651,10 @@ await sessions.update_session_settings("session-42", {"model": "openai/gpt-5-min
 - Start sessions with settings, and call `update_session_settings`, only after
   every Worker of the Flow type runs 0.2.0. A 0.1.0 Worker drops the start
   settings and starts turns without them.
+- `AgentSessionStartInput.start_environment` (`start_session(...,
+  start_environment=...)`) is different: string keys and values that say
+  where the starting program ran. It stays in the Flow's start input and the
+  session never reads it, so it is not a setting and cannot change.
 
 ## Images
 

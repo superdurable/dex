@@ -105,6 +105,30 @@ public StepDecision execute(final Context context, final Integer input) {
 
 Example: [examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java)
 
+## Join parallel branches {#join}
+
+Since 1.44.0. A **Join** waits for the parallel branches that one Step
+started. It stores branch results in a ChannelMap with the Join's name, so
+its conditions are Channel conditions. They combine with **AnyOf**, **AllOf**,
+and Timers.
+
+- **Join.define** defines a Join. Pass it to **PersistenceSchema.of**, like a ChannelMap.
+- **Join.fork** starts one round from a split Step. It returns the branch movements
+  and the join Step movement. **Join.forkWithRoundKey** does the same with an explicit
+  round key, for example in an RPC.
+- A branch reports its result with **Join.endBranch** or **Join.reportBranchResult**.
+- The join Step waits with **Join.forAllBranches**, **Join.forFirstBranch**, or **Join.forBranches**, and reads **Join.getBranchResults**.
+- The next round's split Step resets the previous round with
+  **Join.forRemainingBranches**, and reads **Join.getRemainingBranchResults**.
+- **Join.getChannelMap** returns the underlying ChannelMap, for reading a round's
+  pending results. Never publish to it directly.
+
+The [Join API reference](pathname:///api/java/latest/io/superdurable/dex/Join.html) documents each method. The
+[Await Parallel Steps](/design-patterns/parallel/await) pattern shows the whole
+shape.
+
+Example: [examples/java/src/main/java/io/superdurable/dex/patterns/parallel/AwaitParallelStepsFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/parallel/AwaitParallelStepsFlow.java)
+
 ## AnyCombinationOf {#anycombinationof}
 
 **AnyCombinationOf** is met when every condition in any one group is met. Each
