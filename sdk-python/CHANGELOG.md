@@ -13,6 +13,14 @@
 
 ### Added and fixed
 
+- Add `Join` and `JoinRound` to synchronize parallel branches of a Flow.
+  `Join.fork` starts a round from the split Step's `execute` and builds the
+  branch and join movements, so the application keeps no branch count or round
+  key. Branches report with `end_branch` or `report_branch_result`. The join
+  Step waits with `for_all_branches`, `for_first_branch`, or `for_branches` and
+  reads `branch_results`. The next round's split Step resets the previous round
+  with `for_remaining_branches`. RPC handlers use `fork_with_round_key`. A Join
+  is a ChannelMap with the same name, and `PersistenceSchema.of` accepts it.
 - Add `FlowConfig.offload_history` to choose whether a run offloads its history
   to object storage. `None` means `True`. Set it to `False` for many short runs
   that close soon, to avoid object storage requests. Set it at start through

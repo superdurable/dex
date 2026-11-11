@@ -9,10 +9,11 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
-from typing import Any, Generator, cast
+from typing import Any, Callable, Generator, cast
 
 import pytest
 
@@ -37,6 +38,8 @@ from dex import (
     FlowTimeoutHandlerOptions,
     FlowTimeoutPolicy,
     InvalidStepResultError,
+    Join,
+    JoinRound,
     JsonCodec,
     PersistenceSchema,
     Registry,
@@ -48,6 +51,7 @@ from dex import (
     StepDecision,
     StepDurability,
     StepList,
+    StepMovement,
     StepOptions,
     StepOutput,
     AttributeMapNotLoadedError,
@@ -235,6 +239,69 @@ def test_persistence_schema_groups_definition_types() -> None:
     assert schema.streams == (events,)
     with pytest.raises(TypeError, match="unsupported persistence definition"):
         PersistenceSchema.of(cast(Any, object()))
+
+
+def test_join_round_wire_format_uses_camel_case_field_names() -> None:
+    values = ValueMapper(CodecRegistry())
+    encoded = values.encode(JoinRound("RequestQuotes-2", 3), values.codec(JoinRound))
+    assert encoded.obj_value.encoding == "json"
+    assert json.loads(encoded.obj_value.payload) == {
+        "roundKey": "RequestQuotes-2",
+        "branchCount": 3,
+    }
+    persisted = values.encode_dynamic({"roundKey": "round-1", "branchCount": 0})
+    assert values.decode(persisted, values.codec(JoinRound)) == JoinRound("round-1", 0)
+
+
+def test_persistence_schema_registers_join_as_its_channel_map() -> None:
+    quote_received = Join("quoteReceived", str)
+    schema = PersistenceSchema.of(STATUS, quote_received)
+    assert len(schema.channels) == 1
+    channel_map = schema.channels[0]
+    assert isinstance(channel_map, ChannelMap)
+    assert channel_map.name == "quoteReceived"
+    assert channel_map.value_type is str
+
+
+def test_join_conditions_validate_counts() -> None:
+    quote_received = Join("quoteReceived", str)
+    join_round = JoinRound("RequestQuotes-1", 3)
+    for count in (0, 4):
+        with pytest.raises(ValueError, match="between 1 and 3"):
+            quote_received.for_branches(join_round, count)
+    for received_count in (-1, 4):
+        with pytest.raises(ValueError, match="between 0 and 3"):
+            quote_received.for_remaining_branches(join_round, received_count)
+    with pytest.raises(ValueError, match="between 1 and 0"):
+        quote_received.for_first_branch(JoinRound("RequestQuotes-1", 0))
+    with pytest.raises(ValueError, match="must not contain '/'"):
+        quote_received.for_all_branches(JoinRound("a/b", 1))
+    with pytest.raises(ValueError, match="must not be negative"):
+        quote_received.for_all_branches(JoinRound("RequestQuotes-1", -1))
+    with pytest.raises(ValueError, match="must not contain '/'"):
+        quote_received.fork_with_round_key(
+            "a/b", [], lambda join_round: StepMovement.of(ArchiveOrder, "join")
+        )
+
+
+def test_join_fork_with_round_key_builds_one_round_for_every_movement() -> None:
+    quote_received = Join("quoteReceived", str)
+    seen_rounds: list[JoinRound] = []
+
+    def build_branch(label: str) -> Callable[[JoinRound], StepMovement[Any]]:
+        def build(join_round: JoinRound) -> StepMovement[Any]:
+            seen_rounds.append(join_round)
+            return StepMovement.of(ArchiveOrder, label)
+
+        return build
+
+    movements = quote_received.fork_with_round_key(
+        "round-1",
+        [build_branch("a"), build_branch("b")],
+        build_branch("join"),
+    )
+    assert [movement.input for movement in movements] == ["a", "b", "join"]
+    assert seen_rounds == [JoinRound("round-1", 2)] * 3
 
 
 def test_registry_infers_handler_codecs_from_annotations() -> None:

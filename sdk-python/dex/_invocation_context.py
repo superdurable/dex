@@ -108,6 +108,7 @@ class InvocationContext:
         self._event_names: set[str] = set()
         self._step_output_finalizers: list[_StepOutputFinalizer] = []
         self._step_outputs_finalized = False
+        self._forked_join_names: set[str] = set()
 
     @property
     def flow_id(self) -> str:
@@ -467,6 +468,21 @@ class InvocationContext:
                 if key.startswith(prefix) and info.size > 0
             )
         )
+
+    def _begin_join_fork(self, definition: ChannelMap[Any]) -> str:
+        self._require_registered(definition)
+        if self._method is not InvocationMethod.EXECUTE:
+            raise ValueError(
+                f"Join {definition.name} fork requires a Step execute Context; "
+                "use fork_with_round_key in an RPC handler"
+            )
+        if definition.name in self._forked_join_names:
+            raise ValueError(
+                f"Join {definition.name} was already forked in this Step execution; "
+                "use another Join or fork_with_round_key"
+            )
+        self._forked_join_names.add(definition.name)
+        return self.step_execution_id
 
     def _channel_size(
         self,

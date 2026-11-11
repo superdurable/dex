@@ -48,6 +48,7 @@ from dex.channel import Channel, ChannelMap, ChannelMapLoad
 from dex.codec import Codec, CodecRegistry, WireKind
 from dex.context import AsyncContext, Context
 from dex.dexpb import dex_pb2 as pb
+from dex.join import Join
 from dex.runtime_errors import FlowDefinitionError
 from dex.rpc_invoke_options import RPCInvokeOptions
 from dex.step import (
@@ -70,6 +71,7 @@ CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 _PersistenceDefinition = (
     Attribute[Any] | AttributeMap[Any] | Channel[Any] | ChannelMap[Any] | Stream[Any]
 )
+_DeclaredPersistenceDefinition = _PersistenceDefinition | Join[Any]
 
 
 @dataclass(frozen=True)
@@ -237,7 +239,8 @@ class PersistenceSchema:
 
     Attributes:
         attributes: Singleton and map Attribute definitions.
-        channels: Singleton and map Channel definitions.
+        channels: Singleton and map Channel definitions. ``of`` stores each Join
+            as its underlying ChannelMap.
         streams: Best-effort Stream definitions.
 
     Examples:
@@ -249,11 +252,18 @@ class PersistenceSchema:
     streams: tuple[Stream[Any], ...] = ()
 
     @staticmethod
-    def of(*definitions: _PersistenceDefinition) -> PersistenceSchema:
+    def of(*definitions: _DeclaredPersistenceDefinition) -> PersistenceSchema:
         """Partition persistence definitions into Attributes, Channels, and Streams.
 
+        A Join registers as its underlying ChannelMap, so its name must differ
+        from every other definition of the Flow.
+
+        .. versionchanged:: 1.41.0
+           Accepts Join definitions.
+
         Args:
-            *definitions: Attribute, AttributeMap, Channel, ChannelMap, or Stream definitions.
+            *definitions: Attribute, AttributeMap, Channel, ChannelMap, Join, or
+                Stream definitions.
 
         Returns:
             A schema with each category kept in argument order.
@@ -269,6 +279,8 @@ class PersistenceSchema:
                 attributes.append(definition)
             elif isinstance(definition, (Channel, ChannelMap)):
                 channels.append(definition)
+            elif isinstance(definition, Join):
+                channels.append(definition._channel_map)
             elif isinstance(definition, Stream):
                 streams.append(definition)
             else:
