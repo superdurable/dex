@@ -5,60 +5,77 @@ sidebar_label: Attribute Store sync
 
 # Attribute Store sync
 
-server-zd can sync Attributes to PostgreSQL. See
-[Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection) for
-what it is and how to enable it, and
-[Startup contracts](#startup-contracts) for the table contract. A
-Flow marks an Attribute with **syncToAttributeStore** and lists a configured
-store name in its **FlowConfig**. server-zd then writes the Attribute to that
-store's tables.
+server-zd can sync Attributes to PostgreSQL tables that you own. See
+[Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection)
+for what it is, and [Startup contracts](#startup-contracts) for the table
+contract. A Flow marks an Attribute with **syncToAttributeStore** and lists a
+configured store name in its **FlowConfig**. server-zd then writes the
+Attribute to that store's tables.
 
 ## Behavior {#attribute-store-behavior}
 
 - Only **type: postgres** is supported. Any other store type fails validation,
-  so startup fails.
+  so startup fails. Redis support is tracked in
+  [issue 616](https://github.com/superdurable/dex/issues/616).
+- Dex never creates, migrates, or backfills a destination. Create the tables
+  before the server starts.
+- Dex writes in the background, in batches. Writes for the same Flow ID keep
+  their order.
+- A table row holds the latest Attribute values, not an event history. A write
+  can repeat after a failure whose outcome is unknown, so Dex upserts rows keyed
+  by the Flow ID.
+- Dex does not replay old Attributes or backfill a newly configured store.
+- Dex logs an error for each filtered write, missing target, and exhausted
+  retry.
 - Step, RPC, and SetAttributes commits never wait for the table write.
 - Rows normally appear within a second of the commit. Treat the table as
   eventually consistent.
 - While a store is unavailable, Flows keep running. When the store recovers,
   server-zd writes the backlog with the latest values.
-- Entries still pending **syncRetryPolicy.totalDuration** after they were first
-  marked are dropped. Later writes of the same Attributes sync normally.
-- After [time travel](/reference/server/0.1.19/runtime-client#time-travel), server-zd
-  rewrites every row the run synced with the state after the time travel.
+- Dex drops entries that are still pending **syncRetryPolicy.totalDuration**
+  after they were first marked. See
+  [Retries and dropped entries](#attribute-store-retries).
+- After [time travel](/reference/server/0.1.26/runtime-client#time-travel), server-zd
+  rewrites every row that the Flow run synced, with the state after the time
+  travel.
 - Each database needs a [fencing table](#attribute-store-fencing-table).
-- A natural close waits for synced Attributes. A Step decision that
-  completes or fails the Flow, exhausted Step retries, or the Flow timeout stops
-  the Steps at once. The run then stays RUNNING until every pending write is
-  written or dropped. WaitForFlow returns only then. Entries written before
-  the wait ended are in the table. A dropped entry does not guarantee the row's
-  value, because earlier writes of the same run may have committed. If
+- A natural close waits for synced Attributes. A natural close is a Step
+  decision that completes or fails the Flow, exhausted Step retries, or the
+  Flow timeout. It stops the Steps at once. The Flow run then stays RUNNING
+  until every pending write is written or dropped, and only then does
+  WaitForFlow return. Entries written before the wait ended are in the table. A
+  dropped entry leaves the row's value uncertain, because earlier writes of the
+  same Flow run may have committed. If
   **dexzd_attribute_sync_dropped_entries_total** increases, compare the affected
-  rows with the Flow's Attributes and write the Attributes again.
-- While a close waits, SetAttributes, PublishToChannel, and RPCs that are
-  neither transactional nor locking are accepted. Their synced writes extend
-  the wait, and they start no Step.
-  Transactional or locking RPCs, WaitForStepCompletion, WaitForAttribute, and
-  DeleteChannelMessage calls made during the wait fail with
-  FAILED_PRECONDITION.
-- A natural close also waits for every
-  transactional or locking RPC admitted before it, even without an Attribute
-  Store. Such an RPC still commits, and its synced writes join the wait. The
-  close is recorded once those RPCs commit, fail, or time out.
-- **syncRetryPolicy.totalDuration** limits how long each pending write is
-  retried, not the whole close. During a PostgreSQL outage a close waits until
+  rows with the Flow's Attributes, and write the Attributes again.
+- While a close waits, Dex accepts SetAttributes and RPCs that are neither
+  transactional nor locking. Their synced writes extend the wait, and they
+  start no Step. Transactional or locking RPCs, WaitForStepCompletion,
+  WaitForAttribute, DeleteChannelMessage, and PublishToChannel calls made
+  during the wait fail with FAILED_PRECONDITION and sub-status FLOW_CLOSING.
+  See
+  [Requests during Flow close](/reference/server/0.1.26/runtime-client#requests-during-flow-close).
+  Changed in 0.1.26: before, PublishToChannel was accepted.
+- A natural close also waits for every transactional or locking RPC that Dex
+  accepted before the close, even without an Attribute Store. Such an RPC still
+  commits, and its synced writes join the wait. Dex records the close once
+  those RPCs commit, fail, or time out.
+- **syncRetryPolicy.totalDuration** limits how long Dex retries each pending
+  write, not the whole close. During a PostgreSQL outage, a close waits until
   its pending writes are dropped. Every synced write accepted while the close
   waits starts its own retry window and extends the wait.
-- StopFlow and Terminate never wait. StopFlow closes the run as soon as it
+- StopFlow and Terminate never wait. StopFlow closes the Flow run as soon as it
   commits, even while a close waits, and the pending writes keep syncing after
-  the close. A later **SetAttributes** on that run returns NOT_FOUND. From
-  server-zd v0.1.5, it succeeds only when every write erases a currently stored
-  [hard-delete Attribute](/reference/server/0.1.19/runtime-data#hard-delete-attributes) with
-  null. This exception applies only before the run is purged. It deletes the
-  stored objects without reopening the run. The run's Flow history records the
-  erase after the close. Write what a Flow needs before stopping it.
-- Pending writes for a store that is no longer configured are dropped at once
-  and counted in **dexzd_attribute_sync_dropped_entries_total**.
+  the close. A later **SetAttributes** on that Flow run returns NOT_FOUND, with
+  one exception from server-zd v0.1.5: it succeeds when every write erases a
+  currently stored
+  [hard-delete Attribute](/reference/server/0.1.26/runtime-data#hard-delete-attributes)
+  with null. This exception applies only before the Flow run is purged. It
+  deletes the stored objects without reopening the Flow run, and the Flow
+  history records the erase after the close. Write what a Flow needs before you
+  stop it.
+- Dex drops pending writes for a store that is no longer configured at once,
+  and counts them in **dexzd_attribute_sync_dropped_entries_total**.
 
 ## Configuration {#attribute-store-configuration}
 
@@ -87,9 +104,12 @@ attributeStore:
     totalDuration: 1h
 ~~~
 
+**tableName** accepts **table** or **schema.table**. Dex parses and quotes
+table and column names, and always passes Attribute values as driver
+parameters.
+
 An explicit zero for a duration, **syncBatchSize**, or a retry policy field
-means its default.
-The
+means its default. The
 [example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
 shows the section with comments.
 
@@ -102,12 +122,12 @@ shows the section with comments.
 | **stores.NAME.rowKey**, **columnNaming**, and **attributeMaps** | Empty | See [Row keys and column naming](#row-keys-and-column-naming) and [AttributeMap tables](#attributemap-tables). |
 | **stores.NAME.fencingTableName** | **dexzd_attribute_sync_fencing** | Exists only in server-zd. See [Fencing table](#attribute-store-fencing-table). |
 | **schemaSyncInterval** | 1m | Time between table schema refreshes, with 90–110% jitter. A write to an unknown column refreshes the schema at once. |
-| **syncBatchSize** | 100 | Most Attributes and AttributeMap instances of one run that one transaction writes. A run with more pending values uses several transactions. |
+| **syncBatchSize** | 100 | Most Attributes and AttributeMap instances of one Flow run that one transaction writes. A Flow run with more pending values uses several transactions. |
 | **syncAttemptTimeout** | 30s | Upper bound of one write transaction. See [Write timeout](#attribute-store-write-timeout). |
 | **syncRetryPolicy.initialInterval** | 100ms | Delay after the first failed write. |
 | **syncRetryPolicy.backoffCoefficient** | 2 | Multiplies the delay after each failed write. Must be positive and finite. |
 | **syncRetryPolicy.maximumInterval** | 30s | Longest delay between attempts. Must not be less than **initialInterval**. |
-| **syncRetryPolicy.maximumAttempts** | 0, unlimited | Consecutive failed writes of one run's entries, after which the entries are dropped. The count lives in memory, so it starts again after a restart. |
+| **syncRetryPolicy.maximumAttempts** | 0, unlimited | Consecutive failed writes of one Flow run's entries, after which Dex drops the entries. The count lives in memory, so it starts again after a restart. |
 | **syncRetryPolicy.totalDuration** | 1h | Entries still pending this long after they were first marked are dropped. |
 
 Leave **dsn** empty to keep the connection string out of the configuration file.
@@ -117,16 +137,33 @@ underscore. For the store **orders**, the variable is
 **DEX_ZD_ATTRIBUTE_STORE_DSN_ORDERS**. A store without a DSN in either place
 fails validation.
 
+## Local development {#attribute-store-local-development}
+
+**dex-server-zd dev** runs one local node with embedded object storage. Its
+**--attribute-store-config** flag reads only the **attributeStore** section of a
+YAML file. That section must define at least one store. The
+**--config** overrides file must not also set **attributeStore**.
+
+~~~bash
+dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-store.yaml
+~~~
+
+The database still needs its tables and the
+[fencing table](#attribute-store-fencing-table).
+**dexcli dev --attribute-store-config** passes the file to this flag.
+
 ## Fencing table {#attribute-store-fencing-table}
 
-Every write transaction raises a fencing token row to the node's epoch. A node
-that lost its [lease](/reference/server/0.1.19/high-availability#lease) therefore cannot overwrite newer values.
+Every write transaction raises a fencing token row in this table to the node's
+epoch. So a node that lost its
+[lease](/reference/server/0.1.26/high-availability#lease) cannot overwrite newer
+values.
 
 Each database needs this table, named by **fencingTableName**. One table serves
 every store and every cluster in the database. server-zd never creates or alters
 tables. Create the table as the table owner before startup. Then grant
 **SELECT**, **INSERT**, and **UPDATE** on it to the role that server-zd connects
-as. Replace **dex** with that role.
+as. In the example, replace **dex** with that role.
 
 ~~~sql
 CREATE TABLE dexzd_attribute_sync_fencing (
@@ -152,47 +189,48 @@ or every write fails with a permission error.
 ## Write timeout {#attribute-store-write-timeout}
 
 A write transaction lasts at most **syncAttemptTimeout** or a quarter of
-**lease.duration**, whichever is smaller. A quarter of **lease.duration** is
-also the lease margin. A write starts only while more than the transaction
-timeout plus the margin of lease validity remains. The PostgreSQL
-**statement_timeout** equals the transaction timeout. A COMMIT sent just before
-the deadline therefore still lands before the lease ends.
+**lease.duration**, whichever is smaller. The lease margin is also a quarter of
+**lease.duration**. A write starts only while the remaining lease validity is
+more than the transaction timeout plus the margin. The PostgreSQL
+**statement_timeout** equals the transaction timeout. So a COMMIT sent just
+before the deadline still lands before the lease ends.
 
-The timeout plus the margin is at most half of **lease.duration**. That is less
-than the two thirds of validity left when a lease renewal starts, so writes
+The timeout plus the margin is at most half of **lease.duration**. A lease
+renewal starts while two thirds of the validity are still left, so writes
 rarely wait for a renewal. With the default 10-second lease, a transaction lasts
 at most 2.5 seconds. With a 60-second lease, it lasts at most 15 seconds.
 
 ## Retries and dropped entries {#attribute-store-retries}
 
-Failed writes are retried with the **syncRetryPolicy** backoff until
-**totalDuration**. The failure decides what backs off:
+Dex retries failed writes with the **syncRetryPolicy** backoff until
+**totalDuration**. The kind of failure decides what backs off:
 
 - **Store.** A connection failure, or another failure of the whole store, backs
-  off every run of that store.
-- **Run.** A failure caused by the written values or by a conflict with another
-  session backs off only that run. Other Flows keep syncing. Examples are a
-  constraint violation, a value too long for its column, a deadlock, and a
-  serialization failure.
+  off every Flow run of that store.
+- **Flow run.** A failure caused by the written values or by a conflict with
+  another session backs off only that Flow run. Other Flows keep syncing.
+  Examples are a constraint violation, a value too long for its column, a
+  deadlock, and a serialization failure.
 - **Timeout.** A transaction that exceeds the transaction timeout, for example
-  while it waits for a row lock, also backs off only that run.
+  while it waits for a row lock, also backs off only that Flow run.
 
-After a timeout, the run's retries use half as many statements per transaction,
-down to one. After a timeout, one statement writes all of the run's plain
-Attributes in one transaction, so the main row is not partly updated. Each AttributeMap
-instance is one statement, so a timed-out run's instances can land in different
-transactions. Each transaction that commits is acknowledged, so a retry writes
-only the rest.
+After a timeout, the Flow run's retries use half as many statements per
+transaction, down to one. Even then, one statement writes all of the Flow
+run's plain Attributes in one transaction, so the main row is never partly updated. Each
+AttributeMap instance is its own statement, so the instances of a timed-out
+Flow run can land in different transactions. Dex acknowledges each transaction
+that commits, so a retry writes only the rest.
 
-When three runs of a store time out with no commit in between, the whole store
-backs off. The retry after a store backoff starts with other runs than the one
-that failed. A newer run of the same Flow ID waits for the older run, so rows
-keep run order.
+When three Flow runs of a store time out with no commit in between, the whole
+store backs off. After a store backoff, the retry starts with Flow runs other
+than the one that failed. A newer Flow run of the same Flow ID waits for the
+older one, so rows keep the order of Flow runs.
 
-Entries still pending **syncRetryPolicy.totalDuration** after they were first
-marked are dropped with an error log. Later writes of the same Attributes sync
-normally. **dexzd_attribute_sync_dropped_entries_total** counts dropped entries.
-It also counts entries that the store rejected with a non-retryable error.
+Dex drops entries that are still pending **syncRetryPolicy.totalDuration** after
+they were first marked, and logs an error. Later writes of the same Attributes
+sync normally. **dexzd_attribute_sync_dropped_entries_total** counts dropped
+entries. It also counts entries that the store rejected with a non-retryable
+error.
 
 ## Monitoring {#attribute-store-monitoring}
 
@@ -211,19 +249,20 @@ increase(dexzd_attribute_sync_dropped_entries_total[10m]) > 0
 # Attribute Sync entries pending for more than 5 minutes
 dexzd_attribute_sync_oldest_pending_age_seconds > 300
 ~~~
+
 ## Startup contracts
 
-The server connects, pings, and validates every destination during startup. One
-failure fails startup and closes already-opened clients.
+During startup, the server connects to, pings, and validates every destination.
+Any failure fails startup and closes the clients already opened.
 
 Without **rowKey**, each table must have exactly one character-compatible
-primary key. Dex discovers that key and stores the Flow ID in it. With
-**rowKey**, the primary key must be exactly the columns the template names, and
-each must be a character column.
+primary key column. Dex finds that column and stores the Flow ID in it. With
+**rowKey**, the primary key must be exactly the columns that the template
+names, and each must be a character column.
 
-Every other required SQL column must have a default or generated value. This
-allows a partial insert to create a row. Attribute names match the remaining
-columns exactly, or by their snake_case form under **columnNaming**.
+Every other required SQL column must have a default or generated value, so that
+a partial insert can create a row. Attribute names match the remaining columns
+exactly, or by their snake_case form under **columnNaming**.
 
 ## Row keys and column naming
 
@@ -241,9 +280,10 @@ describe one entity. A template contains literal text and placeholders:
 - Literal text must separate two placeholders, and no capture may be empty.
 
 For example, **order-\{customer_id\}-\{order_id\}** splits **order-c1-o-7** into
-**customer_id** c1 and **order_id** o-7. A Flow ID that does not match the
-template skips its whole batch with an error log, because a retry cannot change
-the result. Writes to a key column are filtered like Flow ID writes.
+**customer_id** c1 and **order_id** o-7. When a Flow ID does not match the
+template, Dex skips its whole batch and logs an error, because a retry cannot
+change the result. Dex filters writes to a key column, as it filters writes of
+the Flow ID.
 
 Several stores may name the same table. Each upsert sets only the columns of its
 own batch, so two Flow types can write different columns of one row. For
@@ -285,16 +325,16 @@ An instance is one complete value, so its row always equals the latest value:
 - Any other value is written to a column named **value**.
 - Every other non-key, non-generated column that the value does not set returns
   to its default, or NULL without one.
-- A field without a column is skipped. An instance table may store only part of
-  each value, so Dex logs a warning once per process for each such field.
-- A field that maps to a primary-key column is skipped. Dex logs an error only
-  when its value differs from the key.
-- A value that does not convert is logged as an error and skipped. The row still
+- Dex skips a field without a column. An instance table may store only part of
+  each value, so Dex logs only a warning, once per process for each such field.
+- Dex skips a field that maps to a primary-key column. It logs an error only
+  when the field's value differs from the key.
+- Dex skips a value that does not convert, and logs an error. The row still
   records the instance.
 
 One batch writes the store row and all its instance rows in one transaction,
 with the latest value of each instance. Dex creates no foreign keys between the
-tables: a violated constraint would fail the whole batch and hold back the
+tables: a violated constraint would fail the whole batch, and hold back the
 Flow's later writes until the retry budget runs out. Dex never deletes rows when
 a Flow closes.
 
@@ -307,24 +347,24 @@ Each batch from one Flow is one upsert. With a **rowKey**, the upsert writes
 every key column and resolves conflicts on the whole primary key. Dex does not
 combine batches from different Flows and does not maintain a change log.
 
-Each store refreshes independently. The one-minute default receives uniform
-90–110% jitter every cycle. A successful metadata query atomically replaces the
-immutable in-memory schema snapshot. A failed query retains the previous
-snapshot and retries after the next interval.
+Each store refreshes its schema on its own schedule. Each cycle of the
+one-minute default gets uniform 90–110% jitter. A successful metadata query
+replaces the in-memory schema snapshot in one step. After a failed query, Dex
+keeps the previous snapshot and retries after the next interval.
 
-Adding nullable or defaulted columns is discovered without restarting the server.
-A batch that writes a column missing from the current snapshot, in the store's
+Dex discovers added nullable or defaulted columns without a server restart. A
+batch that writes a column missing from the current snapshot, in the store's
 table or an AttributeMap table, refreshes that store's schema before it writes.
-A column that no refresh has found missing refreshes at once; a column that a
-refresh already found missing waits for the periodic refresh. An AttributeMap
-table may store only part of each value, so each field without a column
-triggers at most one refresh per process. Batches that arrive meanwhile wait
-for that refresh. A migration that adds a column
-therefore needs no server restart, as long as it completes before the Workers that
-write the column start.
-Removing or changing columns may cause later mutations to be filtered or
-retried, depending on whether local validation or SQL execution detects the
-change.
+If no refresh has found that column missing yet, the refresh happens at once.
+If a refresh already found it missing, the batch waits for the periodic
+refresh. An AttributeMap table may store only part of each value, so each field
+without a column triggers at most one refresh per process. Batches that arrive
+meanwhile wait for that refresh. So a migration that adds a column needs no
+server restart, as long as it completes before the Workers that write the
+column start.
+
+After you remove or change columns, Dex may filter or retry later writes. Which
+one depends on whether local validation or SQL execution detects the change.
 
 ### SQL type contract
 
@@ -343,8 +383,9 @@ SDK datetime values may use RFC3339 strings or JSON epoch seconds. Dex rejects
 oversized strings or binary values, out-of-range integers, excess decimal
 precision, non-finite floating-point values, and invalid JSON.
 
-Missing columns, type mismatches, Flow ID and key column writes, Attribute names
-that share one column, and nulls for required columns are logged and filtered
-one field at a time. Valid fields in the same batch still
-write. If every field is filtered, the sync batch succeeds without executing SQL.
+Dex logs and filters these one field at a time: missing columns, type
+mismatches, writes of the Flow ID or a key column, Attribute names that share
+one column, and nulls for required columns. Valid fields in the same batch are
+still written. If every field is filtered, the sync batch succeeds without
+running SQL.
 
