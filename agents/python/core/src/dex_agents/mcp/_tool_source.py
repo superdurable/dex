@@ -49,6 +49,7 @@ from dex_agents.mcp._dex_conventions import (
     read_dex_error_outcome,
     read_dex_tool_outcome,
 )
+from dex_agents.mcp._image_content import store_tool_result_images
 from dex_agents.mcp._resource_and_prompt_tools import (
     RESOURCE_AND_PROMPT_TOOL_NAMES,
     build_resource_and_prompt_tools,
@@ -73,6 +74,7 @@ from dex_agents.mcp._tasks import (
     UpdateMcpTaskRequest,
 )
 from dex_agents.mcp._tools import McpTool, mcp_tool_from_listing, render_tool_result_text
+from dex_agents.media import MediaStore
 from dex_agents.runner import (
     AgentTurnContext,
     DeferredToolCall,
@@ -224,6 +226,7 @@ class McpToolListingError(Exception):
 @dataclass(frozen=True)
 class _ToolCallSucceeded:
     output: str
+    result: CallToolResult | None = None
 
 
 @dataclass(frozen=True)
@@ -350,6 +353,11 @@ class McpToolSource:
 
     * A result becomes the tool output: text blocks joined with newlines,
       other blocks and structured content as JSON.
+    * With ``media_store``, a successful result's ``image`` blocks are
+      uploaded and returned as ``ToolExecutionResult.images``, and the text
+      shows ``[image <n>]`` in their place. More than
+      ``MAX_IMAGES_PER_MESSAGE`` images, invalid base64, or bytes the store
+      refuses raise ``ToolExecutionError``.
     * An ``isError`` result, a JSON-RPC error response other than an internal
       error, a failed or cancelled task, and an ``input_required`` answer
       raise ``ToolExecutionError``, so the session records ``failed`` and the
@@ -433,6 +441,7 @@ class McpToolSource:
         listing_ttl: timedelta = DEFAULT_MCP_LISTING_TTL,
         listing_failure_backoff: timedelta = DEFAULT_MCP_LISTING_FAILURE_BACKOFF,
         source_name: str | None = None,
+        media_store: MediaStore | None = None,
     ) -> None:
         """Describe the servers without connecting to them.
 
@@ -472,6 +481,15 @@ class McpToolSource:
                 routed by. ``None``, the default, uses ``"mcp"``, so adding or
                 removing a server keeps it. An agent with two ``McpToolSource``
                 instances must name at least one, because names must be unique.
+            media_store: The store for the images of tool results. With a
+                store, each ``image`` content block of a successful result is
+                uploaded inside the tool Step and returned in
+                ``ToolExecutionResult.images``; the output text shows it as
+                ``[image <n>]``, counting from 1. ``None``, the default, keeps
+                image blocks as JSON in the output text. Pass the store the
+                session's runner reads images from.
+
+                .. versionadded:: 0.5.0
 
         Raises:
             ValueError: If server names repeat, a timeout, ``listing_ttl``, or
@@ -501,6 +519,7 @@ class McpToolSource:
         self._client_info = Implementation(name=client_name, version=_dex_agents_version())
         self._listings = {name: _ServerListing() for name in self._servers}
         self._source_name = source_name if source_name is not None else DEFAULT_MCP_SOURCE_NAME
+        self._media_store = media_store
         self._tools: dict[str, McpTool] | None = None
         self._resource_and_prompt_tools = (
             build_resource_and_prompt_tools(list(self._servers))
@@ -989,7 +1008,7 @@ class McpToolSource:
             lambda client: call.poll_task_once(client, task_id, record, poll)
         )
         if isinstance(outcome, _ToolCallSucceeded):
-            return ToolExecutionResult(output=outcome.output)
+            return await self._tool_execution_result(outcome, target)
         if isinstance(outcome, _ToolCallFailed):
             raise ToolExecutionError(outcome.message)
         if isinstance(outcome, _ToolCallOutcomeUnknown):
@@ -1136,7 +1155,7 @@ class McpToolSource:
         resumed_task_id = _task_id_from_checkpoint(heartbeat_checkpoint, target)
         outcome = await call.run(resumed_task_id)
         if isinstance(outcome, _ToolCallSucceeded):
-            return ToolExecutionResult(output=outcome.output)
+            return await self._tool_execution_result(outcome, target)
         if isinstance(outcome, _TaskStarted):
             return ToolTaskStarted(
                 task_id=outcome.task_id, poll_interval_seconds=outcome.poll_interval_seconds
@@ -1159,6 +1178,13 @@ class McpToolSource:
             target.mcp_tool_name,
             f"the tool call ended with an unexpected {type(outcome).__name__}",
         )
+
+    async def _tool_execution_result(
+        self, outcome: _ToolCallSucceeded, target: _McpToolTarget
+    ) -> ToolExecutionResult:
+        if self._media_store is None or outcome.result is None:
+            return ToolExecutionResult(output=outcome.output)
+        return await store_tool_result_images(outcome.result, self._media_store, target.tool_name)
 
     def _is_resource_and_prompt_tool(self, tool_name: str) -> bool:
         return bool(self._resource_and_prompt_tools) and tool_name in RESOURCE_AND_PROMPT_TOOL_NAMES
@@ -1743,7 +1769,7 @@ def _outcome_from_tool_result(result: CallToolResult) -> _ToolCallOutcome:
         return _ToolCallFailed(text or REJECTED_OUTCOME_FALLBACK_MESSAGE)
     if result.is_error:
         return _ToolCallFailed(text or "the MCP tool reported an error")
-    return _ToolCallSucceeded(text)
+    return _ToolCallSucceeded(text, result)
 
 
 def _outcome_from_terminal_task(task: McpTaskSnapshot) -> _ToolCallOutcome:
