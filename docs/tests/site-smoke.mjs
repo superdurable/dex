@@ -224,7 +224,8 @@ assert.match(home, /English/);
 assert.match(home, /简体中文/);
 assert.match(home, /Build with AI/);
 // Group headers that have no page of their own open their first page.
-assert.match(home, /href="\/intro\/what-is-dex\/"[^>]*>(?:(?!<\/a>)[\s\S])*Get Started<\/a>/);
+assert.match(home, /href="\/get-started\/"[^>]*>(?:(?!<\/a>)[\s\S])*Get Started<\/a>/);
+assert.match(home, /href="\/intro\/what-is-dex\/"[^>]*>(?:(?!<\/a>)[\s\S])*Evaluate Dex<\/a>/);
 assert.match(home, /href="\/build-with-ai\/dex-developer-skill\/"[^>]*>(?:(?!<\/a>)[\s\S])*Build with AI<\/a>/);
 
 // The sidebar comes before the page content, so the first match of each label is its sidebar group.
@@ -236,8 +237,8 @@ const sidebarGroupOrder = [
   'Design Patterns',
   'Examples',
   'Run Dex',
+  'Evaluate Dex',
   'Developer Reference',
-  'Correctness and Expressiveness',
   'Glossary',
 ];
 let previousGroupPosition = -1;

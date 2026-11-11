@@ -1,0 +1,598 @@
+---
+title: Built-in Agent Loop
+sidebar_label: Built-in Agent Loop
+---
+
+# Built-in Agent Loop
+
+The built-in agent loop runs an agent without an agent framework. Dex owns the conversation and builds every model input from durable state. So the agent does not depend on an LLM provider's conversation API.
+
+## When to use it
+
+Use the built-in loop for a new agent. It offers every session feature: questions, durable waits, plans, steering, compaction, and MCP tools. It also lets each session pick its model from a list that the Worker allows.
+
+Use a [framework harness](/agent-frameworks#choose-a-harness) when you already have an agent written with a framework.
+
+## How a session runs
+
+Every model call is one **RunModel** Step. Every tool call is its own Step, so a crash repeats at most the one call that was running.
+
+The Steps, Attributes, Channels, RPCs, and events are the ones every Dex Agents session uses:
+
+```text
+StartAgentSession -> AwaitUserMessage -> RunModel
+AwaitUserMessage -> steer or cancel_turn -> ApplyTurnControl
+RunModel -> final answer -> AwaitUserMessage
+RunModel -> failed after three attempts -> RecordTurnFailure -> AwaitUserMessage
+RunModel -> CompactContext -> RunModel
+RunModel -> tool calls -> AwaitToolApproval -> CallTool or CallSingleAttemptTool
+                          CallTool or CallSingleAttemptTool
+                          AwaitQuestionAnswer      for ask_user
+                          AwaitTimer               for durable_wait
+                          ResumeTurn -> RunModel, or ApplyTurnControl when steered
+ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
+```
+
+This view is simplified. The [Dex Agents README](https://github.com/superdurable/dex/tree/main/agents/python/core) lists every Step, its retries, and its failure route.
+
+A failed **RunModel** retries. After its third attempt, the turn fails and the session waits for the next message. A read or an idempotent write retries in **CallTool**. Any other write runs once in **CallSingleAttemptTool**, after approval when its policy asks for one.
+
+## Install
+
+In TypeScript, the Dex SDK is a peer package, so install it too.
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/core/README.md',
+    typescript: 'agents/typescript/core/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install "dex-agents[litellm,mcp]"
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents @superdurable/dex ai @modelcontextprotocol/sdk
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The **litellm** extra and the **ai** package add model clients. The **mcp** extra and **@modelcontextprotocol/sdk** add MCP tools. Leave out what you do not use.
+
+## The example
+
+The [AI Agent](/use-cases/ai-agent) is a general, long-running agent in Python and TypeScript. It chats with a user and calls trusted MCP tools. It waits for approval before external writes, asks the user questions, suspends itself on a durable Timer, and drafts plans for review before it runs them.
+
+### The session Flow {#the-session-flow}
+
+The application declares the agent in Dex terms and builds its Flow. The Flow type is **AIAgentSession**. One Flow run is one session, and the Flow ID is the session ID.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py',
+    typescript: 'examples/typescript/src/products/ai-agent/ai-agent-flow.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_ai_agent_session_flow(
+    models: Sequence[str],
+    system_prompt: str,
+    context_window_tokens: int,
+    mcp_servers: Sequence[McpServerConfig],
+    slack_connection: slack.Connection | None,
+) -> AgentSessionFlow:
+    """Builds the agent; ``models`` are the allowed model names, and the first is the default.
+
+    ``slack_connection`` None leaves out the Slack connector tools.
+    """
+    clients = {model: _model_client(model) for model in models}
+    mcp_tool_sources = (
+        [McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)] if mcp_servers else []
+    )
+    definition = AgentDefinition(
+        name="ai-agent",
+        instructions=system_prompt,
+        model=clients[models[0]],
+        # Settings hold only a model name; an unknown one gets the default, never a new client.
+        resolve_model=lambda settings: clients.get(str(settings.get("model")), clients[models[0]]),
+        tool_sources=[*mcp_tool_sources, *build_slack_tool_sources(slack_connection)],
+        built_in_tools=frozenset(BuiltInTool),
+        plan_mode_enabled=True,
+        compaction=CompactionPolicy(context_window_tokens=context_window_tokens),
+    )
+    return stepwise_agent_session_flow(definition, flow_type=AI_AGENT_SESSION_FLOW_TYPE)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createAiAgentFlow(config: AiAgentConfig, slack: Connection | undefined): AiAgentFlow {
+  const clients = new Map(config.models.map((model) => [model, createModelClient(model)]));
+  const defaultClient = clients.get(config.models[0]!)!;
+  return createStepwiseAgentSessionFlow(
+    {
+      name: "ai-agent",
+      instructions: config.systemPrompt,
+      model: defaultClient,
+      // Settings hold only a model name; an unknown one gets the default, never a new client.
+      resolveModel: (settings) => clients.get(String(settings.model)) ?? defaultClient,
+      // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
+      toolSources: [
+        new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true }),
+        ...createSlackConnectorToolSources(slack),
+      ],
+      builtInTools: ["ask_user", "durable_wait", "write_todos"],
+      planModeEnabled: true,
+      compaction: { contextWindowTokens: config.contextWindowTokens },
+    },
+    "AIAgentSession",
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The allowed models, the system prompt, the context window, and the MCP servers are Worker configuration, shared by every session. Each session picks one allowed model when it starts. Its session settings hold only the model name, and the Worker maps the name to a model client, so no credential or server command comes from a browser or from Flow input. A changed prompt or model client takes effect at the next model call of every session, including a turn that is waiting, because Dex does not replay a Flow.
+
+### Worker
+
+The Worker registers the session Flow with the application's other Flows. Agent session Steps are async, so the Python Registry allows async handlers.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/app.py',
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+        self.ai_agent_mcp_servers = load_mcp_servers(config.agent_mcp_config)
+        self.ai_agent = build_ai_agent_session_flow(
+            config.agent_models,
+            config.agent_system_prompt,
+            config.agent_context_tokens,
+            self.ai_agent_mcp_servers,
+            ai_agent_slack_connection,
+        )
+        # ...
+        self.registry = Registry(tuple(flows), allow_async_handlers=True)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+const aiAgentConfig = loadAiAgentConfig();
+const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Durable context {#durable-context}
+
+The session stores each user message, model output item, and tool result as a message. The newest messages are **AgentMessages** AttributeMap instances, and older ones move into immutable **AgentMessageChunks** instances. Model output items are kept exactly as the provider returned them, including encrypted reasoning items and thinking signatures, and replayed unchanged.
+
+When the model input nears the configured context window, a **CompactContext** Step summarizes older messages before the next model call. The model then receives the summary and the recent messages. Compaction never separates a tool call from its result. Retention can then delete old summarized messages, so a long session's state stays bounded. See [Compaction and the storage bound](/reference/agents/session-limits#compaction) for the threshold, the retention limits, and how to keep the whole transcript.
+
+## Queued messages and Steer {#queued-messages-and-steer}
+
+A message sent while a turn runs waits in the durable **QueuedUserMessages** queue. The UI shows it with **Steer** and **Delete** controls while it is pending.
+
+**Steer** applies a message at the turn's next safe Step boundary. It never stops a model call or a tool call that has started. Tool calls that have not started, and approvals, questions, and durable waits that are still waiting, record a structured cancellation result. The turn then ends, and a new turn starts with every steered message. **Stop** calls **cancel_turn**, which ends the turn the same way without a new one.
+
+## Questions and durable waits {#questions-and-durable-waits}
+
+The **ask_user** built-in tool asks the user a question and waits in **AwaitQuestionAnswer**. The UI shows the question with choice buttons or a text box, and the answer becomes the tool's result in the same turn.
+
+The **durable_wait** built-in tool waits in **AwaitTimer** on a [Timer](/concepts/primitives/timer). No model call or Worker holds the wait, and it survives Worker and engine restarts. Steering or **Stop** interrupts it. A queued message does not.
+
+## Durable plans {#durable-plans}
+
+Turn on **Plan mode** for a message to ask the agent for a plan. A planning turn can only call the **write_todos** built-in tool, which replaces the **AgentPlan** Attribute and advances its revision. The UI shows the draft, and **Execute plan** calls **execute_plan** with the reviewed revision. A stale revision is refused. A plan that stops with unfinished tasks stays active and can be continued. While a plan is active, other turns can call every tool; only a draft plan limits a turn to **write_todos**.
+
+## MCP tools and approvals {#mcp-tools-and-approvals}
+
+The Worker loads trusted stdio or Streamable HTTP MCP servers from local configuration. The agent takes the **McpToolSource** of Dex Agents as a tool source, so the model sees every server's tools. The Worker refuses configuration keys it does not know, including the per-tool settings of earlier versions of the example. Each MCP call runs in its own tool Step. A server that cannot be listed is left out of that model call and tried again on the next one, so the agent keeps answering when every server is down.
+
+A tool's effect decides how it runs. When a server's annotations are trusted, a read-only tool runs at once and is retried after a crash. Every other tool waits in **AwaitToolApproval** until the user approves it, then runs at most once. A write that a crash cut off is recorded with an unknown outcome and never repeated, and each MCP call carries an idempotency key so the server can drop a duplicate.
+
+With **resource_and_prompt_tools_enabled**, the tool source also offers three read tools that list and read a server's resources and prompts.
+
+## Live events {#live-events}
+
+Text, reasoning summaries, tool activity, approvals, and plan updates arrive on the session's **AgentEvents** [Stream](/concepts/primitives/stream). The Python example serves it to the browser as Server-Sent Events with the library's browser stream helpers. The TypeScript example serves it as an AI SDK UI message stream for **useChat**: a route sends the user message or the tool approvals and streams the turn into the browser's chat.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/http_routes.py',
+    typescript: 'examples/typescript/src/products/ai-agent/controller.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.get("/events")
+    async def stream_agent_events() -> Response:
+        session_id = authorize_session(required_query("session_id"))
+        try:
+            await sessions().get_agent_snapshot(session_id)
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the AI Agent session is missing or no longer retained") from error
+        resume_token = request.headers.get("Last-Event-ID") or request.args.get("resume_token", "")
+        try:
+            frames = await stream_agent_event_frames(
+                app_state.client, app_state.ai_agent, session_id, resume_token=resume_token
+            )
+        except InvalidAgentEventResumeTokenError as error:
+            raise BadRequest("the resume token is not valid; reload the snapshot") from error
+        response = await make_response(frames, dict(AGENT_EVENT_STREAM_HEADERS))
+        response.timeout = None
+        return response
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/api/chat", async (request, response) => {
+    const body = requireBody(request);
+    const flowId = authorizeSession(request, requireString(body, "id"));
+    const lastMessage = Array.isArray(body.messages) ? (body.messages.at(-1) as JsonBody | undefined) : undefined;
+    const signal = abortSignalOf(response);
+    if (lastMessage?.role === "assistant") {
+      const approvals = readAgentToolApprovalResponses(lastMessage);
+      await sendFetchResponse(response, resolveAgentToolApprovalsWithUIMessageStream({ ...session, flowId, approvals, signal }));
+      return;
+    }
+    const parts = (Array.isArray(lastMessage?.parts) ? lastMessage.parts : []) as JsonBody[];
+    const text = parts.map((part) => (part.type === "text" ? String(part.text) : "")).join("");
+    await sendFetchResponse(response, sendAgentUserMessageWithUIMessageStream({ ...session, flowId, text, signal }));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The page first loads the session snapshot with the resume token to open the Stream from. A reconnecting browser resumes from the last event it saw. Stream delivery is best effort, so the page reloads the snapshot after every turn and every eight seconds. The conversation always comes from the snapshot, which holds the newest 200 messages. **Load older messages** pages back through **list_agent_messages**.
+
+## Session access {#session-access}
+
+A session ID is not a secret: it appears in the page URL. So every route that names a session also checks the session's token before it calls Dex. **POST /sessions** checks the requested model against the models the Worker allows, picks a new session ID, and returns its token. The token is an HMAC-SHA256 of the session ID under **DEX_AGENT_SESSION_KEY**, so the example stores no token, and every process with the same key accepts it. A route that gets a missing or different **X-Agent-Session-Token** header answers 403.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/http_routes.py',
+    typescript: 'examples/typescript/src/products/ai-agent/controller.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    def authorize_session(session_id: str) -> str:
+        # Every route that names a session checks its token before any Dex call.
+        expected = sign_session_id(app_state.config.agent_session_key, session_id)
+        if not hmac.compare_digest(request.headers.get(SESSION_TOKEN_HEADER, ""), expected):
+            raise Forbidden("this browser has no token for the AI Agent session")
+        return session_id
+
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        body = await request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise BadRequest("the request body must be a JSON object")
+        model = body.get("model", app_state.config.agent_models[0])
+        if model not in app_state.config.agent_models:
+            raise BadRequest("model must be one of the models in /settings")
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"ai-agent-{uuid.uuid4()}"
+        # Settings carry only the model name; the Worker resolves it, and keys stay on the Worker.
+        await sessions().start_session(session_id, session_settings={"model": model})
+        session_token = sign_session_id(app_state.config.agent_session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  const issueSessionToken = (sessionId: string) => createHmac("sha256", sessionKey).update(sessionId).digest("hex");
+  const authorizeSession = (request: Request, sessionId: string): string => {
+    const expected = Buffer.from(issueSessionToken(sessionId));
+    const presented = Buffer.from(request.header(sessionTokenHeaderName) ?? "");
+    if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+      throw new HttpError(403, "this browser has no token for the AI Agent session");
+    }
+    return sessionId;
+  };
+  const sessionIdOf = (request: Request) => authorizeSession(request, String(request.params.id));
+  router.use("/", express.static(fileURLToPath(new URL("./ui/", import.meta.url))));
+
+  router.get("/settings", (_request, response) => {
+    response.json({ model: models[0], models });
+  });
+  router.post("/sessions", async (request, response) => {
+    const model = requireBody(request).model ?? models[0];
+    if (typeof model !== "string" || !models.includes(model)) {
+      throw new HttpError(400, "model must be one of the models in /settings");
+    }
+    // The server picks the session ID, and settings carry only the model name the Worker resolves.
+    const sessionId = `ai-agent-${randomUUID()}`;
+    const start = { initialMessage: null, sessionSettings: { model } };
+    await client.startFlow(flow, sessionId, start, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Both pages keep each token in local storage, keyed by the session ID, and put only the session ID in the page URL, so a copied URL does not grant access. Each sends the header with every request. The Python page reads the event stream with **fetch** instead of **EventSource**, which cannot send a header. The TypeScript page passes the header to the **useChat** transport, both for its requests and for its reconnects. The AI Agent routes send no CORS headers, so a page on another origin cannot call them.
+
+Without **DEX_AGENT_SESSION_KEY**, the process picks a random key when it starts, and a restart ends access to the sessions started before it. A real application replaces the token with its own sign-in and checks that the user may use the session.
+
+## Run it locally {#run-the-example}
+
+In a first terminal, start Dex with **dexcli dev**. It stays in the foreground. In a second terminal, start the example. Both examples serve the AI Agent page at **http://127.0.0.1:8080/products/ai-agent/**, so run one at a time.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/ai-agent/README.md',
+    typescript: 'examples/typescript/src/products/ai-agent/README.md',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python
+uv sync --locked
+cd ai-agent
+npm ci
+npm run build
+cd ..
+export DEX_AGENT_MCP_CONFIG="$PWD/ai-agent/mcp-servers.local.yaml"
+export DEX_AGENT_SESSION_KEY="$(openssl rand -hex 32)"
+uv run --frozen python main.py
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Python Flow and HTTP routes are under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent). Its React UI, the MCP configuration examples, and the run instructions are under [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent). The TypeScript Flow, routes, and React UI are under [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent).
+
+The first page shows the Worker's model, prompt, context window, and MCP tools. The start form picks the session's model from the models the Worker allows.
+
+The default demo model needs no credential. It reads slash commands such as **/ask**, **/choose**, **/wait**, and **/tool**, so you can try every feature without a key. In TypeScript, the demo models are **mock/dex** and **mock/dex-mini**, and **/model** names the session's model.
+
+To use real models, set these variables and restart the Worker:
+
+| Variable | Meaning |
+| --- | --- |
+| **DEX_AGENT_MODEL** | The default model. In Python, a LiteLLM model name. In TypeScript, an AI SDK model such as **openai/gpt-5-mini**. |
+| **DEX_AGENT_MODELS** | More models a session may pick, separated by commas. |
+| **DEX_AGENT_SYSTEM_PROMPT** | The system prompt. |
+| **DEX_AGENT_CONTEXT_TOKENS** | The context window that compaction works against. |
+| **DEX_AGENT_MCP_CONFIG** | The MCP server configuration file. |
+| **DEX_AGENT_SESSION_KEY** | The key that signs session tokens. |
+
+Put each provider key in the Worker's environment, such as **examples/.env** for Python. The Worker reads it there. It never enters Flow state.
+
+The example page has its own approval buttons. To approve from Dex Web instead, follow [Approve in Dex Web](#approve-in-dex-web) with the Flow type **AIAgentSession**.
+
+### Approve in Dex Web {#approve-in-dex-web}
+
+Dex Web needs the session graph to show the **Agent session** tab and its controls. Render the graph once for the Flow type into a directory, and start **dexcli dev** with **--flow-rendering-dir**. If **dexcli dev** already runs without that flag, stop it first. Dex Web reads the directory again on each page load, so a graph you render again shows without a restart:
+
+```bash
+mkdir -p definitions
+dex-agents-session-graph --flow-type AIAgentSession --permission ai-agent.operate \
+  --out definitions/ai-agent.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+Both the Python and the TypeScript package install **dex-agents-session-graph**. From **examples/python**, run it with **uv run --frozen**. From **examples/typescript**, run it with **npx**.
+
+Open the session's run in Dex Web and select the **Agent session** tab. Choose **Working as** the permission you rendered, such as **ai-agent.operate**. Then select **Approve** or **Reject** on the tool call card. See [Show sessions in Dex Web](/reference/agents/dex-web) for production.
+
+## Connect Connectors {#connect-connectors}
+
+The agent can call [Connector](/concepts/connector) operations as tools, as [Connectors as tools](/agent-frameworks/tools-and-approvals#connectors-as-tools) describes. The example adds the Slack tool **slack_post_thread_reply**, which replies in a Slack thread.
+
+### Offer the tool {#offer-connector-tools}
+
+In Python, install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. In TypeScript, install **@superdurable/connectors-sdk** and the Connector package, such as **@superdurable/connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
+
+The Worker opens the Slack connection **support-slack** from the project configuration. **connector_tool** in Python and **connectorTool** in TypeScript turns the operation into a tool, and **ConnectorToolSource** holds it. Without the connection, the agent gets no Slack tool.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/slack_connector_tools.py',
+    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
+    """Returns the Slack tool source, or no source when Slack is not configured."""
+    if connection is None:
+        return []
+    return [
+        ConnectorToolSource([
+            # The manifest does not ask for approval; this agent asks before every post.
+            connector_tool(
+                connection.post_thread_reply(), connection.reference, requires_approval=True
+            ),
+        ]),
+    ]
+
+# ...
+
+async def open_slack_project_connection(
+    environment: Mapping[str, str] = os.environ,
+) -> SlackProjectConnection | None:
+    # ...
+    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
+    try:
+        project = await load_from_environment(environment)
+    except FileNotFoundError:
+        _log_slack_not_set_up("the connector configuration file does not exist")
+        return None
+    # ...
+    try:
+        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
+    except BaseException:
+        await project.close()
+        raise
+    return SlackProjectConnection(project, connection)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export async function openSlackConnectionFromProject(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<Connection | undefined> {
+  // ...
+  const project = await loadFromEnvironment(environment);
+  // ...
+  return newProjectConnection(project, slackConnectionName);
+}
+
+// ...
+
+export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
+  if (slack === undefined) {
+    return [];
+  }
+  return [
+    new ConnectorToolSource([
+      connectorTool(slack.operations.postThreadReply(), slack.reference, {
+        manifest,
+        inputValidator: PostThreadReplyInputSchema,
+        // The manifest does not ask for approval; this agent asks before every post.
+        requiresApproval: true,
+      }),
+    ]),
+  ];
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Worker opens the connection once, at startup, and every agent uses it:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/main.py',
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+async def main() -> None:
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    config = ExamplesConfig.from_env()
+    slack_setup = await open_slack_project_connection()
+    try:
+        app_state = ExampleApp(config, slack_setup.connection if slack_setup else None)
+        # ...
+    finally:
+        if slack_setup is not None:
+            await slack_setup.aclose()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The agent takes the Slack tool source next to the MCP tool source:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py',
+    typescript: 'examples/typescript/src/products/ai-agent/ai-agent-flow.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    mcp_tool_sources = (
+        [McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)] if mcp_servers else []
+    )
+    definition = AgentDefinition(
+        # ...
+        tool_sources=[*mcp_tool_sources, *build_slack_tool_sources(slack_connection)],
+        # ...
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+      // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
+      toolSources: [
+        new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true }),
+        ...createSlackConnectorToolSources(slack),
+      ],
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### How a call runs {#connector-tool-calls}
+
+Each call of **slack_post_thread_reply** runs once, in its own **CallSingleAttemptTool** Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/quick-start#slack-connector-tool) explains why.
+
+### Configure the connection {#configure-connector-connection}
+
+[Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
+
+To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. The demo model calls the tool directly:
+
+```text
+/tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"Hello from Dex"}
+```
+
+The post waits for **Approve** before it runs.
+
+## Limits
+
+- Each model call and each tool call adds a Step round trip.
+- **AgentEvents** is best effort. Read the session snapshot for the conversation.
+- A failed **RunModel** repeats its model call.
+- See [Limits for long sessions](/reference/agents/session-limits) for the server limits, and [At-most-once has one exception](/agent-frameworks/tools-and-approvals#tool-runs-twice) for single-attempt tools.
+
+## Related
+
+- [Agent Frameworks](/agent-frameworks)
+- [AI Agent](/use-cases/ai-agent)
+- [Agents reference](/reference/agents/)
+- [Attribute](/concepts/primitives/attribute)
+- [Channel](/concepts/primitives/channel)
+- [Stream](/concepts/primitives/stream)
+- [Timer](/concepts/primitives/timer)

@@ -1,0 +1,21 @@
+---
+id: index
+title: Primitives
+sidebar_label: 总览
+slug: /concepts/primitives
+---
+
+# Primitive
+
+Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
+
+| Primitive | 是什么 | 用来做什么 |
+| --- | --- | --- |
+| [Attribute](/concepts/primitives/attribute) | 属于一个 Flow 的 durable 状态。 | 在 Step 之间保存数据，从外部读取，并按它搜索。 |
+| [RPC](/concepts/primitives/rpc) | 对 Flow 的同步调用。 | 从应用发送命令、读取视图。 |
+| [Channel](/concepts/primitives/channel) | Flow 中的 durable 消息队列。 | 投递 Step 等待的消息。 |
+| [Stream](/concepts/primitives/stream) | 读取方可以续读的 best-effort feed。 | 向 UI 推送实时进度。 |
+| [Timer](/concepts/primitives/timer) | 等到某个时间的 durable 等待。 | 设置截止时间、提醒和定时任务。 |
+| [SubFlow](/concepts/primitives/subflow) | 由另一个 Flow 作为子 Flow 启动的 Flow。 | 把大量或并行的工作拆成子 Flow。 |
+
+[概念](/concepts) 说明 Primitive 如何和 Flow、Step、Client、Connector 配合。

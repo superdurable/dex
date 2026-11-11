@@ -3236,14 +3236,6 @@
     "to": "/zh-Hans/reference/server/workers/"
   },
   {
-    "from": "/agent-frameworks/built-in-agent-loop",
-    "to": "/agent-frameworks/quick-start"
-  },
-  {
-    "from": "/zh-Hans/agent-frameworks/built-in-agent-loop",
-    "to": "/zh-Hans/agent-frameworks/quick-start"
-  },
-  {
     "from": "/agent-frameworks/claude-agent-sdk",
     "to": "/agent-frameworks/quick-start"
   },

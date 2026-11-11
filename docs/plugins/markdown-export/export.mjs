@@ -285,7 +285,7 @@ async function expandJsx(node, context) {
 
 // Mirrors FrameworkTabs.tsx: each framework's content under a bold label, in tab order.
 const frameworkLabels = {
-  'built-in-agent-loop': 'Built-in loop', 'claude-agent-sdk': 'Claude Agent SDK',
+  'claude-agent-sdk': 'Claude Agent SDK',
   'openai-agents-sdk': 'OpenAI Agents SDK', 'pydantic-ai': 'Pydantic AI',
   'langchain-langgraph': 'LangChain and LangGraph', 'google-adk': 'Google ADK',
   'vercel-ai-sdk': 'Vercel AI SDK', mastra: 'Mastra',

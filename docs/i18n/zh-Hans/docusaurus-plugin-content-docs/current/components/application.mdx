@@ -1,6 +1,6 @@
 ---
 title: Application（Worker 和 Client）
-sidebar_label: Application
+sidebar_label: 你的应用
 ---
 
 # Application（Worker 和 Client）
@@ -27,6 +27,20 @@ Worker 启动时，可以把它的 Flow 的 Flow Definition Graph 发布到 serv
 给 Worker 配置 server 地址。Client 也只需要 server 地址。你还可以设置 pull 选项，调整任务容量、注册和关闭行为。
 
 各 SDK 参考都有可运行的启动示例：[Go](/reference/go/workers)、[Python](/reference/python/workers)、[Java](/reference/java/workers)、[TypeScript](/reference/typescript/workers) 和 [Rust](/reference/rust/workers)。
+
+## 把服务传给 Flow {#pass-services-to-the-flow}
+
+Flow 要调用的每个服务，比如支付 API，都通过 Flow 的 constructor 传入。不要事后用 setter 设置，也不要从全局变量读取。
+
+## 在 handler 里启动 Flow {#start-a-flow-from-a-handler}
+
+**start** handler 启动 Flow，然后用 Client 的 **wait-for-Step-completion** API 等第一个 Step 完成。它不用自己轮询状态。
+
+## 通过 RPC 发命令、读状态 {#send-commands-through-rpcs}
+
+要改变 Flow 的 handler 调用一个 RPC，比如 **approve**，由 RPC 把消息发到 Channel。要读取 Flow 的 handler 调用读 RPC，比如 **describe**。handler 从 constructor 或 factory 参数拿到 Client 和 Flow。
+
+完整代码见 [Order Processing](/use-cases/order-processing) 示例。
 
 ## 容量和关闭
 

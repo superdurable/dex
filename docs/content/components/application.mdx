@@ -1,6 +1,6 @@
 ---
 title: Application (Worker and Client)
-sidebar_label: Application
+sidebar_label: Your Application
 ---
 
 # Application (Worker and Client)
@@ -37,6 +37,20 @@ Each SDK reference has a runnable startup example:
 [Go](/reference/go/workers), [Python](/reference/python/workers),
 [Java](/reference/java/workers), [TypeScript](/reference/typescript/workers),
 and [Rust](/reference/rust/workers).
+
+## Pass services to the Flow {#pass-services-to-the-flow}
+
+Pass each service that a Flow calls, such as a payment API, to the Flow constructor. Do not set it later with a setter. Do not read it from a global variable.
+
+## Start a Flow from a handler {#start-a-flow-from-a-handler}
+
+A **start** handler starts the Flow. Then it waits for the first Step with the Client **wait-for-Step-completion** API. It does not poll a status of its own.
+
+## Send commands and read state through RPCs {#send-commands-through-rpcs}
+
+A handler that changes a Flow calls an RPC, such as **approve**. The RPC publishes the message to a Channel. A handler that reads a Flow calls a read RPC, such as **describe**. The handlers get the Client and the Flow from their constructor or factory arguments.
+
+The [Order Processing](/use-cases/order-processing) example shows these three rules in full code.
 
 ## Capacity and shutdown
 

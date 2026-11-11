@@ -8,9 +8,10 @@ sidebar_label: Overview
 
 Dex runs an AI agent as a durable agent session. You can build the agent with the built-in agent loop of Dex Agents, or keep an agent that you already wrote with an agent framework. Both run on the same session Flow, so sessions behave the same either way.
 
-- **Start here:** the [Agent Quick Start](/agent-frameworks/quick-start) runs an example agent with your framework.
-- **How it works:** [How Sessions Work](/agent-frameworks/how-sessions-work) covers tool policies, approvals, outcomes, and Connectors as tools.
-- **No adapter yet:** [Any other framework](/agent-frameworks/any-other-framework) lists what an adapter needs.
+- [Agent Quick Start](/agent-frameworks/quick-start) runs an example agent with your framework.
+- [Tools and Approvals](/agent-frameworks/tools-and-approvals) covers tool policies, approvals, outcomes, and Connectors as tools.
+- [Any Other Framework](/agent-frameworks/any-other-framework) lists what an adapter needs.
+- [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop) builds a new agent without a framework.
 
 ## Choose a harness {#choose-a-harness}
 
@@ -18,14 +19,14 @@ A harness is the code that runs the agent loop: the built-in loop or a framework
 
 | Harness | Languages | How the loop maps onto Steps | Choose it when |
 | --- | --- | --- | --- |
-| [Built-in agent loop](/agent-frameworks/quick-start/?framework=built-in-agent-loop) | Python, TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You start a new agent. You want Dex to own the model input, with questions, durable waits, plans, and MCP tools. |
 | [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | Python, TypeScript | The Claude Code CLI runs a turn segment in one **RunModel** Step. Reads run inside it. A write ends the segment and runs in its own Step. | You want the Claude Code agent loop and its tools. |
+| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Google ADK agent. |
+| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | One **RunModel** Step runs the graph to its next tool calls. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. |
+| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. |
 | [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | Python, TypeScript | One model call per **RunModel** Step. Each function tool call is its own Step. | You have an OpenAI Agents SDK agent, with or without handoffs. |
 | [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Pydantic AI agent. |
-| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | One **RunModel** Step runs the graph to its next tool calls. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. |
-| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Google ADK agent. |
 | [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You have AI SDK tools and models in a TypeScript application. |
-| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. |
+| [Built-in agent loop](/agent-frameworks/built-in-agent-loop) | Python, TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You start a new agent. You want Dex to own the model input, with questions, durable waits, plans, and MCP tools. |
 
 ## Run sessions in production {#run-sessions-in-production}
 
