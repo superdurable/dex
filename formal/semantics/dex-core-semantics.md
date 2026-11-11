@@ -2157,6 +2157,9 @@ checked against the code at `55721e878`.
 | F32 | [ENGINE-REJECT] lacked the premise that the request is targeted; StartFlow is always proposed (`client_operations/mod.rs:72-86`). A "committed word" was left in Section 11.5. | **Fixed.** Premise added, with citations; the leftover now says outcome word. Sections 11.3 and 11.5. |
 | F33 | Retries were defined through the rule [START-RETRY] having fired. | **Fixed.** A retry is a StartFlow request with the request ID of the word's first StartFlow and `ignore_already_started_error`. `w↓` removes those requests; HP orders their commands before the original run's RunPurge and holds trivially without one. Under HP each retry takes [START-RETRY]; without it, a retry after the purge starts a new run (`flow_start.rs:91-124`, `:139-155`; `run_purge.rs:216-227`). Section 11.3; Appendix A, item 66. |
 | F34 | The retry definition also matched the word's first StartFlow, which sets `ignore_already_started_error` and has its own request ID, so `w↓` deleted the real start. | **Fixed.** A retry is a StartFlow request at a position after the first one, with the first one's request ID. `w↓`, HP, and Appendix A, item 66, use this definition. Section 11.3. |
+| F35 | FI said every element of `I` takes [RECOVER-INTERRUPT], but a [CRASH] empties `I` and [RECOVER] rebuilds it from durable state. Found while writing the Lean definitions. | **Fixed.** FI says every element eventually leaves `I`; after the last [RECOVER] each takes [RECOVER-INTERRUPT]. Section 11.5. |
+| F36 | The liveness equality was false in the Dex-to-DexF direction for words with retries: retries advance the stamp and can change a timer race. Found by review of the Lean statements, with a kernel-checked failure-free trace. | **Fixed** [decision]: the forward inclusion holds for every word; the reverse inclusion is stated for words without retries. Section 11.5. |
+| F37 | Section 11.5 recommends effects fenced by attempt, but such a handler reads the attempt number, which H3 excludes. Found while writing the paper. | **Fixed.** The text says an attempt-fenced handler is outside H3 and still good practice. Section 11.5. |
 
 ## 11. Failures
 
@@ -3029,8 +3032,11 @@ FR, and FI:
   [ATTEMPT-LOST], and [ATTEMPT-RETURNED] transitions.
 - **FR, the server comes back.** Every [CRASH] is eventually followed by
   [RECOVER].
-- **FI, interrupts commit.** Every element of `I` eventually takes
-  [RECOVER-INTERRUPT].
+- **FI, interrupts commit.** Every element of `I` eventually leaves `I`: it
+  takes [RECOVER-INTERRUPT], or a [CRASH] empties `I` and the next [RECOVER]
+  rebuilds `I` from the durable Running invocations
+  (`partition_rebuild.rs:112-148`). By FF and FR there is a last [RECOVER];
+  every element of `I` after it takes [RECOVER-INTERRUPT].
 - **F2, timers fire.** A wait timer or retry timer that stays armed and due
   is eventually fired.
 - **F3, Steps start.** As in Section 5.5: a pending invocation that stays
@@ -3082,15 +3088,19 @@ Markers:
   `δ` never stands for a server that is down.
 
 Statement: under FF, FR, FI, F0 to F6 as above, H1 to H4, and HP, for every
-admissible outcome word `w`, the set of `erase(t)` over the fair maximal
-traces `t` of DexF for `w` equals the set of fair maximal traces of Dex for
-`w↓`, markers included. A DexF run **for `w`** gives every request of `w`,
+admissible outcome word `w`, every `erase(t)` of a fair maximal trace `t` of
+DexF for `w` is a fair maximal trace of Dex for `w↓` with the same marker. The
+reverse inclusion holds for every word without retries. It fails for some
+words with retries: each retry is a log commit that strictly advances the
+stamp, so many retries can push time past a timer's fire time and remove a
+failure-free outcome that depends on a timer race. [decision] The theorem
+states the reverse inclusion only for words without retries. A DexF run **for `w`** gives every request of `w`,
 retries included, its final outcome in the order of `w`: an accepted
 commit, a rejection by apply, or [ENGINE-REJECT]. F0 applies to all of them. Its marker is decided by
 the progress steps defined above, and the Dex marker by Section 5.5 for
-`w↓`. The inclusion from Dex to DexF again comes from the Lemma: a fair Dex
-run for `w↓`, with the retries of `w` inserted where `w` puts them, is a fair
-DexF run for `w` with no failure and the same marker. By FF
+`w↓`. For a word without retries, `w↓ = w`, and the inclusion from Dex to DexF
+comes from the Lemma: a fair Dex run for `w` is a fair DexF run for `w` with
+no failure and the same marker. By FF
 there are finitely many attempts and each emits finitely many effects, so a
 fair DexF trace has finitely many repeated events.
 
@@ -3112,6 +3122,9 @@ earlier `out(x)` with the same value, not to repeat a particular `emit`.
   mean commutative. A zombie's late `set x = 1` can overwrite a later
   `set x = 2`, though each call is idempotent. Exactly-once in effect needs
   more: idempotency keys, commutative effects, or effects fenced by attempt.
+  An effect fenced by attempt carries the attempt number, so the handler
+  reads attempt-varying context and is outside H3. Such a handler is still
+  good practice; the theorem just does not cover it.
 - Anything about physical time. A timer fires no earlier than its fire time
   in stamps (D6); a host clock that runs ahead can fire it early in real
   time.

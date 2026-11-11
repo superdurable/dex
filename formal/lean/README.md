@@ -14,11 +14,17 @@ revision 8. "Spec" below means that document.
 
 `safety_of_isWellFormed`, `liveness_of_isWellFormed`, and
 `expressiveness_of_isWellFormed` are proved. No file of the expressiveness
-proof has a `sorry`. The failure-transparency statements of
-`DexExpressiveness/Failure/Statements/Leaf.lean` and
-`DexExpressiveness/Failure/Statements/Main.lean` end in `sorry` by design:
-they are the fixed statements of the next proof. See
-[Failure transparency (issue 1514), Stage 1](#failure-transparency-issue-1514-stage-1).
+proof has a `sorry`.
+
+The failure-transparency proof (issue 1514) is also done. Stage 2 proved all
+12 statements of `DexExpressiveness/Failure/Statements/Leaf.lean` and
+`DexExpressiveness/Failure/Statements/Main.lean`, and no file under
+`DexExpressiveness/Failure/` has a `sorry`. Liveness is stated and proved as
+two inclusions: forward for every admissible outcome word, backward for words
+without retries. See
+[Failure transparency (issue 1514), Stage 1](#failure-transparency-issue-1514-stage-1),
+[Stage 2: the proofs](#stage-2-the-proofs), and
+[Stage 3: witnesses and counterexamples](#failure-transparency-stage-3-witnesses-and-counterexamples).
 
 ```text
 'DexExpressiveness.safety_of_isWellFormed' depends on axioms:
@@ -642,7 +648,7 @@ load selection from the translation failed `readWaiters_snapshot_of_cvOperand`.
 Empty for the expressiveness proof. Stage 1 left 12 `sorry`, Stage 2a proved
 the 10 of safety, and Stage 2b proved the 2 of liveness through the 32
 statements of its work packages. The failure-transparency proof has its own
-inventory: see
+inventory, now empty too: see
 [The `sorry` inventory of Stage 1](#the-sorry-inventory-of-stage-1).
 
 ## Decided in Stage 2a: handles are unforgeable
@@ -1063,10 +1069,10 @@ binary `formal/lean/.lake/build/bin/failure-fuzz` is in `.gitignore` and
 | `Failure/Abstraction.lean` | α (`abstractConfig`, spec §11.6): virtual tasks from `h`, `v`, `par`; `seq` relabeled by `n` and `ζ`; canceled invocations keep a virtual task while a real task remains. | Fixed |
 | `Failure/Relation.lean` | The transition map `dexActionsOf`, `eraseStepEvents`, `IsStepSimulated`, `SimulationKind`, the effect history `HasEffectHistory`, and the invariants I1 to I7 (`Invariant`, `RunInvariant`). | Fixed |
 | `Failure/Observation.lean` | `DexF.system` with the progress rule of spec §11.5; outcome words, `IsAdmissibleOutcomeWord`, `w↓` (`eraseRetries`, `IsRetryErasure`); fairness F1 to F6, FF, FR, FI (`DexF.IsFair`); the hypotheses H1 to H4, SYNC, D6, HP; the trace sets `IsFailureFiniteTrace`, `IsFreeFiniteTrace`, `IsFailureFairMaximalTrace`. | Fixed |
-| `Failure/Statements/Leaf.lean` | The step lemmas of WP-F1 to WP-F4 and WP-F6, each in its own section, and `step_simulated`. | Statements |
-| `Failure/Statements/Main.lean` | The safety, liveness, and end-to-end statements of WP-F5 to WP-F7. | Statements |
+| `Failure/Statements/Leaf.lean` | The step lemmas of WP-F1 to WP-F4 and WP-F6, each in its own section, and `step_simulated`. | Proved |
+| `Failure/Statements/Main.lean` | The safety, liveness, and end-to-end statements of WP-F5 to WP-F7. | Proved |
 | `Failure/Statements.lean` | A re-export of `Failure/Statements/Main.lean`. | Re-export |
-| `Failure/Proofs.lean`, `Failure/Composite.lean` | Empty import aggregators for the proofs of Stage 2; see [Stage 2: work packages](#stage-2-work-packages). | Empty |
+| `Failure/Proofs.lean`, `Failure/Composite.lean` | Import aggregators for the proofs of Stage 2; see [Stage 2: work packages](#stage-2-work-packages) and [Stage 2: the proofs](#stage-2-the-proofs). | Aggregators |
 | `Failure/Equality.lean`, `Failure/Check.lean` | Test tooling: decidable equality of configurations; `checkStepSimulated`, the decision of `IsStepSimulated`; `checkInvariant`, the Boolean mirror of `Invariant`, clause by clause. | Tooling |
 | `Failure/Examples/Script.lean`, `Failure/Examples/CrashRetryZombie.lean` | Two DexF runs of `main(x): emit(1); exit(0)`, checked in the kernel: one with a crash, two retries, a zombie effect, an interrupt, a stale result, a zombie drop, and a StartFlow retry; one in which a zombie's result commits before its interrupt, which apply then ignores. | Proved, no `sorry` |
 | `Failure/Examples/Fuzz.lean`, `FailureFuzz.lean` | The inductiveness fuzz and its executable `lake exe failure-fuzz`. | Tooling |
@@ -1140,10 +1146,9 @@ theorem endToEnd_safety (program : L.Program) (isWellFormed : program.IsWellForm
 Every step lemma and theorem assumes H3, `IgnoresAttemptContext program`.
 I2 and I3 are false without it.
 
-`#print axioms` on every statement shows `propext` and `sorryAx` only;
-`invariant_initial`, `isRepetitionAfter_sound`, and every theorem of
-`Failure/Examples/CrashRetryZombie.lean` and `Failure/Examples/ReviewProbes.lean`
-show no `sorryAx`.
+At the end of Stage 1, `#print axioms` on every statement showed `propext`
+and `sorryAx` only. After Stage 2 no statement depends on `sorryAx`; see
+[Stage 2: the proofs](#stage-2-the-proofs) for the output.
 
 ### Lean decisions
 
@@ -1235,9 +1240,11 @@ marked "Lean decision" at its definition.
 
 ### Liveness is two inclusions
 
-Spec §11.5 states liveness as an equality for every admissible outcome word.
-The backward inclusion is false for words with retries, and the statement
-says so (`liveness_failure`, `endToEnd_liveness`).
+Spec §11.5 first stated liveness as an equality for every admissible outcome
+word. The backward inclusion is false for words with retries, and the
+statement says so (`liveness_failure`, `endToEnd_liveness`). The spec now
+states the same two inclusions: the forward inclusion for every word, the
+reverse inclusion for words without retries (spec Review log, F36).
 
 - A deduplicated StartFlow retry is a log commit whose stamp strictly
   advances the partition clock (spec §11.3, "Log commit versus run `seq`").
@@ -1266,12 +1273,15 @@ failures (spec §11.3, "Over-approximation").
 
 ### The `sorry` inventory of Stage 1
 
-Twelve. Six in `Failure/Statements/Leaf.lean`: `normalStep_simulated`,
+Stage 1 left twelve. Six in `Failure/Statements/Leaf.lean`: `normalStep_simulated`,
 `failureStep_isStutter`, `workerStep_simulated`, `effectHistory_of_exec`,
 `invariant_step`, `isProgress_eq_dexProgress`. Six in
 `Failure/Statements/Main.lean`: `freeFiniteTrace_isFailureFiniteTrace`,
 `safety_failure_forward`, `safety_failure_repetition`, `liveness_failure`,
 `endToEnd_safety`, `endToEnd_liveness`. No other file has a `sorry`.
+
+Empty now: Stage 2 proved all twelve. No file under
+`DexExpressiveness/Failure/` has a `sorry`.
 
 ### The executable checks and the inductiveness fuzz
 
@@ -1345,10 +1355,10 @@ import cycles and of edits to the same lines:
 ```text
 Failure/Observation.lean            definitions (fixed)
 Failure/Proofs/WPFn*.lean           proofs of leaf statements; import definitions only
-Failure/Proofs.lean                 imports every Failure/Proofs/*.lean (empty today)
+Failure/Proofs.lean                 imports every Failure/Proofs/*.lean
 Failure/Statements/Leaf.lean        leaf statements; imports Observation and Proofs
 Failure/Composite/WPFn*.lean        helpers of main statements; may import Leaf, never Main
-Failure/Composite.lean              imports every Failure/Composite/*.lean (empty today)
+Failure/Composite.lean              imports every Failure/Composite/*.lean
 Failure/Statements/Main.lean        main statements; imports Leaf, Composite, Theorems
 Failure/Statements.lean             re-export of Main
 ```
@@ -1389,3 +1399,162 @@ package may add lemmas only in the files it creates. `invariant_initial` and
   `resultStale`, which does.
 - `effectHistory_of_exec` is what connects the per-step erasure of
   `IsStepSimulated` to `erase` of whole traces in `safety_failure_forward`.
+
+### Stage 2: the proofs
+
+Stage 2 is done. Every work package proved its statements without changing a
+definition or the text of a statement. The import layout of
+[Stage 2: work packages](#stage-2-work-packages) holds: proofs of leaf
+statements under `Failure/Proofs/`, helpers of main statements under
+`Failure/Composite/`.
+
+| Package | Statements | Proof files | Files | Lines |
+| --- | --- | --- | --- | --- |
+| WP-F1 | `normalStep_simulated` | `Failure/Proofs/WPF1*.lean` | 13 | 4,611 |
+| WP-F2 | `failureStep_isStutter` | `Failure/Proofs/WPF2FailureSteps.lean` | 1 | 954 |
+| WP-F3 | `workerStep_simulated`, `effectHistory_of_exec` | `Failure/Proofs/WPF3*.lean` | 10 | 4,858 |
+| WP-F4 | `invariant_step` | `Failure/Proofs/WPF4*.lean` | 22 | 7,010 |
+| WP-F5 | `freeFiniteTrace_isFailureFiniteTrace`, `safety_failure_forward`, `safety_failure_repetition` | `Failure/Composite/WPF5*.lean` | 10 | 2,768 |
+| WP-F6 | `isProgress_eq_dexProgress`, `liveness_failure` | `Failure/Proofs/WPF6*.lean`, `Failure/Composite/WPF6*.lean` | 9 | 6,748 |
+| WP-F7 | `endToEnd_safety`, `endToEnd_liveness` | `Failure/Composite/WPF7EndToEnd.lean` | 1 | 296 |
+| Total | 12 statements | | 66 | 27,245 |
+
+`invariant_initial` and `step_simulated` were proved in Stage 1.
+
+Liveness is two inclusions (`liveness_failure`, `endToEnd_liveness`). The
+forward inclusion holds for every admissible outcome word: `erase(t)` of a
+fair maximal DexF trace for `w` is a fair maximal Dex trace for `w↓` with the
+same marker. The backward inclusion holds for words without retries
+(`HasNoRetry`): every fair maximal Dex trace for `w↓` is such an `erase(t)`.
+See [Liveness is two inclusions](#liveness-is-two-inclusions) for why the
+backward inclusion is false for words with retries.
+
+```text
+'DexExpressiveness.DexF.normalStep_simulated' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.failureStep_isStutter' depends on axioms: [propext, Quot.sound]
+'DexExpressiveness.DexF.workerStep_simulated' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.effectHistory_of_exec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.invariant_step' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.isProgress_eq_dexProgress' depends on axioms: [propext, Quot.sound]
+'DexExpressiveness.DexF.freeFiniteTrace_isFailureFiniteTrace' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.safety_failure_forward' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.safety_failure_repetition' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.liveness_failure' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.endToEnd_safety' depends on axioms: [propext, Classical.choice, Quot.sound]
+'DexExpressiveness.DexF.endToEnd_liveness' depends on axioms: [propext, Classical.choice, Quot.sound]
+```
+
+## Failure transparency, Stage 3: witnesses and counterexamples
+
+Stage 3 checks that the failure statements are not vacuous. The witnesses
+show that the hypotheses of each main statement hold together for runs with
+crashes, retries, and zombie effects, and they apply the statement to those
+runs. The counterexamples show that each hypothesis the Lean model can
+express is needed: without it, a concrete DexF trace breaks the conclusion.
+No definition or statement changed. `lake build` checks every artifact in
+the kernel. `#print axioms` shows a subset of `propext`, `Classical.choice`,
+and `Quot.sound` for each artifact; it never shows `sorryAx`. The base is
+`formal/failure-lean` with every Stage 2 `sorry` closed.
+
+### Files
+
+| File | Content |
+| --- | --- |
+| `Failure/Examples/FairPrefixRuns.lean` | Tooling. A finite DexF schedule followed by `tick 1` forever is a fair maximal run (`prefixThenTicks_isFailureFairMaximalTrace`). F1 to F6, FF, FR, FI, H1, H4, D6, and HP hold when three Boolean checks pass: one on the labels, one on each configuration before a label, and one on the quiet final configuration. The file also has `w↓` of a finite word (`isRetryErasure_ofList`), an admissible word from an admissible prefix, and the existence of `erase(t)`. |
+| `Failure/Examples/Nonvacuity.lean` | The three witnesses. |
+| `Failure/Examples/FreeRunFacts.lean` | Bounds on **every** failure-free run, which each counterexample needs. A repetition inserts only `fx` events, each equal to a kept one. Every `fx` of a failure-free trace carries a label that the Flow computes; this follows from the proved `freeFiniteTrace_isFailureFiniteTrace` and `effectHistory_of_exec`. A Flow that never decides ForceFail never closes as Failed; this is an invariant over the 13 Dex rules. A failure-free trace has at most as many `pub` events as publication requests. |
+| `Failure/Examples/HypothesisCounterexamples.lean` | The counterexamples for H3, H1, H4, and D7. They use a small signature in which every name is a natural number. |
+| `Failure/Examples/RetryTiming.lean` | The parts of the `HasNoRetry` argument that the model can state. |
+
+### Witnesses: the hypotheses hold together
+
+| Statement | Theorem | Run |
+| --- | --- | --- |
+| `safety_failure_repetition` | `safetyRepetition_isNonvacuous` | The run of `CrashRetryZombie.lean`: the translation of `main(x): emit(1); exit(0)` with a StartFlow retry, an [ATTEMPT-LOST], a zombie effect, two [RETRY-FIRE], a [CRASH] and its [RECOVER], a [RECOVER-INTERRUPT], a stale zombie result, and a zombie drop. H2, SYNC, H3, H1, H4, and the admissible prefix hold. The trace has three `fx` events, and `erase` keeps one. The statement gives a failure-free trace of which the trace is a repetition. |
+| `liveness_failure`, forward, `✓` | `livenessForward_isNonvacuous_terminated` | The same run followed by ticks. It is a fair maximal DexF trace with marker `✓`, for an admissible word with a retry (`¬ HasNoRetry`). The statement gives a fair maximal Dex trace for `w↓` with marker `✓`. |
+| `liveness_failure`, forward, `δ` | `livenessForward_isNonvacuous_deadlocked` | The translation of `main(x): emit(1); x := recv(5)`, with a [CRASH], a [RECOVER-INTERRUPT] of the `emit` attempt, an [ATTEMPT-LOST] of the `recv` WaitFor attempt, two [RETRY-FIRE], and two stale zombie results. The run then stays blocked. Its projection is `begin(0), out(1), out(1)`. The word is the start alone, so `HasNoRetry` holds as well. The statement gives a fair maximal Dex trace for `w↓` with marker `δ`. |
+
+Each witness asserts that its schedule is executable. It also asserts that
+every step is simulated and keeps the invariants (`isScriptPassing`), so a
+label that is not enabled cannot pass silently. The liveness witnesses show
+that the erased trace exists (`exists_isRepeatErasure`); they do not compute
+it.
+
+### Each hypothesis, one row
+
+| Hypothesis | Artifact or prose | What it shows |
+| --- | --- | --- |
+| H3, `IgnoresAttemptContext` | `HypothesisCounterexamples.lean`, `attemptSensitive_isNotRepetition` | Attempt `a` emits `a` copies of `a`. Attempt 1 emits `1` and is lost. Attempt 2 starts on the retained snapshot and emits `2` twice: with ghost index 1, a repeat with a new label, and with ghost index 2, a first occurrence. Every other hypothesis holds, and the trace is in `Tr_fail` except for H3. No failure-free run emits `2` (`attemptEcho_freeTrace_hasNoTwo`). `erase` keeps the `fx(2)` with index 2, so `erase(t)` is not a failure-free trace and `safety_failure_forward` fails. The trace is a repetition of no failure-free trace, so `safety_failure_repetition` fails. This is also why I2 and I3 assume H3. The handler is an attempt-fenced effect, which spec §11.5 places outside H3 (Review log, F37). |
+| H1, `HasNoExhaustion` | `exhaustion_isNotFailureFree` | The only attempt is lost with the decision Exhausted (maximum attempts). The Flow closes with `closed(failed "WORKER_API_FAIL")`. H2, SYNC, H3, H4, and the admissible prefix hold. The Flow never decides ForceFail, so no failure-free run closes as Failed (`freeTrace_hasNoFailedClose`). Both `safety_failure_forward` and `safety_failure_repetition` fail. |
+| H4, `HasNoNonRetryableFailure` | `nonRetryableFailure_isNotFailureFree`, `isNonRetryableFailure_isExhausting` | The same run with a non-retryable failure. The conclusions fail as for H1. In the model a non-retryable failure is an exhaustion, so no run violates H4 without also violating H1. |
+| `HasNoRetry`, backward liveness | `RetryTiming.lean`: `step_lastCommitAt`, `startRetry_stamps`, `exec_clock_ge_retries`, `reachable_clock_ge_retries`, `retryTiming_delayedTrace`; with `ReviewProbes.retryTiming_freeTrace` and `retryTiming_delayChangesDueOrder` | Every DexF step keeps the clock or advances it. It keeps the commit stamp or commits at the clock, which is strictly above the old stamp. [START-RETRY] is such a commit, with no event. So `n` retries in a run advance the stamp floor by `n`, and a word with `n` retries between two publications puts at least `n` microseconds between their commits. In the failure-free timing Flow, a delay of 1,000,001 microseconds changes the trace. Without the delay it ends with B's `fx(20)`. With the delay it ends with A's `fx(30)`, and B waits forever. The last step stays an argument by hand: no DexF run for a word with 1,000,001 retries has the failure-free trace. It quantifies over every DexF run of a word with a million labels. See [Liveness is two inclusions](#liveness-is-two-inclusions). |
+| D7, PublishToChannel re-sent | `resentPublication_isTwoRequests` | In the failure-free model, two publications of one message give two `pub` events: a trace for the word with both. In DexF the run is in `Tr_fail` for an outcome word with both publications, and `w↓` keeps both. No failure-free trace of the one-publication word equals that trace or has it as a repetition. A repetition inserts only `fx` events, and such a trace has at most one `pub` (`freeTrace_pubCount_le`). So the theorem treats the re-send as a second request. |
+| H2, `HasNoFailurePolicy` | prose | Always true in the model, because `Dex.StepOptions` has no failure policy (Lean decision 13). A counterexample would need ProceedOnFailure or ProceedToConfiguredStep in the model. Spec §11.1 D4 says why H2 is needed: both policies change control flow (`step_results.rs:377-456`). Under H1 a policy is never consulted. |
+| HP, `RetriesPrecedePurge` | prose | Holds by construction, because the model has no RunPurge (Lean decision 6). Spec §11.5, "What the theorem does not say": a StartFlow retry after the purge starts a new run. |
+| D6 in the model, `FiredTimersAreDue` | prose | The `timerFire` premise fires only timers that `dueTimers` lists as due. The fair-run tool checks `FiredTimersAreDue` at every step of each witness. No lemma here proves it for every DexF run. Its physical-time form is below. |
+| FF, FR, FI, F1 to F6 | prose | Not part of this stage. Spec §11.1 D5: "No system makes progress under infinitely many crashes", so FF is a necessary assumption, not a choice. |
+| SYNC (D2) | prose | See below. |
+| D6, the wall clock in physical time | prose | See below. |
+| Snapshot retention in the server | prose | See below. |
+| Multi-node partition ownership | prose | See below. |
+
+**SYNC durability (spec §11.1 D2).** DexF has only the SYNC start.
+[STEP-START] creates the task in the same transition as its commit. So
+`IsSyncOnly` is always true, and no Lean run can break it. The spec argues
+why it is needed. An ASYNC attempt is sent to its Worker before its start
+commits (`method_attempt.rs:193-196`). A crash can then lose a start that a
+Worker already received. The same attempt number runs again on a new
+snapshot (`step_results.rs:188-195`), so its effect list may differ. Then the
+argument of spec §11.4, that every attempt computes the same `fx⃗(e, m)`,
+fails. That is the failure of the H3 counterexample, caused by a new snapshot
+instead of a new `ctxA`.
+
+**D6 in physical time (spec §11.1 D6, §11.5).** The model's time is the
+commit stamp. The `timerFire` premise says that each fired timer is due at
+the stamp. D6 is the assumption under which the code satisfies that premise:
+on one node, the wall clock does not step backward between the timer
+service's due check and the stamping of its TimersFired command. If the clock
+steps back, the command can carry a stamp below a timer's fire time, and no
+DexF or Dex step allows that. A host clock that runs ahead of real time can
+still fire a timer early in real time. Spec §11.5 lists this under "What the
+theorem does not say".
+
+**Snapshot retention in the server (spec §11.6, "Snapshot retention on every
+path").** In DexF the retained snapshot is part of a rule: [STEP-START] reuses
+`Attempt.snapshot` when it is present, and invariant I2 follows. The spec
+argues from the code that every retry path keeps the snapshot: the ordinary
+failure, the restart and takeover interrupts, the returned attempt, and the
+retry timer (`step_results.rs:344-358`, `attempt_handout.rs:673-717`,
+`partition_rebuild.rs:141-148`, `step_results.rs:474-531`,
+`invocations.rs:123-125`). If one path took a fresh snapshot, a retry could
+read Attributes written after the first start. It could then compute a
+different effect list, with the consequence of the H3 counterexample.
+
+**Multi-node ownership (spec §11.1 D8, §11.3 "Takeover").** DexF has one
+partition log with one owner at a time. A takeover is [CRASH] followed by
+[RECOVER]. The spec argues why this is sound for a standby takeover. Batches
+are create-only at their `seq`, and replay voids every batch of an older
+epoch after an EpochStart (`commit_pipeline.rs:523-567`,
+`log_replay.rs:137-145`). So the committed log has one writer at a time.
+Concurrent multi-node ownership does not exist ("a cluster runs one node",
+`configuration.mdx:60`). With two live writers, two commits could take the
+same `seq` or interleave their stamps, and no single DexF run would describe
+the log.
+
+### Notes
+
+- `scriptLabels` returns `[]` when a label is not enabled. So every witness
+  also asserts that its schedule is executable.
+- The fair-run tool needs a final configuration at rest: no real task, no
+  interrupt, no armed timer of either kind, and no invocation. Both runs
+  reach one. The `✓` run ends closed, and the `δ` run ends with the `recv`
+  Step waiting.
+- `freeTrace_fx_isComputed` uses the proved Stage 2 lemmas instead of a new
+  Dex invariant. The Failed-close bound and the `pub` bound are new
+  inductions over the Dex rules.
+
+```bash
+lake build DexExpressiveness.Failure.Examples.Nonvacuity \
+  DexExpressiveness.Failure.Examples.HypothesisCounterexamples \
+  DexExpressiveness.Failure.Examples.RetryTiming
+```
