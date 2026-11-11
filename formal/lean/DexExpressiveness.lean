@@ -83,3 +83,6 @@ import DexExpressiveness.Failure.Examples.Fuzz
 import DexExpressiveness.Failure.Examples.ReviewProbes
 import DexExpressiveness.Failure.Examples.FairPrefixRuns
 import DexExpressiveness.Failure.Examples.Nonvacuity
+import DexExpressiveness.Failure.Examples.FreeRunFacts
+import DexExpressiveness.Failure.Examples.HypothesisCounterexamples
+import DexExpressiveness.Failure.Examples.RetryTiming
