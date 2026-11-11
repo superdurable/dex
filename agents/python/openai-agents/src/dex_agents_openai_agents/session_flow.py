@@ -24,6 +24,7 @@ from dex_agents import (
     AgentSessionOptions,
     AgentTracingOptions,
     CompactionPolicy,
+    MediaStore,
     ToolEffect,
     ToolPolicy,
 )
@@ -50,6 +51,7 @@ def openai_agents_session_flow(
     summary_model: str | Model | None = None,
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    media_store: MediaStore | None = None,
 ) -> AgentSessionFlow:
     """Build the durable Step-mode agent session Flow for one OpenAI Agents SDK agent.
 
@@ -140,6 +142,12 @@ def openai_agents_session_flow(
             source's ``list_tools``. Defaults to 10 seconds.
 
             .. versionadded:: 0.4.0
+        media_store: The store that holds the session's images. With a store,
+            user messages and tool results may carry images, and the model sees
+            each one as an ``input_image`` part. ``None``, the default, refuses
+            user images. See ``OpenAIAgentsRunner``.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``OpenAIAgentsRunner``.
@@ -174,6 +182,7 @@ def openai_agents_session_flow(
         summary_model=summary_model,
         tool_sources=tool_sources,
         tool_source_listing_timeout=tool_source_listing_timeout,
+        media_store=media_store,
     )
     runner.validate_tool_policies(options.tool_policies)
     return AgentSessionFlow(runner, flow_type=flow_type, options=options)

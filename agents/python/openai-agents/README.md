@@ -265,6 +265,43 @@ flow = openai_agents_session_flow(
   `ModelResponse` carries no provider, response model, or finish reason, and a
   Chat Completions model echoes its request name as the response's model.
 
+## Images
+
+Since 0.5.0 the runner can show images to the model. Pass `media_store` to
+`openai_agents_session_flow` or `OpenAIAgentsRunner`. Use the store that your
+clients and tools upload to, such as `S3MediaStore`, or
+`LocalDirectoryMediaStore` when every client and Worker runs on one machine.
+
+```python
+from dex_agents.s3 import S3MediaStore
+
+store = S3MediaStore("agent-media", "sessions")
+flow = openai_agents_session_flow(agent, flow_type="SupportAgent", media_store=store)
+
+reference = await store.put_image(Path("chart.png").read_bytes())
+await sessions.send_user_message("session-42", "What does this chart show?", images=[reference])
+```
+
+- **User images.** The model sees one user message. Its `content` is an
+  `input_text` part, then one `input_image` part per image, in order.
+- **Tool images.** A tool source's tool, such as a connector tool, returns
+  images with `ToolExecutionResult(output=..., images=[reference])`. The model
+  sees the SDK's own tool result form: a `function_call_output` whose `output`
+  list is an `input_text` part, then one `input_image` part per image. No
+  extra message is added. The stored tool message carries the record's
+  `images`. A function tool returns text only: its output is recorded as text,
+  so a `ToolOutputImage` it returns reaches the model as JSON text.
+- **References, never bytes.** Stored items and the serialized `RunState` set
+  each image part's `image_url` to the reference's `uri`. Every model call
+  reads the bytes with `load_images` and sends each image as a `data:` URL of
+  its MIME type. It does so in a `call_model_input_filter` that runs after the
+  run config's own filter, so your filter sees the `uri`. Run hooks'
+  `on_llm_start` and model tracing with sensitive data see the `data:` URLs.
+  A failed read fails the `RunModel` attempt, which retries.
+- **Without a store**, the session refuses user images: `send_user_message`
+  returns `False`. A tool result's images then reach the model only as the
+  result's text.
+
 ## Compaction
 
 Since 0.3.0 the runner can compact a session that would outgrow the model's
@@ -315,7 +352,8 @@ See [Compaction and the storage bound](https://docs.superdurable.io/reference/ag
   change to the nested agent. The nested run's usage is not added to the
   session usage, because a tool call Step reports no usage.
 - A tool's output is recorded as text. Structured outputs without an output
-  type, such as images, reach the model as their JSON text.
+  type, such as images, reach the model as their JSON text. A tool source
+  returns images as references instead; see [Images](#images).
 - A tool input guardrail that trips records the call `failed` instead of
   failing the run, as the SDK's `ToolInputGuardrailTripwireTriggered` would.
   `pre_approval_tool_input_guardrails` has no effect, because input guardrails
