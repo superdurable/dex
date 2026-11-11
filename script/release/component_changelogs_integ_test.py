@@ -221,15 +221,21 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
         self.write(GO_CHANGELOG, self.read(GO_CHANGELOG).replace("sdk-go%2Fv1.45.1", "sdk-go%2Fv1.45.9"))
         self.assertIn("URL", self.run_script("check-ready", "go", "1.45.1", check=False).stderr)
 
-    def test_server_binary_release_fails_before_building_without_the_entry(self) -> None:
-        workflow = (DEX_ROOT / ".github/workflows/server-zd-binary-release.yml").read_text(encoding="utf-8")
-        metadata = workflow[workflow.index("  metadata:") : workflow.index("\n  build:")]
-        self.assertIn('python3 script/release/changelog_fragments.py check-ready server "${VERSION}"', metadata)
-        self.assertIn("must be merged to main before the tag", metadata)
-        self.assertIn("exit 1", metadata)
-        self.assertNotIn("::warning::", metadata)
-        for job in ("build", "checksums", "publish", "snapshot-reference"):
-            self.assertRegex(workflow, rf"\n  {job}:\n(?:    .*\n)*?    needs: (?:metadata|\[metadata)")
+    def test_server_release_workflows_fail_before_building_without_the_entry(self) -> None:
+        workflows = {
+            "server-zd-binary-release.yml": ("build", ("build", "checksums", "publish", "snapshot-reference")),
+            "server-zd-image-release.yml": ("smoke", ("smoke", "manifest")),
+        }
+        for name, (first_job, later_jobs) in workflows.items():
+            with self.subTest(workflow=name):
+                workflow = (DEX_ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+                metadata = workflow[workflow.index("  metadata:") : workflow.index(f"\n  {first_job}:")]
+                self.assertIn('python3 script/release/changelog_fragments.py check-ready server "${VERSION}"', metadata)
+                self.assertIn("must be merged to main before the tag", metadata)
+                self.assertIn("exit 1", metadata)
+                self.assertNotIn("::warning::", metadata)
+                for job in later_jobs:
+                    self.assertRegex(workflow, rf"\n  {job}:\n(?:    .*\n)*?    needs: (?:metadata|\[metadata)")
         result = self.run_script("check-ready", "server", "0.1.26", check=False)
         self.assertEqual(result.returncode, 1)
         self.assertIn("prepare server --version 0.1.26", result.stderr)

@@ -98,8 +98,9 @@ Merge the release-prep pull request before the tag.
 `python3 script/release/changelog_fragments.py check-ready <component> <version>`
 fails, and prints the prepare command, while the change log does not record
 the release. **Release changed components** runs it for every selected
-component before it creates any tag. The server binary release runs it on the
-tagged commit and fails before it builds or uploads anything.
+component before it creates any tag. The server binary and image releases
+run it on the tagged commit and fail before they build, upload, or push
+anything.
 
 ## Check Gate rules
 
