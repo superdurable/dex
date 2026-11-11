@@ -185,7 +185,7 @@ publish the released commit even if `main` has moved on.
 Both workflows stamp the release version first with
 [`script/stamp_agents_release_version.py`](script/stamp_agents_release_version.py).
 It sets one version in all fourteen `pyproject.toml` files (the thirteen
-published ones and `dex-agents-cli-testing`) and twelve `package.json`
+published ones and `dex-agents-cli-testing`) and thirteen `package.json`
 files, their lockfiles, and every constraint between agents packages: the
 adapters' on their core, and the CLI packages' on the core, their adapter,
 and the CLI runtime. Python pins `==<version>`; npm peer-depends on
