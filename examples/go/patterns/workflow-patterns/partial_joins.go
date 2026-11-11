@@ -194,6 +194,7 @@ func (AcceptQuotes) Execute(ctx dex.Context, input QuoteJoinInput) (*dex.StepDec
 	movements := []dex.StepMovement{
 		dex.MovementOf(PlaceOrder{}, AcceptedQuotes{Round: round.Round, AcceptedQuotes: sortedCopy(accepted)}),
 	}
+	// The last round's late quotes stay pending until the Flow closes.
 	if round.Round < round.RoundCount {
 		next := round
 		next.Round++
@@ -370,6 +371,7 @@ func (BlockingJoin) Execute(ctx dex.Context, input BlockingJoinInput) (*dex.Step
 	movements := []dex.StepMovement{
 		dex.MovementOf(ProcessRound{}, ProcessedRound{Round: round.Round, Branches: sortedCopy(fired)}),
 	}
+	// The last round's late signals stay pending until the Flow closes.
 	if round.Round < blockingJoinRoundCount {
 		next := round
 		next.Round++

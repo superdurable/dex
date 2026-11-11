@@ -537,6 +537,7 @@ func (AcceptInspections) Execute(ctx dex.Context, input InspectionJoinInput) (*d
 	movements := []dex.StepMovement{
 		dex.MovementOf(ApproveBatch{}, InspectedUnits{Round: round.Round, UnitIndexes: sortedCopy(indexes)}),
 	}
+	// The last round's late inspections stay pending until the Flow closes.
 	if round.Round < round.RoundCount {
 		next := round
 		next.Round++
