@@ -35,6 +35,8 @@ from dex_agents import (
 
 # ADK moves Parts found in a tool result into FunctionResponse.parts and drops the emptied key.
 TOOL_RESULT_IMAGES_KEY = "__dex_images__"
+# ADK's own bound on nested containers it searches for media in a tool result.
+_MAX_MEDIA_CONTAINER_DEPTH = 1
 
 
 def image_placeholder_part(reference: AgentImageReference) -> types.Part:
@@ -59,32 +61,50 @@ def extract_tool_result_images(result: object) -> tuple[object, list[bytes]]:
 
     Returns:
         The result without those Parts, and their bytes in order. A Part on
-        its own leaves ``{}``. Parts are found at the top level and as values
-        of a top-level dict or list. Other results come back unchanged.
+        its own leaves ``{}``. Parts are found where ADK finds media: at the
+        top level, as entries of a returned dict or list, and as entries of a
+        dict or list inside it. Other results come back unchanged.
     """
     image = _inline_image_bytes(result)
     if image is not None:
         return {}, [image]
+    remaining, images = _extract_container_images(result, 0)
+    if not images:
+        return result, []
+    return remaining or {}, images
+
+
+def _extract_container_images(container: object, depth: int) -> tuple[object, list[bytes]]:
     images: list[bytes] = []
-    if isinstance(result, dict):
+    if isinstance(container, dict):
         kept_items: dict[Any, Any] = {}
-        for key, value in result.items():
-            image = _inline_image_bytes(value)
-            if image is None:
-                kept_items[key] = value
-            else:
-                images.append(image)
-        return (kept_items, images) if images else (result, [])
-    if isinstance(result, list | tuple):
+        for key, value in container.items():
+            is_kept, kept = _extract_entry_images(value, images, depth)
+            if is_kept:
+                kept_items[key] = kept
+        return kept_items, images
+    if isinstance(container, list | tuple):
         kept_values: list[Any] = []
-        for value in result:
-            image = _inline_image_bytes(value)
-            if image is None:
-                kept_values.append(value)
-            else:
-                images.append(image)
-        return (kept_values, images) if images else (result, [])
-    return result, []
+        for value in container:
+            is_kept, kept = _extract_entry_images(value, images, depth)
+            if is_kept:
+                kept_values.append(kept)
+        return kept_values, images
+    return container, images
+
+
+def _extract_entry_images(value: object, images: list[bytes], depth: int) -> tuple[bool, object]:
+    image = _inline_image_bytes(value)
+    if image is not None:
+        images.append(image)
+        return False, None
+    if depth >= _MAX_MEDIA_CONTAINER_DEPTH or not isinstance(value, dict | list | tuple):
+        return True, value
+    remaining, nested_images = _extract_container_images(value, depth + 1)
+    if not nested_images:
+        return True, value
+    images.extend(nested_images)
+    return bool(remaining), remaining
 
 
 def _inline_image_bytes(value: object) -> bytes | None:

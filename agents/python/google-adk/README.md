@@ -378,11 +378,18 @@ Without a store the runner has no `build_user_message_with_images`, so
   `file_data` parts, such as `gs://` URIs, reach the model unchanged.
 - **Tool results.** A tool source returns
   `ToolExecutionResult(images=[...])`. An ADK tool returns image
-  `types.Part` values with `inline_data`, alone or as values of a returned
-  dict or list, as ADK lets any tool return media; the tool Step uploads them
-  with `put_image`, so the record holds references. The tool message stores
-  the record's images in `images`. Other media a tool returns, such as audio
-  or a `file_data` part, is encoded into the output text as before.
+  `types.Part` values with `inline_data`, found where ADK finds tool media;
+  the tool Step uploads them with `put_image`, so the record holds
+  references. An image that `put_image` refuses, such as one over
+  `MAX_IMAGE_BYTES`, fails the tool Step. The tool message stores the
+  record's images in `images`. Other media a tool returns, such as audio, a
+  `file_data` part, or a Part nested deeper than ADK looks, is encoded into
+  the output text as before.
+- **Callbacks.** When the next model call replays a result with images, the
+  result dict that `after_tool_callback`s receive also holds a
+  `__dex_images__` entry with the placeholder Parts. ADK moves them into
+  `FunctionResponse.parts`; a callback that returns a new dict without that
+  entry drops the images from the model input.
 
 ## Tracing
 
