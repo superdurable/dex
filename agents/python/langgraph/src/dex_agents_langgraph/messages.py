@@ -26,6 +26,8 @@ from langchain_core.messages import (
 )
 from pydantic_core import to_jsonable_python
 
+from dex_agents_langgraph._images import message_image_references
+
 
 def langchain_message_to_framework_message(message: BaseMessage) -> FrameworkMessage:
     """Convert one LangChain message into the item an agent session stores.
@@ -38,7 +40,8 @@ def langchain_message_to_framework_message(message: BaseMessage) -> FrameworkMes
     * ``HumanMessage`` and a ``ChatMessage`` with role ``"user"`` become
       ``MessageRole.USER`` with ``text``.
     * ``ToolMessage`` becomes ``MessageRole.TOOL`` with ``tool_call_id``,
-      ``tool_name``, and ``tool_output``.
+      ``tool_name``, ``tool_output``, and ``images``, the image references of
+      its content.
     * Every other message, including ``AIMessage`` and ``SystemMessage``,
       becomes ``MessageRole.ASSISTANT``. An ``AIMessage`` with exactly one tool
       call also sets ``tool_call_id``, ``tool_name``, and ``tool_arguments``.
@@ -60,6 +63,9 @@ def langchain_message_to_framework_message(message: BaseMessage) -> FrameworkMes
 
     Raises:
         TypeError: If a value in the message has no JSON-compatible form.
+
+    .. versionchanged:: 0.5.0
+        A ``ToolMessage`` also sets ``images``.
     """
     framework_item = json.dumps(
         message_to_dict(message), ensure_ascii=False, default=to_jsonable_python
@@ -77,6 +83,7 @@ def langchain_message_to_framework_message(message: BaseMessage) -> FrameworkMes
             tool_call_id=message.tool_call_id,
             tool_name=message.name,
             tool_output=message.text,
+            images=message_image_references(message),
         )
     text = message.text or None
     if isinstance(message, AIMessage) and len(message.tool_calls) == 1:
