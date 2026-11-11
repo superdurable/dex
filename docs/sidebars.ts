@@ -19,15 +19,16 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Get Started',
       customProps: {section: 'intro'},
-      items: ['intro/what-is-dex', 'quick-start/index', 'intro/compared-to-database'],
+      link: {type: 'doc', id: 'intro/what-is-dex'},
+      items: ['quick-start/index', 'intro/compared-to-database'],
     },
     {
       type: 'category',
       label: 'Build with AI',
       customProps: {section: 'agent-skills'},
       collapsed: false,
+      link: {type: 'doc', id: 'build-with-ai/dex-developer-skill'},
       items: [
-        'build-with-ai/dex-developer-skill',
         'build-with-ai/dex-developer-skill/dex-app-builder',
         'build-with-ai/dex-developer-skill/dex-sdk',
         'build-with-ai/dex-developer-skill/dex-connector-contributor',
@@ -42,7 +43,8 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Frameworks',
-          collapsed: false,
+          // The Durable Agents rewrite replaces these pages with framework tabs.
+          collapsed: true,
           items: [
             'agent-frameworks/built-in-agent-loop',
             'agent-frameworks/claude-agent-sdk',
