@@ -21,6 +21,8 @@ Dex Web 作为单独的进程运行。它连接 [server](/components/server) 的
 
 Dex Web 从 server 读取 Flow Definition Graph。Worker 或 **dexcli** 把它们发布到 server。Dex Web 也可以从一个目录读取 graph。这个目录是可选的。同一个 Flow type 两边都有 graph 时，以目录为准。
 
+Dex Web 单独校验每份 graph。无效的 graph 会显示它的错误。其他 Flow type 不受影响。
+
 ## 运行
 
 - **dexcli dev** 启动 Dex Web 和本地 server-zd。

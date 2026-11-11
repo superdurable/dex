@@ -18,7 +18,7 @@ Dex Web is the operator UI for Dex. It finds Flows, follows a run, shows its inp
 `dexcli visualize` produces a Flow Definition Graph from Flow source. The canvas, Designs, run Design view, Actions, the Agent session view, and Work Queue all read it.
 
 - Dex Web reads each Flow type's graph from the Dex Server. A Worker publishes the graphs it is given when it starts. `dexcli` publishes them from a script.
-- The Server keeps one graph per Flow type. A graph generated later replaces an older one. The graph only describes the Flow; it never changes how Flows run.
+- The Server keeps one graph per Flow type. A graph with a later generation time, recorded in the graph, replaces an older one, whatever the upload order. The graph only describes the Flow; it never changes how Flows run.
 - A directory of graph files is optional. When the directory and the Server both have a graph for one Flow type, the directory wins.
 - The graph names the Flow and Step types the Worker registers. Regenerate it after every Flow change and ship it with the Worker build that runs that Flow.
 - Dex Web validates each graph on its own. An invalid graph shows its error; the other Flow types keep working.
