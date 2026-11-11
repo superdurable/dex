@@ -53,9 +53,12 @@ import {
 import {
   ConnectorsMcpToolSource,
   DisabledConnectorsToolSource,
+  connectorsAccessDeniedSentence,
   connectorsUnavailableLine,
+  isConnectorsMcpAccessDenied,
   probeConnectorsMcp,
   type ConnectorToolIdentity,
+  type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
 import { resolveDexServer, type DexServerConnection } from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
@@ -460,32 +463,24 @@ class AgentCliCommand {
       throw new Error(`the connectors MCP server is unavailable: ${availability.reason}`);
     }
     const hint = this.connectorsUnavailableHint(server);
-    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore, {
-      isAvailable: availability.isAvailable,
-      writeLogLine: (line) => this.writeLogLine(line),
-      unavailableHint: hint,
-    });
     const isToolSetFixed = this.harness.isToolSetFixedAtBuild === true;
+    const describeUnavailable = (unavailability: ConnectorsMcpUnavailability): string => {
+      if (!isToolSetFixed) {
+        return connectorsUnavailableLine(unavailability, hint);
+      }
+      const lead = isConnectorsMcpAccessDenied(unavailability)
+        ? connectorsAccessDeniedSentence(unavailability.httpStatus ?? 0)
+        : "The connectors MCP server is unavailable.";
+      return `${lead} ${hint} ${this.restartForConnectorTools()}`;
+    };
+    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore, {
+      startupAvailability: availability,
+      writeLogLine: (line) => this.writeLogLine(line),
+      describeUnavailable,
+    });
     if (!availability.isAvailable) {
       this.writeLogLine(`connectors MCP server ${url} is unavailable: ${availability.reason}`);
-      this.log(
-        isToolSetFixed
-          ? `The connectors MCP server is unavailable. ${hint} ${this.restartForConnectorTools()}`
-          : connectorsUnavailableLine(hint),
-      );
-      return source;
-    }
-    if (!isToolSetFixed) {
-      let startupIdentities: ReadonlyMap<string, ConnectorToolIdentity>;
-      try {
-        startupIdentities = await source.readIdentities();
-      } catch (error: unknown) {
-        this.writeLogLine(`connectors MCP server ${url} could not be listed: ${describe(error)}`);
-        // The source prints the one unavailability line and stays quiet while the next turns fail the same way.
-        await source.listTools();
-        return source;
-      }
-      await this.reportUnauthorizedConnectors(effective, startupIdentities, server, isOpeningConnectorsPage);
+      this.log(describeUnavailable(availability));
       return source;
     }
     let identities: ReadonlyMap<string, ConnectorToolIdentity>;
@@ -493,14 +488,14 @@ class AgentCliCommand {
       identities = await source.readIdentities();
     } catch (error: unknown) {
       this.writeLogLine(`connectors MCP server ${url} could not be listed: ${describe(error)}`);
-      this.log(`The connectors MCP server could not be listed. ${hint} ${this.restartForConnectorTools()}`);
+      // The source prints the one unavailability line and stays quiet while the next turns fail the same way.
+      await source.listTools();
       return source;
     }
     await this.reportUnauthorizedConnectors(effective, identities, server, isOpeningConnectorsPage);
-    // Outside a model call the listing uses the file's configuration.
-    await source.listTools();
-    if (!source.isAvailable) {
-      this.log(`The connectors MCP server could not be listed. ${hint} ${this.restartForConnectorTools()}`);
+    if (isToolSetFixed) {
+      // Outside a model call the listing uses the file's configuration; a failure prints its one line.
+      await source.listTools();
     }
     return source;
   }

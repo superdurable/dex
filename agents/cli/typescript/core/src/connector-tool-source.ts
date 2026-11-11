@@ -96,21 +96,32 @@ export interface ConnectorToolIdentity {
  *
  * @since 0.5.0
  */
-export type ConnectorsMcpAvailability =
-  | { readonly isAvailable: true }
-  | { readonly isAvailable: false; readonly reason: string };
+export type ConnectorsMcpAvailability = { readonly isAvailable: true } | ConnectorsMcpUnavailability;
+
+/**
+ * Why a connectors MCP server does not answer.
+ *
+ * @since 0.6.0
+ */
+export interface ConnectorsMcpUnavailability {
+  readonly isAvailable: false;
+  /** The reason, with the server's own message when it sent one. */
+  readonly reason: string;
+  /** The HTTP status the server answered, or `undefined` when nothing answered. */
+  readonly httpStatus?: number;
+}
 
 /**
  * Options of {@link ConnectorsMcpToolSource}.
  *
- * A command with a log file passes `writeLogLine` and `unavailableHint`, so the terminal shows one short line when
- * the server stops answering and one when it answers again, and the errors go to the log file:
+ * A command with a log file passes `writeLogLine` and `describeUnavailable`, so the terminal shows one short line
+ * for each availability change, and the errors go to the log file:
  *
  * ```ts
  * const source = new ConnectorsMcpToolSource(url, turns, (line) => console.error(line), mediaStore, {
- *   isAvailable: (await probeConnectorsMcp(url)).isAvailable,
+ *   startupAvailability: await probeConnectorsMcp(url),
  *   writeLogLine: (line) => appendFileSync(logPath, `${line}\n`),
- *   unavailableHint: `See ${logPath} for the error.`,
+ *   describeUnavailable: (unavailability) => connectorsUnavailableLine(unavailability, `See ${logPath}.`),
  * });
  * ```
  *
@@ -118,21 +129,22 @@ export type ConnectorsMcpAvailability =
  */
 export interface ConnectorsMcpToolSourceOptions {
   /**
-   * Whether the server answered when the command started. With `false`, the first failed listing writes no terminal
-   * line, because the command already said the server is unavailable. Defaults to `true`.
+   * Whether the server answered when the command started, as {@link probeConnectorsMcp} returns it. When it did not,
+   * a listing that fails the same way writes no terminal line, because the command already printed one. Defaults to
+   * available.
    */
-  readonly isAvailable?: boolean;
+  readonly startupAvailability?: ConnectorsMcpAvailability;
   /**
    * Writes one line to the command's log file: each failed listing with its full error, and each warning of the
    * wrapped `McpToolSource`. Omitted, the terminal line of a failure carries the error, and the `McpToolSource`
-   * warnings go to `console.warn`.
+   * warnings go to `console.warn`. A callback that throws loses only that line, which then goes to `console.warn`.
    */
   readonly writeLogLine?: (line: string) => void;
   /**
-   * A sentence appended to the terminal line when the server stops answering, such as where the log file is. It is
-   * used only with `writeLogLine`. Defaults to no sentence.
+   * Returns the terminal line for a failed listing when the server stops answering, or starts or stops denying
+   * access. It is used only with `writeLogLine`. Defaults to {@link connectorsUnavailableLine} without a hint.
    */
-  readonly unavailableHint?: string;
+  readonly describeUnavailable?: (unavailability: ConnectorsMcpUnavailability) => string;
 }
 
 /** A listed tool with the MCP tool it renames. */
@@ -160,9 +172,9 @@ export class ConnectorsMcpToolSource implements ToolSource {
   private identities: { readonly expiresAt: number; readonly byToolName: ReadonlyMap<string, ConnectorToolIdentity> } =
     { expiresAt: 0, byToolName: new Map() };
   private lastListing: readonly ConnectorSourceTool[] = [];
-  private isServerAvailable: boolean;
-  private readonly writeLogLine: ((line: string) => void) | undefined;
-  private readonly unavailableHint: string | undefined;
+  private unavailability: ConnectorsMcpUnavailability | undefined;
+  private readonly logFileWriter: ((line: string) => void) | undefined;
+  private readonly describeUnavailable: (unavailability: ConnectorsMcpUnavailability) => string;
 
   /**
    * Creates the source.
@@ -181,9 +193,11 @@ export class ConnectorsMcpToolSource implements ToolSource {
     mediaStore?: MediaStore,
     options: ConnectorsMcpToolSourceOptions = {},
   ) {
-    this.isServerAvailable = options.isAvailable ?? true;
-    this.writeLogLine = options.writeLogLine;
-    this.unavailableHint = options.unavailableHint;
+    const startup = options.startupAvailability;
+    this.unavailability = startup === undefined || startup.isAvailable ? undefined : startup;
+    this.logFileWriter = options.writeLogLine;
+    this.describeUnavailable =
+      options.describeUnavailable ?? ((unavailability) => connectorsUnavailableLine(unavailability, undefined));
     this.mcp = new McpToolSource(
       [{ name: mcpServerName, transport: "streamable_http", url, trustsToolAnnotations: true }],
       {
@@ -206,14 +220,14 @@ export class ConnectorsMcpToolSource implements ToolSource {
     try {
       [tools, identities] = await Promise.all([this.mcp.listTools(), this.readIdentities()]);
     } catch (error: unknown) {
-      this.reportListingFailure(describeError(error));
+      await this.reportListingFailure(describeError(error));
       this.lastListing = [];
       return [];
     }
-    if (!this.isServerAvailable) {
+    if (this.unavailability !== undefined) {
       this.log("Connector tools are available again.");
-      this.writeLogLine?.(`connectors MCP server ${this.url} is available again`);
-      this.isServerAvailable = true;
+      this.writeLogLine(`connectors MCP server ${this.url} is available again`);
+      this.unavailability = undefined;
     }
     const listed: ConnectorSourceTool[] = [];
     for (const tool of tools) {
@@ -231,7 +245,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * @since 0.5.0
    */
   public get isAvailable(): boolean {
-    return this.isServerAvailable;
+    return this.unavailability === undefined;
   }
 
   /**
@@ -435,19 +449,41 @@ export class ConnectorsMcpToolSource implements ToolSource {
     return byToolName;
   }
 
-  /** Logs every failure; the terminal gets one line only when the server stops answering. */
-  private reportListingFailure(reason: string): void {
-    const wasAvailable = this.isServerAvailable;
-    this.isServerAvailable = false;
-    if (this.writeLogLine === undefined) {
-      if (wasAvailable) {
+  /** Logs every failure; the terminal gets one line only when the availability changes. */
+  private async reportListingFailure(reason: string): Promise<void> {
+    const previous = this.unavailability;
+    // A direct request tells a denied access from a server that is not ready.
+    const probed = await probeConnectorsMcp(this.url);
+    const httpStatus = probed.isAvailable ? undefined : probed.httpStatus;
+    const unavailability: ConnectorsMcpUnavailability = {
+      isAvailable: false,
+      reason,
+      ...(httpStatus === undefined ? {} : { httpStatus }),
+    };
+    this.unavailability = unavailability;
+    const hasChanged =
+      previous === undefined || isConnectorsMcpAccessDenied(previous) !== isConnectorsMcpAccessDenied(unavailability);
+    if (this.logFileWriter === undefined) {
+      if (hasChanged) {
         this.log(`Connector tools are unavailable for now: ${reason}`);
       }
       return;
     }
     this.writeLogLine(`connectors MCP server ${this.url} is unavailable: ${reason}`);
-    if (wasAvailable) {
-      this.log(connectorsUnavailableLine(this.unavailableHint));
+    if (hasChanged) {
+      this.log(this.describeUnavailable(unavailability));
+    }
+  }
+
+  /** Writes to the log file; a failing writer sends the line to `console.warn` instead. */
+  private writeLogLine(line: string): void {
+    if (this.logFileWriter === undefined) {
+      return;
+    }
+    try {
+      this.logFileWriter(line);
+    } catch (error: unknown) {
+      console.warn(`${line} (the log line could not be written: ${describeError(error)})`);
     }
   }
 
@@ -608,10 +644,18 @@ export async function probeConnectorsMcp(url: string): Promise<ConnectorsMcpAvai
     return { isAvailable: true };
   }
   if (response.status === 404) {
-    return { isAvailable: false, reason: `${url} serves no MCP server (HTTP 404); dexcli dev serves one from dexcli 1.43` };
+    return {
+      isAvailable: false,
+      reason: `${url} serves no MCP server (HTTP 404); dexcli dev serves one from dexcli 1.43`,
+      httpStatus: 404,
+    };
   }
   const reason = body.trim().slice(0, 500);
-  return { isAvailable: false, reason: `${url} answered HTTP ${response.status}${reason === "" ? "" : `: ${reason}`}` };
+  return {
+    isAvailable: false,
+    reason: `${url} answered HTTP ${response.status}${reason === "" ? "" : `: ${reason}`}`,
+    httpStatus: response.status,
+  };
 }
 
 /**
@@ -703,10 +747,49 @@ function throwWhenDisabled(toolCall: AgentToolCall): void {
   }
 }
 
-/** The terminal line for connector tools that each turn tries again, with an optional hint sentence. */
-export function connectorsUnavailableLine(hint: string | undefined): string {
-  const line = "Connector tools are unavailable for now; each turn tries again.";
+/**
+ * Returns the terminal line for connector tools that each turn tries again, with an optional hint sentence.
+ *
+ * A server that denied access gets a line saying so, because retrying does not help until its access settings change.
+ *
+ * @param unavailability - Why the server does not answer.
+ * @param hint - A sentence to append, such as where the log file is.
+ * @returns The line.
+ * @since 0.6.0
+ */
+export function connectorsUnavailableLine(
+  unavailability: ConnectorsMcpUnavailability,
+  hint: string | undefined,
+): string {
+  const line = isConnectorsMcpAccessDenied(unavailability)
+    ? `Connector tools are unavailable. ${connectorsAccessDeniedSentence(unavailability.httpStatus ?? 0)}`
+    : "Connector tools are unavailable for now; each turn tries again.";
   return hint === undefined ? line : `${line} ${hint}`;
+}
+
+/**
+ * Returns the sentence that says the server denied access and what to check.
+ *
+ * @param httpStatus - The HTTP status, 401 or 403.
+ * @returns The sentence.
+ * @since 0.6.0
+ */
+export function connectorsAccessDeniedSentence(httpStatus: number): string {
+  return (
+    `The connectors MCP server denied access (HTTP ${httpStatus}). ` +
+    "Check its access settings and that connectors.mcp names the right server."
+  );
+}
+
+/**
+ * Returns whether the server answered HTTP 401 or 403.
+ *
+ * @param unavailability - Why the server does not answer.
+ * @returns Whether it denied access.
+ * @since 0.6.0
+ */
+export function isConnectorsMcpAccessDenied(unavailability: ConnectorsMcpUnavailability): boolean {
+  return unavailability.httpStatus === 401 || unavailability.httpStatus === 403;
 }
 
 function describeError(error: unknown): string {

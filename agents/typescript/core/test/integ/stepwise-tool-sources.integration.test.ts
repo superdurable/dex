@@ -387,6 +387,23 @@ describe("tool source routing, policies, listing failures, and name collisions",
     );
   });
 
+  test("a logWarning callback that throws does not fail listTools", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stepwise-throwing-warning-"));
+    const refusingLog = join(directory, "refusing.log");
+    const source = new McpToolSource(
+      [{ transport: "stdio", name: "refusing", command: writeLaunchScript(join(directory, "refusing"), refusingLog, "exit 1") }],
+      {
+        connectionTimeoutMs: 3_000,
+        connectionAttempts: 1,
+        logWarning: () => {
+          throw new Error("the disk is full");
+        },
+      },
+    );
+    assert.deepEqual(await source.listTools(), []);
+    assert.equal(launches(refusingLog), 1);
+  });
+
   test("a hanging source is bounded per model call", async () => {
     const runner = new BuiltinLoopAgentRunner({
       name: "agent",

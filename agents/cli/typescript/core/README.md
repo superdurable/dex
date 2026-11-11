@@ -306,7 +306,8 @@ lists the server again, so its tools appear once it is ready. The terminal
 shows one short line when connector tools become unavailable, naming the log
 file `~/.dex/agents/<harness>.log` and the Dex Web Connectors page, and one
 line when they are available again. Each failed listing and its error go to
-the log file only. An explicit `connectors.mcp` URL that is not available
+the log file only. A server that answers HTTP 401 or 403 gets a line saying it
+denied access, so check its access settings and `connectors.mcp`. An explicit `connectors.mcp` URL that is not available
 stops the command. A server that answers `initialize` but cannot be listed
 only warns, whichever URL names it.
 
@@ -314,7 +315,7 @@ A harness whose runner fixes its tools when the Flow is built declares
 `isToolSetFixedAtBuild: true`. The CLI core then lists the connector tools the
 file enables before it builds the Flow, so the connector source's
 `cachedTools()` holds them. When the server does not answer at startup, or
-that listing fails, the warning says the run has no connector tools and to
+that listing fails, one warning says the run has no connector tools and to
 restart the command once the server answers. Every TypeScript adapter lists
 its tool sources in each model call, so none of the TypeScript commands sets
 it; the Python CLI core's `is_tool_set_fixed_at_build` is the same switch.

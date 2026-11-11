@@ -40,6 +40,10 @@ export class FakeConnectorsMcpServer {
   public unavailableReason: string | undefined;
   /** When set, `initialize` still answers but every other request answers 503 with this reason. */
   public listingFailureReason: string | undefined;
+  /** How many `tools/list` requests still answer while `listingFailureReason` is set. */
+  public listingsBeforeFailure = 0;
+  /** When set, every request answers this HTTP status, such as 401 for an endpoint that needs credentials. */
+  public accessDeniedStatus: number | undefined;
   /** The connection that `slack_post_thread_reply` names; tests rebind it. */
   public slackConnection = "support-slack";
   /** The connection that the `reports_long_report` task tool names; tests rebind it. */
@@ -55,12 +59,18 @@ export class FakeConnectorsMcpServer {
   public async start(): Promise<string> {
     this.server = createServer((request, response) => {
       void (async () => {
+        if (this.accessDeniedStatus !== undefined) {
+          response.writeHead(this.accessDeniedStatus, { "content-type": "text/plain" }).end("access denied");
+          return;
+        }
         if (this.unavailableReason !== undefined) {
           response.writeHead(503, { "content-type": "text/plain" }).end(this.unavailableReason);
           return;
         }
         const body = await readJsonBody(request);
-        if (this.listingFailureReason !== undefined && !isInitializeRequest(body)) {
+        if (this.listingFailureReason !== undefined && isToolsListRequest(body) && this.listingsBeforeFailure > 0) {
+          this.listingsBeforeFailure -= 1;
+        } else if (this.listingFailureReason !== undefined && !isInitializeRequest(body)) {
           response.writeHead(503, { "content-type": "text/plain" }).end(this.listingFailureReason);
           return;
         }
@@ -215,6 +225,10 @@ function identityMeta(connector: string, connection: string, operation: string):
     [connectorToolMetaKeys.operationName]: canonicalOperationName(operation),
     [connectorToolMetaKeys.connectorVersion]: "1.0.0",
   };
+}
+
+function isToolsListRequest(body: unknown): boolean {
+  return typeof body === "object" && body !== null && (body as { method?: unknown }).method === "tools/list";
 }
 
 function isInitializeRequest(body: unknown): boolean {

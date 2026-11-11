@@ -227,16 +227,20 @@ read, and caches them for the harness:
   `Connector tools are available again` when that changes. The warning
   names the log file `~/.dex/agents/<harness>.log` and the Dex Web
   Connectors page; each failed listing and its error go to the log file
-  only. An explicit `connectors.mcp` URL
-  that does not answer stops the command with exit code 1. A server that
-  answers `initialize` but cannot be listed only warns, whichever URL names
-  it.
+  only. A server that answers HTTP 401 or 403 gets a line saying it denied
+  access, so check its access settings and `connectors.mcp`. An explicit
+  `connectors.mcp` URL that does not answer stops the command with exit
+  code 1. A server that answers `initialize` but cannot be listed only warns,
+  whichever URL names it.
+- When `~/.dex/agents` cannot be created or `<harness>.log` cannot be
+  written, the command prints `Logging is off` with the reason and runs
+  without a log file.
 - A harness whose runner fixes its tools when it is built, such as the OpenAI
   Agents SDK command, declares `is_tool_set_fixed_at_build = True`. It offers
   only the connector tools of the startup listing; session settings still
-  narrow them each turn. When the server does not answer at startup, the
-  warning says the run has no connector tools and to restart the command once
-  the server answers. A connection authorized while the command runs also
+  narrow them each turn. When the server does not answer at startup, or the
+  startup listing fails, one warning says the run has no connector tools and
+  to restart the command once the server answers. A connection authorized while the command runs also
   needs a restart.
 - An entry of `connectors.enabled` with no tool on the server has no
   authorized connection. The command prints a hint with the Dex Web

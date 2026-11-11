@@ -27,8 +27,11 @@ import {
 import {
   ConnectorsMcpToolSource,
   TurnConfigResolver,
+  connectorsUnavailableLine,
+  probeConnectorsMcp,
   resolveConfig,
   sessionActionPermission,
+  type ConnectorsMcpUnavailability,
 } from "../../src/index.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
@@ -449,7 +452,7 @@ describe("terminal chat with connectors and session settings", () => {
       new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined)),
       (line) => lines.push(line),
       undefined,
-      { writeLogLine: (line) => logLines.push(line), unavailableHint: "See the log file." },
+      { writeLogLine: (line) => logLines.push(line), describeUnavailable: describeWithLogHint },
     );
     connectors.unavailableReason = "the connectors MCP server is starting";
     try {
@@ -468,11 +471,79 @@ describe("terminal chat with connectors and session settings", () => {
       description: "the connector tools to return",
       timeoutMs: 60_000,
     });
-    assert.deepEqual(lines, [
-      "Connector tools are unavailable for now; each turn tries again. See the log file.",
-      "Connector tools are available again.",
-    ]);
+    const unavailable = "Connector tools are unavailable for now; each turn tries again. See the log file.";
+    assert.deepEqual(lines, [unavailable, "Connector tools are available again."]);
     assert.equal(source.isAvailable, true);
+
+    // A second outage and recovery print one line each way again. The cached identities expire first.
+    connectors.unavailableReason = "the connectors MCP server restarts";
+    try {
+      await pollUntil(async () => ((await source.listTools()).length === 0 ? true : undefined), {
+        description: "the connector tools to go",
+        timeoutMs: 90_000,
+      });
+      assert.deepEqual(await source.listTools(), []);
+    } finally {
+      connectors.unavailableReason = undefined;
+    }
+    await pollUntil(async () => ((await source.listTools()).length > 0 ? true : undefined), {
+      description: "the connector tools to return again",
+      timeoutMs: 60_000,
+    });
+    assert.ok((await source.listTools()).length > 0);
+    assert.deepEqual(lines, [unavailable, "Connector tools are available again.", unavailable, "Connector tools are available again."]);
+  });
+
+  test("a server unavailable at startup prints only that its tools are available again", async () => {
+    const effective = resolveConfig({ connectors: { mcp: connectorsUrl } }, "builtin", "scripted/default");
+    const lines: string[] = [];
+    connectors.unavailableReason = "the connectors MCP server is starting";
+    let source: ConnectorsMcpToolSource;
+    try {
+      const startupAvailability = await probeConnectorsMcp(connectorsUrl);
+      assert.equal(startupAvailability.isAvailable, false);
+      // The command already printed the startup line for this failure.
+      source = new ConnectorsMcpToolSource(
+        connectorsUrl,
+        new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined)),
+        (line) => lines.push(line),
+        undefined,
+        { startupAvailability, writeLogLine: () => undefined, describeUnavailable: describeWithLogHint },
+      );
+      assert.deepEqual(await source.listTools(), []);
+      assert.deepEqual(lines, []);
+    } finally {
+      connectors.unavailableReason = undefined;
+    }
+    await pollUntil(async () => ((await source.listTools()).length > 0 ? true : undefined), {
+      description: "the connector tools to return",
+      timeoutMs: 60_000,
+    });
+    assert.ok((await source.listTools()).length > 0);
+    assert.deepEqual(lines, ["Connector tools are available again."]);
+  });
+
+  test("a server that denies access prints one line that says so", async () => {
+    const effective = resolveConfig({ connectors: { mcp: connectorsUrl } }, "builtin", "scripted/default");
+    const lines: string[] = [];
+    const source = new ConnectorsMcpToolSource(
+      connectorsUrl,
+      new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined)),
+      (line) => lines.push(line),
+      undefined,
+      { writeLogLine: () => undefined, describeUnavailable: describeWithLogHint },
+    );
+    connectors.accessDeniedStatus = 401;
+    try {
+      assert.deepEqual(await source.listTools(), []);
+      assert.deepEqual(await source.listTools(), []);
+    } finally {
+      connectors.accessDeniedStatus = undefined;
+    }
+    assert.deepEqual(lines, [
+      "Connector tools are unavailable. The connectors MCP server denied access (HTTP 401). " +
+        "Check its access settings and that connectors.mcp names the right server. See the log file.",
+    ]);
   });
 
   test("a Worker whose file now switches shell off refuses a shell Step that another process requested", async () => {
@@ -557,4 +628,8 @@ describe("terminal chat with connectors and session settings", () => {
 interface StartedPayload {
   readonly flowType: string;
   readonly initialStart: { readonly stepInput: { readonly start_environment: Record<string, string> } };
+}
+
+function describeWithLogHint(unavailability: ConnectorsMcpUnavailability): string {
+  return connectorsUnavailableLine(unavailability, "See the log file.");
 }

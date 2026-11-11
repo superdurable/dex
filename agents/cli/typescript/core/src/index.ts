@@ -62,6 +62,7 @@ export {
   ConnectorsMcpToolSource,
   DisabledConnectorsToolSource,
   connectorToolMetaKeys,
+  connectorsUnavailableLine,
   expectedIdentityMetaKeys,
   isConnectorToolEnabledBy,
   listConnectorToolIdentities,
@@ -69,6 +70,7 @@ export {
   type ConnectorToolIdentity,
   type ConnectorsMcpAvailability,
   type ConnectorsMcpToolSourceOptions,
+  type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
 export { pinnedDexcliVersion, resolveDexcliExecutable } from "./dexcli-binary.js";
 export {

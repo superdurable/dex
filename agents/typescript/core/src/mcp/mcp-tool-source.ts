@@ -241,6 +241,9 @@ export interface McpToolSourceOptions {
    * keeps failing warns again on each retry, so an application with a terminal can send the warnings to a log file
    * instead. Defaults to `console.warn`.
    *
+   * The callback must not throw. If it does, the source catches the error, writes the warning and the error to
+   * `console.warn`, and keeps working, so a full disk does not fail `listTools()` or a tool call.
+   *
    * ```ts
    * const source = new McpToolSource(servers, {
    *   logWarning: (message) => appendFileSync("agent.log", `${message}\n`),
@@ -531,7 +534,7 @@ export class McpToolSource {
     this.connector = new McpConnector(
       { name: options.clientName ?? "dex-agents", version: dexAgentsVersion() },
       this.connectionTimeoutMs,
-      options.logWarning ?? ((message: string) => console.warn(message)),
+      warningLoggerFallingBackToConsole(options.logWarning),
     );
     this.resourceAndPromptTools =
       options.resourceAndPromptToolsEnabled === true && serversByName.size > 0
@@ -1724,6 +1727,22 @@ function taskPollIntervalMs(task: Task): number {
     return defaultTaskPollIntervalMs;
   }
   return Math.min(Math.max(task.pollInterval, minimumTaskPollIntervalMs), maximumTaskPollIntervalMs);
+}
+
+/** Wraps an application's warning callback so that a throwing callback falls back to `console.warn`. */
+function warningLoggerFallingBackToConsole(
+  logWarning: ((message: string) => void) | undefined,
+): (message: string) => void {
+  if (logWarning === undefined) {
+    return (message) => console.warn(message);
+  }
+  return (message) => {
+    try {
+      logWarning(message);
+    } catch (error: unknown) {
+      console.warn(`${message} (logWarning failed: ${describeError(error)})`);
+    }
+  };
 }
 
 async function cancelTaskQuietly(

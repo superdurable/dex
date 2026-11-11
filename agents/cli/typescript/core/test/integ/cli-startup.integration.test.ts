@@ -164,7 +164,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\n`);
       const cli = start(home);
       await cli.waitForSession();
-      await cli.stderr.waitFor("The connectors MCP server could not be listed. See ");
+      await cli.stderr.waitFor("The connectors MCP server is unavailable. See ");
       await cli.stderr.waitFor(
         "dex-agents-scripted fixes its tools when it starts, so this run has no connector tools. " +
           "Restart it once the connectors MCP server answers.",
@@ -173,6 +173,30 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       assert.equal(await cli.waitForExit(), 0);
     } finally {
       connectors.listingFailureReason = undefined;
+    }
+  });
+
+  test("a harness that fixes its tools at build prints one line when its first listing fails", async () => {
+    // The startup catalog read lists; the listing that fixes the tools then fails.
+    connectors.listingFailureReason = "the catalog is not ready";
+    connectors.listingsBeforeFailure = 1;
+    try {
+      const home = new TestHome(enginePorts(engine), fixedToolSetScriptedHarness);
+      home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\nlocal_tools: {browser: false}\n`);
+      const cli = start(home);
+      await cli.waitForSession();
+      cli.writeLine("hello");
+      await cli.stdout.waitFor("echo: hello");
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+      const connectorLines = (cli.stdout.all + cli.stderr.all)
+        .split("\n")
+        .filter((line) => /Connector tools|MCP server|tool listing/i.test(line));
+      assert.equal(connectorLines.length, 1, cli.stderr.all);
+      assert.match(connectorLines[0] ?? "", /^The connectors MCP server is unavailable\. See .* Restart it once the connectors MCP server answers\.$/);
+    } finally {
+      connectors.listingFailureReason = undefined;
+      connectors.listingsBeforeFailure = 0;
     }
   });
 
@@ -189,7 +213,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       assert.equal(await cli.waitForExit(), 0);
       const connectorLines = cli.stderr.all.split("\n").filter((line) => line.includes("Connector tools are unavailable"));
       assert.equal(connectorLines.length, 1, cli.stderr.all);
-      assert.match(connectorLines[0] ?? "", /the catalog is not ready/);
+      assert.doesNotMatch(cli.stderr.all, /the catalog is not ready/);
       const logFile = readFileSync(join(home.directory, ".dex", "agents", "scripted.log"), "utf8");
       assert.match(logFile, /connectors MCP server \S+ could not be listed: .*the catalog is not ready/);
     } finally {
