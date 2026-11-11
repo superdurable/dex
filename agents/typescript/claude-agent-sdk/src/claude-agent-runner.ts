@@ -127,7 +127,7 @@ export interface ClaudeAgentOptionsContext {
  * `env`, it passes a copy of `process.env`, which may already set it. The value is the effective
  * `CLAUDE_CONFIG_DIR`, or `""` without one. The SDK resumes a session from a temporary `CLAUDE_CONFIG_DIR`, and
  * the variable keeps the CLI on the login that the Claude Code subscription stored, such as the macOS Keychain
- * entry. Changed in 0.6.0: the adapter sets `CLAUDE_SECURESTORAGE_CONFIG_DIR`, so a later turn keeps a Claude
+ * entry. Changed in 0.5.1: the adapter sets `CLAUDE_SECURESTORAGE_CONFIG_DIR`, so a later turn keeps a Claude
  * Code subscription login.
  */
 export type ClaudeAgentQueryOptions = Omit<
