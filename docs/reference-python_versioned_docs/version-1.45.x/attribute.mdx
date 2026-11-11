@@ -1,0 +1,34 @@
+---
+id: attribute
+title: Attribute
+sidebar_label: Attribute
+---
+
+# Attribute
+
+This page lists the Python SDK names for [Attributes](/concepts/primitives/attribute).
+The doc comment of each API gives its parameters, defaults, and errors. Read
+them in the [Python SDK API reference](./index.mdx#api-reference).
+
+## API names {#api-names}
+
+| Task | Python API | Dex behavior |
+| --- | --- | --- |
+| Define a singleton Attribute | **Attribute** | [Attributes](/reference/server/runtime-data#attributes) |
+| Define an AttributeMap | **AttributeMap** | [Attributes](/reference/server/runtime-data#attributes) |
+| Declare it in the Flow | **PersistenceSchema.of**, returned from **get_persistence_schema** | [Flow definition](./flow.mdx#flow-definition) |
+| Read, write, and delete a value in a Step or RPC | **get**, **set**, and **delete** | [Commits](./step.mdx#commit-boundary) |
+| Address one AttributeMap instance | **AttributeMap.instance**, or the instance key argument of **get**, **set**, and **delete** | [Attributes](/reference/server/runtime-data#attributes) |
+| Count AttributeMap instances and list their keys | **AttributeMap.get_map_size** and **AttributeMap.get_all_instance_keys** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Load AttributeMap values for a method | **AttributeMap.load**, with the load fields of **StepOptions** or **@rpc** | [Selective state loading](./step-options.mdx#selective-state-loading) |
+| Lock a value for a read-modify-write | **lock**, with the lock fields of **StepOptions** or **lock_attributes** of **@rpc** | [Locks](/reference/server/runtime-data#attribute-locks) |
+| Index a value for search | **AttributeIndex** and **IndexType** | [Indexes](/reference/server/runtime-data#attribute-indexes) |
+| Project writes to an Attribute Store | **sync_to_attribute_store** | [Attribute sync](/reference/server/attribute-store-sync) |
+| Store a value that can be erased | **hard_delete_on_null** | [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes) |
+| Set a value when the Flow starts | **StartFlowOptions.with_attribute** | [Attributes at start](./start-flow-options.mdx#attributes) |
+| Read values from outside the Flow | **Client.get_attributes** | [Read Attributes](/reference/server/runtime-client#read-attributes) |
+| Wait until a value matches | **Client.wait_for_attribute_match** | [Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match) |
+
+## Example {#example}
+
+Example: [examples/python/dex_examples/primitives/attribute/attribute_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/attribute/attribute_flow.py)

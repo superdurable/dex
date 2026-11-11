@@ -1,0 +1,316 @@
+---
+id: start-flow-options
+title: StartFlowOptions
+sidebar_label: StartFlowOptions
+---
+
+# StartFlowOptions
+
+**StartFlowOptions** apply when a client starts a Flow or a SubFlow. They
+cannot change after the Flow starts.
+
+| Field | Purpose |
+|-------|---------|
+| **Timeout** | Flow timeout. Omit it or set zero to disable it. |
+| **TimeoutPolicy** | What happens when the Flow timeout fires. |
+| **TimeoutHandlerOptions** | How the timeout handler runs: method timeout, retry, recovery, durability, locks, and state loading. |
+| **IDReusePolicy** | Whether a start may reuse an existing Flow ID. |
+| **RequestID** | Idempotency key for retrying one start request. |
+| **AlreadyStartedOptions** | What to return when the Flow is already started. |
+| **RetryPolicy** | Not supported. server-zd rejects it with **INVALID_ARGUMENT**. See [RetryPolicy](#retry-policy). |
+| **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
+| **Attributes** | Initial Attribute values. |
+| **FlowConfig** | Per-run Flow configuration, sent as **ConfigOverride**. |
+
+For an application-defined outcome at the Flow deadline, see
+[Graceful Timeout](/design-patterns/failure-handling/graceful-timeout).
+
+```java
+private static StartFlowOptions exampleStartFlowOptions() {
+    return StartFlowOptions.newBuilder()
+            .timeout(Duration.ofMinutes(30))
+            .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
+            .idReusePolicy(IdReusePolicy.DISALLOW)
+            .addAttribute(ExampleFlow.status, "queued")
+            .configOverride(
+                    FlowConfig.newBuilder()
+                            .stepDurability(StepDurability.SYNC)
+                            .build())
+            .ignoreAlreadyStarted(true)
+            .requestId("start-order-123")
+            .build();
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java)
+
+## Timeout and TimeoutPolicy {#timeout-and-timeout-policy}
+
+**Timeout** is one durable timer for the whole Flow. Set **TimeoutPolicy** only
+when **Timeout** is positive.
+
+- **FAIL**: fail the Flow with a timeout error.
+- **CANCEL**: cancel the Flow. It does not retry.
+- **HANDLER**: run the Flow's timeout handler. Flow-level retry does not
+  exist, so the handler runs once per Flow run. Its own retry policy can make
+  several attempts.
+
+With a positive **Timeout**, the SDK defaults to **FAIL**, or to **HANDLER**
+when the Flow has a timeout handler. **HANDLER** is invalid for a Flow without
+one.
+
+With a **Timeout** of 0, the Flow has no timeout. A Step that no Worker takes
+then waits forever. A SubFlow without a timeout behaves the same way. With a
+positive **Timeout**, **FAIL** and **CANCEL** end the wait when the timeout
+fires.
+
+**TimeoutHandlerOptions** is valid only with a positive **Timeout** and the
+**HANDLER** policy, whether you set it or it is the default. Its fields work
+as they do for **Execute**:
+
+- A method timeout limits each attempt.
+- **Retry** can run several attempts.
+- **HeartbeatTimeout** detects a stalled attempt.
+- **Failure** can send the Flow to a registered Step that takes no input once
+  the handler's retries are exhausted. That recovery Step receives null or unit
+  input and reads the handler's final error from its **Context**.
+
+A **HANDLER** timeout does not end the wait of Steps in the task queue. The
+timeout handler also waits in the queue until a Worker takes it. Dex tries to
+dispatch it before other queued Steps, but does not guarantee that order. As
+for any Step, the handler's method timeout starts when Dex sends an attempt to a
+Worker, and its **TotalDuration** starts when Dex first hands attempt 1 to a
+Worker. So its attempts can run past the Flow deadline. If the handler's
+retries are exhausted and no failure target is set, the Flow fails.
+
+The handler receives ordinary Attributes and every Channel's size metadata.
+To load AttributeMap values or pending Channel messages, select them in
+**TimeoutHandlerOptions**. See
+[Selective state loading](./step-options.mdx#selective-state-loading). Along
+with its decision, the handler can write Attributes, delete Channel messages,
+and publish to Channels.
+
+With the **HANDLER** policy, Dex runs this code when the timeout fires. It
+records why the Flow ended, then fails the Flow with an application reason.
+
+```java
+@Override
+public StepDecision handleTimeout(final Context context) {
+    status.set(context, "timed out");
+    return StepDecision.forceFail("processing deadline reached");
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java)
+
+## Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
+
+**IDReusePolicy** says what to do when this Flow ID already exists.
+**RequestID** says whether this call retries the same start request.
+
+<a id="how-these-options-work-together"></a>
+<a id="这些选项如何一起工作"></a>
+
+Dex applies them in this order:
+
+1. **RequestID** identifies one start request. If you omit it, the SDK
+   generates a new UUID, so each StartFlow call is a new request. Reuse a
+   RequestID only to retry the exact same start. Dex compares only the
+   RequestID, not the start input or options.
+2. If the latest run of this Flow ID was started with the same RequestID, the
+   call retries that start. The ID reuse policy does not apply, so a retry
+   never starts a second run or terminates the run it started.
+   **AlreadyStartedOptions.IgnoreError** chooses the result. On returns the
+   existing Run ID. Off returns an already-started error.
+3. Otherwise, **IDReusePolicy** decides whether the request may start another
+   run with this Flow ID. A rejected start returns an already-started error,
+   whether **IgnoreError** is on or off.
+
+| Retry request | **AlreadyStartedOptions.IgnoreError** | Result |
+|---------------|---------------------------------------|--------|
+| No **RequestID** | Off or on | The SDK sends a new UUID, so the ID reuse policy decides. A rejected start returns an already-started error. |
+| A different **RequestID** | Off or on | The ID reuse policy decides. A rejected start returns an already-started error. |
+| Same **RequestID** | Off | Dex returns an already-started error under every ID reuse policy. |
+| Same **RequestID** | On | Dex returns the existing Run ID under every ID reuse policy. |
+
+Same **RequestID** means the RequestID that started the latest run of the Flow
+ID.
+
+For a request with a new RequestID, the ID reuse policy determines whether Dex
+rejects the start:
+
+| **IDReusePolicy** | Existing active Flow | Existing closed Flow |
+|-------------------|----------------------|----------------------|
+| **IDReuseDefault** | Rejects the start. | Rejects the start. |
+| **IDReuseAllowIfPreviousFailed** | Rejects the start. | Starts a new run when the latest run failed, was canceled, or was terminated. A Flow timeout closes a run as failed or canceled under the fail or cancel timeout policy; under the handler policy, the handler's outcome decides. Rejects the start after a completed run. |
+| **IDReuseAllowIfNotRunning** | Rejects the start. | Starts a new run. |
+| **IDReuseDisallow** | Rejects the start. | Rejects the start. |
+| **IDReuseTerminateIfRunning** | Terminates the active run and starts a replacement. It does not produce an already-started error. | Starts a new run. |
+
+<a id="what-dex-server-does"></a>
+<a id="dex-server-的逻辑"></a>
+
+### What Dex Server does {#start-request-server-behavior}
+
+Dex Server requires a non-empty **RequestID**; the SDK fills one in when you
+omit it. The server records the RequestID with the Flow run.
+**IDReuseDefault** uses the server default, which rejects every Flow ID used
+before. To start a new run on a closed Flow ID, choose
+**IDReuseAllowIfNotRunning**.
+
+On each start, Dex first compares the RequestID with the one recorded on the
+latest run of the Flow ID. When they match, it returns that Run ID if
+**AlreadyStartedOptions.IgnoreError** is on, and the already-started error if
+it is off. It does not apply the ID reuse policy. When they differ, it applies
+the ID reuse policy and returns the already-started error for a rejected start.
+
+## StartFlow best practices {#start-flow-best-practices}
+
+Call **StartFlow** directly with a stable business **Flow ID**. Do not read,
+search for, or check the status of the Flow first to avoid a retry conflict.
+After a successful start, do not read the Flow back to check the identity,
+owner, or initial Attributes you supplied.
+
+To retry one start safely, combine a stable **RequestID**,
+**IDReuseDisallow**, and the ignore-already-started option. Send the same
+input and options on every retry. **IDReuseDisallow** matters because Dex
+matches a retry only against the latest run of the Flow ID. Under a policy that
+allows a new run, another request can start a newer run, and a later retry of
+the first start then counts as a new request.
+
+In the helper below, a validated integer input and a stable Flow ID are the
+only business inputs, so the RequestID is built from both. All other start
+values are fixed. In a real application, build the RequestID from every input
+that changes the operation, such as tenant, owner, mode, revision, or initial
+business Attributes. Because Dex compares only RequestIDs, a changed request
+must get a new RequestID.
+
+The helper returns the Flow ID once Dex accepts the start, and passes errors
+to the caller. It reads nothing before or after the start. The returned ID
+confirms acceptance only. It is not a snapshot of business state, and it does
+not mean the Flow has completed.
+
+```java
+    private static String startExampleFlowRequest(
+            final Client client, final ExampleFlow exampleFlow,
+            final String flowId, final int inputNum) {
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .idReusePolicy(IdReusePolicy.DISALLOW)
+                .requestId("start-example-flow:" + inputNum + ":" + flowId)
+                .ignoreAlreadyStarted(true)
+                .addAttribute(ExampleFlow.status, "queued")
+                .build();
+        client.startFlow(exampleFlow, flowId, inputNum, options);
+        return flowId;
+    }
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java)
+
+For example, starting **invoice-42** with input **7** sends RequestID
+**start-example-flow:7:invoice-42**. Retrying that call returns the same
+run, even after the run closes, as long as Dex retains it. Starting the same
+Flow ID with input **8** sends a different RequestID and returns an
+already-started error.
+
+### Wait when the response promises a business milestone {#wait-for-required-milestone}
+
+If your API response must confirm that an operation finished, call
+**WaitForAttributeMatch** or **WaitForStepCompletion** right after
+**StartFlow** returns. Do this also when Dex returned the existing run for a
+matching RequestID. A start, new or deduplicated, confirms only that Dex
+accepted it. Do not read the Flow between the start and the wait.
+
+For example, an API may promise that a row is committed to the database table
+that is the business source of truth. The Flow writes that row in **Execute**.
+Only after the database commit succeeds does it record a committed Attribute or
+complete the persistence Step. The API waits for that Attribute value, or for
+that Step's **StepExecutionID**, before it reports the row as saved.
+**WaitForStepCompletion** confirms only that the Step completed. It does not
+return the Step's output or wait for the whole Flow to finish.
+
+```text
+API → StartFlow succeeds or deduplicates → wait for the required commit milestone
+Flow Execute → commit business row to database → record committed Attribute / complete Step
+API → milestone wait succeeds → return confirmed persistence
+```
+
+Wait only for the condition that the response promises. If the response only
+acknowledges that background work was accepted, return right after the start.
+Bound each wait with a caller deadline or request timeout. A wait timeout does
+not undo the start, and it does not prove that the database write failed.
+Report the result as pending or unknown, as your API contract defines, and
+retry with the same Flow ID, RequestID, and options.
+
+See [Wait for a Step](/reference/server/runtime-client#wait-for-a-step) and
+[Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match)
+for these waits. An Attribute wait works only on an active run. If the Flow
+closes before the wait starts, handle the error the wait returns: check the
+business record, or use a read that supports closed Flows. An Attribute wait
+cannot read a closed run.
+
+### Read only when the error outcome needs it {#start-error-reconciliation}
+
+Handle errors as your API contract requires. If your API can return an
+already-started error as **ALREADY_EXISTS**, return that conflict directly. Do
+not add a read-only RPC just to handle the error. The helper above passes the
+typed error through, so you can translate it at the API boundary.
+
+Read existing state only when it changes the response or the next business
+decision. For example, an API that lets a caller continue an existing
+operation can call a typed read-only RPC after the conflict to decide whether
+that operation satisfies the request. An API that promises current state must
+read it. The initial Attributes you submitted are not current state.
+
+| Situation | Action |
+| --- | --- |
+| Start accepted; response only acknowledges acceptance | Return the Flow ID and the agreed acceptance fields. No snapshot read. |
+| Start accepted or deduplicated; response promises a critical operation | Wait for the committed Attribute condition or selected Step completion, then return that milestone outcome. |
+| Already started; business accepts **ALREADY_EXISTS** | Return the conflict. No snapshot read. |
+| Already started; business permits resuming an existing operation | Read its typed snapshot only to decide whether that contract permits resuming it. |
+| Response lost; start acceptance is unknown | Retry within a bounded policy with the same identity and options, or read authoritative state if it can establish the outcome. |
+
+Do not keep retrying a confirmed conflict. Without a stable RequestID, each SDK
+call sends a new one, so the ignore-already-started option alone does not
+deduplicate retries.
+
+### Put dependent starts inside the owning Flow {#durable-dependent-starts}
+
+For one business operation, the API starts one Flow that owns it. That Flow's
+Steps do the follow-on work. Do not start a first Flow, read its status, and
+then start a dependent Flow from the HTTP handler. If the handler's process
+exits between the two starts, nothing durable makes the second start.
+
+Use Steps when the work shares one identity and lifecycle. When the work needs
+its own top-level Flow, with its own owner and lifecycle, start that Flow from
+an **Execute** Step with a stable Flow ID, RequestID, and start options. Store
+the start input in the owning Flow. If the Worker dies after Dex accepts the
+start but before the Step commits, the Step can retry the same start without
+creating another run. Use **WaitFor** only for durable conditions. A Flow does
+not need to be a SubFlow just because another Flow starts it.
+
+```text
+API → StartFlow for the owning operation → accepted response
+Owning Flow Execute → StartFlow for separately owned work → durable progress
+Worker replacement → retry the same downstream start identity → no duplicate launch
+```
+
+## RetryPolicy {#retry-policy}
+
+server-zd does not support a Flow-level **RetryPolicy**. A start request that
+sets one fails with **INVALID_ARGUMENT**. Tracked in
+[issue 996](https://github.com/superdurable/dex/issues/996). To retry work, use
+[Step retry](./failure-and-retries.mdx#retry-and-failure-policies), which is supported.
+
+## StartDelay {#start-delay}
+
+server-zd does not support **StartDelay**. A start request with a positive
+delay fails with **INVALID_ARGUMENT**. Tracked in
+[issue 995](https://github.com/superdurable/dex/issues/995). To delay the first
+work, start the Flow without a delay and begin the start Step with a durable
+**Timer** wait.
+
+## Attributes {#attributes}
+
+**Attributes** sets initial Attribute values. Each one must match an
+Attribute or AttributeMap in the Flow persistence schema.
