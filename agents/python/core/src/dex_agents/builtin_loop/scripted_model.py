@@ -222,11 +222,16 @@ class ScriptedModelClient:
     def tool_results(request: ModelRequest) -> list[ToolResultItem]:
         """Return the tool results after the last user item of a request.
 
+        A continuation message from ``decide_turn_continuation`` is a user
+        item too. After one, this returns only the results that follow it, so
+        a script that decides from these results must also read the earlier
+        ones itself.
+
         Args:
             request: The request.
 
         Returns:
-            The current turn's tool results, oldest first.
+            The tool results after the last user item, oldest first.
         """
         results: list[ToolResultItem] = []
         for item in request.input_items:

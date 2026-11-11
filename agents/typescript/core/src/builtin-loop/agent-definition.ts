@@ -12,8 +12,70 @@ import type { ModelSpendLimit } from "../agent-session-spend-limit.js";
 import type { ToolPolicy } from "../agent-framework-runner.js";
 import type { AgentPlan, InteractionMode, SessionSettings, ToolEffect } from "../agent-session-values.js";
 import type { FunctionTool } from "./function-tool.js";
-import type { ModelClient, ModelSettings } from "./model-client.js";
+import type { ModelClient, ModelOutputItem, ModelSettings, ModelToolResultItem } from "./model-client.js";
 import type { ToolSource } from "./tool-source.js";
+
+/**
+ * The {@link TurnContinuation} that makes the model answer again within the same turn.
+ *
+ * {@link message} is the instruction for the next model call, such as what the previous answer lacked. The runner
+ * stores it in the turn as user text, so the next model request ends with a user message, which every provider
+ * accepts.
+ *
+ * @example
+ * ```ts
+ * const continuation: ContinueTurn = { action: "continue", message: "Add the order number to your answer." };
+ * ```
+ * @since 0.5.0
+ */
+export interface ContinueTurn {
+  /** Discriminator. */
+  readonly action: "continue";
+  /** Text the model receives as the next user message of the turn. It must not be blank. */
+  readonly message: string;
+}
+
+/**
+ * What {@link AgentDefinition.decideTurnContinuation} returns at the end of one loop iteration.
+ *
+ * - `"end"`: end the turn now. After tool calls, the runner makes no further model call.
+ * - {@link ContinueTurn}: store its message in the turn as user text, then call the model. After an answer
+ *   without tool calls, this makes another model call instead of ending the turn. After tool calls, the message
+ *   follows the tool results in the same model call.
+ * - `"default"`: do what the loop does without the hook: call the model again after tool calls, and end the turn
+ *   after an answer.
+ *
+ * Later releases may add more forms, so handle only the values you return.
+ *
+ * @since 0.5.0
+ */
+export type TurnContinuation = "end" | "default" | ContinueTurn;
+
+/**
+ * What {@link AgentDefinition.decideTurnContinuation} receives at the end of one loop iteration.
+ *
+ * An iteration is one model call and the tool calls it requested. The runner never stores this context.
+ *
+ * @since 0.5.0
+ */
+export interface TurnContinuationContext {
+  /** Flow ID, which is the session ID. */
+  readonly flowId: string;
+  /** Turn ID. */
+  readonly turnId: string;
+  /** The {@link SessionSettings} the turn started with. Empty when the session has none. */
+  readonly sessionSettings: SessionSettings;
+  /**
+   * The output items of this iteration's model response, in the order the model returned them. Read
+   * {@link ModelOutputItem.text} for the answer and {@link ModelOutputItem.toolCalls} for the calls.
+   */
+  readonly modelOutput: readonly ModelOutputItem[];
+  /**
+   * The results of this iteration's tool calls, in the order the model requested them. Empty when the model
+   * answered without tool calls.
+   */
+  readonly toolResults: readonly ModelToolResultItem[];
+}
 
 /**
  * How the first model call of a planning turn without a draft uses `write_todos`, as
@@ -174,4 +236,62 @@ export interface AgentDefinition {
    * @since 0.3.0
    */
   readonly spendLimit?: ModelSpendLimit;
+  /**
+   * Decides, at the end of each loop iteration, whether the turn ends or continues.
+   *
+   * Use it to stop a turn once a tool call has done the work, or to make the model try again after an answer
+   * that the application rejects. Absent, the default, the loop calls the model again after tool calls and ends
+   * the turn after an answer.
+   *
+   * The runner calls it in two places:
+   *
+   * - After a batch of tool calls, in the next `RunModel` Step, before the model call. `"end"` completes the turn
+   *   with no model call: the tool results become the turn's last messages, and the Step records zero model
+   *   calls. A {@link ContinueTurn} adds its message after the tool results, and the model call receives both.
+   *   `"default"` calls the model with the results.
+   * - After a model call that requested no tools, in the same `RunModel` Step. A {@link ContinueTurn} stores the
+   *   answer and its message as user text, then makes another model call in a new `RunModel` Step. `"end"` and
+   *   `"default"` complete the turn.
+   *
+   * The continuation message is part of the turn's transcript: the model sees it as user text, and snapshots hold
+   * it as a `user` message between the two answers. `convertAgentSnapshotToUIMessages` keeps such a message out of
+   * the chat and shows the next model call as a new step of the same assistant message, as the UI stream does.
+   *
+   * At most 8 continuations in a row may follow answers without tool calls; a tool call resets the count. The 9th
+   * ends the turn with that answer stored and the turn's `lastTurnError` set. Each continued model call counts
+   * toward {@link maxModelCallsPerTurn}.
+   *
+   * The function may be synchronous or return a Promise. It runs inside the `RunModel` attempt, so a thrown error
+   * or any other value, including a {@link ContinueTurn} with a blank message, fails that attempt, and the Step's
+   * retry policy runs it again. After an answer, that retry also repeats the model call. The function can run more
+   * than once for one iteration, so keep it free of side effects. `cancel_turn` and a steered message still end a
+   * continued turn, because the session checks them before every `RunModel` reaches the runner.
+   *
+   * @example
+   * ```ts
+   * const definition: AgentDefinition = {
+   *   name: "approvals",
+   *   instructions: "Review the request, then call submit_decision.",
+   *   model,
+   *   tools: [submitDecision],
+   *   decideTurnContinuation: ({ toolResults, modelOutput }) => {
+   *     // Once submit_decision ran, the turn is done; skip the closing model call.
+   *     if (toolResults.some((result) => result.toolName === "submit_decision")) {
+   *       return "end";
+   *     }
+   *     const answer = modelOutput.map((item) => item.text ?? "").join("");
+   *     if (toolResults.length === 0 && !answer.includes("DECISION:")) {
+   *       return { action: "continue", message: "Finish with a line that starts with DECISION:." };
+   *     }
+   *     return "default";
+   *   },
+   * };
+   * ```
+   * @param context - This iteration's model output and tool results.
+   * @returns `"end"`, `"default"`, or a {@link ContinueTurn}; see {@link TurnContinuation}.
+   * @since 0.5.0
+   */
+  readonly decideTurnContinuation?: (
+    context: TurnContinuationContext,
+  ) => TurnContinuation | Promise<TurnContinuation>;
 }
