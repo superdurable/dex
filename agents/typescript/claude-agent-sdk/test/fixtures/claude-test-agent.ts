@@ -30,6 +30,7 @@ import { FileGate, InvocationLog } from "@superdurable/dex-agents/testing";
 import { z } from "zod";
 
 import {
+  ClaudeCodeToolDenial,
   createClaudeAgentSessionFlow,
   currentDeferredToolExecution,
   type ClaudeAgentOptionsContext,
@@ -52,6 +53,37 @@ import {
   fakeLedgerConnection,
   fakeLedgerManifest,
 } from "./fake-ledger.js";
+
+/** A `Bash` command the Claude Code tool permission runs without approval. */
+export const inlineBashCommand = "echo inline";
+/** `Bash` commands with this prefix are denied by the Claude Code tool permission. */
+export const deniedBashCommandPrefix = "forbidden";
+/** The reason the Claude Code tool permission gives for a denied command. */
+export const deniedBashCommandReason = "forbidden commands never run";
+/** A `Bash` command for which the Claude Code tool permission throws. */
+export const failingPermissionBashCommand = "break the permission check";
+
+/**
+ * Runs {@link inlineBashCommand} without approval, denies commands that start with {@link deniedBashCommandPrefix},
+ * throws for {@link failingPermissionBashCommand}, and leaves every other call to the session's policies.
+ */
+function decideClaudeCodeToolPermission(
+  _turn: AgentTurnContext,
+  toolName: string,
+  toolInput: Readonly<Record<string, unknown>>,
+): ToolPolicy | ClaudeCodeToolDenial | undefined {
+  const command = toolName === "Bash" && typeof toolInput["command"] === "string" ? toolInput["command"] : "";
+  if (command === inlineBashCommand) {
+    return { effect: "non_idempotent_write", requiresApproval: false };
+  }
+  if (command.startsWith(deniedBashCommandPrefix)) {
+    return new ClaudeCodeToolDenial(deniedBashCommandReason);
+  }
+  if (command === failingPermissionBashCommand) {
+    throw new Error("the permission check broke");
+  }
+  return undefined;
+}
 
 /** Flow type of the Claude agent under test. */
 export const claudeTestAgentFlowType = "ScriptedClaudeAgent";
@@ -124,6 +156,7 @@ export function createClaudeTestAgentFlow(
       options: buildOptions,
       customTools: createTestCustomTools(stateDirectory),
       toolPolicies: testToolPolicies,
+      claudeCodeToolPermission: decideClaudeCodeToolPermission,
       toolSources: [
         createLedgerToolSource(stateDirectory),
         new HidingToolSource(stateDirectory),

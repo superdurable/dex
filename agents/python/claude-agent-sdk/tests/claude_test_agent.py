@@ -13,6 +13,9 @@
 * ``charge`` is an idempotent write through its ``idempotentHint`` annotation.
 * ``slow_write`` is a non-idempotent write without approval that waits at a gate.
 * ``Bash`` runs inside the CLI and needs approval, the default for unknown tools.
+  The Claude Code tool permission runs ``INLINE_BASH_COMMAND`` without
+  approval, denies commands that start with ``DENIED_BASH_COMMAND_PREFIX``,
+  and raises for ``FAILING_PERMISSION_BASH_COMMAND``.
 
 The fake ledger Connector's operations are source tools: ``get_balance`` is a
 Query; ``create_payout`` is a ``retry: safe`` Mutation without approval and
@@ -39,7 +42,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -79,6 +82,7 @@ from dex_agents.connectors import ConnectorToolSource, connector_tool
 from dex_agents.testing import FileGate, InvocationLog
 from dex_agents_claude_agent_sdk import (
     ClaudeAgentOptionsContext,
+    ClaudeCodeToolDenial,
     claude_agent_session_flow,
     current_deferred_tool_execution,
 )
@@ -104,6 +108,10 @@ SPEND_REPORTS_LOG_NAME = "spend-reports.jsonl"
 REWRITTEN_PUBLISH_INPUT = {"message": "rewritten"}
 RAISED_PAYOUT_AMOUNT = 500
 BASH_OUTPUT_FILE_NAME = "bash-ran.txt"
+INLINE_BASH_COMMAND = "echo inline"
+DENIED_BASH_COMMAND_PREFIX = "forbidden"
+DENIED_BASH_COMMAND_REASON = "forbidden commands never run"
+FAILING_PERMISSION_BASH_COMMAND = "break the permission check"
 ORIGINAL_BASH_COMMAND = f"echo original-input | tee {BASH_OUTPUT_FILE_NAME}"
 REWRITTEN_BASH_COMMAND = f"echo rewritten-input | tee {BASH_OUTPUT_FILE_NAME}"
 HIDE_SOURCE_TOOLS_FILE_NAME = "hide-source-tools"
@@ -156,11 +164,25 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         flow_type=CLAUDE_TEST_AGENT_FLOW_TYPE,
         tool_policies=TOOL_POLICIES,
         tool_sources=[build_connector_source(state_dir), HidingToolSource(state_dir)],
+        claude_code_tool_permission=decide_claude_code_tool_permission,
         run_model_limit=_run_model_limit_from_environment(),
         spend_limit=(
             FileSpendLimit(state_dir) if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE) else None
         ),
     )
+
+
+def decide_claude_code_tool_permission(
+    turn: AgentTurnContext, tool_name: str, tool_input: Mapping[str, Any]
+) -> ToolPolicy | ClaudeCodeToolDenial | None:
+    command = str(tool_input.get("command", "")) if tool_name == "Bash" else ""
+    if command == INLINE_BASH_COMMAND:
+        return ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False)
+    if command.startswith(DENIED_BASH_COMMAND_PREFIX):
+        return ClaudeCodeToolDenial(DENIED_BASH_COMMAND_REASON)
+    if command == FAILING_PERMISSION_BASH_COMMAND:
+        raise RuntimeError("the permission check broke")
+    return None
 
 
 def build_connector_source(state_dir: Path) -> ConnectorToolSource:

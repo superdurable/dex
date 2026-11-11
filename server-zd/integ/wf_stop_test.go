@@ -301,6 +301,7 @@ func doTestWorkflowTerminated(
 	_, err = flowClient.StartFlow(ctx, startRequest)
 	require.Equal(t, codes.AlreadyExists, status.Code(err))
 
+	startRequest.RequestId = newRequestID()
 	startRequest.FlowStartOptions.IdReusePolicy =
 		dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING
 	_, err = flowClient.StartFlow(ctx, startRequest)

@@ -27,6 +27,7 @@ from dex_agents import (
     ToolTaskPollOutcome,
 )
 from dex_agents.builtin_loop import SourceToolDefinition
+from dex_agents_cli.config import EffectiveConfig
 from dex_agents_cli.harness import LocalToolGroup
 from dex_agents_cli.local_tools.browser import BrowserSessions
 from dex_agents_cli.local_tools.files import WorkspaceFiles
@@ -254,7 +255,8 @@ class LocalToolSource:
         self._groups = groups
         self._resolver = resolver
         self._browser = browser or BrowserSessions()
-        self._last_listing: tuple[LocalToolDefinition, ...] = ()
+        # Until the first model call lists, the file's tools are cached for runners built before it.
+        self._last_listing = self._enabled_tools(resolver.file_config)
 
     @property
     def source_name(self) -> str:
@@ -275,7 +277,7 @@ class LocalToolSource:
         )
 
     def cached_tools(self) -> tuple[LocalToolDefinition, ...]:
-        """Return the last listing."""
+        """Return the last listing, or the tools the configuration file enables before it."""
         return self._last_listing
 
     async def list_tools(self) -> Sequence[SourceToolDefinition]:
@@ -283,13 +285,16 @@ class LocalToolSource:
         turn_config = current_turn_config()
         if turn_config is None:
             return ()
-        self._last_listing = tuple(
+        self._last_listing = self._enabled_tools(turn_config)
+        return self._last_listing
+
+    def _enabled_tools(self, config: EffectiveConfig) -> tuple[LocalToolDefinition, ...]:
+        return tuple(
             definition
             for definition in LOCAL_TOOL_DEFINITIONS
             if definition.group in self._groups
-            and is_local_tool_group_enabled(turn_config, definition.group)
+            and is_local_tool_group_enabled(config, definition.group)
         )
-        return self._last_listing
 
     def deferred_tool_call(
         self,

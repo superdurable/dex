@@ -138,8 +138,9 @@ The session's RPCs, persistence, events, and Flow shape are the core's; see the
 
 | Export | Purpose |
 | --- | --- |
-| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs? }` and the core's session options without `toolPolicies` |
-| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options |
+| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs?, claudeCodeToolPermission? }` and the core's session options without `toolPolicies` |
+| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs, claudeCodeToolPermission })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options |
+| `ClaudeCodeToolPermission`, `ClaudeCodeToolDenial` | A per-call decision for tools that run inside the CLI; see "Per-call decisions for Claude Code tools" |
 | `ClaudeAgentQueryOptions` | The SDK `Options` an application may set |
 | `ClaudeAgentOptionsFactory`, `ClaudeAgentOptionsContext` | Options per segment from `{ flowId, turnId, attempt }` |
 | `currentDeferredToolExecution()` | Inside a custom tool handler: the `DeferredToolExecution` of the tool Step, or `undefined` inline |
@@ -214,6 +215,23 @@ An inline `read` call runs inside `RunModel`, not in a tool Step. An error throw
 not fail `RunModel`: the custom tool server turns it into an MCP error result, and the model reads its
 text. An inline `read` tool therefore cannot ask for a `RunModel` retry. Retry transient failures
 inside the handler before it throws.
+
+### Per-call decisions for Claude Code tools
+
+A policy names a tool, so every call of `Bash` gets the same approval. `claudeCodeToolPermission`
+decides each new call of a tool that runs inside the CLI from its input instead, such as `Bash`
+commands on an allow list or file paths that must stay in one directory. The adapter calls it in its
+PreToolUse hook with the `RunModel` context, the tool's CLI name, and the input the hook receives:
+
+- a `ToolPolicy` is the call's policy; without `requiresApproval`, `non_idempotent_write` and
+  `unclassified` wait for approval;
+- `new ClaudeCodeToolDenial(reason)` denies the call, and the model sees
+  `PreToolUse:<tool> hook error: <reason>`;
+- `undefined` keeps the session's `toolPolicies` and `defaultToolEffect`;
+- a thrown error denies the call with the error's message.
+
+It is not asked about custom or source tools, or about a resumed call that already has a final
+record, and the `allowedTools` check keeps using the session's policies. Since 0.5.0.
 
 ## Tool sources and connector tools
 
