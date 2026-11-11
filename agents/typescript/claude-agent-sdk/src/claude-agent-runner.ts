@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createRequire } from "node:module";
 
 import {
   query,
@@ -37,6 +38,7 @@ import {
   type ToolCallStepOptions,
   type ToolExecutionResult,
 } from "@superdurable/dex-agents";
+import type * as OpenTelemetryApi from "@opentelemetry/api";
 import { defaultToolSourceListingTimeoutMs, type ToolSource } from "@superdurable/dex-agents/builtin-loop";
 import * as zodV3 from "zod/v3";
 import * as zodV4 from "zod/v4";
@@ -265,14 +267,14 @@ const permissionModesThatSkipTheAdapter = new Set(["acceptEdits", "auto", "bypas
 const customToolServerNamePattern = /^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*$/;
 // Claude Code keys its stored login by this directory; a store resume moves CLAUDE_CONFIG_DIR.
 const secureStorageConfigDirectoryVariable = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
-// The SDK sets or strips these itself only when `env` leaves them out.
-const sdkManagedEnvironmentVariables: ReadonlySet<string> = new Set([
-  "TRACEPARENT",
-  "TRACESTATE",
+// Without `env`, the SDK strips these from the inherited environment unless an option sets them.
+const sdkStrippedEnvironmentVariables: ReadonlySet<string> = new Set([
   "CLAUDE_CODE_QUESTION_EXTENDED",
   "CLAUDE_CODE_QUESTION_OPTIONAL_DESCRIPTIONS",
   "CLAUDE_CODE_AGENT_PROGRESS_SUMMARIES",
 ]);
+const requireFromAdapter = createRequire(import.meta.url);
+let loadedOpenTelemetryApi: typeof OpenTelemetryApi | null | undefined;
 const runningDeferredToolExecution = new AsyncLocalStorage<DeferredToolExecution>();
 
 /**
@@ -928,15 +930,55 @@ class TurnSegmentObserver {
  * Returns the CLI environment with the secure-storage directory the CLI would use without a resume.
  *
  * `env` replaces the Worker's environment for the CLI, so without one the result copies `process.env`.
- * An empty value selects Claude Code's default login.
+ * The copy leaves out the variables that the SDK strips or injects only when `env` is unset, so the
+ * CLI gets the same environment as before. An empty value selects Claude Code's default login.
  */
 function withSecureStorageConfigDirectory(applicationEnvironment: Options["env"]): NonNullable<Options["env"]> {
-  const environment =
-    applicationEnvironment === undefined
-      ? Object.fromEntries(Object.entries(process.env).filter(([name]) => !sdkManagedEnvironmentVariables.has(name)))
-      : { ...applicationEnvironment };
+  const environment = applicationEnvironment === undefined ? copyInheritedEnvironment() : { ...applicationEnvironment };
   environment[secureStorageConfigDirectoryVariable] ??= environment["CLAUDE_CONFIG_DIR"] ?? "";
   return environment;
+}
+
+/** Copies `process.env` without the variables the SDK would strip or replace in it. */
+function copyInheritedEnvironment(): NonNullable<Options["env"]> {
+  const replacedVariables = readInjectedTraceVariableNames();
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) => !sdkStrippedEnvironmentVariables.has(name.toUpperCase()) && !replacedVariables.has(name),
+    ),
+  );
+}
+
+/**
+ * Returns the variables the SDK sets from the active trace context, as the SDK propagates it.
+ *
+ * With a `traceparent` the SDK also drops inherited `TRACEPARENT` and `TRACESTATE`; otherwise they pass through.
+ */
+function readInjectedTraceVariableNames(): ReadonlySet<string> {
+  const openTelemetryApi = loadOpenTelemetryApi();
+  if (openTelemetryApi === null) {
+    return new Set();
+  }
+  const carrier: Record<string, string> = {};
+  openTelemetryApi.propagation.inject(openTelemetryApi.context.active(), carrier);
+  const variableNames = new Set(Object.keys(carrier).map((key) => key.toUpperCase()));
+  if ("traceparent" in carrier) {
+    variableNames.add("TRACEPARENT");
+    variableNames.add("TRACESTATE");
+  }
+  return variableNames;
+}
+
+function loadOpenTelemetryApi(): typeof OpenTelemetryApi | null {
+  if (loadedOpenTelemetryApi === undefined) {
+    try {
+      loadedOpenTelemetryApi = requireFromAdapter("@opentelemetry/api") as typeof OpenTelemetryApi;
+    } catch {
+      // The API is an optional peer dependency; without it no propagator is registered.
+      loadedOpenTelemetryApi = null;
+    }
+  }
+  return loadedOpenTelemetryApi;
 }
 
 function parseCustomToolArguments(
