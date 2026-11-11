@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { ToolExecutionError, type ToolEffect } from "@superdurable/dex-agents";
-import { functionTool, type FunctionTool, type ToolCallContext } from "@superdurable/dex-agents/stepwise";
+import { functionTool, type FunctionTool, type ToolCallContext } from "@superdurable/dex-agents/builtin-loop";
 
 /**
  * One part of a Pi tool result's content: text, or an image the model cannot see on Dex yet.

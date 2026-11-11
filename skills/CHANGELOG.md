@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.1.1 - 2026-11-11
+
+- Add the SubFlow naming rule to `dex-sdk` `subflow.md`: a Step whose Step type contains `-` cannot start SubFlows, because the child Flow ID joins its parts with `-`.
+
 ## 1.1.0 - 2026-11-10
 
 - Join parallel branches with the Join in `dex-sdk`. The Await parallel Steps skeleton in `patterns.md` and the Go, Python, and TypeScript pattern guidance now fork a Join, end each branch with endBranch, and wait forAllBranches, instead of counting Channel signals.

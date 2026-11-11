@@ -22,7 +22,7 @@ Tools that run inside the CLI wait for approval but cannot be recorded.
 ## Installation
 
 The package needs Python 3.11 or later. It requires `dex-agents` at the same
-version, the released `dex-python-sdk==1.38.0`, `claude-agent-sdk>=0.2.176,<0.3`,
+version, the released `dex-python-sdk==1.44.0`, `claude-agent-sdk>=0.2.176,<0.3`,
 and `mcp>=2.3,<3`. `uv.lock` pins `claude-agent-sdk` 0.2.176, which bundles
 Claude Code CLI 2.1.316:
 

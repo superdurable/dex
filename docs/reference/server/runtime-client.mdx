@@ -356,6 +356,91 @@ for the merge rules and the fields.
 **TriggerContinueAsNew** was removed in server-zd 0.1.26. See the
 [change log](/reference/server/changelog#v0-1-26).
 
+## Flow definitions {#flow-definitions}
+
+Since 0.1.26. The server stores Flow Definition Graph (FDG 2.0) JSON documents
+that Workers upload, one document for each Flow type. Dex Web reads them to
+render Flows without a definition directory. Three FlowService RPCs serve them.
+Any authenticated caller may use them; they are not admin RPCs.
+
+**UploadFlowDefinitions** stores up to 256 documents. Each item names a Flow
+type, carries the JSON bytes, and has a **generated_at** time. The request also
+carries an **uploader** string of at most 128 bytes, such as the SDK name and
+version, for diagnostics. The server decides each item on its own and returns
+one outcome for it, in request order:
+
+| Outcome | When | Write |
+| --- | --- | --- |
+| **CREATED** | No document is stored for the Flow type. | Yes |
+| **UNCHANGED** | The stored document has the same SHA-256 digest. | No |
+| **REPLACED** | The digest differs, and **generated_at** is strictly later than the stored one, or **force** is set. | Yes |
+| **KEPT_EXISTING** | Otherwise. The result reports the stored digest and **generated_at**. | No |
+
+Times compare at microsecond precision. Restarting a Worker with the same
+documents writes nothing. During a rolling deployment, an older Worker that
+starts after a newer one keeps the newer graph, because its **generated_at** is
+older. Runs that the older code starts then show the newer graph. Set
+**force** to replace a stored document whatever its **generated_at**: use it to
+roll a definition back on purpose, or to replace a document whose
+**generated_at** came from a fast clock. An identical document is still
+**UNCHANGED** with **force**.
+
+Concurrent uploads of one Flow type are safe. Each item is written with a
+conditional write and decided again when another write wins, so a newer
+document is never lost. Items are not atomic as a group: when a call fails with
+**UNAVAILABLE** partway, earlier items may already be stored. Repeating the
+call is safe.
+
+The server checks only the basics, and Dex Web validates the full graph when
+it reads it. Each of these fails the whole request with **INVALID_ARGUMENT**
+and the **FLOW_DEFINITION_INVALID** sub-status before anything is stored:
+
+- more than 256 items, or one Flow type twice;
+- an empty Flow type, one longer than **matching.maxFlowTypeLength** bytes, or
+  one whose percent-encoded object key, with **objectStore.prefix**, would be
+  longer than 1024 bytes. The check is conservative: a non-empty prefix counts
+  as its length plus one byte with every object store, so a key of exactly
+  1024 bytes may be rejected;
+- content larger than [**flowDefinitions.maxDefinitionBytes**](/reference/server/configuration#flow-definitions);
+- content that is not a JSON object, nests objects and arrays more than 128
+  levels deep, lacks a **schemaVersion** that starts with **2.**, or has a
+  **flow.name** different from the Flow type;
+- a missing **generated_at**, one outside the protobuf Timestamp range (years
+  1 to 9999), or one more than 24 hours after the server's clock;
+- an **uploader** longer than 128 bytes.
+
+The whole request must also fit in **api.grpcMaxMessageBytes**.
+
+**ListFlowDefinitions** returns the Flow types that have a stored document,
+names only, one page at a time. A page holds at most **page_size** names; 0 and
+values above 1000 mean 1000. Pass the returned page token to read the next
+page; an empty token means the last page. Tokens are opaque. Pages follow the
+order of the stored object keys, which is stable but not exactly the order of
+Flow types. Objects under the prefix that the server did not write are skipped,
+so a page can hold fewer names than **page_size**, even none, and still have a
+next page.
+
+**GetFlowDefinitions** returns the stored documents of up to 256 Flow types,
+with the digest, **generated_at**, upload time, and uploader of each. The
+content is byte for byte what was uploaded. A Flow type without a stored
+document is left out. The server reads the documents one at a time and never
+reads more than fits in one **api.grpcMaxMessageBytes** response. When they
+would not fit, the call fails with **RESOURCE_EXHAUSTED** and the
+**FLOW_DEFINITION_RESPONSE_TOO_LARGE** sub-status; request fewer Flow types.
+
+The server keeps each document in its own object under
+**PREFIX/registry/flow-definitions/**, so the documents use no server memory
+between calls. See
+[Object storage layout](/reference/server/object-storage#flow-definitions).
+There is no delete operation yet. A failure to read or write object storage
+returns **UNAVAILABLE**. A stored object that does not decode, names another
+Flow type, or has a digest that does not match its content fails Upload and
+Get for that Flow type with **INTERNAL**. A stored object larger than
+**api.grpcMaxMessageBytes** fails Upload with **INTERNAL**, and fails Get with
+**RESOURCE_EXHAUSTED** and the **FLOW_DEFINITION_RESPONSE_TOO_LARGE**
+sub-status. In [request metrics](/reference/server/metrics),
+uploads count as **flow_write**, and lists and gets as **flow_read**.
+
 ## Time travel {#time-travel}
 
 **TimeTravel** creates a new attempt of a Flow run from a point in its history.

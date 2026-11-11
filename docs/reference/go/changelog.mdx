@@ -8,6 +8,18 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Go SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.45 {#v1-45}
+
+Not released yet. The next release, sdk-go/v1.45.0, ships these changes.
+
+### Breaking
+
+- A Step whose Step type contains "-" can no longer start SubFlows. The child Flow ID joins the parent Flow ID, Step execution ID, and SubFlow index with "-", so a dash made it ambiguous. When such a Step returns a **SubFlow** Condition from **WaitFor**, Dex Server rejects the result and fails the attempt without retry. The Worker logs a warning. Default Step types are Go type names and are not affected; only a **GetStepType** override can contain "-". To migrate, change the **GetStepType** override to return a name without "-". [Reference](/reference/go/subflow#step-type-rule).
+
+### Fixed
+
+- The **Join** documentation no longer recommends reporting a result for a cancelled branch from the cancelling RPC, which could count that branch twice. A cancelled branch never reports, and no other code can safely report for it. [API reference](pathname:///api/go/latest/dex/#type-join).
+
 ## 1.44 {#v1-44}
 
 Released 2026-11-10 as [sdk-go/v1.44.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.44.0).

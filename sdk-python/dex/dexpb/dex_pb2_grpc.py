@@ -51,7 +51,8 @@ class FlowServiceStub:
     Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
     held by another RPC or a Step
     sub_status WORKER_API_ERROR
-    ResourceExhausted — message size, Stream capacity, and search scan limits
+    ResourceExhausted — message size, Stream capacity, search scan, and Flow
+    definition response limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
     Canceled          — caller canceled the RPC context
@@ -214,6 +215,21 @@ class FlowServiceStub:
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
                 response_deserializer=dex__pb2.HealthInfo.FromString,
                 _registered_method=True)
+        self.UploadFlowDefinitions = channel.unary_unary(
+                '/dex.FlowService/UploadFlowDefinitions',
+                request_serializer=dex__pb2.UploadFlowDefinitionsRequest.SerializeToString,
+                response_deserializer=dex__pb2.UploadFlowDefinitionsResponse.FromString,
+                _registered_method=True)
+        self.ListFlowDefinitions = channel.unary_unary(
+                '/dex.FlowService/ListFlowDefinitions',
+                request_serializer=dex__pb2.ListFlowDefinitionsRequest.SerializeToString,
+                response_deserializer=dex__pb2.ListFlowDefinitionsResponse.FromString,
+                _registered_method=True)
+        self.GetFlowDefinitions = channel.unary_unary(
+                '/dex.FlowService/GetFlowDefinitions',
+                request_serializer=dex__pb2.GetFlowDefinitionsRequest.SerializeToString,
+                response_deserializer=dex__pb2.GetFlowDefinitionsResponse.FromString,
+                _registered_method=True)
 
 
 class FlowServiceServicer:
@@ -241,7 +257,8 @@ class FlowServiceServicer:
     Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
     held by another RPC or a Step
     sub_status WORKER_API_ERROR
-    ResourceExhausted — message size, Stream capacity, and search scan limits
+    ResourceExhausted — message size, Stream capacity, search scan, and Flow
+    definition response limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
     Canceled          — caller canceled the RPC context
@@ -425,6 +442,66 @@ class FlowServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def UploadFlowDefinitions(self, request, context):
+        """Stores Flow Definition Graph (FDG 2.0) JSON documents, one for each Flow type.
+
+        Workers call it at startup so that Dex Web can render their Flows without
+        a definition directory. The server keeps one document for each Flow type
+        and decides each item separately. The outcome is CREATED when no document
+        was stored for the Flow type. It is UNCHANGED when the stored document has
+        the same SHA-256 digest; nothing is written then. It is REPLACED when the
+        digest differs and generated_at is strictly later than the stored
+        generated_at, compared at microsecond precision, or when force is set.
+        Otherwise it is KEPT_EXISTING: the stored document stays, and the result
+        reports its digest and generation time.
+
+        Items are independent. Concurrent uploads of one Flow type are safe: each
+        item's outcome is decided against the document stored when its write
+        commits. If the call fails partway, earlier items may already be stored;
+        repeating the call is safe and reports them as UNCHANGED.
+
+        The server checks only that each document is a JSON object of at most
+        flowDefinitions.maxDefinitionBytes, that its schemaVersion starts with
+        "2.", and that its flow.name equals flow_type. Dex Web validates the full
+        graph when it reads it.
+
+        Fails with InvalidArgument and FLOW_DEFINITION_INVALID, before storing
+        anything, for an invalid item, more than 256 items, a repeated flow_type, a
+        missing generated_at, or a generated_at more than 24 hours after the
+        server's clock. Fails with Unavailable when object storage fails; the call
+        is then safe to retry.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListFlowDefinitions(self, request, context):
+        """Lists the Flow types that have a stored definition, one page at a time.
+
+        It returns names only; call GetFlowDefinitions for content and metadata.
+        Pages follow the order of the stored object keys, which is stable but is
+        not exactly the order of Flow types. A Flow type first stored during a
+        listing may or may not appear. Fails with InvalidArgument for a negative
+        page_size or an invalid page token, and with Unavailable when object
+        storage fails.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetFlowDefinitions(self, request, context):
+        """Returns the stored Flow definitions of the requested Flow types, with content.
+
+        A requested Flow type that has no stored definition is left out of the
+        response. Fails with InvalidArgument and FLOW_DEFINITION_INVALID for no
+        Flow types, more than 256, or an invalid Flow type. Fails with
+        ResourceExhausted and FLOW_DEFINITION_RESPONSE_TOO_LARGE when the content
+        would not fit in one response message; request fewer Flow types.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_FlowServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -558,6 +635,21 @@ def add_FlowServiceServicer_to_server(servicer, server):
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                     response_serializer=dex__pb2.HealthInfo.SerializeToString,
             ),
+            'UploadFlowDefinitions': grpc.unary_unary_rpc_method_handler(
+                    servicer.UploadFlowDefinitions,
+                    request_deserializer=dex__pb2.UploadFlowDefinitionsRequest.FromString,
+                    response_serializer=dex__pb2.UploadFlowDefinitionsResponse.SerializeToString,
+            ),
+            'ListFlowDefinitions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListFlowDefinitions,
+                    request_deserializer=dex__pb2.ListFlowDefinitionsRequest.FromString,
+                    response_serializer=dex__pb2.ListFlowDefinitionsResponse.SerializeToString,
+            ),
+            'GetFlowDefinitions': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetFlowDefinitions,
+                    request_deserializer=dex__pb2.GetFlowDefinitionsRequest.FromString,
+                    response_serializer=dex__pb2.GetFlowDefinitionsResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'dex.FlowService', rpc_method_handlers)
@@ -591,7 +683,8 @@ class FlowService:
     Aborted           — InvokeRPC lock conflict: a requested Attribute lock is
     held by another RPC or a Step
     sub_status WORKER_API_ERROR
-    ResourceExhausted — message size, Stream capacity, and search scan limits
+    ResourceExhausted — message size, Stream capacity, search scan, and Flow
+    definition response limits
     DeadlineExceeded  — transport long poll or caller-visible request deadline
     sub_status LONG_POLL_TIME_OUT or REQUEST_TIMEOUT
     Canceled          — caller canceled the RPC context
@@ -1310,6 +1403,87 @@ class FlowService:
             '/dex.FlowService/HealthCheck',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             dex__pb2.HealthInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UploadFlowDefinitions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/UploadFlowDefinitions',
+            dex__pb2.UploadFlowDefinitionsRequest.SerializeToString,
+            dex__pb2.UploadFlowDefinitionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListFlowDefinitions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/ListFlowDefinitions',
+            dex__pb2.ListFlowDefinitionsRequest.SerializeToString,
+            dex__pb2.ListFlowDefinitionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetFlowDefinitions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/GetFlowDefinitions',
+            dex__pb2.GetFlowDefinitionsRequest.SerializeToString,
+            dex__pb2.GetFlowDefinitionsResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -123,6 +123,20 @@ drop the second rule.
 }
 ~~~
 
+## Flow definitions {#flow-definitions}
+
+Since 0.1.26. **UploadFlowDefinitions** stores each Flow type's document as one
+object at
+**PREFIX/registry/flow-definitions/TENANT/types/FLOW_TYPE**. TENANT is **0**.
+FLOW_TYPE is the Flow type with every byte outside letters, digits, **.**,
+**_**, and **-** percent-encoded, for example **slash/name** as
+**slash%2Fname**. The object holds the document, its SHA-256 digest, its
+generation and upload times, and the uploader. The server creates it only if
+it is absent and replaces it only if it is unchanged since the server read it.
+These objects are not part of the log or snapshots, and server versions before
+0.1.26 never read them. Back them up with the rest of the prefix. Do not add a
+lifecycle rule that expires them.
+
 ## Snapshot uploads after ownership changes
 
 The first snapshot after a takeover or restart uploads the full local checkpoint

@@ -16,12 +16,12 @@ use dexzd_log::decode_batch;
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeIndexRegistry, AttributeRecord, AttributeSyncOutboxRecord,
     ChannelMessageRecord, ChannelMetaRecord, ChannelWaiterRecord, CheckpointRecord, ClusterObject,
-    FlowCommand, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord, HistoryRowMetadata,
-    HistorySegmentRecord, HistorySegmentValueRecord, InboxDedupRecord, LocalStoreKind, LockRecord,
-    LogRecord, Manifest, NodeMeta, OutboxRecord, PartitionMeta, PermissionSetRecord,
-    RequestDedupRecord, RunRecord, SearchDocumentRecord, SnapshotManifest, StepCounterRecord,
-    StepExecutionRecord, SubFlowResultRecord, TimeTravelStagedChunk, TimerRecord, ValueBirthRecord,
-    ValueGarbageRecord, ValueRecord, flow_command, log_record,
+    FlowCommand, FlowDefinitionRecord, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord,
+    HistoryRowMetadata, HistorySegmentRecord, HistorySegmentValueRecord, InboxDedupRecord,
+    LocalStoreKind, LockRecord, LogRecord, Manifest, NodeMeta, OutboxRecord, PartitionMeta,
+    PermissionSetRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord, SnapshotManifest,
+    StepCounterRecord, StepExecutionRecord, SubFlowResultRecord, TimeTravelStagedChunk,
+    TimerRecord, ValueBirthRecord, ValueGarbageRecord, ValueRecord, flow_command, log_record,
 };
 use prost::Message;
 use xxhash_rust::xxh3::xxh3_64;
@@ -31,6 +31,7 @@ use crate::state_dump::hex;
 const CLUSTER_KEY: &str = "cluster";
 const MANIFEST_KEY: &str = "manifest";
 const ATTRIBUTE_INDEX_REGISTRY_KEY: &str = "registry/attribute-indexes";
+const FLOW_DEFINITION_PREFIX: &str = "registry/flow-definitions/";
 const LOG_PREFIX: &str = "log/";
 const SNAPSHOT_PREFIX: &str = "snapshot/";
 const HARD_DELETE_PREFIX: &str = "hard-delete/";
@@ -75,6 +76,9 @@ pub(crate) fn decode_objects(objects: &BTreeMap<String, Vec<u8>>) -> DecodedObje
         if key == ATTRIBUTE_INDEX_REGISTRY_KEY {
             AttributeIndexRegistry::decode(body.as_slice())
                 .expect("AttributeIndexRegistry decodes");
+        } else if key.starts_with(FLOW_DEFINITION_PREFIX) {
+            FlowDefinitionRecord::decode(body.as_slice())
+                .unwrap_or_else(|error| panic!("FlowDefinitionRecord {key} decodes: {error}"));
         } else if key.starts_with(LOG_PREFIX) {
             decode_log_batch(key, body, &mut decoded);
             decoded.log_batches += 1;

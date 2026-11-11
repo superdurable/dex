@@ -66,6 +66,26 @@ class ToolCallContext:
             ``ToolInputRequested``, oldest first. Empty on the first run.
         input_continuation: ``continuation`` of the last ``ToolInputRequested``,
             or ``None``.
+        effect: Effect of this call after the tool policies are applied. It
+            is the effect stored on the call, which chose ``CallTool`` or
+            ``CallSingleAttemptTool`` and the default approval. It can differ
+            from the tool's own effect when a policy in
+            ``AgentDefinition.tool_policies`` or a session policy overrides
+            it. The runner always sets it. A context built by hand, such as
+            in a unit test, defaults to ``UNCLASSIFIED``, an unknown effect;
+            handle it as a write whose outcome may be unknown. Use it in a
+            wrapper that turns errors into ``ToolExecutionError``.
+            ``NON_IDEMPOTENT_WRITE`` and ``UNCLASSIFIED`` calls run once in
+            ``CallSingleAttemptTool``. For them, let an error whose outcome
+            is unknown propagate, so the session records ``outcome_unknown``
+            and never repeats the call::
+
+                except Exception as error:
+                    if context.effect not in (ToolEffect.READ, ToolEffect.IDEMPOTENT_WRITE):
+                        raise
+                    raise ToolExecutionError(str(error)) from error
+
+            .. versionadded:: 0.5.0
     """
 
     flow_id: str
@@ -77,6 +97,7 @@ class ToolCallContext:
     heartbeat: Callable[[], Awaitable[None]]
     input_answers: Sequence[QuestionAnswer] = ()
     input_continuation: str | None = None
+    effect: ToolEffect = ToolEffect.UNCLASSIFIED
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -94,6 +115,11 @@ class FunctionTool:
         requires_approval: Whether each call waits for ``resolve_interrupt``,
             or ``None`` for the effect's default.
         function: The wrapped function.
+        prepare_arguments: Converts the model's decoded arguments before the
+            schema check, or ``None`` to check them unchanged. See
+            ``function_tool``.
+
+            .. versionadded:: 0.5.0
     """
 
     name: str
@@ -102,6 +128,7 @@ class FunctionTool:
     effect: ToolEffect
     requires_approval: bool | None
     function: Callable[..., Any]
+    prepare_arguments: Callable[[Any], Any] | None = None
     _context_parameter: str | None = None
     _parameter_types: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -128,7 +155,10 @@ class FunctionTool:
         )
 
     async def invoke(self, arguments: str, context: ToolCallContext) -> str | ToolInputRequested:
-        """Check the arguments against the schema and call the function once.
+        """Convert and check the arguments, then call the function once.
+
+        ``prepare_arguments``, when set, converts the decoded arguments before
+        the schema check.
 
         A synchronous function runs in a worker thread. A ``str`` result is the
         output. A ``ToolInputRequested`` result passes through. Any other
@@ -143,11 +173,15 @@ class FunctionTool:
             The output text, or the function's ``ToolInputRequested``.
 
         Raises:
-            ToolExecutionError: If the arguments break the schema, or the
-                function raised it. The model sees the message.
+            ToolExecutionError: If the arguments break the schema,
+                ``prepare_arguments`` raised an exception or returned an
+                awaitable, or the function raised it. The model sees the
+                message.
+            asyncio.CancelledError: If ``prepare_arguments`` raised it; it
+                passes through unchanged.
             Exception: Anything else the function raises fails the Step attempt.
         """
-        values = _parse_arguments(self.name, arguments)
+        values = _prepare_arguments(self.name, arguments, self.prepare_arguments)
         problem = _schema_violation(values, self.parameters, "arguments")
         if problem is not None:
             raise ToolExecutionError(f"invalid arguments for {self.name}: {problem}")
@@ -174,6 +208,7 @@ def function_tool(
     name: str | None = None,
     description: str | None = None,
     parameters_schema: Mapping[str, Any] | None = None,
+    prepare_arguments: Callable[[Any], Any] | None = None,
 ) -> Callable[[Callable[..., Any]], FunctionTool]:
     """Turn a plain sync or async function into a built-in agent loop tool.
 
@@ -197,6 +232,19 @@ def function_tool(
         ...     \"\"\"Look up an order by its ID.\"\"\"
         ...     return await orders.get(order_id)
 
+        A tool whose argument shape changed accepts the old shape with
+        ``prepare_arguments``:
+
+        >>> def accept_version_one(arguments: Any) -> Any:
+        ...     # Version 1 took {"id"}; version 2 takes {"order_id"}.
+        ...     if isinstance(arguments, dict) and "id" in arguments:
+        ...         return {"order_id": arguments["id"]}
+        ...     return arguments
+        >>> @function_tool(effect=ToolEffect.READ, prepare_arguments=accept_version_one)
+        ... async def get_order(order_id: str) -> str:
+        ...     \"\"\"Get an order by its ID.\"\"\"
+        ...     return await orders.get(order_id)
+
     Args:
         effect: What the tool does outside the session.
         requires_approval: Whether each call waits for approval. ``None`` uses
@@ -205,15 +253,35 @@ def function_tool(
         description: Model-visible description; defaults to the docstring.
         parameters_schema: JSON Schema object of the arguments; defaults to
             the schema derived from the type hints.
+        prepare_arguments: Converts the model's arguments before the schema
+            check, such as an argument shape that an earlier version of the
+            tool accepted. It receives the arguments decoded from JSON, which
+            may be any JSON value, and returns the arguments to check and pass
+            to the function. Any exception it raises fails the call like a
+            schema violation: the model sees ``invalid arguments for <tool>:
+            <message>``, and the function does not run. It must be
+            synchronous and deterministic, and it must have no side effects,
+            because every attempt converts the stored arguments again. An
+            awaitable result, such as from an ``async def`` function, fails
+            the call with ``invalid arguments for <tool>: argument conversion
+            must be synchronous``; a coroutine is closed without running, and
+            a Future or Task is cancelled. The stored tool call, the approval
+            interrupt, and the transcript keep the model's original arguments.
+            Defaults to none.
+
+            .. versionadded:: 0.5.0
 
     Returns:
         A decorator that returns the ``FunctionTool``.
 
     Raises:
-        TypeError: From the decorator, if a parameter type is unsupported and
-            no ``parameters_schema`` is given, or a parameter is positional-only
+        TypeError: If ``prepare_arguments`` is not callable, or, from the
+            decorator, if a parameter type is unsupported and no
+            ``parameters_schema`` is given, or a parameter is positional-only
             or variadic.
     """
+    if prepare_arguments is not None and not callable(prepare_arguments):
+        raise TypeError("function tool prepare_arguments must be callable")
 
     def decorate(function: Callable[..., Any]) -> FunctionTool:
         tool_name = name or function.__name__
@@ -252,6 +320,7 @@ def function_tool(
             effect=effect,
             requires_approval=requires_approval,
             function=function,
+            prepare_arguments=prepare_arguments,
             _context_parameter=context_parameter,
             _parameter_types=parameter_types,
         )
@@ -321,7 +390,9 @@ def _schema_for_type(annotation: Any, tool_name: str) -> dict[str, Any]:
     )
 
 
-def _parse_arguments(tool_name: str, arguments: str) -> dict[str, Any]:
+def _prepare_arguments(
+    tool_name: str, arguments: str, prepare_arguments: Callable[[Any], Any] | None
+) -> dict[str, Any]:
     try:
         values = json.loads(arguments or "{}")
     except json.JSONDecodeError:
@@ -329,9 +400,36 @@ def _parse_arguments(tool_name: str, arguments: str) -> dict[str, Any]:
         raise ToolExecutionError(
             f"invalid arguments for {tool_name}: arguments are not valid JSON"
         ) from None
+    if prepare_arguments is not None:
+        try:
+            values = prepare_arguments(values)
+        except Exception as error:
+            # Any error, so a failed conversion never retries or records outcome_unknown.
+            raise ToolExecutionError(f"invalid arguments for {tool_name}: {error}") from error
+        if inspect.isawaitable(values):
+            _discard_refused_awaitable(values)
+            raise ToolExecutionError(
+                f"invalid arguments for {tool_name}: argument conversion must be synchronous"
+            )
     if not isinstance(values, dict):
         raise ToolExecutionError(f"invalid arguments for {tool_name}: expected a JSON object")
     return values
+
+
+def _discard_refused_awaitable(awaitable: Awaitable[Any]) -> None:
+    if inspect.iscoroutine(awaitable):
+        # Closing it avoids the "never awaited" warning; it never ran.
+        awaitable.close()
+    elif asyncio.isfuture(awaitable):
+        # Cancel a running Task, and read the outcome so asyncio never logs it as unretrieved.
+        awaitable.cancel()
+        awaitable.add_done_callback(_retrieve_refused_future_outcome)
+
+
+def _retrieve_refused_future_outcome(future: asyncio.Future[Any]) -> None:
+    if not future.cancelled():
+        # The conversion was refused; its exception only needs marking as retrieved.
+        future.exception()
 
 
 _JSON_TYPE_CHECKS: Mapping[str, Callable[[object], bool]] = {

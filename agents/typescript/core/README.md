@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.38.0
+npm i @superdurable/dex-agents @superdurable/dex@1.44.0
 ```
 
-`@superdurable/dex` 1.38.0 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.44.0 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -198,7 +198,16 @@ A function tool declares its effect, which picks `CallTool` or
 model's arguments against the tool's JSON Schema before `execute` runs, and a
 mismatch or an unknown tool reaches the model as a tool failure. `execute`
 receives the arguments and a `ToolCallContext` with the idempotency key,
-attempt, events, heartbeat, and the answers to the tool's own questions. A
+attempt, events, heartbeat, the answers to the tool's own questions, and
+`effect`: the call's effect after the tool policies, which chose its tool Step.
+A wrapper that turns errors into `ToolExecutionError` lets them propagate for a
+`non_idempotent_write` or `unclassified` effect, and for an absent one, which
+only a hand-built context has. `prepareArguments`, a synchronous and deterministic function, converts the
+decoded arguments before the schema check, such as an argument shape an earlier
+version of the tool took; a throw fails the call like a schema violation, a
+cancellation passes through, and a Promise result is refused. The
+stored tool call and the approval interrupt keep the model's original
+arguments. A
 `string` result is the output, and a `ToolInputRequested` result asks the user
 first. Any other result is JSON with the separators of Python's `json.dumps`,
 so the model sees the same text as from the Python core; the one exception is a
@@ -1301,7 +1310,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.38.0 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.44.0 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or
