@@ -8,6 +8,25 @@
 
 import { createInterface, type Interface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import type { ReadStream } from "node:tty";
+
+/**
+ * Makes `setRawMode` ignore EIO. On Linux, readline restores cooked mode when a closed terminal ends input, and
+ * that EIO would otherwise end the command before it stops the dexcli dev it started.
+ */
+function ignoreRawModeErrorsOfClosedTerminal(terminal: ReadStream): void {
+  const setRawMode = terminal.setRawMode.bind(terminal);
+  terminal.setRawMode = (mode: boolean): ReadStream => {
+    try {
+      return setRawMode(mode);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === "EIO") {
+        return terminal; // The terminal is gone, so it has no mode to restore.
+      }
+      throw error;
+    }
+  };
+}
 
 /** What {@link TerminalInput.nextLine} returns when its wait was aborted. */
 export const lineWaitAborted = Symbol("lineWaitAborted");
@@ -35,6 +54,9 @@ export class TerminalInput {
   public constructor(input: Readable, output: Writable, linesTypedAhead: readonly string[] = []) {
     this.lines.push(...linesTypedAhead);
     const isTerminal = (input as { isTTY?: boolean }).isTTY === true;
+    if (isTerminal) {
+      ignoreRawModeErrorsOfClosedTerminal(input as ReadStream);
+    }
     this.readline = createInterface({ input, ...(isTerminal ? { output, terminal: true } : { terminal: false }) });
     this.readline.on("line", (line) => this.deliver(line));
     this.readline.on("close", () => {
