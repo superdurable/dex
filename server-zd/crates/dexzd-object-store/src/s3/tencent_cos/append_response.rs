@@ -6,7 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Classification of AppendObject responses and transport failures.
+//! Classification of AppendObject responses.
+
+use http_body_util::{BodyExt, Limited};
+use hyper::body::Incoming;
 
 use crate::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult};
 
@@ -28,13 +31,13 @@ pub(super) enum AppendResponse {
 /// Classifies an AppendObject response like the S3 dialects classify writes.
 ///
 /// Returns [`AppendResponse::PositionTaken`] only for HTTP 409 with a code in
-/// [`POSITION_TAKEN_CODES`]. Any other 409, HTTP 429, and throttling codes are
-/// [`ObjectStoreErrorKind::Transient`]; HTTP 5xx and an unreadable success are
-/// [`ObjectStoreErrorKind::OutcomeUnknown`]; other statuses are
-/// [`ObjectStoreErrorKind::Permanent`].
+/// [`POSITION_TAKEN_CODES`]. Every HTTP 5xx, including 503 `SlowDown`, is
+/// [`ObjectStoreErrorKind::OutcomeUnknown`], because the append may have been applied. Any
+/// other 409, HTTP 429, and 4xx throttling codes are [`ObjectStoreErrorKind::Transient`]; other
+/// statuses are [`ObjectStoreErrorKind::Permanent`].
 pub(super) async fn read_append_response(
     key: &str,
-    response: reqwest::Response,
+    response: http::Response<Incoming>,
 ) -> ObjectStoreResult<AppendResponse> {
     let status = response.status();
     if status.is_success() {
@@ -45,27 +48,21 @@ pub(super) async fn read_append_response(
             .map(str::to_owned);
         return Ok(AppendResponse::Appended { etag });
     }
-    let body = match response.bytes().await {
-        Ok(body) => body,
-        Err(error) => {
-            // A non-success status was received, so the store refused the request.
-            tracing::debug!(key, %error, "reading an AppendObject error body failed");
-            bytes::Bytes::new()
-        }
-    };
-    let text = String::from_utf8_lossy(&body[..body.len().min(MAX_ERROR_BODY_BYTES)]);
-    let code = xml_element(&text, "Code").unwrap_or("");
-    let message = xml_element(&text, "Message").unwrap_or("");
+    let (code, message) = read_error_document(key, response).await;
     let status_code = status.as_u16();
-    if status_code == 409 && POSITION_TAKEN_CODES.contains(&code) {
+    if status_code == 409 && POSITION_TAKEN_CODES.contains(&code.as_str()) {
         return Ok(AppendResponse::PositionTaken);
     }
     let kind = match status_code {
+        500..=599 => ObjectStoreErrorKind::OutcomeUnknown,
         409 | 429 => ObjectStoreErrorKind::Transient,
-        _ if matches!(code, "SlowDown" | "Throttling" | "ThrottlingException") => {
+        _ if matches!(
+            code.as_str(),
+            "SlowDown" | "Throttling" | "ThrottlingException"
+        ) =>
+        {
             ObjectStoreErrorKind::Transient
         }
-        500..=599 => ObjectStoreErrorKind::OutcomeUnknown,
         _ => ObjectStoreErrorKind::Permanent,
     };
     Err(ObjectStoreError::new(
@@ -76,20 +73,26 @@ pub(super) async fn read_append_response(
     ))
 }
 
-/// Maps a request that got no response; only a failed connection proves nothing was sent.
-pub(super) fn map_send_error(key: &str, error: &reqwest::Error) -> ObjectStoreError {
-    let kind = if error.is_builder() {
-        ObjectStoreErrorKind::Permanent
-    } else if error.is_connect() {
-        ObjectStoreErrorKind::Transient
-    } else {
-        ObjectStoreErrorKind::OutcomeUnknown
+/// Returns the code and message of an S3 error document; both are empty when it is unreadable.
+pub(super) async fn read_error_document(
+    key: &str,
+    response: http::Response<Incoming>,
+) -> (String, String) {
+    let body = match Limited::new(response.into_body(), MAX_ERROR_BODY_BYTES)
+        .collect()
+        .await
+    {
+        Ok(collected) => collected.to_bytes(),
+        Err(error) => {
+            // The status was received, so the store answered the request.
+            tracing::debug!(key, %error, "reading an error document failed");
+            bytes::Bytes::new()
+        }
     };
-    ObjectStoreError::new(
-        ObjectStoreOperation::Put,
-        key,
-        kind,
-        format!("sending AppendObject: {error}"),
+    let text = String::from_utf8_lossy(&body);
+    (
+        xml_element(&text, "Code").unwrap_or("").to_owned(),
+        xml_element(&text, "Message").unwrap_or("").to_owned(),
     )
 }
 

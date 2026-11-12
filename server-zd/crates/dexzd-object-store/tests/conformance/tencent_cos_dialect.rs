@@ -446,3 +446,181 @@ async fn tencent_cos_provider_check_rejects_metadata_written_in_place() {
     }
     emulator.shutdown().await;
 }
+
+#[tokio::test]
+async fn tencent_cos_appends_keep_dot_segments_double_slashes_and_percent_signs() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = emulator.object_store().await;
+    let keys = [
+        "dots/./same",
+        "dots/../parent",
+        "dots/tail/..",
+        "dots/tail/.",
+        "slashes//double",
+        "percent/%2E%2E/100%",
+    ];
+    for key in keys {
+        let body = Bytes::from(format!("body of {key}"));
+        assert!(
+            matches!(
+                store
+                    .put(key, body.clone(), WriteCondition::CreateOnly)
+                    .await
+                    .expect("the append succeeds"),
+                WriteOutcome::Written { .. }
+            ),
+            "{key}"
+        );
+        assert!(emulator.record(key).is_appendable, "{key}");
+        assert_eq!(
+            store
+                .get(key)
+                .await
+                .expect("get succeeds")
+                .expect("the object exists at its own key")
+                .bytes,
+            body,
+            "{key}"
+        );
+        assert_eq!(
+            store
+                .put(
+                    key,
+                    Bytes::from_static(b"again"),
+                    WriteCondition::CreateOnly
+                )
+                .await
+                .expect("a duplicate append reaches the store"),
+            WriteOutcome::PreconditionFailed,
+            "{key}"
+        );
+    }
+    // A normalized path would have written these keys instead.
+    for normalized in ["dots/same", "parent", "dots", "dots/tail", "percent/100%"] {
+        assert!(
+            store
+                .head(normalized)
+                .await
+                .expect("head succeeds")
+                .is_none(),
+            "{normalized}"
+        );
+    }
+    let listing = store.list("", None, 1000).await.expect("list succeeds");
+    assert_eq!(listing.objects.len(), keys.len(), "{:?}", listing.objects);
+    emulator.shutdown().await;
+}
+
+#[tokio::test]
+async fn tencent_cos_a_server_error_after_the_append_commits_is_an_unknown_outcome() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = emulator.object_store().await;
+    set_s3local_fault(
+        emulator.address(),
+        &format!(
+            r#"{{"operation":"AppendObject","bucket":"{BUCKET}","key_prefix":"{KEY_PREFIX}/slow/","action":{{"type":"commit_then_error","status":503}}}}"#
+        ),
+    )
+    .await;
+    let error = store
+        .put(
+            "slow/key",
+            Bytes::from_static(b"first"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect_err("a 503 SlowDown may follow a committed append");
+    assert_eq!(error.kind, ObjectStoreErrorKind::OutcomeUnknown, "{error}");
+    set_s3local_fault(emulator.address(), "").await;
+    // The caller reconciles by reading: the first body is there, and a retry writes nothing.
+    assert_eq!(
+        store
+            .get("slow/key")
+            .await
+            .expect("get succeeds")
+            .expect("the append committed")
+            .bytes,
+        Bytes::from_static(b"first")
+    );
+    assert_eq!(
+        store
+            .put(
+                "slow/key",
+                Bytes::from_static(b"second"),
+                WriteCondition::CreateOnly
+            )
+            .await
+            .expect("the retry reaches the store"),
+        WriteOutcome::PreconditionFailed
+    );
+    emulator.shutdown().await;
+}
+
+#[tokio::test]
+async fn tencent_cos_an_append_whose_key_is_recreated_before_its_etag_read_is_unknown() {
+    let emulator = TencentCosEmulator::start().await;
+    let store = Arc::new(emulator.object_store().await);
+    set_s3local_fault(
+        emulator.address(),
+        &format!(
+            r#"{{"operation":"HeadObject","bucket":"{BUCKET}","key_prefix":"{KEY_PREFIX}/recreated/","action":{{"type":"delay","milliseconds":1500}}}}"#
+        ),
+    )
+    .await;
+    let first_store = Arc::clone(&store);
+    let first = tokio::spawn(async move {
+        first_store
+            .put(
+                "recreated/key",
+                Bytes::from_static(b"first"),
+                WriteCondition::CreateOnly,
+            )
+            .await
+    });
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while store
+        .get("recreated/key")
+        .await
+        .expect("get succeeds")
+        .is_none()
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the first append landed"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    store
+        .delete("recreated/key")
+        .await
+        .expect("the first object is deleted");
+    let second_store = Arc::clone(&store);
+    let second = tokio::spawn(async move {
+        second_store
+            .put(
+                "recreated/key",
+                Bytes::from_static(b"second"),
+                WriteCondition::CreateOnly,
+            )
+            .await
+    });
+    let first = first.await.expect("the first writer completes");
+    let error = first.expect_err("the ETag read found another writer's object");
+    assert_eq!(error.kind, ObjectStoreErrorKind::OutcomeUnknown, "{error}");
+    assert!(error.detail.contains("another append"), "{error}");
+    let second = second
+        .await
+        .expect("the second writer completes")
+        .expect("the second append reads its own ETag");
+    let WriteOutcome::Written { etag } = second else {
+        panic!("the second append wrote: {second:?}");
+    };
+    let content = store
+        .get("recreated/key")
+        .await
+        .expect("get succeeds")
+        .expect("the second object exists");
+    assert_eq!(content.bytes, Bytes::from_static(b"second"));
+    assert_eq!(content.etag, etag);
+    emulator.shutdown().await;
+}

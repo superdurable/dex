@@ -46,8 +46,16 @@ fn default_probability() -> f64 {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum FaultAction {
     CommitThenDrop {},
-    Delay { milliseconds: u64 },
-    Error { status: u16 },
+    /// Lets a write commit, then answers with the error of `status` instead of its success.
+    CommitThenError {
+        status: u16,
+    },
+    Delay {
+        milliseconds: u64,
+    },
+    Error {
+        status: u16,
+    },
     MissingKeyAccessDenied {},
     FailBeforeCommit {},
     CorruptBody {},
@@ -61,14 +69,26 @@ impl FaultAction {
             Self::FailBeforeCommit {} => 500,
             _ => return None,
         };
-        let (status, code) = match status {
-            403 => (http::StatusCode::FORBIDDEN, "AccessDenied"),
-            409 => (http::StatusCode::CONFLICT, "ConditionalRequestConflict"),
-            503 => (http::StatusCode::SERVICE_UNAVAILABLE, "SlowDown"),
-            _ => (http::StatusCode::INTERNAL_SERVER_ERROR, "InternalError"),
-        };
-        Some(S3Error::new(status, code, "injected testing fault"))
+        Some(injected_error(status))
     }
+
+    /// Returns the error that replaces a committed write's success, for `commit_then_error`.
+    pub(crate) fn error_after_commit(&self) -> Option<S3Error> {
+        match self {
+            Self::CommitThenError { status } => Some(injected_error(*status)),
+            _ => None,
+        }
+    }
+}
+
+fn injected_error(status: u16) -> S3Error {
+    let (status, code) = match status {
+        403 => (http::StatusCode::FORBIDDEN, "AccessDenied"),
+        409 => (http::StatusCode::CONFLICT, "ConditionalRequestConflict"),
+        503 => (http::StatusCode::SERVICE_UNAVAILABLE, "SlowDown"),
+        _ => (http::StatusCode::INTERNAL_SERVER_ERROR, "InternalError"),
+    };
+    S3Error::new(status, code, "injected testing fault")
 }
 
 #[derive(Clone, Debug, Default, Serialize)]

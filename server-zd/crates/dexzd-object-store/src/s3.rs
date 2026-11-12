@@ -197,8 +197,7 @@ impl S3ObjectStore {
             .retry_config(RetryConfig::standard().with_max_attempts(3))
             .build();
         let read_client = Client::from_conf(read_config);
-        let tencent_cos_append_client =
-            TencentCosAppendClient::for_dialect(&config, &shared, &read_client)?;
+        let tencent_cos_append_client = TencentCosAppendClient::for_dialect(&config, &shared)?;
         let store = Self {
             client: Client::from_conf(write_config),
             read_client,

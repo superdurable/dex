@@ -8,6 +8,8 @@
 
 //! Write conditions and integrity rules that differ between the emulated S3 dialects.
 
+use std::collections::BTreeMap;
+
 use http::{HeaderMap, StatusCode};
 use s3local::WriteCondition;
 
@@ -16,6 +18,7 @@ use crate::request_headers::{header_text, write_condition};
 use crate::s3_error::S3Error;
 
 const FORBID_OVERWRITE_HEADER: &str = "x-oss-forbid-overwrite";
+const TENCENT_COS_USER_METADATA_PREFIX: &str = "x-cos-meta-";
 
 /// The write condition of a PutObject or CompleteMultipartUpload, and how its rejection is reported.
 pub(super) struct DialectWriteCondition {
@@ -101,6 +104,19 @@ pub(super) fn require_delete_objects_content_md5(
             "Content-MD5 is required for a multi-object delete",
         )),
     }
+}
+
+/// Returns the `x-cos-meta-*` user metadata of a Tencent COS request, by lowercase name.
+pub(super) fn tencent_cos_user_metadata(headers: &HeaderMap) -> BTreeMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let name = name
+                .as_str()
+                .strip_prefix(TENCENT_COS_USER_METADATA_PREFIX)?;
+            Some((name.to_owned(), value.to_str().ok()?.to_owned()))
+        })
+        .collect()
 }
 
 /// Aliyun OSS and Tencent COS UploadPart responses carry only the ETag.

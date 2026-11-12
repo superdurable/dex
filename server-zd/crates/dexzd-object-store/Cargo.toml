@@ -32,10 +32,15 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-rustls.workspace = true
+hyper-util.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
 time.workspace = true
 url.workspace = true
-# Streams create-only file bodies of the Tencent COS dialect.
-reqwest = { workspace = true, features = ["stream"] }
+reqwest.workspace = true
 humantime.workspace = true
 rand.workspace = true
 thiserror.workspace = true

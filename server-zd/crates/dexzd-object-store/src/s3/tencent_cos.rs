@@ -11,31 +11,28 @@
 mod append_body;
 mod append_response;
 mod bucket_checks;
+mod signed_request;
 
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use aws_config::SdkConfig;
-use aws_sdk_s3::Client;
-use aws_sdk_s3::config::{Credentials, ProvideCredentials, SharedCredentialsProvider};
-use aws_sigv4::http_request::{
-    PayloadChecksumKind, PercentEncodingMode, SignableBody, SignableRequest, SigningSettings,
-    UriPathNormalizationMode, sign,
-};
-use aws_sigv4::sign::v4;
+use aws_sdk_s3::config::{Credentials, SharedCredentialsProvider};
 use bytes::Bytes;
+use http_body_util::{BodyExt, Empty};
 use url::Url;
 
 use super::{S3ApiDialect, S3Credentials, S3ObjectStoreConfig};
 use crate::{
     ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteOutcome,
 };
-use append_body::{AppendBody, AppendBodyDigests};
-use append_response::{AppendResponse, map_send_error, read_append_response};
+use append_body::AppendBody;
+use append_response::{AppendResponse, read_append_response, read_error_document};
 pub use bucket_checks::{
     TencentCosBucketCheckError, check_tencent_cos_bucket_versioning,
     check_tencent_cos_create_only_writes, check_tencent_cos_holds_no_data_of_another_provider,
 };
+use signed_request::{EMPTY_PAYLOAD_SHA256_HEX, SignedRequest, SignedRequestSender};
 
 /// Largest appendable object Tencent COS stores: 5 GiB.
 pub const MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES: u64 = 5 * 1024 * 1024 * 1024;
@@ -43,17 +40,17 @@ pub const MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 /// Slowest upload rate an append may take before it times out, beyond the request timeout.
 const MIN_APPEND_UPLOAD_BYTES_PER_SECOND: u64 = 1024 * 1024;
 
+/// User metadata that names one append, so a later read can tell it from another writer's.
+const APPEND_ID_METADATA_HEADER: &str = "x-cos-meta-dex-append-id";
+
+/// The same metadata as an S3-compatible endpoint may return it.
+const APPEND_ID_S3_METADATA_HEADER: &str = "x-amz-meta-dex-append-id";
+
 /// Signs and sends AppendObject requests, which the AWS SDK does not model.
 pub(super) struct TencentCosAppendClient {
-    http_client: reqwest::Client,
-    /// `None` sends unsigned requests.
-    credentials: Option<SharedCredentialsProvider>,
-    region: String,
+    sender: SignedRequestSender,
     /// URL of the bucket root, ending in `/`, in virtual-hosted or path style.
-    bucket_url: Url,
-    /// Reads the ETag of an append, whose response carries only the next position.
-    read_client: Client,
-    bucket: String,
+    bucket_url: String,
     request_timeout: Duration,
 }
 
@@ -62,19 +59,14 @@ impl TencentCosAppendClient {
     pub(super) fn for_dialect(
         config: &S3ObjectStoreConfig,
         shared: &SdkConfig,
-        read_client: &Client,
     ) -> ObjectStoreResult<Option<Self>> {
         match config.api_dialect {
-            S3ApiDialect::TencentCos => Self::new(config, shared, read_client.clone()).map(Some),
+            S3ApiDialect::TencentCos => Self::new(config, shared).map(Some),
             S3ApiDialect::AmazonS3 | S3ApiDialect::AliyunOss => Ok(None),
         }
     }
 
-    fn new(
-        config: &S3ObjectStoreConfig,
-        shared: &SdkConfig,
-        read_client: Client,
-    ) -> ObjectStoreResult<Self> {
+    fn new(config: &S3ObjectStoreConfig, shared: &SdkConfig) -> ObjectStoreResult<Self> {
         let configuration_error = |detail: String| {
             ObjectStoreError::new(
                 ObjectStoreOperation::Put,
@@ -92,19 +84,16 @@ impl TencentCosAppendClient {
         })?;
         let bucket_url = bucket_root_url(endpoint, &config.bucket, config.force_path_style)
             .map_err(configuration_error)?;
-        let http_client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            // A read timeout would also fire during a long upload; the append deadline bounds it.
-            .connect_timeout(config.request_timeout)
-            .build()
-            .map_err(|error| configuration_error(format!("building the HTTP client: {error}")))?;
+        // A read timeout would also fire during a long upload; the append deadline bounds it.
+        let sender = SignedRequestSender::new(
+            append_credentials(&config.credentials, shared),
+            config.region.clone(),
+            config.request_timeout,
+        )
+        .map_err(configuration_error)?;
         Ok(Self {
-            http_client,
-            credentials: append_credentials(&config.credentials, shared),
-            region: config.region.clone(),
-            bucket_url,
-            read_client,
-            bucket: config.bucket.clone(),
+            sender,
+            bucket_url: bucket_url.to_string(),
             request_timeout: config.request_timeout,
         })
     }
@@ -128,24 +117,25 @@ impl TencentCosAppendClient {
             AppendSource::File(path) => AppendBody::from_file(key, path).await?,
         };
         let digests = body.digests(key).await?;
-        let url = self.append_url(full_key);
-        let headers = self.signed_headers(key, &url, &digests).await?;
-        let mut request = self
-            .http_client
-            .post(url)
-            .header(http::header::CONTENT_LENGTH, digests.size)
-            .header("content-md5", &digests.content_md5);
-        for (name, value) in &headers {
-            request = request.header(name.as_str(), value.as_str());
-        }
+        let append_id = format!("{:032x}", rand::random::<u128>());
+        let uri = format!("{}?append&position=0", self.object_uri(full_key));
+        let content_length = digests.size.to_string();
+        let headers = [
+            ("content-length", content_length.as_str()),
+            ("content-md5", digests.content_md5.as_str()),
+            (APPEND_ID_METADATA_HEADER, append_id.as_str()),
+        ];
         let deadline = self.request_timeout
             + Duration::from_secs(digests.size / MIN_APPEND_UPLOAD_BYTES_PER_SECOND);
         let sent = tokio::time::timeout(deadline, async {
-            let response = request
-                .body(body.into_request_body(key).await?)
-                .send()
-                .await
-                .map_err(|error| map_send_error(key, &error))?;
+            let request = SignedRequest {
+                method: http::Method::POST,
+                uri: &uri,
+                headers: &headers,
+                payload_sha256_hex: &digests.sha256_hex,
+                body: body.into_request_body(key).await?,
+            };
+            let response = self.sender.send(key, request).await?;
             read_append_response(key, response).await
         })
         .await
@@ -160,82 +150,27 @@ impl TencentCosAppendClient {
         match sent {
             AppendResponse::PositionTaken => Ok(WriteOutcome::PreconditionFailed),
             AppendResponse::Appended { etag: Some(etag) } => Ok(WriteOutcome::Written { etag }),
-            AppendResponse::Appended { etag: None } => self.read_appended_etag(key, full_key).await,
+            AppendResponse::Appended { etag: None } => {
+                self.read_appended_etag(key, full_key, &append_id).await
+            }
         }
     }
 
-    fn append_url(&self, full_key: &str) -> Url {
-        let mut url = self.bucket_url.clone();
-        let path = format!("{}{}", url.path(), encode_object_key(full_key));
-        url.set_path(&path);
-        url.set_query(Some("append&position=0"));
-        url
+    /// Returns the URI of `full_key`, whose path keeps `.` and `..` segments as the SDK does.
+    fn object_uri(&self, full_key: &str) -> String {
+        format!("{}{}", self.bucket_url, encode_object_key(full_key))
     }
 
-    /// Returns the SigV4 headers of the request, or none for anonymous credentials.
-    async fn signed_headers(
-        &self,
-        key: &str,
-        url: &Url,
-        digests: &AppendBodyDigests,
-    ) -> ObjectStoreResult<Vec<(String, String)>> {
-        let Some(provider) = &self.credentials else {
-            return Ok(Vec::new());
-        };
-        let signing_error = |kind, detail: String| {
-            ObjectStoreError::new(ObjectStoreOperation::Put, key, kind, detail)
-        };
-        // Nothing was sent, so a credential failure may be retried.
-        let credentials = provider.provide_credentials().await.map_err(|error| {
-            signing_error(
-                ObjectStoreErrorKind::Transient,
-                format!("resolving credentials for AppendObject: {error}"),
-            )
-        })?;
-        let identity = credentials.into();
-        let mut settings = SigningSettings::default();
-        settings.percent_encoding_mode = PercentEncodingMode::Single;
-        settings.uri_path_normalization_mode = UriPathNormalizationMode::Disabled;
-        settings.payload_checksum_kind = PayloadChecksumKind::XAmzSha256;
-        let params = v4::SigningParams::builder()
-            .identity(&identity)
-            .region(&self.region)
-            .name("s3")
-            .time(SystemTime::now())
-            .settings(settings)
-            .build()
-            .map_err(|error| signing_error(ObjectStoreErrorKind::Permanent, error.to_string()))?
-            .into();
-        let content_length = digests.size.to_string();
-        let unsigned_headers = [
-            ("content-length", content_length.as_str()),
-            ("content-md5", digests.content_md5.as_str()),
-        ];
-        let signable = SignableRequest::new(
-            "POST",
-            url.as_str(),
-            unsigned_headers.into_iter(),
-            SignableBody::Precomputed(digests.sha256_hex.clone()),
-        )
-        .map_err(|error| signing_error(ObjectStoreErrorKind::Permanent, error.to_string()))?;
-        let (instructions, _signature) = sign(signable, &params)
-            .map_err(|error| signing_error(ObjectStoreErrorKind::Permanent, error.to_string()))?
-            .into_parts();
-        let (headers, _query) = instructions.into_parts();
-        Ok(headers
-            .into_iter()
-            .map(|header| (header.name().to_owned(), header.value().to_owned()))
-            .collect())
-    }
-
-    /// Reads the ETag of the object this client just appended.
+    /// Reads the ETag of the object that the append `append_id` just created.
     ///
-    /// The append succeeded, so a failed read reports [`ObjectStoreErrorKind::OutcomeUnknown`]
-    /// and the caller reads the key to confirm the write.
+    /// The append succeeded, so a failed read, or an object that another append wrote after a
+    /// delete, reports [`ObjectStoreErrorKind::OutcomeUnknown`]; the caller then reads the key
+    /// to confirm the write.
     async fn read_appended_etag(
         &self,
         key: &str,
         full_key: &str,
+        append_id: &str,
     ) -> ObjectStoreResult<WriteOutcome> {
         let unknown = |detail: String| {
             ObjectStoreError::new(
@@ -245,20 +180,47 @@ impl TencentCosAppendClient {
                 format!("AppendObject succeeded, but reading its ETag failed: {detail}"),
             )
         };
-        let head = self
-            .read_client
-            .head_object()
-            .bucket(&self.bucket)
-            .key(full_key)
-            .send()
+        let uri = self.object_uri(full_key);
+        let request = SignedRequest {
+            method: http::Method::HEAD,
+            uri: &uri,
+            headers: &[],
+            payload_sha256_hex: EMPTY_PAYLOAD_SHA256_HEX,
+            body: Empty::new().map_err(|never| match never {}).boxed_unsync(),
+        };
+        let response = tokio::time::timeout(self.request_timeout, self.sender.send(key, request))
             .await
+            .map_err(|_| {
+                unknown(format!(
+                    "HEAD did not finish within {:?}",
+                    self.request_timeout
+                ))
+            })?
             .map_err(|error| unknown(error.to_string()))?;
-        let etag = head
-            .e_tag()
+        let status = response.status();
+        if !status.is_success() {
+            let (code, message) = read_error_document(key, response).await;
+            return Err(unknown(format!(
+                "HEAD returned HTTP {status} {code}: {message}"
+            )));
+        }
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        };
+        let read_append_id =
+            header(APPEND_ID_METADATA_HEADER).or_else(|| header(APPEND_ID_S3_METADATA_HEADER));
+        if read_append_id.as_deref() != Some(append_id) {
+            return Err(unknown(format!(
+                "the key now holds the object of another append ({read_append_id:?})"
+            )));
+        }
+        let etag = header(http::header::ETAG.as_str())
             .ok_or_else(|| unknown("the HEAD response omitted the ETag".to_owned()))?;
-        Ok(WriteOutcome::Written {
-            etag: etag.to_owned(),
-        })
+        Ok(WriteOutcome::Written { etag })
     }
 }
 

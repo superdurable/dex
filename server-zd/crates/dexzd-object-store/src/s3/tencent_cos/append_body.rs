@@ -14,10 +14,14 @@ use aws_lc_rs::digest::{Context, SHA256};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use bytes::Bytes;
+use futures::TryStreamExt;
+use http_body_util::{BodyExt, Full, StreamBody};
+use hyper::body::Frame;
 use md5::{Digest, Md5};
 use tokio::io::AsyncReadExt;
 
 use super::MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES;
+use super::signed_request::SignedRequestBody;
 use crate::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult};
 
 /// Bytes read from a file per chunk, both for digests and for the request body.
@@ -104,9 +108,11 @@ impl AppendBody {
     }
 
     /// Returns the request body; a file is streamed in chunks rather than read into memory.
-    pub(super) async fn into_request_body(self, key: &str) -> ObjectStoreResult<reqwest::Body> {
+    pub(super) async fn into_request_body(self, key: &str) -> ObjectStoreResult<SignedRequestBody> {
         match self {
-            Self::Bytes(bytes) => Ok(reqwest::Body::from(bytes)),
+            Self::Bytes(bytes) => Ok(Full::new(bytes)
+                .map_err(|never| match never {})
+                .boxed_unsync()),
             Self::File { path, size } => {
                 let file = tokio::fs::File::open(&path)
                     .await
@@ -129,7 +135,7 @@ impl AppendBody {
                         chunk.truncate(read);
                         Ok(Some((Bytes::from(chunk), (file, remaining - read as u64))))
                     });
-                Ok(reqwest::Body::wrap_stream(chunks))
+                Ok(StreamBody::new(chunks.map_ok(Frame::data)).boxed_unsync())
             }
         }
     }

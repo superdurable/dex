@@ -215,3 +215,43 @@ async fn other_dialects_do_not_serve_append() {
         server.server.shutdown().await;
     }
 }
+
+#[tokio::test]
+async fn append_keeps_cos_user_metadata_and_commit_then_error_reports_after_committing() {
+    let server = RunningServer::start(&TENCENT_COS_DIALECT).await;
+    let created = server
+        .raw(
+            "POST",
+            "/testing/meta?append&position=0",
+            "x-cos-meta-dex-append-id: 0123abcd\r\n",
+            b"body",
+        )
+        .await;
+    assert_eq!(status_line(&created), "HTTP/1.1 200 OK");
+    let head = server
+        .client
+        .head_object()
+        .bucket("testing")
+        .key("meta")
+        .send()
+        .await
+        .expect("the appended object heads");
+    assert_eq!(
+        head.metadata()
+            .and_then(|metadata| metadata.get("dex-append-id"))
+            .map(String::as_str),
+        Some("0123abcd")
+    );
+
+    server
+        .rules(serde_json::json!([{
+            "operation": "AppendObject",
+            "action": {"type": "commit_then_error", "status": 503}
+        }]))
+        .await;
+    let failed = append(&server, "after-commit", 0, b"committed").await;
+    assert_eq!(status_line(&failed), "HTTP/1.1 503 Service Unavailable");
+    assert!(has_error_code(&failed, "SlowDown"));
+    assert_eq!(server.get("after-commit").await, b"committed");
+    server.server.shutdown().await;
+}

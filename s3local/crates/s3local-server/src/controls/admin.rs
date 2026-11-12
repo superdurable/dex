@@ -92,21 +92,22 @@ impl Controls {
                             "missing_key_access_denied requires GetObject or HeadObject".into(),
                         ));
                     }
-                    if matches!(rule.action, FaultAction::CommitThenDrop {})
-                        && !matches!(
-                            rule.operation,
-                            Some(
-                                S3OperationName::PutObject
-                                    | S3OperationName::AppendObject
-                                    | S3OperationName::CopyObject
-                                    | S3OperationName::UploadPart
-                                    | S3OperationName::CompleteMultipartUpload
-                            )
+                    if matches!(
+                        rule.action,
+                        FaultAction::CommitThenDrop {} | FaultAction::CommitThenError { .. }
+                    ) && !matches!(
+                        rule.operation,
+                        Some(
+                            S3OperationName::PutObject
+                                | S3OperationName::AppendObject
+                                | S3OperationName::CopyObject
+                                | S3OperationName::UploadPart
+                                | S3OperationName::CompleteMultipartUpload
                         )
-                    {
+                    ) {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            "commit_then_drop requires operation PutObject, AppendObject, CopyObject, UploadPart, or CompleteMultipartUpload".into(),
+                            "commit_then_drop and commit_then_error require operation PutObject, AppendObject, CopyObject, UploadPart, or CompleteMultipartUpload".into(),
                         ));
                     }
                 }

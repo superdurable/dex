@@ -211,7 +211,8 @@ overwrite. `POST /<bucket>/<key>?append&position=N` serves AppendObject. It requ
 hold an appendable object of N bytes. Otherwise it answers `409 AppendPositionErr`, or
 `409 ObjectNotAppendable` for a non-appendable object of N bytes. The check is atomic, so
 concurrent appends at one position have one winner. As in COS, an empty appendable object accepts
-position 0 again. A success returns `x-cos-next-append-position` and no ETag. `Content-MD5` and
+position 0 again. A success returns `x-cos-next-append-position` and no ETag. `x-cos-meta-*` headers become user
+metadata, which HEAD and GET return as `x-amz-meta-*`. `Content-MD5` and
 checksum headers are verified only at position 0. A PutObject replaces an appendable object with a
 normal one. UploadPart responses omit checksum headers, and DeleteObjects without `Content-MD5`
 returns `400 InvalidRequest`. Other dialects answer AppendObject with `501 NotImplemented`.
@@ -352,7 +353,8 @@ concurrent scheduling can change that order. An SDK retry is a separate request 
 
 | Action JSON | Behavior |
 | --- | --- |
-| `{"type":"commit_then_drop"}` | Requires `operation` to be `PutObject`, `CopyObject`, `UploadPart`, or `CompleteMultipartUpload`. A successful store commit closes the connection without a response; an unsuccessful condition still returns its normal error. |
+| `{"type":"commit_then_error","status":503}` | Requires the same operations as `commit_then_drop`. A successful store commit answers with the error of `status` instead of the success, as `error` maps it. |
+| `{"type":"commit_then_drop"}` | Requires `operation` to be `PutObject`, `AppendObject`, `CopyObject`, `UploadPart`, or `CompleteMultipartUpload`. A successful store commit closes the connection without a response; an unsuccessful condition still returns its normal error. |
 | `{"type":"delay","milliseconds":100}` | Waits before invoking the S3 handler. Maximum 600000 milliseconds (ten minutes); deleting faults releases sleeping requests. |
 | `{"type":"error","status":500}` | Returns `InternalError` without invoking the store. Status 403 returns `AccessDenied`; 503 returns `SlowDown`; 409 returns `ConditionalRequestConflict`. Other statuses are rejected. |
 | `{"type":"missing_key_access_denied"}` | Requires `GetObject` or `HeadObject`. Changes only a missing key's `NoSuchKey` response to 403 `AccessDenied`; existing keys and missing buckets retain their normal responses. |

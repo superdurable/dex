@@ -23,7 +23,7 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 use tokio_util::io::ReaderStream;
 
-use super::api_dialect::DialectWriteCondition;
+use super::api_dialect::{DialectWriteCondition, tencent_cos_user_metadata};
 use super::bucket::status_response;
 use crate::aws_chunked::AwsChunkedDecoder;
 use crate::config::S3ApiDialect;
@@ -139,7 +139,8 @@ pub(crate) async fn append_object(
     let checksum_plan = upload_checksum_plan(&headers)?;
     let content_md5_base64 = header_text(&headers, "content-md5").map(str::to_owned);
     let request_content_headers = content_headers(&headers);
-    let request_user_metadata = user_metadata(&headers);
+    let mut request_user_metadata = user_metadata(&headers);
+    request_user_metadata.extend(tencent_cos_user_metadata(&headers));
     let (writer, base) = {
         let (bucket, key) = (bucket.clone(), key.clone());
         let algorithm = checksum_plan.algorithm;

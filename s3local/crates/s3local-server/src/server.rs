@@ -320,6 +320,13 @@ async fn handle_request(
             "injected drop after commit",
         ));
     }
+    let result = match (
+        result,
+        fault.as_ref().and_then(FaultAction::error_after_commit),
+    ) {
+        (Ok(response), Some(error)) if response.status().is_success() => Err(error),
+        (result, _) => result,
+    };
     let mut response = match result {
         Ok(response) => response,
         Err(error) => render_error(error, &request_id, is_head),
