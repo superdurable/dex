@@ -113,6 +113,7 @@ from dex_agents_cli_core.harness import (
 )
 from dex_agents_cli_core.local_tools import LocalToolSource
 from dex_agents_cli_core.local_tools.shell import ShellProcessGroups
+from dex_agents_cli_core.session_list import collect_sessions_for_list
 from dex_agents_cli_core.terminal_ui.contract import LIST_CONNECTORS, PUT_IMAGE, START_SESSION
 from dex_agents_cli_core.terminal_ui.hosted_session import (
     HostedChatSession,
@@ -153,8 +154,6 @@ _SESSION_SUMMARY_ATTRIBUTE_NAMES = frozenset(
         AGENT_SESSION_TURN_COUNT,
     )
 )
-#: Most pages of 50 sessions that ``sessions`` loads before it sorts them.
-SESSION_LIST_MAX_PAGES = 5
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
 # How long the command waits for the session graph upload before it logs a failure.
 _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
@@ -1234,24 +1233,22 @@ async def _list_sessions(
         blob_cache,
         ClientOptions(server_address=endpoint.address, flow_service_tls=tls),
     )
-    sessions: list[AgentSessionSummary] = []
-    next_page_token = ""
     try:
-        for _ in range(SESSION_LIST_MAX_PAGES):
-            page = await list_agent_sessions(client, flow_type, next_page_token=next_page_token)
-            sessions.extend(page.sessions)
-            next_page_token = page.next_page_token
-            if not next_page_token:
-                break
+        collected = await collect_sessions_for_list(
+            lambda next_page_token: list_agent_sessions(
+                client, flow_type, next_page_token=next_page_token
+            )
+        )
     finally:
         await client.close()
         blob_cache.close()
-    if not sessions:
+    sessions = collected.sessions
+    if not sessions and not collected.has_more_sessions:
         print("No sessions yet.")
         return 0
     for session in sort_agent_sessions_by_last_activity(sessions):
         print(_session_line(session))
-    if next_page_token:
+    if collected.has_more_sessions:
         print(
             f"More sessions exist; this list sorts the first {len(sessions)} that Dex returns: "
             "running sessions first, then the most recently closed and started."
