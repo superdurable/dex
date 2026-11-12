@@ -56,12 +56,14 @@ Workers and Clients negotiate a protocol version with the server. server-zd
 
 | Component | Version | server-zd it needs |
 | --- | --- | --- |
-| Go, Python, Java, TypeScript, and Rust SDKs | 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
-| Dex Web | 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
+| Go SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
+| Python SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
+| Java SDK | 1.45, 1.43, 1.41, 1.40, 1.37 | 0.1.17 or newer (protocol version 4) |
+| TypeScript SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
+| Rust SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 or newer (protocol version 4) |
+| Dex Web | 1.45, 1.43, 1.41, 1.40, 1.37 | 0.1.17 or newer (protocol version 4) |
 
-server-zd protocol version 4 keeps the same minimum protocol. SDK releases
-before 1.35 keep working on server-zd 0.1.17 and newer. Upgrade the server
-first, then the SDKs. See
+Upgrade the server first, then the SDKs. See
 [Upgrades and compatibility](/reference/server/upgrades).
 
 Each `dexcli` release bundles one server-zd release, which **dexcli dev**
@@ -69,13 +71,11 @@ runs:
 
 | dexcli | Bundled server-zd |
 | --- | --- |
+| 1.45 | 0.1.26 |
+| 1.43 | 0.1.25 |
+| 1.41 | 0.1.25 |
+| 1.40 | 0.1.25 |
 | 1.37 | 0.1.20 |
-| 1.36 | 0.1.19 |
-| 1.35 | 0.1.18 |
-| 1.34 | 0.1.16 |
-| 1.33 | 0.1.15 |
-
-To run SDK 1.35 applications with **dexcli dev**, use `dexcli` 1.35 or newer.
 
 ## Release notes
 
