@@ -161,22 +161,22 @@ assert.doesNotMatch(home, /Toggle color theme/);
 assert.doesNotMatch(home, /github-star-link|github-star-stat|Book a call|Book a demo/);
 assert.doesNotMatch(home, /fonts\.googleapis\.com/);
 
-// Row 1: the docs wordmark, search, and icon-only links. Row 2: four section tabs.
+// Row 1: the wordmark (to superdurable.io), search, icon-only links, and the Cloud sign-up button. Row 2: four section tabs.
 const headerIconLinks = [
   ['Discord', 'https://discord.gg/V9cMHXts98'],
   ['GitHub', 'https://github.com/superdurable/dex'],
-  ['Dex Cloud', 'https://superdurable.io/dex-cloud/'],
-  ['Super Durable home', 'https://superdurable.io/'],
 ];
+const signUpCloud = '<a class="sd-button sd-button-primary sd-button-small sd-signup" href="https://dex.superdurable.io/register">Sign up Cloud</a>';
 const header = home.match(/<header class="[^"]*\bsd-header\b[\s\S]*?<\/header>/)?.[0] ?? '';
 assert.doesNotMatch(header, /target=|superdurable\.ai/);
-assert.doesNotMatch(header, /Dex Connectors|>Blog<|>About<|Log in|Sign up/);
-assert.match(header, /<a class="sd-wordmark" aria-label="Dex Docs home" href="\/">[\s\S]*?<span>Dex Docs<\/span><\/a>/);
+assert.doesNotMatch(header, /Dex Connectors|>Blog<|>About<|Log in|dex-cloud/);
+assert.match(header, /<a class="sd-wordmark" aria-label="Super Durable home" href="https:\/\/superdurable\.io\/">[\s\S]*?<span>Dex Docs<\/span><\/a>/);
 assert.match(header, /<div class="sd-header-search"><div class="navbar__search[^"]*"[^>]*>[\s\S]*?<input placeholder="Search…"/);
 const desktopActions = header.match(/<div class="sd-header-actions">[\s\S]*?<\/div><details class="sd-mobile-menu">/)?.[0] ?? '';
 assert.match(desktopActions, /^<div class="sd-header-actions"><a class="sd-icon-link"/);
 assert.doesNotMatch(desktopActions, /sd-locale/);
 assert.match(desktopActions, /<button type="button" class="clean-btn sd-icon-link sd-theme-toggle" aria-label="Switch between light and dark"/);
+assert.ok(desktopActions.includes(`</button>${signUpCloud}</div>`), 'the Cloud sign-up button ends the desktop actions');
 assert.deepEqual(
   [...desktopActions.matchAll(/<a class="sd-icon-link" href="([^"]*)" aria-label="([^"]*)" title="\2">/g)].map((match) => [match[2], match[1]]),
   headerIconLinks,
@@ -187,6 +187,7 @@ assert.deepEqual(
   [...mobileMenu.matchAll(/<a class="sd-mobile-icon-link" href="([^"]*)">(?:<svg[\s\S]*?<\/svg>)([^<]*)<\/a>/g)].map((match) => [match[2], match[1]]),
   headerIconLinks,
 );
+assert.ok(mobileMenu.includes(signUpCloud), 'the mobile menu has the Cloud sign-up button');
 assert.doesNotMatch(mobileMenu, /sd-locale/);
 const headerTabs = header.match(/<nav class="sd-tabs" aria-label="Docs sections">[\s\S]*?<\/details><\/div><\/nav>/)?.[0] ?? '';
 assert.deepEqual(

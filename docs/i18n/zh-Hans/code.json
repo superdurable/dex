@@ -43,10 +43,6 @@
     "message": "查看 Markdown（在新标签页中打开）",
     "description": "The accessible name of the link that opens the Markdown export of a docs page in a new tab"
   },
-  "shell.header.docsHomeAriaLabel": {
-    "message": "Dex 文档首页",
-    "description": "The accessible name of the header wordmark link to the docs home page"
-  },
   "shell.header.docsTitle": {
     "message": "Dex 文档",
     "description": "The header wordmark text"
@@ -58,10 +54,6 @@
   "shell.header.github": {
     "message": "GitHub",
     "description": "The header GitHub link"
-  },
-  "shell.header.dexCloud": {
-    "message": "Dex Cloud",
-    "description": "The header Dex Cloud link"
   },
   "shell.header.superDurableHome": {
     "message": "Super Durable 首页",
@@ -94,5 +86,9 @@
   "shell.header.themeToggle": {
     "message": "切换浅色和深色",
     "description": "The accessible name of the header theme switch"
+  },
+  "shell.header.signUpCloud": {
+    "message": "注册 Cloud",
+    "description": "The header button to sign up for Dex Cloud"
   }
 }

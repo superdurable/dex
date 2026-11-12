@@ -418,6 +418,37 @@ button.sd-mobile-icon-link {
   color: #e3b341;
 }
 
+/*
+ * Desktop: both header rows span the page. The left edge lines up with the sidebar items (12 px list inset plus
+ * 10 px link padding). The right edge lines up with the TOC column: the docs container is at most
+ * --ifm-container-width-xl wide, centred right of the sidebar, with --ifm-spacing-horizontal padding.
+ */
+@media (min-width: 997px) {
+  .sd-header-inner,
+  .sd-tabs-inner {
+    width: auto;
+    margin-inline: 0;
+    padding-left: 22px;
+    padding-right: max(
+      var(--ifm-spacing-horizontal),
+      (100% - var(--doc-sidebar-width, 300px) - var(--ifm-container-width-xl)) / 2 + var(--ifm-spacing-horizontal)
+    );
+  }
+
+  .sd-header-actions {
+    gap: 0.35rem;
+  }
+
+  .sd-signup {
+    margin-left: 0.4rem;
+  }
+}
+
+/* In the mobile menu the sign-up button sits under the links. */
+.sd-mobile-menu .sd-signup {
+  justify-self: start;
+}
+
 /* Narrow screens: wordmark, a search box that grows when focused, and the menu. */
 @media (max-width: 996px) {
   .sd-header-inner {

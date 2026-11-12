@@ -9,19 +9,19 @@
  */
 
 import React, {type ReactNode, useRef} from 'react';
-import Link from '@docusaurus/Link';
 import {useColorMode} from '@docusaurus/theme-common';
 import {translate} from '@docusaurus/Translate';
 import SearchBar from '@theme/SearchBar';
-import {Cloud, House, Moon, Sun} from 'lucide-react';
+import {Moon, Sun} from 'lucide-react';
 import {persistSharedTheme} from '@site/src/components/BrandThemeToggle';
 import DocsNavTabs from '@site/src/components/DocsNavTabs';
-import {DEX_CLOUD_URL, DEX_DISCORD_URL, DEX_GITHUB_URL, SUPER_DURABLE_HOME_URL} from '@site/src/components/brandNavigation';
+import {DEX_CLOUD_SIGN_UP_URL, DEX_DISCORD_URL, DEX_GITHUB_URL, SUPER_DURABLE_HOME_URL} from '@site/src/components/brandNavigation';
 import {useDismissibleDetails} from '@site/src/components/useDismissibleDetails';
 
 type HeaderIconLink = {key: string; href: string; label: string; icon: ReactNode};
 
-// Row 1: the docs wordmark, search in the middle, and icon-only links. Row 2: the four section tabs.
+// Row 1: the wordmark (to superdurable.io), search in the middle, icon-only links, and the Cloud sign-up button.
+// Row 2: the four section tabs and the language switch.
 export default function NavbarContent(): ReactNode {
   const mobileMenuRef = useRef<HTMLDetailsElement>(null);
   useDismissibleDetails(mobileMenuRef);
@@ -30,19 +30,19 @@ export default function NavbarContent(): ReactNode {
   return (
     <>
       <div className="sd-header-inner">
-        <Link
+        <a
           className="sd-wordmark"
           aria-label={translate({
-            id: 'shell.header.docsHomeAriaLabel',
-            message: 'Dex Docs home',
-            description: 'The accessible name of the header wordmark link to the docs home page',
+            id: 'shell.header.superDurableHome',
+            message: 'Super Durable home',
+            description: 'The header link back to the superdurable.io home page',
           })}
-          to="/">
+          href={SUPER_DURABLE_HOME_URL}>
           <BrandSymbol />
           <span>
             {translate({id: 'shell.header.docsTitle', message: 'Dex Docs', description: 'The header wordmark text'})}
           </span>
-        </Link>
+        </a>
         <div className="sd-header-search">
           <SearchBar />
         </div>
@@ -53,6 +53,7 @@ export default function NavbarContent(): ReactNode {
             </a>
           ))}
           <HeaderThemeToggle />
+          <SignUpCloudButton />
         </div>
         <details className="sd-mobile-menu" ref={mobileMenuRef}>
           <summary>
@@ -75,6 +76,7 @@ export default function NavbarContent(): ReactNode {
               </a>
             ))}
             <HeaderThemeToggle withLabel />
+            <SignUpCloudButton />
           </nav>
         </details>
       </div>
@@ -97,23 +99,15 @@ function useHeaderIconLinks(): HeaderIconLink[] {
       label: translate({id: 'shell.header.github', message: 'GitHub', description: 'The header GitHub link'}),
       icon: <GitHubIcon />,
     },
-    {
-      key: 'cloud',
-      href: DEX_CLOUD_URL,
-      label: translate({id: 'shell.header.dexCloud', message: 'Dex Cloud', description: 'The header Dex Cloud link'}),
-      icon: <Cloud size={18} strokeWidth={2} aria-hidden="true" />,
-    },
-    {
-      key: 'home',
-      href: SUPER_DURABLE_HOME_URL,
-      label: translate({
-        id: 'shell.header.superDurableHome',
-        message: 'Super Durable home',
-        description: 'The header link back to the superdurable.io home page',
-      }),
-      icon: <House size={18} strokeWidth={2} aria-hidden="true" />,
-    },
   ];
+}
+
+function SignUpCloudButton(): ReactNode {
+  return (
+    <a className="sd-button sd-button-primary sd-button-small sd-signup" href={DEX_CLOUD_SIGN_UP_URL}>
+      {translate({id: 'shell.header.signUpCloud', message: 'Sign up Cloud', description: 'The header button to sign up for Dex Cloud'})}
+    </a>
+  );
 }
 
 // Both icons render, and CSS shows the one for the current theme, so the static HTML matches either.

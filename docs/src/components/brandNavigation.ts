@@ -6,5 +6,5 @@ export const BOOKING_URL =
 // Icon links in the docs header.
 export const DEX_DISCORD_URL = 'https://discord.gg/V9cMHXts98';
 export const DEX_GITHUB_URL = 'https://github.com/superdurable/dex';
-export const DEX_CLOUD_URL = 'https://superdurable.io/dex-cloud/';
+export const DEX_CLOUD_SIGN_UP_URL = 'https://dex.superdurable.io/register';
 export const SUPER_DURABLE_HOME_URL = 'https://superdurable.io/';
