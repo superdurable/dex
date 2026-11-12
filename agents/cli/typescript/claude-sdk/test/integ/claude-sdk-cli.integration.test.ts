@@ -23,6 +23,7 @@ import {
   mockApiKey,
   openSessionClient,
 } from "../fixtures/cli-test-support.js";
+import { runWithTerminalUi } from "../fixtures/terminal-ui-handoff.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { MockMessagesApi } from "../fixtures/mock-messages-api.js";
 
@@ -381,5 +382,14 @@ describe("dex-agents-claude-sdk with the bundled Claude Code CLI against a scrip
     assert.equal(await cli.waitForExit(), 2);
     assert.match(cli.stderr.all, /schema at "\/claude\/max_turns"/);
     assert.deepEqual(api.modelRequests(), []);
+  });
+
+  test("at a terminal with the terminal UI switched on, the chat runs in the terminal UI and nothing prints over it", async () => {
+    const home = newHome(noConnectors);
+    const run = await runWithTerminalUi(home.environment());
+    assert.equal(run.exitCode, 0, run.terminal);
+    assert.equal(run.launchCount, 1, run.terminal);
+    assert.equal(run.whileTerminalUiRan, "", run.terminal);
+    assert.match(run.terminal, /keeps running\. Resume it with: dex-agents-claude-sdk --resume /);
   });
 });

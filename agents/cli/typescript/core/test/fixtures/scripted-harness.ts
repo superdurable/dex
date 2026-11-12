@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -59,6 +60,7 @@ const loadedImages = new AsyncLocalStorage<ReadonlyMap<string, Uint8Array>>();
  *   `saw image <sha256> <bytes>` joined by `; `, or `saw no images`.
  * - `call <tool> <json>`: calls the tool, then answers `result: <output>`.
  * - `wait <gate>`: writes `<gate>.reached` and waits for `<gate>.release` or cancellation.
+ * - `leak`: writes to fd 1 and fd 2 and runs a child that inherits them, then answers `leaked`.
  * - anything else: answers `echo: <text>`.
  *
  * Its runner takes user messages with images, as an image-capable adapter does.
@@ -77,6 +79,9 @@ export const scriptedHarnessWithoutImages: AgentHarness = {
   flowType: "DexAgentsCliScriptedNoImagesSession",
   createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, [], false),
 };
+
+/** The scripted harness declaring the text chat only, as Pi does. */
+export const plainOnlyScriptedHarness: AgentHarness = { ...scriptedHarness, terminalInterface: "plain" };
 
 /** The scripted harness declaring that its runner fixes its tools when the Flow is built. */
 export const fixedToolSetScriptedHarness: AgentHarness = { ...scriptedHarness, isToolSetFixedAtBuild: true };
@@ -187,6 +192,18 @@ async function respond(request: ModelRequest, model: string): Promise<ScriptedMo
       return { text: `result: ${lastResult.output}` };
     }
     return { toolCalls: [{ toolName: call[1] ?? "", arguments: call[2] ?? "{}" }] };
+  }
+  if (text === "leak") {
+    writeSync(1, "host wrote to fd 1\n");
+    writeSync(2, "host wrote to fd 2\n");
+    await new Promise<void>((resolve) => {
+      const child = spawn("sh", ["-c", "echo grandchild wrote to stdout; echo grandchild wrote to stderr >&2"], {
+        stdio: ["ignore", "inherit", "inherit"],
+      });
+      child.once("exit", () => resolve());
+      child.once("error", () => resolve());
+    });
+    return { text: "leaked" };
   }
   const wait = /^wait (\S+)$/.exec(text);
   if (wait !== null) {

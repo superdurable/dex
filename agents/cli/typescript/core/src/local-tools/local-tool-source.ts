@@ -27,6 +27,7 @@ import { BrowserSessions } from "./browser-sessions.js";
 import { defaultShellTimeoutSeconds, maximumShellTimeoutSeconds, runShellCommand } from "./shell-command.js";
 import { fetchWebPage } from "./web-page-fetch.js";
 import { WorkspaceFiles } from "./workspace-files.js";
+import type { ToolProcessGroupRegistry } from "../worker-host/tool-process-groups.js";
 
 /**
  * Names of the local tools, by group. The names are part of the CLI contract: `approval.always` and session
@@ -237,12 +238,15 @@ export class LocalToolSource implements ToolSource {
    * replace.
    * @param turns - The per-turn configuration.
    * @param log - Writes progress for the person at the terminal.
+   * @param toolProcessGroups - Where a shell command's process group is registered, so the command can stop it when
+   * it shuts down; `undefined` registers nothing. Since 0.6.0.
    */
   public constructor(
     private readonly workspace: string,
     private readonly offeredGroups: ReadonlySet<LocalToolGroup>,
     private readonly turns: TurnConfigResolver,
     log: (line: string) => void,
+    private readonly toolProcessGroups?: ToolProcessGroupRegistry,
   ) {
     this.files = new WorkspaceFiles(workspace);
     this.browser = new BrowserSessions(log);
@@ -395,6 +399,7 @@ export class LocalToolSource implements ToolSource {
           this.workspace,
           readTimeoutSeconds(toolArguments),
           call.cancellationSignal,
+          this.toolProcessGroups,
         );
       case "fetch_web_page":
         return fetchWebPage(requireString(toolArguments, "url"), call.cancellationSignal);

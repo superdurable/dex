@@ -14,6 +14,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, TestHome, enginePorts, mockApiKey, openSessionClient } from "../fixtures/cli-test-support.js";
+import { runWithTerminalUi } from "../fixtures/terminal-ui-handoff.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { MockResponsesApi } from "../fixtures/mock-responses-api.js";
 
@@ -176,5 +177,14 @@ describe("dex-agents-vercel-ai with the AI SDK OpenAI provider against a scripte
     assert.equal(await cli.waitForExit(), 2);
     assert.match(cli.stderr.all, /schema at "\/vercel_ai\/max_turns"/);
     assert.deepEqual(api.modelRequests(), []);
+  });
+
+  test("at a terminal with the terminal UI switched on, the chat runs in the terminal UI and nothing prints over it", async () => {
+    const home = newHome(noConnectors);
+    const run = await runWithTerminalUi(home.environment());
+    assert.equal(run.exitCode, 0, run.terminal);
+    assert.equal(run.launchCount, 1, run.terminal);
+    assert.equal(run.whileTerminalUiRan, "", run.terminal);
+    assert.match(run.terminal, /keeps running\. Resume it with: dex-agents-vercel-ai --resume /);
   });
 });

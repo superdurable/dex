@@ -87,6 +87,8 @@ export const piHarness: AgentHarness = {
   flowType: piCliFlowType,
   defaultModel: defaultPiModel,
   replacedLocalTools: ["files", "shell"],
+  // Pi keeps the text chat until it gets its own terminal interface.
+  terminalInterface: "plain",
   createSessionFlow: (context) => createPiSessionFlow(context),
 };
 

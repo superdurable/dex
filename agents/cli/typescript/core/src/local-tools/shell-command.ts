@@ -10,6 +10,8 @@ import { spawn } from "node:child_process";
 
 import { ToolExecutionError } from "@superdurable/dex-agents";
 
+import type { ToolProcessGroupRegistry } from "../worker-host/tool-process-groups.js";
+
 /** Seconds a shell command may run when the call sets no timeout. */
 export const defaultShellTimeoutSeconds = 120;
 /** The longest timeout a call may set, in seconds. */
@@ -26,6 +28,7 @@ const maximumOutputBytes = 64 * 1024;
  * @param workingDirectory - The directory to run it in.
  * @param timeoutSeconds - Seconds before the command is killed.
  * @param signal - Aborts the command.
+ * @param toolProcessGroups - Registers the command's process group until the shell is reaped, if given.
  * @returns The exit status, then stdout and stderr, each cut at 64 KiB.
  * @throws {ToolExecutionError} When the shell cannot start.
  */
@@ -34,6 +37,7 @@ export function runShellCommand(
   workingDirectory: string,
   timeoutSeconds: number,
   signal: AbortSignal,
+  toolProcessGroups?: ToolProcessGroupRegistry,
 ): Promise<string> {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, {
@@ -42,6 +46,10 @@ export function runShellCommand(
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
+    const registration =
+      child.pid === undefined || process.platform === "win32" ? undefined : toolProcessGroups?.register(child.pid);
+    // "exit" comes after Node reaped the shell; from then on its pid may name another process.
+    child.once("exit", () => registration?.release());
     const stdout = new CappedOutput();
     const stderr = new CappedOutput();
     let endReason: string | undefined;

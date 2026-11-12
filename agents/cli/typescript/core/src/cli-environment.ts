@@ -109,3 +109,12 @@ function readPort(environment: NodeJS.ProcessEnv, name: string, fallback: number
 function nonEmpty(value: string | undefined): string | undefined {
   return value === undefined || value === "" ? undefined : value;
 }
+
+/**
+ * Returns whether `DEX_AGENTS_TERMINAL_UI` is `1`, which makes the chat try the `dexcli` terminal UI. The switch is
+ * internal and off by default until the terminal UI ships, so the package does not export this function.
+ * @param environment - The variables, such as `process.env`.
+ */
+export function isTerminalUiSwitchedOn(environment: NodeJS.ProcessEnv): boolean {
+  return (environment.DEX_AGENTS_TERMINAL_UI ?? "").trim() === "1";
+}
