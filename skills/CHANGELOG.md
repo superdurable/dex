@@ -3,6 +3,12 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.2.1 - 2026-11-12
+
+- Move release-specific UI details and edge-case semantics out of the Skills into the Developer reference, and keep one short rule with a link in each place. The Developer reference now holds Step cancellation, completion requests, and Flow outputs (new Step and Flow close page), Attribute lock order, Channel waiter order, Join edge cases, and SubFlow reuse by later parent runs and parent close.
+- Shorten the Flow ID reuse policy, StartFlow retry dedupe, Flow closing request, canceled Step message, Channel delete, and SubFlow reuse policy rules in `dex-sdk`, and point to the existing reference pages.
+- Remove Dex Web page layout, Experimental labels, Start Flow placement, routing details, local Connector connection details, and Flow Definition Graph replacement details from `dex-sdk` and `dex-app-builder`. The Dex Web and Server references hold them.
+
 ## 1.2.0 - 2026-11-11
 
 - Dex Web reads Flow Definition Graphs from the Dex Server. A Worker publishes the graphs it is given when it starts, and `dexcli` publishes them from a script. The Server keeps one graph per Flow type, and a graph with a later generation time, recorded in the graph, replaces an older one, whatever the upload order. A definition directory for Dex Web is optional and wins for its Flow types. `dex-sdk` `web.md`, `application.md`, `server.md`, and `cli.md` describe the relation.
