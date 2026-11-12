@@ -31,6 +31,7 @@ Worker's environment picks.
 
 from __future__ import annotations
 
+import functools
 import json
 import operator
 import os
@@ -57,11 +58,12 @@ from dex_agents.testing import FileGate, InvocationLog
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph._internal._constants import CONFIG_KEY_SEND
 from langgraph.config import get_config
-from langgraph.prebuilt import InjectedStore
+from langgraph.graph import START, MessagesState, StateGraph
+from langgraph.prebuilt import InjectedStore, ToolNode, tools_condition
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
@@ -70,7 +72,9 @@ from langgraph.types import Command
 from dex_agents_langgraph import (
     CompiledGraph,
     DurableToolCallMiddleware,
+    awrap_durable_tool_call,
     langchain_agent_session_flow,
+    langgraph_agent_session_flow,
 )
 from tests.scripted_agents import INVOCATION_LOG_NAME, STATE_DIR_ENVIRONMENT_VARIABLE
 from tests.scripted_model import ScriptedChatModel
@@ -90,6 +94,10 @@ MODEL_REQUESTS_LOG_NAME = "model-requests.jsonl"
 TURN_MODEL_NAME = "scripted-turn-model"
 SOURCE_READ_FILE_OUTPUT = "read from the workspace"
 TOOL_WRAPPER_INVOCATION_PREFIX = "tool-wrapper:"
+#: The recorder's tool wrapper also records this when it runs in a tool Step.
+TOOL_STEP_WRAPPER_INVOCATION_PREFIX = "tool-step-wrapper:"
+AUDITED_DEFERRAL_FLOW_TYPE = "AuditedDeferralGraph"
+AUDIT_INVOCATION_PREFIX = "audit:"
 DEEP_AGENT_TOOL_POLICIES = {
     "write_file": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
     "read_file": ToolPolicy(ToolEffect.READ),
@@ -170,6 +178,11 @@ def build_deep_agent_flows(
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
             should_defer_tool_calls_before_middleware=defers_tool_calls_first,
         ),
+        langgraph_agent_session_flow(
+            build_audited_deferral_graph(state_dir),
+            flow_type=AUDITED_DEFERRAL_FLOW_TYPE,
+            tool_policies=DEEP_AGENT_TOOL_POLICIES,
+        ),
         langchain_agent_session_flow(
             _deep_agent_factory(
                 state_dir,
@@ -206,6 +219,32 @@ def build_recorder_first_deep_agent(state_dir: Path) -> CompiledGraph:
         middleware=[_ModelRequestRecorder(state_dir), DurableToolCallMiddleware()],
         state_schema=TopicState,
     )
+
+
+def build_audited_deferral_graph(state_dir: Path) -> CompiledGraph:
+    """Build a custom graph whose tool node wraps the deferral in an auditing decorator."""
+    invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+    [echo_text] = [tool for tool in _build_topic_tools(state_dir) if tool.name == "echo_text"]
+    model = _scripted_model(state_dir).bind_tools([echo_text])
+
+    @functools.wraps(awrap_durable_tool_call)
+    async def audited_deferral(
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        invocations.record(f"{AUDIT_INVOCATION_PREFIX}{request.tool_call['name']}")
+        return await awrap_durable_tool_call(request, handler)
+
+    async def call_model(state: MessagesState) -> dict[str, list[AIMessage]]:
+        return {"messages": [await model.ainvoke(state["messages"])]}
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("agent", call_model)
+    builder.add_node("tools", ToolNode([echo_text], awrap_tool_call=audited_deferral))
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges("agent", tools_condition)
+    builder.add_edge("tools", "agent")
+    return builder.compile()
 
 
 def _deep_agent_factory(
@@ -372,6 +411,11 @@ class _ModelRequestRecorder(AgentMiddleware[Any, Any, Any]):
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
         self._invocations.record(f"{TOOL_WRAPPER_INVOCATION_PREFIX}{request.tool_call['name']}")
+        # A tool Step's state has no message list; RunModel's always has one.
+        if "messages" not in request.state:
+            self._invocations.record(
+                f"{TOOL_STEP_WRAPPER_INVOCATION_PREFIX}{request.tool_call['name']}"
+            )
         return await handler(request)
 
 

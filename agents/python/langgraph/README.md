@@ -292,7 +292,7 @@ Each limit has a workaround.
 | **No Dex built-in tools.** The adapter does not offer `write_todos`, `ask_user`, or `durable_wait` from `AgentSessionOptions.built_in_tools`. | Plan with LangChain's `TodoListMiddleware`, whose `write_todos` returns a `Command`, which works since 0.5.0, or with a read-only tool that returns the plan. Ask the user in the turn's answer, and continue with the next user message. Run long waits on the built-in agent loop. |
 | **Summarization is not a separate model call.** Deep Agents' `SummarizationMiddleware` calls its model inside a `RunModel` Step. The usage counts it, but it gets no model call record of its own, and a retry repeats it. It always uses the model the agent was built with, not `select_turn_chat_model`'s. Its offload of earlier messages goes to the per-turn `files`, and its rewrite of the history is not stored, because stored history is append-only. | Replace it with a middleware named `SummarizationMiddleware` that adds nothing, and use Dex [compaction](#compaction) instead. |
 | **Rebuilt system messages lose cache breakpoints.** A middleware that replaces the system message with plain text, such as one that adds instructions for each turn, drops the Anthropic `cache_control` breakpoints that middleware before it set on the message's content blocks. | Keep the existing content blocks and add yours before them, or set the instructions when you build the agent. |
-| **Large state in records.** A state-reading tool call stores the non-message graph state, such as every file in `files`, in its record, and a file write stores its writes in the record's `runner_tool_state`. Every call of a root tool node with middleware tool wrappers besides `DurableToolCallMiddleware`, as in every Deep Agents agent, stores that state too, because its wrappers may read it, so one model response with N calls stores it N times. The session fails when its run state outgrows the Dex limit. | Keep large or many files in a `FilesystemBackend` or a `StoreBackend`. |
+| **Large state in records.** A state-reading tool call stores the non-message graph state, such as every file in `files`, in its record, and a file write stores its writes in the record's `runner_tool_state`. Every call of a rewritten root tool node with a wrapper besides the bare deferral, as in every `create_agent` and Deep Agents agent, stores that state too, because its wrappers may read it, so one model response with N calls stores it N times. The session fails when its run state outgrows the Dex limit. | Keep large or many files in a `FilesystemBackend` or a `StoreBackend`. |
 
 ## Tool sources and connector tools
 
@@ -486,18 +486,24 @@ that already ran.
 
 ## Middleware order
 
-Inside a session the deferral is the outermost tool wrapper of every root
-graph tool node that has an async tool wrapper, as every `create_agent`
-graph with `DurableToolCallMiddleware` has, whatever the middleware order.
-`RunModel` never runs a tool wrapper: it defers each call and later replays
-the recorded result. Each attempt of the call's own tool Step runs every
+Inside a session the runner rewrites every root graph tool node that has an
+async tool wrapper, as every `create_agent` graph with
+`DurableToolCallMiddleware` has: the deferral becomes its outermost tool
+wrapper, whatever the middleware order. `RunModel` never runs the wrappers of
+a rewritten node: it defers each call and later replays the recorded result.
+A tool node in a subgraph keeps its middleware order, and a root node with
+only synchronous wrappers is not rewritten. Each attempt of the call's own tool Step runs every
 other middleware tool wrapper of that node around the tool, such as error
 handling, result eviction, or argument checks. A retried attempt runs them
 again, so their side effects follow the tool's retry policy: a
 `NON_IDEMPOTENT_WRITE` tool has one attempt. The wrappers see the state of
 the call's deferral without the message list, and their state writes are
-recorded with the tool's. A tool of `tools=` that no tool node has, and a
-tool of a subgraph's tool node, run alone. Model middleware, such as dynamic
+recorded with the tool's. So every call of a rewritten node with any wrapper
+besides the bare deferral stores that state with its record. A tool of
+`tools=` that no tool node has, and a tool of a subgraph's tool node, run
+alone. A tool name that root tool nodes with different wrappers share is
+refused when the runner loads the graph, because a tool Step could not tell whose
+wrappers to run. Model middleware, such as dynamic
 tool selection or summarization, keeps working; its model calls run inside
 `RunModel`.
 
@@ -506,10 +512,13 @@ order: middleware listed before `DurableToolCallMiddleware` saw every call
 in `RunModel`, when it was deferred and when its result replayed, and
 middleware listed after it never saw a call, because the tool Step called
 the tool alone. Pass `should_defer_tool_calls_before_middleware=False` to
-keep that behavior. A session recorded under either setting continues under
-the other: a model call paused under the old order resumes with the
-deferral first, and a call deferred under the old order runs with the
-node's wrappers in its tool Step.
+keep that behavior.
+
+Each turn keeps the order its first model call used. The stored run state of
+its pending tool calls and each call's record name that order, so a Worker
+with the other setting finishes the turn's calls in it, and no wrapper runs
+twice. A run state from before 0.6.0 names no order and keeps the middleware
+order. The setting decides only turns that start on the Worker.
 
 LangChain's `HumanInTheLoopMiddleware` raises its own interrupts, which the
 session cannot answer. Use `ToolPolicy(..., requires_approval=True)` and
@@ -546,8 +555,11 @@ Steps; a tool source's `read_file` that replaces the excluded graph tool, and
 the refused collision without the exclusion; and session settings that pick
 the model of each turn. They also check that a middleware tool wrapper runs
 once, in the tool Step, by default, also after a Worker restart; that tools
-in their tool Steps share the compiled graph's store; that a turn paused in
-the old middleware order resumes on a Worker with the deferral first; that Deep Agents' `FilesystemMiddleware` evicts a large tool result
+in their tool Steps share the compiled graph's store; that a turn keeps its
+order on a Worker with the other setting, in both directions, with a tool
+Step committed and its replay pending; that a decorator around the deferral
+runs once in the tool Step; that a tool shared by root tool nodes with
+different wrappers is refused; that Deep Agents' `FilesystemMiddleware` evicts a large tool result
 to a file in its tool Step, which a later tool lists; and that two runners
 sharing one graph keep their own middleware order. Further cases cover state writes that apply
 once through a failed tool attempt and a `RunModel` rerun after a Worker

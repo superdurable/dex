@@ -15,6 +15,7 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -23,10 +24,16 @@ from dex import FlowStatus
 from dex_agents import AgentSessionFlow, AgentSnapshot, MessageRole
 from dex_agents.testing import AgentTestStack, FileGate, InvocationLog, wait_for_agent_snapshot
 from dex_agents.ui_stream import agent_snapshot_to_json
+from langchain_core.tools import tool
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from dex_agents_langgraph import DurableToolCallMiddleware, LangGraphAgentRunner
 from tests.conftest import DEEP_AGENT_WORKER_MODULE, PACKAGE_DIR, ScriptedAgentHarness
 from tests.deep_agents import (
+    AUDIT_INVOCATION_PREFIX,
+    AUDITED_DEFERRAL_FLOW_TYPE,
     DEEP_AGENT_FLOW_TYPE,
     EVICTING_DEEP_AGENT_FLOW_TYPE,
     EVICTION_TOKEN_LIMIT,
@@ -36,6 +43,7 @@ from tests.deep_agents import (
     SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE,
     SOURCE_READ_FILE_DEEP_AGENT_FLOW_TYPE,
     SOURCE_READ_FILE_OUTPUT,
+    TOOL_STEP_WRAPPER_INVOCATION_PREFIX,
     TOOL_WRAPPER_INVOCATION_PREFIX,
     TURN_MODEL_NAME,
     WorkspaceReadFileSource,
@@ -339,43 +347,123 @@ async def test_two_runners_sharing_one_graph_keep_their_own_middleware_order(
         assert invocations.count(wrapper_invocation) == 1 + 2
 
 
-async def test_a_session_paused_in_middleware_order_resumes_with_the_deferral_first(
+async def test_a_turn_started_with_the_deferral_first_keeps_it_on_a_middleware_order_worker(
+    tmp_path: Path,
+) -> None:
+    async with _deep_agent_stack(tmp_path) as (stack, flows, state_dir):
+        worker = await stack.start_worker()
+        invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+        sessions = stack.sessions(flows[ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE])
+        session_id = f"session-{uuid4().hex}"
+        # The tool Step commits; the next RunModel replays its result and then waits.
+        await sessions.start_session(session_id, "call get_topic {} then stall order")
+        gate = FileGate(state_dir, "order")
+        await gate.wait_until_reached()
+        assert _wrapper_counts(invocations, "get_topic") == (1, 1)
+
+        worker.kill()
+        gate.release()
+        await stack.start_worker({MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE: "1"})
+        first = await _wait_for_finished_turns(sessions, session_id, 1)
+        # The middleware-order Worker replayed the result without running the wrapper again.
+        assert first.messages[-1].text == "waiting; get_topic: topic is unset"
+        assert _wrapper_counts(invocations, "get_topic") == (1, 1)
+
+        # A new turn follows this Worker's option: the wrapper sees the deferral and the replay.
+        await sessions.send_user_message(session_id, "call get_topic {}")
+        await _wait_for_finished_turns(sessions, session_id, 2)
+        assert _wrapper_counts(invocations, "get_topic") == (3, 1)
+    assert invocations.count("get_topic") == 2
+
+
+async def test_a_turn_started_in_middleware_order_keeps_it_on_a_default_worker(
     tmp_path: Path,
 ) -> None:
     async with _deep_agent_stack(tmp_path) as (stack, flows, state_dir):
         worker = await stack.start_worker({MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE: "1"})
         invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
-        gate = FileGate(state_dir, "order")
         sessions = stack.sessions(flows[ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE])
         session_id = f"session-{uuid4().hex}"
-        await sessions.start_session(
-            session_id,
-            'call get_topic {} then call wait_at_gate {"gate": "order"} then call get_topic {}',
-        )
+        await sessions.start_session(session_id, 'call wait_at_gate {"gate": "order"}')
+        gate = FileGate(state_dir, "order")
         await gate.wait_until_reached()
-        # The old order wrapped the first call's deferral and replay in RunModel.
-        assert invocations.count(f"{TOOL_WRAPPER_INVOCATION_PREFIX}get_topic") == 2
+        # The middleware order ran the wrapper around the deferral in RunModel.
+        assert _wrapper_counts(invocations, "wait_at_gate") == (1, 0)
 
         worker.kill()
         gate.release()
         await stack.start_worker()
-        snapshot = await wait_for_agent_snapshot(
-            sessions,
-            session_id,
-            lambda current: current
-            if current.state is not None
-            and current.state.turn_count >= 1
-            and current.state.active_turn_id is None
-            else None,
-            description="the turn to finish on the new Worker",
-        )
+        first = await _wait_for_finished_turns(sessions, session_id, 1)
+        # The tool Step ran the tool alone, and RunModel wrapped the replay, as the turn began.
+        assert first.messages[-1].text == "wait_at_gate: passed order"
+        assert _wrapper_counts(invocations, "wait_at_gate") == (2, 0)
 
-    assert snapshot.messages[-1].text == (
-        "get_topic: topic is unset; wait_at_gate: passed order; get_topic: topic is unset"
+        await sessions.send_user_message(session_id, "call get_topic {}")
+        await _wait_for_finished_turns(sessions, session_id, 2)
+        assert _wrapper_counts(invocations, "get_topic") == (1, 1)
+
+
+@pytest.mark.parametrize("deep_agent_flow_type", [AUDITED_DEFERRAL_FLOW_TYPE])
+async def test_a_decorated_deferral_runs_its_decorator_once_in_the_tool_step(
+    deep_agent_harness: ScriptedAgentHarness,
+) -> None:
+    harness = deep_agent_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call echo_text {"text": "hi"}')
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == "echo_text: hi"
+    assert harness.invocations.count(f"{AUDIT_INVOCATION_PREFIX}echo_text") == 1
+    assert harness.tool_invocations() == ["echo_text"]
+
+
+def test_a_tool_in_two_root_nodes_with_different_wrappers_is_refused() -> None:
+    @tool
+    def echo_text(text: str) -> str:
+        """Return the text unchanged."""
+        return text
+
+    async def first_wrapper(request: ToolCallRequest, handler: Any) -> Any:
+        return await handler(request)
+
+    async def second_wrapper(request: ToolCallRequest, handler: Any) -> Any:
+        return await handler(request)
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("first_tools", ToolNode([echo_text], awrap_tool_call=first_wrapper))
+    builder.add_node("second_tools", ToolNode([echo_text], awrap_tool_call=second_wrapper))
+    builder.add_edge(START, "first_tools")
+    builder.add_edge("first_tools", "second_tools")
+    builder.add_edge("second_tools", END)
+    graph = builder.compile()
+
+    with pytest.raises(ValueError, match="several root tool nodes"):
+        LangGraphAgentRunner(graph)
+    LangGraphAgentRunner(graph, should_defer_tool_calls_before_middleware=False)
+
+
+def _wrapper_counts(invocations: InvocationLog, tool_name: str) -> tuple[int, int]:
+    """Return how often the recorder's tool wrapper ran in all, and how often in a tool Step."""
+    return (
+        invocations.count(f"{TOOL_WRAPPER_INVOCATION_PREFIX}{tool_name}"),
+        invocations.count(f"{TOOL_STEP_WRAPPER_INVOCATION_PREFIX}{tool_name}"),
     )
-    # The checkpoint paused under the old order resumed; the later call ran its wrapper once.
-    assert invocations.count("get_topic") == 2
-    assert invocations.count(f"{TOOL_WRAPPER_INVOCATION_PREFIX}get_topic") == 3
+
+
+async def _wait_for_finished_turns(
+    sessions: Any, session_id: str, turn_count: int
+) -> AgentSnapshot:
+    return await wait_for_agent_snapshot(
+        sessions,
+        session_id,
+        lambda current: current
+        if current.state is not None
+        and current.state.turn_count >= turn_count
+        and current.state.active_turn_id is None
+        else None,
+        description=f"{turn_count} finished turn(s)",
+    )
 
 
 async def test_state_writes_over_the_state_limit_fail_the_session(tmp_path: Path) -> None:
