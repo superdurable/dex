@@ -232,6 +232,57 @@ Hard-delete Attribute values use the same provider, unless
 The server does not migrate existing S3 data to db9. Start db9 with a new
 namespace.
 
+## Aliyun OSS provider {#aliyun-oss}
+
+Since 0.1.27, **serve** can keep its object storage in an Aliyun OSS bucket.
+The server uses the S3-compatible endpoint of OSS. Every feature works as it
+does on S3, including leases, hot standby, snapshots, history offload, and
+Flow definition uploads.
+
+~~~yaml
+objectStore:
+  provider: aliyunOSS
+  endpoint: https://s3.oss-cn-hangzhou.aliyuncs.com
+  region: cn-hangzhou
+  bucket: BUCKET
+  prefix: PREFIX
+  credentialsSource: environment
+~~~
+
+| Setting | Value |
+| --- | --- |
+| **objectStore.provider** | **aliyunOSS** |
+| **objectStore.endpoint** | Required. **https://s3.oss-REGION.aliyuncs.com**, the S3-compatible endpoint of the bucket's region |
+| **objectStore.region** | The OSS region ID, such as **cn-hangzhou** |
+| **objectStore.forcePathStyle** | Leave it unset. OSS accepts only virtual-hosted-style requests, so **true** fails validation |
+| **objectStore.credentialsSource** | **environment**, with the AccessKey ID and secret of a RAM user in **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID** and **DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY** |
+
+The RAM user needs to list, read, write, and delete objects under the prefix.
+A configured **objectStore.hardDeleteStore** uses OSS too. Give it the same
+endpoint and addressing settings.
+
+The bucket must never have had versioning enabled. Once versioning was enabled
+or suspended, OSS no longer rejects a write that would overwrite an object, and
+the server depends on that rejection. At startup the server writes a probe
+object twice. If the second write succeeds, startup fails with a message that
+names **x-oss-forbid-overwrite** and versioning. A bucket cannot return to the
+unversioned state, so use a new bucket.
+
+OSS has no conditional replacement of an object. The server therefore stores
+each object that it replaces, such as the cluster manifest, node leases, the
+Attribute index registry, and Flow definitions, as a series of versions. A key
+**K** becomes objects under **K.v/**, one per change. The server manages these
+objects and deletes old versions itself. Do not edit, copy, or delete them, and
+do not add a lifecycle rule that expires them.
+
+Data cannot move between **aliyunOSS** and another provider, because the
+object layouts differ. If the prefix holds a cluster manifest or an Attribute
+index registry that another provider wrote, startup fails with a message that
+the data was written by another provider. Start **aliyunOSS** on an empty
+prefix.
+
+**dev** and **local** reject **aliyunOSS**.
+
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The server rebuilds the
