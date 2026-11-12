@@ -4,13 +4,9 @@ title: 持久化 Agent
 sidebar_label: 持久化 Agent
 ---
 
-import AgentDeploymentDiagram from '@site/src/components/diagrams/AgentDeploymentDiagram';
-
 # 持久化 Agent
 
 Dex 把 AI Agent 作为持久化的 Agent Session 运行。你可以用 Dex Agents 的内置 Agent Loop 构建 Agent，也可以保留已经用 Agent 框架写好的 Agent；两者运行在同一个 Session Flow 上。
-
-<AgentDeploymentDiagram markdownDescription="用户访问 Web 应用副本，它们持有 Client，向 Dex Server 发送 RPC 和读取请求。Worker 进程通过出站连接从 Dex Server 拉取任务，运行 Session Flow：模型调用、Tool Call 和审批。Dex Server 把 Session 状态保存在对象存储中。" />
 
 ## Dex 为你的 Agent 带来什么 {#what-dex-adds}
 

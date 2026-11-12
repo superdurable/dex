@@ -4,13 +4,9 @@ title: Durable Agents
 sidebar_label: Durable Agents
 ---
 
-import AgentDeploymentDiagram from '@site/src/components/diagrams/AgentDeploymentDiagram';
-
 # Durable Agents
 
 Dex runs an AI agent as a durable agent session. Build the agent with the built-in agent loop of Dex Agents, or keep one you already wrote with an agent framework; both run on the same session Flow.
-
-<AgentDeploymentDiagram markdownDescription="Users reach web app replicas, which hold a Client and send RPCs and reads to Dex Server. Worker processes pull tasks from Dex Server over outbound connections and run the session Flow: model calls, tool calls, and approvals. Dex Server keeps session state in object storage." />
 
 ## What Dex adds to your agent {#what-dex-adds}
 
