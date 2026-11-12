@@ -270,4 +270,33 @@ impl ObjectStore for StartupReadRetryStore {
         })
         .await
     }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dexzd_object_store::{InMemoryObjectStore, InMemoryObjectStoreOptions};
+
+    use super::*;
+
+    #[test]
+    fn forwards_whether_the_inner_store_replaces_every_key() {
+        let inner: Arc<dyn ObjectStore> = Arc::new(InMemoryObjectStore::with_options(
+            InMemoryObjectStoreOptions {
+                rejects_replace_if_etag_matches: true,
+                ..InMemoryObjectStoreOptions::default()
+            },
+        ));
+        let retrying = StartupReadRetryStore::new(
+            inner,
+            Duration::from_secs(1),
+            "test".to_owned(),
+            Arc::new(NodeMetrics::unregistered()),
+            None,
+        );
+        assert!(!retrying.supports_replace_if_etag_matches_on_every_key());
+    }
 }

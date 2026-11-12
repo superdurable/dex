@@ -297,7 +297,7 @@ func (screen *ChatScreen) ExitSummary() string {
 	if screen.session.SessionID == "" {
 		return screen.exitReason
 	}
-	summary := "Session " + screen.session.SessionID + " stays in Dex. Resume with: " + screen.resumeCommand()
+	summary := "Session " + screen.session.SessionID + " keeps running. Resume it with: " + screen.resumeCommand()
 	if first := screen.openedSession.SessionID; first != "" && first != screen.session.SessionID {
 		summary += " This chat started in session " + first + "."
 	}

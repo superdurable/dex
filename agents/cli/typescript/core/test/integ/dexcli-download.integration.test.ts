@@ -173,7 +173,11 @@ describe("dexcli first-run download", () => {
     assert.equal(await resolveDexcliExecutable(environment, () => undefined), explicit);
     await assert.rejects(
       resolveDexcliExecutable(readCliEnvironment({ HOME: home, DEXCLI: join(home, "missing") }), () => undefined),
-      /DEXCLI is not an executable file/,
+      {
+        message:
+          `DEXCLI is not an executable file: ${join(home, "missing")}. Unset DEXCLI to use the dexcli on PATH or ` +
+          "the downloaded release, or set it to the path of a dexcli executable.",
+      },
     );
   });
 });

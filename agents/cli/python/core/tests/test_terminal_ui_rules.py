@@ -20,7 +20,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-import grpc  # type: ignore[import-untyped]
+import grpc
 import pytest
 from dex import ErrorSubStatus, FlowAlreadyStartedError, FlowNotFoundError, StartFlowOptions
 from jsonschema import Draft202012Validator

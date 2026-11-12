@@ -166,7 +166,7 @@ func TestSwitchedSessionKeepsTheOriginalWelcome(t *testing.T) {
 	require.Contains(t, scrollback, "session:   openai-sdk-20261111-142233-a1b2c3 (new)")
 	require.NotContains(t, strings.SplitN(scrollback, "Type a message", 2)[0], "ffffff")
 	harness.press(ctrlKey('d'))
-	require.Contains(t, harness.screen.ExitSummary(), "Session openai-sdk-20261111-150000-ffffff stays in Dex")
+	require.Contains(t, harness.screen.ExitSummary(), "Session openai-sdk-20261111-150000-ffffff keeps running")
 	require.Contains(t, harness.screen.ExitSummary(), "This chat started in session openai-sdk-20261111-142233-a1b2c3.")
 }
 

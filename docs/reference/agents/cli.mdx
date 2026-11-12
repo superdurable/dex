@@ -222,7 +222,7 @@ download it again.
 
 | Environment variable | Meaning |
 | --- | --- |
-| **DEXCLI** | The **dexcli** executable to run. |
+| **DEXCLI** | The **dexcli** executable to run. A value that is not an executable file stops the command with an error that says to unset **DEXCLI** or point it at **dexcli**. Changed in 0.6.0: the Python commands check it too. |
 | **DEX_AGENTS_DEX_PORT**, **DEX_AGENTS_WEB_PORT** | The ports of the **dexcli dev** that **auto** reuses or starts. |
 | **DEX_AGENTS_DEXCLI_DOWNLOAD_URL** | The base URL of **dexcli** release downloads, such as a mirror. It must be https, or http on 127.0.0.1, localhost, or [::1]. |
 | **DEX_AGENTS_OPEN_BROWSER** | **0** or **false** keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. Since 0.6.0. |
@@ -298,7 +298,15 @@ IPv6 address is invalid, a DNS label starts with **xn--**, or the port is over
 The [configuration schema](https://github.com/superdurable/dex/blob/main/agents/cli/config.schema.json)
 defines every field. A file that fails it stops the command with the error code
 and the JSON Pointer of the problem, such as
-**schema at "/local_tools/shell/allow"**.
+**schema at "/local_tools/shell/allow"**. Since 0.6.0, the error for a field
+that takes one of several forms, such as **dex.server**, also names the forms
+it takes.
+
+When the command cannot reach the Dex server at all, it stops with one line
+that names the server's address and says how to fix it: run **dexcli dev**
+for **auto**, or start the server that **dex.server** names. A server that
+answers but reports **UNAVAILABLE** is named with its details and a hint to
+try again. Changed in 0.6.0: these lines replace the raw gRPC error.
 
 ### Harness options {#harness-options}
 
@@ -462,6 +470,19 @@ your permissions and can change anything, inside the workspace or outside it.
 A concurrent process that swaps a directory for a link during an approved
 write can make the write land outside; the call then reports an error. Only
 OS-level isolation, such as a container, closes that gap.
+
+**dex-agents-builtin** also has two built-in tools that the session runs
+itself. **ask_user** asks you a question and waits for the answer.
+**write_todos** replaces the session's plan and never waits for approval.
+Since 0.6.0, plan mode is on in **dex-agents-builtin**: a planning turn drafts
+a plan with **write_todos** and uses no other tool, and approving the draft
+starts a turn that runs it with every tool. Use plan mode through the terminal
+UI, with **/plan** and **/run**, or through the session API. The plain chat has
+no plan commands and sends them as ordinary messages.
+
+The two names are reserved, so a Connector or local tool with one of them
+fails the turn. Changed in 0.6.0: **write_todos** became reserved. Rename a
+conflicting Connector or local tool, or use another harness.
 
 ### Harnesses with their own tools {#harness-tools}
 

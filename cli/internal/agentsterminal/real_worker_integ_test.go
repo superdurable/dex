@@ -440,7 +440,7 @@ func (stack *realWorkerStack) testApprovalRoundTrip(t *testing.T) {
 	require.Equal(t, "publish_note: published hello", lastAssistantText(finished))
 	chat.waitForScreen("publish_note: published hello")
 	chat.exit()
-	require.Contains(t, chat.screen(), "Session "+sessionID+" stays in Dex")
+	require.Contains(t, chat.screen(), "Session "+sessionID+" keeps running")
 }
 
 func (stack *realWorkerStack) testResumeShowsHistory(t *testing.T) {

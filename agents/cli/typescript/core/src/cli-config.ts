@@ -180,7 +180,10 @@ export type ConfigErrorCode =
  * problem.
  *
  * The message is `<code> at <path>`, such as `widens_connectors at /connectors/enabled/1`, with the schema
- * keyword for a `schema` error. A turn whose session settings fail resolution fails with this message.
+ * keyword for a `schema` error. An `anyOf` error whose schema has a `title` ends with `. Use <title>.`, which names
+ * the values the field accepts. A turn whose session settings fail resolution fails with this message.
+ *
+ * Changed in 0.6.0: an `anyOf` error names the values the field accepts.
  *
  * @example
  * ```ts
@@ -198,13 +201,20 @@ export class ConfigError extends Error {
    * @param code - The stable error code.
    * @param path - JSON Pointer of the first problem; `""` is the whole value.
    * @param keyword - For a `schema` error, the JSON Schema keyword that failed, such as `anyOf`.
+   * @param validForms - For an `anyOf` schema error, the failed schema's `title`, which names the values it accepts.
+   * Since 0.6.0.
    */
   public constructor(
     public readonly code: ConfigErrorCode,
     public readonly path: string,
     public readonly keyword?: string,
+    public readonly validForms?: string,
   ) {
-    super(`${code} at ${JSON.stringify(path)}${keyword === undefined ? "" : ` (schema keyword ${keyword})`}`);
+    super(
+      `${code} at ${JSON.stringify(path)}${keyword === undefined ? "" : ` (schema keyword ${keyword})`}${
+        validForms === undefined ? "" : `. Use ${validForms}.`
+      }`,
+    );
     this.name = "ConfigError";
   }
 }
@@ -495,7 +505,8 @@ type RawConnectorEntry = string | Readonly<Record<string, { readonly tools: read
 
 function validators(): { readonly config: ValidateFunction; readonly sessionSettings: ValidateFunction } {
   if (compiledValidators === undefined) {
-    const ajv = new Ajv2020({ strict: true, allErrors: false });
+    // verbose gives each error its parentSchema, whose title names the forms an anyOf accepts.
+    const ajv = new Ajv2020({ strict: true, allErrors: false, verbose: true });
     compiledValidators = {
       config: ajv.compile(readSchema("config.schema.json")),
       sessionSettings: ajv.compile(readSchema("session-settings.schema.json")),
@@ -532,7 +543,9 @@ function throwFirstSchemaError(validate: ValidateFunction, value: unknown): void
   if (outermost === undefined) {
     throw new ConfigError("schema", "");
   }
-  throw new ConfigError("schema", outermost.instancePath, outermost.keyword);
+  const title: unknown = (outermost.parentSchema as { readonly title?: unknown } | undefined)?.title;
+  const validForms = outermost.keyword === "anyOf" && typeof title === "string" ? title : undefined;
+  throw new ConfigError("schema", outermost.instancePath, outermost.keyword, validForms);
 }
 
 function throwInvalidUrl(url: string, path: string): void {

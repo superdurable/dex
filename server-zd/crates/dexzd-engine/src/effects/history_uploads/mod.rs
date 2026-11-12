@@ -37,6 +37,8 @@ pub(crate) use expired_object_deletion::delete_expired_history_objects;
 pub(crate) use local_cleanup::clean_up_local_history;
 pub(crate) use orphan_sweep::run_history_orphan_sweep;
 pub(crate) use run_history_objects::delete_run_history_objects;
+#[cfg(test)]
+pub(crate) use segment_upload::MAX_CONDITIONAL_WRITES;
 pub(crate) use segment_upload::upload_sealed_history_segments;
 pub(crate) use upload_backlog::UploadBacklogTracker;
 pub(crate) use upload_limiter::HistoryUploadLimiter;

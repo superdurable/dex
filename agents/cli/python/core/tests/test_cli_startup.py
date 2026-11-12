@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,7 +22,9 @@ import pytest
 
 from dex_agents.testing import find_free_ports
 from dex_agents_cli_core import parse_config_yaml
-from tests.conftest import CliHome, config_yaml, expect, wait_for_exit
+from dex_agents_cli_core.dex_server import describe_unavailable_dex_server
+from tests.conftest import PACKAGE_DIR, CliHome, config_yaml, expect, wait_for_exit
+from tests.unavailable_dex_server import UNAVAILABLE_DETAILS
 
 
 async def test_tty_without_a_config_asks_the_init_questions_then_chats(cli_home: CliHome) -> None:
@@ -176,6 +180,80 @@ async def test_an_invalid_config_names_the_error_code_and_pointer(cli_home: CliH
     assert 'schema at "/local_tools/shell/allow" (schema keyword type)' in completed.stderr
 
 
+async def test_an_anyof_error_names_the_values_the_field_accepts(cli_home: CliHome) -> None:
+    cli_home.write_config(config_yaml({"dex": {"server": "localhost:7233"}}))
+    completed = cli_home.run()
+    assert completed.returncode == 2
+    assert (
+        'schema at "/dex/server" (schema keyword anyOf). Use "auto" (dexcli dev on this '
+        "machine), or the http or https URL of a Dex server, without user info."
+    ) in completed.stderr
+
+
+async def test_an_unreachable_dex_server_fails_with_one_line_that_says_how_to_fix_it(
+    cli_home: CliHome,
+) -> None:
+    (closed_port,) = find_free_ports(1)
+    cli_home.write_config(
+        config_yaml(
+            {"dex": {"server": f"http://127.0.0.1:{closed_port}"}, "connectors": {"enabled": []}}
+        )
+    )
+    completed = cli_home.run(stdin="hello\n")
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert completed.stderr == (
+        f"dex-agents-scripted: cannot reach the Dex server at 127.0.0.1:{closed_port}, which "
+        "dex.server names. Start that server, or set dex.server to auto to use dexcli dev on "
+        "this machine.\n"
+    )
+
+
+async def test_a_reachable_dex_server_that_answers_unavailable_is_named_with_its_details(
+    cli_home: CliHome,
+) -> None:
+    server = subprocess.Popen(
+        [sys.executable, "-m", "tests.unavailable_dex_server"],
+        cwd=PACKAGE_DIR,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert server.stdout is not None
+        port = int(server.stdout.readline())
+        cli_home.write_config(
+            config_yaml(
+                {"dex": {"server": f"http://127.0.0.1:{port}"}, "connectors": {"enabled": []}}
+            )
+        )
+        completed = cli_home.run(stdin="hello\n")
+    finally:
+        server.kill()
+        server.wait()
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert completed.stderr == (
+        f"dex-agents-scripted: the Dex server at 127.0.0.1:{port} returned UNAVAILABLE: "
+        f"{UNAVAILABLE_DETAILS}. It may still be starting; try again in a moment.\n"
+    )
+
+
+async def test_a_dexcli_variable_that_names_no_executable_says_how_to_fix_it(
+    cli_home: CliHome,
+) -> None:
+    missing = cli_home.home / "no-such-dexcli"
+    cli_home.extra_environment["DEXCLI"] = str(missing)
+    # Other ports than the shared dexcli dev's, so the command has to start one.
+    cli_home.dex_port, cli_home.web_port = find_free_ports(2)
+    cli_home.write_config(config_yaml({"connectors": {"enabled": []}}))
+    completed = cli_home.run(stdin="hello\n")
+    assert completed.returncode == 1
+    assert completed.stderr == (
+        f"dex-agents-scripted: DEXCLI is not an executable file: {missing}. Unset DEXCLI to use "
+        "the dexcli on PATH or the downloaded release, or set it to the path of a dexcli "
+        "executable.\n"
+    )
+    assert "Starting dexcli dev" not in completed.stdout
+
+
 async def test_auto_starts_dexcli_dev_when_none_runs_and_stops_it_when_input_ends(
     tmp_path: Path,
 ) -> None:
@@ -270,3 +348,29 @@ async def test_a_service_that_only_looks_ready_is_not_taken_for_dexcli_dev(
     assert completed.returncode == 1
     assert "answers, but it is not a dexcli dev" in completed.stderr
     assert "echo: hello" not in completed.stdout
+
+
+class _FakeRpcError(Exception):
+    """An error shaped like grpc.RpcError, with a status code name and details."""
+
+    def __init__(self, code_name: str, details: str) -> None:
+        super().__init__(details)
+        self._code = type("Code", (), {"name": code_name})()
+        self._details = details
+
+    def code(self) -> object:
+        return self._code
+
+    def details(self) -> str:
+        return self._details
+
+
+def test_an_unavailable_cause_is_found_below_another_status_code() -> None:
+    outer = _FakeRpcError("DEADLINE_EXCEEDED", "deadline exceeded")
+    outer.__cause__ = _FakeRpcError("UNAVAILABLE", "failed to connect to all addresses")
+    assert describe_unavailable_dex_server(outer, "auto", "127.0.0.1:7233") == (
+        "cannot reach the Dex server of dexcli dev at 127.0.0.1:7233. Run dexcli dev, or set "
+        "dex.server to the URL of a running Dex server."
+    )
+    other = _FakeRpcError("NOT_FOUND", "no such Flow")
+    assert describe_unavailable_dex_server(other, "auto", "127.0.0.1:7233") is None

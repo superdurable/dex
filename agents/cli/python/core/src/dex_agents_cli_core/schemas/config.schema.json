@@ -27,6 +27,7 @@
       },
       "properties": {
         "server": {
+          "title": "\"auto\" (dexcli dev on this machine), or the http or https URL of a Dex server, without user info",
           "anyOf": [
             {
               "const": "auto"
@@ -50,6 +51,7 @@
       },
       "properties": {
         "mcp": {
+          "title": "\"auto\" (the connectors MCP server of dexcli dev), or an http or https URL on 127.0.0.1, localhost, or [::1]",
           "anyOf": [
             {
               "const": "auto"
@@ -149,6 +151,7 @@
       },
       "properties": {
         "store": {
+          "title": "\"auto\" (a directory on this machine), or s3://<bucket> or s3://<bucket>/<prefix>",
           "anyOf": [
             {
               "const": "auto"
@@ -281,6 +284,7 @@
       "description": "A connector ID, or connector/connection. A connection name has at most 256 characters, no slash, no control character, and no leading or trailing space, as Dex Web requires."
     },
     "connector_entry": {
+      "title": "a connector ID or connector/connection, such as slack or slack/team, or a map with one such key and a tools list",
       "anyOf": [
         {
           "$ref": "#/$defs/connector_key"

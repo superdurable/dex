@@ -43,6 +43,10 @@ class DexcliInstallError(Exception):
     """Report that ``dexcli`` is not installed, cannot be downloaded, or was changed."""
 
 
+class DexcliVariableError(DexcliInstallError):
+    """Report that ``DEXCLI`` names no executable file; the command cannot fall back from it."""
+
+
 def locate_dexcli(environment: CommandEnvironment) -> Path | None:
     """Return the ``dexcli`` to run without downloading one.
 
@@ -56,9 +60,16 @@ def locate_dexcli(environment: CommandEnvironment) -> Path | None:
         one; else ``None``.
 
     Raises:
+        DexcliVariableError: If ``DEXCLI`` is set but is not an executable file.
         DexcliInstallError: If the downloaded release changed since it was installed.
     """
     if environment.dexcli is not None:
+        if not (environment.dexcli.is_file() and os.access(environment.dexcli, os.X_OK)):
+            raise DexcliVariableError(
+                f"DEXCLI is not an executable file: {environment.dexcli}. Unset DEXCLI to use "
+                "the dexcli on PATH or the downloaded release, or set it to the path of a dexcli "
+                "executable."
+            )
         return environment.dexcli
     installed = installed_release_directory(environment)
     if installed.exists():

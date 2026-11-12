@@ -40,8 +40,14 @@ class BuiltinHarness:
 
     Every model call is one LiteLLM request with the turn's model, so any
     LiteLLM provider works with its standard environment variables. The
-    CLI core's connector and local tools are the agent's only tools, and the
-    agent can ask the user a question with the ``ask_user`` built-in tool.
+    CLI core's connector and local tools are the agent's tools, with two
+    built-in tools: ``ask_user`` asks the user a question, and ``write_todos``
+    keeps the session's plan. Plan mode is on, so a ``plan_mode`` message
+    drafts a plan with ``write_todos`` and ``execute_plan`` runs it. Both
+    built-in names are reserved: no connector or local tool may use them.
+
+    .. versionchanged:: 0.6.0
+       Plan mode is on, and the agent has the ``write_todos`` built-in tool.
     """
 
     name = "builtin"
@@ -81,7 +87,8 @@ class BuiltinHarness:
             model=LiteLLMModelClient(context.config.model),
             resolve_model=resolve_model,
             tool_sources=list(context.tool_sources),
-            built_in_tools=frozenset({BuiltInTool.ASK_USER}),
+            built_in_tools=frozenset({BuiltInTool.ASK_USER, BuiltInTool.WRITE_TODOS}),
+            plan_mode_enabled=True,
         )
         return builtin_agent_session_flow(
             definition,

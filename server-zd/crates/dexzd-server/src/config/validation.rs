@@ -67,7 +67,7 @@ impl Config {
         )?;
         validate_prefix("objectStore.prefix", &self.object_store.prefix)?;
         match self.object_store.provider {
-            ObjectStoreProvider::S3 => {
+            ObjectStoreProvider::S3 | ObjectStoreProvider::AliyunOss => {
                 ensure(
                     !self.object_store.region.trim().is_empty(),
                     "objectStore.region",
@@ -79,6 +79,15 @@ impl Config {
                         self.object_store.credentials.is_some(),
                         "objectStore.credentialsSource",
                         "environment credentials must be resolved before serving",
+                    )?;
+                }
+                if self.object_store.provider == ObjectStoreProvider::AliyunOss {
+                    validate_aliyun_oss_addressing(
+                        ("objectStore.endpoint", &self.object_store.endpoint),
+                        (
+                            "objectStore.forcePathStyle",
+                            self.object_store.force_path_style,
+                        ),
                     )?;
                 }
             }
@@ -126,6 +135,18 @@ impl Config {
                 &hard_delete.endpoint,
             )?;
             validate_prefix("objectStore.hardDeleteStore.prefix", &hard_delete.prefix)?;
+            if self.object_store.provider == ObjectStoreProvider::AliyunOss {
+                validate_aliyun_oss_addressing(
+                    (
+                        "objectStore.hardDeleteStore.endpoint",
+                        &hard_delete.endpoint,
+                    ),
+                    (
+                        "objectStore.hardDeleteStore.forcePathStyle",
+                        hard_delete.force_path_style,
+                    ),
+                )?;
+            }
             if hard_delete.credentials_source == CredentialSource::Environment {
                 ensure(
                     hard_delete.credentials.is_some(),
@@ -705,6 +726,24 @@ fn validate_endpoint(field: &'static str, endpoint: &str) -> Result<(), ConfigEr
                 && !endpoint.chars().any(char::is_whitespace)),
         field,
         "must be an HTTP(S) URL without whitespace",
+    )
+}
+
+/// Aliyun OSS has no AWS endpoint resolution and rejects path-style requests.
+fn validate_aliyun_oss_addressing(
+    (endpoint_field, endpoint): (&'static str, &str),
+    (path_style_field, is_force_path_style): (&'static str, bool),
+) -> Result<(), ConfigError> {
+    ensure(
+        !endpoint.is_empty(),
+        endpoint_field,
+        "aliyunOSS requires the S3-compatible endpoint of the bucket's region, such as \
+         https://s3.oss-cn-hangzhou.aliyuncs.com",
+    )?;
+    ensure(
+        !is_force_path_style,
+        path_style_field,
+        "aliyunOSS accepts only virtual-hosted-style requests; remove forcePathStyle",
     )
 }
 

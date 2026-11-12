@@ -626,9 +626,17 @@ class ReplayMismatchError(Exception):
 
 @dataclass
 class ReplayRecorder:
-    """Writes what the host saw to a JSON Lines file, if one was named."""
+    """Writes what the host saw to a JSON Lines file, if one was named.
+
+    Attributes:
+        path: The file, or ``None`` to write nothing.
+        is_launch_notice_recorded: Whether a received launch's notices are
+            written too. Notices are display text, so only a test that checks
+            them turns this on.
+    """
 
     path: Path | None
+    is_launch_notice_recorded: bool = False
 
     def record(self, event: str, **fields: Any) -> None:
         """Append one event."""
@@ -748,7 +756,14 @@ class TranscriptReplay:
             raise ReplayMismatchError(f"expected {expected_summary}: {error}") from error
         if received is None:
             raise ReplayMismatchError(f"expected {expected_summary} but the channel ended")
-        self._recorder.record("received", message=summarize_message(received))
+        if received.get("type") == "launch" and self._recorder.is_launch_notice_recorded:
+            self._recorder.record(
+                "received",
+                message=summarize_message(received),
+                notices=received.get("notices"),
+            )
+        else:
+            self._recorder.record("received", message=summarize_message(received))
         if not step.get("malformed"):
             self._check_received_schema(received)
         self._compare(step["message"], received, step.get("ignore", []))
@@ -1296,7 +1311,10 @@ def run_terminal_ui_role(arguments: argparse.Namespace) -> int:
         print("agents-tui needs --describe, or --channel-fd with --transcript", file=sys.stderr)
         return 2
     started_at = time.monotonic()
-    recorder = ReplayRecorder(Path(arguments.record) if arguments.record else None)
+    recorder = ReplayRecorder(
+        Path(arguments.record) if arguments.record else None,
+        is_launch_notice_recorded=arguments.record_launch_notices,
+    )
     names = sorted(os.environ)
     recorder.record(
         "start",
@@ -1403,6 +1421,11 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
         default=[],
         metavar="FIXTURE=ACTUAL",
         help="stand ACTUAL in for the transcript's FIXTURE value, also inside longer strings",
+    )
+    terminal_ui.add_argument(
+        "--record-launch-notices",
+        action="store_true",
+        help="also record the launch document's notices, which are display text",
     )
     terminal_ui.add_argument("subcommand", choices=["agents-tui"])
     terminal_ui.add_argument("--describe", action="store_true")

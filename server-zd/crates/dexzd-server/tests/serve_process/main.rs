@@ -10,6 +10,8 @@
 
 #![cfg(unix)]
 
+mod aliyun_oss_provider;
+mod aliyun_oss_real_bucket;
 mod attempt_drain;
 mod dev_abrupt_exit;
 mod dev_restart;
