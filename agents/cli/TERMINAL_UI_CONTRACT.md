@@ -658,7 +658,11 @@ direction:
 
 `tui_exit` is `dexcli`'s exit code, or `"terminated"` when the launcher stops it
 with SIGTERM. `terminal_ui_environment` is the environment `dexcli` sees, for
-the launch checks. `real_roles` names the sides a real implementation can
+the launch checks. `later_check_failure`, when present, declares a launch
+that passes the line checks but fails a check after them: its `code`
+(`terminal_failed` or `dex_setup_failed`) and its `cause`, such as a token
+file that cannot be read. Without it, a launch that passes the line checks
+must reach `ready`. `real_roles` names the sides a real implementation can
 play in that transcript, deterministically, against a fresh Dex server:
 
 - `tui`: a real `dexcli` reproduces it against the host as launcher.

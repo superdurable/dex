@@ -100,6 +100,7 @@ CONTRACT_1_TYPES = {
 }
 REJECTION_EXIT_CODES: dict[str, int] = load_fixture("launch.json")["rejection_codes"]
 # Checks that run after the launch line passed, so a line alone cannot show them.
+# A transcript declares one with later_check_failure: the code and its cause.
 LATER_REJECTION_CODES = ("terminal_failed", "dex_setup_failed")
 
 
@@ -416,11 +417,13 @@ class TranscriptChecker:
         verdict = classify_launch_line(
             self._launch_line(steps[0]), self.transcript["terminal_ui_environment"]
         )
-        later_rejection = steps[1].get("message", {}) if len(steps) > 1 else {}
-        if verdict.code is None and later_rejection.get("type") == "launch_rejected":
-            # The line passed; a check after it failed: the terminal, or the Dex setup.
-            assert later_rejection["code"] in LATER_REJECTION_CODES, later_rejection["code"]
-            verdict = LaunchVerdict(later_rejection["code"])
+        later_failure = self.transcript.get("later_check_failure")
+        if later_failure is not None:
+            # The line passes; a declared check after it fails.
+            assert verdict.code is None, "a later check fails only after the line passed"
+            assert later_failure["code"] in LATER_REJECTION_CODES, later_failure["code"]
+            assert later_failure["cause"], "say what makes the later check fail"
+            verdict = LaunchVerdict(later_failure["code"])
         if verdict.code is not None:
             self._check_rejection(verdict, steps[1:])
             return
@@ -566,6 +569,21 @@ def test_transcripts_follow_the_contract(path: Path) -> None:
     if "launcher_setup" in transcript:
         assert "launcher" in transcript["real_roles"]
     TranscriptChecker(transcript).check()
+
+
+def test_a_valid_launch_cannot_claim_a_later_rejection() -> None:
+    """A launch that passes every check must reach ready unless the fixture declares why not."""
+    transcript = host.load_transcript(CONFORMANCE_DIR / "transcripts" / "chat_ready_then_exit.json")
+    transcript["steps"] = [
+        transcript["steps"][0],
+        {
+            "from": "tui",
+            "message": {"type": "launch_rejected", "code": "dex_setup_failed", "message": "x"},
+        },
+    ]
+    transcript["tui_exit"] = 1
+    with pytest.raises(AssertionError):
+        TranscriptChecker(transcript).check()
 
 
 # The contract host plays both roles.

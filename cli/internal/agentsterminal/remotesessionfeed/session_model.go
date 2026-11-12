@@ -43,7 +43,11 @@ type sessionModel struct {
 	// before this chat, so its messages carry no origin.
 	isFirstApply bool
 
-	opened           sessionfeed.SessionOpened
+	opened sessionfeed.SessionOpened
+	// settlingTurnID is a turn the snapshot no longer runs that waits for
+	// its end event; settlementInputs hold what arrived meanwhile.
+	settlingTurnID   string
+	settlementInputs []bufferedInput
 	lastSeenSequence int64
 	lastTurnNumber   int
 	currentTurnID    string
@@ -296,7 +300,18 @@ func (model *sessionModel) matchStream(turnID string, text string, fallback stri
 }
 
 // applySnapshot reconciles the screen with one snapshot. state is not nil.
+// applySnapshot applies a snapshot, or buffers it while a finished turn waits
+// for its end event; see turn_settlement.go.
 func (model *sessionModel) applySnapshot(snapshot dexagents.AgentSnapshot) {
+	if model.settlingTurnID != "" {
+		model.bufferWhileSettling(bufferedInput{snapshot: &snapshot})
+		model.replayWhenSettled()
+		return
+	}
+	model.applySnapshotNow(snapshot)
+}
+
+func (model *sessionModel) applySnapshotNow(snapshot dexagents.AgentSnapshot) {
 	state := snapshot.State
 	activeTurnID := ""
 	if state.ActiveTurnID != nil {
@@ -315,19 +330,20 @@ func (model *sessionModel) applySnapshot(snapshot dexagents.AgentSnapshot) {
 	if model.currentTurnID != "" && model.currentTurnID != activeTurnID {
 		model.settleTurn(model.currentTurnID, snapshot)
 	}
-	// While the previous turn waits for its end event, everything of the
-	// next turn waits too: its start, tool rows, interrupts, and activity.
-	isHoldingNextTurn := model.currentTurnID != "" && model.currentTurnID != activeTurnID
-	if !isHoldingNextTurn {
-		if isSettled && activeTurnID != "" && !model.finishedTurns[activeTurnID] && !model.startedTurns[activeTurnID] {
-			model.startTurn(activeTurnID, nil)
-		}
-		if model.currentTurnID != "" && model.currentTurnID == activeTurnID {
-			model.applyToolCalls(snapshot)
-		}
-		model.applyInterrupts(snapshot)
-		model.applyActivity(snapshot)
+	if model.settlingTurnID != "" {
+		// The previous turn waits for its end event: nothing else of this
+		// snapshot shows yet. It replays whole once the turn settled.
+		model.bufferWhileSettling(bufferedInput{snapshot: &snapshot})
+		return
 	}
+	if isSettled && activeTurnID != "" && !model.finishedTurns[activeTurnID] && !model.startedTurns[activeTurnID] {
+		model.startTurn(activeTurnID, nil)
+	}
+	if model.currentTurnID != "" && model.currentTurnID == activeTurnID {
+		model.applyToolCalls(snapshot)
+	}
+	model.applyInterrupts(snapshot)
+	model.applyActivity(snapshot)
 	model.applyQueue(snapshot)
 	model.applyPlan(snapshot)
 	model.applyUsage(snapshot.Usage)
@@ -447,9 +463,11 @@ func (model *sessionModel) settleTurn(turnID string, snapshot dexagents.AgentSna
 	deadline, isWaiting := model.turnEndDeadlines[turnID]
 	if !isWaiting {
 		model.turnEndDeadlines[turnID] = model.feed.now().Add(model.feed.timings.TurnEndEventWait)
+		model.settlingTurnID = turnID
 		return false
 	}
 	if model.feed.now().Before(deadline) {
+		model.settlingTurnID = turnID
 		return false
 	}
 	model.finishTurn(turnID, snapshot)
@@ -475,6 +493,9 @@ func (model *sessionModel) finishTurn(turnID string, snapshot dexagents.AgentSna
 	}
 	model.finishedTurns[turnID] = true
 	delete(model.turnEndDeadlines, turnID)
+	if model.settlingTurnID == turnID {
+		model.settlingTurnID = ""
+	}
 	delete(model.heldUpdates, turnID)
 	outcome, failureText := model.turnOutcome(turnID, snapshot)
 	model.finishToolRows(turnID, snapshot, outcome)
@@ -734,7 +755,20 @@ func (model *sessionModel) applyOpened(snapshot dexagents.AgentSnapshot) {
 
 // applyEvent applies one live event and reports whether the snapshot should
 // be read now.
+// applyEvent applies a live event and reports whether the snapshot should be
+// read now. While a finished turn waits for its end event, events of other
+// turns are buffered with the snapshots, in arrival order.
 func (model *sessionModel) applyEvent(event dexagents.AgentEvent) bool {
+	if model.settlingTurnID != "" && (event.TurnID == nil || *event.TurnID != model.settlingTurnID) {
+		model.bufferWhileSettling(bufferedInput{event: &event})
+		return false
+	}
+	isRefreshNeeded := model.applyEventNow(event)
+	model.replayWhenSettled()
+	return isRefreshNeeded
+}
+
+func (model *sessionModel) applyEventNow(event dexagents.AgentEvent) bool {
 	turnID := ""
 	if event.TurnID != nil {
 		turnID = *event.TurnID

@@ -159,6 +159,7 @@ func (loop *sessionLoop) handleInput(input loopInput) {
 	case eventsUnavailable:
 		if typed.epoch == model.epoch {
 			model.isEventsAvailable = false
+			model.trySettle()
 			loop.feed.notice(sessionfeed.NoticeSeverityWarning, "Live output is off: "+typed.reason+". The chat updates from the session record.")
 		}
 	case localSendStarted:

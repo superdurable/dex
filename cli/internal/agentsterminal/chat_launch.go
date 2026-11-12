@@ -75,7 +75,11 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 		return &ExitError{Code: exitCodeInvalid}
 	}
 	launch, connection, rejection := runLaunchChecks(line, os.LookupEnv,
-		func() *launchcontract.LaunchRejection { return checkTerminal(stdin, stdout) }, newDexConnection)
+		func() *launchcontract.LaunchRejection {
+			var rejection *launchcontract.LaunchRejection
+			signals.HoldTerminalMode(func() { rejection = checkTerminal(realTerminalModeCalls, stdin.Fd(), stdout.Fd()) })
+			return rejection
+		}, newDexConnection)
 	if rejection == nil {
 		defer connection.close()
 	}
@@ -165,20 +169,32 @@ func openLauncherChannel(channelFD int) (*launcherchannel.LauncherChannel, error
 	return launcherchannel.NewLauncherChannel(connection, launcherchannel.ContractRequestTimeouts()), nil
 }
 
+// terminalModeCalls are the terminal calls of the launch check.
+type terminalModeCalls struct {
+	isTerminal func(fd uintptr) bool
+	getSize    func(fd uintptr) (int, int, error)
+	makeRaw    func(fd uintptr) (*term.State, error)
+	restore    func(fd uintptr, state *term.State) error
+}
+
+var realTerminalModeCalls = terminalModeCalls{
+	isTerminal: term.IsTerminal, getSize: term.GetSize, makeRaw: term.MakeRaw, restore: term.Restore,
+}
+
 // checkTerminal checks raw mode and the window size, and leaves the
-// terminal mode as it found it.
-func checkTerminal(stdin *os.File, stdout *os.File) *launchcontract.LaunchRejection {
-	if !term.IsTerminal(stdin.Fd()) || !term.IsTerminal(stdout.Fd()) {
+// terminal mode as it found it. Run it under HoldTerminalMode.
+func checkTerminal(calls terminalModeCalls, stdin uintptr, stdout uintptr) *launchcontract.LaunchRejection {
+	if !calls.isTerminal(stdin) || !calls.isTerminal(stdout) {
 		return launchcontract.TerminalFailed("stdin and stdout must be a terminal")
 	}
-	if _, _, err := term.GetSize(stdout.Fd()); err != nil {
+	if _, _, err := calls.getSize(stdout); err != nil {
 		return launchcontract.TerminalFailed("the window size is not readable")
 	}
-	state, err := term.MakeRaw(stdin.Fd())
+	state, err := calls.makeRaw(stdin)
 	if err != nil {
 		return launchcontract.TerminalFailed("raw mode is not available")
 	}
-	if err := term.Restore(stdin.Fd(), state); err != nil {
+	if err := calls.restore(stdin, state); err != nil {
 		return launchcontract.TerminalFailed("the terminal mode could not be restored")
 	}
 	return nil

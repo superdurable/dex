@@ -53,8 +53,11 @@ type resumedMsg struct{}
 // releases the terminal and stops only this process; the terminal is touched
 // again only in the foreground process group.
 type terminalSignals struct {
-	mutex           sync.Mutex
-	program         terminalProgram
+	mutex   sync.Mutex
+	program terminalProgram
+	// terminalMode is held while the launch check changes the terminal mode,
+	// so a stop before the chat waits until the mode is restored.
+	terminalMode    sync.Mutex
 	earlyExitCode   int
 	onEarlySignal   func()
 	isEarlyReported bool
@@ -97,6 +100,14 @@ func (handler *terminalSignals) Attach(program terminalProgram) {
 	if exitCode != 0 {
 		go program.Send(externalSignalMsg{exitCode: exitCode})
 	}
+}
+
+// HoldTerminalMode runs change, which sets and restores the terminal mode,
+// while no stop can happen; a SIGTSTP meanwhile stops after it.
+func (handler *terminalSignals) HoldTerminalMode(change func()) {
+	handler.terminalMode.Lock()
+	defer handler.terminalMode.Unlock()
+	change()
 }
 
 // EarlyExitCode returns the exit code of a signal that came before Attach,
@@ -164,6 +175,8 @@ func (handler *terminalSignals) suspend() {
 	program := handler.program
 	handler.mutex.Unlock()
 	if program == nil {
+		handler.terminalMode.Lock()
+		defer handler.terminalMode.Unlock()
 		signal.Reset(syscall.SIGTSTP)
 		handler.stopProcess()
 		signal.Notify(handler.signals, syscall.SIGTSTP)

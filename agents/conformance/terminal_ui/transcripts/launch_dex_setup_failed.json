@@ -7,6 +7,10 @@
   "terminal_ui_environment": {
     "DEX_CREDENTIAL_FILE": "/home/user/missing-token"
   },
+  "later_check_failure": {
+    "code": "dex_setup_failed",
+    "cause": "DEX_CREDENTIAL_FILE names a token file that dexcli cannot read."
+  },
   "steps": [
     {
       "from": "launcher",
