@@ -152,6 +152,8 @@ async def _run_registered_shell_command(
         await asyncio.shield(exited)
         await _stop_group_left_behind(process.pid, output, process_groups)
         stdout, stderr = await asyncio.shield(output)
+        process.stdout.close()
+        process.stderr.close()
         returncode = _release(process, process_groups)
     if isinstance(interruption, asyncio.CancelledError):
         raise interruption
