@@ -391,6 +391,7 @@ entry is refused.
 | `DEXCLI` | The `dexcli` executable to use. |
 | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `auto` reuses or starts. |
 | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. It must be `https`, or `http` on 127.0.0.1, localhost, or [::1]. |
+| `DEX_AGENTS_OPEN_BROWSER` | `0` or `false` keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. |
 
 ## Development
 

@@ -532,7 +532,12 @@ class AgentCliCommand {
     }
     const page = server.webUrl === null ? "the Dex Web Connectors page" : `${server.webUrl}/v1/connectors`;
     this.log(`Not authorized yet: ${missing.join(", ")}. Add them with "+ Add" on ${page}.`);
-    if (isOpeningConnectorsPage && this.io.isInteractive && server.webUrl !== null) {
+    if (
+      isOpeningConnectorsPage &&
+      this.environment.isBrowserOpeningEnabled !== false &&
+      this.io.isInteractive &&
+      server.webUrl !== null
+    ) {
       openInBrowser(`${server.webUrl}/v1/connectors`);
     }
     return missing;
