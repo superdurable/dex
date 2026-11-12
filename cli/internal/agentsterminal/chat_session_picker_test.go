@@ -91,8 +91,7 @@ func TestReopenedPickerIgnoresTheClosedPickersPage(t *testing.T) {
 	require.NotContains(t, view, "first0", "the closed picker's late page is dropped")
 }
 
-// A picked session goes to the chat screen as a switch request, which asks
-// about attached images before it switches.
+// A picked session reaches the chat screen as a switch request.
 func TestPickedSessionGoesToTheChatScreen(t *testing.T) {
 	overlay, chat := newTestOverlay(t)
 	load := openPickerCommand(t, overlay)

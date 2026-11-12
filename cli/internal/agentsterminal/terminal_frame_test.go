@@ -17,9 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// terminalFrame replays a PTY log on a width x height screen and returns
-// its lines. It knows the sequences the Bubble Tea renderer writes; others
-// are skipped.
+// terminalFrame replays a PTY log on a width x height screen, knowing the
+// renderer's sequences.
 func terminalFrame(log string, width int, height int) []string {
 	screen := &frameScreen{width: width, height: height, bottom: height - 1}
 	screen.clear()
@@ -222,8 +221,7 @@ func skipOperatingSystemCommand(log string, start int) int {
 	return len(log)
 }
 
-// The frame replays partial rewrites: a line redrawn from its middle shows
-// its new text, not the bytes written last.
+// A line redrawn from its middle shows its new text.
 func TestTerminalFrameReplaysPartialRewrites(t *testing.T) {
 	log := "\x1b[?1049h\x1b[H\x1b[2J 0 sessions match\r\n hints\x1b[1;2H1\x1b[2;2H\x1b[Kkeys\x1b[3;4Habc\x1b[3;5H\x1b[1XZ"
 	require.Equal(t, []string{" 1 sessions match", " keys", "   aZc", ""}, terminalFrame(log, 20, 4))

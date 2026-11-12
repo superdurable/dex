@@ -51,9 +51,26 @@ func (feed *RemoteSessionFeed) runAction(ctx context.Context, action sessionfeed
 	case sessionfeed.SwitchSession:
 		return feed.switchSession(ctx, typed)
 	}
-	sessionID, endAction := feed.beginSessionAction()
+	sessionID, endAction, isCurrent := feed.beginSessionAction(ctx)
 	defer endAction()
+	if !isCurrent {
+		feed.refuseSwitchedAction(action)
+		return nil
+	}
 	return feed.runSessionAction(ctx, sessionID, action)
+}
+
+// switchedSessionReason says why an action of the previous session did not run.
+const switchedSessionReason = "the chat switched sessions."
+
+// refuseSwitchedAction shows that an action accepted for the previous
+// session did not run.
+func (feed *RemoteSessionFeed) refuseSwitchedAction(action sessionfeed.UserAction) {
+	if message, isMessage := action.(sessionfeed.SendUserMessage); isMessage {
+		feed.emit(sessionfeed.UserMessageRejected{Text: message.Text, Reason: switchedSessionReason})
+		return
+	}
+	feed.notice(sessionfeed.NoticeSeverityWarning, "Not sent: "+switchedSessionReason)
 }
 
 // runSessionAction writes one action to sessionID, the session the chat
@@ -100,15 +117,17 @@ func (feed *RemoteSessionFeed) runSessionAction(ctx context.Context, sessionID s
 	return fmt.Errorf("remotesessionfeed: unknown action %T", action)
 }
 
-// beginSessionAction pins the session an action writes to. A switch waits
-// until the returned end runs.
-func (feed *RemoteSessionFeed) beginSessionAction() (string, func()) {
+// beginSessionAction pins the session an action writes to; a switch waits
+// for end. isCurrent is false for an action accepted for another session.
+func (feed *RemoteSessionFeed) beginSessionAction(ctx context.Context) (sessionID string, end func(), isCurrent bool) {
 	feed.switchGate.RLock()
 	feed.sessionActionCount.Add(1)
-	return feed.SessionID(), func() {
+	sessionID = feed.SessionID()
+	target, isTargeted := sessionfeed.TargetSessionOf(ctx)
+	return sessionID, func() {
 		feed.sessionActionCount.Add(-1)
 		feed.switchGate.RUnlock()
-	}
+	}, !isTargeted || target == sessionID
 }
 
 // switchSession cancels the old session's image requests and waits for its
@@ -307,15 +326,23 @@ func (feed *RemoteSessionFeed) executePlan(ctx context.Context, sessionID string
 func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sessionfeed.RunSlashCommand) error {
 	switch command.Name {
 	case modelCommandName:
-		sessionID, endAction := feed.beginSessionAction()
+		sessionID, endAction, isCurrent := feed.beginSessionAction(ctx)
 		defer endAction()
+		if !isCurrent {
+			feed.refuseSwitchedAction(command)
+			return nil
+		}
 		return feed.changeModel(ctx, sessionID, command.Argument)
 	case imageCommandName:
 		feed.actionMutex.Lock()
 		defer feed.actionMutex.Unlock()
 		// The chip belongs to the session shown now, so a switch waits for it.
-		_, endAction := feed.beginSessionAction()
+		_, endAction, isCurrent := feed.beginSessionAction(ctx)
 		defer endAction()
+		if !isCurrent {
+			feed.notice(sessionfeed.NoticeSeverityWarning, "Image not attached: "+switchedSessionReason)
+			return nil
+		}
 		feed.attachImage(ctx, command.Argument)
 		return nil
 	case newCommandName:

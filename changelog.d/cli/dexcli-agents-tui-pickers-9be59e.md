@@ -12,4 +12,6 @@ section: Added
 - In the agents chat, **/sessions** opens the same session list and switches
   the chat to the picked session with its history. Before **/sessions** or
   **/new** switches, the chat asks whether to drop attached images, and it
-  waits for the current session's requests to finish.
+  waits for the current session's requests to finish. Messages and commands
+  meant for the previous session are not sent to the new one; the chat says
+  so.

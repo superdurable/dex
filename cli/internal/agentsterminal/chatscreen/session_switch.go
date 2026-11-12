@@ -9,7 +9,9 @@
 package chatscreen
 
 import (
+	"context"
 	"fmt"
+	"slices"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -23,6 +25,48 @@ type SwitchSessionRequestMsg struct {
 	SessionID string
 	// IsResumed loads the session's history.
 	IsResumed bool
+}
+
+// queuedUserMessage is a waiting message and the session it was typed in.
+type queuedUserMessage struct {
+	message   sessionfeed.SendUserMessage
+	sessionID string
+}
+
+// actionContext marks a session action with the session shown now, so the
+// source refuses it after a switch.
+func (screen *ChatScreen) actionContext(action sessionfeed.UserAction) context.Context {
+	switch action.(type) {
+	case sessionfeed.SwitchSession, sessionfeed.MoveSessionStartToBackground:
+		return screen.ctx
+	}
+	return screen.targetSessionContext(screen.session.SessionID)
+}
+
+// targetSessionContext marks sessionID on the screen's context; "" before
+// any session opened leaves the context unmarked.
+func (screen *ChatScreen) targetSessionContext(sessionID string) context.Context {
+	if sessionID == "" {
+		return screen.ctx
+	}
+	return sessionfeed.TargetSessionContext(screen.ctx, sessionID)
+}
+
+// dropQueuedMessagesOfOtherSessions cancels the queued messages the user
+// sent in another session, and says so.
+func (screen *ChatScreen) dropQueuedMessagesOfOtherSessions(sessionID string) {
+	kept := screen.messageQueue[:0]
+	for _, queued := range screen.messageQueue {
+		if queued.sessionID == "" || queued.sessionID == sessionID {
+			kept = append(kept, queued)
+			continue
+		}
+		screen.printNotice(sessionfeed.NoticeSeverityWarning, "Not sent: the chat switched sessions: "+queued.message.Text)
+		if index := slices.Index(screen.localQueuedTexts, queued.message.Text); index >= 0 {
+			screen.localQueuedTexts = slices.Delete(screen.localQueuedTexts, index, index+1)
+		}
+	}
+	screen.messageQueue = kept
 }
 
 // requestSessionSwitch switches at once without attached images, and asks

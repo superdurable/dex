@@ -111,7 +111,7 @@ type ChatScreen struct {
 	openedSession    sessionfeed.SessionOpened
 	isSessionKnown   bool
 	sessionCommands  []sessionfeed.SlashCommand
-	messageQueue     []sessionfeed.SendUserMessage
+	messageQueue     []queuedUserMessage
 	isSendingMessage bool
 }
 
@@ -307,7 +307,7 @@ func (screen *ChatScreen) isAnimating() bool {
 
 // queueMessage submits message after the ones before it.
 func (screen *ChatScreen) queueMessage(message sessionfeed.SendUserMessage) tea.Cmd {
-	screen.messageQueue = append(screen.messageQueue, message)
+	screen.messageQueue = append(screen.messageQueue, queuedUserMessage{message: message, sessionID: screen.session.SessionID})
 	return screen.submitNextMessage()
 }
 
@@ -315,17 +315,17 @@ func (screen *ChatScreen) submitNextMessage() tea.Cmd {
 	if screen.isSendingMessage || len(screen.messageQueue) == 0 {
 		return nil
 	}
-	message := screen.messageQueue[0]
+	queued := screen.messageQueue[0]
 	screen.messageQueue = screen.messageQueue[1:]
 	screen.isSendingMessage = true
-	source, ctx := screen.source, screen.ctx
+	message, source, ctx := queued.message, screen.source, screen.targetSessionContext(queued.sessionID)
 	return func() tea.Msg {
 		return messageSubmittedMsg{message: message, err: source.SubmitUserAction(ctx, message)}
 	}
 }
 
 func (screen *ChatScreen) submitAction(action sessionfeed.UserAction) tea.Cmd {
-	source, ctx := screen.source, screen.ctx
+	source, ctx := screen.source, screen.actionContext(action)
 	return func() tea.Msg {
 		if err := source.SubmitUserAction(ctx, action); err != nil {
 			return userActionFailedMsg{action: action, err: err}
@@ -894,8 +894,9 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			screen.flushReplies()
 			screen.printedSequences = map[int64]bool{}
 			screen.replies = newReplyStream()
-			// Images of the old session never reach the new one.
+			// Images and queued messages of the old session never reach the new one.
 			screen.attachments, screen.pendingImageDrop = nil, nil
+			screen.dropQueuedMessagesOfOtherSessions(typed.SessionID)
 		}
 		screen.session = typed
 		if !screen.isSessionKnown {

@@ -329,6 +329,26 @@ func TestPickerCloses(t *testing.T) {
 	require.Equal(t, []tea.Msg{PickerClosedMsg{IsExitRequested: true}}, harness.outcome)
 }
 
+// While the title search runs, the status line says so rather than "0
+// sessions whose titles match".
+func TestPickerTitleSearchShowsItIsLoading(t *testing.T) {
+	source := &fakeSessions{pages: map[listCall]sessionlisting.SessionPage{
+		{}: {Sessions: []sessionlisting.SessionSummary{session("openai-sdk-20261111-142233-a1b2c3", dex.FlowRunning)}},
+		{titleSearch: "flaky"}: {Sessions: []sessionlisting.SessionSummary{
+			withSummary(session("openai-sdk-20261001-000000-cccccc", dex.FlowRunning), "Fix the flaky retry test", testNow, 2),
+		}},
+	}}
+	harness := newPickerHarness(t, source, 100, nil)
+	harness.press("/")
+	harness.typeText("flaky")
+	search := harness.picker.Update(keyMessage("enter"))
+	screen := harness.screen()
+	require.Contains(t, screen, "searching titles in Dex…")
+	require.NotContains(t, screen, "whose titles match")
+	harness.run(search)
+	require.Contains(t, harness.screen(), "1 sessions whose titles match")
+}
+
 // A closed picker's late page never reaches a new picker, and closing
 // cancels the closed picker's requests.
 func TestPickerIgnoresAnotherPickersPage(t *testing.T) {

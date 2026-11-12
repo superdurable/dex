@@ -9,6 +9,7 @@
 package chatscreen
 
 import (
+	"context"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -80,6 +81,48 @@ func TestSwitchWithoutImagesAndNewSessionSwitch(t *testing.T) {
 	require.Contains(t, harness.plainFrame(), "Drop 2 attached images to switch to openai-sdk-3?")
 	harness.press(textKey('y'))
 	require.Equal(t, sessionfeed.SwitchSession{SessionID: "openai-sdk-3"}, harness.lastAction())
+}
+
+// targetRecordingSource records each action with the session the screen
+// accepted it for.
+type targetRecordingSource struct {
+	recordingSource
+	targets []string
+}
+
+func (source *targetRecordingSource) SubmitUserAction(ctx context.Context, action sessionfeed.UserAction) error {
+	target, _ := sessionfeed.TargetSessionOf(ctx)
+	source.mutex.Lock()
+	source.targets = append(source.targets, target)
+	source.mutex.Unlock()
+	return source.recordingSource.SubmitUserAction(ctx, action)
+}
+
+// A switch cancels a queued message of the old session; the in-flight one
+// stays marked old.
+func TestSwitchCancelsQueuedMessagesOfTheOldSession(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100})
+	source := &targetRecordingSource{}
+	harness.screen.source = source
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-1"}, sessionfeed.SessionLoaded{})
+	harness.typeText("first")
+	_, firstSend := harness.screen.Update(key(tea.KeyEnter))
+	harness.typeText("second")
+	_, secondSend := harness.screen.Update(key(tea.KeyEnter))
+	require.Nil(t, secondSend, "the second waits for the first")
+	require.Contains(t, harness.plainFrame(), "queueing  second")
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-2"}, sessionfeed.SessionLoaded{})
+	require.Contains(t, harness.scrollbackText(), "Not sent: the chat switched sessions: second")
+	require.NotContains(t, harness.plainFrame(), "queueing  second")
+	harness.runCommand(firstSend)
+	require.Equal(t, []sessionfeed.UserAction{sessionfeed.SendUserMessage{Text: "first"}}, source.recordedActions())
+	require.Equal(t, []string{"openai-sdk-1"}, source.targets)
+
+	harness.typeText("third")
+	harness.press(key(tea.KeyEnter))
+	require.Equal(t, []string{"openai-sdk-1", "openai-sdk-2"}, source.targets, "a message typed after the switch is for the new session")
+	harness.requestSwitch(SwitchSessionRequestMsg{SessionID: "openai-sdk-3"})
+	require.Equal(t, "", source.targets[len(source.targets)-1], "a switch is not tied to a session")
 }
 
 // An image of the old session that lands late never reaches the new one.

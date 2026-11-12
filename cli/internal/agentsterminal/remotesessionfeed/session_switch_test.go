@@ -79,8 +79,8 @@ func (recorder *loopRecorder) switched() []string {
 	return append([]string(nil), recorder.switches...)
 }
 
-// A message that meets a lock conflict keeps retrying on its own session,
-// and a switch meanwhile waits for it.
+// A lock-conflicted message retries on its own session; a switch waits
+// for it.
 func TestSwitchWaitsForWritesOfTheOldSession(t *testing.T) {
 	sessions := &lockedSessions{release: make(chan struct{})}
 	feed := NewRemoteSessionFeed(RemoteSessionFeedConfig{
@@ -114,6 +114,44 @@ func TestSwitchWaitsForWritesOfTheOldSession(t *testing.T) {
 	require.NoError(t, feed.SubmitUserAction(context.Background(), sessionfeed.SendUserMessage{Text: "next"}))
 	calls := sessions.calledSessions()
 	require.Equal(t, "new-session", calls[len(calls)-1], "a later action writes to the new session")
+}
+
+// A message queued for the old session during a switch is refused, not
+// sent to the new one.
+func TestQueuedActionOfTheOldSessionIsRefusedAfterASwitch(t *testing.T) {
+	sessions := &lockedSessions{release: make(chan struct{})}
+	feed := NewRemoteSessionFeed(RemoteSessionFeedConfig{
+		Sessions: sessions,
+		Requests: noLocalRequests{},
+		Launch:   launchcontract.LaunchDocument{Session: launchcontract.LaunchSession{SessionID: "old-session"}},
+		Timings:  FeedTimings{LockConflictBudget: 10 * time.Second},
+	})
+	recorder := &loopRecorder{}
+	go recorder.serve(feed)
+	oldSession := sessionfeed.TargetSessionContext(context.Background(), "old-session")
+	sent := make(chan error, 1)
+	go func() { sent <- feed.SubmitUserAction(oldSession, sessionfeed.SendUserMessage{Text: "first"}) }()
+	require.Eventually(t, func() bool { return len(sessions.calledSessions()) >= 1 }, time.Second, 5*time.Millisecond)
+	switched := make(chan error, 1)
+	go func() {
+		switched <- feed.SubmitUserAction(context.Background(), sessionfeed.SwitchSession{SessionID: "new-session", IsResumed: true})
+	}()
+	require.Eventually(t, func() bool { return len(sessions.calledSessions()) >= 3 }, 5*time.Second, 5*time.Millisecond)
+	close(sessions.release)
+	require.NoError(t, <-sent)
+	require.NoError(t, <-switched)
+	require.Equal(t, "new-session", feed.SessionID())
+	callsBefore := len(sessions.calledSessions())
+	require.NoError(t, feed.SubmitUserAction(oldSession, sessionfeed.SendUserMessage{Text: "second"}))
+	require.NoError(t, feed.SubmitUserAction(oldSession, sessionfeed.RunSlashCommand{Name: modelCommandName, Argument: "gpt-5"}))
+	require.Len(t, sessions.calledSessions(), callsBefore, "nothing accepted for the old session reaches the new one")
+	updates := drainFeed(feed)
+	require.Contains(t, updatesOfType[sessionfeed.UserMessageRejected](updates),
+		sessionfeed.UserMessageRejected{Text: "second", Reason: "the chat switched sessions."})
+	require.Contains(t, noticeTexts(updatesOfType[sessionfeed.NoticeRaised](updates)), "Not sent: the chat switched sessions.")
+	require.NoError(t, feed.SubmitUserAction(sessionfeed.TargetSessionContext(context.Background(), "new-session"), sessionfeed.SendUserMessage{Text: "third"}))
+	calls := sessions.calledSessions()
+	require.Equal(t, "new-session", calls[len(calls)-1], "an action accepted for the new session runs")
 }
 
 // heldImageRequests holds put_image until its context ends.
