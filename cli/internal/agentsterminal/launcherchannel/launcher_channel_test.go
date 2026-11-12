@@ -63,6 +63,8 @@ func newChannelPair(t *testing.T, methods []string) (*LauncherChannel, *fakeLaun
 	launcher := &fakeLauncher{t: t, connection: connect(fds[1], "launcher"), received: make(chan map[string]any, 64)}
 	go launcher.read()
 	channel.Start(methods)
+	require.NoError(t, channel.SendReady())
+	require.Equal(t, "ready", launcher.next()["type"])
 	t.Cleanup(func() {
 		require.NoError(t, channel.Close())
 		if err := launcher.connection.Close(); err != nil {

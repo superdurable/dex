@@ -65,7 +65,12 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 		return &ExitError{Code: exitCodeInvalid}
 	}
 	launch, rejection := launchcontract.CheckLaunchLine(line, supportedModes, os.LookupEnv)
+	var connection dexConnection
 	if rejection == nil {
+		connection, rejection = newDexConnection(launch)
+	}
+	if rejection == nil {
+		defer connection.close()
 		rejection = checkTerminal(stdin, stdout)
 	}
 	if rejection != nil {
@@ -80,7 +85,31 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 	}
 	defer restoreStderr()
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(discardWriter{}, discardWriter{}, discardWriter{}))
-	return runChat(ctx, channel, launch, stdin, stdout)
+	return runChat(ctx, channel, launch, connection, stdin, stdout)
+}
+
+// dexConnection is the Dex client of the chat and its blob cache.
+type dexConnection struct {
+	client      *dex.Client
+	flow        *remotesession.RemoteSessionFlow
+	removeCache func()
+}
+
+func (connection dexConnection) close() {
+	if closeErr := connection.client.Close(); closeErr != nil {
+		debugf("close the Dex client: %v", closeErr)
+	}
+	connection.removeCache()
+}
+
+// newDexConnection builds the client before ready, so a bad credential or
+// TLS setting is a launch rejection rather than text on the terminal.
+func newDexConnection(launch launchcontract.LaunchDocument) (dexConnection, *launchcontract.LaunchRejection) {
+	client, flow, removeCache, failure := newDexClient(launch)
+	if failure != nil {
+		return dexConnection{}, failure
+	}
+	return dexConnection{client: client, flow: flow, removeCache: removeCache}, nil
 }
 
 // openLauncherChannel takes the inherited socket fd. It sets close-on-exec
@@ -124,19 +153,16 @@ func checkTerminal(stdin *os.File, stdout *os.File) *launchcontract.LaunchReject
 	return nil
 }
 
-func runChat(ctx context.Context, channel *launcherchannel.LauncherChannel, launch launchcontract.LaunchDocument, stdin *os.File, stdout *os.File) error {
+func runChat(
+	ctx context.Context,
+	channel *launcherchannel.LauncherChannel,
+	launch launchcontract.LaunchDocument,
+	connection dexConnection,
+	stdin *os.File,
+	stdout *os.File,
+) error {
 	chatContext, cancelChat := context.WithCancel(ctx)
 	defer cancelChat()
-	client, flow, removeCache, err := newDexClient(launch)
-	if err != nil {
-		return fmt.Errorf("agents-tui: connect to Dex: %w", err)
-	}
-	defer removeCache()
-	defer func() {
-		if closeErr := client.Close(); closeErr != nil {
-			debugf("close the Dex client: %v", closeErr)
-		}
-	}()
 	workingDirectory, err := os.Getwd()
 	if err != nil {
 		workingDirectory = "/"
@@ -144,7 +170,7 @@ func runChat(ctx context.Context, channel *launcherchannel.LauncherChannel, laun
 	home, _ := os.LookupEnv("HOME")
 	channel.Start(launch.Methods)
 	feed := remotesessionfeed.NewRemoteSessionFeed(remotesessionfeed.RemoteSessionFeedConfig{
-		Sessions:         remotesession.NewRemoteSessionClient(client, flow),
+		Sessions:         remotesession.NewRemoteSessionClient(connection.client, connection.flow),
 		Requests:         channel,
 		Launch:           launch,
 		HomeDirectory:    home,
@@ -204,39 +230,36 @@ func runChat(ctx context.Context, channel *launcherchannel.LauncherChannel, laun
 }
 
 // newDexClient connects with the launch document's address, TLS, and auth.
-// The blob cache lives in a private temporary directory removed at exit.
-func newDexClient(launch launchcontract.LaunchDocument) (*dex.Client, *remotesession.RemoteSessionFlow, func(), error) {
+// The blob cache lives in a private temporary directory removed at exit. A
+// credential failure is auth_missing and any other failure invalid_launch.
+func newDexClient(launch launchcontract.LaunchDocument) (*dex.Client, *remotesession.RemoteSessionFlow, func(), *launchcontract.LaunchRejection) {
+	invalid := func(message string) *launchcontract.LaunchRejection {
+		return &launchcontract.LaunchRejection{Code: launchcontract.RejectionInvalidLaunch, Message: message, ExitCode: exitCodeInvalid}
+	}
 	flow, err := remotesession.NewRemoteSessionFlow(launch.Session.FlowType)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, invalid("The session Flow type is not valid.")
 	}
 	registry, err := dex.NewRegistry([]dex.Flow{flow})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, invalid("The session Flow type is not valid.")
 	}
-	cacheDirectory, err := os.MkdirTemp("", "dexcli-agents-tui-")
+	credential, err := launchCredential(launch.Dex.Auth)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create the blob cache directory: %w", err)
-	}
-	removeCache := func() {
-		if removeErr := os.RemoveAll(cacheDirectory); removeErr != nil {
-			debugf("remove the blob cache: %v", removeErr)
+		variable := launchcontract.RequiredAuthVariable(launch.Dex.Auth)
+		return nil, nil, nil, &launchcontract.LaunchRejection{
+			Code:     launchcontract.RejectionAuthMissing,
+			Message:  fmt.Sprintf("The credential that %s names is not usable for dex.auth mode %s.", variable, launch.Dex.Auth.Mode),
+			ExitCode: exitCodeInvalid,
 		}
 	}
-	silentLogger := slog.New(slog.DiscardHandler)
-	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDirectory, MaxBytes: blobCacheBytes, Logger: silentLogger})
-	if err != nil {
-		removeCache()
-		return nil, nil, nil, fmt.Errorf("open the blob cache: %w", err)
-	}
-	options := dex.ClientOptions{FlowServiceAddress: launch.Dex.ServerAddress, Logger: silentLogger}
+	options := dex.ClientOptions{FlowServiceAddress: launch.Dex.ServerAddress, Credential: credential}
 	if launch.Dex.TLS.IsEnabled {
 		options.FlowServiceTLS = &dex.FlowServiceTLSOptions{}
 		if launch.Dex.TLS.CAFile != nil {
 			roots, readErr := os.ReadFile(*launch.Dex.TLS.CAFile)
 			if readErr != nil {
-				removeCache()
-				return nil, nil, nil, fmt.Errorf("read the TLS CA file: %w", readErr)
+				return nil, nil, nil, invalid("The TLS CA file of dex.tls cannot be read.")
 			}
 			options.FlowServiceTLS.AdditionalRootCAsPEM = roots
 		}
@@ -244,15 +267,26 @@ func newDexClient(launch launchcontract.LaunchDocument) (*dex.Client, *remoteses
 			options.FlowServiceTLS.ServerName = *launch.Dex.TLS.ServerName
 		}
 	}
-	options.Credential, err = launchCredential(launch.Dex.Auth)
+	cacheDirectory, err := os.MkdirTemp("", "dexcli-agents-tui-")
+	if err != nil {
+		return nil, nil, nil, invalid("A private cache directory cannot be created.")
+	}
+	removeCache := func() {
+		if removeErr := os.RemoveAll(cacheDirectory); removeErr != nil {
+			debugf("remove the blob cache: %v", removeErr)
+		}
+	}
+	silentLogger := slog.New(slog.DiscardHandler)
+	options.Logger = silentLogger
+	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDirectory, MaxBytes: blobCacheBytes, Logger: silentLogger})
 	if err != nil {
 		removeCache()
-		return nil, nil, nil, err
+		return nil, nil, nil, invalid("The private blob cache cannot be opened.")
 	}
 	client, err := dex.NewClient(registry, cache, options)
 	if err != nil {
 		removeCache()
-		return nil, nil, nil, err
+		return nil, nil, nil, invalid("The Dex connection settings of dex are not valid.")
 	}
 	return client, flow, removeCache, nil
 }

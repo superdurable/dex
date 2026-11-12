@@ -106,6 +106,8 @@ type LauncherChannel struct {
 	notifications chan Notification
 	ended         chan struct{}
 	endOnce       sync.Once
+	readySent     chan struct{}
+	readyOnce     sync.Once
 }
 
 // NewLauncherChannel wraps the channel socket. It reads nothing until
@@ -121,6 +123,7 @@ func NewLauncherChannel(connection net.Conn, timeouts RequestTimeouts) *Launcher
 		waiting:       map[int64]chan launchcontract.ResponseMessage{},
 		notifications: make(chan Notification, 64),
 		ended:         make(chan struct{}),
+		readySent:     make(chan struct{}),
 	}
 }
 
@@ -162,9 +165,12 @@ func (channel *LauncherChannel) readLine() (line []byte, isTooLong bool, err err
 	}
 }
 
-// SendReady tells the launcher the terminal UI is usable.
+// SendReady tells the launcher the terminal UI is usable. Requests wait for
+// it, because ready is the first message the launcher reads.
 func (channel *LauncherChannel) SendReady() error {
-	return channel.writeMessage(map[string]any{"type": launchcontract.MessageTypeReady})
+	err := channel.writeMessage(map[string]any{"type": launchcontract.MessageTypeReady})
+	channel.readyOnce.Do(func() { close(channel.readySent) })
+	return err
 }
 
 // SendLaunchRejected tells the launcher why the launch failed.
@@ -348,6 +354,13 @@ type RequestOutcome struct {
 // When the method's wait ends, it sends cancel and takes whatever response
 // follows within CancelAnswer: a result that raced the cancel still counts.
 func (channel *LauncherChannel) Call(ctx context.Context, method string, key string, params any) RequestOutcome {
+	select {
+	case <-channel.readySent:
+	case <-channel.ended:
+		return RequestOutcome{Kind: OutcomeChannelEnded}
+	case <-ctx.Done():
+		return RequestOutcome{Kind: OutcomeUnknown}
+	}
 	isCounted := method != launchcontract.MethodGetRequestResult
 	requestID, waiter, outcome, isSent := channel.register(isCounted)
 	if !isSent {
