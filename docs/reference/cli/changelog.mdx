@@ -10,7 +10,7 @@ This page lists user-visible changes to dexcli, newest first; each section cover
 
 ## 1.46 {#v1-46}
 
-Released 2026-11-12 as [cli-v1.46.0](https://github.com/superdurable/dex/releases/tag/cli-v1.46.0).
+Released 2026-11-12 as [cli-v1.46.0](https://github.com/superdurable/dex/releases/tag/cli-v1.46.0); 1.46.1 released 2026-11-12 as [cli-v1.46.1](https://github.com/superdurable/dex/releases/tag/cli-v1.46.1).
 
 ### Added
 
@@ -83,6 +83,17 @@ Released 2026-11-12 as [cli-v1.46.0](https://github.com/superdurable/dex/release
   and the exit line names it after a switch.
 - Paths under the home directory show as **~**. **/web** with the browser
   switched off shows the link as information.
+- In the **dexcli agents-tui** chat, **Up** and **Down** on an empty input
+  scroll the messages one line, so the mouse wheel scrolls in terminals that
+  send it as arrow keys. **Ctrl-P** and **Ctrl-N** recall earlier messages.
+  **Up** and **Down** keep recalling while the input holds an unedited
+  recalled message, and move between the lines of a typed message. The plan's
+  steps open with **Ctrl-T** instead of **Ctrl-P**. Since 1.46.1.
+- The **dexcli agents-tui** chat shows Dex Web addresses, in the welcome area
+  and in notices, as underlined links that terminals with hyperlink support
+  open on a click. The welcome logo uses the Dex brand green, picking the
+  light or dark shade from the terminal background, and draws its bar in the
+  terminal's text color. Since 1.46.1.
 
 ### Fixed
 
@@ -102,6 +113,8 @@ Released 2026-11-12 as [cli-v1.46.0](https://github.com/superdurable/dex/release
   the stop could come back as a second suspend, and keys typed then were
   lost. Without a job-control shell, as in a command started in its own
   session, the chat keeps running instead of stopping.
+- The **dexcli agents-tui** chat no longer captures the mouse, so a plain drag
+  selects text and the terminal's copy works. Since 1.46.1.
 
 ## 1.45 {#v1-45}
 
