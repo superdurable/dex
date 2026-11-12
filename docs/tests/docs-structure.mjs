@@ -15,6 +15,7 @@
 // 4. The home page and Get Started link straight to the page that does each job: no ordered reading lists.
 // 5. A group's overview page has the group's name as its title, so the header and the page agree.
 // 6. Every sidebar page that is not a group overview, the home page, Get Started, or the Glossary ends with Next.
+// 7. Rules 2 and 5 also hold in each Developer reference component's sidebar.
 
 import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
@@ -172,6 +173,47 @@ function checkOverviewTitles(items) {
 }
 for (const items of Object.values(sidebars)) checkOverviewTitles(items);
 
+// The same rules hold in each Developer reference component's own sidebar.
+for (const name of readdirSync(join(docsRoot, 'reference/sidebars')).filter((file) => file.endsWith('.ts'))) {
+  const component = name.replace(/\.ts$/, '');
+  const where = `reference/sidebars/${name}`;
+  const {default: componentSidebars} = await import(new URL(`../reference/sidebars/${name}`, import.meta.url));
+  const titles = docTitles(`reference/${component}`);
+  const labels = new Map();
+  for (const file of mdxFiles(join(docsRoot, 'reference', component))) {
+    const rel = relative(join(docsRoot, 'reference', component), file).split('\\').join('/');
+    const frontMatter = readFileSync(file, 'utf8').match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+    const idField = frontMatter.match(/^id:\s*(.+)$/m)?.[1].trim();
+    const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
+    const id = `${dir}${idField ?? rel.slice(dir.length).replace(/\.mdx?$/, '')}`;
+    const label = frontMatter.match(/^sidebar_label:\s*(.+)$/m)?.[1].trim().replace(/^["']|["']$/g, '');
+    if (label) labels.set(id, label);
+  }
+  const check = (items, trail) => {
+    for (const item of items) {
+      const id = docId(item);
+      if ((id && labels.get(id) === 'Overview') || (item && typeof item === 'object' && item.label === 'Overview')) {
+        failures.push(`${where}: "${[...trail, id ?? item.label].join(' > ')}" is labeled Overview. Label it with the page's own title.`);
+      }
+      if (typeof item !== 'object' || item.type !== 'category') continue;
+      const path = [...trail, item.label].join(' > ');
+      if (!item.link || item.link.type !== 'doc') {
+        failures.push(`${where}: "${path}" has no overview. Give the group header link: {type: 'doc', id: <its overview page>}.`);
+      } else {
+        if ((item.items ?? []).some((child) => docId(child) === item.link.id)) {
+          failures.push(`${where}: "${path}" lists its overview page (${item.link.id}) again under the header.`);
+        }
+        const title = titles.get(item.link.id);
+        if (title && title !== item.label) {
+          failures.push(`${where}: the "${item.label}" group opens ${item.link.id}, titled "${title}". Title the overview page "${item.label}".`);
+        }
+      }
+      check(item.items ?? [], [...trail, item.label]);
+    }
+  };
+  for (const [sidebarName, items] of Object.entries(componentSidebars)) check(items, [component, sidebarName]);
+}
+
 
 // Every page in the reading sequence ends with Next, so the order comes from one place.
 const routerDocs = new Set(['index', 'intro/get-started', 'glossary']);
@@ -205,6 +247,18 @@ for (const id of sequenceDocs) {
     if (!/^## (Next|下一步)(\s|$)/m.test(withoutCode)) {
       failures.push(`${relative(docsRoot, doc.file)}: ends without a Next section. Add "## Next" (下一步) with the one or two pages a reader opens next.`);
     }
+  }
+}
+
+// The compatibility matrix is generated; a release that leaves it behind fails here.
+{
+  const versions = JSON.parse(readFileSync(join(docsRoot, 'reference/versions.json'), 'utf8'));
+  const page = readFileSync(join(docsRoot, 'content/reference/index.mdx'), 'utf8');
+  const matrix = page.slice(page.indexOf('## Compatibility matrix'), page.indexOf('## Release notes'));
+  const sdkLine = versions.go.replace(/\.x$/, '');
+  const cliLine = versions.cli.replace(/\.x$/, '');
+  if (!new RegExp(`SDK[^|]*\\| ${sdkLine.replace('.', '\\.')}[,| ]`).test(matrix) || !new RegExp(`^\\| ${cliLine.replace('.', '\\.')} \\|`, 'm').test(matrix)) {
+    failures.push(`content/reference/index.mdx: the compatibility matrix does not list SDK ${sdkLine} and dexcli ${cliLine}. Run node scripts/generate-reference-compatibility.mjs.`);
   }
 }
 

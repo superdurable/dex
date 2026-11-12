@@ -55,7 +55,8 @@ const localeCopies = {
       messages: count => (count === '1' ? ' (1 message)' : ` (${count} messages)`),
     },
     summary: 'Dex is a Durable Execution platform. Each entry links to the Markdown export of a documentation page.',
-    languageNote: 'Pages with code have per-language Markdown. The .md file shows Python where a page has Python code; replace .md with .go.md, .java.md, .typescript.md, or .rust.md for another language. llms-full.txt holds every page below in one file.',
+    languageNote: 'Pages with code have per-language Markdown. The .md file shows Python where a page has Python code, and .python.md is the same file; replace .md with .go.md, .java.md, .typescript.md, or .rust.md for another language. llms-full.txt holds every page below in one file with Python code; llms-full.go.txt, llms-full.java.txt, llms-full.typescript.txt, and llms-full.rust.txt hold them with that language\'s code.',
+    indexPointer: url => `> Index of every page for AI agents: ${url}`,
     codeLanguage: label => `Code on this page is in ${label}. Other languages: `,
     languageSeparator: ' · ',
     missingLanguage: label => `This part has no ${label} version; see the `,
@@ -96,7 +97,8 @@ const localeCopies = {
       messages: count => `（${count} 条消息）`,
     },
     summary: 'Dex 是 Durable Execution 平台。每个条目链接到一个文档页面的 Markdown 版本。',
-    languageNote: '含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，.md 文件显示 Python；换成其他语言时，把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。llms-full.txt 把下面所有页面合成一个文件。',
+    languageNote: '含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，.md 文件显示 Python，.python.md 与它相同；换成其他语言时，把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。llms-full.txt 把下面所有页面合成一个文件，代码为 Python；llms-full.go.txt、llms-full.java.txt、llms-full.typescript.txt 和 llms-full.rust.txt 中的代码为对应语言。',
+    indexPointer: url => `> 供 AI 智能体使用的全部页面索引：${url}`,
     codeLanguage: label => `本页代码为 ${label}。其他语言：`,
     languageSeparator: ' · ',
     missingLanguage: label => `这部分没有 ${label} 版本；见 `,
@@ -112,6 +114,8 @@ const localeCopies = {
       important: '重要', secondary: '补充', success: '成功'},
   },
 };
+// SDK languages that get their own llms-full file. Python is the default llms-full.txt.
+const fullLanguages = ['go', 'java', 'typescript', 'rust'];
 // Must match the content types rendered by DexSkillHostTabs.tsx.
 const hostContainerTypes = new Set(['p', 'ol', 'ul', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 // Output written outside this build's postBuild, such as generated API reference, may not exist yet.
@@ -156,6 +160,9 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
   const hostData = JSON.parse(await readFile(join(siteDir, 'src/data/dex-skill-hosts.json'), 'utf8'));
   const entries = new Map();
   const fullTexts = new Map();
+  // Per SDK language, each page's body with that language's code, for llms-full.<language>.txt.
+  const fullTextsByLanguage = new Map(fullLanguages.map(language => [language, new Map()]));
+  const indexUrl = new URL(`${baseUrl}llms.txt`, siteConfig.url).href;
   const writtenPaths = new Set();
   const movedPages = new Set();
   const exported = [];
@@ -190,6 +197,8 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
       languages: frameworks.length > 0 ? frameworkLanguages(tree.children, frameworks[0], defaultChildren)
         : sdkLanguages(defaultChildren)});
   }
+  // Every Markdown URL this build writes for a page's default file, to check reference link targets.
+  const markdownTargets = new Set(exported.map(item => new URL(item.pathname, siteConfig.url).href));
   // Pages with code in several SDKs: the default file shows the first language, and each other
   // language gets its own file. Links in a language file keep the reader's language where they can.
   const languageFiles = new Map(exported.filter(item => item.languages.length > 1)
@@ -220,6 +229,9 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
         if (output.language && output.language !== defaultLanguages[0]) {
           children = keepLanguageInLinks(children, output.language, languageFiles);
         }
+        if (output.language && output.language !== 'python') {
+          children = referenceLinksInLanguage(children, output.language, markdownTargets);
+        }
         children = resolveSdkQueryLinks(children, languageFiles);
         const notes = [];
         if (framework !== undefined) {
@@ -234,11 +246,23 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
         const fields = {...frontMatter, ...(framework ? {framework} : {}), ...(multi ? {language: output.language} : {})};
         const yaml = Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
         const hasTitle = children.some(node => node.type === 'heading' && node.depth === 1);
-        const markdown = `---\n${yaml}\n---\n\n${hasTitle ? '' : `# ${page.title}\n\n`}${writer.stringify({...tree, children})}`;
-        if (writtenPaths.has(output.path)) throw new Error(`Duplicate Markdown output: ${output.path}`);
-        writtenPaths.add(output.path);
-        await writeOutput(outDir, baseUrl, output.path, markdown);
-        if (output.path === pathname) fullTexts.set(page, writer.stringify({...tree, children}));
+        const body = writer.stringify({...tree, children});
+        const markdown = `---\n${yaml}\n---\n\n${copy.indexPointer(indexUrl)}\n\n${hasTitle ? '' : `# ${page.title}\n\n`}${body}`;
+        // The first language's file is the page's .md; its .<language>.md name serves the same Markdown.
+        const paths = [output.path];
+        if (multi && output.language === languages[0]) {
+          paths.push(isDefaultFramework ? languageMarkdownPath(pathname, output.language)
+            : frameworkMarkdownPath(pathname, framework, output.language));
+        }
+        for (const path of paths) {
+          if (writtenPaths.has(path)) throw new Error(`Duplicate Markdown output: ${path}`);
+          writtenPaths.add(path);
+          await writeOutput(outDir, baseUrl, path, markdown);
+        }
+        if (output.path === pathname) fullTexts.set(page, body);
+        if (isDefaultFramework && output.language && fullTextsByLanguage.has(output.language)) {
+          fullTextsByLanguage.get(output.language).set(page, body);
+        }
       }
     }
     if (movedNoticePattern.test(leadText)) movedPages.add(page);
@@ -253,19 +277,24 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
   const index = [`# ${siteConfig.title}`, `> ${copy.summary}`, copy.languageNote, copy.frameworkNote,
     ...sections.map(section => `## ${section.title}\n\n${section.pages.map(page => entries.get(page)).join('\n')}`)];
   await writeOutput(outDir, baseUrl, `${baseUrl}llms.txt`, `${index.join('\n\n')}\n`);
-  // llms-full.txt: every listed page's default Markdown, in llms.txt order.
-  const full = [];
-  for (const section of sections) {
-    for (const page of section.pages) {
-      const body = fullTexts.get(page);
-      if (!body) continue;
-      const url = new URL(markdownPath(page.permalink, baseUrl), siteConfig.url).href;
-      const titled = /^#\s/m.test(body.split('\n').find(line => line.trim()) ?? '') ? body : `# ${page.title}\n\n${body}`;
-      full.push(`<!-- ${url} -->\n\n${titled.trim()}`);
+  // llms-full.txt: every listed page's default Markdown, in llms.txt order. llms-full.<language>.txt uses
+  // that language's code wherever a page has it, and the default Markdown elsewhere.
+  for (const language of [undefined, ...fullLanguages]) {
+    const full = [];
+    for (const section of sections) {
+      for (const page of section.pages) {
+        const body = (language && fullTextsByLanguage.get(language).get(page)) || fullTexts.get(page);
+        if (!body) continue;
+        const pagePathname = markdownPath(page.permalink, baseUrl);
+        const hasLanguage = language && fullTextsByLanguage.get(language).has(page);
+        const url = new URL(hasLanguage ? languageMarkdownPath(pagePathname, language) : pagePathname, siteConfig.url).href;
+        const titled = /^#\s/m.test(body.split('\n').find(line => line.trim()) ?? '') ? body : `# ${page.title}\n\n${body}`;
+        full.push(`<!-- ${url} -->\n\n${titled.trim()}`);
+      }
     }
+    await writeOutput(outDir, baseUrl, `${baseUrl}llms-full${language ? `.${language}` : ''}.txt`,
+      `# ${siteConfig.title}\n\n> ${copy.summary}\n\n---\n\n${full.join('\n\n---\n\n')}\n`);
   }
-  await writeOutput(outDir, baseUrl, `${baseUrl}llms-full.txt`,
-    `# ${siteConfig.title}\n\n> ${copy.summary}\n\n---\n\n${full.join('\n\n---\n\n')}\n`);
   console.log(`[markdown-export] Exported ${pages.length} pages (${locale}) from ${versions.length} docs version(s).`);
 }
 
@@ -741,6 +770,24 @@ function keepLanguageInLinks(nodes, language, languageFiles) {
   });
 }
 
+// Concept pages link the Python reference and say so. A language file links its own SDK's reference page
+// where one exists, and drops the sentence that names Python.
+const pythonReferenceNote = /^(The links below open the Python reference\.|下面的链接打开英文的 Python 参考。)/;
+function referenceLinksInLanguage(nodes, language, markdownTargets) {
+  return nodes.filter(node => !(node.type === 'paragraph' && pythonReferenceNote.test(mdastToString(node))))
+    .map(node => {
+      if (node.type === 'link' && typeof node.url === 'string' && node.url.includes('/reference/python/')) {
+        const [base, hash] = node.url.split('#');
+        const candidate = base.replace('/reference/python/', `/reference/${language}/`);
+        if (markdownTargets.has(candidate)) {
+          return {...node, url: candidate + (hash !== undefined ? `#${hash}` : '')};
+        }
+      }
+      if (!Array.isArray(node.children)) return node;
+      return {...node, children: referenceLinksInLanguage(node.children, language, markdownTargets)};
+    });
+}
+
 /**
  * Turns a link such as `/quick-start.md?sdk=go`, which picks a tab on the website, into that
  * language's file, `/quick-start.go.md`. A page without that language keeps its default file.
@@ -1113,11 +1160,14 @@ function pageDescription(page, tree) {
   const pointer = /^(For the .+ concept, read .+\.|.+ 的概念见 .+。)$/;
   // Docusaurus derives a missing description from the first source line, which can stop mid-sentence.
   const derived = singleLine(page.description);
+  const lead = leadWithList(tree);
+  // A lead-in such as "Use SubFlows when:" says nothing without the list it introduces.
+  if (lead && (!derived || derived === lead.text)) return lead.summary;
   if (derived && /[.!?。！？)`]$/.test(derived) && !pointer.test(derived)) return derived;
   for (const node of tree.children) {
     if (node.type !== 'paragraph') continue;
     const value = singleLine(mdastToString(node));
-    if (!value || pointer.test(value)) continue;
+    if (!value || pointer.test(value) || /[:：]$/.test(value)) continue;
     const sentences = value.match(/[^.!?。！？]+[.!?。！？]+/g);
     if (!sentences) return value.slice(0, 240);
     let result = '';
@@ -1128,6 +1178,31 @@ function pageDescription(page, tree) {
     return result.trim();
   }
   return singleLine(page.description);
+}
+
+// The first paragraph and the list right after it, when that paragraph only introduces the list:
+// it ends with a colon, or it announces a number of items. Returns undefined otherwise.
+function leadWithList(tree) {
+  const index = tree.children.findIndex(node => node.type === 'paragraph');
+  if (index === -1 || tree.children[index + 1]?.type !== 'list') return undefined;
+  const text = singleLine(mdastToString(tree.children[index]));
+  const isLeadIn = /[:：]$/.test(text) || /^[^.。]*\b(two|three|four|five|six)\b[^.。]*[.。]$|[两二三四五六]个[^。]*。$/.test(text);
+  if (!isLeadIn) return undefined;
+  const items = tree.children[index + 1].children.map(item => singleLine(mdastToString(item)).replace(/[.。]$/, '')).filter(Boolean);
+  if (items.length === 0) return undefined;
+  const isChinese = /[一-鿿]/.test(text);
+  const opening = text.replace(/[.。:：]$/, '');
+  const summary = isChinese
+    ? `${opening}：${items.join('；')}。`
+    : `${opening}: ${items.map(lowerFirstWord).map((item, index) => (index === 0 ? item : `${/[?!]$/.test(items[index - 1]) ? ' ' : '; '}${item}`)).join('')}${/[?!]$/.test(items.at(-1)) ? '' : '.'}`;
+  return summary.length <= 320 ? {text, summary} : undefined;
+}
+
+// Lowercases a list item's first word unless it is a name, such as an identifier or a capitalized term.
+function lowerFirstWord(item) {
+  const [first] = item.split(/\s/);
+  return /^[A-Z][a-z]+$/.test(first) && !/^(Dex|Flow|Flows|Step|Steps|SubFlow|SubFlows|Worker|Workers)$/.test(first)
+    ? `${first.toLowerCase()}${item.slice(first.length)}` : item;
 }
 
 function firstParagraphText(tree) {

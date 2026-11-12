@@ -679,6 +679,16 @@ for (const localeRoot of ['', 'zh-Hans/']) {
 assert.deepEqual([...indexedMarkdown].sort(), [...indexableMarkdownUrls].sort(),
   'llms.txt indexes must cover every indexable docs page exactly once and omit archived versions');
 assert.ok(sitemapUrls.every(href => !new URL(href).pathname.endsWith('.md')), 'Markdown twins must stay outside sitemaps');
+// A concept page's Go file links the Go reference, and the note about the Python reference stays in the Python file.
+{
+  const stepGo = await readFile(join(root, 'concepts/step.go.md'), 'utf8');
+  assert.match(stepGo, /\]\(https:\/\/docs\.superdurable\.io\/reference\/go\/step\.md\)/);
+  assert.doesNotMatch(stepGo, /reference\/python\/step\.md|The links below open the Python reference/);
+  const stepPython = await readFile(join(root, 'concepts/step.md'), 'utf8');
+  assert.match(stepPython, /The links below open the Python reference/);
+  assert.equal(await readFile(join(root, 'concepts/step.python.md'), 'utf8'), stepPython);
+  assert.match(stepPython, /^---\n[\s\S]*?\n---\n\n> Index of every page for AI agents: https:\/\/docs\.superdurable\.io\/llms\.txt\n/);
+}
 console.log(`Markdown audit passed for ${markdownPages} docs pages in both locales, SDK snippets, and llms.txt indexes.`);
 
 const robots = await readFile(join(root, 'robots.txt'), 'utf8');
