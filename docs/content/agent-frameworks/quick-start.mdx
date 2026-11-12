@@ -245,6 +245,34 @@ The program asks **Approve cancel_order? [y/N]** before the write runs. [agent.p
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- pi "Look up order 1001"
+```
+
+You need Node.js 22.19 or later, because pi-ai needs it. It calls a real model, so set your provider key first, such as `OPENAI_API_KEY`. `DEX_PI_MODEL` picks another pi-ai model, such as **anthropic/claude-opus-5-5**.
+
+It prints the session ID and the agent's reply:
+
+```text
+Session pi-quick-start-<8 hex digits>
+Agent: <the model's reply about order 1001>
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 <SdkTabs

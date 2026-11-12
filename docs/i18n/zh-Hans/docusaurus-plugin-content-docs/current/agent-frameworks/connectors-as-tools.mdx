@@ -315,6 +315,28 @@ Agent 把这个 tool source 和它自己的 tool 一起传入：
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  return createBuiltinAgentSessionFlow(
+    {
+      // ...
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    piOrderSupportFlowType,
+  );
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 <SdkTabs
@@ -541,6 +563,11 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 <FrameworkTab framework="openai-agents-sdk">
 
 Graph 中的每个 Agent 都在自己的 tool 之后提供 Connector tool。在 Python 中，适配器为 source 缓存列表（即它的 `cached_tools()`）中的每个 tool 构建一个 function tool；`ConnectorToolSource` 会缓存它的完整列表。在 TypeScript 中，它们是 non-strict function tool，tool 的 `needsApproval` 和 input guardrail 对它们无效。调用永远不会在 SDK 内部运行；审批由 source 决定。
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+运行 Agent Loop 的是 Dex，所以 Connector tool 和 Pi tool 一样，都是内置 Agent Loop 的 tool。调用永远不会在模型调用内部运行；它在自己的 tool Step 中运行，审批由 source 决定。
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">

@@ -315,6 +315,28 @@ The agent passes the tool source next to its own tools:
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  return createBuiltinAgentSessionFlow(
+    {
+      // ...
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    piOrderSupportFlowType,
+  );
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 <SdkTabs
@@ -541,6 +563,11 @@ The adapter passes the Connector tools to Mastra as client tools without **execu
 <FrameworkTab framework="openai-agents-sdk">
 
 Every agent of the graph offers the Connector tools after its own tools. In Python, the adapter builds a function tool for each tool in the source's cached listing, its `cached_tools()`; `ConnectorToolSource` caches its whole listing. In TypeScript, they are non-strict function tools, and a tool's `needsApproval` and input guardrails do not apply to them. A call never runs inside the SDK; the source decides approval.
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+Dex runs the loop, so a Connector tool is a tool of the built-in agent loop, next to the Pi tools. A call never runs inside the model call; it runs in its tool Step, and the source decides approval.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">

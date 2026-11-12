@@ -242,6 +242,34 @@ python agent.py "Cancel order 1002, it was a mistake"
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- pi "Look up order 1001"
+```
+
+需要 Node.js 22.19 或更高版本，因为 pi-ai 需要它。它会调用真实模型，所以先设置你的 provider key，例如 `OPENAI_API_KEY`。用 `DEX_PI_MODEL` 选择另一个 pi-ai 模型，例如 **anthropic/claude-opus-5-5**。
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session pi-quick-start-<8 hex digits>
+Agent: <the model's reply about order 1001>
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 <SdkTabs

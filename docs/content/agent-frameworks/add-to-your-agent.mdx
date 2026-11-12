@@ -353,6 +353,48 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: string | Model): 
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+The tools are Pi `AgentTool` objects. Pi's `Agent` runs the plain agent. The durable agent keeps the model and the tools, and Dex runs the loop.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/pi-quick-start.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the agent as Pi alone writes it. Pi's Agent runs the loop in this process. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: Model<Api>): Agent {
+  const { lookUpOrder, cancelOrder } = buildOrderTools(orderDesk);
+  return new Agent({
+    initialState: { systemPrompt: orderSupportInstructions, model, tools: [lookUpOrder, cancelOrder] },
+    streamFn: streamSimple,
+  });
+}
+
+/** Returns the same agent as a durable Dex agent session: the same model and tools, plus tool effects. */
+export function buildDurableAgent(orderDesk: OrderDesk, model: Model<Api>): AgentSessionFlow<BuiltinLoopAgentRunner> {
+  const { lookUpOrder, cancelOrder } = buildOrderTools(orderDesk);
+  return createBuiltinAgentSessionFlow(
+    {
+      name: "order-support",
+      instructions: orderSupportInstructions,
+      model: createPiAiModelClient(model),
+      tools: [
+        piAgentFunctionTool(lookUpOrder, { effect: "read" }),
+        piAgentFunctionTool(cancelOrder, { effect: "non_idempotent_write" }),
+      ],
+    },
+    "PiQuickStart",
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 <SdkTabs
@@ -541,6 +583,25 @@ npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdura
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/pi',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
+npm i @earendil-works/pi-agent-core @earendil-works/pi-schema
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The second line installs Pi's agent core, for the `AgentTool` type, and pi-schema, for typed arguments. Install them when your tools use them. pi-ai needs Node.js 22.19 or later.
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 <SdkTabs
@@ -581,7 +642,7 @@ The quick start program is three files per language. They use only Dex, Dex Agen
 
 | File | Python | TypeScript |
 | --- | --- | --- |
-| Your agent module, plain and durable, with every import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
+| Your agent module, plain and durable, with every import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [pi](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/pi-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
 | The runner: Registry, Worker, Client, and one turn with approvals | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) |
 | The entry point that asks for approval at the prompt | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) |
 
@@ -741,6 +802,11 @@ This replaces the `agent.generate` call that waited for the reply.
 <FrameworkTab framework="openai-agents-sdk">
 
 This replaces the `Runner.run` call that waited for the reply.
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+This replaces the `agent.prompt` call that waited for the reply.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">

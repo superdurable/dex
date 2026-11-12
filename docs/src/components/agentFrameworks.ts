@@ -15,6 +15,7 @@ export const agentFrameworks = [
   {id: 'langchain-langgraph', label: 'LangChain and LangGraph'},
   {id: 'mastra', label: 'Mastra'},
   {id: 'openai-agents-sdk', label: 'OpenAI Agents SDK'},
+  {id: 'pi', label: 'Pi'},
   {id: 'pydantic-ai', label: 'Pydantic AI'},
   {id: 'vercel-ai-sdk', label: 'Vercel AI SDK'},
   {id: 'built-in-agent-loop', label: 'Built-in agent loop'},
