@@ -9,7 +9,9 @@
 // Runs the launcher's own code over every case file of terminal UI contract 1 in agents/conformance/terminal_ui.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -28,7 +30,15 @@ import { buildTerminalUiEnvironment, type TerminalUiAuth } from "../../src/termi
 import { chooseContract, launcherContractVersions, parseDescription } from "../../src/terminal-ui/terminal-ui-negotiation.js";
 import { terminalUiChannelValidator, terminalUiSchemaValidator } from "../../src/terminal-ui/terminal-ui-schemas.js";
 import { isTerminalUiSelected } from "../../src/terminal-ui/terminal-ui-selection.js";
+import { readProcessIdentity } from "../../src/worker-host/process-identity.js";
+import {
+  createToolGroupSlots,
+  occupyToolGroupSlot,
+  releaseToolGroupSlot,
+  toolGroupsSafeToSignal,
+} from "../../src/worker-host/tool-group-slots.js";
 import { startSessionForKey, type SessionStarter } from "../../src/worker-host/worker-host-methods.js";
+import { writeWorkerHostRunRecord } from "../../src/worker-host/worker-host-run-record.js";
 
 const caseDirectory = fileURLToPath(new URL("../../../../../../conformance/terminal_ui/", import.meta.url));
 
@@ -361,3 +371,54 @@ describe("terminal UI selection", () => {
     }
   });
 });
+
+describe("Worker host watchdog", () => {
+  test("signals only groups still registered whose leader still has the recorded start time", async () => {
+    const child = spawn("sleep", ["600"], { detached: true, stdio: "ignore" });
+    try {
+      const identity = readProcessIdentity(child.pid ?? 0);
+      assert.ok(identity !== undefined);
+      const recordPath = join(mkdtempSync(join(tmpdir(), "dex-agents-run-")), "scripted-1.json");
+      const write = (start_time: string): void =>
+        writeWorkerHostRunRecord(recordPath, { launcher: identity, host: identity, tool_groups: [{ ...identity, start_time }] });
+      write(identity.start_time);
+      const slots = createToolGroupSlots();
+      const slot = occupyToolGroupSlot(slots, identity.pgid);
+      assert.ok(slot !== undefined);
+      assert.deepEqual(toolGroupsSafeToSignal(slots, recordPath), [identity.pgid]);
+      // The release lands right before the hard bound fires: the record still lists the group, the slot does not.
+      releaseToolGroupSlot(slots, slot);
+      assert.deepEqual(toolGroupsSafeToSignal(slots, recordPath), []);
+      // A registered group whose pid now names a process that started at another time.
+      occupyToolGroupSlot(slots, identity.pgid);
+      write("Thu Jan  1 00:00:00 2026");
+      assert.deepEqual(toolGroupsSafeToSignal(slots, recordPath), []);
+      // A leader that already exited.
+      write(identity.start_time);
+      assert.deepEqual(toolGroupsSafeToSignal(slots, recordPath, () => undefined), []);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+});
+
+describe("launcher output", () => {
+  test("the CLI core's own code never writes to file descriptors 1 and 2 directly", () => {
+    // A JavaScript stream write is redirected during the handoff; a direct fd write would reach the terminal UI.
+    const sourceDirectory = fileURLToPath(new URL("../../src/", import.meta.url));
+    const sources = listJavaScript(sourceDirectory);
+    assert.ok(sources.length > 10);
+    for (const path of sources) {
+      const text = readFileSync(path, "utf8");
+      assert.doesNotMatch(text, /\b(?:writeSync|write|writev)\(\s*[12]\s*,/, path);
+      assert.doesNotMatch(text, /createWriteStream\([^)]*fd:\s*[12]\b/, path);
+    }
+  });
+});
+
+function listJavaScript(directory: string): string[] {
+  return readdirSync(directory).flatMap((name) => {
+    const path = join(directory, name);
+    return statSync(path).isDirectory() ? listJavaScript(path) : name.endsWith(".js") ? [path] : [];
+  });
+}

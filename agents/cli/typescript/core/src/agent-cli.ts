@@ -453,7 +453,7 @@ export class AgentCliCommand {
         logFilePath: this.logFilePath(),
         environment: this.environment.childProcessVariables,
         isBrowserOpeningEnabled: this.environment.isBrowserOpeningEnabled !== false,
-        openInBrowser,
+        openInBrowser: launchBrowser,
       },
       this.log,
     );
@@ -1056,10 +1056,32 @@ function newSessionId(harness: AgentHarness): string {
 }
 
 function openInBrowser(url: string): void {
+  void launchBrowser(url);
+}
+
+/** How long a browser opener may run before it counts as having opened the page. */
+const browserOpenerWaitMs = 4_000;
+
+/**
+ * Opens a URL with the platform's browser opener.
+ * @returns Whether the opener started and did not fail within 4 s.
+ */
+function launchBrowser(url: string): Promise<boolean> {
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-  const child = spawn(command, [url], { stdio: "ignore", detached: true });
-  child.once("error", () => undefined);
-  child.unref();
+  return new Promise((resolve) => {
+    const child = spawn(command, [url], { stdio: "ignore", detached: true });
+    const timer = setTimeout(() => resolve(true), browserOpenerWaitMs);
+    timer.unref();
+    child.once("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+    child.unref();
+  });
 }
 
 function describe(error: unknown): string {

@@ -8,6 +8,7 @@
 
 import { Worker } from "node:worker_threads";
 
+import type { ToolGroupSlots } from "./tool-group-slots.js";
 import { toolProcessGroupTermGraceMs } from "./tool-process-groups.js";
 
 /** How often the watchdog checks that the launcher is still the parent. */
@@ -21,12 +22,14 @@ export interface WatchdogOptions {
   readonly parentCheckIntervalMs: number;
   readonly hardExitMs: number;
   readonly toolGroupTermGraceMs: number;
+  /** The registered tool process groups, shared with the main thread. */
+  readonly toolGroupSlots: ToolGroupSlots;
+  /** The run record with the groups' identities. */
+  readonly recordPath: string;
 }
 
 /** A message from the host to its watchdog. */
-export type WatchdogCommand =
-  | { readonly type: "tool_groups"; readonly pgids: readonly number[] }
-  | { readonly type: "shutdown_started" };
+export type WatchdogCommand = { readonly type: "shutdown_started" };
 
 /** A message from the watchdog to the host. */
 export type WatchdogReport = { readonly type: "launcher_gone" };
@@ -42,14 +45,23 @@ export class WorkerHostWatchdog {
   /**
    * Starts the watchdog.
    * @param launcherPid - The launcher's pid.
+   * @param toolGroupSlots - The registered tool process groups, shared with the watchdog.
+   * @param recordPath - The run record with the groups' identities.
    * @param onLauncherGone - Called on the main loop when the watchdog finds the launcher gone.
    */
-  public constructor(launcherPid: number, onLauncherGone: () => void) {
+  public constructor(
+    launcherPid: number,
+    toolGroupSlots: ToolGroupSlots,
+    recordPath: string,
+    onLauncherGone: () => void,
+  ) {
     const options: WatchdogOptions = {
       launcherPid,
       parentCheckIntervalMs,
       hardExitMs: workerHostHardExitMs,
       toolGroupTermGraceMs: toolProcessGroupTermGraceMs,
+      toolGroupSlots,
+      recordPath,
     };
     this.thread = new Worker(new URL("./worker-host-watchdog-thread.js", import.meta.url), { workerData: options });
     this.thread.on("message", (report: WatchdogReport) => {
@@ -58,14 +70,6 @@ export class WorkerHostWatchdog {
       }
     });
     this.thread.unref();
-  }
-
-  /**
-   * Tells the watchdog which tool process groups to stop at the hard bound.
-   * @param pgids - The registered groups.
-   */
-  public setToolGroups(pgids: readonly number[]): void {
-    this.post({ type: "tool_groups", pgids });
   }
 
   /** Starts the hard bound of an orderly shutdown. */

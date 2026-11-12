@@ -443,10 +443,12 @@ Otherwise the command becomes a thin **launcher** with two children:
   points.
 - The launcher saves the terminal mode with `stty -g`, starts `dexcli` with
   the channel on fd 3, and writes the launch document. `dexcli` must send
-  `ready` within 5 s of its spawn. Before `ready`, any failure (an exit,
-  `launch_rejected`, or the timeout, which sends SIGTERM and then SIGKILL)
-  restores the terminal, prints `Plain chat: <reason>.`, stops the Worker host,
-  and continues in the text chat with `--resume` of the same session.
+  `ready` within 5 s of its spawn. Before `ready`, any failure (`dexcli`
+  exits or cannot start, `launch_rejected`, the channel ends or breaks, or the
+  timeout) stops `dexcli` if it still runs (1 s to exit on its own, then
+  SIGTERM, then SIGKILL 2 s later), restores the terminal, prints
+  `Plain chat: <reason>.`, stops the Worker host, and continues in the text
+  chat with `--resume` of the same session.
 - After `ready` the launcher relays `put_image`, `start_session`, and
   `list_connectors` to the Worker host and serves `open_url` itself.
   `src/terminal-ui/local-request-relay.ts` checks each request against the
@@ -456,29 +458,36 @@ Otherwise the command becomes a thin **launcher** with two children:
   the key derives, with the key as the start request ID and "ignore already
   started": the 12-digit one when it exists and this key started it, else the
   6-digit one, else the 12-digit one. So a resent key finds its own session.
-  `open_url` opens nothing when `DEX_AGENTS_OPEN_BROWSER` is off.
+  `open_url` answers `browser_off` when `DEX_AGENTS_OPEN_BROWSER` is off, and
+  `open_failed` when the platform's opener (`open` or `xdg-open`) fails.
+  `host_stopped` is never remembered as a key's outcome.
 - When the Worker host exits, every waiting and later relayed request answers
   `host_stopped`, and the terminal UI gets `worker` `stopped` with the exit
   status.
 - When `dexcli` exits, the launcher restores the saved terminal mode; after a
   crash or a kill it also leaves the alternate screen, turns off bracketed
   paste, and shows the cursor, then prints
-  `The chat closed unexpectedly (dexcli exit N).` It prints the `--resume`
-  line and stops the Worker host: `shutdown`, up to 10 s, then SIGTERM to its
-  group and SIGKILL 2 s later.
+  `The chat closed unexpectedly (dexcli exit N).` A channel that ends or
+  breaks after `ready` also ends the chat: `dexcli` gets 1 s to exit, then
+  SIGTERM, and the line names the cause. It prints the `--resume` line and
+  stops the Worker host: `shutdown`, up to 10 s, then SIGTERM to its group and
+  SIGKILL 2 s later.
 
 | Exit | When |
 | --- | --- |
 | 0 | `dexcli` exited 0 and the Worker host kept running. |
 | 1 | `dexcli` exited 1, crashed, or was killed after `ready`, or the Worker host stopped during the chat. |
 | 2 | The Worker host could not open the session, as for the text chat. |
-| 130 | An external SIGINT ended `dexcli`. |
+| 130 | An external SIGINT, to the foreground group or to the launcher alone. |
 | 143 | SIGTERM to the launcher: it sends SIGTERM to `dexcli`, SIGKILL after 2 s. |
 | from the text chat | A failure before `ready`. |
 
-Signals while `dexcli` runs: the launcher keeps a SIGINT handler that does
-nothing (never `SIG_IGN`, which `dexcli` would inherit), leaves SIGTSTP at its
-default so job control stops it with `dexcli`, and handles SIGTERM as above.
+Signals while `dexcli` runs: the launcher keeps a SIGINT handler (never
+`SIG_IGN`, which `dexcli` would inherit). A SIGINT to the foreground group
+reaches `dexcli` too, so the handler gives it 1 s to exit on its own; only
+then does it forward SIGINT, and after 2 s more it stops `dexcli` with SIGTERM.
+SIGTSTP stays at its default so job control stops the launcher with `dexcli`.
+SIGTERM is handled as above.
 The Worker host is in another process group, so terminal signals never reach
 it.
 
@@ -488,7 +497,11 @@ watchdog runs in a `worker_threads` thread, so it keeps working while the
 main event loop is stuck. It checks `process.ppid` every second. Once the
 launcher is gone or a shutdown started, it allows 15 s; then it sends SIGTERM
 to each registered tool process group, SIGKILL 2 s later, and SIGKILL to the
-Worker host's own group.
+Worker host's own group. The registered groups live in a `SharedArrayBuffer`
+that the main thread updates synchronously on each registration and release,
+so the watchdog never signals a released group even while the main loop is
+stuck. Before each signal it also checks that the group's leader still has
+the start time the run record holds and leads the group.
 
 The shell tool runs each command in its own process group. In a Worker host,
 `runShellCommand` registers that group right after the spawn and releases it
@@ -497,7 +510,8 @@ reach another process. An orderly shutdown sends each registered group
 SIGTERM, then SIGKILL after 2 s.
 
 Each Worker host keeps a run record, `~/.dex/agents/run/<harness>-<pid>.json`,
-with the `ps` identity (pid, process group, start time, and command line) of
+with the `ps` identity (pid, process group, start time, and the SHA-256 of the
+command line) of
 its launcher, itself, and each registered tool group. With the switch on,
 every command start scans these records. For a record whose launcher no
 longer runs, it sends SIGTERM to the Worker host's group and each tool group,
@@ -511,7 +525,13 @@ at all, so it does not hold while the process is stopped. Processes that a
 harness starts outside the Worker host's group, such as Claude Code's own Bash
 tool, are not registered, and a tool group whose leader was already reaped by
 another process is not signaled. If the launcher and `dexcli` are both killed,
-nobody restores the terminal; run `reset` or `stty sane`.
+nobody restores the terminal; run `reset` or `stty sane`. Node cannot
+redirect its own file descriptors, so during the handoff only JavaScript
+stream writes of the launcher go to the log. A module the launcher loads,
+such as a harness's framework, that writes to fd 1 or 2 directly while
+`dexcli` runs would reach the terminal UI's screen; the CLI core's own code
+never does (a conformance test checks it), and such a harness must load the
+framework in `createSessionFlow` instead.
 
 ## Development
 

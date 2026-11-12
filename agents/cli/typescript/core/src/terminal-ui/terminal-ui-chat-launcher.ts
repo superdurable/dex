@@ -16,6 +16,7 @@ import type { WorkerHostReady, WorkerHostStartRequest } from "../worker-host/wor
 import { cleanUpWorkerHostRecord } from "../worker-host/leftover-worker-hosts.js";
 import { chatLaunchDocument, launchAuth, noticeText } from "./launch-document.js";
 import { LocalRequestRelay, refusal, type LocalRequestMethod } from "./local-request-relay.js";
+import type { LocalRequestOutcome } from "./request-outcome-table.js";
 import { isOpenUrlAllowed } from "./open-url-policy.js";
 import { TerminalUiChannel, type ChannelMessage } from "./terminal-ui-channel.js";
 import { buildTerminalUiEnvironment } from "./terminal-ui-environment.js";
@@ -25,6 +26,12 @@ import { LauncherOutputRedirect, TerminalModeGuard } from "./terminal-mode.js";
 export const terminalUiReadyTimeoutMs = 5_000;
 /** How long the terminal UI gets between SIGTERM and SIGKILL. */
 const terminalUiTermGraceMs = 2_000;
+/** How long a terminal UI that closed its channel or rejected the launch gets to exit on its own. */
+const contractEndGraceMs = 1_000;
+/** How long a SIGINT the whole foreground group got gives the terminal UI before the launcher forwards it. */
+const interruptGraceMs = 1_000;
+/** How long the terminal UI gets to exit in order after a forwarded SIGINT. */
+const orderlyInterruptExitMs = 2_000;
 /** The fd number the channel gets in the terminal UI: the fourth stdio entry. */
 const channelFdInChild = 3;
 /** The relayed methods of a chat, in launch document order. */
@@ -46,8 +53,8 @@ export interface TerminalUiChatLaunch {
   readonly environment: NodeJS.ProcessEnv;
   /** Whether `open_url` may start a browser. */
   readonly isBrowserOpeningEnabled: boolean;
-  /** Opens a URL in the user's browser. */
-  readonly openInBrowser: (url: string) => void;
+  /** Opens a URL in the user's browser; resolves with whether a browser opener took it. */
+  readonly openInBrowser: (url: string) => Promise<boolean>;
 }
 
 /** How a terminal UI chat ended: an exit code, or the plain chat on the same session. */
@@ -59,6 +66,8 @@ export type TerminalUiChatOutcome =
 interface TerminalUiExit {
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
+  /** Why it could not start, when it could not. */
+  readonly error?: string;
 }
 
 /**
@@ -121,13 +130,15 @@ export class TerminalUiChatLauncher {
       signals.close();
     }
     const exit = handoff.exit;
-    const isAbnormalEnd = exit.signal !== null || ![0, 1, 2, 3, 130, 143].includes(exit.code ?? -1);
+    const isAbnormalEnd =
+      exit.error !== undefined || exit.signal !== null || ![0, 1, 2, 3, 130, 143].includes(exit.code ?? -1);
     if (!signals.isHangUp) {
       terminalMode.restore(isAbnormalEnd || handoff.wasStoppedByLauncher, (text) => process.stdout.write(text));
     }
     const hasHostStoppedDuringChat = handoff.hostExitCode !== undefined;
     const sessionId = ready.sessionId;
-    if (!handoff.isReady && handoff.failure !== undefined && !handoff.wasStoppedByLauncher && !signals.isHangUp) {
+    const isStoppedByUser = handoff.wasStoppedByLauncher || signals.isHangUp || signals.isInterrupted;
+    if (!handoff.isReady && handoff.failure !== undefined && !isStoppedByUser) {
       this.writeLine(`Plain chat: ${handoff.failure}.`);
       await this.stopHost();
       return { kind: "plain", resumeSessionId: sessionId };
@@ -140,15 +151,16 @@ export class TerminalUiChatLauncher {
       this.writeResumeLine(sessionId);
       return { kind: "exited", exitCode: 143 };
     }
-    if (exit.signal === "SIGINT" || exit.code === 130) {
+    if (exit.signal === "SIGINT" || exit.code === 130 || (signals.isInterrupted && !handoff.isReady)) {
       this.writeResumeLine(sessionId);
       return { kind: "exited", exitCode: 130 };
     }
-    if (exit.code === 0 || exit.code === 1) {
+    if (handoff.contractEnd === undefined && (exit.code === 0 || exit.code === 1)) {
       this.writeResumeLine(sessionId);
       return { kind: "exited", exitCode: exit.code === 1 || hasHostStoppedDuringChat ? 1 : 0 };
     }
-    this.writeLine(`The chat closed unexpectedly (dexcli exit ${describeExit(exit)}).`);
+    const reason = handoff.contractEnd ?? `dexcli exit ${describeExit(exit)}`;
+    this.writeLine(`The chat closed unexpectedly (${reason}).`);
     this.writeResumeLine(sessionId);
     return { kind: "exited", exitCode: 1 };
   }
@@ -172,16 +184,25 @@ export class TerminalUiChatLauncher {
 }
 
 /**
- * The launcher's signal handling while the terminal UI runs. SIGINT gets a handler that does nothing, never
- * `SIG_IGN`, so the terminal UI does not inherit an ignored SIGINT. SIGTSTP keeps its default, so job control stops
- * the launcher with the terminal UI.
+ * The launcher's signal handling while the terminal UI runs. SIGINT gets a handler, never `SIG_IGN`, so the
+ * terminal UI does not inherit an ignored SIGINT. SIGTSTP keeps its default, so job control stops the launcher
+ * with the terminal UI.
  */
 class LauncherSignals {
   /** Whether the terminal hung up. */
   public isHangUp = false;
+  /** Whether SIGINT reached the launcher. */
+  public isInterrupted = false;
   private onTerminate: (() => void) | undefined;
+  private onInterruptRequest: (() => void) | undefined;
   private isTerminateRequested = false;
-  private readonly onInterrupt = (): void => undefined;
+  private readonly onInterrupt = (): void => {
+    const isFirst = !this.isInterrupted;
+    this.isInterrupted = true;
+    if (isFirst) {
+      this.onInterruptRequest?.();
+    }
+  };
   private readonly onTerm = (): void => {
     this.isTerminateRequested = true;
     this.onTerminate?.();
@@ -207,6 +228,17 @@ class LauncherSignals {
     }
   }
 
+  /**
+   * Sets what the first SIGINT does; one that already arrived calls it at once.
+   * @param handler - Ends the terminal UI in order.
+   */
+  public whenInterrupted(handler: () => void): void {
+    this.onInterruptRequest = handler;
+    if (this.isInterrupted) {
+      handler();
+    }
+  }
+
   public close(): void {
     process.off("SIGINT", this.onInterrupt);
     process.off("SIGTERM", this.onTerm);
@@ -216,12 +248,14 @@ class LauncherSignals {
 
 /** One run of the terminal UI process with its channel. */
 class TerminalUiHandoff {
-  /** Settles once the terminal UI exited. */
+  /** Settles once the terminal UI exited, or could not start. */
   public readonly finished: Promise<void>;
   /** Whether `ready` arrived. */
   public isReady = false;
   /** Why the handoff failed before `ready`, when it did. */
   public failure: string | undefined;
+  /** Why the contract ended after `ready` without the terminal UI exiting first, when it did. */
+  public contractEnd: string | undefined;
   /** Whether the launcher stopped the terminal UI, for SIGTERM. */
   public wasStoppedByLauncher = false;
   /** The Worker host's exit status, when it exited while the terminal UI ran. */
@@ -233,7 +267,8 @@ class TerminalUiHandoff {
   private readonly relay: LocalRequestRelay;
   private readonly readyTimer: NodeJS.Timeout;
   private readonly queuedMessages: Record<string, unknown>[] = [];
-  private launchRejection: string | undefined;
+  private hasEnded = false;
+  private resolveFinished: () => void = () => undefined;
 
   public constructor(
     private readonly launch: TerminalUiChatLaunch,
@@ -247,7 +282,7 @@ class TerminalUiHandoff {
         methods.set(method, (params, key) => host.execute(method, params, key));
       }
     }
-    methods.set("open_url", (params) => Promise.resolve(this.openUrl(params)));
+    methods.set("open_url", (params) => this.openUrl(params));
     const document = chatLaunchDocument({
       commandName: launch.commandName,
       harnessName: launch.harnessName,
@@ -266,15 +301,25 @@ class TerminalUiHandoff {
       logPath: launch.logFilePath,
       homeDirectory: launch.homeDirectory,
     });
+    this.finished = new Promise((resolve) => {
+      this.resolveFinished = resolve;
+    });
     this.child = spawn(launch.dexcli, ["agents-tui", "--channel-fd", String(channelFdInChild)], {
       stdio: ["inherit", "inherit", "inherit", "pipe"],
       env: buildTerminalUiEnvironment(launch.environment, launchAuth),
     });
+    // A failed spawn emits "error" and "close" but no "exit"; either ends the handoff, once.
+    this.child.once("exit", (code, signal) => this.end({ code, signal }));
+    this.child.once("error", (error) => {
+      if (this.child.pid === undefined) {
+        this.end({ code: null, signal: null, error: error.message });
+      }
+    });
     const socket = this.child.stdio[channelFdInChild] as Duplex;
     this.channel = new TerminalUiChannel(socket, {
       onMessage: (message) => this.receive(message),
-      onProtocolError: () => undefined,
-      onEnd: () => undefined,
+      onProtocolError: (reason) => this.endContract(`the terminal UI sent a line the contract does not allow: ${reason}`),
+      onEnd: () => this.endContract("the terminal UI closed its channel"),
     });
     this.relay = new LocalRequestRelay(methods, true, (id, outcome) =>
       this.channel.send({ type: "response", id, ...outcome }),
@@ -282,7 +327,7 @@ class TerminalUiHandoff {
     this.channel.send(document);
     this.readyTimer = setTimeout(() => {
       if (!this.isReady) {
-        this.failure = `the terminal UI was not ready within ${terminalUiReadyTimeoutMs / 1000} seconds`;
+        this.failure ??= `the terminal UI was not ready within ${terminalUiReadyTimeoutMs / 1000} seconds`;
         void this.stop();
       }
     }, terminalUiReadyTimeoutMs);
@@ -298,20 +343,7 @@ class TerminalUiHandoff {
       this.wasStoppedByLauncher = true;
       void this.stop();
     });
-    this.finished = new Promise((resolve) => {
-      this.child.once("exit", (code, signal) => {
-        this.exit = { code, signal };
-        clearTimeout(this.readyTimer);
-        if (!this.isReady) {
-          this.failure ??= this.launchRejection ?? `dexcli agents-tui exited with ${describeExit(this.exit)} before it was ready`;
-        }
-        this.channel.close();
-        resolve();
-      });
-    });
-    this.child.once("error", (error) => {
-      this.failure ??= `dexcli agents-tui could not start: ${error.message}`;
-    });
+    signals.whenInterrupted(() => void this.interrupt());
   }
 
   private receive(message: ChannelMessage): void {
@@ -323,11 +355,44 @@ class TerminalUiHandoff {
           this.channel.send(queued);
         }
       } else if (message.type === "launch_rejected") {
-        this.launchRejection = sentence(message.message) ?? "the terminal UI rejected the launch";
+        this.failure ??= sentence(message.message) ?? "the terminal UI rejected the launch";
+        void this.stopUnlessExiting();
       }
       return;
     }
     this.relay.handleMessage(message);
+  }
+
+  /** The channel ended or broke: the contract is over, so the terminal UI must end too. */
+  private endContract(reason: string): void {
+    if (this.hasEnded) {
+      return;
+    }
+    if (!this.isReady) {
+      this.failure ??= reason;
+    }
+    void this.stopUnlessExiting(() => {
+      if (this.isReady) {
+        this.contractEnd ??= reason;
+      }
+    });
+  }
+
+  private end(exit: TerminalUiExit): void {
+    if (this.hasEnded) {
+      return;
+    }
+    this.hasEnded = true;
+    this.exit = exit;
+    clearTimeout(this.readyTimer);
+    if (!this.isReady) {
+      this.failure ??=
+        exit.error === undefined
+          ? `dexcli agents-tui exited with ${describeExit(exit)} before it was ready`
+          : `dexcli agents-tui could not start: ${exit.error}`;
+    }
+    this.channel.close();
+    this.resolveFinished();
   }
 
   private sendWhenReady(message: Record<string, unknown>): void {
@@ -338,31 +403,65 @@ class TerminalUiHandoff {
     }
   }
 
-  private openUrl(params: Readonly<Record<string, unknown>>) {
+  private async openUrl(params: Readonly<Record<string, unknown>>): Promise<LocalRequestOutcome> {
     const url = params.url;
     if (typeof url !== "string" || !isOpenUrlAllowed(this.launch.start.server.webUrl, url)) {
       return refusal("refused", "open_url only opens Dex Web pages.");
     }
-    if (this.launch.isBrowserOpeningEnabled) {
-      this.launch.openInBrowser(url);
+    if (!this.launch.isBrowserOpeningEnabled) {
+      return refusal("browser_off", "Opening a browser is switched off for this command.");
     }
-    return { result: {} };
+    return (await this.launch.openInBrowser(url)) ? { result: {} } : refusal("open_failed", "No browser opened the page.");
+  }
+
+  /**
+   * Ends the terminal UI in order after SIGINT reached the launcher. A SIGINT sent to the whole foreground group
+   * already reached the terminal UI, so it gets a moment to exit on its own before the launcher forwards SIGINT.
+   */
+  private async interrupt(): Promise<void> {
+    if (!(await this.hasExitedWithin(interruptGraceMs))) {
+      this.child.kill("SIGINT");
+      if (!(await this.hasExitedWithin(orderlyInterruptExitMs))) {
+        await this.stop();
+      }
+    }
+  }
+
+  /**
+   * Gives a terminal UI that is already exiting a moment, then stops it.
+   * @param onStopping - Runs when the terminal UI did not exit on its own.
+   */
+  private async stopUnlessExiting(onStopping: () => void = () => undefined): Promise<void> {
+    if (!(await this.hasExitedWithin(contractEndGraceMs))) {
+      onStopping();
+      await this.stop();
+    }
+  }
+
+  private async hasExitedWithin(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (!this.hasEnded && Date.now() < deadline) {
+      await delay(50, undefined, { ref: false });
+    }
+    return this.hasEnded;
   }
 
   /** Sends SIGTERM to the terminal UI, then SIGKILL after 2 s. */
   private async stop(): Promise<void> {
-    if (this.child.exitCode !== null || this.child.signalCode !== null) {
+    if (this.hasEnded) {
       return;
     }
     this.child.kill("SIGTERM");
-    await delay(terminalUiTermGraceMs, undefined, { ref: false });
-    if (this.child.exitCode === null && this.child.signalCode === null) {
+    if (!(await this.hasExitedWithin(terminalUiTermGraceMs))) {
       this.child.kill("SIGKILL");
     }
   }
 }
 
 function describeExit(exit: TerminalUiExit): string {
+  if (exit.error !== undefined) {
+    return "unknown, it could not start";
+  }
   if (exit.signal !== null) {
     return String(128 + (constants.signals[exit.signal] ?? 0));
   }

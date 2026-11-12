@@ -92,7 +92,13 @@ export class FakeTerminalUi {
    */
   public constructor(
     transcripts: readonly Transcript[],
-    options: { readonly hasMarkers?: boolean; readonly describe?: string; readonly stepTimeoutSeconds?: number } = {},
+    options: {
+      readonly hasMarkers?: boolean;
+      readonly describe?: string;
+      readonly stepTimeoutSeconds?: number;
+      /** Whether the script loses its execute permission after `--describe`, so starting the terminal UI fails. */
+      readonly isUnrunnableAfterDescribe?: boolean;
+    } = {},
   ) {
     this.directory = mkdtempSync(join(tmpdir(), "dex-agents-fake-tui-"));
     const python = pythonExecutable();
@@ -127,7 +133,9 @@ export class FakeTerminalUi {
       this.executable,
       [
         "#!/bin/sh",
-        `if [ "$2" = "--describe" ]; then echo describe >> ${quote(join(this.directory, "describes"))}; exec ${host}${describeArguments} "$@"; fi`,
+        `if [ "$2" = "--describe" ]; then echo describe >> ${quote(join(this.directory, "describes"))};${
+          options.isUnrunnableAfterDescribe === true ? ' chmod a-x "$0";' : ""
+        } exec ${host}${describeArguments} "$@"; fi`,
         `count=$(( $(cat ${quote(counter)} 2>/dev/null || echo 0) + 1 ))`,
         `echo "$count" > ${quote(counter)}`,
         `record=${quote(this.directory)}/record-$count.jsonl`,

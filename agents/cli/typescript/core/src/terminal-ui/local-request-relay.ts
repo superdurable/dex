@@ -163,7 +163,12 @@ export class LocalRequestRelay {
     key: string,
   ): Promise<LocalRequestOutcome> {
     try {
-      return await handler(params, key);
+      const outcome = await handler(params, key);
+      if ("error" in outcome && outcome.error.code === "host_stopped") {
+        // host_stopped is not an outcome: the operation may or may not have run.
+        this.table.forget(key);
+      }
+      return outcome;
     } catch (error: unknown) {
       // The operation's real outcome is not known, so get_request_result must not report one.
       this.table.forget(key);

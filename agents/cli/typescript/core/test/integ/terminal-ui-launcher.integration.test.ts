@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -223,7 +223,7 @@ describe("the terminal UI launcher", () => {
         launcherResponse(10, { result: { state: "unknown" } }),
         { from: "tui", message: { type: "progress_report", percent: 40 } },
         tuiRequest(11, "open_url", { url: `${engine.webUrl}/v2/flows/${newSessionId}` }, newUuidV7()),
-        launcherResponse(11, { result: {} }),
+        launcherResponse(11, { error: { code: "browser_off", message: "Opening a browser is switched off for this command." } }),
         tuiRequest(12, "open_url", { url: `${engine.webUrl}.evil.example/` }, newUuidV7()),
         launcherResponse(12, { error: { code: "refused", message: "open_url only opens Dex Web pages." } }),
       ]),
@@ -287,6 +287,82 @@ describe("the terminal UI launcher", () => {
     process.kill(record.hostPid, "SIGKILL");
     assert.equal(await terminal.waitForExit(), 1, terminal.terminal.all);
     assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+  });
+
+  test("open_url opens the page with the platform's opener, and says when no browser opened it", async () => {
+    for (const [openerExit, expected] of [
+      [0, { result: {} }],
+      [1, { error: { code: "open_failed", message: "No browser opened the page." } }],
+    ] as const) {
+      const home = newHome();
+      const openerDirectory = mkdtempSync(join(tmpdir(), "dex-agents-opener-"));
+      const openedFile = join(openerDirectory, "opened");
+      for (const name of ["open", "xdg-open"]) {
+        writeFileSync(join(openerDirectory, name), `#!/bin/sh\necho "$1" >> '${openedFile}'\nexit ${openerExit}\n`);
+        chmodSync(join(openerDirectory, name), 0o755);
+      }
+      const url = `${engine.webUrl}/v2/flows`;
+      const fake = new FakeTerminalUi([
+        chatTranscript("open_url", [tuiRequest(1, "open_url", { url }, newUuidV7()), launcherResponse(1, expected)]),
+      ]);
+      const terminal = startOnTerminal(home, fake, [], {
+        DEX_AGENTS_OPEN_BROWSER: "1",
+        PATH: `${openerDirectory}:${process.env.PATH ?? ""}`,
+      });
+      assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
+      assert.equal(readFileSync(openedFile, "utf8").trim(), url);
+    }
+  });
+
+  test("a dexcli that cannot start after --describe falls back to the plain chat on the same session", async () => {
+    const home = newHome();
+    const fake = new FakeTerminalUi([readTranscript("chat_ready_then_exit")], { isUnrunnableAfterDescribe: true });
+    const terminal = startOnTerminal(home, fake);
+    await terminal.terminal.waitFor(/Plain chat: dexcli agents-tui could not start: [^\n]*EACCES/);
+    const sessionId = await onlySession(home);
+    await terminal.terminal.waitFor(`Resumed session ${sessionId}.`);
+    await terminal.terminal.waitFor("Type a message");
+    terminal.type("/exit\r");
+    assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
+    await waitUntil(() => runRecords(home).length === 0, "the Worker host stopped");
+  });
+
+  test("a terminal UI that closes its channel or rejects the launch and keeps running is stopped at once, then the plain chat goes on", async () => {
+    const [launch] = readTranscript("chat_ready_then_exit").steps;
+    const rejection = { type: "launch_rejected", code: "auth_missing", message: "DEX_API_KEY is not set; dex.auth mode api_key needs it." };
+    for (const [steps, reason] of [
+      [[{ close: "tui" }, tuiPause(60_000)], "Plain chat: the terminal UI closed its channel."],
+      [[{ from: "tui", message: rejection }, tuiPause(60_000)], "Plain chat: DEX_API_KEY is not set; dex.auth mode api_key needs it."],
+    ] as const) {
+      const home = newHome();
+      const fake = new FakeTerminalUi([{ ...readTranscript("chat_ready_then_exit"), steps: [launch ?? {}, ...steps] }]);
+      const terminal = startOnTerminal(home, fake);
+      await fake.waitForRecord((event) => event.event === "start");
+      const startedAt = Date.now();
+      await terminal.terminal.waitFor(reason);
+      // Well inside the 5 s ready timeout: the launcher did not wait for it.
+      assert.ok(Date.now() - startedAt < 4_500, `fell back after ${Date.now() - startedAt} ms`);
+      await terminal.terminal.waitFor("Type a message");
+      terminal.type("/exit\r");
+      assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
+    }
+  });
+
+  test("after ready, a closed channel or a malformed line ends the chat: the terminal UI stops and the command exits 1", async () => {
+    for (const [step, reason] of [
+      [{ close: "tui" }, "the terminal UI closed its channel"],
+      [{ from: "tui", raw_line: "not json" }, "the terminal UI sent a line the contract does not allow: a line is not JSON"],
+    ] as const) {
+      const home = newHome();
+      const fake = new FakeTerminalUi([chatTranscript("contract_end", [step, tuiPause(60_000)])]);
+      const terminal = startOnTerminal(home, fake);
+      await waitForReady(fake);
+      const record = await waitForRunRecord(home);
+      assert.equal(await terminal.waitForExit(30_000), 1, terminal.terminal.all);
+      assert.ok(terminal.terminal.all.includes(`The chat closed unexpectedly (${reason}).`), terminal.terminal.all);
+      assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+      await waitUntil(() => !isProcessAlive(record.hostPid), "the Worker host stopped");
+    }
   });
 
   test("a failure before ready continues in the plain chat on the same session", async () => {
@@ -472,18 +548,19 @@ describe("the terminal UI launcher", () => {
     }
   });
 
-  test("SIGTERM to the launcher stops the terminal UI and exits 143; an external SIGINT exits 130", async () => {
-    for (const [signal, exitCode] of [
-      ["SIGTERM", 143],
-      ["SIGINT", 130],
+  test("SIGTERM to the launcher exits 143; SIGINT to the launcher alone or to the foreground group exits 130", async () => {
+    for (const [signal, target, exitCode] of [
+      ["SIGTERM", "launcher", 143],
+      ["SIGINT", "launcher", 130],
+      ["SIGINT", "group", 130],
     ] as const) {
       const home = newHome();
       const fake = new FakeTerminalUi([chatTranscript("signal", [tuiPause(60_000)])]);
       const terminal = startOnTerminal(home, fake);
       await waitForReady(fake);
       const record = await waitForRunRecord(home);
-      // SIGTERM goes to the launcher; SIGINT to the terminal's foreground process group, as a terminal sends it.
-      process.kill(signal === "SIGTERM" ? record.launcher.pid : -record.launcher.pid, signal);
+      // A terminal sends SIGINT to the foreground process group; kill -INT reaches the launcher alone.
+      process.kill(target === "launcher" ? record.launcher.pid : -record.launcher.pid, signal);
       assert.equal(await terminal.waitForExit(), exitCode, terminal.terminal.all);
       assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
       await waitUntil(() => !isProcessAlive(record.hostPid), "the Worker host stopped");

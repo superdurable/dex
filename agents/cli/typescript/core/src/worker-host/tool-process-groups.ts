@@ -9,6 +9,12 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { readProcessIdentity, signalProcessGroup, type ProcessIdentity } from "./process-identity.js";
+import {
+  occupyToolGroupSlot,
+  releaseToolGroupSlot,
+  toolGroupSlotCount,
+  type ToolGroupSlots,
+} from "./tool-group-slots.js";
 import { writeWorkerHostRunRecord } from "./worker-host-run-record.js";
 
 /** How long a tool process group gets between SIGTERM and SIGKILL. */
@@ -34,9 +40,9 @@ export interface ToolProcessGroupRegistry {
 }
 
 /**
- * The Worker host's registry of tool process groups. It keeps the run record current and tells the watchdog
- * which groups to stop. A leader that is a child of this process and not reaped yet keeps its pid, so signaling the
- * group before the release is safe.
+ * The Worker host's registry of tool process groups. It keeps the run record and the watchdog's shared slots
+ * current. A leader that is a child of this process and not reaped yet keeps its pid, so signaling the group before
+ * the release is safe. A release empties the slot synchronously, so the watchdog never signals a released group.
  */
 export class RecordedToolProcessGroups implements ToolProcessGroupRegistry {
   private readonly groups = new Map<number, ProcessIdentity>();
@@ -46,18 +52,24 @@ export class RecordedToolProcessGroups implements ToolProcessGroupRegistry {
    * @param recordPath - The Worker host's run record.
    * @param launcher - The launcher's identity.
    * @param host - The Worker host's identity.
-   * @param onChange - Receives the registered group IDs after each change.
+   * @param slots - The slots the watchdog reads.
+   * @param log - Writes a line to the Worker host's log.
    */
   public constructor(
     private readonly recordPath: string,
     private readonly launcher: ProcessIdentity,
     private readonly host: ProcessIdentity,
-    private readonly onChange: (pgids: readonly number[]) => void,
+    private readonly slots: ToolGroupSlots,
+    private readonly log: (line: string) => void,
   ) {
     this.writeRecord();
   }
 
   public register(leaderPid: number): ToolProcessGroupRegistration {
+    const slot = occupyToolGroupSlot(this.slots, leaderPid);
+    if (slot === undefined) {
+      this.log(`tool process group ${leaderPid} is not registered: ${toolGroupSlotCount} groups already are`);
+    }
     const identity = readProcessIdentity(leaderPid) ?? {
       pid: leaderPid,
       pgid: leaderPid,
@@ -65,11 +77,14 @@ export class RecordedToolProcessGroups implements ToolProcessGroupRegistry {
       command_sha256: "",
     };
     this.groups.set(leaderPid, { ...identity, pgid: leaderPid });
-    this.changed();
+    this.writeRecord();
     return {
       release: () => {
+        if (slot !== undefined) {
+          releaseToolGroupSlot(this.slots, slot);
+        }
         if (this.groups.delete(leaderPid)) {
-          this.changed();
+          this.writeRecord();
         }
       },
     };
@@ -93,11 +108,6 @@ export class RecordedToolProcessGroups implements ToolProcessGroupRegistry {
     for (const pgid of this.groups.keys()) {
       signalProcessGroup(pgid, "SIGKILL");
     }
-  }
-
-  private changed(): void {
-    this.writeRecord();
-    this.onChange([...this.groups.keys()]);
   }
 
   private writeRecord(): void {

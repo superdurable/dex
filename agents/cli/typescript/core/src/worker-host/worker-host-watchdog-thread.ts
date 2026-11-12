@@ -11,6 +11,7 @@
 
 import { parentPort, workerData } from "node:worker_threads";
 
+import { toolGroupsSafeToSignal } from "./tool-group-slots.js";
 import type { WatchdogCommand, WatchdogOptions, WatchdogReport } from "./worker-host-watchdog.js";
 
 const options = workerData as WatchdogOptions;
@@ -18,13 +19,10 @@ const port = parentPort;
 if (port === null) {
   throw new Error("the watchdog runs only as a worker thread");
 }
-let toolGroups: readonly number[] = [];
 let isArmed = false;
 
 port.on("message", (command: WatchdogCommand) => {
-  if (command.type === "tool_groups") {
-    toolGroups = command.pgids;
-  } else {
+  if (command.type === "shutdown_started") {
     arm();
   }
 });
@@ -45,16 +43,18 @@ function arm(): void {
   }
   isArmed = true;
   setTimeout(() => {
-    for (const pgid of toolGroups) {
+    // Each signal goes only to groups still registered, checked again right before it is sent.
+    const terminated = toolGroupsSafeToSignal(options.toolGroupSlots, options.recordPath);
+    for (const pgid of terminated) {
       signal(-pgid, "SIGTERM");
     }
     setTimeout(() => {
-      for (const pgid of toolGroups) {
+      for (const pgid of toolGroupsSafeToSignal(options.toolGroupSlots, options.recordPath)) {
         signal(-pgid, "SIGKILL");
       }
       // The host leads its own process group, so this ends it and every descendant left in the group.
       signal(-process.pid, "SIGKILL");
-    }, toolGroups.length === 0 ? 0 : options.toolGroupTermGraceMs);
+    }, terminated.length === 0 ? 0 : options.toolGroupTermGraceMs);
   }, options.hardExitMs);
 }
 

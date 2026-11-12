@@ -84,8 +84,10 @@ export class WorkerHostProcess {
       closeSync(logFile);
     }
     this.exited = new Promise((resolve) => {
-      this.child.once("exit", (code, signal) => {
-        const exitCode = code ?? 128 + (signal === null ? 0 : (constants.signals[signal] ?? 0));
+      const end = (exitCode: number): void => {
+        if (this.exitCode !== undefined) {
+          return;
+        }
         this.exitCode = exitCode;
         for (const answer of this.pending.values()) {
           answer(new WorkerHostStoppedError("the Worker host stopped"));
@@ -94,11 +96,16 @@ export class WorkerHostProcess {
         this.startupResolver?.({ type: "exited", exitCode });
         this.listener?.onExit(exitCode);
         resolve(exitCode);
+      };
+      this.child.once("exit", (code, signal) => end(code ?? 128 + (signal === null ? 0 : (constants.signals[signal] ?? 0))));
+      // A failed spawn emits "error" and "close" but no "exit".
+      this.child.on("error", () => {
+        if (this.child.pid === undefined) {
+          end(1);
+        }
       });
     });
     this.child.on("message", (message: WorkerHostToLauncherMessage) => this.receive(message));
-    // A failed spawn also ends in "exit"; the error itself needs no other handling.
-    this.child.on("error", () => undefined);
   }
 
   /** The Worker host's pid, which is also its process group. */
