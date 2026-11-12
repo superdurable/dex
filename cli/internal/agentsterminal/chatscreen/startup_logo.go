@@ -11,6 +11,8 @@ package chatscreen
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 )
@@ -48,12 +50,22 @@ var asciiLogoRows = []logoRow{
 type welcomeBlock struct {
 	session     sessionfeed.SessionOpened
 	isLogoShown bool
+	background  terminalBackground
 }
+
+// terminalBackground is the terminal's reply to the background color query.
+type terminalBackground int
+
+const (
+	terminalBackgroundUnknown terminalBackground = iota
+	terminalBackgroundDark
+	terminalBackgroundLight
+)
 
 func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string {
 	var lines []string
 	if block.isLogoShown {
-		lines = append(lines, renderStartupLogo(theme)...)
+		lines = append(lines, renderStartupLogo(block.brandStyle(theme), theme)...)
 		lines = append(lines, "")
 	}
 	session := block.session
@@ -63,12 +75,16 @@ func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string 
 	} else if sessionText != "" {
 		sessionText += theme.Secondary.Render(" (resumed)")
 	}
+	webLink := ""
+	if session.WebURL != "" {
+		webLink = theme.RenderLink(session.WebURL, session.WebURL)
+	}
 	rows := [][2]string{
 		{"command", session.Command},
 		{"model", session.Model},
 		{"directory", session.Workspace},
 		{"session", sessionText},
-		{"Dex Web", session.WebURL},
+		{"Dex Web", webLink},
 	}
 	for _, row := range rows {
 		if row[1] == "" {
@@ -77,7 +93,7 @@ func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string 
 		line := contentIndent + theme.Secondary.Render(terminaltheme.PadRight(row[0]+":", 11)) + row[1]
 		lines = append(lines, terminaltheme.TruncateToWidth(line, width, theme.Symbols.Ellipsis))
 	}
-	tip := "Type a message to start. /help lists commands. Shift-drag selects text; /copy copies the last reply."
+	tip := "Type a message to start. /help lists commands. Drag selects text; /copy copies the last reply."
 	lines = append(lines, "")
 	for _, line := range terminaltheme.WrapToWidth(tip, max(width-len(contentIndent), 1)) {
 		lines = append(lines, contentIndent+theme.Secondary.Render(strings.TrimRight(line, " ")))
@@ -85,16 +101,27 @@ func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string 
 	return lines
 }
 
+func (block welcomeBlock) brandStyle(theme terminaltheme.Theme) lipgloss.Style {
+	switch block.background {
+	case terminalBackgroundDark:
+		return theme.BrandOnDark
+	case terminalBackgroundLight:
+		return theme.BrandOnLight
+	default:
+		return theme.BrandMark
+	}
+}
+
 // renderStartupLogo draws the brand mark. Its green chevron is the one
-// non-status color.
-func renderStartupLogo(theme terminaltheme.Theme) []string {
+// non-status color; the bar takes the default foreground, as the brand's does.
+func renderStartupLogo(brand lipgloss.Style, theme terminaltheme.Theme) []string {
 	rows := asciiLogoRows
 	if theme.IsUnicode {
 		rows = unicodeLogoRows
 	}
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
-		line := contentIndent + theme.Secondary.Render(row.bar) + theme.BrandMark.Render(row.chevron)
+		line := contentIndent + row.bar + brand.Render(row.chevron)
 		if row.text != "" {
 			gap := strings.Repeat(" ", 7-terminaltheme.DisplayWidth(row.chevron))
 			text := theme.Secondary.Render(row.text)

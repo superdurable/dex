@@ -44,6 +44,22 @@ func TestNoColorThemeFocusesWithReverseVideo(t *testing.T) {
 	require.Equal(t, "\x1b[1;7mApprove\x1b[m", theme.Focused.Render("Approve"))
 }
 
+func TestRenderLinkLinksOnlyPrintableURLs(t *testing.T) {
+	theme := NewTheme(colorprofile.ANSI, true)
+	link := theme.RenderLink("http://127.0.0.1:8802", "Dex Web")
+	require.Equal(t, "\x1b]8;;http://127.0.0.1:8802\x1b\\\x1b[4;34mDex Web\x1b[m\x1b]8;;\x1b\\", link)
+	require.Equal(t, 7, DisplayWidth(link), "link sequences take no cells")
+	for _, rejected := range []string{
+		"javascript:alert(1)", "file:///etc/passwd", "ftp://example.com/x", "http:///path", "https://",
+		"http://example.com/a b", "http://x\x07y", "http://x\x1b]8;;y", "", "127.0.0.1:8802",
+		"http://:80", "http://user@:80",
+	} {
+		require.False(t, IsLinkableURL(rejected), "%q", rejected)
+		require.Equal(t, "x", theme.RenderLink(rejected, "x"), "%q renders as plain text", rejected)
+	}
+	require.True(t, IsLinkableURL("https://example.com/sessions/a?b=c#d"))
+}
+
 func TestIsUnicodeLocale(t *testing.T) {
 	require.True(t, IsUnicodeLocale(lookupFrom(map[string]string{"LANG": "en_US.UTF-8"})))
 	require.True(t, IsUnicodeLocale(lookupFrom(map[string]string{"LC_ALL": "C.utf8", "LANG": "C"})))

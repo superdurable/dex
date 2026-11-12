@@ -9,12 +9,14 @@
 package chatscreen
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 )
 
@@ -153,6 +155,66 @@ func TestStartupLogoSkipsSmallTerminals(t *testing.T) {
 	if count := strings.Count(harness.scrollbackText(), "Super Durable"); count != 1 {
 		t.Fatalf("the logo shows once, got %d", count)
 	}
+}
+
+func TestStartupLogoUsesTheBrandGreenOfTheBackground(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{showsLogo: true, profile: colorprofile.TrueColor})
+	unknown := harness.screen.View().Content
+	require.Contains(t, unknown, "  ▐█▌\x1b[32m", "without a background reply the chevron is ANSI green, readable on both")
+	require.NotContains(t, unknown, "38;2;112;238;169m")
+
+	harness.screen.Update(tea.BackgroundColorMsg{Color: color.Black})
+	dark := harness.screen.View().Content
+	require.Contains(t, dark, "  ▐█▌\x1b[38;2;112;238;169m", "the bar takes the default foreground; a dark background gets #70eea9")
+
+	harness.screen.Update(tea.BackgroundColorMsg{Color: color.White})
+	light := harness.screen.View().Content
+	require.Contains(t, light, "  ▐█▌\x1b[38;2;0;134;80m", "a light background gets #008650")
+	require.NotContains(t, light, "38;2;112;238;169m")
+}
+
+func TestDexWebURLsAreLinks(t *testing.T) {
+	const webURL = "http://127.0.0.1:8802"
+	harness := newScreenHarness(t, harnessOptions{})
+	welcome := harness.screen.View().Content
+	require.Contains(t, welcome, "\x1b]8;;"+webURL+"\x1b\\", "the welcome Dex Web URL is a link")
+	require.Contains(t, welcome, "4;34", "the link is underlined in the accent color")
+	isWebRowShown := false
+	for _, line := range harness.screen.welcome().Render(25, harness.screen.theme) {
+		if strings.Contains(line, "Dex Web:") {
+			isWebRowShown = true
+			require.LessOrEqual(t, displayWidthForTest(line), 25)
+			require.True(t, strings.HasSuffix(line, "\x1b]8;;\x1b\\"), "a truncated link still closes: %q", line)
+		}
+	}
+	require.True(t, isWebRowShown)
+
+	sessionURL := webURL + "/agents/sessions/s-a1b2c3"
+	harness.feed(sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: "Dex Web: " + sessionURL})
+	notice := harness.screen.View().Content
+	require.Contains(t, notice, "\x1b]8;;"+sessionURL+"\x1b\\", "the notice links the whole URL")
+	require.Contains(t, stripForTest(notice), "Dex Web: "+sessionURL)
+
+	narrow := renderNoticeLine(sessionfeed.NoticeSeverityError, "Dex Web did not open. Open "+sessionURL+" yourself.", 30, harness.screen.theme)
+	for _, line := range narrow {
+		require.LessOrEqual(t, displayWidthForTest(line), 30, "escape bytes take no cells")
+		if strings.Contains(line, "8802") || strings.Contains(line, "sessions") {
+			require.Contains(t, line, "\x1b]8;;"+sessionURL+"\x1b\\", "each wrapped piece links the whole URL")
+			require.Contains(t, line, "\x1b]8;;\x1b\\", "each line closes its link")
+		}
+	}
+	for _, unsafe := range []string{"javascript:alert(1)", "file:///etc/passwd", "ftp://example.com/x", "http:///no-host", "http://"} {
+		lines := renderNoticeLine(sessionfeed.NoticeSeverityInfo, "Open "+unsafe+" now.", 80, harness.screen.theme)
+		require.NotContains(t, strings.Join(lines, ""), "\x1b]8;", "%s is not linked", unsafe)
+	}
+
+	harness.screen.openedSession.WebURL = "javascript:alert(1)"
+	unsafeWelcome := strings.Join(harness.screen.welcome().Render(80, harness.screen.theme), "\n")
+	require.NotContains(t, unsafeWelcome, "\x1b]8;", "an unsafe web_url is not linked")
+	require.NotContains(t, unsafeWelcome, "\x1b[4;34m", "an unsafe web_url is plain text")
+	require.Contains(t, unsafeWelcome, "javascript:alert(1)")
+
+	require.Equal(t, "✗DexWebdidnotopen.Open"+sessionURL+"yourself.", strings.Join(strings.Fields(stripForTest(strings.Join(narrow, ""))), ""), "wrapping keeps every character")
 }
 
 func playToolTurn(harness *screenHarness) {

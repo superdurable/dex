@@ -177,12 +177,6 @@ func (pager *pagerView) HandleKey(key tea.KeyPressMsg, size pagerSize, theme ter
 	return pagerKeyResult{isEarlierWanted: isAtTop && isScrollingUp && pager.canReadEarlier()}
 }
 
-// Scroll moves the body by delta rows, as the mouse wheel does.
-func (pager *pagerView) Scroll(delta int, size pagerSize, theme terminaltheme.Theme) {
-	rowCount := len(pager.bodyRows(size.width, theme))
-	pager.top = min(max(pager.top+delta, 0), max(rowCount-size.bodyHeight, 0))
-}
-
 func (pager *pagerView) handleSearchKey(key tea.KeyPressMsg, size pagerSize, theme terminaltheme.Theme) {
 	switch key.String() {
 	case "esc":

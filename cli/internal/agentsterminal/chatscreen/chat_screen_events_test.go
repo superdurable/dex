@@ -246,7 +246,8 @@ func TestSessionTextCannotWriteEscapeSequences(t *testing.T) {
 		finishedTool("call-1", "run\x1b[2J", "arg\x1b[H", sessionfeed.ToolCallSucceeded, "ok\x9b", time.Second),
 	)
 	raw := harness.scrollbackRaw() + harness.screen.View().Content
-	require.NotContains(t, raw, "\x1b]8;")
+	require.NotContains(t, raw, "\x1b]8;;http://x")
+	require.NotContains(t, raw, "\x07")
 	require.NotContains(t, raw, "\x1b[2J")
 	require.NotContains(t, raw, "\x1b[H")
 	require.NotContains(t, raw, "\u009b")
