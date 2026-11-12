@@ -20,7 +20,7 @@ import type { LocalRequestOutcome } from "./request-outcome-table.js";
 import { isOpenUrlAllowed } from "./open-url-policy.js";
 import { TerminalUiChannel, type ChannelMessage } from "./terminal-ui-channel.js";
 import { buildTerminalUiEnvironment } from "./terminal-ui-environment.js";
-import { LauncherOutputRedirect, TerminalModeGuard, type TerminalOutput } from "./terminal-mode.js";
+import { LauncherOutputRedirect, TerminalModeGuard } from "./terminal-mode.js";
 
 /** How long the terminal UI has, from its spawn, to send `ready`. */
 export const terminalUiReadyTimeoutMs = 5_000;
@@ -139,11 +139,14 @@ export class TerminalUiChatLauncher {
       const redirect = await LauncherOutputRedirect.start(this.launch.logFilePath);
       let handoff: TerminalUiHandoff;
       try {
-        handoff = new TerminalUiHandoff(this.launch, host, ready, {
-          signals,
-          terminalOutput: redirect.terminalOutput,
-          workerHostStartupLines: this.workerHostStartupLines,
-        });
+        handoff = new TerminalUiHandoff(this.launch, host, ready, signals, this.workerHostStartupLines);
+      } catch (error: unknown) {
+        // No terminal UI started, so nothing else stops the Worker host.
+        redirect.close();
+        await this.stopHost();
+        throw error;
+      }
+      try {
         await handoff.finished;
       } finally {
         redirect.close();
@@ -323,7 +326,7 @@ class TerminalUiHandoff {
   private readonly child: ChildProcess;
   private readonly channel: TerminalUiChannel;
   private readonly relay: LocalRequestRelay;
-  private readonly readyTimer: NodeJS.Timeout;
+  private readyTimer: NodeJS.Timeout | undefined;
   private readonly queuedMessages: Record<string, unknown>[] = [];
   private hasEnded = false;
   private resolveFinished: () => void = () => undefined;
@@ -332,14 +335,9 @@ class TerminalUiHandoff {
     private readonly launch: TerminalUiChatLaunch,
     host: WorkerHostProcess,
     ready: WorkerHostReady,
-    terminal: {
-      readonly signals: LauncherSignals;
-      /** The terminal UI's stdout and stderr, which fds 1 and 2 of the launcher no longer are. */
-      readonly terminalOutput: readonly [TerminalOutput, TerminalOutput];
-      readonly workerHostStartupLines: readonly string[];
-    },
+    signals: LauncherSignals,
+    workerHostStartupLines: readonly string[],
   ) {
-    const signals = terminal.signals;
     const methods = new Map<string, LocalRequestMethod>();
     for (const method of relayedChatMethods) {
       if (method !== "put_image" || ready.capabilities.images !== undefined) {
@@ -365,13 +363,13 @@ class TerminalUiHandoff {
       logPath: launch.logFilePath,
       homeDirectory: launch.homeDirectory,
       startedDexcliDevLines: launch.startedDexcliDevLines,
-      workerHostStartupLines: terminal.workerHostStartupLines,
+      workerHostStartupLines,
     });
     this.finished = new Promise((resolve) => {
       this.resolveFinished = resolve;
     });
     this.child = spawn(launch.dexcli, ["agents-tui", "--channel-fd", String(channelFdInChild)], {
-      stdio: ["inherit", ...terminal.terminalOutput, "pipe"],
+      stdio: ["inherit", "inherit", "inherit", "pipe"],
       env: buildTerminalUiEnvironment(launch.environment, launchAuth),
     });
     // A failed spawn emits "error" and "close" but no "exit"; either ends the handoff, once.
@@ -391,28 +389,35 @@ class TerminalUiHandoff {
     this.relay = new LocalRequestRelay(methods, true, (id, outcome) =>
       this.channel.send({ type: "response", id, ...outcome }),
     );
-    this.channel.send(document);
-    this.readyTimer = setTimeout(() => {
-      if (!this.isReady) {
-        this.failure ??= `the terminal UI was not ready within ${terminalUiReadyTimeoutMs / 1000} seconds`;
+    try {
+      this.channel.send(document);
+      this.readyTimer = setTimeout(() => {
+        if (!this.isReady) {
+          this.failure ??= `the terminal UI was not ready within ${terminalUiReadyTimeoutMs / 1000} seconds`;
+          void this.stop();
+        }
+      }, terminalUiReadyTimeoutMs);
+      host.listen({
+        onLog: (text) => this.sendWhenReady({ type: "notice", level: "warning", text: noticeText(text) }),
+        onStopping: () => this.sendWhenReady({ type: "worker", state: "stopping" }),
+        onExit: (exitCode) => {
+          this.hostExitCode = exitCode;
+          this.sendWhenReady({ type: "worker", state: "stopped", exit_code: exitCode });
+        },
+      });
+      signals.whenTerminated(() => {
+        this.wasStoppedByLauncher = true;
         void this.stop();
-      }
-    }, terminalUiReadyTimeoutMs);
-    host.listen({
-      onLog: (text) => this.sendWhenReady({ type: "notice", level: "warning", text: noticeText(text) }),
-      onStopping: () => this.sendWhenReady({ type: "worker", state: "stopping" }),
-      onExit: (exitCode) => {
-        this.hostExitCode = exitCode;
-        this.sendWhenReady({ type: "worker", state: "stopped", exit_code: exitCode });
-      },
-    });
-    signals.whenTerminated(() => {
-      this.wasStoppedByLauncher = true;
+      });
+      signals.whenInterrupted(() => void this.interrupt());
+      // A hangup of the terminal reaches dexcli too; a SIGHUP to the launcher alone must still end it.
+      signals.whenHungUp(() => void this.stopUnlessExiting());
+    } catch (error: unknown) {
+      // dexcli already runs: stop it, so the pre-ready failure path stops the Worker host and goes on in plain text.
+      this.failure ??= `the launcher could not start the terminal UI: ${error instanceof Error ? error.message : String(error)}`;
+      this.channel.close();
       void this.stop();
-    });
-    signals.whenInterrupted(() => void this.interrupt());
-    // A hangup of the terminal reaches dexcli too; a SIGHUP to the launcher alone must still end it.
-    signals.whenHungUp(() => void this.stopUnlessExiting());
+    }
   }
 
   private receive(message: ChannelMessage): void {

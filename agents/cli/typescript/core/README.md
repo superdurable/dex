@@ -510,9 +510,9 @@ Otherwise the command becomes a thin **launcher** with two children:
 
 | Process | stdin | stdout and stderr | Process group | Environment |
 | --- | --- | --- | --- | --- |
-| launcher (the command) | the terminal, never read during the handoff | the terminal; during the handoff, fds 1 and 2 point at the log, so the launcher's writes and those of children it starts meanwhile land there | foreground | the user's |
+| launcher (the command) | the terminal, never read during the handoff | the terminal; during the handoff its JavaScript output (`process.stdout`, `process.stderr`, `console`) goes to the log, and each child it starts gets a log file, a pipe, or nothing as stdout and stderr. Raw writes to fds 1 and 2 by native code are not redirected: Node has no atomic `dup2` | foreground | the user's |
 | Worker host: the same bin with the hidden `__worker-host` argument | `/dev/null` | `~/.dex/agents/<harness>.log` | its own (`detached`), which it leads | the user's, with the provider keys |
-| `dexcli agents-tui --channel-fd 3` | the terminal | the terminal, through copies of the launcher's fds 1 and 2 | foreground | the contract's allow-list only |
+| `dexcli agents-tui --channel-fd 3` | the terminal | the terminal | foreground | the contract's allow-list only |
 
 - The launcher sends the Worker host the effective configuration, the
   resolved Dex server, and the `--resume` ID over Node's IPC channel. That
@@ -528,6 +528,8 @@ Otherwise the command becomes a thin **launcher** with two children:
   its session opened, as `warning`. Those Worker host lines print on the
   terminal only when the startup fails. After `ready` its log lines reach the
   terminal UI as `notice` messages. Every notice is cut to 500 code points.
+  The launch document's notices take at most 64 KiB of UTF-8 JSON; the lines
+  beyond become one `… N more lines in <log>` notice.
 - The launcher saves the terminal mode with `stty -g`, starts `dexcli` with
   the channel on fd 3, and writes the launch document. `dexcli` must send
   `ready` within 5 s of its spawn. Before `ready`, any failure (`dexcli`

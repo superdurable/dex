@@ -46,6 +46,9 @@ export function chooseContract(
 ): ContractChoice {
   const described = new Set(Object.keys(description.contracts).map(Number));
   const common = launcherContracts.filter((version) => described.has(version)).sort((left, right) => right - left);
+  if (described.size === 0) {
+    return { plainReason: "no_common_contract", detail: `dexcli ${description.dexcli_version} offers no terminal UI contract` };
+  }
   if (common.length === 0) {
     const isCommandOlder = Math.min(...described) > Math.max(...launcherContracts);
     return {

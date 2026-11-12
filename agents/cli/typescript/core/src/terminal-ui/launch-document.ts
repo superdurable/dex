@@ -10,6 +10,8 @@ import type { TerminalUiAuth } from "./terminal-ui-environment.js";
 
 /** The most code points a notice text keeps; a longer one keeps 499 and ends with `…`. */
 export const maxNoticeCodePoints = 500;
+/** The most UTF-8 bytes the launch document's notices take, so it stays far below the 1 MiB line limit. */
+export const maxLaunchNoticeBytes = 64 * 1024;
 
 /** What the session Flow the Worker host built supports, as the launch document reports it. */
 export interface SessionFlowCapabilities {
@@ -52,7 +54,7 @@ export const launchAuth: TerminalUiAuth = Object.freeze({ mode: "none" });
 /**
  * Returns the chat launch document of contract 1. It holds no secret, and every path in `display` writes the home
  * directory as `~`. Its `notices` are the `dexcli dev` lines, then the Worker host's startup lines, each cut by
- * {@link noticeText}.
+ * {@link noticeText}, within {@link maxLaunchNoticeBytes}.
  */
 export function chatLaunchDocument(details: ChatLaunchDetails): Record<string, unknown> {
   const home = (path: string): string => displayPath(path, details.homeDirectory);
@@ -80,10 +82,7 @@ export function chatLaunchDocument(details: ChatLaunchDetails): Record<string, u
     },
     methods: [...details.methods],
     capabilities: details.capabilities,
-    notices: [
-      ...details.startedDexcliDevLines.map((text) => ({ level: "info", text: noticeText(text) })),
-      ...details.workerHostStartupLines.map((text) => ({ level: "warning", text: noticeText(text) })),
-    ],
+    notices: launchNotices(details, home(details.logPath)),
     log_path: home(details.logPath),
   };
 }
@@ -100,6 +99,30 @@ export function noticeText(text: string): string {
   return codePoints.length > maxNoticeCodePoints
     ? `${codePoints.slice(0, maxNoticeCodePoints - 1).join("")}…`
     : codePoints.join("");
+}
+
+/**
+ * Returns the launch notices in order, within {@link maxLaunchNoticeBytes} of JSON. The lines that do not fit become
+ * one last notice that says how many more the log has.
+ */
+function launchNotices(details: ChatLaunchDetails, logPathShown: string): { level: string; text: string }[] {
+  const lines = [
+    ...details.startedDexcliDevLines.map((text) => ({ level: "info", text: noticeText(text) })),
+    ...details.workerHostStartupLines.map((text) => ({ level: "warning", text: noticeText(text) })),
+  ];
+  const notices: { level: string; text: string }[] = [];
+  let byteCount = 0;
+  for (const notice of lines) {
+    // One byte more for the comma between array elements.
+    byteCount += Buffer.byteLength(JSON.stringify(notice), "utf8") + 1;
+    if (byteCount > maxLaunchNoticeBytes) {
+      const remaining = lines.length - notices.length;
+      notices.push({ level: "warning", text: noticeText(`… ${remaining} more lines in ${logPathShown}`) });
+      break;
+    }
+    notices.push(notice);
+  }
+  return notices;
 }
 
 function displayPath(path: string, homeDirectory: string): string {

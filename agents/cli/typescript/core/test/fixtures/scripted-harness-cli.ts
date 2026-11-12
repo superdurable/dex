@@ -8,7 +8,6 @@
 
 // The scripted test harness as a command, the way a harness package's bin calls the CLI core.
 
-import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync, writeSync } from "node:fs";
 
 import { processAgentCliIo, runAgentCli, type AgentHarness } from "../../src/index.js";
@@ -65,7 +64,7 @@ if (spinFile !== undefined && process.argv[2] === "__worker-host") {
     }
   }, 100).unref();
 }
-// Once the file exists, the launcher writes to fds 1 and 2 directly, and so does a child with inherited stdio.
+// Once the file exists, the launcher's JavaScript writes to stdout and stderr, directly and through console.
 const launcherCanaryFile = process.env.DEX_AGENTS_CLI_TEST_LAUNCHER_CANARY_FILE;
 if (launcherCanaryFile !== undefined && process.argv[2] !== "__worker-host") {
   const timer = setInterval(() => {
@@ -73,9 +72,10 @@ if (launcherCanaryFile !== undefined && process.argv[2] !== "__worker-host") {
       return;
     }
     clearInterval(timer);
-    writeSync(1, "launcher canary fd 1\n");
-    writeSync(2, "launcher canary fd 2\n");
-    spawnSync("/bin/sh", ["-c", "echo launcher canary child fd 1; echo launcher canary child fd 2 >&2"], { stdio: "inherit" });
+    process.stdout.write("launcher canary stdout\n");
+    process.stderr.write("launcher canary stderr\n");
+    console.log("launcher canary console.log");
+    console.error("launcher canary console.error");
     writeFileSync(`${launcherCanaryFile}.written`, "");
   }, 100);
   timer.unref();

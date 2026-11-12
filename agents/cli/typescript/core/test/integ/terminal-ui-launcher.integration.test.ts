@@ -672,13 +672,29 @@ describe("the terminal UI launcher", () => {
     assert.equal(fake.describeCount + fake.launchCount, 0, "no terminal");
   });
 
-  test("nothing the Worker host, its children, or the launcher's late writes print reaches the terminal UI's screen", async () => {
+  test("nothing the Worker host, its children, the launcher's JavaScript output, or its opener prints reaches the terminal UI's screen", async () => {
     const home = newHome();
-    const fake = new FakeTerminalUi([chatTranscript("leaks", [tuiPause(15_000)])], { hasMarkers: true });
+    // open_url starts the platform's opener: a child of the launcher during the handoff, which writes to both.
+    const [, openUrlRequest, openUrlResponse] = readTranscript("chat_open_url").steps.slice(1);
+    const openerDirectory = mkdtempSync(join(tmpdir(), "dex-agents-opener-"));
+    const openedFile = join(openerDirectory, "opened");
+    for (const opener of ["open", "xdg-open"]) {
+      writeFileSync(
+        join(openerDirectory, opener),
+        `#!/bin/sh\necho opener wrote to stdout\necho opener wrote to stderr >&2\necho "$1" >> '${openedFile}'\n`,
+      );
+      chmodSync(join(openerDirectory, opener), 0o755);
+    }
+    const fake = new FakeTerminalUi(
+      [chatTranscript("leaks", [openUrlRequest ?? {}, openUrlResponse ?? {}, tuiPause(15_000)])],
+      { hasMarkers: true },
+    );
     const canaryFile = join(home.directory, "launcher-canary");
     const terminal = startOnTerminal(home, fake, [], {
       DEX_AGENTS_CLI_TEST_IMPORT_NOISE: "1",
       DEX_AGENTS_CLI_TEST_LAUNCHER_CANARY_FILE: canaryFile,
+      DEX_AGENTS_OPEN_BROWSER: "1",
+      PATH: `${openerDirectory}:${process.env.PATH ?? ""}`,
     });
     await waitForReady(fake);
     writeFileSync(canaryFile, "");
@@ -689,6 +705,8 @@ describe("the terminal UI launcher", () => {
     await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 12_000 });
     assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
     assert.equal(textBetweenMarkers(terminal.terminal.all), "");
+    assert.match(readFileSync(openedFile, "utf8"), new RegExp(`^${engine.webUrl}/v2/flows/`));
+    assert.doesNotMatch(terminal.terminal.all, /opener wrote/);
     const log = logFile(home);
     for (const text of [
       "host wrote to fd 1",
@@ -696,10 +714,10 @@ describe("the terminal UI launcher", () => {
       "grandchild wrote to stdout",
       "grandchild wrote to stderr",
       "import noise later",
-      "launcher canary fd 1",
-      "launcher canary fd 2",
-      "launcher canary child fd 1",
-      "launcher canary child fd 2",
+      "launcher canary stdout",
+      "launcher canary stderr",
+      "launcher canary console.log",
+      "launcher canary console.error",
     ]) {
       assert.match(log, new RegExp(text), text);
     }
