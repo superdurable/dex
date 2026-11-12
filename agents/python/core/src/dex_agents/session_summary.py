@@ -8,11 +8,13 @@
 
 """List agent sessions with their title, last activity time, and turn count.
 
-Every session Flow writes three indexed Attributes as its turns start and end:
-``AGENT_SESSION_TITLE``, ``AGENT_SESSION_LAST_ACTIVITY_AT``, and
-``AGENT_SESSION_TURN_COUNT``. ``AsyncClient.search_flows`` returns them with
-each session, so ``list_agent_sessions`` reads a page of sessions in one call,
-without a snapshot per session and without a running Worker.
+A session Flow with ``AgentSessionOptions.summary_attributes_indexed`` writes
+three indexed Attributes as its turns start and end: ``AGENT_SESSION_TITLE``,
+``AGENT_SESSION_LAST_ACTIVITY_AT``, and ``AGENT_SESSION_TURN_COUNT``.
+``AsyncClient.search_flows`` returns them with each session, so
+``list_agent_sessions`` reads a page of sessions in one call, without a
+snapshot per session and without a running Worker. Without the option, the
+sessions list without the three values.
 
 Example:
     >>> page = await list_agent_sessions(client, "support-agent", page_size=50)
@@ -28,7 +30,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from dex import AsyncClient, Attribute, FlowStatus, SearchFlowEntry, Value, WireKind
+from dex import (
+    AsyncClient,
+    Attribute,
+    DexServiceError,
+    FlowStatus,
+    SearchFlowEntry,
+    Value,
+    WireKind,
+)
 
 from dex_agents.persistence import (
     AGENT_SESSION_LAST_ACTIVITY_AT,
@@ -46,8 +56,22 @@ SESSION_TITLE_MAX_CODE_POINTS = 80
 #: .. versionadded:: 0.6.0
 DEFAULT_SESSION_LIST_PAGE_SIZE = 50
 
+# The server's text when a query names an index key no Worker registered.
+_UNKNOWN_FIELD_TEXT = "unknown visibility field"
+
 # Only ASCII whitespace, so every core collapses exactly the same characters.
 _TITLE_WHITESPACE = re.compile(r"[ \t\n\r\f\v]+")
+
+
+class SessionTitleSearchUnavailableError(Exception):
+    """The namespace has no session title index, so ``list_agent_sessions`` cannot search titles.
+
+    No Worker of a session Flow with ``AgentSessionOptions.summary_attributes_indexed``
+    has started on the server. List without ``title_search``, and filter the loaded
+    sessions by ID instead.
+
+    .. versionadded:: 0.6.0
+    """
 
 
 @dataclass(frozen=True)
@@ -55,10 +79,11 @@ class AgentSessionSummary:
     """One session of a list page, read from its search entry.
 
     ``title``, ``last_activity_at``, and ``turn_count`` are ``None`` when the
-    session does not have them. A session that a release before 0.6.0 started
-    has no title. It gains the last activity time and the turn count when a
-    0.6.0 or later Worker starts or ends one of its turns. Show such a missing
-    value as a dash.
+    session does not have them: its Flow does not set
+    ``AgentSessionOptions.summary_attributes_indexed``, or a release before
+    0.6.0 started it. Such an earlier session has no title. It gains the last
+    activity time and the turn count when a 0.6.0 or later Worker with the
+    option starts or ends one of its turns. Show a missing value as a dash.
 
     .. versionadded:: 0.6.0
 
@@ -106,8 +131,9 @@ def build_session_title(first_message_text: str) -> str | None:
     """Return the title a session takes from its first user message.
 
     Each run of ASCII spaces, tabs, and line breaks becomes one space, leading
-    and trailing spaces are removed, and the text is cut to
-    ``SESSION_TITLE_MAX_CODE_POINTS`` code points, without a trailing space.
+    and trailing spaces are removed, and the text is cut to its first
+    ``SESSION_TITLE_MAX_CODE_POINTS`` Unicode code points, without a trailing
+    space.
     The TypeScript core gives the same title for the same text.
 
     .. versionadded:: 0.6.0
@@ -168,14 +194,28 @@ async def list_agent_sessions(
 
     Raises:
         ValueError: If ``page_size`` is negative.
-        DexServiceError: If Dex rejects the search. A title search fails with
-            ``INVALID_ARGUMENT`` while no Worker of 0.6.0 or later has started
-            on the server, because the title index does not exist yet.
+        SessionTitleSearchUnavailableError: If ``title_search`` is given and no
+            Worker with ``AgentSessionOptions.summary_attributes_indexed`` has
+            registered the title index on the server.
+        DexServiceError: If Dex rejects the search for another reason.
     """
     query = f"FlowType = {_quote(flow_type)}"
-    if title_search is not None and title_search.strip():
-        query += f" AND {_TITLE_INDEX_KEY} = {_quote(title_search)}"
-    page = await client.search_flows(query, page_size, next_page_token)
+    is_title_search = title_search is not None and title_search.strip() != ""
+    if is_title_search:
+        query += f" AND {_TITLE_INDEX_KEY} = {_quote(title_search or '')}"
+    try:
+        page = await client.search_flows(query, page_size, next_page_token)
+    except DexServiceError as error:
+        if (
+            is_title_search
+            and error.code.name == "INVALID_ARGUMENT"
+            and _UNKNOWN_FIELD_TEXT in error.detail
+        ):
+            raise SessionTitleSearchUnavailableError(
+                "the server has no session title index; start a Worker whose session Flow "
+                "sets summary_attributes_indexed"
+            ) from error
+        raise
     return AgentSessionSummaryPage(
         sessions=[_session_summary(entry) for entry in page.flows],
         next_page_token=page.next_page_token,

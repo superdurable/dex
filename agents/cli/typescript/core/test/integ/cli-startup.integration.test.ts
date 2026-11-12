@@ -14,10 +14,10 @@ import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { findFreeLoopbackPorts, PrivateDexEngine } from "@superdurable/dex-agents/testing";
+import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
-import { CliProcess, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
+import { CliProcess, SessionClients, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { PseudoTerminalCliProcess } from "../fixtures/pseudo-terminal-cli-process.js";
 import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
@@ -394,5 +394,47 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.equal(await list.waitForExit(), 0);
     const time = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
     assert.match(list.stdout.all, new RegExp(`^${sessionId}\\trunning\\t${time}\\t${time}\\t1\\thello the list$`, "m"));
+  });
+
+  test("the sessions subcommand sorts several pages and says when more exist", async () => {
+    const sessionClients = new SessionClients(engine);
+    try {
+      const home = new TestHome(enginePorts(engine));
+      home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+      const chat = start(home);
+      const oldest = await chat.waitForSession();
+      const sessions = await sessionClients.of(home);
+      for (let index = 0; index < 60; index += 1) {
+        await sessions.startSession(`later-${String(index).padStart(3, "0")}`);
+      }
+      // Activity times have one-second precision, so the next turn needs a later second.
+      const startedSecond = Math.floor(Date.now() / 1_000) * 1_000;
+      await pollUntil(() => (Date.now() >= startedSecond + 1_000 ? true : undefined), {
+        description: "the next second",
+      });
+      // The oldest session, last in Dex's order, becomes the most recently active one.
+      chat.writeLine("after the others");
+      await chat.stdout.waitFor("echo: after the others");
+      chat.writeLine("/exit");
+      assert.equal(await chat.waitForExit(), 0);
+
+      const listed = start(home, ["sessions"]);
+      assert.equal(await listed.waitForExit(), 0);
+      const lines = listed.stdout.all.split("\n").filter((line) => line.includes("\trunning\t"));
+      assert.equal(lines.length, 61);
+      assert.ok(lines[0]?.startsWith(`${oldest}\t`), listed.stdout.all);
+      assert.ok(lines.slice(1).every((line) => /\t0\t—$/.test(line)), listed.stdout.all);
+      assert.doesNotMatch(listed.stdout.all, /More sessions exist/);
+
+      for (let index = 0; index < 200; index += 1) {
+        await sessions.startSession(`extra-${String(index).padStart(3, "0")}`);
+      }
+      const capped = start(home, ["sessions"]);
+      assert.equal(await capped.waitForExit(), 0);
+      assert.equal(capped.stdout.all.split("\n").filter((line) => line.includes("\trunning\t")).length, 250);
+      assert.match(capped.stdout.all, /More sessions exist; this list sorts the first 250 that Dex returns/);
+    } finally {
+      await sessionClients.close();
+    }
   });
 });

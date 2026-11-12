@@ -334,10 +334,12 @@ dex-agents-claude-sdk sessions
 dex-agents-claude-sdk --resume SESSION_ID
 ```
 
-**sessions** prints the first page of up to 50 sessions, sorted by last
-activity. Each line has the session ID, the status, and the start time. Since 0.6.0 it also
-has the time of the latest turn, the turn count, and the title, the first
-message cut to 80 characters. See [List sessions](/reference/agents/approvals#list-sessions).
+**sessions** loads up to five pages of 50 sessions and sorts them by last
+activity. When more sessions exist, it says so. Each line has the session ID,
+the status, and the start time. Since 0.6.0 it also has the time of the latest
+turn, the turn count, and the title, the first 80 Unicode code points of the
+first message. The commands turn on the indexed session summary for this; see
+[List sessions](/reference/agents/approvals#list-sessions).
 A session that an earlier release started has no title, and has no time or
 turn count until its next turn. The Python commands leave out a missing part,
 and the TypeScript commands print tab-separated columns with a dash for it:

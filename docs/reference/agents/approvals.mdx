@@ -84,14 +84,31 @@ tool call that recorded **outcome_unknown**, and a draft plan waiting for
 
 ## List sessions {#list-sessions}
 
-Since 0.6.0. Each session keeps three indexed Attributes for a session list.
+Since 0.6.0. A session can keep three indexed Attributes for a session list.
 The session's Steps write them when a turn starts or ends:
 
 | Attribute | Index | Value |
 | --- | --- | --- |
-| **AgentSessionTitle** | FULL_TEXT **text1** | The first user message. Each run of ASCII spaces, tabs, and line breaks becomes one space, and the text is cut to 80 Unicode code points. Only the first turn writes it. |
-| **AgentSessionLastActivityAt** | DATETIME **datetime1** | When the latest turn started or ended, as RFC 3339 UTC text with milliseconds. It is the time Dex scheduled that Step, at one-second precision. |
+| **AgentSessionTitle** | FULL_TEXT **text1** | The first user message. Each run of ASCII spaces, tabs, and line breaks becomes one space, and the text is cut to its first 80 Unicode code points. Only the first turn writes it. |
+| **AgentSessionLastActivityAt** | DATETIME **datetime1** | When the latest turn started or ended, as RFC 3339 UTC text with milliseconds. It is the time the first attempt of that Step started, at one-second precision. |
 | **AgentSessionTurnCount** | INT **int1** | **AgentState.turn_count** as of the latest turn start or end. |
+
+The session Flow keeps them only when you turn the option on: Python
+**AgentSessionOptions.summary_attributes_indexed**, TypeScript
+**summaryAttributesIndexed**. It is off by default, so the Flow neither
+declares nor writes them. In TypeScript, **withSummaryAttributesIndexed** turns
+it on for a Flow that a factory built. The CLI commands turn it on. Check two
+things before you turn it on:
+
+- **Privacy.** The title is the user's own words. Anyone who can search the
+  namespace's Flows reads it. Turn the option on only when the first message
+  may be stored in the search index.
+- **Index keys.** A Worker registers the three keys when it starts. With
+  [PostgreSQL search](/reference/server/search#postgresql-search), a namespace
+  has three keys of each of these types. The Worker fails to start with
+  **FAILED_PRECONDITION** when the namespace already registered one of these
+  keys with another type, or when all three keys of the type are taken by
+  other names.
 
 **SearchFlows** returns them with each session, so one call reads a page of
 sessions. It reads no snapshot and needs no Worker. The Python
@@ -107,17 +124,16 @@ FlowType = "SupportAgent" AND text1 = "flaky test"
 - **SearchFlows** sorts by start or close time only. To sort by last activity,
   sort the sessions you loaded: **sort_agent_sessions_by_last_activity** or
   **sortAgentSessionsByLastActivity**.
-- A session that a release before 0.6.0 started has no title. It gains the
-  last activity time and the turn count at its next turn on 0.6.0 or later. Show
-  a missing value as a dash. During a rolling upgrade, a turn that an earlier
-  Worker runs leaves the three values as they were.
-- A Worker registers the three index keys when it starts. Until a 0.6.0 Worker
-  has started on the server, a title search fails with **INVALID_ARGUMENT**.
+- A session without the option, or one that a release before 0.6.0 started,
+  lists without the three values. Show a missing value as a dash. An earlier
+  session never gets a title. It gains the last activity time and the turn
+  count at its next turn on a Worker with the option. During a rolling upgrade,
+  a turn that an earlier Worker runs leaves the three values as they were.
+- A session that fails because its state would exceed the server's limit can
+  keep the values of its last turn start. See
+  [Limits for long sessions](/reference/agents/session-limits).
+- Until a Worker with the option has started on the server, a title search
+  fails with **SessionTitleSearchUnavailableError**. List without the search
+  instead.
 - The keys are generic, so other Flow types of the namespace can use them too.
-  Every query must filter on **FlowType**. With
-  [PostgreSQL search](/reference/server/search#postgresql-search), a namespace
-  has three keys of each of these types. When all three are taken by other
-  names, the Worker fails to start with
-  **ATTRIBUTE_INDEX_CAPACITY_EXCEEDED**.
-- The title is the user's own words, and the search index stores it. Do not
-  put secrets in a session's first message.
+  Every query must filter on **FlowType**.

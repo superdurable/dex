@@ -17,7 +17,7 @@ import os
 import re
 import signal
 import socket
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -276,6 +276,49 @@ async def test_sessions_lists_this_agents_sessions(cli_home: CliHome) -> None:
         completed.stdout,
         re.MULTILINE,
     ), completed.stdout
+
+
+async def test_sessions_sorts_several_pages_and_says_when_more_exist(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    workspace = cli_home.home / "dex-agent-workspace"
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    child = cli_home.spawn()
+    oldest = await read_session_id(child)
+    await expect(child, "> ")
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
+        for index in range(60):
+            await sessions.start_session(f"later-{index:03d}")
+        await _wait_for_the_next_second()
+        # The oldest session, last in Dex's order, becomes the most recently active one.
+        child.sendline("after the others")
+        await expect(child, "echo: after the others")
+        await expect(child, "> ")
+        child.sendeof()
+        assert await wait_for_exit(child) == 0
+
+        listed = cli_home.run("sessions")
+        assert listed.returncode == 0, listed.stderr
+        lines = [line for line in listed.stdout.splitlines() if "  started " in line]
+        assert len(lines) == 61
+        assert lines[0].startswith(f"{oldest}  running  "), listed.stdout
+        assert all(line.endswith("  0 turns") for line in lines[1:]), listed.stdout
+        assert "More sessions exist" not in listed.stdout
+
+        for index in range(200):
+            await sessions.start_session(f"extra-{index:03d}")
+    capped = cli_home.run("sessions")
+    assert capped.returncode == 0, capped.stderr
+    assert len([line for line in capped.stdout.splitlines() if "  started " in line]) == 250
+    assert "More sessions exist; this list sorts the first 250 that Dex returns" in capped.stdout
+
+
+async def _wait_for_the_next_second() -> None:
+    """Wait for a later second, since session activity times have one-second precision."""
+    started = datetime.now(UTC).replace(microsecond=0)
+    while datetime.now(UTC) < started + timedelta(seconds=1):
+        await asyncio.sleep(0.05)
 
 
 async def test_a_failed_turn_makes_the_command_exit_1(cli_home: CliHome) -> None:

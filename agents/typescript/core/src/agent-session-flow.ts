@@ -224,6 +224,21 @@ export interface AgentSessionOptions {
    * @since 0.3.0
    */
   readonly spendLimit?: ModelSpendLimit;
+  /**
+   * Whether the session keeps the indexed `AgentSessionTitle`, `AgentSessionLastActivityAt`, and
+   * `AgentSessionTurnCount` Attributes that `listAgentSessions` reads. Defaults to `false`: the Flow does not
+   * declare them and never writes them.
+   *
+   * Check two things before you enable it. The title is the first 80 Unicode code points of the session's first
+   * user message, and anyone who can search the namespace's Flows reads it, so enable it only when that message may
+   * be stored in the search index. The Worker registers the index keys `text1` (FULL_TEXT), `datetime1` (DATETIME),
+   * and `int1` (INT) when it starts; with PostgreSQL search, startup fails with `FAILED_PRECONDITION` when the
+   * namespace already registered one of these keys with another type, or when all three keys of the type are taken
+   * by other names. To enable it on a Flow that a factory built, see {@link withSummaryAttributesIndexed}.
+   *
+   * @since 0.6.0
+   */
+  readonly summaryAttributesIndexed?: boolean;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -264,6 +279,12 @@ export interface ResolvedAgentSessionOptions {
   readonly runModelLimit?: ResolvedRunModelLimit;
   /** The application's spend limit, or `undefined` for none. */
   readonly spendLimit?: ModelSpendLimit;
+  /**
+   * Whether the session keeps the indexed summary Attributes. A Flow always sets it; optional for 0.5.0 code.
+   *
+   * @since 0.6.0
+   */
+  readonly summaryAttributesIndexed?: boolean;
 }
 
 /**
@@ -506,6 +527,38 @@ export interface AgentSessionFlow<
   listAgentMessages(context: Context, input: ListAgentMessagesInput): RPCResult<AgentMessagesPage>;
 }
 
+// A registered symbol, so a Flow built by another copy of this package is rebuilt by that copy.
+const rebuildWithSummaryAttributesIndexed = Symbol.for("@superdurable/dex-agents/rebuildWithSummaryAttributesIndexed");
+
+/**
+ * Returns a session Flow like `flow` with {@link AgentSessionOptions.summaryAttributesIndexed} turned on.
+ *
+ * Use it when a factory, such as an adapter's or a harness's, builds the Flow and does not take the option. The new
+ * Flow has the same runner, Flow type, and other options; register it instead of `flow`. Read the privacy and index
+ * capacity notes on {@link AgentSessionOptions.summaryAttributesIndexed} first.
+ *
+ * @example
+ * ```ts
+ * const flow = withSummaryAttributesIndexed(createBuiltinAgentSessionFlow(agent, "SupportAgent"));
+ * const registry = new Registry([flow]);
+ * ```
+ *
+ * @typeParam Runner - Type of the Flow's runner.
+ * @param flow - A Flow that `createAgentSessionFlow` of this release or later built.
+ * @returns A new Flow; `flow` is unchanged.
+ * @throws {TypeError} When `flow` was not built by `createAgentSessionFlow` of 0.6.0 or later.
+ * @since 0.6.0
+ */
+export function withSummaryAttributesIndexed<Runner extends AgentFrameworkRunner<DeferredToolOutcome>>(
+  flow: AgentSessionFlow<Runner>,
+): AgentSessionFlow<Runner> {
+  const rebuild = (flow as unknown as Record<symbol, unknown>)[rebuildWithSummaryAttributesIndexed];
+  if (typeof rebuild !== "function") {
+    throw new TypeError("withSummaryAttributesIndexed needs a Flow that createAgentSessionFlow 0.6.0 or later built");
+  }
+  return (rebuild as () => AgentSessionFlow<Runner>).call(flow);
+}
+
 /**
  * Creates the shared agent session Flow for one agent and its framework runner.
  *
@@ -569,6 +622,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     retainedMessageLimit: config.retainedMessageLimit,
     runModelLimit: config.runModelLimit,
     ...(config.spendLimit === undefined ? {} : { spendLimit: config.spendLimit }),
+    summaryAttributesIndexed: config.summaryAttributesIndexed,
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
@@ -635,6 +689,10 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
       return config.flowType;
     }
 
+    public [rebuildWithSummaryAttributesIndexed](): AgentSessionFlow<Runner> {
+      return createAgentSessionFlow(runner, flowType, { ...options, summaryAttributesIndexed: true });
+    }
+
     public getSteps(): StepList<AgentSessionStartInput> {
       return this.steps;
     }
@@ -660,9 +718,9 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.sessionSettings,
           persistence.turnSessionSettings,
           persistence.turnReplySequence,
-          persistence.agentSessionTitle,
-          persistence.agentSessionLastActivityAt,
-          persistence.agentSessionTurnCount,
+          ...(config.summaryAttributesIndexed
+            ? [persistence.agentSessionTitle, persistence.agentSessionLastActivityAt, persistence.agentSessionTurnCount]
+            : []),
         ],
         channels: [
           persistence.queuedUserMessages,
@@ -1088,6 +1146,7 @@ function resolveAgentSessionConfig(
     retainedMessageLimit,
     runModelLimit: resolveRunModelLimit(options.runModelLimit),
     spendLimit: options.spendLimit,
+    summaryAttributesIndexed: options.summaryAttributesIndexed ?? false,
   };
 }
 

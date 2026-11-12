@@ -21,6 +21,8 @@ import {
   sessionFlowDefinitionDocument,
   sortAgentSessionsByLastActivity,
   startAgentSession,
+  withSummaryAttributesIndexed,
+  type AgentSessionSummary,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type DeferredToolOutcome,
@@ -68,6 +70,8 @@ import { TurnConfigResolver } from "./turn-config-resolver.js";
 const subcommands = ["run", "init", "connectors", "sessions"] as const;
 type Subcommand = (typeof subcommands)[number];
 const blobCacheBytes = 256 * 1024 * 1024;
+/** Most pages of 50 sessions that the `sessions` subcommand loads before it sorts them. */
+const sessionListMaxPages = 5;
 
 /**
  * The process a command runs in: its arguments, streams, environment, and whether a person is at a terminal.
@@ -320,7 +324,8 @@ class AgentCliCommand {
       currentTurn: () => turns.currentTurn(),
       resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
     };
-    const flow = this.harness.createSessionFlow(context);
+    // The command's sessions keep the indexed summary that the sessions subcommand shows.
+    const flow = withSummaryAttributesIndexed(this.harness.createSessionFlow(context));
     if (flow.getFlowType() !== flowType) {
       throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
     }
@@ -596,13 +601,22 @@ class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     });
-    const page = await listAgentSessions(this.client, flowType);
-    if (page.sessions.length === 0) {
+    const loadedSessions: AgentSessionSummary[] = [];
+    let nextPageToken = "";
+    for (let pageNumber = 0; pageNumber < sessionListMaxPages; pageNumber += 1) {
+      const page = await listAgentSessions(this.client, flowType, { nextPageToken });
+      loadedSessions.push(...page.sessions);
+      nextPageToken = page.nextPageToken;
+      if (nextPageToken === "") {
+        break;
+      }
+    }
+    if (loadedSessions.length === 0) {
       this.io.stdout.write(`No ${flowType} sessions.\n`);
       return 0;
     }
     // A session an earlier release started has no summary fields; "—" stands for each one.
-    for (const session of sortAgentSessionsByLastActivity(page.sessions)) {
+    for (const session of sortAgentSessionsByLastActivity(loadedSessions)) {
       const columns = [
         session.sessionId,
         session.status,
@@ -612,6 +626,12 @@ class AgentCliCommand {
         session.title ?? "—",
       ];
       this.io.stdout.write(`${columns.join("\t")}\n`);
+    }
+    if (nextPageToken !== "") {
+      this.io.stdout.write(
+        `More sessions exist; this list sorts the first ${loadedSessions.length} that Dex returns: ` +
+          "running sessions first, then the most recently closed and started.\n",
+      );
     }
     this.io.stdout.write(`Resume one with: dex-agents-${this.harness.name} --resume <session>\n`);
     return 0;

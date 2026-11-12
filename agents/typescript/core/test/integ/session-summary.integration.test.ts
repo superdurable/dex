@@ -17,8 +17,10 @@ import { promisify } from "node:util";
 import type { Client } from "@superdurable/dex";
 
 import {
+  SessionTitleSearchUnavailableError,
   listAgentSessions,
   sortAgentSessionsByLastActivity,
+  withSummaryAttributesIndexed,
   type AgentSessionSummary,
 } from "../../src/index.js";
 import {
@@ -40,7 +42,7 @@ describe("session summaries", () => {
 
   before(async () => {
     engine = await PrivateDexEngine.start();
-    flow = createScriptedAgentFlow(mkdtempSync(join(engine.stateDirectory, "markers-")));
+    flow = withSummaryAttributesIndexed(createScriptedAgentFlow(mkdtempSync(join(engine.stateDirectory, "markers-"))));
     flowType = flow.getFlowType();
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
@@ -79,6 +81,13 @@ describe("session summaries", () => {
     const second = await waitForSummary(sessionId, (session) => session.turnCount === 2);
     assert.equal(second.title, first.title);
     assert.ok(second.lastActivityAt !== null && second.lastActivityAt > first.lastActivityAt);
+
+    // A session without a first message has a time and zero turns, but no title.
+    const idleId = newSessionId();
+    await sessions.startSession(idleId);
+    const idle = await waitForSummary(idleId, (session) => session.turnCount === 0);
+    assert.equal(idle.title, null);
+    assert.ok(idle.lastActivityAt !== null);
   });
 
   test("sessions page, sort by last activity, and search by title", async () => {
@@ -184,6 +193,51 @@ describe("session summaries", () => {
       JSON.stringify({ flowId: sessionId, attributes: deletions, requestId: randomUUID() }),
     ]);
   }
+});
+
+describe("session summaries without summaryAttributesIndexed", () => {
+  let engine: PrivateDexEngine;
+  let environment: AgentTestEnvironment;
+  let sessions: AgentSessionTestClient;
+  let flow: ReturnType<typeof createScriptedAgentFlow>;
+
+  before(async () => {
+    engine = await PrivateDexEngine.start();
+    flow = createScriptedAgentFlow(mkdtempSync(join(engine.stateDirectory, "markers-")));
+    environment = await AgentTestEnvironment.start({
+      serverAddress: engine.serverAddress,
+      flows: [flow],
+      isWorkerInProcess: true,
+    });
+    sessions = new AgentSessionTestClient(environment.client, flow);
+  });
+
+  after(async () => {
+    await environment?.close();
+    await engine?.stop();
+  });
+
+  test("sessions list without a summary, and a title search says it is unavailable", async () => {
+    const schema = flow.getPersistenceSchema?.() ?? {};
+    assert.equal(
+      (schema.attributes ?? []).some((definition) => definition.name.startsWith("AgentSession")),
+      false,
+    );
+    const sessionId = newSessionId();
+    await sessions.startSession(sessionId, "refund order 7");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    const page = await listAgentSessions(environment.client, flow.getFlowType());
+    assert.deepEqual(
+      page.sessions.map((session) => [session.sessionId, session.title, session.lastActivityAt, session.turnCount]),
+      [[sessionId, null, null, null]],
+    );
+    // No Worker registered the title index on this server.
+    await assert.rejects(
+      listAgentSessions(environment.client, flow.getFlowType(), { titleSearch: "refund" }),
+      SessionTitleSearchUnavailableError,
+    );
+  });
 });
 
 async function listEveryPage(

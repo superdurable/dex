@@ -92,6 +92,7 @@ from dex_agents import (
     AgentMessagesPage,
     AgentPlan,
     AgentPlanTask,
+    AgentSessionFlow,
     AgentSessionStartInput,
     AgentSessionStatus,
     AgentSnapshot,
@@ -158,9 +159,10 @@ from dex_agents.builtin_loop import (
     DEFAULT_MAX_MODEL_CALLS_PER_TURN,
     TOOL_CALL_LIMIT_REACHED_RESULT,
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     build_context_summary_note,
     build_context_summary_omission_note,
-    builtin_agent_session_flow,
+    builtin_agent_session_options,
 )
 from dex_agents.builtin_loop.runner import (
     _read_tool_source_envelope,
@@ -1329,13 +1331,21 @@ def build_event_cases() -> ValueCases:
 # ---------------------------------------------------------------------------
 
 
-def build_manifest_flow() -> Any:
+def build_manifest_flow(*, is_summary_indexed: bool = True) -> Any:
+    """Return the session Flow the manifest describes; names.json lists the opt-in summary too."""
     definition = AgentDefinition(
         name="conformance-manifest",
         instructions="Describe the session Flow.",
         model=ScriptedModelClient(lambda request: ScriptedModelReply(text="ok")),
     )
-    return builtin_agent_session_flow(definition, flow_type=MANIFEST_FLOW_TYPE)
+    return AgentSessionFlow(
+        BuiltinLoopAgentRunner(definition),
+        flow_type=MANIFEST_FLOW_TYPE,
+        options=replace(
+            builtin_agent_session_options(definition),
+            summary_attributes_indexed=is_summary_indexed,
+        ),
+    )
 
 
 def build_session_flow_graph() -> dict[str, Any]:
@@ -1343,11 +1353,14 @@ def build_session_flow_graph() -> dict[str, Any]:
     sys.path.insert(0, str(SUITE_DIR))
     from session_graph import build_session_graph
 
-    flow = build_manifest_flow()
+    # The graph shows a Flow with default options, which leave out the indexed summary.
+    flow = build_manifest_flow(is_summary_indexed=False)
     registry = Registry([flow], allow_async_handlers=True)
-    return build_session_graph(
-        flow, registry._registered_flows[MANIFEST_FLOW_TYPE], build_names()["persistence"]
-    )
+    registered = registry._registered_flows[MANIFEST_FLOW_TYPE]
+    persistence = [
+        entry for entry in build_names()["persistence"] if entry["name"] in registered.persistence
+    ]
+    return build_session_graph(flow, registered, persistence)
 
 
 def build_session_graph_renderings(graph: Mapping[str, Any]) -> dict[str, Any]:

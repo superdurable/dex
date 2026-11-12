@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { Client, FlowStatus, SearchFlowEntry } from "@superdurable/dex";
+import { DexServiceError, type Client, type FlowStatus, type SearchFlowEntry } from "@superdurable/dex";
 
 import { sessionSummaryIndexKeys } from "./agent-session-persistence.js";
 
@@ -24,15 +24,38 @@ export const sessionTitleMaxCodePoints = 80;
  */
 export const defaultSessionListPageSize = 50;
 
+// gRPC INVALID_ARGUMENT, and the server's text when a query names an index key no Worker registered.
+const invalidArgumentCode = 3;
+const unknownFieldText = "unknown visibility field";
+
 // Only ASCII whitespace, so every core collapses exactly the same characters.
 const titleWhitespace = /[ \t\n\r\f\v]+/g;
 
 /**
+ * The namespace has no session title index, so {@link listAgentSessions} cannot search titles.
+ *
+ * No Worker of a session Flow with `summaryAttributesIndexed` has started on the server. List without `titleSearch`,
+ * and filter the loaded sessions by ID instead.
+ *
+ * @since 0.6.0
+ */
+export class SessionTitleSearchUnavailableError extends Error {
+  public constructor(options?: ErrorOptions) {
+    super(
+      "the server has no session title index; start a Worker whose session Flow sets summaryAttributesIndexed",
+      options,
+    );
+    this.name = "SessionTitleSearchUnavailableError";
+  }
+}
+
+/**
  * One session of a {@link listAgentSessions} page, read from its search entry.
  *
- * `title`, `lastActivityAt`, and `turnCount` are `null` when the session does not have them. A session that a release
- * before 0.6.0 started has no title. It gains the last activity time and the turn count when a 0.6.0 or later Worker
- * starts or ends one of its turns. Show such a missing value as a dash.
+ * `title`, `lastActivityAt`, and `turnCount` are `null` when the session does not have them: its Flow does not set
+ * `summaryAttributesIndexed`, or a release before 0.6.0 started it. Such an earlier session has no title. It gains the
+ * last activity time and the turn count when a 0.6.0 or later Worker with the option starts or ends one of its turns.
+ * Show a missing value as a dash.
  *
  * @since 0.6.0
  */
@@ -92,7 +115,7 @@ export interface ListAgentSessionsOptions {
  * Returns the title a session takes from its first user message.
  *
  * Each run of ASCII spaces, tabs, and line breaks becomes one space, leading and trailing spaces are removed, and the
- * text is cut to {@link sessionTitleMaxCodePoints} code points, without a trailing space. The Python core gives the
+ * text is cut to its first {@link sessionTitleMaxCodePoints} Unicode code points, without a trailing space. The Python core gives the
  * same title for the same text.
  *
  * @example
@@ -114,7 +137,9 @@ export function buildSessionTitle(firstMessageText: string): string | null {
  * Returns one page of the sessions of a session Flow type.
  *
  * It makes one `Client.searchFlows` call. It needs no Worker and reads no snapshot. Dex orders the page; it cannot
- * sort by last activity, so sort the sessions you loaded with {@link sortAgentSessionsByLastActivity}.
+ * sort by last activity, so sort the sessions you loaded with {@link sortAgentSessionsByLastActivity}. The title,
+ * last activity time, and turn count come from a Flow with `summaryAttributesIndexed`; other sessions list without
+ * them.
  *
  * @example
  * ```ts
@@ -129,8 +154,9 @@ export function buildSessionTitle(firstMessageText: string): string | null {
  * @param options - The page size, page token, and title search.
  * @returns The page of sessions.
  * @throws {RangeError} When `pageSize` is negative.
- * @throws {Error} When Dex rejects the search. A title search fails with `INVALID_ARGUMENT` while no Worker of 0.6.0
- * or later has started on the server, because the title index does not exist yet.
+ * @throws {SessionTitleSearchUnavailableError} When `titleSearch` is given and no Worker with
+ * `summaryAttributesIndexed` has registered the title index on the server.
+ * @throws {DexServiceError} When Dex rejects the search for another reason.
  * @since 0.6.0
  */
 export async function listAgentSessions(
@@ -140,14 +166,24 @@ export async function listAgentSessions(
 ): Promise<AgentSessionSummaryPage> {
   let query = `FlowType = ${quoteQueryString(flowType)}`;
   const titleSearch = options.titleSearch;
-  if (titleSearch !== undefined && titleSearch.trim() !== "") {
+  const isTitleSearch = titleSearch !== undefined && titleSearch.trim() !== "";
+  if (isTitleSearch) {
     query += ` AND ${sessionSummaryIndexKeys.title} = ${quoteQueryString(titleSearch)}`;
   }
-  const page = await client.searchFlows(
-    query,
-    options.pageSize ?? defaultSessionListPageSize,
-    options.nextPageToken ?? "",
-  );
+  let page;
+  try {
+    page = await client.searchFlows(query, options.pageSize ?? defaultSessionListPageSize, options.nextPageToken ?? "");
+  } catch (error: unknown) {
+    if (
+      isTitleSearch &&
+      error instanceof DexServiceError &&
+      error.code === invalidArgumentCode &&
+      error.detail.includes(unknownFieldText)
+    ) {
+      throw new SessionTitleSearchUnavailableError({ cause: error });
+    }
+    throw error;
+  }
   return { sessions: page.flows.map(readSessionSummary), nextPageToken: page.nextPageToken };
 }
 

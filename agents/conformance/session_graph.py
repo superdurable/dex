@@ -93,17 +93,6 @@ SESSION_ACTIONS = (
 )
 
 _ACTION_VALUE_TYPES: Mapping[type, str] = {str: "string", bool: "bool", int: "int64"}
-# Dex Web's index type and value type for each indexed Attribute's index type.
-_INDEXED_ATTRIBUTE_TYPES: Mapping[str, tuple[str, str]] = {
-    "full_text": ("fulltext", "string"),
-    "datetime": ("datetime", "datetime"),
-    "int": ("int", "int64"),
-}
-INDEXED_ATTRIBUTE_DESCRIPTIONS: Mapping[str, str] = {
-    "AgentSessionTitle": "Title",
-    "AgentSessionLastActivityAt": "Last activity",
-    "AgentSessionTurnCount": "Turns",
-}
 _CHANNEL_CONDITION_METHODS = frozenset({"for_one", "for_n", "for_range", "at_least", "at_most"})
 _WAIT_TYPES = {"any_of": "anyOf", "all_of": "allOf", "until": "until"}
 _MOVEMENT_FAILURE_ROUTE_METHODS = frozenset(
@@ -276,7 +265,7 @@ class SessionFlowSource:
 
 
 def build_session_graph(
-    flow: AgentSessionFlow, registered: Any, persistence: Sequence[Mapping[str, Any]]
+    flow: AgentSessionFlow, registered: Any, persistence: Sequence[Mapping[str, str]]
 ) -> dict[str, Any]:
     """Return the session graph template.
 
@@ -303,16 +292,13 @@ def build_session_graph(
 
 
 class _GraphBuilder:
-    def __init__(self, persistence: Sequence[Mapping[str, Any]]) -> None:
+    def __init__(self, persistence: Sequence[Mapping[str, str]]) -> None:
         self._nodes: list[dict[str, Any]] = []
         self._edges: list[dict[str, Any]] = []
         self._resource_ids: dict[str, str] = {}
-        self._indexed_attributes: list[dict[str, str]] = []
         self._start_step_id = ""
         for entry in persistence:
             self._add_resource(entry)
-            if "index" in entry:
-                self._add_indexed_attribute(entry)
 
     def add_step(
         self, step_type: str, step: Step[Any], is_start: bool, source: SessionFlowSource
@@ -398,7 +384,7 @@ class _GraphBuilder:
                 for group_id, label, step_types in STEP_GROUPS
             ],
             "v2": {
-                "indexedAttributes": self._indexed_attributes,
+                "indexedAttributes": [],
                 "summary": {"rpcName": "GetDexSummary", "fields": []},
                 "display": {"rpcName": "GetDexDisplay", "fields": []},
                 "actions": [_action_definition(action) for action in SESSION_ACTIONS],
@@ -414,18 +400,6 @@ class _GraphBuilder:
             resource["map"] = True
         self._nodes.append(
             {"id": resource_id, "kind": kind, "name": entry["name"], "resource": resource}
-        )
-
-    def _add_indexed_attribute(self, entry: Mapping[str, Any]) -> None:
-        index_type, value_type = _INDEXED_ATTRIBUTE_TYPES[entry["index"]["type"]]
-        self._indexed_attributes.append(
-            {
-                "attributeKey": entry["name"],
-                "indexKey": entry["index"]["key"],
-                "indexType": index_type,
-                "valueType": value_type,
-                "description": INDEXED_ATTRIBUTE_DESCRIPTIONS[entry["name"]],
-            }
         )
 
     def _add_wait(self, step_type: str, wait: StepWait) -> None:

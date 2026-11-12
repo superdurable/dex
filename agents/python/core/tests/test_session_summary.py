@@ -12,24 +12,26 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from dex import AsyncClient, FlowStatus
 
 from dex_agents import (
-    AGENT_SESSION_LAST_ACTIVITY_AT,
-    AGENT_SESSION_TITLE,
-    AGENT_SESSION_TURN_COUNT,
     AgentSessionSummary,
+    SessionTitleSearchUnavailableError,
     list_agent_sessions,
     sort_agent_sessions_by_last_activity,
 )
 from dex_agents.testing import wait_until
 from tests.conftest import ScriptedAgentHarness
+from tests.scripted_agent import SUMMARY_INDEXED_ENVIRONMENT_VARIABLE
+
+SUMMARY_INDEXED = {SUMMARY_INDEXED_ENVIRONMENT_VARIABLE: "1"}
 
 
 async def test_the_summary_follows_each_turn_and_lists_without_a_worker(
     harness: ScriptedAgentHarness,
 ) -> None:
-    worker = await harness.stack.start_worker()
+    worker = await harness.stack.start_worker(SUMMARY_INDEXED)
     session_id = harness.new_session_id()
     await harness.sessions.start_session(session_id, "say Fix the\n\tflaky   retry test")
     await harness.wait_for_turns(session_id, 1)
@@ -39,14 +41,11 @@ async def test_the_summary_follows_each_turn_and_lists_without_a_worker(
     assert first.status is FlowStatus.RUNNING
     assert first.last_activity_at is not None
     assert first.last_activity_at >= first.started_at.replace(microsecond=0)
-    values = await harness.stack.client.get_attributes(
-        session_id, AGENT_SESSION_TITLE, AGENT_SESSION_LAST_ACTIVITY_AT, AGENT_SESSION_TURN_COUNT
-    )
-    assert values.get(AGENT_SESSION_TITLE) == first.title
-    assert values.get(AGENT_SESSION_TURN_COUNT) == 1
-    assert values.get(AGENT_SESSION_LAST_ACTIVITY_AT) == first.last_activity_at.isoformat(
-        timespec="milliseconds"
-    ).replace("+00:00", "Z")
+    entry = (await harness.stack.client.search_flows(f'WorkflowId = "{session_id}"', 1)).flows[0]
+    stored_time = entry.indexed_attributes["datetime1"].data
+    assert isinstance(stored_time, str)
+    # The index keeps the time; the Attribute stores it as RFC 3339 with milliseconds.
+    assert datetime.fromisoformat(stored_time) == first.last_activity_at
 
     await _wait_past(first.last_activity_at)
     assert await harness.sessions.send_user_message(session_id, "say a different second message")
@@ -58,11 +57,19 @@ async def test_the_summary_follows_each_turn_and_lists_without_a_worker(
     assert second.last_activity_at is not None
     assert second.last_activity_at > first.last_activity_at
 
+    # A session without a first message has a time and zero turns, but no title.
+    await harness.stack.start_worker(SUMMARY_INDEXED)
+    idle_id = harness.new_session_id()
+    await harness.sessions.start_session(idle_id)
+    idle = await _wait_for_summary(harness, idle_id, turn_count=0)
+    assert idle.title is None
+    assert idle.last_activity_at is not None
+
 
 async def test_sessions_page_sort_by_last_activity_and_search_by_title(
     harness: ScriptedAgentHarness,
 ) -> None:
-    await harness.stack.start_worker()
+    await harness.stack.start_worker(SUMMARY_INDEXED)
     flow_type = harness.flow.get_flow_type()
     refund_order = harness.new_session_id()
     flaky_test = harness.new_session_id()
@@ -110,6 +117,27 @@ async def test_sessions_page_sort_by_last_activity_and_search_by_title(
         harness.stack.client, flow_type, page_size=1, title_search="refund"
     )
     assert [len(page) for page in titled] == [1, 1]
+
+
+async def test_without_the_option_sessions_list_without_a_summary(
+    harness: ScriptedAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "say refund order 7")
+    await harness.wait_for_turns(session_id, 1)
+
+    page = await list_agent_sessions(harness.stack.client, harness.flow.get_flow_type())
+    [session] = page.sessions
+    assert session.session_id == session_id
+    assert (session.title, session.last_activity_at, session.turn_count) == (None, None, None)
+    entry = (await harness.stack.client.search_flows(f'WorkflowId = "{session_id}"', 1)).flows[0]
+    assert {"text1", "datetime1", "int1"}.isdisjoint(entry.indexed_attributes)
+    # No Worker registered the title index on this server.
+    with pytest.raises(SessionTitleSearchUnavailableError):
+        await list_agent_sessions(
+            harness.stack.client, harness.flow.get_flow_type(), title_search="refund"
+        )
 
 
 async def _wait_for_summary(

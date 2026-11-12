@@ -89,6 +89,7 @@ export {
 } from "./agent-media.js";
 export {
   createAgentSessionFlow,
+  withSummaryAttributesIndexed,
   type AgentSessionFlow,
   type AgentSessionOptions,
   type ResolvedAgentSessionOptions,
@@ -204,6 +205,7 @@ export {
   listAgentSessions,
   sessionTitleMaxCodePoints,
   sortAgentSessionsByLastActivity,
+  SessionTitleSearchUnavailableError,
   type AgentSessionSummary,
   type AgentSessionSummaryPage,
   type ListAgentSessionsOptions,

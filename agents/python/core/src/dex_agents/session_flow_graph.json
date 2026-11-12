@@ -53,30 +53,6 @@
       }
     },
     {
-      "id": "resource:attribute:AgentSessionLastActivityAt",
-      "kind": "attribute",
-      "name": "AgentSessionLastActivityAt",
-      "resource": {
-        "valueType": "string"
-      }
-    },
-    {
-      "id": "resource:attribute:AgentSessionTitle",
-      "kind": "attribute",
-      "name": "AgentSessionTitle",
-      "resource": {
-        "valueType": "string"
-      }
-    },
-    {
-      "id": "resource:attribute:AgentSessionTurnCount",
-      "kind": "attribute",
-      "name": "AgentSessionTurnCount",
-      "resource": {
-        "valueType": "int64"
-      }
-    },
-    {
       "id": "resource:attribute:AgentState",
       "kind": "attribute",
       "name": "AgentState",
@@ -2117,29 +2093,7 @@
     }
   ],
   "v2": {
-    "indexedAttributes": [
-      {
-        "attributeKey": "AgentSessionLastActivityAt",
-        "indexKey": "datetime1",
-        "indexType": "datetime",
-        "valueType": "datetime",
-        "description": "Last activity"
-      },
-      {
-        "attributeKey": "AgentSessionTitle",
-        "indexKey": "text1",
-        "indexType": "fulltext",
-        "valueType": "string",
-        "description": "Title"
-      },
-      {
-        "attributeKey": "AgentSessionTurnCount",
-        "indexKey": "int1",
-        "indexType": "int",
-        "valueType": "int64",
-        "description": "Turns"
-      }
-    ],
+    "indexedAttributes": [],
     "summary": {
       "rpcName": "GetDexSummary",
       "fields": []

@@ -182,24 +182,27 @@ export interface AgentSessionPersistence {
   readonly turnReplySequence: Attribute<TurnReplySequence>;
   /**
    * The `AgentSessionTitle` Attribute: the session's first user message with each run of spaces, tabs, and line
-   * breaks made one space, cut to 80 code points; see `buildSessionTitle`. Only the session's first turn sets
-   * it, so a session that an earlier release started never has one. Indexed as `FULL_TEXT` under `text1`; see
-   * `listAgentSessions`.
+   * breaks made one space, cut to the first 80 Unicode code points; see `buildSessionTitle`. Only the session's first
+   * turn sets it, so a session that an earlier release started never has one. Indexed as `FULL_TEXT` under `text1`; see
+   * `listAgentSessions`. A Flow declares and writes it only with `AgentSessionOptions.summaryAttributesIndexed`.
    *
    * @since 0.6.0
    */
   readonly agentSessionTitle: Attribute<string>;
   /**
    * The `AgentSessionLastActivityAt` Attribute: when the latest turn started or ended, as RFC 3339 UTC text with
-   * milliseconds, such as `2026-11-02T09:30:00.000Z`. It is the time Dex scheduled the Step that started or ended the
-   * turn, at one-second precision. Indexed as `DATETIME` under `datetime1`.
+   * milliseconds, such as `2026-11-02T09:30:00.000Z`. It is the time the first attempt of the Step that started or
+   * ended the turn started, at one-second precision. Indexed as `DATETIME` under `datetime1`, only with
+   * `AgentSessionOptions.summaryAttributesIndexed`.
    *
    * @since 0.6.0
    */
   readonly agentSessionLastActivityAt: Attribute<string>;
   /**
    * The `AgentSessionTurnCount` Attribute: {@link AgentState.turnCount} as of the latest turn start or end, the turns
-   * that completed, failed, or ended by steering or cancellation. Indexed as `INT` under `int1`.
+   * that completed, failed, or ended by steering or cancellation. Indexed as `INT` under `int1`, only with
+   * `AgentSessionOptions.summaryAttributesIndexed`. A session that fails because its state would exceed the server's
+   * limit can keep the values of its last turn start.
    *
    * @since 0.6.0
    */

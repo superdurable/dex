@@ -105,10 +105,12 @@ exits. Ctrl-C while idle, Ctrl-D, and `/exit` also exit. Exiting never ends the
 session: it stays in Dex, and the command prints the `--resume` line that
 continues it. New sessions are named `<name>-YYYYMMDD-HHMMSS-<6 hex digits>`.
 
-`sessions` prints the first page of up to 50 sessions, sorted by last
-activity, one per line: the ID, the status, the start time, and, when the session has them, the
-time of its latest turn, its turn count, and its title, the first message cut
-to 80 characters. A session that a release before 0.6.0 started has no title,
+`sessions` loads up to five pages of 50 sessions, sorts them by last activity,
+and says when more sessions exist. It prints one per line: the ID, the
+status, the start time, and, when the session has them, the time of its
+latest turn, its turn count, and its title, the first 80 Unicode code points
+of the first message. The command's session Flow turns on
+`summary_attributes_indexed` for this. A session that a release before 0.6.0 started has no title,
 and has no time or turn count until its next turn:
 
 ```text

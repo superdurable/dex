@@ -128,6 +128,7 @@ export interface AgentSessionConfig {
   readonly retainedMessageLimit: number | null;
   readonly runModelLimit: ResolvedRunModelLimit;
   readonly spendLimit: ModelSpendLimit | undefined;
+  readonly summaryAttributesIndexed: boolean;
 }
 
 /** Shared state reads, writes, and routing used by every session Step. */
@@ -155,17 +156,21 @@ export class AgentSessionTransitions {
     this.persistence.agentState.set(context, state);
   }
 
-  /** Writes the session's last activity time and, when it changed, its turn count. */
+  /** Writes the session's last activity time and turn count. */
   public recordSessionActivity(context: Context, turnCount: number): void {
-    // The Step's scheduled time comes from Dex and stays the same across retries.
-    this.persistence.agentSessionLastActivityAt.set(context, context.firstAttemptAt.toISOString());
-    if (this.persistence.agentSessionTurnCount.get(context) !== turnCount) {
-      this.persistence.agentSessionTurnCount.set(context, turnCount);
+    if (!this.config.summaryAttributesIndexed) {
+      return;
     }
+    // The first attempt's start time comes from Dex and stays the same across retries.
+    this.persistence.agentSessionLastActivityAt.set(context, context.firstAttemptAt.toISOString());
+    this.persistence.agentSessionTurnCount.set(context, turnCount);
   }
 
   /** Writes the session's title from its first user message, unless it already has one. */
   public recordSessionTitle(context: Context, firstMessageText: string): void {
+    if (!this.config.summaryAttributesIndexed) {
+      return;
+    }
     const title = buildSessionTitle(firstMessageText);
     if (title !== null && this.persistence.agentSessionTitle.get(context) === undefined) {
       this.persistence.agentSessionTitle.set(context, title);

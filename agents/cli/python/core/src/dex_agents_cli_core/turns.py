@@ -158,17 +158,21 @@ def with_turn_config(flow: AgentSessionFlow, resolver: TurnConfigResolver) -> Ag
 
     Every ``run_model_step`` resolves the turn's session settings, which fails
     the model call with ``ConfigError`` when they are rejected, and runs the
-    harness's runner with ``current_turn_config`` set.
+    harness's runner with ``current_turn_config`` set. The Flow also turns on
+    ``AgentSessionOptions.summary_attributes_indexed``, so ``sessions`` shows
+    each session's title, last activity, and turn count.
 
     Args:
         flow: The Flow a harness built.
         resolver: The resolver of the command's configuration file.
 
     Returns:
-        A new Flow with the same type and options around the wrapped runner.
+        A new Flow with the same type and options around the wrapped runner, and
+        the indexed session summary on.
     """
     runner = _wrap_runner(flow.runner, resolver)
-    return AgentSessionFlow(runner, flow_type=flow.get_flow_type(), options=flow.options)
+    options = dataclasses.replace(flow.options, summary_attributes_indexed=True)
+    return AgentSessionFlow(runner, flow_type=flow.get_flow_type(), options=options)
 
 
 class _TurnConfiguredRunner:

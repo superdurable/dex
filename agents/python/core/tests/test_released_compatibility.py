@@ -38,6 +38,7 @@ from tests.public_api_shape import describe_public_api
 from tests.scripted_agent import (
     BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE,
     MESSAGE_WINDOW_ENVIRONMENT_VARIABLE,
+    SUMMARY_INDEXED_ENVIRONMENT_VARIABLE,
 )
 
 RELEASED_DEX_AGENTS = "dex-agents==0.1.0"
@@ -305,7 +306,7 @@ async def test_a_session_the_released_worker_ran_lists_without_a_title(
     assert (released.title, released.last_activity_at, released.turn_count) == (None, None, None)
 
     released_worker.kill()
-    await harness.stack.start_worker()
+    await harness.stack.start_worker({SUMMARY_INDEXED_ENVIRONMENT_VARIABLE: "1"})
     assert await harness.sessions.send_user_message(session_id, "say refund again")
     await harness.wait_for_turns(session_id, 2)
     upgraded = await _wait_for_listed_session(

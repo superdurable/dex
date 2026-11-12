@@ -87,6 +87,8 @@ CONNECTORS_WEB_PATH = "/v1/connectors"
 #: The directory under ``~/.dex/agents`` that ``media.store: auto`` keeps images in.
 MEDIA_DIRECTORY = "media"
 _BLOB_CACHE_BYTES = 64 * 1024 * 1024
+#: Most pages of 50 sessions that ``sessions`` loads before it sorts them.
+SESSION_LIST_MAX_PAGES = 5
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
 # How long the command waits for the session graph upload before it logs a failure.
 _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
@@ -635,16 +637,28 @@ async def _list_sessions(
         blob_cache,
         ClientOptions(server_address=endpoint.address, flow_service_tls=tls),
     )
+    sessions: list[AgentSessionSummary] = []
+    next_page_token = ""
     try:
-        page = await list_agent_sessions(client, flow_type)
+        for _ in range(SESSION_LIST_MAX_PAGES):
+            page = await list_agent_sessions(client, flow_type, next_page_token=next_page_token)
+            sessions.extend(page.sessions)
+            next_page_token = page.next_page_token
+            if not next_page_token:
+                break
     finally:
         await client.close()
         blob_cache.close()
-    if not page.sessions:
+    if not sessions:
         print("No sessions yet.")
         return 0
-    for session in sort_agent_sessions_by_last_activity(page.sessions):
+    for session in sort_agent_sessions_by_last_activity(sessions):
         print(_session_line(session))
+    if next_page_token:
+        print(
+            f"More sessions exist; this list sorts the first {len(sessions)} that Dex returns: "
+            "running sessions first, then the most recently closed and started."
+        )
     print(f"Resume one with: {command_name(harness)} --resume <session-id>")
     return 0
 

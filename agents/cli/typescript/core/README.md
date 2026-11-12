@@ -96,10 +96,12 @@ list, are not part of the suffix, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.
-`sessions` prints the first page of up to 50 sessions, sorted by last
-activity, one per line with tab-separated columns: the ID, the status, the start time, the time
-of the latest turn, the turn count, and the title, the first message cut to 80
-characters. A session that a release before 0.6.0 started shows `—` for the
+`sessions` loads up to five pages of 50 sessions, sorts them by last activity,
+and says when more sessions exist. It prints one per line with tab-separated
+columns: the ID, the status, the start time, the time of the latest turn, the
+turn count, and the title, the first 80 Unicode code points of the first
+message. The CLI core turns on `summaryAttributesIndexed` for this with
+`withSummaryAttributesIndexed`. A session that a release before 0.6.0 started shows `—` for the
 title, and for the time and the turn count until its next turn.
 Two processes in the same environment share their sessions' Steps. Because
 tool settings may differ between them, the Worker that runs a tool Step
