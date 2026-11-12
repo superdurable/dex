@@ -9,7 +9,8 @@
     "auth_missing": 2,
     "contract_unsupported": 3,
     "mode_unsupported": 3,
-    "terminal_failed": 1
+    "terminal_failed": 1,
+    "dex_setup_failed": 1
   },
   "cases": [
     {

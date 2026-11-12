@@ -96,6 +96,8 @@ type ChatScreen struct {
 	isHelpOpen                bool
 	pendingFocus              pendingFocusTarget
 	pendingDelete             *sessionfeed.QueuedMessage
+	isSessionStartWaiting     bool
+	pendingSwitchSessionID    string
 	cancelState               cancelState
 	isExitArmed               bool
 	cancelRequestedTurnID     string
@@ -362,6 +364,11 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if screen.pendingSwitchSessionID != "" && screen.input.IsEmpty() && !screen.isPopupOpen {
+		if command, isHandled := screen.handleSwitchKey(keyName); isHandled {
+			return command
+		}
+	}
 	if screen.isPopupOpen {
 		return screen.handlePopupKey(key)
 	}
@@ -407,6 +414,10 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 		return tea.ClearScreen
 	case "esc":
 		screen.isCompletionDismissed = true
+		if screen.isSessionStartWaiting {
+			screen.isSessionStartWaiting = false
+			return screen.submitAction(sessionfeed.MoveSessionStartToBackground{})
+		}
 	default:
 		if key.String() == "backspace" && screen.input.IsEmpty() && len(screen.attachments) > 0 {
 			screen.attachments = screen.attachments[:len(screen.attachments)-1]
@@ -805,6 +816,22 @@ func (screen *ChatScreen) focusPendingBar() {
 	}
 }
 
+// handleSwitchKey answers "Switch to it?" for a session /new started in the
+// background. Only y, n, and Esc answer; other keys type as usual.
+func (screen *ChatScreen) handleSwitchKey(keyName string) (tea.Cmd, bool) {
+	sessionID := screen.pendingSwitchSessionID
+	switch keyName {
+	case "y":
+		screen.pendingSwitchSessionID = ""
+		return screen.submitAction(sessionfeed.SwitchSession{SessionID: sessionID}), true
+	case "n", "esc":
+		screen.pendingSwitchSessionID = ""
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "staying in this session; resume "+sessionID+" later with /sessions")
+		return nil, true
+	}
+	return nil, false
+}
+
 func (screen *ChatScreen) handlePendingBarKey(key tea.KeyPressMsg) tea.Cmd {
 	keyName := key.String()
 	if screen.pendingDelete != nil {
@@ -853,6 +880,11 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 	var command tea.Cmd
 	switch typed := replaceUpdateControlCharacters(update).(type) {
 	case sessionfeed.SessionOpened:
+		if screen.isSessionKnown && typed.SessionID != screen.session.SessionID {
+			// Another session: hold typed messages until its first snapshot.
+			screen.isSessionLoaded = false
+			screen.pendingSwitchSessionID = ""
+		}
 		screen.session = typed
 		if !screen.isSessionKnown {
 			screen.openedSession, screen.isSessionKnown = typed, true
@@ -874,6 +906,17 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 		screen.printHistoryWindow(typed)
 	case sessionfeed.ImageAttached:
 		screen.attachments = append(screen.attachments, typed.Attachment)
+	case sessionfeed.SessionStartChanged:
+		screen.isSessionStartWaiting = typed.IsWaiting
+	case sessionfeed.SessionStartFinished:
+		if screen.isSessionStartWaiting {
+			// The user still waits for /new: switch now.
+			screen.isSessionStartWaiting = false
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, "Started session "+typed.SessionID+"; switching to it.")
+			command = screen.submitAction(sessionfeed.SwitchSession{SessionID: typed.SessionID})
+		} else {
+			screen.pendingSwitchSessionID = typed.SessionID
+		}
 	case sessionfeed.TurnStarted:
 		screen.startTurn(typed)
 	case sessionfeed.TurnActivityChanged:

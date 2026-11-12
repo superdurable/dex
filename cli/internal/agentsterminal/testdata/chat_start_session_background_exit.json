@@ -1,0 +1,100 @@
+{
+  "name": "chat_start_session_background_exit",
+  "description": "/new, then Esc: a second /new sends nothing while the first one starts, and the user exits before it answers; dexcli sends no cancel and its summary names the session it shows.",
+  "real_roles": [
+    "tui"
+  ],
+  "terminal_ui_environment": {},
+  "steps": [
+    {
+      "from": "launcher",
+      "message": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml"
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "ignore": [
+        "command.name",
+        "command.harness",
+        "command.language",
+        "command.version",
+        "dex.server_address",
+        "dex.web_url",
+        "session.flow_type",
+        "session.session_id",
+        "display",
+        "capabilities",
+        "log_path",
+        "connectors"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "ready"
+      }
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1cafd-3028-7ddd-8d54-d4476636edc2",
+        "method": "start_session",
+        "params": {}
+      },
+      "ignore": [
+        "idempotency_key"
+      ]
+    },
+    {
+      "close": "tui"
+    }
+  ],
+  "tui_exit": 0
+}

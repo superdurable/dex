@@ -261,7 +261,7 @@ func TestPlanCommands(t *testing.T) {
 	harness.press(key(tea.KeyEnter))
 	require.Contains(t, harness.plainFrame(), "Unknown command /plan", "without plan mode there is no /plan")
 
-	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-1", AcceptsTurnControl: true, SupportsPlanMode: true})
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-20261111-142233-a1b2c3", AcceptsTurnControl: true, SupportsPlanMode: true})
 	harness.typeText("/plan")
 	harness.press(key(tea.KeyEnter))
 	harness.typeText("Refactor the retry loop.")

@@ -58,7 +58,7 @@ func runWithUpdateNotice(ctx context.Context, args []string, printUpdateNotice f
 	case "dev":
 		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr, version)
 	case "agents-tui":
-		return agentsterminal.Execute(ctx, args[1:], os.Stdin, os.Stdout, os.Stderr)
+		return agentsterminal.Execute(ctx, args[1:], os.Stdin, os.Stdout, os.Stderr, version)
 	case "codec-server":
 		return fmt.Errorf("dexcli codec-server was removed with the Temporal-based Go Server; use cli-v1.26.1 to inspect payloads in legacy Temporal histories")
 	case "version":
