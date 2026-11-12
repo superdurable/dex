@@ -300,11 +300,17 @@ async fn check_object_store(bucket: RealBucket) {
         .delete_many(&keys)
         .await
         .expect("DeleteObjects deletes the batch");
-    let remaining = store
-        .list("batch/", None, 10)
-        .await
-        .expect("the batch lists");
-    assert!(remaining.objects.is_empty(), "{:?}", remaining.objects);
+    // COS still lists a key for tens of milliseconds after its delete, so reads decide.
+    for key in &keys {
+        assert!(
+            store
+                .head(key)
+                .await
+                .expect("a deleted batch object heads")
+                .is_none(),
+            "{key} is gone"
+        );
+    }
     eprintln!("PASS: batch delete");
 }
 
@@ -401,7 +407,7 @@ async fn check_concurrent_appends(inner: &Arc<dyn ObjectStore>) {
 /// The versioned layer needs one identity for an appended object in LIST, GET, and range GET.
 async fn check_listing_matches_reads(inner: &Arc<dyn ObjectStore>) {
     let key = "identity/appended";
-    inner
+    let written = inner
         .put(
             key,
             Bytes::from_static(b"appended object body"),
@@ -409,6 +415,9 @@ async fn check_listing_matches_reads(inner: &Arc<dyn ObjectStore>) {
         )
         .await
         .expect("the object appends");
+    let WriteOutcome::Written { etag: written_etag } = written else {
+        panic!("a new key appends: {written:?}");
+    };
     let listed = inner
         .list(key, None, 1)
         .await
@@ -431,8 +440,28 @@ async fn check_listing_matches_reads(inner: &Arc<dyn ObjectStore>) {
         .await
         .expect("the range reads")
         .expect("the object exists");
+    assert_eq!(
+        written_etag.trim_matches('"'),
+        whole.etag.trim_matches('"'),
+        "the append reports the ETag that reads return"
+    );
     assert_eq!(listed.etag.trim_matches('"'), whole.etag.trim_matches('"'));
     assert_eq!(listed.etag.trim_matches('"'), range.etag.trim_matches('"'));
     assert_eq!(listed.size, whole.object_size);
     eprintln!("PASS: listing and reads name one object");
+    // A rewritten history segment is deleted, then created again at once.
+    inner.delete(key).await.expect("the object is deleted");
+    let recreated = inner
+        .put(
+            key,
+            Bytes::from_static(b"recreated body"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("the recreate reaches the bucket");
+    assert!(
+        matches!(recreated, WriteOutcome::Written { .. }),
+        "an append right after a delete creates the key: {recreated:?}"
+    );
+    eprintln!("PASS: create right after delete");
 }

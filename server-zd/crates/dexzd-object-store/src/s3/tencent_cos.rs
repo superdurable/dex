@@ -94,8 +94,8 @@ impl TencentCosAppendClient {
             .map_err(configuration_error)?;
         let http_client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            // A read timeout would also fire during a long upload; the append deadline bounds it.
             .connect_timeout(config.request_timeout)
-            .read_timeout(config.request_timeout)
             .build()
             .map_err(|error| configuration_error(format!("building the HTTP client: {error}")))?;
         Ok(Self {
