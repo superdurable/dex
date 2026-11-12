@@ -18,17 +18,20 @@ file tools on the in-state ``StateBackend``, and adds these tools:
 * ``flaky_visit`` sends the same append through the task's send, and its first attempt fails.
 * ``echo_text`` (read) returns its text unchanged.
 * ``wait_at_gate`` (read) waits at the gate it names.
+* ``save_note`` and ``read_note`` write and read the graph's in-memory store.
 
 ``task`` is excluded. A middleware records each model request's model and tool names, and
 each tool call its tool wrapper sees.
 The ``read_file`` agent also has a tool source whose ``read_file`` replaces Deep Agents'.
 The evicting agent's ``FilesystemMiddleware`` evicts every tool result over a small limit.
-Two more Flows share one compiled graph whose recorder comes before the durable middleware,
-one with the deferral first and one in middleware order.
+Three more Flows share one compiled graph whose recorder comes before the durable middleware:
+one with the default deferral first, one in middleware order, and one whose order the
+Worker's environment picks.
 """
 
 from __future__ import annotations
 
+import functools
 import json
 import operator
 import os
@@ -55,17 +58,23 @@ from dex_agents.testing import FileGate, InvocationLog
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.tools import ToolRuntime
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph._internal._constants import CONFIG_KEY_SEND
 from langgraph.config import get_config
+from langgraph.graph import START, MessagesState, StateGraph
+from langgraph.prebuilt import InjectedStore, ToolNode, tools_condition
 from langgraph.prebuilt.tool_node import ToolCallRequest
+from langgraph.store.base import BaseStore
+from langgraph.store.memory import InMemoryStore
 from langgraph.types import Command
 
 from dex_agents_langgraph import (
     CompiledGraph,
     DurableToolCallMiddleware,
+    awrap_durable_tool_call,
     langchain_agent_session_flow,
+    langgraph_agent_session_flow,
 )
 from tests.scripted_agents import INVOCATION_LOG_NAME, STATE_DIR_ENVIRONMENT_VARIABLE
 from tests.scripted_model import ScriptedChatModel
@@ -75,6 +84,9 @@ SOURCE_READ_FILE_DEEP_AGENT_FLOW_TYPE = "SourceReadFileDeepAgent"
 SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE = "SharedGraphDeferredFirstDeepAgent"
 SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE = "SharedGraphMiddlewareOrderDeepAgent"
 EVICTING_DEEP_AGENT_FLOW_TYPE = "EvictingDeepAgent"
+ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE = "OrderSwitchDeepAgent"
+#: Set in a Worker's environment to keep the middleware order, the default before 0.6.0.
+MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE = "DEEP_AGENT_KEEPS_MIDDLEWARE_ORDER"
 #: Tokens above which the evicting agent writes a tool result to a file instead.
 EVICTION_TOKEN_LIMIT = 50
 MODEL_REQUESTS_LOG_NAME = "model-requests.jsonl"
@@ -82,6 +94,10 @@ MODEL_REQUESTS_LOG_NAME = "model-requests.jsonl"
 TURN_MODEL_NAME = "scripted-turn-model"
 SOURCE_READ_FILE_OUTPUT = "read from the workspace"
 TOOL_WRAPPER_INVOCATION_PREFIX = "tool-wrapper:"
+#: The recorder's tool wrapper also records this when it runs in a tool Step.
+TOOL_STEP_WRAPPER_INVOCATION_PREFIX = "tool-step-wrapper:"
+AUDITED_DEFERRAL_FLOW_TYPE = "AuditedDeferralGraph"
+AUDIT_INVOCATION_PREFIX = "audit:"
 DEEP_AGENT_TOOL_POLICIES = {
     "write_file": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
     "read_file": ToolPolicy(ToolEffect.READ),
@@ -93,6 +109,8 @@ DEEP_AGENT_TOOL_POLICIES = {
     "flaky_visit": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
     "echo_text": ToolPolicy(ToolEffect.READ),
     "wait_at_gate": ToolPolicy(ToolEffect.READ),
+    "save_note": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
+    "read_note": ToolPolicy(ToolEffect.READ),
 }
 
 
@@ -112,7 +130,9 @@ class RecordedModelRequest:
     state: dict[str, str]
 
 
-def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
+def build_deep_agent_flows(
+    state_dir: Path, *, defers_tool_calls_first: bool = True
+) -> list[AgentSessionFlow]:
     """Build the Deep Agents session Flows; every Worker builds the same ones."""
     turn_models: dict[str, BaseChatModel] = {}
 
@@ -132,7 +152,6 @@ def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
             excluded_tool_names=["task"],
             select_turn_chat_model=select_turn_chat_model,
-            should_defer_tool_calls_before_middleware=True,
         ),
         langchain_agent_session_flow(
             _deep_agent_factory(state_dir),
@@ -140,17 +159,28 @@ def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
             tool_sources=[WorkspaceReadFileSource()],
             excluded_tool_names=["task", "read_file"],
-            should_defer_tool_calls_before_middleware=True,
         ),
         langchain_agent_session_flow(
             shared_graph,
             flow_type=SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE,
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
-            should_defer_tool_calls_before_middleware=True,
         ),
         langchain_agent_session_flow(
             shared_graph,
             flow_type=SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE,
+            tool_policies=DEEP_AGENT_TOOL_POLICIES,
+            should_defer_tool_calls_before_middleware=False,
+        ),
+        # A Worker's environment picks the order, so a session can move from one to the other.
+        langchain_agent_session_flow(
+            shared_graph,
+            flow_type=ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE,
+            tool_policies=DEEP_AGENT_TOOL_POLICIES,
+            should_defer_tool_calls_before_middleware=defers_tool_calls_first,
+        ),
+        langgraph_agent_session_flow(
+            build_audited_deferral_graph(state_dir),
+            flow_type=AUDITED_DEFERRAL_FLOW_TYPE,
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
         ),
         langchain_agent_session_flow(
@@ -161,13 +191,15 @@ def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
             flow_type=EVICTING_DEEP_AGENT_FLOW_TYPE,
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
             excluded_tool_names=["task"],
-            should_defer_tool_calls_before_middleware=True,
         ),
     ]
 
 
 def build_deep_agent_flows_from_environment() -> list[AgentSessionFlow]:
-    return build_deep_agent_flows(Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]))
+    return build_deep_agent_flows(
+        Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
+        defers_tool_calls_first=os.environ.get(MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE) is None,
+    )
 
 
 def read_recorded_model_requests(state_dir: Path) -> list[RecordedModelRequest]:
@@ -189,6 +221,32 @@ def build_recorder_first_deep_agent(state_dir: Path) -> CompiledGraph:
     )
 
 
+def build_audited_deferral_graph(state_dir: Path) -> CompiledGraph:
+    """Build a custom graph whose tool node wraps the deferral in an auditing decorator."""
+    invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+    [echo_text] = [tool for tool in _build_topic_tools(state_dir) if tool.name == "echo_text"]
+    model = _scripted_model(state_dir).bind_tools([echo_text])
+
+    @functools.wraps(awrap_durable_tool_call)
+    async def audited_deferral(
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        invocations.record(f"{AUDIT_INVOCATION_PREFIX}{request.tool_call['name']}")
+        return await awrap_durable_tool_call(request, handler)
+
+    async def call_model(state: MessagesState) -> dict[str, list[AIMessage]]:
+        return {"messages": [await model.ainvoke(state["messages"])]}
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("agent", call_model)
+    builder.add_node("tools", ToolNode([echo_text], awrap_tool_call=audited_deferral))
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges("agent", tools_condition)
+    builder.add_edge("tools", "agent")
+    return builder.compile()
+
+
 def _deep_agent_factory(
     state_dir: Path, *extra_middleware: AgentMiddleware[Any, Any, Any]
 ) -> Callable[[], Awaitable[CompiledGraph]]:
@@ -202,6 +260,7 @@ def _deep_agent_factory(
                 *extra_middleware,
             ],
             state_schema=TopicState,
+            store=InMemoryStore(),
         )
 
     return build_deep_agent
@@ -278,7 +337,29 @@ def _build_topic_tools(state_dir: Path) -> list[BaseTool]:
         await file_gate.wait_for_release()
         return f"passed {gate}"
 
-    return [set_topic, pad_topic, get_topic, add_visit, flaky_visit, echo_text, wait_at_gate]
+    @tool
+    def save_note(note: str, store: Annotated[BaseStore, InjectedStore()]) -> str:
+        """Keep a note in the graph's store."""
+        store.put(("notes",), "latest", {"note": note})
+        return "saved"
+
+    @tool
+    def read_note(store: Annotated[BaseStore, InjectedStore()]) -> str:
+        """Read the note from the graph's store."""
+        item = store.get(("notes",), "latest")
+        return "no note" if item is None else str(item.value["note"])
+
+    return [
+        set_topic,
+        pad_topic,
+        get_topic,
+        add_visit,
+        flaky_visit,
+        echo_text,
+        wait_at_gate,
+        save_note,
+        read_note,
+    ]
 
 
 def _scripted_model(state_dir: Path, model: str | None = None) -> ScriptedChatModel:
@@ -330,6 +411,11 @@ class _ModelRequestRecorder(AgentMiddleware[Any, Any, Any]):
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
         self._invocations.record(f"{TOOL_WRAPPER_INVOCATION_PREFIX}{request.tool_call['name']}")
+        # A tool Step's state has no message list; RunModel's always has one.
+        if "messages" not in request.state:
+            self._invocations.record(
+                f"{TOOL_STEP_WRAPPER_INVOCATION_PREFIX}{request.tool_call['name']}"
+            )
         return await handler(request)
 
 

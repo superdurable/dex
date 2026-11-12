@@ -62,12 +62,16 @@ class SuspendedGraphRunState:
     thread_id: str
     checkpoints: list[dict[str, Any]]
     interrupts: list[PendingInterrupt]
+    # Whether the run deferred its calls outside every tool wrapper; earlier states did not.
+    is_deferral_outermost: bool = False
 
 
 async def encode_suspended_graph_run_state(
     saver: TurnCheckpointSaver,
     thread_id: str,
     interrupts: Sequence[PendingInterrupt],
+    *,
+    is_deferral_outermost: bool,
 ) -> str:
     serde = saver.serde
     checkpoints: list[dict[str, Any]] = []
@@ -92,18 +96,19 @@ async def encode_suspended_graph_run_state(
                 ],
             }
         )
-    return json.dumps(
-        {
-            "format": RUN_STATE_FORMAT,
-            "thread_id": thread_id,
-            "checkpoints": checkpoints,
-            "interrupts": [
-                {"interrupt_id": interrupt.interrupt_id, "tool_call_ids": interrupt.tool_call_ids}
-                for interrupt in interrupts
-            ],
-        },
-        separators=(",", ":"),
-    )
+    document: dict[str, Any] = {
+        "format": RUN_STATE_FORMAT,
+        "thread_id": thread_id,
+        "checkpoints": checkpoints,
+        "interrupts": [
+            {"interrupt_id": interrupt.interrupt_id, "tool_call_ids": interrupt.tool_call_ids}
+            for interrupt in interrupts
+        ],
+    }
+    if is_deferral_outermost:
+        # Only such runs add the key, so other states keep their earlier text.
+        document["deferral_outermost"] = True
+    return json.dumps(document, separators=(",", ":"))
 
 
 def decode_suspended_graph_run_state(framework_run_state: str) -> SuspendedGraphRunState:
@@ -120,6 +125,7 @@ def decode_suspended_graph_run_state(framework_run_state: str) -> SuspendedGraph
             )
             for interrupt in document["interrupts"]
         ],
+        is_deferral_outermost=document.get("deferral_outermost") is True,
     )
 
 
