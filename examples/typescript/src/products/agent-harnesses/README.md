@@ -1,6 +1,6 @@
 # Agent harnesses
 
-One order-support agent, built four times: once with each agent framework that the Dex Agents
+One order-support agent, built five times: once with each agent framework that the Dex Agents
 library adapts. Each adapter registers the same durable agent session Flow from
 [`@superdurable/dex-agents`](https://www.npmjs.com/package/@superdurable/dex-agents). One session is
 one Flow execution, and the session ID is the Flow ID. Dex keeps the conversation, waits for tool
@@ -8,12 +8,13 @@ approvals for as long as they take, and after a Worker crash reruns only the Ste
 
 | Harness | Adapter | Flow type | Files |
 | --- | --- | --- | --- |
-| Claude Agent SDK | `@superdurable/dex-agents-claude-agent-sdk` 0.4.0 | `ClaudeAgentSdkOrderSupportAgent` | [`claude-agent-sdk/`](./claude-agent-sdk) |
-| OpenAI Agents SDK | `@superdurable/dex-agents-openai-agents` 0.4.0 | `OpenAIAgentsOrderSupportAgent` | [`openai-agents/`](./openai-agents) |
-| Vercel AI SDK | `@superdurable/dex-agents-vercel-ai` 0.4.0 | `VercelAiOrderSupportAgent` | [`vercel-ai/`](./vercel-ai) |
-| Mastra | `@superdurable/dex-agents-mastra` 0.4.0 | `MastraOrderSupportAgent` | [`mastra/`](./mastra) |
+| Claude Agent SDK | `@superdurable/dex-agents-claude-agent-sdk` 0.5.0 | `ClaudeAgentSdkOrderSupportAgent` | [`claude-agent-sdk/`](./claude-agent-sdk) |
+| OpenAI Agents SDK | `@superdurable/dex-agents-openai-agents` 0.5.0 | `OpenAIAgentsOrderSupportAgent` | [`openai-agents/`](./openai-agents) |
+| Vercel AI SDK | `@superdurable/dex-agents-vercel-ai` 0.5.0 | `VercelAiOrderSupportAgent` | [`vercel-ai/`](./vercel-ai) |
+| Mastra | `@superdurable/dex-agents-mastra` 0.5.0 | `MastraOrderSupportAgent` | [`mastra/`](./mastra) |
+| Pi | `@superdurable/dex-agents-pi` 0.5.0 | `PiOrderSupportAgent` | [`pi/`](./pi) |
 
-Shared by all four:
+Shared by all five:
 
 - [`order-support/order-desk.ts`](./order-support/order-desk.ts): the domain. An in-memory order
   desk with order `1001` (2 notebooks, shipped) and order `1002` (1 desk lamp, processing), and the
@@ -44,12 +45,17 @@ With a `support-slack` Slack connection, the agent also has `slack_post_thread_r
 
 How each harness runs a turn:
 
-- **OpenAI Agents SDK, Vercel AI SDK, Mastra.** Every model call is a `RunModel` Step, and every
-  tool call is its own Step. A turn that looks up an order runs `RunModel`, `CallTool`,
+- **OpenAI Agents SDK, Vercel AI SDK, Mastra, Pi.** Every model call is a `RunModel` Step, and
+  every tool call is its own Step. A turn that looks up an order runs `RunModel`, `CallTool`,
   `ResumeTurn`, `RunModel`.
 - **Claude Agent SDK.** One `RunModel` Step runs the Claude Code CLI for a turn segment. The read
   tool `look_up_order` runs inside that segment. `cancel_order` ends the segment, waits for
   approval, runs in its own Step, and the next segment resumes the Claude session.
+
+The Pi example differs from the other adapters: Dex runs the agent loop itself, with the built-in
+agent loop of `@superdurable/dex-agents`. Pi supplies the model call, through pi-ai, and the tools,
+as Pi `AgentTool` objects. `cancel_order` declares `replay: "never"`, so it becomes a
+`non_idempotent_write`. pi-ai needs Node.js 22.19 or later.
 
 ## Slack connector tools
 
@@ -115,6 +121,7 @@ environment and never enters Flow state.
 | OpenAI Agents SDK | `DEX_OPENAI_AGENTS_MODEL` | `gpt-5-mini` | `OPENAI_API_KEY` |
 | Vercel AI SDK | `DEX_VERCEL_AI_MODEL` | `gpt-5-mini`, through `@ai-sdk/openai` | `OPENAI_API_KEY` |
 | Mastra | `DEX_MASTRA_MODEL` | `openai/gpt-5-mini`, a Mastra model router ID | The router's key, such as `OPENAI_API_KEY` |
+| Pi | `DEX_PI_MODEL` | `openai/gpt-5-mini`, a `<provider>/<model ID>` of pi-ai's built-in catalog | pi-ai reads the provider's key, such as `OPENAI_API_KEY` |
 
 The Claude Agent SDK example turns off every built-in Claude Code tool and passes
 `settingSources: []`, so no settings file can approve a tool before Dex asks for approval.
@@ -147,7 +154,7 @@ The other harnesses still register without their keys; only their model calls fa
 ## Routes
 
 Each harness mounts the same routes under `/products/agent-harnesses/<harness>`, where `<harness>`
-is `claude-agent-sdk`, `openai-agents`, `vercel-ai`, or `mastra`:
+is `claude-agent-sdk`, `openai-agents`, `vercel-ai`, `mastra`, or `pi`:
 
 | Route | Does |
 | --- | --- |
@@ -192,6 +199,7 @@ connections file that has it.
   tool results. "reply in Slack thread <channel ID> <thread timestamp>: <text>" calls
   `slack_post_thread_reply`.
 - The OpenAI Agents SDK test uses a scripted `Model`. The Vercel AI SDK and Mastra tests use a
-  scripted AI SDK language model.
+  scripted AI SDK language model. The Pi test points a pi-ai Anthropic Messages model at the same
+  scripted Messages API as the Claude Agent SDK test.
 - The Claude Agent SDK test runs the real Claude Code CLI bundled with `@anthropic-ai/claude-agent-sdk`
   against a scripted Messages API on 127.0.0.1, with a placeholder `ANTHROPIC_API_KEY`.

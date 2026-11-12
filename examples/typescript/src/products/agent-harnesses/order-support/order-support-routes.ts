@@ -19,11 +19,19 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 
 import { RpcLockConflictError, type Client } from "@superdurable/dex";
-import { startAgentSession, type AgentSessionFlow } from "@superdurable/dex-agents";
+import {
+  startAgentSession,
+  type AgentFrameworkRunner,
+  type AgentSessionFlow,
+  type DeferredToolOutcome,
+} from "@superdurable/dex-agents";
 import { convertAgentSnapshotToJson } from "@superdurable/dex-agents/ui-stream";
 
 import { DAY_MS } from "../../../config/env.js";
 import { isFlowMissingOrInactive } from "../../../service-errors.js";
+
+/** A session Flow of any harness, including the built-in agent loop's. */
+export type OrderSupportSessionFlow = AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
 
 /** Header that carries the session token returned by `POST /sessions`. */
 export const orderSupportSessionTokenHeaderName = "X-Agent-Session-Token";
@@ -40,7 +48,7 @@ type JsonBody = Record<string, unknown>;
  * Routes of one order-support session Flow, the same for every harness. The session ID is the Flow ID.
  * Each session route checks the session token, an HMAC of the session ID.
  */
-export function createOrderSupportRouter(client: Client, flow: AgentSessionFlow, sessionKey: string): Router {
+export function createOrderSupportRouter(client: Client, flow: OrderSupportSessionFlow, sessionKey: string): Router {
   const router = Router();
   const issueSessionToken = (sessionId: string) => createHmac("sha256", sessionKey).update(sessionId).digest("hex");
   const sessionIdOf = (request: Request): string => {

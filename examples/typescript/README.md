@@ -3,9 +3,9 @@
 These examples target [`@superdurable/dex@1.38.0`](https://www.npmjs.com/package/@superdurable/dex).
 
 The [AI Agent](./src/products/ai-agent) also depends on the Dex Agents library,
-[`@superdurable/dex-agents@0.4.0`](https://www.npmjs.com/package/@superdurable/dex-agents),
+[`@superdurable/dex-agents@0.5.0`](https://www.npmjs.com/package/@superdurable/dex-agents),
 installed from npm. The [agent harness examples](./src/products/agent-harnesses) add its adapters for
-the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, and Mastra, also 0.4.0. Both offer
+the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, Mastra, and Pi, also 0.5.0. Both offer
 the Slack Connector as an agent tool through [`@superdurable/connector-slack@0.2.0`](https://www.npmjs.com/package/@superdurable/connector-slack)
 and [`@superdurable/connectors-sdk@0.9.0`](https://www.npmjs.com/package/@superdurable/connectors-sdk).
 

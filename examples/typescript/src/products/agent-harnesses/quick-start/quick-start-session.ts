@@ -21,8 +21,10 @@ import {
   readAgentSnapshot,
   sendAgentUserMessage,
   sessionFlowDefinitionDocument,
+  type AgentFrameworkRunner,
   type AgentInterrupt,
   type AgentSessionFlow,
+  type DeferredToolOutcome,
 } from "@superdurable/dex-agents";
 
 const pullRegistrationTimeoutMs = 30_000;
@@ -30,18 +32,21 @@ const pollIntervalMs = 500;
 const actionPermission = "agent-quick-start.operate";
 
 /** Decides whether one tool call that waits for approval may run. */
+/** A session Flow of any harness, including the built-in agent loop's. */
+export type QuickStartSessionFlow = AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+
 export type ApprovalDecider = (interrupt: AgentInterrupt) => Promise<boolean>;
 
 /** One Registry, Worker, and Client for one durable agent, in this process. */
 export class QuickStartApp {
   private constructor(
-    public readonly flow: AgentSessionFlow,
+    public readonly flow: QuickStartSessionFlow,
     public readonly client: Client,
     private readonly worker: Worker,
     private readonly blobCache: BlobCache,
   ) {}
 
-  public static async start(flow: AgentSessionFlow, serverAddress: string, blobCacheDir: string): Promise<QuickStartApp> {
+  public static async start(flow: QuickStartSessionFlow, serverAddress: string, blobCacheDir: string): Promise<QuickStartApp> {
     const registry = new Registry([flow]);
     const blobCache = openBlobCache({ directory: blobCacheDir, maxBytes: 1 << 30 });
     const worker = new Worker(registry, blobCache, {

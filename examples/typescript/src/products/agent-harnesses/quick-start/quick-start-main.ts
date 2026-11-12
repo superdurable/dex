@@ -24,20 +24,22 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 
-import { startAgentSession, type AgentInterrupt, type AgentSessionFlow } from "@superdurable/dex-agents";
+import { startAgentSession, type AgentInterrupt } from "@superdurable/dex-agents";
 
 import { environmentOr } from "../../../config/env.js";
 import { buildClaudeCliEnvironment } from "../claude-agent-sdk/claude-agent-sdk-order-support-flow.js";
 import { OrderDesk } from "../order-support/order-desk.js";
+import { loadPiOrderSupportModel } from "../pi/pi-order-support-flow.js";
 import * as claudeAgentSdk from "./claude-agent-sdk-quick-start.js";
 import * as mastra from "./mastra-quick-start.js";
 import * as openAIAgents from "./openai-agents-quick-start.js";
-import { QuickStartApp, runTurn } from "./quick-start-session.js";
+import * as pi from "./pi-quick-start.js";
+import { QuickStartApp, runTurn, type QuickStartSessionFlow } from "./quick-start-session.js";
 import * as vercelAi from "./vercel-ai-quick-start.js";
 
-const frameworks = ["claude-agent-sdk", "mastra", "openai-agents", "vercel-ai"] as const;
+const frameworks = ["claude-agent-sdk", "mastra", "openai-agents", "pi", "vercel-ai"] as const;
 
-function buildQuickStartAgent(framework: string, orderDesk: OrderDesk): AgentSessionFlow {
+function buildQuickStartAgent(framework: string, orderDesk: OrderDesk): QuickStartSessionFlow {
   switch (framework) {
     case "claude-agent-sdk":
       return claudeAgentSdk.buildDurableAgent(
@@ -49,6 +51,8 @@ function buildQuickStartAgent(framework: string, orderDesk: OrderDesk): AgentSes
       return mastra.buildDurableAgent(orderDesk, environmentOr("DEX_MASTRA_MODEL", "openai/gpt-5-mini"));
     case "openai-agents":
       return openAIAgents.buildDurableAgent(orderDesk, environmentOr("DEX_OPENAI_AGENTS_MODEL", "gpt-5-mini"));
+    case "pi":
+      return pi.buildDurableAgent(orderDesk, loadPiOrderSupportModel());
     case "vercel-ai":
       return vercelAi.buildDurableAgent(orderDesk, openai(environmentOr("DEX_VERCEL_AI_MODEL", "gpt-5-mini")));
     default:
