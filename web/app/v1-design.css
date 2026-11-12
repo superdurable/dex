@@ -1907,16 +1907,17 @@ body:has(.v1-page) {
 }
 
 /* The entries view keeps the reader's place itself when entries are added above. */
-.v1-page .stream-scroll--entries {
+html:has(.v1-page .stream-scroll--entries) {
   overflow-anchor: none;
 }
 
+/* Messages flow in the page; the scroll margins mark the window part left clear by the sticky header. */
 .v1-page .stream-scroll {
-  max-height: min(60vh, 640px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  min-width: 0;
   border-radius: var(--ui-radius-control);
   background: var(--ui-well);
+  scroll-margin-top: calc(var(--header-h) + 12px);
+  scroll-margin-bottom: 12px;
 }
 
 .v1-page .stream-transcript {
@@ -1956,13 +1957,16 @@ body:has(.v1-page) {
 
 .v1-page .stream-entries {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   margin: 0;
   padding: 6px 0;
   list-style: none;
 }
 
+/* A one-track grid keeps a wide JSON line inside its own scroll box, not the page. */
 .v1-page .stream-entry {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   min-width: 0;
   padding: 10px 16px;
@@ -2118,18 +2122,27 @@ body:has(.v1-page) {
   background: var(--ui-surface);
 }
 
-.v1-page .stream-back-to-latest--top {
-  top: 12px;
+.v1-page .stream-back-to-latest-holder {
+  position: sticky;
+  z-index: 2;
+  display: flex;
+  height: 0;
+  justify-content: center;
 }
 
-.v1-page .stream-back-to-latest--bottom {
+.v1-page .stream-back-to-latest-holder--top {
+  top: calc(var(--header-h) + 12px);
+  align-items: flex-start;
+}
+
+.v1-page .stream-back-to-latest-holder--bottom {
   bottom: 12px;
+  align-items: flex-end;
 }
 
 .v1-page .stream-back-to-latest {
-  position: absolute;
-  left: 50%;
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
@@ -2141,7 +2154,6 @@ body:has(.v1-page) {
   font-size: var(--ui-text-xs);
   font-weight: 600;
   cursor: pointer;
-  transform: translateX(-50%);
 }
 
 @keyframes stream-chunk-arrive {

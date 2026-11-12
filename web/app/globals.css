@@ -1391,7 +1391,7 @@ pre {
 .stream-panel {
   display: grid;
   gap: 18px;
-  max-width: 960px;
+  min-width: 0;
   padding: 4px 0 28px;
 }
 
@@ -2073,7 +2073,8 @@ pre {
   font-size: 12px;
 }
 
-.run-content--overview {
+.run-content--overview,
+.run-content--stream {
   grid-template-columns: minmax(0, 1fr);
 }
 

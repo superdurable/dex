@@ -18,6 +18,7 @@ import {
   appendStreamEntry,
   EMPTY_STREAM_ENTRIES,
   formatRelativeTime,
+  isFollowingTranscriptEnd,
   isScrolledToLatest,
   isScrolledToNewestEntry,
   MAX_KEPT_STREAM_MESSAGES,
@@ -82,28 +83,43 @@ function streamPercents(values: unknown[], valueType = ''): Array<number | null>
   ));
 }
 
-/** Lays entries out 100 pixels apart from the scroll box top, moved by its scrollTop, for anchor tests. */
-function stubEntryLayout(scrollBox: HTMLElement) {
-  const entryHeight = 100;
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    if (this === scrollBox) return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 300 });
-    const entries = [...scrollBox.querySelectorAll('.stream-entry')];
-    const index = entries.indexOf(this);
-    const top = index * entryHeight - scrollBox.scrollTop;
-    return DOMRect.fromRect({ x: 0, y: top, width: 600, height: entryHeight });
-  });
+/** The page layout the tests control: how far the window is scrolled and how tall the Stream output is. */
+interface StubPageLayout {
+  scrollY: number;
+  outputHeight: number;
 }
 
-function setScrollMetrics(element: HTMLElement, metrics: { scrollTop: number; scrollHeight: number; clientHeight: number }) {
-  Object.defineProperty(element, 'scrollHeight', { configurable: true, value: metrics.scrollHeight });
-  Object.defineProperty(element, 'clientHeight', { configurable: true, value: metrics.clientHeight });
-  element.scrollTop = metrics.scrollTop;
+const OUTPUT_TOP_IN_PAGE = 100;
+const ENTRY_HEIGHT = 100;
+
+/**
+ * Lays the Stream output out in a window that scrolls: the output starts 100 pixels down the page and
+ * entries stack 100 pixels apart inside it. Scrolling the window moves them all up.
+ */
+function stubPageLayout(output: HTMLElement, layout: StubPageLayout) {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const outputTop = OUTPUT_TOP_IN_PAGE - layout.scrollY;
+    if (this === output) return DOMRect.fromRect({ x: 0, y: outputTop, width: 600, height: layout.outputHeight });
+    const entries = [...output.querySelectorAll('.stream-entry')];
+    const index = entries.indexOf(this);
+    return DOMRect.fromRect({ x: 0, y: outputTop + index * ENTRY_HEIGHT, width: 600, height: ENTRY_HEIGHT });
+  });
+  vi.spyOn(window, 'scrollBy').mockImplementation(((_x: number, y: number) => {
+    layout.scrollY += y;
+  }) as typeof window.scrollBy);
+  Element.prototype.scrollIntoView = vi.fn(function (this: Element, options?: boolean | ScrollIntoViewOptions) {
+    const block = typeof options === 'object' ? options.block : 'start';
+    layout.scrollY = block === 'end'
+      ? OUTPUT_TOP_IN_PAGE + layout.outputHeight - window.innerHeight
+      : OUTPUT_TOP_IN_PAGE;
+  });
 }
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
 });
 
 describe('streamEntryContentOf', () => {
@@ -186,16 +202,24 @@ describe('trimStreamEntries', () => {
 });
 
 describe('isScrolledToLatest', () => {
-  it('follows the latest transcript text only near the bottom', () => {
-    expect(isScrolledToLatest({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
-    expect(isScrolledToLatest({ scrollTop: 580, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
-    expect(isScrolledToLatest({ scrollTop: 300, scrollHeight: 1000, clientHeight: 400 })).toBe(false);
+  const visibleWindow = { visibleTop: 64, visibleBottom: 756 };
+
+  it('follows the latest transcript text only when its end is in view', () => {
+    expect(isScrolledToLatest({ top: -400, bottom: 700, ...visibleWindow })).toBe(true);
+    expect(isScrolledToLatest({ top: -400, bottom: 770, ...visibleWindow })).toBe(true);
+    expect(isScrolledToLatest({ top: -400, bottom: 1200, ...visibleWindow })).toBe(false);
   });
 
-  it('follows the newest entry only near the top', () => {
-    expect(isScrolledToNewestEntry({ scrollTop: 0, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
-    expect(isScrolledToNewestEntry({ scrollTop: 20, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
-    expect(isScrolledToNewestEntry({ scrollTop: 300, scrollHeight: 1000, clientHeight: 400 })).toBe(false);
+  it('keeps the page on the transcript end only once the reader has scrolled down to it', () => {
+    expect(isFollowingTranscriptEnd({ top: -400, bottom: 700, ...visibleWindow })).toBe(true);
+    expect(isFollowingTranscriptEnd({ top: 200, bottom: 700, ...visibleWindow })).toBe(false);
+    expect(isFollowingTranscriptEnd({ top: -400, bottom: 1200, ...visibleWindow })).toBe(false);
+  });
+
+  it('follows the newest entry only when the top of the entries is in view', () => {
+    expect(isScrolledToNewestEntry({ top: 300, bottom: 2000, ...visibleWindow })).toBe(true);
+    expect(isScrolledToNewestEntry({ top: 50, bottom: 2000, ...visibleWindow })).toBe(true);
+    expect(isScrolledToNewestEntry({ top: -300, bottom: 2000, ...visibleWindow })).toBe(false);
   });
 });
 
@@ -343,35 +367,157 @@ describe('StreamOutput', () => {
     expect(progressJSON[0].querySelector('summary')?.textContent).toBe('Object · 5 fields');
   });
 
-  it('pauses following the transcript when scrolled up and offers a way back to the latest text', () => {
+  it('leaves the page in place while a transcript the reader has not scrolled to grows past the window', () => {
     const first = [streamMessage({ stringValue: 'one' }, 1)];
     const { rerender } = renderOutput(first);
-    const scrollBox = screen.getByTestId('stream-scroll');
+    const layout = { scrollY: 0, outputHeight: 300 };
+    stubPageLayout(screen.getByTestId('stream-scroll'), layout);
+    fireEvent.scroll(window);
+    expect(screen.queryByRole('button', { name: /Back to latest/ })).toBeNull();
 
-    setScrollMetrics(scrollBox, { scrollTop: 100, scrollHeight: 1000, clientHeight: 300 });
-    fireEvent.scroll(scrollBox);
+    layout.outputHeight = 1000;
     rerender(
       <StreamOutput entries={entriesOf([...first, streamMessage({ stringValue: ' two' }, 2)])} status="listening" timezone="UTC" />,
     );
 
-    expect(scrollBox.scrollTop).toBe(100);
+    expect(window.scrollBy).not.toHaveBeenCalled();
+    expect(layout.scrollY).toBe(0);
+    expect(screen.getByRole('button', { name: /Back to latest/ }).textContent).toBe('1 new · Back to latest');
+  });
+
+  it('pauses following the transcript when scrolled up and keeps the page on its end after going back to the latest text', () => {
+    const first = [streamMessage({ stringValue: 'one' }, 1)];
+    const { rerender } = renderOutput(first);
+    const layout = { scrollY: 600, outputHeight: 2000 };
+    stubPageLayout(screen.getByTestId('stream-scroll'), layout);
+    fireEvent.scroll(window);
+
+    const second = [...first, streamMessage({ stringValue: ' two' }, 2)];
+    rerender(<StreamOutput entries={entriesOf(second)} status="listening" timezone="UTC" />);
+
+    expect(layout.scrollY).toBe(600);
     const backToLatest = screen.getByRole('button', { name: /Back to latest/ });
     expect(backToLatest.textContent).toBe('1 new · Back to latest');
+    expect(backToLatest.className).toContain('stream-back-to-latest--bottom');
 
     fireEvent.click(backToLatest);
-    expect(scrollBox.scrollTop).toBe(1000);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'end' });
+    const scrollYAtEnd = layout.scrollY;
     expect(screen.queryByRole('button', { name: /Back to latest/ })).toBeNull();
+
+    layout.outputHeight = 2100;
+    rerender(<StreamOutput entries={entriesOf([...second, streamMessage({ stringValue: ' three' }, 3)])} status="listening" timezone="UTC" />);
+    expect(layout.scrollY).toBe(scrollYAtEnd + 100);
+    expect(screen.queryByRole('button', { name: /Back to latest/ })).toBeNull();
+  });
+
+  it('keeps following a transcript shorter than the window after going back to the latest text', () => {
+    const first = [streamMessage({ stringValue: 'one' }, 1)];
+    const { rerender } = renderOutput(first);
+    const layout = { scrollY: 0, outputHeight: 300 };
+    stubPageLayout(screen.getByTestId('stream-scroll'), layout);
+    fireEvent.scroll(window);
+
+    layout.outputHeight = 700;
+    const second = [...first, streamMessage({ stringValue: ' two' }, 2)];
+    rerender(<StreamOutput entries={entriesOf(second)} status="listening" timezone="UTC" />);
+    fireEvent.click(screen.getByRole('button', { name: /Back to latest/ }));
+    // The transcript top stays below the window top here, which must not stop the following.
+    expect(layout.scrollY).toBe(OUTPUT_TOP_IN_PAGE + 700 - window.innerHeight);
+    fireEvent.scroll(window);
+
+    layout.outputHeight = 800;
+    const scrollYBeforeGrowth = layout.scrollY;
+    rerender(<StreamOutput entries={entriesOf([...second, streamMessage({ stringValue: ' three' }, 3)])} status="listening" timezone="UTC" />);
+    expect(layout.scrollY).toBe(scrollYBeforeGrowth + 100);
+    expect(screen.queryByRole('button', { name: /Back to latest/ })).toBeNull();
+  });
+
+  it('shows the latest messages after a view switch, picked or automatic', () => {
+    const text = [streamMessage({ stringValue: 'one' }, 1), streamMessage({ stringValue: ' two' }, 2)];
+    const { rerender } = renderOutput(text);
+    const layout = { scrollY: 600, outputHeight: 2000 };
+    stubPageLayout(screen.getByTestId('stream-scroll'), layout);
+    fireEvent.scroll(window);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Entries' }));
+    expect(Element.prototype.scrollIntoView).toHaveBeenLastCalledWith({ block: 'start' });
+    expect(layout.scrollY).toBe(OUTPUT_TOP_IN_PAGE);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Transcript' }));
+    expect(Element.prototype.scrollIntoView).toHaveBeenLastCalledWith({ block: 'end' });
+    expect(layout.scrollY).toBe(OUTPUT_TOP_IN_PAGE + 2000 - window.innerHeight);
+
+    // The first non-text message switches to entries by itself.
+    rerender(<StreamOutput entries={entriesOf([...text, streamMessage({ intValue: 3 }, 3)])} status="listening" timezone="UTC" />);
+    expect(Element.prototype.scrollIntoView).toHaveBeenLastCalledWith({ block: 'start' });
+    expect(layout.scrollY).toBe(OUTPUT_TOP_IN_PAGE);
+    expect(screen.queryByRole('button', { name: /Back to latest/ })).toBeNull();
+  });
+
+  it('leaves the page in place when trimming switches the view by itself', () => {
+    const messages = [
+      streamMessage({ stringValue: 'one' }, 1),
+      streamMessage({ intValue: 2 }, 2),
+      streamMessage({ stringValue: ' three' }, 3),
+      streamMessage({ stringValue: ' four' }, 4),
+      streamMessage({ intValue: 5 }, 5),
+    ];
+    const renderKept = (count: number) => (
+      <StreamOutput entries={entriesOf(messages.slice(0, count), '', 2)} status="listening" timezone="UTC" />
+    );
+    const { container, rerender } = render(renderKept(2));
+    const layout = { scrollY: 600, outputHeight: 2000 };
+    stubPageLayout(screen.getByTestId('stream-scroll'), layout);
+    fireEvent.scroll(window);
+
+    // Keeping the last 2 drops message 2, the only non-text one, so the view becomes a transcript.
+    rerender(renderKept(4));
+    expect(container.querySelector('.stream-transcript')).not.toBeNull();
+    rerender(renderKept(5));
+    expect(container.querySelector('.stream-entries')).not.toBeNull();
+
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    expect(window.scrollBy).not.toHaveBeenCalled();
+    expect(layout.scrollY).toBe(600);
+  });
+
+  it('moves the page neither on the first mount nor when the first messages arrive', () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const first = [streamMessage({ stringValue: 'one' }, 1)];
+    const { rerender } = renderOutput(first);
+    rerender(<StreamOutput entries={entriesOf([...first, streamMessage({ stringValue: ' two' }, 2)])} status="listening" timezone="UTC" />);
+    renderOutput([streamMessage({ intValue: 1 }, 1)]);
+
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('registers its window listeners once and removes them on unmount', () => {
+    const addEventListener = vi.spyOn(window, 'addEventListener');
+    const removeEventListener = vi.spyOn(window, 'removeEventListener');
+    const first = [streamMessage({ intValue: 1 }, 1)];
+    const { rerender, unmount } = renderOutput(first);
+    rerender(<StreamOutput entries={entriesOf([...first, streamMessage({ intValue: 2 }, 2)])} status="listening" timezone="UTC" />);
+
+    const scrollListeners = addEventListener.mock.calls.filter(([type]) => type === 'scroll').map(([, listener]) => listener);
+    expect(scrollListeners).toHaveLength(1);
+    unmount();
+    expect(removeEventListener).toHaveBeenCalledWith('scroll', scrollListeners[0]);
+    expect(removeEventListener).toHaveBeenCalledWith('resize', scrollListeners[0]);
   });
 
   it('keeps the newest entry in view at the top while the reader is there', () => {
     const first = [1, 2].map((sequence) => streamMessage({ intValue: sequence }, sequence));
     const { container, rerender } = renderOutput(first);
-    const scrollBox = screen.getByTestId('stream-scroll');
-    setScrollMetrics(scrollBox, { scrollTop: 0, scrollHeight: 1000, clientHeight: 300 });
+    const layout = { scrollY: 0, outputHeight: 1000 };
+    stubPageLayout(screen.getByTestId('stream-scroll'), layout);
 
     rerender(<StreamOutput entries={entriesOf([...first, streamMessage({ intValue: 3 }, 3)])} status="listening" timezone="UTC" />);
 
-    expect(scrollBox.scrollTop).toBe(0);
+    expect(window.scrollBy).not.toHaveBeenCalled();
+    expect(layout.scrollY).toBe(0);
     expect(container.querySelector('.stream-entry-scalar')?.textContent).toBe('3');
     expect(screen.queryByRole('button', { name: /Back to latest/ })).toBeNull();
   });
@@ -379,22 +525,25 @@ describe('StreamOutput', () => {
   it('keeps the entry the reader is looking at in place as newer entries arrive above it', () => {
     const first = [1, 2, 3, 4, 5].map((sequence) => streamMessage({ intValue: sequence }, sequence));
     const { rerender } = renderOutput(first);
-    const scrollBox = screen.getByTestId('stream-scroll');
-    stubEntryLayout(scrollBox);
+    const layout = { scrollY: 0, outputHeight: 500 };
+    const output = screen.getByTestId('stream-scroll');
+    stubPageLayout(output, layout);
 
-    // Entries read #5, #4, #3, ...; at 250 pixels the reader is halfway through #3.
-    setScrollMetrics(scrollBox, { scrollTop: 250, scrollHeight: 1000, clientHeight: 300 });
-    fireEvent.scroll(scrollBox);
+    // Entries read #5, #4, #3, ...; scrolled 350 pixels, the reader is halfway through #3 at the window top.
+    layout.scrollY = 350;
+    fireEvent.scroll(window);
     const withTwoMore = [...first, streamMessage({ intValue: 6 }, 6), streamMessage({ intValue: 7 }, 7)];
+    layout.outputHeight = 700;
     rerender(<StreamOutput entries={entriesOf(withTwoMore)} status="listening" timezone="UTC" />);
 
-    expect(scrollBox.scrollTop).toBe(450);
+    expect(layout.scrollY).toBe(550);
     const backToLatest = screen.getByRole('button', { name: /Back to latest/ });
     expect(backToLatest.textContent).toBe('2 new · Back to latest');
     expect(backToLatest.className).toContain('stream-back-to-latest--top');
 
     fireEvent.click(backToLatest);
-    expect(scrollBox.scrollTop).toBe(0);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+    expect(layout.scrollY).toBe(OUTPUT_TOP_IN_PAGE);
     expect(screen.queryByRole('button', { name: /Back to latest/ })).toBeNull();
   });
 

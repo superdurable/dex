@@ -994,6 +994,7 @@ export function RunDetailsPage({
         className={[
           'run-content',
           shownTab === 'overview' ? 'run-content--overview' : '',
+          shownTab === 'stream' ? 'run-content--stream' : '',
           shownTab === 'design' ? 'run-content--design' : '',
           shownTab === 'session' || shownTab === 'actions' ? 'run-content--experimental' : '',
           resizingSidebar ? 'is-resizing-sidebar' : '',
