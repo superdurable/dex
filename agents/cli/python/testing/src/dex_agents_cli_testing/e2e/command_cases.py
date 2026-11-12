@@ -58,6 +58,10 @@ class ToolDialect:
         shell_tool: The shell tool.
         path_argument: The path argument of the file tools.
         has_absolute_paths: Whether the file tools take absolute paths.
+        are_local_writes_approved_by_default: Whether file writes and shell
+            commands off the allow list wait for approval without
+            configuration. When ``False``, the scenario names the write tool
+            in ``approval.always`` and expects every shell command to run at once.
     """
 
     read_tool: str
@@ -65,6 +69,7 @@ class ToolDialect:
     shell_tool: str
     path_argument: str
     has_absolute_paths: bool
+    are_local_writes_approved_by_default: bool = True
 
     def file_path(self, workspace: Path, name: str) -> str:
         """Return a workspace file's path as the harness's file tools take it."""
@@ -85,7 +90,22 @@ class ToolDialect:
 
 CLI_CORE_TOOLS = ToolDialect("read_file", "write_file", "run_shell_command", "path", False)
 CLAUDE_CODE_TOOLS = ToolDialect("Read", "Write", "Bash", "file_path", True)
-PI_TOOLS = ToolDialect("read", "write", "bash", "path", False)
+PI_TOOLS = ToolDialect(
+    "read",
+    "write",
+    "bash",
+    "path",
+    False,
+    are_local_writes_approved_by_default=False,
+)
+DEEP_AGENTS_TOOLS = ToolDialect(
+    "read_file",
+    "write_file",
+    "execute",
+    "file_path",
+    True,
+    are_local_writes_approved_by_default=False,
+)
 
 
 @dataclass(frozen=True)
@@ -133,7 +153,7 @@ COMMAND_CASES: tuple[CommandCase, ...] = (
     _python("claude-sdk", CLAUDE_CODE_TOOLS, Provider.ANTHROPIC),
     _python("openai-sdk", CLI_CORE_TOOLS, Provider.OPENAI),
     _python("pydantic-ai", CLI_CORE_TOOLS, Provider.OPENAI),
-    _python("deepagents", CLI_CORE_TOOLS, Provider.OPENAI),
+    _python("deepagents", DEEP_AGENTS_TOOLS, Provider.OPENAI),
     _python("google-adk", CLI_CORE_TOOLS, Provider.GEMINI),
     _typescript("builtin", None, CLI_CORE_TOOLS, Provider.OPENAI),
     _typescript("claude-sdk", "claude-agent-sdk", CLAUDE_CODE_TOOLS, Provider.ANTHROPIC),

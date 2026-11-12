@@ -31,5 +31,5 @@ export {
   type PiCodingLocalTool,
 } from "./pi-coding-tool-source.js";
 export { PiModelClients, parsePiModelId, resolvePiProviderApiKey, type PiModelId } from "./pi-model-clients.js";
+export { PrefixedConnectorToolSource, collidingConnectorToolPrefix } from "./prefixed-connector-tool-source.js";
 export { ProjectContextFiles, type ProjectContextFile } from "./project-context-files.js";
-export { WorkspaceGrep, defaultGrepMatchTimeoutMs, type WorkspaceGrepArguments } from "./workspace-grep.js";

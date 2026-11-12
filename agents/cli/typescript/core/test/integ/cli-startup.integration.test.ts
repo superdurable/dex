@@ -25,13 +25,14 @@ import {
   enginePorts,
 } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
+import { PseudoTerminalCliProcess } from "../fixtures/pseudo-terminal-cli-process.js";
 import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
 
 describe("CLI startup: configuration, the Dex server, and connectors", () => {
   let engine: PrivateDexEngine;
   let connectors: FakeConnectorsMcpServer;
   let connectorsUrl: string;
-  const processes: CliProcess[] = [];
+  const processes: (CliProcess | PseudoTerminalCliProcess)[] = [];
   const startedServers: number[] = [];
 
   before(async () => {
@@ -108,6 +109,67 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.equal(await run, 0);
   });
 
+  function startAtTerminal(home: TestHome, commandArguments: readonly string[] = []): PseudoTerminalCliProcess {
+    const cli = PseudoTerminalCliProcess.start(home, commandArguments);
+    processes.push(cli);
+    return cli;
+  }
+
+  test("Ctrl-C at the first init question exits with 130 and writes no file", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const cli = startAtTerminal(home, ["init"]);
+    await cli.terminal.waitFor("Model [scripted/default]: ");
+    cli.type("\x03");
+    assert.equal(await cli.waitForExit(), 130);
+    assert.match(cli.terminal.all, /Cancelled; no configuration written\./);
+    assert.equal(home.hasConfig(), false);
+  });
+
+  test("Ctrl-C at a later question of the first-run setup exits with 130 and writes no file", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const cli = startAtTerminal(home);
+    await cli.terminal.waitFor("Model [scripted/default]: ");
+    cli.type("\r");
+    await cli.terminal.waitFor("System prompt");
+    cli.type("Answer briefly.\r");
+    await cli.terminal.waitFor("Connectors");
+    cli.type("\x03");
+    assert.equal(await cli.waitForExit(), 130);
+    assert.match(cli.terminal.all, /Cancelled; no configuration written\./);
+    assert.doesNotMatch(cli.terminal.all, /Type a message/);
+    assert.equal(home.hasConfig(), false);
+  });
+
+  test("after the first-run setup at a terminal, the chat reads a message typed with the last answer", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const cli = startAtTerminal(home);
+    for (const question of ["Model", "System prompt", "Connectors", "Workspace"]) {
+      await cli.terminal.waitFor(question);
+      cli.type("\r");
+    }
+    await cli.terminal.waitFor("Local tools");
+    cli.type("\rhello\r");
+    await cli.terminal.waitFor(/Session \S+\. Type a message/);
+    assert.equal(home.hasConfig(), true);
+    await cli.terminal.waitFor("echo: hello");
+    cli.type("again\r");
+    await cli.terminal.waitFor("echo: again");
+    cli.type("/exit\r");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("Ctrl-D at an init question exits with 1 and writes no file", async () => {
+    const home = new TestHome(enginePorts(engine));
+    const cli = startAtTerminal(home, ["init"]);
+    await cli.terminal.waitFor("Model [scripted/default]: ");
+    cli.type("\r");
+    await cli.terminal.waitFor("System prompt");
+    cli.type("\x04");
+    assert.equal(await cli.waitForExit(), 1);
+    assert.match(cli.terminal.all, /Cancelled; no configuration written\./);
+    assert.equal(home.hasConfig(), false);
+  });
+
   test("without a terminal or a configuration, the command runs on the defaults and writes no file", async () => {
     const home = new TestHome(enginePorts(engine));
     const cli = start(home);
@@ -119,6 +181,37 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     await cli.stdout.waitFor("echo: hello");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("an unavailable connectors server prints one short line across turns, and its errors go to the log file", async () => {
+    // The fake answers initialize but no listing, so the explicit URL only warns.
+    connectors.listingFailureReason = "the catalog is not ready";
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\nlocal_tools: {browser: false}\n`);
+    const cli = start(home);
+    try {
+      await cli.waitForSession();
+      cli.writeLine("hello");
+      await cli.stdout.waitFor("echo: hello");
+      cli.writeLine("again");
+      await cli.stdout.waitFor("echo: again");
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+    } finally {
+      connectors.listingFailureReason = undefined;
+    }
+
+    const logPath = join(home.directory, ".dex", "agents", "scripted.log");
+    const connectorLines = cli.stderr.all.split("\n").filter((line) => /Connector tools|MCP server|tool listing/i.test(line));
+    assert.equal(connectorLines.length, 1, cli.stderr.all);
+    assert.match(
+      connectorLines[0] ?? "",
+      /^Connector tools are unavailable for now; each turn tries again\. See (.+) for the error and http:\/\/\S+\/v1\/connectors for connections\.$/,
+    );
+    assert.ok(connectorLines[0]?.includes(logPath), connectorLines[0]);
+    const log = readFileSync(logPath, "utf8");
+    assert.match(log, /connectors MCP server \S+ is unavailable: /);
+    assert.match(log, /left MCP server connectors out of the tool listing: /);
   });
 
   test("a harness that fixes its tools at build says a restart brings connector tools back", async () => {
@@ -141,13 +234,58 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\n`);
       const cli = start(home);
       await cli.waitForSession();
-      await cli.stderr.waitFor("The connectors MCP server could not be listed: ");
+      await cli.stderr.waitFor("The connectors MCP server is unavailable. See ");
       await cli.stderr.waitFor(
         "dex-agents-scripted fixes its tools when it starts, so this run has no connector tools. " +
           "Restart it once the connectors MCP server answers.",
       );
       cli.writeLine("/exit");
       assert.equal(await cli.waitForExit(), 0);
+    } finally {
+      connectors.listingFailureReason = undefined;
+    }
+  });
+
+  test("a harness that fixes its tools at build prints one line when its first listing fails", async () => {
+    // The startup catalog read lists; the listing that fixes the tools then fails.
+    connectors.listingFailureReason = "the catalog is not ready";
+    connectors.listingsBeforeFailure = 1;
+    try {
+      const home = new TestHome(enginePorts(engine), fixedToolSetScriptedHarness);
+      home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\nlocal_tools: {browser: false}\n`);
+      const cli = start(home);
+      await cli.waitForSession();
+      cli.writeLine("hello");
+      await cli.stdout.waitFor("echo: hello");
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+      const connectorLines = (cli.stdout.all + cli.stderr.all)
+        .split("\n")
+        .filter((line) => /Connector tools|MCP server|tool listing/i.test(line));
+      assert.equal(connectorLines.length, 1, cli.stderr.all);
+      assert.match(connectorLines[0] ?? "", /^The connectors MCP server is unavailable\. See .* Restart it once the connectors MCP server answers\.$/);
+    } finally {
+      connectors.listingFailureReason = undefined;
+      connectors.listingsBeforeFailure = 0;
+    }
+  });
+
+  test("a server that answers initialize but fails its listing leaves connector tools unavailable, and the chat runs", async () => {
+    connectors.listingFailureReason = "the catalog is not ready";
+    try {
+      const home = new TestHome(enginePorts(engine));
+      home.writeConfig(`connectors: {mcp: "${connectorsUrl}"}\nlocal_tools: {browser: false}\n`);
+      const cli = start(home);
+      await cli.waitForSession();
+      cli.writeLine("hello");
+      await cli.stdout.waitFor("echo: hello");
+      cli.writeLine("/exit");
+      assert.equal(await cli.waitForExit(), 0);
+      const connectorLines = cli.stderr.all.split("\n").filter((line) => line.includes("Connector tools are unavailable"));
+      assert.equal(connectorLines.length, 1, cli.stderr.all);
+      assert.doesNotMatch(cli.stderr.all, /the catalog is not ready/);
+      const logFile = readFileSync(join(home.directory, ".dex", "agents", "scripted.log"), "utf8");
+      assert.match(logFile, /connectors MCP server \S+ could not be listed: .*the catalog is not ready/);
     } finally {
       connectors.listingFailureReason = undefined;
     }

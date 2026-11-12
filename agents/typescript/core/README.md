@@ -1551,7 +1551,9 @@ server is listed again in the background while its earlier tools are
 returned. A server that cannot be listed is left out with a warning and is not
 tried again for `listingFailureBackoffMs` (30 seconds), then in the
 background, so one bad server never hides the others' tools or slows every
-model call. One listing per server runs at a time. `listTools({ refresh: true
+model call. The warnings go to `console.warn` unless `logWarning` sends them
+elsewhere, such as a log file; a `logWarning` that throws falls back to
+`console.warn`. One listing per server runs at a time. `listTools({ refresh: true
 })` lists every server again now. `deferredToolCall` stores the
 server, the tool's MCP name, and its task support on the call's record, so the
 tool Step calls that server directly, without a listing; `callTool` finds the

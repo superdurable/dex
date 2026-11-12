@@ -7,10 +7,24 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import { hostname, tmpdir, userInfo } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -101,7 +115,10 @@ export class CliProcess {
     commandArguments: readonly string[] = [],
     nodeArguments: readonly string[] = [],
   ): CliProcess {
+    // The command's workspace is the directory it starts in.
+    mkdirSync(home.workspace, { recursive: true });
     const child = spawn(process.execPath, [...nodeArguments, binPath, ...commandArguments], {
+      cwd: home.workspace,
       env: home.environment(),
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
@@ -191,6 +208,8 @@ export class TestHome {
   public readonly directory: string;
   /** The provider variables every process gets: unless a test removes it, the mock key. */
   public readonly providerEnvironment: Record<string, string>;
+  /** The command's `PATH`; defaults to the test process's. */
+  public searchPath: string = process.env.PATH ?? "";
 
   /**
    * Creates the home.
@@ -212,9 +231,59 @@ export class TestHome {
     return join(this.directory, ".dex", "agents", "pi.yaml");
   }
 
-  /** `~/dex-agent-workspace`. */
+  /** `~/project`, the directory the command starts in and so its workspace. */
   public get workspace(): string {
-    return join(this.directory, "dex-agent-workspace");
+    return join(this.directory, "project");
+  }
+
+  /** `~/.pi/agent/bin`, where Pi looks for and downloads `rg` and `fd`. */
+  public get piBinDirectory(): string {
+    return join(this.directory, ".pi", "agent", "bin");
+  }
+
+  /**
+   * Makes `rg` and `fd` available to Pi's `grep` and `find`: from `$PATH`, or copied from the directory that `ci.sh`
+   * had Pi download them into, `DEX_AGENTS_PI_SEARCH_TOOLS_DIR`.
+   * @throws {Error} When neither has them.
+   */
+  public provideSearchTools(): void {
+    const downloaded = process.env.DEX_AGENTS_PI_SEARCH_TOOLS_DIR;
+    for (const [tool, names] of [["rg", ["rg"]], ["fd", ["fd", "fdfind"]]] as const) {
+      if (names.some((name) => isOnSearchPath(name, this.searchPath))) {
+        continue;
+      }
+      const source = downloaded === undefined ? undefined : join(downloaded, "bin", tool);
+      if (source === undefined || !existsSync(source)) {
+        throw new Error(`${tool} is neither on PATH nor in DEX_AGENTS_PI_SEARCH_TOOLS_DIR; run ci.sh, which downloads it`);
+      }
+      mkdirSync(this.piBinDirectory, { recursive: true });
+      copyFileSync(source, join(this.piBinDirectory, tool));
+      chmodSync(join(this.piBinDirectory, tool), 0o755);
+    }
+  }
+
+  /**
+   * Hides `rg`, `fd`, and `fdfind` from Pi: each `PATH` directory that has one, such as `/usr/bin`, is replaced by a
+   * directory of links to its other entries.
+   */
+  public hideSearchTools(): void {
+    const hiddenNames = new Set(["rg", "fd", "fdfind"]);
+    this.searchPath = this.searchPath
+      .split(delimiter)
+      .map((directory, index) => {
+        if (![...hiddenNames].some((name) => isExecutable(join(directory, name)))) {
+          return directory;
+        }
+        const mirror = join(this.directory, "path-without-search-tools", String(index));
+        mkdirSync(mirror, { recursive: true });
+        for (const name of readdirSync(directory)) {
+          if (!hiddenNames.has(name)) {
+            symlinkSync(join(directory, name), join(mirror, name));
+          }
+        }
+        return mirror;
+      })
+      .join(delimiter);
   }
 
   /**
@@ -253,8 +322,10 @@ export class TestHome {
       throw new Error("DEXCLI must name the dexcli binary");
     }
     return {
-      PATH: process.env.PATH ?? "",
+      PATH: this.searchPath,
       HOME: this.directory,
+      // Pi never downloads rg or fd in a test.
+      PI_OFFLINE: "1",
       // A dexcli dev the command starts runs no published Connectors MCP release.
       DEX_CONNECTORS_MCP_BINARY: join(this.directory, "dex-connectors-mcp-not-installed"),
       // Tests never open the user's web browser.
@@ -281,6 +352,19 @@ export class TestHome {
       .map((path) => readFileSync(path, "utf8"))
       .join("\n");
   }
+}
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isOnSearchPath(name: string, searchPath: string): boolean {
+  return searchPath.split(delimiter).some((directory) => directory !== "" && isExecutable(join(directory, name)));
 }
 
 /**

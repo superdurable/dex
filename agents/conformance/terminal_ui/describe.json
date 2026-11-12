@@ -1,0 +1,474 @@
+{
+  "description": "dexcli agents-tui --describe output and how a launcher picks a contract from it. Hand-written; see agents/cli/TERMINAL_UI_CONTRACT.md.",
+  "rule": "Treat as describe_failed, and use the plain chat, when --describe does not exit 0 within 5 s, its stdout is not one UTF-8 JSON object of at most 1 MiB, or it fails terminal-ui-describe.schema.json. Otherwise take the contracts both sides support, highest first, and use the first one whose modes include the mode needed; no common contract is no_common_contract, and common contracts without the mode are mode_missing.",
+  "cases": [
+    {
+      "name": "default",
+      "description": "One contract with three modes.",
+      "describe": {
+        "dexcli_version": "0.0.0-contract-host",
+        "contracts": {
+          "1": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image",
+                  "start_session",
+                  "list_connectors",
+                  "open_url",
+                  "get_request_result"
+                ]
+              },
+              "sessions": {
+                "uses_methods": []
+              },
+              "connectors": {
+                "uses_methods": [
+                  "list_connectors",
+                  "open_url"
+                ]
+              }
+            },
+            "capabilities": [
+              "images",
+              "plan_mode",
+              "turn_control"
+            ]
+          }
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "two-contracts",
+      "description": "A later dexcli that also speaks contract 2.",
+      "describe": {
+        "dexcli_version": "1.60.0",
+        "contracts": {
+          "1": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image",
+                  "start_session",
+                  "list_connectors",
+                  "open_url",
+                  "get_request_result"
+                ]
+              },
+              "sessions": {
+                "uses_methods": []
+              },
+              "connectors": {
+                "uses_methods": [
+                  "list_connectors",
+                  "open_url"
+                ]
+              }
+            },
+            "capabilities": [
+              "images",
+              "plan_mode",
+              "turn_control"
+            ]
+          },
+          "2": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image"
+                ]
+              }
+            },
+            "capabilities": [
+              "images"
+            ]
+          }
+        },
+        "build": "x"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "no-contracts",
+      "description": "Valid, but no contract in common with any launcher.",
+      "describe": {
+        "dexcli_version": "1.46.0",
+        "contracts": {}
+      },
+      "is_valid": true
+    },
+    {
+      "name": "contract-key-leading-zero",
+      "description": "Contract keys are decimals without leading zeros.",
+      "describe": {
+        "dexcli_version": "1.46.0",
+        "contracts": {
+          "01": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image",
+                  "start_session",
+                  "list_connectors",
+                  "open_url",
+                  "get_request_result"
+                ]
+              },
+              "sessions": {
+                "uses_methods": []
+              },
+              "connectors": {
+                "uses_methods": [
+                  "list_connectors",
+                  "open_url"
+                ]
+              }
+            },
+            "capabilities": [
+              "images",
+              "plan_mode",
+              "turn_control"
+            ]
+          }
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/contracts",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "contract-without-capabilities",
+      "description": "Each contract lists capabilities.",
+      "describe": {
+        "dexcli_version": "1.46.0",
+        "contracts": {
+          "1": {
+            "modes": {}
+          }
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/contracts/1",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "mode-without-methods",
+      "description": "Each mode lists uses_methods.",
+      "describe": {
+        "dexcli_version": "1.46.0",
+        "contracts": {
+          "1": {
+            "modes": {
+              "chat": {}
+            },
+            "capabilities": []
+          }
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/contracts/1/modes/chat",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "no-version",
+      "description": "dexcli_version is required.",
+      "describe": {
+        "contracts": {}
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    }
+  ],
+  "negotiation": [
+    {
+      "name": "chat-on-1",
+      "description": "Both sides speak 1.",
+      "launcher_contracts": [
+        1
+      ],
+      "describe": {
+        "dexcli_version": "0.0.0-contract-host",
+        "contracts": {
+          "1": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image",
+                  "start_session",
+                  "list_connectors",
+                  "open_url",
+                  "get_request_result"
+                ]
+              },
+              "sessions": {
+                "uses_methods": []
+              },
+              "connectors": {
+                "uses_methods": [
+                  "list_connectors",
+                  "open_url"
+                ]
+              }
+            },
+            "capabilities": [
+              "images",
+              "plan_mode",
+              "turn_control"
+            ]
+          }
+        }
+      },
+      "mode": "chat",
+      "expected": {
+        "contract": 1
+      }
+    },
+    {
+      "name": "newer-dexcli",
+      "description": "dexcli speaks 1 and 2; the launcher only 1.",
+      "launcher_contracts": [
+        1
+      ],
+      "describe": {
+        "dexcli_version": "1.60.0",
+        "contracts": {
+          "1": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image",
+                  "start_session",
+                  "list_connectors",
+                  "open_url",
+                  "get_request_result"
+                ]
+              },
+              "sessions": {
+                "uses_methods": []
+              },
+              "connectors": {
+                "uses_methods": [
+                  "list_connectors",
+                  "open_url"
+                ]
+              }
+            },
+            "capabilities": [
+              "images",
+              "plan_mode",
+              "turn_control"
+            ]
+          },
+          "2": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image"
+                ]
+              }
+            },
+            "capabilities": [
+              "images"
+            ]
+          }
+        },
+        "build": "x"
+      },
+      "mode": "chat",
+      "expected": {
+        "contract": 1
+      }
+    },
+    {
+      "name": "highest-common",
+      "description": "Both speak 1 and 2: 2.",
+      "launcher_contracts": [
+        1,
+        2
+      ],
+      "describe": {
+        "dexcli_version": "1.60.0",
+        "contracts": {
+          "1": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image",
+                  "start_session",
+                  "list_connectors",
+                  "open_url",
+                  "get_request_result"
+                ]
+              },
+              "sessions": {
+                "uses_methods": []
+              },
+              "connectors": {
+                "uses_methods": [
+                  "list_connectors",
+                  "open_url"
+                ]
+              }
+            },
+            "capabilities": [
+              "images",
+              "plan_mode",
+              "turn_control"
+            ]
+          },
+          "2": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image"
+                ]
+              }
+            },
+            "capabilities": [
+              "images"
+            ]
+          }
+        },
+        "build": "x"
+      },
+      "mode": "chat",
+      "expected": {
+        "contract": 2
+      }
+    },
+    {
+      "name": "highest-common-with-the-mode",
+      "description": "Contract 2 lacks sessions, so sessions runs on 1.",
+      "launcher_contracts": [
+        1,
+        2
+      ],
+      "describe": {
+        "dexcli_version": "1.60.0",
+        "contracts": {
+          "1": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image",
+                  "start_session",
+                  "list_connectors",
+                  "open_url",
+                  "get_request_result"
+                ]
+              },
+              "sessions": {
+                "uses_methods": []
+              },
+              "connectors": {
+                "uses_methods": [
+                  "list_connectors",
+                  "open_url"
+                ]
+              }
+            },
+            "capabilities": [
+              "images",
+              "plan_mode",
+              "turn_control"
+            ]
+          },
+          "2": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image"
+                ]
+              }
+            },
+            "capabilities": [
+              "images"
+            ]
+          }
+        },
+        "build": "x"
+      },
+      "mode": "sessions",
+      "expected": {
+        "contract": 1
+      }
+    },
+    {
+      "name": "no-common",
+      "description": "dexcli speaks only 2.",
+      "launcher_contracts": [
+        1
+      ],
+      "describe": {
+        "dexcli_version": "1.80.0",
+        "contracts": {
+          "2": {
+            "modes": {
+              "chat": {
+                "uses_methods": [
+                  "put_image"
+                ]
+              }
+            },
+            "capabilities": [
+              "images"
+            ]
+          }
+        }
+      },
+      "mode": "chat",
+      "expected": {
+        "plain_reason": "no_common_contract"
+      }
+    },
+    {
+      "name": "empty-contracts",
+      "description": "dexcli speaks none.",
+      "launcher_contracts": [
+        1
+      ],
+      "describe": {
+        "dexcli_version": "1.46.0",
+        "contracts": {}
+      },
+      "mode": "chat",
+      "expected": {
+        "plain_reason": "no_common_contract"
+      }
+    },
+    {
+      "name": "mode-missing",
+      "description": "dexcli lacks the connectors mode.",
+      "launcher_contracts": [
+        1
+      ],
+      "describe": {
+        "dexcli_version": "1.46.0",
+        "contracts": {
+          "1": {
+            "modes": {
+              "chat": {
+                "uses_methods": []
+              }
+            },
+            "capabilities": []
+          }
+        }
+      },
+      "mode": "connectors",
+      "expected": {
+        "plain_reason": "mode_missing"
+      }
+    }
+  ]
+}
