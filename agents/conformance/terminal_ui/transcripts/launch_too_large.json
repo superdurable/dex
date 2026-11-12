@@ -1,0 +1,24 @@
+{
+  "name": "launch_too_large",
+  "description": "The launch line is 1 byte over 1 MiB: dexcli reads and discards it, then rejects the launch.",
+  "real_roles": [
+    "tui"
+  ],
+  "terminal_ui_environment": {},
+  "steps": [
+    {
+      "from": "launcher",
+      "raw_line": "{\"type\":\"launch\",\"contract\":1,\"mode\":\"chat\",\"command\":{\"name\":\"dex-agents-openai-sdk\",\"harness\":\"openai-sdk\",\"language\":\"python\",\"version\":\"0.7.0\"},\"dex\":{\"server_address\":\"127.0.0.1:8801\",\"tls\":{\"enabled\":false,\"ca_file\":null,\"server_name\":null},\"auth\":{\"mode\":\"none\"},\"web_url\":\"http://127.0.0.1:8802\"},\"session\":{\"flow_type\":\"DexAgentsOpenAISdkCliSession-ab12cd\",\"session_id\":\"openai-sdk-20261111-142233-a1b2c3\",\"is_resumed\":false},\"display\":{\"model\":\"gpt-5.2\",\"workspace\":\"~/dex-agent-workspace\",\"config_path\":\"~/.dex/agents/openai-sdk.yaml\"},\"methods\":[\"put_image\",\"start_session\",\"list_connectors\",\"open_url\",\"get_request_result\"],\"capabilities\":{\"images\":{\"max_per_message\":20,\"max_bytes\":3750000},\"plan_mode\":false,\"turn_control\":true},\"notices\":[],\"log_path\":\"~/.dex/agents/openai-sdk.log\"}",
+      "pad_to_bytes": 1048577
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "launch_rejected",
+        "code": "invalid_launch",
+        "message": "The launch document is longer than 1 MiB."
+      }
+    }
+  ],
+  "tui_exit": 2
+}
