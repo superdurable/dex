@@ -1141,6 +1141,12 @@ export class ToolCallStep implements Step<string> {
           ...toolResultImages(outcome.images),
         };
         toolCallSpan.recordFinished(succeeded);
+        if (outcome.isFinishedByResumedTurn === true) {
+          // The resumed turn runs the call and writes its tool_call_finished.
+          transitions.writeToolCall(context, succeeded);
+          transitions.publishToolCallResult(context, succeeded.toolCallId);
+          return deadEnd();
+        }
         transitions.finishToolCall(context, succeeded, events);
         return deadEnd();
       });

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import signal
@@ -97,6 +98,8 @@ async def test_read_runs_at_once_and_write_and_bash_run_after_approval(
     cli_home.workspace.mkdir()
     (cli_home.workspace / "notes.txt").write_text("buy milk\n")
     child = cli_home.spawn()
+    terminal = io.StringIO()
+    child.logfile_read = terminal
     await expect(child, "> ")
     child.sendline(call("Read", {"file_path": str(cli_home.workspace / "notes.txt")}))
     await expect(child, "buy milk")
@@ -128,11 +131,44 @@ async def test_read_runs_at_once_and_write_and_bash_run_after_approval(
     child.sendline(call("Bash", {"command": "echo no > rejected.txt"}))
     await expect(child, "[approval] Bash")
     child.sendline("n not now")
-    await expect(child, "Bash: ")
+    await expect(child, "Bash: The user rejected this Bash call: not now")
+    await expect(child, "> ")
+
+    child.sendline(call("Bash", {"command": "echo broken; exit 3"}))
+    await expect(child, "[approval] Bash")
+    child.sendline("y")
+    await expect(child, "[tool] Bash failed")
     await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert not (cli_home.workspace / "rejected.txt").exists()
+
+    # The tool Step starts an approved call; the CLI's run in the resumed turn finishes it.
+    output = terminal.getvalue()
+    tool_lines = [line.strip() for line in output.splitlines() if line.startswith("[tool] ")]
+    assert tool_lines == [
+        "[tool] Read started",
+        "[tool] Read succeeded",
+        "[tool] Write started",
+        "[tool] Write succeeded",
+        "[tool] Bash started",
+        "[tool] Bash succeeded",
+        "[tool] Bash rejected",
+        "[tool] Bash started",
+        "[tool] Bash failed",
+    ]
+    # Claude Code resets the cursor on exit when its standard error is the terminal.
+    assert "\x1b[" not in output
+    rejected_results = [
+        block["content"]
+        for request in cli_home.model_requests()
+        for message in request.get("messages") or []
+        if isinstance(message.get("content"), list)
+        for block in message["content"]
+        if block.get("type") == "tool_result" and block.get("is_error")
+    ]
+    assert "The user rejected this Bash call: not now" in rejected_results
+    assert not [result for result in rejected_results if "hook error" in str(result)]
 
 
 async def test_an_allow_listed_command_runs_at_once_in_the_workspace(cli_home: CliHome) -> None:

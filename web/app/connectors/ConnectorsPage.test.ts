@@ -225,6 +225,23 @@ describe('Connections contract', () => {
     expect(optionalOnlyMarkup).toContain('<legend class="sc-blockhead">Optional settings (1)</legend>');
   });
 
+  it('labels the save button Save connection when the connection needs no credentials', () => {
+    const noAuthManifest = (auth: Record<string, unknown>) => ({
+      metadata: {displayName: 'Hacker News', description: 'Daily stories'},
+      spec: {provider: 'hackernews', configuration: {fields: []}, auth},
+    });
+
+    for (const markup of [
+      renderConnectorForm(noAuthManifest({type: 'none', fields: []})),
+      renderConnectorForm(noAuthManifest({fields: []})),
+    ]) {
+      expect(markup).toMatch(/<button class="v2-primary" type="submit">Save connection<\/button>/);
+      expect(markup).not.toContain('Save local credentials');
+    }
+    expect(renderConnectorForm(noAuthManifest({type: 'apiKey', fields: []})))
+      .toMatch(/<button class="v2-primary" type="submit">Save local credentials<\/button>/);
+  });
+
   it('turns provider guidance URLs into explicit links', () => {
     expect(descriptionParts('Start at https://example.com/settings/keys and copy the value.')).toEqual([
       {text: 'Start at '},

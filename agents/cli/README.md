@@ -196,3 +196,52 @@ reference resolver. Agents CI runs it through `tests/ci.sh`:
 ```bash
 agents/cli/tests/ci.sh
 ```
+
+## Local end-to-end check
+
+`dex-agents-cli-e2e` runs every agent CLI command, and the agent harness
+examples, against a local mock model API and a local `dexcli dev`. No
+provider key is needed. It is not part of CI.
+
+```bash
+cd agents/cli/python/testing
+uv sync --locked
+uv run --frozen dex-agents-cli-e2e                       # local build of this checkout
+uv run --frozen dex-agents-cli-e2e --source published    # the published 0.5.0 packages
+uv run --frozen dex-agents-cli-e2e --suite commands --only py-openai-sdk,ts-pi --seed-hacker-news
+```
+
+- **Builds.** By default it builds each command from `--checkout`, this
+  checkout unless set, as the command's `ci.sh` does: `uv sync --locked`
+  for Python and `npm ci` and `npm run build` for TypeScript, with the
+  agent libraries and CLI core from the same checkout. `--source published`
+  installs the release wheels of `--published-version` and the npm packages
+  instead.
+- **Model API.** `dex-agents-mock-model-api` serves the OpenAI Responses
+  and Chat Completions APIs, the Anthropic Messages API, and the Gemini API
+  on one port of 127.0.0.1. It accepts any model name. Replies come from a
+  JSON or YAML scenario keyed by the turn's prompt and the step within the
+  turn, and every request goes to a JSONL log with credentials redacted.
+  Each command reaches it through its documented variables:
+  `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, or
+  `pi.provider_base_urls`.
+- **Command suite.** Each command reads a workspace file, writes a file
+  after approval, has a write rejected, runs an allowed shell command and
+  one that asks, calls the Hacker News `list_story_ids` connector operation
+  when a connection is authorized, exits, and resumes the session. It checks
+  the terminal, the workspace, the mock's request log, and the session in
+  the Dex server: its namespaced Flow type, messages, tool records, and
+  uploaded session graph.
+- **Framework suite.** The order support agent of each framework example
+  looks up an order, cancels one after approval, and has a cancellation
+  rejected in a second session, through the example's HTTP session routes.
+- **Dex server.** It starts a private `dexcli dev` on free ports, with its
+  own home, zd data directory, and connector configuration directory, and
+  stops it at the end. No session or connector call reaches another server.
+  `--seed-hacker-news` gives that server a Hacker News connection for the
+  connector step; without one, the step is skipped. `--reuse-server
+  http://127.0.0.1:8802` uses a running `dexcli dev` instead, with its
+  sessions and authorized connections; the run never stops it.
+
+Builds, private homes, terminal transcripts, request logs, and the report
+go to `--work-dir`. The exit code is 1 when a step failed.

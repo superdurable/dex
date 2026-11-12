@@ -826,7 +826,8 @@ export interface ToolCallCancellation {
  * - `text_delta` and `reasoning_delta`: `{"text"}`.
  * - `tool_call_started`: `{"tool_call_id","tool_name"}`.
  * - `tool_call_finished`: `{"tool_call_id","tool_name","status"}`, when a record becomes final,
- *   including a rejection.
+ *   including a rejection. For a call whose tool Step returned `isFinishedByResumedTurn`, the runner
+ *   writes it from the resumed turn's `RunModel` instead, when the call really ran.
  * - `tool_call_deferred`: `{"tool_call_id","tool_name","effect","requires_approval"}`, when the model
  *   asks for a call, which then runs in its own Step or, for a built-in tool, waits in the session.
  * - `interrupt_raised`: `{"interrupt_id","kind","tool_call_id","tool_name","deadline","question",

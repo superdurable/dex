@@ -20,6 +20,7 @@ from dex_agents import (
     PENDING_INTERRUPTS,
     TURN_FAILURE_NOTE_FOOTER,
     TURN_FAILURE_NOTE_HEADER,
+    AgentEventType,
     AgentSessionStatus,
     MessageRole,
     ToolCallStatus,
@@ -325,6 +326,11 @@ async def test_built_in_tool_runs_in_the_cli_after_approval(harness: ClaudeAgent
     assert tool_outputs == ["ran echo hi"]
     assert APPROVED_CLI_TOOL_OUTPUT not in (snapshot.messages[-1].text or "")
     assert harness.invocations.count("Bash") == 1
+    # The tool Step reports the call; the resumed CLI run must not report it again.
+    assert await _tool_events(harness, session_id) == [
+        (AgentEventType.TOOL_CALL_STARTED, interrupt.tool_call_id, None),
+        (AgentEventType.TOOL_CALL_FINISHED, interrupt.tool_call_id, "succeeded"),
+    ]
 
 
 async def test_rejected_built_in_tool_never_runs(harness: ClaudeAgentHarness) -> None:
@@ -337,8 +343,11 @@ async def test_rejected_built_in_tool_never_runs(harness: ClaudeAgentHarness) ->
         session_id, interrupt.interrupt_id, approved=False, rejection_message="no shell"
     )
     snapshot = await harness.wait_for_turns(session_id, 1)
-    # Claude Code prefixes a hook denial; only custom tools return their rejection themselves.
-    assert snapshot.messages[-1].text == "Bash: PreToolUse:Bash hook error: no shell"
+    # can_use_tool denies the replay, so the model sees no hook error prefix.
+    assert snapshot.messages[-1].text == "Bash: The user rejected this Bash call: no shell"
+    assert await _tool_events(harness, session_id) == [
+        (AgentEventType.TOOL_CALL_FINISHED, interrupt.tool_call_id, "rejected")
+    ]
     assert harness.invocations.count("Bash") == 0
 
 
@@ -594,3 +603,14 @@ async def test_failed_resumed_turn_after_a_write_leaves_a_note_for_the_next_prom
     ]
     assert cli_prompts == [[first_prompt, note, "say next"]]
     assert harness.invocations.count("publish") == 1
+
+
+async def _tool_events(
+    harness: ClaudeAgentHarness, session_id: str
+) -> list[tuple[str, str, str | None]]:
+    events: list[tuple[str, str, str | None]] = []
+    for event in await harness.list_events(session_id):
+        if event.type in (AgentEventType.TOOL_CALL_STARTED, AgentEventType.TOOL_CALL_FINISHED):
+            payload = json.loads(event.payload)
+            events.append((event.type, payload["tool_call_id"], payload.get("status")))
+    return events
