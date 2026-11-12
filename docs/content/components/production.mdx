@@ -17,7 +17,7 @@ decide and set up before launch. Each item links to the page with the details.
 | --- | --- | --- |
 | Topology | One active Dex Server node serves the cluster. Hot standby nodes can take over when it stops. The active node holds a lease in object storage. | [Dex Server](/components/server), [Lease, hot standby, and step down](/reference/server/high-availability) |
 | Capacity | One active node handles all of a cluster's work, so the node size sets the cluster's ceiling. | [Performance and Maturity](/intro/performance-and-maturity) |
-| Storage | Object storage, such as Amazon S3, is the only runtime dependency. The db9 provider can replace it with a PostgreSQL-compatible database. Give each cluster its own bucket prefix and an IAM policy confined to it. | [Object storage and backup](/reference/server/object-storage) |
+| Storage | Object storage, such as Amazon S3, holds all server state. The db9 provider can replace it with a PostgreSQL-compatible database. Give each cluster its own bucket prefix and an IAM policy confined to it. | [Object storage and backup](/reference/server/object-storage) |
 | Configuration | **serve** reads one YAML file. Start from the minimal production configuration. | [Install and configure server-zd](/reference/server/configuration) |
 | Retention | A closed Flow run stays available for 7 days by default, then the server may delete it. Set **retention.closedFlowDuration** to your audit needs. | [Retention](/reference/server/configuration#retention) |
 | Backup and restore | The object storage prefix is the only source of truth. Protect it with bucket versioning, with a lifecycle rule that expires old versions, or with replication. Practice a restore. | [Backup and restore](/reference/server/object-storage#backup-and-restore) |
@@ -25,7 +25,7 @@ decide and set up before launch. Each item links to the page with the details.
 | Authentication | Public API authentication is off by default. Require a bearer credential before you expose the API. | [Authentication](/reference/server/authentication) |
 | Monitoring | Serve metrics on their own listener, and alert on a node that is not serving and on failed lease renewals. | [Metrics and alerts](/reference/server/metrics) |
 | Workers | Workers connect out to the server. Size their task slots, and stop them gracefully during a deployment. | [Workers and the task queue](/reference/server/workers) |
-| Upgrades | Upgrades roll forward. Stop every old server process before the new version starts. Never run an older version on a prefix that a newer one wrote. | [Upgrades and compatibility](/reference/server/upgrades) |
+| Upgrades | Upgrades roll forward. Some releases need every server process stopped, standbys included, before the new version starts; the upgrades page lists them. Never run an older version on a prefix that a newer one wrote. | [Upgrades and compatibility](/reference/server/upgrades) |
 | Your database | Steps that write to your database must make the write safe to repeat. Attribute Store sync can drop entries after a long PostgreSQL outage. | [Dex and Your Database](/components/your-database) |
 | Code changes | Keep old Step types and RPCs until the Flows that use them close. | [Versioning Flow code](/components/application#versioning-flow-code) |
 

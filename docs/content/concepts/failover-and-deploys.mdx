@@ -1,0 +1,87 @@
+---
+id: failover-and-deploys
+title: Failover and Deploys
+sidebar_label: Failover and Deploys
+slug: /concepts/failover-and-deploys
+description: What runs again when a Worker crashes, a Dex Server node fails over, or you deploy new code, and what you must do about it.
+---
+
+# Failover and Deploys
+
+Dex saves each finished Step, so a crash or a deploy repeats only the work that
+was in progress. This page lists each event and what runs again.
+
+| Event | What runs again | What you do |
+| --- | --- | --- |
+| A Worker crashes or stops | The Step attempts it was running | Key external calls with an [idempotency key](/concepts/step#idempotency-keys). |
+| A Dex Server node fails over | Every attempt that a Worker had received | The same. Each attempt also consumes a retry. |
+| You deploy new Step code | Nothing that already finished | Keep open Flows working. See [Versioning Flow code](/components/application#versioning-flow-code). |
+| You change **WaitFor** code | Nothing that already waits | Expect old conditions on Steps that already wait. |
+| An ASYNC Step's start is lost | That attempt, on a new snapshot | Use SYNC when the Step must see one snapshot. |
+| You run Time Travel | Every Step after the chosen point | Key external calls so a repeat has no effect. |
+
+## A Worker crashes or stops
+
+A Worker that dies in the middle of a Step leaves that attempt unfinished. Dex
+fails the attempt and retries it on another Worker, under the Step's retry
+policy. The retry reuses the state snapshot of the first attempt. Finished
+Steps do not run again. A Step that waits holds no Worker, so a crash during a
+wait repeats nothing. [Step guarantees](/concepts/step#guarantees) has the
+details.
+
+A graceful stop drains first. The Worker gives running methods up to 30 seconds
+by default to finish, then asks them to cancel. See
+[Workers and the task queue](/reference/server/workers).
+
+## A Dex Server node fails over
+
+When the active node crashes, a standby takes over after the lease expires,
+plus 1 second. The lease is 10 seconds by default. Recovery then fails every
+attempt that a Worker had received, with **NOT_COMPLETED**, and each attempt
+consumes a retry. So a Step that was running during a failover runs again,
+even if its Worker kept running.
+
+There is one exception. An ASYNC attempt whose start the node had not yet
+saved runs again with the same attempt number and consumes no retry. See
+[Lease, hot standby, and step down](/reference/server/high-availability#lease).
+
+A graceful step down releases the lease, so a standby takes over at once.
+
+## You deploy new code
+
+Dex never replays Step code, so a deploy causes no replay error. Each Step
+attempt runs the code of the Worker that takes it. A Flow that waits in a Step
+today runs the new **Execute** when its conditions are met.
+
+During a rolling deploy, a Worker that lacks a Step type or RPC declines it.
+Dex hands the call to another Worker, and the Step attempt is not used up. See
+[Routing and availability](/reference/server/workers#routing-and-availability).
+
+Keep a Step type or RPC until no open Flow can call it. A stored version
+Attribute decides which path a Flow takes. See
+[Versioning Flow code](/components/application#versioning-flow-code).
+
+## You change WaitFor code
+
+**WaitFor** returns a Wait, and Dex stores it. A Step that already waits keeps
+the conditions its **WaitFor** returned. New **WaitFor** code applies to Step
+executions that start after the deploy. To change what an old Step waits for,
+publish to its Channel or skip its Timer, or start a new Flow.
+
+## An ASYNC Step's start is lost
+
+An ASYNC Step moves on before Dex saves its start. If the node fails first, the
+same attempt runs again on a new state snapshot, so it can read different
+Attribute values. See [SYNC and ASYNC Steps](/concepts/step#sync-and-async).
+
+## You run Time Travel
+
+Time Travel moves a Flow run back to an earlier point and runs it again from
+there. Every Step after that point runs again, with its external calls. See
+[Recover a Flow with Time Travel](/components/application#time-travel).
+
+## Related
+
+- [Step guarantees](/concepts/step#guarantees)
+- [Limits and Sharp Edges](/intro/limits-and-sharp-edges)
+- [Run Dex in Production](/components/production)

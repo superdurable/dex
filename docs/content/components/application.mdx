@@ -90,6 +90,122 @@ Pass each service that a Flow calls, such as a payment API, to the Flow construc
 
 A **start** handler starts the Flow. When the caller needs to know that the first Step finished, such as a charge before the order page shows "paid", the handler waits for that Step with the Client **wait-for-Step-completion** API. The wait ends when Dex records the Step, so the handler needs no status table or polling loop of its own.
 
+### A minimal service {#minimal-service}
+
+Each [Quick Start](/quick-start) example also has a service that serves **POST /orders** and runs the Worker in the same process. Its handler starts the order's Flow and waits for Charge:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/quick-start',
+    go: 'examples/go/quick-start',
+    java: 'examples/java/quick-start',
+    typescript: 'examples/typescript/quick-start',
+    rust: 'examples/rust/quick-start',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def start_order(client: Client, order_flow: OrderFlow, order_id: str) -> None:
+    """Starts the order's Flow once, however often the request is retried."""
+    options = StartFlowOptions(
+        request_id=f"start-{order_id}",
+        ignore_already_started=True,
+    )
+    client.start_flow(order_flow, order_id, order_id, options)
+    client.wait_for_step_completion(
+        order_id,
+        StepExecutionId("Charge"),
+        WaitForStepCompletionOptions(request_timeout=timedelta(seconds=30)),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// StartOrder starts the order's Flow once, however often the request is retried.
+// It returns after Charge completes.
+func StartOrder(ctx context.Context, client *dex.Client, flow *OrderFlow, orderID string) error {
+	requestID := "start-" + orderID
+	options := dex.StartFlowOptions{
+		RequestID:      &requestID,
+		AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true},
+	}
+	if _, err := client.StartFlow(ctx, flow, orderID, orderID, options); err != nil {
+		return err
+	}
+	return client.WaitForStepCompletion(ctx, orderID, dex.StepExecutionID{StepType: "Charge"},
+		dex.WaitForStepCompletionOptions{RequestTimeout: 30 * time.Second})
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+/** Starts the order's Flow once, however often the request is retried. Returns after Charge. */
+public static void startOrder(final Client client, final OrderFlow orderFlow, final String orderId) {
+    final StartFlowOptions options = StartFlowOptions.newBuilder()
+            .requestId("start-" + orderId)
+            .ignoreAlreadyStarted(true)
+            .build();
+    client.startFlow(orderFlow, orderId, orderId, options);
+    client.waitForStepCompletion(
+            orderId,
+            StepExecutionId.of("Charge"),
+            WaitForStepCompletionOptions.newBuilder().requestTimeout(Duration.ofSeconds(30)).build());
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Starts the order's Flow once, however often the request is retried. Returns after Charge. */
+export async function startOrder(client: Client, orderFlow: OrderFlow, orderId: string): Promise<void> {
+  await client.startFlow(orderFlow, orderId, orderId, {
+    requestId: `start-${orderId}`,
+    ignoreAlreadyStarted: true,
+  });
+  await client.waitForStepCompletion(orderId, StepExecutionId.of("Charge"), {
+    requestTimeoutMs: 30_000,
+  });
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+/// Starts the order's Flow once, however often the request is retried. Returns after Charge.
+pub fn start_order(client: &Client, order_flow: &OrderFlow, order_id: &str) -> SdkResult<()> {
+    let options = StartFlowOptions::new()
+        .request_id(format!("start-{order_id}"))
+        .ignore_already_started(true);
+    client.start_flow_with_options(order_flow, order_id, order_id.to_string(), options)?;
+    client.wait_for_step_completion(
+        order_id,
+        StepExecutionId::of(&order_flow.charge),
+        WaitForStepCompletionOptions::new().request_timeout(Duration::from_secs(30)),
+    )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Three start options make a retried request safe:
+
+- The **order ID is the Flow ID**. Dex keeps one Flow for each ID, and its default ID reuse policy rejects a second start.
+- The **request ID** is **start-** plus the order ID. It is the same on every retry of this request.
+- The **already-started option** returns the existing run when its request ID matches. It is **ignore_already_started** in Python and Rust, **ignoreAlreadyStarted** in Java and TypeScript, and **AlreadyStarted.IgnoreError** in Go. A different request ID for the same order still gets an already-started error, which the service answers with 409.
+
+So when a client sends the request twice, the order is charged once. [Start options and configuration](/concepts/flow#start-options) lists the options, and [Dex and your database](/components/your-database#write-your-row-and-start-the-flow) shows the handler that also writes your own table. Run the service from the example folder, then send an order:
+
+```bash
+curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
+```
+
 ## Send commands and read state through RPCs {#send-commands-through-rpcs}
 
 A handler that changes a Flow calls an RPC, such as **approve**. The RPC publishes the message to a Channel, and the waiting Step wakes. A handler that reads a Flow calls a read RPC, such as **describe**. An RPC runs against the Flow's current state on a Worker, so the handler reads and writes the same state that the Steps use. The handlers get the Client and the Flow from their constructor or factory arguments.

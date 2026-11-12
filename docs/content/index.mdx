@@ -8,7 +8,7 @@ slug: /
 
 Dex is a **Durable Execution** platform. A database stores your data. Dex also stores the progress of your process: which Steps ran, what they returned, and what the process is waiting for. After a crash, a restart, or a long wait, the process continues where it stopped.
 
-You write the process as a Flow: a set of Steps in your own language, each of which says which Step runs next. Attributes, Channels, RPCs, and Connectors hold its state and connect it to the outside.
+You write the process as a **Flow**: a set of **Steps** in your own language, each of which says which Step runs next. A **Worker** in your service runs the Steps. [Concepts](/concepts) introduces the other building blocks.
 
 ## New to Dex
 
@@ -66,6 +66,9 @@ https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
   </DocsSection>
   <DocsSection section="intro" to="/intro/performance-and-maturity" title="Performance and maturity">
     Measured throughput and latency, release status, and the license.
+  </DocsSection>
+  <DocsSection section="intro" to="/intro/limits-and-sharp-edges" title="Limits and sharp edges">
+    What Dex does not do yet, and the defaults to know before production.
   </DocsSection>
 </div>
 

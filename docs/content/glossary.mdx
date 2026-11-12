@@ -13,6 +13,10 @@ Short definitions of Dex terms. Dex grew out of iWF, which called a Flow a Workf
 
 The Steps of a durable agent session, such as **RunModel**, **CallTool**, **AwaitToolApproval**, and **ResumeTurn**. Sessions explains each one.
 
+#### [App Worker ID](/reference/server/workers#routing-and-availability)
+
+The ID of one running Worker process. Dex routes a Flow's next Step or RPC to the same app Worker ID first. The SDK generates a new one each time the process starts. If you set it yourself, change it after each restart.
+
 #### [Attribute](/concepts/primitives/attribute)
 
 A durable, typed variable on a Flow. You can index it for search.
@@ -57,6 +61,10 @@ Running a process so that it survives crashes, restarts, and long waits. The eng
 
 The Step method that runs after the WaitFor condition is met, or right away when the Step has no WaitFor.
 
+#### [Failover](/concepts/failover-and-deploys)
+
+A standby Dex Server process taking over after the active one stops. Every attempt that a Worker had received runs again.
+
 #### [Flow](/concepts/flow)
 
 The top-level durable program. It contains Steps, Attributes, Channels, and RPCs.
@@ -72,6 +80,14 @@ The ID that your application assigns to a Flow run.
 #### [GetAttributes](/reference/server/runtime-client#read-attributes)
 
 A Client API that reads committed Attribute values from outside a Flow. It does not need a Worker.
+
+#### [Hard-delete Attribute](/concepts/primitives/attribute#hard-delete-attributes)
+
+An Attribute for a short-lived secret. Deleting it erases the stored value permanently. Dex reads it again on every attempt instead of from the attempt's snapshot.
+
+#### [Index slot](/concepts/primitives/attribute#read-and-search-attributes)
+
+A numbered search key, such as **keyword1** or **int2**, that an indexed Attribute uses. Slots are typed, shared by every Flow type in a namespace, and limited in number.
 
 #### [InvokeRPC](/concepts/primitives/rpc)
 
@@ -97,6 +113,10 @@ A Worker handler that reads or writes a running Flow from outside.
 
 The ID that the engine assigns to each run of a Flow ID.
 
+#### [server-zd](/components/server)
+
+The name of the current Dex Server implementation. Its binary is **dex-server-zd**. Releases and reference pages use this name.
+
 #### [Step](/concepts/step)
 
 The unit of durable control flow. It has an optional WaitFor and an Execute.
@@ -113,6 +133,10 @@ One run of a Step type, identified by **step_type** and a number.
 
 What Execute returns: the next Steps to run, or that the Flow completes or fails. Each part of it is a Movement.
 
+#### [Sticky routing](/reference/server/workers#routing-and-availability)
+
+Dex sends a Flow's next Step or RPC to the Worker that served the Flow before, for up to 5 seconds, before any other Worker can take it. It is best effort, so keep state in Dex, not in Worker memory.
+
 #### [Stream](/concepts/primitives/stream)
 
 A best-effort, ordered feed of messages from a Flow to a reader, such as live progress for a UI. A reader can resume where it stopped.
@@ -128,6 +152,10 @@ Running a Flow run again from an earlier point in its history, usually after a f
 #### [Timer](/concepts/primitives/timer)
 
 A durable sleep condition. When it fires, the waiting Step resumes.
+
+#### [Transactional RPC](/concepts/primitives/rpc#transactional-reads-and-writes)
+
+An RPC whose changes Dex saves only if every Channel message it deletes is still pending. An RPC that holds a lock is always transactional.
 
 #### [Versioning](/components/application#versioning-flow-code)
 

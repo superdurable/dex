@@ -25,7 +25,7 @@ The mock API prints each call, so the Worker's output shows which Steps ran. You
 
 - macOS or Linux. **dexcli** does not run on Windows.
 - **dexcli**, installed in step 1.
-- The toolchain for your language: Python 3.11 or later with uv, Go, JDK 17 or later, Node.js 22.18 or later, or Rust 1.97 or later.
+- The toolchain for your language: Python 3.11 or later with uv, Go 1.24 or later, JDK 17 or later, Node.js 22.18 or later, or Rust 1.97 or later.
 - Git, to get the example code.
 
 ## 1. Install Dex and get the code
@@ -102,6 +102,13 @@ cd dex/examples/rust/quick-start
 
 </SdkSnippet>
 </SdkTabs>
+
+Without uv, create a virtual environment and install the SDK version that **pyproject.toml** pins. Then run each Python command below with **.venv/bin/python** in place of **uv run --frozen python**:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install "dex-python-sdk==1.44.0"
+```
 
 ## 2. Read the Flow
 
@@ -190,7 +197,9 @@ type Charge struct {
 
 // Execute charges the order.
 func (step Charge) Execute(_ dex.Context, orderID string) (*dex.StepDecision, error) {
-	step.shop.Charge(orderID, "charge-"+orderID)
+	if err := step.shop.Charge(orderID, "charge-"+orderID); err != nil {
+		return nil, err
+	}
 	return dex.GoTo(Ship{}, orderID), nil
 }
 
@@ -207,7 +216,9 @@ func (Ship) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
 
 // Execute ships the order and completes the Flow.
 func (step Ship) Execute(_ dex.Context, orderID string) (*dex.StepDecision, error) {
-	step.shop.Ship(orderID, "ship-"+orderID)
+	if err := step.shop.Ship(orderID, "ship-"+orderID); err != nil {
+		return nil, err
+	}
 	return dex.GracefulComplete("shipped " + orderID), nil
 }
 ```
@@ -293,8 +304,8 @@ class Charge implements Step<string> {
     return "Charge";
   }
 
-  public execute(_context: Context, orderId: string): StepDecision {
-    this.shop.charge(orderId, `charge-${orderId}`);
+  public async execute(_context: Context, orderId: string): Promise<StepDecision> {
+    await this.shop.charge(orderId, `charge-${orderId}`);
     return goTo(Ship, orderId);
   }
 }
@@ -353,7 +364,9 @@ impl Step for Charge {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, order_id: String) -> HandlerResult<StepDecision> {
-        self.shop.charge(&order_id, &format!("charge-{order_id}"));
+        self.shop
+            .charge(&order_id, &format!("charge-{order_id}"))
+            .map_err(HandlerError::from_error)?;
         let ship = Ship {
             shop: self.shop.clone(),
         };
@@ -375,7 +388,9 @@ impl Step for Ship {
     }
 
     fn execute(&self, _context: &mut Context, order_id: String) -> HandlerResult<StepDecision> {
-        self.shop.ship(&order_id, &format!("ship-{order_id}"));
+        self.shop
+            .ship(&order_id, &format!("ship-{order_id}"))
+            .map_err(HandlerError::from_error)?;
         Ok(StepDecision::graceful_complete(format!(
             "shipped {order_id}"
         )))
@@ -411,11 +426,13 @@ impl Flow for OrderFlow {
 
 The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker.
 
+A decision names the next Step by its type. Python, Java, and TypeScript pass the class. Go passes an empty **Ship** struct value, and Rust passes a **Ship** value.
+
 ## 3. Add a Worker and a Client
 
 The Worker runs the Steps. It connects out to Dex for work, so it needs no open port. The Client starts Flows.
 
-Both programs build the same Flow and register it. The Client uses that registration to name the Flow type and encode the input. Its copy of the mock API is never called. Both programs also open a blob cache. This local cache keeps copies of large Flow values, so the program does not download them again.
+Both programs build the same Flow and register it. The Client uses that registration to name the Flow type and encode the input, so its copy of the mock API is never called. Each program also opens a local [blob cache](/components/application#blob-cache) for large values.
 
 <SdkTabs
   examples={{
@@ -431,7 +448,7 @@ The Worker, in **worker.py**:
 
 ```python
 def main() -> None:
-    order_flow = OrderFlow(ShopApi())
+    order_flow = OrderFlow(new_shop_api())
     registry = Registry((order_flow,))
     cache = open_cache(Path(".dex-blob-cache/worker"))
     worker = Worker(registry, cache, WorkerOptions(server_address=SERVER_ADDRESS))
@@ -439,7 +456,7 @@ def main() -> None:
     try:
         thread.start()
         worker.wait_pull_registered(timeout=30)
-        print("Worker is ready. Press Ctrl+C to stop it.", flush=True)
+        print(f"Worker is ready (process {os.getpid()}). Press Ctrl+C to stop it.", flush=True)
         thread.join()
     except KeyboardInterrupt:
         print("Stopping the Worker.", flush=True)
@@ -472,7 +489,11 @@ The Worker, in **cmd/worker/main.go**:
 
 ```go
 func run() (err error) {
-	registry, err := dex.NewRegistry([]dex.Flow{quickstart.NewOrderFlow(&quickstart.ShopAPI{})})
+	shop, err := quickstart.NewShopAPIFromEnvironment()
+	if err != nil {
+		return err
+	}
+	registry, err := dex.NewRegistry([]dex.Flow{quickstart.NewOrderFlow(shop)})
 	if err != nil {
 		return err
 	}
@@ -497,7 +518,7 @@ func run() (err error) {
 	if err := worker.WaitPullRegistered(startupCtx); err != nil {
 		return errors.Join(err, worker.Stop(context.Background()), <-workerResult)
 	}
-	fmt.Println("Worker is ready. Press Ctrl+C to stop it.")
+	fmt.Printf("Worker is ready (process %d). Press Ctrl+C to stop it.\n", os.Getpid())
 
 	select {
 	case err := <-workerResult:
@@ -549,7 +570,7 @@ The Worker, in **WorkerMain.java**:
 
 ```java
 public static void main(final String[] args) throws Exception {
-    final OrderFlow orderFlow = new OrderFlow(new ShopApi());
+    final OrderFlow orderFlow = new OrderFlow(QuickStartConfig.newShopApi());
     final Registry registry = new Registry(List.of(orderFlow));
     final BlobCache cache = QuickStartConfig.openCache(Paths.get(".dex-blob-cache", "worker"));
     final Worker worker = new Worker(
@@ -565,7 +586,8 @@ public static void main(final String[] args) throws Exception {
     }));
     workerThread.start();
     worker.waitPullRegistered(Duration.ofSeconds(30));
-    System.out.println("Worker is ready. Press Ctrl+C to stop it.");
+    System.out.println("Worker is ready (process " + ProcessHandle.current().pid()
+            + "). Press Ctrl+C to stop it.");
     workerThread.join();
 }
 ```
@@ -594,7 +616,7 @@ public static void main(final String[] args) throws Exception {
 The Worker, in **worker.ts**:
 
 ```ts
-const orderFlow = new OrderFlow(new ShopApi());
+const orderFlow = new OrderFlow(newShopApi());
 const registry = new Registry([orderFlow]);
 const cache = openCache(".dex-blob-cache/worker");
 const worker = new Worker(registry, cache, { serverAddress: SERVER_ADDRESS });
@@ -602,7 +624,7 @@ const stopRequested = once(process, "SIGINT");
 try {
   await worker.start();
   await worker.waitPullRegistered({ timeoutMs: 30_000 });
-  console.log("Worker is ready. Press Ctrl+C to stop it.");
+  console.log(`Worker is ready (process ${process.pid}). Press Ctrl+C to stop it.`);
   await stopRequested;
   console.log("Stopping the Worker.");
 } finally {
@@ -636,7 +658,7 @@ The Worker, in **src/bin/worker.rs**:
 ```rust
 fn main() -> Result<(), Box<dyn Error>> {
     let config = QuickStartConfig::from_environment();
-    let registry = Registry::new().register(OrderFlow::new(ShopApi::default()))?;
+    let registry = Registry::new().register(OrderFlow::new(config.new_shop_api()))?;
     let cache = open_blob_cache(".dex-blob-cache/worker")?;
     let options = WorkerOptions::new().server_address(config.server_address);
     let worker = Arc::new(Worker::try_new(registry, cache, options)?);
@@ -648,7 +670,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build()?;
     let outcome = runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(30), worker.wait_pull_registered()).await??;
-        println!("Worker is ready. Press Ctrl+C to stop it.");
+        println!(
+            "Worker is ready (process {}). Press Ctrl+C to stop it.",
+            std::process::id()
+        );
         tokio::signal::ctrl_c().await?;
         println!("Stopping the Worker.");
         Ok::<(), Box<dyn Error>>(())
@@ -729,10 +754,10 @@ cargo run --locked --bin worker
 </SdkSnippet>
 </SdkTabs>
 
-The Worker prints:
+The Worker prints its process number:
 
 ```text
-Worker is ready. Press Ctrl+C to stop it.
+Worker is ready (process 41231). Press Ctrl+C to stop it.
 ```
 
 Start a Flow in a third terminal, in the same folder:
@@ -794,13 +819,11 @@ Within 30 seconds, press Ctrl+C in the Worker's terminal. Then start the Worker 
 When the Timer fires, the new Worker prints the shipment:
 
 ```text
-Worker is ready. Press Ctrl+C to stop it.
+Worker is ready (process 41388). Press Ctrl+C to stop it.
 Shipped order-1a2b3c4d with key ship-order-1a2b3c4d
 ```
 
 It does not print **Charged** again. Dex had saved the result of Charge, so only Ship ran.
-
-A Step that was cut off in the middle can run again, so each call passes an idempotency key. [Step guarantees](/concepts/step#guarantees) explains when this happens and how to build the key.
 
 ### If nothing happens
 
@@ -808,8 +831,68 @@ A Step that was cut off in the middle can run again, so each call passes an idem
 - **Dex runs on another address.** Set **DEX_FLOW_SERVICE_ADDRESS**, such as **127.0.0.1:8801**, in both the Worker's and the start command's terminal.
 - **The start command fails.** Run it from the example folder, after the install command in step 1.
 - **Ship ran before you stopped the Worker.** You missed the 30-second window. Start another Flow and stop the Worker sooner.
+- **The Worker keeps running after Ctrl+C.** It finishes the running Step first. To stop it at once, use **kill -9** with its process number.
 
-## 6. See the run in Dex Web
+## 6. Stop the Worker inside a Step
+
+Step 5 stopped the Worker between two Steps. This step stops it inside Charge, after the payment call and before Dex records the Step. Dex then runs Charge again, and the idempotency key keeps the payment from happening twice. [Idempotency keys](/concepts/step#idempotency-keys) explains how to build the key.
+
+The mock API remembers each key in **.shop-api-keys**, as a payment provider would. Stop the Worker with Ctrl+C. Start it again with a 20-second pause after each new charge:
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```bash
+QUICK_START_CHARGE_DELAY_SECONDS=20 uv run --frozen python worker.py
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```bash
+QUICK_START_CHARGE_DELAY_SECONDS=20 go run ./cmd/worker
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```bash
+QUICK_START_CHARGE_DELAY_SECONDS=20 build/install/quick-start/bin/worker
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+QUICK_START_CHARGE_DELAY_SECONDS=20 npm run worker
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```bash
+QUICK_START_CHARGE_DELAY_SECONDS=20 cargo run --locked --bin worker
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Start another Flow with the start command from step 4. When the Worker prints **Charged**, stop it at once from the third terminal. Use the process number that the Worker printed. Ctrl+C would let Charge finish first.
+
+```bash
+kill -9 41231
+```
+
+Start the Worker again with the command from step 4. Dex never recorded the first Charge, so it runs Charge again. The mock API sees the same key and does not charge twice:
+
+```text
+Worker is ready (process 41502). Press Ctrl+C to stop it.
+Charge for order-5e6f7a8b already done (key charge-order-5e6f7a8b); not charged again
+```
+
+Thirty seconds later, the Worker ships the order.
+
+## 7. See the run in Dex Web
 
 Open [http://127.0.0.1:8802](http://127.0.0.1:8802) and select your Flow. The Execution graph shows each Step that ran:
 
@@ -843,5 +926,6 @@ installing anything else.
 ## Next
 
 - [Concepts](/concepts): Flows, Steps, waits, and the other building blocks.
+- [A minimal service](/components/application#minimal-service): the same Flow started from an HTTP handler, with the Worker in the same process.
 - [Order Processing](/use-cases/order-processing): a full product example with approvals, retries, and a refund.
 - [Agent Quick Start](/agent-frameworks/quick-start): run an AI agent as a durable session.

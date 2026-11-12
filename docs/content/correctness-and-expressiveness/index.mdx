@@ -26,6 +26,17 @@ lists every condition, and
 [How it was checked](/correctness-and-expressiveness/failure-transparency-proof#how-it-was-checked)
 describes the checks.
 
+The server code itself is tested under faults, outside the proof. A
+[deterministic simulation](https://github.com/superdurable/dex/tree/main/server-zd/crates/dexzd-simulation)
+runs the real server engine against simulated object storage, clocks, Workers,
+and clients. It injects slow and lost storage responses, 5xx errors, crashes
+with writes still in flight, takeovers by a new process while the old one still
+writes, and Workers that hang, fail, or disconnect. It then checks that every
+acknowledged write survives and that no read sees uncommitted or stale state. It
+covers RPCs, locks, and hard-delete Attributes too. CI runs it nightly. The
+[server integration tests](https://github.com/superdurable/dex/tree/main/server-zd/integ)
+run real Workers against a real server.
+
 ## Expressiveness
 
 The [Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof)

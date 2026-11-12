@@ -241,6 +241,20 @@ already-started error. Then a retry of a start that already succeeded returns
 that run. With a policy that allows another run, a retry can start a second
 run instead.
 
+The three options have these names in each SDK:
+
+| SDK | ID reuse policy | Request ID | Return the existing run |
+| --- | --- | --- | --- |
+| Python | **id_reuse_policy** | **request_id** | **ignore_already_started=True** |
+| Go | **IDReusePolicy** | **RequestID** | **AlreadyStarted** with **IgnoreError: true** |
+| Java | **idReusePolicy(...)** | **requestId(...)** | **ignoreAlreadyStarted(true)** |
+| TypeScript | **idReusePolicy** | **requestId** | **ignoreAlreadyStarted: true** |
+| Rust | **id_reuse_policy(...)** | **request_id(...)** | **ignore_already_started(true)** |
+
+The default ID reuse policy already rejects a second run with the same Flow ID,
+so most handlers set only the last two. [A minimal service](/components/application#minimal-service)
+shows a handler that does this in every SDK.
+
 ## Reference
 
 The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.

@@ -13,7 +13,7 @@ Dex shares the goal of other durable execution tools: a process that survives cr
 
 Every tool on this page records the progress of a process outside the process itself. After a crash, the process continues from the record instead of starting over. The workflow engines, runtimes, and libraries also offer durable timers, a way to wait for an outside event, and retries for failed work. An agent framework checkpointer covers less of this. [Its section](#agent-framework-checkpoints) says what it leaves to your application.
 
-Every tool also leaves one duty to you. A call to an external system can run more than once, so that call needs an idempotency key or a check. Dex states its own rules in the [Step guarantees](/concepts/step#guarantees).
+Every tool also leaves one duty to you: a call to an external system can run more than once. Dex's rule is in [Idempotency keys](/concepts/step#idempotency-keys).
 
 ## The main difference: an explicit Step graph, not replayed code
 

@@ -71,6 +71,7 @@ const sidebars: SidebarsConfig = {
         },
         'concepts/client',
         'concepts/connector',
+        'concepts/failover-and-deploys',
       ],
     },
     {
@@ -205,6 +206,7 @@ const sidebars: SidebarsConfig = {
         'intro/compared-to-database',
         'intro/compared-to-durable-execution',
         'intro/performance-and-maturity',
+        'intro/limits-and-sharp-edges',
         {
           type: 'category',
           label: 'Correctness and Expressiveness',

@@ -229,7 +229,8 @@ condition: it waits on a ChannelMap that the branches report to. See
 
 **Execute** returns a **StepDecision**. It can go to one next Step or to
 several Steps at once. This is how you build branching, loops, and parallel
-work.
+work. **GoTo** names the next Step by its Step type and passes its input. The
+Flow's registered instance of that Step type runs it.
 
 <StepDecisionMovementsDiagram markdownDescription="GoTo: ExampleStep returns GoTo(Complete Flow), which completes the Flow. GoToMany: ExampleStep starts StepA and StepB, which run in parallel. Loop: ExampleStep goes to ProcessStep, and ProcessStep goes back to ExampleStep." />
 
@@ -286,7 +287,9 @@ Four rules matter most:
 - **A retry sees the state of its first attempt.** A retry of **Execute**
   reuses the state snapshot of the first attempt. It does not see Attribute
   writes made since then. To wait for such a write, have the writer publish a
-  Channel message, and wait for it in the next Step's **WaitFor**.
+  Channel message, and wait for it in the next Step's **WaitFor**. Hard-delete
+  Attributes are the exception: Dex reads them again on every attempt. See
+  [Short-lived secrets](/concepts/primitives/attribute#hard-delete-attributes).
 - **Parallel writers can overwrite each other.** Two Steps or RPCs that read
   and then write the same Attribute need a lock on it. The details follow.
 

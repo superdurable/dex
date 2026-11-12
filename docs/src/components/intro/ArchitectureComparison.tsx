@@ -56,9 +56,12 @@ function DesignColumn({design, isDex}: {design: OrderProcessDesign; isDex: boole
 
 /**
  * Two columns that list every part of the full order process in each design.
- * The Markdown export uses markdownDescription in place of the columns.
+ * The Markdown export writes markdownTable as a table, or markdownDescription as a caption, in place of the columns.
  */
-export default function ArchitectureComparison(_props: {markdownDescription: string}): ReactNode {
+export default function ArchitectureComparison(_props: {
+  markdownDescription?: string;
+  markdownTable?: {header: string[]; rows: string[][]};
+}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = orderProcessCopy(i18n.currentLocale);
   return (

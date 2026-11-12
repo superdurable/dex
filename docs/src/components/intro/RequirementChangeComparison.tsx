@@ -40,9 +40,12 @@ function ChangeCell({label, side, isDex}: {label: string; side: RequirementChang
 
 /**
  * Rows that show what each design adds for each new requirement of the order process.
- * The Markdown export uses markdownDescription in place of the rows.
+ * The Markdown export writes markdownTable as a table, or markdownDescription as a caption, in place of the rows.
  */
-export default function RequirementChangeComparison(_props: {markdownDescription: string}): ReactNode {
+export default function RequirementChangeComparison(_props: {
+  markdownDescription?: string;
+  markdownTable?: {header: string[]; rows: string[][]};
+}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = orderProcessCopy(i18n.currentLocale);
   const changes = copy.requirementChanges;

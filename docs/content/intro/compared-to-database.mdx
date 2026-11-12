@@ -21,7 +21,15 @@ It waits for the seller's approval before shipping and reminds the seller while 
 It refunds the buyer when shipping still fails after an hour.
 These are the parts each design needs for it:
 
-<ArchitectureComparison markdownDescription="Database, queues, and outbox, what you build and run. Tables: an orders table with a status column, an approvals table, and an outbox table. Queues: charge-requests, ship-requests, refund-requests, retry topics or visibility timeouts, and a dead-letter queue (DLQ). Services and jobs: charge, ship, and refund consumers, an outbox relay, a reminder cron job, an approval endpoint, a status polling endpoint, and DLQ inspect and repair tools. They run on a database and a queue broker. Dex, what you write and run: one Flow with a Charge Step, a Ship Step, a Refund Step, and an approve RPC, and the Workers that host the Flow. They run on Dex Server, which provides retries per Step, durable Timers, waits on Channels, the Client wait API, and Step history with rerun." />
+<ArchitectureComparison markdownTable={{
+  header: ['Part', 'Database, queues, and outbox', 'Dex'],
+  rows: [
+    ['Tables', 'Orders with a status column, approvals, and an outbox', 'None for the process. Flow state lives in Dex.'],
+    ['Queues', 'charge-requests, ship-requests, refund-requests, retry topics or visibility timeouts, and a dead-letter queue (DLQ)', 'None'],
+    ['Code you write', 'Charge, ship, and refund consumers, an outbox relay, a reminder cron job, an approval endpoint, a status polling endpoint, and DLQ repair tools', 'One Flow with Charge, Ship, and Refund Steps and an approve RPC, and the Workers that host it'],
+    ['Infrastructure', 'A database and a queue broker', 'Dex Server, which provides retries per Step, durable Timers, waits on Channels, the Client wait API, and Step history with rerun'],
+  ],
+}} />
 
 ## What a database does not do
 
@@ -155,9 +163,9 @@ This design works, and many teams run it well. Its cost is the code around the b
 
 In Dex you write the business logic as Steps.
 Dex provides the retries, timers, waits, crash recovery, and the record of each Step.
-One duty stays with you: a Step can run more than once, so each external call needs an idempotency key. The [Step guarantees](/concepts/step#guarantees) explain when a Step runs again.
+One duty stays with you: each external call passes an [idempotency key](/concepts/step#idempotency-keys).
 
-<ExecutionApproachDiagram approach="dex" markdownDescription="The frontend API starts the Flow and waits for the Charge Step with the Client API. Dex Server records each Step result and the move to the next Step together. It provides retries per Step, durable Timers, waits on Channels, and Step history with rerun. It sends each Step task to one of your Workers, and the Steps call the charge, ship, and refund APIs." />
+<ExecutionApproachDiagram approach="dex" markdownDescription="The frontend API starts the Flow through the Client. Dex Server sends each Step task to one of your Workers, and the Steps call the charge, ship, and refund APIs." />
 
 The charge, approve, and ship process becomes:
 
@@ -169,7 +177,7 @@ The charge, approve, and ship process becomes:
 3. **Refund Step**: refund the buyer.
 4. The frontend calls a built-in Client API that waits until the Charge Step completes, then shows "payment received".
 
-<DocsFlowDefinitionGraph graph={orderProcessingFlow} />
+<DocsFlowDefinitionGraph graph={orderProcessingFlow} markdownReference="/intro/what-is-dex#example-order-processing" markdownReferenceLabel="Why Dex?" />
 
 Dex records the inputs, outputs, and errors of every Step.
 Operators can inspect each order and, after a fix, rerun it from an earlier Step (time travel).
@@ -177,7 +185,7 @@ Operators can inspect each order and, after a fix, rerun it from an earlier Step
 | Problem | Database and queues | Dex Flow |
 | --- | --- | --- |
 | Crash between two steps | An outbox and a relay keep the two steps together. Without them, the buyer can be charged while the item never ships. | Dex records each Step result and the move to the next Step together. |
-| Crash during the charge call | The consumer runs again. The payment API needs an idempotency key. | The Charge Step runs again. The payment API needs an idempotency key. |
+| Crash during the charge call | The consumer runs again, so the payment call needs an idempotency key. | The Charge Step runs again, so the payment call needs the same key. |
 | Several workers | You build row claiming, or rely on queue delivery and duplicate checks. | Dex sends each task to one of your Workers. |
 
 ### Your own tables
@@ -188,6 +196,13 @@ You keep the tables that the rest of your system reads, such as the orders table
 
 Each new requirement changes both designs:
 
-<RequirementChangeComparison markdownDescription="Refund the buyer after an hour of ship failures: the database design adds a refund-requests queue and refund consumers, and the ship consumers record the first failure and give up after an hour. Dex adds a Refund Step, and the Ship Step retries for one hour and then moves to the Refund Step. Wait for the seller's approval before shipping: the database design adds an approvals table and an approval endpoint, and the approval endpoint, not the charge consumer, publishes to ship-requests. Dex adds an approve RPC, and the Ship Step waits for a message on the seller Channel. Remind the seller: the database design adds a reminder cron job that scans the approvals table for orders that still wait. In Dex, the Ship Step also waits for a Timer, and when it fires, the Step sends a reminder and waits again." />
+<RequirementChangeComparison markdownTable={{
+  header: ['New requirement', 'Database, queues, and outbox', 'Dex'],
+  rows: [
+    ['Refund the buyer after an hour of ship failures', 'A refund-requests queue and refund consumers. The ship consumers record the first failure and give up after an hour.', 'A Refund Step. The Ship Step retries for one hour and then moves to it.'],
+    ['Wait for the seller\'s approval before shipping', 'An approvals table and an approval endpoint. The endpoint, not the charge consumer, publishes to ship-requests.', 'An approve RPC. The Ship Step waits for a message on the seller Channel.'],
+    ['Remind the seller', 'A reminder cron job that scans the approvals table for orders that still wait.', 'No new part. The Ship Step also waits for a Timer, sends a reminder when it fires, and waits again.'],
+  ],
+}} />
 
 [Order Processing](/use-cases/order-processing) has this Flow as runnable code in every SDK. The [Quick Start](/quick-start) runs a smaller version with a Charge Step and a Ship Step.

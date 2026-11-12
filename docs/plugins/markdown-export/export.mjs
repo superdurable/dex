@@ -33,7 +33,10 @@ const localeCopies = {
     flow: 'Flow',
     steps: 'Steps',
     when: 'when',
+    diagram: 'Diagram',
     graph: {
+      conditionOpen: ' when its condition holds (', timerOpen: words => ` when ${words} (`, isCaseLowered: true, sentenceEnd: '.', clauseJoiner: '; ', groupJoiner: ' ',
+      flowGraphOf: 'Flow graph of', listsItsSteps: 'lists its Steps.',
       rpcs: 'RPCs', startMarker: ' (start Step)', timeoutMarker: ' (timeout handler)', listJoiner: ', ',
       goesTo: 'Goes to', cancels: 'cancels', cancelsJoiner: ' and ', startsSubFlow: 'Starts SubFlow',
       onFailure: label => (label?.endsWith(' failure') ? `If ${label.slice(0, -' failure'.length)} fails, goes to` : 'On failure, goes to'),
@@ -58,7 +61,10 @@ const localeCopies = {
     flow: 'Flow',
     steps: 'Step 列表',
     when: '条件',
+    diagram: '图示',
     graph: {
+      conditionOpen: '（条件 ', timerOpen: words => `（${words}：`, isCaseLowered: false, sentenceEnd: '。', clauseJoiner: '；', groupJoiner: ' ',
+      flowGraphOf: 'Flow 图：', listsItsSteps: '列出了它的 Step。',
       rpcs: 'RPC 列表', startMarker: '（起始 Step）', timeoutMarker: '（超时处理）', listJoiner: '、',
       goesTo: '转到', cancels: '取消', cancelsJoiner: '，并', startsSubFlow: '启动 SubFlow',
       onFailure: label => (label?.endsWith(' failure') ? `${label.slice(0, -' failure'.length)} 失败时转到` : '失败时转到'),
@@ -304,8 +310,12 @@ async function expandJsx(node, context) {
   }
   if (diagrams.has(name)) {
     const description = attribute(node, 'markdownDescription', context);
+    const table = attribute(node, 'markdownTable', context);
+    if (table !== undefined) return diagramTable(table, description, context, node);
     if (typeof description !== 'string' || !description.trim()) fail(context, node, `${name} requires markdownDescription`);
-    return [paragraph(description)];
+    // A labelled quote keeps the diagram's text apart from the prose around it.
+    return [{type: 'blockquote', children: [{type: 'paragraph', children: [
+      {type: 'strong', children: [text(context.copy.diagram)]}, text(`${context.copy.separator}${description.trim()}`)]}]}];
   }
   if (name === 'DocsFlowDefinitionGraph') return expandGraph(node, context);
   if (name === 'DexSkillHostTabs') return expandHostTabs(node, context);
@@ -322,6 +332,19 @@ async function expandJsx(node, context) {
     children: await transformChildren(node.children, context)}];
   if (name === 'a') return expandAnchorElement(node, context);
   fail(context, node, `Unknown JSX component <${name}>`);
+}
+
+// A comparison diagram can export as a table: {header: [...], rows: [[...], ...]}, after an optional caption.
+function diagramTable(table, description, context, node) {
+  const isValid = Array.isArray(table?.header) && Array.isArray(table?.rows)
+    && table.rows.every(row => Array.isArray(row) && row.length === table.header.length)
+    && [table.header, ...table.rows].flat().every(cell => typeof cell === 'string');
+  if (!isValid) fail(context, node, 'markdownTable needs a header and rows of strings with the same number of cells');
+  const row = cells => ({type: 'tableRow', children: cells.map(cell => ({type: 'tableCell', children: [text(cell)]}))});
+  const caption = typeof description === 'string' && description.trim()
+    ? [{type: 'blockquote', children: [{type: 'paragraph', children: [{type: 'strong', children: [text(context.copy.diagram)]},
+      text(`${context.copy.separator}${description.trim()}`)]}]}] : [];
+  return [...caption, {type: 'table', align: table.header.map(() => null), children: [row(table.header), ...table.rows.map(row)]}];
 }
 
 // Mirrors CrashTimeline.tsx without the animation: the events as a numbered list, then the summary.
@@ -452,6 +475,16 @@ async function expandGraph(node, context) {
     : resolve(dirname(context.sourcePath), importedPath);
   const graph = JSON.parse(await readFile(graphPath, 'utf8'));
   const {copy} = context;
+  // A page that repeats a graph shown elsewhere can point to that page instead of listing it again.
+  const referencePath = attribute(node, 'markdownReference', context);
+  if (typeof referencePath === 'string' && referencePath) {
+    const label = attribute(node, 'markdownReferenceLabel', context);
+    if (typeof label !== 'string' || !label) fail(context, node, 'markdownReference requires markdownReferenceLabel');
+    return [{type: 'paragraph', children: [text(`${copy.graph.flowGraphOf}${context.locale === 'zh-Hans' ? '' : ' '}`), inlineCode(graph.flow.name),
+      text(`${copy.graph.sentenceEnd}${copy.graph.groupJoiner}`),
+      {type: 'link', url: rewriteLink(referencePath, context, node), children: [text(label)]},
+      text(`${context.locale === 'zh-Hans' ? '' : ' '}${copy.graph.listsItsSteps}`)]}];
+  }
   const nodes = new Map(graph.nodes.map(item => [item.id, item]));
   const graphState = {context, node, copy, nodes};
   for (const edge of graph.edges) {
@@ -480,10 +513,8 @@ function graphHandlerItem(handler, graph, graphState) {
     while (item?.parentId && !['step', 'rpc', 'timeout_handler'].includes(item.kind)) item = nodes.get(item.parentId);
     return item;
   };
-  const details = [];
-  for (const wait of graph.nodes.filter(item => item.kind === 'wait' && item.parentId === handler.id)) {
-    details.push(waitPhrasing(wait, copy));
-  }
+  // Each group becomes one sentence: what the Step waits for, the state it touches, and where it goes next.
+  const waits = graph.nodes.filter(item => item.kind === 'wait' && item.parentId === handler.id).map(wait => waitPhrasing(wait, copy));
   const resourceVerbs = new Map();
   for (const edge of graph.edges.filter(item => item.kind.startsWith('resource_'))) {
     const handlerEnd = ownerOf(edge.from) === handler ? edge.to : ownerOf(edge.to) === handler ? edge.from : undefined;
@@ -494,7 +525,8 @@ function graphHandlerItem(handler, graph, graphState) {
     if (!names.includes(name)) names.push(name);
     resourceVerbs.set(verb, names);
   }
-  for (const [verb, names] of resourceVerbs) details.push([text(`${verb} `), ...joinCode(names, copy)]);
+  const resources = [...resourceVerbs].map(([verb, names]) => [text(`${verb} `), ...joinCode(names, copy)]);
+  const moves = [];
   for (const decision of graph.nodes.filter(item => item.kind === 'decision' && item.parentId === handler.id)) {
     const type = decision.decision?.type ?? decision.name;
     if (type === 'rpcResult') continue;
@@ -503,20 +535,35 @@ function graphHandlerItem(handler, graph, graphState) {
     const phrase = targets.length ? [text(`${words.goesTo} `), ...joinCode(targets, copy)]
       : words.decisions[type] ? [text(words.decisions[type])] : [inlineCode(type)];
     if (canceled.length) phrase.push(text(`${words.cancelsJoiner}${words.cancels} `), ...joinCode(canceled, copy));
-    details.push([...phrase, ...conditionPhrasing(decision, copy)]);
+    moves.push([...phrase, ...conditionPhrasing(decision, copy)]);
   }
   for (const edge of graph.edges.filter(item => item.from === handler.id && item.kind === 'failure_transition')) {
-    details.push([text(`${words.onFailure(edge.label)} `), inlineCode(nodes.get(edge.to).name)]);
+    moves.push([text(`${words.onFailure(edge.label)} `), inlineCode(nodes.get(edge.to).name)]);
   }
   for (const edge of graph.edges.filter(item => item.kind === 'subflow' && ownerOf(item.from) === handler)) {
-    details.push([text(`${words.startsSubFlow} `), inlineCode(nodes.get(edge.to).name)]);
+    moves.push([text(`${words.startsSubFlow} `), inlineCode(nodes.get(edge.to).name)]);
   }
+  const sentences = [waits, resources, moves].filter(group => group.length).map(group => sentence(group, words));
   const explanation = handler.metadata?.explanation;
-  return [inlineCode(handler.name),
+  const lead = [inlineCode(handler.name),
     ...(handler === nodes.get(graph.flow.startStepId) ? [text(words.startMarker)] : []),
     ...(handler.kind === 'timeout_handler' ? [text(words.timeoutMarker)] : []),
-    ...(explanation ? [text(`${copy.separator}${explanation}`)] : []),
-    ...(details.length ? [list(details)] : [])];
+    ...(explanation ? [text(`${copy.separator}${explanation}`)] : sentences.length ? [text(copy.separator)] : [])];
+  const body = sentences.flatMap((item, index) => [...(index || explanation ? [text(words.groupJoiner)] : []), ...item]);
+  return [...lead, ...body];
+}
+
+// Joins clauses into one sentence; later English clauses start in lower case.
+function sentence(clauses, words) {
+  const parts = clauses.flatMap((clause, index) => [...(index ? [text(words.clauseJoiner)] : []),
+    ...(index && words.isCaseLowered ? lowerFirst(clause) : clause)]);
+  return [...parts, text(words.sentenceEnd)];
+}
+
+function lowerFirst(clause) {
+  const [first, ...rest] = clause;
+  if (first?.type !== 'text' || !/^[A-Z][a-z]/.test(first.value)) return clause;
+  return [text(first.value[0].toLowerCase() + first.value.slice(1)), ...rest];
 }
 
 function joinCode(names, copy) {
@@ -536,8 +583,8 @@ function waitPhrasing(item, copy) {
 function conditionPhrasing(item, copy) {
   if (!item.condition) return [];
   const words = timerConditionWords(item.condition, copy.graph);
-  return words ? [text(` ${copy.when} ${words}${copy.graph.codeOpen}`), inlineCode(item.condition), text(copy.graph.codeClose)]
-    : [text(` ${copy.when} `), inlineCode(item.condition)];
+  return words ? [text(copy.graph.timerOpen(words)), inlineCode(item.condition), text(copy.graph.codeClose)]
+    : [text(copy.graph.conditionOpen), inlineCode(item.condition), text(copy.graph.codeClose)];
 }
 
 // A Channel label reads "name.for N" and a Timer label "duration timer"; both become plain words.
@@ -618,6 +665,7 @@ function attribute(node, name, context) {
 
 function literalValue(expression, context, node) {
   if (expression?.type === 'Literal') return expression.value;
+  if (expression?.type === 'ArrayExpression') return expression.elements.map(item => literalValue(item, context, node));
   if (expression?.type === 'TemplateLiteral' && !expression.expressions.length) return expression.quasis[0].value.cooked;
   if (expression?.type === 'ObjectExpression') {
     return Object.fromEntries(expression.properties.map(property => {

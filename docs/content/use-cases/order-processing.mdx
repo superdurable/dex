@@ -26,7 +26,7 @@ The Flow charges the buyer, waits for the seller's approval on a Channel, and th
 
 Pass the mock payment and shipping API to the Flow constructor. Do not set them later with a setter, and do not read them from a global variable.
 
-The mock service charges without an idempotency key. A real payment call must pass one, as [Step guarantees](/concepts/step#guarantees) explains.
+The mock payment service skips the idempotency key. A real payment call passes one, built as [Idempotency keys](/concepts/step#idempotency-keys) describes.
 
 The **order-status** Attribute is indexed, so you can search Flows by status. Its index key, **keyword1**, is a numbered search slot that Flow types share, not a field name. [Read and search Attributes](/concepts/primitives/attribute#read-and-search-attributes) explains slots.
 

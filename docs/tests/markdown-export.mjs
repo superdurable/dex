@@ -82,6 +82,10 @@ ${fence}
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
+<DocsFlowDefinitionGraph graph={flowDefinition} markdownReference="/" markdownReferenceLabel="Graph home" />
+
+<DexSystemDiagram markdownDescription="A labelled diagram." />
+
 <CrashTimeline variant="quick-start" />
 
 ## Install and use
@@ -177,14 +181,16 @@ try {
   assert.match(home, /\*\*Go\*\*\n\n```go\nconst fromChild = 1\n```\n\n\*\*Java\*\*\n\n```java\nvar fromProp = 1;\n```\n\n例子: \[examples\/java\/Sample.java\]/);
   assert.doesNotMatch(home, /overridden/);
 
-  // Flow graphs read as a numbered list of Steps, start Step first, with their waits, state, and moves in words.
-  assert.match(home, /\*\*Flow：SampleFlow\*\*\n\n\*\*Step 列表\*\*\n\n1\. `Begin`（起始 Step）：Starts the sample\.\n/);
-  assert.match(home, /   - 写入 `status`\n   - 转到 `Wait` 条件 `needs_wait`\n   - 完成 Flow 条件 Timer 未触发（`not \(context.has_timer_fired\(\)\)`）\n2\. `Wait`\n/);
-  assert.match(home, /   - 不等待 条件 `is_ready\(\)`\n/);
-  assert.match(home, /   - 等待以下任一条件 Timer `one_day`、Channel `approval`（1 条消息） 条件 `not is_ready\(\)`\n/);
-  assert.match(home, /   - 让 Flow 失败\n   - Channel 为空时完成 Flow\n   - Execute 失败时转到 `Begin`\n/);
-  assert.match(home, /\*\*RPC 列表\*\*\n\n- `describe`\n  - 读取 `status`\n/);
+  // Flow graphs read as a numbered list of Steps, start Step first: each Step is one paragraph of plain sentences,
+  // and code expressions appear only in parentheses.
+  assert.match(home, /\*\*Flow：SampleFlow\*\*\n\n\*\*Step 列表\*\*\n\n1\. `Begin`（起始 Step）：Starts the sample\. 写入 `status`。 转到 `Wait`（条件 `needs_wait`）；完成 Flow（Timer 未触发：`not \(context.has_timer_fired\(\)\)`）。\n/);
+  assert.match(home, /\n2\. `Wait`：不等待（条件 `is_ready\(\)`）；等待以下任一条件 Timer `one_day`、Channel `approval`（1 条消息）（条件 `not is_ready\(\)`）。 让 Flow 失败；Channel 为空时完成 Flow；Execute 失败时转到 `Begin`。\n/);
+  assert.match(home, /\*\*RPC 列表\*\*\n\n- `describe`：读取 `status`。\n/);
   assert.doesNotMatch(home, /`rpcResult`/);
+  // A page can point to the page that lists a graph instead of repeating it.
+  assert.match(home, /Flow 图：`SampleFlow`。 \[Graph home\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.md\)列出了它的 Step。/);
+  // Diagram text reads as a labelled quote, apart from the prose.
+  assert.match(home, /> \*\*图示\*\*：A labelled diagram\./);
 
   assert.match(home, /例子: \[examples\/python\/sample_flow.py\]/);
 

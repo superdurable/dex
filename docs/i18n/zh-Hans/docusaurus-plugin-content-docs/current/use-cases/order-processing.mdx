@@ -26,7 +26,7 @@ cd dex
 
 把 mock 的支付和发货 API 传给 Flow 的 constructor。不要事后用 setter 设置，也不要从全局变量读取。
 
-mock service 扣款时不带幂等键。真实的支付调用必须带上幂等键，原因见 [Step 的保证](/concepts/step#guarantees)。
+mock 支付服务扣款时不带幂等键。真实的支付调用要带上幂等键，原因见 [Step 的保证](/concepts/step#guarantees)。
 
 **order-status** Attribute 建了索引，所以可以按状态搜索 Flow。它的索引键 **keyword1** 是各个 Flow 类型共用的编号搜索槽位，不是字段名。槽位的说明见 [读取和搜索 Attribute](/concepts/primitives/attribute#read-and-search-attributes)。
 

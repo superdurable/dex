@@ -8,6 +8,12 @@ sidebar_label: Overview
 
 Dex runs an AI agent as a durable agent session. You can build the agent with the built-in agent loop of Dex Agents, or keep an agent that you already wrote with an agent framework. Both run on the same session Flow, so sessions behave the same either way.
 
+:::info What you run
+
+You run Dex Server next to your app. Dex is in Beta, and Dex Server is at version 0.1. [Performance and Maturity](/intro/performance-and-maturity) gives the numbers and the license. [Run Dex in Production](/components/production) lists what to set up.
+
+:::
+
 ## Do you need this? {#do-you-need-this}
 
 An agent that only answers questions in one request may not. A durable session helps when one of these can happen to your agent:
@@ -51,16 +57,18 @@ To see it, run the [Agent Quick Start](/agent-frameworks/quick-start), or read t
 
 A harness is the code that runs the agent loop: the built-in loop or a framework. Each framework link opens the Agent Quick Start on that framework's tab, with a runnable example and the steps to run it locally.
 
-| Harness | Languages | How the loop maps onto Steps | Choose it when |
-| --- | --- | --- | --- |
-| [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | Python, TypeScript | The Claude Code CLI runs a turn segment in one **RunModel** Step. Reads run inside it. A write ends the segment and runs in its own Step. | You want the Claude Code agent loop and its tools. |
-| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Google ADK agent. |
-| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | One **RunModel** Step runs the graph to its next tool calls. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. |
-| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. |
-| [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | Python, TypeScript | One model call per **RunModel** Step. Each function tool call is its own Step. | You have an OpenAI Agents SDK agent, with or without handoffs. |
-| [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Pydantic AI agent. |
-| [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You have AI SDK tools and models in a TypeScript application. |
-| [Built-in agent loop](/agent-frameworks/built-in-agent-loop) | Python, TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You start a new agent. You want Dex to own the model input, with questions, durable waits, plans, and MCP tools. |
+| Harness | Languages | How the loop maps onto Steps | Choose it when | Check first |
+| --- | --- | --- | --- | --- |
+| [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | Python, TypeScript | The Claude Code CLI runs a turn segment in one **RunModel** Step. Reads run inside it. A write ends the segment and runs in its own Step. | You want the Claude Code agent loop and its tools. | Tools inside the CLI, such as **Bash**, run again when a segment reruns. No Dex compaction. |
+| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Google ADK agent. | The root must be a **BaseAgent**. A tool's state and artifact changes are discarded. |
+| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | One **RunModel** Step runs the graph to its next tool calls. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. | Only the message list survives between turns. The graph may raise no interrupts of its own. |
+| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. | Mastra Memory is not used. Sub-agents, workflows, and Memory tools cannot run in their own Step. |
+| [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | Python, TypeScript | One model call per **RunModel** Step. Each function tool call is its own Step. | You have an OpenAI Agents SDK agent, with or without handoffs. | MCP server tools and local shell tools are refused by default. Do not use SDK sessions. |
+| [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Pydantic AI agent. | Output functions are at least once. **UsageLimits** apply per Step, not per turn. |
+| [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You have AI SDK tools and models in a TypeScript application. | Every tool needs **execute**. AI SDK **toolApproval** is not used; approval belongs to Dex. |
+| [Built-in agent loop](/agent-frameworks/built-in-agent-loop) | Python, TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You start a new agent. You want Dex to own the model input, with questions, durable waits, plans, and MCP tools. | No framework limits. You write the agent with Dex Agents instead of a framework. |
+
+[Sessions](/agent-frameworks/sessions#limits) lists every limit of each framework.
 
 ## Run sessions in production {#run-sessions-in-production}
 

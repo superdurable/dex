@@ -240,6 +240,24 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 ## 保证 {#guarantees}
 
+最重要的有四条：
+
+- **已经完成的 Step 不会再运行。** Dex 把它的结果和转到下一个 Step 的动作一起保存。
+- **被中断的 Step 可能再运行一次。** 崩溃、超时或重试，可能让一个已经调用过外部系统的方法再运行一次。所以 Step 至少运行一次，而不是恰好一次。下一节说明怎样让这件事安全。
+- **重试看到的是第一次 attempt 的状态。** **Execute** 的重试复用第一次 attempt 的状态快照，看不到之后写入的 Attribute。要等待这样的写入，让写入方发布一条 Channel 消息，并在下一个 Step 的 **WaitFor** 里等待它。hard-delete Attribute 是例外：Dex 在每次 attempt 时都会重新读取它们。见 [短期 secret](/concepts/primitives/attribute#hard-delete-attributes)。
+- **并行写入可能互相覆盖。** 两个先读后写同一个 Attribute 的 Step 或 RPC 需要在它上面加 lock。细节见下文。
+
+### 幂等键 {#idempotency-keys}
+
+每个会改变外部状态的调用（例如付款或发邮件）都要带上幂等键。执行这个效果的服务用这个键丢弃重复请求。用每次 attempt 都不变的值来构造键：
+
+- Flow 只调用一次时，用 Flow ID 加调用的名字，例如 **charge-order-1042**；
+- 同一个 Flow 里这个 Step 会运行多次时，用 Flow ID 加 **StepExecutionID**，例如 **order-1042/Charge-2**。
+
+不要在键里使用 attempt 编号、时间或随机值，它们在重试时会变。其他页面都链接到这里，而不是重复这条规则。
+
+### Dex 保存什么 {#what-dex-saves}
+
 Dex 单独保存每次 **WaitFor** 或 **Execute** 调用。它把这次调用的 Attribute 写入和 Channel 发布与结果一起保存，而且只在方法成功时保存。对外部系统的调用不在这次保存里。
 
 一个 Step 方法的修改会一次全部生效。但这挡不住其他 Step 和 RPC 同时修改同样的状态。方法读到的是 Dex 把它交给 Worker 时的 Flow 状态。在方法的修改生效之前，其他 Step 和 RPC 可能已经改了这些状态。Dex 不检查方法读到的值是否仍然是最新的。所以两个先读后写同一个 Attribute 的 Step 或 RPC，可能互相覆盖对方的更新。要避免这种情况，让它们都在这个 Attribute 上声明 lock。Dex 会让它们依次执行。见 [Attribute lock](/concepts/primitives/attribute#locking)。
@@ -250,9 +268,28 @@ Dex 单独保存每次 **WaitFor** 或 **Execute** 调用。它把这次调用�
 <a id="unknown-outcome"></a>
 <a id="design-for-redelivery"></a>
 
-一个 Step 方法可能运行不止一次：失败后的重试会再运行它。Dex 不一定知道失败的 attempt 有没有执行工作。请让每个外部副作用都幂等，用 Flow ID 加 StepExecutionID，或你自己的业务 key 作为幂等 key。Dex 无法判断的情况见 [Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery)。
+### 失败和重新投递 {#failure-and-redelivery-summary}
 
-重试用完时，recovery Step 能知道工作是肯定没有运行，还是可能运行过。
+以下情况会让方法重复运行，或让它的结果未知。它们对每个 SDK 都成立：
+
+- **Worker 在方法中途停止。** 这次 attempt 失败，重试策略会再运行这个方法。它的外部调用可能已经发生。server 重启或故障转移时，Worker 手上的每个 attempt 都会这样。
+- **heartbeat 没有确认。** heartbeat checkpoint 可能丢失，所以重新运行可能从更早的 checkpoint 开始。
+- **被取消的方法会继续运行。** Dex 不会停止它的代码，它的外部调用仍然会生效。
+- **ASYNC Step 可能重复一次 attempt。** 见 [SYNC 和 ASYNC Step](#sync-and-async)。
+- **重试用完时可能没有答案。** recovery Step 会知道工作肯定没有运行（**NOT_STARTED**），或者可能运行过（**NOT_COMPLETED**）。遇到 **NOT_COMPLETED** 时，先用幂等键在目标系统里检查，再决定是否重复或报告这个效果。
+
+SDK 参考中的 Failure and redelivery 给出每种情况的确切规则（英文）：[Python](/reference/python/failure-and-retries#failure-and-redelivery) · [Go](/reference/go/failure-and-retries#failure-and-redelivery) · [Java](/reference/java/failure-and-retries#failure-and-redelivery) · [TypeScript](/reference/typescript/failure-and-retries#failure-and-redelivery) · [Rust](/reference/rust/failure-and-retries#failure-and-redelivery)。
+
+### SYNC 和 ASYNC Step {#sync-and-async}
+
+Step 的 **durability** 决定 Dex 什么时候保存它的进度。
+
+- **SYNC** 是默认值。Dex 在 Worker 收到任务之前保存每次 attempt 的开始，在 Flow 继续之前保存结果。每一次都要等待写入对象存储。
+- **ASYNC** 在保存开始和结果之前，就把任务交给 Worker 并开始后续工作。Dex 把这些写入合并成大约 20 毫秒一批。单个 Flow 跑得更快。如果 Dex Server 节点在写入之前失败，Dex 会在新的状态快照上再运行同一次 attempt，所以它可能读到不同的 Attribute 值。从丢失的结果开始的后续工作也会再运行。
+
+需要最严格保证的效果选 **SYNC**。延迟重要、偶尔重新运行可以接受的短 Step 选 **ASYNC**。**StepOptions** 设置单个 Step 的 durability，**FlowConfig** 设置整个 Flow 的。[Performance and Maturity](/intro/performance-and-maturity) 给出两者的实测延迟。
+
+### 取消、完成和顺序 {#cancellation-completion-order}
 
 取消一个 Step，会丢弃它当前方法还没有保存的一切：Attribute 写入、Channel 发布和它的决定。它的 **WaitFor** 已经保存的内容保留。一个决定或 RPC 永远不会取消它自己启动的 Step。被取消的 Step 已经消费的消息会怎样，见 [Channel 的保证](/concepts/primitives/channel#保证)。
 

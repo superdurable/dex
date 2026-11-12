@@ -342,9 +342,16 @@ An indexed Attribute can be used in **SearchFlows** queries to find Flow
 runs. The example above indexes the status Attribute. Its index key,
 **keyword1**, names a search slot rather than a business field. Slots are
 numbered by type and shared by every Flow type in a namespace, so two Flow
-types can each put a different field in **keyword1**. See
+types can each put a different field in **keyword1**. Two indexed fields in
+one Flow need different slots, and a slot shared across Flow types must keep
+one index type.
+
+Slots are limited. With the PostgreSQL search backend, each tenant has 10
+Keyword slots and 3 for each other index type, and a slot cannot be freed. Keep
+a list of which slot each Flow type uses. See
 [Indexes](/reference/server/runtime-data#attribute-indexes) for index types,
-index keys, and AttributeMap indexes.
+index keys, and AttributeMap indexes, and
+[PostgreSQL search](/reference/server/search#postgresql-search) for the limits.
 
 ## Locks {#locking}
 
@@ -359,6 +366,13 @@ A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
 not declare it can still write the Attribute. Steps get a lock in the order they started waiting for it. An RPC does
 not queue. It takes a free lock even when Steps are waiting for it. So a steady
 stream of locked RPCs can delay those Steps. Keep locked RPCs short.
+
+A Step holds its lock for the whole method, including the external calls it
+makes. A retry keeps the lock while it waits in the queue, and an attempt that
+no Worker can run holds it until the Flow times out or stops. The method timeout
+and the retry policy bound how long a running Step holds a lock. So keep locked
+methods short, and make slow external calls in a Step that
+holds no lock.
 
 This Step locks a singleton Attribute and one AttributeMap instance while
 **Execute** runs:

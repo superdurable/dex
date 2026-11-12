@@ -45,6 +45,40 @@ then read the Attribute.
 The [Step guarantees](/concepts/step#guarantees) list every case in which a
 Step runs again.
 
+## Write your row and start the Flow {#write-your-row-and-start-the-flow}
+
+A handler often writes its own row and starts a Flow for the same request. With
+a database and a queue, that pair needs a transactional outbox. With Dex, the
+start itself is safe to repeat, so the handler retries the whole request
+instead.
+
+Start the Flow so that a retry finds the same run:
+
+- Use the **order ID as the Flow ID**. Dex keeps one Flow for each ID.
+- Send the same **request ID** on every retry, such as **start-** plus the
+  order ID.
+- Set the **already-started option**, so a retry returns the existing run
+  instead of an error.
+
+[A minimal service](/components/application#minimal-service) shows this handler
+in every SDK, and [Start options and configuration](/concepts/flow#start-options)
+names each option.
+
+Then order the two writes so that every partial failure ends in a safe retry:
+
+| What fails | What happens | What makes it safe |
+| --- | --- | --- |
+| The row write fails | The handler starts nothing and returns an error. | The client retries the request. |
+| The row is written, then the start fails or times out | The client retries. The row write runs again, then the start. | The row write is an upsert by order ID. The start either creates the Flow or returns the run that the first attempt created. |
+| The Flow starts, then the response is lost | The client retries. | The start returns the existing run, so the order is not charged twice. |
+| The handler crashes after the row write, and the client never retries | A row exists with no Flow. | A periodic job starts a Flow for each such row with the same start call. A repeated start is harmless. |
+
+The last row is the only case that needs a job. To avoid it, let the Flow write
+the row instead: the handler only starts the Flow, and the first Step upserts
+the row by Flow ID, as [A Step writes to your database](#step-writes)
+describes. The Flow then owns both the process and the row, and a crash at any
+point leaves a Flow that retries its Step.
+
 ## Dex copies Attributes to your database {#attribute-store-sync}
 
 [Attribute Store sync](/concepts/primitives/attribute#attribute-store-projection)

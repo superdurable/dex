@@ -17,113 +17,192 @@ A small order support agent. It has two tools on an in-memory order desk:
 - **look_up_order** reads an order. It is a read, so Dex may retry it.
 - **cancel_order** cancels an order that has not shipped. It is a write, so it runs at most once, and only after a person approves it.
 
-You see what Dex adds to a plain agent, run the example, and ask the agent to cancel an order. While the cancellation waits for approval, you stop the Worker and start it again. Then you approve the call and check what ran. Last, you kill the Worker in the middle of a tool call and see what Dex runs again.
+You see what Dex adds to a plain agent, then run it from the command line and ask it to cancel an order. While the cancellation waits for your approval, you stop the program and start it again. Then you approve the call and check what ran. Last, you kill the program in the middle of a tool call and see what Dex runs again.
 
 <CrashTimeline variant="agent" />
 
 ## Before you start {#before-you-start}
 
 - **dexcli**, installed as [Run Locally](/components/run-locally) shows.
-- Git, to get the example.
-- **Python 3.11 or later with uv**, or **Node.js with npm**, depending on your framework.
-- An API key for your framework's model provider, such as **OPENAI_API_KEY** or **ANTHROPIC_API_KEY**. Most Python examples can run on a local demo model without a key; step 3 says which.
-- **jq**, to read the JSON that the example returns.
+- Git, to get the example, and **jq** for one check in step 5.
+- **Python 3.11 or later with uv**, or **Node.js 22 or later with npm**, depending on your framework.
+- For Python, nothing else: Google ADK, LangChain, OpenAI Agents SDK, and Pydantic AI run on a local demo model that needs no API key. The Claude Agent SDK and every TypeScript framework call a real model, so they need your provider key, such as **ANTHROPIC_API_KEY** or **OPENAI_API_KEY**, in the environment.
 
 ## 1. Get the example {#get-the-example}
 
-Clone the Dex repository. The examples live under **examples**:
+Clone the Dex repository and start Dex in a first terminal:
 
 ```bash
 git clone https://github.com/superdurable/dex.git
 cd dex
+dexcli dev
 ```
 
-Open each terminal in the later steps in this folder. [Use it in your own agent](#use-it-in-your-own-agent) lists the packages to install in your own project.
+Keep **dexcli dev** running. Open a second terminal in the **dex** folder for the next steps.
 
 ## 2. Make your agent durable {#make-it-durable}
 
-Dex adds one call to a plain agent. The call wraps the agent in a session Flow and gives each tool a policy. The tools themselves stay plain framework tools.
+Each framework's example file has two functions. The first is the agent as the framework alone writes it, with the two tools. The second wraps the same agent in a Dex agent session and gives each tool a policy. That is the only change to the agent.
 
 **look_up_order** is a read. **cancel_order** is a non-idempotent write, so it runs at most once, and by default it waits for approval. [Require approval](/agent-frameworks/tool-calls#require-approval) explains the default.
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
-Pass the agent to **claude_agent_session_flow** and **createClaudeAgentSessionFlow**, in Python and TypeScript. Give each tool a policy in the same call:
+Your agent, written with the framework alone:
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/claude_agent_sdk_order_support.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/claude-agent-sdk/claude-agent-sdk-order-support-flow.ts',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts',
   }}>
 <SdkSnippet lang="python">
 
 ```python
-return claude_agent_session_flow(
-    build_options,
-    [look_up_order, cancel_order],
-    flow_type=CLAUDE_AGENT_SDK_ORDER_SUPPORT_FLOW_TYPE,
-    tool_sources=build_slack_tool_sources(slack_connection),
-    tool_policies={
-        "look_up_order": ToolPolicy(ToolEffect.READ),
-        "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
-    },
-)
+def build_plain_agent(order_desk: OrderDesk, model: str) -> ClaudeAgentOptions:
+    """Returns the agent's options as the Claude Agent SDK alone writes them."""
+    orders = create_sdk_mcp_server("orders", tools=build_order_tools(order_desk))
+    return ClaudeAgentOptions(
+        model=model,
+        system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+        mcp_servers={"orders": orders},
+        allowed_tools=["mcp__orders__look_up_order", "mcp__orders__cancel_order"],
+    )
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
-```typescript
-return createClaudeAgentSessionFlow(
-  {
-    options: {
-      model,
-      systemPrompt: orderSupportInstructions,
-      // No Claude Code built-in tools: the agent uses only the order tools.
-      tools: [],
-      // Settings files could approve a tool before Dex asks for approval.
-      settingSources: [],
-      // Only the variables in cliEnvironment reach the CLI, so no other Claude credential can take over.
-      env: { ...cliEnvironment },
-    },
-    customTools: [lookUpOrder, cancelOrder],
-    toolPolicies: {
-      look_up_order: { effect: "read" },
-      cancel_order: { effect: "non_idempotent_write" },
-    },
-    toolSources: createSlackConnectorToolSources(slack),
-  },
-  claudeAgentSdkOrderSupportFlowType,
-);
+```ts
+/** Returns the agent's options as the Claude Agent SDK alone writes them. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: string): Options {
+  const orders = createSdkMcpServer({ name: "orders", tools: buildOrderTools(orderDesk) });
+  return {
+    model,
+    systemPrompt: orderSupportInstructions,
+    mcpServers: { orders },
+    allowedTools: ["mcp__orders__look_up_order", "mcp__orders__cancel_order"],
+  };
+}
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-The example turns off every built-in Claude Code tool, so the agent uses only the order tools. It also loads no settings files, so no settings file can approve a tool before Dex asks.
-
-</FrameworkTab>
-<FrameworkTab framework="google-adk">
-
-Pass the agent to **adk_agent_session_flow**. Give each tool a policy in the same call:
+The same agent as a durable session:
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/google_adk_order_support.py',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts',
   }}>
 <SdkSnippet lang="python">
 
 ```python
-return adk_agent_session_flow(
-    agent,
-    flow_type=GOOGLE_ADK_ORDER_SUPPORT_FLOW_TYPE,
-    tool_sources=build_slack_tool_sources(slack_connection),
-    tool_policies={
-        "look_up_order": ToolPolicy(ToolEffect.READ),
-        "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+def build_durable_agent(order_desk: OrderDesk, model: str) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+
+    # Dex passes the tools to the CLI itself and decides when each one runs.
+    def build_options(context: ClaudeAgentOptionsContext) -> ClaudeAgentOptions:
+        return ClaudeAgentOptions(
+            model=model,
+            env=build_claude_cli_environment(os.environ),
+            system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+            tools=[],
+            setting_sources=[],
+        )
+
+    return claude_agent_session_flow(
+        build_options,
+        build_order_tools(order_desk),
+        flow_type="ClaudeAgentSDKQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the same agent as a durable Dex agent session. Dex passes the tools to the CLI itself. */
+export function buildDurableAgent(
+  orderDesk: OrderDesk,
+  model: string,
+  cliEnvironment: Readonly<Record<string, string>>,
+): AgentSessionFlow {
+  return createClaudeAgentSessionFlow(
+    {
+      options: { model, systemPrompt: orderSupportInstructions, tools: [], settingSources: [], env: { ...cliEnvironment } },
+      customTools: buildOrderTools(orderDesk),
+      toolPolicies: {
+        look_up_order: { effect: "read" },
+        cancel_order: { effect: "non_idempotent_write" },
+      },
     },
-)
+    "ClaudeAgentSdkQuickStart",
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+Your agent, written with the framework alone:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_plain_agent(order_desk: OrderDesk, model: str | BaseLlm) -> LlmAgent:
+    """Returns the agent as Google ADK alone writes it."""
+
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return LlmAgent(
+        name="order_support",
+        model=model,
+        instruction=ORDER_SUPPORT_INSTRUCTIONS,
+        tools=[look_up_order, cancel_order],
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The same agent as a durable session:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_durable_agent(order_desk: OrderDesk, model: str | BaseLlm) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+    return adk_agent_session_flow(
+        build_plain_agent(order_desk, model),
+        flow_type="GoogleADKQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
 ```
 
 </SdkSnippet>
@@ -132,24 +211,63 @@ return adk_agent_session_flow(
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-Pass the agent to **langchain_agent_session_flow**. Give each tool a policy in the same call:
+Your agent, written with the framework alone:
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/langchain_order_support.py',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py',
   }}>
 <SdkSnippet lang="python">
 
 ```python
-return langchain_agent_session_flow(
-    build_order_support_agent,
-    flow_type=LANGCHAIN_ORDER_SUPPORT_FLOW_TYPE,
-    tool_sources=build_slack_tool_sources(slack_connection),
-    tool_policies={
-        "look_up_order": ToolPolicy(ToolEffect.READ),
-        "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
-    },
-)
+def build_plain_agent(
+    order_desk: OrderDesk,
+    model: str | BaseChatModel,
+    middleware: Sequence[AgentMiddleware[Any, Any]] = (),
+) -> Pregel[Any, Any, Any, Any]:
+    """Returns the agent as LangChain alone writes it."""
+
+    @tool
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @tool
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return create_agent(
+        model,
+        tools=[look_up_order, cancel_order],
+        system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+        middleware=middleware,
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The same agent as a durable session:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_durable_agent(order_desk: OrderDesk, model: str | BaseChatModel) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+    return langchain_agent_session_flow(
+        # Dex builds the agent on the Worker, with middleware that runs each tool call as a Step.
+        lambda: build_plain_agent(order_desk, model, [DurableToolCallMiddleware()]),
+        flow_type="LangChainQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
 ```
 
 </SdkSnippet>
@@ -158,22 +276,60 @@ return langchain_agent_session_flow(
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-Pass the agent to **createMastraAgentSessionFlow**. Give each tool a policy in the same call:
+Your agent, written with the framework alone:
 
 <SdkTabs
   examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/mastra/mastra-order-support-flow.ts',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts',
   }}>
 <SdkSnippet lang="typescript">
 
-```typescript
-return createMastraAgentSessionFlow(agent, mastraOrderSupportFlowType, {
-  toolPolicies: {
-    look_up_order: { effect: "read" },
-    cancel_order: { effect: "non_idempotent_write" },
-  },
-  toolSources: createSlackConnectorToolSources(slack),
-});
+```ts
+/** Returns the agent as Mastra alone writes it. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: MastraModelConfig): Agent {
+  const lookUpOrder = createTool({
+    id: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    inputSchema: z.object({ order_id: z.string() }),
+    execute: async ({ order_id }) => orderDesk.describeOrder(order_id),
+  });
+  const cancelOrder = createTool({
+    id: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
+    execute: async ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+  });
+  return new Agent({
+    id: "order-support",
+    name: "OrderSupport",
+    instructions: orderSupportInstructions,
+    model,
+    tools: { look_up_order: lookUpOrder, cancel_order: cancelOrder },
+  });
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The same agent as a durable session:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the same agent as a durable Dex agent session. */
+export function buildDurableAgent(orderDesk: OrderDesk, model: MastraModelConfig): AgentSessionFlow {
+  return createMastraAgentSessionFlow(buildPlainAgent(orderDesk, model), "MastraQuickStart", {
+    toolPolicies: {
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
+    },
+  });
+}
 ```
 
 </SdkSnippet>
@@ -182,38 +338,104 @@ return createMastraAgentSessionFlow(agent, mastraOrderSupportFlowType, {
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-Pass the agent to **openai_agents_session_flow** and **createOpenAIAgentsSessionFlow**, in Python and TypeScript. Give each tool a policy in the same call:
+Your agent, written with the framework alone:
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/openai_agents_order_support.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/openai-agents/openai-agents-order-support-flow.ts',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts',
   }}>
 <SdkSnippet lang="python">
 
 ```python
-return openai_agents_session_flow(
-    agent,
-    flow_type=OPENAI_AGENTS_ORDER_SUPPORT_FLOW_TYPE,
-    tool_sources=build_slack_tool_sources(slack_connection),
-    tool_policies={
-        "look_up_order": ToolPolicy(ToolEffect.READ),
-        "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
-    },
-)
+def build_plain_agent(order_desk: OrderDesk, model: str | Model) -> Agent:
+    """Returns the agent as the OpenAI Agents SDK alone writes it."""
+
+    @function_tool
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @function_tool
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return Agent(
+        name="OrderSupport",
+        instructions=ORDER_SUPPORT_INSTRUCTIONS,
+        model=model,
+        tools=[look_up_order, cancel_order],
+    )
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
-```typescript
-return createOpenAIAgentsSessionFlow(agent, openAIAgentsOrderSupportFlowType, {
-  toolPolicies: {
-    look_up_order: { effect: "read" },
-    cancel_order: { effect: "non_idempotent_write" },
-  },
-  toolSources: createSlackConnectorToolSources(slack),
-});
+```ts
+/** Returns the agent as the OpenAI Agents SDK alone writes it. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: string | Model): Agent {
+  const lookUpOrder = tool({
+    name: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: z.object({ order_id: z.string() }),
+    errorFunction: null,
+    execute: ({ order_id }) => orderDesk.describeOrder(order_id),
+  });
+  const cancelOrder = tool({
+    name: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    parameters: z.object({ order_id: z.string(), reason: z.string() }),
+    errorFunction: null,
+    execute: ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+  });
+  return new Agent({
+    name: "OrderSupport",
+    instructions: orderSupportInstructions,
+    model,
+    tools: [lookUpOrder, cancelOrder],
+  });
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The same agent as a durable session:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_durable_agent(order_desk: OrderDesk, model: str | Model) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+    return openai_agents_session_flow(
+        build_plain_agent(order_desk, model),
+        flow_type="OpenAIAgentsQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the same agent as a durable Dex agent session. */
+export function buildDurableAgent(orderDesk: OrderDesk, model: string | Model): AgentSessionFlow {
+  return createOpenAIAgentsSessionFlow(buildPlainAgent(orderDesk, model), "OpenAIAgentsQuickStart", {
+    toolPolicies: {
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
+    },
+  });
+}
 ```
 
 </SdkSnippet>
@@ -222,24 +444,55 @@ return createOpenAIAgentsSessionFlow(agent, openAIAgentsOrderSupportFlowType, {
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-Pass the agent to **pydantic_ai_session_flow**. Give each tool a policy in the same call:
+Your agent, written with the framework alone:
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/pydantic_ai_order_support.py',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py',
   }}>
 <SdkSnippet lang="python">
 
 ```python
-return pydantic_ai_session_flow(
-    agent,
-    flow_type=PYDANTIC_AI_ORDER_SUPPORT_FLOW_TYPE,
-    tool_sources=build_slack_tool_sources(slack_connection),
-    tool_policies={
-        "look_up_order": ToolPolicy(ToolEffect.READ),
-        "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
-    },
-)
+def build_plain_agent(order_desk: OrderDesk, model: str | Model) -> Agent[None, str]:
+    """Returns the agent as Pydantic AI alone writes it."""
+    # The model is resolved at the first run, so a Client process needs no provider key.
+    agent = Agent(model, instructions=ORDER_SUPPORT_INSTRUCTIONS, defer_model_check=True)
+
+    @agent.tool_plain
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @agent.tool_plain
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return agent
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The same agent as a durable session:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_durable_agent(order_desk: OrderDesk, model: str | Model) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+    return pydantic_ai_session_flow(
+        build_plain_agent(order_desk, model),
+        flow_type="PydanticAIQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
 ```
 
 </SdkSnippet>
@@ -248,39 +501,48 @@ return pydantic_ai_session_flow(
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
 
-Pass the agent to **createVercelAiAgentSessionFlow**. Give each tool a policy in the same call:
+Your agent, written with the framework alone:
 
 <SdkTabs
   examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/vercel-ai/vercel-ai-order-support-flow.ts',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts',
   }}>
 <SdkSnippet lang="typescript">
 
-```typescript
-return createVercelAiAgentSessionFlow(
-  {
-    model,
-    instructions: orderSupportInstructions,
-    tools: {
-      look_up_order: tool({
-        description: "Look up one order by its order ID and return its items and status.",
-        inputSchema: z.object({ order_id: z.string() }),
-        execute: ({ order_id }) => orderDesk.describeOrder(order_id),
-      }),
-      cancel_order: tool({
-        description: "Cancel one order that has not shipped yet.",
-        inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
-        execute: ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
-      }),
+```ts
+/** Returns the agent as the Vercel AI SDK alone writes it. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: LanguageModel) {
+  return new ToolLoopAgent({ model, instructions: orderSupportInstructions, tools: buildOrderTools(orderDesk) });
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The same agent as a durable session:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the same agent as a durable Dex agent session: the same settings, plus tool policies. */
+export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): AgentSessionFlow {
+  return createVercelAiAgentSessionFlow(
+    {
+      model,
+      instructions: orderSupportInstructions,
+      tools: buildOrderTools(orderDesk),
+      toolPolicies: {
+        look_up_order: { effect: "read" },
+        cancel_order: { effect: "non_idempotent_write" },
+      },
     },
-    toolPolicies: {
-      look_up_order: { effect: "read" },
-      cancel_order: { effect: "non_idempotent_write" },
-    },
-    toolSources: createSlackConnectorToolSources(slack),
-  },
-  vercelAiOrderSupportFlowType,
-);
+    "VercelAiQuickStart",
+  );
+}
 ```
 
 </SdkSnippet>
@@ -289,29 +551,80 @@ return createVercelAiAgentSessionFlow(
 </FrameworkTab>
 </FrameworkTabs>
 
-The example also passes **tool_sources** (**toolSources** in TypeScript) to offer a Slack Connector tool. A plain agent leaves it out. [Connectors as Tools](/agent-frameworks/connectors-as-tools) covers it. The link above each snippet opens the full agent file.
+Some adapters need one more thing. LangChain takes a factory and adds **DurableToolCallMiddleware**, which runs each tool call as its own Step. The Claude Agent SDK takes the tools in a list next to the options, so Dex can run each one itself.
+
+The session also needs a Worker and a Client, as any Dex application does. The example creates both in one process. The Worker runs the session's Steps, and the Client starts the session and talks to it:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    def __init__(self, session_flow: AgentSessionFlow, config: AgentHarnessExamplesConfig) -> None:
+        # Agent session Steps are async, so the Registry allows async handlers.
+        self.registry = Registry((session_flow,), allow_async_handlers=True)
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
+        self.worker = AsyncWorker(
+            self.registry,
+            self.blob_cache,
+            WorkerOptions(
+                server_address=config.server_address,
+                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+            ),
+        )
+        self.client = AsyncClient(
+            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
+        )
+        self.sessions = AgentSessionClient(self.client, session_flow)
+        self._worker_task: asyncio.Task[None] | None = None
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+  public static async start(flow: AgentSessionFlow, serverAddress: string, blobCacheDir: string): Promise<QuickStartApp> {
+    const registry = new Registry([flow]);
+    const blobCache = openBlobCache({ directory: blobCacheDir, maxBytes: 1 << 30 });
+    const worker = new Worker(registry, blobCache, { serverAddress, pull: { maxConcurrentTasks: 16 } });
+    const client = new Client(registry, blobCache, { serverAddress });
+    const app = new QuickStartApp(flow, client, worker, blobCache);
+    try {
+      await worker.start();
+      await worker.waitPullRegistered({ timeoutMs: pullRegistrationTimeoutMs });
+    } catch (failure) {
+      await app.close();
+      throw failure;
+    }
+    return app;
+  }
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## 3. Run it {#run-it}
 
-In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+In the second terminal, ask the agent about an order. Pick your framework:
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
   }}>
 <SdkSnippet lang="python">
 
 ```bash
 cd examples/python/agent-harnesses
 uv sync --locked
-mkdir -p definitions
-uv run --frozen dex-agents-session-graph --flow-type ClaudeAgentSDKOrderSupport \
-  --permission order-support.operate --out definitions/claude-agent-sdk.json
-dexcli dev --flow-rendering-dir ./definitions
+uv run --frozen python -m agent_harness_examples.quick_start claude-agent-sdk "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -320,10 +633,7 @@ dexcli dev --flow-rendering-dir ./definitions
 ```bash
 cd examples/typescript
 npm install
-mkdir -p definitions
-npx dex-agents-session-graph --flow-type ClaudeAgentSdkOrderSupportAgent \
-  --permission order-support.operate --out definitions/claude-agent-sdk.json
-dexcli dev --flow-rendering-dir ./definitions
+npm run agent-quick-start -- claude-agent-sdk "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -334,17 +644,14 @@ dexcli dev --flow-rendering-dir ./definitions
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/README.md',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
   }}>
 <SdkSnippet lang="python">
 
 ```bash
 cd examples/python/agent-harnesses
 uv sync --locked
-mkdir -p definitions
-uv run --frozen dex-agents-session-graph --flow-type GoogleADKOrderSupport \
-  --permission order-support.operate --out definitions/google-adk.json
-dexcli dev --flow-rendering-dir ./definitions
+uv run --frozen python -m agent_harness_examples.quick_start google-adk "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -355,17 +662,14 @@ dexcli dev --flow-rendering-dir ./definitions
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/README.md',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
   }}>
 <SdkSnippet lang="python">
 
 ```bash
 cd examples/python/agent-harnesses
 uv sync --locked
-mkdir -p definitions
-uv run --frozen dex-agents-session-graph --flow-type LangChainOrderSupport \
-  --permission order-support.operate --out definitions/langchain-langgraph.json
-dexcli dev --flow-rendering-dir ./definitions
+uv run --frozen python -m agent_harness_examples.quick_start langchain "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -376,17 +680,14 @@ dexcli dev --flow-rendering-dir ./definitions
 
 <SdkTabs
   examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
   }}>
 <SdkSnippet lang="typescript">
 
 ```bash
 cd examples/typescript
 npm install
-mkdir -p definitions
-npx dex-agents-session-graph --flow-type MastraOrderSupportAgent \
-  --permission order-support.operate --out definitions/mastra.json
-dexcli dev --flow-rendering-dir ./definitions
+npm run agent-quick-start -- mastra "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -397,18 +698,15 @@ dexcli dev --flow-rendering-dir ./definitions
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
   }}>
 <SdkSnippet lang="python">
 
 ```bash
 cd examples/python/agent-harnesses
 uv sync --locked
-mkdir -p definitions
-uv run --frozen dex-agents-session-graph --flow-type OpenAIAgentsOrderSupport \
-  --permission order-support.operate --out definitions/openai-agents-sdk.json
-dexcli dev --flow-rendering-dir ./definitions
+uv run --frozen python -m agent_harness_examples.quick_start openai-agents "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -417,10 +715,7 @@ dexcli dev --flow-rendering-dir ./definitions
 ```bash
 cd examples/typescript
 npm install
-mkdir -p definitions
-npx dex-agents-session-graph --flow-type OpenAIAgentsOrderSupportAgent \
-  --permission order-support.operate --out definitions/openai-agents-sdk.json
-dexcli dev --flow-rendering-dir ./definitions
+npm run agent-quick-start -- openai-agents "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -431,17 +726,14 @@ dexcli dev --flow-rendering-dir ./definitions
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/README.md',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
   }}>
 <SdkSnippet lang="python">
 
 ```bash
 cd examples/python/agent-harnesses
 uv sync --locked
-mkdir -p definitions
-uv run --frozen dex-agents-session-graph --flow-type PydanticAIOrderSupport \
-  --permission order-support.operate --out definitions/pydantic-ai.json
-dexcli dev --flow-rendering-dir ./definitions
+uv run --frozen python -m agent_harness_examples.quick_start pydantic-ai "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -452,17 +744,14 @@ dexcli dev --flow-rendering-dir ./definitions
 
 <SdkTabs
   examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
   }}>
 <SdkSnippet lang="typescript">
 
 ```bash
 cd examples/typescript
 npm install
-mkdir -p definitions
-npx dex-agents-session-graph --flow-type VercelAiOrderSupportAgent \
-  --permission order-support.operate --out definitions/vercel-ai-sdk.json
-dexcli dev --flow-rendering-dir ./definitions
+npm run agent-quick-start -- vercel-ai "Look up order 1001"
 ```
 
 </SdkSnippet>
@@ -471,481 +760,118 @@ dexcli dev --flow-rendering-dir ./definitions
 </FrameworkTab>
 </FrameworkTabs>
 
-**dexcli dev** stays in the foreground. In a second terminal, start the example:
+The program starts a session and prints its ID. It sends the message and prints the agent's reply:
 
-<FrameworkTabs>
-<FrameworkTab framework="claude-agent-sdk">
+```text
+Session openai-agents-quick-start-6792dcbb
+Agent: Local demo response: Order 1001: 2 notebooks, shipped.
+```
+
+**look_up_order** is a read, so it ran without asking you. Now ask the agent to cancel an order. Use the same command with the message **Cancel order 1002**. This time the program stops and asks:
+
+```text
+cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
+```
+
+The session waits in **AwaitToolApproval**. The program reads the waiting call from the session and sends your answer back:
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts',
   }}>
 <SdkSnippet lang="python">
 
-```bash
-cd examples/python/agent-harnesses
-ANTHROPIC_API_KEY=... uv run --frozen python -m agent_harness_examples
+```python
+    answered: set[str] = set()
+    while True:
+        snapshot = await sessions.get_agent_snapshot(session_id)
+        state = snapshot.state
+        for interrupt in snapshot.pending_interrupts:
+            if interrupt.interrupt_id in answered:
+                continue
+            answered.add(interrupt.interrupt_id)
+            approved = await decide_approval(interrupt)
+            await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=approved)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
-```bash
-cd examples/typescript
-ANTHROPIC_API_KEY=... npm start
+```ts
+  const answered = new Set<string>();
+  for (;;) {
+    const snapshot = await readAgentSnapshot(app.client, app.flow, sessionId);
+    for (const interrupt of snapshot.pendingInterrupts) {
+      if (answered.has(interrupt.interruptId)) {
+        continue;
+      }
+      answered.add(interrupt.interruptId);
+      const approved = await decideApproval(interrupt);
+      const resolution = { interruptId: interrupt.interruptId, approved, rejectionMessage: null };
+      await app.client.invokeRPC(app.flow.resolveInterrupt, sessionId, resolution);
+    }
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-The Python app serves on **127.0.0.1:8081**. The TypeScript app serves on **127.0.0.1:8080**. Dex Web is at **http://127.0.0.1:8802**.
+Type **y**. The agent cancels the order and replies.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| **ANTHROPIC_API_KEY** | none; required | The Anthropic API key of the Worker. |
-| **DEX_CLAUDE_AGENT_SDK_MODEL** | **claude-opus-5-5** | The Claude model name. |
-| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. A random key ends every token when the process restarts. |
+## 4. Stop the program while the agent waits {#stop-the-worker}
 
-</FrameworkTab>
-<FrameworkTab framework="google-adk">
+Ask to cancel an order again, in a new session. When the program asks you to approve, press Ctrl+C instead. The program, its Worker, and its Client are gone, and the program prints how to resume. The session keeps waiting in Dex, and the wait holds no Worker.
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
+Run the program again with the session ID it printed, and no message:
 
 ```bash
-cd examples/python/agent-harnesses
-uv run --frozen python -m agent_harness_examples
+uv run --frozen python -m agent_harness_examples.quick_start openai-agents --session-id SESSION_ID
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Use your framework's name, and **npm run agent-quick-start --** for TypeScript. A new Worker starts, and the program asks about the same **cancel_order** call. Type **y**. The order is cancelled once. The model calls and the look-up before the restart did not run again.
 
-The app serves on **127.0.0.1:8081**. Dex Web is at **http://127.0.0.1:8802**.
-
-Without **DEX_GOOGLE_ADK_MODEL**, the agent uses **mock/order-support**, a local demo model that needs no key. It calls **look_up_order** for "look up order 1001" and **cancel_order** for "cancel order 1002".
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| **DEX_GOOGLE_ADK_MODEL** | **mock/order-support** | A Gemini model name, such as **gemini-2.5-flash**. |
-| **GOOGLE_API_KEY** | none | The Gemini API key, for a real model. |
-| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
-
-</FrameworkTab>
-<FrameworkTab framework="langchain-langgraph">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-cd examples/python/agent-harnesses
-uv run --frozen python -m agent_harness_examples
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The app serves on **127.0.0.1:8081**. Dex Web is at **http://127.0.0.1:8802**.
-
-Without **DEX_LANGCHAIN_MODEL**, the agent uses **mock/order-support**, a local demo model that needs no key. It calls **look_up_order** for "look up order 1001" and **cancel_order** for "cancel order 1002".
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| **DEX_LANGCHAIN_MODEL** | **mock/order-support** | A LangChain model name, such as **openai:gpt-5.2**. |
-| **OPENAI_API_KEY** | none | The provider key, for an OpenAI model. |
-| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
-
-</FrameworkTab>
-<FrameworkTab framework="mastra">
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-cd examples/typescript
-OPENAI_API_KEY=... MASTRA_TELEMETRY_DISABLED=1 npm start
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The app serves on **127.0.0.1:8080**. Dex Web is at **http://127.0.0.1:8802**.
-
-The example has no demo model. Its model router reads the provider key, such as **OPENAI_API_KEY**, from the Worker's environment.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| **DEX_MASTRA_MODEL** | **openai/gpt-5-mini** | A Mastra model router ID. |
-| **OPENAI_API_KEY** | none; required for the default | The router's provider key. |
-| **MASTRA_TELEMETRY_DISABLED** | unset | Set to **1** to turn off Mastra's telemetry. |
-| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
-
-</FrameworkTab>
-<FrameworkTab framework="openai-agents-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-cd examples/python/agent-harnesses
-uv run --frozen python -m agent_harness_examples
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-cd examples/typescript
-OPENAI_API_KEY=... npm start
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The Python app serves on **127.0.0.1:8081**. The TypeScript app serves on **127.0.0.1:8080**. Dex Web is at **http://127.0.0.1:8802**.
-
-Without **DEX_OPENAI_AGENTS_MODEL**, the Python agent uses **mock/order-support**, a local demo model that needs no key. It calls **look_up_order** for "look up order 1001" and **cancel_order** for "cancel order 1002". The TypeScript example has no demo model, so it needs **OPENAI_API_KEY**.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| **DEX_OPENAI_AGENTS_MODEL** | Python: **mock/order-support**. TypeScript: **gpt-5-mini**. | The OpenAI model name, such as **gpt-5.2**. |
-| **OPENAI_API_KEY** | none | The OpenAI API key, for a real model. |
-| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
-
-</FrameworkTab>
-<FrameworkTab framework="pydantic-ai">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-cd examples/python/agent-harnesses
-uv run --frozen python -m agent_harness_examples
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The app serves on **127.0.0.1:8081**. Dex Web is at **http://127.0.0.1:8802**.
-
-Without **DEX_PYDANTIC_AI_MODEL**, the agent uses **mock/order-support**, a local demo model that needs no key. It calls **look_up_order** for "look up order 1001" and **cancel_order** for "cancel order 1002".
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| **DEX_PYDANTIC_AI_MODEL** | **mock/order-support** | A Pydantic AI model name, such as **openai:gpt-5.2**. |
-| **OPENAI_API_KEY** | none | The provider key, for an OpenAI model. |
-| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
-
-</FrameworkTab>
-<FrameworkTab framework="vercel-ai-sdk">
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-cd examples/typescript
-OPENAI_API_KEY=... npm start
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The app serves on **127.0.0.1:8080**. Dex Web is at **http://127.0.0.1:8802**.
-
-The example has no demo model. It calls OpenAI through **@ai-sdk/openai**, so it needs **OPENAI_API_KEY**.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| **DEX_VERCEL_AI_MODEL** | **gpt-5-mini** | The OpenAI model name. |
-| **OPENAI_API_KEY** | none; required | The OpenAI API key of the Worker. |
-| **DEX_AGENT_SESSION_KEY** | a random key | The key that signs session tokens. |
-
-</FrameworkTab>
-</FrameworkTabs>
-
-In a third terminal, start a session and ask the agent to cancel order 1002. The commands return when **cancel_order** waits for approval. Do not approve it yet.
-
-<FrameworkTabs>
-<FrameworkTab framework="claude-agent-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-base=http://127.0.0.1:8081/products/agent-harnesses/claude-agent-sdk
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
-  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
-until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-base=http://127.0.0.1:8080/products/agent-harnesses/claude-agent-sdk
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
-  -d '{"message": "Please cancel order 1002"}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="google-adk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-base=http://127.0.0.1:8081/products/agent-harnesses/google-adk
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
-  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
-until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="langchain-langgraph">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-base=http://127.0.0.1:8081/products/agent-harnesses/langchain
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
-  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
-until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="mastra">
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-base=http://127.0.0.1:8080/products/agent-harnesses/mastra
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
-  -d '{"message": "Please cancel order 1002"}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="openai-agents-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-base=http://127.0.0.1:8081/products/agent-harnesses/openai-agents
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
-  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
-until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-base=http://127.0.0.1:8080/products/agent-harnesses/openai-agents
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
-  -d '{"message": "Please cancel order 1002"}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="pydantic-ai">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-base=http://127.0.0.1:8081/products/agent-harnesses/pydantic-ai
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
-  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
-until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="vercel-ai-sdk">
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-base=http://127.0.0.1:8080/products/agent-harnesses/vercel-ai
-session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
-  -d '{"message": "Please cancel order 1002"}')
-id=$(echo "$session" | jq -r .session_id)
-token=$(echo "$session" | jq -r .session_token)
-until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
-  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-</FrameworkTabs>
-
-## 4. Stop the Worker while the agent waits {#stop-the-worker}
-
-The agent looked up order 1002 and asked to cancel it. **cancel_order** needs approval, so the session waits in **AwaitToolApproval**. The wait holds no Worker.
-
-1. In the second terminal, stop the example with Ctrl-C. The session keeps waiting in Dex.
-2. In the same terminal, run the command that started the example again. Leave **dexcli dev** running in the first terminal.
-3. Open Dex Web at **http://127.0.0.1:8802**. Open the session's run. Its Flow ID is the session ID, which **$id** holds in the third terminal.
-4. Select the **Agent session** tab. Set **Working as** to **order-support.operate**, the permission you rendered into the session graph. Then select **Approve** on the **cancel_order** card.
-5. Open the **Timeline**. **look_up_order** and the model calls before the restart ran once. **cancel_order** ran once, after the approval. The agent answered from the recorded results.
+A person can also approve the call in Dex Web instead of in your program. [Approvals](/agent-frameworks/approvals) shows how.
 
 ## 5. Stop it while a tool runs {#stop-while-a-tool-runs}
 
-Step 4 stopped the Worker while nothing ran. A crash in the middle of a tool call is the harder case. The example can slow each tool call down, so you have time to stop it.
+Step 4 stopped the program while nothing ran. A crash in the middle of a tool call is the harder case. The example can slow each tool call down, so you have time to stop it.
 
-1. In the second terminal, stop the example. Start it again with a 20-second delay on each tool call. Also set a fixed session key, so the session token from the third terminal still works after a restart:
+1. Ask about an order again, with a 20-second delay on each tool call. Set **DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20** in front of the step 3 command.
+2. Within 20 seconds, kill the program as a crash would. Ctrl+C is not a crash: it lets a running call finish first.
 
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/README.md',
-    typescript: 'examples/typescript/src/products/agent-harnesses/README.md',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
   }}>
 <SdkSnippet lang="python">
 
 ```bash
-DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20 DEX_AGENT_SESSION_KEY=demo-key \
-  uv run --frozen python -m agent_harness_examples
+pkill -9 -f agent_harness_examples.quick_start
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```bash
-DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20 DEX_AGENT_SESSION_KEY=demo-key npm start
+pkill -9 -f quick-start-main.js
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-Keep the model variables and the provider key that your framework needs from step 3.
-
-2. In the third terminal, start a new session with the step 3 commands. Change the message to **Look up order 1001**, and skip the last command, which waits for an approval.
-3. Within 20 seconds, kill the example as a crash would. Ctrl-C is not a crash: it lets a running call finish first.
-
-<SdkTabs>
-<SdkSnippet lang="python">
+3. Run the program again with **--session-id** and no message. The agent answers with the order.
+4. Check how the tool call ran:
 
 ```bash
-pkill -9 -f agent_harness_examples
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-pkill -9 -f dist/src/main.js
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-4. Start the example again with the command from item 1. About 20 seconds later, the agent answers with the order.
-5. Check how the tool call ran:
-
-```bash
-dexcli flow history --all "$id" | jq '.events[]
+dexcli flow history --all SESSION_ID | jq '.events[]
   | select(.payload.context.stepType == "CallTool")
   | .payload.context | {finalAttempt, failure: .lastFailureInfo.details.detail}'
 ```
 
 **finalAttempt** is **2**. The first attempt failed because the Worker disconnected. **look_up_order** is a read, so Dex ran it again on the new Worker. The model call before it did not run again.
 
-Now try a write. Ask to cancel order 1002 with the full step 3 commands, and approve it in Dex Web as in step 4. Within 20 seconds of approving, kill the example and start it again.
+Now try a write. Ask to cancel order 1002 with the delay set, approve it, and kill the program within 20 seconds. Then run it again with **--session-id**.
 
 **cancel_order** is a non-idempotent write, so Dex does not run it a second time. The call records **outcome_unknown**, and the agent tells the user so. With the demo model, the reply reads: "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically." Your application then checks the order system before anyone tries again. [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) shows how.
 
@@ -1094,122 +1020,14 @@ npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/
 
 ### Wire the session into your app {#wire-it-into-your-app}
 
-Your app needs the same four pieces as the example, whatever the framework:
+The quick start program shows the pieces your app needs, in one process. A web app splits them across routes:
 
-1. A **Registry** with your session Flow, a **Worker** that runs its Steps, and a **Client** that calls it. The Worker connects out to Dex, so it needs no open port. Both open a blob cache, a local cache for large values; [Registry and blob cache](/components/application#blob-cache) explains it.
+1. A **Registry** with your session Flow, a **Worker** that runs its Steps, and a **Client** that calls it, as in step 2. The Worker connects out to Dex, so it needs no open port. Both open a blob cache, a local cache for large values; [Registry and blob cache](/components/application#blob-cache) explains it.
 2. A route that starts a session. The session ID is the Flow ID.
 3. A route that sends a user message, and one that reads the session snapshot with the agent's reply. To stream the reply as it is written, read the [AgentEvents Stream](/reference/agents/event-stream#read-the-stream).
 4. A route that approves or rejects a waiting tool call. [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) covers it.
 
-The Worker and the Client, from the example:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
-    typescript: 'examples/typescript/src/main.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-        # Agent session Steps are async, so the Registry allows async handlers.
-        self.registry = Registry(
-            tuple(example.session_flow for example in self.examples), allow_async_handlers=True
-        )
-        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
-        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
-        self.worker = AsyncWorker(
-            self.registry,
-            self.blob_cache,
-            WorkerOptions(
-                server_address=config.server_address,
-                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
-            ),
-        )
-        self.client = AsyncClient(
-            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
-        )
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```ts
-  const registry = createExampleRegistry();
-  const blobCache = openBlobCache({
-    directory: env.blobCacheDir,
-    maxBytes: 1 << 30,
-  });
-  const worker = await startExampleWorker(registry, blobCache, env.serverAddress);
-  const client = new Client(registry, blobCache, {
-    serverAddress: env.serverAddress,
-  });
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The session routes, from the example. Each route is one call on the session:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-    sessions = AgentSessionClient(app_state.client, example.session_flow)
-```
-
-```python
-    @blueprint.post("/sessions")
-    async def start_session() -> Response:
-        # The server picks the session ID, so a caller cannot claim an existing session.
-        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
-        await sessions.start_session(session_id)
-        session_token = sign_session_id(app_state.config.session_key, session_id)
-        return jsonify(session_id=session_id, session_token=session_token)
-
-    @blueprint.post("/messages")
-    async def send_user_message() -> Response:
-        body, session_id = await session_request()
-        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
-        return jsonify(accepted=accepted)
-```
-
-```python
-            snapshot = await read_agent_event_stream_snapshot(
-                app_state.client, example.session_flow, session_id
-            )
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```ts
-  router.post("/sessions", async (request, response) => {
-    const initialMessage = optionalString(requireBody(request), "message");
-    // The server picks the session ID, so a caller cannot name another session.
-    const sessionId = `order-support-${randomUUID()}`;
-    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
-    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
-  });
-  router.get("/sessions/:id/snapshot", async (request, response) => {
-    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
-  });
-  router.post("/sessions/:id/messages", async (request, response) => {
-    const sessionId = sessionIdOf(request);
-    const message = { text: requireString(requireBody(request), "text") };
-    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
-  });
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The session token in the example is the example's own access check. It signs the session ID, so one user cannot read another user's session. Use your app's own authentication instead.
-
-To run the session in Dex Web, render its graph with **dex-agents-session-graph**, as step 3 does. The **--permission** value names the role that may approve tool calls in Dex Web. Dex Web shows the approval controls to a person working as that role.
+The [Order Support Agent](/use-cases/order-support-agent) example has these routes over HTTP, for every framework.
 
 ## Next
 

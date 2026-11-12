@@ -51,8 +51,12 @@ them one at a time. If the Flow closes while the handler runs, Dex rejects the
 RPC's changes. The handler's calls to external systems have still happened.
 
 Each RPC call from an SDK is a new request. If you retry a call, Dex can run the
-handler again and save its changes a second time. Make RPC handlers safe to
-repeat.
+handler again and save its changes a second time, including its Channel
+publications. Make RPC handlers safe to repeat.
+
+An RPC never queues. If no Worker of the Flow type takes it within 10 seconds,
+the caller gets an **Unavailable** error. A Step waits in a durable queue
+instead. See [Routing and availability](/reference/server/workers#routing-and-availability).
 
 <a id="rpc-timeout"></a>
 

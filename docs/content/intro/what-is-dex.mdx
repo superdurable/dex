@@ -43,13 +43,13 @@ The Flow charges the buyer and then waits for the seller's approval, with remind
 
 <DocsFlowDefinitionGraph graph={orderProcessingFlow} />
 
-- **ChargeStep** calls the payment API with a Step retry policy. When it succeeds, it moves to ShipStep.
-- **ShipStep** waits for a message on the seller **Channel** or for a **Timer**. If the Timer fires first, it sends a reminder and keeps waiting. When the approval arrives, it ships. If the ship retries run out, it moves to **RefundStep**.
-- **RPC approve** publishes the approval to the seller Channel.
-- The storefront's start handler starts the Flow and waits for ChargeStep with the Client's wait-for-Step-completion API. It then tells the buyer "payment received". It does not poll a status of its own.
+The graph shows each Step and where it goes next. Three parts sit outside it:
+
+- **RPC approve** publishes the seller's approval to the seller Channel.
+- The storefront's start handler starts the Flow and waits for the Charge Step with the Client's wait-for-Step-completion API. It then tells the buyer "payment received". It does not poll a status of its own.
 - **Attribute order-status** is indexed, so support staff can search for stuck orders.
 
-A Step can run more than once, so the payment call sends an [idempotency key](/concepts/step#idempotency-keys).
+A real payment call passes an [idempotency key](/concepts/step#idempotency-keys), because a Step can run more than once. The example's mock payment service skips it.
 
 The [Order Processing](/use-cases/order-processing) example has the full code of this Flow and its handlers in every SDK.
 
@@ -57,7 +57,7 @@ The [Order Processing](/use-cases/order-processing) example has the full code of
 
 Your application contains a **Worker** and a **Client**, both built with the Dex SDK. The Worker hosts the Flow and runs its Steps and RPCs. The Client starts Flows and calls their RPCs. **Dex Server** stores each Flow and sends work to your Workers.
 
-<DexSystemDiagram markdownDescription="An Application contains a Client, which starts and interacts with Flow instances, and a Worker, which hosts the Flow; both use the Dex SDK. The Application calls Dex Server with startFlow and invokeRPC, and Dex Server invokes Steps and RPCs on the Worker. Dex Server persists Flow instances and their execution." />
+<DexSystemDiagram markdownDescription="The Client calls Dex Server with startFlow and invokeRPC. Dex Server calls the Worker to run Steps and RPCs." />
 
 ## How this differs from replay-based durable execution
 

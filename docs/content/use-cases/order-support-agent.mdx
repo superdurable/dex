@@ -808,6 +808,17 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 
 Every harness serves the same HTTP routes, so you can try them side by side. Each route is one call on the session Flow: start a session, send a message, or resolve an approval.
 
+The calls inside the routes are the Dex Agents API, and they are the same in your app:
+
+| What the route does | Dex Agents call in Python | Dex Agents call in TypeScript |
+| --- | --- | --- |
+| Start a session | **AgentSessionClient.start_session** | **startAgentSession** |
+| Send a user message | **AgentSessionClient.send_user_message** | the **sendUserMessage** RPC, or **sendAgentUserMessage** |
+| Read the session | **read_agent_event_stream_snapshot** or **AgentSessionClient.get_agent_snapshot** | the **getAgentSnapshot** RPC, or **readAgentSnapshot** |
+| Approve or reject a tool call | **AgentSessionClient.resolve_interrupt** | the **resolveInterrupt** RPC |
+
+Everything else belongs to the example: the URL paths, the JSON shapes, the session token, and the error codes. The Python and TypeScript examples shape them a little differently. Design your own routes around the calls above.
+
 Starting a session returns a session token: an HMAC of the session ID under **DEX_AGENT_SESSION_KEY**. Every other route checks the token in the **X-Agent-Session-Token** header and answers 403 without it. Without **DEX_AGENT_SESSION_KEY**, the example picks a random key, so a restart ends every token. A real application uses its own sign-in instead.
 
 <FrameworkTabs>

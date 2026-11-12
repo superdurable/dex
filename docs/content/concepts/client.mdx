@@ -37,7 +37,8 @@ Use a Client at the boundary between your application and its Flows:
 - [RPC](/concepts/primitives/rpc): change a running Flow through RPCs. To change Attribute,
   AttributeMap, Channel, or ChannelMap state, define a typed RPC for each
   command and call it with **InvokeRPC**. Validation, authorization, locks, and
-  transactions then stay inside the Flow.
+  transactions then stay inside the Flow. An RPC needs a connected Worker, and a
+  retried call can run twice. See [RPC guarantees](/concepts/primitives/rpc#guarantees).
 - [Attribute](/concepts/primitives/attribute): **GetAttributes** reads stored values
   directly from the server. No Worker runs. Use an RPC instead when the read
   needs Flow-side validation, authorization, Channel messages, a derived view,

@@ -29,7 +29,9 @@ RPC handler 可以做四件事：
 
 只是读取时，Client 可以不用 RPC，见[什么时候读取需要 RPC](/concepts/client#related-primitives)。只读的 RPC，包括在已关闭的 Flow 上调用的，见 [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows)。
 
-## 保证
+## 保证 {#guarantees}
+
+<a id="保证"></a>
 
 Dex 像保存 Step 方法一样保存 RPC：它把 RPC 的 Attribute 写入和 Channel 发布与结果一起保存，而且只在 RPC 成功时保存。见 [Step 的保证](/concepts/step#guarantees)。
 
