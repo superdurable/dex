@@ -477,16 +477,20 @@ These checks have limits:
 
 - A shell command runs with `/bin/sh -c` in the workspace, in its own process
   group, so Ctrl-C never reaches it. It times out after 120 seconds by default
-  and 600 at most; a timeout kills the whole group. When the shell exits, what
-  it left running in its group (`sleep 30 &`) gets SIGTERM, then SIGKILL
-  0.5 s later. The shell is reaped only after that, without a reap in
-  between (`waitid` with `WNOWAIT`, or kqueue on macOS before Python 3.13),
-  so its group ID is never reused while it is signaled. The result holds what
-  the pipes carried until 1 s after the shell exited; a process that left the
-  group (`setsid`) and still holds them is not stopped and no longer delays
-  the result. The exit code is the shell's own number, or the negative signal
-  number when a signal killed it. It is a single-attempt write: a Worker that
-  dies during it records `outcome_unknown` and never runs it again.
+  and 600 at most; a timeout kills the whole group and is a result,
+  `killed: timed out after N seconds`. When the shell exits, what it left
+  running in its group (`sleep 30 &`) gets SIGTERM, then SIGKILL 0.5 s later.
+  The shell is reaped only after that, without a reap in between (`waitid`
+  with `WNOWAIT`, or kqueue on macOS before Python 3.13), so its group ID is
+  never reused while it is signaled; a cancelled call finishes this cleanup
+  before the cancellation propagates. The result holds what the pipes carried
+  until 1 s after the shell exited, each stream cut at 64 KiB with a
+  `[cut at 65536 bytes]` line; a process that left the group (`setsid`) and
+  still holds them is not stopped and no longer delays the result. The result
+  has the TypeScript CLI core's form: `exit code N` (the shell's status, 128
+  plus the signal for a signal), then `--- stdout ---` and `--- stderr ---`.
+  It is a single-attempt write: a Worker that dies during it records
+  `outcome_unknown` and never runs it again.
 - The browser is headless: Playwright's own Chromium when it is installed,
   else the system Chrome, else Chromium that Playwright downloads the first
   time a browser tool runs. `browser_navigate` opens only `http` and `https`

@@ -360,14 +360,18 @@ async def test_a_listed_shell_command_runs_at_once_and_another_waits_for_approva
     sessions = local_tools_stack.sessions
     listed = await start_turn(sessions, 'call run_shell_command {"command": "echo allowed"}')
     snapshot = await wait_for_turn_end(sessions, listed)
-    assert tool_outputs(snapshot) == [("run_shell_command", "exit code 0\nstdout:\nallowed\n")]
+    assert tool_outputs(snapshot) == [
+        ("run_shell_command", "exit code 0\n--- stdout ---\nallowed\n\n--- stderr ---\n")
+    ]
 
     unlisted = await start_turn(sessions, 'call run_shell_command {"command": "echo allowed "}')
     interrupt = await wait_for_approval(sessions, unlisted, "run_shell_command")
     assert interrupt.arguments == '{"command": "echo allowed "}'
     assert await sessions.resolve_interrupt(unlisted, interrupt.interrupt_id, approved=True)
     outputs = tool_outputs(await wait_for_turn_end(sessions, unlisted))
-    assert outputs == [("run_shell_command", "exit code 0\nstdout:\nallowed\n")]
+    assert outputs == [
+        ("run_shell_command", "exit code 0\n--- stdout ---\nallowed\n\n--- stderr ---\n")
+    ]
 
 
 async def approval_display_of(

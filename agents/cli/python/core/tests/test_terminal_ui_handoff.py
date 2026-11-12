@@ -996,7 +996,7 @@ async def test_a_shell_command_leaves_no_background_process_in_the_worker_host(
     output = await run_shell_command(
         "sleep 30 & echo started", tmp_path, 10, process_groups=registry
     )
-    assert output.startswith("exit code 0\nstdout:\nstarted")
+    assert output.startswith("exit code 0\n--- stdout ---\nstarted")
     (pgid,) = registered
     await wait_until_gone([pgid], timeout=5)
     assert json.loads(registry.record_path.read_text())["tool_process_groups"] == []
