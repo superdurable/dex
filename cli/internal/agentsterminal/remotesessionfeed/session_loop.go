@@ -234,6 +234,7 @@ func (loop *sessionLoop) startFetch() {
 func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	model := loop.model
 	if fetched.err != nil {
+		loop.feed.debugf("snapshot: %s", describeError(fetched.err))
 		loop.applyFetchFailure(fetched.err)
 		return
 	}
@@ -325,6 +326,7 @@ func followAgentEvents(ctx context.Context, feed *RemoteSessionFeed, sessionID s
 		var longPollTimeout *dex.LongPollTimeoutError
 		switch {
 		case err == nil:
+			feed.debugf("event %s turn=%v attempt=%d", event.Type, event.TurnID != nil, event.Attempt)
 			resumeToken = message.ResumeToken
 			if !send(eventReceived{epoch: epoch, event: event}) {
 				return
@@ -334,6 +336,7 @@ func followAgentEvents(ctx context.Context, feed *RemoteSessionFeed, sessionID s
 			send(eventsUnavailable{epoch: epoch, reason: describeError(err)})
 			return
 		default:
+			feed.debugf("read events: %s", describeError(err))
 			if !sleepFor(ctx, time.Second) {
 				return
 			}

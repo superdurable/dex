@@ -66,6 +66,7 @@ var transcriptKeys = map[string][]keystrokes{
 	"launch_not_json":                               nil,
 	"launch_too_large":                              nil,
 	"chat_cancel_races_completion":                  {{1, "/image {imageA}\r"}, {-1, "\x04"}},
+	"chat_terminated":                               nil,
 }
 
 // transcriptsOfLaterModes need the sessions and connectors pickers, which
@@ -80,6 +81,8 @@ func TestTranscriptsAgainstTheContractHost(t *testing.T) {
 	dexcli := buildDexcli(t)
 	paths, err := filepath.Glob(filepath.Join(transcriptsDirectory, "*.json"))
 	require.NoError(t, err)
+	// SIGTERM after ready: the host checks exit 143.
+	paths = append(paths, filepath.Join("testdata", "chat_terminated.json"))
 	for _, path := range paths {
 		var transcript struct {
 			Name      string   `json:"name"`

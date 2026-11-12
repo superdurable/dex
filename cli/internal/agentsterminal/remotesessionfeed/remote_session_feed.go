@@ -98,6 +98,9 @@ type RemoteSessionFeedConfig struct {
 	WorkingDirectory string
 	// Now returns the current time. Default: time.Now.
 	Now func() time.Time
+	// Debugf writes one debug log line of types, IDs, and error codes only;
+	// nil for none.
+	Debugf func(format string, arguments ...any)
 }
 
 // RemoteSessionFeed is a sessionfeed.ChatSessionSource over one agent session.
@@ -109,6 +112,7 @@ type RemoteSessionFeed struct {
 	home     string
 	workDir  string
 	now      func() time.Time
+	debugf   func(format string, arguments ...any)
 
 	updates *updateQueue
 	inputs  chan loopInput
@@ -134,6 +138,10 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 	if now == nil {
 		now = time.Now
 	}
+	debugf := config.Debugf
+	if debugf == nil {
+		debugf = func(string, ...any) {}
+	}
 	return &RemoteSessionFeed{
 		sessions:  config.Sessions,
 		requests:  config.Requests,
@@ -142,6 +150,7 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 		home:      config.HomeDirectory,
 		workDir:   config.WorkingDirectory,
 		now:       now,
+		debugf:    debugf,
 		updates:   newUpdateQueue(),
 		inputs:    make(chan loopInput, 256),
 		sessionID: config.Launch.Session.SessionID,

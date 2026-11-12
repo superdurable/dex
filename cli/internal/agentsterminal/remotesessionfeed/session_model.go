@@ -158,7 +158,8 @@ func (model *sessionModel) emitOpened() {
 
 // isBusy reports a session that runs or will soon run a turn.
 func (model *sessionModel) isBusy() bool {
-	return model.currentTurnID != "" || len(model.pendingInterrupts) > 0 || len(model.queuedMessages) > 0 || len(model.turnEndDeadlines) > 0
+	return model.currentTurnID != "" || len(model.pendingInterrupts) > 0 || len(model.queuedMessages) > 0 ||
+		len(model.turnEndDeadlines) > 0 || len(model.localSends) > 0
 }
 
 // recordLocalSend notes a message this terminal sends. The screen printed it

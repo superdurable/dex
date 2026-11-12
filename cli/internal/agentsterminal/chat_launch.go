@@ -149,6 +149,7 @@ func runChat(ctx context.Context, channel *launcherchannel.LauncherChannel, laun
 		Launch:           launch,
 		HomeDirectory:    home,
 		WorkingDirectory: workingDirectory,
+		Debugf:           debugf,
 	})
 	feedDone := make(chan struct{})
 	go func() {
