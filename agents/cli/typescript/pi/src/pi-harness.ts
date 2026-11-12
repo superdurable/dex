@@ -11,9 +11,13 @@ import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createBuiltinAgentSessionFlow, type BuiltinLoopAgentRunner } from "@superdurable/dex-agents/builtin-loop";
 import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli-core";
 
-import { defaultBashTimeoutSeconds, maximumBashTimeoutSeconds, PiCodingToolSource } from "./pi-coding-tool-source.js";
+import { maximumBashTimeoutSeconds, PiCodingToolSource, piCodingLocalTools } from "./pi-coding-tool-source.js";
 import { PiModelClients } from "./pi-model-clients.js";
+import { PrefixedConnectorToolSource } from "./prefixed-connector-tool-source.js";
 import { ProjectContextFiles, type ProjectContextFile } from "./project-context-files.js";
+
+/** The `sourceName` of the CLI core's connectors tool source. */
+const connectorsToolSourceName = "connectors";
 
 /**
  * The base Flow type of the command's sessions, before the CLI core namespaces it.
@@ -55,11 +59,11 @@ export interface PiSection {
    */
   readonly providerBaseUrls: Readonly<Record<string, string>>;
   /**
-   * Seconds a `bash` command runs before it is killed when the model passes no `timeout`.
-   * `bash_timeout_seconds` in the file, a whole number from 1 to `maximumBashTimeoutSeconds`; defaults to
-   * `defaultBashTimeoutSeconds`, 120, as the CLI core shell tool.
+   * Seconds a `bash` command runs before it is killed when the model passes no `timeout`, or `undefined` for no
+   * timeout, as in Pi. `bash_timeout_seconds` in the file, a whole number from 1 to `maximumBashTimeoutSeconds`.
+   * Changed in 0.6.0: defaults to `undefined` instead of 120.
    */
-  readonly bashTimeoutSeconds: number;
+  readonly bashTimeoutSeconds: number | undefined;
 }
 
 /**
@@ -67,10 +71,17 @@ export interface PiSection {
  *
  * Every model call is one `RunModel` Step through pi-ai, and every tool call is its own tool Step. The model ID is
  * `<provider>/<model>`, as pi-ai's catalog names them, and the API key comes only from the provider's environment
- * variable. pi-coding-agent's `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` replace the CLI core's
- * `files` and `shell` groups, with the CLI core's rules; see {@link PiCodingToolSource}. The CLI core's web fetch,
- * browser, and connector tools stay, and the agent can ask the user questions. Each model call adds the
+ * variable. pi-coding-agent's own `read`, `grep`, `find`, `ls`, `write`, `edit`, and `bash` replace the CLI core's
+ * `files` and `shell` groups, with Pi's behavior and Pi's approval default: no approval unless `approval.always`
+ * names the tool; see {@link PiCodingToolSource}. The CLI core's web fetch, browser, and connector tools stay, and
+ * the agent can ask the user questions. A connector tool whose name a Pi tool has gets the `connector_` prefix, and
+ * every connector write waits for approval; see {@link PrefixedConnectorToolSource}. Each model call adds the
  * workspace's `AGENTS.md` files unless `pi.load_project_context` is `false`.
+ *
+ * The workspace is the directory the command starts in, as in Pi, unless the file sets `workspace`.
+ *
+ * Changed in 0.6.0: Pi's own tool behavior and approval default, connector prefixes, and the launch directory as the
+ * default workspace.
  *
  * @example
  * ```ts
@@ -87,6 +98,7 @@ export const piHarness: AgentHarness = {
   flowType: piCliFlowType,
   defaultModel: defaultPiModel,
   replacedLocalTools: ["files", "shell"],
+  defaultWorkspaceLocation: "launch_directory",
   createSessionFlow: (context) => createPiSessionFlow(context),
 };
 
@@ -126,7 +138,14 @@ export function createPiSessionFlow(
         ),
       model: modelClients.clientFor(context.config.model),
       resolveModel: (settings) => modelClients.clientFor(context.resolveTurn(settings).model),
-      toolSources: [...context.toolSources, new PiCodingToolSource(context, section.bashTimeoutSeconds)],
+      toolSources: [
+        ...context.toolSources.map((source) =>
+          source.sourceName === connectorsToolSourceName
+            ? new PrefixedConnectorToolSource(source, new Set(Object.keys(piCodingLocalTools)), context)
+            : source,
+        ),
+        new PiCodingToolSource(context, section.bashTimeoutSeconds),
+      ],
       builtInTools: ["ask_user"],
     },
     context.flowType,
@@ -148,15 +167,17 @@ export function readPiSection(options: Readonly<Record<string, unknown>>): PiSec
       throw new ConfigError("schema", `/pi/${escapeJsonPointer(key)}`, "additionalProperties");
     }
   }
-  const bashTimeoutSeconds = options["bash_timeout_seconds"] ?? defaultBashTimeoutSeconds;
-  if (typeof bashTimeoutSeconds !== "number" || !Number.isSafeInteger(bashTimeoutSeconds)) {
-    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "type");
-  }
-  if (bashTimeoutSeconds < 1) {
-    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "minimum");
-  }
-  if (bashTimeoutSeconds > maximumBashTimeoutSeconds) {
-    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "maximum");
+  const bashTimeoutSeconds = options["bash_timeout_seconds"];
+  if (bashTimeoutSeconds !== undefined) {
+    if (typeof bashTimeoutSeconds !== "number" || !Number.isSafeInteger(bashTimeoutSeconds)) {
+      throw new ConfigError("schema", "/pi/bash_timeout_seconds", "type");
+    }
+    if (bashTimeoutSeconds < 1) {
+      throw new ConfigError("schema", "/pi/bash_timeout_seconds", "minimum");
+    }
+    if (bashTimeoutSeconds > maximumBashTimeoutSeconds) {
+      throw new ConfigError("schema", "/pi/bash_timeout_seconds", "maximum");
+    }
   }
   const isProjectContextLoaded = options["load_project_context"] ?? true;
   if (typeof isProjectContextLoaded !== "boolean") {

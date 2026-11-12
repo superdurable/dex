@@ -146,6 +146,7 @@ interface AgentHarness {
   readonly flowType: string;
   readonly defaultModel: string | null;
   readonly replacedLocalTools?: readonly LocalToolGroup[];
+  readonly defaultWorkspaceLocation?: "dex_agent_workspace" | "launch_directory"; // TypeScript only
   createSessionFlow(context: HarnessContext): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
 }
 
@@ -179,6 +180,10 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   `approval.always`. A harness reads only the model and the instructions,
   with `resolveTurn` in each model call. Rejected settings throw there, so
   the turn fails with the error code and JSON Pointer.
+- `defaultWorkspaceLocation: "launch_directory"` makes the directory the
+  command starts in the workspace when the file sets none, as Pi does, and
+  `init` then writes no `workspace`. The default is `~/dex-agent-workspace`.
+  The Python CLI core has no such option.
 - `replacedLocalTools` lists the groups the harness serves with its own
   tools. The CLI core leaves them out of `context.toolSources`. The harness
   gives its own tools the same rules, with these exports:

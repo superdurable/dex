@@ -19,6 +19,7 @@ export {
   localToolGroups,
   type AgentHarness,
   type HarnessContext,
+  type HarnessDefaultWorkspaceLocation,
   type LocalToolGroup,
   type ResolvedTurn,
 } from "./agent-harness.js";

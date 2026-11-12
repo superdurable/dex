@@ -47,8 +47,8 @@ export interface InitAnswers {
   readonly systemPrompt: string | null;
   /** The enabled connector entries, such as `slack/support-slack`, or `null` for every authorized connection. */
   readonly connectors: readonly string[] | null;
-  /** The workspace path, as written in the file. */
-  readonly workspace: string;
+  /** The workspace path, as written in the file, or `null` to leave the field out and use the command's default. */
+  readonly workspace: string | null;
   /** The local tool groups to switch on. */
   readonly localTools: ReadonlySet<LocalToolGroup>;
 }
@@ -75,7 +75,7 @@ export function defaultConfigPath(agentsDirectory: string, harness: AgentHarness
  */
 export function readConfigFile(configPath: string, harness: AgentHarness): LoadedConfig {
   const value = parseConfigYaml(readFileSync(configPath, "utf8"));
-  return { effective: resolveConfig(value, harness.configSection, harness.defaultModel), configPath, isFromFile: true };
+  return { effective: resolveHarnessConfig(value, harness), configPath, isFromFile: true };
 }
 
 /**
@@ -89,7 +89,8 @@ export function isConfigPresent(configPath: string): boolean {
 
 /**
  * Returns the answers that `--yes` and non-interactive runs use: the command's default model, the harness
- * instructions, every authorized connection, `~/dex-agent-workspace`, and every local tool group.
+ * instructions, every authorized connection, `~/dex-agent-workspace` (none when the harness defaults to the launch
+ * directory), and every local tool group.
  * @param harness - The command's harness.
  * @returns The default answers.
  */
@@ -98,7 +99,7 @@ export function defaultInitAnswers(harness: AgentHarness): InitAnswers {
     model: harness.defaultModel,
     systemPrompt: null,
     connectors: null,
-    workspace: defaultWorkspace,
+    workspace: harness.defaultWorkspaceLocation === "launch_directory" ? null : defaultWorkspace,
     localTools: new Set(localToolGroups),
   };
 }
@@ -137,7 +138,7 @@ export async function askInitQuestions(
   if (connectors === null) {
     return null;
   }
-  const workspace = await ask(`Workspace for local tools [${defaults.workspace}]: `);
+  const workspace = await ask(`Workspace for local tools [${defaults.workspace ?? "the directory the command starts in"}]: `);
   if (workspace === null) {
     return null;
   }
@@ -165,7 +166,7 @@ export async function askInitQuestions(
  */
 export function writeConfigFile(configPath: string, answers: InitAnswers, harness: AgentHarness): LoadedConfig {
   const text = renderConfigYaml(answers, harness);
-  const effective = resolveConfig(parseConfigYaml(text), harness.configSection, harness.defaultModel);
+  const effective = resolveHarnessConfig(parseConfigYaml(text), harness);
   mkdirSync(dirname(configPath), { recursive: true });
   writeFileSync(configPath, text);
   return { effective, configPath, isFromFile: true };
@@ -180,7 +181,7 @@ export function writeConfigFile(configPath: string, answers: InitAnswers, harnes
  * @throws {ConfigError} When the command has no default model.
  */
 export function inMemoryConfig(configPath: string, answers: InitAnswers, harness: AgentHarness): LoadedConfig {
-  const effective = resolveConfig(parseConfigYaml(renderConfigYaml(answers, harness)), harness.configSection, harness.defaultModel);
+  const effective = resolveHarnessConfig(parseConfigYaml(renderConfigYaml(answers, harness)), harness);
   return { effective, configPath, isFromFile: false };
 }
 
@@ -236,6 +237,12 @@ export function describeConfigError(error: ConfigError, configPath: string): str
   }`;
 }
 
+/** Resolves a parsed file with the harness's section, default model, and default workspace. */
+function resolveHarnessConfig(value: unknown, harness: AgentHarness): EffectiveConfig {
+  const workspace = harness.defaultWorkspaceLocation === "launch_directory" ? process.cwd() : defaultWorkspace;
+  return resolveConfig(value, harness.configSection, harness.defaultModel, workspace);
+}
+
 function renderConfigYaml(answers: InitAnswers, harness: AgentHarness): string {
   const document: Record<string, unknown> = {};
   if (answers.model !== null) {
@@ -246,7 +253,9 @@ function renderConfigYaml(answers: InitAnswers, harness: AgentHarness): string {
   }
   document.dex = { server: "auto" };
   document.connectors = { mcp: "auto", ...(answers.connectors === null ? {} : { enabled: [...answers.connectors] }) };
-  document.workspace = answers.workspace;
+  if (answers.workspace !== null) {
+    document.workspace = answers.workspace;
+  }
   document.local_tools = {
     files: answers.localTools.has("files"),
     shell: { enabled: answers.localTools.has("shell"), allow: [] },
