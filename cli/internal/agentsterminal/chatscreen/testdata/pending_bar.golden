@@ -4,10 +4,10 @@
   ␛[2mmodel:     ␛[mgpt-5.2
   ␛[2mdirectory: ␛[m~/dex-agent-workspace
   ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
-  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+  ␛[2mDex Web:   ␛[m␛]8;;http://127.0.0.1:8802␛\␛[4;34mhttp://127.0.0.1:8802␛[m␛]8;;␛\
 
-  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
-  ␛[2mcopies the last reply.␛[m
+  ␛[2mType a message to start. /help lists commands. Drag selects text; /copy copies␛[m
+  ␛[2mthe last reply.␛[m
 
 ␛[2m›␛[m Post the summary.
 
@@ -32,10 +32,10 @@
   ␛[2mmodel:     ␛[mgpt-5.2
   ␛[2mdirectory: ␛[m~/dex-agent-workspace
   ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
-  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+  ␛[2mDex Web:   ␛[m␛]8;;http://127.0.0.1:8802␛\␛[4;34mhttp://127.0.0.1:8802␛[m␛]8;;␛\
 
-  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
-  ␛[2mcopies the last reply.␛[m
+  ␛[2mType a message to start. /help lists commands. Drag selects text; /copy copies␛[m
+  ␛[2mthe last reply.␛[m
 
 ␛[2m›␛[m Post the summary.
 

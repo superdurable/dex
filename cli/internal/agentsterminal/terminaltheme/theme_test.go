@@ -44,6 +44,14 @@ func TestNoColorThemeFocusesWithReverseVideo(t *testing.T) {
 	require.Equal(t, "\x1b[1;7mApprove\x1b[m", theme.Focused.Render("Approve"))
 }
 
+func TestRenderLinkLinksOnlyPrintableURLs(t *testing.T) {
+	theme := NewTheme(colorprofile.ANSI, true)
+	link := theme.RenderLink("http://127.0.0.1:8802", "Dex Web")
+	require.Equal(t, "\x1b]8;;http://127.0.0.1:8802\x1b\\\x1b[4;34mDex Web\x1b[m\x1b]8;;\x1b\\", link)
+	require.Equal(t, 7, DisplayWidth(link), "link sequences take no cells")
+	require.NotContains(t, theme.RenderLink("http://x\x07y", "x"), "\x1b]8;", "a URL with a control character is not linked")
+}
+
 func TestIsUnicodeLocale(t *testing.T) {
 	require.True(t, IsUnicodeLocale(lookupFrom(map[string]string{"LANG": "en_US.UTF-8"})))
 	require.True(t, IsUnicodeLocale(lookupFrom(map[string]string{"LC_ALL": "C.utf8", "LANG": "C"})))

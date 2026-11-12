@@ -54,6 +54,9 @@ type ChatScreen struct {
 
 	width  int
 	height int
+	// hasLightBackground is the terminal's answer to the background color
+	// query; dark until it answers.
+	hasLightBackground bool
 
 	session           sessionfeed.SessionOpened
 	isSessionLoaded   bool
@@ -288,7 +291,7 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 
 func (screen *ChatScreen) welcome() welcomeBlock {
 	isLogoShown := screen.isLogoAllowed && screen.width >= minimumLogoWidth && screen.height >= minimumLogoHeight
-	return welcomeBlock{session: screen.openedSession, isLogoShown: isLogoShown}
+	return welcomeBlock{session: screen.openedSession, isLogoShown: isLogoShown, hasLightBackground: screen.hasLightBackground}
 }
 
 // ExitSummary is the line printed after the full screen closes: where the
@@ -310,9 +313,10 @@ func (screen *ChatScreen) ExitCode() int {
 	return screen.exitCode
 }
 
-// Init starts reading session updates.
+// Init starts reading session updates and asks for the background color,
+// which picks the logo colors.
 func (screen *ChatScreen) Init() tea.Cmd {
-	return tea.Batch(screen.waitForSessionUpdate(), screen.startAnimation())
+	return tea.Batch(screen.waitForSessionUpdate(), screen.startAnimation(), tea.RequestBackgroundColor)
 }
 
 // Update applies one message.
@@ -322,8 +326,9 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		screen.width, screen.height = max(typed.Width, 1), max(typed.Height, 1)
 		screen.history.Replace(0, screen.welcome())
-	case tea.MouseWheelMsg:
-		screen.handleMouseWheel(typed)
+	case tea.BackgroundColorMsg:
+		screen.hasLightBackground = !typed.IsDark()
+		screen.history.Replace(0, screen.welcome())
 	case tea.KeyPressMsg:
 		commands = append(commands, screen.handleKey(typed), screen.scheduleDeferredPopup())
 	case tea.PasteMsg:

@@ -46,14 +46,15 @@ var asciiLogoRows = []logoRow{
 // welcomeBlock opens the message view: the logo, where the session runs,
 // and how to start.
 type welcomeBlock struct {
-	session     sessionfeed.SessionOpened
-	isLogoShown bool
+	session            sessionfeed.SessionOpened
+	isLogoShown        bool
+	hasLightBackground bool
 }
 
 func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string {
 	var lines []string
 	if block.isLogoShown {
-		lines = append(lines, renderStartupLogo(theme)...)
+		lines = append(lines, renderStartupLogo(block.brandColors(theme), theme)...)
 		lines = append(lines, "")
 	}
 	session := block.session
@@ -63,12 +64,16 @@ func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string 
 	} else if sessionText != "" {
 		sessionText += theme.Secondary.Render(" (resumed)")
 	}
+	webLink := ""
+	if session.WebURL != "" {
+		webLink = theme.RenderLink(session.WebURL, session.WebURL)
+	}
 	rows := [][2]string{
 		{"command", session.Command},
 		{"model", session.Model},
 		{"directory", session.Workspace},
 		{"session", sessionText},
-		{"Dex Web", session.WebURL},
+		{"Dex Web", webLink},
 	}
 	for _, row := range rows {
 		if row[1] == "" {
@@ -77,7 +82,7 @@ func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string 
 		line := contentIndent + theme.Secondary.Render(terminaltheme.PadRight(row[0]+":", 11)) + row[1]
 		lines = append(lines, terminaltheme.TruncateToWidth(line, width, theme.Symbols.Ellipsis))
 	}
-	tip := "Type a message to start. /help lists commands. Shift-drag selects text; /copy copies the last reply."
+	tip := "Type a message to start. /help lists commands. Drag selects text; /copy copies the last reply."
 	lines = append(lines, "")
 	for _, line := range terminaltheme.WrapToWidth(tip, max(width-len(contentIndent), 1)) {
 		lines = append(lines, contentIndent+theme.Secondary.Render(strings.TrimRight(line, " ")))
@@ -85,16 +90,23 @@ func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string 
 	return lines
 }
 
-// renderStartupLogo draws the brand mark. Its green chevron is the one
-// non-status color.
-func renderStartupLogo(theme terminaltheme.Theme) []string {
+func (block welcomeBlock) brandColors(theme terminaltheme.Theme) terminaltheme.BrandColors {
+	if block.hasLightBackground {
+		return theme.BrandOnLight
+	}
+	return theme.BrandOnDark
+}
+
+// renderStartupLogo draws the brand mark. Its bar and green chevron use the
+// only non-status colors.
+func renderStartupLogo(brand terminaltheme.BrandColors, theme terminaltheme.Theme) []string {
 	rows := asciiLogoRows
 	if theme.IsUnicode {
 		rows = unicodeLogoRows
 	}
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
-		line := contentIndent + theme.Secondary.Render(row.bar) + theme.BrandMark.Render(row.chevron)
+		line := contentIndent + brand.Track.Render(row.bar) + brand.Head.Render(row.chevron)
 		if row.text != "" {
 			gap := strings.Repeat(" ", 7-terminaltheme.DisplayWidth(row.chevron))
 			text := theme.Secondary.Render(row.text)

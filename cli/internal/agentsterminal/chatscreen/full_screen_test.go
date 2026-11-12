@@ -139,10 +139,10 @@ func TestMessageViewScrollsAndFollows(t *testing.T) {
 	require.Contains(t, following, "note 40")
 	require.NotContains(t, following, "new messages")
 
-	harness.screen.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
-	require.False(t, harness.screen.scroll.isFollowing, "the mouse wheel scrolls up")
+	harness.press(key(tea.KeyPgUp))
+	require.False(t, harness.screen.scroll.isFollowing, "PgUp scrolls up")
 	for range 20 {
-		harness.screen.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+		harness.press(key(tea.KeyPgDown))
 	}
 	require.True(t, harness.screen.scroll.isFollowing, "scrolling to the end follows again")
 
@@ -153,12 +153,13 @@ func TestMessageViewScrollsAndFollows(t *testing.T) {
 	require.False(t, harness.screen.scroll.isFollowing, "with a draft, End moves the input cursor instead")
 }
 
-func TestViewIsFullScreenWithMouseWheel(t *testing.T) {
+func TestViewIsFullScreenAndLeavesTheMouseToTheTerminal(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{})
 	view := harness.screen.View()
 	requireWellFormedScreen(t, view.Content, 80, 40)
 	require.True(t, view.AltScreen)
-	require.Equal(t, tea.MouseModeCellMotion, view.MouseMode)
+	require.Equal(t, tea.MouseModeNone, view.MouseMode, "a plain drag selects text")
+	require.Contains(t, stripForTest(view.Content), "Drag selects text")
 }
 
 func TestExitSummary(t *testing.T) {

@@ -59,10 +59,7 @@ func (content messageContent) Window(top int, height int) []string {
 	return window
 }
 
-const (
-	mouseWheelStep  = 3
-	statusBarHeight = 2
-)
+const statusBarHeight = 2
 
 // screenLayout is one frame's split of the screen into the message view and
 // the docked rows below it.
@@ -75,7 +72,8 @@ type screenLayout struct {
 }
 
 // View draws the full screen. It is empty while exiting, so the terminal
-// leaves the alternate screen cleanly.
+// leaves the alternate screen cleanly. It leaves the mouse to the terminal,
+// so a plain drag selects text.
 func (screen *ChatScreen) View() tea.View {
 	if screen.isExiting {
 		return tea.NewView("")
@@ -83,7 +81,6 @@ func (screen *ChatScreen) View() tea.View {
 	content, cursor := screen.renderFullScreen()
 	view := tea.NewView(content)
 	view.AltScreen = true
-	view.MouseMode = tea.MouseModeCellMotion
 	view.Cursor = cursor
 	return view
 }
@@ -122,24 +119,6 @@ func (screen *ChatScreen) handleScrollKey(key tea.KeyPressMsg) bool {
 		return false
 	}
 	return true
-}
-
-func (screen *ChatScreen) handleMouseWheel(wheel tea.MouseWheelMsg) {
-	step := mouseWheelStep
-	if wheel.Button == tea.MouseWheelUp {
-		step = -mouseWheelStep
-	}
-	switch {
-	case screen.pager != nil:
-		screen.pager.Scroll(step, screen.pagerSize(), screen.theme)
-	case screen.isToolPickerOpen:
-	case screen.isHelpOpen:
-		screen.helpScrollFromTop = max(screen.helpScrollFromTop+step, 0)
-	case screen.isPopupOpen:
-		screen.popup.scrollFromBottom = max(screen.popup.scrollFromBottom-step, 0)
-	default:
-		screen.scrollBy(step)
-	}
 }
 
 func (screen *ChatScreen) scrollToTop() {

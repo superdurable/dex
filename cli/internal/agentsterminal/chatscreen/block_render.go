@@ -10,9 +10,11 @@ package chatscreen
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/markdownview"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
@@ -116,6 +118,7 @@ func renderPlainReply(text string, width int) []string {
 func renderNoticeLine(severity sessionfeed.NoticeSeverity, text string, width int, theme terminaltheme.Theme) []string {
 	symbol := theme.Secondary.Render(theme.Symbols.Queued)
 	body := text
+	bodyStyle := lipgloss.NewStyle()
 	switch severity {
 	case sessionfeed.NoticeSeverityWarning:
 		symbol = theme.Warning.Render(theme.Symbols.Warning)
@@ -123,8 +126,12 @@ func renderNoticeLine(severity sessionfeed.NoticeSeverity, text string, width in
 		symbol = theme.Error.Render(theme.Symbols.Failed)
 	default:
 		body = theme.Secondary.Render(text)
+		bodyStyle = theme.Secondary
 	}
 	wrapped := terminaltheme.WrapToWidth(terminaltheme.ExpandTabs(body), max(width-4, 1))
+	if plainText := terminaltheme.ExpandTabs(text); noticeURLPattern.MatchString(plainText) {
+		wrapped = renderLinkedLines(plainText, terminaltheme.WrapToWidth(plainText, max(width-4, 1)), bodyStyle, theme)
+	}
 	lines := make([]string, 0, len(wrapped))
 	for index, line := range wrapped {
 		if index == 0 {
@@ -134,6 +141,51 @@ func renderNoticeLine(severity sessionfeed.NoticeSeverity, text string, width in
 		lines = append(lines, contentIndent+"  "+strings.TrimLeft(line, " "))
 	}
 	return lines
+}
+
+// noticeURLPattern finds the web addresses in a notice, such as Dex Web
+// links, without trailing punctuation.
+var noticeURLPattern = regexp.MustCompile(`https?://[!-~]*[A-Za-z0-9/#=&%_~+-]`)
+
+// renderLinkedLines styles the wrapped lines of text with style, drawing each
+// URL piece as a link to its whole URL. Wrapping first keeps every link
+// sequence inside one line.
+func renderLinkedLines(text string, wrapped []string, style lipgloss.Style, theme terminaltheme.Theme) []string {
+	urlSpans := noticeURLPattern.FindAllStringIndex(text, -1)
+	lines := make([]string, 0, len(wrapped))
+	cursor := 0
+	for _, line := range wrapped {
+		trimmed := strings.TrimSpace(line)
+		offset := strings.Index(text[cursor:], trimmed)
+		if trimmed == "" || offset < 0 {
+			lines = append(lines, style.Render(line))
+			continue
+		}
+		start := cursor + offset
+		cursor = start + len(trimmed)
+		var rendered strings.Builder
+		rendered.WriteString(line[:strings.Index(line, trimmed)])
+		position := start
+		for _, span := range urlSpans {
+			pieceStart, pieceEnd := max(span[0], position), min(span[1], cursor)
+			if pieceStart >= pieceEnd {
+				continue
+			}
+			rendered.WriteString(renderUnlessEmpty(style, text[position:pieceStart]))
+			rendered.WriteString(theme.RenderLink(text[span[0]:span[1]], text[pieceStart:pieceEnd]))
+			position = pieceEnd
+		}
+		rendered.WriteString(renderUnlessEmpty(style, text[position:cursor]))
+		lines = append(lines, rendered.String())
+	}
+	return lines
+}
+
+func renderUnlessEmpty(style lipgloss.Style, text string) string {
+	if text == "" {
+		return ""
+	}
+	return style.Render(text)
 }
 
 // toolRowClock selects the spinner frame and elapsed time of running rows.
@@ -445,6 +497,7 @@ var helpKeyRows = [][2]string{
 	{"Ctrl-O", "open the last tool's full output"},
 	{"Ctrl-P", "show the plan's steps"},
 	{"PgUp/PgDn", "scroll the messages; End follows new ones"},
+	{"Drag", "select text to copy with the terminal's copy key"},
 	{"F1", "show this help"},
 }
 
