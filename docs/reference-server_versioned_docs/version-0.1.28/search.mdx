@@ -1,6 +1,7 @@
 ---
 title: Search backends
 sidebar_label: Search backends
+description: "Search backends for SearchFlows: the built-in index, and PostgreSQL or ParadeDB through an external search projection."
 ---
 
 # Search backends
@@ -13,27 +14,30 @@ projection.
 
 ### How the projection works {#search-projection-behavior}
 
-- Each committed change to a run's search document appends an entry to a
-  durable outbox in the same local commit. A run purge appends one too.
+- Each committed change to a Flow run's search document appends an entry to a
+  durable outbox, in the same local commit. Purging a Flow run appends an entry
+  too.
 - The outbox is part of the replicated state. Snapshots and log replay restore
   it after a restart or a takeover.
-- The node that holds the lease reads the outbox in commit order. It writes each
-  changed run's current document to SQL. Then it removes the written entries
-  with a logged acknowledgement.
-- Several changes to one run between two batches become one row write.
+- The node that holds the lease reads the outbox in commit order. It writes the
+  current document of each changed Flow run to SQL. Then it removes the written
+  entries with a logged acknowledgement.
+- When one Flow run changes several times between two batches, the projection
+  writes its row once.
 - The projection is asynchronous. When the database is slow or unavailable,
-  commits continue and the outbox grows on the local disk. Search results lag,
-  but no change is lost and nothing is rebuilt. After the database recovers, the
-  projection continues from the oldest entry.
+  writes to Flows still commit, and the outbox grows on the local disk. Search
+  results lag, but no change is lost and nothing is rebuilt. After the database
+  recovers, the projection continues from the oldest entry.
 - Each partition's SQL progress row records the writer's lease epoch. A former
   lease holder with a lower epoch cannot write any more rows.
 - An outbox entry takes about 60 bytes. Size the local store volume for the
-  longest database outage you want to ride out.
+  longest database outage the server must survive.
 
 ### Initial load {#search-projection-initial-load}
 
-At startup, the node checks each partition's SQL progress against its committed
-state. It loads the partition when the progress cannot continue from the outbox:
+At startup, the node compares each partition's SQL progress with its committed
+state. When the projection cannot continue from the outbox, the node loads the
+whole partition:
 
 | Reason in the log | When it happens |
 | --- | --- |
@@ -43,32 +47,32 @@ state. It loads the partition when the progress cannot continue from the outbox:
 | **acked_after_progress** | The database was restored to a point before entries that the cluster already acknowledged |
 | **ahead_of_committed_state** | A defensive check: the progress is ahead of committed state. After an object storage restore, use a new schema instead. |
 
-A load deletes the partition's rows and its progress in one transaction. Then it
-copies every current search document of the partition from one consistent view.
-Its last transaction records the new progress, so a crash during a load leads to
-another load. Later changes come from the outbox. Loads happen only at startup,
-never because the database is slow.
+A load first deletes the partition's rows and its progress in one transaction.
+Then it copies every current search document of the partition from one
+consistent view. Its last transaction records the new progress, so a crash
+during a load leads to another load. After the load, changes come from the
+outbox. Loads happen only at startup, never because the database is slow.
 
 The log shows **loading the partition into the SQL visibility projection** with
 the **reason** for each load. **dexzd_search_initial_loads_total** counts loads,
 and **dexzd_search_initial_load_pending_partitions** reaches 0 when every
-partition is loaded. SearchFlows waits for a partition that is loading, as
-described in [Read-your-writes](#search-projection-read-your-writes).
+partition is loaded. SearchFlows waits for a partition that is loading. See
+[Read-your-writes](#search-projection-read-your-writes).
 
 ### Read-your-writes {#search-projection-read-your-writes}
 
 SearchFlows waits until the projection holds every outbox entry committed before
 the request. After a restart or a takeover, it also waits for entries already in
-the local store and for loading partitions. The wait lasts at most
-**search.readYourWritesWait**. When it
-expires, SearchFlows returns **UNAVAILABLE**. It never returns results that miss
-such a write. Retry the call with backoff.
+the local store and for partitions that are loading. The wait lasts at most
+**search.readYourWritesWait**. When the wait expires, SearchFlows returns
+**UNAVAILABLE**. It never returns results that miss such a write. Retry the
+call with backoff.
 
 When the projection stops after an error it cannot retry, such as invalid
 committed state, SearchFlows returns **INTERNAL** until the server restarts.
 When the schema records a newer node epoch than this node's, the projection
-stops and SearchFlows returns **UNAVAILABLE**. A newer lease holder causes this,
-and so does a restored object storage prefix with a reused schema.
+stops and SearchFlows returns **UNAVAILABLE**. This happens when a newer lease
+holder exists, or when a restored object storage prefix reuses a schema.
 
 ### Configuration {#search-projection-configuration}
 
@@ -116,9 +120,9 @@ dexzd_search_initial_load_pending_partitions > 0
 ## PostgreSQL search
 
 Choose **search.backend: postgres** to run indexed search on PostgreSQL 15 or
-newer without extensions. It does not require **pg_search**, **btree_gin**, or
-any other extension. Choose ParadeDB when you need more indexed Attributes
-than the PostgreSQL slot limits allow.
+newer. It needs no extension, such as **pg_search** or **btree_gin**. Choose
+ParadeDB when you need more indexed Attributes than the PostgreSQL slot limits
+allow.
 
 ~~~yaml
 search:
@@ -136,41 +140,45 @@ TLS options as **paradeDbConnectionString**, and serialized configuration
 redacts it. The default pool size is 10, and the default schema is **public**.
 
 Each tenant has 10 Keyword slots and 3 slots each for Int, Datetime, Double,
-Bool, KeywordArray, and Text. Registrations take slots in registration order.
-System fields, including **DexWorkQueuePermissions**, do not consume slots.
-The registry is shared by the applications on the server. Registering another
-Attribute after a type reaches its limit returns **FAILED_PRECONDITION**.
+Bool, KeywordArray, and Text. Attributes take slots in registration order.
+System fields, including **DexWorkQueuePermissions**, do not use slots. All
+applications on the server share one registry. Once a type has no free slot,
+registering another Attribute of that type returns **FAILED_PRECONDITION**.
 Startup also fails if the existing registry exceeds these limits. The registry
-has no delete operation. A full registry requires a new server.
+has no delete operation, so a full registry requires a new server.
 
 An indexed Keyword value or KeywordArray element may contain at most 1024
-UTF-8 bytes. A larger new write returns **INVALID_ARGUMENT**. A rejected
-Worker Step result causes that Step to fail. A previously committed document
-with an oversized value whose stored type matches its registered Keyword or
-KeywordArray type is omitted from search and recorded as a skipped document.
-Its Flow state remains committed. Unregistered keys do not trigger this skip.
+UTF-8 bytes. A new write with a larger value returns **INVALID_ARGUMENT**. If
+the rejected write is a Worker Step result, that Step fails. A document that was
+committed earlier can hold an oversized value whose stored type matches its
+registered Keyword or KeywordArray type. Search omits that document and counts
+it as a skipped document. Its Flow state stays committed. Unregistered keys do
+not cause this skip.
 
-A newly registered Attribute uses the existing JSONB query path until its
-slot backfill finishes. Results stay correct during that window, but queries
-can be slower. Backfill commits bounded batches and resumes after a restart.
-It does not pause projection of other partitions. Unregistered index keys also
-use JSONB. **IS NULL**, **IS NOT NULL**, and negations use stored key presence,
-including when the stored type differs from the registered type. Int and Double
-values remain distinct. A scalar string stored under KeywordArray matches as
-one element. One mismatch has a stricter result: positive Keyword predicates
-do not match a stored KeywordArray. The document remains searchable, and
-negations retain the builtin evaluator result. Negative predicates,
-such as **!=** and **NOT IN**, often cannot use an index. Explicit
-**ORDER BY StartTime** and **ORDER BY CloseTime** sort all matching rows.
-Their cost grows with the number of matching rows.
+A newly registered Attribute uses the existing JSONB query path until its slot
+backfill finishes. Results stay correct during that time, but queries can be
+slower. Backfill commits bounded batches and resumes after a restart. It does
+not pause the projection of other partitions. Unregistered index keys also use
+JSONB.
 
-Text matches all query terms. It does not rank results by BM25 relevance.
-Both external search backends use the same
+**IS NULL**, **IS NOT NULL**, and negations check whether the key is stored,
+even when the stored type differs from the registered type. Int and Double
+values stay distinct. A scalar string stored under a KeywordArray Attribute
+matches as one element. One type mismatch gives a stricter result: positive
+Keyword predicates do not match a stored KeywordArray. The document stays
+searchable, and negations give the same result as builtin search.
+
+Negative predicates, such as **!=** and **NOT IN**, often cannot use an index.
+An explicit **ORDER BY StartTime** or **ORDER BY CloseTime** sorts all matching
+rows, so its cost grows with the number of matching rows.
+
+A Text query matches documents that contain all query terms. It does not rank
+results by BM25 relevance. Both external search backends use the same
 [search projection](#search-projection) and **readYourWritesWait**.
 
-A schema records its search backend. Starting with a different backend fails.
-To switch between PostgreSQL and ParadeDB, select a new database or schema.
-The server loads it from committed state automatically.
-Existing ParadeDB version-three schemas gain the dialect marker without clearing
-data or changing their version. Older releases that accept schema version 3
-can still use them. PostgreSQL uses schema version 4; older releases reject it.
+A schema records its search backend, and starting with a different backend
+fails. To switch between PostgreSQL and ParadeDB, select a new database or
+schema. The server loads it from committed state automatically. Existing
+ParadeDB schemas at version 3 gain the dialect marker without losing data or
+changing their version, so older releases that accept schema version 3 can
+still use them. PostgreSQL uses schema version 4, which older releases reject.

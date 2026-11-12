@@ -1,0 +1,159 @@
+---
+title: Metrics and alerts
+sidebar_label: Metrics and alerts
+description: "Set metrics.listen to serve plain HTTP GET /metrics on its own listener, separate from api.listen. It is empty by default, which turns the endpoint off. The endpoint has no authentication, so never expose it publicly. In Kubernetes, bind it to 0.0.0.0:9090 and restrict access with a NetworkPolicy."
+---
+
+# Metrics and alerts
+
+Set **metrics.listen** to serve plain HTTP **GET /metrics** on its own listener,
+separate from **api.listen**. It is empty by default, which turns the endpoint
+off. The endpoint has no authentication, so never expose it publicly. In Kubernetes, bind it to
+**0.0.0.0:9090** and restrict access with a NetworkPolicy.
+
+The response uses the OpenMetrics text format. The endpoint also serves metrics
+while the node recovers or waits for its lease. Every label value comes from a
+fixed set.
+No series has a Flow, Flow type, partition, tenant, or key label.
+
+| What to watch | Metric family and labels |
+| --- | --- |
+| API requests and errors | **dexzd_api_requests_total** with **rpc_class** and **code** |
+| API latency | **dexzd_api_request_latency_seconds** with **rpc_class**; unary calls only |
+| Step failures | **dexzd_step_attempt_failures_total** with **durability** and **failure_kind**, which includes **started_attempt_interrupted**; **dexzd_step_retries_exhausted_total** with **durability** |
+| Returned attempts | **dexzd_step_attempts_returned_total** with **reason** |
+| Unsupported types | **dexzd_matching_unsupported_type_entries**; **dexzd_matching_unsupported_type_evictions_total** |
+| Worker stream protocol errors | **dexzd_worker_stream_protocol_errors_total** with **error** |
+| Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
+| Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
+| Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** (in-memory waiters only) |
+| Dropped Step Stream writes | **dexzd_step_stream_writes_dropped_total** with **reason** |
+| Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs_total**; **dexzd_matching_heads_incomplete_scans_total**; **dexzd_step_task_queue_incomplete_seeks_total** |
+| Commit latency | **dexzd_commit_latency_seconds** |
+| Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
+| Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
+| Standby | **dexzd_hot_standby_state** with **state**; **dexzd_hot_standby_lag_seconds**; **dexzd_hot_standby_lag_batches**; **dexzd_hot_standby_error**; **dexzd_takeovers_total** with **standby_mode** and **store_source**; **dexzd_takeover_duration_seconds** |
+| Recovery | **dexzd_recovery_last_duration_seconds**; **dexzd_recovery_last_replayed_bytes** |
+| Timers | **dexzd_timer_lag_seconds** |
+| Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
+| Local disk | **dexzd_local_storage_bytes** |
+| History offload | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_upload_concurrency_limit**; **dexzd_history_upload_in_flight_bytes**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total**; **dexzd_history_reads_total** with **kind** and **source**; **dexzd_history_value_revivals_total**; **dexzd_history_expired_objects_deleted_total**; **dexzd_history_orphan_objects_deleted_total** |
+| Attribute Store sync | See [Monitoring](/reference/server/0.1.28/attribute-store-sync#attribute-store-monitoring) |
+| External search projection | See [Monitoring](/reference/server/0.1.28/search#search-projection-monitoring) |
+
+**rpc_class** is one of **flow_write**, **flow_read**, **search**,
+**worker_poll**, and **worker_respond**. **code** is the gRPC status code in
+snake case, such as **ok** or **unavailable**. **role** is one of **starting**,
+**standby**, **recovering**, **serving**, and **draining**. **state** is one of
+**inactive**, **bootstrapping**, **following**, **behind**, **restarting**, and
+**failed**. Only a standby in **following** is hot. The active process and a
+cold standby report **inactive**. **standby_mode** is **hot** or **cold**.
+**store_source** is **hot_standby** when the node serves the store that its hot
+standby kept current. It is **restored** when the node opened its own store or
+restored a snapshot, for example because the standby store was missing or
+stale. **dexzd_takeover_duration_seconds** covers only hot takeovers, labeled by
+**store_source**.
+
+**dexzd_step_attempts_returned_total** counts attempts that went back to
+pending without consuming a retry. Its **reason** is one of:
+
+- **unsupported**: a Worker declined the Step type.
+- **legacy_no_capacity**: a Worker on an older SDK declined for capacity. This
+  count should drop to zero once every SDK is upgraded.
+- **not_delivered**: the task never reached the Worker.
+
+The **error** label of **dexzd_worker_stream_protocol_errors_total** is one of:
+
+- **no_capacity_on_reserved_slot**: a reserved-slot Worker declined a task for
+  capacity. The attempt fails as not run, and the stream ends.
+- **half_close_after_output**: a Worker closed its stream after it sent output
+  but before the final result. The attempt fails with NOT_COMPLETED.
+- **reject_after_output**: a Worker declined a task after it had already sent
+  output for it. The attempt fails as possibly run, with NOT_COMPLETED. The
+  server ends that stream with INVALID_ARGUMENT, so the stream gets no more
+  tasks.
+
+**dexzd_matching_unsupported_type_evictions_total** is a counter. It counts
+evictions from the cache of pairs that Dex remembers as unsupported. Dex does
+not send an evicted pair to its Worker again until that Worker completes a
+Step. So while the cache overflows, a type that a Worker declined can be
+offered to it again after each Step it completes. Raise
+**matching.unsupportedTypeCacheEntries** when this counter rises steadily or
+the server logs the full-cache WARN.
+
+Workers poll over one persistent stream, so there is no count of empty polls.
+**dexzd_worker_stream_events_total** counts each stream close. With
+**event="delivered"**, it counts every task frame sent, including RPC task
+frames. When Dex hands out a returned attempt again, it counts again. Long-poll
+waits count toward **flow_read** latency.
+
+Changed in 0.1.23: **dexzd_history_offload_mode_skipped_partitions_total** was
+removed with the **history.offloadEnabled** switch. Each Flow run now chooses
+history offload when it starts, so partitions no longer record an offload mode.
+
+**dexzd_history_upload_backlog_segments** counts sealed history segments that
+are not uploaded yet. It changes as each seal and each recorded upload commits.
+**dexzd_history_upload_backlog_bytes** is the uncompressed size of those
+segments. That gauge and **dexzd_history_upload_oldest_sealed_age_seconds** come
+from a rescan of every partition each minute. Both drop to 0 once the segment
+count does. The rescan also corrects the segment count, for example after a
+Flow run with waiting segments is deleted. Changed in 0.1.23: before this
+release, the segment count also came only from that rescan. A backlog that grew
+after a rescan did not show until the next one, and a node that ran for less
+than a minute showed 0.
+
+Since 0.1.23, **dexzd_history_upload_concurrency_limit** is the number of
+uploads the node currently allows at once, and
+**dexzd_history_upload_in_flight_bytes** is the bytes those uploads reserve for
+encoding and encoded objects. See
+[Upload concurrency](/reference/server/0.1.28/configuration#history-upload-concurrency).
+
+The **outcome** of **dexzd_history_uploads_total** is one of:
+
+- **created**.
+- **already_present**: a repeated upload found the same content.
+- **replaced**: an existing object had other content.
+- **failed**.
+
+The first three are counted once the upload is recorded. The server retries a
+transient object storage failure with backoff, and any other failure at the
+next rescan. Alert when
+**dexzd_history_upload_oldest_sealed_age_seconds** stays above 900, or when
+**dexzd_history_upload_checksum_mismatches_total** or
+**dexzd_history_upload_rescan_errors_total** rises.
+
+Since 0.1.22, **dexzd_history_expired_objects_deleted_total** counts the objects
+of expired history segments that the node deleted.
+**dexzd_history_orphan_objects_deleted_total** counts the history objects of
+deleted Flow runs that its periodic sweep removed.
+
+**dexzd_history_reads_total** counts history reads. **kind** is **page** for
+GetHistoryEvents and **blob** for LoadBlobs. For a page, **source** is **local**
+when only local disk served it. Otherwise the read counts once for each part of
+an uploaded segment that it read, the header or the records: **cache** when the
+part came from the disk read cache, and **object_store** when it came from
+object storage. For LoadBlobs, **source** is
+**local** for each value that local disk served, **cache** for each value from
+the disk read cache, and **object_store** for each value and each segment header
+read from object storage.
+
+Since 0.1.22, **dexzd_history_value_revivals_total** counts values that the
+lease holder restored on local disk from their uploaded segments. The lease
+holder does this when a Worker result, client write, or RPC result references a
+value after offload deleted it locally. The reads behind these restores count
+as LoadBlobs reads in **dexzd_history_reads_total**.
+
+~~~text
+# Failed API calls by class and code
+sum by (rpc_class, code) (rate(dexzd_api_requests_total{code!="ok"}[5m]))
+
+# A node that is not serving
+dexzd_node_role{role="serving"} == 0
+
+# Failed lease renewals
+increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
+~~~
+
+For the full catalog, with types, histogram buckets, and Linux process metrics,
+see the
+[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.26/server-zd/README.md#metrics).
