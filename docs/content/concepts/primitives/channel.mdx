@@ -300,7 +300,7 @@ A wake chains commits to object storage before the woken Step runs. The
 publish is committed first. Then Dex records that the wait ended and starts the
 `Execute` attempt, and a SYNC Step stores that start before the Worker gets
 the task. So a wake takes at least as long as a SYNC Step. In the
-[benchmark](/intro/performance-and-maturity#latency-below-the-peak), the time
+[benchmark](/intro/performance#latency-below-the-peak), the time
 from a publish to the start of the woken Step was 139 ms at p50 on the larger
 node at half of its peak. Wakes per second look low for a second reason: before each
 publish, the benchmark client polls the Flow until the Step waits again, and
@@ -322,7 +322,7 @@ Worker online. The SDK Clients do not expose this request.
 
 Neither path drops a repeated publish yet: a request sent again after a lost
 response publishes the message twice. See
-[Requests that can repeat](/intro/limits-and-sharp-edges#requests-that-can-repeat). Make
+[Requests that can repeat](/intro/limits#requests-that-can-repeat). Make
 the consuming Step safe for a duplicate message. For example, put a business
 key, such as an approval ID, in the message and skip a key the Flow has already
 handled.

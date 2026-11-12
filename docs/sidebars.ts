@@ -19,16 +19,19 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Get Started',
       customProps: {section: 'intro'},
-      link: {type: 'doc', id: 'intro/get-started'},
-      items: ['quick-start/index', 'intro/port-your-process'],
+      items: [
+        {type: 'doc', id: 'intro/get-started', label: 'Overview'},
+        'quick-start/index',
+        'intro/add-to-existing-code',
+      ],
     },
     {
       type: 'category',
       label: 'Build with AI',
       customProps: {section: 'agent-skills'},
-      link: {type: 'doc', id: 'build-with-ai/dex-developer-skill'},
       // Dex Connector Contributor is linked from the overview, not listed here.
       items: [
+        {type: 'doc', id: 'build-with-ai/dex-developer-skill', label: 'Overview'},
         'build-with-ai/dex-developer-skill/dex-app-builder',
         'build-with-ai/dex-developer-skill/dex-sdk',
       ],
@@ -37,11 +40,11 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Durable Agents',
       customProps: {section: 'agent-frameworks'},
-      link: {type: 'doc', id: 'agent-frameworks'},
       // Each framework is a tab on these pages. The built-in loop comes last because most agents use a framework.
       items: [
+        {type: 'doc', id: 'agent-frameworks', label: 'Overview'},
         'agent-frameworks/quick-start',
-        'agent-frameworks/in-your-app',
+        'agent-frameworks/add-to-your-agent',
         'agent-frameworks/sessions',
         'agent-frameworks/tool-calls',
         'agent-frameworks/approvals',
@@ -54,15 +57,15 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Concepts',
       customProps: {section: 'concepts'},
-      link: {type: 'doc', id: 'concepts/index'},
       items: [
+        {type: 'doc', id: 'concepts/index', label: 'Overview'},
         'concepts/flow/index',
         'concepts/step/index',
         {
           type: 'category',
           label: 'Primitives',
-          link: {type: 'doc', id: 'concepts/primitives/index'},
           items: [
+            {type: 'doc', id: 'concepts/primitives/index', label: 'Overview'},
             'concepts/primitives/attribute',
             'concepts/primitives/rpc',
             'concepts/primitives/channel',
@@ -81,14 +84,14 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Design Patterns',
       customProps: {section: 'design-patterns'},
-      link: {type: 'doc', id: 'design-patterns/index'},
       // The overview page groups these into Flow control, Reliability, Messaging, and Data.
       items: [
+        {type: 'doc', id: 'design-patterns/index', label: 'Overview'},
         {
           type: 'category',
           label: 'Parallel Steps',
-          link: {type: 'doc', id: 'design-patterns/parallel'},
           items: [
+            {type: 'doc', id: 'design-patterns/parallel', label: 'Overview'},
             'design-patterns/parallel/static',
             'design-patterns/parallel/dynamic',
             'design-patterns/parallel/await',
@@ -98,8 +101,8 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Parallel SubFlows',
-          link: {type: 'doc', id: 'design-patterns/parallel-subflows'},
           items: [
+            {type: 'doc', id: 'design-patterns/parallel-subflows', label: 'Overview'},
             'design-patterns/parallel-subflows/basic',
             'design-patterns/parallel-subflows/wait-for-half',
             'design-patterns/parallel-subflows/long-lived-parent',
@@ -112,8 +115,8 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Durable Timer',
-          link: {type: 'doc', id: 'design-patterns/durable-timer/index'},
           items: [
+            {type: 'doc', id: 'design-patterns/durable-timer/index', label: 'Overview'},
             'design-patterns/durable-timer/cron',
             'design-patterns/durable-timer/reminder',
             'design-patterns/durable-timer/inactiveness-tracker-timer',
@@ -125,8 +128,8 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Failure Handling',
-          link: {type: 'doc', id: 'design-patterns/failure-handling'},
           items: [
+            {type: 'doc', id: 'design-patterns/failure-handling', label: 'Overview'},
             'design-patterns/failure-handling/execute-failure-recovery',
             'design-patterns/failure-handling/manual-recovery',
             'design-patterns/failure-handling/graceful-timeout',
@@ -137,8 +140,8 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Drain Channels',
-          link: {type: 'doc', id: 'design-patterns/drain-channels'},
           items: [
+            {type: 'doc', id: 'design-patterns/drain-channels', label: 'Overview'},
             'design-patterns/drain-internal-channels',
             'design-patterns/draining-channel-for-external-publishing',
           ],
@@ -146,8 +149,8 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'Responsive Update',
-          link: {type: 'doc', id: 'design-patterns/responsive-update'},
           items: [
+            {type: 'doc', id: 'design-patterns/responsive-update', label: 'Overview'},
             'design-patterns/responsive-update/step-completion',
             'design-patterns/responsive-update/attribute-match',
             'design-patterns/responsive-update/stream',
@@ -157,8 +160,8 @@ const sidebars: SidebarsConfig = {
         {
           type: 'category',
           label: 'AttributeMap Partitioning',
-          link: {type: 'doc', id: 'design-patterns/attribute-map-partitioning'},
           items: [
+            {type: 'doc', id: 'design-patterns/attribute-map-partitioning', label: 'Overview'},
             'design-patterns/sequentially-chunked-attribute-map',
             'design-patterns/hash-partitioned-attribute-map',
           ],
@@ -170,8 +173,8 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Examples',
       customProps: {section: 'product-examples'},
-      link: {type: 'doc', id: 'use-cases/index'},
       items: [
+        {type: 'doc', id: 'use-cases/index', label: 'Overview'},
         'use-cases/ai-agent',
         'use-cases/order-support-agent',
         'use-cases/order-processing',
@@ -189,8 +192,8 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Run Dex',
       customProps: {section: 'components'},
-      link: {type: 'doc', id: 'components/index'},
       items: [
+        {type: 'doc', id: 'components/index', label: 'Overview'},
         'components/run-locally',
         'components/application',
         'components/testing',
@@ -205,17 +208,17 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Evaluate Dex',
       customProps: {section: 'correctness'},
-      link: {type: 'doc', id: 'intro/what-is-dex'},
       items: [
+        {type: 'doc', id: 'intro/what-is-dex', label: 'Overview'},
         'intro/compared-to-database',
         'intro/compared-to-durable-execution',
-        'intro/performance-and-maturity',
-        'intro/limits-and-sharp-edges',
+        'intro/performance',
+        'intro/limits',
         {
           type: 'category',
           label: 'Correctness and Expressiveness',
-          link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
           items: [
+            {type: 'doc', id: 'correctness-and-expressiveness/index', label: 'Overview'},
             'correctness-and-expressiveness/expressiveness-proof',
             'correctness-and-expressiveness/failure-transparency-proof',
             'correctness-and-expressiveness/workflow-patterns',
@@ -227,14 +230,16 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Developer Reference',
       customProps: {section: 'reference'},
-      link: {type: 'doc', id: 'reference/index'},
-      // Each entry expands into that component's own versioned sidebar. See plugins/shared-docs-sidebar.
-      items: referenceComponents.map(({component, label}) => ({
-        type: 'link' as const,
-        label,
-        href: `/reference/${component}/`,
-        customProps: {referenceComponent: component},
-      })),
+            // Each entry expands into that component's own versioned sidebar. See plugins/shared-docs-sidebar.
+      items: [
+        {type: 'doc', id: 'reference/index', label: 'Overview'},
+        ...referenceComponents.map(({component, label}) => ({
+          type: 'link' as const,
+          label,
+          href: `/reference/${component}/`,
+          customProps: {referenceComponent: component},
+        })),
+      ],
     },
     {type: 'doc', id: 'glossary', customProps: {section: 'glossary'}},
   ],

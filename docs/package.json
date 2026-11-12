@@ -17,7 +17,8 @@
     "test:api": "node tests/api-reference-smoke.mjs",
     "typecheck": "tsc",
     "test:site": "npm run test:reference && node tests/site-smoke.mjs",
-    "check": "npm run typecheck && npm run build && npm run test:site",
+    "check": "npm run typecheck && npm run lint:structure && npm run build && npm run test:site",
+    "lint:structure": "node --no-warnings tests/docs-structure.mjs",
     "test:reference": "node --test tests/snapshot-reference.test.mjs tests/api-reference-cache.test.mjs"
   },
   "dependencies": {

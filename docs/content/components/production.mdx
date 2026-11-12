@@ -27,7 +27,7 @@ The [minimal configuration](#minimal-configuration) below sets up this deploymen
 | Item | What to know | Details |
 | --- | --- | --- |
 | Topology | One active node serves the cluster. Hot standbys can take over. | [Dex Server](/components/server), [Lease, hot standby, and step down](/reference/server/high-availability) |
-| Capacity and cost | CPU is the limit. Start small; see [Sizing](#sizing). | [Performance and Maturity](/intro/performance-and-maturity), [Grow past one node](/intro/limits-and-sharp-edges#grow-past-one-node) |
+| Capacity and cost | CPU is the limit. Start small; see [Sizing](#sizing). | [Performance](/intro/performance), [Grow past one node](/intro/limits#grow-past-one-node) |
 | Storage | Object storage holds all server state. db9 (a separate PostgreSQL-compatible database product; stock PostgreSQL is not supported) can replace it. | [Object storage and backup](/reference/server/object-storage), [Dex Server dependencies](/components/server#dependencies) |
 | Search backend | Built-in search needs no database. Heavy search can use PostgreSQL or ParadeDB. | [Search backends](/reference/server/search) |
 | Configuration | `serve` reads one YAML file. Start from the [minimal configuration](#minimal-configuration). | [Install and configure server-zd](/reference/server/configuration) |
@@ -40,6 +40,14 @@ The [minimal configuration](#minimal-configuration) below sets up this deploymen
 | Upgrades | Upgrades roll forward. Read each release's notes first; some need every process stopped. | [Upgrades and compatibility](/reference/server/upgrades), [Agent release notes](/reference/agents/upgrades#release-notes) |
 | Your database | Writes from Steps must be safe to repeat. | [Dex and Your Database](/components/your-database) |
 | Code changes | Keep old Step types and RPCs until their Flows close. | [Change Flow Code](/concepts/change-flow-code) |
+
+### Defaults to change {#defaults-to-change-before-production}
+
+| Default | Change it |
+| --- | --- |
+| Closed runs, with their Step history, are deleted after 7 days. A deleted run frees its Flow ID. | Set [retention](#retention) to at least your longest client retry window, and copy what you must keep to [your own database](/components/your-database). |
+| Public API authentication is off, so any client that reaches the server can call it. | Configure an authenticator before you expose the port, as the [minimal configuration](#minimal-configuration) does. See [Authentication](/reference/server/authentication). |
+| Step retries stop after 4 hours, and then the Flow fails. | Set a retry policy or a failure route in [StepOptions](/concepts/step#stepoptions). |
 
 ### Sizing {#sizing}
 

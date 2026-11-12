@@ -22,7 +22,7 @@ While an approval waits, the turn waits with it, and new user messages queue unt
 
 Your application answers a pending call with the session Flow's `resolve_interrupt` RPC. It passes the interrupt ID, whether the call is approved, and an optional message for the model. In Python, `AgentSessionClient` wraps the RPC as `resolve_interrupt`. The snapshot from `get_agent_snapshot` lists pending calls under `pending_interrupts`.
 
-The example apps expose this RPC as an HTTP route. These are excerpts: the request helpers, such as `session_request`, are in each tab's linked file. The [complete quick start app](/agent-frameworks/in-your-app#web-handler) shows the same route with nothing left out.
+The example apps expose this RPC as an HTTP route. These are excerpts: the request helpers, such as `session_request`, are in each tab's linked file. The [complete quick start app](/agent-frameworks/add-to-your-agent#web-handler) shows the same route with nothing left out.
 
 <SdkTabs
   examples={{

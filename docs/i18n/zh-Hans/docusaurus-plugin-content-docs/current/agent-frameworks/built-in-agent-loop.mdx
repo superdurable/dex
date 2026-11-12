@@ -33,7 +33,7 @@ RunModel -> tool calls -> AwaitToolApproval -> CallTool or CallSingleAttemptTool
 ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
 ```
 
-这里是简化视图。[Dex Agents README](https://github.com/superdurable/dex/tree/main/agents/python/core) 列出了每个 Step 及其重试与 failure route。
+这里是简化视图。[Crashes and tool call outcomes](/reference/agents/failures)（英文）和 [Workers and timeouts](/reference/agents/workers)（英文）给出了每个 Step 的重试、超时与 failure route。
 
 失败的 `RunModel` 会重试。第三次尝试失败后，这个 turn 失败，session 等待下一条消息。Read 或 idempotent write 在 `CallTool` 中重试。其他写操作在 `CallSingleAttemptTool` 中只运行一次；如果 policy 要求审批，会在审批之后运行。
 
@@ -43,8 +43,8 @@ ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
 
 <SdkTabs
   examples={{
-    python: 'agents/python/core/README.md',
-    typescript: 'agents/typescript/core/README.md',
+    python: 'agents/python/core',
+    typescript: 'agents/typescript/core',
   }}>
 <SdkSnippet lang="python">
 
@@ -345,8 +345,8 @@ Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 
 
 <SdkTabs
   examples={{
-    python: 'examples/python/ai-agent/README.md',
-    typescript: 'examples/typescript/src/products/ai-agent/README.md',
+    python: 'examples/python/ai-agent',
+    typescript: 'examples/typescript/src/products/ai-agent',
   }}>
 <SdkSnippet lang="python">
 

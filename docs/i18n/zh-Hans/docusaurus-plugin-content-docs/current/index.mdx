@@ -32,8 +32,8 @@ Quick Start 语言：[Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go)
   <DocsSection section="concepts" to="/concepts" title="概念">
     Flow、Step 和六个 Primitive。
   </DocsSection>
-  <DocsSection section="components" icon="plug" to="/components/application#add-to-a-service" title="在现有服务中加入 Dex">
-    在你已有的服务里运行 Worker 和 Client。
+  <DocsSection section="components" icon="plug" to="/intro/add-to-existing-code" title="将 Dex 加入现有代码">
+    把你已有的函数、任务或队列消费者改写成 Flow。
   </DocsSection>
   <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="用 AI 构建">
     安装 Dex Skills，让 coding agent 写出正确的 Dex 代码。
@@ -43,8 +43,8 @@ Quick Start 语言：[Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go)
 ## 你在构建什么？
 
 <div className="docs-home-sections">
-  <DocsSection section="intro" icon="wrench" to="/get-started#fix-a-process" title="修复中途失败的流程" meta="20 分钟">
-    为什么是 Dex、Quick Start，然后把你的流程改写成 Flow。
+  <DocsSection section="intro" icon="wrench" to="/get-started#fix-a-process" title="让现有代码在崩溃后继续" meta="20 分钟">
+    为什么是 Dex、Quick Start，然后把你的代码改写成 Flow。
   </DocsSection>
   <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks" title="Durable agent">
     保留你的 agent 框架。每次工具调用在自己的 Step 里运行，审批可以等上好几天。
@@ -66,11 +66,11 @@ Quick Start 语言：[Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go)
   <DocsSection section="intro" icon="scale" to="/intro/compared-to-database" title="与数据库对比">
     同一个订单流程，先用数据库和队列构建，再写成 Flow。
   </DocsSection>
-  <DocsSection section="intro" icon="warning" to="/intro/limits-and-sharp-edges" title="限制与注意事项">
-    Dex 目前还不做什么，以及上生产前要了解的默认值。
+  <DocsSection section="intro" icon="warning" to="/intro/limits" title="限制">
+    容量、可能重复的请求、发布状态和许可证。
   </DocsSection>
-  <DocsSection section="intro" icon="gauge" to="/intro/performance-and-maturity" title="性能与成熟度">
-    实测的吞吐和延迟、发布状态和许可证。
+  <DocsSection section="intro" icon="gauge" to="/intro/performance" title="性能">
+    实测的吞吐和延迟，以及运行成本。
   </DocsSection>
   <DocsSection section="components" to="/components/your-database" title="Dex 与你的数据库">
     Step 怎样写入你已有的数据库，以及什么时候把 Flow 数据同步到 PostgreSQL。

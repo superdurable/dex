@@ -1,14 +1,14 @@
 ---
-id: performance-and-maturity
-title: Performance and Maturity
-sidebar_label: Performance and Maturity
-slug: /intro/performance-and-maturity
-description: Measured throughput and latency of one Dex Server node on AWS with S3, what SYNC and ASYNC Steps cost, the release status of Dex, and the license it ships under.
+id: performance
+title: Performance
+sidebar_label: Performance
+slug: /intro/performance
+description: Measured throughput and latency of one Dex Server node on AWS with S3, what SYNC and ASYNC Steps cost, what it costs to run, and how to repeat a result.
 ---
 
-# Performance and Maturity
+# Performance
 
-This page gives measured numbers for one Dex Server node, the release status of Dex, and its license. The [benchmark README](https://github.com/superdurable/dex/blob/main/benchmark/README.md) has every run, its settings, and the steps to repeat it.
+This page gives measured numbers for one Dex Server node and what it costs to run. Every run and its settings are in the [benchmark results folder](https://github.com/superdurable/dex/tree/main/benchmark/results), and [Reproduce a result](#reproduce-a-result) shows how to repeat one.
 
 ## How the benchmark ran
 
@@ -57,7 +57,7 @@ The Channel wake throughput includes untimed setup before each publish. Only its
 - **S3 requests follow batches, not Steps.** Dex Server groups writes into log batches. A busy node made 23 to 98 log PUTs per second, whatever its size. At USD 0.005 per 1,000 PUTs, that is at most about USD 1.8 per busy hour per node. An idle node renews its lease with about 0.3 PUTs per second.
 - **CPU is the limit.** The 2-vCPU node used 93 to 99% of its CPU at every peak. The 16-vCPU node used 68 to 87% at most peaks. Reads of large Attributes on the 16-vCPU node were limited by its 15 Gbps network instead.
 - **Reads need no Worker.** An RPC runs on a Worker. A direct Attribute read goes only to Dex Server.
-- **These peaks are the ceiling of one cluster.** One active node serves a cluster. [Limits and Sharp Edges](/intro/limits-and-sharp-edges#capacity-and-availability) covers that ceiling, failover, and upgrades.
+- **These peaks are the ceiling of one cluster.** One active node serves a cluster. [Limits](/intro/limits#capacity-and-availability) covers that ceiling, failover, and upgrades.
 
 ## What it costs to run
 
@@ -75,36 +75,42 @@ A worked example for a light load: 1 million orders a month, each a Flow with fi
 
 - instances: the active node, plus a standby if you run one, at your provider's hourly price;
 - PUTs: the estimate above, or the table's rows for a node that stays busy;
-- stored bytes: the runs kept in the retention window, at your provider's price. The benchmark did not measure stored bytes per Flow. Closed runs are deleted after [retention](/intro/limits-and-sharp-edges#defaults-to-change-before-production), so storage follows the number of runs in that window.
+- stored bytes: the runs kept in the retention window, at your provider's price. The benchmark did not measure stored bytes per Flow. Closed runs are deleted after [retention](/components/production#defaults-to-change-before-production), so storage follows the number of runs in that window.
 
-To repeat a point on your own AWS account, run `benchmark/aws/reproduce.sh`. [Reproduce a result](https://github.com/superdurable/dex/blob/main/benchmark/README.md#reproduce-a-result) lists its inputs.
 
-## Release status
+## Reproduce a result {#reproduce-a-result}
 
-| Part | Where it stands |
-| --- | --- |
-| Dex | Beta. Published APIs, configuration, wire formats, and stored data stay compatible. |
-| Dex Server (server-zd) | Version 0.1.x. Upgrades roll forward only, and some stop the cluster. |
-| SDKs | Version 1.x, in Go, Python, Java, TypeScript, and Rust. |
-| Compatibility | Decided by protocol ranges, not version numbers. A Worker or Client works with a server when their ranges overlap. |
+The scripts in [benchmark/aws](https://github.com/superdurable/dex/tree/main/benchmark/aws) rerun a recorded point on your own AWS account. You need:
 
-[Upgrades and compatibility](/reference/server/upgrades) gives the protocol ranges.
-[Limits and Sharp Edges](/intro/limits-and-sharp-edges#capacity-and-availability)
-covers upgrades that stop the cluster.
+- the AWS CLI v2 and `openssl`, with a profile that can manage EC2, S3, and IAM;
+- an EC2 key pair in the Region;
+- Linux arm64 builds of `dexbench` and `dex-server-zd`, built on Ubuntu 24.04 arm64 to match the hosts.
 
-- **Breaking changes come with a migration path.** A breaking change needs an explicit decision first.
-- **Some options are not supported yet.** A Flow start delay and a Flow-level retry policy are rejected. An Attribute Store, the optional database that receives copies of chosen Attributes, can only be PostgreSQL. Flow state itself always stays in Dex Server. [Unsupported features](/reference/server#unsupported-features) links each open issue.
-- **Five SDKs, one model.** Go, Python, Java, TypeScript, and Rust have the same Flow model.
-- **dexcli dev runs a pinned server.** Each dexcli release archive includes the **dex-server-zd** release it was tested with, and **dexcli dev** runs that one. [Run Locally](/components/run-locally) shows how to install and update it.
+Launch the shared resources, a server, and a load host in one Availability Zone:
 
-## License
+```bash
+export DEXBENCH_RUN_ID=<run id> DEXBENCH_AWS_PROFILE=<profile> DEXBENCH_AWS_REGION=us-west-2
+export DEXBENCH_AZ=us-west-2b DEXBENCH_KEY_NAME=<key pair>
+benchmark/aws/launch.sh infra
+DEXBENCH_SERVER_INSTANCE_TYPE=c7gd.large benchmark/aws/launch.sh server
+DEXBENCH_MARKET=on-demand DEXBENCH_LOAD_INSTANCE_TYPE=c7g.8xlarge benchmark/aws/launch.sh load
+```
 
-Dex is source-available under the **Sustainable Use License 1.0**. You run it yourself.
+Then rerun a point from a recorded result set. The script reads that run's settings from its `config.env` and `points.txt`; leave out the scenario and the client count to rerun every point:
 
-- **You may** use Dex for your own business operations, whatever your company's size.
-- **You may** use Dex as hidden backend infrastructure for a commercial product. This holds when the product's value comes from other features, and its customers do not get direct access to a substantial set of Dex features.
-- **You may** charge for consulting, installation, workflow development, and support.
-- **You may not**, without a commercial license, white-label, host, or resell Dex. You may not build an automation, process, workflow, or software-building platform whose value comes entirely or mostly from Dex.
-- **You may** distribute Dex or changes to it only free of charge and for non-commercial purposes.
+```bash
+benchmark/aws/reproduce.sh benchmark/results/<run> sequential-steps 512
+```
 
-Dex Skills are under the MIT License. The docs and examples keep their own licenses, and earlier material keeps its original license. The [licensing guide](https://github.com/superdurable/dex/blob/main/LICENSING.md) explains these terms, and the license text in the repository is what applies. For questions or a commercial license, write to `licensing@superdurable.io`.
+Delete everything when you are done. The instances also shut themselves down after two and a half hours.
+
+```bash
+benchmark/aws/teardown.sh
+```
+
+<a id="release-status"></a>
+<a id="license"></a>
+
+## Release status and license
+
+[Limits](/intro/limits#release-status) gives the release status of Dex and its [license](/intro/limits#license).

@@ -27,11 +27,11 @@ Client 按已注册的定义启动 Flow。它用这份注册来确定 Flow type�
 
 SDK 发送命令的方式是 RPC。RPC 在 Worker 上运行。如果 10 秒内没有该 Flow type 的 Worker 接手，调用方会收到 **Unavailable** 错误，而且什么都不会保存。
 
-FlowService 请求 `PublishToChannel` 在没有 Worker 连接时也会把 Channel 消息保存在 server 上。Worker 再次运行时，等待中的 Step 会被唤醒。SDK Client 没有提供这个请求。可以通过 gRPC 或 **dexcli api call PublishToChannel** 调用。目前重复发布不会被丢弃，见 [Limits and Sharp Edges](/intro/limits-and-sharp-edges)。
+FlowService 请求 `PublishToChannel` 在没有 Worker 连接时也会把 Channel 消息保存在 server 上。Worker 再次运行时，等待中的 Step 会被唤醒。SDK Client 没有提供这个请求。可以通过 gRPC 或 **dexcli api call PublishToChannel** 调用。目前重复发布不会被丢弃，见 [Limits](/intro/limits)。
 
 ## 一个命令最多处理一次 {#inbound-commands}
 
-Dex 目前不会丢弃重复的命令。调用方在响应丢失后重试的 RPC 会再运行一次，重复的 `PublishToChannel` 会把消息投递两次。[Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat) 跟踪计划中的修复。
+Dex 目前不会丢弃重复的命令。调用方在响应丢失后重试的 RPC 会再运行一次，重复的 `PublishToChannel` 会把消息投递两次。[Limits](/intro/limits#requests-that-can-repeat) 跟踪计划中的修复。
 
 按没有 Worker 运行时必须成立的条件选择方式：
 

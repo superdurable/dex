@@ -1,14 +1,27 @@
 ---
-id: port-your-process
-title: Port Your Process to a Flow
-sidebar_label: Port Your Process
-slug: /intro/port-your-process
-description: Turn an existing function or queue consumer into a Dex Flow. Split it into Steps, move waits into WaitFor, keep state in Attributes, and place idempotency keys and database writes. Ends with a checklist.
+id: add-to-existing-code
+title: Add Dex to Existing Code
+sidebar_label: Add Dex to Existing Code
+slug: /intro/add-to-existing-code
+description: Turn code you already run, such as a function, a queue consumer, a cron or background job, a webhook handler, a chain of service calls, or a script, into a Dex Flow. Split it into Steps, move waits into WaitFor, keep state in Attributes, and place idempotency keys and database writes. Ends with a checklist.
 ---
 
-# Port Your Process to a Flow
+# Add Dex to Existing Code
 
-Most processes that break halfway start as one function or one queue consumer. This page turns one into a Flow. Use the [Order Processing](/use-cases/order-processing) example for the full code in every SDK.
+This page turns code you already run into a Flow, so it continues after a crash, a restart, or a long wait. The same steps apply to:
+
+- a function that calls several services in a row;
+- a queue consumer or an event handler;
+- a cron job or a background job;
+- a webhook handler that does more than one thing;
+- a chain of calls across services, such as a saga;
+- a script that someone reruns by hand when it stops.
+
+The worked example below is one order function. [Order Processing](/use-cases/order-processing) has its full code in every SDK.
+
+## Before you start: install the SDK {#install}
+
+Add the SDK and a Worker to the service that runs this code. [Add Dex to an existing service](/components/application#add-to-a-service) shows the install command for each language and where the Worker and Client go.
 
 ## Start from what you have
 

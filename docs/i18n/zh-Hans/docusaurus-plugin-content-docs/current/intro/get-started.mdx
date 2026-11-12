@@ -12,8 +12,8 @@ description: 按目标选一个起点。每条路径都写明需要多长时间�
 ## 按目标选路径
 
 <div className="docs-home-sections">
-  <DocsSection section="intro" icon="wrench" to="#fix-a-process" title="修复一个中途失败的流程" meta="45 分钟">
-    最后你会得到一次停掉又重启过的运行、完整的订单示例，以及一份迁移你自己流程的检查清单。
+  <DocsSection section="intro" icon="wrench" to="#fix-a-process" title="让现有代码在崩溃后继续" meta="45 分钟">
+    最后你会得到一次停掉又重启过的运行、完整的订单示例，以及一份改写你自己代码的检查清单。
   </DocsSection>
   <DocsSection section="intro" icon="rocket" to="/quick-start" title="看 Dex 跑起来" meta="10 分钟">
     Quick Start。在你的机器上，一个 Flow 在 Worker 停掉后继续完成，并且没有重复扣款。
@@ -40,15 +40,15 @@ description: 按目标选一个起点。每条路径都写明需要多长时间�
 1. [为什么是 Dex？](/intro/what-is-dex) 用一个订单流程从头讲到尾。
 2. [与数据库对比](/intro/compared-to-database) 先用数据库和队列构建这个流程，再写成 Flow。
 3. [Compared to Existing Durable Execution](/intro/compared-to-durable-execution)（英文）把其他工具的术语对应到 Dex，并说明什么时候别的工具更合适。
-4. [Performance and Maturity](/intro/performance-and-maturity)（英文）给出实测数据、发布状态和许可证。
-5. [Limits and Sharp Edges](/intro/limits-and-sharp-edges)（英文）列出 Dex 目前还不做什么，以及上生产前要了解的默认值。
+4. [Performance](/intro/performance)（英文）给出实测的吞吐、延迟和成本。
+5. [Limits](/intro/limits)（英文）列出 Dex 目前还不做什么、发布状态和许可证。
 
-## 修复中途失败的流程 {#fix-a-process}
+## 让现有代码在崩溃后继续 {#fix-a-process}
 
 1. [为什么是 Dex？](/intro/what-is-dex) 展示扣款成功、发货却一直没有执行的情况。
 2. [与数据库对比](/intro/compared-to-database) 先用状态列和队列构建这个流程，再写成 Flow。
 3. [Quick Start](/quick-start)（英文）运行一个小版本，并在中途停掉它的 Worker。
 4. [Order Processing](/use-cases/order-processing) 是带审批、提醒和退款的完整流程。
-5. [Port Your Process to a Flow](/intro/port-your-process)（英文）把你自己的函数拆成 Step，最后给出一份检查清单。
-6. [Limits and Sharp Edges](/intro/limits-and-sharp-edges)（英文）列出上生产前要了解的事情。
+5. [Add Dex to Existing Code](/intro/add-to-existing-code)（英文）把你自己的函数、任务或队列消费者拆成 Step，最后给出一份检查清单。
+6. [Limits](/intro/limits)（英文）列出上生产前要了解的事情。
 7. [Run Dex in Production](/components/production)（英文）列出你要运行的东西：一个 Dex Server 节点、一个可选的备用节点，以及对象存储。

@@ -1,11 +1,11 @@
 ---
-title: Agents in Your App
-sidebar_label: Agents in Your App
-slug: /agent-frameworks/in-your-app
+title: Add Dex to Your Agent
+sidebar_label: Add Dex to Your Agent
+slug: /agent-frameworks/add-to-your-agent
 description: Install the adapter for your framework, copy the complete agent and host files, and wire a durable agent session into a web app that streams replies.
 ---
 
-# Agents in Your App
+# Add Dex to Your Agent
 
 The [Agent Quick Start](/agent-frameworks/quick-start) runs an example. This page moves the same agent into your own code: install your framework's adapter, copy the complete files, and serve the session from a web app.
 
@@ -18,8 +18,8 @@ Install the adapter with its framework. Each adapter brings in the Dex Agents co
 
 <SdkTabs
   examples={{
-    python: 'agents/python/claude-agent-sdk/README.md',
-    typescript: 'agents/typescript/claude-agent-sdk/README.md',
+    python: 'agents/python/claude-agent-sdk',
+    typescript: 'agents/typescript/claude-agent-sdk',
   }}>
 <SdkSnippet lang="python">
 
@@ -48,7 +48,7 @@ The example builds the CLI's environment so that `ANTHROPIC_API_KEY` is its only
 
 <SdkTabs
   examples={{
-    python: 'agents/python/google-adk/README.md',
+    python: 'agents/python/google-adk',
   }}>
 <SdkSnippet lang="python">
 
@@ -64,7 +64,7 @@ pip install dex-agents-google-adk
 
 <SdkTabs
   examples={{
-    python: 'agents/python/langgraph/README.md',
+    python: 'agents/python/langgraph',
   }}>
 <SdkSnippet lang="python">
 
@@ -80,7 +80,7 @@ pip install dex-agents-langgraph langchain-openai
 
 <SdkTabs
   examples={{
-    typescript: 'agents/typescript/mastra/README.md',
+    typescript: 'agents/typescript/mastra',
   }}>
 <SdkSnippet lang="typescript">
 
@@ -96,8 +96,8 @@ npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex
 
 <SdkTabs
   examples={{
-    python: 'agents/python/openai-agents/README.md',
-    typescript: 'agents/typescript/openai-agents/README.md',
+    python: 'agents/python/openai-agents',
+    typescript: 'agents/typescript/openai-agents',
   }}>
 <SdkSnippet lang="python">
 
@@ -120,7 +120,7 @@ npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdura
 
 <SdkTabs
   examples={{
-    python: 'agents/python/pydantic-ai/README.md',
+    python: 'agents/python/pydantic-ai',
   }}>
 <SdkSnippet lang="python">
 
@@ -136,7 +136,7 @@ pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
 
 <SdkTabs
   examples={{
-    typescript: 'agents/typescript/vercel-ai/README.md',
+    typescript: 'agents/typescript/vercel-ai',
   }}>
 <SdkSnippet lang="typescript">
 

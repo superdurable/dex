@@ -303,7 +303,7 @@ Step 的 **durability** 决定 Dex 什么时候保存它的进度。
 - **SYNC** 是默认值。Dex 在 Worker 收到任务之前保存每次 attempt 的开始，在 Flow 继续之前保存结果。每一次都要等待写入对象存储。
 - **ASYNC** 在保存开始和结果之前，就把任务交给 Worker 并开始后续工作。Dex 把这些写入合并成大约 20 毫秒一批。单个 Flow 跑得更快。如果 Dex Server 节点在写入之前失败，Dex 会在新的状态快照上再运行同一次 attempt，所以它可能读到不同的 Attribute 值。从丢失的结果开始的后续工作也会再运行。
 
-需要最严格保证的效果选 **SYNC**。延迟重要、偶尔重新运行可以接受的短 Step 选 **ASYNC**。适合 ASYNC 的有：快速读取、内部记账，以及已经有幂等键保证可以安全重复的调用。付款、发邮件，或者任何在更新的快照上重新运行可能发出不同参数的调用，都保持 **SYNC**。`StepOptions` 设置单个 Step 的 durability，`FlowConfig` 设置整个 Flow 的。[Performance and Maturity](/intro/performance-and-maturity) 给出两者的实测延迟。
+需要最严格保证的效果选 **SYNC**。延迟重要、偶尔重新运行可以接受的短 Step 选 **ASYNC**。适合 ASYNC 的有：快速读取、内部记账，以及已经有幂等键保证可以安全重复的调用。付款、发邮件，或者任何在更新的快照上重新运行可能发出不同参数的调用，都保持 **SYNC**。`StepOptions` 设置单个 Step 的 durability，`FlowConfig` 设置整个 Flow 的。[Performance](/intro/performance) 给出两者的实测延迟。
 
 ### 取消、完成和顺序 {#cancellation-completion-order}
 

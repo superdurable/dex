@@ -45,6 +45,11 @@ only when a section genuinely doesn't apply.
   affected locale. Redirect to the closest successor, never an unrelated page
   or the home page. Do not create redirect chains or loops. Update internal
   links to use the destination directly.
+- Docs pages never link to a README in the repository. User-facing content,
+  including reference, lives in the docs; a README keeps developer notes and
+  links to the docs. Link an example's folder, not its README. Sidebar group
+  headers only expand, and each group's first item is its Overview page.
+  `npm run lint:structure` enforces both.
 - Every docs change must preserve all four search-index integrity gates:
   routes and internal links resolve without accidental 404s; only declared
   legacy URLs redirect; each indexable page has one unique, self-referencing

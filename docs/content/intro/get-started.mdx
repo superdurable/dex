@@ -11,15 +11,15 @@ Pick a path by your goal. Each card says how long it takes and what you have at 
 
 :::info What you run
 
-You run Dex Server yourself, next to your own Workers. It stores every Flow in object storage, such as Amazon S3 or an S3-compatible store, and can have a standby that takes over if it stops. Dex has no hosted service. Dex is in Beta, and Dex Server is at version 0.1. [Smallest real deployment](/components/production#smallest-deployment) lists what to set up, and [Performance and Maturity](/intro/performance-and-maturity) gives the numbers and the release status.
+You run Dex Server yourself, next to your own Workers. It stores every Flow in object storage, such as Amazon S3 or an S3-compatible store, and can have a standby that takes over if it stops. Dex has no hosted service. Dex is in Beta, and Dex Server is at version 0.1. [Smallest real deployment](/components/production#smallest-deployment) lists what to set up, and [Performance](/intro/performance) gives the numbers, and [Limits](/intro/limits#release-status) gives the release status.
 
 :::
 
 ## Choose a path by goal
 
 <div className="docs-home-sections">
-  <DocsSection section="intro" icon="wrench" to="#fix-a-process" title="Fix a process that breaks halfway" meta="20 min">
-    Why Dex, the Quick Start, then Port Your Process. You end with a run you stopped and restarted, and a porting checklist.
+  <DocsSection section="intro" icon="wrench" to="#fix-a-process" title="Make existing code survive crashes" meta="20 min">
+    Why Dex, the Quick Start, then Add Dex to Existing Code. You end with a run you stopped and restarted, and a checklist for your own code.
   </DocsSection>
   <DocsSection section="intro" icon="rocket" to="/quick-start" title="See Dex work" meta="10 min">
     The Quick Start. A Flow survives a stopped Worker without charging twice, on your machine.
@@ -46,20 +46,20 @@ You run Dex Server yourself, next to your own Workers. It stores every Flow in o
 1. [Why Dex?](/intro/what-is-dex) walks through one order process.
 2. [Compared to Database](/intro/compared-to-database) builds that process on a database and queues, then as a Flow.
 3. [Compared to Existing Durable Execution](/intro/compared-to-durable-execution) maps other tools' terms onto Dex and says when another tool fits better.
-4. [Performance and Maturity](/intro/performance-and-maturity) gives measured numbers, the release status, and the license.
-5. [Limits and Sharp Edges](/intro/limits-and-sharp-edges) lists what Dex does not do yet and the defaults to know before production.
+4. [Performance](/intro/performance) gives measured throughput, latency, and cost.
+5. [Limits](/intro/limits) lists what Dex does not do yet, the release status, and the license.
 
-## Fix a process that breaks halfway {#fix-a-process}
+## Make existing code survive crashes {#fix-a-process}
 
 ### First visit, 20 min
 
 1. [Why Dex?](/intro/what-is-dex) shows a charge that succeeds and a ship call that never runs.
 2. [Quick Start](/quick-start) runs a small version and stops its Worker in the middle.
-3. [Port Your Process to a Flow](/intro/port-your-process) splits your own function into Steps and ends with a checklist.
+3. [Add Dex to Existing Code](/intro/add-to-existing-code) splits your own function, job, or queue consumer into Steps and ends with a checklist.
 
-### Before you port
+### Before you move your code
 
 4. [Compared to Database](/intro/compared-to-database) builds the same process with status columns and queues, then as a Flow.
 5. [Order Processing](/use-cases/order-processing) has the full process with approval, reminders, and a refund.
-6. [Limits and Sharp Edges](/intro/limits-and-sharp-edges) lists what to know before production.
+6. [Limits](/intro/limits) lists what to know before production.
 7. [Run Dex in Production](/components/production) lists what you run: one Dex Server node, an optional standby, and object storage.

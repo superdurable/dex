@@ -15,7 +15,7 @@ Dex runs an AI agent as a durable agent session. You can build the agent with th
 - **You run two more things.** A Worker process runs the session Steps, and Dex Server stores them. You host Dex Server yourself. Dex is in Beta, Dex Server is at version 0.1, and one active node serves a cluster.
 - **Each turn waits on Dex commits.** A turn with three parallel tool calls adds about 0.4 seconds; see [Latency and cost](/agent-frameworks/sessions#latency-and-cost).
 
-[Agents in Production](/agent-frameworks/production) lists what to set up, and [Performance and Maturity](/intro/performance-and-maturity) gives the numbers and the license.
+[Agents in Production](/agent-frameworks/production) lists what to set up, and [Performance](/intro/performance) gives the numbers and the license.
 
 :::
 
@@ -52,7 +52,7 @@ The Steps of one turn, such as `RunModel` and `CallSingleAttemptTool`, are liste
 ## Pages in this section {#pages}
 
 - [Agent Quick Start](/agent-frameworks/quick-start): run your agent on Dex, stop its Worker, and watch the session continue.
-- [Agents in Your App](/agent-frameworks/in-your-app): the install line for each framework, the complete files, and how to wire a session into a web app.
+- [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent): the install line for each framework, the complete files, and how to wire a session into a web app.
 - [Sessions](/agent-frameworks/sessions): what a session keeps, and how your framework's turn maps onto Steps.
 - [Tool Calls](/agent-frameworks/tool-calls): which calls retry and which run at most once.
 - [Approvals](/agent-frameworks/approvals): let a person approve a call before it runs.

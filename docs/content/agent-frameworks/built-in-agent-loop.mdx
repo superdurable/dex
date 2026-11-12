@@ -33,7 +33,7 @@ RunModel -> tool calls -> AwaitToolApproval -> CallTool or CallSingleAttemptTool
 ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
 ```
 
-This view is simplified. The [Dex Agents README](https://github.com/superdurable/dex/tree/main/agents/python/core) lists every Step, its retries, and its failure route.
+This view is simplified. [Crashes and tool call outcomes](/reference/agents/failures) and [Workers and timeouts](/reference/agents/workers) give each Step's retries, timeout, and failure route.
 
 A failed `RunModel` retries. After its third attempt, the turn fails and the session waits for the next message. A read or an idempotent write retries in `CallTool`. Any other write runs once in `CallSingleAttemptTool`, after approval when its policy asks for one.
 
@@ -43,8 +43,8 @@ In TypeScript, the Dex SDK is a peer package, so install it too.
 
 <SdkTabs
   examples={{
-    python: 'agents/python/core/README.md',
-    typescript: 'agents/typescript/core/README.md',
+    python: 'agents/python/core',
+    typescript: 'agents/typescript/core',
   }}>
 <SdkSnippet lang="python">
 
@@ -345,8 +345,8 @@ In a first terminal, start Dex with **dexcli dev**. It stays in the foreground. 
 
 <SdkTabs
   examples={{
-    python: 'examples/python/ai-agent/README.md',
-    typescript: 'examples/typescript/src/products/ai-agent/README.md',
+    python: 'examples/python/ai-agent',
+    typescript: 'examples/typescript/src/products/ai-agent',
   }}>
 <SdkSnippet lang="python">
 

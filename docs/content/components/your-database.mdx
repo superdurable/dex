@@ -86,7 +86,7 @@ Both protections depend on the Flow run still existing:
 - **A repeated start request** returns the run it started for as long as that
   run exists.
 
-Dex deletes a closed run after its [retention](/intro/limits-and-sharp-edges#defaults-to-change-before-production). The Flow ID
+Dex deletes a closed run after its [retention](/components/production#defaults-to-change-before-production). The Flow ID
 is then free, so a start with the same ID creates a new Flow, and that Flow
 charges again unless the payment service still drops the repeated key. Keep
 retention longer than the longest time a client can retry, or record the order

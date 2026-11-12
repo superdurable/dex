@@ -186,8 +186,8 @@ cancellation, and waits for handlers to return. Dex treats a task on a reset
 stream as one that may have run, so the retry policy applies. Long-running
 handlers should respond to cancellation. A final output that Dex has not yet
 confirmed gets 5 more seconds to flush, so shutdown can return up to 5 seconds
-after the drain deadline. Each SDK README describes its exact Stop or close
-behavior.
+after the drain deadline. Each SDK's Workers reference page shows how its
+Worker stops.
 
 When a slot frees up, Dex gives it to waiting RPCs before waiting Steps.
 

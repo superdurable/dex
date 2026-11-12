@@ -56,7 +56,7 @@ The SDK Clients do not expose this request. Call it through gRPC or with
 
 Dex does not drop a repeated command today. An RPC that the caller retries
 after a lost response runs again, and a repeated `PublishToChannel` delivers
-the message twice. [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat)
+the message twice. [Limits](/intro/limits#requests-that-can-repeat)
 tracks the planned fix.
 
 Pick the path by what must hold when no Worker runs:

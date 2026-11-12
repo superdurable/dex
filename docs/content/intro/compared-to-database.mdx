@@ -20,7 +20,7 @@ Below, one order process is built that way, one design at a time, and then as a 
 [Dex and Your Database](/components/your-database),
 [Step guarantees](/concepts/step#guarantees),
 [Failover and Deploys](/concepts/failover-and-deploys), and
-[Limits and Sharp Edges](/intro/limits-and-sharp-edges).
+[Limits](/intro/limits).
 
 It is the order process from [Why Dex?](/intro/what-is-dex): charge, wait for the seller's approval with reminders, ship, and refund if shipping keeps failing.
 These are the parts each design needs for it:
@@ -183,7 +183,7 @@ Operators can inspect each order and, after a fix, rerun it from an earlier Step
 | Crash between two steps | An outbox and a relay keep the two steps together. Without them, the buyer can be charged while the item never ships. | Dex records each Step result and the move to the next Step together. |
 | Crash during the charge call | The consumer runs again, so the payment call needs an idempotency key. | The Charge Step runs again, so the payment call needs the same key. |
 | Several workers | You build row claiming, or rely on queue delivery and duplicate checks. | Dex sends each task to one of your Workers. |
-| Latency of one step | A local database transaction commits the outbox row, usually in milliseconds. | A SYNC Step waits for two commits to object storage, its start and its result: about 105 ms at p50 at half of peak load in the [benchmark](/intro/performance-and-maturity). An ASYNC Step does not wait. |
+| Latency of one step | A local database transaction commits the outbox row, usually in milliseconds. | A SYNC Step waits for two commits to object storage, its start and its result: about 105 ms at p50 at half of peak load in the [benchmark](/intro/performance). An ASYNC Step does not wait. |
 | What you run | A database and a queue broker, plus the relay and consumers. | Dex Server, an object storage bucket, and an optional standby, plus your Workers. Indexed search works without another database; a PostgreSQL search backend is optional for heavy search. You keep your database for your own tables. [Dex Server](/components/server#dependencies) lists every dependency. |
 
 ### Your own tables
@@ -203,4 +203,4 @@ Each new requirement changes both designs:
   ],
 }} />
 
-The Ship Step's one-hour retry window and its route to Refund are set in its options; [Route a failure to a recovery Step](/intro/port-your-process#route-a-failure-to-a-recovery-step) explains them. [Order Processing](/use-cases/order-processing) has this Flow as runnable code in every SDK. The [Quick Start](/quick-start) runs a smaller version with a Charge Step and a Ship Step.
+The Ship Step's one-hour retry window and its route to Refund are set in its options; [Route a failure to a recovery Step](/intro/add-to-existing-code#route-a-failure-to-a-recovery-step) explains them. [Order Processing](/use-cases/order-processing) has this Flow as runnable code in every SDK. The [Quick Start](/quick-start) runs a smaller version with a Charge Step and a Ship Step.

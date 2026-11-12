@@ -3290,5 +3290,37 @@
   {
     "from": "/zh-Hans/agent-frameworks/mastra",
     "to": "/zh-Hans/agent-frameworks/quick-start"
+  },
+  {
+    "from": "/intro/limits-and-sharp-edges",
+    "to": "/intro/limits"
+  },
+  {
+    "from": "/zh-Hans/intro/limits-and-sharp-edges",
+    "to": "/zh-Hans/intro/limits"
+  },
+  {
+    "from": "/intro/performance-and-maturity",
+    "to": "/intro/performance"
+  },
+  {
+    "from": "/zh-Hans/intro/performance-and-maturity",
+    "to": "/zh-Hans/intro/performance"
+  },
+  {
+    "from": "/intro/port-your-process",
+    "to": "/intro/add-to-existing-code"
+  },
+  {
+    "from": "/zh-Hans/intro/port-your-process",
+    "to": "/zh-Hans/intro/add-to-existing-code"
+  },
+  {
+    "from": "/agent-frameworks/in-your-app",
+    "to": "/agent-frameworks/add-to-your-agent"
+  },
+  {
+    "from": "/zh-Hans/agent-frameworks/in-your-app",
+    "to": "/zh-Hans/agent-frameworks/add-to-your-agent"
   }
 ]
