@@ -14,7 +14,8 @@ use dexzd_object_store::{
     AzureGcsProvider, Db9ObjectStore, Db9ObjectStoreConfig, GoogleCloudStorageCredentials,
     InstrumentedObjectStore, ObjectStore, S3ApiDialect, S3Credentials, S3ObjectStore,
     S3ObjectStoreConfig, check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
-    startup_self_check,
+    check_tencent_cos_bucket_versioning, check_tencent_cos_create_only_writes,
+    check_tencent_cos_holds_no_data_of_another_provider, startup_self_check,
 };
 
 use crate::ServerError;
@@ -57,6 +58,15 @@ impl ObjectStores {
                 )
                 .await?
             }
+            ObjectStoreProvider::TencentCos => {
+                connect_tencent_cos_store(
+                    primary_config(config)?,
+                    StoreRole::Primary,
+                    multipart_threshold_bytes,
+                    metrics,
+                )
+                .await?
+            }
             ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
                 let destination = AzureGcsDestination {
                     provider: config.provider,
@@ -75,6 +85,15 @@ impl ObjectStores {
             Some(location) => match location.effective_provider(config.provider) {
                 ObjectStoreProvider::AliyunOss => {
                     connect_aliyun_oss_store(
+                        location_config(location)?,
+                        StoreRole::HardDelete,
+                        multipart_threshold_bytes,
+                        metrics,
+                    )
+                    .await?
+                }
+                ObjectStoreProvider::TencentCos => {
+                    connect_tencent_cos_store(
                         location_config(location)?,
                         StoreRole::HardDelete,
                         multipart_threshold_bytes,
@@ -184,6 +203,46 @@ async fn connect_aliyun_oss_store(
     check_aliyun_oss_create_only_writes(inner.as_ref())
         .await
         .map_err(bucket_check_error)?;
+    connect_versioned_layer(inner, bucket, metrics).await
+}
+
+/// Connects a Tencent COS bucket and checks it before the server uses it.
+///
+/// Metrics see logical keys, because instrumentation wraps the versioning adapter.
+async fn connect_tencent_cos_store(
+    mut config: S3ObjectStoreConfig,
+    role: StoreRole,
+    multipart_threshold_bytes: u64,
+    metrics: &NodeMetrics,
+) -> Result<Arc<dyn ObjectStore>, ServerError> {
+    config.api_dialect = S3ApiDialect::TencentCos;
+    let bucket = config.bucket.clone();
+    let store = new_s3_store(config, multipart_threshold_bytes).await?;
+    let bucket_check_error = |source| ServerError::TencentCosBucketCheck {
+        bucket: bucket.clone(),
+        source,
+    };
+    check_tencent_cos_bucket_versioning(&store)
+        .await
+        .map_err(bucket_check_error)?;
+    let inner: Arc<dyn ObjectStore> = Arc::new(store);
+    if role == StoreRole::Primary {
+        check_tencent_cos_holds_no_data_of_another_provider(inner.as_ref())
+            .await
+            .map_err(bucket_check_error)?;
+    }
+    check_tencent_cos_create_only_writes(inner.as_ref())
+        .await
+        .map_err(bucket_check_error)?;
+    connect_versioned_layer(inner, bucket, metrics).await
+}
+
+/// Wraps a checked create-only store in the versioning adapter and runs the startup self check.
+async fn connect_versioned_layer(
+    inner: Arc<dyn ObjectStore>,
+    bucket: String,
+    metrics: &NodeMetrics,
+) -> Result<Arc<dyn ObjectStore>, ServerError> {
     let adapter = Arc::new(AliyunOssObjectStore::new(inner));
     match adapter.remove_stale_startup_probes().await {
         Ok(0) => {}

@@ -34,6 +34,9 @@ use crate::config::{
 /// OSS limits object keys to 1023 bytes, one less than S3.
 const ALIYUN_OSS_KEY_LIMIT_SHORTFALL_BYTES: usize = 1;
 
+/// COS limits object keys to 850 bytes, 174 less than S3.
+const TENCENT_COS_KEY_LIMIT_SHORTFALL_BYTES: usize = 1024 - 850;
+
 /// The incarnation of this node's log stream; one node writes one stream until multi-node support.
 const LOG_STREAM_INCARNATION: u32 = 1;
 
@@ -196,6 +199,9 @@ impl ComponentConfigs {
                     u64::from(config.snapshot.retained_count),
                 )?,
                 deletion_delay: config.snapshot.log_deletion_delay,
+                // COS cannot create an empty object exclusively; such a log holds no data.
+                should_skip_empty_write_ahead_log_files: config.object_store.provider
+                    == ObjectStoreProvider::TencentCos,
                 ..SnapshotConfig::default()
             },
             recovery: RecoveryConfig {
@@ -424,7 +430,8 @@ fn attribute_sync_config(config: &Config) -> Result<AttributeSyncConfig, ServerE
 /// Returns the bytes that the object store adds to a logical key before the 1024-byte S3 limit.
 ///
 /// S3, Azure Blob Storage, and GCS add the prefix and a slash; db9 adds the prefix alone. aliyunOSS also adds a version
-/// suffix to replaced keys, and OSS allows one byte less than S3.
+/// suffix to replaced keys, and OSS allows one byte less than S3. tencentCOS adds the same version
+/// suffix, and COS allows 850 bytes.
 fn object_key_overhead_bytes(config: &ObjectStoreConfig) -> usize {
     let prefix_bytes = if config.prefix.is_empty() {
         0
@@ -438,6 +445,9 @@ fn object_key_overhead_bytes(config: &ObjectStoreConfig) -> usize {
         | ObjectStoreProvider::GoogleCloudStorage => prefix_bytes,
         ObjectStoreProvider::AliyunOss => {
             prefix_bytes + VERSION_OBJECT_KEY_SUFFIX_BYTES + ALIYUN_OSS_KEY_LIMIT_SHORTFALL_BYTES
+        }
+        ObjectStoreProvider::TencentCos => {
+            prefix_bytes + VERSION_OBJECT_KEY_SUFFIX_BYTES + TENCENT_COS_KEY_LIMIT_SHORTFALL_BYTES
         }
     }
 }

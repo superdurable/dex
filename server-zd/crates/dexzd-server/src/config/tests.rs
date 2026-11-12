@@ -2604,3 +2604,178 @@ fn flow_definition_key_budget_counts_the_aliyun_oss_version_suffix() {
         10 + version_suffix + 1
     );
 }
+
+/// A valid tencentCOS configuration with a virtual-hosted endpoint.
+fn tencent_cos_config() -> Config {
+    let mut configuration = valid_config();
+    configuration.object_store.provider = ObjectStoreProvider::TencentCos;
+    configuration.object_store.endpoint = "https://cos.ap-guangzhou.myqcloud.com".to_owned();
+    configuration.object_store.region = "ap-guangzhou".to_owned();
+    configuration
+}
+
+#[test]
+fn tencent_cos_provider_parses_and_requires_a_virtual_hosted_endpoint() {
+    let parsed = Config::parse_yaml(
+        "objectStore:\n  provider: tencentCOS\n  endpoint: https://cos.ap-guangzhou.myqcloud.com\n  region: ap-guangzhou\n",
+    )
+    .expect("tencentCOS parses");
+    assert_eq!(
+        parsed.object_store.provider,
+        ObjectStoreProvider::TencentCos
+    );
+    assert_eq!(ObjectStoreProvider::TencentCos.yaml_name(), "tencentCOS");
+    assert!(Config::parse_yaml("objectStore:\n  provider: tencentCos\n").is_err());
+    tencent_cos_config()
+        .validate()
+        .expect("a virtual-hosted endpoint is valid");
+    let cases: [InvalidConfigCase; 4] = [
+        ("objectStore.endpoint", |config| {
+            config.object_store.endpoint.clear()
+        }),
+        ("objectStore.forcePathStyle", |config| {
+            config.object_store.force_path_style = true
+        }),
+        ("objectStore.hardDeleteStore.endpoint", |config| {
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                bucket: "hard-delete".to_owned(),
+                ..ObjectStoreLocationConfig::default()
+            })
+        }),
+        ("objectStore.hardDeleteStore.forcePathStyle", |config| {
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                bucket: "hard-delete".to_owned(),
+                endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_owned(),
+                force_path_style: true,
+                ..ObjectStoreLocationConfig::default()
+            })
+        }),
+    ];
+    for (expected_field, mutate) in cases {
+        let mut configuration = tencent_cos_config();
+        mutate(&mut configuration);
+        let error = configuration
+            .validate()
+            .expect_err("the tencentCOS configuration is invalid");
+        assert!(
+            matches!(&error, ConfigError::Invalid { field, message }
+                if *field == expected_field && message.contains("tencentCOS")),
+            "{expected_field}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn hard_delete_store_defaults_to_the_primary_create_only_provider() {
+    let location = ObjectStoreLocationConfig::default();
+    for (primary, expected) in [
+        (
+            ObjectStoreProvider::TencentCos,
+            ObjectStoreProvider::TencentCos,
+        ),
+        (
+            ObjectStoreProvider::AliyunOss,
+            ObjectStoreProvider::AliyunOss,
+        ),
+        (ObjectStoreProvider::S3, ObjectStoreProvider::S3),
+        (ObjectStoreProvider::AzureBlob, ObjectStoreProvider::S3),
+    ] {
+        assert_eq!(
+            location.effective_provider(primary),
+            expected,
+            "{primary:?}"
+        );
+    }
+    let parsed = Config::parse_yaml(
+        "objectStore:\n  hardDeleteStore:\n    provider: tencentCOS\n    endpoint: https://cos.ap-guangzhou.myqcloud.com\n    bucket: hard-delete\n",
+    )
+    .expect("a tencentCOS hard-delete store parses");
+    assert_eq!(
+        parsed
+            .object_store
+            .hard_delete_store
+            .expect("the hard-delete store is set")
+            .effective_provider(ObjectStoreProvider::S3),
+        ObjectStoreProvider::TencentCos
+    );
+}
+
+#[test]
+fn tencent_cos_limits_the_write_buffer_to_one_gibibyte() {
+    const GIBIBYTE: u64 = 1024 * 1024 * 1024;
+    let with_write_buffer = |provider, write_buffer_bytes| {
+        let mut configuration = match provider {
+            ObjectStoreProvider::TencentCos => tencent_cos_config(),
+            _ => valid_config(),
+        };
+        configuration.local_storage.max_wal_bytes = 4 * GIBIBYTE;
+        configuration.local_storage.write_buffer_bytes = write_buffer_bytes;
+        configuration.validate()
+    };
+    with_write_buffer(ObjectStoreProvider::TencentCos, GIBIBYTE)
+        .expect("1 GiB is the largest tencentCOS write buffer");
+    let error = with_write_buffer(ObjectStoreProvider::TencentCos, GIBIBYTE + 1)
+        .expect_err("a larger tencentCOS write buffer is rejected");
+    assert!(
+        matches!(&error, ConfigError::Invalid { field: "localStorage.writeBufferBytes", message }
+            if message.contains("5 GiB")),
+        "{error:?}"
+    );
+    with_write_buffer(ObjectStoreProvider::S3, GIBIBYTE + 1)
+        .expect("s3 keeps the write buffer limit of maxWalBytes");
+}
+
+#[test]
+fn only_tencent_cos_snapshots_skip_empty_write_ahead_logs() {
+    for (configuration, should_skip) in [(tencent_cos_config(), true), (valid_config(), false)] {
+        let components =
+            ComponentConfigs::from_config(&configuration, false).expect("component config");
+        assert_eq!(
+            components
+                .engine_node
+                .snapshots
+                .should_skip_empty_write_ahead_log_files,
+            should_skip
+        );
+    }
+}
+
+#[test]
+fn dev_rejects_the_tencent_cos_provider_by_its_name() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let yaml_path = temporary.path().join("config.yaml");
+    fs::write(&yaml_path, "objectStore:\n  provider: tencentCOS\n").expect("write test config");
+    let error = Config::load_dev(&DevCommandOptions {
+        data_dir: temporary.path().join("data"),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
+        log_dir: None,
+        config: Some(yaml_path),
+        attribute_store_config: None,
+        durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
+    })
+    .expect_err("dev must reject tencentCOS");
+    assert!(
+        matches!(
+            &error,
+            ConfigError::Invalid { field: "objectStore.provider", message }
+                if message.starts_with("tencentCOS requires serve mode")
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn flow_definition_key_budget_counts_the_tencent_cos_version_suffix_and_key_limit() {
+    let mut configuration = tencent_cos_config();
+    configuration.object_store.prefix = "cluster-a".to_owned();
+    let overhead = ComponentConfigs::from_config(&configuration, false)
+        .expect("component config")
+        .flow_definitions
+        .object_key_prefix_bytes;
+    assert_eq!(
+        overhead,
+        10 + dexzd_object_store::VERSION_OBJECT_KEY_SUFFIX_BYTES + (1024 - 850)
+    );
+}

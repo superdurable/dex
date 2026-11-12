@@ -12,7 +12,9 @@ use std::time::Duration;
 use dexzd_keyspace::validate_node_identifier;
 
 use super::engine_config::MAX_APPLIER_LANES;
-use super::storage_config::{MAX_BACKGROUND_JOBS, MIN_WRITE_BUFFER_BYTES};
+use super::storage_config::{
+    MAX_BACKGROUND_JOBS, MAX_TENCENT_COS_WRITE_BUFFER_BYTES, MIN_WRITE_BUFFER_BYTES,
+};
 use super::{Config, ConfigError, CredentialSource, ObjectStoreProvider, SearchBackend};
 
 /// Largest encoded log record that the commit log accepts.
@@ -67,7 +69,9 @@ impl Config {
         )?;
         validate_prefix("objectStore.prefix", &self.object_store.prefix)?;
         match self.object_store.provider {
-            ObjectStoreProvider::S3 | ObjectStoreProvider::AliyunOss => {
+            ObjectStoreProvider::S3
+            | ObjectStoreProvider::AliyunOss
+            | ObjectStoreProvider::TencentCos => {
                 ensure(
                     !self.object_store.region.trim().is_empty(),
                     "objectStore.region",
@@ -81,15 +85,14 @@ impl Config {
                         "environment credentials must be resolved before serving",
                     )?;
                 }
-                if self.object_store.provider == ObjectStoreProvider::AliyunOss {
-                    validate_aliyun_oss_addressing(
-                        ("objectStore.endpoint", &self.object_store.endpoint),
-                        (
-                            "objectStore.forcePathStyle",
-                            self.object_store.force_path_style,
-                        ),
-                    )?;
-                }
+                validate_create_only_provider_addressing(
+                    self.object_store.provider,
+                    ("objectStore.endpoint", &self.object_store.endpoint),
+                    (
+                        "objectStore.forcePathStyle",
+                        self.object_store.force_path_style,
+                    ),
+                )?;
             }
             ObjectStoreProvider::Db9 => {
                 ensure(
@@ -144,7 +147,9 @@ impl Config {
         if let Some(hard_delete) = &self.object_store.hard_delete_store {
             let provider = hard_delete.effective_provider(self.object_store.provider);
             match provider {
-                ObjectStoreProvider::S3 | ObjectStoreProvider::AliyunOss => {
+                ObjectStoreProvider::S3
+                | ObjectStoreProvider::AliyunOss
+                | ObjectStoreProvider::TencentCos => {
                     ensure(
                         !hard_delete.region.trim().is_empty(),
                         "objectStore.hardDeleteStore.region",
@@ -160,18 +165,17 @@ impl Config {
                         &hard_delete.endpoint,
                     )?;
                     validate_prefix("objectStore.hardDeleteStore.prefix", &hard_delete.prefix)?;
-                    if provider == ObjectStoreProvider::AliyunOss {
-                        validate_aliyun_oss_addressing(
-                            (
-                                "objectStore.hardDeleteStore.endpoint",
-                                &hard_delete.endpoint,
-                            ),
-                            (
-                                "objectStore.hardDeleteStore.forcePathStyle",
-                                hard_delete.force_path_style,
-                            ),
-                        )?;
-                    }
+                    validate_create_only_provider_addressing(
+                        provider,
+                        (
+                            "objectStore.hardDeleteStore.endpoint",
+                            &hard_delete.endpoint,
+                        ),
+                        (
+                            "objectStore.hardDeleteStore.forcePathStyle",
+                            hard_delete.force_path_style,
+                        ),
+                    )?;
                     if hard_delete.credentials_source == CredentialSource::Environment {
                         ensure(
                             hard_delete.credentials.is_some(),
@@ -183,8 +187,9 @@ impl Config {
                 ObjectStoreProvider::Db9 => {
                     return Err(ConfigError::Invalid {
                         field: "objectStore.hardDeleteStore.provider",
-                        message: "must be s3, aliyunOSS, azureBlob, or googleCloudStorage"
-                            .to_owned(),
+                        message:
+                            "must be s3, aliyunOSS, tencentCOS, azureBlob, or googleCloudStorage"
+                                .to_owned(),
                     });
                 }
                 ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
@@ -241,6 +246,14 @@ impl Config {
             self.local_storage.write_buffer_bytes <= self.local_storage.max_wal_bytes,
             "localStorage.writeBufferBytes",
             "must be no larger than localStorage.maxWalBytes",
+        )?;
+        // A snapshot uploads each table file as one object, about one memtable in size.
+        ensure(
+            self.object_store.provider != ObjectStoreProvider::TencentCos
+                || self.local_storage.write_buffer_bytes <= MAX_TENCENT_COS_WRITE_BUFFER_BYTES,
+            "localStorage.writeBufferBytes",
+            "must be at most 1 GiB with objectStore.provider tencentCOS, so every snapshot file \
+             stays well below the 5 GiB limit of a Tencent COS appendable object",
         )?;
         ensure(
             self.local_storage
@@ -788,6 +801,40 @@ fn validate_endpoint(field: &'static str, endpoint: &str) -> Result<(), ConfigEr
                 && !endpoint.chars().any(char::is_whitespace)),
         field,
         "must be an HTTP(S) URL without whitespace",
+    )
+}
+
+/// Checks the addressing of aliyunOSS and tencentCOS; other providers pass unchecked.
+fn validate_create_only_provider_addressing(
+    provider: ObjectStoreProvider,
+    endpoint: (&'static str, &str),
+    path_style: (&'static str, bool),
+) -> Result<(), ConfigError> {
+    match provider {
+        ObjectStoreProvider::AliyunOss => validate_aliyun_oss_addressing(endpoint, path_style),
+        ObjectStoreProvider::TencentCos => validate_tencent_cos_addressing(endpoint, path_style),
+        ObjectStoreProvider::S3
+        | ObjectStoreProvider::Db9
+        | ObjectStoreProvider::AzureBlob
+        | ObjectStoreProvider::GoogleCloudStorage => Ok(()),
+    }
+}
+
+/// Tencent COS has no AWS endpoint resolution and rejects path-style requests.
+fn validate_tencent_cos_addressing(
+    (endpoint_field, endpoint): (&'static str, &str),
+    (path_style_field, is_force_path_style): (&'static str, bool),
+) -> Result<(), ConfigError> {
+    ensure(
+        !endpoint.is_empty(),
+        endpoint_field,
+        "tencentCOS requires the S3-compatible endpoint of the bucket's region, such as \
+         https://cos.ap-guangzhou.myqcloud.com",
+    )?;
+    ensure(
+        !is_force_path_style,
+        path_style_field,
+        "tencentCOS accepts only virtual-hosted-style requests; remove forcePathStyle",
     )
 }
 
