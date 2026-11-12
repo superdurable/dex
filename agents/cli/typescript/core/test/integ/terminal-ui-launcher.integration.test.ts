@@ -519,6 +519,17 @@ describe("the terminal UI launcher", () => {
     }
   });
 
+  test("a normal exit after a failed turn exits 1, as the plain chat does, and prints no chat closed line", async () => {
+    const home = newHome();
+    // dexcli closes the channel and exits 1 by itself when the user exits after a failed turn.
+    const fake = new FakeTerminalUi([chatTranscript("failed_turn_exit", [], 1)]);
+    const terminal = startOnTerminal(home, fake);
+    assert.equal(await terminal.waitForExit(30_000), 1, terminal.terminal.all);
+    assert.doesNotMatch(terminal.terminal.all, /The chat closed/);
+    assert.doesNotMatch(terminal.terminal.all, /keeps running\. Resume it with/);
+    await waitUntil(() => runRecords(home).length === 0, "the Worker host stopped");
+  });
+
   test("a failure before ready continues in the plain chat on the same session", async () => {
     const rejected: Transcript = {
       ...readTranscript("chat_ready_then_exit"),

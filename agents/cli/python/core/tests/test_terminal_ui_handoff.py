@@ -846,7 +846,14 @@ async def test_a_fifth_waiting_request_is_busy(
 
 
 @pytest.mark.parametrize(
-    ("terminal_ui_exit", "command_exit"), [(0, 0), (1, 1), (130, 130), (143, 1)]
+    ("terminal_ui_exit", "command_exit", "closed_line"),
+    [
+        (0, 0, None),
+        (1, 1, None),
+        (130, 130, None),
+        # dexcli exits 143 by itself after an external SIGTERM.
+        (143, 1, "The chat closed unexpectedly (dexcli exit 143)."),
+    ],
 )
 async def test_the_command_exits_as_the_terminal_ui_did(
     cli_home: CliHome,
@@ -854,13 +861,17 @@ async def test_the_command_exits_as_the_terminal_ui_did(
     screen: io.StringIO,
     terminal_ui_exit: int,
     command_exit: int,
+    closed_line: str | None,
 ) -> None:
     fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([], tui_exit=terminal_ui_exit))
     child = start_chat(cli_home, fake, screen)
     session_id = await read_session_id(child)
     assert await wait_for_exit(child) == command_exit
+    output = screen.getvalue()
+    assert output.count("The chat closed") == (0 if closed_line is None else 1)
+    assert closed_line is None or closed_line in output
     assert_no_launcher_resume_line(screen, session_id)
-    assert_replayed(fake, screen)
+    assert fake.mismatches() == []
     assert list((cli_home.home / ".dex" / "agents" / "run").glob("*.json")) == []
 
 
@@ -1013,6 +1024,34 @@ async def test_a_protocol_error_after_ready_fails_the_chat_even_when_dexcli_exit
     assert await wait_for_exit(child) == 1
     assert_no_launcher_resume_line(screen, session_id)
     assert fake.mismatches() == []
+
+
+async def test_a_normal_exit_after_a_failed_turn_exits_1_without_a_chat_closed_line(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    # dexcli closes the channel and exits 1 by itself when the user exits after a failed turn.
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([], tui_exit=1))
+    child = start_chat(cli_home, fake, screen)
+    session_id = await read_session_id(child)
+    assert await wait_for_exit(child) == 1
+    assert "The chat closed" not in screen.getvalue()
+    assert_no_launcher_resume_line(screen, session_id)
+    assert_replayed(fake, screen)
+
+
+async def test_a_channel_closed_while_dexcli_keeps_running_fails_the_chat(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([{"close": "tui"}, pause(60_000)]))
+    child = start_chat(cli_home, fake, screen)
+    session_id = await read_session_id(child)
+    await fake.wait_for("sent", type="ready")
+    host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
+    await expect(child, "The chat closed: dexcli closed the channel.")
+    assert await wait_for_exit(child) == 1
+    assert "The chat closed unexpectedly" not in screen.getvalue()
+    assert_no_launcher_resume_line(screen, session_id)
+    await wait_until_gone([host_pid], timeout=15)
 
 
 @pytest.mark.parametrize("is_group_broadcast", [False, True], ids=["launcher-only", "group"])

@@ -279,9 +279,14 @@ What follows depends on when it happened:
 - Before `ready`, this is a failed handoff (see [Ready](#ready)). The launcher
   continues in the plain text chat on the same session.
 - After `ready`, the launcher restores the terminal mode it saved, stops the
-  Worker host, prints one line that says why the chat closed, and exits 1. A
-  `dexcli` that exited 0 after closing the channel is a normal end instead;
-  see [Exit codes](#exit-codes-of-dexcli-agents-tui).
+  Worker host, prints one line that says why the chat closed, and exits 1. An
+  EOF after which `dexcli` exits by itself with 0, 1, or 130 within the 1 s is
+  a normal end instead: the launcher prints no such line and exits with
+  `dexcli`'s code, such as 1 after a failed turn (see
+  [Exit codes](#exit-codes-of-dexcli-agents-tui)). A stopped Worker host still
+  makes it exit 1. Any other exit by itself, such as 143 or a signal, ends the
+  chat unexpectedly: the launcher prints one line with the exit code and exits
+  1. A protocol error stays a failure even when `dexcli` then exits 0.
 
 ### SIGINT that reaches only the launcher
 

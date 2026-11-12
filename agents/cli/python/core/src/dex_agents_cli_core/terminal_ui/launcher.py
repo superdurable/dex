@@ -519,6 +519,7 @@ class _Handoff:
         self._is_hung_up = False
         self._channel_end_reason: str | None = None
         self._is_protocol_error = False
+        self._is_stopped_after_channel_end = False
         self._process: ChildProcess | None = None
         self._plain_reason = ""
 
@@ -592,7 +593,8 @@ class _Handoff:
                 await channel.send(message)
             self._outbox.clear()
             await self._relay(channel, exit_task)
-            await self._stop_terminal_ui(exit_task, CHANNEL_END_EXIT_SECONDS)
+            if await self._stop_terminal_ui(exit_task, CHANNEL_END_EXIT_SECONDS):
+                self._is_stopped_after_channel_end = True
             return await exit_task
         finally:
             await channel.close()
@@ -740,17 +742,23 @@ class _Handoff:
         else:
             self._channel.post(message)
 
-    async def _stop_terminal_ui(self, exit_task: asyncio.Future[int], exit_grace: float) -> None:
-        """Give dexcli ``exit_grace`` seconds to exit, then SIGTERM, and SIGKILL 2 s later."""
+    async def _stop_terminal_ui(self, exit_task: asyncio.Future[int], exit_grace: float) -> bool:
+        """Give dexcli ``exit_grace`` seconds to exit, then SIGTERM, and SIGKILL 2 s later.
+
+        Returns:
+            ``True`` when the launcher had to signal dexcli; ``False`` when
+            dexcli had already exited or exited by itself within ``exit_grace``.
+        """
         process = self._process
         if process is None or exit_task.done():
-            return
+            return False
         if exit_grace > 0 and await _waits_within(exit_task, exit_grace):
-            return
+            return False
         process.send_signal(signal.SIGTERM)
         if not await _waits_within(exit_task, TERMINATE_GRACE_SECONDS):
             process.send_signal(signal.SIGKILL)
             await exit_task
+        return True
 
     def _finish(self, returncode: int, saved_mode: list[Any]) -> int:
         status = _exit_status(returncode)
@@ -758,13 +766,18 @@ class _Handoff:
         is_signaled = self._is_terminated or self._is_interrupted
         self._restore_terminal(saved_mode, is_reset_written=is_unexpected or is_signaled)
         # A protocol error fails the chat even when dexcli then exits 0.
+        # dexcli closing the channel and exiting by itself is a normal end, with its exit code.
         is_channel_failed = self._channel_end_reason is not None and (
-            returncode != 0 or self._is_protocol_error
+            self._is_stopped_after_channel_end or self._is_protocol_error
         )
-        if is_unexpected and not is_signaled:
-            self._report(f"The chat closed unexpectedly (dexcli exit {status}).")
-        elif is_channel_failed and not is_signaled:
+        # dexcli exiting 143 by itself, as after an external SIGTERM, is an unexpected end.
+        is_unexpected_end = is_unexpected or (
+            returncode == 143 and not self._is_stopped_after_channel_end
+        )
+        if is_channel_failed and not is_signaled:
             self._report(f"The chat closed: {self._channel_end_reason}.")
+        elif is_unexpected_end and not is_signaled:
+            self._report(f"The chat closed unexpectedly (dexcli exit {status}).")
         # After ready, dexcli's exit summary is the only resume line: /new can switch sessions.
         if self._is_interrupted:
             return 130

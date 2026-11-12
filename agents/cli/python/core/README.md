@@ -188,8 +188,12 @@ The steps of a run:
    after a `dexcli` SIGTERM or crash, or after the Worker host stopped; 143
    when the launcher itself got SIGTERM, which it forwards; 130 whenever the
    launcher got SIGINT. A malformed line from `dexcli` after `ready` fails the
-   chat with 1 even when `dexcli` then exits 0; a closed channel followed by
-   `dexcli` exiting 0 is a normal end.
+   chat with 1 even when `dexcli` then exits 0. A closed channel followed by
+   `dexcli` exiting by itself with 0, 1, or 130 within 1 s is a normal end,
+   with no "The chat closed" line: the command exits with `dexcli`'s code, 1
+   after a failed turn as in the plain chat, or 1 when the Worker host
+   stopped. Any other exit by itself, such as 143, prints
+   `The chat closed unexpectedly (dexcli exit N).` and exits 1.
 
 `start_session` derives `<name>-YYYYMMDD-HHMMSS-<6 hex digits>` from the
 request's key, and the same with 12 digits. Every StartFlow passes the key as
