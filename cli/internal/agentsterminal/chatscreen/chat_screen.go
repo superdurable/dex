@@ -119,11 +119,14 @@ type ChatScreen struct {
 
 	pathResolver *typedpaths.PathResolver
 	// pathCompletions are the /image candidates Tab found; any edit clears them.
-	pathCompletions    []string
-	pendingPastedImage *pastedImagePrompt
-	pager              *pagerView
-	isToolPickerOpen   bool
-	toolPickerIndex    int
+	pathCompletions         []string
+	isPathCompletionPartial bool
+	pathCompletionRequestID int64
+	historyReadRequestID    int64
+	pendingPastedImage      *pastedImagePrompt
+	pager                   *pagerView
+	isToolPickerOpen        bool
+	toolPickerIndex         int
 	// turnTools are the calls of the newest turn that ran tools, with their
 	// output for Ctrl-O and /tools.
 	turnTools             []sessionfeed.ToolCallChanged
@@ -186,6 +189,16 @@ type messageSubmittedMsg struct {
 }
 
 type animationTickMsg struct{}
+
+// pathCompletionsFoundMsg ends one /image completion, which reads the disk
+// off the event loop.
+type pathCompletionsFoundMsg struct {
+	requestID   int64
+	sessionID   string
+	inputText   string
+	partial     string
+	completions typedpaths.PathCompletions
+}
 
 const (
 	defaultScreenWidth  = 80
@@ -290,6 +303,8 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			screen.handleActionFailure(userActionFailedMsg{action: typed.message, err: typed.err})
 		}
 		commands = append(commands, screen.submitNextMessage())
+	case pathCompletionsFoundMsg:
+		screen.applyPathCompletions(typed)
 	case animationTickMsg:
 		screen.isTicking = false
 		commands = append(commands, screen.startAnimation())
@@ -428,7 +443,7 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 		if screen.input.IsEmpty() {
 			screen.focusPendingBar()
 		} else {
-			screen.completeImagePath()
+			return screen.completeImagePath()
 		}
 	case "ctrl+o":
 		screen.openLastToolOutput()
@@ -523,26 +538,55 @@ func (screen *ChatScreen) keepPastedText() {
 	screen.pendingPastedImage = nil
 }
 
-// completeImagePath completes the PATH of "/image PATH" on Tab: one
-// candidate replaces it, several extend it to their common prefix.
-func (screen *ChatScreen) completeImagePath() {
+// completeImagePath starts completing the PATH of "/image PATH" on Tab. The
+// directory read runs off the event loop.
+func (screen *ChatScreen) completeImagePath() tea.Cmd {
 	text := screen.input.Value()
-	commandPrefix := "/" + imageCommandName + " "
-	if screen.pathResolver == nil || !screen.commands.Has(imageCommandName) || !strings.HasPrefix(text, commandPrefix) || strings.Contains(text, "\n") {
+	if screen.pathResolver == nil || !screen.commands.Has(imageCommandName) || !strings.HasPrefix(text, imageCommandPrefix) || strings.Contains(text, "\n") {
+		return nil
+	}
+	screen.pathCompletionRequestID++
+	request := pathCompletionsFoundMsg{
+		requestID: screen.pathCompletionRequestID,
+		sessionID: screen.session.SessionID,
+		inputText: text,
+		partial:   strings.TrimLeft(strings.TrimPrefix(text, imageCommandPrefix), " "),
+	}
+	resolver := *screen.pathResolver
+	return func() tea.Msg {
+		request.completions = resolver.CompletePath(request.partial)
+		return request
+	}
+}
+
+// applyPathCompletions applies a finished completion while the input and
+// session are still the ones it read: one candidate replaces the PATH,
+// several extend it to their common prefix.
+func (screen *ChatScreen) applyPathCompletions(found pathCompletionsFoundMsg) {
+	if found.requestID != screen.pathCompletionRequestID || found.sessionID != screen.session.SessionID || found.inputText != screen.input.Value() {
 		return
 	}
-	partial := strings.TrimLeft(strings.TrimPrefix(text, commandPrefix), " ")
-	completions := screen.pathResolver.CompletePath(partial)
-	switch len(completions) {
+	candidates := found.completions.Candidates
+	screen.pathCompletions, screen.isPathCompletionPartial = nil, false
+	switch len(candidates) {
 	case 0:
-		screen.pathCompletions = nil
-		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no file matches "+partial)
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no file matches "+found.partial)
 	case 1:
-		screen.pathCompletions = nil
-		screen.input.SetValue(commandPrefix + completions[0])
+		screen.input.SetValue(imageCommandPrefix + candidates[0])
 	default:
-		screen.input.SetValue(commandPrefix + typedpaths.LongestCommonPrefix(completions))
-		screen.pathCompletions = completions
+		screen.input.SetValue(imageCommandPrefix + typedpaths.LongestCommonPrefix(candidates))
+		screen.pathCompletions, screen.isPathCompletionPartial = candidates, found.completions.IsPartial
+	}
+}
+
+// forgetSessionViews closes what belongs to the session the chat leaves:
+// pagers, the tool list, pending completions, and the paste prompt.
+func (screen *ChatScreen) forgetSessionViews() {
+	screen.pager, screen.isToolPickerOpen = nil, false
+	screen.pathCompletions, screen.isPathCompletionPartial = nil, false
+	screen.pathCompletionRequestID++
+	if screen.pendingPastedImage != nil {
+		screen.keepPastedText()
 	}
 }
 
@@ -717,7 +761,7 @@ func (screen *ChatScreen) openHistoryPager() tea.Cmd {
 		return nil
 	}
 	screen.pager = newHistoryPager(screen.session.SessionID, screen.earlierBeforeSequence, screen.deletedBeforeSequence)
-	return screen.submitAction(screen.pager.startReadingEarlier())
+	return screen.readEarlierMessages()
 }
 
 func (screen *ChatScreen) handlePagerKey(key tea.KeyPressMsg) tea.Cmd {
@@ -726,9 +770,16 @@ func (screen *ChatScreen) handlePagerKey(key tea.KeyPressMsg) tea.Cmd {
 	case result.isClosed:
 		screen.pager = nil
 	case result.isEarlierWanted:
-		return screen.submitAction(screen.pager.startReadingEarlier())
+		return screen.readEarlierMessages()
 	}
 	return nil
+}
+
+// readEarlierMessages asks for the history pager's next page under a new
+// request ID, so an answer to a closed pager never applies.
+func (screen *ChatScreen) readEarlierMessages() tea.Cmd {
+	screen.historyReadRequestID++
+	return screen.submitAction(screen.pager.startReadingEarlier(screen.historyReadRequestID))
 }
 
 func (screen *ChatScreen) pagerSize() pagerSize {
@@ -851,8 +902,13 @@ func (screen *ChatScreen) handleCompletionKey(key tea.KeyPressMsg) (tea.Cmd, boo
 // handleInterruptKey applies Ctrl-C: cancel a running turn, clear a draft,
 // or exit.
 func (screen *ChatScreen) handleInterruptKey() tea.Cmd {
+	if screen.pager != nil || screen.isToolPickerOpen {
+		// The first Ctrl-C closes the reader, so the draft behind it stays.
+		screen.pager, screen.isToolPickerOpen = nil, false
+		return nil
+	}
 	if !screen.isTurnRunning {
-		if !screen.input.IsEmpty() && !screen.isPopupOpen && !screen.isHelpOpen && screen.pager == nil {
+		if !screen.input.IsEmpty() && !screen.isPopupOpen && !screen.isHelpOpen {
 			screen.input.Clear()
 			return nil
 		}
@@ -1085,10 +1141,8 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			screen.pendingSwitchSessionID = ""
 			screen.earlierBeforeSequence, screen.deletedBeforeSequence = 0, 0
 			// Turn IDs repeat across sessions, so the old session's calls go.
-			screen.turnTools, screen.turnToolsTurnID, screen.isToolPickerOpen = nil, "", false
-			if screen.pager != nil && screen.pager.history != nil {
-				screen.pager = nil
-			}
+			screen.turnTools, screen.turnToolsTurnID = nil, ""
+			screen.forgetSessionViews()
 		}
 		screen.session = typed
 		if !screen.isSessionKnown {

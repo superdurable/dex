@@ -144,8 +144,8 @@ func approvalActions(harness *screenHarness) []sessionfeed.ResolveApproval {
 	return approvals
 }
 
-func earlierPage(sessionID string, before int64, earlier int64, texts ...string) sessionfeed.EarlierMessagesRead {
-	page := sessionfeed.EarlierMessagesRead{SessionID: sessionID, BeforeSequence: before, EarlierBeforeSequence: earlier}
+func earlierPage(sessionID string, requestID int64, before int64, earlier int64, texts ...string) sessionfeed.EarlierMessagesRead {
+	page := sessionfeed.EarlierMessagesRead{SessionID: sessionID, RequestID: requestID, BeforeSequence: before, EarlierBeforeSequence: earlier}
 	for _, text := range texts {
 		page.Messages = append(page.Messages,
 			sessionfeed.UserMessageRecorded{Text: "question " + text},
@@ -167,12 +167,12 @@ func TestHistoryPagerReadsEarlierPages(t *testing.T) {
 	require.Contains(t, harness.scrollbackText(), "· earlier messages: /history")
 	harness.typeText("/history")
 	harness.press(key(tea.KeyEnter))
-	require.Equal(t, sessionfeed.ReadEarlierMessages{SessionID: testSessionID, BeforeSequence: 101}, harness.lastAction())
+	require.Equal(t, sessionfeed.ReadEarlierMessages{SessionID: testSessionID, BeforeSequence: 101, RequestID: 1}, harness.lastAction())
 	require.Contains(t, harness.plainFrame(), "reading earlier messages…")
 
-	harness.feed(earlierPage("another-session", 101, 51, "stale"))
+	harness.feed(earlierPage("another-session", 1, 101, 51, "stale"))
 	require.Contains(t, harness.plainFrame(), "reading earlier messages…", "an answer for another session is dropped")
-	harness.feed(earlierPage(testSessionID, 101, 51, "C", "D"))
+	harness.feed(earlierPage(testSessionID, 1, 101, 51, "C", "D"))
 	frame := harness.plainFrame()
 	require.Contains(t, frame, "question D")
 	require.Contains(t, frame, "· read_file")
@@ -181,12 +181,12 @@ func TestHistoryPagerReadsEarlierPages(t *testing.T) {
 
 	actionCount := len(harness.source.recordedActions())
 	harness.press(key(tea.KeyHome), textKey('k'))
-	require.Equal(t, sessionfeed.ReadEarlierMessages{SessionID: testSessionID, BeforeSequence: 51}, harness.lastAction())
+	require.Equal(t, sessionfeed.ReadEarlierMessages{SessionID: testSessionID, BeforeSequence: 51, RequestID: 2}, harness.lastAction())
 	harness.press(textKey('k'))
 	require.Len(t, harness.source.recordedActions(), actionCount+1, "one read at a time")
-	firstAnswer := earlierPage(testSessionID, 51, 0, "B")
+	firstAnswer := earlierPage(testSessionID, 2, 51, 0, "B")
 	firstAnswer.DeletedBeforeSequence = 3
-	harness.feed(firstAnswer, earlierPage(testSessionID, 51, 0, "A"))
+	harness.feed(firstAnswer, earlierPage(testSessionID, 2, 51, 0, "A"))
 	text := strings.Join(harness.screen.pager.bodyRows(80, harness.screen.theme), "\n")
 	plain := terminaltheme.StripStyles(text)
 	requireInOrder(t, plain, "messages before #3 were removed by the retention window", "question B", "question C", "question D", "the chat continues below")
@@ -200,7 +200,7 @@ func TestHistoryPagerShowsAFailedRead(t *testing.T) {
 	harness.feed(sessionfeed.HistoryWindowChanged{EarlierBeforeSequence: 9})
 	harness.typeText("/history")
 	harness.press(key(tea.KeyEnter))
-	harness.feed(sessionfeed.EarlierMessagesRead{SessionID: testSessionID, BeforeSequence: 9, FailureText: "Could not read earlier messages: unavailable. Try /history again."})
+	harness.feed(sessionfeed.EarlierMessagesRead{SessionID: testSessionID, RequestID: 1, BeforeSequence: 9, FailureText: "Could not read earlier messages: unavailable. Try /history again."})
 	require.Contains(t, harness.plainFrame(), "✗ Could not read earlier messages: unavailable.")
 	require.True(t, harness.screen.pager.canReadEarlier(), "k at the top tries again")
 }
@@ -353,6 +353,89 @@ func TestPastedImagePathAfterImageCommandIsText(t *testing.T) {
 	require.Equal(t, "/image "+imagePath, harness.screen.input.Value())
 }
 
+// An answer for a pager closed and opened again never fills the new one.
+func TestHistoryAnswerForAClosedPagerIsDropped(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{height: 30})
+	harness.feed(sessionfeed.HistoryWindowChanged{EarlierBeforeSequence: 101})
+	harness.typeText("/history")
+	harness.press(key(tea.KeyEnter))
+	harness.press(textKey('q'))
+	harness.typeText("/history")
+	harness.press(key(tea.KeyEnter))
+	require.Equal(t, sessionfeed.ReadEarlierMessages{SessionID: testSessionID, BeforeSequence: 101, RequestID: 2}, harness.lastAction())
+	harness.feed(earlierPage(testSessionID, 1, 101, 51, "from the closed pager"))
+	require.Contains(t, harness.plainFrame(), "reading earlier messages…", "the first pager's answer is dropped")
+	harness.feed(earlierPage(testSessionID, 2, 101, 51, "for this pager"))
+	frame := harness.plainFrame()
+	require.Contains(t, frame, "question for this pager")
+	require.NotContains(t, frame, "from the closed pager")
+}
+
+// Any switch closes the readers and prompts of the session it leaves.
+func TestSessionSwitchClosesEveryPagerAndPrompt(t *testing.T) {
+	harness, imagePath := newImageHarness(t)
+	startTurn(harness, "Run the tests.")
+	harness.feed(outputTool("call-1", "turn-1", "run_shell_command", "old session secret output"))
+	pressCtrlO(harness)
+	require.NotNil(t, harness.screen.pager)
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-20261111-150000-ffffff", IsNewSession: true})
+	require.Nil(t, harness.screen.pager, "the tool pager closes")
+	require.NotContains(t, harness.plainFrame(), "old session secret output")
+
+	harness.feed(sessionfeed.SessionLoaded{})
+	harness.screen.Update(tea.PasteMsg{Content: imagePath})
+	require.NotNil(t, harness.screen.pendingPastedImage)
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-20261111-160000-eeeeee", IsNewSession: true})
+	require.Nil(t, harness.screen.pendingPastedImage, "the attach prompt closes")
+	require.Equal(t, imagePath, harness.screen.input.Value(), "the pasted text stays")
+}
+
+// The first Ctrl-C closes a reader; the draft behind it follows the usual
+// idle rules.
+func TestCtrlCClosesThePagerBeforeTheDraft(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{height: 24})
+	startTurn(harness, "Run the tests.")
+	harness.feed(outputTool("call-1", "turn-1", "run_shell_command", "ok"), sessionfeed.TurnEnded{TurnID: "turn-1"})
+	harness.typeText("unsent draft")
+	pressCtrlO(harness)
+	harness.press(ctrlKey('c'))
+	require.Nil(t, harness.screen.pager)
+	require.False(t, harness.screen.isExiting)
+	require.Equal(t, "unsent draft", harness.screen.input.Value())
+	harness.press(ctrlKey('c'))
+	require.False(t, harness.screen.isExiting)
+	require.True(t, harness.screen.input.IsEmpty())
+	harness.press(ctrlKey('c'))
+	require.True(t, harness.screen.isExiting)
+}
+
+// Tab reads the disk off the event loop, and a result for an input that
+// changed meanwhile is dropped.
+func TestImagePathCompletionRunsOffTheEventLoop(t *testing.T) {
+	harness, _ := newImageHarness(t)
+	harness.typeText("/image dia")
+	_, command := harness.screen.Update(key(tea.KeyTab))
+	require.NotNil(t, command)
+	require.Equal(t, "/image dia", harness.screen.input.Value(), "the key returns before the directory is read")
+	harness.typeText("x")
+	harness.runCommand(command)
+	require.Equal(t, "/image diax", harness.screen.input.Value(), "a stale result is dropped")
+	require.Empty(t, harness.screen.pathCompletions)
+}
+
+// The completed argument keeps the user's quotes or escapes.
+func TestImagePathCompletionKeepsQuoting(t *testing.T) {
+	harness, imagePath := newImageHarness(t)
+	spacedPath := filepath.Join(filepath.Dir(imagePath), "my diagram.png")
+	require.NoError(t, os.WriteFile(spacedPath, []byte("png"), 0o600))
+	harness.typeText(`/image "my`)
+	harness.press(key(tea.KeyTab))
+	require.Equal(t, `/image "my diagram.png"`, harness.screen.input.Value())
+	harness.screen.input.SetValue(`/image my\ d`)
+	harness.press(key(tea.KeyTab))
+	require.Equal(t, `/image my\ diagram.png`, harness.screen.input.Value())
+}
+
 func TestPagerFrames(t *testing.T) {
 	set := newGoldenFrameSet(t)
 	for _, width := range []int{40, 80} {
@@ -366,7 +449,7 @@ func TestPagerFrames(t *testing.T) {
 	noColor.feed(sessionfeed.HistoryWindowChanged{EarlierBeforeSequence: 101})
 	noColor.typeText("/history")
 	noColor.press(key(tea.KeyEnter))
-	noColor.feed(earlierPage(testSessionID, 101, 51, "C"))
+	noColor.feed(earlierPage(testSessionID, 1, 101, 51, "C"))
 	noColor.press(textKey('/'))
 	noColor.typeText("answer")
 	noColor.press(key(tea.KeyEnter))

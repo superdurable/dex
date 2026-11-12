@@ -44,6 +44,7 @@ type historyPages struct {
 	sessionID             string
 	pages                 [][]sessionfeed.SessionUpdate
 	requestedBefore       int64
+	requestID             int64
 	earlierBeforeSequence int64
 	deletedBeforeSequence int64
 	isLoading             bool
@@ -71,20 +72,21 @@ func (pager *pagerView) canReadEarlier() bool {
 	return pager.history != nil && !pager.history.isLoading && pager.history.earlierBeforeSequence > 0
 }
 
-// startReadingEarlier marks the request in flight and returns it.
-func (pager *pagerView) startReadingEarlier() sessionfeed.ReadEarlierMessages {
+// startReadingEarlier marks request requestID in flight and returns it.
+func (pager *pagerView) startReadingEarlier(requestID int64) sessionfeed.ReadEarlierMessages {
 	history := pager.history
 	history.isLoading = true
 	history.failureText = ""
 	history.requestedBefore = history.earlierBeforeSequence
-	return sessionfeed.ReadEarlierMessages{SessionID: history.sessionID, BeforeSequence: history.requestedBefore}
+	history.requestID = requestID
+	return sessionfeed.ReadEarlierMessages{SessionID: history.sessionID, BeforeSequence: history.requestedBefore, RequestID: requestID}
 }
 
 // applyEarlierPage puts an answered page above the shown rows, which stay in
 // place. It returns false for a stale answer.
 func (pager *pagerView) applyEarlierPage(answer sessionfeed.EarlierMessagesRead, size pagerSize, theme terminaltheme.Theme) bool {
 	history := pager.history
-	if history == nil || !history.isLoading || answer.SessionID != history.sessionID || answer.BeforeSequence != history.requestedBefore {
+	if history == nil || !history.isLoading || answer.RequestID != history.requestID || answer.SessionID != history.sessionID {
 		return false
 	}
 	rowsBefore := len(pager.bodyRows(size.width, theme))

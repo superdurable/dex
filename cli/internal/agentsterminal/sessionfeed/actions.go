@@ -108,6 +108,8 @@ type ReadEarlierMessages struct {
 	// BeforeSequence is the stored sequence to read before, from
 	// HistoryWindowChanged or an earlier EarlierMessagesRead.
 	BeforeSequence int64
+	// RequestID identifies this read; the answer carries it back.
+	RequestID int64
 }
 
 func (SendUserMessage) isUserAction()     {}

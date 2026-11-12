@@ -45,7 +45,7 @@ func TestReadEarlierMessagesAnswersWithOnePage(t *testing.T) {
 			message(7, "turn-1", dexagents.MessageRoleAssistant, "It is **example.com/app**."),
 		}}, nil
 	}
-	require.NoError(t, harness.feed.SubmitUserAction(context.Background(), sessionfeed.ReadEarlierMessages{SessionID: "session-0", BeforeSequence: 8}))
+	require.NoError(t, harness.feed.SubmitUserAction(context.Background(), sessionfeed.ReadEarlierMessages{SessionID: "session-0", BeforeSequence: 8, RequestID: 7}))
 	answers := updatesOfType[sessionfeed.EarlierMessagesRead](harness.drain())
 	require.Len(t, answers, 1)
 	require.Equal(t, "session-0", askedSession, "the page comes from the session the screen showed")
@@ -54,6 +54,7 @@ func TestReadEarlierMessagesAnswersWithOnePage(t *testing.T) {
 	answer := answers[0]
 	require.Equal(t, "session-0", answer.SessionID)
 	require.Equal(t, int64(8), answer.BeforeSequence)
+	require.Equal(t, int64(7), answer.RequestID, "the answer names its request")
 	require.Equal(t, int64(3), answer.EarlierBeforeSequence)
 	require.Empty(t, answer.FailureText)
 	require.Len(t, answer.Messages, 3)

@@ -280,7 +280,9 @@ func (stack *realWorkerStack) testQuestionAnswer(t *testing.T) {
 	stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
 		return len(snapshot.PendingInterrupts) == 1 && snapshot.PendingInterrupts[0].Kind == dexagents.InterruptKindQuestion
 	})
-	chat.waitForScreen("Which color?")
+	// The tool row shows the question before the popup opens; wait for the
+	// popup's hints.
+	chat.waitForScreen("Enter answer")
 	chat.typeText("\r")
 	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
 	require.Equal(t, `ask_user: {"status":"answered","answer":"red"}`, lastAssistantText(finished))
@@ -409,6 +411,8 @@ func (stack *realWorkerStack) testApprovalRoundTrip(t *testing.T) {
 	sessionID := "terminal-ui-approval"
 	stack.startSession(t, sessionID)
 	chat := stack.openChat(t, sessionID, false)
+	// The real command shows the Dex logo in the welcome area.
+	chat.waitForScreen("Super Durable")
 	chat.typeText("publish hello\r")
 	interrupt := stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
 		return len(snapshot.PendingInterrupts) == 1

@@ -89,6 +89,8 @@ type EarlierMessagesRead struct {
 	SessionID string
 	// BeforeSequence is the request's sequence.
 	BeforeSequence int64
+	// RequestID is the request's ID.
+	RequestID int64
 	// Messages are the page in stored order. Each is a UserMessageRecorded,
 	// an AssistantMessageRecorded, or a ToolCallChanged.
 	Messages []SessionUpdate

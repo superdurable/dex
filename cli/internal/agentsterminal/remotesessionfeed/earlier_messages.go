@@ -20,7 +20,7 @@ import (
 // readEarlierMessages reads one stored page before request.BeforeSequence
 // and answers with EarlierMessagesRead, also when the read fails.
 func (feed *RemoteSessionFeed) readEarlierMessages(ctx context.Context, request sessionfeed.ReadEarlierMessages) {
-	answer := sessionfeed.EarlierMessagesRead{SessionID: request.SessionID, BeforeSequence: request.BeforeSequence}
+	answer := sessionfeed.EarlierMessagesRead{SessionID: request.SessionID, BeforeSequence: request.BeforeSequence, RequestID: request.RequestID}
 	readContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
 	beforeSequence := request.BeforeSequence
 	page, err := feed.sessions.ListAgentMessages(readContext, request.SessionID, &beforeSequence, historyPageSize)

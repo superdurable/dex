@@ -628,8 +628,12 @@ func (screen *ChatScreen) renderPathCompletions(width int) []string {
 	for _, completion := range shown {
 		lines = append(lines, terminaltheme.TruncateKeepingTail("   "+screen.theme.Secondary.Render(completion), width, screen.theme.Symbols.Ellipsis))
 	}
-	if hidden := len(screen.pathCompletions) - len(shown); hidden > 0 {
-		lines = append(lines, "   "+screen.theme.Secondary.Render(moreLinesText(hidden, screen.theme.Symbols.Ellipsis)))
+	if hidden := len(screen.pathCompletions) - len(shown); hidden > 0 || screen.isPathCompletionPartial {
+		text := moreLinesText(hidden, screen.theme.Symbols.Ellipsis)
+		if screen.isPathCompletionPartial {
+			text = screen.theme.Symbols.Ellipsis + " more may match; type more of the name"
+		}
+		lines = append(lines, "   "+screen.theme.Secondary.Render(text))
 	}
 	return lines
 }

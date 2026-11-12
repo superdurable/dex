@@ -32,6 +32,9 @@ const (
 // image paths and path completion use it.
 const imageCommandName = "image"
 
+// imageCommandPrefix starts an /image line with its PATH argument.
+const imageCommandPrefix = "/" + imageCommandName + " "
+
 // screenCommands are the commands the chat screen runs itself.
 var screenCommands = []sessionfeed.SlashCommand{
 	{Name: approveCommandName, Description: "open the waiting approvals and questions"},

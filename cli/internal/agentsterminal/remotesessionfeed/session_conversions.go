@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -135,7 +136,83 @@ func interruptUpdate(interrupt dexagents.AgentInterrupt, calls []dexagents.Agent
 			approval.Deadline = deadline
 		}
 	}
+	if display := interrupt.Display; display != nil {
+		approval.ScopeLabel, approval.EffectSummary = display.Target, display.Summary
+		if display.Preview != nil {
+			if preview, isDiff := fileChangePreview(*display.Preview); isDiff {
+				approval.Preview = &preview
+			} else {
+				approval.Arguments = append(approval.Arguments, sessionfeed.ApprovalArgument{Name: "preview", Value: *display.Preview})
+			}
+		}
+	}
 	return approval
+}
+
+// fileChangePreview reads a unified diff of one file, the form a tool
+// source's approval preview takes, and reports whether text was one.
+func fileChangePreview(text string) (sessionfeed.FileChangePreview, bool) {
+	preview := sessionfeed.FileChangePreview{}
+	oldLine, newLine := 0, 0
+	isInHunk := false
+	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		switch {
+		case !isInHunk && strings.HasPrefix(line, "+++ "):
+			preview.Path = withoutDiffLabel(strings.TrimPrefix(line, "+++ "))
+		case !isInHunk && strings.HasPrefix(line, "--- "):
+		case strings.HasPrefix(line, "@@ "):
+			oldLine, newLine = hunkStarts(line)
+			isInHunk = true
+		case !isInHunk:
+			return sessionfeed.FileChangePreview{}, false
+		case strings.HasPrefix(line, "+"):
+			preview.Lines = append(preview.Lines, sessionfeed.DiffLine{Kind: sessionfeed.DiffLineAdded, LineNumber: newLine, Text: line[1:]})
+			preview.AddedLineCount++
+			newLine++
+		case strings.HasPrefix(line, "-"):
+			preview.Lines = append(preview.Lines, sessionfeed.DiffLine{Kind: sessionfeed.DiffLineRemoved, LineNumber: oldLine, Text: line[1:]})
+			preview.RemovedLineCount++
+			oldLine++
+		case strings.HasPrefix(line, `\`):
+			// "\ No newline at end of file" marks the line before it.
+		default:
+			preview.Lines = append(preview.Lines, sessionfeed.DiffLine{Kind: sessionfeed.DiffLineContext, LineNumber: newLine, Text: strings.TrimPrefix(line, " ")})
+			oldLine++
+			newLine++
+		}
+	}
+	return preview, isInHunk && preview.Path != ""
+}
+
+// withoutDiffLabel removes a header's trailing label, such as
+// " (after this write)".
+func withoutDiffLabel(header string) string {
+	if strings.HasSuffix(header, ")") {
+		if index := strings.LastIndex(header, " ("); index > 0 {
+			return header[:index]
+		}
+	}
+	return header
+}
+
+// hunkRanges returns the "-a,b +c,d" part of a hunk header.
+func hunkRanges(header string) string {
+	ranges, _, _ := strings.Cut(strings.TrimPrefix(header, "@@ "), " @@")
+	return ranges
+}
+
+// hunkStarts reads the old and new start lines of a hunk header, such as
+// "@@ -3,2 +3,4 @@" or "@@ -0,0 +1 @@".
+func hunkStarts(header string) (int, int) {
+	oldRange, newRange, _ := strings.Cut(hunkRanges(header), " ")
+	oldText, _, _ := strings.Cut(strings.TrimPrefix(oldRange, "-"), ",")
+	newText, _, _ := strings.Cut(strings.TrimPrefix(newRange, "+"), ",")
+	oldStart, oldErr := strconv.Atoi(oldText)
+	newStart, newErr := strconv.Atoi(newText)
+	if oldErr != nil || newErr != nil {
+		return 1, 1
+	}
+	return oldStart, newStart
 }
 
 func effectLabel(effect dexagents.ToolEffect) string {

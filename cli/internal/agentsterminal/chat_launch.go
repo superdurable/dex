@@ -238,10 +238,11 @@ func runChat(
 	theme := terminaltheme.NewTheme(profile, terminaltheme.IsUnicodeLocale(os.LookupEnv))
 	pathResolver := typedpaths.NewPathResolver(home, workingDirectory)
 	screen := chatscreen.NewChatScreen(chatContext, chatscreen.ChatScreenConfig{
-		Source:          feed,
-		Theme:           theme,
-		SessionCommands: feed.SlashCommands(),
-		PathResolver:    &pathResolver,
+		Source:           feed,
+		Theme:            theme,
+		SessionCommands:  feed.SlashCommands(),
+		ShowsStartupLogo: true,
+		PathResolver:     &pathResolver,
 	})
 	output := newFirstFrameWriter(stdout, func() {
 		if sendErr := channel.SendReady(); sendErr != nil {

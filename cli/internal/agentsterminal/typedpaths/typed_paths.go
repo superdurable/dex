@@ -12,6 +12,7 @@ package typedpaths
 
 import (
 	"errors"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -26,8 +27,14 @@ var ErrEmptyPath = errors.New("the path is empty")
 // errNoHomeDirectory is returned for a path that starts with ~ without HOME.
 var errNoHomeDirectory = errors.New("~ needs HOME")
 
-// maximumCompletions bounds the candidates one completion returns.
-const maximumCompletions = 50
+const (
+	// maximumCompletions bounds the candidates one completion returns.
+	maximumCompletions = 50
+	// MaximumScannedEntries bounds the directory entries one completion reads.
+	MaximumScannedEntries = 2000
+	// directoryReadBatch is how many entries one directory read returns.
+	directoryReadBatch = 256
+)
 
 // imageExtensions are the file types a pasted path offers to attach.
 var imageExtensions = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true}
@@ -45,14 +52,13 @@ func NewPathResolver(homeDirectory string, workingDirectory string) PathResolver
 	return PathResolver{homeDirectory: homeDirectory, workingDirectory: workingDirectory}
 }
 
-// ResolveTypedPath removes one level of matching quotes, expands a leading
-// ~, and returns the cleaned absolute path. It returns ErrEmptyPath for
-// blank text, and an error for ~ without a home directory.
+// ResolveTypedPath reads text as one path, the way a shell reads one word:
+// quotes group, and a backslash outside single quotes escapes the next
+// character. It expands a leading ~ and returns the cleaned absolute path.
+// It returns ErrEmptyPath for blank text, and an error for ~ without a home
+// directory.
 func (resolver PathResolver) ResolveTypedPath(text string) (string, error) {
-	path := strings.TrimSpace(text)
-	if len(path) >= 2 && (path[0] == '"' || path[0] == '\'') && path[len(path)-1] == path[0] {
-		path = path[1 : len(path)-1]
-	}
+	path := lexTypedPath(text).value
 	if path == "" {
 		return "", ErrEmptyPath
 	}
@@ -62,11 +68,10 @@ func (resolver PathResolver) ResolveTypedPath(text string) (string, error) {
 // PastedImagePath returns the absolute path when text, as a terminal pastes
 // a dropped file, names one existing image file.
 func (resolver PathResolver) PastedImagePath(text string) (string, bool) {
-	path := strings.TrimSpace(text)
-	if path == "" || strings.ContainsAny(path, "\n\r") {
+	if strings.ContainsAny(strings.TrimSpace(text), "\n\r") {
 		return "", false
 	}
-	path = unquotePastedPath(path)
+	path := lexTypedPath(text).value
 	if strings.HasPrefix(path, "file://") {
 		parsed, err := url.Parse(path)
 		if err != nil || (parsed.Host != "" && parsed.Host != "localhost") {
@@ -74,7 +79,7 @@ func (resolver PathResolver) PastedImagePath(text string) (string, bool) {
 		}
 		path = parsed.Path
 	}
-	if !imageExtensions[strings.ToLower(filepath.Ext(path))] {
+	if path == "" || !imageExtensions[strings.ToLower(filepath.Ext(path))] {
 		return "", false
 	}
 	absolute, err := resolver.absolutePath(path)
@@ -88,41 +93,71 @@ func (resolver PathResolver) PastedImagePath(text string) (string, bool) {
 	return absolute, true
 }
 
-// CompletePath returns the typed completions of partial, sorted, at most
-// maximumCompletions. A directory completion ends with "/". The completions
-// keep partial's form: a leading ~ or a relative path stays.
-func (resolver PathResolver) CompletePath(partial string) []string {
-	typedDirectory, namePrefix := splitTypedPath(partial)
+// PathCompletions are the candidates of one completion.
+type PathCompletions struct {
+	// Candidates are sorted, written in the typed text's quoting. A directory
+	// ends with "/"; a quoted file also gets its closing quote.
+	Candidates []string
+	// IsPartial reports that the scan stopped at MaximumScannedEntries or the
+	// candidates at their limit, so more may match.
+	IsPartial bool
+}
+
+// CompletePath completes partial, typed as ResolveTypedPath reads it. It
+// reads at most MaximumScannedEntries directory entries and keeps partial's
+// form: its quotes or escapes, a leading ~, or a relative path.
+func (resolver PathResolver) CompletePath(partial string) PathCompletions {
+	token := lexTypedPath(partial)
+	typedDirectory, namePrefix := splitTypedPath(token.value)
 	directory := typedDirectory
 	if directory == "" {
 		directory = "."
 	}
 	absoluteDirectory, err := resolver.absolutePath(directory)
 	if err != nil {
-		return nil
+		return PathCompletions{}
 	}
-	entries, err := os.ReadDir(absoluteDirectory)
-	if err != nil {
-		return nil
+	names, isPartial := scanMatchingNames(absoluteDirectory, namePrefix)
+	sort.Strings(names)
+	if len(names) > maximumCompletions {
+		names, isPartial = names[:maximumCompletions], true
 	}
-	isHiddenShown := strings.HasPrefix(namePrefix, ".")
-	var completions []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasPrefix(name, namePrefix) || (!isHiddenShown && strings.HasPrefix(name, ".")) {
-			continue
-		}
-		completion := typedDirectory + name
-		if resolver.isDirectory(filepath.Join(absoluteDirectory, name), entry) {
-			completion += "/"
-		}
-		completions = append(completions, completion)
-	}
-	sort.Strings(completions)
-	if len(completions) > maximumCompletions {
-		completions = completions[:maximumCompletions]
+	completions := PathCompletions{IsPartial: isPartial}
+	for _, name := range names {
+		isDirectory := isDirectoryPath(filepath.Join(absoluteDirectory, name))
+		completions.Candidates = append(completions.Candidates, token.encode(typedDirectory+name, isDirectory))
 	}
 	return completions
+}
+
+// scanMatchingNames returns the entry names in directory that start with
+// namePrefix, reading at most MaximumScannedEntries, and whether it stopped
+// early. Hidden names need a prefix that starts with ".".
+func scanMatchingNames(directory string, namePrefix string) ([]string, bool) {
+	file, err := os.Open(directory)
+	if err != nil {
+		return nil, false
+	}
+	defer func() {
+		// A read-only directory handle has nothing to flush on close.
+		_ = file.Close()
+	}()
+	isHiddenShown := strings.HasPrefix(namePrefix, ".")
+	var names []string
+	for scanned := 0; scanned < MaximumScannedEntries; {
+		entries, err := file.ReadDir(min(directoryReadBatch, MaximumScannedEntries-scanned))
+		for _, entry := range entries {
+			name := entry.Name()
+			if strings.HasPrefix(name, namePrefix) && (isHiddenShown || !strings.HasPrefix(name, ".")) {
+				names = append(names, name)
+			}
+		}
+		scanned += len(entries)
+		if err != nil || len(entries) == 0 {
+			return names, err != nil && !errors.Is(err, io.EOF)
+		}
+	}
+	return names, true
 }
 
 // LongestCommonPrefix returns the longest prefix all completions share.
@@ -143,13 +178,7 @@ func LongestCommonPrefix(completions []string) string {
 	return prefix
 }
 
-func (resolver PathResolver) isDirectory(path string, entry os.DirEntry) bool {
-	if entry.IsDir() {
-		return true
-	}
-	if entry.Type()&os.ModeSymlink == 0 {
-		return false
-	}
+func isDirectoryPath(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
 }
@@ -184,24 +213,78 @@ func splitTypedPath(partial string) (string, string) {
 	return partial[:index+1], partial[index+1:]
 }
 
-// unquotePastedPath removes one level of matching quotes, or the backslash
-// escapes a terminal adds before spaces and other shell characters.
-func unquotePastedPath(path string) string {
-	if len(path) >= 2 && (path[0] == '"' || path[0] == '\'') && path[len(path)-1] == path[0] {
-		return path[1 : len(path)-1]
-	}
-	if !strings.Contains(path, `\`) {
-		return path
+// typedPathToken is typed text read as one shell word.
+type typedPathToken struct {
+	value string
+	// openingQuote is the quote the text starts with, or 0 for none.
+	openingQuote rune
+}
+
+// lexTypedPath reads trimmed text as one shell word. Quotes group and are
+// removed; a backslash escapes the next character, except inside single
+// quotes. An unclosed quote runs to the end, as while typing.
+func lexTypedPath(text string) typedPathToken {
+	trimmed := strings.TrimSpace(text)
+	token := typedPathToken{}
+	if strings.HasPrefix(trimmed, "'") || strings.HasPrefix(trimmed, `"`) {
+		token.openingQuote = rune(trimmed[0])
 	}
 	var builder strings.Builder
+	var quote rune
 	isEscaped := false
-	for _, character := range path {
-		if character == '\\' && !isEscaped {
+	for _, character := range trimmed {
+		switch {
+		case isEscaped:
+			builder.WriteRune(character)
+			isEscaped = false
+		case character == '\\' && quote != '\'':
 			isEscaped = true
-			continue
+		case quote == 0 && (character == '\'' || character == '"'):
+			quote = character
+		case quote != 0 && character == quote:
+			quote = 0
+		default:
+			builder.WriteRune(character)
 		}
-		isEscaped = false
-		builder.WriteRune(character)
+	}
+	token.value = builder.String()
+	return token
+}
+
+// shellSpecialCharacters are escaped in an unquoted completion.
+const shellSpecialCharacters = " \t\\'\"()&;|<>$`*?[]{}!#"
+
+// encode writes value in the token's form: inside its opening quote, closed
+// for a file, or unquoted with backslash escapes.
+func (token typedPathToken) encode(value string, isDirectory bool) string {
+	if isDirectory {
+		value += "/"
+	}
+	var builder strings.Builder
+	switch token.openingQuote {
+	case '\'':
+		builder.WriteRune('\'')
+		builder.WriteString(strings.ReplaceAll(value, "'", `'\''`))
+	case '"':
+		builder.WriteRune('"')
+		for _, character := range value {
+			if strings.ContainsRune(`"\$`+"`", character) {
+				builder.WriteRune('\\')
+			}
+			builder.WriteRune(character)
+		}
+	default:
+		for index, character := range value {
+			isHomePrefix := index == 0 && character == '~'
+			if !isHomePrefix && strings.ContainsRune(shellSpecialCharacters, character) {
+				builder.WriteRune('\\')
+			}
+			builder.WriteRune(character)
+		}
+		return builder.String()
+	}
+	if !isDirectory {
+		builder.WriteRune(token.openingQuote)
 	}
 	return builder.String()
 }
