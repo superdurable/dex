@@ -43,6 +43,7 @@ from dex_agents.testing import (
 )
 from dex_agents_cli_core import SESSION_ACTION_PERMISSION, session_flow_type
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
+from tests.reasoning_effort_cli import REASONING_EFFORTS_ENVIRONMENT_VARIABLE
 from tests.scripted_harness import FORCED_SUMMARY_ENVIRONMENT_VARIABLE, SCRIPTED_FLOW_TYPE
 
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
@@ -453,6 +454,58 @@ async def test_a_failed_turn_makes_the_command_exit_1(cli_home: CliHome) -> None
     assert "[turn failed]" in completed.stdout
     assert "the scripted model was told to fail" in completed.stdout
     assert completed.returncode == 1
+
+
+async def test_a_declared_reasoning_effort_reaches_the_next_turn_and_another_fails_it(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    child = cli_home.spawn(command_module="tests.reasoning_effort_cli")
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    child.sendline("effort")
+    await expect(child, "effort: default")
+    workspace = cli_home.home / "dex-agent-workspace"
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
+        assert await sessions.update_session_settings(session_id, {"reasoning_effort": "high"})
+        child.sendline("effort")
+        await expect(child, "effort: high")
+        assert await sessions.update_session_settings(session_id, {"reasoning_effort": "max"})
+        child.sendline("effort")
+        await expect(child, "[turn failed]", timeout=120)
+        await expect(child, 'unsupported_reasoning_effort at "/reasoning_effort"')
+        await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 1
+
+
+async def test_a_harness_without_reasoning_efforts_fails_a_turn_that_sets_one(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    child = cli_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    workspace = cli_home.home / "dex-agent-workspace"
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
+        assert await sessions.update_session_settings(session_id, {"reasoning_effort": "low"})
+        child.sendline("effort")
+        await expect(child, "[turn failed]", timeout=120)
+        await expect(child, 'unsupported_reasoning_effort at "/reasoning_effort"')
+        await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 1
+
+
+def test_a_bad_harness_declaration_stops_the_command_before_it_starts(cli_home: CliHome) -> None:
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    cli_home.extra_environment[REASONING_EFFORTS_ENVIRONMENT_VARIABLE] = "low,High"
+    completed = cli_home.run(command_module="tests.reasoning_effort_cli", stdin="effort\n")
+    assert completed.returncode == 1
+    assert "supported_reasoning_efforts value 'High' is not a lowercase name" in completed.stderr
+    assert "effort:" not in completed.stdout
 
 
 async def test_two_commands_with_other_configs_never_run_each_others_tool_steps(

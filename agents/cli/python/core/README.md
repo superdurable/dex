@@ -157,7 +157,11 @@ The steps of a run:
    startup failure exits with the code and message the plain chat would. A
    control channel that ends first stops the Worker host and continues in the
    plain chat. Startup notices, the session line, and the Dex Web line print before the
-   handoff, so they stay above the terminal UI.
+   handoff, so they stay above the terminal UI. `worker_ready` carries the
+   launch document's `capabilities`, including `reasoning_effort` with the
+   harness's `supported_reasoning_efforts` when it declares any. The
+   launcher adds `display.models` for `/model`: the configured model, the
+   harness's `default_model`, then its `suggested_models`, each once.
 3. It saves the terminal mode, installs SIGINT, SIGTERM, and SIGHUP handlers
    (never `SIG_IGN`, which `exec` would keep), leaves SIGTSTP at its default,
    points its own fds 1 and 2 at the log, and starts `dexcli` with copies of
@@ -563,8 +567,17 @@ returns the turn's configuration:
 - the CLI core's tool sources offer only the connectors, operations, and local
   tool groups the turn enables, and outside a model call they offer nothing;
 - a shell command's allow list and `approval.always` come from the turn;
-- the harness reads the turn's model and instructions with
-  `HarnessContext.resolve_turn`.
+- the harness reads the turn's model, instructions, and reasoning effort
+  with `HarnessContext.resolve_turn`.
+
+`reasoning_effort` must be one of the harness's `supported_reasoning_efforts`.
+Any other value, or any value for a harness that declares none, fails the
+model call with `unsupported_reasoning_effort at "/reasoning_effort"`. This
+check runs after the narrowing rules. `ResolvedTurn.reasoning_effort` is the
+accepted value, or `None` when the settings set none; the harness then passes
+no effort to its SDK, so the model's own default applies. The configuration
+file has no reasoning effort field. The terminal UI's `/model` and `/effort`
+write `model` and `reasoning_effort` into the session settings.
 
 ## Writing a harness command
 
@@ -606,6 +619,13 @@ works before gRPC loads, so they do not print into every shell command.
 | `default_model: str \| None` | The model when the file sets none. |
 | `replaced_local_tools: frozenset[LocalToolGroup]` | Local tool groups the harness provides itself. |
 | `create_session_flow(context: HarnessContext) -> AgentSessionFlow` | Builds the Flow once per command run. |
+| `supported_reasoning_efforts: tuple[str, ...]` (optional) | The `reasoning_effort` values the harness maps to its SDK, from least to most effort. Absent: none, and `/effort` is not offered. |
+| `suggested_models: tuple[str, ...]` (optional) | Model IDs `/model` offers after the configured model and `default_model`. |
+
+The command checks both optional attributes when it starts: each must be a
+tuple or list of unique strings, each effort a lowercase name such as `high`,
+and each model ID non-empty. A bad declaration raises `TypeError` or
+`ValueError`.
 
 `LocalToolGroup` is `FILES`, `SHELL`, `WEB_FETCH`, or `BROWSER`. The CLI core
 leaves a replaced group out of `context.tool_sources`. The harness then
@@ -628,7 +648,7 @@ harness may replace only `FILES` and `SHELL`.
 | `harness_options: Mapping[str, Any]` | The harness's own section, `{}` by default. |
 | `tool_sources: Sequence[ToolSource]` | The connector and local tool sources, which apply each turn's settings themselves. Offer all of them. |
 | `media_store: MediaStore \| None` | The media store of `media.store`, holding the images of `/image` and of connector tool results. Pass it to an adapter that takes one, such as `media_store=context.media_store`. The CLI core always sets it; it is `None` only in a context a test builds without one. |
-| `resolve_turn(session_settings) -> ResolvedTurn` | A turn's narrowed configuration with its `model` and `instructions`. Raises `ConfigError` for rejected settings. |
+| `resolve_turn(session_settings) -> ResolvedTurn` | A turn's narrowed configuration with its `model`, `instructions`, and `reasoning_effort`. Raises `ConfigError` for rejected settings. |
 | `resolve_tool_step_permissions(call=None) -> ResolvedTurn` | The permissions a replacement tool's own Step applies: this Worker's file narrowed by the session settings recorded for the call's turn. Pass the `DeferredToolExecution` from a runner, or nothing from a built-in loop function tool. Raises `RuntimeError` without a call outside a tool Step and a model call. |
 | `current_turn() -> ResolvedTurn` | The turn whose model call or tool Step is running, or the file's configuration outside both. In a tool Step it is the configuration of the turn that made the call, from the settings the session recorded for that turn, so a replacement tool sees the turn's switches, shell allow list, and `approval.always`. |
 

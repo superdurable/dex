@@ -253,6 +253,34 @@ async def test_a_chat_hands_off_and_relays_each_local_request(
     assert list((cli_home.home / ".dex" / "agents" / "run").glob("*.json")) == []
 
 
+async def test_the_launch_document_offers_the_harness_models_and_reasoning_efforts(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    transcript = chat_transcript([])
+    launch_step = transcript["steps"][0]
+    launch_step["ignore"] = [
+        *(path for path in launch_step["ignore"] if path not in ("display", "capabilities")),
+        "display.workspace",
+        "display.config_path",
+    ]
+    launch = launch_step["message"]
+    launch["display"]["model"] = "scripted-large"
+    # The configured model, the harness default, then the suggestions, each once.
+    launch["display"]["models"] = ["scripted-large", "scripted-model", "scripted-small"]
+    launch["capabilities"]["reasoning_effort"] = {"values": ["low", "medium", "high"]}
+    fake = FakeTerminalUi(tmp_path / "tui", transcript)
+    child = start_chat(
+        cli_home,
+        fake,
+        screen,
+        {**NO_CONNECTORS, "model": "scripted-large"},
+        command_module="tests.reasoning_effort_cli",
+    )
+    await read_session_id(child)
+    assert await wait_for_exit(child) == 0
+    assert_replayed(fake, screen)
+
+
 async def test_nothing_the_worker_host_writes_reaches_the_terminal(
     cli_home: CliHome, tmp_path: Path, screen: io.StringIO
 ) -> None:
