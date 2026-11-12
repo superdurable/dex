@@ -192,7 +192,7 @@ assert.doesNotMatch(mobileMenu, /sd-locale/);
 const headerTabs = header.match(/<nav class="sd-tabs" aria-label="Docs sections">[\s\S]*?<\/details><\/div><\/nav>/)?.[0] ?? '';
 assert.deepEqual(
   [...headerTabs.matchAll(/<a class="sd-tab[^"]*"[^>]*? href="([^"]*)"[^>]*>(?:<svg[\s\S]*?<\/svg>)([^<]*)<\/a>/g)].map((match) => [match[2], match[1]]),
-  [['Docs', '/'], ['Quickstart', '/quick-start/'], ['AI Agents', '/agent-frameworks/'], ['Examples', '/use-cases/']],
+  [['Docs', '/'], ['Quick Start', '/quick-start/'], ['AI Agents', '/agent-frameworks/'], ['Examples', '/use-cases/']],
 );
 assert.match(headerTabs, /<a class="sd-tab sd-tab--active" aria-current="page" href="\/">/);
 // The language switch sits at the end of the tab row and names the current language.

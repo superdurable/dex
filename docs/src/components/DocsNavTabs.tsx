@@ -67,7 +67,7 @@ export default function DocsNavTabs(): ReactNode {
       key: 'quick-start',
       to: '/quick-start',
       icon: Rocket,
-      label: translate({id: 'shell.tabs.quickStart', message: 'Quickstart', description: 'The header tab for the Quick Start'}),
+      label: translate({id: 'shell.tabs.quickStart', message: 'Quick Start', description: 'The header tab for the Quick Start'}),
     },
     {
       key: 'agents',
