@@ -24,8 +24,8 @@ type processStat struct {
 	sessionID      int
 }
 
-// processGroupHasJobControl applies the POSIX orphan rule to this process
-// group: some member's parent is in another group of the same session.
+// processGroupHasJobControl applies the POSIX orphan rule: a member's parent
+// is in another group of our session.
 func processGroupHasJobControl() bool {
 	own, isRead := readProcessStat("self")
 	if !isRead {

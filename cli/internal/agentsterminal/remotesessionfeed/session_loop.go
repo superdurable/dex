@@ -309,8 +309,7 @@ const (
 )
 
 // readHistoryTurnEnds returns whether each turn with a found end event was
-// cancelled. It stops after oldestTurnID's end, the oldest event, or a read
-// error.
+// cancelled, reading back to oldestTurnID's end.
 func readHistoryTurnEnds(ctx context.Context, feed *RemoteSessionFeed, sessionID string, oldestTurnID string) map[string]bool {
 	isCancelledByTurn := map[string]bool{}
 	pageToken := ""

@@ -190,8 +190,7 @@ func TestSuspendUnderAJobControlShell(t *testing.T) {
 		suspend.typeKeys("fg\r")
 		suspend.waitForRetake(before)
 		suspend.checkTypingWorks(fmt.Sprintf("round%d", round))
-		// dexcli releases before the stop when it still owns the terminal, and
-		// retakes it after fg otherwise: one switch each way either way.
+		// Released before the stop or retaken after fg: one switch each way.
 		require.Equal(t, 1, strings.Count(suspend.screen()[before:], "\x1b[?1049l"), "round %d: the terminal is released once", round)
 		require.Equal(t, 1, strings.Count(suspend.screen()[before:], "\x1b[?1049h"), "round %d: fg retakes it once", round)
 	}
@@ -219,8 +218,8 @@ func TestSuspendInAnOrphanedProcessGroupKeepsRunning(t *testing.T) {
 	suspend.waitForExit()
 }
 
-// When the launcher stops first and the shell already owns the terminal,
-// dexcli stops without writing to it or changing its mode.
+// When the shell already owns the terminal, dexcli stops without writing to
+// it.
 func TestSuspendAfterTheShellTookTheTerminal(t *testing.T) {
 	bashPath, err := exec.LookPath("bash")
 	require.NoError(t, err)
