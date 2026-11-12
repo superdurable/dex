@@ -151,6 +151,16 @@ func TestFooterShowsTheReasoningEffort(t *testing.T) {
 	require.Contains(t, harness.plainFrame(), " openai-sdk · gpt-5.2 · high effort\n")
 }
 
+// With a long model ID, the workspace leaves and the model shortens; the effort stays.
+func TestFooterKeepsTheEffortWithALongModel(t *testing.T) {
+	session := settingsSession()
+	session.Model = "openrouter/anthropic/claude-sonnet-5-5-with-a-very-long-deployment-name-for-tests"
+	session.ReasoningEffort = "high"
+	harness := newSettingsHarness(t, session)
+	frame := harness.plainFrame()
+	require.Regexp(t, ` openai-sdk · openrouter/anthropic/claude-sonnet-5-5-with-a-very[^ ]*… · high effort\n`, frame)
+}
+
 func TestHelpAndCompletionListEffort(t *testing.T) {
 	harness := newSettingsHarness(t, settingsSession())
 	harness.typeText("/ef")

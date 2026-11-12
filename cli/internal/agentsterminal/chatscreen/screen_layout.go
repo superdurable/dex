@@ -345,16 +345,7 @@ func (screen *ChatScreen) renderActivityLines(width int, now time.Time, spinnerF
 // row with key hints.
 func (screen *ChatScreen) renderStatusBar(width int, now time.Time, spinnerFrame int) []string {
 	symbols := screen.theme.Symbols
-	separator := screen.theme.Secondary.Render(symbols.Separator)
-	effort := ""
-	if screen.session.ReasoningEffort != "" {
-		effort = screen.session.ReasoningEffort + " effort"
-	}
-	workspace := ""
-	if screen.session.Workspace != "" {
-		workspace = screen.theme.Secondary.Render(screen.session.Workspace)
-	}
-	identity := " " + strings.Join(nonEmptyStrings(screen.session.Command, screen.session.Model, effort, workspace), separator)
+	identity := screen.statusIdentity(width)
 	var metrics []string
 	if turnNumber := screen.displayedTurnNumber(); turnNumber > 0 {
 		metrics = append(metrics, fmt.Sprintf("turn %d", turnNumber))
@@ -374,6 +365,40 @@ func (screen *ChatScreen) renderStatusBar(width int, now time.Time, spinnerFrame
 		joinLeftAndRight(status, screen.fittingHints(hints, width-terminaltheme.DisplayWidth(status)-2), width, symbols.Ellipsis),
 	}
 }
+
+// statusIdentity is the session row's left part: the command, model,
+// reasoning effort, and workspace. A row too wide for width that shows an
+// effort drops the workspace, then shortens the model, to keep the effort.
+func (screen *ChatScreen) statusIdentity(width int) string {
+	separator := screen.theme.Secondary.Render(screen.theme.Symbols.Separator)
+	effort := ""
+	if screen.session.ReasoningEffort != "" {
+		effort = screen.session.ReasoningEffort + " effort"
+	}
+	workspace := ""
+	if screen.session.Workspace != "" {
+		workspace = screen.theme.Secondary.Render(screen.session.Workspace)
+	}
+	join := func(model string, workspace string) string {
+		return " " + strings.Join(nonEmptyStrings(screen.session.Command, model, effort, workspace), separator)
+	}
+	model := screen.session.Model
+	identity := join(model, workspace)
+	if effort == "" || terminaltheme.DisplayWidth(identity) <= width {
+		return identity
+	}
+	identity = join(model, "")
+	overflow := terminaltheme.DisplayWidth(identity) - width
+	modelWidth := terminaltheme.DisplayWidth(model) - overflow
+	if overflow <= 0 || modelWidth < minimumStatusModelWidth {
+		return identity
+	}
+	return join(terminaltheme.TruncateToWidth(model, modelWidth, screen.theme.Symbols.Ellipsis), "")
+}
+
+// minimumStatusModelWidth is the shortest model statusIdentity shortens to;
+// below it, the row truncates at its end as before.
+const minimumStatusModelWidth = 4
 
 // fittingHints joins as many leading hints as fit in room cells.
 func (screen *ChatScreen) fittingHints(hints []string, room int) string {
