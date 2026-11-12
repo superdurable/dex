@@ -239,7 +239,11 @@ retries, and a slow server never causes a fallback.
   saved before the spawn, prints `Plain chat: <reason>.`, and continues in the
   plain text chat on the same session.
 - A failure after `ready` never falls back. The launcher restores the
-  terminal, prints how to resume, and exits.
+  terminal and exits.
+- After `ready`, `dexcli`'s exit summary is the only line that says how to
+  resume: `/new` can switch sessions, so the launcher could name the wrong
+  one. The launcher prints its own resume line only when it continues in the
+  plain chat, or when `dexcli` never sent `ready`.
 
 ### When the channel ends
 
@@ -267,8 +271,8 @@ A SIGINT sent to the whole foreground process group reaches `dexcli` too, and
 1. waits 1 s for `dexcli` to exit by itself;
 2. then forwards SIGINT to `dexcli`;
 3. sends SIGTERM 2 s after that if `dexcli` still runs;
-4. restores the terminal, stops the Worker host, prints how to resume, and
-   exits 130.
+4. restores the terminal, stops the Worker host, prints how to resume only
+   when `dexcli` never sent `ready` (see [Ready](#ready)), and exits 130.
 
 This never falls back to the plain chat, even before `ready`.
 
@@ -329,8 +333,8 @@ errors use this one shape.
 
 `worker` reports the Worker host's state. `exit_code` is its exit status, or
 128 plus the signal number when a signal killed it. After `stopped` the chat
-stays open but cannot run turns; the launcher prints how to resume after the
-user exits.
+stays open but cannot run turns; `dexcli`'s exit summary says how to resume
+after the user exits.
 
 A launcher must send `stopped` when the Worker host exits, and should send
 `stopping` when it starts to shut the host down. `reconnecting` and `ready`
@@ -794,37 +798,43 @@ Node, a daemon thread in Python.
    not, it starts an orderly shutdown and arms the hard bound at once.
 2. A shutdown that starts for another reason (EOF on the control channel,
    `shutdown` from the launcher, SIGTERM) also arms the bound at once.
-3. 15 s after the bound is armed, if the Worker host still runs, the watchdog
-   sends SIGTERM to every registered tool process group, waits up to 2 s for
-   them, and sends SIGKILL to those left.
-4. It then sends SIGKILL to the Worker host's own process group.
+3. Python: 15 s after the bound is armed, if the Worker host still runs, the
+   watchdog sends SIGTERM to every registered tool process group, waits up to
+   2 s for them, and sends SIGKILL to those left.
+4. It then sends SIGKILL to the Worker host's own process group. In Node this
+   is all the watchdog does at the bound: it never signals a tool process
+   group, because a worker thread cannot tell whether the main thread already
+   reaped the group's leader. The main thread stops the tool groups during an
+   orderly shutdown, and signals a group only while its leader's
+   `ChildProcess` has not reported its exit.
+
+Python's watchdog may signal tool groups (step 3) because the Python shell
+tool owns every reap of a tool group leader: it spawns the shell with
+`subprocess.Popen` outside asyncio's child watcher, waits for its exit
+without reaping it (`waitid` with `WNOWAIT`, or kqueue on macOS before
+Python 3.13), stops what the shell left in its group, and only then reaps it
+with `waitpid`, under the registry lock that every signal also takes. A
+registration whose run record cannot be written is undone, and that shell is
+killed and reaped at once. So, within a running Worker host, no signal
+reaches a reaped leader's reused pid. A core whose tool leaders are reaped
+elsewhere, such as by an event loop's child watcher, must not signal tool
+groups from its watchdog.
 
 Each number below adds scheduling delay, and holds only while the watchdog
 can run:
 
 | Platform and core | Launcher died | A shutdown began |
 | --- | --- | --- |
-| Node (TypeScript), macOS and Linux | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
+| Node (TypeScript), macOS and Linux | Worker host gone within about 1 + 15 = 16 s. Registered tool groups are gone within that bound when the orderly shutdown runs; when the main thread is stuck they are **not** bounded, and the next start's leftover cleanup stops them | about 15 s, with the same rule for tool groups |
 | Python, macOS | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
 | Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 15 + 2 = 17 s |
-
-Python's watchdog may signal tool groups (step 3) because the Python shell
-tool owns every reap of a tool group leader: it spawns the shell with
-`subprocess.Popen` outside asyncio's child watcher, waits for its exit
-without reaping it (`waitid` with `WNOWAIT`, or kqueue on macOS before
-Python 3.13), stops what the shell left in its group, and only then reaps
-it with `waitpid`, under the registry lock that every signal also takes.
-A registration whose run record cannot be written is undone, and that
-shell is killed and reaped at once. So, within a running Worker host, no
-signal reaches a reaped leader's reused pid. A core whose tool
-leaders are reaped elsewhere, such as by an event loop's child watcher,
-must not signal tool groups from its watchdog.
 
 The bounds do not hold:
 
 - while the Worker host is stopped (SIGSTOP) or stuck in the kernel;
 - in Python, while the main thread holds the GIL in native code;
-- for tool groups on Python and Linux after the launcher died, as above;
+- for tool groups on Python and Linux after the launcher died, and in Node
+  while the Worker host's main thread is stuck, as above;
 - for processes a harness starts outside the Worker host's group and never
   registers, such as the tool processes of an agent framework's own CLI.
 

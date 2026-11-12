@@ -36,6 +36,7 @@ StateWrite = tuple[str, Any]
 # The key of the tool_source_reference JSON object that carries a graph tool's state.
 _TOOL_STATE_REFERENCE_KEY = "dex_agents_langgraph_tool_state"
 _TOOL_STATE_FORMAT = "v1"
+_RUNS_TOOL_WRAPPERS_KEY = "runs_tool_wrappers"
 
 # The format of the runner_tool_state that records a tool's state writes.
 _STATE_WRITES_FORMAT = "dex-agents-langgraph.state-writes.v1"
@@ -49,19 +50,42 @@ class ToolCommandResult:
     state_writes: list[StateWrite]
 
 
-def encode_tool_state_reference(state: Mapping[str, Any], serializer: SerializerProtocol) -> str:
-    """Return the ``tool_source_reference`` that carries ``state`` into a tool Step."""
+def encode_tool_state_reference(
+    state: Mapping[str, Any],
+    serializer: SerializerProtocol,
+    *,
+    should_run_tool_wrappers: bool = False,
+) -> str:
+    """Return the ``tool_source_reference`` that carries ``state`` into a tool Step.
+
+    With ``should_run_tool_wrappers``, the reference also tells every Worker to
+    run the call through its tool node's middleware tool wrappers.
+    """
     typed = serializer.dumps_typed(dict(state))
-    return json.dumps(
-        {
-            _TOOL_STATE_REFERENCE_KEY: {
-                "format": _TOOL_STATE_FORMAT,
-                "type": typed[0],
-                "data": base64.b64encode(typed[1]).decode("ascii"),
-            }
-        },
-        separators=(",", ":"),
-    )
+    carried: dict[str, Any] = {
+        "format": _TOOL_STATE_FORMAT,
+        "type": typed[0],
+        "data": base64.b64encode(typed[1]).decode("ascii"),
+    }
+    if should_run_tool_wrappers:
+        # Only such calls add the key, so other references keep their earlier text.
+        carried[_RUNS_TOOL_WRAPPERS_KEY] = True
+    return json.dumps({_TOOL_STATE_REFERENCE_KEY: carried}, separators=(",", ":"))
+
+
+def is_tool_wrapper_reference(tool_source_reference: str | None) -> bool:
+    """Report whether a call was deferred to run through its tool node's wrappers.
+
+    References written before the marker existed carry none, so they run the tool alone.
+    """
+    if tool_source_reference is None:
+        return False
+    try:
+        document = json.loads(tool_source_reference)
+    except ValueError:
+        return False
+    carried = document.get(_TOOL_STATE_REFERENCE_KEY) if isinstance(document, dict) else None
+    return isinstance(carried, dict) and carried.get(_RUNS_TOOL_WRAPPERS_KEY) is True
 
 
 def decode_tool_state_reference(
