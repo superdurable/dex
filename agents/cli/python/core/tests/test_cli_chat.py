@@ -43,7 +43,10 @@ from dex_agents.testing import (
 )
 from dex_agents_cli_core import SESSION_ACTION_PERMISSION, session_flow_type
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
-from tests.reasoning_effort_cli import REASONING_EFFORTS_ENVIRONMENT_VARIABLE
+from tests.reasoning_effort_cli import (
+    REASONING_EFFORTS_ENVIRONMENT_VARIABLE,
+    SUGGESTED_MODELS_ENVIRONMENT_VARIABLE,
+)
 from tests.scripted_harness import FORCED_SUMMARY_ENVIRONMENT_VARIABLE, SCRIPTED_FLOW_TYPE
 
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
@@ -499,12 +502,40 @@ async def test_a_harness_without_reasoning_efforts_fails_a_turn_that_sets_one(
     assert await wait_for_exit(child) == 1
 
 
-def test_a_bad_harness_declaration_stops_the_command_before_it_starts(cli_home: CliHome) -> None:
+@pytest.mark.parametrize(
+    ("variable", "declared", "message"),
+    [
+        (
+            REASONING_EFFORTS_ENVIRONMENT_VARIABLE,
+            "low,High",
+            "supported_reasoning_efforts value 'High' is not a lowercase name",
+        ),
+        (
+            REASONING_EFFORTS_ENVIRONMENT_VARIABLE,
+            "low,default",
+            "supported_reasoning_efforts value 'default' is reserved",
+        ),
+        (
+            SUGGESTED_MODELS_ENVIRONMENT_VARIABLE,
+            "scripted model",
+            "suggested_models value 'scripted model' is not a non-empty model ID",
+        ),
+        (
+            SUGGESTED_MODELS_ENVIRONMENT_VARIABLE,
+            "scripted\tmodel",
+            "suggested_models value 'scripted\\tmodel' is not a non-empty model ID",
+        ),
+    ],
+    ids=["uppercase effort", "reserved default", "model with a space", "model with a tab"],
+)
+def test_a_bad_harness_declaration_stops_the_command_before_it_starts(
+    cli_home: CliHome, variable: str, declared: str, message: str
+) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
-    cli_home.extra_environment[REASONING_EFFORTS_ENVIRONMENT_VARIABLE] = "low,High"
+    cli_home.extra_environment[variable] = declared
     completed = cli_home.run(command_module="tests.reasoning_effort_cli", stdin="effort\n")
     assert completed.returncode == 1
-    assert "supported_reasoning_efforts value 'High' is not a lowercase name" in completed.stderr
+    assert message in completed.stderr
     assert "effort:" not in completed.stdout
 
 

@@ -351,11 +351,18 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     const declarations = [
       [{ supportedReasoningEfforts: ["High"] }, /reasoning effort "High", which is not a name/],
       [{ supportedReasoningEfforts: ["low", "low"] }, /declares a reasoning effort twice/],
-      [{ suggestedModels: [""] }, /suggests the model "", which is not a non-empty string/],
+      [{ supportedReasoningEfforts: ["low", "default"] }, /declares the reasoning effort "default", which the terminal UI reserves/],
+      [{ supportedReasoningEfforts: "low" }, /supportedReasoningEfforts is not an array of strings/],
+      [{ suggestedModels: [""] }, /suggests the model "", which is not a non-empty ID without spaces or control characters/],
+      [{ suggestedModels: ["scripted other"] }, /suggests the model "scripted other", which is not a non-empty ID/],
+      [{ suggestedModels: ["scripted\u0007other"] }, /which is not a non-empty ID without spaces or control characters/],
+      [{ suggestedModels: "gpt" }, /suggestedModels is not an array of strings/],
       [{ suggestedModels: ["scripted/other", "scripted/other"] }, /suggests a model twice/],
     ] as const;
     for (const [declaration, message] of declarations) {
-      await assert.rejects(runAgentCli({ ...scriptedHarness, ...declaration }, io), message);
+      // A JavaScript harness may declare any value; the check must catch it.
+      const harness = { ...scriptedHarness, ...declaration } as unknown as typeof scriptedHarness;
+      await assert.rejects(runAgentCli(harness, io), message);
     }
     assert.equal(await runAgentCli(scriptedHarness, io), 0);
   });

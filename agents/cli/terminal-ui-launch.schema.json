@@ -417,9 +417,12 @@
               "uniqueItems": true,
               "items": {
                 "type": "string",
-                "pattern": "^[a-z][a-z0-9_-]{0,31}(?![\\s\\S])"
+                "pattern": "^[a-z][a-z0-9_-]{0,31}(?![\\s\\S])",
+                "not": {
+                  "const": "default"
+                }
               },
-              "description": "The reasoning_effort values the command accepts, from least to most effort, such as low, medium, high. An empty list offers none."
+              "description": "The reasoning_effort values the command accepts, from least to most effort, such as low, medium, high. default is reserved: the terminal UI's /effort default removes the setting. An empty list offers none."
             }
           }
         }

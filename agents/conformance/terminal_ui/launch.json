@@ -1978,6 +1978,73 @@
       }
     },
     {
+      "name": "reasoning-effort-value-default",
+      "description": "default is reserved for the terminal UI's /effort default.",
+      "terminal_ui_environment": {},
+      "launch": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml"
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true,
+          "reasoning_effort": {
+            "values": [
+              "low",
+              "default"
+            ]
+          }
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "expected": {
+        "exit_code": 2,
+        "code": "invalid_launch",
+        "path": "/capabilities/reasoning_effort/values/1",
+        "keyword": "not"
+      }
+    },
+    {
       "name": "display-models-duplicate",
       "description": "display.models lists each model once.",
       "terminal_ui_environment": {},

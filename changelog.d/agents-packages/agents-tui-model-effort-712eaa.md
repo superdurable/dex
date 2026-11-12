@@ -9,9 +9,14 @@ section: Added
   the harness does not declare fails the turn with
   `unsupported_reasoning_effort`. A harness may also list
   `suggested_models` (`suggestedModels`).
-- `resolve_turn_config` (`resolveTurnConfig`) takes the supported values and
-  returns the turn's `reasoning_effort`; `TurnConfigResolver` takes them at
-  construction. Both additions are optional.
+- Python `resolve_turn_config` takes the supported values as the keyword
+  argument `supported_reasoning_efforts` and returns the turn's value in
+  `TurnConfigResolution.reasoning_effort`. TypeScript `resolveTurn` takes them
+  as a third argument and returns `TurnResolution`, with the value in
+  `reasoningEffort`. `TurnConfigResolver` takes them at construction in both.
+  All these additions are optional. A harness may not declare `default`,
+  which the terminal UI reserves, and a suggested model ID has no space or
+  control character.
 - Terminal UI contract 1: the launch document carries the optional
   `display.models` and `capabilities.reasoning_effort`, which dexcli 1.47.0
   reads for `/model` and `/effort`. Older dexcli releases ignore them.

@@ -332,7 +332,24 @@ func checkCapabilities(rules *jsonRules, value any) {
 	if effort, exists := capabilities["reasoning_effort"]; exists {
 		if values, isObject := rules.object("/capabilities/reasoning_effort", effort); isObject &&
 			rules.required("/capabilities/reasoning_effort", values, "values") {
-			checkUniqueStrings(rules, "/capabilities/reasoning_effort/values", values["values"], reasoningEffortPattern)
+			checkReasoningEffortValues(rules, values["values"])
+		}
+	}
+}
+
+// checkReasoningEffortValues checks the effort values; "default" is
+// reserved for /effort default, which removes the setting.
+func checkReasoningEffortValues(rules *jsonRules, value any) {
+	const path = "/capabilities/reasoning_effort/values"
+	checkUniqueStrings(rules, path, value, reasoningEffortPattern)
+	values, isArray := value.([]any)
+	if rules.isFailed() || !isArray {
+		return
+	}
+	for index, item := range values {
+		if item == "default" {
+			rules.fail(itemPath(path, index), "not")
+			return
 		}
 	}
 }

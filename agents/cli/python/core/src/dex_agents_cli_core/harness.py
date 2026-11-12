@@ -15,6 +15,7 @@ import hashlib
 import os
 import re
 import socket
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -41,6 +42,8 @@ _FLOW_TYPE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 _DEFAULTS_CONFIG_IDENTITY = "defaults"
 # The session settings schema's reasoning_effort pattern, matched whole.
 _REASONING_EFFORT_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+# The terminal UI's /effort uses it to remove the setting.
+_RESERVED_REASONING_EFFORT = "default"
 
 
 class LocalToolGroup(StrEnum):
@@ -335,13 +338,19 @@ def declared_reasoning_efforts(harness: AgentHarness) -> tuple[str, ...]:
 
     Raises:
         TypeError: If it is not a tuple or list of strings.
-        ValueError: If a value is not a lowercase name or appears twice.
+        ValueError: If a value is not a lowercase name, is the reserved
+            ``default``, or appears twice.
     """
     efforts = _declared_strings(harness, "supported_reasoning_efforts")
     for effort in efforts:
         if _REASONING_EFFORT_NAME.fullmatch(effort) is None:
             raise ValueError(
                 f"supported_reasoning_efforts value {effort!r} is not a lowercase name"
+            )
+        if effort == _RESERVED_REASONING_EFFORT:
+            raise ValueError(
+                "supported_reasoning_efforts value 'default' is reserved: "
+                "the terminal UI's /effort default returns to the model's default"
             )
     return efforts
 
@@ -351,12 +360,22 @@ def declared_suggested_models(harness: AgentHarness) -> tuple[str, ...]:
 
     Raises:
         TypeError: If it is not a tuple or list of strings.
-        ValueError: If a model ID is empty or appears twice.
+        ValueError: If a model ID is empty, has a space or a control
+            character, or appears twice.
     """
     models = _declared_strings(harness, "suggested_models")
-    if "" in models:
-        raise ValueError("suggested_models has an empty model ID")
+    for model in models:
+        if model == "" or any(_is_space_or_control(character) for character in model):
+            raise ValueError(
+                f"suggested_models value {model!r} is not a non-empty model ID "
+                "without spaces or control characters"
+            )
     return models
+
+
+def _is_space_or_control(character: str) -> bool:
+    # The same rule as the terminal UI's /model ID check.
+    return character.isspace() or unicodedata.category(character) == "Cc"
 
 
 def _declared_strings(harness: AgentHarness, attribute: str) -> tuple[str, ...]:

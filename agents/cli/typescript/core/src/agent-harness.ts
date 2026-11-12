@@ -343,32 +343,57 @@ export interface ResolvedTurn extends TurnConfig {
 
 const reasoningEffortPattern = /^[a-z][a-z0-9_-]{0,31}$/;
 
+// The terminal UI's /effort uses it to remove the setting.
+const reservedReasoningEffort = "default";
+
+// /model refuses an ID with a space or a control character.
+const modelIdForbiddenCharacters = /[\s\p{Cc}]/u;
+
 /**
  * Throws when a harness declares a malformed or repeated reasoning effort or suggested model.
  * @param harness - The command's harness.
  * @throws {Error} Naming the harness and the bad declaration.
  */
 export function requireValidHarnessDeclarations(harness: AgentHarness): void {
-  const efforts = harness.supportedReasoningEfforts ?? [];
+  const efforts = declaredStrings(harness, "supportedReasoningEfforts");
   for (const effort of efforts) {
-    if (typeof effort !== "string" || !reasoningEffortPattern.test(effort)) {
+    if (!reasoningEffortPattern.test(effort)) {
       throw new Error(
         `the ${harness.name} harness declares the reasoning effort ${JSON.stringify(effort)}, which is not a name matching ${reasoningEffortPattern.source}`,
+      );
+    }
+    if (effort === reservedReasoningEffort) {
+      throw new Error(
+        `the ${harness.name} harness declares the reasoning effort "default", which the terminal UI reserves for the model's default`,
       );
     }
   }
   if (new Set(efforts).size !== efforts.length) {
     throw new Error(`the ${harness.name} harness declares a reasoning effort twice`);
   }
-  const models = harness.suggestedModels ?? [];
+  const models = declaredStrings(harness, "suggestedModels");
   for (const model of models) {
-    if (typeof model !== "string" || model === "") {
-      throw new Error(`the ${harness.name} harness suggests the model ${JSON.stringify(model)}, which is not a non-empty string`);
+    if (model === "" || modelIdForbiddenCharacters.test(model)) {
+      throw new Error(
+        `the ${harness.name} harness suggests the model ${JSON.stringify(model)}, which is not a non-empty ID without spaces or control characters`,
+      );
     }
   }
   if (new Set(models).size !== models.length) {
     throw new Error(`the ${harness.name} harness suggests a model twice`);
   }
+}
+
+function declaredStrings(
+  harness: AgentHarness,
+  declaration: "supportedReasoningEfforts" | "suggestedModels",
+): readonly string[] {
+  const declared: unknown = harness[declaration] ?? [];
+  // A bare string would otherwise read as a list of its characters.
+  if (!Array.isArray(declared) || !declared.every((value) => typeof value === "string")) {
+    throw new Error(`the ${harness.name} harness's ${declaration} is not an array of strings`);
+  }
+  return declared as readonly string[];
 }
 
 /**

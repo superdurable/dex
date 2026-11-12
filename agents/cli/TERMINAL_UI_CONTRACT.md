@@ -621,7 +621,11 @@ the session stores its settings.
 - `/effort` with no argument offers `capabilities.reasoning_effort.values`
   and `default`, with the current value marked. `default` removes
   `reasoning_effort` from the settings, so the model's own default applies.
-  `/effort <value>` takes only one of these.
+  `/effort <value>` takes only one of these. So `default` is reserved: no
+  command declares it, and a launch document that lists it fails the schema.
+- A suggested model ID is not empty and has no space or control character,
+  the same rule as `/model <ID>`. The CLI cores check each harness's
+  suggestions at startup.
 - `reasoning_effort` is a session setting of
   [`session-settings.schema.json`](session-settings.schema.json). A Worker
   rejects a value its harness command does not declare, and the turn fails.
