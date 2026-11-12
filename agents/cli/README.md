@@ -12,6 +12,7 @@ one file gives the same agent in either language.
 | [`examples/`](examples) | Example configuration files; the tests validate each one |
 | [`../conformance/cli_config.json`](../conformance/cli_config.json) | Cases every CLI core must pass |
 | [`tests/`](tests) | The schema and conformance checks, with a test-only reference resolver |
+| [`TERMINAL_UI_CONTRACT.md`](TERMINAL_UI_CONTRACT.md) | Contract 1 between a command and the `dexcli agents-tui` terminal UI, with its schemas and conformance cases |
 
 ## The configuration file
 
@@ -200,6 +201,15 @@ reference resolver. Agents CI runs it through `tests/ci.sh`:
 ```bash
 agents/cli/tests/ci.sh
 ```
+
+## Terminal UI contract
+
+[`TERMINAL_UI_CONTRACT.md`](TERMINAL_UI_CONTRACT.md) specifies how a command
+hands its chat to `dexcli agents-tui`: version negotiation, the launch
+document, the channel, local requests, and redaction. Its cases are in
+[`../conformance/terminal_ui/`](../conformance/terminal_ui), and
+`tests/terminal_ui_contract_host.py` plays either side for tests. No released
+command uses it yet.
 
 ## Local end-to-end check
 

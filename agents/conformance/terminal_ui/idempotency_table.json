@@ -1,0 +1,141 @@
+{
+  "description": "What the launcher side remembers of keyed requests, as get_request_result shows it. Hand-written; see agents/cli/TERMINAL_UI_CONTRACT.md.",
+  "limits": {
+    "capacity": 256,
+    "retention_ms": 600000
+  },
+  "rule": "arrive records a running key; finish records its outcome. A running key is never dropped. A finished key is dropped once retention_ms have passed since it finished. When more than capacity keys are kept, finished keys are dropped, the one that finished first first, until capacity remain or none is finished. fill at at_ms arrives and finishes count keys <prefix>0, <prefix>1, ..., the i-th at at_ms + i. query checks the state get_request_result answers.",
+  "cases": [
+    {
+      "name": "running-then-done",
+      "description": "A key is running until its outcome is recorded.",
+      "events": [
+        {
+          "at_ms": 0,
+          "op": "arrive",
+          "key": "a"
+        },
+        {
+          "at_ms": 10,
+          "op": "query",
+          "key": "a",
+          "state": "running"
+        },
+        {
+          "at_ms": 20,
+          "op": "finish",
+          "key": "a"
+        },
+        {
+          "at_ms": 30,
+          "op": "query",
+          "key": "a",
+          "state": "done"
+        },
+        {
+          "at_ms": 40,
+          "op": "query",
+          "key": "b",
+          "state": "unknown"
+        }
+      ]
+    },
+    {
+      "name": "retention-from-finish",
+      "description": "A finished key is forgotten 600000 ms after it finished.",
+      "events": [
+        {
+          "at_ms": 0,
+          "op": "arrive",
+          "key": "a"
+        },
+        {
+          "at_ms": 5000,
+          "op": "finish",
+          "key": "a"
+        },
+        {
+          "at_ms": 604999,
+          "op": "query",
+          "key": "a",
+          "state": "done"
+        },
+        {
+          "at_ms": 605000,
+          "op": "query",
+          "key": "a",
+          "state": "unknown"
+        }
+      ]
+    },
+    {
+      "name": "running-is-never-forgotten",
+      "description": "A key that still runs stays, however old.",
+      "events": [
+        {
+          "at_ms": 0,
+          "op": "arrive",
+          "key": "a"
+        },
+        {
+          "at_ms": 3600000,
+          "op": "query",
+          "key": "a",
+          "state": "running"
+        }
+      ]
+    },
+    {
+      "name": "capacity-drops-the-oldest-finished",
+      "description": "With 256 entries kept, one more drops the entry that finished first, even inside its 10 minutes; a running entry is never dropped.",
+      "events": [
+        {
+          "at_ms": 0,
+          "op": "arrive",
+          "key": "running"
+        },
+        {
+          "at_ms": 1,
+          "op": "fill",
+          "prefix": "k",
+          "count": 255
+        },
+        {
+          "at_ms": 300,
+          "op": "query",
+          "key": "k0",
+          "state": "done"
+        },
+        {
+          "at_ms": 301,
+          "op": "arrive",
+          "key": "late"
+        },
+        {
+          "at_ms": 302,
+          "op": "query",
+          "key": "k0",
+          "state": "unknown"
+        },
+        {
+          "at_ms": 303,
+          "op": "query",
+          "key": "k1",
+          "state": "done"
+        },
+        {
+          "at_ms": 304,
+          "op": "query",
+          "key": "running",
+          "state": "running"
+        },
+        {
+          "at_ms": 305,
+          "op": "query",
+          "key": "late",
+          "state": "running"
+        }
+      ]
+    }
+  ]
+}
