@@ -1,0 +1,346 @@
+---
+title: Object storage and backup
+sidebar_label: Object storage and backup
+description: "How server-zd uses object storage: credentials, bucket permissions, lifecycle rules, encryption, and backup."
+---
+
+# Object storage and backup
+
+## Credentials
+
+**objectStore.credentialsSource** selects the credentials:
+
+| Value | Credentials |
+| --- | --- |
+| **defaultChain** (default) | The AWS SDK default credential provider chain |
+| **environment** | **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID**, **DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY**, and the optional **DEX_ZD_OBJECT_STORE_SESSION_TOKEN** |
+| **anonymous** | Unsigned requests, for a local emulator or a bucket that allows anonymous access |
+
+On Amazon EKS, keep **defaultChain** and give the pod's service account an IAM
+role, for example through IAM Roles for Service Accounts or EKS Pod Identity.
+
+## Prefix-confined IAM policy {#iam-policy}
+
+For a shared bucket, set a non-empty **objectStore.prefix**. Then grant the
+server role only these actions. Replace **BUCKET** and **PREFIX/** with the
+bucket and the configured prefix, and keep the trailing slash.
+
+~~~json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
+    }
+  ]
+}
+~~~
+
+The server lists objects only under its prefix, including when it checks for a
+missing object. With this grant, AWS S3 returns 404 for a missing object.
+Narrower grants can return 403. The server handles either response as long as
+it may list under the prefix.
+
+The **s3:ListBucket** condition must use **StringLike** with the trailing
+wildcard shown above. The server does not support an exact-prefix
+**StringEquals** grant, or a policy without **s3:ListBucket**. With a non-empty
+prefix, startup first lists objects under it. If the listing is denied, startup
+fails with a message that starts with this text:
+
+~~~text
+startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"
+~~~
+
+Startup also writes and deletes a probe object under the prefix, to check that
+conditional writes work. Since 0.1.27, startup fails when this check does not
+finish within 5 minutes. The server needs no bucket-wide access and no bucket
+administration action.
+
+Hard-delete Attribute values use the primary bucket and prefix by default. To
+keep them elsewhere, configure **objectStore.hardDeleteStore** with its own
+**endpoint**, **region**, **bucket**, **prefix**, and **credentialsSource**. With
+**environment** credentials, it reads the **DEX_ZD_HARD_DELETE_STORE_**
+variables with the same suffixes. Grant the same policy for that bucket and
+prefix.
+
+## Encryption
+
+server-zd sends no server-side encryption headers, so the bucket's default
+encryption applies. Default SSE-KMS works. Conditional writes use
+**If-None-Match** and **If-Match**. The server treats ETags as opaque values, so
+they do not need to be MD5 digests.
+
+For a customer-managed KMS key, grant the role **kms:GenerateDataKey** and
+**kms:Decrypt** on that key. Allow both actions in the key policy too.
+
+## Versioning and lifecycle rules
+
+An unversioned bucket works. server-zd does not use object versions.
+
+If bucket versioning is on, every object the server deletes stays as a
+noncurrent version. This includes old log objects and snapshots, so storage only
+grows. Add a lifecycle rule that expires noncurrent versions. A noncurrent
+version of a hard-delete Attribute value also keeps the deleted value until the
+version expires.
+
+Do not add a rule that expires current objects under **PREFIX/history/**. The
+server reads uploaded Flow run history there for as long as the history window
+covers it, and a lifecycle rule cannot tell which objects the window still
+needs. A read of a missing object fails with UNAVAILABLE. The server deletes old
+history objects of offloaded Flow runs itself once the window has passed them.
+See [History offload](/reference/server/0.1.27/configuration#history-offload).
+
+Add a rule that aborts incomplete multipart uploads after 1 to 7 days, whether
+or not versioning is on. A crash can leave an incomplete upload behind, and a
+prefix-confined role cannot list or clean up those uploads.
+
+This lifecycle configuration contains both rules. For an unversioned bucket,
+drop the second rule.
+
+~~~json
+{
+  "Rules": [
+    {
+      "ID": "dex-server-zd-abort-incomplete-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "PREFIX/" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
+    },
+    {
+      "ID": "dex-server-zd-expire-noncurrent-versions",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "PREFIX/" },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 },
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    }
+  ]
+}
+~~~
+
+## Flow definitions {#flow-definitions}
+
+Since 0.1.26. **UploadFlowDefinitions** stores each Flow type's document as one
+object at
+**PREFIX/registry/flow-definitions/TENANT/types/FLOW_TYPE**. TENANT is **0**.
+FLOW_TYPE is the Flow type with every byte outside letters, digits, **.**,
+**_**, and **-** percent-encoded, for example **slash/name** as
+**slash%2Fname**. The object holds the document, its SHA-256 digest, its
+generation and upload times, and the uploader. The server creates it only if
+it is absent and replaces it only if it is unchanged since the server read it.
+These objects are not part of the log or snapshots, and server versions before
+0.1.26 never read them. Back them up with the rest of the prefix. Do not add a
+lifecycle rule that expires them.
+
+## Snapshot uploads after ownership changes
+
+The first snapshot after a takeover or restart uploads the full local checkpoint
+as a new snapshot lineage. It cannot reuse objects from the previous lineage,
+even when the node reuses the local RocksDB directory. Plan its duration for the
+full checkpoint size, manifest data, upload throughput, and per-file request
+time. Later snapshots from the same owner can reuse unchanged files.
+
+## History offload {#history-offload}
+
+A Flow run that offloads its history seals the history into segments. The
+server uploads them to the primary object store under **PREFIX/history/**. Once
+a segment is uploaded, the server can delete its history rows from local disk.
+After a grace period, it can also delete superseded values, the old values that
+later writes replaced. Segments
+expire when the history window passes them, and the server deletes their
+objects about an hour later. Each Flow run chooses at start whether it
+offloads, and it offloads by default. A Flow run without offload never writes
+under **PREFIX/history/**. See the
+[offload configuration](/reference/server/0.1.27/configuration#history-offload) for the
+per-run choice, the grace periods, and the history window.
+
+Changed in 0.1.23: each Flow run chooses history offload on its own, also on
+**serve**, and **history.offloadEnabled** was removed. Flow runs that started
+before the upgrade keep the offload mode that their partition recorded at the
+upgrade. Do not run an earlier release on the prefix after this upgrade: the
+server must read the history that new Flow runs removed from local disk from
+object storage. See [Upgrades and compatibility](/reference/server/0.1.27/upgrades)
+for what happens to existing Flow runs and for the upgrade steps.
+
+Watch **dexzd_history_upload_backlog_segments**,
+**dexzd_history_upload_backlog_bytes**, and
+**dexzd_history_upload_oldest_sealed_age_seconds**. Alert if the oldest sealed
+segment's age keeps growing, or if uploads fail, as counted by
+**dexzd_history_uploads_total** with **outcome="failed"**. A growing backlog
+means more history stays on local disk. Since 0.1.23, the number of uploads in
+flight adapts to the backlog. See
+[Upload concurrency](/reference/server/0.1.27/configuration#history-upload-concurrency).
+Use **dexzd_history_reads_total** to track reads from local disk, cache, and
+object storage. Use **dexzd_history_value_revivals_total** to track values
+restored to local disk.
+Since 0.1.22, **dexzd_history_expired_objects_deleted_total** and
+**dexzd_history_orphan_objects_deleted_total** count object cleanup. See
+[Metrics and alerts](/reference/server/0.1.27/metrics) for labels and alert thresholds.
+
+## db9 provider {#db9}
+
+Since 0.1.24, **serve** can keep its object storage in db9, a
+PostgreSQL-compatible database, instead of S3. The server stores command logs,
+lease and cluster metadata, snapshots, values, and history objects there.
+Existing configurations keep using S3.
+
+~~~yaml
+objectStore:
+  provider: db9
+  bucket: dex
+  prefix: production/
+  db9PoolSize: 8
+  db9RequestTimeout: 10s
+~~~
+
+Set the connection string in **DEX_ZD_DB9_CONNECTION_STRING**. Do not put it in
+the configuration file. The server never serializes or logs it. For a remote
+database, use **sslmode=verify-full**.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| **objectStore.provider** | **s3** | **db9** selects the db9 provider |
+| **objectStore.bucket** | required | Logical namespace inside the database |
+| **objectStore.prefix** | empty | Key prefix inside the namespace |
+| **objectStore.db9PoolSize** | 8 | Concurrent database transactions, from 1 to 64 |
+| **objectStore.db9RequestTimeout** | 10s | Deadline of each SQL request |
+
+With **db9**, leave **objectStore.endpoint** empty, and keep
+**objectStore.credentialsSource** at **defaultChain**. **dev** and **local**
+reject **db9**.
+
+At startup the server creates two tables, **dex_object_metadata** and
+**dex_object_chunks**, in the connection's search path. The database user needs
+permission to create tables and to read, insert, update, and delete their rows.
+Use a dedicated database or schema. The namespace and prefix isolate keys; they
+do not control access.
+
+The server stores each object in 256 KiB chunks and writes it in one
+transaction. The server relies on the database for durability and consistency.
+The database must commit transactions atomically and durably, support row
+locks, and read consistently. The database's transaction limits apply to a
+large object.
+
+Hard-delete Attribute values use the same provider, unless
+**objectStore.hardDeleteStore** selects an S3 destination.
+
+The server does not migrate existing S3 data to db9. Start db9 with a new
+namespace.
+
+## Aliyun OSS provider {#aliyun-oss}
+
+Since 0.1.27, **serve** can keep its object storage in an Aliyun OSS bucket.
+The server uses the S3-compatible endpoint of OSS. Every feature works as it
+does on S3, including leases, hot standby, snapshots, history offload, and
+Flow definition uploads.
+
+~~~yaml
+objectStore:
+  provider: aliyunOSS
+  endpoint: https://s3.oss-cn-hangzhou.aliyuncs.com
+  region: cn-hangzhou
+  bucket: BUCKET
+  prefix: PREFIX
+  credentialsSource: environment
+~~~
+
+| Setting | Value |
+| --- | --- |
+| **objectStore.provider** | **aliyunOSS** |
+| **objectStore.endpoint** | Required. **https://s3.oss-REGION.aliyuncs.com**, the S3-compatible endpoint of the bucket's region |
+| **objectStore.region** | The OSS region ID, such as **cn-hangzhou** |
+| **objectStore.forcePathStyle** | Leave it unset. OSS accepts only virtual-hosted-style requests, so **true** fails validation |
+| **objectStore.credentialsSource** | **environment**, with the AccessKey ID and secret of a RAM user in **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID** and **DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY** |
+
+The RAM user needs to list, read, write, and delete objects under the prefix.
+A configured **objectStore.hardDeleteStore** uses OSS too. Give it the same
+endpoint and addressing settings.
+
+The bucket must never have had versioning enabled. Once versioning was enabled
+or suspended, OSS no longer rejects a write that would overwrite an object, and
+the server depends on that rejection. At startup the server writes a probe
+object twice. If the second write succeeds, startup fails with a message that
+names **x-oss-forbid-overwrite** and versioning. A bucket cannot return to the
+unversioned state, so use a new bucket.
+
+OSS has no conditional replacement of an object. The server therefore stores
+its mutable metadata objects as a series of versions. These are the cluster
+manifest, the Attribute index registry, node leases, startup probes, and Flow
+definitions. A key **K** becomes objects under **K.v/**, one per change. The
+server manages these objects and deletes old versions itself. Do not edit,
+copy, or delete them, and do not add a lifecycle rule that expires them. A
+version key is 23 bytes longer than **K**, and OSS allows keys of at most 1023
+bytes. So **UploadFlowDefinitions** accepts Flow types whose object keys are 24
+bytes shorter than on S3.
+
+Every other object keeps its key. Log batches, snapshots, and history segments
+are written once. In the rare case that an uploaded history segment differs from
+committed history, the server deletes it and writes it again.
+
+Data cannot move between **aliyunOSS** and another provider, because the
+object layouts differ. If the prefix holds a cluster manifest or an Attribute
+index registry that another provider wrote, startup fails with a message that
+the data was written by another provider. Start **aliyunOSS** on an empty
+prefix.
+
+**dev** and **local** reject **aliyunOSS**.
+
+## Backup and restore
+
+The object storage prefix is the only source of truth. The server rebuilds the
+local store from it. It does not rebuild an external search projection. After a
+restore, configure a new **search.paradeDbSchema** or **search.postgresSchema**,
+or a new database, so the server loads it from the restored state. See
+[Initial load](/reference/server/0.1.27/search#search-projection-initial-load).
+
+Reusing the old schema fails. The restored node epoch is older than the one
+that the schema records, so the projection stops and SearchFlows returns
+**UNAVAILABLE**. With **search.backend: postgres**, the database's Attribute
+registry version can also be ahead of the restored registry. Startup then fails
+with an Attribute slot registry mismatch.
+
+Protect the prefix with bucket versioning or with replication to another bucket.
+With versioning, the noncurrent-version expiry sets how far back you can
+restore. Replication is asynchronous, so a replica can lag the source. When
+**objectStore.hardDeleteStore** is configured, its prefix holds hard-delete
+Attribute values. Protect it the same way.
+
+To restore:
+
+1. Stop server-zd. For example, scale the StatefulSet to 0 replicas and wait for
+   the pod to terminate.
+2. Restore every object under the prefix to the same point in time. Remove
+   objects written after that point.
+3. Empty the local store directory. With a PersistentVolumeClaim, delete the
+   directory contents or the claim. An emptyDir is already gone once the pod
+   terminates.
+4. Start server-zd. It recovers from the newest snapshot and the log in the
+   restored prefix.
+
+Writes acknowledged after the restore point are lost.
+
+### What a restore means for your Flows {#restore-and-flows}
+
+Every Flow goes back to its state at the restore point:
+
+- Steps that finished after that point run again, so their external calls
+  repeat. [Idempotency keys](/concepts/step#idempotency-keys) make the repeats
+  harmless.
+- Timers that fired after that point fire again. The server fires overdue
+  Timers as soon as it starts.
+- Attempts in progress at that point fail and retry, as after a failover.
+- Flows started, and Channel messages published, after that point are gone.
+  Start or publish them again.
+
+Your own database is not rolled back. Reconcile it against the restored Flows,
+for example by searching for Flows whose state disagrees with your rows.
+
+With the [db9 provider](#db9), the two provider tables hold that state. Back
+them up and restore them together, to one point in time.
