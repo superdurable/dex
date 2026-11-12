@@ -6,8 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useState, type RefObject } from 'react';
-import { ListPlus, SendHorizontal, Square } from 'lucide-react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { ListPlus, SendHorizontal, ShieldCheck, Square } from 'lucide-react';
 import { SESSION_COPY } from './copy';
 import type { SessionActionInvoker } from './InterruptControls';
 import { actionBlockedReason, type SessionActionOutcome, type SessionControlContext } from './sessionActions';
@@ -17,6 +17,12 @@ import type { LoadedAgentSession } from './useAgentSession';
 
 type ComposerAction = '' | 'send' | 'steer' | 'stop';
 
+/** The Working as choice that unblocks the session's Actions, offered in the composer. */
+export interface ComposerWorkingAsChoice {
+  permission: string;
+  choose: () => void;
+}
+
 /** The message box: Send between turns; Queue, Steer, or Stop while a turn runs. */
 export function SessionComposer({
   schema,
@@ -24,6 +30,7 @@ export function SessionComposer({
   context,
   routeContext,
   hintShownAbove,
+  workingAsChoice,
   invoke,
   onActed,
   textRef,
@@ -36,6 +43,8 @@ export function SessionComposer({
   routeContext: SessionRouteContext;
   /** The Working as hint at the top of the tab, which the composer does not repeat. */
   hintShownAbove: string | null;
+  /** Offered in place of Send while only Working as blocks the composer. */
+  workingAsChoice: ComposerWorkingAsChoice | null;
   invoke: SessionActionInvoker;
   onActed: () => void;
   textRef: RefObject<HTMLTextAreaElement | null>;
@@ -54,7 +63,19 @@ export function SessionComposer({
     ?? (isTurnRunning ? turnControlReason : SESSION_COPY.noActiveTurn);
   const canSteer = isTurnRunning && steerBlocked === null;
   const isComposerBlocked = sendBlocked !== null && !canSteer;
+  const workingAsOffer = isComposerBlocked
+    && workingAsChoice !== null
+    && sendBlocked === SESSION_COPY.chooseWorkingAs(workingAsChoice.permission)
+    ? workingAsChoice
+    : null;
   const hasText = text.trim() !== '';
+  const isFocusPendingAfterWorkingAs = useRef(false);
+
+  useEffect(() => {
+    if (isComposerBlocked || !isFocusPendingAfterWorkingAs.current) return;
+    isFocusPendingAfterWorkingAs.current = false;
+    textRef.current?.focus();
+  }, [isComposerBlocked, textRef]);
 
   const run = async (kind: ComposerAction, request: () => Promise<SessionActionOutcome>, success: string) => {
     setBusy(kind);
@@ -109,13 +130,28 @@ export function SessionComposer({
           <textarea
             aria-label={SESSION_COPY.steerLabel}
             disabled={isComposerBlocked}
-            placeholder={isTurnRunning ? SESSION_COPY.composerRunningPlaceholder : SESSION_COPY.composerIdlePlaceholder}
+            placeholder={workingAsOffer
+              ? SESSION_COPY.composerWorkingAsPlaceholder(workingAsOffer.permission)
+              : isTurnRunning ? SESSION_COPY.composerRunningPlaceholder : SESSION_COPY.composerIdlePlaceholder}
             ref={textRef}
             rows={2}
             value={text}
             onChange={(event) => setText(event.target.value)}
           />
           <div className="ses-composer-buttons">
+            {workingAsOffer && (
+              <button
+                className="agc-primary"
+                onClick={() => {
+                  isFocusPendingAfterWorkingAs.current = true;
+                  workingAsOffer.choose();
+                }}
+                type="button"
+              >
+                <ShieldCheck aria-hidden="true" size={14} strokeWidth={2.2} />
+                {SESSION_COPY.workAs(workingAsOffer.permission)}
+              </button>
+            )}
             {isTurnRunning && (
               <button
                 className="agc-danger"

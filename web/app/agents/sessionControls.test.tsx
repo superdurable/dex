@@ -87,6 +87,7 @@ function renderComposer(session: LoadedAgentSession, invoke: SessionActionInvoke
         setText={setText}
         text={text}
         textRef={{ current: null }}
+        workingAsChoice={null}
       />
     );
   }

@@ -1091,8 +1091,8 @@ const sessionFlowDefinitionUploadTimeoutMs = 10_000;
 /**
  * The permission every session Action requires in the session graph that the command uploads for Dex Web.
  *
- * In Dex Web, choose it in Working as to answer a CLI session's approvals and questions. Every CLI core uses this
- * text, so CLI cores of two languages that share a session Flow type upload the same graph.
+ * In Dex Web, choose it in Working as to send a CLI session messages and answer its approvals and questions. Every
+ * CLI core uses this text, so CLI cores of two languages that share a session Flow type upload the same graph.
  *
  * @since 0.5.0
  */

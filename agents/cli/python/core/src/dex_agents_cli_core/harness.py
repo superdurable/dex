@@ -31,8 +31,9 @@ from dex_agents_cli_core.turns import (
 )
 
 #: The permission every session Action requires in the session graph that the
-#: command uploads for Dex Web. In Dex Web, choose it in Working as to answer a
-#: CLI session's approvals and questions. Every CLI core uses this text.
+#: command uploads for Dex Web. In Dex Web, choose it in Working as to send a
+#: CLI session messages and answer its approvals and questions. Every CLI core
+#: uses this text.
 SESSION_ACTION_PERMISSION = "dex-agents-cli.operate"
 
 _FLOW_TYPE_SUFFIX_LENGTH = 6

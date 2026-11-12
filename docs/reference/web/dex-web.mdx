@@ -548,6 +548,8 @@ The three routes accept only a Flow type whose graph is a Dex Agents session: it
 
 As with **POST /api/v2/actions**, **Working as** comes from the request and grants nothing. **POST /api/v2/agent-sessions/start**, like **POST /api/v2/start**, checks no permission. Authenticate and authorize callers at the trusted boundary in front of Dex Web. Like every **/api** request that changes state, the three routes accept only same-origin JSON requests. See [The /api requests](#api-requests). Each approval card sends its own **interrupt_id**, so nobody copies one by hand. Each Action requires the permission the session graph declares. The tab asks you to choose **Working as** that permission, and offers a button for it on narrow screens.
 
+Changed in 1.45.1: while **Working as** is the only thing that blocks the message box, the box offers the same button in place of **Send**. Its placeholder names the permission. After you choose it, the box takes your message.
+
 A control is disabled, with the reason, when:
 
 - the Flow Definition Graph declares no such Action;

@@ -185,6 +185,9 @@ export function SessionView({
         context={controlContext}
         hintShownAbove={permissionHint}
         invoke={invoke}
+        workingAsChoice={neededPermission && onChooseWorkingAs
+          ? { permission: neededPermission, choose: () => onChooseWorkingAs(neededPermission) }
+          : null}
         onActed={reload}
         routeContext={routeContext}
         schema={schema}
