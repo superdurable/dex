@@ -117,6 +117,8 @@ export function SessionView({
   const neededPermission = sessionPermissionToChoose(schema, workQueuePermissions);
   const permissionHint = neededPermission && onChooseWorkingAs ? SESSION_COPY.chooseWorkingAs(neededPermission) : null;
   const settingsBlocked = sessionRouteBlockedReason(schema, SESSION_RPC.updateSessionSettings, controlContext);
+  // Sending checks this permission, which can differ from the first one Working as lacks.
+  const sendPermission = sessionActionPermission(schema);
   return (
     <section className="ses" aria-label={SESSION_COPY.tabSession}>
       <SessionHeader session={session} onReload={reload} />
@@ -185,8 +187,8 @@ export function SessionView({
         context={controlContext}
         hintShownAbove={permissionHint}
         invoke={invoke}
-        workingAsChoice={neededPermission && onChooseWorkingAs
-          ? { permission: neededPermission, choose: () => onChooseWorkingAs(neededPermission) }
+        workingAsChoice={sendPermission && onChooseWorkingAs
+          ? { permission: sendPermission, choose: () => onChooseWorkingAs(sendPermission) }
           : null}
         onActed={reload}
         routeContext={routeContext}

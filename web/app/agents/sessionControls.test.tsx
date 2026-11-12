@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowV2Action } from '@superdurable/flow-definition-renderer';
 import { SESSION_COPY } from './copy';
 import { NewSessionDialog, newSessionSettings, sessionIdProblem } from './NewSessionDialog';
-import { SessionComposer } from './SessionComposer';
+import { SessionComposer, type ComposerWorkingAsChoice } from './SessionComposer';
 import type { SessionActionInvoker } from './InterruptControls';
 import { MAX_SESSION_SETTINGS_BYTES, parseSessionSettings, sessionRouteBlockedReason } from './sessionRequests';
 import type { AgentStateRecord } from './sessionSchema';
@@ -70,24 +70,32 @@ function sessionWith(state: Partial<AgentStateRecord>): LoadedAgentSession {
   };
 }
 
-function renderComposer(session: LoadedAgentSession, invoke: SessionActionInvoker = vi.fn(async () => ({ kind: 'done' as const }))) {
+interface ComposerSetup {
+  invoke?: SessionActionInvoker;
+  composerSchema?: typeof schema;
+  composerContext?: typeof context;
+  workingAsChoice?: ComposerWorkingAsChoice | null;
+}
+
+function renderComposer(session: LoadedAgentSession, setup: ComposerSetup = {}) {
+  const invoke = setup.invoke ?? vi.fn(async () => ({ kind: 'done' as const }));
   const onActed = vi.fn();
   function Host() {
     let text = 'Look up order 7';
     const setText = (next: string) => { text = next; };
     return (
       <SessionComposer
-        context={context}
+        context={setup.composerContext ?? context}
         hintShownAbove={null}
         invoke={invoke}
         onActed={onActed}
         routeContext={routeContext}
-        schema={schema}
+        schema={setup.composerSchema ?? schema}
         session={session}
         setText={setText}
         text={text}
         textRef={{ current: null }}
-        workingAsChoice={null}
+        workingAsChoice={setup.workingAsChoice ?? null}
       />
     );
   }
@@ -135,6 +143,47 @@ describe('SessionComposer', () => {
     renderComposer(sessionWith({}));
     fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.send }));
     expect(await screen.findByText(SESSION_COPY.sendRefused)).toBeTruthy();
+  });
+
+  it('offers Working as in place of Send only when Working as is all that blocks it', () => {
+    const workAs = SESSION_COPY.workAs('agent.operate');
+    const choice = (): ComposerWorkingAsChoice => ({ permission: 'agent.operate', choose: vi.fn() });
+    const notWorkingAs = { ...context, workQueuePermissions: [] };
+
+    renderComposer(sessionWith({}), { composerContext: notWorkingAs, workingAsChoice: choice() });
+    expect(screen.getByRole('button', { name: workAs })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: SESSION_COPY.send })).toBeNull();
+    cleanup();
+
+    renderComposer(sessionWith({}), { composerContext: { ...notWorkingAs, isFlowOpen: false }, workingAsChoice: choice() });
+    expect(screen.queryByRole('button', { name: workAs })).toBeNull();
+    expect(screen.getByText(SESSION_COPY.closed)).toBeTruthy();
+    cleanup();
+
+    renderComposer(sessionWith({}), {
+      composerSchema: { ...schema, rpcNames: ['update_session_settings'] },
+      composerContext: notWorkingAs,
+      workingAsChoice: choice(),
+    });
+    expect(screen.queryByRole('button', { name: workAs })).toBeNull();
+    expect(screen.getByText(SESSION_COPY.noSessionRPC('send_user_message'))).toBeTruthy();
+    cleanup();
+
+    renderComposer(sessionWith({}), { workingAsChoice: choice() });
+    expect(screen.queryByRole('button', { name: workAs })).toBeNull();
+    expect(screen.getByRole('button', { name: SESSION_COPY.send })).toBeTruthy();
+  });
+
+  it('focuses nothing when choosing Working as leaves the box blocked', () => {
+    const choose = vi.fn();
+    renderComposer(sessionWith({}), {
+      composerContext: { ...context, workQueuePermissions: [] },
+      workingAsChoice: { permission: 'agent.operate', choose },
+    });
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.workAs('agent.operate') }));
+    expect(choose).toHaveBeenCalledTimes(1);
+    expect((screen.getByRole('textbox', { name: SESSION_COPY.steerLabel }) as HTMLTextAreaElement).disabled).toBe(true);
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('blocks sending without the session permission or for a closed session', () => {

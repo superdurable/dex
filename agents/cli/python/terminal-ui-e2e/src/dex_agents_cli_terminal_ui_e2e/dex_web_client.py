@@ -141,6 +141,15 @@ class DexWebSessionClient:
     def _send(self, request: urllib.request.Request) -> DexWebResponse:
         try:
             with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
-                return DexWebResponse(response.status, json.loads(response.read() or b"{}"))
+                return DexWebResponse(response.status, _decode_body(response.read()))
         except urllib.error.HTTPError as error:
-            return DexWebResponse(error.code, json.loads(error.read() or b"{}"))
+            return DexWebResponse(error.code, _decode_body(error.read()))
+
+
+def _decode_body(raw: bytes) -> Mapping[str, Any]:
+    """Decode a JSON object body; keep any other body as text, so its status still counts."""
+    try:
+        decoded = json.loads(raw or b"{}")
+    except ValueError:
+        return {"text": raw.decode(errors="replace")}
+    return decoded if isinstance(decoded, dict) else {"value": decoded}

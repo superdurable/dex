@@ -153,10 +153,12 @@ type when it starts, so Dex Web shows each session's Steps and its
 **Agent session** tab without `--flow-rendering-dir`. The session Actions
 require the permission `dex-agents-cli.operate` in every CLI core: choose it
 in **Working as** to send a session messages and to answer its approvals and
-questions in Dex Web. The terminal shows a message from Dex Web marked
-`(another client)`. Such a message runs the command's local tools like your
-own, and Dex Web can answer their approvals, so only let people who may run
-tools on this machine reach a shared Dex Web.
+questions in Dex Web. The terminal UI shows a message from Dex Web marked
+`(another client)` and asks about its approvals too. The plain chat follows
+only its own turns: it does not show such a message or ask about its
+approvals. Such a message runs the command's local tools like your own, and
+Dex Web can answer their approvals, so only let people who may run tools on
+this machine reach a shared Dex Web.
 Uploading needs server-zd 0.1.26 or later, which `dexcli dev` 1.46.0 runs. The
 outcome, and a failure such as on an older server, go to the log file
 `~/.dex/agents/<harness>.log`, not the terminal, and the command still starts.

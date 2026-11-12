@@ -44,7 +44,10 @@ def test_dex_web_message_is_answered_and_shown_as_another_client(
     assert sent.status == 200, sent
     assert sent.body.get("output") is True, sent
     session.wait_for_text("DEX-WEB-REPLY", timeout_seconds=90)
-    shown = next(line for line in session.screen.all_lines() if "hello from dex web" in line)
+    shown = next(
+        (line for line in session.screen.all_lines() if "hello from dex web" in line), None
+    )
+    assert shown is not None, session.describe()
     assert OTHER_CLIENT_LABEL in shown, session.describe()
     assert [str(entry.get("prompt")) for entry in run.model_requests()][-1] == "hello from dex web"
     session.wait_for_display(READY_STATUS)

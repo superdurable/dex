@@ -147,6 +147,34 @@ describe('SessionView', () => {
     expect(composer.placeholder).toBe(SESSION_COPY.composerWorkingAsPlaceholder('coding.operate'));
   });
 
+  it('offers in the composer the permission that sending checks', () => {
+    const action = (rpcName: string, permission: string): FlowV2Action => ({
+      rpcName, label: rpcName, requiredPermission: permission, input: { kind: 'object', fields: [] },
+    });
+    const mixedSchema = {
+      ...schema,
+      answerQuestion: action('answer_question', 'answers.operate'),
+      steerUserMessage: action('steer_user_message', 'steering.operate'),
+    };
+    loaded = sessionOf({});
+    const onChooseWorkingAs = vi.fn();
+    render(
+      <SessionView
+        flowId="session-1"
+        flowType="CodingAgent"
+        onChooseWorkingAs={onChooseWorkingAs}
+        reloadKey={0}
+        schema={mixedSchema}
+        workQueuePermissions={[]}
+      />,
+    );
+
+    const composerWorkAs = screen.getByRole('button', { name: SESSION_COPY.workAs('steering.operate') });
+    expect(composerWorkAs.closest('.ses-controls')).not.toBeNull();
+    fireEvent.click(composerWorkAs);
+    expect(onChooseWorkingAs).toHaveBeenCalledWith('steering.operate');
+  });
+
   it('lets a reader choose Working as from the composer, then send to a session they did not start', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ invoked: true, output: true }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);

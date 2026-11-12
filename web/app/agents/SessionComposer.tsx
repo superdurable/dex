@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import { ListPlus, SendHorizontal, ShieldCheck, Square } from 'lucide-react';
 import { SESSION_COPY } from './copy';
 import type { SessionActionInvoker } from './InterruptControls';
@@ -69,13 +69,12 @@ export function SessionComposer({
     ? workingAsChoice
     : null;
   const hasText = text.trim() !== '';
-  const isFocusPendingAfterWorkingAs = useRef(false);
+  const [workingAsChoiceCount, setWorkingAsChoiceCount] = useState(0);
 
+  // Runs once per choice, in the render the choice produced; a choice that leaves the box blocked focuses nothing.
   useEffect(() => {
-    if (isComposerBlocked || !isFocusPendingAfterWorkingAs.current) return;
-    isFocusPendingAfterWorkingAs.current = false;
-    textRef.current?.focus();
-  }, [isComposerBlocked, textRef]);
+    if (workingAsChoiceCount > 0 && !isComposerBlocked) textRef.current?.focus();
+  }, [workingAsChoiceCount, textRef]);
 
   const run = async (kind: ComposerAction, request: () => Promise<SessionActionOutcome>, success: string) => {
     setBusy(kind);
@@ -143,7 +142,7 @@ export function SessionComposer({
               <button
                 className="agc-primary"
                 onClick={() => {
-                  isFocusPendingAfterWorkingAs.current = true;
+                  setWorkingAsChoiceCount((count) => count + 1);
                   workingAsOffer.choose();
                 }}
                 type="button"

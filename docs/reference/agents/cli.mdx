@@ -746,14 +746,20 @@ type to the Dex Server. Dex Web then shows each session's Steps and its
   Choose it in **Working as** to send the session messages and to answer its
   approvals and questions in Dex Web. Anyone who opens the session in Dex Web
   can do the same, so on a shared Dex server colleagues can take part in the
-  chat. The terminal shows each message from Dex Web, or from any other client,
-  marked **(another client)**. Neither shows who sent it.
+  chat.
+- The [terminal UI](#terminal-ui) shows each message from Dex Web, or from any
+  other client, marked **(another client)**, and asks about the approvals of
+  its turn too. Neither the terminal UI nor Dex Web shows who sent a message.
+- The [plain chat](#plain-chat) follows only the turns it starts. Between
+  them, it may print some of the agent's output for another client's message,
+  but not the message itself, and it does not ask about that turn's
+  approvals. Answer them in Dex Web.
 - A message from another client starts a turn like your own, with this
   command's local tools and Connectors. The approval rules stay the same. A
   call without approval in [Workspace and local tools](#local-tools) or
   [Harnesses with their own tools](#harness-tools) runs at once, such as a
   file read or a web fetch. A call that needs approval waits for an answer
-  from the terminal or from Dex Web, and the first answer decides.
+  from the terminal UI or from Dex Web, and the first answer decides.
   **Working as** comes from the browser and is not a login. On a shared
   server, only let people who may run tools on this machine reach Dex Web.
 - The upload needs server-zd 0.1.26 or later, which the **dexcli dev** that the
