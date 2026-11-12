@@ -8,6 +8,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
+import { getSystemErrorMessage } from "node:util";
 
 import { ToolExecutionError } from "@superdurable/dex-agents";
 
@@ -26,12 +27,14 @@ const outputDrainMs = 1_000;
 /**
  * The process group leader of every command: it runs the command with `/bin/sh -c`, closes its own output, reports
  * the exit status on fd 3, and then waits on fd 4, so it stays unreaped until the CLI core has cleaned the group.
- * If the CLI core goes away, fd 4 ends and the leader kills its own group.
+ * If the CLI core goes away, fd 4 ends and the leader kills its own group. Its own diagnostics, such as the line a
+ * shell prints when a signal ended its child, go to `/dev/null`; the command's stderr reaches it through fd 5.
  */
 const gatekeeperScript = [
-  '/bin/sh -c "$1" </dev/null 3>&- 4<&-',
+  "exec 5>&2 2>/dev/null",
+  '/bin/sh -c "$1" </dev/null 2>&5 3>&- 4<&- 5>&-',
   "status=$?",
-  "exec 1>&- 2>&-",
+  "exec 1>&- 5>&-",
   "trap '' TERM",
   'printf "%s\\n" "$status" >&3',
   "read -r _ <&4",
@@ -135,7 +138,7 @@ export function runShellCommand(
     childStderr.on("data", (chunk: Buffer) => stderr.append(chunk));
     child.once("error", (error) => {
       stopWaiting();
-      rejectPromise(new ToolExecutionError(`the shell could not start: ${error.message}`, { cause: error }));
+      rejectPromise(new ToolExecutionError(`the shell could not start: ${describeSpawnError(error)}`, { cause: error }));
     });
     child.once("close", (code, exitSignal) => {
       stopWaiting();
@@ -222,7 +225,7 @@ export function runWindowsShellCommand(
     child.once("error", (error) => {
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
-      rejectPromise(new ToolExecutionError(`the shell could not start: ${error.message}`, { cause: error }));
+      rejectPromise(new ToolExecutionError(`the shell could not start: ${describeSpawnError(error)}`, { cause: error }));
     });
     child.once("close", (code: number | null, exitSignal: NodeJS.Signals | null) => {
       clearTimeout(timer);
@@ -237,6 +240,20 @@ export function runWindowsShellCommand(
       resolvePromise(`${status}\n--- stdout ---\n${stdout.text()}\n--- stderr ---\n${stderr.text()}`);
     });
   });
+}
+
+/**
+ * Returns the system's text for a failed spawn, such as `No such file or directory`, as the Python CLI core reports
+ * it, or Node's message when the error has no system error number.
+ */
+function describeSpawnError(error: Error): string {
+  const errno = (error as NodeJS.ErrnoException).errno;
+  if (typeof errno !== "number" || typeof getSystemErrorMessage !== "function") {
+    return error.message;
+  }
+  // libuv writes the text in lower case; the C library, which Python reports, capitalizes it.
+  const text = getSystemErrorMessage(errno);
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Tells when every stream of a set has ended. */

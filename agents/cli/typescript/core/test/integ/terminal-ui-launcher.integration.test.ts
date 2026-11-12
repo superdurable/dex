@@ -643,7 +643,7 @@ describe("the terminal UI launcher", () => {
     const shellGroup = record.tool_groups[0]?.pgid ?? 0;
     assert.ok(isProcessGroupAlive(shellGroup));
     // The command holds stdin, stdout, and stderr only: no channel of the launcher, the terminal UI, or its
-    // gatekeeper, whose fds 3 and 4 talk to the Worker host.
+    // gatekeeper, whose fds 3 and 4 talk to the Worker host and whose fd 5 is the command's stderr.
     const commandPids = execFileSync("pgrep", ["-g", String(shellGroup), "-f", shellCommand], { encoding: "utf8" })
       .trim()
       .split("\n")
@@ -653,7 +653,7 @@ describe("the terminal UI launcher", () => {
     for (const pid of commandPids) {
       assert.deepEqual(openFileDescriptors(pid).filter((fd) => fd > 2), [], `pid ${pid}`);
     }
-    assert.deepEqual(openFileDescriptors(shellGroup).filter((fd) => fd > 4), []);
+    assert.deepEqual(openFileDescriptors(shellGroup).filter((fd) => fd > 5), []);
     if (isHostStuck) {
       writeFileSync(spinFile, "");
       await new Promise((resolve) => setTimeout(resolve, 500));

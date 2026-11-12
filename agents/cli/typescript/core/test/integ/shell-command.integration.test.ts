@@ -112,6 +112,24 @@ for (const mode of ["plain chat", "Worker host"] as const) {
       }
     });
 
+    test("a command that a signal ended reports only its own output, not the shell's notice about the signal", async () => {
+      assert.equal(
+        await runShellCommand("kill -TERM $$", tmpdir(), 60, new AbortController().signal, registered()?.registry),
+        "exit code 143\n--- stdout ---\n\n--- stderr ---\n",
+      );
+      assert.equal(
+        await runShellCommand("echo out; echo err >&2; kill -KILL $$", tmpdir(), 60, new AbortController().signal, registered()?.registry),
+        "exit code 137\n--- stdout ---\nout\n\n--- stderr ---\nerr\n",
+      );
+    });
+
+    test("a working directory that does not exist reports the system's text", async () => {
+      await assert.rejects(
+        runShellCommand("true", join(tmpdir(), "dex-agents-no-such-directory"), 60, new AbortController().signal, registered()?.registry),
+        { message: "the shell could not start: No such file or directory" },
+      );
+    });
+
     test("the exit status of the command is reported", async () => {
       assert.match(await runShellCommand("exit 3", tmpdir(), 60, new AbortController().signal, registered()?.registry), /^exit code 3\n/);
       // The shell reports a command that SIGTERM ended as 143, the same as an explicit exit 143.
