@@ -71,6 +71,7 @@ import {
   type DexServerConnection,
 } from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
+import { waitForQueuedOutput } from "./queued-output.js";
 import { collectSessionsForList } from "./session-list-pages.js";
 import { TerminalChat } from "./terminal-chat.js";
 import { TerminalInput, lineWaitAborted } from "./terminal-input.js";
@@ -162,9 +163,11 @@ function requireSessionSummarySetting(
  *
  * Changed in 0.6.0: a started `dexcli dev` stops when the command exits instead of running on.
  *
- * A harness command's bin calls it and exits with its result, because open connections can keep Node running. It
- * returns only after its output on `io.stdout` and `io.stderr` reached the operating system, so exiting at once loses
- * no line, even when a slow reader such as a pipe has not read them yet.
+ * A harness command's bin calls it and exits with its result, because open connections can keep Node running. When
+ * it returns or throws, its output on `io.stdout` and `io.stderr` has reached the operating system, so exiting at once
+ * loses no line, even when a slow reader such as a pipe has not read them yet. It waits at most 2 seconds for that
+ * output, so a reader that never reads cannot hang the command. A handled SIGTERM, SIGHUP, or SIGINT waits the same
+ * way before the process exits; a second signal exits at once.
  *
  * Changed in 0.6.0: it waits for its output before it returns. Before, `process.exit` could cut off the end of a long
  * `sessions` list written to a pipe.
@@ -185,10 +188,12 @@ function requireSessionSummarySetting(
  * @since 0.5.0
  */
 export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = processAgentCliIo()): Promise<number> {
-  const exitCode = await runAgentCliCommand(harness, io);
-  // Callers exit the process at once, which drops writes still queued for a slow pipe.
-  await Promise.all([waitForQueuedOutput(io.stdout), waitForQueuedOutput(io.stderr)]);
-  return exitCode;
+  try {
+    return await runAgentCliCommand(harness, io);
+  } finally {
+    // Callers exit the process at once, which drops writes still queued for a slow pipe.
+    await waitForQueuedOutput([io.stdout, io.stderr]);
+  }
 }
 
 async function runAgentCliCommand(harness: AgentHarness, io: AgentCliIo): Promise<number> {
@@ -1007,17 +1012,6 @@ function ignoreWriteErrorsOfClosedTerminal(stream: Writable): void {
     if (error.code !== "EIO") {
       throw error;
     }
-  });
-}
-
-/** Resolves once every earlier write reached the operating system, or the stream failed or closed. */
-async function waitForQueuedOutput(stream: Writable): Promise<void> {
-  if (stream.writableLength === 0 || stream.destroyed || stream.writableEnded) {
-    return;
-  }
-  // Writes complete in order, so the callback of an empty write follows every queued one.
-  await new Promise<void>((resolve) => {
-    stream.write("", () => resolve());
   });
 }
 
