@@ -31,6 +31,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -72,7 +74,7 @@ func runAIAgentApp(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create the blob cache: %w", err)
 	}
-	connection, err := readDexConnection()
+	connection, err := readFlowServiceConnection()
 	if err != nil {
 		return errors.Join(err, cache.Close())
 	}
@@ -142,27 +144,76 @@ func describeSlack(slackSettings aiagent.SlackSettings) string {
 	return "channel " + slackSettings.Channel.Value.ChannelID
 }
 
-// dexConnection is the Dex server the app connects to: a local dexcli dev, or a remote server.
-type dexConnection struct {
+// flowServiceConnection holds how the Worker and the Client reach the Dex server.
+type flowServiceConnection struct {
 	address    string
 	tls        *dex.FlowServiceTLSOptions
 	credential dex.Credential
 }
 
-// readDexConnection reads the address, TLS, and API key settings of the Dex server.
-func readDexConnection() (dexConnection, error) {
-	connection := dexConnection{address: environmentOr("DEX_SERVER", os.Getenv("DEX_FLOW_SERVICE_ADDRESS"))}
-	if os.Getenv("DEX_TLS") == "true" {
-		connection.tls = &dex.FlowServiceTLSOptions{}
+// readFlowServiceConnection reads the Dex server settings, using the environment variable names of dexcli.
+// It returns a plaintext connection without a credential when no TLS or API key setting is set.
+func readFlowServiceConnection() (flowServiceConnection, error) {
+	tlsOptions, err := readFlowServiceTLSOptions()
+	if err != nil {
+		return flowServiceConnection{}, err
 	}
-	if apiKey := os.Getenv("DEX_API_KEY"); apiKey != "" {
-		credential, err := dex.APIKeyCredential(os.Getenv("DEX_TOKEN_URL"), os.Getenv("DEX_SERVER_ID"), apiKey)
+	credential, err := readAPIKeyCredential()
+	if err != nil {
+		return flowServiceConnection{}, err
+	}
+	return flowServiceConnection{
+		address:    os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+		tls:        tlsOptions,
+		credential: credential,
+	}, nil
+}
+
+// readFlowServiceTLSOptions returns nil for plaintext gRPC, or the TLS options when DEX_TLS is true.
+func readFlowServiceTLSOptions() (*dex.FlowServiceTLSOptions, error) {
+	caFile := os.Getenv("DEX_TLS_CA_FILE")
+	serverName := os.Getenv("DEX_TLS_SERVER_NAME")
+	isTLSEnabled := false
+	if value := os.Getenv("DEX_TLS"); value != "" {
+		parsed, err := strconv.ParseBool(value)
 		if err != nil {
-			return dexConnection{}, fmt.Errorf("create the Dex API key credential: %w", err)
+			return nil, fmt.Errorf("DEX_TLS must be a boolean such as true or false, not %q", value)
 		}
-		connection.credential = credential
+		isTLSEnabled = parsed
 	}
-	return connection, nil
+	if !isTLSEnabled {
+		if caFile != "" || serverName != "" {
+			return nil, errors.New("DEX_TLS_CA_FILE and DEX_TLS_SERVER_NAME require DEX_TLS=true")
+		}
+		return nil, nil
+	}
+	tlsOptions := &dex.FlowServiceTLSOptions{ServerName: serverName}
+	if caFile != "" {
+		caPEM, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("read the DEX_TLS_CA_FILE certificates: %w", err)
+		}
+		tlsOptions.AdditionalRootCAsPEM = caPEM
+	}
+	return tlsOptions, nil
+}
+
+// readAPIKeyCredential returns nil when DEX_API_KEY is unset, or a credential that exchanges the key for access tokens.
+func readAPIKeyCredential() (dex.Credential, error) {
+	apiKey := strings.TrimSpace(os.Getenv("DEX_API_KEY"))
+	tokenURL := os.Getenv("DEX_TOKEN_URL")
+	serverID := os.Getenv("DEX_SERVER_ID")
+	if apiKey == "" {
+		if tokenURL != "" || serverID != "" {
+			return nil, errors.New("DEX_TOKEN_URL and DEX_SERVER_ID require DEX_API_KEY")
+		}
+		return nil, nil
+	}
+	credential, err := dex.APIKeyCredential(tokenURL, serverID, apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("create the Dex API key credential from DEX_API_KEY, DEX_TOKEN_URL, and DEX_SERVER_ID: %w", err)
+	}
+	return credential, nil
 }
 
 func stopWorker(worker *dex.Worker) error {
