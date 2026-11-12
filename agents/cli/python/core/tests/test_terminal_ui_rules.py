@@ -23,6 +23,7 @@ import pytest
 from dex import ErrorSubStatus, FlowAlreadyStartedError, StartFlowOptions
 from jsonschema import Draft202012Validator
 
+from dex_agents import LocalDirectoryMediaStore
 from dex_agents_cli_core.config import ConnectorsConfig
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.terminal_ui.contract import (
@@ -43,10 +44,23 @@ from dex_agents_cli_core.terminal_ui.local_requests import (
     LocalRequestServer,
     RequestOutcome,
 )
+from tests.conftest import FakeConnectorsMcp
+from tests.test_cli_images import png_bytes
 
 AGENTS_DIR = Path(__file__).resolve().parents[4]
 CASES_DIR = AGENTS_DIR / "conformance" / "terminal_ui"
 CHANNEL_SCHEMA = json.loads((AGENTS_DIR / "cli" / "terminal-ui-channel.schema.json").read_text())
+
+
+def channel_definition(name: str) -> Draft202012Validator:
+    """Return a validator of one ``$defs`` entry of the channel schema."""
+    return Draft202012Validator(
+        {
+            "$schema": CHANNEL_SCHEMA["$schema"],
+            "$defs": CHANNEL_SCHEMA["$defs"],
+            "$ref": f"#/$defs/{name}",
+        }
+    )
 
 
 def load_cases(name: str) -> dict[str, Any]:
@@ -228,7 +242,7 @@ class _Requests:
             await asyncio.sleep(0)
 
 
-_LAUNCHER_MESSAGE = Draft202012Validator({**CHANNEL_SCHEMA, "$ref": "#/$defs/from_launcher"})
+_LAUNCHER_MESSAGE = channel_definition("from_launcher")
 
 
 @pytest.mark.parametrize(
@@ -377,3 +391,32 @@ def test_the_terminal_ui_switch_is_off_unless_set() -> None:
         assert environment.is_terminal_ui_enabled
     off = CommandEnvironment.from_environment({"HOME": "/home/user", "DEX_AGENTS_TERMINAL_UI": "0"})
     assert replace(off, is_terminal_ui_enabled=False) == off
+
+
+def method_result_validator(method: str) -> Draft202012Validator:
+    return channel_definition(f"{method}_result")
+
+
+async def test_the_worker_host_results_match_the_channel_schema(
+    tmp_path: Path, fake_mcp: FakeConnectorsMcp
+) -> None:
+    hosted = HostedChatSession(
+        harness_name="scripted",
+        sessions=_FakeSessions({}),  # type: ignore[arg-type]
+        media_store=LocalDirectoryMediaStore(tmp_path / "media"),
+        start_environment={},
+        connectors=ConnectorsConfig(),
+        connectors_mcp_url=fake_mcp.url,
+        web_url=None,
+    )
+    image = tmp_path / "chart.png"
+    image.write_bytes(png_bytes())
+    stored = await hosted.put_image({"path": str(image)}, KEY)
+    method_result_validator("put_image").validate(stored.result)
+    listed = await hosted.list_connectors({}, OTHER_KEY)
+    assert listed.result is not None and listed.result["tools"]
+    method_result_validator("list_connectors").validate(listed.result)
+    started = await hosted.start_session({}, KEY)
+    method_result_validator("start_session").validate(started.result)
+    missing = await hosted.put_image({"path": str(tmp_path / "missing.png")}, KEY)
+    assert missing.error == {"code": "not_found", "message": "missing.png does not exist."}

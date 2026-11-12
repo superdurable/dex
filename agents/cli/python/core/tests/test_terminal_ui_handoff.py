@@ -388,7 +388,17 @@ async def test_the_worker_host_and_its_shell_group_end_when_the_launcher_is_kill
                 await sessions.start_session(f"blocked-{uuid.uuid4().hex[:8]}", "block")
                 await asyncio.sleep(3)
         os.kill(child.pid, signal.SIGKILL)
-        elapsed = await wait_until_gone([host_pid, tool_pgid], timeout=25)
+        try:
+            elapsed = await wait_until_gone([host_pid, tool_pgid], timeout=25)
+        except AssertionError as error:
+            log = (agents_directory / f"{HARNESS}.log").read_text().splitlines()
+            processes = subprocess.run(
+                ["ps", "-o", "pid,pgid,ppid,stat,command", "-g", str(host_pid)],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout
+            raise AssertionError(f"{error}\n{processes}\n" + "\n".join(log[-40:])) from None
         assert elapsed < 20
     finally:
         with_suppressed_kill(child.pid)
@@ -462,6 +472,36 @@ async def test_a_lost_response_is_recovered_with_get_request_result(
 
 def is_cancelled_response(step: Mapping[str, Any]) -> bool:
     return bool(step.get("message", {}).get("error", {}).get("code") == "cancelled")
+
+
+async def test_a_key_that_arrives_again_while_it_runs_shares_the_first_outcome(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    image = tmp_path / "screenshot.png"
+    image.write_bytes(png_bytes())
+    reference = await LocalDirectoryMediaStore(cli_home.media_directory.absolute()).put_image(
+        png_bytes()
+    )
+    transcript = replace_strings(
+        with_fresh_keys(load_transcript("chat_duplicate_key_while_running"), HARNESS),
+        {"/home/user/pictures/screenshot.png": str(image)},
+    )
+    for step in transcript["steps"]:
+        if step.get("message", {}).get("type") == "response":
+            step["message"]["result"]["image"] = asdict(reference)
+    transcript = insert_pause(transcript, is_ready_step, 1500)
+    fake = FakeTerminalUi(tmp_path / "tui", transcript)
+    child = start_chat(cli_home, fake, screen)
+    session_id = await read_session_id(child)
+    await fake.wait_for("sent", type="ready")
+    host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
+    os.kill(host_pid, signal.SIGSTOP)
+    await fake.wait_for("sent", type="request", id=2)
+    await asyncio.sleep(0.3)
+    os.kill(host_pid, signal.SIGCONT)
+    await expect(child, resume_line(session_id))
+    assert await wait_for_exit(child) == 0
+    assert_replayed(fake, screen)
 
 
 async def test_get_request_result_reports_running_until_the_session_starts(
