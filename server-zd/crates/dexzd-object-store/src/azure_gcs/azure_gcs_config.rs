@@ -46,7 +46,7 @@ pub enum AzureBlobCredentials {
         /// Token endpoint replacing the instance metadata service, such as `IDENTITY_ENDPOINT`.
         endpoint: Option<String>,
     },
-    /// Sends unsigned requests, for a local emulator or a fake server.
+    /// Sends no credentials and never contacts a token endpoint, for a local emulator or a fake server.
     Anonymous,
 }
 
@@ -103,7 +103,7 @@ pub enum GoogleCloudStorageCredentials {
         /// Credentials file named by `GOOGLE_APPLICATION_CREDENTIALS`, if any.
         credentials_file: Option<PathBuf>,
     },
-    /// Sends unsigned requests, for a local emulator or a fake server.
+    /// Sends no credentials and never contacts a token endpoint, for a local emulator or a fake server.
     Anonymous,
 }
 

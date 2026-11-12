@@ -6,8 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+#[cfg(feature = "test-util")]
+use std::collections::BTreeSet;
 use std::error::Error as StdError;
 use std::fmt;
+#[cfg(feature = "test-util")]
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -102,16 +106,67 @@ fn option_duration(
         .transpose()
 }
 
+/// The distinct `scheme://host:port` origins that a store's clients sent requests to.
+///
+/// Only test-util builds record them; other builds keep nothing.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RequestedOrigins(#[cfg(feature = "test-util")] Arc<Mutex<BTreeSet<String>>>);
+
+impl RequestedOrigins {
+    #[cfg_attr(
+        not(feature = "test-util"),
+        expect(unused_variables, reason = "only test-util builds record origins")
+    )]
+    fn record(&self, request: &HttpRequest) {
+        #[cfg(feature = "test-util")]
+        self.record_origin(request);
+    }
+
+    #[cfg(feature = "test-util")]
+    fn record_origin(&self, request: &HttpRequest) {
+        let uri = request.uri();
+        let origin = format!(
+            "{}://{}",
+            uri.scheme_str().unwrap_or(""),
+            uri.authority().map_or("", |authority| authority.as_str())
+        );
+        self.0
+            .lock()
+            .expect("the requested origins lock is never poisoned")
+            .insert(origin);
+    }
+
+    /// Returns the recorded origins in ascending order.
+    #[cfg(feature = "test-util")]
+    pub(crate) fn origins(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .expect("the requested origins lock is never poisoned")
+            .iter()
+            .cloned()
+            .collect()
+    }
+}
+
 /// Builds reqwest clients wrapped in [`ResponseStatusClassifyingService`]; following redirects would repeat writes.
 #[derive(Debug)]
 pub(crate) struct ResponseStatusClassifyingConnector {
     cloud: AzureGcsCloud,
     timeouts: TransportTimeouts,
+    requested_origins: RequestedOrigins,
 }
 
 impl ResponseStatusClassifyingConnector {
-    pub(crate) fn new(cloud: AzureGcsCloud, timeouts: TransportTimeouts) -> Self {
-        Self { cloud, timeouts }
+    pub(crate) fn new(
+        cloud: AzureGcsCloud,
+        timeouts: TransportTimeouts,
+        requested_origins: RequestedOrigins,
+    ) -> Self {
+        Self {
+            cloud,
+            timeouts,
+            requested_origins,
+        }
     }
 }
 
@@ -147,6 +202,7 @@ impl HttpConnector for ResponseStatusClassifyingConnector {
         Ok(HttpClient::new(ResponseStatusClassifyingService {
             inner: HttpClient::new(client),
             cloud: self.cloud,
+            requested_origins: self.requested_origins.clone(),
         }))
     }
 }
@@ -156,6 +212,7 @@ impl HttpConnector for ResponseStatusClassifyingConnector {
 struct ResponseStatusClassifyingService {
     inner: HttpClient,
     cloud: AzureGcsCloud,
+    requested_origins: RequestedOrigins,
 }
 
 #[async_trait]
@@ -163,6 +220,7 @@ impl HttpService for ResponseStatusClassifyingService {
     async fn call(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
         // object_store reports failed POSTs, such as multipart completions, without their status.
         let is_post = request.method() == http::Method::POST;
+        self.requested_origins.record(&request);
         let response = self.inner.execute(request).await?;
         let status = response.status().as_u16();
         let header = |name: &str| {

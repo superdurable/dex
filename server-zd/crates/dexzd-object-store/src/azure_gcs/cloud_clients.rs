@@ -6,15 +6,20 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::sync::Arc;
 use std::time::Duration;
 
+use object_store::azure::AzureCredential;
 use object_store::azure::{MicrosoftAzure, MicrosoftAzureBuilder};
 use object_store::client::HttpConnector;
+use object_store::gcp::GcpCredential;
 use object_store::gcp::{GoogleCloudStorage, GoogleCloudStorageBuilder};
-use object_store::{BackoffConfig, ClientOptions, RetryConfig};
+use object_store::{BackoffConfig, ClientOptions, RetryConfig, StaticCredentialProvider};
 
 use super::google_cloud_storage_listing::GoogleCloudStorageListing;
-use super::response_status_classifier::{ResponseStatusClassifyingConnector, TransportTimeouts};
+use super::response_status_classifier::{
+    RequestedOrigins, ResponseStatusClassifyingConnector, TransportTimeouts,
+};
 use super::{
     AzureBlobCredentials, AzureGcsCloud, AzureGcsObjectStoreConfig, AzureGcsProvider,
     GoogleCloudStorageCredentials,
@@ -42,6 +47,7 @@ impl CloudClients {
     /// Builds retrying read clients and single-attempt write clients that share credentials.
     pub(super) fn build(
         config: &AzureGcsObjectStoreConfig,
+        requested_origins: &RequestedOrigins,
     ) -> ObjectStoreResult<(AzureGcsCloud, Self)> {
         let allow_http = config
             .endpoint
@@ -89,7 +95,9 @@ impl CloudClients {
                         .with_container_name(container.as_str())
                         .with_skip_signature(*credentials == AzureBlobCredentials::Anonymous)
                         .with_http_connector(ResponseStatusClassifyingConnector::new(
-                            cloud, timeouts,
+                            cloud,
+                            timeouts,
+                            requested_origins.clone(),
                         ));
                     match &config.endpoint {
                         Some(endpoint) => builder.with_endpoint(endpoint.clone()),
@@ -125,7 +133,9 @@ impl CloudClients {
                         .with_base_url(&base_url)
                         .with_skip_signature(is_anonymous)
                         .with_http_connector(ResponseStatusClassifyingConnector::new(
-                            cloud, timeouts,
+                            cloud,
+                            timeouts,
+                            requested_origins.clone(),
                         ))
                 };
                 let reads = with_gcs_credentials(base(read_timeouts), credentials)
@@ -140,9 +150,13 @@ impl CloudClients {
                     .build()
                     .map_err(|error| config_error(error.to_string()))?;
                 let listing = GoogleCloudStorageListing::new(
-                    ResponseStatusClassifyingConnector::new(cloud, read_timeouts)
-                        .connect(&read_options)
-                        .map_err(|error| config_error(error.to_string()))?,
+                    ResponseStatusClassifyingConnector::new(
+                        cloud,
+                        read_timeouts,
+                        requested_origins.clone(),
+                    )
+                    .connect(&read_options)
+                    .map_err(|error| config_error(error.to_string()))?,
                     (!is_anonymous).then(|| reads.credentials().clone()),
                     base_url,
                     bucket.clone(),
@@ -207,7 +221,10 @@ fn with_azure_credentials(
                 None => builder,
             }
         }
-        AzureBlobCredentials::Anonymous => builder,
+        // A static credential keeps the client from resolving a managed identity it never uses.
+        AzureBlobCredentials::Anonymous => builder.with_credentials(Arc::new(
+            StaticCredentialProvider::new(AzureCredential::BearerToken(String::new())),
+        )),
     }
 }
 
@@ -224,8 +241,13 @@ fn with_gcs_credentials(
         } => builder.with_application_credentials(credentials_file.to_string_lossy()),
         GoogleCloudStorageCredentials::ApplicationDefault {
             credentials_file: None,
+        } => builder,
+        // object_store asks the credential provider even with skip_signature, so it must be static.
+        GoogleCloudStorageCredentials::Anonymous => {
+            builder.with_credentials(Arc::new(StaticCredentialProvider::new(GcpCredential {
+                bearer: String::new(),
+            })))
         }
-        | GoogleCloudStorageCredentials::Anonymous => builder,
     }
 }
 

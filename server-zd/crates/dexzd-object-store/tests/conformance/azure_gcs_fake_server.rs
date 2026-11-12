@@ -541,6 +541,7 @@ async fn azure_gcs_etags_round_trip_through_writes_reads_listings_and_replacemen
             &WriteCondition::ReplaceIfEtagMatches { etag },
             &puts[1],
         );
+        assert_contacted_only(&store, &server);
     }
 }
 
@@ -586,7 +587,8 @@ async fn azure_gcs_lost_multipart_completion_is_outcome_unknown() {
             multipart_response(cloud, request, || FakeResponse::DropConnection)
         })
         .await;
-        let error = large_write_store(cloud, &server)
+        let store = large_write_store(cloud, &server);
+        let error = store
             .put(
                 "objects/a",
                 Bytes::from_static(b"body"),
@@ -600,6 +602,7 @@ async fn azure_gcs_lost_multipart_completion_is_outcome_unknown() {
             "{cloud:?}: {error}"
         );
         assert_multipart_requests(cloud, &server, 1, 0);
+        assert_contacted_only(&store, &server);
     }
 }
 
@@ -1074,4 +1077,67 @@ async fn azure_pending_copy_deadline_bounds_a_slow_poll() {
         }),
         "a copy that may still read the staging object keeps it"
     );
+}
+
+/// Builds a store that sends its requests to the given endpoint.
+type StoreBuilder = fn(String) -> AzureGcsObjectStore;
+
+/// Asserts that every client of `store`, credential clients included, contacted only `server`.
+fn assert_contacted_only(store: &AzureGcsObjectStore, server: &FakeCloudServer) {
+    assert_eq!(store.requested_origins_for_test(), [server.endpoint()]);
+}
+
+#[tokio::test]
+async fn azure_gcs_fake_server_tests_need_no_credentials_or_metadata_server() {
+    let stores: [(FakeCloud, StoreBuilder); 3] = [
+        (FakeCloud::AzureBlob, |endpoint| {
+            store_at(FakeCloud::AzureBlob, endpoint)
+        }),
+        (FakeCloud::AzureBlob, |endpoint| {
+            let mut config = AzureGcsObjectStoreConfig::new(AzureGcsProvider::AzureBlob {
+                account: "devaccount".to_owned(),
+                container: "dex".to_owned(),
+                credentials: AzureBlobCredentials::Anonymous,
+            });
+            config.endpoint = Some(endpoint);
+            config.key_prefix = "cluster-a".to_owned();
+            AzureGcsObjectStore::new(config).expect("the store builds")
+        }),
+        (FakeCloud::GoogleCloudStorage, |endpoint| {
+            store_at(FakeCloud::GoogleCloudStorage, endpoint)
+        }),
+    ];
+    for (cloud, build) in stores {
+        let server = FakeCloudServer::start(move |request| match request.method.as_str() {
+            "PUT" => successful_write(cloud),
+            "HEAD" => object_metadata(cloud, 4),
+            "GET" => listing(cloud, "cluster-a/objects/a", 4),
+            "DELETE" => FakeResponse::status(404),
+            _ => azure_batch_delete(&[404]),
+        })
+        .await;
+        let store = build(server.endpoint());
+        store
+            .put(
+                "objects/a",
+                Bytes::from_static(b"body"),
+                WriteCondition::Unconditional,
+            )
+            .await
+            .expect("the write succeeds");
+        store
+            .head("objects/a")
+            .await
+            .expect("the head succeeds")
+            .expect("the object exists");
+        store
+            .list("objects/", None, 10)
+            .await
+            .expect("the listing succeeds");
+        store
+            .delete("objects/missing")
+            .await
+            .expect("the delete succeeds");
+        assert_contacted_only(&store, &server);
+    }
 }

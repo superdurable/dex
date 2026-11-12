@@ -46,6 +46,7 @@ use google_cloud_storage_listing::GoogleCloudStorageListing;
 use listing_accumulator::ListingAccumulator;
 use multipart_upload::{LargeUploadSource, MultipartUploadFailure, upload_in_parts};
 use pending_copy::{PendingCopyEnd, wait_for_pending_copy};
+use response_status_classifier::RequestedOrigins;
 use version_token::{update_version, version_token};
 
 /// Key prefix of the unconditional uploads that large create-only writes copy into place.
@@ -77,6 +78,8 @@ pub struct AzureGcsObjectStore {
     throttled_write_initial_backoff: Duration,
     pending_copy_timeout: Duration,
     last_staging_sweep: std::sync::Mutex<Option<std::time::Instant>>,
+    #[cfg(feature = "test-util")]
+    requested_origins: RequestedOrigins,
 }
 
 impl AzureGcsObjectStore {
@@ -105,7 +108,8 @@ impl AzureGcsObjectStore {
                 )));
             }
         }
-        let (cloud, clients) = CloudClients::build(&config)?;
+        let requested_origins = RequestedOrigins::default();
+        let (cloud, clients) = CloudClients::build(&config, &requested_origins)?;
         Ok(Self {
             clients,
             cloud,
@@ -119,7 +123,15 @@ impl AzureGcsObjectStore {
             throttled_write_initial_backoff: config.throttled_write_initial_backoff,
             pending_copy_timeout: config.pending_copy_timeout,
             last_staging_sweep: std::sync::Mutex::new(None),
+            #[cfg(feature = "test-util")]
+            requested_origins,
         })
+    }
+
+    /// Returns every `scheme://host:port` that the store's clients, credential clients included, contacted.
+    #[cfg(feature = "test-util")]
+    pub fn requested_origins_for_test(&self) -> Vec<String> {
+        self.requested_origins.origins()
     }
 
     /// Deletes staging objects older, by store time, than the cloud's abandonment age; returns the count.
