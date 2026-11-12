@@ -154,6 +154,9 @@ type flowServiceConnection struct {
 // readFlowServiceConnection reads the Dex server settings, using the environment variable names of dexcli.
 // It returns a plaintext connection without a credential when no TLS or API key setting is set.
 func readFlowServiceConnection() (flowServiceConnection, error) {
+	if readTrimmedEnvironment("DEX_CREDENTIAL") != "" || readTrimmedEnvironment("DEX_CREDENTIAL_FILE") != "" {
+		return flowServiceConnection{}, errors.New("this example supports only API key credentials; unset DEX_CREDENTIAL and DEX_CREDENTIAL_FILE and set DEX_API_KEY")
+	}
 	tlsOptions, err := readFlowServiceTLSOptions()
 	if err != nil {
 		return flowServiceConnection{}, err
@@ -163,7 +166,7 @@ func readFlowServiceConnection() (flowServiceConnection, error) {
 		return flowServiceConnection{}, err
 	}
 	return flowServiceConnection{
-		address:    os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+		address:    readTrimmedEnvironment("DEX_FLOW_SERVICE_ADDRESS"),
 		tls:        tlsOptions,
 		credential: credential,
 	}, nil
@@ -171,10 +174,10 @@ func readFlowServiceConnection() (flowServiceConnection, error) {
 
 // readFlowServiceTLSOptions returns nil for plaintext gRPC, or the TLS options when DEX_TLS is true.
 func readFlowServiceTLSOptions() (*dex.FlowServiceTLSOptions, error) {
-	caFile := os.Getenv("DEX_TLS_CA_FILE")
-	serverName := os.Getenv("DEX_TLS_SERVER_NAME")
+	caFile := readTrimmedEnvironment("DEX_TLS_CA_FILE")
+	serverName := readTrimmedEnvironment("DEX_TLS_SERVER_NAME")
 	isTLSEnabled := false
-	if value := os.Getenv("DEX_TLS"); value != "" {
+	if value := readTrimmedEnvironment("DEX_TLS"); value != "" {
 		parsed, err := strconv.ParseBool(value)
 		if err != nil {
 			return nil, fmt.Errorf("DEX_TLS must be a boolean such as true or false, not %q", value)
@@ -200,14 +203,20 @@ func readFlowServiceTLSOptions() (*dex.FlowServiceTLSOptions, error) {
 
 // readAPIKeyCredential returns nil when DEX_API_KEY is unset, or a credential that exchanges the key for access tokens.
 func readAPIKeyCredential() (dex.Credential, error) {
-	apiKey := strings.TrimSpace(os.Getenv("DEX_API_KEY"))
-	tokenURL := os.Getenv("DEX_TOKEN_URL")
-	serverID := os.Getenv("DEX_SERVER_ID")
+	apiKey := readTrimmedEnvironment("DEX_API_KEY")
+	tokenURL := readTrimmedEnvironment("DEX_TOKEN_URL")
+	serverID := readTrimmedEnvironment("DEX_SERVER_ID")
 	if apiKey == "" {
 		if tokenURL != "" || serverID != "" {
 			return nil, errors.New("DEX_TOKEN_URL and DEX_SERVER_ID require DEX_API_KEY")
 		}
 		return nil, nil
+	}
+	if tokenURL == "" {
+		return nil, errors.New("an API key requires DEX_TOKEN_URL")
+	}
+	if serverID == "" {
+		return nil, errors.New("an API key requires DEX_SERVER_ID")
 	}
 	credential, err := dex.APIKeyCredential(tokenURL, serverID, apiKey)
 	if err != nil {
@@ -227,4 +236,9 @@ func environmentOr(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// readTrimmedEnvironment returns the variable without surrounding whitespace, so a blank value counts as unset.
+func readTrimmedEnvironment(name string) string {
+	return strings.TrimSpace(os.Getenv(name))
 }
