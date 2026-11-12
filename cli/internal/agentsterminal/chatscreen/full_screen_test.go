@@ -163,7 +163,7 @@ func TestViewIsFullScreenWithMouseWheel(t *testing.T) {
 
 func TestExitSummary(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{})
-	require.Equal(t, "Session openai-sdk-20261111-142233-a1b2c3 stays in Dex. Resume with: dex-agents-openai-sdk --resume openai-sdk-20261111-142233-a1b2c3", harness.screen.ExitSummary())
+	require.Equal(t, "Session openai-sdk-20261111-142233-a1b2c3 keeps running. Resume it with: dex-agents-openai-sdk --resume openai-sdk-20261111-142233-a1b2c3", harness.screen.ExitSummary())
 	harness.feed(sessionfeed.WorkerStateChanged{State: sessionfeed.WorkerStateStopped, ExitCode: 137})
 	require.True(t, strings.HasPrefix(harness.screen.ExitSummary(), "The Worker stopped (exit 137). Session openai-sdk-"))
 }
