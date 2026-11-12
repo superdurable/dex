@@ -113,7 +113,7 @@ func (chargeStep) GetStepType() string {
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
+			// One hour in production; 3 seconds keeps the demo short.
 			TotalDuration: 3 * time.Second,
 		},
 	}
@@ -123,7 +123,7 @@ func (step chargeStep) Execute(
 	ctx dex.Context,
 	order OrderRequest,
 ) (*dex.StepDecision, error) {
-	step.service.ChargeUser(order.Email, order.CustomerID, order.Amount)
+	step.service.ChargeUserWithIdempotencyKey(order.Email, order.CustomerID, order.Amount, "charge-"+order.OrderID)
 	if err := OrderStatus.Set(ctx, "charged"); err != nil {
 		return nil, err
 	}
@@ -142,14 +142,14 @@ func (shipStep) GetStepType() string {
 func (step shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
+			// One hour in production; 3 seconds keeps the demo short.
 			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
 			refundStep{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{
-					// TotalDuration: time.Hour,
+					// One hour in production; 3 seconds keeps the demo short.
 					TotalDuration: 3 * time.Second,
 				},
 			},
@@ -179,7 +179,7 @@ func (step shipStep) Execute(
 		)
 		return dex.GoTo(shipStep{}, order), nil
 	}
-	if err := step.service.ShipItem(order.OrderID, order.TestFailAtShipping); err != nil {
+	if err := step.service.ShipItemWithIdempotencyKey(order.OrderID, order.TestFailAtShipping, "ship-"+order.OrderID); err != nil {
 		return nil, err
 	}
 	if err := OrderStatus.Set(ctx, "shipped"); err != nil {
@@ -201,7 +201,7 @@ func (step refundStep) Execute(
 	ctx dex.Context,
 	order OrderRequest,
 ) (*dex.StepDecision, error) {
-	step.service.UpdateExternalSystem("refund " + order.OrderID)
+	step.service.UpdateExternalSystemWithIdempotencyKey("refund "+order.OrderID, "refund-"+order.OrderID)
 	if err := OrderStatus.Set(ctx, "refunded"); err != nil {
 		return nil, err
 	}

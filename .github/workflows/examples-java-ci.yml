@@ -43,6 +43,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
       - name: Build and unit tests
         run: ./gradlew test --tests 'io.superdurable.dex.products.*' --tests 'io.superdurable.dex.patterns.*' --refresh-dependencies "-PjavaVersion=${{ matrix.java-version }}"
+      - name: Build Quick Start example
+        working-directory: examples/java/quick-start
+        run: ./gradlew installDist compileTestJava --refresh-dependencies
       - name: Verify published SDK coordinate
         run: |
           ./gradlew dependencyInsight --dependency dex-sdk --configuration compileClasspath \

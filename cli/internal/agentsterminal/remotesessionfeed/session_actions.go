@@ -24,6 +24,7 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launchcontract"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launcherchannel"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
+	"github.com/superdurable/dex/cli/internal/agentsterminal/typedpaths"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -50,6 +51,17 @@ func (feed *RemoteSessionFeed) runAction(ctx context.Context, action sessionfeed
 		return nil
 	case sessionfeed.SwitchSession:
 		return feed.switchSession(ctx, typed)
+	case sessionfeed.ReadEarlierMessages:
+		// The read names its session, and the screen drops answers for another.
+		feed.readEarlierMessages(ctx, typed)
+		return nil
+	case sessionfeed.DetachImage:
+		_, endAction, isCurrent := feed.beginSessionAction(ctx)
+		defer endAction()
+		if isCurrent {
+			feed.detachImage()
+		}
+		return nil
 	}
 	sessionID, endAction, isCurrent := feed.beginSessionAction(ctx)
 	defer endAction()
@@ -516,23 +528,19 @@ func (feed *RemoteSessionFeed) isUnknownMethod(outcome launcherchannel.RequestOu
 // imagePath removes one level of quotes, expands ~, and makes the path
 // absolute.
 func (feed *RemoteSessionFeed) imagePath(argument string) (string, error) {
-	path := strings.TrimSpace(argument)
-	if len(path) >= 2 && (path[0] == '"' || path[0] == '\'') && path[len(path)-1] == path[0] {
-		path = path[1 : len(path)-1]
-	}
-	if path == "" {
+	path, err := typedpaths.NewPathResolver(feed.home, feed.workDir).ResolveTypedPath(argument)
+	if errors.Is(err, typedpaths.ErrEmptyPath) {
 		return "", errors.New("usage: /image PATH")
 	}
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		if feed.home == "" {
-			return "", errors.New("~ needs HOME")
-		}
-		path = filepath.Join(feed.home, strings.TrimPrefix(path, "~"))
-	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(feed.workDir, path)
-	}
-	return filepath.Clean(path), nil
+	return path, err
+}
+
+// detachImage forgets the newest attached image, so the per-message limit
+// counts only the images still attached.
+func (feed *RemoteSessionFeed) detachImage() {
+	feed.stateMutex.Lock()
+	defer feed.stateMutex.Unlock()
+	feed.attachedImages = max(feed.attachedImages-1, 0)
 }
 
 // startSession starts a session through the launcher and reports it with

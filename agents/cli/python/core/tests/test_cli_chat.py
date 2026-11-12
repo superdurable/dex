@@ -23,14 +23,23 @@ from typing import Any
 
 import pexpect
 import pytest
+from dex import AsyncClient, BlobCacheConfig, ClientOptions, FlowStatus, Registry, open_blob_cache
 
-from dex_agents import AgentSnapshot, MessageRole, render_session_flow_graph
+from dex_agents import (
+    AgentSessionSummary,
+    AgentSnapshot,
+    MessageRole,
+    list_agent_sessions,
+    render_session_flow_graph,
+    sort_agent_sessions_by_last_activity,
+)
 from dex_agents.session_graph import SESSION_FLOW_GRAPH_GENERATED_AT
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     read_step_history,
     resolve_dexcli_path,
     wait_for_agent_snapshot,
+    wait_until,
 )
 from dex_agents_cli_core import SESSION_ACTION_PERMISSION, session_flow_type
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
@@ -367,6 +376,7 @@ async def test_sessions_sorts_several_pages_and_says_when_more_exist(
         child.sendeof()
         assert await wait_for_exit(child) == 0
 
+        await _wait_for_visible_running_sessions(cli_home, tmp_path, flow_type, 61, oldest)
         listed = cli_home.run("sessions")
         assert listed.returncode == 0, listed.stderr
         lines = [line for line in listed.stdout.splitlines() if "  started " in line]
@@ -377,10 +387,55 @@ async def test_sessions_sorts_several_pages_and_says_when_more_exist(
 
         for index in range(200):
             await sessions.start_session(f"extra-{index:03d}")
+    await _wait_for_visible_running_sessions(cli_home, tmp_path, flow_type, 261)
     capped = cli_home.run("sessions")
     assert capped.returncode == 0, capped.stderr
     assert len([line for line in capped.stdout.splitlines() if "  started " in line]) == 250
     assert "More sessions exist; this list sorts the first 250 that Dex returns" in capped.stdout
+
+
+async def _wait_for_visible_running_sessions(
+    cli_home: CliHome,
+    tmp_path: Path,
+    flow_type: str,
+    count: int,
+    most_recent_session_id: str | None = None,
+) -> None:
+    """Wait until search shows every running session, since Flow search is eventually consistent."""
+    cache_dir = tmp_path / "search-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    blob_cache = open_blob_cache(BlobCacheConfig(str(cache_dir), 64 * 1024 * 1024))
+    client = AsyncClient(
+        Registry([], allow_async_handlers=True),
+        blob_cache,
+        ClientOptions(server_address=cli_home.address),
+    )
+
+    async def are_all_visible() -> bool:
+        running: list[AgentSessionSummary] = []
+        next_page_token = ""
+        while True:
+            page = await list_agent_sessions(client, flow_type, next_page_token=next_page_token)
+            running.extend(s for s in page.sessions if s.status == FlowStatus.RUNNING)
+            next_page_token = page.next_page_token
+            if not next_page_token:
+                break
+        if len(running) != count:
+            return False
+        if most_recent_session_id is None:
+            return True
+        ordered = sort_agent_sessions_by_last_activity(running)
+        return ordered[0].session_id == most_recent_session_id
+
+    try:
+        await wait_until(
+            f"search to show {count} running sessions",
+            are_all_visible,
+            timeout=timedelta(seconds=30),
+        )
+    finally:
+        await client.close()
+        blob_cache.close()
 
 
 async def _wait_for_the_next_second() -> None:

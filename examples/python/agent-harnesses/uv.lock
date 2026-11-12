@@ -478,14 +478,14 @@ wheels = [
 
 [[package]]
 name = "dex-agents"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-python-sdk" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/42/d4/7777d41e7653c2340c40986b4116d560a5a7f1c293a7e7e272b5182a3314/dex_agents-0.4.0.tar.gz", hash = "sha256:8ffe023107d638df604b55b13ee09961030ea164394a54ea6f09cfe288fdefe5", size = 283340, upload-time = "2026-11-10T11:25:34.099Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1c/48/65e7f76b3d14d284be00d781cc599fd0443a5fccf48dd87be9196df60701/dex_agents-0.5.0.tar.gz", hash = "sha256:827a61f2455c41378fb4445c60047ecc94612593c527e548778831ac27b2a480", size = 344079, upload-time = "2026-11-11T19:23:29.669Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/ba/319d195fbb19feaff4e0271aa7fa1dc7d2aa97ad200a6e67f4c4957fa942/dex_agents-0.4.0-py3-none-any.whl", hash = "sha256:96bfdac5122f491f0fa1560e35631523e865fae727461ebc9c0ed006a95cbd6a", size = 278484, upload-time = "2026-11-10T11:25:32.751Z" },
+    { url = "https://files.pythonhosted.org/packages/95/1b/15a6b955036ef46108750df9436a9a5be0b884ad6365f16a662ac6602b3d/dex_agents-0.5.0-py3-none-any.whl", hash = "sha256:15c9a5bb69602cdbbcc3ca6aeca10b1c0144ed37bbfbff6cf31a41652f950ab2", size = 339036, upload-time = "2026-11-11T19:23:28.519Z" },
 ]
 
 [package.optional-dependencies]
@@ -495,7 +495,7 @@ connectors = [
 
 [[package]]
 name = "dex-agents-claude-agent-sdk"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "claude-agent-sdk" },
@@ -504,14 +504,14 @@ dependencies = [
     { name = "jsonschema" },
     { name = "mcp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/30/53/453aaf0ad32a984025509c723b601908c8454808cbddbe67543eef98fe61/dex_agents_claude_agent_sdk-0.4.0.tar.gz", hash = "sha256:cc1c3a82c272c3af70bb0e234b8f7f998c57e8e4a98686a01ae799446139b6fe", size = 49901, upload-time = "2026-11-10T11:25:44.253Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a9/ae/21e41bff4b2859995be0e129194260b5396b913adc4678d9d211aeaef4af/dex_agents_claude_agent_sdk-0.5.0.tar.gz", hash = "sha256:5748e0c3d362662c75722d869b6203505b2f27fc920fc5d12cb02b01caf21a5d", size = 58474, upload-time = "2026-11-11T19:23:44.013Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/80/ed6103e038b1c4f9a1e5f6e434b9a99588d3efbb775890af453ba118111d/dex_agents_claude_agent_sdk-0.4.0-py3-none-any.whl", hash = "sha256:4fed2bf4d12bc29164e2266353fd583dc10ac0fbc3fc772ce258cc7ed10a3cfc", size = 45050, upload-time = "2026-11-10T11:25:43.201Z" },
+    { url = "https://files.pythonhosted.org/packages/88/e3/67b204de610cec4d200660921a64a319194d0070ae320fd8a54f01d6e241/dex_agents_claude_agent_sdk-0.5.0-py3-none-any.whl", hash = "sha256:1261388708e0a33d9a5ddfdaef63ed7fe2949b78305d7eaa6244c80ffbe5228d", size = 52562, upload-time = "2026-11-11T19:23:42.989Z" },
 ]
 
 [[package]]
 name = "dex-agents-google-adk"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-agents" },
@@ -519,14 +519,14 @@ dependencies = [
     { name = "google-adk" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/57/e5/ddc3a0a9621444b2e5f870eb12b73ac1c02170c35321c02cea020a908e84/dex_agents_google_adk-0.4.0.tar.gz", hash = "sha256:5cc2c9fd81be11878a2a78c425c57d0821593ad6baa14ec7a0338889841dc2cf", size = 43120, upload-time = "2026-11-10T11:25:42.158Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/75/e7/707b7c7b05e64bf32dc5defd4b8022f6ff2c3bde8b733abea7ea467d928b/dex_agents_google_adk-0.5.0.tar.gz", hash = "sha256:5279c83faaa158a5409f2c552123c132ba9513c1d50642949041e914f932b2bf", size = 48269, upload-time = "2026-11-11T19:23:41.45Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/78/6bb8b34a1a9313e3ce1fd39fe2a9feece9c9bcc2bdeba64de6fad0d007ad/dex_agents_google_adk-0.4.0-py3-none-any.whl", hash = "sha256:6d6757962fa17e62a7ee5e94a03bc0d5ca65e1c64e64342cacd47aa1d6626726", size = 42133, upload-time = "2026-11-10T11:25:41.106Z" },
+    { url = "https://files.pythonhosted.org/packages/16/cf/3c12a520d0bc4e96ab3ec217f2260ae18521590aaf6adae55274b2bc9fab/dex_agents_google_adk-0.5.0-py3-none-any.whl", hash = "sha256:7864e63e8302663c7f2640b6c493ecfa16957ecfc993756535dd7589df4a9922", size = 47094, upload-time = "2026-11-11T19:23:40.482Z" },
 ]
 
 [[package]]
 name = "dex-agents-langgraph"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-agents" },
@@ -535,37 +535,37 @@ dependencies = [
     { name = "langchain-core" },
     { name = "langgraph" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/07/1c/d59eec780e4033b9cd1daa2c21ac2908167cb1ae24ce08328cbbe9c6cb1c/dex_agents_langgraph-0.4.0.tar.gz", hash = "sha256:bd2aea381b3df18c69ceac1edd364cc02cfcd8a3b21b3b7c673fcf497fcfe76d", size = 42384, upload-time = "2026-11-10T11:25:40.1Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/c6/8ae8b8c19da73974d7b522bec437238966788912670b91754104c7de78b3/dex_agents_langgraph-0.5.0.tar.gz", hash = "sha256:ae00cd941d1a10bb5fd7e41003339de85c16ae4b00ddd21acf14637ee53cd1b0", size = 59709, upload-time = "2026-11-11T19:23:38.555Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/71/d337406c10e132ef88a5367b69c687888105a2871ac671ca3d6f8688007e/dex_agents_langgraph-0.4.0-py3-none-any.whl", hash = "sha256:e924012cf64986f0131f235c2bf2f94bb8ea1429563007ea7c9da8e5f66d69e1", size = 39430, upload-time = "2026-11-10T11:25:39.222Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/59/0384e407d3122eaccc02a077815ff0a51d818e48753cd9dd57d1568c4236/dex_agents_langgraph-0.5.0-py3-none-any.whl", hash = "sha256:916995abdccad2bc788add7e3d55446a4e05c2c4bfea3ad0246e3abcd72f828a", size = 55530, upload-time = "2026-11-11T19:23:37.027Z" },
 ]
 
 [[package]]
 name = "dex-agents-openai-agents"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-agents" },
     { name = "dex-python-sdk" },
     { name = "openai-agents" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/88/dee10b6d8a445d37aa39b5abbcfd8330706d78a674fc0c1d2baa3a85a9ea/dex_agents_openai_agents-0.4.0.tar.gz", hash = "sha256:121bbcac6f87df00a63bc6dda515fbc29d44737d5e5f9d014b9a4b224e995ccc", size = 30659, upload-time = "2026-11-10T11:25:36.144Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/04/4677e9c0759c0e0abefa1201f9ada7f6c22eaa53432c43896c80c5c4b4c3/dex_agents_openai_agents-0.5.0.tar.gz", hash = "sha256:6f6cbcaf1e338a569a79987f5899fd5efb45944fbb549d8c0a15742d162f8ed3", size = 40786, upload-time = "2026-11-11T19:23:32.369Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/8e/7e059dff889477ab4b42fd105ed4a3c2312acd2a32adf556cf26eab3eab9/dex_agents_openai_agents-0.4.0-py3-none-any.whl", hash = "sha256:e14d44422162ba1129c9e87d27019b31491964729af897eae19fc321503d8585", size = 34752, upload-time = "2026-11-10T11:25:35.331Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/49/9a3e239f56a88a7d27a2da293a1b1c82411706ec67eb69227fdfa21294b2/dex_agents_openai_agents-0.5.0-py3-none-any.whl", hash = "sha256:517dc2ede61c8b25fd2ba4c9f114c153525ee31ad4e7a868d3ecbefb6ec72681", size = 39009, upload-time = "2026-11-11T19:23:31.435Z" },
 ]
 
 [[package]]
 name = "dex-agents-pydantic-ai"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dex-agents" },
     { name = "dex-python-sdk" },
     { name = "pydantic-ai-slim" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/51/bcd8a6587a0f6000260e930041750811565cae1fbb859f1b8d4c128f7199/dex_agents_pydantic_ai-0.4.0.tar.gz", hash = "sha256:27f966b54c73cfe5ce9004ba2d7f07386d3c13d9974e3279685bc87cbae04aac", size = 34350, upload-time = "2026-11-10T11:25:38.09Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/96/45/1fc699c408ef3c55ed0219a91a24a907ed10c6ae41f292955e33c0b149dc/dex_agents_pydantic_ai-0.5.0.tar.gz", hash = "sha256:33cfe46f768fa3a041884be983b6cff80fdaa911ec365e1026c68b728278804a", size = 38226, upload-time = "2026-11-11T19:23:35.14Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/e6/68c9f848f68633971406704c200e74d835dc55b0c45a13a486b73f49bf8a/dex_agents_pydantic_ai-0.4.0-py3-none-any.whl", hash = "sha256:04fc5dcd69e39335eb9b168413ddf60f8dcf276d1591ae476afae6d67eaf6221", size = 30488, upload-time = "2026-11-10T11:25:37.265Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/2f/5ea6757b71f1cd41533d64a58411877ce0807042abaeffeb8fbea5682b95/dex_agents_pydantic_ai-0.5.0-py3-none-any.whl", hash = "sha256:1321158876d98cea12eae5016f312e289a4838bef25c5f5d0ba9e6da432a702d", size = 34138, upload-time = "2026-11-11T19:23:34.205Z" },
 ]
 
 [[package]]
@@ -632,14 +632,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dex-agents", extras = ["connectors"], specifier = "==0.4.0" },
-    { name = "dex-agents-claude-agent-sdk", specifier = "==0.4.0" },
-    { name = "dex-agents-google-adk", specifier = "==0.4.0" },
-    { name = "dex-agents-langgraph", specifier = "==0.4.0" },
-    { name = "dex-agents-openai-agents", specifier = "==0.4.0" },
-    { name = "dex-agents-pydantic-ai", specifier = "==0.4.0" },
+    { name = "dex-agents", extras = ["connectors"], specifier = "==0.5.0" },
+    { name = "dex-agents-claude-agent-sdk", specifier = "==0.5.0" },
+    { name = "dex-agents-google-adk", specifier = "==0.5.0" },
+    { name = "dex-agents-langgraph", specifier = "==0.5.0" },
+    { name = "dex-agents-openai-agents", specifier = "==0.5.0" },
+    { name = "dex-agents-pydantic-ai", specifier = "==0.5.0" },
     { name = "dex-connector-slack", url = "https://github.com/superdurable/dex-connectors-library/releases/download/connectors%2Fslack%2Fpython%2Fv0.2.0/dex_connector_slack-0.2.0-py3-none-any.whl" },
-    { name = "dex-python-sdk", specifier = "==1.38.0" },
+    { name = "dex-python-sdk", specifier = "==1.45.0" },
     { name = "langchain-openai", specifier = ">=1.1,<2" },
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.64,<3" },
     { name = "quart", specifier = ">=0.20.0,<0.21" },
@@ -654,20 +654,20 @@ dev = [
 
 [[package]]
 name = "dex-python-sdk"
-version = "1.38.0"
+version = "1.45.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "grpcio" },
     { name = "grpcio-status" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1d/a8/f290277d04ef3cbb11687c47b238bd92ba4ff52a60d37362b98698664115/dex_python_sdk-1.38.0.tar.gz", hash = "sha256:61cb00cacfa3c3edd5fc0b52e0c0489c53dfbdced5b714bbc82a94cd7993618f", size = 271227, upload-time = "2026-11-07T07:46:28.607Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/12/c0/803ade57840bd6da9d79280a1c75e5c20cdbbdcc8eff56bf2c2143fef9e2/dex_python_sdk-1.45.0.tar.gz", hash = "sha256:c1e6197ebb2abd6513d70a4918eb41a539227ad8175cb9aa54c914688db414cf", size = 298363, upload-time = "2026-11-11T09:23:07.067Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/62/dc/a93cbd3775134993a3f332389e87cac9b2236640968eb7b9e7f20a491a6b/dex_python_sdk-1.38.0-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:da533f040383c6a5b2ae3ba30f3c8ab0b2a032feca6a347d6f8359e57eed78f3", size = 738703, upload-time = "2026-11-07T07:46:22.547Z" },
-    { url = "https://files.pythonhosted.org/packages/fe/fe/180f9071339685471b962a5f2f9b92de0d22618ac027ea5fea4d53a982dd/dex_python_sdk-1.38.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:15bdec15ed4596c0fd9d2c332fa3ef4df18e7682548d500fec7523b30362ef10", size = 715350, upload-time = "2026-11-07T07:46:23.817Z" },
-    { url = "https://files.pythonhosted.org/packages/5f/c6/55e4cd373044a6575885d8dce73b2a4785acc3a1e232d34b155be390f706/dex_python_sdk-1.38.0-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5827200cbfc93a4931601ddeb2e5c9d30cf33755f184dafc4394a6bd9a34155f", size = 780884, upload-time = "2026-11-07T07:46:25.045Z" },
-    { url = "https://files.pythonhosted.org/packages/5b/62/1e2c28a6e30c293161a8fecddb45e1f010f6cc76237d40030623659b094d/dex_python_sdk-1.38.0-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c1c5e87bf4b74d1a9ddd8fe6ff4c8792b014e193ce06727728a8ee771bd14af4", size = 782299, upload-time = "2026-11-07T07:46:26.266Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/9a/0fd78187ff96fb07c67146fe76cc59607eabc074b08f581390d0c2f79b0e/dex_python_sdk-1.38.0-cp311-abi3-win_amd64.whl", hash = "sha256:4fd3861b96cb391e231b848d0e54335d46bfaa48b782667a4d106e657d3b4d72", size = 627746, upload-time = "2026-11-07T07:46:27.547Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/2b/3cb315dea2c1a725fa64c4cbaca9a251572d321b5d1f02de70d20aafd547/dex_python_sdk-1.45.0-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b9dd488d965703e1bc99b66f64d8b57447e5288b47610eef7f023fa3a4ff7c4e", size = 768665, upload-time = "2026-11-11T09:23:00.902Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/45/dc72ebf57c80324d776fdb0cfd3f292866fd08a8ac5c3bf1477c46106b26/dex_python_sdk-1.45.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:bcc9b386c9465683d3d1514826c971284a90505c1e69b1a8101e5fa1ee1295c2", size = 745312, upload-time = "2026-11-11T09:23:02.423Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/e3/b50bf439f1d8bfb5df52e89a3a41316bf36002af73b935829b7db25c5981/dex_python_sdk-1.45.0-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:176e87f0d9b806aa7f8a869e8f1486a602f1094e26f2404e498213420314d547", size = 810843, upload-time = "2026-11-11T09:23:03.816Z" },
+    { url = "https://files.pythonhosted.org/packages/36/b5/a610c67e1c11bc7e2016dad1e6ea223536deaac4ee4917b9bf77ece9dada/dex_python_sdk-1.45.0-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:baf9e6ccfc54825f8fee37c7cb54c1efedb550dbcce22fd679fcd74b7cf46d3f", size = 812260, upload-time = "2026-11-11T09:23:04.867Z" },
+    { url = "https://files.pythonhosted.org/packages/91/48/21d2f3dca8eb3a3e0380ce9bf155ceb014cd60ae08cc1c5f35a3cae54a65/dex_python_sdk-1.45.0-cp311-abi3-win_amd64.whl", hash = "sha256:220b26e0bc5d0e6ca96d003630940994e7d53263b304baaafcc4ca6cc2585342", size = 657773, upload-time = "2026-11-11T09:23:05.876Z" },
 ]
 
 [[package]]

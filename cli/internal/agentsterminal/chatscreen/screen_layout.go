@@ -10,6 +10,7 @@ package chatscreen
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -94,7 +95,7 @@ func (screen *ChatScreen) appendBlock(kind transcriptBlockKind, block transcript
 // handleScrollKey scrolls the message view and reports whether key did. Home
 // and End need an empty input.
 func (screen *ChatScreen) handleScrollKey(key tea.KeyPressMsg) bool {
-	if screen.isPopupOpen || screen.isHelpOpen {
+	if screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen {
 		return false
 	}
 	page := max(screen.computeLayout().messageHeight-1, 1)
@@ -129,6 +130,9 @@ func (screen *ChatScreen) handleMouseWheel(wheel tea.MouseWheelMsg) {
 		step = -mouseWheelStep
 	}
 	switch {
+	case screen.pager != nil:
+		screen.pager.Scroll(step, screen.pagerSize(), screen.theme)
+	case screen.isToolPickerOpen:
 	case screen.isHelpOpen:
 		screen.helpScrollFromTop = max(screen.helpScrollFromTop+step, 0)
 	case screen.isPopupOpen:
@@ -181,6 +185,7 @@ func (screen *ChatScreen) computeLayout() screenLayout {
 		layout.docked = append(layout.docked, renderPlanLine(screen.plan.Items, layout.contentWidth, screen.theme))
 	}
 	layout.docked = append(layout.docked, screen.renderCompletionList(layout.contentWidth)...)
+	layout.docked = append(layout.docked, screen.renderPathCompletions(layout.contentWidth)...)
 	if len(screen.attachments) > 0 {
 		layout.docked = append(layout.docked, " "+renderImageChips(screen.attachments, layout.contentWidth-1, screen.theme))
 	}
@@ -203,6 +208,10 @@ func (screen *ChatScreen) renderFullScreen() (string, *tea.Cursor) {
 	spinnerFrame := int(now.UnixMilli() / spinnerFrameInterval.Milliseconds())
 	if screen.width < terminaltheme.MinimumUsableWidth {
 		return screen.renderTooNarrowScreen(now, spinnerFrame)
+	}
+	if screen.pager != nil {
+		lines := screen.pager.Render(screen.pagerSize(), screen.waitingInterruptsText(), screen.theme)
+		return strings.Join(fitToHeight(lines, screen.height), "\n"), nil
 	}
 	layout := screen.computeLayout()
 	messageArea := screen.renderMessageArea(layout, now, spinnerFrame)
@@ -278,6 +287,8 @@ func (screen *ChatScreen) renderOverlay(layout screenLayout, height int, now tim
 		}
 		top := min(screen.helpScrollFromTop, len(help)-height)
 		return help[top : top+height]
+	case screen.isToolPickerOpen:
+		return screen.renderToolPicker(layout.contentWidth, height)
 	case screen.isPopupOpen && screen.popupIndex < len(screen.interrupts):
 		interrupt := screen.interrupts[screen.popupIndex]
 		if interrupt.approval != nil {
@@ -383,6 +394,8 @@ func (screen *ChatScreen) currentHints() []string {
 		return []string{"Press any key to exit"}
 	case screen.isHelpOpen:
 		return []string{"PgUp/PgDn scroll", "Esc close"}
+	case screen.isToolPickerOpen:
+		return []string{"Enter open", "j/k move", "Esc close"}
 	case screen.isPopupOpen && screen.popupIndex < len(screen.interrupts):
 		return screen.popupHints()
 	default:
@@ -456,6 +469,10 @@ func (screen *ChatScreen) renderPendingBar(width int) []string {
 	}
 	if screen.pendingImageDrop != nil {
 		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Warning.Render(symbols.Warning)+screen.imageDropQuestion(), width, symbols.Ellipsis))
+	}
+	if screen.pendingPastedImage != nil {
+		question := " Attach " + filepath.Base(screen.pendingPastedImage.path) + "?"
+		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Accent.Render(symbols.AwaitingUser)+question, width, symbols.Ellipsis))
 	}
 	if screen.pendingDelete != nil {
 		question := fmt.Sprintf(" Delete the queued message %q? It will not be sent.", screen.pendingDelete.Text)
@@ -579,13 +596,64 @@ func (screen *ChatScreen) renderCompletionList(width int) []string {
 	for index := first; index < last; index++ {
 		command := matches[index]
 		name := terminaltheme.PadRight(completionName(command), nameWidth)
+		description := command.Description
+		unavailableReason := ""
+		if command.Name == runCommandName {
+			unavailableReason = screen.runUnavailableReason()
+		}
 		prefix := "   "
-		if index == selected {
+		switch {
+		case unavailableReason != "":
+			name, description = screen.theme.Secondary.Render(name), unavailableReason
+			if index == selected {
+				prefix = " " + screen.theme.Secondary.Render(screen.theme.Symbols.Focus) + " "
+			}
+		case index == selected:
 			prefix = " " + screen.theme.Accent.Render(screen.theme.Symbols.Focus) + " "
 			name = screen.theme.Focused.Render(name)
 		}
-		line := prefix + name + "  " + screen.theme.Secondary.Render(command.Description)
+		line := prefix + name + "  " + screen.theme.Secondary.Render(description)
 		lines = append(lines, terminaltheme.TruncateToWidth(line, width, screen.theme.Symbols.Ellipsis))
+	}
+	return lines
+}
+
+// maximumPathCompletionRows bounds the docked /image path candidates.
+const maximumPathCompletionRows = 6
+
+// renderPathCompletions lists the /image candidates of the last Tab.
+func (screen *ChatScreen) renderPathCompletions(width int) []string {
+	if len(screen.pathCompletions) == 0 {
+		return nil
+	}
+	shown := screen.pathCompletions[:min(len(screen.pathCompletions), maximumPathCompletionRows)]
+	lines := make([]string, 0, len(shown)+1)
+	for _, completion := range shown {
+		lines = append(lines, terminaltheme.TruncateKeepingTail("   "+screen.theme.Secondary.Render(completion), width, screen.theme.Symbols.Ellipsis))
+	}
+	if hidden := len(screen.pathCompletions) - len(shown); hidden > 0 || screen.isPathCompletionPartial {
+		text := moreLinesText(hidden, screen.theme.Symbols.Ellipsis)
+		if screen.isPathCompletionPartial {
+			text = screen.theme.Symbols.Ellipsis + " more may match; type more of the name"
+		}
+		lines = append(lines, "   "+screen.theme.Secondary.Render(text))
+	}
+	return lines
+}
+
+// renderToolPicker lists the latest turn's tools for /tools.
+func (screen *ChatScreen) renderToolPicker(width int, height int) []string {
+	lines := []string{"", contentIndent + screen.theme.Title.Render("Tools of the latest turn")}
+	room := max(height-len(lines), 1)
+	first := max(min(screen.toolPickerIndex-room/2, len(screen.turnTools)-room), 0)
+	for index := first; index < min(first+room, len(screen.turnTools)); index++ {
+		call := screen.turnTools[index]
+		call.OutputTail, call.HiddenOutputLineCount = nil, 0
+		row := renderToolRow(call, screen.turnToolNameWidth, width, toolRowClock{now: screen.now()}, screen.theme)[0]
+		if index == screen.toolPickerIndex {
+			row = screen.theme.Accent.Render(screen.theme.Symbols.Focus) + " " + strings.TrimPrefix(row, contentIndent)
+		}
+		lines = append(lines, row)
 	}
 	return lines
 }
@@ -614,7 +682,7 @@ func (screen *ChatScreen) inputPlaceholder() string {
 	case screen.isTurnRunning:
 		return "type to queue a message"
 	case screen.session.IsNewSession:
-		if screen.commands.Has("image") {
+		if screen.commands.Has(imageCommandName) {
 			return "Type a message. /image attaches a picture, /help lists commands."
 		}
 		return "Type a message. /help lists commands."
@@ -625,6 +693,8 @@ func (screen *ChatScreen) inputPlaceholder() string {
 
 func (screen *ChatScreen) inputHints() []string {
 	switch {
+	case screen.pendingPastedImage != nil:
+		return []string{"Enter attach", "Esc keep text"}
 	case screen.pendingDelete != nil:
 		return []string{"y delete", "n keep"}
 	case screen.pendingImageDrop != nil:

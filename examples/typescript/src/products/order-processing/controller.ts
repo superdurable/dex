@@ -47,17 +47,22 @@ export function createOrderProcessingRouter(
   });
 
   router.get("/approve", async (request, response) => {
-    const workflowId = String(request.query.workflowId ?? "");
+    const flowId = flowIdFromQuery(request.query);
     const notes = String(request.query.notes ?? "");
-    const output = await client.invokeRPC(flow.approve, workflowId, notes);
+    const output = await client.invokeRPC(flow.approve, flowId, notes);
     response.json(output);
   });
 
   router.get("/describe", async (request, response) => {
-    const workflowId = String(request.query.workflowId ?? "");
-    const status = await client.invokeRPC(flow.describe, workflowId);
-    response.json({ flowID: workflowId, status });
+    const flowId = flowIdFromQuery(request.query);
+    const status = await client.invokeRPC(flow.describe, flowId);
+    response.json({ flowID: flowId, status });
   });
 
   return router;
+}
+
+/** Reads the Flow ID from flowId, or from its alias workflowId. */
+function flowIdFromQuery(query: Record<string, unknown>): string {
+  return String(query.workflowId ?? query.flowId ?? "");
 }

@@ -166,6 +166,7 @@ details.
 - [Customer refund](./products/customer-refund) (deterministic and agentic FDG 2.0 Flows)
 - [AI Agent](./products/ai-agent) (a durable chat agent with approvals, Timers, failure routes and a Slack connector Step; separate `dex-ai-agent` binary)
 - [Connector factory](./products/connector-factory) (OpenAI operation-specific factories, recovery, Result Attributes, and Streams)
+- [Quick Start](./quick-start/) (the code for the docs Quick Start: charge, wait on a Timer, then ship; a separate Go module)
 
 ## Patterns
 
