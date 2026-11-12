@@ -4,6 +4,7 @@
   "real_roles": [
     "launcher"
   ],
+  "launcher_setup": "Alias /home/user/pictures/screenshot.png to a PNG file named screenshot.png.",
   "terminal_ui_environment": {},
   "steps": [
     {
@@ -68,7 +69,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {
@@ -123,7 +126,12 @@
           },
           "name": "screenshot.png"
         }
-      }
+      },
+      "ignore": [
+        "result.image.uri",
+        "result.image.sha256",
+        "result.image.size_bytes"
+      ]
     },
     {
       "from": "launcher",
@@ -140,7 +148,12 @@
           },
           "name": "screenshot.png"
         }
-      }
+      },
+      "ignore": [
+        "result.image.uri",
+        "result.image.sha256",
+        "result.image.size_bytes"
+      ]
     }
   ],
   "tui_exit": 0
