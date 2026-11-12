@@ -124,7 +124,7 @@ unary FlowService RPCs.
 | --- | --- |
 | **FlowServiceClient** | Required. The FlowService client of the Dex Server. It must already carry the credential. |
 | **BasePath** | Required. The path prefix of this Dex Server's Dex Web, such as **/dex-web/server-a**. It follows the [base path rules](/reference/web/dex-web#base-path). |
-| **FlowRenderingDirectory** | Optional. A directory of Flow Definition Graph JSON files for this Dex Server, read on every definition request, like **--flow-rendering-dir**. Since 1.45, Dex Web also reads the definitions uploaded to the Dex Server through **FlowServiceClient**, so uploaded definitions need no directory. A Flow type in the directory wins. See [Definition sources](/reference/web/flow-visualization#definition-sources). |
+| **FlowRenderingDirectory** | Optional. A directory of Flow Definition Graph JSON files for this Dex Server, read on every definition request, like **--flow-rendering-dir**. Since 1.45.0, Dex Web also reads the definitions uploaded to the Dex Server through **FlowServiceClient**, so uploaded definitions need no directory. A Flow type in the directory wins. See [Definition sources](/reference/web/flow-visualization#definition-sources). |
 
 The handler serves the pages, assets, **/api** routes, **/healthz**, and
 **/readyz** under **BasePath**. **/readyz** checks only the resolved Dex Server.

@@ -259,15 +259,25 @@ for (const id of sequenceDocs) {
   }
 }
 
-// The compatibility matrix is generated; a release that leaves it behind fails here.
+// The compatibility matrix is generated in every locale; a release that leaves one behind fails here.
 {
   const versions = JSON.parse(readFileSync(join(docsRoot, 'reference/versions.json'), 'utf8'));
-  const page = readFileSync(join(docsRoot, 'content/reference/index.mdx'), 'utf8');
-  const matrix = page.slice(page.indexOf('## Compatibility matrix'), page.indexOf('## Release notes'));
   const sdkLine = versions.go.replace(/\.x$/, '');
   const cliLine = versions.cli.replace(/\.x$/, '');
-  if (!new RegExp(`SDK[^|]*\\| ${sdkLine.replace('.', '\\.')}[,| ]`).test(matrix) || !new RegExp(`^\\| ${cliLine.replace('.', '\\.')} \\|`, 'm').test(matrix)) {
-    failures.push(`content/reference/index.mdx: the compatibility matrix does not list SDK ${sdkLine} and dexcli ${cliLine}. Run node scripts/generate-reference-compatibility.mjs.`);
+  const matrixPages = [
+    {path: 'content/reference/index.mdx', start: '## Compatibility matrix', end: '## Release notes'},
+    {path: 'i18n/zh-Hans/docusaurus-plugin-content-docs/current/reference/index.mdx', start: '## 兼容性矩阵', end: '## 发版说明'},
+  ];
+  for (const {path, start, end} of matrixPages) {
+    const page = readFileSync(join(docsRoot, path), 'utf8');
+    if (page.indexOf(start) === -1 || page.indexOf(end) === -1) {
+      failures.push(`${path}: the compatibility matrix section (${start} … ${end}) is missing.`);
+      continue;
+    }
+    const matrix = page.slice(page.indexOf(start), page.indexOf(end));
+    if (!new RegExp(`SDK[^|]*\\| ${sdkLine.replace('.', '\\.')}[,| ]`).test(matrix) || !new RegExp(`^\\| ${cliLine.replace('.', '\\.')} \\|`, 'm').test(matrix)) {
+      failures.push(`${path}: the compatibility matrix does not list SDK ${sdkLine} and dexcli ${cliLine}. Run node scripts/generate-reference-compatibility.mjs.`);
+    }
   }
 }
 
@@ -307,6 +317,24 @@ for (const id of sequenceDocs) {
           if (minor !== sdkLine) {
             failures.push(`${path}:${index + 1}: ${pin} is not the current SDK line ${sdkLine} (reference/versions.json). Pin ${sdkLine}.x, or run node scripts/generate-reference-install.mjs for the reference landing pages.`);
           }
+        }
+      });
+    }
+  }
+}
+
+// Version notes name a full release, "Since 1.45.0" or "Changed in 1.45.0", so readers compare them
+// with the version they run in one form.
+{
+  const roots = ['content', 'reference', 'i18n/zh-Hans/docusaurus-plugin-content-docs/current'];
+  for (const root of roots) {
+    if (!existsSync(join(docsRoot, root))) continue;
+    for (const file of mdxFiles(join(docsRoot, root))) {
+      const path = relative(docsRoot, file);
+      if (/(^|\/)changelog\.mdx?$/.test(path)) continue;
+      readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+        for (const [note] of line.matchAll(/\b(?:Since|Changed in) \d+\.\d+(?![.\d])/g)) {
+          failures.push(`${path}:${index + 1}: write "${note}.0", the full release, in version notes.`);
         }
       });
     }

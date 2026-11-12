@@ -18,7 +18,16 @@ const executeFile = promisify(execFile);
 const docsRoot = fileURLToPath(new URL('..', import.meta.url));
 const repositoryRoot = fileURLToPath(new URL('../..', import.meta.url));
 const repository = 'superdurable/dex';
-const pagePath = `${docsRoot}content/reference/index.mdx`;
+// Each locale's landing page, with the headings that bound its matrix section.
+const pages = [
+  {locale: 'en', path: `${docsRoot}content/reference/index.mdx`, start: '## Compatibility matrix', end: '## Release notes'},
+  {
+    locale: 'zh-Hans',
+    path: `${docsRoot}i18n/zh-Hans/docusaurus-plugin-content-docs/current/reference/index.mdx`,
+    start: '## 兼容性矩阵',
+    end: '## 发版说明',
+  },
+];
 const sdkComponents = ['go', 'python', 'java', 'typescript', 'rust'];
 
 function readJson(path) {
@@ -75,13 +84,24 @@ async function bundledServers() {
   return rows;
 }
 
-function sdkRows(requirement) {
+const sdkNames = {
+  en: {all: 'Go, Python, Java, TypeScript, and Rust SDKs', go: 'Go SDK', python: 'Python SDK', java: 'Java SDK', typescript: 'TypeScript SDK', rust: 'Rust SDK'},
+  'zh-Hans': {all: 'Go、Python、Java、TypeScript 和 Rust SDK', go: 'Go SDK', python: 'Python SDK', java: 'Java SDK', typescript: 'TypeScript SDK', rust: 'Rust SDK'},
+};
+
+function needsText(locale, requirement) {
+  return locale === 'en'
+    ? `${requirement.firstServer} or newer (protocol version ${requirement.protocol})`
+    : `${requirement.firstServer} 或更新（协议版本 ${requirement.protocol}）`;
+}
+
+function sdkRows(locale, requirement) {
   const lines = sdkComponents.map((component) => retainedLines(component).join(', '));
-  const needs = `${requirement.firstServer} or newer (protocol version ${requirement.protocol})`;
+  const needs = needsText(locale, requirement);
+  const names = sdkNames[locale];
   if (new Set(lines).size === 1) {
-    return [`| Go, Python, Java, TypeScript, and Rust SDKs | ${lines[0]} | ${needs} |`];
+    return [`| ${names.all} | ${lines[0]} | ${needs} |`];
   }
-  const names = {go: 'Go SDK', python: 'Python SDK', java: 'Java SDK', typescript: 'TypeScript SDK', rust: 'Rust SDK'};
   return sdkComponents.map((component, index) => `| ${names[component]} | ${lines[index]} | ${needs} |`);
 }
 
@@ -90,15 +110,20 @@ const currentProtocol = serverCurrentProtocol();
 const webLines = retainedLines('web').join(', ');
 const bundled = await bundledServers();
 
-const section = `## Compatibility matrix
+function section(locale) {
+  const sdk = sdkRows(locale, requirement).join('\n');
+  const needs = needsText(locale, requirement);
+  const dexcli = bundled.map(({cli, server}) => `| ${cli} | ${server} |`).join('\n');
+  if (locale === 'en') {
+    return `## Compatibility matrix
 
 Workers and Clients negotiate a protocol version with the server. server-zd
 ${requirement.firstServer} and newer provide protocol version ${currentProtocol}.
 
 | Component | Version | server-zd it needs |
 | --- | --- | --- |
-${sdkRows(requirement).join('\n')}
-| Dex Web | ${webLines} | ${requirement.firstServer} or newer (protocol version ${requirement.protocol}) |
+${sdk}
+| Dex Web | ${webLines} | ${needs} |
 
 Upgrade the server first, then the SDKs. See
 [Upgrades and compatibility](/reference/server/upgrades).
@@ -108,13 +133,35 @@ runs:
 
 | dexcli | Bundled server-zd |
 | --- | --- |
-${bundled.map(({cli, server}) => `| ${cli} | ${server} |`).join('\n')}
+${dexcli}
 
 `;
+  }
+  return `## 兼容性矩阵 {#compatibility-matrix}
 
-const page = readFileSync(pagePath, 'utf8');
-const start = page.indexOf('## Compatibility matrix');
-const end = page.indexOf('## Release notes');
-if (start === -1 || end === -1 || end < start) throw new Error(`${pagePath} lost its Compatibility matrix or Release notes heading`);
-writeFileSync(pagePath, `${page.slice(0, start)}${section}${page.slice(end)}`);
-console.log(`Compatibility matrix written: SDK lines ${retainedLines('go').join(', ')}, ${bundled.length} dexcli lines.`);
+Worker 和 Client 会和 server 协商协议版本。server-zd ${requirement.firstServer} 及更新版本提供协议版本 ${currentProtocol}。
+
+| 组件 | 版本 | 需要的 server-zd |
+| --- | --- | --- |
+${sdk}
+| Dex Web | ${webLines} | ${needs} |
+
+先升级 server，再升级 SDK。见 [Upgrades and compatibility](/reference/server/upgrades)。
+
+每个 \`dexcli\` 版本打包一个 server-zd 版本，**dexcli dev** 运行的就是它：
+
+| dexcli | 打包的 server-zd |
+| --- | --- |
+${dexcli}
+
+`;
+}
+
+for (const {locale, path, start: startHeading, end: endHeading} of pages) {
+  const page = readFileSync(path, 'utf8');
+  const start = page.indexOf(startHeading);
+  const end = page.indexOf(endHeading);
+  if (start === -1 || end === -1 || end < start) throw new Error(`${path} lost its ${startHeading} or ${endHeading} heading`);
+  writeFileSync(path, `${page.slice(0, start)}${section(locale)}${page.slice(end)}`);
+}
+console.log(`Compatibility matrix written in ${pages.length} locales: SDK lines ${retainedLines('go').join(', ')}, ${bundled.length} dexcli lines.`);
