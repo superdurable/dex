@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reports the real outcome of tool calls that the session recorded as outcome_unknown."""
+"""Sends a user message to a session once, even when a send must be retried."""
 from __future__ import annotations
 
 import asyncio
