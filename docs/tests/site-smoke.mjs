@@ -170,7 +170,7 @@ const signUpCloud = '<a class="sd-button sd-button-primary sd-button-small sd-si
 const header = home.match(/<header class="[^"]*\bsd-header\b[\s\S]*?<\/header>/)?.[0] ?? '';
 assert.doesNotMatch(header, /target=|superdurable\.ai/);
 assert.doesNotMatch(header, /Dex Connectors|>Blog<|>About<|Log in|dex-cloud/);
-assert.match(header, /<a class="sd-wordmark" aria-label="Super Durable home" href="https:\/\/superdurable\.io\/">[\s\S]*?<span>Dex Docs<\/span><\/a>/);
+assert.match(header, /<a class="sd-wordmark" aria-label="Super Durable home" href="https:\/\/superdurable\.io\/">[\s\S]*?<span>Super Durable<\/span><\/a>/);
 assert.match(header, /<div class="sd-header-search"><div class="navbar__search[^"]*"[^>]*>[\s\S]*?<input placeholder="Search…"/);
 const desktopActions = header.match(/<div class="sd-header-actions">[\s\S]*?<\/div><details class="sd-mobile-menu">/)?.[0] ?? '';
 assert.match(desktopActions, /^<div class="sd-header-actions"><a class="sd-icon-link"/);

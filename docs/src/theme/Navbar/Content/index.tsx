@@ -40,7 +40,7 @@ export default function NavbarContent(): ReactNode {
           href={SUPER_DURABLE_HOME_URL}>
           <BrandSymbol />
           <span>
-            {translate({id: 'shell.header.docsTitle', message: 'Dex Docs', description: 'The header wordmark text'})}
+            {translate({id: 'shell.header.docsTitle', message: 'Super Durable', description: 'The header wordmark text'})}
           </span>
         </a>
         <div className="sd-header-search">
