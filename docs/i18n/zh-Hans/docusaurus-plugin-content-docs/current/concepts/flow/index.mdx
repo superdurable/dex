@@ -176,13 +176,13 @@ impl Flow for ExampleFlow {
 
 | 标识符 | 谁设置 | 含义 |
 |--------|--------|------|
-| **FlowType** | 应用（Flow 实现） | Dex 路由 Worker 调用和搜索结果使用的稳定类型名。 |
+| `FlowType` | 应用（Flow 实现） | Dex 路由 Worker 调用和搜索结果使用的稳定类型名。 |
 | **Flow ID** | 应用在 start 时 | 一次 Flow run 的业务身份。ID reuse policy 控制能否用同一个 Flow ID 再启动一个 run。 |
 | **Run ID** | Dex Server | 这个 Flow ID 的一次 run 的身份。Time travel 保留它，并创建一个新的 run attempt。请用 Flow ID 定位 Flow；Run ID 只用于诊断。 |
-| **StepType** | 应用（Step 实现） | Flow 内一个 Step 定义的稳定名称。 |
-| **StepExecutionID** | Dex Server | 某个 Step type 的一次执行，格式为 **StepType-Number**。 |
+| `StepType` | 应用（Step 实现） | Flow 内一个 Step 定义的稳定名称。 |
+| `StepExecutionID` | Dex Server | 某个 Step type 的一次执行，格式为 **StepType-Number**。 |
 
-大多数 SDK 默认用语言里的类型名作为 **FlowType**，你也可以显式覆盖。还有 Flow run 在运行时，不要改这些名称。
+大多数 SDK 默认用语言里的类型名作为 `FlowType`，你也可以显式覆盖。还有 Flow run 在运行时，不要改这些名称。
 
 ## 生命周期 {#lifecycle}
 
@@ -193,7 +193,7 @@ Flow 在以下情况下关闭：
 - 某个 Step 完成 Flow，或让它失败；
 - 它的 timeout 让它失败或取消它；
 - client 停止它；
-- 用同一个 Flow ID 的新启动终止它。只有新启动使用的 ID reuse policy 会终止正在运行的 Flow 时，才会这样。用 **ALWAYS_RESTART** 启动的 SubFlow 也会这样终止之前的子 Flow。
+- 用同一个 Flow ID 的新启动终止它。只有新启动使用的 ID reuse policy 会终止正在运行的 Flow 时，才会这样。用 `ALWAYS_RESTART` 启动的 SubFlow 也会这样终止之前的子 Flow。
 
 timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。Flow 运行期间，client 通过它的 RPC 读取和修改它。
 
@@ -201,8 +201,8 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 
 两组选项决定一次 Flow run 的行为：
 
-- **StartFlowOptions** 只在启动时生效一次。它设置 Flow timeout、ID reuse policy、start request ID 和 Attribute 初始值。
-- **FlowConfig** 保存运行时设置，比如默认的 Step durability。Flow 运行期间可以更新。
+- `StartFlowOptions` 只在启动时生效一次。它设置 Flow timeout、ID reuse policy、start request ID 和 Attribute 初始值。
+- `FlowConfig` 保存运行时设置，比如默认的 Step durability。Flow 运行期间可以更新。
 
 用稳定的业务 Flow ID 直接启动 Flow。不要先读取或搜索，检查它是否已经存在。要安全地重试同一次启动，做三件事：使用拒绝第二个 run 的 ID reuse policy；每次重试都发送同一个 request ID；打开“返回已有 run，而不是报 already-started 错误”的启动选项。这样，重试一个已经成功的启动时，会拿到那个 run。如果 policy 允许再启动一个 run，重试就可能启动第二个 run。
 
@@ -215,3 +215,7 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 - [Flow ID、RequestID 和 already-started 处理](/reference/python/start-flow-options#flow-id-request-id-and-already-started)；
 - [StartFlow 最佳实践](/reference/python/start-flow-options#start-flow-best-practices)；
 - [FlowConfig](/reference/python/flow#flow-config) 以及如何更新它。
+
+## 下一步
+
+[Step](/concepts/step)：Step 是 Flow 里的一个后台工作单元。它可以先 durable 地等待某件事发生，再执行工作，然后选择下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。

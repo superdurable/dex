@@ -1,0 +1,70 @@
+{
+  "quick-start": {
+    "en": {
+      "label": "A Worker stops in the middle of a Flow, and a new Worker finishes it",
+      "actors": {"first": "Worker 1", "server": "Dex Server", "second": "Worker 2"},
+      "events": [
+        {"actor": "first", "kind": "step", "text": "Worker 1 runs Charge. Dex saves its result."},
+        {"actor": "server", "kind": "wait", "text": "Ship waits on a 60-second Timer. Dex Server holds the wait."},
+        {"actor": "first", "kind": "stop", "text": "Worker 1 stops."},
+        {"actor": "server", "kind": "wait", "text": "The Timer keeps running on Dex Server. No Worker is needed."},
+        {"actor": "second", "kind": "start", "text": "Worker 2 starts and connects to Dex."},
+        {"actor": "server", "kind": "fire", "text": "The Timer fires."},
+        {"actor": "second", "kind": "step", "text": "Worker 2 runs Ship. Charge does not run again."},
+        {"actor": "server", "kind": "done", "text": "The Flow completes."}
+      ],
+      "summary": "Charge ran once. Ship ran once.",
+      "replay": "Replay"
+    },
+    "zh-Hans": {
+      "label": "Worker 在 Flow 中途停止，新的 Worker 把它跑完",
+      "actors": {"first": "Worker 1", "server": "Dex Server", "second": "Worker 2"},
+      "events": [
+        {"actor": "first", "kind": "step", "text": "Worker 1 运行 Charge。Dex 保存它的结果。"},
+        {"actor": "server", "kind": "wait", "text": "Ship 等一个 60 秒的 Timer。这个等待由 Dex Server 保管。"},
+        {"actor": "first", "kind": "stop", "text": "Worker 1 停止。"},
+        {"actor": "server", "kind": "wait", "text": "Timer 在 Dex Server 上继续计时，不需要 Worker。"},
+        {"actor": "second", "kind": "start", "text": "Worker 2 启动并连接 Dex。"},
+        {"actor": "server", "kind": "fire", "text": "Timer 到时。"},
+        {"actor": "second", "kind": "step", "text": "Worker 2 运行 Ship。Charge 不会再运行。"},
+        {"actor": "server", "kind": "done", "text": "Flow 完成。"}
+      ],
+      "summary": "Charge 只运行了一次，Ship 只运行了一次。",
+      "replay": "重播"
+    }
+  },
+  "agent": {
+    "en": {
+      "label": "A Worker stops while a tool call waits for approval, and the session carries on after a restart",
+      "actors": {"first": "Worker", "server": "Dex Server", "second": "Worker, restarted"},
+      "events": [
+        {"actor": "first", "kind": "step", "text": "RunModel calls the model. The model asks to call cancel_order."},
+        {"actor": "server", "kind": "wait", "text": "cancel_order waits in AwaitToolApproval. Dex Server holds the wait."},
+        {"actor": "first", "kind": "stop", "text": "You stop the program, and its Worker stops."},
+        {"actor": "server", "kind": "wait", "text": "The approval keeps waiting on Dex Server. No Worker is needed."},
+        {"actor": "second", "kind": "start", "text": "You start the program again. Its Worker connects to Dex."},
+        {"actor": "server", "kind": "fire", "text": "You approve cancel_order at the program's prompt. Dex Server records the answer."},
+        {"actor": "second", "kind": "step", "text": "cancel_order runs once. The model writes the reply."},
+        {"actor": "server", "kind": "done", "text": "The turn completes."}
+      ],
+      "summary": "The model call before the stop stayed done, and cancel_order ran once.",
+      "replay": "Replay"
+    },
+    "zh-Hans": {
+      "label": "工具调用等待审批时 Worker 停止，重启后会话继续",
+      "actors": {"first": "Worker", "server": "Dex Server", "second": "重启后的 Worker"},
+      "events": [
+        {"actor": "first", "kind": "step", "text": "RunModel 调用模型。模型请求调用 cancel_order。"},
+        {"actor": "server", "kind": "wait", "text": "cancel_order 在 AwaitToolApproval 中等待。这个等待由 Dex Server 保管。"},
+        {"actor": "first", "kind": "stop", "text": "Worker 停止。"},
+        {"actor": "server", "kind": "wait", "text": "审批继续在 Dex Server 上等待，不需要 Worker。"},
+        {"actor": "second", "kind": "start", "text": "Worker 重新启动并连接 Dex。"},
+        {"actor": "server", "kind": "fire", "text": "你在程序的提示符处批准 cancel_order，Dex Server 记录这个答复。"},
+        {"actor": "second", "kind": "step", "text": "cancel_order 只运行一次。模型写出回复。"},
+        {"actor": "server", "kind": "done", "text": "这一轮完成。"}
+      ],
+      "summary": "停止前的模型调用保持已完成，cancel_order 只运行了一次。",
+      "replay": "重播"
+    }
+  }
+}

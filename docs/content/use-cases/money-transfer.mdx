@@ -1,12 +1,14 @@
 ---
-title: Money transfer
+title: Money Transfer
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json';
 
-# Money transfer
+# Money Transfer
 
 Move money between two accounts without leaving a partial debit or credit when a downstream operation fails.
+
+**SDKs:** Python · Go · TypeScript · Java · Rust
 
 ## Product requirements
 
@@ -17,7 +19,7 @@ The transfer accepts a source account, destination account, amount, and note. It
 3. Complete only after the destination account is credited.
 4. Compensate the transfer when a side-effecting Step still fails after all its retries.
 
-The Flow never waits for approval, a Channel message, or an RPC. It waits only between retries. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example allows three attempts instead, so its integration test finishes quickly.
+The Flow waits only between retries, never for approval, a Channel message, or an RPC. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example allows three attempts instead, so its integration test finishes quickly.
 
 The Rust example stubs the balance check: any positive amount passes. It records ledger changes as events. The other examples call an in-memory dependency service with explicit balance and undo methods.
 
@@ -35,7 +37,7 @@ Make the dependency calls idempotent. The remote system can complete a call befo
 
 The Flow is a saga that runs one Step after another:
 
-**CheckBalance** → **CreateDebitMemo** → **Debit** → **CreateCreditMemo** → **Credit**
+`CheckBalance` → `CreateDebitMemo` → **Debit** → `CreateCreditMemo` → **Credit**
 
 It uses these design patterns:
 
@@ -409,7 +411,7 @@ Run Dex and any language example server, then start Money transfer from the [exa
 
 ![Completed Money transfer Step execution graph](/img/use-cases/money-transfer-step-execution-graph.jpg)
 
-## Related
+## Next
 
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
 - [Failure Handling](/design-patterns/failure-handling)

@@ -1,0 +1,20 @@
+---
+id: evaluate
+title: 评估 Dex
+sidebar_label: Evaluate Dex
+slug: /evaluate
+description: 判断 Dex 是否适合你的系统时要读的页面，每页回答什么问题，以及阅读顺序。
+---
+
+# 评估 Dex
+
+这些页面帮你判断 Dex 是否适合你的系统。可以按顺序读，也可以直接看你关心的问题。
+
+- [为什么是 Dex？](/intro/what-is-dex) 用一个中途出错的订单流程说明问题，以及 Dex 如何把它建模成由 Step 组成的 Flow。
+- [Dex vs. 数据库](/intro/compared-to-database) 先用数据库实现同一个流程，再加上队列和 outbox，最后写成 Flow，并列出仍由你负责的部分。
+- [Dex 与你的数据库](/components/your-database) 说明 Step 怎样写入你已有的数据库，以及何时把 Flow 数据复制到 PostgreSQL。
+- [Dex vs. 其他引擎](/intro/compared-to-durable-execution) 把 Dex 与基于重放的引擎、基于日志的运行时和基于数据库的库逐项对应，并说明何时其他工具更合适。
+- [性能](/intro/performance) 给出单节点加 S3 的实测吞吐和延迟、运行成本，以及如何复现结果。
+- [限制](/intro/limits) 列出团队在生产中可能遇到的意外、发布状态和许可证。
+- [故障切换和部署](/concepts/failover-and-deploys) 说明 server 或 Worker 停止时会发生什么，以及在 Flow 未结束时怎样部署新代码。
+- [Correctness and Expressiveness](/correctness-and-expressiveness) 给出机器验证的证明：崩溃能改变什么、不能改变什么，以及 Dex 能表达什么。

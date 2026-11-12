@@ -16,7 +16,7 @@ Stream 适合能改善用户体验、但不属于关键业务的数据：
 - 进度条、诊断事件与实时预览
 - Step 仍在运行时展示的临时状态
 
-不能丢失的数据，用 [Channel](/concepts/primitives/channel) 或 [Attribute](/concepts/primitives/attribute)。
+必须保留的数据，用 [Channel](/concepts/primitives/channel) 或 [Attribute](/concepts/primitives/attribute)。
 
 <a id="语义"></a>
 <a id="写入语义"></a>
@@ -245,8 +245,8 @@ impl Step for RenderPreview {
 
 Client 有两种方式读取 Stream：
 
-- <a id="可续读"></a>**ReadStream** 向前读取，每次一条消息。每条消息带一个 resume token。把 token 传回去就能读下一条。没有新消息时，调用会等待。
-- <a id="列出消息"></a>**ListStreamMessages** 从最新的消息向后分页。它立即返回。
+- <a id="可续读"></a>`ReadStream` 向前读取，每次一条消息。每条消息带一个 resume token。把 token 传回去就能读下一条。没有新消息时，调用会等待。
+- <a id="列出消息"></a>`ListStreamMessages` 从最新的消息向后分页。它立即返回。
 
 见 [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) 和 [List messages](/reference/server/runtime-data#stream-listing)。
 
@@ -257,3 +257,7 @@ Client 也可以写入 Stream，Flow 关闭后也可以。RPC handler 通过注�
 每个 SDK 参考的 [Stream](/reference/python/stream) 页列出该语言的 API 名称。
 
 [Data primitive semantics](/reference/server/runtime-data#streams) 详细说明写入语义、buffered text、读取、列表、容量和存储。server 配置见 [Streams](/reference/server/configuration#streams)。
+
+## 下一步
+
+[Timer](/concepts/primitives/timer)：A Timer is a durable wait until a point in time.

@@ -1,6 +1,7 @@
 ---
 title: RPC
 slug: /concepts/primitives/rpc
+description: "An RPC (Remote Procedure Call) lets code outside a Flow interact with a running Flow. A web handler, another service, or an operator tool calls it through a Client."
 ---
 
 import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDiagram';
@@ -44,14 +45,19 @@ See [Step guarantees](/concepts/step#guarantees).
 
 An RPC handler reads a snapshot of the Flow. Steps and other RPCs can change the
 Flow between that read and the moment Dex saves the RPC's changes. A
-transactional RPC does not change this. When the RPC's change depends on what it read, declare a lock on that
+transactional RPC, one that Dex saves only if the Channel messages it deletes
+are still pending, does not change this. When the RPC's change depends on what it read, declare a lock on that
 Attribute in this RPC and in every Step and RPC that writes it. Dex then runs
 them one at a time. If the Flow closes while the handler runs, Dex rejects the
 RPC's changes. The handler's calls to external systems have still happened.
 
 Each RPC call from an SDK is a new request. If you retry a call, Dex can run the
-handler again and save its changes a second time. Make RPC handlers safe to
-repeat.
+handler again and save its changes a second time, including its Channel
+publications. Make RPC handlers safe to repeat; [Send a command at most once](/concepts/client#inbound-commands) gives the request-ID pattern.
+
+An RPC needs a Worker within 10 seconds. If no Worker of the Flow type takes it in that time,
+the caller gets an **Unavailable** error. A Step waits in a durable queue
+instead. See [Routing and availability](/reference/server/workers#routing-and-availability).
 
 <a id="rpc-timeout"></a>
 
@@ -251,9 +257,15 @@ large collections out of RPCs that do not use them. See
 
 ## Reference
 
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
+
 The [RPC](/reference/python/rpc) page of each SDK reference lists the
 API names in that language.
 
 [Data primitive semantics](/reference/server/runtime-data#rpcs) covers
 cancellation, read-only RPCs on closed Flows, state loading, transactional
 RPCs, and timeouts in detail.
+
+## Next
+
+[Channel](/concepts/primitives/channel): A Channel is a durable first-in, first-out (FIFO) queue inside one Flow run.

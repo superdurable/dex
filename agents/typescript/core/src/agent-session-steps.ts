@@ -1563,7 +1563,7 @@ function recordFailedTurn(
     if (note.role !== "user") {
       throw new TypeError("buildUserMessage must return a message with role user");
     }
-    state = transitions.appendMessages(context, state, turnId, [note]);
+    state = transitions.appendMessages(context, state, turnId, [note], false, "turn_failure_note");
   }
   for (const toolCall of toolCalls) {
     persistence.agentToolCalls.delete(context, toolCall.toolCallId);

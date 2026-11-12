@@ -1,6 +1,7 @@
 ---
 title: Flow source visualization
 sidebar_label: Flow visualization
+description: "dexcli visualize turns one Go, Python, or TypeScript Flow source file into a static Flow Definition Graph, as a page or as JSON."
 ---
 
 # Flow source visualization
@@ -37,13 +38,13 @@ Give Dex Web the generated JSON files through one of the [definition sources](#d
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Designs** from the **Experimental** menu, at **/v1/rendering**. Changed in 1.41: the page was called **Flow Rendering**. The menu links to it only while at least one Flow type has a definition. The header checks again on every page change. Without definitions, the page explains how to load them. Since 1.45, each definition in the list shows its source, and an uploaded one also shows when it was generated and uploaded. A definition that Dex Web rejected shows why instead of a graph. The page does not use Flow search or run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. Changed in 1.41: one Flow design graph draws Version 1.0 and Version 2.0 files. For a Version 2.0 file, its diagnostics follow the graph. See [Dex Web](/reference/web/dex-web#flow-canvas).
+Open **Designs** from the **Experimental** menu, at **/v1/rendering**. Changed in 1.41.0: the page was called **Flow Rendering**. The menu links to it only while at least one Flow type has a definition. The header checks again on every page change. Without definitions, the page explains how to load them. Since 1.45.0, each definition in the list shows its source, and an uploaded one also shows when it was generated and uploaded. A definition that Dex Web rejected shows why instead of a graph. The page does not use Flow search or run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. Changed in 1.41.0: one Flow design graph draws Version 1.0 and Version 2.0 files. For a Version 2.0 file, its diagnostics follow the graph. See [Dex Web](/reference/web/dex-web#flow-canvas).
 
 The **Design** tab of a run also renders the definition of the run's Flow type, and **Work Queue** uses the definitions to list runs. See [Dex Web](/reference/web/dex-web).
 
 ### Definition sources {#definition-sources}
 
-Since 1.45, Dex Web reads Flow Definition Graphs from two sources:
+Since 1.45.0, Dex Web reads Flow Definition Graphs from two sources:
 
 - **Uploaded definitions.** A Worker uploads the definitions it is given when it starts, and a deployment script can upload them too. The Dex Server stores one document for each Flow type. See [Flow definitions](/reference/server/runtime-client#flow-definitions) for **UploadFlowDefinitions** and its replacement rule. Dex Web reads them through the FlowService connection it already has, so it needs no directory for them. A Dex Server without these RPCs reports none, and Dex Web then shows only the directory.
 - **The directory.** **--flow-rendering-dir** for **dex-web**, **dexcli dev**, and **dexcli web**, or **FlowRenderingDirectory** for [embedded Dex Web](/reference/web/embed-dex-web#targets). Dex Web reads the JSON files in the directory and its subdirectories on every definition request, so a changed file shows on the next page load without a restart. A path that is not a directory makes definition requests fail with **FLOW_DEFINITION_SOURCE_UNAVAILABLE**.
@@ -80,7 +81,7 @@ Dex Web rejects a definition that exceeds one of these limits. The canvas also r
 | Items in each of these Version 2.0 lists: Indexed Attributes, Summary fields, Display fields, Actions, one Action's input fields, one Action's condition values, Connector Trigger bindings, one binding's UI units, and one UI unit's bindings | 256 |
 | Fields and enum values of the start input, counted at every depth | 1,024 |
 
-Since 1.45, Dex Web ignores top-level fields that it does not know, such as **generatedAt**, so a newer **dexcli visualize** does not break an older Dex Web. Every field that Dex Web knows is still validated strictly, including unknown fields inside it. Dex Web 1.44 and older reject a Version 2.0 file with an unknown top-level field.
+Since 1.45.0, Dex Web ignores top-level fields that it does not know, such as **generatedAt**, so a newer **dexcli visualize** does not break an older Dex Web. Every field that Dex Web knows is still validated strictly, including unknown fields inside it. Dex Web 1.44 and older reject a Version 2.0 file with an unknown top-level field.
 
 ## What the graph contains
 
@@ -112,7 +113,7 @@ Resource and SubFlow relations are dashed, so they look weaker than the solid St
 
 The renderer fits the complete Flow into the viewport by default. Channel and Attribute arrows stay hidden until you select that resource or a related Step, WaitFor, Execute decision, RPC, or timeout handler.
 
-Attribute relations include reads, writes, and locks. The Python analyzer follows static resource aliases on the Flow class, and records Attribute locks declared by RPC or Step options. Since 1.39, the TypeScript analyzer adds a node for each RPC, from **rpc** decorators and **declareRPCMethod** calls, and records the locks in its **lockAttributes**. Python and TypeScript RPC lock edges also carry **metadata.rpcName**. The Go analyzer counts a read or write in a same-package helper as made by the handler that calls it. The edge records the helper in its metadata. Since 1.39, the Go analyzer also records the Attribute locks in **RPCOptions.LockAttributes**. Each lock edge carries **metadata.rpcName**, the RPC name Dex Web invokes. In a Version 2.0 graph, an Action, Summary, or Display RPC whose locks the analyzer cannot read produces the blocking **rpc_lock_unresolved** diagnostic. Build the lock list from **dex.LockAttribute** or **dex.LockAttributeMap** calls in the options or in a variable of the Flow's package.
+Attribute relations include reads, writes, and locks. The Python analyzer follows static resource aliases on the Flow class, and records Attribute locks declared by RPC or Step options. Since 1.39.0, the TypeScript analyzer adds a node for each RPC, from **rpc** decorators and **declareRPCMethod** calls, and records the locks in its **lockAttributes**. Python and TypeScript RPC lock edges also carry **metadata.rpcName**. The Go analyzer counts a read or write in a same-package helper as made by the handler that calls it. The edge records the helper in its metadata. Since 1.39.0, the Go analyzer also records the Attribute locks in **RPCOptions.LockAttributes**. Each lock edge carries **metadata.rpcName**, the RPC name Dex Web invokes. In a Version 2.0 graph, an Action, Summary, or Display RPC whose locks the analyzer cannot read produces the blocking **rpc_lock_unresolved** diagnostic. Build the lock list from **dex.LockAttribute** or **dex.LockAttributeMap** calls in the options or in a variable of the Flow's package.
 
 Stream relations describe observable application output, not control flow. They are hidden by default in Designs and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. The graph leaves out heartbeat calls and checkpoint reads.
 
@@ -158,7 +159,7 @@ An Execute method whose decision is hidden in a helper produces **hidden_dex_dec
 
 Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
 
-Version 2.0 retains every Version 1 field and requires Step groups and explanations in the same file. Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. Since 1.39, the Python and TypeScript analyzers read Actions too. See [Dex Web](/reference/web/dex-web) for those rules.
+Version 2.0 retains every Version 1 field and requires Step groups and explanations in the same file. Named directive parameters can appear in any order within a line. Directive lines keep their source order, and Dex Web shows them in that order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. Since 1.39.0, the Python and TypeScript analyzers read Actions too. See [Dex Web](/reference/web/dex-web) for those rules.
 
 Version 2.0 builds an optional start-input schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. Nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps are supported. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
 
@@ -166,7 +167,7 @@ Version 2.0 recognizes operation-specific Connector factories such as **openai.N
 
 ### Actions in Python and TypeScript
 
-Since 1.39, a Version 2.0 graph of a Python or TypeScript Flow includes its Actions, in the same shape as a Go graph. The analyzer reads each RPC's **action** option without running the module. Write it in this form:
+Since 1.39.0, a Version 2.0 graph of a Python or TypeScript Flow includes its Actions, in the same shape as a Go graph. The analyzer reads each RPC's **action** option without running the module. Write it in this form:
 
 - The value is a direct **Action(...)** call in Python or **new Action(options)** in TypeScript, or a module-level constant bound to one.
 - The label and the required permission are string literals or module-level string constants.
@@ -342,7 +343,7 @@ The [Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/m
 
 ### Generation time {#generated-at}
 
-Since 1.45, every Version 2.0 graph from **dexcli visualize** has a top-level **generatedAt** field. It records when the graph was generated, as an RFC 3339 timestamp in UTC with second precision, such as **2026-11-10T08:30:00Z**. Version 1.0 graphs do not have it.
+Since 1.45.0, every Version 2.0 graph from **dexcli visualize** has a top-level **generatedAt** field. It records when the graph was generated, as an RFC 3339 timestamp in UTC with second precision, such as **2026-11-10T08:30:00Z**. Version 1.0 graphs do not have it.
 
 The field is optional in the v2 schema. Dex Web accepts graphs without it, so graphs from older dexcli releases stay valid. When the field is present, it must be an RFC 3339 timestamp. Dex Web older than 1.45 rejects a graph that has **generatedAt**. Upgrade Dex Web together with dexcli.
 

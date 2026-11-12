@@ -1,6 +1,7 @@
 ---
 title: Kubernetes deployment
 sidebar_label: Kubernetes deployment
+description: "How to run server-zd on Kubernetes: one replica in a StatefulSet, graceful shutdown, and the local store volume."
 ---
 
 # Kubernetes deployment
@@ -55,7 +56,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: dex-server-zd
-          image: docker.io/superdurable/dex-server-zd:0.1.3
+          image: docker.io/superdurable/dex-server-zd:0.1.26
           ports:
             - name: grpc
               containerPort: 8801

@@ -2,6 +2,7 @@
 title: Client
 sidebar_label: Client
 slug: /concepts/client
+description: "A Client is how your application talks to Dex from outside a Worker. An HTTP handler, a background job, or a script uses it. The Client sends requests to Dex Server. It does not run Flow code. Workers do that."
 ---
 
 # Client
@@ -28,40 +29,86 @@ Use a Client at the boundary between your application and its Flows:
   Timer, update its configuration, or time travel it. See
   [Stop a Flow](/reference/server/runtime-client#stop-a-flow).
 
+## Start Flows from an API service {#start-from-an-api-service}
+
+The Client starts a Flow by its registered definition. It uses the registration
+to name the Flow type and to encode the start input and RPC arguments. So the
+service that starts Flows builds the Flow objects too. The Client never runs a
+Step, so those objects never call their services, and stand-ins work. The
+[Quick Start](/quick-start) does this: its start program builds the Flow with a
+mock API that is never called. Each Client process also opens its own
+[blob cache](/components/application#blob-cache). A service in another language
+can start a Flow by type name through the FlowService `StartFlow` request over
+gRPC, or from a terminal with `dexcli flow start -flow-type`.
+
+## Deliver an event when no Worker runs {#deliver-without-a-worker}
+
+The SDK path for a command is an RPC. An RPC runs on a Worker. If no Worker of
+the Flow type takes it within 10 seconds, the caller gets an **Unavailable**
+error, and nothing is stored.
+
+The FlowService request `PublishToChannel` stores Channel messages on the
+server with no Worker connected. A waiting Step wakes when a Worker runs again.
+The SDK Clients do not expose this request. Call it through gRPC or with
+`dexcli api call PublishToChannel`.
+
+## Send a command at most once {#inbound-commands}
+
+Dex runs a repeated command again today. An RPC that the caller retries
+after a lost response runs again, and a repeated `PublishToChannel` delivers
+the message twice. [Limits](/intro/limits#requests-that-can-repeat)
+tracks the planned fix.
+
+Pick the path by what must hold when no Worker runs:
+
+- An **RPC** answers at once and can return a value, but it needs a running
+  Worker.
+- **`PublishToChannel`** stores the command with no Worker connected, and a
+  waiting Step handles it later.
+
+Until Dex drops repeats, drop them inside the Flow. Give each command a
+request ID from your caller, and send it with the RPC arguments or the
+Channel message. Keep the IDs that the Flow has handled in an Attribute or an
+AttributeMap. The RPC or the Step that handles the command checks that record
+first, and does nothing for an ID it already handled. If more than one Step or
+RPC can handle commands at the same time, [lock](/concepts/primitives/attribute#locking)
+that record.
+
 ## How it relates to the other Primitives {#related-primitives}
 
-- [Flow](/concepts/flow): **StartFlow** creates a Flow run under a **Flow ID** that you
+- [Flow](/concepts/flow): `StartFlow` creates a Flow run under a **Flow ID** that you
   choose. The Flow ID is the business identity, such as an order number. Dex
   creates the Run ID. Later calls address the Flow by its Flow ID.
 - [RPC](/concepts/primitives/rpc): change a running Flow through RPCs. To change Attribute,
   AttributeMap, Channel, or ChannelMap state, define a typed RPC for each
-  command and call it with **InvokeRPC**. Validation, authorization, locks, and
-  transactions then stay inside the Flow.
-- [Attribute](/concepts/primitives/attribute): **GetAttributes** reads stored values
+  command and call it with `InvokeRPC`. Validation, authorization, locks, and
+  transactions then stay inside the Flow. An RPC needs a connected Worker, and a
+  retried call can run twice. See [RPC guarantees](/concepts/primitives/rpc#guarantees).
+- [Attribute](/concepts/primitives/attribute): `GetAttributes` reads stored values
   directly from the server. No Worker runs. Use an RPC instead when the read
   needs Flow-side validation, authorization, Channel messages, a derived view,
   or Attribute locks.
-- [Step](/concepts/step): **WaitForStepCompletion** blocks until a Step
-  completes. **WaitForAttributeMatch** blocks until an Attribute reaches a
+- [Step](/concepts/step): `WaitForStepCompletion` blocks until a Step
+  completes. `WaitForAttributeMatch` blocks until an Attribute reaches a
   value. Use them to answer a request only after the Flow has made progress.
   See [Responsive Update](/design-patterns/responsive-update).
 - [Stream](/concepts/primitives/stream): a Stream carries live updates, such as
   progress, to a UI. It is best effort. Read durable state again when it
   matters.
-- Search: **SearchFlows** finds Flows with a search query, such as one on the
-  Flow type or an indexed Attribute. **DescribeFlow** reads the status of one
+- Search: `SearchFlows` finds Flows with a search query, such as one on the
+  Flow type or an indexed Attribute. `DescribeFlow` reads the status of one
   known Flow ID.
 
 ## Guarantees
 
-- When **StartFlow** returns, Dex has stored the Flow. It runs even if your
+- When `StartFlow` returns, Dex has stored the Flow. It runs even if your
   process exits.
-- **GetAttributes** returns values that Dex saved together, at one point in
+- `GetAttributes` returns values that Dex saved together, at one point in
   time. It never returns changes that Dex has not saved yet.
 - A wait checks the Flow's saved state. It returns when the condition holds, when the
   Flow closes, or when its request timeout expires. A later call waits again
   from the current state.
-- A wait is not a final result. Read the Flow result or the business state to
+- Treat a finished wait as a checkpoint, not a final result. Read the Flow result or the business state to
   decide what happened.
 - An error that says the Flow is closing does not prove that an earlier request
   succeeded. Read the Flow's stored state before you act again.
@@ -135,6 +182,8 @@ For a Client that waits for a change and then calls a read RPC, see
 
 ## Reference
 
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
+
 - [Client requests](/reference/server/runtime-client) describes how the server
   handles each call: Attribute reads, waits, timeouts and limits, search, and
   operator calls.
@@ -142,3 +191,7 @@ For a Client that waits for a change and then calls a read RPC, see
   as ID reuse and request idempotency.
 - [Client](/reference/python/client) in each SDK reference lists the Client
   calls in that language. The SDK doc comments give their parameters and errors.
+
+## Next
+
+[Connector](/concepts/connector): A Connector connects a Flow to an external provider, such as an email, payment, or news service.

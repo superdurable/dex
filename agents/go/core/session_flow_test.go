@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/superdurable/dex/agents/go/core/internal/pythonjson"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -103,6 +104,43 @@ func TestRecoveredToolCallRecordsACallThatNeverRanAsFailed(t *testing.T) {
 		require.NotNil(t, recorded.Error, name)
 		require.Equal(t, testCase.expectedError, *recorded.Error, name)
 	}
+}
+
+// Every conformance AgentMessage decodes, re-encodes to its canonical form, and keeps its origin.
+func TestAgentMessageConformanceValuesKeepTheirOrigin(t *testing.T) {
+	t.Parallel()
+	text, err := os.ReadFile(filepath.Join("..", "..", "conformance", "values", "AgentMessage.json"))
+	require.NoError(t, err)
+	var document struct {
+		Cases []struct {
+			Name      string `json:"name"`
+			Wire      string `json:"wire"`
+			Canonical string `json:"canonical"`
+		} `json:"cases"`
+	}
+	require.NoError(t, json.Unmarshal(text, &document))
+	origins := map[string]*AgentMessageOrigin{}
+	for _, testCase := range document.Cases {
+		var message AgentMessage
+		require.NoError(t, json.Unmarshal([]byte(testCase.Wire), &message), testCase.Name)
+		encoded, err := json.Marshal(message)
+		require.NoError(t, err, testCase.Name)
+		canonical, err := pythonjson.Marshal(json.RawMessage(encoded),
+			pythonjson.Options{IsCompact: true, ShouldSortKeys: true, ShouldEscapeNonASCII: true})
+		require.NoError(t, err, testCase.Name)
+		require.Equal(t, testCase.Canonical, canonical, testCase.Name)
+		origins[testCase.Name] = message.Origin
+	}
+	require.Equal(t, ptr(AgentMessageOriginPlanExecution), origins["plan-execution"])
+	require.Equal(t, ptr(AgentMessageOriginTurnFailureNote), origins["origin-turn_failure_note"])
+	require.Equal(t, ptr(AgentMessageOrigin("later_origin")), origins["unknown-origin"])
+	require.Contains(t, origins, "released-0.1.0")
+	require.Nil(t, origins["released-0.1.0"], "a message stored before 0.6.0 has no origin")
+	require.Nil(t, origins["user"], "a message a user sent has no origin")
+}
+
+func ptr[Value any](value Value) *Value {
+	return &value
 }
 
 func TestToolCallNotRunErrorPrefixMatchesTheConformanceSuite(t *testing.T) {

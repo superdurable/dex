@@ -261,6 +261,20 @@ export interface FrameworkMessage {
   readonly images?: readonly AgentImageReference[];
 }
 
+/**
+ * Known values of {@link AgentMessage.origin}: why the session wrote a `user` message itself.
+ *
+ * - `plan_execution`: `execute_plan` started the turn with the text of `buildPlanExecutionMessage`.
+ * - `turn_failure_note`: `RecordTurnFailure` told the model which tool calls of the failed turn ran.
+ * - `turn_steered_note`: `steer_user_message` ended the turn, and the note lists the tool calls that ran.
+ * - `turn_cancelled_note`: `cancel_turn` ended the turn, and the note lists the tool calls that ran.
+ *
+ * A later release may add values. Show a message with a value you do not know as a note from the session, never
+ * as text the user typed.
+ * @since 0.6.0
+ */
+export type AgentMessageOrigin = "plan_execution" | "turn_failure_note" | "turn_steered_note" | "turn_cancelled_note";
+
 /** One message stored in the `AgentMessages` AttributeMap under its zero-padded sequence. */
 export interface AgentMessage extends FrameworkMessage {
   /** Monotonic session-wide sequence, starting at 1. Wire field: `sequence`. */
@@ -269,6 +283,31 @@ export interface AgentMessage extends FrameworkMessage {
   readonly turnId: string;
   /** RFC 3339 time at which the session stored the message. Wire field: `created_at`. */
   readonly createdAt: string;
+  /**
+   * Why the session wrote this `user` message itself, usually an {@link AgentMessageOrigin}. It is absent on a
+   * message that a user or the start input sent, on `assistant` and `tool` messages, and on every message stored
+   * before 0.6.0.
+   *
+   * Show a message that has an origin as a session note, not as text the user typed. Only the session sets it:
+   * `send_user_message` and a runner's messages cannot. The decoder keeps a value it does not know, so a client of
+   * an earlier release still tells such a message apart. A Worker before 0.6.0 ignores the field, and drops it when
+   * it moves the message into an archive chunk. Wire field: `origin`, `null` when absent; a decoded message omits it
+   * then.
+   *
+   * @example
+   * ```ts
+   * const page = await client.invokeRPC(flow.listAgentMessages, sessionId, { beforeSequence: null, limit: 50 });
+   * for (const message of page.messages) {
+   *   if (message.origin === "plan_execution") {
+   *     console.log("Running the approved plan");
+   *   } else if (message.origin === undefined && message.role === "user") {
+   *     console.log(`> ${message.text ?? ""}`);
+   *   }
+   * }
+   * ```
+   * @since 0.6.0
+   */
+  readonly origin?: AgentMessageOrigin | (string & {});
 }
 
 /**

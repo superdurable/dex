@@ -90,6 +90,7 @@ from dex_agents import (
     AgentMessageChunk,
     AgentMessageChunkRange,
     AgentMessageIndex,
+    AgentMessageOrigin,
     AgentMessagesPage,
     AgentPlan,
     AgentPlanTask,
@@ -803,6 +804,34 @@ def build_value_documents() -> list[dict[str, Any]]:
         "tool-with-image",
         "A tool result that returned an image.",
         replace(tool_message(), images=[CHART_IMAGE]),
+    )
+    messages.value(
+        "plan-execution",
+        "The user message with which execute_plan started a turn.",
+        replace(
+            user_message(),
+            text=build_plan_execution_message(3),
+            framework_item=json.dumps(
+                {"type": "user_text", "text": build_plan_execution_message(3)},
+                separators=(",", ":"),
+            ),
+            origin=AgentMessageOrigin.PLAN_EXECUTION,
+        ),
+    )
+    for origin in (
+        AgentMessageOrigin.TURN_FAILURE_NOTE,
+        AgentMessageOrigin.TURN_STEERED_NOTE,
+        AgentMessageOrigin.TURN_CANCELLED_NOTE,
+    ):
+        messages.value(
+            f"origin-{origin}",
+            f"A user message with origin {origin}.",
+            replace(user_message(sequence=4), origin=origin),
+        )
+    messages.wire(
+        "unknown-origin",
+        "An origin a later release adds decodes and keeps its value.",
+        {**RELEASED_MESSAGE, "images": [], "origin": "later_origin"},
     )
     messages.wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", RELEASED_MESSAGE)
     documents.append(messages)
@@ -1527,6 +1556,7 @@ def build_names() -> dict[str, Any]:
         "enums": {
             "AgentSessionStatus": [str(value) for value in AgentSessionStatus],
             "MessageRole": [str(value) for value in MessageRole],
+            "AgentMessageOrigin": [str(value) for value in AgentMessageOrigin],
             "ToolEffect": [str(value) for value in ToolEffect],
             "ToolCallStatus": [str(value) for value in ToolCallStatus],
             "InterruptKind": [str(value) for value in InterruptKind],

@@ -4,7 +4,7 @@ import {useColorMode} from '@docusaurus/theme-common';
 
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
-function persistSharedTheme(theme: 'light' | 'dark') {
+export function persistSharedTheme(theme: 'light' | 'dark') {
   const shared =
     window.location.hostname === 'superdurable.io' ||
     window.location.hostname.endsWith('.superdurable.io');

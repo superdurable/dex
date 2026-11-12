@@ -46,7 +46,7 @@ export type OrderProcessPartGroup = {
 /** One design of the full order process and the platform it runs on. */
 export type OrderProcessDesign = {
   name: string;
-  countLabel: string;
+  subtitle: string;
   groups: OrderProcessPartGroup[];
   platformTitle: string;
   platformParts: OrderProcessPart[];
@@ -70,26 +70,24 @@ export type OrderProcessCopy = {
   queues: OrderProcessDesign;
   dex: OrderProcessDesign;
   ariaLabel: string;
-  notCounted: string;
   queuesColumn: string;
   dexColumn: string;
-  newPartsTotal: string;
   requirementChanges: RequirementChange[];
   requirementsAriaLabel: string;
 };
 
 const EN: OrderProcessCopy = {
-  ariaLabel: 'Parts of the full order process, database and queues compared with Dex',
-  notCounted: 'not counted',
+  ariaLabel: 'Parts of the full order process: a database with queues and an outbox, and Dex',
   queues: {
-    name: 'Database and queues',
-    countLabel: 'parts you build and run',
+    name: 'Database, queues, and outbox',
+    subtitle: 'What you build and run',
     groups: [
       {
         title: 'Tables',
         parts: [
           {label: 'Orders table with status', icon: Database},
           {label: 'Approvals table', icon: Table2},
+          {label: 'Outbox table', icon: Table2},
         ],
       },
       {
@@ -108,6 +106,7 @@ const EN: OrderProcessCopy = {
           {label: 'Charge consumers', icon: Cpu},
           {label: 'Ship consumers', icon: Cpu},
           {label: 'Refund consumers', icon: Cpu},
+          {label: 'Outbox relay', icon: Send},
           {label: 'Reminder cron job', icon: CalendarClock},
           {label: 'Approval endpoint', icon: BadgeCheck},
           {label: 'Status polling endpoint', icon: RotateCcw},
@@ -120,7 +119,7 @@ const EN: OrderProcessCopy = {
   },
   dex: {
     name: 'Dex',
-    countLabel: 'parts you write and run',
+    subtitle: 'What you write and run',
     groups: [
       {
         title: 'One Flow',
@@ -146,9 +145,8 @@ const EN: OrderProcessCopy = {
     ],
   },
   requirementsAriaLabel: 'What each design adds for each new requirement',
-  queuesColumn: 'Database and queues add',
+  queuesColumn: 'Database, queues, and outbox add',
   dexColumn: 'Dex adds',
-  newPartsTotal: 'new parts',
   requirementChanges: [
     {
       title: 'Refund the buyer after an hour of ship failures',
@@ -196,17 +194,17 @@ const EN: OrderProcessCopy = {
 };
 
 const ZH: OrderProcessCopy = {
-  ariaLabel: '完整订单流程需要的部件：数据库加队列与 Dex 对比',
-  notCounted: '不计入',
+  ariaLabel: '完整订单流程需要的部件：数据库、队列加 outbox，以及 Dex',
   queues: {
-    name: '数据库加队列',
-    countLabel: '个部件要你自己搭建和运行',
+    name: '数据库、队列加 outbox',
+    subtitle: '你要搭建和运行的部分',
     groups: [
       {
         title: '表',
         parts: [
           {label: '带 status 的订单表', icon: Database},
           {label: '审批表', icon: Table2},
+          {label: 'outbox 表', icon: Table2},
         ],
       },
       {
@@ -225,6 +223,7 @@ const ZH: OrderProcessCopy = {
           {label: '扣款消费者', icon: Cpu},
           {label: '发货消费者', icon: Cpu},
           {label: '退款消费者', icon: Cpu},
+          {label: 'outbox relay', icon: Send},
           {label: '提醒 cron job', icon: CalendarClock},
           {label: '审批接口', icon: BadgeCheck},
           {label: '状态轮询接口', icon: RotateCcw},
@@ -237,7 +236,7 @@ const ZH: OrderProcessCopy = {
   },
   dex: {
     name: 'Dex',
-    countLabel: '个部件要你自己编写和运行',
+    subtitle: '你要编写和运行的部分',
     groups: [
       {
         title: '一个 Flow',
@@ -263,9 +262,8 @@ const ZH: OrderProcessCopy = {
     ],
   },
   requirementsAriaLabel: '每个新需求在两种设计里各要加什么',
-  queuesColumn: '数据库加队列要加',
+  queuesColumn: '数据库、队列加 outbox 要加',
   dexColumn: 'Dex 要加',
-  newPartsTotal: '个新部件',
   requirementChanges: [
     {
       title: '发货失败一小时后给买家退款',
@@ -314,12 +312,4 @@ const ZH: OrderProcessCopy = {
 
 export function orderProcessCopy(locale: string): OrderProcessCopy {
   return (locale as DocsLocale) === 'zh-Hans' ? ZH : EN;
-}
-
-export function countParts(design: OrderProcessDesign): number {
-  return design.groups.reduce((total, group) => total + group.parts.length, 0);
-}
-
-export function countNewParts(changes: RequirementChange[], side: 'queues' | 'dex'): number {
-  return changes.reduce((total, change) => total + change[side].newParts.length, 0);
 }

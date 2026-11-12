@@ -15,7 +15,7 @@ import remarkParse from 'remark-parse';
 import remarkMdx from 'remark-mdx';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
-import {prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
+import {frameworkMarkdownPath, frameworkOrder, languageMarkdownPath, prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
 import {markdownPath} from '../src/markdownPath.mjs';
 import './markdown-export.mjs';
 import {readReferenceDocuments, compareVersions} from '../scripts/snapshot-reference.mjs';
@@ -161,49 +161,42 @@ assert.doesNotMatch(home, /Toggle color theme/);
 assert.doesNotMatch(home, /github-star-link|github-star-stat|Book a call|Book a demo/);
 assert.doesNotMatch(home, /fonts\.googleapis\.com/);
 
-const siteLinks = [
-  ['Dex Cloud', 'https://superdurable.io/dex-cloud/'],
-  ['Dex Connectors', 'https://connectors.superdurable.io/'],
-  ['Dex Docs', 'https://docs.superdurable.io/'],
-  ['Blog', 'https://superdurable.io/blog/'],
-  ['About', 'https://superdurable.io/about/'],
-];
-const actionLinks = [
+// Row 1: the wordmark (to superdurable.io), search, icon-only links, and the Cloud sign-up button. Row 2: four section tabs.
+const headerIconLinks = [
+  ['Discord', 'https://discord.gg/V9cMHXts98'],
   ['GitHub', 'https://github.com/superdurable/dex'],
-  ['Log in', 'https://dex.superdurable.io/login'],
-  ['Sign up Cloud', 'https://dex.superdurable.io/register'],
 ];
+const signUpCloud = '<a class="sd-button sd-button-primary sd-button-small sd-signup" href="https://dex.superdurable.io/register">Sign up Cloud</a>';
 const header = home.match(/<header class="[^"]*\bsd-header\b[\s\S]*?<\/header>/)?.[0] ?? '';
 assert.doesNotMatch(header, /target=|superdurable\.ai/);
-assert.match(header, /<a class="sd-wordmark" aria-label="Super Durable home" href="https:\/\/superdurable\.io\/">/);
-const desktopSites = header.match(/<nav class="sd-nav" aria-label="Primary navigation">[\s\S]*?<\/nav>/)?.[0] ?? '';
-assert.deepEqual(headerLinks(desktopSites), siteLinks);
-assert.equal((desktopSites.match(/aria-current="page"/g) ?? []).length, 1);
-assert.match(desktopSites, /aria-current="page">Dex Docs</);
+assert.doesNotMatch(header, /Dex Connectors|>Blog<|>About<|Log in|dex-cloud/);
+assert.match(header, /<a class="sd-wordmark" aria-label="Super Durable home" href="https:\/\/superdurable\.io\/">[\s\S]*?<span>Super Durable<\/span><\/a>/);
+assert.match(header, /<div class="sd-header-search"><div class="navbar__search[^"]*"[^>]*>[\s\S]*?<input placeholder="Search…"/);
 const desktopActions = header.match(/<div class="sd-header-actions">[\s\S]*?<\/div><details class="sd-mobile-menu">/)?.[0] ?? '';
-assert.match(desktopActions, /^<div class="sd-header-actions"><details class="sd-locale">/);
-const githubPillPattern =
-  /<a class="sd-github-link" href="https:\/\/github\.com\/superdurable\/dex"><span class="sd-github-link-name"><svg aria-hidden="true" focusable="false" viewBox="0 0 16 16" width="16" height="16">[\s\S]*?<\/svg>GitHub<\/span><\/a>/;
-assert.match(desktopActions, /<\/details><a class="sd-github-link" href="https:\/\/github\.com\/superdurable\/dex">/);
-assert.match(desktopActions, githubPillPattern);
+assert.match(desktopActions, /^<div class="sd-header-actions"><a class="sd-icon-link"/);
+assert.doesNotMatch(desktopActions, /sd-locale/);
+assert.match(desktopActions, /<button type="button" class="clean-btn sd-icon-link sd-theme-toggle" aria-label="Switch between light and dark"/);
+assert.ok(desktopActions.includes(`</button>${signUpCloud}</div>`), 'the Cloud sign-up button ends the desktop actions');
 assert.deepEqual(
-  headerLinks(desktopActions.replace(/<details class="sd-locale">[\s\S]*?<\/details>/, '').replace(githubPillPattern, '')),
-  actionLinks.filter(([label]) => label !== 'GitHub'),
+  [...desktopActions.matchAll(/<a class="sd-icon-link" href="([^"]*)" aria-label="([^"]*)" title="\2">/g)].map((match) => [match[2], match[1]]),
+  headerIconLinks,
 );
-assert.match(
-  desktopActions,
-  /<\/a><a class="sd-quiet-link" href="https:\/\/dex\.superdurable\.io\/login">Log in<\/a><a class="sd-button sd-button-primary sd-button-small" href="https:\/\/dex\.superdurable\.io\/register">Sign up Cloud<\/a><\/div>/,
-);
-assert.doesNotMatch(home, /Book a call/);
 const mobileMenu = header.match(/<details class="sd-mobile-menu">[\s\S]*?<\/details>/)?.[0] ?? '';
 assert.match(mobileMenu, /<summary>Menu<\/summary>/);
-assert.deepEqual(headerLinks(mobileMenu.replace(/<div class="sd-locale-row"[\s\S]*?<\/div>/, '')), [...siteLinks, ...actionLinks]);
-assert.match(mobileMenu, />About<\/a><div class="sd-locale-row" role="group" aria-label="Language">[\s\S]*?<\/div><a href="https:\/\/github\.com\/superdurable\/dex">GitHub</);
-assert.match(mobileMenu, /aria-current="page">Dex Docs</);
-assert.match(
-  mobileMenu,
-  /<a href="https:\/\/dex\.superdurable\.io\/login">Log in<\/a><a class="sd-button sd-button-primary" href="https:\/\/dex\.superdurable\.io\/register">Sign up Cloud<\/a><\/nav>/,
+assert.deepEqual(
+  [...mobileMenu.matchAll(/<a class="sd-mobile-icon-link" href="([^"]*)">(?:<svg[\s\S]*?<\/svg>)([^<]*)<\/a>/g)].map((match) => [match[2], match[1]]),
+  headerIconLinks,
 );
+assert.ok(mobileMenu.includes(signUpCloud), 'the mobile menu has the Cloud sign-up button');
+assert.doesNotMatch(mobileMenu, /sd-locale/);
+const headerTabs = header.match(/<nav class="sd-tabs" aria-label="Docs sections">[\s\S]*?<\/details><\/div><\/nav>/)?.[0] ?? '';
+assert.deepEqual(
+  [...headerTabs.matchAll(/<a class="sd-tab[^"]*"[^>]*? href="([^"]*)"[^>]*>(?:<svg[\s\S]*?<\/svg>)([^<]*)<\/a>/g)].map((match) => [match[2], match[1]]),
+  [['Docs', '/'], ['Quick Start', '/quick-start/'], ['AI Agents', '/agent-frameworks/'], ['Examples', '/use-cases/']],
+);
+assert.match(headerTabs, /<a class="sd-tab sd-tab--active" aria-current="page" href="\/">/);
+// The language switch sits at the end of the tab row and names the current language.
+assert.match(headerTabs, /<\/div><details class="sd-locale"><summary class="sd-locale-summary" aria-label="Language: English">[\s\S]*?<span>English<\/span>/);
 
 const footer = home.match(/<footer class="theme-layout-footer footer[\s\S]*?<\/footer>/)?.[0] ?? '';
 assert.match(footer, /company-footer-brand[\s\S]*?>Super Durable</);
@@ -223,29 +216,45 @@ assert.doesNotMatch(footer, /Process-centric apps|Simple, reliable|>Team<|Book a
 assert.match(home, /English/);
 assert.match(home, /简体中文/);
 assert.match(home, /Build with AI/);
-assert.match(home, /href="\/build-with-ai\/dex-developer-skill\/">Overview<\/a>/);
+// Group headers that have no page of their own open their first page.
+assert.match(home, /href="\/get-started\/"[^>]*>(?:(?!<\/a>)[\s\S])*Get Started<\/a>/);
+assert.match(home, /href="\/evaluate\/"[^>]*>(?:(?!<\/a>)[\s\S])*Evaluate Dex<\/a>/);
+assert.match(home, /href="\/build-with-ai\/dex-developer-skill\/"[^>]*>(?:(?!<\/a>)[\s\S])*Build with AI<\/a>/);
 
-const conceptsPosition = home.indexOf('>Concepts<');
-const componentsPosition = home.indexOf('>Components<');
-const agentFrameworksPosition = home.indexOf('>Agent Frameworks<');
-const agentSkillsPosition = home.indexOf('>Agent Skills<');
-const designPatternsPosition = home.indexOf('>Design Patterns<');
-assert.ok(agentSkillsPosition >= 0);
-assert.ok(conceptsPosition > agentSkillsPosition);
-assert.ok(componentsPosition > conceptsPosition);
-assert.ok(agentFrameworksPosition > componentsPosition);
-assert.ok(designPatternsPosition > agentFrameworksPosition);
+// The sidebar comes before the page content, so the first match of each label is its sidebar group.
+const sidebarGroupOrder = [
+  'Get Started',
+  'Build with AI',
+  'Durable Agents',
+  'Concepts',
+  'Design Patterns',
+  'Examples',
+  'Run Dex',
+  'Evaluate Dex',
+  'Developer Reference',
+  'Glossary',
+];
+// The header's tab row repeats some labels, so the search starts after the header.
+const homeAfterHeader = home.slice(home.indexOf('</header>'));
+let previousGroupPosition = -1;
+for (const label of sidebarGroupOrder) {
+  const position = homeAfterHeader.indexOf(`>${label}<`);
+  assert.ok(position > previousGroupPosition, `Sidebar group out of order or missing: ${label}`);
+  previousGroupPosition = position;
+}
+for (const retiredLabel of ['Agent Skills', 'Agent Frameworks', 'Product Examples', 'Intro and Quick Start']) {
+  assert.ok(!home.includes(`>${retiredLabel}<`), `Retired sidebar label still present: ${retiredLabel}`);
+}
 
 const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
-// The browser fills in the star count, so static HTML must hold neither the count nor its label.
 for (const page of [home, zhHome, cron, zhCron]) {
-  assert.match(page, githubPillPattern);
-  assert.doesNotMatch(page, /sd-github-link-stars|<a class="sd-github-link"[^>]*aria-label/);
+  assert.match(page, /<a class="sd-icon-link" href="https:\/\/github\.com\/superdurable\/dex"/);
+  assert.match(page, /<nav class="sd-tabs"/);
 }
 assert.match(zhHome, /English/);
 assert.match(zhHome, /简体中文/);
 assert.doesNotMatch(zhHome, /superdurable\.ai/);
-for (const label of ['Dex 文档', '博客', '关于', '登录', '注册 Cloud', '菜单', '产品', '开发者', '公司', '快速开始', '引擎对比', '联系我们']) {
+for (const label of ['Dex 文档', '菜单', '文档', '快速开始', 'AI 智能体', '示例', '产品', '开发者', '公司', '引擎对比', '联系我们']) {
   assert.ok(zhHome.includes(label), `Missing Chinese shell label: ${label}`);
 }
 assert.match(zhHome, /href="\/zh-Hans\/quick-start\/"/);
@@ -312,13 +321,16 @@ assert.match(dexSkills, /Requires a coding workspace/);
 assert.match(dexSkills, /writable repository or project, file-editing tools, and command execution/);
 assert.match(dexSkills, /https:\/\/github\.com\/superdurable\/dex-skills/);
 
-const englishDexSkillPages = [dexSkills, dexAppBuilder, dexSdk, dexConnectorContributor];
-const chineseDexSkillPages = [zhDexSkills, zhDexAppBuilder, zhDexSdk, zhDexConnectorContributor];
-for (const page of englishDexSkillPages) {
-  assertDexSkillHostTabs(page, 'Other clients', false);
-}
-for (const page of chineseDexSkillPages) {
-  assertDexSkillHostTabs(page, '其他客户端', true);
+// The full install lives once, on the Build with AI overview. Each skill page links to it and shows its own invocation.
+assertDexSkillHostTabs(dexSkills, 'Other clients', false);
+assertDexSkillHostTabs(zhDexSkills, '其他客户端', true);
+for (const [page, skill] of [[dexAppBuilder, 'dex-app-builder'], [dexSdk, 'dex-sdk'],
+  [dexConnectorContributor, 'dex-connector-contributor'], [zhDexAppBuilder, 'dex-app-builder'], [zhDexSdk, 'dex-sdk'],
+  [zhDexConnectorContributor, 'dex-connector-contributor']]) {
+  assert.equal((page.match(/role="tab"/g) ?? []).length, 0, `${skill} page repeats the install tabs`);
+  assert.match(page, /href="\/(?:zh-Hans\/)?build-with-ai\/dex-developer-skill\/#install-and-use-dex-skills"/);
+  assert.match(htmlText(page), new RegExp(`\\$${skill} `));
+  assert.match(htmlText(page), new RegExp(`/superdurable-dex:${skill} `));
 }
 
 assert.match(dexSkillHostTabsSource, /defaultValue=\{hosts\[0\]\.id\}/);
@@ -330,7 +342,9 @@ for (const {hosts} of Object.values(dexSkillHostData.locales)) {
 }
 assert.doesNotMatch(dexSkillHostTabsSource, /\blazy(?:=|\s)/);
 for (const source of dexSkillSources) {
-  assert.match(source, /<DexSkillHostTabs skill="(?:all|dex-app-builder|dex-sdk|dex-connector-contributor)" \/>/);
+  // Only the overview carries the install tabs; skill pages link to it.
+  if (/^id: dex-developer-skill$/m.test(source)) assert.match(source, /<DexSkillHostTabs skill="all" \/>/);
+  else assert.doesNotMatch(source, /<DexSkillHostTabs/);
   assert.doesNotMatch(source, /^## (?:Install for|安装到) (?:Codex|Claude|Cursor)$/m);
   assert.doesNotMatch(source, /\[(?:installation overview|安装总览)\]/i);
 }
@@ -363,12 +377,12 @@ assert.match(dexSkills, /dex-developer-skill\/dex-sdk/);
 assert.match(dexSkills, /dex-developer-skill\/dex-connector-contributor/);
 assert.match(dexAppBuilder, /primary skill/i);
 assert.match(dexAppBuilder, /Choose the application surface/);
-assert.match(dexAppBuilder, /call external providers only from <strong>Execute<\/strong>/);
+assert.match(dexAppBuilder, /call external providers only from <code>Execute<\/code>/);
 assert.match(dexSdk, /Version and source authority/);
 assert.match(dexSdk, /Python, Go, Java, TypeScript, and Rust/);
 assert.match(dexSdk, /the skill only reads by default/);
 assert.match(dexConnectorContributor, /Repository and fork workflow/);
-assert.match(dexConnectorContributor, /Update <strong>connector.yaml<\/strong> before writing provider code/);
+assert.match(dexConnectorContributor, /Update <code>connector.yaml<\/code> before writing provider code/);
 assert.match(dexConnectorContributor, /not ready for production until the Connector is released/);
 assert.match(dexConnectorContributor, /needs a Go implementation/);
 assert.match(dexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/blob\/main\/AGENTS\.md/);
@@ -467,6 +481,13 @@ for (const filePath of htmlIndexFiles) {
     const [, component, version] = referenceMatch;
     const sidebarHtml = html.match(/<nav aria-label="[^"]*" class="menu thin-scrollbar[\s\S]*?<\/nav>/)?.[0] ?? '';
     assert.match(sidebarHtml, />Design Patterns</, `${route} must show the main docs sidebar`);
+    // The component header opens its overview, so no item under it opens that page again.
+    const componentRoot = `/${route.startsWith('/zh-Hans/') ? 'zh-Hans/' : ''}reference/${component}/${version ? `${version}/` : ''}`;
+    const rootLinks = [...sidebarHtml.matchAll(/<a\b[^>]*>/g)].map(([tag]) => tag)
+      .filter((tag) => attributeValue(tag, 'href') === componentRoot);
+    assert.equal(rootLinks.length, 1, `${route}: the sidebar must open ${componentRoot} once, from the component header`);
+    assert.match(attributeValue(rootLinks[0], 'class') ?? '', /menu__link--sublist/,
+      `${route}: ${componentRoot} must be the component header's link, not an item under it`);
     assert.match(sidebarHtml, /menu__link--active[^>]*aria-current="page"|aria-current="page"[^>]*menu__link--active/,
       `${route} must highlight its page in the sidebar`);
     const select = html.match(/<select\b[^>]*>[\s\S]*?<\/select>/)?.[0];
@@ -543,10 +564,13 @@ for (const [canonical, {html, route}] of canonicalPages) {
   const locale = route.startsWith('/zh-Hans/') ? 'zh-Hans' : 'en';
   const pathname = markdownPath(route, locale === 'zh-Hans' ? '/zh-Hans/' : '/');
   const markdown = await readFile(join(root, pathname.slice(1)), 'utf8');
-  const metadata = Object.fromEntries([...markdown.matchAll(/^(title|description|canonical_url|source|locale): (.+)$/gm)]
+  const metadata = Object.fromEntries([...markdown.matchAll(/^(title|description|canonical_url|source|locale|site_locale): (.+)$/gm)]
     .map(([, key, value]) => [key, JSON.parse(value)]));
   assert.equal(metadata.canonical_url, canonical, `${pathname} has incorrect HTML canonical`);
-  assert.equal(metadata.locale, locale);
+  // A Chinese route with no translation is served from the English source: its locale names English.
+  const untranslated = locale === 'zh-Hans' && !metadata.source.includes('/i18n/zh-Hans/');
+  assert.equal(metadata.locale, untranslated ? 'en' : locale, `${pathname} locale must name the language of its text`);
+  assert.equal(metadata.site_locale, untranslated ? 'zh-Hans' : undefined, `${pathname} site_locale is set only for untranslated pages`);
   assert.ok(metadata.title && metadata.source, `${pathname} is missing source metadata`);
   const descriptionTag = htmlTags(html, 'meta').find((tag) => attributeValue(tag, 'name') === 'description');
   const metaDescription = htmlText(attributeValue(descriptionTag ?? '', 'content') ?? '').replace(/\s+/g, ' ').trim();
@@ -557,45 +581,96 @@ for (const [canonical, {html, route}] of canonicalPages) {
   assert.deepEqual(markdownLinks.map(([, label]) => label), [markdownLinkLabel], `${pathname} needs one localized robot link`);
   assert.doesNotMatch(markdownLinks[0][0], /\stitle=/, `${pathname} robot link must not repeat its label in title`);
   assert.ok(html.indexOf('<h1') >= 0 && html.indexOf('<h1') < markdownLinks[0].index, `${pathname} robot link must follow the h1`);
-  const tree = markdownParser.parse(markdown);
-  const codeBlocks = [];
-  visitMarkdown(tree, node => {
-    if (node.type === 'code') codeBlocks.push(node);
-    if (node.type === 'html') assert.match(node.value, /^(?:<a id="[^"<>]+">(?:<\/a>)?|<\/a>)$/, `${pathname} contains leftover JSX/HTML`);
-    if (node.type === 'text') assert.doesNotMatch(node.value, /^\s*:::/m, `${pathname} contains a leftover admonition fence`);
-    if (['link', 'definition', 'image'].includes(node.type)) {
-      assert.match(node.url, /^https?:\/\//, `${pathname} contains non-absolute URL ${node.url}`);
-      const target = new URL(node.url);
-      if (target.origin === siteOrigin) {
-        assert.ok(canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
-          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) || isRetainedApiReferencePath(target.pathname) ||
-          (archivedCanonicalUrls.has(canonical) && isApiReferenceVersionPath(target.pathname)),
-          `${pathname} links to missing ${target.pathname}`);
+  const auditMarkdownFile = (filePath, text) => {
+    const blocks = [];
+    visitMarkdown(markdownParser.parse(text), node => {
+      if (node.type === 'code') blocks.push(node);
+      if (node.type === 'html') assert.match(node.value, /^(?:<a id="[^"<>]+">(?:<\/a>)?|<\/a>)$/, `${filePath} contains leftover JSX/HTML`);
+      if (node.type === 'text') assert.doesNotMatch(node.value, /^\s*:::/m, `${filePath} contains a leftover admonition fence`);
+      if (['link', 'definition', 'image'].includes(node.type)) {
+        assert.match(node.url, /^(?:https?:\/\/|mailto:)/, `${filePath} contains non-absolute URL ${node.url}`);
+        const target = new URL(node.url);
+        if (target.origin === siteOrigin) {
+          assert.ok(canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
+            outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) || isRetainedApiReferencePath(target.pathname) ||
+            (archivedCanonicalUrls.has(canonical) && isApiReferenceVersionPath(target.pathname)),
+            `${filePath} links to missing ${target.pathname}`);
+        }
       }
-    }
-  });
+    });
+    return blocks;
+  };
+  const codeBlocks = auditMarkdownFile(pathname, markdown);
   const source = await readFile(join(docsRoot, '..', metadata.source), 'utf8');
   const sourceTree = sourceParser.parse(prepareSource(source, {headingIds: new Map(), locale, sourcePath: metadata.source}));
-  const expectedBlocks = [];
+  const groups = [];
+  // SdkTabs inside a FrameworkTab belong to that framework's Markdown files only.
+  const markFramework = (node, framework) => {
+    const own = node.name === 'FrameworkTab' ? node.attributes.find(attribute => attribute.name === 'framework')?.value : framework;
+    if (own) node.framework = own;
+    node.children?.forEach(child => markFramework(child, own));
+  };
+  markFramework(sourceTree, undefined);
   visitMarkdown(sourceTree, node => {
     if (node.name !== 'SdkTabs' && !(node.name === 'SdkSnippet' && !node.isInsideSdkTabs)) return;
     const snippets = node.name === 'SdkSnippet' ? [node] : node.children.filter(child => child.name === 'SdkSnippet');
     snippets.forEach(snippet => { snippet.isInsideSdkTabs = node.name === 'SdkTabs'; });
-    const blocksByLanguage = new Map(snippets.map(snippet => {
+    groups.push(Object.assign(new Map(snippets.map(snippet => {
       const language = snippet.attributes.find(attribute => attribute.name === 'lang')?.value;
       return [language, snippet.children.filter(child => child.type === 'code')
         .map(block => ({lang: block.lang || language, value: block.value}))];
-    }));
-    for (const language of sdkOrder) expectedBlocks.push(...(blocksByLanguage.get(language) ?? []));
+    })), {framework: node.framework}));
   });
-  let codeCursor = 0;
-  for (const expected of expectedBlocks) {
-    while (codeCursor < codeBlocks.length && !(codeBlocks[codeCursor].lang === expected.lang && codeBlocks[codeCursor].value === expected.value)) codeCursor++;
-    assert.ok(codeCursor < codeBlocks.length, `${pathname} lost or reordered the ${expected.lang} SDK snippet`);
-    codeCursor++;
+  const assertBlocksInOrder = (filePath, blocks, expectedBlocks) => {
+    let codeCursor = 0;
+    for (const expected of expectedBlocks) {
+      while (codeCursor < blocks.length && !(blocks[codeCursor].lang === expected.lang && blocks[codeCursor].value === expected.value)) codeCursor++;
+      assert.ok(codeCursor < blocks.length, `${filePath} lost or reordered the ${expected.lang} SDK snippet`);
+      codeCursor++;
+    }
+  };
+  // Prop-only SdkTabs have no SdkSnippet children here, so the exporter's own test covers them.
+  const pageFrameworks = frameworkOrder.filter(framework => groups.some(group => group.framework === framework));
+  for (const framework of pageFrameworks.length > 0 ? pageFrameworks : [undefined]) {
+    const isDefaultFramework = framework === undefined || framework === pageFrameworks[0];
+    const frameworkGroups = groups.filter(group => !group.framework || group.framework === framework);
+    // A framework's files follow the languages of its own tabs, as the exporter does.
+    const ownGroups = frameworkGroups.filter(group => framework && group.framework === framework);
+    const languageGroups = ownGroups.some(group => group.size > 0) ? ownGroups : frameworkGroups;
+    const pageLanguages = sdkOrder.filter(language => languageGroups.some(group => group.has(language)));
+    const filePath = language => {
+      const first = language === undefined || language === pageLanguages[0];
+      if (isDefaultFramework) return first ? pathname : languageMarkdownPath(pathname, language);
+      return first ? frameworkMarkdownPath(pathname, framework) : frameworkMarkdownPath(pathname, framework, language);
+    };
+    const readFileFor = async language => {
+      if (filePath(language) === pathname) return {text: markdown, blocks: codeBlocks};
+      const text = await readFile(join(root, filePath(language).slice(1)), 'utf8');
+      assert.equal(JSON.parse(text.match(/^canonical_url: (.+)$/m)?.[1] ?? 'null'), canonical,
+        `${filePath(language)} has incorrect HTML canonical`);
+      if (framework) assert.match(text, new RegExp(`^framework: "${framework}"$`, 'm'), `${filePath(language)} must name its framework`);
+      return {text, blocks: auditMarkdownFile(filePath(language), text)};
+    };
+    // A group without the file's language becomes a one-line note instead of code.
+    const blocksFor = language => frameworkGroups.flatMap(group => group.get(language) ?? []);
+    if (pageLanguages.length > 1) {
+      // The first language is the framework's own file; every other language gets its own file.
+      for (const language of pageLanguages) {
+        const {text, blocks} = await readFileFor(language);
+        assert.match(text, new RegExp(`^language: "${language}"$`, 'm'), `${filePath(language)} must name its language`);
+        assertBlocksInOrder(filePath(language), blocks, blocksFor(language));
+      }
+    } else {
+      const {blocks} = await readFileFor(pageLanguages[0]);
+      const expected = pageLanguages.length === 1 ? blocksFor(pageLanguages[0])
+        : frameworkGroups.flatMap(group => [...group.values()].flat());
+      assertBlocksInOrder(filePath(pageLanguages[0]), blocks, expected);
+    }
   }
   markdownPages++;
-  if (!archivedCanonicalUrls.has(canonical)) indexableMarkdownUrls.add(new URL(pathname, siteOrigin).href);
+  // A page that only says it moved stays out of llms.txt.
+  const isMovedNotice = /\n# [^\n]+\n\n(?:This page moved|本页已经?移)/.test(markdown);
+  if (!archivedCanonicalUrls.has(canonical) && !isMovedNotice) indexableMarkdownUrls.add(new URL(pathname, siteOrigin).href);
 }
 const indexedMarkdown = new Set();
 for (const localeRoot of ['', 'zh-Hans/']) {
@@ -604,6 +679,21 @@ for (const localeRoot of ['', 'zh-Hans/']) {
     const target = new URL(href);
     assert.equal(target.origin, siteOrigin);
     assert.ok(outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `llms.txt links to missing ${href}`);
+  }
+  // Every llms-full file llms.txt names exists, and each page with framework files answers to its default
+  // framework's name too, so a reader can build any file name the index describes.
+  for (const [name] of index.matchAll(/llms-full(?:\.[a-z]+)?\.txt/g)) {
+    assert.ok(outputFilePaths.has(`${localeRoot}${name}`), `llms.txt names missing ${localeRoot}${name}`);
+  }
+  for (const [, href] of index.matchAll(/^- \[[^\n]*?\]\((https?:[^)]+\.md)\)[^\n]*(?:By framework: |按框架：)/gm)) {
+    const filePath = decodeURIComponent(new URL(href).pathname).slice(1);
+    const framework = (await readFile(join(root, filePath), 'utf8')).match(/^framework: "([^"]+)"$/m)?.[1];
+    assert.ok(framework, `${filePath} must name its framework`);
+    const alias = filePath.replace(/\.md$/, `.${framework}.md`);
+    assert.ok(outputFilePaths.has(alias), `${filePath} needs its default-framework alias ${alias}`);
+  }
+  // Each entry's first link is the page; per-framework links after it point at that page's other files.
+  for (const [, href] of index.matchAll(/^- \[[^\n]*?\]\((https?:[^)]+\.md)\)/gm)) {
     assert.equal(indexedMarkdown.has(href), false, `llms.txt duplicates ${href}`);
     indexedMarkdown.add(href);
   }
@@ -611,6 +701,16 @@ for (const localeRoot of ['', 'zh-Hans/']) {
 assert.deepEqual([...indexedMarkdown].sort(), [...indexableMarkdownUrls].sort(),
   'llms.txt indexes must cover every indexable docs page exactly once and omit archived versions');
 assert.ok(sitemapUrls.every(href => !new URL(href).pathname.endsWith('.md')), 'Markdown twins must stay outside sitemaps');
+// A concept page's Go file links the Go reference, and the note about the Python reference stays in the Python file.
+{
+  const stepGo = await readFile(join(root, 'concepts/step.go.md'), 'utf8');
+  assert.match(stepGo, /\]\(https:\/\/docs\.superdurable\.io\/reference\/go\/step\.md\)/);
+  assert.doesNotMatch(stepGo, /reference\/python\/step\.md|The links below open the Python reference/);
+  const stepPython = await readFile(join(root, 'concepts/step.md'), 'utf8');
+  assert.match(stepPython, /The links below open the Python reference/);
+  assert.equal(await readFile(join(root, 'concepts/step.python.md'), 'utf8'), stepPython);
+  assert.match(stepPython, /^---\n[\s\S]*?\n---\n\n> Index of every page for AI agents: https:\/\/docs\.superdurable\.io\/llms\.txt\n/);
+}
 console.log(`Markdown audit passed for ${markdownPages} docs pages in both locales, SDK snippets, and llms.txt indexes.`);
 
 const robots = await readFile(join(root, 'robots.txt'), 'utf8');
@@ -662,10 +762,9 @@ function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
 
 function assertSkillInvocationExamples(html, skillName, prompt) {
   const text = htmlText(html);
-  assert.ok(text.includes(`@Dex ${prompt}`));
+  // Skill pages show the Codex and Claude Code Plugin invocations; the overview lists every host.
   assert.ok(text.includes(`$${skillName} ${prompt}`));
   assert.ok(text.includes(`/superdurable-dex:${skillName} ${prompt}`));
-  assert.ok(text.includes(`/${skillName} ${prompt}`));
   for (const otherPrompt of [
     'Design and build an event-registration application.',
     'Diagnose why this Flow retries after the payment Step completes.',

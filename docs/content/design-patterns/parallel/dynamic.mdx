@@ -10,7 +10,7 @@ Start a runtime-sized set of executions of the same Step type.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** builds one **DoWork** movement per input item at runtime. Dex runs those executions concurrently. Each worker sleeps for a random short time, which stands in for work of varying length and shows that they finish in any order. Use this pattern when you know the number of parallel executions only at runtime.
+**Init** builds one `DoWork` movement per input item at runtime. Dex runs those executions concurrently. Each worker sleeps for a random short time, which stands in for work of varying length and shows that they finish in any order. Use this pattern when you know the number of parallel executions only at runtime.
 
 ## Core implementation
 
@@ -176,6 +176,6 @@ impl Step for DynamicWork {
 </SdkSnippet>
 </SdkTabs>
 
-## Related
+## Next
 
 - [Parallel Steps](/design-patterns/parallel)

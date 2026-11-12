@@ -369,6 +369,7 @@ export function encodeAgentMessage(value: AgentMessage): unknown {
     framework_item: value.frameworkItem,
     created_at: value.createdAt,
     images: encodeImages(value.images),
+    origin: value.origin ?? null,
   };
 }
 
@@ -386,7 +387,14 @@ export function decodeAgentMessage(value: unknown): AgentMessage {
     frameworkItem: reader.readString("framework_item"),
     createdAt: reader.readString("created_at"),
     ...decodeImages(reader),
+    ...decodeAgentMessageOrigin(reader),
   };
+}
+
+/** Keeps an origin this release does not know, so a client still tells the message apart from user text. */
+function decodeAgentMessageOrigin(reader: WireRecordReader): Pick<AgentMessage, "origin"> {
+  const origin = reader.readNullableString("origin");
+  return origin === null ? {} : { origin };
 }
 
 export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {

@@ -1,6 +1,7 @@
 ---
 title: TypeScript Workers
 sidebar_label: Workers
+description: "This page shows how to start a TypeScript Worker and lists the TypeScript names of its settings. Workers and the task queue describes how these settings behave in every SDK."
 ---
 
 # TypeScript Workers
@@ -13,8 +14,7 @@ how these settings behave in every SDK.
 
 This example serves a Greeting Flow through a pull Worker. Its Step stores a
 greeting, and the greeting RPC reads it. The Worker allows eight concurrent tasks
-and keeps one slot for RPCs. See the [TypeScript SDK README](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md#workers) for
-startup details.
+and keeps one slot for RPCs.
 
 ```typescript
 export async function startPullGreeting(

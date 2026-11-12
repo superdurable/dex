@@ -1,20 +1,28 @@
 ---
 id: index
-title: Components
-sidebar_label: Overview
+title: Run Dex
+sidebar_label: Run Dex
+description: "A Dex application runs on four components: your application, the server, the CLI, and Web. You write the application. Dex provides the rest."
 ---
 
-# Components
+# Run Dex
 
 A Dex application runs on four components: your application, the server, the
 CLI, and Web. You write the application. Dex provides the rest.
 
 | Component | What it does |
 | --- | --- |
-| [Application](/components/application) | Your Workers and Clients. Workers host Flow definitions and run Steps and RPCs. Clients start Flows, call RPCs, and read Attributes. |
-| [Server](/components/server) | server-zd stores Flow state and hands work to Workers. |
-| [CLI](/components/cli) | **dexcli** runs a local Dex and operates Flows from a shell. |
+| [Your Application](/components/application) | Your Workers and Clients. Workers host Flow definitions and run Steps and RPCs. Clients start Flows, call RPCs, and read Attributes. |
+| [Dex Server](/components/server) | Stores Flow state and hands work to Workers. Its binary is **dex-server-zd** (server-zd). |
+| [CLI](/components/cli) | `dexcli` runs a local Dex and operates Flows from a shell. |
 | [Web](/components/web) | Dex Web is the operator UI for inspecting and acting on Flows. |
+
+Two more pages cover how they meet your systems:
+
+- [Dex and Your Database](/components/your-database): how Steps write to the
+  database your service already has, and when Dex copies Attributes into it.
+- [Run Dex in Production](/components/production): a checklist from topology
+  and capacity to backup, upgrades, and monitoring.
 
 ## How they fit together
 
@@ -25,7 +33,7 @@ dexcli  ──▶     ├──▶ object storage
                 └──▶ PostgreSQL (Attribute Store sync)
 ```
 
-Workers, Clients, Dex Web, and **dexcli** all connect to the server's API port.
+Workers, Clients, Dex Web, and `dexcli` all connect to the server's API port.
 A Worker opens outbound streams to the server and never listens for calls. The
 server keeps Flow state in object storage. It can also write selected Attributes
 to PostgreSQL for your own queries. See

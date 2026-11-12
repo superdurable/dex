@@ -6,39 +6,60 @@ slug: /
 
 # Dex Docs
 
-Dex is a **Durable Execution** platform. A database stores your data. Dex also stores the progress of your process: which Steps ran, what they returned, and what the process is waiting for. After a crash, a restart, or a long wait, the process continues where it stopped.
+Dex is a **Durable Execution** platform. A database stores your data; Dex also stores the progress of your process: which Steps ran, what they returned, and what the process is waiting for. After a crash, a restart, or a long wait, the process continues where it stopped.
 
-You write the process as ordinary application code, with Flows, Steps, Attributes, Channels, RPCs, and Connectors.
+You write the process as a **Flow** of **Steps**, and a **Worker** in your service runs the Steps.
+
+<div className="docs-home-actions">
+
+[Quick Start](/quick-start) [Why Dex?](/intro/what-is-dex)
+
+</div>
+
+<div className="docs-home-sdks">
+
+Quick Start in [Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [TypeScript](/quick-start?sdk=typescript) [Java](/quick-start?sdk=java) [Rust](/quick-start?sdk=rust)
+
+</div>
+
+## First time here?
 
 <div className="docs-home-sections">
-  <DocsSection section="intro" to="/intro/what-is-dex" title="Start here">
-    Why Dex, your first Flow in the Quick Start, and how Dex compares to a database.
-  </DocsSection>
-  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Build with AI">
-    Install the Dex skills so a coding agent writes correct Dex code.
+  <DocsSection section="intro" icon="rocket" to="/quick-start" title="Quick Start">
+    Run a Flow, stop its Worker, and watch Dex continue it.
   </DocsSection>
   <DocsSection section="concepts" to="/concepts" title="Concepts">
-    Flow, Step, Attribute, RPC, Channel, Stream, Timer, SubFlow, Client, and Connector.
+    Flow, Step, and the six primitives.
   </DocsSection>
-  <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
-    A machine-checked proof of what Dex can express, and its rating against the Workflow Patterns.
+  <DocsSection section="product-examples" to="/use-cases" title="Examples">
+    Complete processes: an AI agent, orders, subscriptions, and money transfer.
   </DocsSection>
-  <DocsSection section="components" to="/components" title="Components">
-    The Application, server, CLI, Web, and how they run together.
+  <DocsSection section="components" icon="cloud" to="/components/choose-how-to-run" title="Choose how to run Dex">
+    Dex Cloud runs the server for you, or you run it on your own infrastructure.
   </DocsSection>
-  <DocsSection section="design-patterns" to="/design-patterns" title="Design Patterns">
-    Reusable Flow shapes for parallel work, timers, failures, polling, and draining channels.
+</div>
+
+## What do you want to do?
+
+<div className="docs-home-sections">
+  <DocsSection section="intro" icon="plug" to="/intro/add-to-existing-code" title="Add Dex to existing code">
+    Turn a function, job, or queue consumer you already have into a Flow.
   </DocsSection>
-  <DocsSection section="product-examples" to="/use-cases" title="Product Examples">
-    Complete processes such as an AI agent, subscriptions, and money transfer.
+  <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/quick-start" title="Build a durable agent">
+    Keep your agent framework. Each tool call runs in its own Step, and approvals can wait for days.
   </DocsSection>
-  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Agent Frameworks">
-    Run AI agent frameworks on Dex as durable Flows.
+  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Let a coding agent write it">
+    Install the Dex Skills so your coding agent writes correct Dex code.
   </DocsSection>
-  <DocsSection section="reference" to="/reference" title="Developer Reference">
-    Versioned details for every SDK, the server, the CLI, and Web.
+  <DocsSection section="intro" icon="scale" to="/evaluate" title="Evaluate Dex">
+    How Dex compares with what you run today, its limits, and its measured numbers.
   </DocsSection>
-  <DocsSection section="glossary" to="/glossary" title="Glossary">
-    Every Dex term in one place.
-  </DocsSection>
+</div>
+
+<div className="docs-home-links">
+
+**Run Dex:** [Run Locally](/components/run-locally) · [Your Application](/components/application) · [Run Dex in Production](/components/production) · [Failover and Deploys](/concepts/failover-and-deploys) · [Change Flow Code](/concepts/change-flow-code) · [Dex and Your Database](/components/your-database) · [Dex Web](/components/web)
+
+**Reference:** [Developer Reference](/reference) · [Design Patterns](/design-patterns) · [Correctness and Expressiveness](/correctness-and-expressiveness) · [Glossary](/glossary)
+
 </div>

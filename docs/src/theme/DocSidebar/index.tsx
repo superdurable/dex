@@ -68,10 +68,15 @@ function expandReferenceEntries(
     if (!versions) {
       return item;
     }
-    const referenceItems = versions[versionName] ?? versions.current ?? [];
+    const versionItems = versions[versionName] ?? versions.current ?? [];
+    // The header opens the component's overview, so the overview is not listed again under it.
+    // Older snapshots still list it; their header opens that version's overview.
+    const overview = versionItems.find((child) => child.type === 'link' && child.docId === 'index');
+    const referenceItems = versionItems.filter((child) => child !== overview);
     return {
       type: 'category',
       label: item.label,
+      href: overview?.type === 'link' ? overview.href : item.href,
       collapsible: true,
       collapsed: true,
       customProps: item.customProps,
