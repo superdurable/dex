@@ -57,7 +57,7 @@ claude: {}
 | `connectors.mcp` | `auto` | The connectors MCP server. `auto` uses the one `dexcli dev` provides. Otherwise an `http` or `https` URL on `127.0.0.1`, `localhost`, or `[::1]`. See URLs below. |
 | `connectors.enabled` | every authorized connection | Which connections, and which of their operations, the agent may call. See below. |
 | `approval.always` | `[]` | Tool names, as the agent sees them, whose every call waits for approval. This adds to what the connectors and local tools already require. |
-| `workspace` | `~/dex-agent-workspace` | The only directory the local file tools use, and the working directory of shell commands. |
+| `workspace` | `~/dex-agent-workspace`; for `dex-agents-pi`, the directory the command starts in | The only directory the local file tools use, and the working directory of shell commands. |
 | `local_tools.files` | `true` | Read, write, list, and search files in `workspace`. Reads run at once; writes wait for approval. |
 | `local_tools.shell.enabled` | `true` | Run shell commands in `workspace`. Each command waits for approval unless the allow list has it. |
 | `local_tools.shell.allow` | `[]` | Commands that run without approval. A command matches only when its whole text equals an entry. `ls -la` does not match `ls`. |
@@ -75,6 +75,10 @@ Other keys are errors, and `null` is never a valid value: omit the field to
 take its default. In `system_prompt_file` and `workspace`, a leading `~` is the
 home directory and a relative path is relative to the file's directory. The
 command expands them when it uses them.
+
+`dex-agents-pi` keeps Pi's own file and shell tools, which have no workspace
+boundary. As in Pi, they run without approval unless `approval.always` names
+them; see [its README](typescript/pi/README.md#tools-and-approvals).
 
 Do not put secrets in the file. Provider keys come from the environment.
 Connector credentials stay in the connections you authorize in Dex Web. The

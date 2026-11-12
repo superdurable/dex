@@ -38,6 +38,17 @@ export type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
 export const localToolGroups: readonly LocalToolGroup[] = Object.freeze(["files", "shell", "web_fetch", "browser"]);
 
 /**
+ * Where a command's workspace is when its configuration file sets no `workspace`.
+ *
+ * - `dex_agent_workspace`: `~/dex-agent-workspace`, the CLI core's `defaultWorkspace`.
+ * - `launch_directory`: the directory the command starts in, as Pi uses it. Each directory then has its own
+ *   sessions, because the session Flow type hashes the workspace.
+ *
+ * @since 0.6.0
+ */
+export type HarnessDefaultWorkspaceLocation = "dex_agent_workspace" | "launch_directory";
+
+/**
  * One agent harness that a Dex Agents CLI command runs, such as the Claude Agent SDK or a built-in loop agent.
  *
  * A harness package implements this interface and calls {@link runAgentCli} from its bin. The CLI core owns
@@ -106,6 +117,15 @@ export interface AgentHarness {
    * Defaults to none.
    */
   readonly replacedLocalTools?: readonly LocalToolGroup[];
+  /**
+   * Where the workspace is when the configuration file sets none. Defaults to `dex_agent_workspace`.
+   *
+   * With `launch_directory`, `init` writes no `workspace`, so the command keeps working in the directory it
+   * starts in. A `workspace` in the file still overrides it. The Python CLI core has no such option.
+   *
+   * @since 0.6.0
+   */
+  readonly defaultWorkspaceLocation?: HarnessDefaultWorkspaceLocation;
   /**
    * Whether the harness's runner fixes its tools when the Flow is built, instead of listing the tool sources in
    * every model call. Defaults to `false`; every TypeScript adapter lists them per model call.

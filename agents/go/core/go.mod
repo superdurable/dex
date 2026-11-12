@@ -7,7 +7,8 @@ require (
 	github.com/openai/openai-go/v3 v3.91.1
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex/blob-cache-go v0.1.2
-	github.com/superdurable/dex/sdk-go v1.45.0
+	github.com/superdurable/dex/sdk-go v1.45.1-0.20261112014933-d42ec7ae6850
+	google.golang.org/grpc v1.79.3
 )
 
 require (
@@ -39,7 +40,6 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
