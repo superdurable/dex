@@ -66,6 +66,27 @@ function flagged(sentence, chinese) {
   return Boolean(verb) && !relativeNegation.test(verb[0]);
 }
 
+// Headings are names, so any negation in one counts: "If something does not work" reads better as "Troubleshooting".
+const englishHeadingNegation = /\b(?:not|no|never|nothing|none|cannot|can't|don't|doesn't|isn't|aren't|won't|without)\b/i;
+const chineseHeadingNegation = /(?:不|没有|无需|无法|并非|别)/;
+// 不同 ("difference") and 区别 ("distinction") carry the characters without negating anything.
+function headingNegative(text, chinese) {
+  return chinese ? chineseHeadingNegation.test(text.replace(/不同|区别/g, '')) : englishHeadingNegation.test(text);
+}
+
+// Headings that name a failure case keep their negation: the failure is the subject.
+// Each entry: [file, heading text, reason].
+const headingAllowlist = [
+  ['content/concepts/client.mdx', 'Deliver an event when no Worker runs', 'names the case: no Worker is running when the event arrives'],
+  ['i18n/zh-Hans/docusaurus-plugin-content-docs/current/concepts/client.mdx', '没有 Worker 时投递事件', 'the Chinese copy of the same case'],
+  ['content/correctness-and-expressiveness/workflow-patterns.mdx', 'WCP-12 Multiple Instances without Synchronization', 'the Workflow Patterns catalogue name'],
+  ['content/correctness-and-expressiveness/workflow-patterns.mdx', 'WCP-15 Multiple Instances without a priori Run-Time Knowledge', 'the Workflow Patterns catalogue name'],
+  ['i18n/zh-Hans/docusaurus-plugin-content-docs/current/production/server-zd-operations.mdx', '不支持的功能', 'names the list of unsupported features, like the English "Unsupported features"'],
+];
+function headingAllowed(rel, text) {
+  return headingAllowlist.some(([file, heading]) => rel === file && text === heading);
+}
+
 function firstSentence(text) {
   const match = text.match(/^(.+?[.!?。！？])(\s|$)/);
   return match ? match[1] : text;
@@ -106,6 +127,11 @@ for (const root of roots) {
         trimmed === '' ||
         /^(#|\||:::|import |export |<|\{|\}|\/\/|>)/.test(trimmed) ||
         /^\w+[=:]/.test(trimmed);
+      const heading = trimmed.match(/^#{2,6}\s+(.+?)(?:\s*\{#[^}]+\})?$/);
+      if (heading) {
+        const text = plain(heading[1]);
+        if (headingNegative(text, chinese) && !headingAllowed(rel, text)) hits.push(`${rel}:${index + 1}: heading "${text}"`);
+      }
       if (!skip && startsBlock) {
         const sentence = firstSentence(plain(line));
         if (sentence && flagged(sentence, chinese)) {
@@ -127,4 +153,4 @@ if (hits.length > 0) {
   console.error(`${hits.length} paragraph, list item, or callout openings start with a negation.`);
   process.exit(1);
 }
-console.log('Positive-first check passed: every paragraph, list item, and callout opens with what is true.');
+console.log('Positive-first check passed: every heading, paragraph, list item, and callout opens with what is true.');

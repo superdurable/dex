@@ -34,7 +34,7 @@ AwaitInbound.execute
 - 要一次取走所有排队的回复，用“至少一条”的 Channel Condition。也可以每次执行只取一条。
 - 让 transcript 保持有界。长对话把消息存放在 [sequentially chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map) 中。
 
-## 为什么不让 RPC 写 transcript
+## 为什么由 Step 负责 transcript {#为什么不让-rpc-写-transcript}
 
 如果由 RPC 追加 transcript，等待中的 Step 就必须锁住 transcript，RPC 为了读取再修改也必须加锁。锁不会排队。只要 Step 或另一个 RPC 持有这把锁，新到的 RPC 都会因为锁冲突被拒绝，客户端只能重试。发布到 Channel 不需要锁，所以并发的回复不会冲突。
 

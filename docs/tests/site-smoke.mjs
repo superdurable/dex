@@ -564,10 +564,13 @@ for (const [canonical, {html, route}] of canonicalPages) {
   const locale = route.startsWith('/zh-Hans/') ? 'zh-Hans' : 'en';
   const pathname = markdownPath(route, locale === 'zh-Hans' ? '/zh-Hans/' : '/');
   const markdown = await readFile(join(root, pathname.slice(1)), 'utf8');
-  const metadata = Object.fromEntries([...markdown.matchAll(/^(title|description|canonical_url|source|locale): (.+)$/gm)]
+  const metadata = Object.fromEntries([...markdown.matchAll(/^(title|description|canonical_url|source|locale|site_locale): (.+)$/gm)]
     .map(([, key, value]) => [key, JSON.parse(value)]));
   assert.equal(metadata.canonical_url, canonical, `${pathname} has incorrect HTML canonical`);
-  assert.equal(metadata.locale, locale);
+  // A Chinese route with no translation is served from the English source: its locale names English.
+  const untranslated = locale === 'zh-Hans' && !metadata.source.includes('/i18n/zh-Hans/');
+  assert.equal(metadata.locale, untranslated ? 'en' : locale, `${pathname} locale must name the language of its text`);
+  assert.equal(metadata.site_locale, untranslated ? 'zh-Hans' : undefined, `${pathname} site_locale is set only for untranslated pages`);
   assert.ok(metadata.title && metadata.source, `${pathname} is missing source metadata`);
   const descriptionTag = htmlTags(html, 'meta').find((tag) => attributeValue(tag, 'name') === 'description');
   const metaDescription = htmlText(attributeValue(descriptionTag ?? '', 'content') ?? '').replace(/\s+/g, ' ').trim();

@@ -219,7 +219,12 @@ try {
   assert.match(home, /canonical_url: "https:\/\/docs.example.test\/zh-Hans\/"/);
   assert.match(home, /description: "The Home meta description."/);
   assert.match(home, /source: "docs\/reference\/index.mdx"/);
-  assert.match(home, /locale: "zh-Hans"/);
+  // The fallback home page has no Chinese translation, so its labels name English and the site locale.
+  assert.match(home, /\nlocale: "en"\nsite_locale: "zh-Hans"\n/);
+  assert.match(home, /\n> 本页内容是英文原文，中文译文还在准备中。\n/);
+  const translatedPage = await readFile(join(outDir, 'translated.md'), 'utf8');
+  assert.match(translatedPage, /\nlocale: "zh-Hans"\n/);
+  assert.doesNotMatch(translatedPage, /site_locale|本页内容是英文原文/);
   assert.match(home, /<a id="stable"><\/a>\n\n## Local heading/);
   assert.match(home, /> \*\*备注：Read first\*\*/);
   assert.match(home, /> \*\*重要\*\*\n>\n> Every admonition keyword is supported./);

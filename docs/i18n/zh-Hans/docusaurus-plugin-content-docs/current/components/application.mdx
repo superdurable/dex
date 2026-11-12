@@ -43,6 +43,23 @@ Worker 可以运行在两个地方：
 
 无论哪种方式，Worker 只发起出站连接，所以不需要负载均衡器或入站端口。你的 handler 创建 Client 来启动 Flow、调用 RPC。[Dex and Your Database](/components/your-database) 说明 Step 怎样写入你服务已有的数据库。
 
+## 新建项目 {#start-a-new-project}
+
+每种语言的 [Quick Start](/quick-start) 文件夹都是一个完整的小项目。把你所用语言的文件夹（例如 `examples/python/quick-start`）从仓库里复制出来，就能开始自己的项目。每份副本都包含同样的部分：
+
+| 部分 | Python | Go | Java | TypeScript | Rust |
+| --- | --- | --- | --- | --- | --- |
+| 固定版本的 SDK | `pyproject.toml` 和 `uv.lock` | `go.mod` 和 `go.sum` | `build.gradle` | `package.json` 和 `package-lock.json` | `Cargo.toml` 和 `Cargo.lock` |
+| Flow | `quick_start/order_flow.py` | `order_flow.go` | `OrderFlow.java` | `order-flow.ts` | `src/order_flow.rs` |
+| Step 调用的服务 | `quick_start/shop_api.py` | `shop_api.go` | `ShopApi.java` | `shop-api.ts` | `src/shop_api.rs` |
+| 服务器地址和设置 | `quick_start/config.py` | `config.go` | `QuickStartConfig.java` | `config.ts` | `src/config.rs` |
+| Worker 程序 | `worker.py` | `cmd/worker` | `WorkerMain.java` | `worker.ts` | `src/bin/worker.rs` |
+| 启动程序 | `start.py` | `cmd/start` | `StartMain.java` | `start.ts` | `src/bin/start.rs` |
+| 内含 Worker 的 HTTP 服务 | `service.py` | `cmd/service` 和 `service.go` | `ServiceMain.java` 和 `OrderService.java` | `service.ts` 和 `order-service.ts` | `src/bin/service.rs` 和 `src/order_service.rs` |
+| 集成测试 | `tests/test_quick_start.py` | `quickstart_test.go` | `QuickStartTest.java` | `test/quick-start.test.ts` | `tests/quick_start.rs` |
+
+复制之后，给项目改名：`pyproject.toml` 里的 **name**、`go.mod` 里的 **module** 路径、`settings.gradle` 里的 `rootProject.name` 和 Java 包名、`package.json` 里的 **name**，或 `Cargo.toml` 里的 **name**。然后用你自己的 Flow 和 API 替换订单 Flow 和模拟 API。保留复制来的构建文件里的 SDK 版本，升级时再更新它。
+
 ## 启动 Worker {#enable-pull-mode}
 
 给 Worker 配置 server 地址。Client 也只需要 server 地址。你还可以设置 pull 选项，调整任务容量、注册和关闭行为。
@@ -186,11 +203,23 @@ curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
 
 完整代码见 [Order Processing](/use-cases/order-processing) 示例。
 
-## 容量和关闭
+## 容量和关闭 {#capacity-and-shutdown}
+
+<a id="容量和关闭"></a>
 
 Worker 为每个任务槽位建立一个 stream。Dex 只把任务发给空闲的槽位，所以 Worker 不会因为容量不足而拒绝工作。没有 Worker 接手的 Step 会在持久任务队列中等待。RPC 如果在限定时间内没有 Worker 接手，就会失败。部署时要优雅地停止 Worker，让正在运行的任务完成。
 
 就绪检查、路由、容量、关闭和网络设置见英文的 [Workers and the task queue](/reference/server/workers)。
+
+## 在容器中运行 {#run-in-containers}
+
+Worker 和 Client 适合运行在无状态容器中：
+
+- **网络。** Worker 只向 Dex Server 发起出站连接，所以它的容器不需要为 Dex 开放入站端口或负载均衡器。在每个进程的配置中设置服务器地址，例如用环境变量。
+- **凭据。** 服务器要求认证时，把 token 作为文件挂载，并通过 `credential` 选项传入文件凭据。见[从 Worker 和 Client 发送凭据](/reference/server/authentication#sdk-credentials)。
+- **Blob cache。** [blob cache](#blob-cache) 是本地副本缓存。临时目录（例如容器的临时磁盘）就够用。每个进程使用自己的目录。新容器从空缓存开始，需要时再重新加载数据。
+- **相同的 Flow 定义。** 用注册同一组 Flow 的代码构建每个 Worker 和 Client 镜像，这样 Client 编码输入的方式和 Worker 解码的方式一致。滚动部署期间，缺少某个 Step 类型的旧 Worker 会把这次调用交给新 Worker。见 [Failover and Deploys](/concepts/failover-and-deploys)。
+- **优雅停止。** 先发送停止信号，在容器被强制终止前给进程留出时间完成正在运行的任务。见[容量和关闭](#capacity-and-shutdown)。
 
 ## 在生产环境中运维
 

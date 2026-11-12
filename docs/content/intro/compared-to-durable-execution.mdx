@@ -24,14 +24,14 @@ Dex shares the goal of other durable execution tools: a process that survives cr
 
 Every tool on this page records a process's progress outside the process. After a crash, the process continues from that record. The engines, runtimes, and libraries also offer durable timers, waits for outside events, and retries. An agent framework checkpointer covers less; [its section](#agent-framework-checkpoints) says what it leaves to you.
 
-## The main difference: an explicit Step graph, not replayed code
+## The main difference: an explicit Step graph instead of replayed code {#the-main-difference-an-explicit-step-graph-not-replayed-code}
 
 Most durable execution tools let you write a process as one function and rebuild its state by replaying that function. Dex records Step results instead. A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow, and Dex records the result together with that decision.
 
 - **What you gain.** Step code is ordinary code. It may read the clock, use random numbers, and call any library. A code change never causes a replay or nondeterminism error in a running Flow. State lives in Attributes, not in an event history.
 - **What it costs.** You model control flow as Steps and decisions. A loop is a Step that moves to itself, and a branch is a decision with two targets.
 
-### Determinism moved; it did not vanish {#determinism-moved-it-did-not-vanish}
+### Where determinism moved {#determinism-moved-it-did-not-vanish}
 
 One rule replaces the replay rule. A Step can run more than once, so each external effect depends only on what Dex passes the Step; see [Idempotency keys](/concepts/step#idempotency-keys). Every tool on this page leaves the same duty to you, and the [failure proof](/correctness-and-expressiveness/failure-transparency-proof) assumes it. Clock and random values are fine in a Step's decisions and saved data, and they stay out of idempotency keys and any effect that must be identical on a rerun.
 

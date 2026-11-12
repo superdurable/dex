@@ -12,7 +12,7 @@ An example is several reviewers who edit the same contract. Each edit takes thre
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-## Why not an Attribute lock
+## When a token beats an Attribute lock {#why-not-an-attribute-lock}
 
 An Attribute lock, such as `ExecuteLockAttributes`, covers one Step method. It does not cover a `WaitFor`, and it does not span several Steps. Use a lock when the protected work fits in one `Execute`. Use a token when the section spans Steps.
 

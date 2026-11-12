@@ -13,7 +13,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/crit
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-## 为什么不用 Attribute lock
+## 何时 token 比 Attribute lock 更合适 {#为什么不用-attribute-lock}
 
 Attribute lock（例如 `ExecuteLockAttributes`）只覆盖一个 Step 方法。它不覆盖 `WaitFor`，也不能跨越多个 Step。受保护的工作能放进一次 `Execute` 时，用 lock。这段流程跨越多个 Step 时，用 token。
 

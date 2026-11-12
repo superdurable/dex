@@ -57,6 +57,7 @@ const localeCopies = {
     summary: 'Dex is a Durable Execution platform. Each entry links to the Markdown export of a documentation page.',
     languageNote: 'Pages with code have per-language Markdown. The .md file shows Python where a page has Python code, and .python.md is the same file; replace .md with .go.md, .java.md, .typescript.md, or .rust.md for another language. llms-full.txt holds every page below in one file with Python code, and llms-full.python.txt is the same file; llms-full.go.txt, llms-full.java.txt, llms-full.typescript.txt, and llms-full.rust.txt hold them with that language\'s code.',
     indexPointer: url => `> Index of every page for AI agents: ${url}`,
+    untranslatedNote: '> This page has no translation for this locale yet, so its text is the English original.',
     codeLanguage: label => `Code on this page is in ${label}. Other languages: `,
     languageSeparator: ' · ',
     missingLanguage: label => `This part has no ${label} version; see the `,
@@ -99,6 +100,7 @@ const localeCopies = {
     summary: 'Dex 是 Durable Execution 平台。每个条目链接到一个文档页面的 Markdown 版本。',
     languageNote: '含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，.md 文件显示 Python，.python.md 与它相同；换成其他语言时，把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。llms-full.txt 把下面所有页面合成一个文件，代码为 Python，llms-full.python.txt 与它相同；llms-full.go.txt、llms-full.java.txt、llms-full.typescript.txt 和 llms-full.rust.txt 中的代码为对应语言。',
     indexPointer: url => `> 供 AI 智能体使用的全部页面索引：${url}`,
+    untranslatedNote: '> 本页内容是英文原文，中文译文还在准备中。',
     codeLanguage: label => `本页代码为 ${label}。其他语言：`,
     languageSeparator: ' · ',
     missingLanguage: label => `这部分没有 ${label} 版本；见 `,
@@ -130,6 +132,18 @@ const writer = unified().use(remarkStringify, {bullet: '-', fences: true, handle
  *
  * @returns {object} The labels for the locale, or the English labels for an unknown locale.
  */
+/**
+ * Reports whether a page in a non-default locale is served from its default-locale source.
+ * @param {string} sourcePath The page's source file.
+ * @param {string} locale The locale being built.
+ * @param {string} defaultLocale The site's default locale.
+ * @returns {boolean} True when the locale has no translation of the page.
+ */
+export function isUntranslated(sourcePath, locale, defaultLocale) {
+  if (locale === defaultLocale) return false;
+  return !sourcePath.split('\\').join('/').includes(`/i18n/${locale}/`);
+}
+
 export function localeCopy(locale) {
   return localeCopies[locale] ?? localeCopies.en;
 }
@@ -189,7 +203,8 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
       ...(description ? {description} : {}),
       canonical_url: context.canonicalUrl,
       source: relative(resolve(siteDir, '..'), sourcePath).split('\\').join('/'),
-      locale};
+      // A page with no translation falls back to the English source: label its real language, and the site locale.
+      ...(isUntranslated(sourcePath, locale, i18n.defaultLocale) ? {locale: i18n.defaultLocale, site_locale: locale} : {locale})};
     const pathname = markdownPath(page.permalink, baseUrl);
     const frameworks = agentFrameworksIn(tree.children);
     const defaultChildren = frameworks.length > 0 ? selectFramework(tree.children, frameworks[0], '', copy) : tree.children;
@@ -260,7 +275,8 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
         const yaml = Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
         const hasTitle = children.some(node => node.type === 'heading' && node.depth === 1);
         const body = writer.stringify({...tree, children});
-        const markdown = `---\n${yaml}\n---\n\n${copy.indexPointer(indexUrl)}\n\n${hasTitle ? '' : `# ${page.title}\n\n`}${body}`;
+        const untranslated = fields.site_locale ? `${copy.untranslatedNote}\n\n` : '';
+        const markdown = `---\n${yaml}\n---\n\n${copy.indexPointer(indexUrl)}\n\n${untranslated}${hasTitle ? '' : `# ${page.title}\n\n`}${body}`;
         // The first language's file is the page's .md; its .<language>.md name serves the same Markdown.
         const paths = [output.path];
         if (multi && output.language === languages[0]) {

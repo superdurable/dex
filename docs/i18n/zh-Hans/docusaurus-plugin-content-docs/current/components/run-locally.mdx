@@ -30,6 +30,28 @@ dexcli dev
 | Dex Web | `http://127.0.0.1:8802` |
 | Dex Server | **127.0.0.1:8801** |
 
+**dexcli dev** 先打印服务器日志。Dex 准备好后，最后会输出类似下面的摘要：
+
+```text
+Dex development environment is ready
+
+Dex Web:       http://127.0.0.1:8802
+Connectors MCP: http://127.0.0.1:8802/mcp
+Dex Server:    127.0.0.1:8801
+State dir:     /Users/you/.dex/zd/8801
+
+Press Ctrl+C to stop.
+```
+
+让 Worker 和 Client 连接 **Dex Server** 地址，在浏览器中打开 **Dex Web** 地址。状态目录会在 **dexcli dev** 重启后保留你的 Flow。
+
+## 排查问题 {#if-something-does-not-work}
+
+- **Worker 或 Client 连接失败。** 确认 **dexcli dev** 仍在运行，并且已经打印 **Dex development environment is ready**。使用它打印出的 **Dex Server** 地址。示例从 `DEX_FLOW_SERVICE_ADDRESS` 读取这个地址，默认是 **127.0.0.1:8801**。
+- **端口被占用。** **dexcli dev** 会改用其他空闲端口并打印出来。要自己指定端口，传入 `-dex-port` 和 `-web-port`。
+- **Worker 已就绪，但什么都没运行。** 确认 Worker 和启动命令注册的是同一个 Flow，并且连接的是同一个 **Dex Server**。Dex Web 会列出这个 Flow，并显示正在等待的 Step。
+- **想从头开始。** 停止 **dexcli dev**，删除它的状态目录。所有 Flow 都会被删除。
+
 ## 再运行一个 Dex
 
 在同一台机器上再开一个 **dexcli dev**，它会改用其他空闲端口和独立的状态目录。把它打印出的 **Dex Server** 地址传给 `--server`。
