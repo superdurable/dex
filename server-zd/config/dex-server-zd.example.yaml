@@ -11,6 +11,8 @@ objectStore:
   endpoint: ""
   region: us-east-1
   bucket: ""
+  # Storage account name; set only with provider azureBlob, whose bucket names the container.
+  azureAccount: ""
   prefix: ""
   forcePathStyle: false
   credentialsSource: defaultChain

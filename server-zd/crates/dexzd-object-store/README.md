@@ -20,9 +20,48 @@ File downloads write to a temporary file beside the target and rename after the 
 
 `startup_self_check` verifies create-only and ETag replacement behavior in the configured bucket, then deletes its probe object. Start the server only after it succeeds.
 
+## Azure Blob Storage and Google Cloud Storage
+
+`AzureGcsObjectStore` serves both clouds through the `object_store` crate. Both
+clouds support create-only and compare-and-swap writes natively, so the object
+layout matches S3. Azure uses `If-None-Match: *` and `If-Match: <ETag>`; GCS
+uses `x-goog-if-generation-match` on its XML API.
+
+Callers see one ETag per object version. On Azure it is the quoted ETag. On GCS
+it is the quoted generation, because the GCS ETag is a content hash that an
+identical rewrite keeps. Writes, reads, and listings return the same token. A
+replacement ETag that no read returned fails its condition without a request.
+GCS listings use the JSON API, which reports generations; the XML listing does
+not.
+
+Each store builds two `object_store` clients that share credentials. Reads
+retry up to three attempts. Writes, copies, and deletes never retry inside
+`object_store`, which would otherwise retry 5xx and 429 responses even for
+conditional writes. A connector wrapper exposes the response status that
+`object_store` hides. The store maps HTTP 412 and Azure 409 `BlobAlreadyExists`
+to `PreconditionFailed`, and a replacement of a missing object too. HTTP 429
+means the request did nothing: the store retries it three times, after 1, 2,
+and 4 seconds, then reports `Transient`. A server error, timeout, or dropped
+connection on a write reports `OutcomeUnknown`; only a refused connection is
+`Transient`. Deleting a missing object succeeds.
+
+Bodies and files up to 64 MiB use one request. A larger create-only write
+uploads in parts to `staging/<millis>-<uuid>`, copies it to the key only if the
+key is absent, and deletes the staging object. `delete_abandoned_staging_objects`
+removes staging objects last modified over an hour ago by store time; the server
+calls it at startup. `object_store` has no conditional multipart upload, so a
+replacement by ETag of a file over 64 MiB fails with a permanent error. A
+replacement of an in-memory body of any size uses one request.
+
+Listings check that keys ascend and stay inside the prefix, and fail rather than
+sort a page. Azure listings read a blob named exactly the prefix with a head
+request, because `object_store` drops it from listings.
+
 ## Testing
 
 The shared conformance suite exercises the in-memory implementation and an in-process s3local in strict, process-crash-safe, and relaxed durability modes. It needs no cloud credentials or external service.
+
+Azure Blob Storage and GCS error mapping runs against a scripted local HTTP server in the same suite. The conformance suite runs against real accounts only manually; `tests/conformance/azure_gcs_cloud.rs` documents the command and environment variables. Run it after changing that backend, after upgrading `object_store`, and before a release.
 
 ## db9 SQL provider
 

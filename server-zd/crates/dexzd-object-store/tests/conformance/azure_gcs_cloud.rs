@@ -106,7 +106,10 @@ async fn run_cloud_conformance(provider: AzureGcsProvider) {
             .delete_abandoned_staging_objects()
             .await
             .expect("the staging cleanup succeeds");
-        assert_eq!(deleted, 0, "a fresh prefix has no abandoned staging objects");
+        assert_eq!(
+            deleted, 0,
+            "a fresh prefix has no abandoned staging objects"
+        );
     };
     let checked = AssertUnwindSafe(checks).catch_unwind().await;
     delete_everything(&store).await;

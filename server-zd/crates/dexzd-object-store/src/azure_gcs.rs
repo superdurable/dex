@@ -659,10 +659,7 @@ impl AzureGcsObjectStore {
         let mut page_token: Option<String> = None;
         for _ in 0..MAX_LISTING_PAGES_PER_CALL {
             // startOffset is inclusive; the accumulator drops `start_after` itself.
-            let start_offset = page_token
-                .is_none()
-                .then(|| accumulator.start_after.clone())
-                .flatten();
+            let start_offset = accumulator.start_after.clone();
             let page = listing
                 .list_page(
                     &full_prefix,
