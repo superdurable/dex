@@ -47,7 +47,7 @@
         {"actor": "second", "kind": "step", "text": "cancel_order runs once. The model writes the reply."},
         {"actor": "server", "kind": "done", "text": "The turn completes."}
       ],
-      "summary": "The model call before the stop did not run again. cancel_order ran once.",
+      "summary": "The model call before the stop stayed done, and cancel_order ran once.",
       "replay": "Replay"
     },
     "zh-Hans": {
@@ -63,7 +63,7 @@
         {"actor": "second", "kind": "step", "text": "cancel_order 只运行一次。模型写出回复。"},
         {"actor": "server", "kind": "done", "text": "这一轮完成。"}
       ],
-      "summary": "停止前的模型调用没有再运行，cancel_order 只运行了一次。",
+      "summary": "停止前的模型调用保持已完成，cancel_order 只运行了一次。",
       "replay": "重播"
     }
   }

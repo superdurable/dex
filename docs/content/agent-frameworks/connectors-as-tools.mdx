@@ -12,7 +12,7 @@ An agent can call official [Connector](/concepts/connector) operations as tools.
 
 Every harness can call [Connector](/concepts/connector) operations as tools. `ConnectorToolSource` offers the operations you name. The agent takes it as a tool source, through `tool_sources` in Python and `toolSources` in TypeScript. Each call runs one operation in its own tool Step, through the Connector SDK. So the Call ID, the idempotency key, and credential handling work as they do in a Connector Step. The Call ID is the same on every attempt of the tool Step.
 
-Each harness page shows the wiring in its Connect Connectors section, such as [Built-in agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) and [Claude Agent SDK](/agent-frameworks/connectors-as-tools#connect-connectors). For packages, tool names, result size, and connections, see the [Connector tools reference](/reference/agents/connector-tools).
+[Connect a Connector](#connect-connectors) below shows the wiring for each framework, and the [Built-in agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) shows it without one. For packages, tool names, result size, and connections, see the [Connector tools reference](/reference/agents/connector-tools).
 
 ### Which operations are offered {#connector-tools-offered}
 
@@ -64,8 +64,6 @@ Connector writes of one model response run one at a time, in the model's order. 
 
 When a write fails, ends `outcome_unknown`, or is rejected by a person or by its provider, the later Connector writes of that response do not run. Each records **failed** with its **skipped** field set and an error that starts "the tool did not run, so it is safe to call again". Dex Web shows these calls as skipped.
 
-In the Claude Agent SDK adapter, one call of a model response at a time leaves the turn to run in its tool Step. The adapter refuses a later write of that response inside the turn, so it never runs and leaves no record. The model reads the earlier write's result and then decides whether to call the later write again.
-
 ### Crashes {#connector-tools-crashes}
 
 A Worker crash during a Connector write never sends the write twice. How a write recovers depends on how the Connector can tell whether the provider got it:
@@ -83,28 +81,17 @@ A request to retry later does not prove by itself that nothing was sent. So a si
 
 ## Connect a Connector {#connect-connectors}
 
-The agent can call [Connector](/concepts/connector) operations as tools, as [Connectors as tools](/agent-frameworks/connectors-as-tools#connectors-as-tools) describes. The example adds the Slack tool `slack_post_thread_reply`, which replies in a Slack thread.
+The example adds the Slack tool `slack_post_thread_reply`, which replies in a Slack thread.
 
 ### The Slack tool in the example {#slack-connector-tool}
 
 When the project configuration has the Slack connection **support-slack**, each example agent also gets `slack_post_thread_reply`. This tool is the Slack Connector operation `postThreadReply`, and the agent uses it to reply in a Slack thread. The Worker opens the connection from `DEX_CONNECTOR_CONFIG_FILE` in local development, or from the **DEX_PROJECT_\*** settings when deployed. [Connections](/reference/agents/connector-tools#connector-tools-connection) covers both. [The Slack tool in the examples](/reference/agents/connector-tools#slack-example) covers what happens without the connection and what the Slack app needs.
 
-Each call runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. [Which operations are offered](/agent-frameworks/connectors-as-tools#connector-tools-offered) covers how an operation becomes a tool and how Dex checks its arguments.
+The Connector's manifest decides whether a call can run again. `postThreadReply` is a Mutation that its manifest does not mark retry-safe, so the call runs once, in `CallSingleAttemptTool`. A Worker crash never sends the post twice; see [Crashes](#connector-tools-crashes).
 
-The Connector's manifest decides whether a call can run again. `postThreadReply` is a Mutation that its manifest does not mark retry-safe, so the call runs once, in `CallSingleAttemptTool`. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/connectors-as-tools#connector-tools-crashes).
-
-Slack's manifest lets `postThreadReply` run without approval. So the example passes `requires_approval=True` in Python and **requiresApproval: true** in TypeScript, and every post waits in `AwaitToolApproval` until a person approves it. [Approval](/agent-frameworks/connectors-as-tools#connector-tools-approval) covers how the manifest and the application decide approval.
-
-When one model response asks for several Connector writes, they run one at a time, in order. See [Write order](/agent-frameworks/connectors-as-tools#connector-tools-write-order).
+Slack's manifest lets `postThreadReply` run without approval. So the example passes `requires_approval=True` in Python and **requiresApproval: true** in TypeScript, and every post waits in `AwaitToolApproval` until a person approves it. [Approval](#connector-tools-approval) covers how the manifest and the application decide approval.
 
 ### Offer the tool {#offer-connector-tools}
-
-<FrameworkTabs>
-<FrameworkTab framework="claude-agent-sdk">
-
-In Python, install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. In TypeScript, install `@superdurable/connectors-sdk` and the Connector package, such as `@superdurable/connector-slack`. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
-
-The Worker opens the Slack connection **support-slack** from the project configuration. `connector_tool` in Python and `connectorTool` in TypeScript turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
 
 <SdkTabs
   examples={{
@@ -112,6 +99,10 @@ The Worker opens the Slack connection **support-slack** from the project configu
     typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
   }}>
 <SdkSnippet lang="python">
+
+Install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
+
+The Worker opens the Slack connection **support-slack** from the project configuration. `connector_tool` turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
 
 ```python
 def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
@@ -150,6 +141,10 @@ async def open_slack_project_connection(
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
+
+Install `@superdurable/connectors-sdk` and the Connector package, such as `@superdurable/connector-slack`. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
+
+The Worker opens the Slack connection **support-slack** from the project configuration. `connectorTool` turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
 
 ```typescript
 export async function openSlackConnectionFromProject(
@@ -216,6 +211,9 @@ const slack = await openSlackConnectionFromProject();
 </SdkTabs>
 
 The agent passes the tool source next to its own tools:
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
 
 <SdkTabs
   examples={{
@@ -253,79 +251,6 @@ The agent passes the tool source next to its own tools:
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-Install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
-
-The Worker opens the Slack connection **support-slack** from the project configuration. `connector_tool` turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/slack_connector_tools.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
-    """Returns the Slack tool source, or no source when Slack is not configured."""
-    if connection is None:
-        return []
-    return [
-        ConnectorToolSource([
-            # The manifest does not ask for approval; this agent asks before every post.
-            connector_tool(
-                connection.post_thread_reply(), connection.reference, requires_approval=True
-            ),
-        ]),
-    ]
-
-# ...
-
-async def open_slack_project_connection(
-    environment: Mapping[str, str] = os.environ,
-) -> SlackProjectConnection | None:
-    # ...
-    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
-    try:
-        project = await load_from_environment(environment)
-    except FileNotFoundError:
-        _log_slack_not_set_up("the connector configuration file does not exist")
-        return None
-    # ...
-    try:
-        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
-    except BaseException:
-        await project.close()
-        raise
-    return SlackProjectConnection(project, connection)
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The Worker opens the connection once, at startup, and every agent uses it:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-async def main() -> None:
-    config = AgentHarnessExamplesConfig.from_env()
-    slack_setup = await open_slack_project_connection()
-    try:
-        app_state = AgentHarnessExamplesApp(config, slack_setup.connection if slack_setup else None)
-        # ...
-    finally:
-        if slack_setup is not None:
-            await slack_setup.aclose()
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The agent passes the tool source next to its own tools:
-
 <SdkTabs
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/google_adk_order_support.py',
@@ -346,79 +271,6 @@ The agent passes the tool source next to its own tools:
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
-
-Install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
-
-The Worker opens the Slack connection **support-slack** from the project configuration. `connector_tool` turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/slack_connector_tools.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
-    """Returns the Slack tool source, or no source when Slack is not configured."""
-    if connection is None:
-        return []
-    return [
-        ConnectorToolSource([
-            # The manifest does not ask for approval; this agent asks before every post.
-            connector_tool(
-                connection.post_thread_reply(), connection.reference, requires_approval=True
-            ),
-        ]),
-    ]
-
-# ...
-
-async def open_slack_project_connection(
-    environment: Mapping[str, str] = os.environ,
-) -> SlackProjectConnection | None:
-    # ...
-    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
-    try:
-        project = await load_from_environment(environment)
-    except FileNotFoundError:
-        _log_slack_not_set_up("the connector configuration file does not exist")
-        return None
-    # ...
-    try:
-        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
-    except BaseException:
-        await project.close()
-        raise
-    return SlackProjectConnection(project, connection)
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The Worker opens the connection once, at startup, and every agent uses it:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-async def main() -> None:
-    config = AgentHarnessExamplesConfig.from_env()
-    slack_setup = await open_slack_project_connection()
-    try:
-        app_state = AgentHarnessExamplesApp(config, slack_setup.connection if slack_setup else None)
-        # ...
-    finally:
-        if slack_setup is not None:
-            await slack_setup.aclose()
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The agent passes the tool source next to its own tools:
 
 <SdkTabs
   examples={{
@@ -441,66 +293,6 @@ The agent passes the tool source next to its own tools:
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-Install `@superdurable/connectors-sdk` and the Connector package, such as `@superdurable/connector-slack`. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
-
-The Worker opens the Slack connection **support-slack** from the project configuration. `connectorTool` turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```typescript
-export async function openSlackConnectionFromProject(
-  environment: NodeJS.ProcessEnv = process.env,
-): Promise<Connection | undefined> {
-  // ...
-  const project = await loadFromEnvironment(environment);
-  // ...
-  return newProjectConnection(project, slackConnectionName);
-}
-
-// ...
-
-export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
-  if (slack === undefined) {
-    return [];
-  }
-  return [
-    new ConnectorToolSource([
-      connectorTool(slack.operations.postThreadReply(), slack.reference, {
-        manifest,
-        inputValidator: PostThreadReplyInputSchema,
-        // The manifest does not ask for approval; this agent asks before every post.
-        requiresApproval: true,
-      }),
-    ]),
-  ];
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The Worker opens the connection once, at startup, and every agent uses it:
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/registry.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```typescript
-// One Slack connection for the agent examples; without it they offer no Slack tools.
-const slack = await openSlackConnectionFromProject();
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The agent passes the tool source next to its own tools:
-
 <SdkTabs
   examples={{
     typescript: 'examples/typescript/src/products/agent-harnesses/mastra/mastra-order-support-flow.ts',
@@ -519,121 +311,6 @@ The agent passes the tool source next to its own tools:
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
-
-In Python, install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. In TypeScript, install `@superdurable/connectors-sdk` and the Connector package, such as `@superdurable/connector-slack`. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
-
-The Worker opens the Slack connection **support-slack** from the project configuration. `connector_tool` in Python and `connectorTool` in TypeScript turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/slack_connector_tools.py',
-    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
-    """Returns the Slack tool source, or no source when Slack is not configured."""
-    if connection is None:
-        return []
-    return [
-        ConnectorToolSource([
-            # The manifest does not ask for approval; this agent asks before every post.
-            connector_tool(
-                connection.post_thread_reply(), connection.reference, requires_approval=True
-            ),
-        ]),
-    ]
-
-# ...
-
-async def open_slack_project_connection(
-    environment: Mapping[str, str] = os.environ,
-) -> SlackProjectConnection | None:
-    # ...
-    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
-    try:
-        project = await load_from_environment(environment)
-    except FileNotFoundError:
-        _log_slack_not_set_up("the connector configuration file does not exist")
-        return None
-    # ...
-    try:
-        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
-    except BaseException:
-        await project.close()
-        raise
-    return SlackProjectConnection(project, connection)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-export async function openSlackConnectionFromProject(
-  environment: NodeJS.ProcessEnv = process.env,
-): Promise<Connection | undefined> {
-  // ...
-  const project = await loadFromEnvironment(environment);
-  // ...
-  return newProjectConnection(project, slackConnectionName);
-}
-
-// ...
-
-export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
-  if (slack === undefined) {
-    return [];
-  }
-  return [
-    new ConnectorToolSource([
-      connectorTool(slack.operations.postThreadReply(), slack.reference, {
-        manifest,
-        inputValidator: PostThreadReplyInputSchema,
-        // The manifest does not ask for approval; this agent asks before every post.
-        requiresApproval: true,
-      }),
-    ]),
-  ];
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The Worker opens the connection once, at startup, and every agent uses it:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/__main__.py',
-    typescript: 'examples/typescript/src/registry.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-async def main() -> None:
-    config = AgentHarnessExamplesConfig.from_env()
-    slack_setup = await open_slack_project_connection()
-    try:
-        app_state = AgentHarnessExamplesApp(config, slack_setup.connection if slack_setup else None)
-        # ...
-    finally:
-        if slack_setup is not None:
-            await slack_setup.aclose()
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-// One Slack connection for the agent examples; without it they offer no Slack tools.
-const slack = await openSlackConnectionFromProject();
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The agent passes the tool source next to its own tools:
 
 <SdkTabs
   examples={{
@@ -667,79 +344,6 @@ The agent passes the tool source next to its own tools:
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-Install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
-
-The Worker opens the Slack connection **support-slack** from the project configuration. `connector_tool` turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/slack_connector_tools.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
-    """Returns the Slack tool source, or no source when Slack is not configured."""
-    if connection is None:
-        return []
-    return [
-        ConnectorToolSource([
-            # The manifest does not ask for approval; this agent asks before every post.
-            connector_tool(
-                connection.post_thread_reply(), connection.reference, requires_approval=True
-            ),
-        ]),
-    ]
-
-# ...
-
-async def open_slack_project_connection(
-    environment: Mapping[str, str] = os.environ,
-) -> SlackProjectConnection | None:
-    # ...
-    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
-    try:
-        project = await load_from_environment(environment)
-    except FileNotFoundError:
-        _log_slack_not_set_up("the connector configuration file does not exist")
-        return None
-    # ...
-    try:
-        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
-    except BaseException:
-        await project.close()
-        raise
-    return SlackProjectConnection(project, connection)
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The Worker opens the connection once, at startup, and every agent uses it:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-async def main() -> None:
-    config = AgentHarnessExamplesConfig.from_env()
-    slack_setup = await open_slack_project_connection()
-    try:
-        app_state = AgentHarnessExamplesApp(config, slack_setup.connection if slack_setup else None)
-        # ...
-    finally:
-        if slack_setup is not None:
-            await slack_setup.aclose()
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The agent passes the tool source next to its own tools:
-
 <SdkTabs
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/pydantic_ai_order_support.py',
@@ -760,66 +364,6 @@ The agent passes the tool source next to its own tools:
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
-
-Install `@superdurable/connectors-sdk` and the Connector package, such as `@superdurable/connector-slack`. The install commands are in [Connector tools](/reference/agents/connector-tools#install).
-
-The Worker opens the Slack connection **support-slack** from the project configuration. `connectorTool` turns the operation into a tool, and `ConnectorToolSource` holds it. Without the connection, the agent gets no Slack tool.
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```typescript
-export async function openSlackConnectionFromProject(
-  environment: NodeJS.ProcessEnv = process.env,
-): Promise<Connection | undefined> {
-  // ...
-  const project = await loadFromEnvironment(environment);
-  // ...
-  return newProjectConnection(project, slackConnectionName);
-}
-
-// ...
-
-export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
-  if (slack === undefined) {
-    return [];
-  }
-  return [
-    new ConnectorToolSource([
-      connectorTool(slack.operations.postThreadReply(), slack.reference, {
-        manifest,
-        inputValidator: PostThreadReplyInputSchema,
-        // The manifest does not ask for approval; this agent asks before every post.
-        requiresApproval: true,
-      }),
-    ]),
-  ];
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The Worker opens the connection once, at startup, and every agent uses it:
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/registry.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```typescript
-// One Slack connection for the agent examples; without it they offer no Slack tools.
-const slack = await openSlackConnectionFromProject();
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The agent passes the tool source next to its own tools:
 
 <SdkTabs
   examples={{
@@ -845,54 +389,42 @@ The agent passes the tool source next to its own tools:
 
 ### How a call runs {#connector-tool-calls}
 
+Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it, as [the Slack tool](#slack-connector-tool) explains. Your framework hands the call to that Step this way:
+
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
-
 In the Claude Agent SDK, a Connector tool call never runs inside the CLI, not even a read. Every call ends the segment and runs in its own tool Step, because the Connector needs that Step for its Call ID. The resumed CLI then gets the recorded result. The CLI sees the tool as `mcp__tools__slack_post_thread_reply`; tool policies, approvals, and records use `slack_post_thread_reply`.
 
-A later write of the same reply is refused inside the turn and leaves no record; see [Write order](/agent-frameworks/connectors-as-tools#connector-tools-write-order). Do not list a Connector tool in `allowed_tools` (`allowedTools`): its calls must leave the CLI, so such an entry fails the `RunModel` attempt.
+One call of a model response at a time leaves the turn to run in its tool Step. The adapter refuses a later write of that response inside the turn, so it never runs and leaves no record; the model reads the earlier write's result and then decides whether to call the later write again. Keep Connector tools out of `allowed_tools` (`allowedTools`): their calls must leave the CLI, so such an entry fails the `RunModel` attempt.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
-
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
 
 The adapter adds one `SourceToolset` to the tools of every `LlmAgent` in the agent tree. It offers the Connector tools only inside the runner's `RunModel`. Elsewhere, the agents run unchanged. The agent's `before_tool_callback` chain still sees each call first.
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
-
 `DurableToolCallMiddleware` adds the Connector tools to every model request of a `create_agent` agent, after the agent's own tools. A custom graph binds `get_current_tool_source_tools()` next to its own tools in its model node, and `durable_tool_node` defers their calls like any other. The tool bodies never run inside the graph.
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
-
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
 
 The adapter passes the Connector tools to Mastra as client tools without **execute**. A call never runs inside the model call. Mastra approval settings do not apply to it; the source decides approval. With tool sources, a `toolPolicies` entry never makes a tool one that Mastra runs itself; only `mastraRunToolNames` does.
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
-
 Every agent of the graph offers the Connector tools after its own tools. In Python, the adapter builds a function tool for each tool in the source's cached listing, its `cached_tools()`; `ConnectorToolSource` caches its whole listing. In TypeScript, they are non-strict function tools, and a tool's `needsApproval` and input guardrails do not apply to them. A call never runs inside the SDK; the source decides approval.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
-
 The adapter passes the Connector tools to each run as an `ExternalToolset`. Pydantic AI never runs an external tool, so a Connector tool call ends the run, and the call runs in its tool Step.
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
-
-Each call of `slack_post_thread_reply` runs once, in its own `CallSingleAttemptTool` Step, after a person approves it. [The Slack Connector tool](/agent-frameworks/connectors-as-tools#slack-connector-tool) explains why.
 
 The adapter offers the Connector tools after the agent's tools, as AI SDK tools without **execute**. A call never runs inside the model call. AI SDK `needsApproval` does not apply to it; the source decides approval.
 

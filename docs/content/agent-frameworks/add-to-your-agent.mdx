@@ -289,9 +289,49 @@ A web app splits the same pieces across routes:
 
 The [Order Support Agent](/use-cases/order-support-agent) example has these routes over HTTP, for every framework.
 
-#### What replaces Runner.run in a web handler {#web-handler}
+#### What replaces the framework call in a web handler {#web-handler}
 
-Without Dex, a handler calls the framework, such as `Runner.run`, and waits for the reply. With Dex, the handler queues the message on the session and returns. The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The polling in `ask_agent` above suits scripts and tests. A chat UI reads the stream instead. In Python, this complete app hosts the Worker and the Client and serves every route a chat UI needs: start a session, send a message, read the session, stream its events, and answer an approval. In TypeScript, the [AI Agent](/use-cases/ai-agent) example's chat routes show the same two halves.
+The handler queues the message on the session and returns.
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+This replaces the `query` call that waited for the reply.
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+This replaces the `Runner.run_async` call that waited for the reply.
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+This replaces the `agent.invoke` call that waited for the reply.
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+This replaces the `agent.generate` call that waited for the reply.
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+This replaces the `Runner.run` call that waited for the reply.
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+This replaces the `agent.run` call that waited for the reply.
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+This replaces the `generateText` call that waited for the reply.
+
+</FrameworkTab>
+</FrameworkTabs>
+
+The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The polling in `ask_agent` above suits scripts and tests. A chat UI reads the stream instead. In Python, this complete app hosts the Worker and the Client and serves every route a chat UI needs: start a session, send a message, read the session, stream its events, and answer an approval. In TypeScript, the [AI Agent](/use-cases/ai-agent) example's chat routes show the same two halves.
 
 <SdkTabs
   examples={{
