@@ -22,11 +22,10 @@ import contextlib
 import os
 import subprocess
 import threading
-import time
 from collections.abc import Sequence
 from typing import Any
 
-_STOPPED_POLL_SECONDS = 0.1
+from dex_agents_cli_core.process_exit import wait_until_exited
 
 
 class ChildProcess:
@@ -78,31 +77,10 @@ class ChildProcess:
                 os.killpg(self.pid, signal_number)
 
     def _wait_for_exit(self) -> None:
-        # macOS has waitid only from Python 3.13; before it, asyncio reaps the same way.
-        waitid = getattr(os, "waitid", None)
-        if waitid is None:
-            self._reap_in_thread()
-            return
-        # Read here, not at import: Windows has none of these, and never runs this path.
-        exit_codes = {os.CLD_EXITED, os.CLD_KILLED, os.CLD_DUMPED}
-        while True:
-            try:
-                info = waitid(os.P_PID, self.pid, os.WEXITED | os.WNOWAIT)
-            except ChildProcessError:
-                break
-            except InterruptedError:
-                continue
-            if info is None or info.si_code in exit_codes:
-                break
-            # macOS reports a stopped child here too; wait for the real exit.
-            time.sleep(_STOPPED_POLL_SECONDS)
+        # Never reaps: the event loop reaps, so no signal it sends can reach a reused pid.
+        wait_until_exited(self.pid)
         with contextlib.suppress(RuntimeError):
             self._loop.call_soon_threadsafe(self._reap)
-
-    def _reap_in_thread(self) -> None:
-        returncode = self._wait_status()
-        with contextlib.suppress(RuntimeError):
-            self._loop.call_soon_threadsafe(self._set_exit, returncode)
 
     def _reap(self) -> None:
         self._set_exit(self._wait_status())

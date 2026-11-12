@@ -814,7 +814,9 @@ tool owns every reap of a tool group leader: it spawns the shell with
 without reaping it (`waitid` with `WNOWAIT`, or kqueue on macOS before
 Python 3.13), stops what the shell left in its group, and only then reaps
 it with `waitpid`, under the registry lock that every signal also takes.
-So no signal can reach a reaped leader's reused pid. A core whose tool
+A registration whose run record cannot be written is undone, and that
+shell is killed and reaped at once. So, within a running Worker host, no
+signal reaches a reaped leader's reused pid. A core whose tool
 leaders are reaped elsewhere, such as by an event loop's child watcher,
 must not signal tool groups from its watchdog.
 
@@ -845,3 +847,9 @@ not part of a tool group's identity. The start time is what the system
 reports, such as `ps -o lstart` in the C locale. A record holds the SHA-256
 of the Worker host's command line (UTF-8, as `ps -ww -o command=` prints it),
 never its text, because a command line can carry a secret.
+
+This cleanup is best effort, not a proof of ownership. The start time has
+one-second resolution, and the identity check and the signal are separate
+steps. A pid reused within the same second, or between the check and the
+signal, could still be signaled. Checking right before each signal keeps that
+window small; nothing removes it.

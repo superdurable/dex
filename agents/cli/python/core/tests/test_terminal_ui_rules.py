@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 from collections.abc import Mapping
 from dataclasses import replace
 from importlib import resources
@@ -26,6 +28,8 @@ from jsonschema import Draft202012Validator
 from dex_agents import LocalDirectoryMediaStore
 from dex_agents_cli_core.config import ConnectorsConfig
 from dex_agents_cli_core.environment import CommandEnvironment
+from dex_agents_cli_core.local_tools.shell import run_shell_command
+from dex_agents_cli_core.terminal_ui.child_process import ChildProcess
 from dex_agents_cli_core.terminal_ui.contract import (
     DescribeOutputError,
     IdempotencyKeyError,
@@ -44,6 +48,7 @@ from dex_agents_cli_core.terminal_ui.local_requests import (
     LocalRequestServer,
     RequestOutcome,
 )
+from dex_agents_cli_core.terminal_ui.process_groups import ToolProcessGroupRegistry
 from tests.conftest import FakeConnectorsMcp
 from tests.test_cli_images import png_bytes
 
@@ -501,3 +506,79 @@ async def test_the_browser_opener_answers_within_4_seconds(
     started = loop.time()
     assert await open_in_browser("http://127.0.0.1:1/") is is_opened
     assert loop.time() - started < seconds
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "request", "id": 1, "method": "BAD", "params": {}, "idempotency_key": KEY},
+        {"type": "request", "id": 1, "method": "export_transcript", "params": {}},
+        {"type": "request", "id": 1, "method": "put_image", "params": {"path": "/a.png"}},
+    ],
+    ids=["malformed-method-name", "unknown-method-without-key", "known-method-without-key"],
+)
+async def test_a_malformed_request_with_a_usable_id_gets_invalid_params(
+    message: dict[str, Any],
+) -> None:
+    requests = _Requests()
+    await requests.server.handle_message(message)
+    await requests.settle()
+    (response,) = requests.sent
+    assert response["error"]["code"] == "invalid_params"
+    assert requests.runs == []
+
+
+@pytest.mark.parametrize("has_waitid", [True, False], ids=["waitid", "kqueue"])
+async def test_a_child_is_reaped_only_on_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch, has_waitid: bool
+) -> None:
+    if not has_waitid:
+        if sys.platform != "darwin":
+            pytest.skip("only macOS before Python 3.13 lacks os.waitid")
+        monkeypatch.delattr(os, "waitid", raising=False)
+    elif not hasattr(os, "waitid"):
+        pytest.skip("this Python has no os.waitid")
+    loop = asyncio.get_running_loop()
+    scheduled: list[tuple[Any, tuple[Any, ...]]] = []
+    real_call_soon_threadsafe = loop.call_soon_threadsafe
+    monkeypatch.setattr(
+        loop, "call_soon_threadsafe", lambda callback, *args: scheduled.append((callback, args))
+    )
+    child = ChildProcess.spawn(["/usr/bin/true"], start_new_session=True)
+    for _ in range(200):
+        if scheduled:
+            break
+        await asyncio.sleep(0.01)
+    assert scheduled, "the exit was never reported"
+    # The child exited but is still an unreaped zombie, so its pid is not free for reuse yet.
+    os.kill(child.pid, 0)
+    assert child.returncode is None
+    monkeypatch.setattr(loop, "call_soon_threadsafe", real_call_soon_threadsafe)
+    for callback, args in scheduled:
+        callback(*args)
+    assert await child.wait() == 0
+
+
+async def test_a_failed_registration_leaves_no_group_and_no_unreaped_shell(
+    tmp_path: Path,
+) -> None:
+    registry = ToolProcessGroupRegistry(tmp_path / "run.json", None, None)
+    spawned: list[int] = []
+    register = registry.register
+
+    def failing_register(pid: int) -> None:
+        spawned.append(pid)
+        register(pid)
+
+    def failing_write() -> None:
+        raise OSError("disk full")
+
+    registry.register = failing_register  # type: ignore[method-assign]
+    registry._write_record_locked = failing_write  # type: ignore[method-assign]
+    with pytest.raises(OSError, match="disk full"):
+        await run_shell_command("sleep 30", tmp_path, 5, process_groups=registry)
+    (pid,) = spawned
+    assert not registry.signal_group(pid, 0)
+    # The shell was killed and reaped before the error left the tool.
+    with pytest.raises(ChildProcessError):
+        os.waitpid(pid, os.WNOHANG)  # noqa: ASYNC222 - WNOHANG never blocks

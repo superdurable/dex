@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ NEVER_REMEMBERED_CODES = frozenset(
     {"invalid_params", "unknown_method", "busy", "cancelled", "timeout", "host_stopped"}
 )
 _INVALID_KEY_MESSAGE = "The idempotency key is not a lowercase UUIDv7."
+_METHOD_NAME = re.compile(r"[a-z][a-z0-9_]*")
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -215,6 +217,17 @@ class LocalRequestServer:
                 return
             await self._answer_request_result(request_id, params)
             return
+        # A malformed request is invalid_params even for a method this command lacks.
+        if _METHOD_NAME.fullmatch(method) is None:
+            await self._reject(request_id, "invalid_params", "The method name is malformed.")
+            return
+        if "idempotency_key" not in message:
+            await self._reject(request_id, "invalid_params", "The request has no idempotency_key.")
+            return
+        key = _valid_key(message.get("idempotency_key"))
+        if key is None:
+            await self._reject(request_id, "invalid_params", _INVALID_KEY_MESSAGE)
+            return
         handler = self._handlers.get(method)
         if handler is None:
             await self._reject(
@@ -224,13 +237,6 @@ class LocalRequestServer:
         problem = invalid_params_message(method, params)
         if problem is not None:
             await self._reject(request_id, "invalid_params", problem)
-            return
-        if "idempotency_key" not in message:
-            await self._reject(request_id, "invalid_params", "The request has no idempotency_key.")
-            return
-        key = _valid_key(message.get("idempotency_key"))
-        if key is None:
-            await self._reject(request_id, "invalid_params", _INVALID_KEY_MESSAGE)
             return
         if self._count_waiting() >= MAX_IN_FLIGHT_REQUESTS:
             await self._reject(

@@ -197,7 +197,9 @@ group ID stays reserved; it sends SIGTERM to what the shell left in the
 group, SIGKILL 0.5 s later, and only then reaps the shell and unregisters
 the group, under the registry lock that every signal takes too. So in the
 Worker host a shell command's background processes end with the command,
-and no signal ever reaches a reused group ID. The Worker host
+and, while the Worker host runs, it signals a group only while it holds the
+unreaped leader. A failed registration kills and reaps the shell at once.
+The Worker host
 mirrors the registry in its run record,
 `~/.dex/agents/run/<name>-<pid>.json`, with its own and the launcher's
 identity: start time from `ps`, and a SHA-256 of the command line, never its
@@ -207,7 +209,11 @@ before each signal (SIGTERM, then SIGKILL 2 s later) it checks that the
 process still has the recorded start time and group and leads the group, and
 that a Worker host still has its recorded command line (a shell may replace
 itself with its command, so a tool group's command line may change);
-otherwise it only deletes the record. On Linux, where the kernel kills the
+otherwise it only deletes the record. This cleanup is best effort, not a
+proof of ownership: `ps` reports start times to the second, and the check
+and the signal are separate steps, so a pid reused within the same second,
+or between the check and the signal, could still be signaled. The check
+right before each signal keeps that window small. On Linux, where the kernel kills the
 Worker host with the launcher, this cleanup is what stops its shell groups.
 It prints, for example,
 `Stopped a leftover worker host (pid 4242) and 1 tool process group.`

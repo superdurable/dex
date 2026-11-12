@@ -121,7 +121,12 @@ class ToolProcessGroupRegistry:
         identity = read_process_identity(pid)
         with self._lock:
             self._groups[pid] = identity
-            self._write_record_locked()
+            try:
+                self._write_record_locked()
+            except BaseException:
+                # Registration is all or nothing: a group the record lacks is not registered.
+                del self._groups[pid]
+                raise
 
     def signal_group(self, pid: int, signal_number: int) -> bool:
         """Signal a registered group; ``False`` when its leader was already released.

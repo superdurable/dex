@@ -13,16 +13,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import select
 import signal
 import subprocess
-import sys
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
 from dex_agents import ToolExecutionError
+from dex_agents_cli_core.process_exit import wait_until_exited
 
 #: Seconds a command may run when the agent sets no timeout.
 DEFAULT_SHELL_TIMEOUT_SECONDS = 120
@@ -31,7 +29,6 @@ MAX_SHELL_TIMEOUT_SECONDS = 600
 _MAX_OUTPUT_CHARACTERS = 50_000
 # How long background processes a finished shell left may take to end after SIGTERM.
 _LEFT_BEHIND_GRACE_SECONDS = 0.5
-_STOPPED_POLL_SECONDS = 0.1
 
 
 class ShellProcessGroups(Protocol):
@@ -133,14 +130,18 @@ async def _run_registered_shell_command(
     except OSError as error:
         raise ToolExecutionError(f"cannot start the command: {error.strerror}") from error
     # Synchronous, so no cancellation can come between the spawn and the registration.
-    process_groups.register(process.pid)
+    try:
+        process_groups.register(process.pid)
+    except BaseException:
+        _kill_and_reap(process)
+        raise
     assert process.stdout is not None and process.stderr is not None
     output = asyncio.ensure_future(
         asyncio.gather(
             asyncio.to_thread(process.stdout.read), asyncio.to_thread(process.stderr.read)
         )
     )
-    exited = asyncio.ensure_future(asyncio.to_thread(_wait_until_exited, process.pid))
+    exited = asyncio.ensure_future(asyncio.to_thread(wait_until_exited, process.pid))
     interruption: BaseException | None = None
     try:
         await asyncio.wait_for(asyncio.shield(exited), timeout_seconds)
@@ -164,42 +165,6 @@ async def _run_registered_shell_command(
     return _report(returncode, stdout, stderr)
 
 
-def _wait_until_exited(pid: int) -> None:
-    """Wait until a child exited, without reaping it; a stopped child does not count."""
-    waitid = getattr(os, "waitid", None)
-    if waitid is None:
-        # macOS before Python 3.13 has no waitid; kqueue reports the exit without reaping.
-        _wait_until_exited_with_kqueue(pid)
-        return
-    exit_codes = {os.CLD_EXITED, os.CLD_KILLED, os.CLD_DUMPED}
-    while True:
-        try:
-            info = waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
-        except ChildProcessError:
-            return
-        except InterruptedError:
-            continue
-        if info is None or info.si_code in exit_codes:
-            return
-        time.sleep(_STOPPED_POLL_SECONDS)
-
-
-def _wait_until_exited_with_kqueue(pid: int) -> None:
-    if sys.platform != "darwin":
-        raise RuntimeError("only macOS lacks os.waitid")
-    queue = select.kqueue()
-    try:
-        event = select.kevent(
-            pid, filter=select.KQ_FILTER_PROC, flags=select.KQ_EV_ADD, fflags=select.KQ_NOTE_EXIT
-        )
-        try:
-            queue.control([event], 1, None)
-        except ProcessLookupError:
-            return
-    finally:
-        queue.close()
-
-
 async def _stop_group_left_behind(
     pid: int, output: asyncio.Future[Any], process_groups: ShellProcessGroups
 ) -> None:
@@ -208,6 +173,17 @@ async def _stop_group_left_behind(
     with contextlib.suppress(TimeoutError):
         await asyncio.wait_for(asyncio.shield(output), _LEFT_BEHIND_GRACE_SECONDS)
     process_groups.signal_group(pid, signal.SIGKILL)
+
+
+def _kill_and_reap(process: subprocess.Popen[bytes]) -> None:
+    """Kill and reap a shell whose registration failed; nothing else can signal it."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, signal.SIGKILL)
+    _, status = os.waitpid(process.pid, 0)
+    process.returncode = os.waitstatus_to_exitcode(status)
+    for pipe in (process.stdout, process.stderr):
+        if pipe is not None:
+            pipe.close()
 
 
 def _release(process: subprocess.Popen[bytes], process_groups: ShellProcessGroups) -> int:
