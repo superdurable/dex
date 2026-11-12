@@ -276,11 +276,26 @@ func renderFileChangePreview(preview sessionfeed.FileChangePreview, contentWidth
 		}
 		prefix := theme.Secondary.Render(terminaltheme.PadLeft(number, 5)) + "  " + sign + " "
 		lines = append(lines, prefix+terminaltheme.TruncateToWidth(terminaltheme.ExpandTabs(diffLine.Text), contentWidth-9, theme.Symbols.Ellipsis))
+		if diffLine.IsMissingFinalNewline {
+			lines = append(lines, theme.Secondary.Render(strings.Repeat(" ", 10)+missingNewlineText(diffLine.Kind)))
+		}
 	}
 	if hidden := len(preview.Lines) - len(shown); hidden > 0 {
 		lines = append(lines, theme.Secondary.Render(moreLinesText(hidden, theme.Symbols.Ellipsis)))
 	}
 	return lines
+}
+
+// missingNewlineText says which side of the file ends without a newline.
+func missingNewlineText(kind sessionfeed.DiffLineKind) string {
+	switch kind {
+	case sessionfeed.DiffLineRemoved:
+		return `\ the file now has no newline at its end`
+	case sessionfeed.DiffLineAdded:
+		return `\ no newline at the end after this write`
+	default:
+		return `\ no newline at the end, now and after this write`
+	}
 }
 
 func renderPopupOption(label string, key string, isFocused bool, contentWidth int, theme terminaltheme.Theme) string {

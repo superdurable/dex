@@ -29,7 +29,7 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
     registry
         .register(money_transfer::MoneyTransferFlow::default())?
         .register(order_processing::OrderProcessingFlow::new(
-            MyDependencyService,
+            MyDependencyService::default(),
         ))?
         .register(microservices::OrchestrationFlow::default())?
         .register(deal_dsl::DealDSLFlow::default())?

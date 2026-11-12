@@ -35,9 +35,20 @@ SLACK_CONNECTOR_TOOLS_COPIES = (
 LOCAL_CONNECTIONS_SCHEMA_VERSION = "connectors.dex.dev/local-connections/v1alpha1"
 
 
+# The AI Agent example uses Dex Agents 0.4.0, where the built-in loop is dex_agents.stepwise.
+# The agent harness examples use 0.5.0, which renamed it dex_agents.builtin_loop.
+BUILT_IN_LOOP_IMPORTS = (
+    "from dex_agents.stepwise import ToolSource",
+    "from dex_agents.builtin_loop import ToolSource",
+)
+
+
 def test_the_two_projects_share_one_slack_connector_tools_module() -> None:
-    ai_agent_copy, agent_harnesses_copy = SLACK_CONNECTOR_TOOLS_COPIES
-    assert ai_agent_copy.read_bytes() == agent_harnesses_copy.read_bytes()
+    ai_agent_copy, agent_harnesses_copy = (
+        path.read_text().replace(BUILT_IN_LOOP_IMPORTS[1], BUILT_IN_LOOP_IMPORTS[0])
+        for path in SLACK_CONNECTOR_TOOLS_COPIES
+    )
+    assert ai_agent_copy == agent_harnesses_copy
 
 
 async def test_slack_is_off_without_a_project_configuration() -> None:

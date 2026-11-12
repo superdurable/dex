@@ -40,6 +40,7 @@ from dex_agents_cli_core.local_tools.files import WorkspaceFiles
 from dex_agents_cli_core.local_tools.shell import (
     DEFAULT_SHELL_TIMEOUT_SECONDS,
     MAX_SHELL_TIMEOUT_SECONDS,
+    ShellProcessGroups,
     run_shell_command,
 )
 from dex_agents_cli_core.local_tools.web import fetch_web_page
@@ -250,6 +251,7 @@ class LocalToolSource:
         groups: frozenset[LocalToolGroup],
         resolver: TurnConfigResolver,
         browser: BrowserSessions | None = None,
+        process_groups: ShellProcessGroups | None = None,
     ) -> None:
         """Offer some groups of local tools.
 
@@ -258,12 +260,18 @@ class LocalToolSource:
             groups: The groups this source offers; a harness may replace the others.
             resolver: The turn configuration resolver.
             browser: The browser pages; ``None`` creates them on first use.
+            process_groups: Where shell commands register their process groups, so a
+                Worker host can stop them when it exits; ``None`` registers nothing.
+
+        .. versionchanged:: 0.6.0
+            Added ``process_groups``.
         """
         self._workspace = workspace
         self._files = WorkspaceFiles(workspace)
         self._groups = groups
         self._resolver = resolver
         self._browser = browser or BrowserSessions()
+        self._process_groups = process_groups
         # Until the first model call lists, the file's tools are cached for runners built before it.
         self._last_listing = self._enabled_tools(resolver.file_config)
 
@@ -444,6 +452,7 @@ class LocalToolSource:
                     _text(arguments, "command"),
                     self._workspace,
                     min(timeout or DEFAULT_SHELL_TIMEOUT_SECONDS, MAX_SHELL_TIMEOUT_SECONDS),
+                    process_groups=self._process_groups,
                 )
             case "fetch_web_page":
                 return await fetch_web_page(_text(arguments, "url"))

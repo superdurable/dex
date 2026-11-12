@@ -34,8 +34,6 @@ const approval = new Channel("Approval", stringCodec);
 class ExampleStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
-  public constructor(private readonly flow: StepFlow) {}
-
   public getStepType(): string {
     return "ExampleStep";
   }
@@ -62,7 +60,7 @@ class StepSecond implements Step<number> {
 }
 
 export class StepFlow implements Flow<number> {
-  private readonly example = new ExampleStep(this);
+  private readonly example = new ExampleStep();
   private readonly second = new StepSecond();
 
   public get secondStep(): Step<number> {

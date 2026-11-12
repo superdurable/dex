@@ -101,6 +101,7 @@ import { userOnboardingFlow } from "./products/signup/user-signup-flow.js";
 import { subscriptionFlow } from "./products/subscription/subscription-flow.js";
 import { MyDependencyService } from "./shared/my-dependency-service.js";
 import { openSlackConnectionFromProject } from "./shared/slack-connector-tools.js";
+import { environmentOr } from "./config/env.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 const pollingJobs = new FakeJobService();
@@ -111,7 +112,7 @@ const slack = await openSlackConnectionFromProject();
 const aiAgentConfig = loadAiAgentConfig();
 const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
-const orderDesk = new OrderDesk();
+const orderDesk = new OrderDesk(Number(environmentOr("DEX_ORDER_DESK_TOOL_DELAY_SECONDS", "0")) * 1000);
 // Without the key the Claude Code CLI could fall back to a developer's own login, so skip the harness.
 const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
   ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment(), slack)

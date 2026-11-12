@@ -29,19 +29,24 @@ var keyArgumentNames = []string{"path", "file_path", "command", "url", "query", 
 func liveToolRow(call dexagents.AgentToolCall) sessionfeed.ToolCallChanged {
 	row := sessionfeed.ToolCallChanged{
 		ToolCallID:        call.ToolCallID,
+		TurnID:            call.TurnID,
 		ToolName:          call.ToolName,
 		KeyArgument:       keyArgument(call.Arguments),
 		Status:            toolCallStatus(call),
 		IsOutputTruncated: call.TruncatedOutputBytes != nil && *call.TruncatedOutputBytes > 0,
+		Arguments:         approvalArguments(call.Arguments),
+		ImageCount:        len(call.Images),
 	}
 	switch row.Status {
 	case sessionfeed.ToolCallSucceeded:
 		if call.Output != nil {
 			row.Summary = firstLine(*call.Output)
+			row.OutputText = *call.Output
 		}
 	case sessionfeed.ToolCallFailed, sessionfeed.ToolCallOutcomeUnknown:
 		if call.Error != nil {
 			row.OutputTail, row.HiddenOutputLineCount = headLines(*call.Error, failureTailLines)
+			row.OutputText = *call.Error
 		}
 	case sessionfeed.ToolCallRejected:
 		if call.RejectionMessage != nil {
@@ -87,7 +92,7 @@ func toolCallStatus(call dexagents.AgentToolCall) sessionfeed.ToolCallStatus {
 // historyToolRow converts a stored tool message, which keeps no reliable
 // status.
 func historyToolRow(message dexagents.AgentMessage) sessionfeed.ToolCallChanged {
-	row := sessionfeed.ToolCallChanged{Status: sessionfeed.ToolCallFromHistory}
+	row := sessionfeed.ToolCallChanged{Status: sessionfeed.ToolCallFromHistory, TurnID: message.TurnID, ImageCount: len(message.Images)}
 	if message.ToolCallID != nil {
 		row.ToolCallID = *message.ToolCallID
 	}
@@ -96,9 +101,11 @@ func historyToolRow(message dexagents.AgentMessage) sessionfeed.ToolCallChanged 
 	}
 	if message.ToolArguments != nil {
 		row.KeyArgument = keyArgument(*message.ToolArguments)
+		row.Arguments = approvalArguments(*message.ToolArguments)
 	}
 	if message.ToolOutput != nil {
 		row.Summary = firstLine(*message.ToolOutput)
+		row.OutputText = *message.ToolOutput
 	}
 	return row
 }
@@ -126,6 +133,16 @@ func interruptUpdate(interrupt dexagents.AgentInterrupt, calls []dexagents.Agent
 	if interrupt.Deadline != nil {
 		if deadline, err := time.Parse(time.RFC3339Nano, *interrupt.Deadline); err == nil {
 			approval.Deadline = deadline
+		}
+	}
+	if display := interrupt.Display; display != nil {
+		approval.ScopeLabel, approval.EffectSummary = display.Target, display.Summary
+		if display.Preview != nil {
+			if preview, isDiff := fileChangePreview(*display.Preview); isDiff {
+				approval.Preview = &preview
+			} else {
+				approval.Arguments = append(approval.Arguments, sessionfeed.ApprovalArgument{Name: "preview", Value: *display.Preview})
+			}
 		}
 	}
 	return approval

@@ -35,6 +35,8 @@ type fakeSessions struct {
 	cancelTurn  func() (bool, error)
 	steer       func() (bool, error)
 	cancelCalls int
+	// listMessages answers ListAgentMessages when set.
+	listMessages func(sessionID string, beforeSequence *int64, limit int64) (dexagents.AgentMessagesPage, error)
 }
 
 func (sessions *fakeSessions) SendUserMessage(context.Context, string, dexagents.AgentUserMessage) (bool, error) {
@@ -78,7 +80,10 @@ func (sessions *fakeSessions) GetAgentSnapshot(context.Context, string) (dexagen
 	return sessions.snapshot, nil
 }
 
-func (sessions *fakeSessions) ListAgentMessages(context.Context, string, *int64, int64) (dexagents.AgentMessagesPage, error) {
+func (sessions *fakeSessions) ListAgentMessages(_ context.Context, sessionID string, beforeSequence *int64, limit int64) (dexagents.AgentMessagesPage, error) {
+	if sessions.listMessages != nil {
+		return sessions.listMessages(sessionID, beforeSequence, limit)
+	}
 	return dexagents.AgentMessagesPage{}, nil
 }
 

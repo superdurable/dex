@@ -1,0 +1,80 @@
+==== tool output, ansi width 40 ====
+~~~~ 40x24 ~~~~
+ ␛[1;94mTool output␛[m                  ␛[2m1-22 of 37␛[m
+  ␛[32m✓␛[m run_shell_co…  ␛[2mgo test ./in…    1.5s␛[m
+
+  ␛[1;94mArguments␛[m
+  command  go test ./integ/...
+  cwd      ~/dex-agent-workspace
+
+  ␛[1;94mOutput␛[m
+  === RUN   TestCase01
+  === RUN   TestCase02
+  === RUN   TestCase03
+  === RUN   TestCase04
+  === RUN   TestCase05
+  === RUN   TestCase06
+  === RUN   TestCase07
+  === RUN   TestCase08
+  === RUN   TestCase09
+  === RUN   TestCase10
+  === RUN   TestCase11
+  === RUN   TestCase12
+  === RUN   TestCase13
+  === RUN   TestCase14
+  === RUN   TestCase15
+ ␛[2mj/k scroll · / search · q back␛[m
+
+==== tool output, ansi width 80 ====
+~~~~ 80x24 ~~~~
+ ␛[1;94mTool output␛[m                                                          ␛[2m1-22 of 37␛[m
+  ␛[32m✓␛[m run_shell_command  ␛[2mgo test ./integ/...                        exit 0    1.5s␛[m
+
+  ␛[1;94mArguments␛[m
+  command  go test ./integ/...
+  cwd      ~/dex-agent-workspace
+
+  ␛[1;94mOutput␛[m
+  === RUN   TestCase01
+  === RUN   TestCase02
+  === RUN   TestCase03
+  === RUN   TestCase04
+  === RUN   TestCase05
+  === RUN   TestCase06
+  === RUN   TestCase07
+  === RUN   TestCase08
+  === RUN   TestCase09
+  === RUN   TestCase10
+  === RUN   TestCase11
+  === RUN   TestCase12
+  === RUN   TestCase13
+  === RUN   TestCase14
+  === RUN   TestCase15
+ ␛[2mj/k scroll · / search · q back␛[m
+
+==== history with a match, no_color width 80 ====
+~~~~ 80x24 ~~~~
+ ␛[1mEarlier messages␛[m                                                       ␛[2m1-9 of 9␛[m
+  ␛[2m↑ earlier messages; k at the top reads them␛[m
+
+␛[2m›␛[m question C
+
+  ␛[2m·␛[m read_file         ␛[2mnotes-C.md                                12 lines␛[m
+
+  ␛[7manswer␛[m C
+
+  ␛[2m· the chat continues below; q goes back␛[m
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ␛[2mk at the top reads earlier · n next · N previous · / search · q back␛[m

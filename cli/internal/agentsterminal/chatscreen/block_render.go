@@ -149,7 +149,7 @@ func renderToolRow(call sessionfeed.ToolCallChanged, nameWidth int, width int, c
 		nameWidth = min(max(nameWidth, terminaltheme.DisplayWidth(call.ToolName), minimumToolNameWidth), maximumToolNameWidth)
 	}
 	name := terminaltheme.PadRight(terminaltheme.TruncateToWidth(call.ToolName, nameWidth, theme.Symbols.Ellipsis), nameWidth)
-	columns := newToolRowColumns(call, clock.now)
+	columns := newToolRowColumns(call, clock.now, theme.Symbols.Image)
 	room := width - len(contentIndent) - 2 - nameWidth - 2
 	for room-columns.Width() < minimumToolArgumentWidth {
 		if !columns.DropOne() {
@@ -185,7 +185,7 @@ type toolRowColumns struct {
 	hasDurationColumn bool
 }
 
-func newToolRowColumns(call sessionfeed.ToolCallChanged, now time.Time) toolRowColumns {
+func newToolRowColumns(call sessionfeed.ToolCallChanged, now time.Time, imageSymbol string) toolRowColumns {
 	columns := toolRowColumns{hasSummaryColumn: true, duration: toolDurationText(call, now), hasDurationColumn: true}
 	if note := toolStatusNote(call); note != "" {
 		columns.summary, columns.isNote = note, true
@@ -195,6 +195,9 @@ func newToolRowColumns(call sessionfeed.ToolCallChanged, now time.Time) toolRowC
 		columns.summary = call.Summary
 		if call.IsOutputTruncated {
 			columns.summary += " (truncated)"
+		}
+		if call.ImageCount > 0 {
+			columns.summary = strings.TrimLeft(fmt.Sprintf("%s %s %d", columns.summary, imageSymbol, call.ImageCount), " ")
 		}
 	}
 	return columns
@@ -404,8 +407,10 @@ var helpKeyRows = [][2]string{
 	{"Shift-Enter", "new line (also Alt-Enter, Ctrl-J)"},
 	{"Ctrl-C", "cancel the turn; again to exit"},
 	{"Ctrl-D", "exit (empty input)"},
-	{"Tab", "complete a /command; on empty input, focus waiting approvals and queued messages"},
+	{"Tab", "complete a /command or an /image path; on empty input, focus waiting approvals and queued messages"},
 	{"Up/Down", "recall earlier messages"},
+	{"Ctrl-O", "open the last tool's full output"},
+	{"PgUp/PgDn", "scroll the messages; End follows new ones"},
 	{"F1", "show this help"},
 }
 

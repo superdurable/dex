@@ -32,7 +32,7 @@ pub fn build_router(client: SharedClient, polling_jobs: Arc<FakeJobService>) -> 
         .merge(products::order_processing::controller::mount(
             client.clone(),
             products::order_processing::OrderProcessingFlow::new(
-                crate::shared::MyDependencyService,
+                crate::shared::MyDependencyService::default(),
             ),
         ))
         .merge(products::signup::controller::mount(client.clone()))

@@ -56,6 +56,24 @@ class LocalToolGroup(StrEnum):
     BROWSER = "browser"
 
 
+class TerminalInterface(StrEnum):
+    """Name the chat a harness command shows on a terminal.
+
+    A harness that keeps the plain text chat sets the optional class attribute
+    ``terminal_interface = TerminalInterface.PLAIN``. Without it, ``run`` on a
+    terminal may use the ``dexcli`` terminal UI.
+
+    Attributes:
+        DEXCLI: The ``dexcli`` terminal UI, when it is available and turned on.
+        PLAIN: Always the plain text chat.
+
+    .. versionadded:: 0.6.0
+    """
+
+    DEXCLI = "dexcli"
+    PLAIN = "plain"
+
+
 class AgentHarness(Protocol):
     """Describe one harness command and build its agent session Flow.
 
@@ -71,6 +89,9 @@ class AgentHarness(Protocol):
     configuration file enables and the connectors MCP server lists at
     startup. When that listing fails, the command warns that the run has no
     connector tools and that a restart brings them back.
+
+    A harness that must keep the plain text chat on a terminal sets the
+    optional class attribute ``terminal_interface = TerminalInterface.PLAIN``.
 
     Example:
         >>> class ClaudeHarness:
