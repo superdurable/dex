@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import resource
 import shlex
 import signal
 import subprocess
@@ -311,13 +312,21 @@ async def test_the_output_waits_the_group_cleanup_and_then_one_second(tmp_path: 
 
 
 async def test_pipes_with_high_descriptor_numbers_still_stop_the_group(tmp_path: Path) -> None:
-    # Over 1024 open descriptors, so the pipes get numbers select() cannot take.
-    held = [os.open(os.devnull, os.O_RDONLY) for _ in range(1100)]
+    soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    wanted = 1200
+    if hard_limit != resource.RLIM_INFINITY and hard_limit < wanted:
+        pytest.skip(f"the descriptor limit {hard_limit} is below {wanted}")
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft_limit, wanted), hard_limit))
+    held: list[int] = []
     try:
+        # Over 1024 open descriptors, so the pipes get numbers select() cannot take.
+        for _ in range(1100):
+            held.append(os.open(os.devnull, os.O_RDONLY))
         output = await run_shell_command("sleep 30 & echo $!", tmp_path, 60)
     finally:
         for fd in held:
             os.close(fd)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, hard_limit))
     assert output.startswith("exit code 0\n--- stdout ---\n")
     (pid,) = stdout_lines(output)
     await wait_until_gone(int(pid))
