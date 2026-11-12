@@ -74,14 +74,15 @@ type terminalSignals struct {
 }
 
 func newTerminalSignals(terminal *os.File, onEarlySignal func()) *terminalSignals {
-	return &terminalSignals{
+	handler := &terminalSignals{
 		onEarlySignal: onEarlySignal,
 		isForeground:  func() bool { return isForegroundProcessGroup(terminal) },
-		stopProcess:   stopThisProcess,
 		signals:       make(chan os.Signal, 8),
 		continued:     make(chan struct{}, 1),
 		done:          make(chan struct{}),
 	}
+	handler.stopProcess = handler.stopUntilContinued
+	return handler
 }
 
 // Start begins handling the signals.
@@ -201,9 +202,7 @@ func (handler *terminalSignals) stopBeforeChat() {
 	}
 	defer handler.terminalMode.Unlock()
 	defer handler.isSuspending.Store(false)
-	signal.Reset(syscall.SIGTSTP)
 	handler.stopProcess()
-	signal.Notify(handler.signals, syscall.SIGTSTP)
 }
 
 func (handler *terminalSignals) attachedProgram() terminalProgram {
@@ -219,14 +218,11 @@ type suspendCommand struct {
 	handler *terminalSignals
 }
 
-// Run stops this process with the default SIGTSTP action, signalling only
-// its own pid, then waits for the foreground.
+// Run stops this process, then waits for the foreground.
 func (command *suspendCommand) Run() error {
 	handler := command.handler
 	defer handler.isSuspending.Store(false)
-	signal.Reset(syscall.SIGTSTP)
 	handler.stopProcess()
-	signal.Notify(handler.signals, syscall.SIGTSTP)
 	ticker := time.NewTicker(foregroundPollInterval)
 	defer ticker.Stop()
 	for !handler.isForeground() {
@@ -248,6 +244,24 @@ func (command *suspendCommand) SetStdout(io.Writer) {}
 
 // SetStderr is unused: the command writes nothing.
 func (command *suspendCommand) SetStderr(io.Writer) {}
+
+// stopUntilContinued stops this process with SIGSTOP and returns after
+// SIGCONT. SIGSTOP cannot be caught, so the stop never comes back as another
+// Ctrl-Z.
+func (handler *terminalSignals) stopUntilContinued() {
+	select {
+	case <-handler.continued:
+	default:
+	}
+	if err := unix.Kill(os.Getpid(), unix.SIGSTOP); err != nil {
+		debugLog("stop this process", err)
+		return
+	}
+	select {
+	case <-handler.continued:
+	case <-handler.done:
+	}
+}
 
 // isForegroundProcessGroup compares the terminal's foreground process group
 // with this process's group. A background process may ask this without

@@ -271,7 +271,9 @@ func (stack *realWorkerStack) testHistoryReadsEarlierMessages(t *testing.T) {
 	require.NotContains(t, chat.screen(), "oldest-entry", "the first turn is above the newest page")
 	chat.typeText("/history\r")
 	chat.waitForScreen("Earlier messages")
-	chat.waitForScreen("said: oldest-entry")
+	// The pager redraws only changed cells, so the log may never hold the
+	// whole reply line; the frame does.
+	chat.waitForFrame("oldest-entry")
 	chat.waitForScreen("start of the session")
 	chat.typeText("q")
 	chat.exit()

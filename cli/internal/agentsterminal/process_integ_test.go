@@ -13,6 +13,7 @@ package agentsterminal
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,12 +44,13 @@ func TestDescribeWithAnEmptyEnvironment(t *testing.T) {
 	require.Contains(t, document.Contracts["1"].Modes, launchcontract.ModeChat)
 }
 
-// SIGTSTP releases the terminal (leaves the alternate screen, shows the
-// cursor) and the chat takes it back in the foreground; typing still works.
-// The PTY session leader's process group is orphaned, so the stop itself is
-// discarded here; the PTY e2e covers shell job control.
-func TestSuspendReleasesAndRetakesTheTerminal(t *testing.T) {
+// SIGTSTP under a job-control shell releases the terminal once and stops
+// dexcli; fg retakes the terminal, and typing works. Two rounds check that
+// the second stop works too.
+func TestSuspendUnderAJobControlShell(t *testing.T) {
 	pythonPath, err := exec.LookPath("python3")
+	require.NoError(t, err)
+	bashPath, err := exec.LookPath("bash")
 	require.NoError(t, err)
 	dexcli := buildDexcli(t)
 	stateDirectory := t.TempDir()
@@ -64,9 +66,12 @@ func TestSuspendReleasesAndRetakesTheTerminal(t *testing.T) {
 	require.NoError(t, os.WriteFile(transcriptPath, encoded, 0o600))
 	recordPath := filepath.Join(stateDirectory, "record.jsonl")
 	screenPath := filepath.Join(stateDirectory, "screen.log")
+	// The host appends --channel-fd N, which become the shell's $2 and $3.
 	host := exec.Command(pythonPath, contractHostScript, "launcher",
 		"--transcript", transcriptPath, "--pty", "100x30", "--screen-log", screenPath, "--record", recordPath,
-		"--step-timeout", "60", "--pty-input-from-stdin", raceEnvironmentArgument(filepath.Join(stateDirectory, "race")), "--", dexcli, "agents-tui")
+		"--step-timeout", "60", "--pty-input-from-stdin", raceEnvironmentArgument(filepath.Join(stateDirectory, "race")),
+		"--extra-env=DEXCLI="+dexcli, "--extra-env=PS1=job-shell$ ", "--extra-env=BASH_SILENCE_DEPRECATION_WARNING=1",
+		"--", bashPath, "--norc", "--noprofile", "-i", "-s", "job-shell")
 	host.Env = []string{"HOME=" + stateDirectory, "TERM=xterm-256color", "LANG=en_US.UTF-8", "PATH=" + os.Getenv("PATH")}
 	keys, err := host.StdinPipe()
 	require.NoError(t, err)
@@ -75,44 +80,66 @@ func TestSuspendReleasesAndRetakesTheTerminal(t *testing.T) {
 	require.NoError(t, host.Start())
 	hostDone := make(chan error, 1)
 	go func() { hostDone <- host.Wait() }()
-	require.Eventually(t, func() bool { return countLines(recordPath) >= 3 }, 10*time.Second, 20*time.Millisecond)
-	dexcliPID := childProcessID(t, host.Process.Pid)
-	screenSize := func() int {
-		screen, _ := os.ReadFile(screenPath)
-		return len(screen)
+	screen := func() string {
+		data, _ := os.ReadFile(screenPath)
+		return string(data)
 	}
-	before := screenSize()
-	require.NoError(t, syscall.Kill(dexcliPID, syscall.SIGTSTP))
-	require.Eventually(t, func() bool {
-		screen, _ := os.ReadFile(screenPath)
-		after := string(screen[before:])
-		leave := strings.Index(after, "\x1b[?1049l")
-		released := after[max(leave, 0):]
-		return leave >= 0 && strings.Contains(released, "\x1b[?25h") && strings.Contains(released, "\x1b[?2004l") &&
-			strings.Contains(released, "\x1b[?1002l") && strings.Contains(released, "\x1b[?1049h")
-	}, 10*time.Second, 50*time.Millisecond, "dexcli left the alternate screen, showed the cursor, and came back")
-	_, err = keys.Write([]byte("hello"))
-	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		screen, _ := os.ReadFile(screenPath)
-		return strings.Contains(terminalEscapes.ReplaceAllString(string(screen), ""), "hello")
-	}, 10*time.Second, 50*time.Millisecond, "typing works after the resume")
-	screen, err := os.ReadFile(screenPath)
-	require.NoError(t, err)
-	// A stop signal caught again would release the terminal once more, and
-	// keys typed then would echo in cooked mode.
-	require.Equal(t, 1, strings.Count(string(screen[before:]), "\x1b[?1049l"), "one SIGTSTP releases the terminal once: %q", screen[before:])
-	_, err = keys.Write([]byte("\x15\x04"))
-	require.NoError(t, err)
+	frame := func() string { return strings.Join(terminalFrame(screen(), 100, 30), "\n") }
+	typeKeys := func(text string) {
+		_, err := keys.Write([]byte(text))
+		require.NoError(t, err)
+	}
+	waitForFrame := func(text string) {
+		t.Helper()
+		require.Eventually(t, func() bool { return strings.Contains(frame(), text) }, 20*time.Second, 50*time.Millisecond,
+			"the frame shows %q:\n%s", text, frame())
+	}
+	waitForFrame("job-shell$")
+	typeKeys("\"$DEXCLI\" agents-tui \"$2\" \"$3\"\r")
+	require.Eventually(t, func() bool { return countLines(recordPath) >= 3 }, 20*time.Second, 20*time.Millisecond)
+	waitForFrame("Ctrl-D exit")
+	dexcliPID := childProcessID(t, childProcessID(t, host.Process.Pid))
+	for round := 1; round <= 2; round++ {
+		before := len(screen())
+		require.NoError(t, syscall.Kill(dexcliPID, syscall.SIGTSTP))
+		require.Eventually(t, func() bool { return strings.Contains(processState(t, dexcliPID), "T") }, 20*time.Second, 50*time.Millisecond,
+			"round %d: dexcli is stopped", round)
+		waitForFrame("job-shell$")
+		released := screen()[before:]
+		require.Contains(t, released, "\x1b[?1049l\x1b[?2004l\x1b[?1002l", "round %d: dexcli left the alternate screen, paste, and mouse modes", round)
+		require.NotContains(t, released, "\x1b[?1049h", "round %d: a stopped dexcli draws nothing", round)
+		typeKeys("fg\r")
+		waitForFrame("Ctrl-D exit")
+		typed := fmt.Sprintf("round%d", round)
+		typeKeys(typed)
+		waitForFrame("› " + typed)
+		typeKeys("\x15")
+		waitForFrame("type a message")
+		require.Equal(t, 1, strings.Count(screen()[before:], "\x1b[?1049l"), "round %d: one SIGTSTP releases the terminal once", round)
+		require.Equal(t, 1, strings.Count(screen()[before:], "\x1b[?1049h"), "round %d: fg retakes it once", round)
+	}
+	typeKeys("\x04")
+	waitForFrame("job-shell$")
+	typeKeys("exit\r")
 	select {
 	case err := <-hostDone:
 		requireNoRaceReports(t, filepath.Join(stateDirectory, "race"))
 		require.NoError(t, err, "host stderr: %s", hostStderr.String())
 	case <-time.After(20 * time.Second):
 		require.NoError(t, host.Process.Kill())
-		screen, _ := os.ReadFile(screenPath)
-		t.Fatalf("dexcli did not exit; frame:\n%s\nafter the stop: %q", strings.Join(terminalFrame(string(screen), 100, 30), "\n"), screen[before:])
+		t.Fatalf("the shell did not exit; frame:\n%s", frame())
 	}
+}
+
+// processState returns the ps state letters of pid, such as "T" when
+// stopped.
+func processState(t *testing.T, pid int) string {
+	t.Helper()
+	output, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 // childProcessID returns the one child of parentPID, a process this test
