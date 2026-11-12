@@ -263,7 +263,13 @@ appropriate WorkerService error.
 - empty or duplicate attribute names;
 - empty or duplicate channel names;
 - invalid attribute index types;
-- conflicting index types for one non-empty shared index key.
+- conflicting index types for one non-empty shared index key;
+- a client-only Flow (one that embeds `ClientOnlyFlow`, Go SDK 1.46.0) that
+  declares any Step.
+
+`NewRegistry` records which Flows are client-only. A client-only Flow types the
+RPCs and Streams of a Flow type that Workers of another application serve; its
+RPC methods are never called. `IsClientOnlyFlow` reports the marker.
 
 A definition records whether it is static or a map. Registration uses that
 metadata later to validate locks, channel references, and worker writes. A
@@ -625,7 +631,10 @@ func (worker *Worker) Stop(ctx context.Context) error
 
 `NewWorker` requires the already validated Registry and BlobCache. Passing nil
 for either required dependency panics. It returns option errors before opening
-a connection and retains no duplicate flow, step, RPC, or schema lookup.
+a connection and retains no duplicate flow, step, RPC, or schema lookup. A
+Registry that holds a client-only Flow makes it return `*ClientOnlyFlowError`
+(Go SDK 1.46.0), naming the lexically first such Flow type, before it validates
+options; Clients use that Registry unchanged.
 
 Workers always use pull mode. A nil `WorkerOptions.Pull` uses the default
 capacity, registration, and shutdown settings. There is no local Worker

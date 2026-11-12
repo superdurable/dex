@@ -1,0 +1,508 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dex Agents terminal UI launch document, contract 1",
+  "description": "The first line an agents CLI launcher writes on the terminal UI channel. It tells dexcli agents-tui which mode to run, which Dex server and session to use, and which local requests and capabilities the launcher offers. It never holds a secret: the one secret dex.auth needs arrives in the environment. See TERMINAL_UI_CONTRACT.md.",
+  "$comment": "Patterns end with (?![\\s\\S]) rather than $, because Python's re lets $ match before a trailing newline and ECMAScript does not. Objects allow unknown properties, because receivers ignore fields that a later addition to contract 1 brings. The not schema repeats properties so that Ajv's strictRequired mode accepts it. $defs shared with terminal-ui-channel.schema.json must stay identical.",
+  "type": "object",
+  "required": [
+    "type",
+    "contract",
+    "mode",
+    "command",
+    "dex",
+    "methods",
+    "capabilities",
+    "notices",
+    "log_path"
+  ],
+  "properties": {
+    "type": {
+      "const": "launch"
+    },
+    "contract": {
+      "const": 1,
+      "description": "The contract version the launcher chose from the --describe output."
+    },
+    "mode": {
+      "enum": [
+        "chat",
+        "sessions",
+        "connectors"
+      ],
+      "description": "What the terminal UI shows. form is reserved for a later version."
+    },
+    "command": {
+      "$ref": "#/$defs/command"
+    },
+    "dex": {
+      "$ref": "#/$defs/dex"
+    },
+    "session": {
+      "type": "object",
+      "description": "The session Flow type, and in chat mode the session to show."
+    },
+    "display": {
+      "$ref": "#/$defs/display"
+    },
+    "methods": {
+      "type": "array",
+      "description": "The local requests the launcher serves. The terminal UI hides a feature whose method is missing.",
+      "items": {
+        "$ref": "#/$defs/method_name"
+      },
+      "uniqueItems": true
+    },
+    "capabilities": {
+      "$ref": "#/$defs/capabilities"
+    },
+    "notices": {
+      "type": "array",
+      "description": "Notices to show once the first frame is up, in order.",
+      "items": {
+        "$ref": "#/$defs/notice"
+      }
+    },
+    "log_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The command's log file, for display only, with the home directory written as ~."
+    },
+    "connectors": {
+      "$ref": "#/$defs/connector_list"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "chat"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "required": [
+          "session"
+        ],
+        "properties": {
+          "session": {
+            "$ref": "#/$defs/chat_session"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "sessions"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "required": [
+          "session"
+        ],
+        "properties": {
+          "session": {
+            "$ref": "#/$defs/session_flow_type"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "connectors"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "required": [
+          "connectors"
+        ],
+        "properties": {
+          "connectors": true
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "command": {
+      "type": "object",
+      "required": [
+        "name",
+        "harness",
+        "language",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The executable, such as dex-agents-openai-sdk."
+        },
+        "harness": {
+          "$ref": "#/$defs/harness_name"
+        },
+        "language": {
+          "enum": [
+            "python",
+            "typescript"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The command package's version."
+        }
+      }
+    },
+    "harness_name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*(?![\\s\\S])",
+      "description": "The harness name that starts every session ID of the command, such as openai-sdk."
+    },
+    "dex": {
+      "type": "object",
+      "required": [
+        "server_address",
+        "tls",
+        "auth",
+        "web_url"
+      ],
+      "properties": {
+        "server_address": {
+          "type": "string",
+          "minLength": 1,
+          "description": "host:port of the Dex server's FlowService, as the launcher resolved it."
+        },
+        "tls": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "ca_file",
+            "server_name"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "ca_file": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "A PEM CA bundle path, or null for the system roots."
+            },
+            "server_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The TLS server name to verify, or null for the address host."
+            }
+          }
+        },
+        "auth": {
+          "$ref": "#/$defs/auth"
+        },
+        "web_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The Dex Web base URL, or null when none is known. open_url only opens URLs under it."
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "description": "How dexcli authenticates to the Dex server. The secret itself is in the one environment variable the mode names.",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "bearer",
+            "api_key"
+          ]
+        },
+        "credential": {
+          "not": {},
+          "description": "Never: secrets travel only in the environment."
+        },
+        "api_key": {
+          "not": {}
+        },
+        "token": {
+          "not": {}
+        },
+        "access_token": {
+          "not": {}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "bearer"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "source"
+            ],
+            "properties": {
+              "source": {
+                "enum": [
+                  "env",
+                  "file"
+                ],
+                "description": "env: the token is in DEX_CREDENTIAL. file: the token file's path is in DEX_CREDENTIAL_FILE."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "api_key"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "token_url",
+              "server_id"
+            ],
+            "properties": {
+              "token_url": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The token endpoint that exchanges the key in DEX_API_KEY."
+              },
+              "server_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The server the access token is scoped to."
+              }
+            }
+          }
+        }
+      ]
+    },
+    "chat_session": {
+      "type": "object",
+      "required": [
+        "flow_type",
+        "session_id",
+        "is_resumed"
+      ],
+      "properties": {
+        "flow_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "is_resumed": {
+          "type": "boolean",
+          "description": "true for --resume: the terminal UI loads the history."
+        }
+      }
+    },
+    "session_flow_type": {
+      "type": "object",
+      "required": [
+        "flow_type"
+      ],
+      "properties": {
+        "flow_type": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "display": {
+      "type": "object",
+      "description": "Text the terminal UI shows and never logs. Paths write the home directory as ~.",
+      "properties": {
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "config_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "What the session Flow the Worker host actually built supports. An absent boolean means false.",
+      "properties": {
+        "images": {
+          "type": "object",
+          "description": "Present only when the runner accepts images.",
+          "required": [
+            "max_per_message",
+            "max_bytes"
+          ],
+          "properties": {
+            "max_per_message": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_bytes": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "plan_mode": {
+          "type": "boolean"
+        },
+        "turn_control": {
+          "type": "boolean"
+        }
+      }
+    },
+    "method_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])"
+    },
+    "notice": {
+      "type": "object",
+      "required": [
+        "level",
+        "text"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "connector_list": {
+      "type": "object",
+      "description": "The connector tools the connectors MCP server offers, and the Dex Web connections when the launcher read them.",
+      "required": [
+        "mcp_url",
+        "tools"
+      ],
+      "properties": {
+        "mcp_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "connector",
+              "connection",
+              "operation",
+              "is_enabled"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The tool name the agent sees."
+              },
+              "connector": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "null when the tool carries no Dex identity."
+              },
+              "connection": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "operation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "is_enabled": {
+                "type": "boolean",
+                "description": "Whether connectors.enabled lets the agent use it."
+              }
+            }
+          }
+        },
+        "connections": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "The Dex Web connections, or null or absent when the launcher did not read them.",
+          "items": {
+            "type": "object",
+            "required": [
+              "connector",
+              "connection",
+              "status"
+            ],
+            "properties": {
+              "connector": {
+                "type": "string"
+              },
+              "connection": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

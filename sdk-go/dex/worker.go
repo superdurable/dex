@@ -249,10 +249,14 @@ const (
 // NewWorker constructs a one-shot Worker from shared dependencies.
 //
 // registry supplies definitions and cache hydrates large values. It panics when
-// registry or cache is nil. It validates the FlowService address, FlowServiceTLS,
+// registry or cache is nil. It returns ClientOnlyFlowError, before it opens any
+// connection, when registry holds a Flow that embeds ClientOnlyFlow; see
+// ClientOnlyFlow. It validates the FlowService address, FlowServiceTLS,
 // synchronization timeout, GrpcMaxMessageBytes, and pull options, then creates an
 // outbound FlowService connection without opening task streams. The returned
 // Worker owns that connection; Start or Stop closes it.
+//
+// Changed in 1.46.0: NewWorker returns ClientOnlyFlowError for a client-only Flow.
 func NewWorker(
 	registry *Registry,
 	cache *blobcache.Cache,
@@ -263,6 +267,9 @@ func NewWorker(
 	}
 	if cache == nil {
 		panic("dex.NewWorker requires BlobCache")
+	}
+	if flowType, hasClientOnlyFlow := registry.firstClientOnlyFlowType(); hasClientOnlyFlow {
+		return nil, &ClientOnlyFlowError{FlowType: flowType}
 	}
 	flowServiceAddress, syncTimeout, err := resolveWorkerOptions(options)
 	if err != nil {

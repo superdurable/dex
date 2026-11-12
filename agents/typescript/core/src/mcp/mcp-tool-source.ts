@@ -12,7 +12,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolResultSchema,
@@ -235,6 +235,23 @@ export interface McpToolSourceOptions {
    * @since 0.5.0
    */
   readonly mediaStore?: MediaStore;
+  /**
+   * Writes one warning of the source, such as a server left out of the listing, a tool left out for a duplicate
+   * name, a retried call, or a failed `tasks/cancel`. The source keeps working after each warning. A listing that
+   * keeps failing warns again on each retry, so an application with a terminal can send the warnings to a log file
+   * instead. Defaults to `console.warn`.
+   *
+   * The callback must not throw. If it does, the source catches the error, writes the warning and the error to
+   * `console.warn`, and keeps working, so a full disk does not fail `listTools()` or a tool call.
+   *
+   * ```ts
+   * const source = new McpToolSource(servers, {
+   *   logWarning: (message) => appendFileSync("agent.log", `${message}\n`),
+   * });
+   * ```
+   * @since 0.6.0
+   */
+  readonly logWarning?: (message: string) => void;
 }
 
 /** One server's listing state: the last good tools, the last failure, and a running listing. */
@@ -307,16 +324,28 @@ export class McpToolCallInterruptedError extends Error {
  */
 export class McpToolListingError extends Error {
   /**
+   * The HTTP status a Streamable HTTP server answered to the failed listing, such as 401 or 403 for denied access.
+   * It is `undefined` for a stdio server, or when no HTTP response came, such as for a refused connection or a
+   * timeout.
+   *
+   * @since 0.6.0
+   */
+  public readonly httpStatus: number | undefined;
+
+  /**
    * Creates the error.
    * @param serverName - Configured name of the last MCP server that failed.
    * @param detail - What went wrong with that server.
+   * @param httpStatus - The HTTP status the server answered, when it answered one. Since 0.6.0.
    */
   public constructor(
     public readonly serverName: string,
     public readonly detail: string,
+    httpStatus?: number,
   ) {
     super(`could not list the tools of MCP server ${serverName}: ${detail}`);
     this.name = "McpToolListingError";
+    this.httpStatus = httpStatus;
   }
 }
 
@@ -517,6 +546,7 @@ export class McpToolSource {
     this.connector = new McpConnector(
       { name: options.clientName ?? "dex-agents", version: dexAgentsVersion() },
       this.connectionTimeoutMs,
+      warningLoggerFallingBackToConsole(options.logWarning),
     );
     this.resourceAndPromptTools =
       options.resourceAndPromptToolsEnabled === true && serversByName.size > 0
@@ -1155,7 +1185,7 @@ export class McpToolSource {
       const failure = error instanceof McpToolListingError ? error : new McpToolListingError(server.name, describeError(error));
       listing.failure = failure;
       listing.failedUntilMs = Date.now() + this.listingFailureBackoffMs;
-      console.warn(`left MCP server ${server.name} out of the tool listing: ${failure.message}`);
+      this.connector.logWarning(`left MCP server ${server.name} out of the tool listing: ${failure.message}`);
     }
   }
 
@@ -1165,7 +1195,7 @@ export class McpToolSource {
       for (const tool of this.listings.get(serverName)?.tools ?? []) {
         const existing = tools.get(tool.name);
         if (existing !== undefined) {
-          console.warn(
+          this.connector.logWarning(
             `left MCP tool ${tool.serverName}/${tool.mcpToolName} out: ${existing.serverName}/${existing.mcpToolName} already has the agent tool name ${tool.name}`,
           );
           continue;
@@ -1181,6 +1211,7 @@ export class McpToolSource {
 
   private async listServerTools(server: McpServerConfig): Promise<McpTool[]> {
     let detail = "no listing attempt";
+    let httpStatus: number | undefined;
     for (let listingAttempt = 1; listingAttempt <= this.connectionAttempts; listingAttempt += 1) {
       let connection: McpConnection | undefined;
       try {
@@ -1200,6 +1231,7 @@ export class McpToolSource {
         return listed.map((tool) => mcpToolFromListing(server, tool));
       } catch (error: unknown) {
         detail = describeError(error);
+        httpStatus = streamableHttpStatusOf(error);
       } finally {
         await this.connector.disconnectQuietly(connection);
       }
@@ -1207,7 +1239,7 @@ export class McpToolSource {
         await delay(connectionRetryDelayMs * listingAttempt);
       }
     }
-    throw new McpToolListingError(server.name, detail);
+    throw new McpToolListingError(server.name, detail, httpStatus);
   }
 }
 
@@ -1216,6 +1248,7 @@ class McpConnector {
   public constructor(
     private readonly clientInfo: { readonly name: string; readonly version: string },
     private readonly connectionTimeoutMs: number,
+    public readonly logWarning: (message: string) => void,
   ) {}
 
   public async connect(server: McpServerConfig): Promise<McpConnection> {
@@ -1261,13 +1294,13 @@ class McpConnector {
       }
     } catch (error: unknown) {
       // The server times idle sessions out; the outcome is already known.
-      console.warn(`ending an MCP session failed: ${describeError(error)}`);
+      this.logWarning(`ending an MCP session failed: ${describeError(error)}`);
     }
     try {
       await client.close();
     } catch (error: unknown) {
       // The outcome is already known; a failed close only leaks this one connection.
-      console.warn(`closing an MCP connection failed: ${describeError(error)}`);
+      this.logWarning(`closing an MCP connection failed: ${describeError(error)}`);
     }
   }
 }
@@ -1309,7 +1342,7 @@ class McpToolCall {
         return outcome;
       }
       // Only CallTool retries an attempt, and it may send the call again.
-      console.warn(`calling MCP tool ${this.target.mcpToolName} again: ${outcome.detail}`);
+      this.connector.logWarning(`calling MCP tool ${this.target.mcpToolName} again: ${outcome.detail}`);
     }
     return this.withConnection((connection) => this.sendToolCall(connection));
   }
@@ -1501,7 +1534,7 @@ class McpToolCall {
       return { kind: "failed", message: `MCP task ${taskId} was cancelled${reason}` };
     }
     if (task.status === "input_required") {
-      await cancelTaskQuietly(client, taskId);
+      await cancelTaskQuietly(client, taskId, this.connector.logWarning);
       const detail = task.statusMessage === undefined ? "" : ` (${task.statusMessage})`;
       return {
         kind: "failed",
@@ -1710,12 +1743,44 @@ function taskPollIntervalMs(task: Task): number {
   return Math.min(Math.max(task.pollInterval, minimumTaskPollIntervalMs), maximumTaskPollIntervalMs);
 }
 
-async function cancelTaskQuietly(client: Client, taskId: string): Promise<void> {
+/** Returns the HTTP status of a Streamable HTTP failure in the error or its causes, if any. */
+function streamableHttpStatusOf(error: unknown): number | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    if (current instanceof StreamableHTTPError && current.code !== undefined && current.code > 0) {
+      return current.code;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/** Wraps an application's warning callback so that a throwing callback falls back to `console.warn`. */
+function warningLoggerFallingBackToConsole(
+  logWarning: ((message: string) => void) | undefined,
+): (message: string) => void {
+  if (logWarning === undefined) {
+    return (message) => console.warn(message);
+  }
+  return (message) => {
+    try {
+      logWarning(message);
+    } catch (error: unknown) {
+      console.warn(`${message} (logWarning failed: ${describeError(error)})`);
+    }
+  };
+}
+
+async function cancelTaskQuietly(
+  client: Client,
+  taskId: string,
+  logWarning: (message: string) => void,
+): Promise<void> {
   try {
     await client.experimental.tasks.cancelTask(taskId, { timeout: taskCancelTimeoutMs });
   } catch (error: unknown) {
     // Cancellation is cooperative; the tool's outcome is already reported either way.
-    console.warn(`tasks/cancel for MCP task ${taskId} failed: ${describeError(error)}`);
+    logWarning(`tasks/cancel for MCP task ${taskId} failed: ${describeError(error)}`);
   }
 }
 
