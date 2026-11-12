@@ -14,8 +14,8 @@ Hacker News connector tool when a connection is authorized, then exits and
 resumes the session for one more turn. Every step checks the terminal, the
 workspace, and the mock's request log; the session is then read back from
 the Dex server. A harness whose local writes need no approval by default,
-such as Pi, gets its write tool in ``approval.always``, and its unlisted
-shell command runs at once.
+such as Deep Agents or Pi, gets its write tool in ``approval.always``, and
+its unlisted shell command runs at once.
 """
 
 from __future__ import annotations

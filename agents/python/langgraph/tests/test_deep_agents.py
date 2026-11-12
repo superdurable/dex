@@ -28,6 +28,8 @@ from dex_agents_langgraph import DurableToolCallMiddleware, LangGraphAgentRunner
 from tests.conftest import DEEP_AGENT_WORKER_MODULE, PACKAGE_DIR, ScriptedAgentHarness
 from tests.deep_agents import (
     DEEP_AGENT_FLOW_TYPE,
+    EVICTING_DEEP_AGENT_FLOW_TYPE,
+    EVICTION_TOKEN_LIMIT,
     SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE,
     SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE,
     SOURCE_READ_FILE_DEEP_AGENT_FLOW_TYPE,
@@ -75,6 +77,9 @@ async def test_a_file_written_in_a_turn_is_read_back_after_a_worker_restart(
     assert "buy milk" in answer.split("read_file: ", 1)[1]
     executed = await harness.executed_step_types(restarted_session_id)
     assert executed.count("CallSingleAttemptTool") == 1
+    # Each finished call ran the tool wrappers once, in its tool Step; the replay did not.
+    assert _tool_wrapper_invocations(harness).count("write_file") == 1
+    assert _tool_wrapper_invocations(harness).count("read_file") == 1
     # A session without the restart replays the same conversation.
     uninterrupted_session_id = harness.new_session_id()
     await harness.sessions.start_session(uninterrupted_session_id, FILES_SCRIPT)
@@ -102,12 +107,38 @@ async def test_a_tool_that_returns_a_command_updates_state_for_a_later_tool(
     ]
     assert tool_outputs == ["topic set to durability", "topic is durability"]
     assert harness.tool_invocations() == ["set_topic", "get_topic"]
-    # The deferral comes before the middleware's tool wrapper, which therefore never runs.
-    assert not [
-        name
-        for name in harness.invocations.names()
-        if name.startswith(TOOL_WRAPPER_INVOCATION_PREFIX)
+    # The deferral comes first, so the middleware's tool wrapper runs once, in the tool Step.
+    assert _tool_wrapper_invocations(harness) == ["set_topic", "get_topic"]
+
+
+@pytest.mark.parametrize("deep_agent_flow_type", [EVICTING_DEEP_AGENT_FLOW_TYPE])
+async def test_a_large_tool_result_is_evicted_to_a_file_once_in_its_tool_step(
+    deep_agent_harness: ScriptedAgentHarness,
+) -> None:
+    harness = deep_agent_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    long_text = "durable agents " * (EVICTION_TOKEN_LIMIT * 2)
+    evicted_path = "/large_tool_results/call-1-0-0"
+    await harness.sessions.start_session(
+        session_id,
+        f"call echo_text {json.dumps({'text': long_text})} "
+        f"then call ls {json.dumps({'path': '/large_tool_results'})}",
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    tool_outputs = [
+        message.tool_output or ""
+        for message in snapshot.messages
+        if message.role is MessageRole.TOOL
     ]
+    # FilesystemMiddleware's wrapper replaced the result and wrote it to the agent's files.
+    assert evicted_path in tool_outputs[0]
+    assert long_text not in tool_outputs[0]
+    assert evicted_path in tool_outputs[1]
+    assert harness.tool_invocations() == ["echo_text"]
+    # The listing sees the file, so the recorded state write reached the next model call.
+    assert _tool_wrapper_invocations(harness) == ["echo_text", "ls"]
 
 
 async def test_task_is_neither_offered_nor_run_when_excluded(
@@ -180,6 +211,14 @@ async def test_session_settings_pick_the_model_of_each_turn(
     assert snapshot.messages[-1].text == "get_topic: topic is unset; wait_at_gate: passed model"
     models = [request.model for request in read_recorded_model_requests(harness.state_dir)]
     assert models == [SCRIPTED_REQUEST_MODEL, TURN_MODEL_NAME, TURN_MODEL_NAME, TURN_MODEL_NAME]
+
+
+def _tool_wrapper_invocations(harness: ScriptedAgentHarness) -> list[str]:
+    return [
+        name.removeprefix(TOOL_WRAPPER_INVOCATION_PREFIX)
+        for name in harness.invocations.names()
+        if name.startswith(TOOL_WRAPPER_INVOCATION_PREFIX)
+    ]
 
 
 def _conversation(snapshot: AgentSnapshot) -> list[tuple[MessageRole, str | None]]:
@@ -273,14 +312,15 @@ async def test_two_runners_sharing_one_graph_keep_their_own_middleware_order(
             stack, flows[SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE], "call get_topic {}"
         )
         assert deferred_first.messages[-1].text == "get_topic: topic is unset"
-        assert invocations.count(wrapper_invocation) == 0
+        # The tool Step runs the wrapper once; the replay in RunModel does not.
+        assert invocations.count(wrapper_invocation) == 1
 
         middleware_order = await _run_one_turn(
             stack, flows[SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE], "call get_topic {}"
         )
         assert middleware_order.messages[-1].text == "get_topic: topic is unset"
         # The recorder wraps the deferral, so it sees the call when it defers and when it resumes.
-        assert invocations.count(wrapper_invocation) == 2
+        assert invocations.count(wrapper_invocation) == 1 + 2
 
 
 async def test_state_writes_over_the_state_limit_fail_the_session(tmp_path: Path) -> None:

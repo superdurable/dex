@@ -61,12 +61,18 @@ jobs:
                   then {path: ., language: (split("/")[2]), name: ("cli-" + split("/")[3])}
                   else {path: ., language: (split("/")[1]), name: (split("/")[2])}
                   end)
+            | map(. as $package
+                  | if .language == "typescript"
+                    then ("22", "26") as $node | $package + {node: $node}
+                    else $package + {node: "22"}
+                    end)
+            | map(. + {label: (if .node == "22" then .path else (.path + " (node " + .node + ")") end)})
           ')"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           jq . <<<"$packages"
 
   package:
-    name: ${{ matrix.package.path }}
+    name: ${{ matrix.package.label }}
     needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -88,7 +94,7 @@ jobs:
         if: matrix.package.language == 'typescript' || matrix.package.language == 'go'
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ matrix.package.node }}
       # Pi's grep and find run rg and fd. PI_OFFLINE makes a missing one fail instead of downloading it.
       - name: Install rg and fd for Pi
         if: matrix.package.path == 'agents/cli/typescript/pi'
@@ -134,7 +140,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: agents-${{ matrix.package.language }}-${{ matrix.package.name }}-logs
+          name: agents-${{ matrix.package.language }}-${{ matrix.package.name }}-node${{ matrix.package.node }}-logs
           path: /tmp/pytest-of-*/pytest-*/**/*.log
           if-no-files-found: ignore
 

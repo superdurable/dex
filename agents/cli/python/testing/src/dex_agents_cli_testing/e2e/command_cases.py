@@ -98,6 +98,14 @@ PI_TOOLS = ToolDialect(
     False,
     are_local_writes_approved_by_default=False,
 )
+DEEP_AGENTS_TOOLS = ToolDialect(
+    "read_file",
+    "write_file",
+    "execute",
+    "file_path",
+    True,
+    are_local_writes_approved_by_default=False,
+)
 
 
 @dataclass(frozen=True)
@@ -145,7 +153,7 @@ COMMAND_CASES: tuple[CommandCase, ...] = (
     _python("claude-sdk", CLAUDE_CODE_TOOLS, Provider.ANTHROPIC),
     _python("openai-sdk", CLI_CORE_TOOLS, Provider.OPENAI),
     _python("pydantic-ai", CLI_CORE_TOOLS, Provider.OPENAI),
-    _python("deepagents", CLI_CORE_TOOLS, Provider.OPENAI),
+    _python("deepagents", DEEP_AGENTS_TOOLS, Provider.OPENAI),
     _python("google-adk", CLI_CORE_TOOLS, Provider.GEMINI),
     _typescript("builtin", None, CLI_CORE_TOOLS, Provider.OPENAI),
     _typescript("claude-sdk", "claude-agent-sdk", CLAUDE_CODE_TOOLS, Provider.ANTHROPIC),

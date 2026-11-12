@@ -463,6 +463,14 @@ func TestLocalErrorContracts(t *testing.T) {
 	if (dex.FlowResult{Status: dex.FlowRunning}).IsTerminal() {
 		t.Fatal("running Flow result must not be terminal")
 	}
+
+	var clientOnlyMarker dex.ClientOnlyFlow
+	var clientOnlyError error = &dex.ClientOnlyFlowError{FlowType: "OrderFlow"}
+	var clientOnly *dex.ClientOnlyFlowError
+	if !errors.As(clientOnlyError, &clientOnly) || clientOnly.FlowType != "OrderFlow" ||
+		dex.IsClientOnlyFlow(nil) || clientOnlyMarker != (dex.ClientOnlyFlow{}) {
+		t.Fatal("client-only Flow contracts changed")
+	}
 }
 
 func TestRecoveryErrorInfoRecognizesTimeLimitsAcrossBackendSpellings(t *testing.T) {
