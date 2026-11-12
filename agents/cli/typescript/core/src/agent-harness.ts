@@ -141,6 +141,12 @@ export interface AgentHarness {
   /**
    * Builds the session Flow. The CLI core calls it once at startup and registers the Flow in its Worker and Client.
    *
+   * When the configuration keeps the session summary (`sessions.summary`), the CLI core registers
+   * `withSummaryAttributesIndexed(flow)` instead. That needs a Flow that `createAgentSessionFlow` of 0.6.0 or later
+   * built, directly or through an adapter's factory. For any other Flow, such as a hand-written or wrapped one, the
+   * CLI core logs one line and registers the Flow as it is, so its sessions list without a title, last activity time,
+   * or turn count.
+   *
    * @param context - The configuration, the instructions, the tool sources, and the per-turn resolver.
    * @returns The session Flow, of type {@link HarnessContext.flowType}.
    * @throws Any error, which stops the command with its message.

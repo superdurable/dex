@@ -141,7 +141,7 @@ TURN_SESSION_SETTINGS: Attribute[TurnSessionSettings] = Attribute(
 
 #: The session's title: its first user message with each run of spaces, tabs, and line
 #: breaks made one space, cut to the first 80 Unicode code points. Set by the session's
-#: first turn only, so a session that an earlier release started never has one. Indexed as
+#: first turn only, so a session whose first turn ran without the option never has one. Indexed as
 #: FULL_TEXT under ``text1``. A session Flow declares and writes it only with
 #: ``AgentSessionOptions.summary_attributes_indexed``. See ``list_agent_sessions``.
 #:

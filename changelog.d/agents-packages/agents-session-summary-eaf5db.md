@@ -25,8 +25,8 @@ section: Added
 - Python and TypeScript cores: `list_agent_sessions` / `listAgentSessions`
   reads one page of a session Flow type's sessions, with an optional title
   search, in one `SearchFlows` call, without snapshots and without a Worker.
-  A title search raises `SessionTitleSearchUnavailableError` until a Worker
-  with the option has registered the title index.
+  A title search raises `SessionTitleSearchUnavailableError` while the
+  namespace has not registered `text1`.
   `sort_agent_sessions_by_last_activity` /
   `sortAgentSessionsByLastActivity` sorts loaded sessions, because Dex sorts
   only by start or close time. `build_session_title` / `buildSessionTitle`
@@ -36,11 +36,17 @@ section: Added
   lists without the summary and never matches a title search. An earlier
   session gains the last activity time and the turn count at its next turn on
   a Worker with the option. During a rolling upgrade, turns that an earlier
-  Worker or a Go Worker runs leave the summary as it was. A session that fails
+  Worker or a Go Worker runs leave the summary as it was. An earlier session
+  with no turn yet gains a title at its first turn. Turning the option off
+  stops new writes; the values written before stay. A session that fails
   because its state would exceed the server's limit can keep the values of its
   last turn start.
-- Python and TypeScript CLI cores: the commands' session Flows turn the
-  summary on. `sessions` loads up to five pages of 50 sessions, sorts them by
+- Python and TypeScript CLI cores: a new `sessions.summary` setting, `auto`
+  by default, decides whether the commands' session Flows keep the summary.
+  `auto` keeps it only with `dex.server: auto`, the local `dexcli dev`, and
+  leaves a Dex server URL alone; `on` keeps it with any server; `off` never.
+  A TypeScript harness Flow that `createAgentSessionFlow` did not build runs
+  without the summary, and the command logs one line. `sessions` loads up to five pages of 50 sessions, sorts them by
   last activity, says when more exist, and adds the time of the latest turn,
   the turn count, and the title. The TypeScript line keeps its tab-separated
   ID, status, and start time and appends the three columns, with `—` for a

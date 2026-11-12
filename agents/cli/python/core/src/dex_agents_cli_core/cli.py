@@ -40,6 +40,7 @@ from dex import (
 
 from dex_agents import (
     AgentSessionClient,
+    AgentSessionFlow,
     AgentSessionSummary,
     LocalDirectoryMediaStore,
     MediaStore,
@@ -49,7 +50,12 @@ from dex_agents import (
 )
 from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli_core.chat import Terminal, TerminalChat
-from dex_agents_cli_core.config import AUTO, ConnectorEntry, EffectiveConfig
+from dex_agents_cli_core.config import (
+    AUTO,
+    ConnectorEntry,
+    EffectiveConfig,
+    is_session_summary_indexed,
+)
 from dex_agents_cli_core.config_file import (
     ConfigFileError,
     LoadedConfig,
@@ -336,6 +342,9 @@ async def _run(
         media_store=media_store,
     )
     flow = with_turn_config(harness.create_session_flow(context), resolver)
+    if is_session_summary_indexed(config):
+        options = replace(flow.options, summary_attributes_indexed=True)
+        flow = AgentSessionFlow(flow.runner, flow_type=flow.get_flow_type(), options=options)
     if flow.get_flow_type() != flow_type:
         raise CommandError(f"the harness built Flow type {flow.get_flow_type()}, not {flow_type}")
     registry = Registry([flow], allow_async_handlers=True)

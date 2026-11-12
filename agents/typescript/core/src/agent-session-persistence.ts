@@ -183,7 +183,7 @@ export interface AgentSessionPersistence {
   /**
    * The `AgentSessionTitle` Attribute: the session's first user message with each run of spaces, tabs, and line
    * breaks made one space, cut to the first 80 Unicode code points; see `buildSessionTitle`. Only the session's first
-   * turn sets it, so a session that an earlier release started never has one. Indexed as `FULL_TEXT` under `text1`; see
+   * turn sets it, so a session whose first turn ran without the option never has one. Indexed as `FULL_TEXT` under `text1`; see
    * `listAgentSessions`. A Flow declares and writes it only with `AgentSessionOptions.summaryAttributesIndexed`.
    *
    * @since 0.6.0

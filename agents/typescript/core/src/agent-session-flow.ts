@@ -234,7 +234,8 @@ export interface AgentSessionOptions {
    * be stored in the search index. The Worker registers the index keys `text1` (FULL_TEXT), `datetime1` (DATETIME),
    * and `int1` (INT) when it starts; with PostgreSQL search, startup fails with `FAILED_PRECONDITION` when the
    * namespace already registered one of these keys with another type, or when all three keys of the type are taken
-   * by other names. To enable it on a Flow that a factory built, see {@link withSummaryAttributesIndexed}.
+   * by other names. Turning it off later stops new writes; the values written before stay in the index. To enable it
+   * on a Flow that a factory built, see {@link withSummaryAttributesIndexed}.
    *
    * @since 0.6.0
    */
@@ -598,7 +599,9 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
   flowType: string,
   options: AgentSessionOptions = {},
 ): AgentSessionFlow<Runner> {
-  const config = resolveAgentSessionConfig(runner, flowType, options);
+  // A later change to the caller's object changes neither this Flow nor a rebuild of it.
+  const optionsSnapshot = copyAgentSessionOptions(options);
+  const config = resolveAgentSessionConfig(runner, flowType, optionsSnapshot);
   const persistence = createAgentSessionPersistence(config.eventStreamCapacityBytes);
   const transitions = new AgentSessionTransitions(
     persistence,
@@ -690,7 +693,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     }
 
     public [rebuildWithSummaryAttributesIndexed](): AgentSessionFlow<Runner> {
-      return createAgentSessionFlow(runner, flowType, { ...options, summaryAttributesIndexed: true });
+      return createAgentSessionFlow(runner, flowType, { ...optionsSnapshot, summaryAttributesIndexed: true });
     }
 
     public getSteps(): StepList<AgentSessionStartInput> {
@@ -1043,6 +1046,25 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
   }
 
   return new AgentSessionFlowDefinition();
+}
+
+/** Returns a frozen copy of the options, with their plain nested objects and arrays copied too. */
+function copyAgentSessionOptions(options: AgentSessionOptions): AgentSessionOptions {
+  const toolPolicies = options.toolPolicies;
+  return Object.freeze({
+    ...options,
+    ...(toolPolicies === undefined
+      ? {}
+      : {
+          toolPolicies: Object.freeze(
+            Object.fromEntries(Object.entries(toolPolicies).map(([name, policy]) => [name, Object.freeze({ ...policy })])),
+          ),
+        }),
+    ...(options.builtInTools === undefined ? {} : { builtInTools: Object.freeze([...options.builtInTools]) }),
+    ...(options.tracing === undefined ? {} : { tracing: Object.freeze({ ...options.tracing }) }),
+    ...(options.compaction === undefined ? {} : { compaction: Object.freeze({ ...options.compaction }) }),
+    ...(options.runModelLimit === undefined ? {} : { runModelLimit: Object.freeze({ ...options.runModelLimit }) }),
+  });
 }
 
 function resolveAgentSessionConfig(

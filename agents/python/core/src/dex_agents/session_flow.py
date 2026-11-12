@@ -455,6 +455,8 @@ class AgentSessionOptions:
             PostgreSQL search, startup fails with ``FAILED_PRECONDITION`` when
             the namespace already registered one of these keys with another
             type, or when all three keys of the type are taken by other names.
+            Turning the option off later stops new writes; the values written
+            before stay in the index.
 
             .. versionadded:: 0.6.0
 

@@ -280,6 +280,7 @@ function renderConfigYaml(answers: InitAnswers, harness: AgentHarness): string {
     browser: answers.localTools.has("browser"),
   };
   document.media = { store: "auto" };
+  document.sessions = { summary: "auto" };
   document[harness.configSection] = {};
   const header = [
     `# Configuration of dex-agents-${harness.name}. Regenerate it with: dex-agents-${harness.name} init`,

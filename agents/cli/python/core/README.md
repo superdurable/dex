@@ -109,8 +109,10 @@ continues it. New sessions are named `<name>-YYYYMMDD-HHMMSS-<6 hex digits>`.
 and says when more sessions exist. It prints one per line: the ID, the
 status, the start time, and, when the session has them, the time of its
 latest turn, its turn count, and its title, the first 80 Unicode code points
-of the first message. The command's session Flow turns on
-`summary_attributes_indexed` for this. A session that a release before 0.6.0 started has no title,
+of the first message. `sessions.summary` in the configuration file decides
+whether the session Flow keeps that summary (`summary_attributes_indexed`):
+`auto`, the default, keeps it only with `dex.server: auto`, because a Dex
+server URL may be shared; `on` keeps it with any server; `off` never. A session that a release before 0.6.0 started has no title,
 and has no time or turn count until its next turn:
 
 ```text

@@ -56,7 +56,7 @@ SESSION_TITLE_MAX_CODE_POINTS = 80
 #: .. versionadded:: 0.6.0
 DEFAULT_SESSION_LIST_PAGE_SIZE = 50
 
-# The server's text when a query names an index key no Worker registered.
+# The start of the server's text when a query names an index key the namespace has not registered.
 _UNKNOWN_FIELD_TEXT = "unknown visibility field"
 
 # Only ASCII whitespace, so every core collapses exactly the same characters.
@@ -64,11 +64,11 @@ _TITLE_WHITESPACE = re.compile(r"[ \t\n\r\f\v]+")
 
 
 class SessionTitleSearchUnavailableError(Exception):
-    """The namespace has no session title index, so ``list_agent_sessions`` cannot search titles.
+    """The namespace has not registered ``text1``, so ``list_agent_sessions`` cannot search titles.
 
-    No Worker of a session Flow with ``AgentSessionOptions.summary_attributes_indexed``
-    has started on the server. List without ``title_search``, and filter the loaded
-    sessions by ID instead.
+    A Worker registers the index key when its session Flow sets
+    ``AgentSessionOptions.summary_attributes_indexed``. List without
+    ``title_search``, and filter the loaded sessions by ID instead.
 
     .. versionadded:: 0.6.0
     """
@@ -79,11 +79,13 @@ class AgentSessionSummary:
     """One session of a list page, read from its search entry.
 
     ``title``, ``last_activity_at``, and ``turn_count`` are ``None`` when the
-    session does not have them: its Flow does not set
-    ``AgentSessionOptions.summary_attributes_indexed``, or a release before
-    0.6.0 started it. Such an earlier session has no title. It gains the last
-    activity time and the turn count when a 0.6.0 or later Worker with the
-    option starts or ends one of its turns. Show a missing value as a dash.
+    session does not have them: its Flow did not set
+    ``AgentSessionOptions.summary_attributes_indexed`` when it wrote them, or a
+    release before 0.6.0 started it. Such an earlier session gains the last
+    activity time and the turn count when a Worker with the option starts or
+    ends one of its turns. It gains a title only if that turn is its first one.
+    Turning the option off stops new writes, and the values written before
+    stay. Show a missing value as a dash.
 
     .. versionadded:: 0.6.0
 
@@ -194,9 +196,8 @@ async def list_agent_sessions(
 
     Raises:
         ValueError: If ``page_size`` is negative.
-        SessionTitleSearchUnavailableError: If ``title_search`` is given and no
-            Worker with ``AgentSessionOptions.summary_attributes_indexed`` has
-            registered the title index on the server.
+        SessionTitleSearchUnavailableError: If ``title_search`` is given and the
+            namespace has not registered the index key ``text1``.
         DexServiceError: If Dex rejects the search for another reason.
     """
     query = f"FlowType = {_quote(flow_type)}"
@@ -209,11 +210,11 @@ async def list_agent_sessions(
         if (
             is_title_search
             and error.code.name == "INVALID_ARGUMENT"
-            and _UNKNOWN_FIELD_TEXT in error.detail
+            and f'{_UNKNOWN_FIELD_TEXT} "{_TITLE_INDEX_KEY}"' in error.detail
         ):
             raise SessionTitleSearchUnavailableError(
-                "the server has no session title index; start a Worker whose session Flow "
-                "sets summary_attributes_indexed"
+                f"the namespace has not registered the session title index {_TITLE_INDEX_KEY}; "
+                "a Worker whose session Flow sets summary_attributes_indexed registers it"
             ) from error
         raise
     return AgentSessionSummaryPage(

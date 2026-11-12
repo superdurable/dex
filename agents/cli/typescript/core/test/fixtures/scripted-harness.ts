@@ -41,7 +41,8 @@ import { isLocalToolGroupEnabled, type AgentHarness, type HarnessContext } from 
 export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
 /**
  * Environment variable that selects a harness variant: `shell-replacing` for {@link shellReplacingScriptedHarness},
- * `fixed-tool-set` for {@link fixedToolSetScriptedHarness}, or `without-images` for {@link scriptedHarnessWithoutImages}.
+ * `fixed-tool-set` for {@link fixedToolSetScriptedHarness}, `without-images` for {@link scriptedHarnessWithoutImages},
+ * or `wrapped-flow` for {@link wrappedFlowScriptedHarness}.
  */
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
@@ -76,6 +77,20 @@ export const scriptedHarnessWithoutImages: AgentHarness = {
   ...scriptedHarness,
   flowType: "DexAgentsCliScriptedNoImagesSession",
   createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, [], false),
+};
+
+/**
+ * The scripted harness returning its Flow behind a Proxy that hides how `createAgentSessionFlow` rebuilds it, as a
+ * hand-written or wrapped Flow would.
+ */
+export const wrappedFlowScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  createSessionFlow: (context: HarnessContext) => {
+    const rebuildKey = Symbol.for("@superdurable/dex-agents/rebuildWithSummaryAttributesIndexed");
+    return new Proxy(createScriptedSessionFlow(context, [], true), {
+      get: (target, key) => (key === rebuildKey ? undefined : (Reflect.get(target, key, target) as unknown)),
+    });
+  },
 };
 
 /** The scripted harness declaring that its runner fixes its tools when the Flow is built. */

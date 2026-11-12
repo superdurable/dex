@@ -225,6 +225,8 @@ local_tools:
   browser: true
 media:
   store: auto
+sessions:
+  summary: auto
 claude: {}
 ```
 
@@ -245,6 +247,7 @@ claude: {}
 | **local_tools.browser** | **true** | Drive a local headless browser. |
 | **media.store** | **auto** | Where the session's images are stored. **auto** is **~/.dex/agents/media** on this machine. **s3://BUCKET** or **s3://BUCKET/PREFIX** is an S3 bucket. See [Images](#images). |
 | **media.endpoint** | None, which means AWS S3 | The http or https URL of an S3-compatible service, such as **http://127.0.0.1:9000**. Valid only with an **s3://** store. |
+| **sessions.summary** | **auto** | Since 0.6.0. Whether each session keeps the indexed title, last activity time, and turn count that **sessions** shows. **auto** keeps it with **dex.server: auto** only, and leaves a Dex server URL alone, because that server may be shared. **on** keeps it with any server, and **off** never. See [List sessions](/reference/agents/approvals#list-sessions) for what it stores and the index keys it registers. |
 | **claude**, **openai**, **pydantic_ai**, **deepagents**, **google_adk**, **vercel_ai**, **mastra**, **pi**, **builtin** | Empty | The options of one harness. Each command reads only its own section. |
 
 Other keys are errors, and **null** is never valid: omit a field to take its
@@ -297,7 +300,8 @@ Web can edit its settings.
 
 Other top-level keys are ignored, so other readers can keep their own keys in
 the settings. This includes **dex**, **workspace**, **system_prompt_file**,
-**media**, and the harness sections, which belong to the file only. The
+**media**, **sessions**, and the harness sections, which belong to the file
+only. The
 command prints each ignored key as a warning, and the turn still runs. Inside
 a known field, an unknown key is an error, so **connectors.mcp** fails.
 
@@ -338,10 +342,12 @@ dex-agents-claude-sdk --resume SESSION_ID
 activity. When more sessions exist, it says so. Each line has the session ID,
 the status, and the start time. Since 0.6.0 it also has the time of the latest
 turn, the turn count, and the title, the first 80 Unicode code points of the
-first message. The commands turn on the indexed session summary for this; see
-[List sessions](/reference/agents/approvals#list-sessions).
-A session that an earlier release started has no title, and has no time or
-turn count until its next turn. The Python commands leave out a missing part,
+first message, when **sessions.summary** keeps the session summary: by
+default with **dex.server: auto** only. See
+[List sessions](/reference/agents/approvals#list-sessions). A session without
+the summary, such as one that an earlier release started, lists without these
+parts. An earlier session gains the time and the turn count at its next turn,
+and a title only if that turn is its first. The Python commands leave out a missing part,
 and the TypeScript commands print tab-separated columns with a dash for it:
 
 ```text

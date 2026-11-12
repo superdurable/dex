@@ -24,7 +24,7 @@ export const sessionTitleMaxCodePoints = 80;
  */
 export const defaultSessionListPageSize = 50;
 
-// gRPC INVALID_ARGUMENT, and the server's text when a query names an index key no Worker registered.
+// gRPC INVALID_ARGUMENT, and the start of the server's text when a query names an unregistered index key.
 const invalidArgumentCode = 3;
 const unknownFieldText = "unknown visibility field";
 
@@ -32,17 +32,17 @@ const unknownFieldText = "unknown visibility field";
 const titleWhitespace = /[ \t\n\r\f\v]+/g;
 
 /**
- * The namespace has no session title index, so {@link listAgentSessions} cannot search titles.
+ * The namespace has not registered `text1`, so {@link listAgentSessions} cannot search titles.
  *
- * No Worker of a session Flow with `summaryAttributesIndexed` has started on the server. List without `titleSearch`,
- * and filter the loaded sessions by ID instead.
+ * A Worker registers the index key when its session Flow sets `summaryAttributesIndexed`. List without
+ * `titleSearch`, and filter the loaded sessions by ID instead.
  *
  * @since 0.6.0
  */
 export class SessionTitleSearchUnavailableError extends Error {
   public constructor(options?: ErrorOptions) {
     super(
-      "the server has no session title index; start a Worker whose session Flow sets summaryAttributesIndexed",
+      "the namespace has not registered the session title index text1; a Worker whose session Flow sets summaryAttributesIndexed registers it",
       options,
     );
     this.name = "SessionTitleSearchUnavailableError";
@@ -52,10 +52,11 @@ export class SessionTitleSearchUnavailableError extends Error {
 /**
  * One session of a {@link listAgentSessions} page, read from its search entry.
  *
- * `title`, `lastActivityAt`, and `turnCount` are `null` when the session does not have them: its Flow does not set
- * `summaryAttributesIndexed`, or a release before 0.6.0 started it. Such an earlier session has no title. It gains the
- * last activity time and the turn count when a 0.6.0 or later Worker with the option starts or ends one of its turns.
- * Show a missing value as a dash.
+ * `title`, `lastActivityAt`, and `turnCount` are `null` when the session does not have them: its Flow did not set
+ * `summaryAttributesIndexed` when it wrote them, or a release before 0.6.0 started it. Such an earlier session gains
+ * the last activity time and the turn count when a Worker with the option starts or ends one of its turns. It gains a
+ * title only if that turn is its first one. Turning the option off stops new writes, and the values written before
+ * stay. Show a missing value as a dash.
  *
  * @since 0.6.0
  */
@@ -154,8 +155,8 @@ export function buildSessionTitle(firstMessageText: string): string | null {
  * @param options - The page size, page token, and title search.
  * @returns The page of sessions.
  * @throws {RangeError} When `pageSize` is negative.
- * @throws {SessionTitleSearchUnavailableError} When `titleSearch` is given and no Worker with
- * `summaryAttributesIndexed` has registered the title index on the server.
+ * @throws {SessionTitleSearchUnavailableError} When `titleSearch` is given and the namespace has not registered the
+ * index key `text1`.
  * @throws {DexServiceError} When Dex rejects the search for another reason.
  * @since 0.6.0
  */
@@ -178,7 +179,7 @@ export async function listAgentSessions(
       isTitleSearch &&
       error instanceof DexServiceError &&
       error.code === invalidArgumentCode &&
-      error.detail.includes(unknownFieldText)
+      error.detail.includes(`${unknownFieldText} "${sessionSummaryIndexKeys.title}"`)
     ) {
       throw new SessionTitleSearchUnavailableError({ cause: error });
     }

@@ -37,6 +37,7 @@ import {
   ConfigError,
   canonicalOperationName,
   isCoveredByConnectorEntry,
+  isSessionSummaryIndexed,
   type EffectiveConfig,
   type MediaConfig,
 } from "./cli-config.js";
@@ -328,8 +329,7 @@ class AgentCliCommand {
       currentTurn: () => turns.currentTurn(),
       resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
     };
-    // The command's sessions keep the indexed summary that the sessions subcommand shows.
-    const flow = withSummaryAttributesIndexed(this.harness.createSessionFlow(context));
+    const flow = this.withSessionSummary(this.harness.createSessionFlow(context), effective);
     if (flow.getFlowType() !== flowType) {
       throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
     }
@@ -658,6 +658,26 @@ class AgentCliCommand {
     }
     this.io.stdout.write(`Resume one with: dex-agents-${this.harness.name} --resume <session>\n`);
     return 0;
+  }
+
+  /** Returns the Flow with the indexed session summary when the configuration keeps it. */
+  private withSessionSummary<Flow extends AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>>(
+    flow: Flow,
+    effective: EffectiveConfig,
+  ): Flow {
+    if (!isSessionSummaryIndexed(effective)) {
+      return flow;
+    }
+    try {
+      return withSummaryAttributesIndexed(flow) as Flow;
+    } catch (error: unknown) {
+      // A harness may build its Flow without createAgentSessionFlow; its sessions then list without a summary.
+      if (!(error instanceof TypeError)) {
+        throw error;
+      }
+      this.log(`The session summary is off: ${error.message}.`);
+      return flow;
+    }
   }
 
   private prepareWorkspace(effective: EffectiveConfig, loaded: LoadedConfig): string {

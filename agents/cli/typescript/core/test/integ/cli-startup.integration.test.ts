@@ -18,6 +18,7 @@ import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurabl
 
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
 import { CliProcess, SessionClients, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
+import { wrappedFlowScriptedHarness } from "../fixtures/scripted-harness.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { PseudoTerminalCliProcess } from "../fixtures/pseudo-terminal-cli-process.js";
 import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
@@ -94,6 +95,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       workspace: "~/dex-agent-workspace",
       local_tools: { files: true, shell: { enabled: true, allow: [] }, web_fetch: false, browser: false },
       media: { store: "auto" },
+      sessions: { summary: "auto" },
       builtin: {},
     });
     stdin.write("model\n");
@@ -303,6 +305,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       workspace: "~/dex-agent-workspace",
       local_tools: { files: true, shell: { enabled: true, allow: [] }, web_fetch: true, browser: true },
       media: { store: "auto" },
+      sessions: { summary: "auto" },
       builtin: {},
     });
     cli.writeLine("/exit");
@@ -470,6 +473,57 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.equal(await list.waitForExit(), 0);
     const time = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
     assert.match(list.stdout.all, new RegExp(`^${sessionId}\\trunning\\t${time}\\t${time}\\t1\\thello the list$`, "m"));
+  });
+
+  for (const [name, server, summary, isIndexed] of [
+    ["auto with dex.server auto keeps the summary", "auto", undefined, true],
+    ["auto with a Dex server URL leaves it off", "url", undefined, false],
+    ["on keeps it with a Dex server URL", "url", "on", true],
+    ["off leaves it off with dex.server auto", "auto", "off", false],
+  ] as const) {
+    test(`sessions.summary: ${name}`, async () => {
+      const home = new TestHome(enginePorts(engine));
+      const lines = ["connectors: {enabled: []}", "local_tools: {browser: false}"];
+      if (server === "url") {
+        lines.push(`dex: {server: "http://${engine.serverAddress}"}`);
+      }
+      if (summary !== undefined) {
+        lines.push(`sessions: {summary: ${summary}}`);
+      }
+      home.writeConfig(`${lines.join("\n")}\n`);
+      const chat = start(home);
+      const sessionId = await chat.waitForSession();
+      chat.writeLine("summary check");
+      await chat.stdout.waitFor("echo: summary check");
+      chat.writeLine("/exit");
+      assert.equal(await chat.waitForExit(), 0);
+
+      const list = start(home, ["sessions"]);
+      assert.equal(await list.waitForExit(), 0);
+      const line = list.stdout.all.split("\n").find((candidate) => candidate.startsWith(`${sessionId}\t`));
+      assert.ok(line !== undefined, list.stdout.all);
+      if (isIndexed) {
+        assert.match(line, /\t1\tsummary check$/);
+      } else {
+        assert.match(line, /\t—\t—\t—$/);
+      }
+    });
+  }
+
+  test("a harness Flow without the rebuild hook runs without the summary", async () => {
+    const home = new TestHome(enginePorts(engine), wrappedFlowScriptedHarness);
+    home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+    const chat = start(home);
+    const sessionId = await chat.waitForSession();
+    chat.writeLine("still works");
+    await chat.stdout.waitFor("echo: still works");
+    chat.writeLine("/exit");
+    assert.equal(await chat.waitForExit(), 0);
+    assert.equal(chat.stderr.all.split("\n").filter((line) => line.startsWith("The session summary is off:")).length, 1);
+
+    const list = start(home, ["sessions"]);
+    assert.equal(await list.waitForExit(), 0);
+    assert.match(list.stdout.all, new RegExp(`^${sessionId}\\trunning\\t[^\\t]+\\t—\\t—\\t—$`, "m"));
   });
 
   test("the sessions subcommand sorts several pages and says when more exist", async () => {

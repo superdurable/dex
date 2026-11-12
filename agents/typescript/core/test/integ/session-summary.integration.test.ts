@@ -18,6 +18,7 @@ import type { Client } from "@superdurable/dex";
 
 import {
   SessionTitleSearchUnavailableError,
+  createAgentSessionFlow,
   listAgentSessions,
   sortAgentSessionsByLastActivity,
   withSummaryAttributesIndexed,
@@ -215,6 +216,26 @@ describe("session summaries without summaryAttributesIndexed", () => {
   after(async () => {
     await environment?.close();
     await engine?.stop();
+  });
+
+  test("withSummaryAttributesIndexed rebuilds from the options the Flow was created with", () => {
+    const options: { messageWindowSize: number; toolPolicies: Record<string, { effect: "read" }> } = {
+      messageWindowSize: 64,
+      toolPolicies: { lookup: { effect: "read" } },
+    };
+    const original = createAgentSessionFlow(flow.runner, "SnapshotAgent", options);
+    options.messageWindowSize = 128;
+    options.toolPolicies["write"] = { effect: "read" };
+
+    const rebuilt = withSummaryAttributesIndexed(original);
+    assert.equal(original.options.messageWindowSize, 64);
+    assert.equal(rebuilt.options.messageWindowSize, 64);
+    assert.deepEqual(Object.keys(rebuilt.options.toolPolicies), ["lookup"]);
+    assert.equal(rebuilt.options.summaryAttributesIndexed, true);
+    assert.equal(rebuilt.getFlowType(), "SnapshotAgent");
+    assert.equal(rebuilt.runner, original.runner);
+    const names = (rebuilt.getPersistenceSchema?.()?.attributes ?? []).map((definition) => definition.name);
+    assert.ok(names.includes("AgentSessionTitle"));
   });
 
   test("sessions list without a summary, and a title search says it is unavailable", async () => {
