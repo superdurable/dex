@@ -356,23 +356,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          TYPESCRIPT_TAG: ${{ needs.plan.outputs.typescript_tag }}
         run: |
           title="Publish TypeScript SDK ${RELEASE_VERSION}"
+          list_matching_run_ids() {
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow sdk-typescript-publish.yml \
+              --event workflow_dispatch \
+              --commit "${GITHUB_SHA}" \
+              --limit 50 \
+              --json databaseId,displayTitle |
+              jq -c --arg title "${title}" '[.[] | select(.displayTitle == $title) | .databaseId]'
+          }
+          # Earlier runs with the same title, such as dry runs of this commit, are never the new run.
+          existing_run_ids="$(list_matching_run_ids)"
+          # On the new tag, the publisher tests and builds the released commit even if main moves on.
           gh workflow run sdk-typescript-publish.yml \
             --repo "${GITHUB_REPOSITORY}" \
-            --ref main \
+            --ref "${TYPESCRIPT_TAG}" \
             -f "version=${RELEASE_VERSION}"
           for _ in {1..30}; do
-            run_id="$({
-              gh run list \
-                --repo "${GITHUB_REPOSITORY}" \
-                --workflow sdk-typescript-publish.yml \
-                --event workflow_dispatch \
-                --branch main \
-                --limit 20 \
-                --json databaseId,displayTitle
-            } | jq -r --arg title "${title}" \
-              '.[] | select(.displayTitle == $title) | .databaseId' | head -n 1)"
+            run_id="$(list_matching_run_ids | jq -r --argjson existing "${existing_run_ids}" \
+              '.[] | select(. as $id | $existing | index($id) | not)' | head -n 1)"
             if [[ -n "${run_id}" ]]; then
               echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
               exit 0
