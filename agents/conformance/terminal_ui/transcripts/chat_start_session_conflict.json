@@ -2,7 +2,6 @@
   "name": "chat_start_session_conflict",
   "description": "The derived ID belongs to a Flow that fails the DescribeFlow check.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -69,7 +68,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {

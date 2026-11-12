@@ -2,7 +2,6 @@
   "name": "chat_start_session_unknown_then_resent",
   "description": "The Worker host restarted and forgot the key, so get_request_result answers unknown; resending the same key yields the session ID derived from it.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -69,7 +68,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {

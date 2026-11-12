@@ -185,7 +185,7 @@ right after the spawn. It holds no secret.
 | `display` | Text to show and never log. Paths write the home directory as `~`. All optional. |
 | `methods` | The local requests the launcher side serves. |
 | `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. An absent boolean is `false`. |
-| `notices` | Notices to show once the first frame is up. |
+| `notices` | Notices to show once the first frame is up. It may be, and usually is, empty: the launcher prints startup notices on the terminal before the handoff, so they stay in the scrollback above the terminal UI. |
 | `log_path` | The command's log file, for display. |
 | `connectors` | connectors mode: the rows, in the shape of `list_connectors`'s result. |
 
@@ -264,6 +264,11 @@ retries, and a slow server never causes a fallback.
   line. The launch line fails the launch checks above. Any later protocol
   error ends the contract: the receiver closes the channel. `dexcli` then
   restores the terminal and exits 1.
+- A message of a known `type` that fails its definition is malformed, not a
+  protocol error, and the channel stays open. A malformed `request` whose
+  `id` is an integer from 1 to 2^53−1 gets an `invalid_params` response with
+  that `id`, and that `id` counts as used. Any other malformed message,
+  including a `request` without such an `id`, is dropped without an answer.
 - A sender whose peer already closed sees `EPIPE`; that is the end of the
   contract, not a crash.
 
@@ -293,6 +298,13 @@ errors use this one shape.
 128 plus the signal number when a signal killed it. After `stopped` the chat
 stays open but cannot run turns; the launcher prints how to resume after the
 user exits.
+
+A launcher must send `stopped` when the Worker host exits, and should send
+`stopping` when it starts to shut the host down. `reconnecting` and `ready`
+are optional: a launcher sends them only when its Worker host can tell that
+its Worker lost or regained the Dex server. Until the first `worker` message
+the terminal UI treats the Worker as running, and it never waits for
+`ready`.
 
 `result` is sent at most once, right before `dexcli` closes the channel and
 exits 0. The launcher acts on it only when it read a complete `result` and the
@@ -335,8 +347,13 @@ Every request gets exactly one response.
   for it when the first request still runs. A remembered key with a different
   method or different `params` gets `invalid_params`. A forgotten key is
   handled afresh, which is safe for every contract 1 method.
-- Rejections (`invalid_params`, `unknown_method`, `busy`) are not remembered,
-  so a retry is handled afresh.
+- Only an outcome of the method itself is remembered: its result or one of
+  its own errors. The launcher side never remembers `invalid_params`,
+  `unknown_method`, `busy`, `cancelled`, `timeout`, or `host_stopped`. The
+  first three are rejections; the last three end a wait, not the operation.
+  A retry after any of them is handled afresh, and `get_request_result`
+  answers `unknown` or `running` for its key, never `done` with one of these
+  codes.
 - The table is a convenience. `put_image` and `start_session` stay safe
   without it, because the image is content-addressed and the Dex server
   remembers which key started each session (see `start_session`).
@@ -409,7 +426,7 @@ silently.
 | `put_image` | Worker host | `{path}`, absolute | `{image, name}` | `not_found`, `too_large`, `not_an_image`, `store_failed` |
 | `start_session` | Worker host | `{}` | `{session_id}` | `start_failed`, `id_conflict` |
 | `list_connectors` | Worker host (chat), launcher (connectors) | `{}` | `{mcp_url, tools, connections?}` | `mcp_unavailable` |
-| `open_url` | launcher | `{url}` | `{}` | `refused` |
+| `open_url` | launcher | `{url}` | `{}` | `refused`, `browser_off`, `open_failed` |
 | `get_request_result` | the side that served the key | `{idempotency_key}` | `{state, result?, error?}` | none of its own |
 
 Common errors of every method: `unknown_method`, `invalid_params`, `timeout`,
@@ -511,7 +528,12 @@ or `null` or absent when the launcher did not read them.
 The check covers the URL it is given. Where a Dex Web page sends the browser
 next is up to Dex Web.
 
-Running it twice is harmless.
+A URL that passes these checks is opened, and the result is `{}`. When the
+command's browser opening is turned off (`DEX_AGENTS_OPEN_BROWSER=0`), the
+launcher opens nothing and answers `browser_off`. When it tried and no
+browser opened, for example because the system has no opener, it answers
+`open_failed`. `refused` is checked first, so a URL outside `web_url` is
+`refused` even while browser opening is off. Running it twice is harmless.
 
 **`get_request_result`** reads the outcome remembered for a key. `done` holds
 exactly one of `result` or `error`, as the original response would. `running`
@@ -590,6 +612,7 @@ direction:
 | Step | Meaning |
 | --- | --- |
 | `{"from", "message", "ignore"?}` | One message. `ignore` lists dotted paths that the receiving side does not compare. |
+| `{"from", "message", "malformed": true}` | A message that fails its definition on purpose; see [Framing](#framing). |
 | `{"from", "raw_line", "pad_to_bytes"?}` | Raw text, padded with spaces to `pad_to_bytes`. Over 1 MiB, the receiver must see a too-long line. |
 | `{"from", "silence_ms"}` | `from` sends nothing for that long. |
 | `{"close": role}` | That side closes the channel; the other reads EOF. |
@@ -598,17 +621,41 @@ direction:
 `tui_exit` is `dexcli`'s exit code, or `"terminated"` when the launcher stops it
 with SIGTERM. `terminal_ui_environment` is the environment `dexcli` sees, for
 the launch checks. `real_roles` names the sides a real implementation can
-play in that transcript. `tui` means a real `dexcli` reproduces it against the
-host as launcher; `launcher` means a real launcher reproduces it against the
-host as terminal UI. For example, a conforming `dexcli` never calls a method
-the launch document leaves out, so `chat_unknown_method_and_busy` only tests
-launchers.
+play in that transcript, deterministically, against a fresh Dex server:
 
-An ignored string binds the transcript's value to the value actually
-received, and later occurrences of the transcript's value stand for the real
-one. Ignoring an `idempotency_key` also binds the session ID derived from it.
-So a transcript can expect a real `dexcli`'s random keys, or a real
-launcher's session ID, without fixing them.
+- `tui`: a real `dexcli` reproduces it against the host as launcher.
+- `launcher`: a real launcher reproduces it against the host as terminal UI.
+  `launcher_setup`, when present, says what the test must arrange first,
+  such as the files to alias or the Worker host to kill.
+- An empty list: only the two host roles replay it, because no real side
+  can force it. For example, `chat_unknown_method_and_busy` needs 4 requests
+  to stay in flight, and a conforming `dexcli` never calls a method the
+  launch document leaves out.
+
+Transcripts that need server state a fresh server lacks (`id_conflict`, the
+12-digit fallback), a race (cancel before an answer, a query that times
+out), or a launch document no real launcher sends (one without
+`get_request_result`) list only `tui`.
+
+Values that differ between machines are matched like this:
+
+- An ignored string binds the transcript's value to the value actually
+  received, and later occurrences of the transcript's value stand for the
+  real one. Ignoring an `idempotency_key` also binds both session IDs derived
+  from it. So a transcript can expect a real `dexcli`'s random keys, or a
+  real launcher's session ID and `web_url`, without fixing them.
+- `--alias FIXTURE=ACTUAL` binds a value before the replay starts, such as a
+  transcript path to a file the test made.
+- A bound value of 8 or more characters is also replaced inside longer
+  strings, longest first and in one pass, so a URL under `web_url` or a path
+  that holds a session ID follows the binding.
+- Free text is never compared: an error's `message` and `launch_rejected`'s
+  `message`.
+- Launch steps ignore what depends on the command and the machine:
+  `command`, `dex.server_address`, `dex.web_url`, the session's `flow_type`
+  and `session_id`, `display`, `capabilities`, `log_path`, and `connectors`.
+  Responses ignore the stored image's `uri`, `sha256`, and `size_bytes`, and
+  the connector rows.
 
 ### What the conformance tests prove
 
@@ -668,6 +715,9 @@ exec /absolute/path/to/python3 /absolute/path/to/agents/cli/tests/terminal_ui_co
 
 It answers `--describe` (or prints `--describe-file`), replays the terminal UI
 side over `--channel-fd`, and exits with `tui_exit`, or 70 on a difference.
+Both roles take `--alias FIXTURE=ACTUAL`, for example
+`--alias /home/user/pictures/screenshot.png=/tmp/case/screenshot.png`, to
+stand a test's file or value in for the transcript's.
 Its record starts with the arguments, the environment's names (never their
 values), and the terminal size and foreground state. It then lists a summary
 of every message it sent and received: type, ID, method, contract, mode,
@@ -681,3 +731,50 @@ Run the checks:
 ```bash
 agents/cli/tests/ci.sh
 ```
+
+## Worker host lifetime
+
+This section is not part of the channel contract: the terminal UI never sees
+it. It fixes what both CLI cores do, so that their Worker hosts end the same
+way.
+
+### Bounds after the launcher dies
+
+1. A watchdog outside the Worker host's event loop (a worker thread in Node,
+   a daemon thread in Python) checks every 1 s whether the parent is still
+   the launcher. When it is not, it starts an orderly shutdown. A shutdown
+   that starts for another reason (EOF on the control channel, `shutdown`
+   from the launcher, SIGTERM) arms the same bound.
+2. 15 s after the watchdog armed, if the Worker host still runs, the
+   watchdog sends SIGTERM to every registered tool process group, waits up
+   to 2 s for them, and sends SIGKILL to those left.
+3. It then sends SIGKILL to the Worker host's own process group.
+
+So the Worker host and its registered tool groups are gone at most
+1 + 15 + 2 = 18 s after the launcher died, or 15 + 2 = 17 s after a shutdown
+began, plus scheduling delay. The bound holds only while the watchdog can
+run. It does not hold when the Worker host is stopped (SIGSTOP) or stuck in
+the kernel, or, in Python, while the main thread holds the GIL in native
+code. On Linux, Python also sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel
+ends the Worker host when the launcher dies; its tool groups are then left
+for the leftover cleanup.
+
+### Process identity for leftover cleanup
+
+The Worker host writes a run record of itself and of each tool process group
+it starts. On a later start, a launcher stops what a dead launcher left, and
+checks the identity again right before each SIGTERM and before each SIGKILL.
+Any mismatch, or a process that is gone, removes the record entry and sends
+nothing.
+
+| Record | Identity that must still match |
+| --- | --- |
+| Worker host | pid, process group ID, being that group's leader (pid equals pgid), start time, and command line |
+| Tool process group leader | pid, process group ID, being that group's leader, and start time |
+
+A tool group leader is a shell that may `exec` its command, which changes its
+command line but not its pid, group, or start time. So the command line is
+not part of a tool group's identity. The start time is what the system
+reports, such as `ps -o lstart` in the C locale. A record should hold a
+SHA-256 of the Worker host's command line rather than its text, because a
+command line can carry a secret.

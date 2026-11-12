@@ -55,6 +55,8 @@ MAX_LINE_BYTES: Final = 1_048_576
 READY_TIMEOUT_SECONDS: Final = 5.0
 MAX_IN_FLIGHT_REQUESTS: Final = 4
 SESSION_ID_SUFFIX_LENGTHS: Final = (6, 12)
+# An alias this long also replaces its text inside longer strings, such as a URL.
+MIN_SUBSTRING_ALIAS_LENGTH: Final = 8
 IDEMPOTENCY_CAPACITY: Final = 256
 IDEMPOTENCY_RETENTION_MS: Final = 600_000
 NOTICE_MAX_CODE_POINTS: Final = 500
@@ -469,6 +471,7 @@ class TranscriptReplay:
         recorder: ReplayRecorder,
         step_timeout_seconds: float,
         started_at: float,
+        initial_aliases: Mapping[str, str],
     ) -> None:
         self._role = role
         self._transcript = transcript
@@ -476,7 +479,7 @@ class TranscriptReplay:
         self._recorder = recorder
         self._step_timeout_seconds = step_timeout_seconds
         self._started_at = started_at
-        self._aliases: dict[str, str] = {}
+        self._aliases: dict[str, str] = dict(initial_aliases)
         self._fixture_harness = _launch_harness(transcript)
         self._actual_harness = self._fixture_harness
         self._is_channel_closed = False
@@ -535,7 +538,7 @@ class TranscriptReplay:
             self._channel.send_line(line)
             self._recorder.record("sent_raw_line", bytes=len(line))
             return
-        message = _substitute(step["message"], self._aliases)
+        message = substitute_aliases(step["message"], self._aliases)
         self._channel.send_message(message)
         self._recorder.record("sent", message=summarize_message(message))
 
@@ -602,13 +605,14 @@ class TranscriptReplay:
     def _compare(
         self, fixture: Mapping[str, Any], received: Mapping[str, Any], ignore: Any
     ) -> None:
-        expected = _substitute(fixture, self._aliases)
+        expected = substitute_aliases(fixture, self._aliases)
+        compared_ignore = [*ignore, *_free_text_paths(fixture)]
         if expected.get("type") == "launch" and "command.harness" in ignore:
             self._actual_harness = str(_read_path(received, "command.harness"))
         for path in ignore:
             self._bind_alias(path, _read_path(fixture, path), _read_path(received, path))
         differing = differing_paths(
-            _without_paths(expected, ignore), _without_paths(received, ignore)
+            _without_paths(expected, compared_ignore), _without_paths(received, compared_ignore)
         )
         if differing.known_paths or differing.unknown_field_count:
             raise ReplayMismatchError(
@@ -790,14 +794,39 @@ def _launch_harness(transcript: Mapping[str, Any]) -> str:
     return ""
 
 
-def _substitute(value: Any, aliases: Mapping[str, str]) -> Any:
+def substitute_aliases(value: Any, aliases: Mapping[str, str]) -> Any:
+    """Return value with each bound transcript value replaced by the one received."""
     if isinstance(value, str):
-        return aliases.get(value, value)
+        if value in aliases:
+            return aliases[value]
+        return _substitute_substrings(value, aliases)
     if isinstance(value, list):
-        return [_substitute(item, aliases) for item in value]
+        return [substitute_aliases(item, aliases) for item in value]
     if isinstance(value, dict):
-        return {key: _substitute(item, aliases) for key, item in value.items()}
+        return {key: substitute_aliases(item, aliases) for key, item in value.items()}
     return value
+
+
+def _substitute_substrings(text: str, aliases: Mapping[str, str]) -> str:
+    """Replace, in one pass and longest first, every alias long enough to match inside text."""
+    keys = sorted(
+        (key for key in aliases if len(key) >= MIN_SUBSTRING_ALIAS_LENGTH and key in text),
+        key=len,
+        reverse=True,
+    )
+    if not keys:
+        return text
+    pattern = re.compile("|".join(re.escape(key) for key in keys))
+    return pattern.sub(lambda match: aliases[match.group(0)], text)
+
+
+def _free_text_paths(message: Mapping[str, Any]) -> list[str]:
+    """Return the paths of human text that implementations word freely; never compared."""
+    if message.get("type") == "launch_rejected":
+        return ["message"]
+    if message.get("type") == "response":
+        return ["error.message", "result.error.message"]
+    return []
 
 
 def _read_path(message: Mapping[str, Any], path: str) -> object:
@@ -844,7 +873,13 @@ def run_launcher_role(arguments: argparse.Namespace) -> int:
         os.close(child_fd)
         channel = ChannelConnection(launcher_socket)
         replay = TranscriptReplay(
-            "launcher", transcript, channel, recorder, arguments.step_timeout, started_at
+            "launcher",
+            transcript,
+            channel,
+            recorder,
+            arguments.step_timeout,
+            started_at,
+            parse_aliases(arguments.alias),
         )
         try:
             replay.run()
@@ -1013,6 +1048,7 @@ def run_terminal_ui_role(arguments: argparse.Namespace) -> int:
         recorder,
         arguments.step_timeout,
         started_at,
+        parse_aliases(arguments.alias),
     )
     try:
         replay.run()
@@ -1039,6 +1075,17 @@ def _describe_terminal() -> dict[str, Any] | None:
     }
 
 
+def parse_aliases(assignments: Sequence[str]) -> dict[str, str]:
+    """Parse --alias FIXTURE=ACTUAL options."""
+    aliases: dict[str, str] = {}
+    for assignment in assignments:
+        fixture, separator, actual = assignment.partition("=")
+        if not separator or not fixture:
+            raise SystemExit(f"--alias needs FIXTURE=ACTUAL, not {assignment!r}")
+        aliases[fixture] = actual
+    return aliases
+
+
 def load_transcript(path: Path) -> dict[str, Any]:
     """Read a transcript file."""
     transcript: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
@@ -1056,6 +1103,13 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     launcher.add_argument("--screen-log", help="file that receives the PTY output")
     launcher.add_argument("--step-timeout", type=float, default=10.0)
     launcher.add_argument(
+        "--alias",
+        action="append",
+        default=[],
+        metavar="FIXTURE=ACTUAL",
+        help="stand ACTUAL in for the transcript's FIXTURE value, also inside longer strings",
+    )
+    launcher.add_argument(
         "--extra-env",
         action="append",
         default=[],
@@ -1068,6 +1122,13 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     terminal_ui.add_argument("--record", help="JSON Lines file of what the host saw")
     terminal_ui.add_argument("--describe-file", help="the --describe document to print")
     terminal_ui.add_argument("--step-timeout", type=float, default=10.0)
+    terminal_ui.add_argument(
+        "--alias",
+        action="append",
+        default=[],
+        metavar="FIXTURE=ACTUAL",
+        help="stand ACTUAL in for the transcript's FIXTURE value, also inside longer strings",
+    )
     terminal_ui.add_argument("subcommand", choices=["agents-tui"])
     terminal_ui.add_argument("--describe", action="store_true")
     terminal_ui.add_argument("--channel-fd", type=int)
