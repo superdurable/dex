@@ -24,7 +24,7 @@ Connector 只提供它的服务商需要的能力。你的应用使用它所引�
 
 ## 操作就是现成的 Step {#operation-是-connector-step}
 
-每个操作都有一个工厂函数，用来创建 Connector Step。你的应用把当前 Step 的输入映射成服务商的输入，并把每个必需的结果分支连到另一个 Step。服务商调用在 **Execute** 中运行，所以和其他 [Step](/concepts/step) 一样，享有 Dex 的重试、超时、持久性和恢复。
+每个操作都有一个工厂函数，用来创建 Connector Step。你的应用把当前 Step 的输入映射成服务商的输入，并把每个必需的结果分支连到另一个 Step。服务商调用在 `Execute` 中运行，所以和其他 [Step](/concepts/step) 一样，享有 Dex 的重试、超时、持久性和恢复。
 
 Connector 的结果包含操作输出、回执、选中的分支，以及（如果有的话）安全的失败分类。结果不会把上一个 Step 的输入带下去。业务上下文要保存在 [Attribute](/concepts/primitives/attribute) 中，或者在调用 Connector 之前，通过应用自己的 Step 传递。
 
@@ -58,7 +58,7 @@ Connector Trigger 是 Flow 之外长期运行的事件源。它保留服务商�
 
 连接是服务商那边一个具名、已授权的账号。Flow 定义按名称引用连接，而不是引用凭证。你的应用在调用服务商时，把名称解析成凭证。
 
-已保存的凭证永远不会进入 Flow 输入、Attribute、结果、回执、Stream、日志或生成的产物。
+已保存的凭证始终留在 Flow 输入、Attribute、结果、回执、Stream、日志和生成的产物之外。
 
 ## 语言
 
@@ -85,10 +85,14 @@ Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称�
 2. 在 Dex Web 中打开 **Connectors** 页面。它列出 Flow 定义用到的连接名称。逐个授权。
 3. 用 Dex Web 显示的连接文件启动你的应用。
 
-要使用没有被任何 Flow 定义引用的连接，例如 agent 工具使用的连接，在同一个页面上按名称添加它，然后像其他连接一样授权。
+要使用 Flow 定义之外的连接，例如 agent 工具使用的连接，在同一个页面上按名称添加它，然后像其他连接一样授权。
 
 Dex Web 只配置确切的官方 Connector 版本。Connector 的界面运行在沙箱 iframe 中，已保存的凭证永远不会进入其中。
 
 连接文件以明文保存密钥，只能在本地使用。不要提交它，也不要在生产环境中使用。
 
 每一步的细节和设置见英文的 [Local Connector setup](/reference/web/local-connector-setup)。
+
+## 下一步
+
+[设计模式](/design-patterns)

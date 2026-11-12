@@ -17,13 +17,15 @@
     "test:api": "node tests/api-reference-smoke.mjs",
     "typecheck": "tsc",
     "test:site": "npm run test:reference && node tests/site-smoke.mjs",
-    "check": "npm run typecheck && npm run build && npm run test:site",
+    "check": "npm run typecheck && npm run lint:structure && npm run build && npm run test:site",
+    "lint:structure": "node --no-warnings tests/docs-structure.mjs && node --no-warnings tests/docs-positive-first.mjs && node --no-warnings tests/docs-locale-sections.mjs",
     "test:reference": "node --test tests/snapshot-reference.test.mjs tests/api-reference-cache.test.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "3.8.1",
     "@docusaurus/plugin-client-redirects": "3.8.1",
     "@docusaurus/preset-classic": "3.8.1",
+    "@easyops-cn/docusaurus-search-local": "0.55.3",
     "@mdx-js/react": "^3.0.0",
     "@superdurable/flow-definition-renderer": "file:../packages/flow-definition-renderer",
     "@xyflow/react": "^12.8.4",

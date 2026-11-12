@@ -1,10 +1,10 @@
 ---
 id: index
-title: Components
-sidebar_label: Overview
+title: 运行 Dex
+sidebar_label: Run Dex
 ---
 
-# Components
+# 运行 Dex
 
 一个 Dex 应用由四个组件组成：你的应用、server、CLI 和 Web。应用由你编写，其余由 Dex 提供。
 
@@ -12,7 +12,7 @@ sidebar_label: Overview
 | --- | --- |
 | [Application](/components/application) | 你的 Worker 和 Client。Worker 承载 Flow 定义，运行 Step 和 RPC。Client 启动 Flow、调用 RPC、读取 Attribute。 |
 | [Server](/components/server) | server-zd 保存 Flow 状态，并把工作交给 Worker。 |
-| [CLI](/components/cli) | **dexcli** 在本地运行 Dex，并在 shell 中操作 Flow。 |
+| [CLI](/components/cli) | `dexcli` 在本地运行 Dex，并在 shell 中操作 Flow。 |
 | [Web](/components/web) | Dex Web 是查看和操作 Flow 的运维界面。 |
 
 ## 组件之间的关系
@@ -24,7 +24,7 @@ dexcli  ──▶     ├──▶ object storage
                 └──▶ PostgreSQL (Attribute Store sync)
 ```
 
-Worker、Client、Dex Web 和 **dexcli** 都连接 server 的 API 端口。Worker 主动向 server 建立出站 stream，从不监听调用。server 把 Flow 状态保存在对象存储中。它也可以把选定的 Attribute 写入 PostgreSQL，供你自己查询，见[在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。
+Worker、Client、Dex Web 和 `dexcli` 都连接 server 的 API 端口。Worker 主动向 server 建立出站 stream，从不监听调用。server 把 Flow 状态保存在对象存储中。它也可以把选定的 Attribute 写入 PostgreSQL，供你自己查询，见[在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。
 
 ## 本地和生产环境
 

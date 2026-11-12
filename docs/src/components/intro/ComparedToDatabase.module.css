@@ -98,19 +98,6 @@
   line-height: 1.3;
 }
 
-.countNumber {
-  color: var(--cmp-cost);
-  font-size: 3rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.04em;
-  line-height: 1;
-}
-
-.columnDex .countNumber {
-  color: var(--cmp-dex);
-}
-
 .group {
   margin: 0;
 }
@@ -182,10 +169,6 @@
   font-size: 0.8rem;
 }
 
-.notCounted {
-  font-size: 0.72rem;
-}
-
 .platformChips .chip {
   background: transparent;
   box-shadow: none;
@@ -214,8 +197,7 @@
 }
 
 .changeHeader,
-.changeRow,
-.changeTotals {
+.changeRow {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
@@ -277,8 +259,7 @@
   background: var(--cmp-dex-tint);
 }
 
-.cellLabel,
-.totalDesign {
+.cellLabel {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -324,31 +305,6 @@
   color: var(--cmp-text);
 }
 
-.changeTotals {
-  margin-top: 0.6rem;
-}
-
-.changeTotals > span {
-  padding: 0 0.9rem;
-  font-size: 0.85rem;
-}
-
-.totalNumber {
-  margin-right: 0.35rem;
-  font-size: 1.6rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
-}
-
-.totalQueues {
-  color: var(--cmp-cost);
-}
-
-.totalDex {
-  color: var(--cmp-dex);
-}
-
 @container (max-width: 30rem) {
   .changeGrid {
     grid-template-columns: minmax(0, 1fr);
@@ -358,28 +314,13 @@
     display: none;
   }
 
-  .cellLabel,
-  .totalDesign {
+  .cellLabel {
     position: static;
     width: auto;
     height: auto;
     overflow: visible;
     clip-path: none;
     white-space: normal;
-  }
-
-  .totalDesign {
-    display: block;
-    color: var(--cmp-subtle);
-    font-size: 0.75rem;
-  }
-
-  .changeTotals {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .changeTotals > span {
-    padding: 0;
   }
 }
 

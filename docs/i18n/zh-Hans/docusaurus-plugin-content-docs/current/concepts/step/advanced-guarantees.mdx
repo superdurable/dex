@@ -1,0 +1,65 @@
+---
+title: Step 的进阶保证
+sidebar_label: Advanced Step Guarantees
+slug: /concepts/step/advanced-guarantees
+description: Dex 为每个 Step 方法保存什么，方法什么时候会重新运行或结果未知，SYNC 和 ASYNC 的区别，以及取消、完成和 Step 顺序。
+---
+
+# Step 的进阶保证
+
+当 Step 并行运行、运行很久，或者使用 ASYNC durability 时，读这一页。[Step](/concepts/step) 介绍每个 Step 都有的保证。
+
+## Dex 保存什么 {#what-dex-saves}
+
+简而言之：一个方法的写入会一起保存，但它们和其他 Step 及 RPC 之间没有隔离。
+
+Dex 单独保存每次 `WaitFor` 或 `Execute` 调用。它把这次调用的 Attribute 写入和 Channel 发布与结果一起保存，而且只在方法成功时保存。对外部系统的调用不在这次保存里。
+
+一个 Step 方法的修改会一次全部生效。但这挡不住其他 Step 和 RPC 同时修改同样的状态。方法读到的是 Dex 把它交给 Worker 时的 Flow 状态。在方法的修改生效之前，其他 Step 和 RPC 可能已经改了这些状态。Dex 不检查方法读到的值是否仍然是最新的。所以两个先读后写同一个 Attribute 的 Step 或 RPC，可能互相覆盖对方的更新。要避免这种情况，让它们都在这个 Attribute 上声明 lock。Dex 会让它们依次执行。见 [Attribute lock](/concepts/primitives/attribute#locking)。
+
+<a id="failure-and-redelivery"></a>
+<a id="heartbeats-not-acknowledged"></a>
+<a id="same-attempt-redelivery"></a>
+<a id="unknown-outcome"></a>
+<a id="design-for-redelivery"></a>
+
+## 失败和重新投递 {#failure-and-redelivery-summary}
+
+简而言之：Dex 无法判断一个方法是否完成时，会再运行它，或者告诉你结果未知。
+
+以下情况会让方法重复运行，或让它的结果未知。它们对每个 SDK 都成立：
+
+- **Worker 在方法中途停止。** 这次 attempt 失败，重试策略会再运行这个方法。它的外部调用可能已经发生。server 重启或故障转移时，Worker 手上的每个 attempt 都会这样。
+- **heartbeat 只发送、不确认。** heartbeat checkpoint 可能丢失，所以重新运行可能从更早的 checkpoint 开始。
+- **被取消的方法会继续运行。** Dex 不会停止它的代码，它的外部调用仍然会生效。
+- **ASYNC Step 可能重复一次 attempt。** 见 [SYNC 和 ASYNC Step](#sync-and-async)。
+- **重试用完时，结果可能未知。** recovery Step 会知道工作肯定没有运行（`NOT_STARTED`），或者可能运行过（`NOT_COMPLETED`）。遇到 `NOT_COMPLETED` 时，先用幂等键在目标系统里检查，再决定是否重复或报告这个效果。
+
+SDK 参考中的 Failure and redelivery 给出每种情况的确切规则（英文）：[Python](/reference/python/failure-and-retries#failure-and-redelivery) · [Go](/reference/go/failure-and-retries#failure-and-redelivery) · [Java](/reference/java/failure-and-retries#failure-and-redelivery) · [TypeScript](/reference/typescript/failure-and-retries#failure-and-redelivery) · [Rust](/reference/rust/failure-and-retries#failure-and-redelivery)。
+
+## SYNC 和 ASYNC Step {#sync-and-async}
+
+Step 的 **durability** 决定 Dex 什么时候保存它的进度。
+
+- **SYNC** 是默认值。Dex 在 Worker 收到任务之前保存每次 attempt 的开始，在 Flow 继续之前保存结果。每一次都要等待写入对象存储。
+- **ASYNC** 在保存开始和结果之前，就把任务交给 Worker 并开始后续工作。Dex 把这些写入合并成大约 20 毫秒一批。单个 Flow 跑得更快。如果 Dex Server 节点在写入之前失败，Dex 会在新的状态快照上再运行同一次 attempt，所以它可能读到不同的 Attribute 值。从丢失的结果开始的后续工作也会再运行。
+
+需要最严格保证的效果选 **SYNC**。延迟重要、偶尔重新运行可以接受的短 Step 选 **ASYNC**。适合 ASYNC 的有：快速读取、内部记账，以及已经有幂等键保证可以安全重复的调用。付款、发邮件，或者任何在更新的快照上重新运行可能发出不同参数的调用，都保持 **SYNC**。`StepOptions` 设置单个 Step 的 durability，`FlowConfig` 设置整个 Flow 的。[Performance](/intro/performance) 给出两者的实测延迟。
+
+## 取消、完成和顺序 {#cancellation-completion-order}
+
+取消一个 Step，会丢弃它当前方法还没有保存的一切：Attribute 写入、Channel 发布和它的决定。它的 `WaitFor` 已经保存的内容保留。一个决定或 RPC 永远不会取消它自己启动的 Step。被取消的 Step 已经消费的消息会怎样，见 [Channel 的保证](/concepts/primitives/channel#保证)。
+
+被取消方法的代码会一直运行到方法返回。方法应检查取消状态并返回。它对外部系统的调用仍然会生效，即使 Flow 已经关闭。
+
+`GracefulComplete` 结束它自己的分支，并请求 Dex 完成 Flow。一旦没有 active Step，Dex 就开始完成 Flow。在此之前，其他 Step 和 RPC 仍然可以启动新的 Step，这些 Step 也会推迟完成。之后某个分支以 `DeadEnd` 结束，也不会撤回这个请求。最后一个 Step 结束后，Dex 还要处理完待写的 Attribute Sync 和已经开始的 transactional RPC，所以 Flow 可能会短暂保持 `RUNNING`。
+
+即使所有 Step 都已结束，Flow 也会继续运行，直到有待处理的 `GracefulComplete`。RPC 仍然可以在里面启动新的 Step。用一个完成类的决定结束最后一个分支。如果 Flow 不能无限等待，就给它设置 Flow timeout。
+
+Dex 大致按 Step 就绪的顺序启动它们，但不严格保证。不要依赖并行 Step 启动或结束的顺序。顺序重要时，用 Channel 或 Attribute lock。
+
+## 下一步
+
+- [Attribute lock](/concepts/primitives/attribute#locking) 防止并行写入互相覆盖。
+- [失败处理](/design-patterns/failure-handling) 把失败的 Step 交给 recovery Step。
+- [Performance](/intro/performance)（英文）给出 SYNC 和 ASYNC Step 的实测延迟。

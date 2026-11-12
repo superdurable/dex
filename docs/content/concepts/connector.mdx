@@ -2,6 +2,7 @@
 title: Connector
 sidebar_label: Connector
 slug: /concepts/connector
+description: "A Connector connects a Flow to an external provider, such as an email, payment, or news service. It gives your Flow ready-made Steps that call the provider, and Triggers that turn provider events into Flow starts or RPC calls."
 ---
 
 # Connector
@@ -36,7 +37,7 @@ uses the types generated for the exact Connector release it imports.
 
 Each operation has a factory that creates a Connector Step. Your application
 maps the current Step input to the provider input. It connects each required
-result branch to another Step. The provider call runs in **Execute**, so it
+result branch to another Step. The provider call runs in `Execute`, so it
 gets Dex retries, timeouts, durability, and recovery like any other
 [Step](/concepts/step).
 
@@ -92,7 +93,7 @@ A connection is a named, authorized account at a provider. Flow definitions
 refer to a connection by its name, not by its credentials. Your application
 resolves the name to credentials when it calls the provider.
 
-Stored credentials never enter Flow input, Attributes, results, receipts,
+Stored credentials stay out of Flow input, Attributes, results, receipts,
 Streams, logs, or generated artifacts.
 
 ## Languages
@@ -153,3 +154,7 @@ it or use it in production.
 
 [Local Connector setup](/reference/web/local-connector-setup) describes each step
 and its settings.
+
+## Next
+
+[Design Patterns](/design-patterns)

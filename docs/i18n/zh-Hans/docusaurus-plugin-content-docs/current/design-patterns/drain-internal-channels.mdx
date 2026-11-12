@@ -11,9 +11,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/drai
 
 ## 问题与做法
 
-当 Flow 的一个分支为另一个分支发布工作时，使用这个模式。在示例中，**Init** 并行启动 **Main** 和 **Side**。**Main** 把每条文档命令发布到 **SideStepData** Channel。**Side** 等待一条消息，写入它，然后继续等待。
+当 Flow 的一个分支为另一个分支发布工作时，使用这个模式。在示例中，**Init** 并行启动 **Main** 和 **Side**。**Main** 把每条文档命令发布到 `SideStepData` Channel。**Side** 等待一条消息，写入它，然后继续等待。
 
-**Main** 发布完所有普通消息后，**Finalize** 向 **SideStepData** 发布最后一条命令，作为结束标记（sentinel）。Channel 按发布顺序投递消息，所以 **Side** 收完之前的所有消息后才会收到 sentinel。**Side** 只有收到 sentinel 才会完成，因此 Flow 不会在 **Side** 处理完所有文档之前结束。如果有多个生产者分支，让 **Finalize** 等它们全部完成后再发布 sentinel。
+**Main** 发布完所有普通消息后，**Finalize** 向 `SideStepData` 发布最后一条命令，作为结束标记（sentinel）。Channel 按发布顺序投递消息，所以 **Side** 收完之前的所有消息后才会收到 sentinel。**Side** 只有收到 sentinel 才会完成，因此 Flow 不会在 **Side** 处理完所有文档之前结束。如果有多个生产者分支，让 **Finalize** 等它们全部完成后再发布 sentinel。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -294,7 +294,7 @@ impl Step for Finalize {
 </SdkSnippet>
 </SdkTabs>
 
-## 相关内容
+## 下一步
 
 - [Channel](/concepts/primitives/channel)
 - [Drain Channels](/design-patterns/drain-channels)

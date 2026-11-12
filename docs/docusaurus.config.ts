@@ -18,21 +18,22 @@ import redirects from './redirects.json';
 
 const developerReferenceComponents = Object.keys(referenceVersions) as (keyof typeof referenceVersions)[];
 
-// src/theme/Navbar/Content renders left items as the site row and right items as the actions.
+// Search contexts, in the order the search page lists them. The labels match the reference landing page.
+const referenceSearchContexts = [
+  {path: 'reference/go', label: {en: 'Go SDK', 'zh-Hans': 'Go SDK'}},
+  {path: 'reference/python', label: {en: 'Python SDK', 'zh-Hans': 'Python SDK'}},
+  {path: 'reference/java', label: {en: 'Java SDK', 'zh-Hans': 'Java SDK'}},
+  {path: 'reference/typescript', label: {en: 'TypeScript SDK', 'zh-Hans': 'TypeScript SDK'}},
+  {path: 'reference/rust', label: {en: 'Rust SDK', 'zh-Hans': 'Rust SDK'}},
+  {path: 'reference/server', label: {en: 'Server', 'zh-Hans': 'Server'}},
+  {path: 'reference/cli', label: {en: 'CLI', 'zh-Hans': 'CLI'}},
+  {path: 'reference/web', label: {en: 'Dex Web', 'zh-Hans': 'Dex Web'}},
+  {path: 'reference/agents', label: {en: 'Agents packages', 'zh-Hans': 'Agents 包'}},
+];
+
+// src/theme/Navbar/Content renders the header itself; only the locale switch comes from themeConfig.
 const companyHeaderNavigation = {
-  sites: [
-    {label: 'Dex Cloud', href: 'https://superdurable.io/dex-cloud/', position: 'left'},
-    {label: 'Dex Connectors', href: 'https://connectors.superdurable.io/', position: 'left'},
-    {label: 'Dex Docs', href: 'https://docs.superdurable.io/', position: 'left', 'aria-current': 'page'},
-    {label: 'Blog', href: 'https://superdurable.io/blog/', position: 'left'},
-    {label: 'About', href: 'https://superdurable.io/about/', position: 'left'},
-  ],
-  actions: [
-    {type: 'localeDropdown', position: 'right'},
-    {label: 'GitHub', href: 'https://github.com/superdurable/dex', position: 'right'},
-    {label: 'Log in', href: 'https://dex.superdurable.io/login', position: 'right'},
-    {label: 'Sign up Cloud', href: 'https://dex.superdurable.io/register', position: 'right', className: 'sd-button sd-button-primary'},
-  ],
+  actions: [{type: 'localeDropdown', position: 'right'}],
   footer: [
     {
       title: 'Products',
@@ -66,7 +67,7 @@ const companyHeaderNavigation = {
       ],
     },
   ],
-} satisfies {sites: NonNullable<Preset.ThemeConfig['navbar']>['items']; actions: NonNullable<Preset.ThemeConfig['navbar']>['items']; footer: NonNullable<Preset.ThemeConfig['footer']>['links']};
+} satisfies {actions: NonNullable<Preset.ThemeConfig['navbar']>['items']; footer: NonNullable<Preset.ThemeConfig['footer']>['links']};
 
 const config: Config = {
   title: 'Super Durable Docs',
@@ -169,6 +170,32 @@ const config: Config = {
     ],
   ],
 
+  clientModules: ['./src/clientModules/sdkFromQuery.ts'],
+
+  themes: [
+    [
+      '@easyops-cn/docusaurus-search-local',
+      {
+        hashed: true,
+        language: ['en', 'zh'],
+        indexDocs: true,
+        indexBlog: false,
+        indexPages: false,
+        docsRouteBasePath: '/',
+        // Older reference snapshots are excluded; the latest reference and every guide are indexed.
+        ignoreFiles: [/^reference\/[^/]+\/\d+\.\d+\.\d+\//],
+        searchBarShortcutHint: true,
+        searchBarPosition: 'left',
+        highlightSearchTermsOnTargetPage: false,
+        explicitSearchResultPath: true,
+        // Each Developer reference component gets its own index, so reference pages never crowd guide results.
+        // Guide pages search the guides; reference pages search their component; the search page switches.
+        searchContextByPaths: referenceSearchContexts,
+        useAllContextsWithNoSearchContext: false,
+      },
+    ],
+  ],
+
   plugins: [
     // Each Developer reference component is its own docs instance, so it can be versioned on its own.
     ...developerReferenceComponents.map((component) => [
@@ -254,6 +281,7 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
+      // The footer brand reads this title; the header wordmark has its own text.
       title: 'Super Durable',
       logo: {
         alt: 'Super Durable',
@@ -261,7 +289,7 @@ const config: Config = {
         href: 'https://superdurable.io/',
         target: '_self',
       },
-      items: [...companyHeaderNavigation.sites, ...companyHeaderNavigation.actions],
+      items: companyHeaderNavigation.actions,
     },
     footer: {
       style: 'light',

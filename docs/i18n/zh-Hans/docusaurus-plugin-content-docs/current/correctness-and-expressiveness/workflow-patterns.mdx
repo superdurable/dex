@@ -1,4 +1,7 @@
 ---
+# The legend defines the no-support mark.
+positive_first_allow:
+  - "- 表示不支持"
 title: Workflow Patterns evaluation
 sidebar_label: Workflow Patterns evaluation
 slug: /correctness-and-expressiveness/workflow-patterns
@@ -28,17 +31,17 @@ Dex 构件是编程模型的一部分：Primitive、Step decision、等待条件
 - token 里有 round key 和分支数。round key 来自开启这一轮的 Step 执行，所以应用不用保存计数器，也不用保存 key。
 - 每个分支结束时上报一个结果。
 - 汇合 Step 等待全部分支、第一个分支或其中 n 个分支。它的等待是普通的条件，可以和 Timer 组合。
-- 一轮的结果永远不会计入另一轮。
+- 每一轮的结果只计入这一轮。
 - 汇合在所有分支上报之前就触发时，下一轮的拆分 Step 会先等完上一轮剩下的结果。这就是复位，不需要额外的 Step。
 
-当工作在子 Flow 中运行时，用 **AllOf** 等待 **SubFlow** 就是原生的汇合。
+当工作在子 Flow 中运行时，用 `AllOf` 等待 **SubFlow** 就是原生的汇合。
 
 有 10 个模式仍是 **+/-**，原因如下：
 
 - WCP-15 和 WCP-36 在其他实例运行时继续添加实例。Join 在 fork 时就需要知道分支数，所以这两个示例都不用 Join。WCP-15 在锁的保护下保存启动计数和关闭添加的标志，汇合 Step 每收到一个结果就重新等待。WCP-36 保存一个关闭准入的标志、一个记录已启动投标的 AttributeMap 和一把锁，汇合 Step 每收到一个结果就重新等待，直到条件成立。
 - WCP-33 为每个输入分支分别排队触发，并把多余的触发留给以后。Join 按轮次计数，不按分支排队。
 - WCP-38 要从流程结构判断已经不可能有线程再到达合并点。这是可达性问题，不是计数问题。
-- WCP-17 和 WCP-40 依赖 Attribute lock，而锁只覆盖一个 **Execute**。
+- WCP-17 和 WCP-40 依赖 Attribute lock，而锁只覆盖一个 `Execute`。
 - WCP-18、WCP-20、WCP-23 和 WCP-39 不是汇合，所以 Join 不改变它们的评级。评级原因见各自的那一行。
 
 ### Join 的限制 {#join-limits}
@@ -46,10 +49,10 @@ Dex 构件是编程模型的一部分：Primitive、Step decision、等待条件
 Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此有以下限制。
 
 - 每个分支每轮必须恰好上报一次，所有退出路径都要上报，包括失败路由去往的 Step。从不上报的分支会让等待全部分支的汇合一直等下去。上报两次的分支会被计两次。
-- 从外部取消的分支（例如被 RPC 取消）不会上报。等待全部分支的汇合会一直等下去。要把汇合和分支一起取消，或者用 **AnyOf** 同时等待汇合和一个 Timer。
+- 从外部取消的分支（例如被 RPC 取消）不会上报。等待全部分支的汇合会一直等下去。要把汇合和分支一起取消，或者用 `AnyOf` 同时等待汇合和一个 Timer。
 - 从外部取消分支这一点不影响评级。在 Petri net 和 YAWL 中，取消同步区域内的任务同样会让 AND-join 死锁，除非取消区域包含这个 join。
 - 带取消的汇合，它的那一轮永远不复位。被取消的分支不会上报，所以等待其余结果的复位永远等不完。在循环中，下一轮直接 fork 新的一轮，round key 会把它和旧的一轮分开。
-- 汇合 Step 的等待已经消费了结果，但它的 **Execute** 结果还没保存时，它可能被取消。这些结果是否回到这一轮，取决于 server 版本，见[被取消的 Step 与已消费的消息](/reference/server/runtime-data#canceled-step-messages)。如果结果丢失，为同一轮重新建立的汇合永远不会触发。
+- 汇合 Step 的等待已经消费了结果，但它的 `Execute` 结果还没保存时，它可能被取消。这些结果是否回到这一轮，取决于 server 版本，见[被取消的 Step 与已消费的消息](/reference/server/runtime-data#canceled-step-messages)。如果结果丢失，为同一轮重新建立的汇合永远不会触发。
 
 ## 评级如何验证 {#how-the-ratings-were-checked}
 
@@ -59,7 +62,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 - 33 个模式直接支持（**+**）。
 - 10 个模式间接支持（**+/-**）。
-- 没有不支持（**-**）的模式。
+- 每个模式都至少有间接支持，没有不支持（**-**）的模式。
 
 ## 与已发表评估的比较 {#comparison-with-a-published-evaluation}
 
@@ -71,58 +74,58 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 | Pattern | 评级 | Dex 构件 | 示例 |
 | --- | --- | --- | --- |
-| [WCP-1 Sequence](#wcp-1) | + | **GoTo** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/SequenceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
-| [WCP-2 Parallel Split](#wcp-2) | + | **GoToMany** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ParallelSplitSynchronizationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
-| [WCP-3 Synchronization](#wcp-3) | + | **Join**：**Fork** 启动各分支和汇合 Step；汇合 Step 等待 **ForAllBranches** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ParallelSplitSynchronizationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
-| [WCP-4 Exclusive Choice](#wcp-4) | + | **Execute** 返回指向一个 Step 的 **GoTo** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExclusiveChoiceSimpleMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
-| [WCP-5 Simple Merge](#wcp-5) | + | 多个 Step **GoTo** 同一个 Step type | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExclusiveChoiceSimpleMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
-| [WCP-6 Multi-Choice](#wcp-6) | + | **GoToMany** 只启动选中的 Step | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiChoiceSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
-| [WCP-7 Structured Synchronizing Merge](#wcp-7) | + | **Join**：做选择的 Step 只 fork 选中的分支；汇合 Step 等待 **ForAllBranches** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiChoiceSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
-| [WCP-8 Multi-Merge](#wcp-8) | + | 每个分支都 **GoTo** 同一个 Step type；每次到达都再运行一次 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
-| [WCP-9 Structured Discriminator](#wcp-9) | + | **Join** 等待 1 个分支（**ForBranches**）；下一轮的拆分 Step 用 **ForRemainingBranches** 复位 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StructuredPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
-| [WCP-10 Arbitrary Cycles](#wcp-10) | + | **GoTo** 任意 Step；循环有两个入口和两个出口 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/iteration.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/iteration.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/iteration.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ArbitraryCyclesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/iteration.rs) |
-| [WCP-11 Implicit Termination](#wcp-11) | + | **GracefulComplete** 在没有活动 Step 时才关闭 Flow | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ImplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs) |
-| [WCP-12 Multiple Instances without Synchronization](#wcp-12) | + | **GoToMany** 启动同一 Step type 的多个执行；没有 Step 等待它们 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultipleInstancesWithoutSynchronizationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs) |
-| [WCP-13 Multiple Instances with a priori Design-Time Knowledge](#wcp-13) | + | **Join** fork 固定数量的实例；汇合 Step 等待 **ForAllBranches** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DesignTimeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs) |
-| [WCP-14 Multiple Instances with a priori Run-Time Knowledge](#wcp-14) | + | **Join** 为每个输入项 fork 一个实例；汇合 Step 等待 **ForAllBranches** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/RunTimeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs) |
+| [WCP-1 Sequence](#wcp-1) | + | `GoTo` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/SequenceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
+| [WCP-2 Parallel Split](#wcp-2) | + | `GoToMany` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ParallelSplitSynchronizationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
+| [WCP-3 Synchronization](#wcp-3) | + | **Join**：**Fork** 启动各分支和汇合 Step；汇合 Step 等待 `ForAllBranches` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ParallelSplitSynchronizationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
+| [WCP-4 Exclusive Choice](#wcp-4) | + | `Execute` 返回指向一个 Step 的 `GoTo` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExclusiveChoiceSimpleMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
+| [WCP-5 Simple Merge](#wcp-5) | + | 多个 Step `GoTo` 同一个 Step type | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExclusiveChoiceSimpleMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs) |
+| [WCP-6 Multi-Choice](#wcp-6) | + | `GoToMany` 只启动选中的 Step | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiChoiceSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
+| [WCP-7 Structured Synchronizing Merge](#wcp-7) | + | **Join**：做选择的 Step 只 fork 选中的分支；汇合 Step 等待 `ForAllBranches` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiChoiceSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
+| [WCP-8 Multi-Merge](#wcp-8) | + | 每个分支都 `GoTo` 同一个 Step type；每次到达都再运行一次 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
+| [WCP-9 Structured Discriminator](#wcp-9) | + | **Join** 等待 1 个分支（`ForBranches`）；下一轮的拆分 Step 用 `ForRemainingBranches` 复位 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StructuredPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
+| [WCP-10 Arbitrary Cycles](#wcp-10) | + | `GoTo` 任意 Step；循环有两个入口和两个出口 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/iteration.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/iteration.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/iteration.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ArbitraryCyclesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/iteration.rs) |
+| [WCP-11 Implicit Termination](#wcp-11) | + | `GracefulComplete` 在没有活动 Step 时才关闭 Flow | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ImplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs) |
+| [WCP-12 Multiple Instances without Synchronization](#wcp-12) | + | `GoToMany` 启动同一 Step type 的多个执行；没有 Step 等待它们 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultipleInstancesWithoutSynchronizationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs) |
+| [WCP-13 Multiple Instances with a priori Design-Time Knowledge](#wcp-13) | + | **Join** fork 固定数量的实例；汇合 Step 等待 `ForAllBranches` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DesignTimeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs) |
+| [WCP-14 Multiple Instances with a priori Run-Time Knowledge](#wcp-14) | + | **Join** 为每个输入项 fork 一个实例；汇合 Step 等待 `ForAllBranches` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/RunTimeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs) |
 | [WCP-15 Multiple Instances without a priori Run-Time Knowledge](#wcp-15) | +/- | **RPC** 添加执行；**Attribute** 计数；汇合 Step 循环等待 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/NoPriorKnowledgeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs) |
-| [WCP-16 Deferred Choice](#wcp-16) | + | 对多个 **Channel** 使用 **AnyOf**；只消费被选中的消息，所以只运行一个分支 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DeferredChoiceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs) |
-| [WCP-17 Interleaved Parallel Routing](#wcp-17) | +/- | 各任务的 **Execute** 共用 **Attribute lock**；它只覆盖一个 **Execute** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/InterleavedParallelRoutingFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs) |
+| [WCP-16 Deferred Choice](#wcp-16) | + | 对多个 **Channel** 使用 `AnyOf`；只消费被选中的消息，所以只运行一个分支 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DeferredChoiceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs) |
+| [WCP-17 Interleaved Parallel Routing](#wcp-17) | +/- | 各任务的 `Execute` 共用 **Attribute lock**；它只覆盖一个 `Execute` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/InterleavedParallelRoutingFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs) |
 | [WCP-18 Milestone](#wcp-18) | +/- | **Attribute** 标记状态；**RPC** 只在该状态下启动任务 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MilestoneFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs) |
 | [WCP-19 Cancel Task](#wcp-19) | + | **RPC** 结果取消一个 Step type，并启动下一个 Step | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelTaskFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs) |
-| [WCP-20 Cancel Case](#wcp-20) | +/- | 启动 **SubFlow** 的 Step 同时等待取消 **Channel**，停止子 Flow，再返回 **ForceFail** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelCaseFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs) |
-| [WCP-21 Structured Loop](#wcp-21) | + | 前置判断 Step **GoTo** 循环体或出口 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/iteration.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/iteration.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/iteration.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StructuredLoopFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/iteration.rs) |
+| [WCP-20 Cancel Case](#wcp-20) | +/- | 启动 **SubFlow** 的 Step 同时等待取消 **Channel**，停止子 Flow，再返回 `ForceFail` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelCaseFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs) |
+| [WCP-21 Structured Loop](#wcp-21) | + | 前置判断 Step `GoTo` 循环体或出口 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/iteration.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/iteration.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/iteration.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StructuredLoopFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/iteration.rs) |
 | [WCP-22 Recursion](#wcp-22) | + | Step 等待同一 Flow type 的 **SubFlow** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/iteration.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/iteration.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/iteration.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/FactorialRecursionFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/iteration.rs) |
 | [WCP-23 Transient Trigger](#wcp-23) | +/- | 共享 **Attribute lock** 下的 **RPC** 检查只在有 Step 等待时接受一次触发 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/triggers.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/triggers.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/triggers.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/TransientTriggerFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/triggers.rs) |
 | [WCP-24 Persistent Trigger](#wcp-24) | + | **Channel** 消息一直排队，直到 Step 消费 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/triggers.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/triggers.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/triggers.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/PersistentTriggerFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/triggers.rs) |
 | [WCP-25 Cancel Region](#wcp-25) | + | **RPC** 结果一次取消多个 Step type | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelRegionFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs) |
 | [WCP-26 Cancel Multiple Instance Activity](#wcp-26) | + | **RPC** 结果取消实例的 Step type；已完成的实例保留结果 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancelMultipleInstanceTaskFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs) |
 | [WCP-27 Complete Multiple Instance Activity](#wcp-27) | + | **RPC** 结果取消实例和汇合 Step，再启动下一个 Step | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CompleteMultipleInstanceTaskFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs) |
-| [WCP-28 Blocking Discriminator](#wcp-28) | + | **Join** 等待 1 个分支（**ForBranches**）；**ForRemainingBranches** 复位之后下一轮才开始 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/BlockingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
-| [WCP-29 Cancelling Discriminator](#wcp-29) | + | **Join** 等待 1 个分支（**ForBranches**）；汇合 Step 的 decision 取消它的 sibling 分支 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancellingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
-| [WCP-30 Structured Partial Join](#wcp-30) | + | **Join** 等待 n 个分支（**ForBranches**）；下一轮的拆分 Step 用 **ForRemainingBranches** 复位 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StructuredPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
-| [WCP-31 Blocking Partial Join](#wcp-31) | + | **Join** 等待 n 个分支（**ForBranches**）；**ForRemainingBranches** 复位之后下一轮才开始 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/BlockingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
-| [WCP-32 Cancelling Partial Join](#wcp-32) | + | **Join** 等待 n 个分支（**ForBranches**）；汇合 Step 的 decision 取消它的 sibling 分支 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancellingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
-| [WCP-33 Generalised AND-Join](#wcp-33) | +/- | 对多个 **Channel** 使用 **AllOf**；多余信号留给下一次触发 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/GeneralizedAndJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs) |
-| [WCP-34 Static Partial Join for Multiple Instances](#wcp-34) | + | **Join** 在 m 个实例中等待 n 个（**ForBranches**）；下一轮的拆分 Step 用 **ForRemainingBranches** 复位 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StaticPartialJoinForMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_partial_joins.rs) |
-| [WCP-35 Cancelling Partial Join for Multiple Instances](#wcp-35) | + | **Join** 在 m 个实例中等待 n 个（**ForBranches**）；汇合 Step 的 decision 取消它的 sibling 实例 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancellingPartialJoinForMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_partial_joins.rs) |
+| [WCP-28 Blocking Discriminator](#wcp-28) | + | **Join** 等待 1 个分支（`ForBranches`）；`ForRemainingBranches` 复位之后下一轮才开始 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/BlockingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
+| [WCP-29 Cancelling Discriminator](#wcp-29) | + | **Join** 等待 1 个分支（`ForBranches`）；汇合 Step 的 decision 取消它的 sibling 分支 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancellingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
+| [WCP-30 Structured Partial Join](#wcp-30) | + | **Join** 等待 n 个分支（`ForBranches`）；下一轮的拆分 Step 用 `ForRemainingBranches` 复位 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StructuredPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
+| [WCP-31 Blocking Partial Join](#wcp-31) | + | **Join** 等待 n 个分支（`ForBranches`）；`ForRemainingBranches` 复位之后下一轮才开始 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/BlockingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
+| [WCP-32 Cancelling Partial Join](#wcp-32) | + | **Join** 等待 n 个分支（`ForBranches`）；汇合 Step 的 decision 取消它的 sibling 分支 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancellingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs) |
+| [WCP-33 Generalised AND-Join](#wcp-33) | +/- | 对多个 **Channel** 使用 `AllOf`；多余信号留给下一次触发 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/GeneralizedAndJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs) |
+| [WCP-34 Static Partial Join for Multiple Instances](#wcp-34) | + | **Join** 在 m 个实例中等待 n 个（`ForBranches`）；下一轮的拆分 Step 用 `ForRemainingBranches` 复位 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StaticPartialJoinForMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_partial_joins.rs) |
+| [WCP-35 Cancelling Partial Join for Multiple Instances](#wcp-35) | + | **Join** 在 m 个实例中等待 n 个（`ForBranches`）；汇合 Step 的 decision 取消它的 sibling 实例 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CancellingPartialJoinForMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_partial_joins.rs) |
 | [WCP-36 Dynamic Partial Join for Multiple Instances](#wcp-36) | +/- | **RPC** 添加实例；汇合 Step 循环等待并检查条件 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DynamicPartialJoinForMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_partial_joins.rs) |
-| [WCP-37 Local Synchronizing Merge](#wcp-37) | + | **Join**：分叉的 Step fork 活跃的分支；汇合 Step 等待 **ForAllBranches** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiChoiceSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
+| [WCP-37 Local Synchronizing Merge](#wcp-37) | + | **Join**：分叉的 Step fork 活跃的分支；汇合 Step 等待 `ForAllBranches` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiChoiceSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
 | [WCP-38 General Synchronizing Merge](#wcp-38) | +/- | **Attribute** 记录仍能到达汇合点的线程数；降到 0 时发布哨兵消息 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/GeneralSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs) |
 | [WCP-39 Critical Section](#wcp-39) | +/- | 用只含一条消息的 **Channel** 充当令牌 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CriticalSectionFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs) |
-| [WCP-40 Interleaved Routing](#wcp-40) | +/- | 各任务的 **Execute** 共用 **Attribute lock**，再用 **ForN** 汇合；锁只覆盖一个 **Execute** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/InterleavedRoutingFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs) |
-| [WCP-41 Thread Merge](#wcp-41) | + | **Join** 汇合同一 Step type 的多个线程；合并 Step 等待 **ForAllBranches** | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ThreadSplitMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs) |
-| [WCP-42 Thread Split](#wcp-42) | + | **GoToMany** 启动同一 Step type 的多个执行 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ThreadSplitMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs) |
-| [WCP-43 Explicit Termination](#wcp-43) | + | **ForceComplete** 立即关闭 Flow，并取消其他 Step | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs) |
+| [WCP-40 Interleaved Routing](#wcp-40) | +/- | 各任务的 `Execute` 共用 **Attribute lock**，再用 `ForN` 汇合；锁只覆盖一个 `Execute` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/InterleavedRoutingFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs) |
+| [WCP-41 Thread Merge](#wcp-41) | + | **Join** 汇合同一 Step type 的多个线程；合并 Step 等待 `ForAllBranches` | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ThreadSplitMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs) |
+| [WCP-42 Thread Split](#wcp-42) | + | `GoToMany` 启动同一 Step type 的多个执行 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ThreadSplitMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs) |
+| [WCP-43 Explicit Termination](#wcp-43) | + | `ForceComplete` 立即关闭 Flow，并取消其他 Step | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs) |
 
 ## 评级依据的行为 {#what-the-ratings-rest-on}
 
 评级依赖以下 Dex 行为。
 
-- **GracefulComplete** 只在没有活动 Step 时关闭 Flow。
-- **DeadEnd** 只结束一个分支，从不关闭 Flow。
-- **ForceComplete** 立即关闭 Flow，并取消其他 Step。
-- **AnyOf** 只消费被选中条件的消息。
+- `GracefulComplete` 只在没有活动 Step 时关闭 Flow。
+- `DeadEnd` 只结束一个分支，从不关闭 Flow。
+- `ForceComplete` 立即关闭 Flow，并取消其他 Step。
+- `AnyOf` 只消费被选中条件的消息。
 - Channel 消息一直排队，直到被 Step 消费。
 - decision 或 RPC 按 Step type 取消 Step。Dex 不会强行停止被取消方法的代码。方法会一直运行，直到它检查到取消并返回。
 - 同一时间只有一个 Step 方法或 RPC 持有某个 Attribute lock。
@@ -139,9 +142,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：一个任务只在它前面的任务完成后才开始。两个任务属于同一个流程。见[官方定义](http://www.workflowpatterns.com/patterns/control/basic/wcp1.php)。
 
-**Dex 实现**：每个 Step 的 **Execute** 返回指向下一个 Step 的 **GoTo**。示例依次运行 ReceiveOrder、CheckInventory 和 ShipOrder。
+**Dex 实现**：每个 Step 的 `Execute` 返回指向下一个 Step 的 `GoTo`。示例依次运行 ReceiveOrder、CheckInventory 和 ShipOrder。
 
-**评级**：**+**。**GoTo** 就是顺序构件。
+**评级**：**+**。`GoTo` 就是顺序构件。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/SequenceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs)
 
@@ -149,9 +152,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：一个分支拆分成两个或更多分支。这些分支同时运行。见[官方定义](http://www.workflowpatterns.com/patterns/control/basic/wcp2.php)。
 
-**Dex 实现**：Step 返回 **GoToMany**，每个分支一个 Step movement。示例把一个订单拆分为打包和付款。
+**Dex 实现**：Step 返回 `GoToMany`，每个分支一个 Step movement。示例把一个订单拆分为打包和付款。
 
-**评级**：**+**。**GoToMany** 就是拆分构件。
+**评级**：**+**。`GoToMany` 就是拆分构件。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ParallelSplitSynchronizationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs)
 
@@ -159,7 +162,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：两个或更多分支汇合成一个。只有每个输入分支都完成后，后续分支才开始。见[官方定义](http://www.workflowpatterns.com/patterns/control/basic/wcp3.php)。
 
-**Dex 实现**：拆分 Step 对一个 **Join** 调用 **Fork**。**Fork** 返回各分支和汇合 Step，供一个 **GoToMany** 使用，并给它们同一个 round token。每个分支以 **EndBranch** 结束，它会上报本分支的结果。汇合 Step 等待 **ForAllBranches**。
+**Dex 实现**：拆分 Step 对一个 **Join** 调用 **Fork**。**Fork** 返回各分支和汇合 Step，供一个 `GoToMany` 使用，并给它们同一个 round token。每个分支以 `EndBranch` 结束，它会上报本分支的结果。汇合 Step 等待 `ForAllBranches`。
 
 **评级**：**+**。Join 就是汇合构件。**Fork** 数出分支数并生成 round key，应用不用保存计数。
 
@@ -169,9 +172,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：一个分支拆分成多个，但控制只传给其中一个。由一个条件决定传给哪个。见[官方定义](http://www.workflowpatterns.com/patterns/control/basic/wcp4.php)。
 
-**Dex 实现**：**Execute** 计算条件，返回指向一个 Step 的 **GoTo**。示例按金额把理赔交给人工审核或自动批准。
+**Dex 实现**：`Execute` 计算条件，返回指向一个 Step 的 `GoTo`。示例按金额把理赔交给人工审核或自动批准。
 
-**评级**：**+**。只含一个 **GoTo** 的 decision 就是选择构件。
+**评级**：**+**。只含一个 `GoTo` 的 decision 就是选择构件。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExclusiveChoiceSimpleMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs)
 
@@ -179,9 +182,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：两个或更多分支汇合成一个。每次到达都把控制传下去。该模式假设同一时间只有一个输入分支处于活动状态。见[官方定义](http://www.workflowpatterns.com/patterns/control/basic/wcp5.php)。
 
-**Dex 实现**：每个分支都返回指向同一个 Step type 的 **GoTo**。示例中两个审核分支都进入 CloseClaim。
+**Dex 实现**：每个分支都返回指向同一个 Step type 的 `GoTo`。示例中两个审核分支都进入 CloseClaim。
 
-**评级**：**+**。共同的 **GoTo** 目标就是合并。
+**评级**：**+**。共同的 `GoTo` 目标就是合并。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/basic-control-flow.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/basic_control_flow.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/basic_control_flow.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExclusiveChoiceSimpleMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/basic_control_flow.rs)
 
@@ -189,9 +192,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：一个分支拆分成多个。控制传给其中一个或多个，由条件选出这一组。见[官方定义](http://www.workflowpatterns.com/patterns/control/advanced_branching/wcp6.php)。
 
-**Dex 实现**：**Execute** 列出被选中的 Step，并对它们返回 **GoToMany**。示例根据输入选择邮件、短信或推送通知。
+**Dex 实现**：`Execute` 列出被选中的 Step，并对它们返回 `GoToMany`。示例根据输入选择邮件、短信或推送通知。
 
-**评级**：**+**。对计算出的列表使用 **GoToMany** 就是多选构件。
+**评级**：**+**。对计算出的列表使用 `GoToMany` 就是多选构件。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiChoiceSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs)
 
@@ -199,7 +202,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：由前面一个 Multi-Choice 启动的分支汇合成一个。汇合只等待实际启动的分支。在结构化模型中，它对应唯一一个 Multi-Choice。见[官方定义](http://www.workflowpatterns.com/patterns/control/advanced_branching/wcp7.php)。
 
-**Dex 实现**：做选择的 Step 只把选中的分支交给 **Fork**。每个分支以 **EndBranch** 结束。汇合 Step 等待 **ForAllBranches**，所以它等的正好是已启动的分支。
+**Dex 实现**：做选择的 Step 只把选中的分支交给 **Fork**。每个分支以 `EndBranch` 结束。汇合 Step 等待 `ForAllBranches`，所以它等的正好是已启动的分支。
 
 **评级**：**+**。分支数来自 **Fork**，应用不用把它传给汇合 Step。
 
@@ -209,9 +212,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：多个分支汇合成一个。每次到达都单独把控制传下去，后续任务每次到达运行一次。见[官方定义](http://www.workflowpatterns.com/patterns/control/advanced_branching/wcp8.php)。
 
-**Dex 实现**：每个分支都返回指向同一个 Step type 的 **GoTo**。每次到达，Dex 都启动该 Step 的一个新执行。
+**Dex 实现**：每个分支都返回指向同一个 Step type 的 `GoTo`。每次到达，Dex 都启动该 Step 的一个新执行。
 
-**评级**：**+**。每个 **GoTo** 都创建自己的 Step 执行。
+**评级**：**+**。每个 `GoTo` 都创建自己的 Step 执行。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultiMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs)
 
@@ -219,7 +222,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：并行拆分之后，最先到达的分支把控制传下去，之后到达的分支不再传递。所有分支都到达后，该构件复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/advanced_branching/wcp9.php)。
 
-**Dex 实现**：拆分 Step 用 **Join** fork 每一轮。汇合 Step 等待 1 个分支（**ForBranches**），然后传递控制。它同时用 round token 启动下一轮的拆分 Step。这个 Step 的 **WaitFor** 等待 **ForRemainingBranches**，消费这一轮其余的结果，这就是复位。然后它 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
+**Dex 实现**：拆分 Step 用 **Join** fork 每一轮。汇合 Step 等待 1 个分支（`ForBranches`），然后传递控制。它同时用 round token 启动下一轮的拆分 Step。这个 Step 的 `WaitFor` 等待 `ForRemainingBranches`，消费这一轮其余的结果，这就是复位。然后它 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
 
 **评级**：**+**。Join 按开启一轮的 Step 执行区分各轮，所以迟到的结果永远不会传递控制。复位不需要额外的 Step，也不需要轮次计数器。
 
@@ -229,9 +232,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：流程中的循环可以有多个入口或出口。见[官方定义](http://www.workflowpatterns.com/patterns/control/structural/wcp10.php)。
 
-**Dex 实现**：Step 之间可以任意 **GoTo**，包括已经运行过的 Step。示例中的起草和编辑循环有两个入口和两个出口。
+**Dex 实现**：Step 之间可以任意 `GoTo`，包括已经运行过的 Step。示例中的起草和编辑循环有两个入口和两个出口。
 
-**评级**：**+**。**GoTo** 可以指向任何 Step。
+**评级**：**+**。`GoTo` 可以指向任何 Step。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/iteration.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/iteration.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/iteration.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ArbitraryCyclesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/iteration.rs)
 
@@ -239,9 +242,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：当现在和将来都没有剩余工作时，流程结束，不需要专门的结束节点。见[官方定义](http://www.workflowpatterns.com/patterns/control/structural/wcp11.php)。
 
-**Dex 实现**：每个完成的分支都返回 **GracefulComplete**。只有没有活动 Step 时，Flow 才关闭。
+**Dex 实现**：每个完成的分支都返回 `GracefulComplete`。只有没有活动 Step 时，Flow 才关闭。
 
-**评级**：**+**。**GracefulComplete** 会等待最后一个活动 Step。
+**评级**：**+**。`GracefulComplete` 会等待最后一个活动 Step。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ImplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs)
 
@@ -249,9 +252,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：一个任务在同一个流程实例中以多个独立实例运行，没有任何东西等待它们完成。见[官方定义](http://www.workflowpatterns.com/patterns/control/multiple_instance/wcp12.php)。
 
-**Dex 实现**：Step 返回 **GoToMany**，同一 Step type 每个实例一个执行。Flow 在另一个分支上继续，不需要汇合。
+**Dex 实现**：Step 返回 `GoToMany`，同一 Step type 每个实例一个执行。Flow 在另一个分支上继续，不需要汇合。
 
-**评级**：**+**。**GoToMany** 启动这些实例，没有 Step 等待它们。
+**评级**：**+**。`GoToMany` 启动这些实例，没有 Step 等待它们。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/MultipleInstancesWithoutSynchronizationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs)
 
@@ -259,7 +262,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：实例数量在模型中固定。这些实例同时运行，全部完成后流程才继续。见[官方定义](http://www.workflowpatterns.com/patterns/control/multiple_instance/wcp13.php)。
 
-**Dex 实现**：Step 用固定的实例列表 fork 一个 **Join**。每个实例以 **EndBranch** 结束。汇合 Step 等待 **ForAllBranches**。
+**Dex 实现**：Step 用固定的实例列表 fork 一个 **Join**。每个实例以 `EndBranch` 结束。汇合 Step 等待 `ForAllBranches`。
 
 **评级**：**+**。每个实例就是 Join 的一个分支，由 **Fork** 计数。
 
@@ -269,7 +272,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：实例数量在运行时、实例启动之前确定。这些实例同时运行，全部完成后流程才继续。见[官方定义](http://www.workflowpatterns.com/patterns/control/multiple_instance/wcp14.php)。
 
-**Dex 实现**：Step 为输入中的每一项构造一个实例，并用这个列表 fork 一个 **Join**。汇合 Step 等待 **ForAllBranches**。
+**Dex 实现**：Step 为输入中的每一项构造一个实例，并用这个列表 fork 一个 **Join**。汇合 Step 等待 `ForAllBranches`。
 
 **评级**：**+**。实例数就是交给 **Fork** 的列表长度，应用不用保存计数。
 
@@ -289,9 +292,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：由外部环境在分支之间做选择。在其中一个分支开始之前，每个分支都可能执行。之后其余分支被撤回。见[官方定义](http://www.workflowpatterns.com/patterns/control/state/wcp16.php)。
 
-**Dex 实现**：一个 Step 用 **AnyOf** 等待，每个分支一个 **Channel**。Dex 只消费被选中条件的消息。**Execute** 进入与之对应的分支。
+**Dex 实现**：一个 Step 用 `AnyOf` 等待，每个分支一个 **Channel**。Dex 只消费被选中条件的消息。`Execute` 进入与之对应的分支。
 
-**评级**：**+**。**AnyOf** 决定竞争结果，只有一个分支会开始。
+**评级**：**+**。`AnyOf` 决定竞争结果，只有一个分支会开始。
 
 **设计模式**：[Deferred Choice](/design-patterns/deferred-choice)。
 
@@ -301,9 +304,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：一组任务按偏序允许的任意顺序运行。每个任务运行一次，任意两个任务都不同时运行。见[官方定义](http://www.workflowpatterns.com/patterns/control/state/wcp17.php)。
 
-**Dex 实现**：每个任务的 **Execute** 都在同一个 **Attribute** 上声明锁。**GoTo** 表示偏序。汇合 Step 用 **ForN** 等待各任务的信号。
+**Dex 实现**：每个任务的 `Execute` 都在同一个 **Attribute** 上声明锁。`GoTo` 表示偏序。汇合 Step 用 `ForN` 等待各任务的信号。
 
-**评级**：**+/-**。路由由锁和 Channel 信号组合而成。锁只覆盖一个 **Execute**，不覆盖 **WaitFor**，也不覆盖跨多个 Step 的任务。
+**评级**：**+/-**。路由由锁和 Channel 信号组合而成。锁只覆盖一个 `Execute`，不覆盖 `WaitFor`，也不覆盖跨多个 Step 的任务。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/InterleavedParallelRoutingFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 
@@ -331,9 +334,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：整个流程实例被移除，包括正在运行的任务、将来的任务和 "all sub-processes"，并记为不成功。见[官方定义](http://www.workflowpatterns.com/patterns/control/cancellation/wcp20.php)。
 
-**Dex 实现**：启动 **SubFlow** 的 Step 用 **AnyOf** 等待子 Flow 或一个取消 **Channel**。收到取消后，它用 **SubFlow.getFlowId** 读取子 Flow 的 ID，用 Client **StopFlow** 停止子 Flow，再返回 **ForceFail**。**ForceFail** 取消其他所有活动 Step。
+**Dex 实现**：启动 **SubFlow** 的 Step 用 `AnyOf` 等待子 Flow 或一个取消 **Channel**。收到取消后，它用 `SubFlow.getFlowId` 读取子 Flow 的 ID，用 Client `StopFlow` 停止子 Flow，再返回 `ForceFail`。`ForceFail` 取消其他所有活动 Step。
 
-**评级**：**+/-**。只用 Client **StopFlow** 会让正在运行的 SubFlow 继续运行，所以示例组合了取消 Channel、显式停止和 **ForceFail**。
+**评级**：**+/-**。只用 Client `StopFlow` 会让正在运行的 SubFlow 继续运行，所以示例组合了取消 Channel、显式停止和 `ForceFail`。
 
 **设计模式**：[连同子 Flow 一起取消](/design-patterns/cancel-case)。
 
@@ -343,9 +346,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：任务或子流程在条件成立时重复执行。条件在每次执行之前或之后检查。循环只有一个入口和一个出口。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp21.php)。
 
-**Dex 实现**：前置判断 Step **GoTo** 循环体或出口。循环体再 **GoTo** 前置判断。
+**Dex 实现**：前置判断 Step `GoTo` 循环体或出口。循环体再 `GoTo` 前置判断。
 
-**评级**：**+**。**GoTo** 构成循环。
+**评级**：**+**。`GoTo` 构成循环。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/iteration.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/iteration.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/iteration.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/StructuredLoopFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/iteration.rs)
 
@@ -363,7 +366,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：信号只有在任务已经在等待时才能触发它。没有任务等待时到达的信号会丢失。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp23.php)。
 
-**Dex 实现**：Step 的 **WaitFor** 设置一个 **Attribute**，记录它正在等待。**RPC** 在该 Attribute 上声明锁，只在它已设置时接受触发，并在接受时清除它。之后的触发都会被丢弃。
+**Dex 实现**：Step 的 `WaitFor` 设置一个 **Attribute**，记录它正在等待。**RPC** 在该 Attribute 上声明锁，只在它已设置时接受触发，并在接受时清除它。之后的触发都会被丢弃。
 
 **评级**：**+/-**。Channel 消息会持久保存，所以示例组合了 Attribute、锁和 RPC 检查来丢弃触发。
 
@@ -373,7 +376,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：信号会被保留，直到某个任务能处理它。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp24.php)。
 
-**Dex 实现**：**RPC** 把信号发布到 **Channel**。消息一直排队，直到某个 Step 的 **WaitFor** 消费它。
+**Dex 实现**：**RPC** 把信号发布到 **Channel**。消息一直排队，直到某个 Step 的 `WaitFor` 消费它。
 
 **评级**：**+**。Channel 消息本来就会持久保存。
 
@@ -413,7 +416,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：最先到达的分支把控制传下去。定义写道："Subsequent enablements of incoming branches are blocked until the Blocking Discriminator has reset."所有活动分支都到达后，它复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp28.php)。
 
-**Dex 实现**：拆分 Step 用 **Join** fork 每一轮，汇合 Step 等待 1 个分支（**ForBranches**）。下一轮的拆分 Step 先等待上一轮的 **ForRemainingBranches**，再 fork 下一轮。在此之前，下一轮的分支还不存在，所以下一轮的信号只会排队，不产生效果。
+**Dex 实现**：拆分 Step 用 **Join** fork 每一轮，汇合 Step 等待 1 个分支（`ForBranches`）。下一轮的拆分 Step 先等待上一轮的 `ForRemainingBranches`，再 fork 下一轮。在此之前，下一轮的分支还不存在，所以下一轮的信号只会排队，不产生效果。
 
 **评级**：**+**。复位在结构上挡住下一轮，不需要额外的 Step，也不需要轮次计数器。
 
@@ -423,7 +426,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：最先到达的分支把控制传下去，并取消其他分支。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp29.php)。
 
-**Dex 实现**：拆分 Step 用 **Join** fork 各分支，汇合 Step 等待 1 个分支（**ForBranches**）。它的 decision 取消属于分支 Step type 的 sibling Step。**Fork** 在同一个 decision 里启动分支和汇合 Step，所以这些 sibling 正好是本轮的分支。
+**Dex 实现**：拆分 Step 用 **Join** fork 各分支，汇合 Step 等待 1 个分支（`ForBranches`）。它的 decision 取消属于分支 Step type 的 sibling Step。**Fork** 在同一个 decision 里启动分支和汇合 Step，所以这些 sibling 正好是本轮的分支。
 
 **评级**：**+**。同一个汇合 Step 既触发又取消。被取消的分支永远不会上报结果。
 
@@ -433,7 +436,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：并行拆分成 m 个分支后，其中 n 个到达时控制就传下去，之后到达的不再传递。所有分支都到达后，汇合复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp30.php)。
 
-**Dex 实现**：每一轮，拆分 Step 用 **Join** fork m 个分支。汇合 Step 等待 n 个分支（**ForBranches**）。下一轮的拆分 Step 等待上一轮的 **ForRemainingBranches**，消费其余 m - n 个结果，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
+**Dex 实现**：每一轮，拆分 Step 用 **Join** fork m 个分支。汇合 Step 等待 n 个分支（`ForBranches`）。下一轮的拆分 Step 等待上一轮的 `ForRemainingBranches`，消费其余 m - n 个结果，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
 
 **评级**：**+**。与 WCP-9 一样，Join 区分各轮，复位不需要额外的 Step，也不需要轮次计数器。
 
@@ -443,7 +446,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个分支中有 n 个到达时，控制传下去。之后的启用会被阻塞，直到汇合复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp31.php)。
 
-**Dex 实现**：做法与 WCP-28 相同，只是等待 n 个分支（**ForBranches**）。**ForRemainingBranches** 复位汇合之后，下一轮的分支才会启动，所以在此之前下一轮的信号只会排队。
+**Dex 实现**：做法与 WCP-28 相同，只是等待 n 个分支（`ForBranches`）。`ForRemainingBranches` 复位汇合之后，下一轮的分支才会启动，所以在此之前下一轮的信号只会排队。
 
 **评级**：**+**。与 WCP-28 一样，复位在结构上挡住下一轮。
 
@@ -453,7 +456,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个分支中有 n 个到达时，控制传下去，其余分支被取消。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp32.php)。
 
-**Dex 实现**：做法与 WCP-29 相同，只是等待 n 个分支（**ForBranches**）。汇合 Step 的 decision 取消它的 sibling 分支。
+**Dex 实现**：做法与 WCP-29 相同，只是等待 n 个分支（`ForBranches`）。汇合 Step 的 decision 取消它的 sibling 分支。
 
 **评级**：**+**。与 WCP-29 一样，同一个汇合 Step 既触发又取消。
 
@@ -463,9 +466,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：每个输入分支都送来一个触发后，控制才传下去。某个分支上多余的触发会留给以后的触发。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp33.php)。
 
-**Dex 实现**：汇合 Step 用 **AllOf** 等待，每个输入分支一个 **Channel**。多余的消息会排队，汇合 Step 循环再次触发。
+**Dex 实现**：汇合 Step 用 `AllOf` 等待，每个输入分支一个 **Channel**。多余的消息会排队，汇合 Step 循环再次触发。
 
-**评级**：**+/-**。汇合由 Channel 信号和 **AllOf** 等待组合而成，各分支必须发布信号。
+**评级**：**+/-**。汇合由 Channel 信号和 `AllOf` 等待组合而成，各分支必须发布信号。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/GeneralizedAndJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs)
 
@@ -473,7 +476,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个实例运行。其中 n 个完成时，下一个任务开始。其余实例照常完成，全部完成后汇合复位。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp34.php)。
 
-**Dex 实现**：每一轮，拆分 Step 用 **Join** fork 同一 Step type 的 m 个实例。汇合 Step 等待 n 个实例（**ForBranches**）。下一轮的拆分 Step 等待上一轮的 **ForRemainingBranches**，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
+**Dex 实现**：每一轮，拆分 Step 用 **Join** fork 同一 Step type 的 m 个实例。汇合 Step 等待 n 个实例（`ForBranches`）。下一轮的拆分 Step 等待上一轮的 `ForRemainingBranches`，然后 fork 下一轮。示例把被忽略的结果记在一个 Attribute 里。
 
 **评级**：**+**。与 WCP-30 相同，只是分支换成了实例。
 
@@ -483,7 +486,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：m 个实例运行。其中 n 个完成时，下一个任务开始，其余实例被取消。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp35.php)。
 
-**Dex 实现**：拆分 Step 用 **Join** fork m 个实例，汇合 Step 等待 n 个实例（**ForBranches**）。它的 decision 取消属于实例 Step type 的 sibling Step。
+**Dex 实现**：拆分 Step 用 **Join** fork m 个实例，汇合 Step 等待 n 个实例（`ForBranches`）。它的 decision 取消属于实例 Step type 的 sibling Step。
 
 **评级**：**+**。与 WCP-32 相同，只是分支换成了实例。
 
@@ -503,7 +506,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：各分支汇合，合并等待每个活动分支。它根据本地掌握的信息决定要等待多少个分支。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp37.php)。
 
-**Dex 实现**：与 WCP-7 一样，分叉的 Step 只用活跃的分支 fork 一个 **Join**。汇合 Step 等待 **ForAllBranches**。
+**Dex 实现**：与 WCP-7 一样，分叉的 Step 只用活跃的分支 fork 一个 **Join**。汇合 Step 等待 `ForAllBranches`。
 
 **评级**：**+**。本地信息就是 round token 里的分支数，由 **Fork** 生成。
 
@@ -515,7 +518,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **Dex 实现**：**Attribute** 记录仍能到达合并点的线程数。修改计数的每个 Step 都在这个 Attribute 上声明锁。把计数降到 0 的 Step 同时向 **Channel** 发布一条"完成"消息。合并 Step 等待这条消息。
 
-**评级**：**+/-**。该模式要求合并点根据流程结构自行判断可达性。在 Dex 中，这一判断由应用代码在每次 **GoTo** 时做出。
+**评级**：**+/-**。该模式要求合并点根据流程结构自行判断可达性。在 Dex 中，这一判断由应用代码在每次 `GoTo` 时做出。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multi-choice-and-merges.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multi_choice_and_merges.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multi_choice_and_merges.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/GeneralSynchronizingMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multi_choice_and_merges.rs)
 
@@ -535,9 +538,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：一组任务中的每个任务以任意顺序运行一次，任意两个都不同时运行。全部完成后下一个任务开始。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp40.php)。
 
-**Dex 实现**：每个任务的 **Execute** 都在同一个 **Attribute** 上声明锁。汇合 Step 用 **ForN** 等待各任务的信号。
+**Dex 实现**：每个任务的 `Execute` 都在同一个 **Attribute** 上声明锁。汇合 Step 用 `ForN` 等待各任务的信号。
 
-**评级**：**+/-**。路由由锁和 Channel 信号组合而成。与 WCP-17 一样，锁只覆盖一个 **Execute**。
+**评级**：**+/-**。路由由锁和 Channel 信号组合而成。与 WCP-17 一样，锁只覆盖一个 `Execute`。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/InterleavedRoutingFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 
@@ -545,7 +548,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：同一分支中给定数量的线程合并成一个线程。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp41.php)。
 
-**Dex 实现**：Step 用指定数量的线程 fork 一个 **Join**，这些线程都属于同一个 Step type。每个线程以 **EndBranch** 结束。合并 Step 等待 **ForAllBranches**。
+**Dex 实现**：Step 用指定数量的线程 fork 一个 **Join**，这些线程都属于同一个 Step type。每个线程以 `EndBranch` 结束。合并 Step 等待 `ForAllBranches`。
 
 **评级**：**+**。每个线程就是 Join 的一个分支，由 **Fork** 计数。
 
@@ -555,9 +558,9 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：一个分支启动给定数量的线程。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp42.php)。
 
-**Dex 实现**：Step 返回 **GoToMany**，包含同一 Step type 的这么多个执行。
+**Dex 实现**：Step 返回 `GoToMany`，包含同一 Step type 的这么多个执行。
 
-**评级**：**+**。**GoToMany** 启动这些线程。
+**评级**：**+**。`GoToMany` 启动这些线程。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ThreadSplitMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs)
 
@@ -565,8 +568,12 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **模式含义**：流程到达指定的结束节点时结束。剩余工作被取消，流程记为成功。见[官方定义](http://www.workflowpatterns.com/patterns/control/new/wcp43.php)。
 
-**Dex 实现**：Step 返回 **ForceComplete**。Dex 立即关闭 Flow，并取消其他所有活动 Step。
+**Dex 实现**：Step 返回 `ForceComplete`。Dex 立即关闭 Flow，并取消其他所有活动 Step。
 
-**评级**：**+**。**ForceComplete** 就是显式结束。
+**评级**：**+**。`ForceComplete` 就是显式结束。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs)
+
+## 下一步
+
+[开发者参考](/reference)：The Developer Reference holds the details that change from release to release: configuration keys, flags, defaults, limits, metrics, edge cases, and version differences.

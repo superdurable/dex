@@ -4,11 +4,11 @@ title: Wait and Stream
 
 # Wait and Stream
 
-Use a Stream when the caller should receive a series of updates instead of waiting for one point. **ReadStream** waits for the next message after the supplied resume token. The response includes a new token; pass it to the next read to continue in order.
+Use a Stream when the caller should receive a series of updates instead of waiting for one point. `ReadStream` waits for the next message after the supplied resume token. The response includes a new token; pass it to the next read to continue in order.
 
-The **StreamFlow** sample exposes a progress Stream. Its read endpoint long-polls for up to 20 seconds, returns one message, and gives the client the token to keep. A client can issue the next read immediately after handling that message. The [Polling](/design-patterns/polling) example reports job progress on a Stream that clients read the same way.
+The `StreamFlow` sample exposes a progress Stream. Its read endpoint long-polls for up to 20 seconds, returns one message, and gives the client the token to keep. A client can issue the next read immediately after handling that message. The [Polling](/design-patterns/polling) example reports job progress on a Stream that clients read the same way.
 
-Streams are best-effort ordered messages, not a final Flow result. Use **WaitForStepCompletion** or **WaitForAttributeMatch** when the caller needs one specific durable condition before it can proceed.
+Streams are best-effort ordered messages, not a final Flow result. Use `WaitForStepCompletion` or `WaitForAttributeMatch` when the caller needs one specific durable condition before it can proceed.
 
 ## Core implementation
 
@@ -131,7 +131,7 @@ async fn read(
 </SdkSnippet>
 </SdkTabs>
 
-## Related
+## Next
 
 - [Stream](/concepts/primitives/stream)
 - [Client](/concepts/client)

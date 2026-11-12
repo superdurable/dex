@@ -4,7 +4,7 @@ title: Wait for Attribute Match
 
 # Wait for Attribute Match
 
-Use **WaitForAttributeMatch** when a caller needs to refresh after durable business state changes. The application owns the Attribute and decides what it means. The wait checks only that Attribute's value.
+Use `WaitForAttributeMatch` when a caller needs to refresh after durable business state changes. The application owns the Attribute and decides what it means. The wait checks only that Attribute's value.
 
 A common choice is an integer revision Attribute that starts at zero. Every Step and RPC that changes the business state declares a lock on that same Attribute. While it holds the lock, it reads the revision, adds one, writes the business state, and then writes the new revision.
 
@@ -12,11 +12,11 @@ The caller waits until the revision is greater than the last value it saw. The w
 
 Revision is a watermark, not an event stream. If state advances quickly from 0 to 1 to 2 to 3, one wait for a value greater than 0 may return 3. Callers must not expect to observe every intermediate value.
 
-When the wait runs behind an HTTP endpoint or another entry point with its own deadline, set **RequestTimeout**. See [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
+When the wait runs behind an HTTP endpoint or another entry point with its own deadline, set `RequestTimeout`. See [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
 
 ## Advance revision under a lock
 
-The Job Posting example serializes its update RPC with one Attribute lock and advances **UpdateVersion** in the same invocation that writes the state.
+The Job Posting example serializes its update RPC with one Attribute lock and advances `UpdateVersion` in the same invocation that writes the state.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/job_post_flow.py', go: 'examples/go/products/job-post/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostingFlow.java', typescript: 'examples/typescript/src/products/job-post/job-post-flow.ts', rust: 'examples/rust/src/products/job_post/flow.rs'}}>
 <SdkSnippet lang="python">
@@ -264,7 +264,7 @@ let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?
 
 Supported operators, rejected comparison types, and the active-Flow rule are in [Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match).
 
-## Related
+## Next
 
 - [Attribute](/concepts/primitives/attribute)
 - [Client](/concepts/client)

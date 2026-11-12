@@ -105,7 +105,6 @@ export default function SdkTabs(props: SdkTabsProps): ReactNode {
   }
 
   const current = available.includes(active) ? active : available[0];
-  const example = snippets[current]?.example;
 
   return (
     <div className="sdk-tabs">
@@ -126,17 +125,28 @@ export default function SdkTabs(props: SdkTabsProps): ReactNode {
           </button>
         ))}
       </div>
-      <div className="sdk-tabs__panel" role="tabpanel">
-        <IdeExampleFileContext.Provider value={example}>
-          {snippets[current]?.body}
-        </IdeExampleFileContext.Provider>
-        {example ? (
-          <p className="sdk-tabs__example">
-            {exampleLabel}:{' '}
-            <a href={`${EXAMPLE_BASE}/${example}`}>{example}</a>
-          </p>
-        ) : null}
-      </div>
+      {/* Every language's panel is in the page, so site search indexes the code of each SDK. */}
+      {available.map((language) => {
+        const languageExample = snippets[language]?.example;
+        return (
+          <div
+            key={language}
+            className="sdk-tabs__panel"
+            role="tabpanel"
+            hidden={language !== current}
+            data-sdk-language={language}>
+            <IdeExampleFileContext.Provider value={languageExample}>
+              {snippets[language]?.body}
+            </IdeExampleFileContext.Provider>
+            {languageExample ? (
+              <p className="sdk-tabs__example">
+                {exampleLabel}:{' '}
+                <a href={`${EXAMPLE_BASE}/${languageExample}`}>{languageExample}</a>
+              </p>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -5,13 +5,13 @@ sidebar_label: CLI
 
 # CLI (dexcli)
 
-**dexcli** is the Dex command-line tool. Its output is JSON first, so shell
+`dexcli` is the Dex command-line tool. Its output is JSON first, so shell
 scripts and AI agents can use it as well as people.
 
 ## What it does
 
 - **dexcli dev** starts a local Dex: server-zd and Dex Web on your machine. The
-  release package includes **dex-server-zd** next to **dexcli**.
+  release package includes **dex-server-zd** next to `dexcli`.
 - **dexcli flow** inspects, searches, watches, and operates Flows.
 - **dexcli api** calls any public API method.
 - **dexcli web** serves Dex Web against an existing server.
@@ -23,7 +23,7 @@ scripts and AI agents can use it as well as people.
 
 ## How it fits with the other components
 
-**dexcli** talks to the [server](/components/server) API, the same
+`dexcli` talks to the [server](/components/server) API, the same
 API that [Workers and Clients](/components/application) use. It
 connects to **127.0.0.1:8801** by default, which is where **dexcli dev** listens.
 
@@ -36,3 +36,7 @@ dexcli flow inspect order-123
 
 The [CLI reference](/reference/cli/) lists the flags, connection and
 authentication settings, and output formats.
+
+## Next
+
+[Web (Dex Web)](/components/web): Dex Web is the operator UI for Dex.

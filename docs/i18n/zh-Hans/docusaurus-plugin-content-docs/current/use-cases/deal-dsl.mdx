@@ -14,12 +14,12 @@ import flowDefinition from '@site/src/data/flow-definitions/deal-dsl.json';
 
 1. 接收一份定义，其中包含流程 ID、商品 ID 和名称、初始状态、初始状态数据、状态、动作、等待条件和状态转换。
 2. 在执行前校验定义。所有被引用的状态和动作都必须存在，标识符必须有效，每个条件名称只能属于一个等待。
-3. 只运行一次 **InitializeDeal**，保存定义的快照（之后修改定义也不会影响它）、买家和商品、初始状态数据，以及第一个要进入的状态。
-4. 在进入状态前运行 **WaitForDealCondition**。如果状态声明了前置条件，Step 会等待该条件对应的键控 Channel 消息；否则立即继续。
-5. 把条件消息合并进 **DealStateData**，再按声明顺序执行状态动作。每个动作都有独立的 **ExecuteDealAction** execution 和持久化检查点。
-6. 动作结束后运行 **EvaluateDealTransition**。它可以再等待一个外部条件，然后拿状态数据中的一个值依次与各分支比较，选择第一个相等分支的状态，或者兜底状态。
+3. 只运行一次 `InitializeDeal`，保存定义的快照（之后修改定义也不会影响它）、买家和商品、初始状态数据，以及第一个要进入的状态。
+4. 在进入状态前运行 `WaitForDealCondition`。如果状态声明了前置条件，Step 会等待该条件对应的键控 Channel 消息；否则立即继续。
+5. 把条件消息合并进 `DealStateData`，再按声明顺序执行状态动作。每个动作都有独立的 `ExecuteDealAction` execution 和持久化检查点。
+6. 动作结束后运行 `EvaluateDealTransition`。它可以再等待一个外部条件，然后拿状态数据中的一个值依次与各分支比较，选择第一个相等分支的状态，或者兜底状态。
 7. 重复解释器循环，直到进入没有后续转换的状态。Flow 最终用累计的状态数据完成。
-8. 修改定义不能影响已经在运行的交易。Go 应用把可编辑定义保存在 PostgreSQL 中，并在启动新 Flow 时传入快照。
+8. 已经在运行的交易保留启动时的定义。Go 应用把可编辑定义保存在 PostgreSQL 中，并在启动新 Flow 时传入快照。
 
 Flow 只会等待前置条件消息、状态转换消息，以及 Step 重试前的间隔。
 
@@ -67,12 +67,12 @@ DealStart（定义快照、买家、商品）
 
 - **有限状态机**：当前状态和每一次转换都是显式的，可以随时查看。
 - **键控 Channel**：每个命名条件是同一个 Channel 上的一个 key，不必为每个条件单独定义 Channel。
-- **共享状态 map**：条件消息和动作各自把小的键值更新写入同一个 **DealStateData** map。
+- **共享状态 map**：条件消息和动作各自把小的键值更新写入同一个 `DealStateData` map。
 - [**Entity store**](/design-patterns/entity-store) 为每个 Go Flow run 提供稳定的 Flow ID，并把流程、商品、买家、当前状态和等待条件保存成可搜索 Attribute。
 
 各个 SDK 的示例都为每个状态使用一个动作列表。Go 示例另外加入了分开的前置动作和后置动作、PostgreSQL 定义目录、搜索 API 和浏览器 UI。
 
-Go 示例按声明顺序把六个 Keyword Attribute 映射到 **keyword1** 至 **keyword6**。namespace 中的所有 Flow 类型共用这些槽位，所以它的 raw search 总是先按 **FlowType** 过滤。
+Go 示例按声明顺序把六个 Keyword Attribute 映射到 `keyword1` 至 `keyword6`。namespace 中的所有 Flow 类型共用这些槽位，所以它的 raw search 总是先按 `FlowType` 过滤。
 
 ## 核心实现
 
@@ -788,7 +788,7 @@ impl Step for EvaluateDealTransition {
 
 ## Demo
 
-这次完成的 Go 运行把 **Premium research package** 商品卖给了 **buyer-demo**。Flow 等待 **buyer-confirmation**，向买家收款，交付商品，并以 **itemDeliveryStatus: delivered** 完成。每个动作在图中都有独立且已完成的 **ExecuteDealAction** execution。
+这次完成的 Go 运行把 **Premium research package** 商品卖给了 **buyer-demo**。Flow 等待 **buyer-confirmation**，向买家收款，交付商品，并以 **itemDeliveryStatus: delivered** 完成。每个动作在图中都有独立且已完成的 `ExecuteDealAction` execution。
 
 <a href="/img/use-cases/deal-dsl-step-execution-graph.png" target="_blank" rel="noreferrer">
   <img
@@ -798,7 +798,7 @@ impl Step for EvaluateDealTransition {
   />
 </a>
 
-## 相关内容
+## 下一步
 
 - [设计模式](/design-patterns)
 - [概念](/concepts)

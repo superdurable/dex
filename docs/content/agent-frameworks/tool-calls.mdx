@@ -1,0 +1,143 @@
+---
+title: Tool Calls
+sidebar_label: Tool Calls
+slug: /agent-frameworks/tool-calls
+---
+
+# Tool Calls
+
+Every tool gets a policy, whatever framework runs the agent. The policy's effect class decides whether Dex may run a call again after a failure. So a read can retry, and a non-idempotent write runs at most once.
+
+## Tool policies {#tool-policies-and-approvals}
+
+Each tool gets a `ToolPolicy`. The policy sets the tool's effect class, which decides whether Dex may run a call again. It also decides whether a call waits for approval, as [Require approval](#require-approval) shows.
+
+### Effect classes {#effect-classes}
+
+| Effect class | What the tool does | Runs in |
+| --- | --- | --- |
+| **read** | Only reads. Running it again is harmless. | `CallTool`, with retries |
+| `idempotent_write` | Writes, and a repeat with the same idempotency key has no further effect. | `CallTool`, with retries |
+| `non_idempotent_write` | Writes, and a repeat can repeat the effect. | `CallSingleAttemptTool`, once |
+| **unclassified** | Nothing is known about it. Dex treats it as a non-idempotent write. | `CallSingleAttemptTool`, once |
+
+Every attempt of a call gets the same idempotency key: the session's Flow ID, the turn ID, and the tool call ID, joined by slashes, such as `session-42/turn-3/call-7`. Pass it to the service that the tool writes to. When the service drops a repeated key, classify the tool as `idempotent_write`, so Dex can retry it after a failure.
+
+### Require approval {#require-approval}
+
+A policy has two fields: the effect class, and `requires_approval` (`requiresApproval` in TypeScript). When you leave `requires_approval` unset, the effect class decides:
+
+| Effect class | Waits for approval by default |
+| --- | --- |
+| **read** | No |
+| `idempotent_write` | No |
+| `non_idempotent_write` | Yes |
+| **unclassified** | Yes |
+
+Set `requires_approval` to true to ask a person before any call, such as a refund with an idempotency key. Set it to false to let a non-idempotent write run without approval. The call still runs at most once. A policy wins over framework metadata, such as an MCP read-only hint, and over the session's default effect.
+
+In the [Agent Quick Start](/agent-frameworks/quick-start), `cancel_order` has the `non_idempotent_write` effect and no `requires_approval`, so each call waits for approval. [Approvals](/agent-frameworks/approvals) explains the wait and how to answer it.
+
+A recorded tool call keeps the effect class and approval rule that applied when the model asked for it. A changed policy applies to later calls.
+
+## Tool call outcomes {#tool-call-outcomes}
+
+Each tool call ends with one record:
+
+| Record | Meaning |
+| --- | --- |
+| **succeeded** | The tool returned a result. |
+| **failed** | The tool reported a failure, or Dex knows that the tool did not run. |
+| **rejected** | A person rejected the call, or its approval deadline passed. |
+| `outcome_unknown` | The tool may or may not have taken effect. |
+
+The model reads every record and decides what to do next. A failed or unknown call does not fail the session.
+
+Which record a failed call gets depends on whether its tool may have run:
+
+- **Every attempt failed before it reached a Worker.** The tool did not run, so the call records **failed**. Its error starts with "the tool did not run, so it is safe to call again", and the model can call the tool again.
+- **An attempt reached a Worker, and then the Worker stopped.** The tool may have run, even before its first heartbeat reached Dex. `CallTool` retries a read or an idempotent write first. When its attempts run out, a read records **failed**. Any other call records `outcome_unknown`, and Dex never runs it again.
+
+[A call that never ran](/reference/agents/failures#never-run-outcome-unknown) shows how Dex tells the two apart.
+
+### At-most-once has one exception {#tool-runs-twice}
+
+A single-attempt tool runs in `CallSingleAttemptTool`. Dex hands each attempt to one Worker and never hands the same attempt to another. If the Worker dies or loses its connection to Dex while the tool runs, the call records `outcome_unknown`, and the session does not run the tool again.
+
+One narrow case can still run a single-attempt tool twice. It starts when Dex cancels an attempt that is still running, for example when the attempt times out. Cancellation is cooperative: Dex records the failure, but it cannot stop the tool code, so the old Worker may keep running the call. The turn then moves on with that failure. If the model asks for the same tool again, the new call can run while the first one is still finishing. So two runs of the same write can happen, one from each call.
+
+To make that harmless, pass the call's idempotency key to the service that the tool writes to. See [Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
+
+### Reconcile outcome_unknown {#reconcile-outcome-unknown}
+
+`outcome_unknown` means the effect may or may not have happened. The session never retries such a call, and the model sees that the outcome is unknown. Reconcile it outside the session, with these steps:
+
+1. **Find the call.** While the turn runs, `get_agent_snapshot` lists it under `tool_calls`, with the status `outcome_unknown` and the failure in **error**. The `AgentEvents` Stream has a `tool_call_finished` event with the same status. After the turn, its tool result in the message history says that the outcome is unknown.
+2. **Rebuild its idempotency key** from the record's `turn_id` and `tool_call_id`, as [Effect classes](#effect-classes) describes. It is the key every attempt of the call passed to the service.
+3. **Ask the service** whether it holds an operation with that key, or look the effect up by your own business key, such as the order ID. If the Flow's history shows that the tool Step's attempt never reached a Worker, the tool did not run. This can happen for a call that started before a server upgrade.
+4. **Tell the session the real outcome** with `send_user_message`. The report joins the conversation as a user message, and the model reads it as the user's words, and your UI shows it in the transcript unless you filter it. So word it as a note from your application, such as "Note from the order system: the cancellation of order 1002 went through." The next turn's model works from it, and does not ask for the call again when it already happened.
+
+Run these steps from a support tool or a small job that your app starts when it sees the status. No search finds these calls for you, because no Step waits on them.
+
+This module from the Python quick start example, shown whole, runs steps 2 to 4 for every call in the session's history whose result says the outcome is unknown. **check** asks your service and returns the text to report:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/reconcile.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+"""Reports the real outcome of tool calls that the session recorded as outcome_unknown."""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Protocol
+
+from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, AgentSnapshot, MessageRole
+
+# Asks your service about one call: (idempotency key, tool arguments as JSON) -> report text.
+OutcomeCheck = Callable[[str, str], Awaitable[str]]
+
+
+class SessionMessenger(Protocol):
+    async def get_agent_snapshot(self, session_id: str) -> AgentSnapshot: ...
+
+    async def send_user_message(self, session_id: str, text: str) -> bool: ...
+
+
+async def report_unknown_outcomes(
+    sessions: SessionMessenger, session_id: str, check: OutcomeCheck
+) -> list[str]:
+    """Tells the session what really happened to each call with an unknown outcome.
+
+    Returns the reports it sent. A call it reported before is skipped, so running
+    it again sends nothing new.
+    """
+    snapshot = await sessions.get_agent_snapshot(session_id)
+    sent = "\n".join(m.text or "" for m in snapshot.messages if m.role == MessageRole.USER)
+    reports: list[str] = []
+    for message in snapshot.messages:
+        if OUTCOME_UNKNOWN_TOOL_RESULT not in (message.tool_output or ""):
+            continue
+        # Every attempt of the call passed this key to the service.
+        key = f"{session_id}/{message.turn_id}/{message.tool_call_id}"
+        if key in sent:
+            continue
+        report = f"{await check(key, message.tool_arguments or '{}')} (tool call {key})"
+        await sessions.send_user_message(session_id, report)
+        reports.append(report)
+    return reports
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The function reads the history first and skips a call whose key a user message already names, so run it again rather than retrying one send. [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy) explains why a retried send can repeat.
+
+## Next
+
+- [Approvals](/agent-frameworks/approvals)
+- [Connectors as Tools](/agent-frameworks/connectors-as-tools)
+- [Failures reference](/reference/agents/failures)

@@ -6,10 +6,12 @@ title: AI Agent
 
 An AI agent talks with a user, calls tools, and acts on other systems. A real agent session can last for hours or days. It waits for the user, for a person to approve a write, or for a deadline. Dex runs each session as a durable Flow, so the session survives crashes, deploys, and long waits.
 
+**SDKs:** Python · TypeScript
+
 ## What Dex adds to an agent
 
 - **The conversation is durable.** Dex stores every message in Attributes. A Worker restart loses nothing.
-- **A crash repeats little.** Model calls and tool calls run in Steps. A crash repeats only the Step that was running. Nothing replays the loop.
+- **A crash repeats little.** Model calls and tool calls run in Steps. A crash repeats only the Step that was running.
 - **Writes run once.** A tool policy marks each tool as a read or a write. A write that must not repeat gets a single attempt.
 - **Approvals can wait.** A tool call that needs approval waits in its own Step, for as long as it takes. No Worker holds the wait.
 - **People can see and act.** Dex Web shows each session as a conversation. An operator approves or rejects a tool call there.
@@ -23,16 +25,16 @@ An AI agent talks with a user, calls tools, and acts on other systems. A real ag
 
 ## Build one
 
-Pick a harness: the built-in agent loop or an agent framework you already use. [Agent Frameworks](/agent-frameworks#choose-a-harness) compares them.
+Pick a harness: the built-in agent loop or an agent framework you already use. [Durable Agents](/agent-frameworks#choose-a-harness) compares them.
 
+- [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk)
+- [Google ADK](/agent-frameworks/quick-start/?framework=google-adk)
+- [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph)
+- [Mastra](/agent-frameworks/quick-start/?framework=mastra)
+- [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk)
+- [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai)
+- [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk)
 - [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop): no framework. Dex owns the model input.
-- [Claude Agent SDK](/agent-frameworks/claude-agent-sdk)
-- [OpenAI Agents SDK](/agent-frameworks/openai-agents-sdk)
-- [Pydantic AI](/agent-frameworks/pydantic-ai)
-- [LangChain and LangGraph](/agent-frameworks/langchain-langgraph)
-- [Google ADK](/agent-frameworks/google-adk)
-- [Vercel AI SDK](/agent-frameworks/vercel-ai-sdk)
-- [Mastra](/agent-frameworks/mastra)
 
 ## The AI Agent example
 
@@ -40,7 +42,7 @@ The AI Agent example is a general, long-running agent in Python and TypeScript. 
 
 [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop) walks through its code and shows how to run it. The code is under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent) and [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent).
 
-## Related
+## Next
 
 - [Agent Frameworks](/agent-frameworks)
 - [Agents reference](/reference/agents/)

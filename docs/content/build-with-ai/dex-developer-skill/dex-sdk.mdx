@@ -3,6 +3,7 @@ id: dex-sdk
 title: Dex SDK
 sidebar_label: Dex SDK
 slug: /build-with-ai/dex-developer-skill/dex-sdk
+description: "Dex SDK is a specialist sub-skill. It helps the agent build, debug, test, and run applications with the public Dex SDK. It supports Python, Go, Java, TypeScript, and Rust."
 ---
 
 # Dex SDK
@@ -13,7 +14,14 @@ It supports Python, Go, Java, TypeScript, and Rust.
 
 ## Install and use
 
-<DexSkillHostTabs skill="dex-sdk" />
+[Install Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) once; it installs all three Skills. Then call this Skill in your coding agent, for example in Codex and in Claude Code with the Plugin:
+
+```text
+$dex-sdk Diagnose why this Flow retries after the payment Step completes.
+/superdurable-dex:dex-sdk Diagnose why this Flow retries after the payment Step completes.
+```
+
+[Install and use Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) has the invocation for every host.
 
 For a complete product or business-process request, start with
 [Dex App Builder](./dex-app-builder.mdx). App Builder loads Dex SDK when it
@@ -28,7 +36,7 @@ Use Dex SDK for focused technical work on:
 - typed RPCs, Timers, SubFlows, Workers, and Clients;
 - retries, timeouts, heartbeats, durability, locks, and recovery;
 - SDK version compatibility, testing, troubleshooting, or operations;
-- Dex Web, **dexcli**, Flow visualization, and application observability.
+- Dex Web, `dexcli`, Flow visualization, and application observability.
 
 The skill works on your application, not on Dex. It does not start changing
 Dex Server to solve an application problem unless you explicitly ask it to
@@ -86,7 +94,7 @@ you have an explicit migration plan.
 ## Diagnostics and operations
 
 When it diagnoses a problem, the skill only reads by default. It can inspect
-Dex Web, **dexcli**, SDK errors, and application logs. Without your permission
+Dex Web, `dexcli`, SDK errors, and application logs. Without your permission
 it does not stop, time travel, publish to, invoke, delete, edit, or otherwise
 change a Flow.
 
@@ -106,3 +114,7 @@ source of truth for business state.
   It does not grow into the full product workflow.
 
 Return to [Dex Skills overview and installation](../dex-developer-skill.mdx).
+
+## Next
+
+[Durable Agents](/agent-frameworks)

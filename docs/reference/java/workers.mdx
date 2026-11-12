@@ -1,6 +1,7 @@
 ---
 title: Java Workers
 sidebar_label: Workers
+description: "This page shows how to start a Java Worker and lists the Java names of its settings. Workers and the task queue describes how these settings behave in every SDK."
 ---
 
 # Java Workers
@@ -13,8 +14,7 @@ how these settings behave in every SDK.
 
 This example serves a Greeting Flow through a pull Worker. Its Step stores a
 greeting, and the greeting RPC reads it. The Worker allows eight concurrent tasks
-and keeps one slot for RPCs. See the [Java SDK README](https://github.com/superdurable/dex/blob/main/sdk-java/README.md#pull-workers) for
-startup details.
+and keeps one slot for RPCs.
 
 ```java
 public final class PullGreetingExample {

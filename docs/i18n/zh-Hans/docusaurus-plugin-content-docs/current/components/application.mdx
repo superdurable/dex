@@ -1,13 +1,14 @@
 ---
 title: Application（Worker 和 Client）
-sidebar_label: Application
+sidebar_label: 你的应用
+description: "Dex 应用就是你部署的代码。"
 ---
 
 # Application（Worker 和 Client）
 
 Dex 应用就是你部署的代码。它包含两部分：
 
-- **Worker** 承载 Flow 定义。Dex 分配工作时，它运行 **WaitFor**、**Execute** 和 RPC handler。
+- **Worker** 承载 Flow 定义。Dex 分配工作时，它运行 `WaitFor`、`Execute` 和 RPC handler。
 - **Client** 启动 Flow、调用 RPC、读取 Attribute 和搜索 Flow。见 [Client](/concepts/client)。
 
 一个进程可以只运行 Worker，只运行 Client，也可以两者都运行。
@@ -16,23 +17,209 @@ Dex 应用就是你部署的代码。它包含两部分：
 
 Worker 和 Client 连接 Dex Server（server-zd）。每个 Worker 都是拉取模式 Worker：它主动向 server 建立出站任务 stream，从不监听调用。因此 Worker 不需要开放入站端口，可以运行在 NAT 或防火墙后面。
 
-Dex 把所有 Flow、SubFlow、Step 和 RPC 调用都发给你的 Worker，不需要配置 Worker 地址。[Dex Web](/components/web) 或 **dexcli** 启动的 Flow 也在你的 Worker 上运行。
+Dex 把所有 Flow、SubFlow、Step 和 RPC 调用都发给你的 Worker，不需要配置 Worker 地址。[Dex Web](/components/web) 或 `dexcli` 启动的 Flow 也在你的 Worker 上运行。
 
 Worker 启动时，可以把它的 Flow 的 Flow Definition Graph 发布到 server。Dex Web 从 server 读取它们，画出每个 Flow。
 
 <a id="启用拉取模式"></a>
 
+## 在现有服务中加入 Dex {#add-to-a-service}
+
+Dex 是加进你服务里的一个库，不是包在服务外面的框架。安装你所用语言的 SDK：
+
+~~~bash
+pip install dex-python-sdk==1.45.0                       # Python
+go get github.com/superdurable/dex/sdk-go@v1.45.0        # Go
+npm install @superdurable/dex@1.45.0                     # TypeScript
+cargo add dex-sdk@=1.45.0                                # Rust
+~~~
+
+Java 项目在 Gradle 或 Maven 构建中加入 Maven Central 上的 `io.superdurable:dex-sdk:1.45.0`。
+
+Worker 可以运行在两个地方：
+
+- **在你的服务进程里。** 和 HTTP server 一起启动，[Order Processing](/use-cases/order-processing) 示例就是这样。一次部署既处理请求，也运行 Step。
+- **在单独的进程里。** 如果 Step 需要和 API 不同的扩容方式、资源或发布节奏，就单独部署。[Quick Start](/quick-start) 的 Worker 就是这样运行的。
+
+无论哪种方式，Worker 只发起出站连接，所以不需要负载均衡器或入站端口。你的 handler 创建 Client 来启动 Flow、调用 RPC。[Dex and Your Database](/components/your-database) 说明 Step 怎样写入你服务已有的数据库。
+
+## 新建项目 {#start-a-new-project}
+
+每种语言的 [Quick Start](/quick-start) 文件夹都是一个完整的小项目。把你所用语言的文件夹（例如 `examples/python/quick-start`）从仓库里复制出来，就能开始自己的项目。每份副本都包含同样的部分：
+
+| 部分 | Python | Go | Java | TypeScript | Rust |
+| --- | --- | --- | --- | --- | --- |
+| 固定版本的 SDK | `pyproject.toml` 和 `uv.lock` | `go.mod` 和 `go.sum` | `build.gradle` | `package.json` 和 `package-lock.json` | `Cargo.toml` 和 `Cargo.lock` |
+| Flow | `quick_start/order_flow.py` | `order_flow.go` | `OrderFlow.java` | `order-flow.ts` | `src/order_flow.rs` |
+| Step 调用的服务 | `quick_start/shop_api.py` | `shop_api.go` | `ShopApi.java` | `shop-api.ts` | `src/shop_api.rs` |
+| 服务器地址和设置 | `quick_start/config.py` | `config.go` | `QuickStartConfig.java` | `config.ts` | `src/config.rs` |
+| Worker 程序 | `worker.py` | `cmd/worker` | `WorkerMain.java` | `worker.ts` | `src/bin/worker.rs` |
+| 启动程序 | `start.py` | `cmd/start` | `StartMain.java` | `start.ts` | `src/bin/start.rs` |
+| 内含 Worker 的 HTTP 服务 | `service.py` | `cmd/service` 和 `service.go` | `ServiceMain.java` 和 `OrderService.java` | `service.ts` 和 `order-service.ts` | `src/bin/service.rs` 和 `src/order_service.rs` |
+| 集成测试 | `tests/test_quick_start.py` | `quickstart_test.go` | `QuickStartTest.java` | `test/quick-start.test.ts` | `tests/quick_start.rs` |
+
+复制之后，给项目改名：`pyproject.toml` 里的 **name**、`go.mod` 里的 **module** 路径、`settings.gradle` 里的 `rootProject.name` 和 Java 包名、`package.json` 里的 **name**，或 `Cargo.toml` 里的 **name**。然后用你自己的 Flow 和 API 替换订单 Flow 和模拟 API。保留复制来的构建文件里的 SDK 版本，升级时再更新它。
+
 ## 启动 Worker {#enable-pull-mode}
 
 给 Worker 配置 server 地址。Client 也只需要 server 地址。你还可以设置 pull 选项，调整任务容量、注册和关闭行为。
 
+### Registry 和 blob cache {#blob-cache}
+
+Worker 和 Client 各自还需要两个对象：
+
+- **一个包含你的 Flow 的 Registry。** Worker 运行其中 Flow 的 Step 和 RPC。Client 用同样的定义来编码 Flow 的启动输入和 RPC 参数，并解码结果。所以 Client 也要构建 Flow 对象，虽然它从不运行 Step。
+- **一个 blob cache。** Dex 用引用来传递大的值，例如很大的 Attribute。blob cache 是本地一个有大小上限的目录，用来保存这些值，进程就不必再次下载。每个 Worker 和 Client 进程使用自己的目录。缓存里只有副本，删除它不会丢数据。
+
 各 SDK 参考都有可运行的启动示例：[Go](/reference/go/workers)、[Python](/reference/python/workers)、[Java](/reference/java/workers)、[TypeScript](/reference/typescript/workers) 和 [Rust](/reference/rust/workers)。
 
-## 容量和关闭
+## 把服务传给 Flow {#pass-services-to-the-flow}
+
+Flow 要调用的每个服务，比如支付 API，都通过 Flow 的 constructor 传入。不要事后用 setter 设置，也不要从全局变量读取。
+
+## 在 handler 里启动 Flow {#start-a-flow-from-a-handler}
+
+**start** handler 启动 Flow，然后用 Client 的 **wait-for-Step-completion** API 等第一个 Step 完成。它不用自己轮询状态。
+
+### 一个最小的服务 {#minimal-service}
+
+每个 [Quick Start](/quick-start) 示例都还有一个服务。它处理 **POST /orders**，并在同一个进程里运行 Worker。它的 handler 启动订单的 Flow，然后等待 Charge 完成：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/quick-start',
+    go: 'examples/go/quick-start',
+    java: 'examples/java/quick-start',
+    typescript: 'examples/typescript/quick-start',
+    rust: 'examples/rust/quick-start',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def start_order(client: Client, order_flow: OrderFlow, order_id: str) -> None:
+    """Starts the order's Flow once, however often the request is retried."""
+    options = StartFlowOptions(
+        request_id=f"start-{order_id}",
+        ignore_already_started=True,
+    )
+    client.start_flow(order_flow, order_id, order_id, options)
+    client.wait_for_step_completion(
+        order_id,
+        StepExecutionId("Charge"),
+        WaitForStepCompletionOptions(request_timeout=timedelta(seconds=30)),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// StartOrder starts the order's Flow once, however often the request is retried.
+// It returns after Charge completes.
+func StartOrder(ctx context.Context, client *dex.Client, flow *OrderFlow, orderID string) error {
+	requestID := "start-" + orderID
+	options := dex.StartFlowOptions{
+		RequestID:      &requestID,
+		AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true},
+	}
+	if _, err := client.StartFlow(ctx, flow, orderID, orderID, options); err != nil {
+		return err
+	}
+	return client.WaitForStepCompletion(ctx, orderID, dex.StepExecutionID{StepType: "Charge"},
+		dex.WaitForStepCompletionOptions{RequestTimeout: 30 * time.Second})
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+/** Starts the order's Flow once, however often the request is retried. Returns after Charge. */
+public static void startOrder(final Client client, final OrderFlow orderFlow, final String orderId) {
+    final StartFlowOptions options = StartFlowOptions.newBuilder()
+            .requestId("start-" + orderId)
+            .ignoreAlreadyStarted(true)
+            .build();
+    client.startFlow(orderFlow, orderId, orderId, options);
+    client.waitForStepCompletion(
+            orderId,
+            StepExecutionId.of("Charge"),
+            WaitForStepCompletionOptions.newBuilder().requestTimeout(Duration.ofSeconds(30)).build());
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Starts the order's Flow once, however often the request is retried. Returns after Charge. */
+export async function startOrder(client: Client, orderFlow: OrderFlow, orderId: string): Promise<void> {
+  await client.startFlow(orderFlow, orderId, orderId, {
+    requestId: `start-${orderId}`,
+    ignoreAlreadyStarted: true,
+  });
+  await client.waitForStepCompletion(orderId, StepExecutionId.of("Charge"), {
+    requestTimeoutMs: 30_000,
+  });
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+/// Starts the order's Flow once, however often the request is retried. Returns after Charge.
+pub fn start_order(client: &Client, order_flow: &OrderFlow, order_id: &str) -> SdkResult<()> {
+    let options = StartFlowOptions::new()
+        .request_id(format!("start-{order_id}"))
+        .ignore_already_started(true);
+    client.start_flow_with_options(order_flow, order_id, order_id.to_string(), options)?;
+    client.wait_for_step_completion(
+        order_id,
+        StepExecutionId::of(&order_flow.charge),
+        WaitForStepCompletionOptions::new().request_timeout(Duration::from_secs(30)),
+    )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+有三个启动选项让重试的请求变得安全：
+
+- **订单 ID 就是 Flow ID。** Dex 为每个 ID 只保留一个 Flow，默认的 ID 复用策略会拒绝第二次启动。
+- **request ID** 是 **start-** 加上订单 ID。这个请求每次重试时它都相同。
+- **already-started 选项**在 request ID 匹配时返回已有的 run。它在 Python 和 Rust 中是 `ignore_already_started`，在 Java 和 TypeScript 中是 `ignoreAlreadyStarted`，在 Go 中是 `AlreadyStarted.IgnoreError`。同一个订单如果用了不同的 request ID，仍然会收到 already-started 错误，服务用 409 回应。
+
+所以客户端把请求发送两次，订单也只扣款一次。[Start options and configuration](/concepts/flow#start-options) 列出了这些选项，英文的 [Dex and Your Database](/components/your-database#write-your-row-and-start-the-flow) 展示了同时写入你自己的表的 handler。在示例目录中运行这个服务，然后发送一个订单：
+
+```bash
+curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
+```
+
+## 通过 RPC 发命令、读状态 {#send-commands-through-rpcs}
+
+要改变 Flow 的 handler 调用一个 RPC，比如 **approve**，由 RPC 把消息发到 Channel。要读取 Flow 的 handler 调用读 RPC，比如 **describe**。handler 从 constructor 或 factory 参数拿到 Client 和 Flow。
+
+完整代码见 [Order Processing](/use-cases/order-processing) 示例。
+
+## 容量和关闭 {#capacity-and-shutdown}
+
+<a id="容量和关闭"></a>
 
 Worker 为每个任务槽位建立一个 stream。Dex 只把任务发给空闲的槽位，所以 Worker 不会因为容量不足而拒绝工作。没有 Worker 接手的 Step 会在持久任务队列中等待。RPC 如果在限定时间内没有 Worker 接手，就会失败。部署时要优雅地停止 Worker，让正在运行的任务完成。
 
 就绪检查、路由、容量、关闭和网络设置见英文的 [Workers and the task queue](/reference/server/workers)。
+
+## 在容器中运行 {#run-in-containers}
+
+Worker 和 Client 适合运行在无状态容器中：
+
+- **网络。** Worker 只向 Dex Server 发起出站连接，所以它的容器不需要为 Dex 开放入站端口或负载均衡器。在每个进程的配置中设置服务器地址，例如用环境变量。
+- **凭据。** 服务器要求认证时，把 token 作为文件挂载，并通过 `credential` 选项传入文件凭据。见[从 Worker 和 Client 发送凭据](/reference/server/authentication#sdk-credentials)。
+- **Blob cache。** [blob cache](#blob-cache) 是本地副本缓存。临时目录（例如容器的临时磁盘）就够用。每个进程使用自己的目录。新容器从空缓存开始，需要时再重新加载数据。
+- **相同的 Flow 定义。** 用注册同一组 Flow 的代码构建每个 Worker 和 Client 镜像，这样 Client 编码输入的方式和 Worker 解码的方式一致。滚动部署期间，缺少某个 Step 类型的旧 Worker 会把这次调用交给新 Worker。见 [Failover and Deploys](/concepts/failover-and-deploys)。
+- **优雅停止。** 先发送停止信号，在容器被强制终止前给进程留出时间完成正在运行的任务。见[容量和关闭](#capacity-and-shutdown)。
 
 ## 在生产环境中运维
 
@@ -40,7 +227,7 @@ Flow 不再推进或失败时，按英文的 [Troubleshoot a Flow run](/referenc
 
 ## Flow 代码版本控制 {#versioning-flow-code}
 
-Dex 不会重新执行你之前的 Step 代码来决定 Flow 下一步做什么，所以部署改过的代码不会引起重放错误。但你仍要保证正在运行的 Flow 在部署后继续正常工作。它们可能遇到业务规则变了、Step 实现没有了、RPC 改名了，或者数据不兼容。
+Dex 根据已记录的状态决定 Flow 下一步做什么，不会重新执行你之前的 Step 代码，所以部署改过的代码不会引起重放错误。但你仍要保证正在运行的 Flow 在部署后继续正常工作。它们可能遇到业务规则变了、Step 实现没有了、RPC 改名了，或者数据不兼容。
 
 ### 在 Flow 启动时锁定业务行为
 
@@ -65,3 +252,27 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 ~~~
 
 只有在搜索结果为空，或者剩下的每个 Flow 都有明确批准的退役计划时，才删除旧代码。
+
+### 示例：给 Charge 加一笔手续费 {#versioning-example}
+
+[Order Processing](/use-cases/order-processing) 里的订单 Flow 按订单金额扣款。新规则要求加收一笔手续费。已经在运行的订单必须保持原来的价格。
+
+1. **在启动时记录版本。** 新的启动 handler 在启动 Flow 时把一个 Attribute（例如 **pricing-version**）设为 2。更早启动的 Flow 没有这个值，表示版本 1。
+2. **按保存的值分支。** **Charge** 读取 **pricing-version**。版本 1 只扣订单金额，版本 2 扣金额加手续费。今天正在 **Ship** 里等待的 Flow 不会再运行 **Charge**，所以不受影响。
+3. **契约变化时新增 Step type。** 假设退款现在需要一个旧 Flow 从未保存的新输入字段。新增一个 Step type，例如 `RefundWithFee`，只在版本 2 中跳转到它。为版本 1 的 Flow 保留 **Refund**。
+4. **一起部署。** 同一个 Worker 构建包含带分支的 **Charge**、**Refund** 和 `RefundWithFee`。滚动部署期间，缺少 `RefundWithFee` 的旧 Worker 会把这个调用交给新 Worker。
+5. **退役旧路径。** 当没有任何运行中的 Flow 是版本 1 时，删除版本 1 的分支和 **Refund**。先搜索这样的 Flow。如果 **pricing-version** 是带索引的 Attribute，搜索时除了 Flow type 还可以按它过滤。
+
+无论哪个 Worker 构建来处理，都是保存的 Attribute 决定 Flow 走哪条路径，所以 Step 代码里不需要版本标记。
+
+## 用 Time Travel 恢复 Flow {#time-travel}
+
+Time Travel 把一次 Flow run 移回它历史中较早的一个点，并从那里重新运行。部署了某个失败 Step 的修复之后使用它。这次 run 保留原来的 Run ID，并开始一次新的 attempt。
+
+这个点之后的 Step 会再次运行，它们的外部调用也会再次发生。按 [Step](/concepts/step#guarantees) 的说明给每次调用加上幂等键，重复的调用就不会产生第二次效果。
+
+目标点必须在 Flow 最近的历史窗口内。回到 run 开头的 Time Travel 总是可用。可以从 Dex Web、`dexcli` 或 Client 发起。服务端参考中的英文 [Time travel](/reference/server/runtime-client#time-travel) 介绍请求选项和限制。
+
+## 下一步
+
+[Test Your Flows](/components/testing)：Test a Flow against a real Dex Server started with dexcli dev.

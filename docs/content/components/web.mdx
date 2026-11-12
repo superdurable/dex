@@ -1,6 +1,7 @@
 ---
 title: Web (Dex Web)
 sidebar_label: Web
+description: "Dex Web is the operator UI for Dex. Use it to find Flows, follow a run, read its inputs, Attributes, and failures, and act on it."
 ---
 
 # Web (Dex Web)
@@ -29,7 +30,7 @@ Dex Web runs as its own process. It connects to the
 Web starts runs on your Workers. Dex Web also configures
 [Connectors](/concepts/connector) for local development.
 
-Dex Web reads Flow Definition Graphs from the server. Workers or **dexcli**
+Dex Web reads Flow Definition Graphs from the server. Workers or `dexcli`
 publish them there. Dex Web can also read graphs from a directory. The
 directory is optional. When both have a graph for one Flow type, the directory
 wins.
@@ -48,7 +49,7 @@ other Flow types keep working.
 dex-web --flow-service-address 127.0.0.1:8801
 ```
 
-Dex Web has no end-user authentication. Place it behind TLS and an
+Dex Web leaves end-user authentication to you. Place it behind TLS and an
 authenticating reverse proxy, and never expose it to the public Internet.
 
 ## Reference
@@ -56,3 +57,7 @@ authenticating reverse proxy, and never expose it to the public Internet.
 The [Web reference](/reference/web/) covers the **dex-web** settings, access
 control, each UI page, the Flow source analyzer, and a read-only debugging
 workflow.
+
+## Next
+
+[Evaluate Dex](/evaluate): The pages for deciding whether Dex fits your system, what each one answers, and the order to read them in.
