@@ -2,7 +2,6 @@
   "name": "chat_get_request_result_running_then_done",
   "description": "get_request_result answers running twice; dexcli polls every second until done.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -69,7 +68,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {
