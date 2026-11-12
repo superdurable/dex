@@ -14,7 +14,7 @@ use object_store::gcp::{GoogleCloudStorage, GoogleCloudStorageBuilder};
 use object_store::{BackoffConfig, ClientOptions, RetryConfig};
 
 use super::google_cloud_storage_listing::GoogleCloudStorageListing;
-use super::response_status_classifier::ResponseStatusClassifyingConnector;
+use super::response_status_classifier::{ResponseStatusClassifyingConnector, TransportTimeouts};
 use super::{
     AzureBlobCredentials, AzureGcsCloud, AzureGcsObjectStoreConfig, AzureGcsProvider,
     GoogleCloudStorageCredentials,
@@ -66,6 +66,16 @@ impl CloudClients {
             max_retries: 0,
             retry_timeout: Duration::ZERO,
         };
+        let read_timeouts = TransportTimeouts {
+            connect: config.request_timeout,
+            read_idle: Some(config.request_timeout),
+            total: None,
+        };
+        let write_timeouts = TransportTimeouts {
+            connect: config.request_timeout,
+            read_idle: None,
+            total: Some(config.request_timeout),
+        };
         let (cloud, clients) = match &config.provider {
             AzureGcsProvider::AzureBlob {
                 account,
@@ -73,23 +83,25 @@ impl CloudClients {
                 credentials,
             } => {
                 let cloud = AzureGcsCloud::AzureBlob;
-                let base = || {
+                let base = |timeouts| {
                     let builder = MicrosoftAzureBuilder::new()
                         .with_account(account.as_str())
                         .with_container_name(container.as_str())
                         .with_skip_signature(*credentials == AzureBlobCredentials::Anonymous)
-                        .with_http_connector(ResponseStatusClassifyingConnector::new(cloud));
+                        .with_http_connector(ResponseStatusClassifyingConnector::new(
+                            cloud, timeouts,
+                        ));
                     match &config.endpoint {
                         Some(endpoint) => builder.with_endpoint(endpoint.clone()),
                         None => builder,
                     }
                 };
-                let reads = with_azure_credentials(base(), credentials)
+                let reads = with_azure_credentials(base(read_timeouts), credentials)
                     .with_retry(read_retry)
                     .with_client_options(read_options)
                     .build()
                     .map_err(|error| config_error(error.to_string()))?;
-                let writes = base()
+                let writes = base(write_timeouts)
                     .with_credentials(reads.credentials().clone())
                     .with_retry(write_retry)
                     .with_client_options(write_options)
@@ -107,26 +119,28 @@ impl CloudClients {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_GCS_BASE_URL.to_owned());
                 let is_anonymous = *credentials == GoogleCloudStorageCredentials::Anonymous;
-                let base = || {
+                let base = |timeouts| {
                     GoogleCloudStorageBuilder::new()
                         .with_bucket_name(bucket.as_str())
                         .with_base_url(&base_url)
                         .with_skip_signature(is_anonymous)
-                        .with_http_connector(ResponseStatusClassifyingConnector::new(cloud))
+                        .with_http_connector(ResponseStatusClassifyingConnector::new(
+                            cloud, timeouts,
+                        ))
                 };
-                let reads = with_gcs_credentials(base(), credentials)
+                let reads = with_gcs_credentials(base(read_timeouts), credentials)
                     .with_retry(read_retry)
                     .with_client_options(read_options.clone())
                     .build()
                     .map_err(|error| config_error(error.to_string()))?;
-                let writes = base()
+                let writes = base(write_timeouts)
                     .with_credentials(reads.credentials().clone())
                     .with_retry(write_retry)
                     .with_client_options(write_options)
                     .build()
                     .map_err(|error| config_error(error.to_string()))?;
                 let listing = GoogleCloudStorageListing::new(
-                    ResponseStatusClassifyingConnector::new(cloud)
+                    ResponseStatusClassifyingConnector::new(cloud, read_timeouts)
                         .connect(&read_options)
                         .map_err(|error| config_error(error.to_string()))?,
                     (!is_anonymous).then(|| reads.credentials().clone()),

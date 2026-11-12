@@ -123,6 +123,12 @@ For **googleCloudStorage**:
 | **environment** | The service account JSON key file at the path in **DEX_ZD_OBJECT_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH** |
 | **defaultChain** | Application default credentials: the file named by **GOOGLE_APPLICATION_CREDENTIALS**, then the gcloud application default credentials file, then the metadata server, which serves GKE Workload Identity |
 
+An application default credentials file must hold a service account key
+(**service_account**) or user credentials (**authorized_user**). Workload
+identity federation (**external_account**) and service account impersonation
+(**impersonated_service_account**) files are not supported. On GKE, use the
+metadata server instead.
+
 The service account needs the Storage Object User role
 (**roles/storage.objectUser**) on the bucket.
 
@@ -155,12 +161,21 @@ conditional writes work.
 
 ### Large objects {#azure-gcs-large-objects}
 
-The server uploads an object of up to 64 MiB in one request. A larger
-create-only object, such as a snapshot file, first uploads to a staging object
-under **PREFIX/staging/**. The server then copies it to its key, only if the key
-does not exist, and deletes the staging object. A crash can leave a staging
-object behind. At startup, the server deletes staging objects that the store
-last modified more than one hour earlier.
+The server uploads an object of up to 16 MiB in one request. It uploads a
+larger object in 8 MiB parts, and the 30-second request timeout applies to each
+part. A larger create-only object, such as a snapshot file, first uploads to a
+staging object under **PREFIX/staging/**. The server then copies it to its key,
+only if the key does not exist, and deletes the staging object.
+
+Azure Blob Storage can report such a copy as pending. The server then waits up
+to one minute for the copy to finish. If it is still pending after that, the
+write's outcome is unknown, and the server reads the key later to learn it.
+
+A crash or a copy that is still pending can leave a staging object behind. At
+startup, and at most hourly after a staged upload, the server deletes staging
+objects that the store last modified more than one hour earlier on Google Cloud
+Storage, or more than 15 days earlier on Azure Blob Storage. An Azure copy can
+stay pending, and keep reading its staging object, for up to two weeks.
 
 ### Switching providers {#azure-gcs-switching}
 

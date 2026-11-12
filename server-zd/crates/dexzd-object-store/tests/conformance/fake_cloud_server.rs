@@ -20,9 +20,20 @@ pub(super) struct RecordedRequest {
     /// Path and query, as sent on the request line.
     pub(super) target: String,
     pub(super) headers: Vec<(String, String)>,
+    pub(super) body: Vec<u8>,
 }
 
 impl RecordedRequest {
+    /// Returns the request target with the percent-encoding of `-` and `/` undone.
+    pub(super) fn decoded_target(&self) -> String {
+        self.target.replace("%2F", "/").replace("%2D", "-")
+    }
+
+    /// Returns true when the request body contains `text`.
+    pub(super) fn body_contains(&self, text: &str) -> bool {
+        String::from_utf8_lossy(&self.body).contains(text)
+    }
+
     /// Returns the value of the header `name`, compared case-insensitively.
     pub(super) fn header(&self, name: &str) -> Option<&str> {
         self.headers
@@ -119,7 +130,7 @@ impl FakeCloudServer {
             .clone()
     }
 
-    /// Returns the recorded requests with `method`, excluding none.
+    /// Returns the recorded requests with `method`.
     pub(super) fn requests_with_method(&self, method: &str) -> Vec<RecordedRequest> {
         self.requests()
             .into_iter()
@@ -205,7 +216,8 @@ async fn read_request(connection: &mut TcpStream, buffer: &mut Vec<u8>) -> Optio
         .map_or(0, |(_, value)| {
             value.parse().expect("a numeric content-length")
         });
-    let request_end = header_end + 4 + body_length;
+    let body_start = header_end + 4;
+    let request_end = body_start + body_length;
     while buffer.len() < request_end {
         let mut chunk = [0_u8; 64 * 1024];
         let count = connection.read(&mut chunk).await.ok()?;
@@ -214,10 +226,12 @@ async fn read_request(connection: &mut TcpStream, buffer: &mut Vec<u8>) -> Optio
         }
         buffer.extend_from_slice(&chunk[..count]);
     }
+    let body = buffer[body_start..request_end].to_vec();
     buffer.drain(..request_end);
     Some(RecordedRequest {
         method,
         target,
         headers,
+        body,
     })
 }

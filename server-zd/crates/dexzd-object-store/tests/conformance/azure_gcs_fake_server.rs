@@ -32,6 +32,14 @@ enum FakeCloud {
 const CLOUDS: [FakeCloud; 2] = [FakeCloud::AzureBlob, FakeCloud::GoogleCloudStorage];
 
 fn store_at(cloud: FakeCloud, endpoint: String) -> AzureGcsObjectStore {
+    store_with(cloud, endpoint, |_| {})
+}
+
+fn store_with(
+    cloud: FakeCloud,
+    endpoint: String,
+    configure: impl FnOnce(&mut AzureGcsObjectStoreConfig),
+) -> AzureGcsObjectStore {
     let provider = match cloud {
         FakeCloud::AzureBlob => AzureGcsProvider::AzureBlob {
             account: "devaccount".to_owned(),
@@ -50,6 +58,7 @@ fn store_at(cloud: FakeCloud, endpoint: String) -> AzureGcsObjectStore {
     config.key_prefix = "cluster-a".to_owned();
     config.request_timeout = Duration::from_secs(5);
     config.throttled_write_initial_backoff = Duration::from_millis(1);
+    configure(&mut config);
     AzureGcsObjectStore::new(config).expect("the store builds")
 }
 
@@ -533,4 +542,431 @@ async fn azure_gcs_etags_round_trip_through_writes_reads_listings_and_replacemen
             &puts[1],
         );
     }
+}
+
+/// Builds a store whose writes above one byte take the multipart path.
+fn large_write_store(cloud: FakeCloud, server: &FakeCloudServer) -> AzureGcsObjectStore {
+    store_with(cloud, server.endpoint(), |config| {
+        config.single_put_max_bytes = 1;
+        config.pending_copy_timeout = Duration::from_secs(2);
+    })
+}
+
+/// Answers the requests of a multipart upload, delegating the completion request to `complete`.
+fn multipart_response(
+    cloud: FakeCloud,
+    request: &RecordedRequest,
+    complete: impl FnOnce() -> FakeResponse,
+) -> FakeResponse {
+    let target = request.decoded_target();
+    match cloud {
+        FakeCloud::AzureBlob if target.contains("comp=blocklist") => complete(),
+        FakeCloud::AzureBlob => FakeResponse::with_headers(201, Vec::new()),
+        FakeCloud::GoogleCloudStorage if request.method == "POST" && target.contains("uploads") => {
+            FakeResponse::Reply {
+                status: 200,
+                headers: Vec::new(),
+                body: b"<InitiateMultipartUploadResult><Bucket>dex</Bucket><Key>k</Key><UploadId>upload-1</UploadId></InitiateMultipartUploadResult>".to_vec(),
+            }
+        }
+        FakeCloud::GoogleCloudStorage if request.method == "POST" => complete(),
+        FakeCloud::GoogleCloudStorage if request.method == "DELETE" => {
+            gcs_error(404, "NoSuchUpload")
+        }
+        FakeCloud::GoogleCloudStorage => {
+            FakeResponse::with_headers(200, vec![("etag", "\"part\"".to_owned())])
+        }
+    }
+}
+
+#[tokio::test]
+async fn azure_gcs_lost_multipart_completion_is_outcome_unknown() {
+    for cloud in CLOUDS {
+        let server = FakeCloudServer::start(move |request| {
+            multipart_response(cloud, request, || FakeResponse::DropConnection)
+        })
+        .await;
+        let error = large_write_store(cloud, &server)
+            .put(
+                "objects/a",
+                Bytes::from_static(b"body"),
+                WriteCondition::Unconditional,
+            )
+            .await
+            .expect_err("a lost completion fails the write");
+        assert_eq!(
+            error.kind,
+            ObjectStoreErrorKind::OutcomeUnknown,
+            "{cloud:?}: {error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn azure_gcs_failed_multipart_parts_leave_the_target_untouched() {
+    for cloud in CLOUDS {
+        let server = FakeCloudServer::start(move |request| {
+            let is_part = match cloud {
+                FakeCloud::AzureBlob => request.decoded_target().contains("comp=block&"),
+                FakeCloud::GoogleCloudStorage => request.method == "PUT",
+            };
+            if is_part {
+                FakeResponse::status(503)
+            } else {
+                multipart_response(cloud, request, || FakeResponse::status(500))
+            }
+        })
+        .await;
+        let error = large_write_store(cloud, &server)
+            .put(
+                "objects/a",
+                Bytes::from_static(b"body"),
+                WriteCondition::Unconditional,
+            )
+            .await
+            .expect_err("a failed part fails the write");
+        assert_eq!(
+            error.kind,
+            ObjectStoreErrorKind::Transient,
+            "{cloud:?}: {error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn azure_gcs_generation_zero_and_non_canonical_tokens_never_create() {
+    let server = FakeCloudServer::start(|_| successful_write(FakeCloud::GoogleCloudStorage)).await;
+    let store = store(FakeCloud::GoogleCloudStorage, &server);
+    for token in ["\"0\"", "\"00\"", "\"017\"", "\"18446744073709551616\""] {
+        let outcome = store
+            .put(
+                "objects/missing",
+                Bytes::from_static(b"body"),
+                WriteCondition::ReplaceIfEtagMatches {
+                    etag: token.to_owned(),
+                },
+            )
+            .await
+            .expect("a non-canonical generation is an outcome");
+        assert_eq!(outcome, WriteOutcome::PreconditionFailed, "{token}");
+    }
+    assert!(server.requests().is_empty());
+}
+
+fn redirect(status: u16) -> FakeResponse {
+    FakeResponse::with_headers(status, vec![("location", "/dex/redirected".to_owned())])
+}
+
+#[tokio::test]
+async fn azure_gcs_redirected_writes_are_outcome_unknown_after_one_request() {
+    for cloud in CLOUDS {
+        for status in [301, 303, 307, 308] {
+            let server = FakeCloudServer::start(move |_| redirect(status)).await;
+            let error = store(cloud, &server)
+                .put(
+                    "objects/a",
+                    Bytes::from_static(b"body"),
+                    WriteCondition::CreateOnly,
+                )
+                .await
+                .expect_err("a redirected put fails");
+            assert_eq!(
+                error.kind,
+                ObjectStoreErrorKind::OutcomeUnknown,
+                "{cloud:?} {status}"
+            );
+            assert_eq!(server.requests().len(), 1, "{cloud:?} {status} put");
+
+            let server = FakeCloudServer::start(move |_| redirect(status)).await;
+            let error = store(cloud, &server)
+                .delete("objects/a")
+                .await
+                .expect_err("a redirected delete fails");
+            assert_eq!(
+                error.kind,
+                ObjectStoreErrorKind::OutcomeUnknown,
+                "{cloud:?} {status}"
+            );
+            assert_eq!(server.requests().len(), 1, "{cloud:?} {status} delete");
+
+            let server = FakeCloudServer::start(move |_| redirect(status)).await;
+            let error = store(cloud, &server)
+                .head("objects/a")
+                .await
+                .expect_err("a redirected read fails");
+            assert_eq!(
+                error.kind,
+                ObjectStoreErrorKind::Permanent,
+                "{cloud:?} {status}"
+            );
+            assert_eq!(server.requests().len(), 1, "{cloud:?} {status} head");
+        }
+    }
+}
+
+fn is_copy(request: &RecordedRequest) -> bool {
+    request.header("x-ms-copy-source").is_some() || request.header("x-goog-copy-source").is_some()
+}
+
+fn is_staging_target(request: &RecordedRequest) -> bool {
+    request.decoded_target().contains("/staging/")
+}
+
+/// Answers a staged create: the staging upload and its cleanup succeed; `copy` answers the copy.
+fn staged_create_response(
+    cloud: FakeCloud,
+    request: &RecordedRequest,
+    copy: impl FnOnce() -> FakeResponse,
+) -> FakeResponse {
+    if is_copy(request) {
+        return copy();
+    }
+    if cloud == FakeCloud::AzureBlob && request.method == "POST" {
+        return azure_batch_delete(&[202]);
+    }
+    if request.method == "DELETE" || request.method == "GET" || request.method == "HEAD" {
+        return FakeResponse::status(404);
+    }
+    multipart_response(cloud, request, || completed_upload(cloud))
+}
+
+fn completed_upload(cloud: FakeCloud) -> FakeResponse {
+    match cloud {
+        FakeCloud::AzureBlob => successful_write(cloud),
+        FakeCloud::GoogleCloudStorage => FakeResponse::Reply {
+            status: 200,
+            headers: vec![("x-goog-generation", GCS_GENERATION.to_owned())],
+            body: b"<CompleteMultipartUploadResult><Location>l</Location><Bucket>dex</Bucket><Key>k</Key><ETag>\"done\"</ETag></CompleteMultipartUploadResult>".to_vec(),
+        },
+    }
+}
+
+#[tokio::test]
+async fn azure_gcs_redirected_copies_are_outcome_unknown_after_one_copy() {
+    for cloud in CLOUDS {
+        for status in [303, 307, 308] {
+            let server = FakeCloudServer::start(move |request| {
+                staged_create_response(cloud, request, || redirect(status))
+            })
+            .await;
+            let error = large_write_store(cloud, &server)
+                .put(
+                    "objects/a",
+                    Bytes::from_static(b"body"),
+                    WriteCondition::CreateOnly,
+                )
+                .await
+                .expect_err("a redirected copy fails");
+            assert_eq!(
+                error.kind,
+                ObjectStoreErrorKind::OutcomeUnknown,
+                "{cloud:?} {status}"
+            );
+            let copies = server.requests().into_iter().filter(is_copy).count();
+            assert_eq!(copies, 1, "{cloud:?} {status} sends one copy");
+        }
+    }
+}
+
+fn azure_copy_status(copy_status: &str) -> FakeResponse {
+    FakeResponse::with_headers(
+        200,
+        vec![
+            ("content-length", "4".to_owned()),
+            ("last-modified", LAST_MODIFIED.to_owned()),
+            ("etag", AZURE_ETAG.to_owned()),
+            ("x-ms-copy-status", copy_status.to_owned()),
+        ],
+    )
+}
+
+#[tokio::test]
+async fn azure_pending_copies_are_polled_until_they_end() {
+    let mut target_reads = 0;
+    let server = FakeCloudServer::start(move |request| {
+        if request.method == "HEAD" && !is_staging_target(request) {
+            target_reads += 1;
+            return azure_copy_status(if target_reads == 1 {
+                "pending"
+            } else {
+                "success"
+            });
+        }
+        staged_create_response(FakeCloud::AzureBlob, request, || {
+            FakeResponse::with_headers(202, vec![("x-ms-copy-status", "pending".to_owned())])
+        })
+    })
+    .await;
+    let outcome = large_write_store(FakeCloud::AzureBlob, &server)
+        .put(
+            "objects/a",
+            Bytes::from_static(b"body"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("the pending copy succeeds");
+    assert_eq!(
+        outcome,
+        WriteOutcome::Written {
+            etag: AZURE_ETAG.to_owned()
+        }
+    );
+    assert!(
+        server
+            .requests_with_method("POST")
+            .iter()
+            .any(|request| request.body_contains("/staging/0")
+                || request.body_contains("/staging/1")),
+        "the staging object is deleted after the copy succeeds"
+    );
+
+    let server = FakeCloudServer::start(move |request| {
+        if request.method == "HEAD" && !is_staging_target(request) {
+            return azure_copy_status("pending");
+        }
+        staged_create_response(FakeCloud::AzureBlob, request, || {
+            FakeResponse::with_headers(202, vec![("x-ms-copy-status", "pending".to_owned())])
+        })
+    })
+    .await;
+    let error = large_write_store(FakeCloud::AzureBlob, &server)
+        .put(
+            "objects/a",
+            Bytes::from_static(b"body"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect_err("a copy pending past the deadline fails");
+    assert_eq!(error.kind, ObjectStoreErrorKind::OutcomeUnknown, "{error}");
+    assert!(
+        !server.requests_with_method("POST").iter().any(|request| {
+            request.body_contains("/staging/0") || request.body_contains("/staging/1")
+        }),
+        "a copy that may still read the staging object keeps it"
+    );
+
+    let server = FakeCloudServer::start(move |request| {
+        if request.method == "HEAD" && !is_staging_target(request) {
+            return azure_copy_status("failed");
+        }
+        staged_create_response(FakeCloud::AzureBlob, request, || {
+            FakeResponse::with_headers(202, vec![("x-ms-copy-status", "pending".to_owned())])
+        })
+    })
+    .await;
+    let error = large_write_store(FakeCloud::AzureBlob, &server)
+        .put(
+            "objects/a",
+            Bytes::from_static(b"body"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect_err("a failed copy fails the create");
+    assert_eq!(error.kind, ObjectStoreErrorKind::Corrupt, "{error}");
+}
+
+#[tokio::test]
+async fn azure_reads_of_a_pending_copy_are_transient_and_of_a_failed_copy_corrupt() {
+    for (copy_status, expected) in [
+        ("pending", ObjectStoreErrorKind::Transient),
+        ("failed", ObjectStoreErrorKind::Corrupt),
+        ("aborted", ObjectStoreErrorKind::Corrupt),
+    ] {
+        let server = FakeCloudServer::start(move |_| azure_copy_status(copy_status)).await;
+        let error = store(FakeCloud::AzureBlob, &server)
+            .head("objects/a")
+            .await
+            .expect_err("an unfinished copy fails the read");
+        assert_eq!(error.kind, expected, "{copy_status}: {error}");
+    }
+}
+
+#[tokio::test]
+async fn azure_gcs_staging_sweep_keeps_objects_a_pending_azure_copy_may_read() {
+    for cloud in CLOUDS {
+        let server = FakeCloudServer::start(move |request| {
+            let target = request.decoded_target();
+            match (request.method.as_str(), cloud) {
+                ("HEAD", _) => object_metadata(cloud, 0),
+                ("GET", FakeCloud::AzureBlob) if target.contains("comp=list") => FakeResponse::Reply {
+                    status: 200,
+                    headers: Vec::new(),
+                    body: format!(
+                        "<?xml version=\"1.0\" encoding=\"utf-8\"?><EnumerationResults ContainerName=\"dex\"><Blobs>{}{}</Blobs><NextMarker /></EnumerationResults>",
+                        azure_listed_blob("cluster-a/staging/sixteen-days-old", "Mon, 26 Oct 2026 10:00:00 GMT"),
+                        azure_listed_blob("cluster-a/staging/two-days-old", "Mon, 09 Nov 2026 10:00:00 GMT"),
+                    )
+                    .into_bytes(),
+                },
+                ("GET", FakeCloud::GoogleCloudStorage) => FakeResponse::Reply {
+                    status: 200,
+                    headers: Vec::new(),
+                    body: format!(
+                        "{{\"items\":[{},{}]}}",
+                        gcs_listed_object("cluster-a/staging/sixteen-days-old", "2026-10-26T10:00:00Z"),
+                        gcs_listed_object("cluster-a/staging/two-days-old", "2026-11-09T10:00:00Z"),
+                    )
+                    .into_bytes(),
+                },
+                ("POST", FakeCloud::AzureBlob) => azure_batch_delete(
+                    &vec![202; String::from_utf8_lossy(&request.body).matches("Content-ID").count()],
+                ),
+                ("DELETE", _) => FakeResponse::status(204),
+                _ => successful_write(cloud),
+            }
+        })
+        .await;
+        let deleted = store(cloud, &server)
+            .delete_abandoned_staging_objects()
+            .await
+            .expect("the sweep succeeds");
+        let deleted_keys: Vec<&str> = ["sixteen-days-old", "two-days-old"]
+            .into_iter()
+            .filter(|name| {
+                server.requests().iter().any(|request| {
+                    (request.method == "DELETE" && request.decoded_target().ends_with(name))
+                        || (request.method == "POST" && request.body_contains(name))
+                })
+            })
+            .collect();
+        match cloud {
+            FakeCloud::AzureBlob => {
+                assert_eq!(deleted, 1);
+                assert_eq!(deleted_keys, ["sixteen-days-old"]);
+            }
+            FakeCloud::GoogleCloudStorage => {
+                assert_eq!(deleted, 2);
+                assert_eq!(deleted_keys, ["sixteen-days-old", "two-days-old"]);
+            }
+        }
+    }
+}
+
+fn azure_listed_blob(name: &str, last_modified: &str) -> String {
+    format!(
+        "<Blob><Name>{name}</Name><Properties><Last-Modified>{last_modified}</Last-Modified><Etag>0x1</Etag><Content-Length>1</Content-Length><Content-Type>application/octet-stream</Content-Type><BlobType>BlockBlob</BlobType></Properties></Blob>"
+    )
+}
+
+fn gcs_listed_object(name: &str, updated: &str) -> String {
+    format!("{{\"name\":\"{name}\",\"size\":\"1\",\"generation\":\"7\",\"updated\":\"{updated}\"}}")
+}
+
+#[tokio::test]
+async fn azure_gcs_head_on_a_missing_bucket() {
+    let server = FakeCloudServer::start(|_| azure_error(404, "ContainerNotFound")).await;
+    let error = store(FakeCloud::AzureBlob, &server)
+        .head("objects/a")
+        .await
+        .expect_err("Azure names a missing container on HEAD");
+    assert_eq!(error.kind, ObjectStoreErrorKind::Permanent, "{error}");
+    // A GCS HEAD response has no body to name the missing bucket, so it reads as a missing object.
+    let server = FakeCloudServer::start(|_| FakeResponse::status(404)).await;
+    assert!(
+        store(FakeCloud::GoogleCloudStorage, &server)
+            .head("objects/a")
+            .await
+            .expect("a GCS HEAD 404 reads as absent")
+            .is_none()
+    );
 }

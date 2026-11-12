@@ -28,40 +28,76 @@ layout matches S3. Azure uses `If-None-Match: *` and `If-Match: <ETag>`; GCS
 uses `x-goog-if-generation-match` on its XML API.
 
 Callers see one ETag per object version. On Azure it is the quoted ETag. On GCS
-it is the quoted generation, because the GCS ETag is a content hash that an
-identical rewrite keeps. Writes, reads, and listings return the same token. A
-replacement ETag that no read returned fails its condition without a request.
-GCS listings use the JSON API, which reports generations; the XML listing does
-not.
+it is the quoted generation, which identifies each write of the object's data;
+GCS ETags give no usable version identity, and multipart objects have no MD5
+ETag. Writes, reads, and listings return the same token. A replacement ETag that
+no read returned, including GCS generation 0 or a non-canonical number, fails
+its condition without a request. GCS listings use the JSON API, which reports
+generations; the XML listing does not.
 
-Each store builds two `object_store` clients that share credentials. Reads
-retry up to three attempts. Writes, copies, and deletes never retry inside
+Each store builds two `object_store` clients that share credentials. Reads retry
+up to three attempts. Writes, copies, and deletes never retry inside
 `object_store`, which would otherwise retry 5xx and 429 responses even for
-conditional writes. A connector wrapper exposes the response status that
-`object_store` hides. The store maps HTTP 412 and Azure 409 `BlobAlreadyExists`
-to `PreconditionFailed`, and a replacement of a missing object too. HTTP 429
-means the request did nothing: the store retries it three times, after 1, 2,
-and 4 seconds, then reports `Transient`. A server error, timeout, or dropped
-connection on a write reports `OutcomeUnknown`; only a refused connection is
-`Transient`. Deleting a missing object succeeds.
+conditional writes. The HTTP transport never follows redirects, because a
+followed redirect would repeat a write below those settings. A connector wrapper
+exposes the response status that `object_store` hides.
 
-Bodies and files up to 64 MiB use one request. A larger create-only write
-uploads in parts to `staging/<millis>-<uuid>`, copies it to the key only if the
-key is absent, and deletes the staging object. `delete_abandoned_staging_objects`
-removes staging objects last modified over an hour ago by store time; the server
-calls it at startup. `object_store` has no conditional multipart upload, so a
-replacement by ETag of a file over 64 MiB fails with a permanent error. A
-replacement of an in-memory body of any size uses one request.
+| Response | Write, copy, or delete | Read |
+| --- | --- | --- |
+| HTTP 412, Azure 409 `BlobAlreadyExists`, or 404 on a replacement | `PreconditionFailed` | - |
+| HTTP 429 | retried three times, after 1, 2, and 4 seconds, then `Transient` | `Transient` |
+| 5xx, 408, timeout, dropped connection | `OutcomeUnknown` | `Transient` after retries |
+| Redirect (3xx) | `OutcomeUnknown` | `Permanent` |
+| Refused connection | `Transient` | `Transient` |
+| Azure copy still pending | see below | `Transient` |
+| Azure copy failed or aborted | `Corrupt` | `Corrupt` |
+| 401, 403, missing container or bucket, other 4xx | `Permanent` | `Permanent` |
+
+Deleting a missing object succeeds. A GCS HEAD response has no body, so a HEAD
+cannot tell a missing bucket from a missing object and returns `None`; the
+startup self check fails on a missing bucket instead.
+
+Bodies and files up to 16 MiB use one request. Multipart uploads use 8 MiB
+parts, and the request timeout applies to each part. A failed multipart
+completion keeps its own outcome: an abort only cleans up, and its failure is
+logged. After a completion with an unknown outcome, no abort is sent.
+
+A larger create-only write uploads in parts to `staging/<millis>-<uuid>`, copies
+it to the key only if the key is absent, and deletes the staging object. When
+Azure reports the copy pending, the store polls the key for up to a minute. A
+finished copy is a create; a failed copy reports `Corrupt`; a copy still
+pending reports `OutcomeUnknown` and keeps the staging object.
+`delete_abandoned_staging_objects` deletes staging objects that the store last
+modified over an hour ago on GCS, or over 15 days ago on Azure, where a pending
+copy may read its source for up to two weeks. The server calls it at startup,
+and the store repeats it at most hourly after a staged create.
+
+`object_store` has no conditional multipart upload, so a replacement by ETag of
+a file over 16 MiB fails with a permanent error. A replacement of an in-memory
+body of any size uses one request.
 
 Listings check that keys ascend and stay inside the prefix, and fail rather than
 sort a page. Azure listings read a blob named exactly the prefix with a head
 request, because `object_store` drops it from listings.
 
+GCS application default credentials support `service_account` and
+`authorized_user` files and the metadata server. `object_store` does not support
+`external_account` or `impersonated_service_account` files.
+
 ## Testing
 
 The shared conformance suite exercises the in-memory implementation and an in-process s3local in strict, process-crash-safe, and relaxed durability modes. It needs no cloud credentials or external service.
 
-Azure Blob Storage and GCS error mapping runs against a scripted local HTTP server in the same suite. The conformance suite runs against real accounts only manually; `tests/conformance/azure_gcs_cloud.rs` documents the command and environment variables. Run it after changing that backend, after upgrading `object_store`, and before a release.
+Azure Blob Storage and GCS error mapping runs against a scripted local HTTP server in the same suite.
+
+The conformance suite runs against real Azure and GCS accounts only manually. Run it after changing that backend, after upgrading `object_store`, and before a release. Each run writes under a unique prefix and deletes it afterwards. Leave `DEX_GCS_SERVICE_ACCOUNT_PATH` empty to use application default credentials.
+
+```bash
+export DEX_AZURE_ACCOUNT=<account> DEX_AZURE_ACCESS_KEY=<key> DEX_AZURE_CONTAINER=<container>
+export DEX_GCS_BUCKET=<bucket> DEX_GCS_SERVICE_ACCOUNT_PATH=<key file, or empty>
+cargo test --manifest-path server-zd/Cargo.toml -p dexzd-object-store --test conformance \
+    azure_gcs_cloud -- --ignored --nocapture
+```
 
 ## db9 SQL provider
 

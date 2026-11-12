@@ -79,6 +79,7 @@ prometheus-client = "0.25.1"
 protoc-bin-vendored = "3.2"
 rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
 rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rand_chacha = "0.10"
 rocksdb = { version = "0.25", default-features = false, features = ["lz4", "zstd", "bindgen-runtime"] }
 rustix = { version = "1.1", features = ["param"] }

@@ -9,11 +9,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-const DEFAULT_SINGLE_PUT_MAX_BYTES: usize = 64 * 1024 * 1024;
+const DEFAULT_SINGLE_PUT_MAX_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_PART_SIZE: usize = 8 * 1024 * 1024;
 
 /// Credentials of an Azure Blob Storage account.
 #[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AzureBlobCredentials {
     /// Signs requests with a storage account access key.
     AccountKey {
@@ -88,6 +89,7 @@ impl std::fmt::Debug for AzureBlobCredentials {
 
 /// Credentials of a Google Cloud Storage bucket.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum GoogleCloudStorageCredentials {
     /// Signs token requests with a service account JSON key file.
     ServiceAccountKeyFile {
@@ -107,6 +109,7 @@ pub enum GoogleCloudStorageCredentials {
 
 /// The cloud service, the bucket or container, and its credentials.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AzureGcsProvider {
     /// Azure Blob Storage.
     AzureBlob {
@@ -137,16 +140,20 @@ pub struct AzureGcsObjectStoreConfig {
     /// Prefix prepended to every relative key. An absent trailing slash is added.
     /// Defaults to an empty prefix.
     pub key_prefix: String,
-    /// Connect timeout, idle timeout of reads, and total timeout of each write request.
+    /// Connect timeout, idle timeout of reads, and total timeout of each write request. A multipart
+    /// upload applies it to each part, so a large file needs no faster link than one part does.
     /// Defaults to 30 seconds.
     pub request_timeout: Duration,
     /// Largest body sent as one request. Larger create-only writes upload to a staging key and copy.
-    /// Defaults to 64 MiB.
+    /// Defaults to 16 MiB.
     pub single_put_max_bytes: usize,
     /// Part size of multipart uploads; defaults to 8 MiB and must be at least 5 MiB.
     pub multipart_part_size: usize,
     /// First wait before retrying a throttled write; each retry doubles it. Defaults to 1 second.
     pub throttled_write_initial_backoff: Duration,
+    /// Longest wait for an Azure copy that the service left pending. After it, the large create
+    /// reports `OutcomeUnknown` and keeps its staging object. Defaults to 60 seconds.
+    pub pending_copy_timeout: Duration,
 }
 
 impl AzureGcsObjectStoreConfig {
@@ -160,6 +167,7 @@ impl AzureGcsObjectStoreConfig {
             single_put_max_bytes: DEFAULT_SINGLE_PUT_MAX_BYTES,
             multipart_part_size: DEFAULT_PART_SIZE,
             throttled_write_initial_backoff: Duration::from_secs(1),
+            pending_copy_timeout: Duration::from_secs(60),
         }
     }
 }

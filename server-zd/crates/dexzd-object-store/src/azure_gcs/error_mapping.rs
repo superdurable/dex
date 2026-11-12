@@ -8,7 +8,9 @@
 
 use object_store::client::HttpErrorKind;
 
-use super::response_status_classifier::{HttpFailureCause, http_failure_cause};
+use super::response_status_classifier::{
+    HttpFailureCause, UnexpectedResponseStatus, http_failure_cause,
+};
 use crate::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation};
 
 /// Whether a failed call could have changed the stored object.
@@ -53,10 +55,10 @@ pub(crate) fn is_throttled(error: &object_store::Error) -> bool {
     )
 }
 
-/// Returns the status of a response that the backend classified, if `error` has one.
-pub(crate) fn classified_status(error: &object_store::Error) -> Option<u16> {
+/// Returns the response that the backend classified, if `error` has one.
+pub(crate) fn classified_status(error: &object_store::Error) -> Option<UnexpectedResponseStatus> {
     match http_failure_cause(error) {
-        HttpFailureCause::Status(status) => Some(status.status),
+        HttpFailureCause::Status(status) => Some(status),
         HttpFailureCause::Transport(_) | HttpFailureCause::NotHttp => None,
     }
 }
@@ -66,13 +68,20 @@ fn cause_kind(cause: HttpFailureCause, effect: RequestEffect) -> ObjectStoreErro
         (HttpFailureCause::Status(status), _) if status.status == 429 => {
             ObjectStoreErrorKind::Transient
         }
+        // The blob exists, but a failed or aborted copy left it without the source content.
+        (HttpFailureCause::Status(status), _) if status.is_failed_copy() => {
+            ObjectStoreErrorKind::Corrupt
+        }
         (HttpFailureCause::Status(status), RequestEffect::Write)
-            if status.is_pending_copy() || is_server_error_or_timeout(status.status) =>
+            if status.is_pending_copy()
+                || status.is_redirect()
+                || is_server_error_or_timeout(status.status) =>
         {
             ObjectStoreErrorKind::OutcomeUnknown
         }
+        // A pending copy finishes on its own; the caller may read again.
         (HttpFailureCause::Status(status), RequestEffect::Read)
-            if is_server_error_or_timeout(status.status) =>
+            if status.is_pending_copy() || is_server_error_or_timeout(status.status) =>
         {
             ObjectStoreErrorKind::Transient
         }

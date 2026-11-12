@@ -1380,6 +1380,7 @@ dependencies = [
  "http",
  "md-5 0.10.6",
  "object_store",
+ "reqwest",
  "s3local",
  "s3local-server",
  "serde",

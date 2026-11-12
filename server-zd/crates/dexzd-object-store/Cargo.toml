@@ -30,6 +30,7 @@ serde_json.workspace = true
 http.workspace = true
 time.workspace = true
 url.workspace = true
+reqwest.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

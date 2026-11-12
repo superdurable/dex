@@ -6,18 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Runs the shared conformance suite against real Azure Blob Storage and Google Cloud Storage.
-//!
-//! Run manually after changing the backend, upgrading `object_store`, and before a release:
-//!
-//! ```bash
-//! export DEX_AZURE_ACCOUNT=<account> DEX_AZURE_ACCESS_KEY=<key> DEX_AZURE_CONTAINER=<container>
-//! export DEX_GCS_BUCKET=<bucket> DEX_GCS_SERVICE_ACCOUNT_PATH=<key file, or empty for ADC>
-//! cargo test --manifest-path server-zd/Cargo.toml -p dexzd-object-store --test conformance \
-//!     azure_gcs_cloud -- --ignored --nocapture
-//! ```
-//!
-//! Each run writes under a unique prefix and deletes it afterwards.
+//! Runs the conformance suite against real Azure and GCS accounts; the crate README has the command.
 
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -32,7 +21,7 @@ use futures::FutureExt;
 
 use super::check_store;
 
-/// Larger than the 64 MiB single-request limit, so it takes the staging and copy path.
+/// Larger than the 16 MiB single-request limit, so it takes the staging and copy path.
 const STAGED_FILE_BYTES: usize = 130 * 1024 * 1024;
 
 fn required_environment(name: &str) -> String {

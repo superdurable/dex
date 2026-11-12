@@ -13,9 +13,9 @@ use crate::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, Object
 
 /// Returns the ETag reported to callers for one object version.
 ///
-/// Azure reports its ETag, always quoted. GCS reports the quoted generation, because its ETag is
-/// a content hash that identical rewrites keep. The result is the same for writes, reads, and
-/// listings of one version.
+/// Azure reports its ETag, always quoted. GCS reports the quoted generation, which identifies each
+/// write of the object's data; GCS ETags give no usable version identity. The result is the same
+/// for writes, reads, and listings of one version.
 pub(crate) fn version_token(
     cloud: AzureGcsCloud,
     e_tag: Option<&str>,
@@ -66,7 +66,7 @@ fn unquote(e_tag: &str) -> &str {
         .unwrap_or(e_tag)
 }
 
-/// Azure ETags must be header-safe; GCS generations are decimal integers.
+/// Azure ETags must be header-safe; GCS generations are canonical non-zero decimal integers.
 fn is_token_body(cloud: AzureGcsCloud, body: &str) -> bool {
     match cloud {
         AzureGcsCloud::AzureBlob => {
@@ -75,8 +75,9 @@ fn is_token_body(cloud: AzureGcsCloud, body: &str) -> bool {
                     .bytes()
                     .all(|byte| byte.is_ascii_graphic() && byte != b'"')
         }
-        AzureGcsCloud::GoogleCloudStorage => {
-            !body.is_empty() && body.len() <= 20 && body.bytes().all(|byte| byte.is_ascii_digit())
-        }
+        // Generation 0 means "absent" in a precondition, so it must never pass as a version.
+        AzureGcsCloud::GoogleCloudStorage => body
+            .parse::<u64>()
+            .is_ok_and(|generation| generation != 0 && generation.to_string() == body),
     }
 }

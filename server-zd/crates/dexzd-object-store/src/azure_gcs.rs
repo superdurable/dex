@@ -18,9 +18,7 @@ use object_store::list::{PaginatedListOptions, PaginatedListStore};
 use object_store::path::Path as ObjectPath;
 use object_store::{
     GetOptions, GetRange, ObjectStoreExt, PutMode, PutOptions, PutPayload, PutResult,
-    WriteMultipart,
 };
-use tokio::io::AsyncReadExt;
 
 use crate::file_download::TemporaryDownloadFile;
 use crate::{
@@ -33,6 +31,8 @@ mod cloud_clients;
 mod error_mapping;
 mod google_cloud_storage_listing;
 mod listing_accumulator;
+mod multipart_upload;
+mod pending_copy;
 mod response_status_classifier;
 mod version_token;
 
@@ -44,29 +44,27 @@ use cloud_clients::{CloudClients, config_error};
 use error_mapping::{RequestEffect, classified_status, is_throttled, map_object_store_error};
 use google_cloud_storage_listing::GoogleCloudStorageListing;
 use listing_accumulator::ListingAccumulator;
+use multipart_upload::{LargeUploadSource, MultipartUploadFailure, upload_in_parts};
+use pending_copy::{PendingCopyEnd, wait_for_pending_copy};
 use version_token::{update_version, version_token};
 
 /// Key prefix of the unconditional uploads that large create-only writes copy into place.
 pub const STAGING_KEY_PREFIX: &str = "staging/";
 
 const MIN_PART_SIZE: usize = 5 * 1024 * 1024;
-const PARTS_IN_FLIGHT: usize = 4;
 const THROTTLED_WRITE_ATTEMPTS: u32 = 4;
 const MAX_LISTING_PAGES_PER_CALL: usize = 64;
-const ABANDONED_STAGING_AGE_MICROS: i64 = 60 * 60 * 1_000_000;
+/// GCS copies finish within the request, so an hour-old staging object is abandoned.
+const GCS_ABANDONED_STAGING_AGE: Duration = Duration::from_secs(60 * 60);
+/// Exceeds the two weeks an Azure copy may stay pending while it still reads its source.
+const AZURE_ABANDONED_STAGING_AGE: Duration = Duration::from_secs(15 * 24 * 60 * 60);
+const STAGING_SWEEP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// Which cloud an [`AzureGcsObjectStore`] serves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AzureGcsCloud {
     AzureBlob,
     GoogleCloudStorage,
-}
-
-/// Where a large upload reads its body.
-#[derive(Clone, Copy)]
-enum LargeUploadSource<'a> {
-    Bytes(&'a Bytes),
-    File(&'a Path),
 }
 
 /// [`ObjectStore`] on Azure Blob Storage or Google Cloud Storage through the `object_store` crate.
@@ -77,6 +75,8 @@ pub struct AzureGcsObjectStore {
     single_put_max_bytes: usize,
     multipart_part_size: usize,
     throttled_write_initial_backoff: Duration,
+    pending_copy_timeout: Duration,
+    last_staging_sweep: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 impl AzureGcsObjectStore {
@@ -117,12 +117,25 @@ impl AzureGcsObjectStore {
             single_put_max_bytes: config.single_put_max_bytes,
             multipart_part_size: config.multipart_part_size,
             throttled_write_initial_backoff: config.throttled_write_initial_backoff,
+            pending_copy_timeout: config.pending_copy_timeout,
+            last_staging_sweep: std::sync::Mutex::new(None),
         })
     }
 
-    /// Deletes staging objects modified over an hour ago by store time, and returns their count.
+    /// Deletes staging objects older, by store time, than the cloud's abandonment age; returns the count.
     pub async fn delete_abandoned_staging_objects(&self) -> ObjectStoreResult<usize> {
-        let cutoff = self.store_time_unix_micros().await? - ABANDONED_STAGING_AGE_MICROS;
+        *self
+            .last_staging_sweep
+            .lock()
+            .expect("the staging sweep clock lock is never poisoned") =
+            Some(std::time::Instant::now());
+        let abandoned_age = match self.cloud {
+            AzureGcsCloud::AzureBlob => AZURE_ABANDONED_STAGING_AGE,
+            AzureGcsCloud::GoogleCloudStorage => GCS_ABANDONED_STAGING_AGE,
+        };
+        let abandoned_age_micros =
+            i64::try_from(abandoned_age.as_micros()).expect("the staging age fits in i64");
+        let cutoff = self.store_time_unix_micros().await? - abandoned_age_micros;
         let mut start_after: Option<String> = None;
         let mut deleted = 0;
         loop {
@@ -147,6 +160,23 @@ impl AzureGcsObjectStore {
                 Some(next) => start_after = Some(next),
                 None => return Ok(deleted),
             }
+        }
+    }
+
+    /// Repeats the startup sweep at most hourly, after staged creates, which alone leave staging objects.
+    async fn delete_abandoned_staging_objects_if_due(&self) {
+        let is_due = self
+            .last_staging_sweep
+            .lock()
+            .expect("the staging sweep clock lock is never poisoned")
+            .is_none_or(|last| last.elapsed() >= STAGING_SWEEP_INTERVAL);
+        if !is_due {
+            return;
+        }
+        match self.delete_abandoned_staging_objects().await {
+            Ok(0) => {}
+            Ok(deleted) => tracing::info!(deleted, "deleted abandoned staging objects"),
+            Err(error) => tracing::warn!(%error, "failed to delete abandoned staging objects"),
         }
     }
 
@@ -314,6 +344,16 @@ impl AzureGcsObjectStore {
         key: &str,
         source: LargeUploadSource<'_>,
     ) -> ObjectStoreResult<WriteOutcome> {
+        let outcome = self.copy_staged_upload_into_place(key, source).await;
+        self.delete_abandoned_staging_objects_if_due().await;
+        outcome
+    }
+
+    async fn copy_staged_upload_into_place(
+        &self,
+        key: &str,
+        source: LargeUploadSource<'_>,
+    ) -> ObjectStoreResult<WriteOutcome> {
         let target = self.object_path(key, ObjectStoreOperation::Put)?;
         let created_unix_millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -324,65 +364,104 @@ impl AzureGcsObjectStore {
             uuid::Uuid::new_v4().simple()
         );
         let staging = self.object_path(&staging_key, ObjectStoreOperation::Put)?;
-        if let Err(error) = self.upload_multipart(key, &staging, source).await {
+        if let Err(failure) = upload_in_parts(
+            self.clients.writes(),
+            key,
+            &staging,
+            source,
+            self.multipart_part_size,
+        )
+        .await
+        {
             self.delete_staging_object(&staging).await;
-            // The staging upload never touches the target key.
-            let kind = match error.kind {
-                ObjectStoreErrorKind::OutcomeUnknown => ObjectStoreErrorKind::Transient,
-                kind => kind,
-            };
-            return Err(ObjectStoreError {
-                kind,
-                detail: format!("staging upload failed: {}", error.detail),
-                ..error
-            });
+            let (MultipartUploadFailure::BeforeCompletion(error)
+            | MultipartUploadFailure::Completion(error)) = failure;
+            return Err(target_untouched(error, "staging upload failed"));
         }
         let copied = self
             .send_retrying_throttled(|| self.clients.writes().copy_if_not_exists(&staging, &target))
             .await;
-        let outcome = match copied {
+        let copied_metadata = match copied {
             Ok(()) => None,
-            Err(
-                object_store::Error::AlreadyExists { .. }
-                | object_store::Error::Precondition { .. },
-            ) => Some(Ok(WriteOutcome::PreconditionFailed)),
-            Err(object_store::Error::NotFound { .. }) => Some(Err(ObjectStoreError::new(
-                ObjectStoreOperation::Put,
-                key,
-                ObjectStoreErrorKind::Transient,
-                "staging object disappeared before it was copied",
-            ))),
-            Err(error) => Some(Err(map_object_store_error(
-                ObjectStoreOperation::Put,
-                key,
-                RequestEffect::Write,
-                &error,
-            ))),
+            Err(error)
+                if classified_status(&error).is_some_and(|status| status.is_pending_copy()) =>
+            {
+                match wait_for_pending_copy(
+                    self.clients.reads(),
+                    &target,
+                    self.pending_copy_timeout,
+                )
+                .await
+                {
+                    PendingCopyEnd::Succeeded(metadata) => Some(metadata),
+                    PendingCopyEnd::Failed(copy_status) => {
+                        self.delete_staging_object(&staging).await;
+                        return Err(ObjectStoreError::new(
+                            ObjectStoreOperation::Put,
+                            key,
+                            ObjectStoreErrorKind::Corrupt,
+                            format!(
+                                "the Azure copy into the key ended {copy_status}; the key holds a blob without the content"
+                            ),
+                        ));
+                    }
+                    // The copy may still read the staging object, so the staging sweep keeps it.
+                    PendingCopyEnd::StillPending(observation) => {
+                        return Err(ObjectStoreError::new(
+                            ObjectStoreOperation::Put,
+                            key,
+                            ObjectStoreErrorKind::OutcomeUnknown,
+                            format!("the Azure copy into the key is still pending: {observation}"),
+                        ));
+                    }
+                }
+            }
+            Err(error) => {
+                let outcome = match error {
+                    object_store::Error::AlreadyExists { .. }
+                    | object_store::Error::Precondition { .. } => {
+                        Ok(WriteOutcome::PreconditionFailed)
+                    }
+                    object_store::Error::NotFound { .. } => Err(ObjectStoreError::new(
+                        ObjectStoreOperation::Put,
+                        key,
+                        ObjectStoreErrorKind::Transient,
+                        "staging object disappeared before it was copied",
+                    )),
+                    error => Err(map_object_store_error(
+                        ObjectStoreOperation::Put,
+                        key,
+                        RequestEffect::Write,
+                        &error,
+                    )),
+                };
+                if !matches!(&outcome, Err(error) if error.kind == ObjectStoreErrorKind::OutcomeUnknown)
+                {
+                    self.delete_staging_object(&staging).await;
+                }
+                return outcome;
+            }
         };
-        // An unfinished copy may still read the staging object, so keep it for the cleanup.
-        if !matches!(&outcome, Some(Err(error)) if error.kind == ObjectStoreErrorKind::OutcomeUnknown)
-        {
-            self.delete_staging_object(&staging).await;
-        }
-        if let Some(outcome) = outcome {
-            return outcome;
-        }
-        match self.clients.reads().head(&target).await {
-            Ok(metadata) => self.written(
-                key,
-                &PutResult {
-                    e_tag: metadata.e_tag,
-                    version: metadata.version,
-                    extensions: Default::default(),
-                },
-            ),
-            Err(error) => Err(ObjectStoreError::new(
-                ObjectStoreOperation::Put,
-                key,
-                ObjectStoreErrorKind::OutcomeUnknown,
-                format!("created by copy, but reading its ETag failed: {error}"),
-            )),
-        }
+        self.delete_staging_object(&staging).await;
+        let metadata = match copied_metadata {
+            Some(metadata) => metadata,
+            None => self.clients.reads().head(&target).await.map_err(|error| {
+                ObjectStoreError::new(
+                    ObjectStoreOperation::Put,
+                    key,
+                    ObjectStoreErrorKind::OutcomeUnknown,
+                    format!("created by copy, but reading its ETag failed: {error}"),
+                )
+            })?,
+        };
+        self.written(
+            key,
+            &PutResult {
+                e_tag: metadata.e_tag,
+                version: metadata.version,
+                extensions: Default::default(),
+            },
+        )
     }
 
     async fn delete_staging_object(&self, staging: &ObjectPath) {
@@ -400,114 +479,21 @@ impl AzureGcsObjectStore {
         source: LargeUploadSource<'_>,
     ) -> ObjectStoreResult<WriteOutcome> {
         let target = self.object_path(key, ObjectStoreOperation::Put)?;
-        let result = self.upload_multipart(key, &target, source).await?;
-        self.written(key, &result)
-    }
-
-    /// Uploads `source` to `path` in parts without a condition.
-    async fn upload_multipart(
-        &self,
-        key: &str,
-        path: &ObjectPath,
-        source: LargeUploadSource<'_>,
-    ) -> ObjectStoreResult<PutResult> {
-        let map_store_error = |error: object_store::Error| {
-            map_object_store_error(ObjectStoreOperation::Put, key, RequestEffect::Write, &error)
-        };
-        let upload = self
-            .clients
-            .writes()
-            .put_multipart(path)
-            .await
-            .map_err(map_store_error)?;
-        let mut writer = WriteMultipart::new_with_chunk_size(upload, self.multipart_part_size);
-        let written = match source {
-            LargeUploadSource::Bytes(body) => self.write_body_parts(&mut writer, key, body).await,
-            LargeUploadSource::File(file_path) => {
-                self.write_file_parts(&mut writer, key, file_path).await
-            }
-        };
-        if let Err(error) = written {
-            if let Err(abort_error) = writer.abort().await {
-                tracing::warn!(key, error = %abort_error, "failed to abort a multipart upload");
-            }
-            return Err(error);
-        }
-        writer.finish().await.map_err(map_store_error)
-    }
-
-    async fn write_body_parts(
-        &self,
-        writer: &mut WriteMultipart,
-        key: &str,
-        body: &Bytes,
-    ) -> ObjectStoreResult<()> {
-        let mut offset = 0;
-        while offset < body.len() {
-            let end = body.len().min(offset + self.multipart_part_size);
-            writer
-                .wait_for_capacity(PARTS_IN_FLIGHT)
-                .await
-                .map_err(|error| {
-                    map_object_store_error(
-                        ObjectStoreOperation::Put,
-                        key,
-                        RequestEffect::Write,
-                        &error,
-                    )
-                })?;
-            writer.put(body.slice(offset..end));
-            offset = end;
-        }
-        Ok(())
-    }
-
-    async fn write_file_parts(
-        &self,
-        writer: &mut WriteMultipart,
-        key: &str,
-        file_path: &Path,
-    ) -> ObjectStoreResult<()> {
-        let file_error = |action: &str, error: std::io::Error| {
-            ObjectStoreError::new(
-                ObjectStoreOperation::Put,
-                key,
-                ObjectStoreErrorKind::Permanent,
-                format!("{action} {}: {error}", file_path.display()),
-            )
-        };
-        let mut file = tokio::fs::File::open(file_path)
-            .await
-            .map_err(|error| file_error("opening", error))?;
-        loop {
-            let mut buffer = vec![0; self.multipart_part_size];
-            let mut filled = 0;
-            while filled < buffer.len() {
-                let read = file
-                    .read(&mut buffer[filled..])
-                    .await
-                    .map_err(|error| file_error("reading", error))?;
-                if read == 0 {
-                    break;
-                }
-                filled += read;
-            }
-            if filled == 0 {
-                return Ok(());
-            }
-            buffer.truncate(filled);
-            writer
-                .wait_for_capacity(PARTS_IN_FLIGHT)
-                .await
-                .map_err(|error| {
-                    map_object_store_error(
-                        ObjectStoreOperation::Put,
-                        key,
-                        RequestEffect::Write,
-                        &error,
-                    )
-                })?;
-            writer.put(Bytes::from(buffer));
+        match upload_in_parts(
+            self.clients.writes(),
+            key,
+            &target,
+            source,
+            self.multipart_part_size,
+        )
+        .await
+        {
+            Ok(result) => self.written(key, &result),
+            Err(MultipartUploadFailure::BeforeCompletion(error)) => Err(target_untouched(
+                error,
+                "multipart upload failed before completion",
+            )),
+            Err(MultipartUploadFailure::Completion(error)) => Err(error),
         }
     }
 
@@ -539,7 +525,10 @@ impl AzureGcsObjectStore {
             Ok(result) => result,
             Err(object_store::Error::NotFound { .. }) => return Ok(None),
             // A range that starts past the end returns no bytes, as on S3.
-            Err(error) if range.is_some() && classified_status(&error) == Some(416) => {
+            Err(error)
+                if range.is_some()
+                    && classified_status(&error).is_some_and(|status| status.status == 416) =>
+            {
                 return Ok(self.head(key).await?.map(|metadata| ObjectContent {
                     bytes: Bytes::new(),
                     etag: metadata.etag,
@@ -892,4 +881,17 @@ fn too_many_empty_pages(prefix: &str) -> ObjectStoreError {
         ObjectStoreErrorKind::Transient,
         "listing returned too many empty pages",
     )
+}
+
+/// Reports a large-write failure that left the target key unchanged as retryable without a read.
+fn target_untouched(error: ObjectStoreError, context: &str) -> ObjectStoreError {
+    let kind = match error.kind {
+        ObjectStoreErrorKind::OutcomeUnknown => ObjectStoreErrorKind::Transient,
+        kind => kind,
+    };
+    ObjectStoreError {
+        kind,
+        detail: format!("{context}: {}", error.detail),
+        ..error
+    }
 }
