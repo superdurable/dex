@@ -763,6 +763,34 @@ describe("the terminal UI launcher", () => {
     }
   });
 
+  test("a signal after the terminal UI exited, while the Worker host still stops, waits for that stop", async () => {
+    for (const [signal, isOwnDexcliDev, exitCode] of [
+      ["SIGTERM", false, 143],
+      ["SIGHUP", false, 129],
+      ["SIGTERM", true, 143],
+    ] as const) {
+      const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+      const home = isOwnDexcliDev
+        ? newHome(quietConfig, new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 }))
+        : newHome();
+      const pauseFile = join(home.directory, "pause");
+      const fake = new FakeTerminalUi([chatTranscript("slow_host_stop", [tuiPause(1_500)])]);
+      const terminal = startOnTerminal(home, fake, [], { DEX_AGENTS_CLI_TEST_PAUSE_FILE: pauseFile });
+      await waitForReady(fake);
+      const record = await waitForRunRecord(home);
+      // The Worker host's main loop blocks, so its orderly stop runs into the 10 s bound and then SIGTERM and SIGKILL.
+      writeFileSync(pauseFile, "");
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      const signaledAt = Date.now();
+      process.kill(record.launcher.pid, signal);
+      assert.equal(await terminal.waitForExit(), exitCode, `${signal}: ${terminal.terminal.all}`);
+      // A launcher that the signal ended at once would leave the blocked Worker host running.
+      assert.ok(!isProcessAlive(record.hostPid), `${signal}: the launcher waited for the Worker host to stop`);
+      assert.ok(Date.now() - signaledAt >= 5_000, `${signal}: exited after ${Date.now() - signaledAt} ms`);
+      rmSync(pauseFile, { force: true });
+    }
+  });
+
   test("SIGTERM to the Worker host reports it stopping and stopped, and the chat then exits 1", async () => {
     const home = newHome();
     const fake = new FakeTerminalUi([

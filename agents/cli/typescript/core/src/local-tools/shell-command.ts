@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { spawn } from "node:child_process";
-import { constants } from "node:os";
+import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 
 import { ToolExecutionError } from "@superdurable/dex-agents";
@@ -21,6 +20,8 @@ export const maximumShellTimeoutSeconds = 600;
 const maximumOutputBytes = 64 * 1024;
 /** How long processes a finished command left in its group get between SIGTERM and SIGKILL. */
 const leftBehindGraceMs = 500;
+/** How long output may still arrive after the shell, or on POSIX its gatekeeper, exited. */
+const outputDrainMs = 1_000;
 
 /**
  * The process group leader of every command: it runs the command with `/bin/sh -c`, closes its own output, reports
@@ -42,8 +43,10 @@ const gatekeeperScript = [
  *
  * The command runs in its own process group. When the command ends, so do the processes it left in that group, such
  * as one it started with `&`: they get SIGTERM, then SIGKILL 0.5 s later, and the call answers once they are gone.
- * A timeout or the cancellation signal kills the whole group at once. A non-zero exit is a result the model sees,
- * not a failure.
+ * A timeout or the cancellation signal kills the whole group at once. A process that left the group, such as one
+ * that called `setsid`, is not stopped; the call stops waiting for its output 1 s after the group ended. The status
+ * is the number the shell reports, so a command that a signal ended shows 128 plus the signal's number. A non-zero
+ * exit is a result the model sees, not a failure.
  *
  * The group's leader is a small gatekeeper shell that runs the command and stays alive until the group is cleaned,
  * so the group's ID cannot name another process while anything signals it: the CLI core signals the group only while
@@ -75,7 +78,16 @@ export function runShellCommand(
     });
     const [, childStdout, childStderr] = child.stdio as unknown as [null, Readable, Readable];
     const registration = child.pid === undefined ? undefined : toolProcessGroups?.register(child);
-    child.once("exit", () => registration?.release());
+    let drainTimer: NodeJS.Timeout | undefined;
+    child.once("exit", () => {
+      registration?.release();
+      // A process that left the group, such as one that called setsid, may still hold the pipes: stop waiting.
+      drainTimer = setTimeout(() => {
+        for (const stream of child.stdio) {
+          stream?.destroy();
+        }
+      }, outputDrainMs);
+    });
     const stdout = new CappedOutput();
     const stderr = new CappedOutput();
     const output = new OutputEnd([childStdout, childStderr]);
@@ -127,6 +139,7 @@ export function runShellCommand(
     });
     child.once("close", (code, exitSignal) => {
       stopWaiting();
+      clearTimeout(drainTimer);
       (child.stdio[4] as Writable | null)?.destroy();
       resolvePromise(
         `${describeEnd(endReason, commandStatus, code, exitSignal)}\n--- stdout ---\n${stdout.text()}\n--- stderr ---\n${stderr.text()}`,
@@ -135,7 +148,7 @@ export function runShellCommand(
   });
 }
 
-/** Returns the status line of a finished command. */
+/** Returns the status line of a finished command: the shell's status as it reported it. */
 function describeEnd(
   endReason: string | undefined,
   commandStatus: number | undefined,
@@ -148,44 +161,72 @@ function describeEnd(
   if (commandStatus === undefined) {
     return gatekeeperCode !== null ? `exit code ${gatekeeperCode}` : `ended by signal ${gatekeeperSignal ?? "unknown"}`;
   }
-  // The shell reports a command that a signal ended as 128 plus the signal's number.
-  if (commandStatus > 128) {
-    const name = Object.entries(constants.signals).find(([, number]) => number === commandStatus - 128)?.[0];
-    return `ended by signal ${name ?? String(commandStatus - 128)}`;
-  }
+  // The shell cannot tell "exit 143" from a command that SIGTERM ended, so the number is all it reports.
   return `exit code ${commandStatus}`;
 }
 
-/** Runs a command on Windows, which has no process groups to clean: a timeout or cancellation kills the shell. */
-function runWindowsShellCommand(
+/** Starts the shell of a Windows command; tests pass a simulated one. */
+export type WindowsShellSpawner = (command: string, workingDirectory: string) => ChildProcess;
+
+const spawnWindowsShell: WindowsShellSpawner = (command, workingDirectory) =>
+  spawn(command, { cwd: workingDirectory, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+
+/**
+ * Runs a command on Windows, which has no process groups: a timeout or the cancellation signal kills the shell while
+ * it runs. Output that a background child writes more than 1 s after the shell exited is not collected.
+ *
+ * @param spawnShell - Starts the shell; the default spawns it with `shell: true`.
+ * @returns The exit status, then stdout and stderr, each cut at 64 KiB.
+ */
+export function runWindowsShellCommand(
   command: string,
   workingDirectory: string,
   timeoutSeconds: number,
   signal: AbortSignal,
+  spawnShell: WindowsShellSpawner = spawnWindowsShell,
 ): Promise<string> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(command, { cwd: workingDirectory, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnShell(command, workingDirectory);
+    const childStdout = child.stdout as Readable;
+    const childStderr = child.stderr as Readable;
     const stdout = new CappedOutput();
     const stderr = new CappedOutput();
     let endReason: string | undefined;
     const kill = (reason: string): void => {
-      if (child.exitCode === null && child.signalCode === null) {
-        endReason ??= reason;
-        child.kill("SIGKILL");
+      // Once the shell exited, its pid may name another process, so it is never signaled.
+      if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+        return;
+      }
+      endReason ??= reason;
+      try {
+        process.kill(child.pid, "SIGKILL");
+      } catch {
+        // The shell already exited.
       }
     };
     const timer = setTimeout(() => kill(`timed out after ${timeoutSeconds} seconds`), timeoutSeconds * 1000);
     const onAbort = (): void => kill("cancelled");
     signal.addEventListener("abort", onAbort, { once: true });
-    child.stdout.on("data", (chunk: Buffer) => stdout.append(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.append(chunk));
+    let drainTimer: NodeJS.Timeout | undefined;
+    child.once("exit", () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      // A background child may hold the pipes open; it keeps running, and its later output is dropped.
+      drainTimer = setTimeout(() => {
+        childStdout.destroy();
+        childStderr.destroy();
+      }, outputDrainMs);
+    });
+    childStdout.on("data", (chunk: Buffer) => stdout.append(chunk));
+    childStderr.on("data", (chunk: Buffer) => stderr.append(chunk));
     child.once("error", (error) => {
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
       rejectPromise(new ToolExecutionError(`the shell could not start: ${error.message}`, { cause: error }));
     });
-    child.once("close", (code, exitSignal) => {
+    child.once("close", (code: number | null, exitSignal: NodeJS.Signals | null) => {
       clearTimeout(timer);
+      clearTimeout(drainTimer);
       signal.removeEventListener("abort", onAbort);
       const status =
         endReason !== undefined

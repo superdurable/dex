@@ -123,16 +123,29 @@ export class TerminalUiChatLauncher {
     const terminalMode = new TerminalModeGuard();
     this.launch.commandSignals.release();
     const signals = new LauncherSignals();
-    const redirect = new LauncherOutputRedirect(this.launch.logFilePath);
-    let handoff: TerminalUiHandoff;
     try {
-      handoff = new TerminalUiHandoff(this.launch, host, ready, signals);
-      await handoff.finished;
+      const redirect = new LauncherOutputRedirect(this.launch.logFilePath);
+      let handoff: TerminalUiHandoff;
+      try {
+        handoff = new TerminalUiHandoff(this.launch, host, ready, signals);
+        await handoff.finished;
+      } finally {
+        redirect.close();
+      }
+      return await this.finishHandOff(handoff, ready, terminalMode, signals);
     } finally {
-      redirect.close();
+      // The launcher keeps SIGTERM, SIGHUP, and SIGINT until the Worker host stopped, then hands them back.
       signals.close();
       this.launch.commandSignals.reclaim();
     }
+  }
+
+  private async finishHandOff(
+    handoff: TerminalUiHandoff,
+    ready: WorkerHostReady,
+    terminalMode: TerminalModeGuard,
+    signals: LauncherSignals,
+  ): Promise<TerminalUiChatOutcome> {
     const exit = handoff.exit;
     const isAbnormalEnd =
       exit.error !== undefined || exit.signal !== null || ![0, 1, 2, 3, 130, 143].includes(exit.code ?? -1);
@@ -141,13 +154,15 @@ export class TerminalUiChatLauncher {
     }
     const hasHostStoppedDuringChat = handoff.hostExitCode !== undefined;
     const sessionId = ready.sessionId;
-    const isStoppedByUser = handoff.wasStoppedByLauncher || signals.isHangUp || signals.isInterrupted;
-    if (!handoff.isReady && handoff.failure !== undefined && !isStoppedByUser) {
+    const isFallback = !handoff.isReady && handoff.failure !== undefined;
+    if (isFallback && !this.isStoppedByUser(handoff, signals)) {
       this.writeLine(`Plain chat: ${handoff.failure}.`);
-      await this.stopHost();
-      return { kind: "plain", resumeSessionId: sessionId };
     }
     await this.stopHost();
+    // A signal may also arrive while the Worker host stops; it decides the outcome then.
+    if (isFallback && !this.isStoppedByUser(handoff, signals)) {
+      return { kind: "plain", resumeSessionId: sessionId };
+    }
     if (signals.isHangUp) {
       return { kind: "exited", exitCode: 129 };
     }
@@ -167,6 +182,10 @@ export class TerminalUiChatLauncher {
     const reason = handoff.contractEnd ?? `dexcli exit ${describeExit(exit)}`;
     this.writeLine(`The chat closed unexpectedly (${reason}).`);
     return { kind: "exited", exitCode: 1 };
+  }
+
+  private isStoppedByUser(handoff: TerminalUiHandoff, signals: LauncherSignals): boolean {
+    return handoff.wasStoppedByLauncher || signals.isHangUp || signals.isInterrupted;
   }
 
   private writeResumeLine(sessionId: string): void {

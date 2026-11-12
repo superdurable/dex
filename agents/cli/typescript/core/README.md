@@ -526,9 +526,11 @@ Otherwise the command becomes a thin **launcher** with two children:
   summary names the session, because `/new` may have switched to another one.
   It prints one only when `dexcli` never sent `ready`, and the plain chat it
   falls back to prints its own.
-- During the handoff the launcher owns SIGTERM, SIGHUP, and SIGINT, so the
-  handlers of a `dexcli dev` the command started step aside and come back
-  afterwards; the command's close then stops that `dexcli dev` as usual.
+- During the handoff, and until the Worker host stopped, the launcher owns
+  SIGTERM, SIGHUP, and SIGINT, so the handlers of a `dexcli dev` the command
+  started step aside and come back afterwards; the command's close then stops
+  that `dexcli dev` as usual. A signal that arrives while the Worker host stops
+  decides the exit code and never cuts that stop short.
 
 | Exit | When |
 | --- | --- |
@@ -563,7 +565,13 @@ gatekeeper shell that runs the command with `/bin/sh -c`. When the command
 ends, what it left in the group, such as a process started with `&` or a
 grandchild that still holds its output, gets SIGTERM, then SIGKILL 0.5 s
 later, and the call answers once it is gone. So `cmd &` answers at once and
-leaves nothing running. A timeout or a cancellation kills the whole group.
+leaves nothing running. A timeout or a cancellation kills the whole group. A
+process that left the group, such as one that called `setsid`, is not
+stopped: the call stops waiting for its output 1 s after the group ended. The
+status is the number the shell reports, so a command that a signal ended shows
+128 plus the signal's number, as `exit 143` does. On Windows, which has no
+process groups, a timeout or a cancellation kills the shell, and the call
+stops waiting for output 1 s after the shell exited.
 The gatekeeper stays alive, and unreaped, until the group is cleaned, so the
 main thread signals the group only while the gatekeeper has not reported its
 exit, and the group's ID cannot name another process. When the Worker host

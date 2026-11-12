@@ -7,13 +7,16 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { describe, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { runShellCommand } from "../../src/local-tools/shell-command.js";
+import { runShellCommand, runWindowsShellCommand } from "../../src/local-tools/shell-command.js";
 import { readProcessIdentity } from "../../src/worker-host/process-identity.js";
 import { RecordedToolProcessGroups } from "../../src/worker-host/tool-process-groups.js";
 import { readWorkerHostRunRecord } from "../../src/worker-host/worker-host-run-record.js";
@@ -86,12 +89,73 @@ for (const mode of ["plain chat", "Worker host"] as const) {
       assert.ok(await isGoneWithin(Number(match[1]), 2_000), "the background sleep is gone");
     });
 
-    test("the exit status and the signal that ended the command are reported", async () => {
+    test("a process that left the group with setsid and holds the output does not hold up the call", async () => {
+      // perl calls setsid itself, so the process leaves the command's group but keeps its stdout and stderr.
+      const detached = "perl -MPOSIX -e 'POSIX::setsid(); sleep 30' & pid=$!; sleep 0.5; echo $pid";
+      for (const [command, timeoutSeconds, status] of [
+        [detached, 60, /^exit code 0\n/],
+        [`${detached}; sleep 30`, 1, /^killed: timed out after 1 seconds\n/],
+      ] as const) {
+        const startedAt = Date.now();
+        const result = await runShellCommand(command, tmpdir(), timeoutSeconds, new AbortController().signal, registered()?.registry);
+        const pid = Number(/--- stdout ---\n(\d+)\n/.exec(result)?.[1] ?? 0);
+        try {
+          assert.match(result, status);
+          // The group ends, then the call stops waiting for the output 1 s later.
+          assert.ok(Date.now() - startedAt < timeoutSeconds * 1000 + 3_000, `answered after ${Date.now() - startedAt} ms`);
+          assert.ok(pid > 0 && isAlive(pid), "the tool leaves a process outside its group alone");
+        } finally {
+          if (pid > 0 && isAlive(pid)) {
+            process.kill(pid, "SIGKILL");
+          }
+        }
+      }
+    });
+
+    test("the exit status of the command is reported", async () => {
       assert.match(await runShellCommand("exit 3", tmpdir(), 60, new AbortController().signal, registered()?.registry), /^exit code 3\n/);
+      // The shell reports a command that SIGTERM ended as 143, the same as an explicit exit 143.
       assert.match(
         await runShellCommand("kill -TERM $$", tmpdir(), 60, new AbortController().signal, registered()?.registry),
-        /^ended by signal SIGTERM\n/,
+        /^exit code 143\n/,
       );
+      assert.match(await runShellCommand("exit 143", tmpdir(), 60, new AbortController().signal, registered()?.registry), /^exit code 143\n/);
+      assert.match(await runShellCommand("exit 130", tmpdir(), 60, new AbortController().signal, registered()?.registry), /^exit code 130\n/);
     });
   });
 }
+
+describe("the shell tool on Windows", () => {
+  /** A shell that exits at once while a background child it started keeps its pipes open. */
+  function simulatedShell(): ChildProcess {
+    const child = new EventEmitter() as ChildProcess;
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    Object.assign(child, { stdout, stderr, pid: 4242, exitCode: null, signalCode: null });
+    let closedStreams = 0;
+    for (const stream of [stdout, stderr]) {
+      stream.once("close", () => {
+        closedStreams += 1;
+        if (closedStreams === 2) {
+          child.emit("close", 0, null);
+        }
+      });
+    }
+    setImmediate(() => {
+      stdout.write("started\n");
+      Object.assign(child, { exitCode: 0 });
+      child.emit("exit", 0, null);
+    });
+    return child;
+  }
+
+  test("answers 1 s after the shell exited even while a background child holds the pipes", async () => {
+    const startedAt = Date.now();
+    const result = await runWindowsShellCommand("start /b server", tmpdir(), 60, new AbortController().signal, () =>
+      simulatedShell(),
+    );
+    assert.match(result, /^exit code 0\n--- stdout ---\nstarted\n/);
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed >= 900 && elapsed < 2_500, `answered after ${elapsed} ms`);
+  });
+});
