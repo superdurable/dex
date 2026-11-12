@@ -7,9 +7,7 @@ slug: /
 
 # Dex 文档
 
-Dex 是一个 **持久化执行（Durable Execution）** 平台。数据库保存你的数据，Dex 还保存流程的进度：哪些 Step 已经运行，返回了什么，流程正在等什么。进程崩溃、重启或者等了很久之后，流程会从停下的地方继续。
-
-你用自己的语言把流程写成一个 **Flow**：一组 **Step**，每个 Step 说明下一步运行哪个 Step。你服务里的 **Worker** 负责运行这些 Step。
+Dex 是一个轻量的 **持久化执行（Durable Execution）** 平台，用于后端服务和 AI Agent。你写普通代码，Dex 让它挺过崩溃和部署。不重放，不需要运行数据库。
 
 <div className="docs-home-actions">
 
