@@ -143,9 +143,7 @@ Worker.
 A deployed Dex Web reads the definitions from the Dex Server. Ship the
 validated files with the Worker build and give them to the Worker, which
 publishes them when it starts. A deployment script can publish them with
-`dexcli` instead. The Server keeps one definition per Flow type. A definition
-with a later generation time, recorded in the definition, replaces an older
-one, whatever the upload order. A definition directory for
+`dexcli` instead. The Server keeps one definition per Flow type. A definition directory for
 Dex Web is optional; when it has a file for a Flow type, that file wins over
 the Server's definition. Dex Web marks an invalid definition with its error and
 keeps the others working. After deploying, confirm that Designs lists every

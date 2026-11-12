@@ -31,11 +31,8 @@ Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新
 - 一条消息由一个 wait 消费。Dex 不会把它复制给其他等待中的 Step。
 - Step 的 wait 消费了消息之后、Dex 保存它的 `Execute` 结果之前，Step 可能被取消。这时 Dex 把这些消息按原来的顺序放回 Channel 的最前面。之后的 wait 可以再消费它们。
 - 被取消的 `Execute` 可能已经看到过放回的消息。所以一条消息可能两次到达 `Execute`。消息处理要做成幂等的。
-- 如果 Step 是因为 Flow 关闭而被取消的，Dex 会丢弃这些消息，不再放回。`StopFlow` 请求、Flow timeout，以及用 `ForceComplete` 或 `ForceFail` 关闭 Flow 的决定，都属于这种情况。
-- 其他取消都会放回消息，即使 Flow 之后关闭，例如在 `GracefulComplete` 之后。Flow 关闭后，不会再有 Step 消费它们。
-- 一个 Step 方法取消某个 Step、同时发布消息时，被取消的 Step 不会收到这些消息。
-- 多个 Step 等待同一个 Channel 时，最先开始等待的 Step 最先有机会拿到新消息。如果一个 Step 的 wait 需要的消息比待处理的多，它会被跳过，之后的 Step 可以拿走这些消息。
-- 所以当其他 Step 一条一条地拿走消息时，等待多条消息的 Step 可能永远等不到。在同一个 Channel 上，不要同时有等待一条消息的 Step 和等待多条消息的 Step。
+- 如果 Step 是因为 Flow 关闭而被取消的，Dex 会丢弃这些消息，不再放回。具体情况见[被取消的 Step 放回已消费的消息](/reference/server/runtime-data#canceled-step-messages)。
+- 当其他 Step 一条一条地拿走消息时，等待多条消息的 Step 可能永远等不到。在同一个 Channel 上，不要同时有等待一条消息的 Step 和等待多条消息的 Step。见[等待者顺序](/reference/server/runtime-data#channel-waiter-order)。
 - 消息可以在 Step 开始等待之前到达。Dex 会保留它，直到之后的 wait 消费它。
 - 只有发布消息的 Step 方法或 RPC 成功时，Dex 才会发布这条消息。见 [Step 的保证](/concepts/step#guarantees)。
 

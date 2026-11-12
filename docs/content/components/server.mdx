@@ -72,9 +72,9 @@ throughput and latency for one node.
   is a map of the Flow's Steps and every move their code can make.
   **dexcli visualize** builds it by reading your Flow's source code, without
   running it, so the graph lists possible moves, not the moves of one run.
-  Workers or `dexcli` publish it. Each graph records when it was generated. A graph with
-  a later generation time replaces an older one, whatever the upload order. Dex
-  Web reads it to draw the Flow.
+  Workers or `dexcli` publish it. Dex Web reads it to draw the Flow. The
+  [Flow definitions reference](/reference/server/runtime-client#flow-definitions)
+  says when a published graph replaces a stored one.
 - Dex Server can write selected Attributes to PostgreSQL. See
   [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection).
 

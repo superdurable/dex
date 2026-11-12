@@ -51,7 +51,7 @@ Flow definitions refer to a logical connection name, never to credentials.
 
 ### Local Connector credentials
 
-In local development, Dex Web inside `dexcli dev` can configure exact published official Connector modules. It lists the connections that loaded Flow definitions use, and it can add a named connection that no Flow uses, such as one an agent tool opens by name.
+In local development, Dex Web inside `dexcli dev` can configure exact published official Connector modules. See the [Dex Web local Connector setup reference](https://docs.superdurable.io/reference/web/local-connector-setup) for which connections it can configure.
 
 - For a Flow's connection, the Flow must use operation-specific factories, a static connection name, and static Trigger binding names. Generic factories, local replacements, unpublished versions, or version conflicts stay visible but are not configurable.
 - Dex Web writes a plaintext development store, `connections.json`, under the user's Dex directory or the directory passed to `dexcli dev`. The file and directory permissions are restrictive and Dex rejects wider ones.

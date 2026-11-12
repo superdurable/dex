@@ -28,22 +28,17 @@ instead of starting a second one. By default, the parent keeps waiting
 for a running child, uses the result of a completed child, and restarts a child
 that ended abnormally.
 
-The SubFlow ID joins its parts with a dash. So a Step whose Step type
-contains a dash cannot start SubFlows. Otherwise two parents could compute
-the same SubFlow ID and share one child. Dex fails such a WaitFor attempt
-without retry. Give every Step that starts SubFlows a Step type without a
-dash.
+Give every Step that starts SubFlows a Step type without a dash. Dex fails such
+a WaitFor attempt without retry. See
+[Step types that start SubFlows](/reference/server/runtime-data#subflow-step-types).
 
-When you start the parent Flow ID again, the new run usually computes
-the same SubFlow IDs as the earlier run. Dex then applies the reuse policy. With
-the default policy, the new run gets the earlier run's child, running or
-completed, until Dex deletes that child. To start a fresh child in every run,
-use `ALWAYS_RESTART`. It terminates the earlier child if that child is still
-running. When both children must keep running, use a different parent Flow ID.
+When you start the parent Flow ID again, the new run can compute the same
+SubFlow IDs as the earlier run. Dex then applies the reuse policy. When both
+children must keep running, use a different parent Flow ID. See
+[Later parent runs](/reference/server/runtime-data#subflow-parent-lifecycle).
 
-A child keeps running when its parent Step is canceled or its parent Flow
-closes. Stop it yourself, or set a Flow timeout on the child so it ends on its
-own.
+A child keeps running when its parent Flow closes. Stop it yourself, or set a
+Flow timeout on the child so it ends on its own.
 
 ## Start and wait for a SubFlow
 

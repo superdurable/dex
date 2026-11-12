@@ -39,18 +39,12 @@ ChannelMap, and it counts the branches and keys each round for you. See
 - A canceled `Execute` may already have seen a returned message. So a message
   can reach `Execute` twice. Make message processing idempotent.
 - When a Step is canceled because the Flow closes, Dex drops the messages
-  instead. That happens on a `StopFlow` request, on a Flow timeout, and on a
-  decision that closes the Flow with `ForceComplete` or `ForceFail`.
-- Any other cancellation puts the messages back, even when the Flow closes later,
-  for example after `GracefulComplete`. No Step consumes them after the close.
-- When one Step method cancels a Step and publishes messages, the canceled
-  Step never receives those messages.
-- When several Steps wait on one Channel, the Step that started waiting first
-  gets the first chance at new messages. A Step whose wait needs more messages
-  than are pending is skipped. A later Step can then take them.
-- So a Step that waits for several messages can wait forever while other Steps
-  keep taking them one at a time. On one Channel, do not mix Steps that wait for
-  one message with Steps that wait for several.
+  instead. The exact cases are in
+  [Canceled Steps return consumed messages](/reference/server/runtime-data#canceled-step-messages).
+- A Step that waits for several messages can wait forever while other Steps
+  keep taking messages one at a time. On one Channel, do not mix Steps that wait
+  for one message with Steps that wait for several. See
+  [Waiter order](/reference/server/runtime-data#channel-waiter-order).
 - A message can arrive before a Step starts waiting. Dex keeps it until a later
   wait consumes it.
 - Dex publishes a message only when the Step method or RPC that published it

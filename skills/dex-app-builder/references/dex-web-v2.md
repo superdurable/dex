@@ -25,8 +25,9 @@ the flags, defaults, image details, page behavior, and `/api` contracts.
   the FlowService API to the public Internet.
 
 The Summary, Display, and Action metadata exists only for Go. Validate every
-Flow with the FDG 2.0 analyzer. Features that need these definitions are
-labeled Experimental in the UI and appear only when a definition applies.
+Flow with the FDG 2.0 analyzer. Features that need these definitions appear
+only when a definition applies. Their release status is in the
+[Dex Web reference](https://docs.superdurable.io/reference/web/dex-web).
 
 ## How Dex Web derives the management UI
 
@@ -82,7 +83,7 @@ Design these contracts before you propose a custom management backend or UI.
 
 ## Start Flow
 
-- Dex Web shows **Start Flow** in the Work Queue list header when the
+- Dex Web offers **Start Flow** when the
   definition has a supported typed start schema. The operator enters a Flow ID and the typed input.
 - The form comes from the start Step's input type. Use a concrete Go struct
   with JSON tags. A `map[string]any` field cannot drive the form.
@@ -149,8 +150,8 @@ condition, validates no business value, and does not bypass the RPC.
 
 ## Diagnose a Run in Dex Web
 
-- Read the Step's routing before you change Worker configuration: the
-  serving app Worker ID, the queue source, and the pending reason.
+- Read the Step's routing and pending reason before you change Worker
+  configuration.
 - A Step waiting for a Worker of its type needs a Worker that registers that
   Step type. A Step waiting for locks is blocked by another lock holder.
 - After an authorized time travel, the Run ID stays the same and a new run

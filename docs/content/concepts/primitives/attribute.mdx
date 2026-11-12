@@ -366,9 +366,8 @@ To catch a missing lock, write a test that runs those Steps or RPCs at the same
 time and checks the final value.
 
 A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
-not declare it can still write the Attribute. Steps get a lock in the order they started waiting for it. An RPC does
-not queue. It takes a free lock even when Steps are waiting for it. So a steady
-stream of locked RPCs can delay those Steps. Keep locked RPCs short.
+not declare it can still write the Attribute. Keep locked RPCs short, because an RPC can take a free lock ahead of waiting
+Steps. See [Lock order](/reference/server/runtime-data#lock-order).
 
 A method that declares several locks takes them all at once. It starts only
 when every lock is free and it is first in line for each one. It never holds

@@ -332,7 +332,7 @@ Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时�
 
 两个并行 Step，或者一个 Step 和一个 RPC，如果都会先读后写同一个 Attribute，就给它加 lock。Dex 目前对没有加锁的先读后写没有 lint 或警告。要发现漏加的 lock，写一个测试，同时运行这些 Step 或 RPC，再检查最终的值。
 
-lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute。Step 按开始等待 lock 的顺序拿到它。RPC 不排队。即使有 Step 在等一个空闲的 lock，RPC 也会直接拿走它。所以持续不断的加锁 RPC 可能推迟这些 Step。让加锁的 RPC 尽量短。
+lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute。让加锁的 RPC 尽量短，因为 RPC 可以抢在等待的 Step 之前拿走空闲的 lock。见 [Lock 顺序](/reference/server/runtime-data#lock-order)。
 
 声明了多个 lock 的方法会一次拿到所有 lock。只有每个 lock 都空闲、而且它在每个 lock 的队列里都排在第一位时，它才会开始。它从不在持有一个 lock 的同时等待另一个，所以两个加锁的方法不会循环阻塞对方。
 

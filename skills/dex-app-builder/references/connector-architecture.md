@@ -225,8 +225,8 @@ release. Use a provider's own Connector only for a provider-native operation.
 ## Local development configuration
 
 Dex Web configures exact official Connector releases only in loopback
-`dexcli dev`. It lists the connections that local Flow definitions use, and it
-can add a named connection that no Flow uses. [Dex Web](dex-web-v2.md#local-connector-setup)
+`dexcli dev`. The [local Connector setup reference](https://docs.superdurable.io/reference/web/local-connector-setup)
+says which connections it can configure. [Dex Web](dex-web-v2.md#local-connector-setup)
 has the setup rules.
 
 The application opens each connection with the generated
