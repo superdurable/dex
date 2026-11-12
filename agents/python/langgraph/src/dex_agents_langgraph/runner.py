@@ -937,8 +937,8 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         if ambiguous_wrapped_tool_names and self._should_defer_tool_calls_before_middleware:
             raise ValueError(
                 f"tools {sorted(ambiguous_wrapped_tool_names)} belong to several root tool nodes "
-                "with different middleware tool wrappers, so a tool Step cannot tell which "
-                "wrappers to run; give each node its own tool names, or pass "
+                "with different tool wrappers, so a tool Step cannot tell which wrappers to "
+                "run; give each node its own tool names, or pass "
                 "should_defer_tool_calls_before_middleware=False"
             )
         return _LoadedGraph(
@@ -1244,20 +1244,25 @@ def _tool_nodes_with_wrappers_by_tool_name(
     ambiguous_tool_names: set[str] = set()
     for node_name, node in graph.nodes.items():
         bound = node.bound
+        if not isinstance(bound, ToolNode):
+            continue
+        for tool_name, tool in bound.tools_by_name.items():
+            if tools_by_name.get(tool_name) is not tool:
+                continue
+            # Any difference, a bare deferral or no wrapper included, makes the call's node unknown.
+            known_wrapper = wrappers_by_tool_name.setdefault(tool_name, bound._awrap_tool_call)
+            if known_wrapper is not bound._awrap_tool_call:
+                ambiguous_tool_names.add(tool_name)
         if not _has_async_tool_wrapper(bound) or not _has_middleware_tool_wrappers(bound):
             continue
         deferring_node = deferring_graph.nodes[node_name].bound
         if not isinstance(deferring_node, ToolNode):
             raise TypeError(f"the deferring copy of tool node {node_name} is not a ToolNode")
         for tool_name, tool in bound.tools_by_name.items():
-            if tools_by_name.get(tool_name) is not tool:
-                continue
-            known_wrapper = wrappers_by_tool_name.setdefault(tool_name, bound._awrap_tool_call)
-            if known_wrapper is not bound._awrap_tool_call:
-                ambiguous_tool_names.add(tool_name)
-            nodes.setdefault(tool_name, deferring_node)
+            if tools_by_name.get(tool_name) is tool:
+                nodes.setdefault(tool_name, deferring_node)
     for tool_name in ambiguous_tool_names:
-        del nodes[tool_name]
+        nodes.pop(tool_name, None)
     return nodes, ambiguous_tool_names
 
 

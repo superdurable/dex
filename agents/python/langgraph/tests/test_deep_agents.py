@@ -29,7 +29,11 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
-from dex_agents_langgraph import DurableToolCallMiddleware, LangGraphAgentRunner
+from dex_agents_langgraph import (
+    DurableToolCallMiddleware,
+    LangGraphAgentRunner,
+    awrap_durable_tool_call,
+)
 from tests.conftest import DEEP_AGENT_WORKER_MODULE, PACKAGE_DIR, ScriptedAgentHarness
 from tests.deep_agents import (
     AUDIT_INVOCATION_PREFIX,
@@ -438,6 +442,29 @@ def test_a_tool_in_two_root_nodes_with_different_wrappers_is_refused() -> None:
     builder.add_edge("second_tools", END)
     graph = builder.compile()
 
+    with pytest.raises(ValueError, match="several root tool nodes"):
+        LangGraphAgentRunner(graph)
+    LangGraphAgentRunner(graph, should_defer_tool_calls_before_middleware=False)
+
+
+def test_a_tool_in_a_bare_deferral_node_and_a_wrapped_node_is_refused() -> None:
+    @tool
+    def echo_text(text: str) -> str:
+        """Return the text unchanged."""
+        return text
+
+    async def audit(request: ToolCallRequest, handler: Any) -> Any:
+        return await handler(request)
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("bare", ToolNode([echo_text], awrap_tool_call=awrap_durable_tool_call))
+    builder.add_node("audited", ToolNode([echo_text], awrap_tool_call=audit))
+    builder.add_edge(START, "bare")
+    builder.add_edge("bare", "audited")
+    builder.add_edge("audited", END)
+    graph = builder.compile()
+
+    # A call from the bare node must never run the audited node's wrapper.
     with pytest.raises(ValueError, match="several root tool nodes"):
         LangGraphAgentRunner(graph)
     LangGraphAgentRunner(graph, should_defer_tool_calls_before_middleware=False)

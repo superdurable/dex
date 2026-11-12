@@ -293,6 +293,7 @@ Each limit has a workaround.
 | **Summarization is not a separate model call.** Deep Agents' `SummarizationMiddleware` calls its model inside a `RunModel` Step. The usage counts it, but it gets no model call record of its own, and a retry repeats it. It always uses the model the agent was built with, not `select_turn_chat_model`'s. Its offload of earlier messages goes to the per-turn `files`, and its rewrite of the history is not stored, because stored history is append-only. | Replace it with a middleware named `SummarizationMiddleware` that adds nothing, and use Dex [compaction](#compaction) instead. |
 | **Rebuilt system messages lose cache breakpoints.** A middleware that replaces the system message with plain text, such as one that adds instructions for each turn, drops the Anthropic `cache_control` breakpoints that middleware before it set on the message's content blocks. | Keep the existing content blocks and add yours before them, or set the instructions when you build the agent. |
 | **Large state in records.** A state-reading tool call stores the non-message graph state, such as every file in `files`, in its record, and a file write stores its writes in the record's `runner_tool_state`. Every call of a rewritten root tool node with a wrapper besides the bare deferral, as in every `create_agent` and Deep Agents agent, stores that state too, because its wrappers may read it, so one model response with N calls stores it N times. The session fails when its run state outgrows the Dex limit. | Keep large or many files in a `FilesystemBackend` or a `StoreBackend`. |
+| **A turn in flight across the 0.6.0 upgrade.** A turn whose tool calls were pending under a 0.5.x runner names no deferral order, so a 0.6.0 Worker finishes it in the middleware order. For a 0.5.x runner with `should_defer_tool_calls_before_middleware=True`, such as the 0.5.0 `dex-agents-deepagents`, a wrapper listed before the deferral then runs once in `RunModel` around the replay, where 0.5.x ran none. It never runs twice, and the turns that follow use the 0.6.0 order. | Upgrade Workers between turns, or accept one extra wrapper run for each turn in flight. |
 
 ## Tool sources and connector tools
 
@@ -503,7 +504,8 @@ besides the bare deferral stores that state with its record. A tool of
 `tools=` that no tool node has, and a tool of a subgraph's tool node, run
 alone. A tool name that root tool nodes with different wrappers share is
 refused when the runner loads the graph, because a tool Step could not tell whose
-wrappers to run. Model middleware, such as dynamic
+wrappers to run. Any difference in the nodes' wrappers counts, such as a node
+with only the deferral and a node with more. Model middleware, such as dynamic
 tool selection or summarization, keeps working; its model calls run inside
 `RunModel`.
 

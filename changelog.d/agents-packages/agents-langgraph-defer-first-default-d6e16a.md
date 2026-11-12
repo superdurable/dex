@@ -17,10 +17,15 @@ section: Changed
   order. Each turn keeps the order its first model call used, recorded in its
   run state and call records, so a Worker with the other setting finishes it
   without running a wrapper twice; turns paused before this release keep the
-  middleware order. A tool node without wrappers, a tool node in a subgraph,
-  and a node with only synchronous wrappers are left unchanged. A tool name
-  that root tool nodes with different wrappers share now raises `ValueError`
-  when the runner loads the graph.
+  middleware order. Known upgrade limitation: a turn in flight under a 0.5.x
+  runner that set the option to `True`, such as the 0.5.0
+  `dex-agents-deepagents`, recorded no order, so it finishes in the
+  middleware order and a wrapper listed before the deferral runs once in
+  `RunModel` where 0.5.x ran none; it never runs twice. A tool node without
+  wrappers, a tool node in a subgraph, and a node with only synchronous
+  wrappers are left unchanged. A tool name that root tool nodes with any
+  different tool wrappers share, a bare deferral and a wrapped node
+  included, now raises `ValueError` when the runner loads the graph.
 - Python LangGraph adapter: a tool Step that runs a tool node's wrappers no
   longer applies the node's `handle_tool_errors`, so an exception in the tool
   body, such as a `ValidationError`, fails the attempt and a write records
