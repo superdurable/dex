@@ -1259,6 +1259,54 @@ does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
+## Showing what an approval acts on
+
+A tool approval can say what the call acts on and what it does. Its tool
+source returns an `AgentInterruptDisplay(target, summary, preview)` in
+`DeferredToolCall.approval_display`, and the session stores it in
+`AgentInterrupt.display`, on the call's record as `approval_display`, and in
+the `interrupt_raised` event. A queued ordered write raises its approval later
+with the display its source built when the model asked.
+
+```python
+snapshot = await sessions.get_agent_snapshot(session_id)
+for interrupt in snapshot.pending_interrupts:
+    print(interrupt.display.summary if interrupt.display else interrupt.arguments)
+```
+
+- `ConnectorToolSource` and the CLI's connector tools build it with
+  `build_connector_tool_approval_display`: the target is
+  `<connector>/<connection>`, and the summary names the operation, the
+  connection, and up to five short arguments, such as
+  `Calls slack postChannelMessage with connection support-slack; channel: "#eng".`
+- The CLI's local file writes name the workspace path and carry a unified diff
+  against the file as it is when the model asks; its header lines say so. Its
+  shell commands name the working directory and the command with its inline
+  credentials redacted and its control characters escaped, cut at 2 KiB; the
+  full command is in the call's arguments.
+- A display never says how often the call runs or what it achieves, and never
+  uses a tool's description as its effect.
+- Redaction in a display is best-effort hygiene, not a security boundary.
+  The display's text comes from the call's arguments, which the session
+  stores in full as before, and an agent can read a workspace file with its
+  own tools. A credential-like argument (`is_credential_like_name`) shows
+  `<redacted>`, and `redact_inline_credentials` replaces common credential
+  shapes: the value after a credential-like name, read as a shell word, a
+  triple-quoted string, or a YAML block; `Authorization` and `Cookie` header
+  values; URL passwords; `sshpass -p`; and common token shapes. It reads
+  `\uXXXX`, `\xXX`, and `%XX` escapes to find credentials but changes no
+  other text: escapes stay as written, and only the characters of each
+  credential become `<redacted>`. It is conservative, so a generic
+  `key=value` is redacted too, and the CLI leaves out a file preview whose
+  text it changes. It finds common forms only, and Unicode lookalike letters
+  are out of scope; `agents/conformance/approval_display.json` lists the
+  cases both cores share.
+- The session cuts a target over `MAX_APPROVAL_TARGET_BYTES` (1 KiB) and a
+  summary over `MAX_APPROVAL_SUMMARY_BYTES` (2 KiB), ending them with `…`,
+  and drops a preview over `MAX_APPROVAL_PREVIEW_BYTES` (16 KiB). A tool
+  without a display, and every approval a Worker before 0.6.0 raised, has
+  `display` `None`: show the concrete arguments, not a guessed effect.
+
 ## Listing sessions
 
 Since 0.6.0, a session can keep a summary that a session list needs: its
@@ -1452,7 +1500,8 @@ and `reasoning_delta` `{"text"}`, `tool_call_started` `{"tool_call_id",
 (once per tool call, including rejections), `tool_call_deferred`
 `{"tool_call_id", "tool_name", "effect", "requires_approval"}`,
 `interrupt_raised` `{"interrupt_id", "tool_call_id", "tool_name", "deadline",
-"kind", "question", "choices", "allows_free_text"}`, `interrupt_resolved`
+"kind", "question", "choices", "allows_free_text", "display"}` (`display` is
+`{"target", "summary", "preview"}` or `null`), `interrupt_resolved`
 `{"interrupt_id", "approved", "rejection_message", "kind", "answered",
 "cancellation_reason"}` (`steered` or `turn_cancelled` when steering or
 cancellation removed the interrupt), `timer_started` `{"tool_call_id",

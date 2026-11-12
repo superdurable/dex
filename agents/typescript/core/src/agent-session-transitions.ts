@@ -23,7 +23,7 @@ import type { BuiltInTool } from "./agent-built-in-tools.js";
 import { agentSessionStepTypes } from "./agent-session-step-types.js";
 import { isContextCompactionRunner, type ResolvedCompactionPolicy } from "./agent-context-compaction.js";
 import { StreamAgentEventWriter } from "./agent-event-writer.js";
-import { encodeAgentMessage } from "./agent-session-codecs.js";
+import { encodeAgentInterruptDisplay, encodeAgentMessage } from "./agent-session-codecs.js";
 import { validateImageReferences } from "./agent-media.js";
 import {
   resolveToolPolicy,
@@ -452,6 +452,7 @@ export class AgentSessionTransitions {
       question: interrupt.question ?? null,
       choices: interrupt.choices ?? [],
       allows_free_text: interrupt.allowsFreeText ?? true,
+      display: encodeAgentInterruptDisplay(interrupt.display),
     });
   }
 

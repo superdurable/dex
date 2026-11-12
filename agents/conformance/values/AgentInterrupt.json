@@ -6,20 +6,32 @@
     {
       "name": "tool-approval",
       "description": "A tool approval with defaults.",
-      "wire": "{\"allows_free_text\":true,\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"interrupt_id\":\"call-2\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-2\",\"tool_name\":\"send_email\"}",
-      "canonical": "{\"allows_free_text\":true,\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"interrupt_id\":\"call-2\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-2\",\"tool_name\":\"send_email\"}"
+      "wire": "{\"allows_free_text\":true,\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"display\":null,\"interrupt_id\":\"call-2\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-2\",\"tool_name\":\"send_email\"}",
+      "canonical": "{\"allows_free_text\":true,\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"display\":null,\"interrupt_id\":\"call-2\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-2\",\"tool_name\":\"send_email\"}"
+    },
+    {
+      "name": "tool-approval-display",
+      "description": "A tool approval with the display its tool's source built.",
+      "wire": "{\"allows_free_text\":true,\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"display\":{\"preview\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\",\"summary\":\"Writes 3 bytes to docs/notes.md.\",\"target\":\"docs/notes.md\"},\"interrupt_id\":\"call-2\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-2\",\"tool_name\":\"send_email\"}",
+      "canonical": "{\"allows_free_text\":true,\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"display\":{\"preview\":\"Gr\\u00fc\\u00dfe \\\"quoted\\\" \\\\ back\\nline\\ttab \\u2615 \\ud83d\\ude00 </script> & <ok>\",\"summary\":\"Writes 3 bytes to docs/notes.md.\",\"target\":\"docs/notes.md\"},\"interrupt_id\":\"call-2\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-2\",\"tool_name\":\"send_email\"}"
+    },
+    {
+      "name": "tool-approval-display-without-preview",
+      "description": "A display whose preview is absent.",
+      "wire": "{\"interrupt_id\":\"call-2\",\"kind\":\"tool_approval\",\"tool_call_id\":\"call-2\",\"tool_name\":\"run_shell_command\",\"arguments\":\"{\\\"command\\\": \\\"npm test\\\"}\",\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"display\":{\"target\":\"/work/app\",\"summary\":\"Runs a shell command in /work/app: npm test\"}}",
+      "canonical": "{\"allows_free_text\":true,\"arguments\":\"{\\\"command\\\": \\\"npm test\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"display\":{\"preview\":null,\"summary\":\"Runs a shell command in /work/app: npm test\",\"target\":\"/work/app\"},\"interrupt_id\":\"call-2\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-2\",\"tool_name\":\"run_shell_command\"}"
     },
     {
       "name": "question",
       "description": "A question with every field set.",
-      "wire": "{\"allows_free_text\":false,\"arguments\":\"{\\\"amount\\\": 5}\",\"choices\":[\"EUR\",\"USD\"],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":\"2026-11-02T09:45:30.125Z\",\"interrupt_id\":\"call-7-input-3\",\"kind\":\"question\",\"question\":\"Which currency?\",\"tool_call_id\":\"call-7\",\"tool_name\":\"transfer_funds\"}",
-      "canonical": "{\"allows_free_text\":false,\"arguments\":\"{\\\"amount\\\": 5}\",\"choices\":[\"EUR\",\"USD\"],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":\"2026-11-02T09:45:30.125Z\",\"interrupt_id\":\"call-7-input-3\",\"kind\":\"question\",\"question\":\"Which currency?\",\"tool_call_id\":\"call-7\",\"tool_name\":\"transfer_funds\"}"
+      "wire": "{\"allows_free_text\":false,\"arguments\":\"{\\\"amount\\\": 5}\",\"choices\":[\"EUR\",\"USD\"],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":\"2026-11-02T09:45:30.125Z\",\"display\":null,\"interrupt_id\":\"call-7-input-3\",\"kind\":\"question\",\"question\":\"Which currency?\",\"tool_call_id\":\"call-7\",\"tool_name\":\"transfer_funds\"}",
+      "canonical": "{\"allows_free_text\":false,\"arguments\":\"{\\\"amount\\\": 5}\",\"choices\":[\"EUR\",\"USD\"],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":\"2026-11-02T09:45:30.125Z\",\"display\":null,\"interrupt_id\":\"call-7-input-3\",\"kind\":\"question\",\"question\":\"Which currency?\",\"tool_call_id\":\"call-7\",\"tool_name\":\"transfer_funds\"}"
     },
     {
       "name": "released-0.1.0",
       "description": "As dex-agents 0.1.0 wrote it.",
       "wire": "{\"interrupt_id\":\"call-1\",\"kind\":\"tool_approval\",\"tool_call_id\":\"call-1\",\"tool_name\":\"send_email\",\"arguments\":\"{\\\"to\\\":\\\"ops\\\"}\",\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null}",
-      "canonical": "{\"allows_free_text\":true,\"arguments\":\"{\\\"to\\\":\\\"ops\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"interrupt_id\":\"call-1\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-1\",\"tool_name\":\"send_email\"}"
+      "canonical": "{\"allows_free_text\":true,\"arguments\":\"{\\\"to\\\":\\\"ops\\\"}\",\"choices\":[],\"created_at\":\"2026-11-02T09:30:00.000Z\",\"deadline\":null,\"display\":null,\"interrupt_id\":\"call-1\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"call-1\",\"tool_name\":\"send_email\"}"
     }
   ]
 }

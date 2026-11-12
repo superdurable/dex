@@ -185,6 +185,7 @@ async def test_ask_user_raises_a_question_that_answer_question_resolves_once(
             "allows_free_text": False,
             "choices": ["red", "blue"],
             "deadline": None,
+            "display": None,
             "interrupt_id": question.interrupt_id,
             "kind": "question",
             "question": "Which color?",

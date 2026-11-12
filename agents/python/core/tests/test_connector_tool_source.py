@@ -23,11 +23,14 @@ from dex_connectors.sdk.singledispatch import DecisionKind, Fence, Marker, State
 
 from dex_agents import (
     AgentEventWriter,
+    AgentInterruptDisplay,
     AgentToolCall,
     AgentTurnContext,
     ToolCallStatus,
     ToolEffect,
     ToolPolicy,
+    build_connector_tool_approval_display,
+    is_credential_like_name,
 )
 from dex_agents.connectors import (
     ConnectorBranchOutcome,
@@ -306,6 +309,70 @@ def test_approval_follows_the_manifest_unless_the_application_or_session_overrid
         payout,
         tool_policies={"recommended": ToolPolicy(ToolEffect.READ, requires_approval=False)},
     )
+
+
+def test_a_call_that_needs_approval_names_the_operation_connection_and_short_arguments(
+    provider: FakeLedgerProvider,
+) -> None:
+    payouts = CreatePayoutOperation(provider)
+    source = ConnectorToolSource(
+        [
+            connector_tool(payouts, CONNECTION, name="recommended"),
+            connector_tool(payouts, CONNECTION, name="never", requires_approval=False),
+        ]
+    )
+
+    def deferred(name: str, arguments: dict[str, Any]) -> AgentInterruptDisplay | None:
+        return source.deferred_tool_call(
+            _turn(),
+            tool_call_id="call-1",
+            tool_name=name,
+            arguments=json.dumps(arguments),
+            listed_tool=None,
+        ).approval_display
+
+    payout = {"accountId": "a", "amount": 10, "memo": "line one\nline two"}
+    assert deferred("recommended", payout) == AgentInterruptDisplay(
+        target="fake-ledger/test-ledger",
+        summary='Calls fake-ledger createPayout with connection test-ledger; accountId: "a", '
+        "amount: 10.",
+    )
+    assert deferred("never", payout) is None
+
+
+def test_a_connector_display_shows_short_scalars_and_redacts_credential_like_names() -> None:
+    display = build_connector_tool_approval_display(
+        connector_id="slack",
+        connection_name="support-slack",
+        operation="postChannelMessage",
+        arguments=json.dumps(
+            {
+                "channel": "#eng",
+                "apiKey": "k-1",
+                "X-Api-Key": "k-2",
+                "client_secret": "k-3",
+                "blocks": [{"type": "section"}],
+                "text": "x" * 81,
+                "isThreaded": True,
+                "limit": 5,
+                "later": "never listed, past the fifth",
+            }
+        ),
+    )
+    assert display == AgentInterruptDisplay(
+        target="slack/support-slack",
+        summary="Calls slack postChannelMessage with connection support-slack; "
+        'channel: "#eng", apiKey: <redacted>, X-Api-Key: <redacted>, '
+        "client_secret: <redacted>, isThreaded: true.",
+    )
+    unparsed = build_connector_tool_approval_display(
+        connector_id="a", connection_name="b", operation="c", arguments="not json"
+    )
+    assert unparsed.summary == "Calls a c with connection b."
+    for name in ("token", "refreshToken", "Authorization", "set-cookie", "db_password", "SECRET"):
+        assert is_credential_like_name(name), name
+    for name in ("channel", "monkey", "keys", "tokenizer", "text"):
+        assert not is_credential_like_name(name), name
 
 
 def test_a_session_policy_never_changes_the_effect_class(provider: FakeLedgerProvider) -> None:
