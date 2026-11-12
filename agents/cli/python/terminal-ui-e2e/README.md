@@ -38,7 +38,8 @@ DEXCLI=/path/to/dexcli ./run-scenarios.sh --command py-openai-sdk --command py-b
 - `--command` picks a command from `../testing`'s command list. Repeat it to
   pick several; the default is `py-openai-sdk`. A scenario that needs a
   feature runs only for commands that have it. `ask_user` needs the builtin
-  harness. Slow streams need an OpenAI provider.
+  harness. Slow streams need an OpenAI provider. The approval diff is checked
+  only for the CLI core's file tools.
 - The TypeScript commands hand their chat to the terminal UI only with the
   TypeScript launcher. Until it is on main, `--command ts-openai-sdk` gets
   the plain chat and fails.

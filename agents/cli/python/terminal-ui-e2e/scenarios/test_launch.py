@@ -50,7 +50,8 @@ def test_first_frame_shows_logo_and_context(
     lines = session.screen.all_lines()
     assert any("Super Durable" in line for line in lines), session.describe()
     assert any("command:" in line and command.case.package_dir_name in line for line in lines)
-    new_session_mark = "(new)" if columns >= 80 else "(n"
+    # At 50 columns a long session ID truncates the "(new)" mark.
+    new_session_mark = "(new)" if columns >= 80 else ""
     assert any(
         "session:" in line and new_session_mark in line for line in lines
     ), session.describe()
@@ -97,8 +98,13 @@ def test_plain_chat_without_agents_tui(
 ) -> None:
     run = chat_runs([{"prompt": "plain fallback turn", "steps": [{"text": "PLAIN-FALLBACK-DONE"}]}])
     session = run.spawn(dexcli=stub_dexcli_without_terminal_ui)
-    session.wait_for_output("has no terminal UI", timeout_seconds=90)
+    session.wait_for_output("Plain chat:", timeout_seconds=90)
     session.wait_for_output("\n> ", timeout_seconds=60)
+    plain_line = next(
+        line for line in session.screen.output_text().splitlines() if "Plain chat:" in line
+    )
+    # TERMINAL_UI_CONTRACT.md: the describe_failed line names the dexcli version it needs.
+    assert "1.46.0" in plain_line, plain_line
     session.submit("plain fallback turn")
     session.wait_for_output("PLAIN-FALLBACK-DONE", timeout_seconds=90)
     output = session.screen.output_text()

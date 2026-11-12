@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from dex_agents_cli_testing.e2e.command_cases import COMMAND_CASES, CommandCase, Provider
-
-#: The commands CI runs: one per CLI core.
-CI_COMMAND_NAMES = ("py-openai-sdk", "ts-openai-sdk")
+from dex_agents_cli_testing.e2e.command_cases import (
+    CLI_CORE_TOOLS,
+    COMMAND_CASES,
+    CommandCase,
+    Provider,
+)
 
 
 @dataclass(frozen=True)
@@ -27,11 +29,14 @@ class TerminalUiCommand:
         has_ask_user: Whether its agent has the ``ask_user`` tool.
         has_slow_streams: Whether the mock model API can stream its replies
             slowly, which the scenarios that act during a turn need.
+        has_write_diff: Whether its write approval shows a diff: the CLI
+            core's file tools describe their effect, a harness's own do not.
     """
 
     case: CommandCase
     has_ask_user: bool
     has_slow_streams: bool
+    has_write_diff: bool
 
     @property
     def name(self) -> str:
@@ -45,6 +50,7 @@ def _target(case: CommandCase) -> TerminalUiCommand:
         has_ask_user=case.package_dir_name == "builtin",
         # Only the OpenAI Responses and Chat Completions stubs stream slowly.
         has_slow_streams=case.provider is Provider.OPENAI,
+        has_write_diff=case.tools is CLI_CORE_TOOLS,
     )
 
 

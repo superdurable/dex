@@ -29,9 +29,9 @@ TABLE_REPLY = (
 )
 
 
-def start_chat(run: ChatRun, columns: int = 80) -> TerminalSession:
+def start_chat(run: ChatRun, columns: int = 80, lines: int = 24) -> TerminalSession:
     """Start the command and wait for the ready input."""
-    session = run.spawn(columns=columns)
+    session = run.spawn(columns=columns, lines=lines)
     session.wait_for_display(READY_STATUS, timeout_seconds=90)
     return session
 
@@ -118,13 +118,16 @@ def test_write_approval_shows_diff_then_rejection_writes_nothing(
             },
         ]
     )
-    session = start_chat(run)
+    # Tall enough for the whole approval: some harnesses take absolute paths.
+    session = start_chat(run, lines=40)
     session.submit("write the approved file")
     session.wait_for_display(f"Approve {tools.write_tool}?", timeout_seconds=90)
     display = session.screen.display()
-    assert any("+2 -0" in line for line in display), session.describe()
-    assert any("+ hello" in line for line in display), session.describe()
-    assert any("+ world" in line for line in display), session.describe()
+    assert any("hello" in line for line in display), session.describe()
+    if command.has_write_diff:
+        assert any("+2 -0" in line for line in display), session.describe()
+        assert any("+ hello" in line for line in display), session.describe()
+        assert any("+ world" in line for line in display), session.describe()
     assert not (run.workspace / "approved.txt").exists(), "written before the approval"
     session.type_text("y")
     session.wait_for_text("APPROVED-DONE", timeout_seconds=90)

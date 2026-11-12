@@ -24,9 +24,10 @@ READY_STATUS = "Enter send"
 CANARY_ROLES = ("launcher", "worker-host")
 # The stdout of dexcli dev, which a command that starts it must keep off the terminal.
 DEXCLI_DEV_OUTPUT = ("Dex development environment is ready", "Press Ctrl+C to stop.")
+# The tool's own output is the tool result, which the terminal UI may show; the
+# controlling terminal and a child that outlives the tool are not.
 CANARY_SCRIPT = (
-    f"echo {CANARY_TEXT} shell fd 1\n"
-    f"echo {CANARY_TEXT} shell fd 2 >&2\n"
+    "echo canary script ran\n"
     f"(echo {CANARY_TEXT} shell tty > /dev/tty) 2>/dev/null\n"
     f"(sleep 1; echo {CANARY_TEXT} shell background fd 2 >&2) &\n"
     "exit 0\n"

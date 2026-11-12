@@ -10,10 +10,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import shutil
+import signal
 import socket
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -36,6 +38,7 @@ NOTES_TEXT = "buy milk and eggs"
 _HOST_VARIABLES = ("TMPDIR", "USER", "LOGNAME", "SHELL")
 _SESSION_LINE = re.compile(r"session:\s+(\S+)")
 _RESUME_LINE = re.compile(r"--resume (\S+)")
+_DEV_READY_NOTICE = re.compile(r"dexcli dev is ready \(pid (\d+)\)")
 
 
 @dataclass(frozen=True)
@@ -199,10 +202,28 @@ class ChatRun:
         return "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in logs)
 
     def close(self) -> None:
-        """Stop every terminal session and the scripted model."""
+        """Stop every terminal session and the scripted model.
+
+        Raises:
+            AssertionError: If a ``dexcli dev`` that a command started outlived it;
+                it is stopped first.
+        """
         for session in self.sessions:
             session.close()
         self._mock.stop()
+        leftovers = [pid for pid in self._started_dev_pids() if _is_running(pid)]
+        for pid in leftovers:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(pid, signal.SIGTERM)
+        if leftovers:
+            raise AssertionError(f"the dexcli dev a command started outlived it: pids {leftovers}")
+
+    def _started_dev_pids(self) -> list[int]:
+        pids = []
+        for session in self.sessions:
+            output = " ".join(session.screen.output_text().split())
+            pids += [int(match) for match in _DEV_READY_NOTICE.findall(output)]
+        return pids
 
 
 ChatRunFactory = Callable[..., ChatRun]
@@ -225,6 +246,16 @@ def resume_id_after_exit(session: TerminalSession) -> str | None:
         if match:
             return match.group(1).rstrip(".")
     return None
+
+
+def _is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _free_ports(count: int) -> tuple[int, int]:

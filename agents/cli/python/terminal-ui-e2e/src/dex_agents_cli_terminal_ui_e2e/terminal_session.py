@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
+import signal
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -30,11 +33,13 @@ KEYS = {
     "down": "\x1b[B",
     "page_up": "\x1b[5~",
     "page_down": "\x1b[6~",
+    "end": "\x1b[F",
 }
 _READ_CHUNK_BYTES = 65536
 _POLL_SECONDS = 0.05
 # Bubble Tea reads a lone ESC as the Escape key only after a short pause.
 _KEY_GAP_SECONDS = 0.15
+_HANGUP_EXIT_SECONDS = 30.0
 
 
 class ScreenWaitTimeout(AssertionError):
@@ -167,10 +172,19 @@ class TerminalSession:
         return self.exit_code
 
     def close(self) -> None:
-        """Stop the command if it still runs and close the transcript."""
+        """Stop the command if it still runs, as a closed terminal does, and close the transcript.
+
+        The command gets SIGHUP and time to stop what it started, such as a
+        ``dexcli dev``; only one that outlives that is killed.
+        """
         if self.exit_code is None and self._child.isalive():
-            self._child.close(force=True)
-            self._record_exit()
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(self.pid, signal.SIGHUP)
+            try:
+                self.wait_for_exit(_HANGUP_EXIT_SECONDS)
+            except ScreenWaitTimeout:
+                self._child.close(force=True)
+                self._record_exit()
         self._transcript.close()
 
     def describe(self) -> str:
