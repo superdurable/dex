@@ -23,7 +23,7 @@ export const sdkOrder = ['python', 'go', 'java', 'typescript', 'rust'];
 const sdkLabels = {python: 'Python', go: 'Go', java: 'Java', typescript: 'TypeScript', rust: 'Rust'};
 const diagrams = new Set(['DexSystemDiagram', 'ExecutionApproachDiagram', 'StepWaitExecuteDiagram',
   'StepDecisionMovementsDiagram', 'RpcRequestDiagram', 'ChannelScopeDiagram', 'ArchitectureComparison',
-  'RequirementChangeComparison', 'FlowModelDiagram', 'AgentDeploymentDiagram', 'AgentStackDiagram', 'SessionTurnDiagram']);
+  'RequirementChangeComparison', 'FlowModelDiagram', 'AgentDeploymentDiagram', 'AgentStackDiagram', 'SessionTurnDiagram', 'FunctionToFlowDiagram']);
 // Docusaurus default admonition keywords.
 const admonitionKeywords = ['note', 'tip', 'info', 'warning', 'danger', 'caution', 'important', 'secondary', 'success'];
 const localeCopies = {
@@ -561,11 +561,11 @@ const frameworkLabels = {
   'claude-agent-sdk': 'Claude Agent SDK',
   'openai-agents-sdk': 'OpenAI Agents SDK', 'pydantic-ai': 'Pydantic AI',
   'langchain-langgraph': 'LangChain and LangGraph', 'google-adk': 'Google ADK',
-  'vercel-ai-sdk': 'Vercel AI SDK', mastra: 'Mastra',
+  'vercel-ai-sdk': 'Vercel AI SDK', mastra: 'Mastra', 'built-in-agent-loop': 'Built-in agent loop',
 };
 // Tab order, as in src/components/agentFrameworks.ts.
 export const frameworkOrder = ['claude-agent-sdk', 'google-adk', 'langchain-langgraph', 'mastra', 'openai-agents-sdk',
-  'pydantic-ai', 'vercel-ai-sdk'];
+  'pydantic-ai', 'vercel-ai-sdk', 'built-in-agent-loop'];
 const frameworkGroupType = 'dexFrameworkGroup';
 async function expandFrameworkTabs(node, context) {
   const variants = {};

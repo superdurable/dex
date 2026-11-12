@@ -1,0 +1,122 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Narrow: the function stacks above its Flow. Wide: before and after side by side. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.4rem;
+}
+
+.before {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem 0.65rem 0.65rem;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+.lines {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 0.3rem;
+  list-style: none;
+}
+
+.line {
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  background: var(--cd-tile);
+  color: var(--cd-ink);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.74rem;
+}
+
+.crash {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  color: var(--cd-wait);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.split {
+  display: flex;
+  justify-content: center;
+  padding: 0.3rem 0;
+}
+
+.layout .split > .wide {
+  display: none;
+}
+
+div.layout .after {
+  gap: 0.6rem;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.3fr);
+  align-items: center;
+  gap: 0.4rem;
+}
+
+div.layout .step {
+  gap: 0.25rem;
+}
+
+.next {
+  color: var(--cd-accent);
+  font-weight: 700;
+}
+
+.waits,
+.state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.failure {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 45%;
+}
+
+.route {
+  color: var(--cd-wait);
+}
+
+@container (min-width: 40rem) {
+  .layout {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 5.5rem) minmax(0, 1.5fr);
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .split {
+    padding: 0;
+  }
+
+  .layout .split > .wide {
+    display: flex;
+  }
+
+  .layout .split > .narrow {
+    display: none;
+  }
+}

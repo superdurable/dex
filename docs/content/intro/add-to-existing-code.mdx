@@ -6,6 +6,8 @@ slug: /intro/add-to-existing-code
 description: Turn code you already run, such as a function, a queue consumer, a cron or background job, a webhook handler, a chain of service calls, or a script, into a Dex Flow. Split it into Steps, move waits into WaitFor, keep state in Attributes, and place idempotency keys and database writes. Ends with a checklist.
 ---
 
+import FunctionToFlowDiagram from '@site/src/components/diagrams/FunctionToFlowDiagram';
+
 # Add Dex to Existing Code
 
 This page turns code you already run into a Flow, so it continues after a crash, a restart, or a long wait. The same steps apply to:
@@ -18,6 +20,8 @@ This page turns code you already run into a Flow, so it continues after a crash,
 - a script that someone reruns by hand when it stops.
 
 The worked example below is one order function. [Order Processing](/use-cases/order-processing) has its full code in every SDK.
+
+<FunctionToFlowDiagram markdownDescription="Before: one order function charges the buyer, saves the status, polls for approval with a 24-hour reminder, ships, saves the status, and refunds if shipping keeps failing; a crash between lines leaves the order half done. After: a Flow per order with a Charge Step, a Ship Step that waits for an approval message or a 24-hour Timer, and a Refund Step on Ship's failure route, with an order-status Attribute and an approve RPC. Dex saves each Step, so a crash repeats at most the Step that was running." />
 
 ## Before you start: install the SDK {#install}
 

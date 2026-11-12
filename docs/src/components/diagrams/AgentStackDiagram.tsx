@@ -94,7 +94,7 @@ export default function AgentStackDiagram({markdownDescription}: {markdownDescri
         <div className={styles.worker}>
           <Eyebrow icon={Cpu}>{text.worker}</Eyebrow>
           <div className={styles.frameworks}>
-            {agentFrameworks.map(({id, label}) => (
+            {agentFrameworks.filter(({id}) => id in frameworkLogoMarkup).map(({id, label}) => (
               <span key={id} className={styles.framework}>
                 <svg viewBox="0 0 24 24" width={15} height={15} fill="currentColor" fillRule="evenodd" aria-hidden="true"
                   dangerouslySetInnerHTML={{__html: frameworkLogoMarkup[id as keyof typeof frameworkLogoMarkup]}} />

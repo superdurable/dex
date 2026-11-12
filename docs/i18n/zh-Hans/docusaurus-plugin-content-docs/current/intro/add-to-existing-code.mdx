@@ -6,6 +6,8 @@ slug: /intro/add-to-existing-code
 description: 把你已经在运行的代码改成 Dex Flow，比如一个函数、一个队列消费者、一个 cron 或后台任务、一个 webhook handler、一串服务调用或一个脚本。把它拆成 Step，把等待移到 WaitFor，把状态放进 Attribute，并安排好幂等键和数据库写入。最后附一份检查清单。
 ---
 
+import FunctionToFlowDiagram from '@site/src/components/diagrams/FunctionToFlowDiagram';
+
 # 把 Dex 加入现有代码
 
 本页把你已经在运行的代码改成一个 Flow，让它在崩溃、重启或长时间等待之后继续运行。同样的步骤也适用于：
@@ -18,6 +20,8 @@ description: 把你已经在运行的代码改成 Dex Flow，比如一个函数�
 - 停下后要人手动重跑的脚本。
 
 下面的例子是一个订单函数。[订单处理](/use-cases/order-processing)给出它在每种 SDK 里的完整代码。
+
+<FunctionToFlowDiagram markdownDescription="改造前：一个订单函数依次扣款、保存状态、轮询审批并在 24 小时后提醒、发货、保存状态，发货一直失败就退款；在两行之间崩溃，订单就停在半路。改造后：每个订单一个 Flow，包含 Charge Step、等待审批消息或 24 小时 Timer 的 Ship Step，以及 Ship 失败路线上的 Refund Step，另有 order-status Attribute 和审批 RPC。Dex 保存每个 Step，所以崩溃最多重复正在运行的那个 Step。" />
 
 ## 开始之前：安装 SDK {#install}
 

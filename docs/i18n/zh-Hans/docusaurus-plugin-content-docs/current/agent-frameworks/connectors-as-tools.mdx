@@ -358,6 +358,157 @@ Agent 把这个 tool source 和它自己的 tool 一起传入：
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="built-in-agent-loop">
+
+在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 `@superdurable/connectors-sdk` 以及 Connector 包，例如 `@superdurable/connector-slack`。安装命令见 [Connector tools](/reference/agents/connector-tools#install)。
+
+Worker 从项目配置中打开 Slack connection **support-slack**。Python 的 `connector_tool` 或 TypeScript 的 `connectorTool` 把 operation 变成 tool，由 `ConnectorToolSource` 持有。没有这个 connection 时，Agent 不会得到 Slack tool。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/slack_connector_tools.py',
+    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
+    """Returns the Slack tool source, or no source when Slack is not configured."""
+    if connection is None:
+        return []
+    return [
+        ConnectorToolSource([
+            # The manifest does not ask for approval; this agent asks before every post.
+            connector_tool(
+                connection.post_thread_reply(), connection.reference, requires_approval=True
+            ),
+        ]),
+    ]
+
+# ...
+
+async def open_slack_project_connection(
+    environment: Mapping[str, str] = os.environ,
+) -> SlackProjectConnection | None:
+    # ...
+    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
+    try:
+        project = await load_from_environment(environment)
+    except FileNotFoundError:
+        _log_slack_not_set_up("the connector configuration file does not exist")
+        return None
+    # ...
+    try:
+        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
+    except BaseException:
+        await project.close()
+        raise
+    return SlackProjectConnection(project, connection)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export async function openSlackConnectionFromProject(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<Connection | undefined> {
+  // ...
+  const project = await loadFromEnvironment(environment);
+  // ...
+  return newProjectConnection(project, slackConnectionName);
+}
+
+// ...
+
+export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
+  if (slack === undefined) {
+    return [];
+  }
+  return [
+    new ConnectorToolSource([
+      connectorTool(slack.operations.postThreadReply(), slack.reference, {
+        manifest,
+        inputValidator: PostThreadReplyInputSchema,
+        // The manifest does not ask for approval; this agent asks before every post.
+        requiresApproval: true,
+      }),
+    ]),
+  ];
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Worker 在启动时打开一次 connection，每个 Agent 都使用它：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/main.py',
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+async def main() -> None:
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    config = ExamplesConfig.from_env()
+    slack_setup = await open_slack_project_connection()
+    try:
+        app_state = ExampleApp(config, slack_setup.connection if slack_setup else None)
+        # ...
+    finally:
+        if slack_setup is not None:
+            await slack_setup.aclose()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Agent 把 Slack tool source 和 MCP tool source 放在一起：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/ai-agent/ai_agent_session.py',
+    typescript: 'examples/typescript/src/products/ai-agent/ai-agent-flow.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    mcp_tool_sources = (
+        [McpToolSource(mcp_servers, resource_and_prompt_tools_enabled=True)] if mcp_servers else []
+    )
+    definition = AgentDefinition(
+        # ...
+        tool_sources=[*mcp_tool_sources, *build_slack_tool_sources(slack_connection)],
+        # ...
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+      // Each MCP tool's annotations pick its effect, and so whether it waits for approval.
+      toolSources: [
+        new McpToolSource(config.mcpServers, { resourceAndPromptToolsEnabled: true }),
+        ...createSlackConnectorToolSources(slack),
+      ],
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 </FrameworkTabs>
 
 ### 调用如何运行 {#connector-tool-calls}
