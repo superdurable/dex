@@ -650,10 +650,11 @@ describe("the terminal UI launcher", () => {
       .map(Number)
       .filter((pid) => pid !== shellGroup);
     assert.ok(commandPids.length > 0);
+    const inherited = inheritedFileDescriptors();
     for (const pid of commandPids) {
-      assert.deepEqual(openFileDescriptors(pid).filter((fd) => fd > 2), [], `pid ${pid}`);
+      assert.deepEqual(openFileDescriptors(pid).filter((fd) => fd > 2 && !inherited.has(fd)), [], `pid ${pid}`);
     }
-    assert.deepEqual(openFileDescriptors(shellGroup).filter((fd) => fd > 5), []);
+    assert.deepEqual(openFileDescriptors(shellGroup).filter((fd) => fd > 5 && !inherited.has(fd)), []);
     if (isHostStuck) {
       writeFileSync(spinFile, "");
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -946,6 +947,31 @@ function spawnSleeper(): ChildProcess {
   const child = spawn("sleep", ["600"], { detached: true, stdio: "ignore" });
   child.unref();
   return child;
+}
+
+/**
+ * Returns the file descriptors this test process holds without close-on-exec, above 2. Every process the test
+ * starts inherits them, such as those a CI runner leaves open; they are no channel of the launcher or the terminal
+ * UI. Only Linux reports the flag, in /proc/self/fdinfo.
+ */
+function inheritedFileDescriptors(): ReadonlySet<number> {
+  if (!existsSync("/proc/self/fdinfo")) {
+    return new Set();
+  }
+  const closeOnExec = 0o2000000;
+  return new Set(
+    readdirSync("/proc/self/fdinfo")
+      .map(Number)
+      .filter((fd) => {
+        try {
+          const flags = /^flags:\s+([0-7]+)$/m.exec(readFileSync(`/proc/self/fdinfo/${fd}`, "utf8"))?.[1];
+          return fd > 2 && flags !== undefined && (Number.parseInt(flags, 8) & closeOnExec) === 0;
+        } catch {
+          // The fd that listed the directory is gone already.
+          return false;
+        }
+      }),
+  );
 }
 
 /** Returns the numeric file descriptors a process has open, from /proc on Linux, else from lsof. */

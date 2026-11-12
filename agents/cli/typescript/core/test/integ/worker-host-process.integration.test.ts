@@ -32,8 +32,14 @@ describe("the launcher's Worker host stop", () => {
         () => simulated,
         { shutdownWaitMs: 100, terminateGraceMs: 100, killWaitMs: 100 },
       );
+      // The stop's own timers do not hold the process; in a launcher the host's child process does.
+      const keepAlive = setInterval(() => undefined, 1_000);
       const startedAt = Date.now();
-      assert.equal(await host.shutdown(), undefined);
+      try {
+        assert.equal(await host.shutdown(), undefined);
+      } finally {
+        clearInterval(keepAlive);
+      }
       assert.ok(Date.now() - startedAt < 2_000, `gave up after ${Date.now() - startedAt} ms`);
       assert.equal(host.hasExited, false);
     } finally {
