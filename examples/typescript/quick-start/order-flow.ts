@@ -65,8 +65,8 @@ class Ship implements Step<string> {
     return Wait.until(Timer.byDuration(30_000, SHIP_DELAY_TIMER));
   }
 
-  public execute(_context: Context, orderId: string): StepDecision {
-    this.shop.ship(orderId, `ship-${orderId}`);
+  public async execute(_context: Context, orderId: string): Promise<StepDecision> {
+    await this.shop.ship(orderId, `ship-${orderId}`);
     return gracefulComplete(`shipped ${orderId}`);
   }
 }

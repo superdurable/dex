@@ -45,7 +45,7 @@ export class ShopApi {
     await sleep(this.chargeDelayMs);
   }
 
-  public ship(orderId: string, idempotencyKey: string): void {
+  public async ship(orderId: string, idempotencyKey: string): Promise<void> {
     if (this.isRepeat(idempotencyKey)) {
       console.log(`Ship for ${orderId} already done (key ${idempotencyKey}); not shipped again`);
       return;

@@ -104,7 +104,7 @@ class Charge implements Step<OrderRequest> {
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.service.chargeUser(input.email, input.customerId, input.amount);
+    this.service.chargeUser(input.email, input.customerId, input.amount, `charge-${input.orderId}`);
     orderStatus.set(context, "charged");
     return goTo(Ship, input);
   }
@@ -150,7 +150,7 @@ class Ship implements Step<OrderRequest> {
       );
       return goTo(Ship, input);
     }
-    this.service.shipItem(input.orderId, input.testFailAtShipping);
+    this.service.shipItem(input.orderId, input.testFailAtShipping, `ship-${input.orderId}`);
     orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }
@@ -166,7 +166,7 @@ class Refund implements Step<OrderRequest> {
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.service.updateExternalSystem(`refund ${input.orderId}`);
+    this.service.updateExternalSystem(`refund ${input.orderId}`, `refund-${input.orderId}`);
     orderStatus.set(context, "refunded");
     return gracefulComplete(`refunded:${input.orderId}`);
   }

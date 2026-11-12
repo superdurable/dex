@@ -20,11 +20,13 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.WaitForStepCompletionOptions;
 import io.superdurable.dex.shared.ExampleFlows;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -65,20 +67,35 @@ public class OrderProcessingController {
 
     @GetMapping("/approve")
     public ResponseEntity<String> approve(
-            @RequestParam final String workflowId,
+            @RequestParam(required = false) final String flowId,
+            @RequestParam(required = false) final String workflowId,
             @RequestParam(defaultValue = "") final String notes) {
-        final OrderProcessingFlow stub = client.newRpcStub(OrderProcessingFlow.class, workflowId);
+        final OrderProcessingFlow stub =
+                client.newRpcStub(OrderProcessingFlow.class, requiredFlowId(flowId, workflowId));
         return ResponseEntity.ok(client.invokeRPC(stub::approve, notes));
     }
 
     @GetMapping("/describe")
     public ResponseEntity<Map<String, String>> describe(
-            @RequestParam final String workflowId) {
-        final OrderProcessingFlow stub = client.newRpcStub(OrderProcessingFlow.class, workflowId);
+            @RequestParam(required = false) final String flowId,
+            @RequestParam(required = false) final String workflowId) {
+        final String requiredFlowId = requiredFlowId(flowId, workflowId);
+        final OrderProcessingFlow stub = client.newRpcStub(OrderProcessingFlow.class, requiredFlowId);
         final String status = client.invokeRPC(stub::describe);
         final Map<String, String> response = new LinkedHashMap<String, String>();
-        response.put("flowID", workflowId);
+        response.put("flowID", requiredFlowId);
         response.put("status", status);
         return ResponseEntity.ok(response);
+    }
+
+    /** Returns flowId, or the older workflowId name that the playground still sends. */
+    private static String requiredFlowId(final String flowId, final String workflowId) {
+        if (workflowId != null && !workflowId.isEmpty()) {
+            return workflowId;
+        }
+        if (flowId == null || flowId.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "flowId is required");
+        }
+        return flowId;
     }
 }

@@ -20,13 +20,19 @@
 
 package service
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 type MyService interface {
 	SendEmail(recipient, subject, content string)
 	ChargeUser(email, customerID string, amount int)
+	ChargeUserWithIdempotencyKey(email, customerID string, amount int, idempotencyKey string)
 	ShipItem(orderID string, testFailAtShipping bool) error
+	ShipItemWithIdempotencyKey(orderID string, testFailAtShipping bool, idempotencyKey string) error
 	UpdateExternalSystem(message string)
+	UpdateExternalSystemWithIdempotencyKey(message, idempotencyKey string)
 	CallAPI1(data string)
 	CallAPI2(data string)
 	CallAPI3(data string)
@@ -44,25 +50,28 @@ type MyService interface {
 	UndoCreateCreditMemo(account string, amount int, notes string) error
 }
 
-type myServiceImpl struct{}
-
-func NewMyService() MyService {
-	return &myServiceImpl{}
+type myServiceImpl struct {
+	mu                  sync.Mutex
+	usedIdempotencyKeys map[string]bool
 }
 
-func (m myServiceImpl) UpdateExternalSystem(message string) {
+func NewMyService() MyService {
+	return &myServiceImpl{usedIdempotencyKeys: map[string]bool{}}
+}
+
+func (m *myServiceImpl) UpdateExternalSystem(message string) {
 	fmt.Println("Update external system(like via RPC, or sending Kafka message or database):", message)
 }
 
-func (m myServiceImpl) SendEmail(recipient, subject, content string) {
+func (m *myServiceImpl) SendEmail(recipient, subject, content string) {
 	fmt.Printf("sending an email to %v, title: %v, content: %v \n", recipient, subject, content)
 }
 
-func (m myServiceImpl) ChargeUser(email, customerID string, amount int) {
+func (m *myServiceImpl) ChargeUser(email, customerID string, amount int) {
 	fmt.Printf("charge user customerID[%v] email[%v] for $%v \n", customerID, email, amount)
 }
 
-func (m myServiceImpl) ShipItem(orderID string, testFailAtShipping bool) error {
+func (m *myServiceImpl) ShipItem(orderID string, testFailAtShipping bool) error {
 	if testFailAtShipping {
 		return fmt.Errorf("ship failed for order %s", orderID)
 	}
@@ -70,62 +79,100 @@ func (m myServiceImpl) ShipItem(orderID string, testFailAtShipping bool) error {
 	return nil
 }
 
-func (m myServiceImpl) CallAPI1(data string) {
+func (m *myServiceImpl) CallAPI1(data string) {
 	fmt.Println("call API1")
 }
 
-func (m myServiceImpl) CallAPI2(data string) {
+func (m *myServiceImpl) CallAPI2(data string) {
 	fmt.Println("call API2")
 }
 
-func (m myServiceImpl) CallAPI3(data string) {
+func (m *myServiceImpl) CallAPI3(data string) {
 	fmt.Println("call API3")
 }
 
-func (m myServiceImpl) CallAPI4(data string) {
+func (m *myServiceImpl) CallAPI4(data string) {
 	fmt.Println("call API4")
 }
 
-func (m myServiceImpl) CheckBalance(account string, amount int) bool {
+func (m *myServiceImpl) CheckBalance(account string, amount int) bool {
 	return true
 }
 
-func (m myServiceImpl) Debit(account string, amount int) error {
+func (m *myServiceImpl) Debit(account string, amount int) error {
 	// return some error here to test retry and failure handling mechanism
 	return nil
 }
 
-func (m myServiceImpl) Credit(account string, amount int) error {
+func (m *myServiceImpl) Credit(account string, amount int) error {
 	// return some error here to test retry and failure handling mechanism
 	return nil
 }
 
-func (m myServiceImpl) CreateDebitMemo(account string, amount int, notes string) error {
+func (m *myServiceImpl) CreateDebitMemo(account string, amount int, notes string) error {
 	// return some error here to test retry and failure handling mechanism
 	return nil
 }
 
-func (m myServiceImpl) CreateCreditMemo(account string, amount int, notes string) error {
+func (m *myServiceImpl) CreateCreditMemo(account string, amount int, notes string) error {
 	// return some error here to test retry and failure handling mechanism
 	return nil
 }
 
-func (m myServiceImpl) UndoDebit(account string, amount int) error {
+func (m *myServiceImpl) UndoDebit(account string, amount int) error {
 	// return some error here to test retry and failure handling mechanism
 	return nil
 }
 
-func (m myServiceImpl) UndoCredit(account string, amount int) error {
+func (m *myServiceImpl) UndoCredit(account string, amount int) error {
 	// return some error here to test retry and failure handling mechanism
 	return nil
 }
 
-func (m myServiceImpl) UndoCreateDebitMemo(account string, amount int, notes string) error {
+func (m *myServiceImpl) UndoCreateDebitMemo(account string, amount int, notes string) error {
 	// return some error here to test retry and failure handling mechanism
 	return nil
 }
 
-func (m myServiceImpl) UndoCreateCreditMemo(account string, amount int, notes string) error {
+func (m *myServiceImpl) UndoCreateCreditMemo(account string, amount int, notes string) error {
 	// return some error here to test retry and failure handling mechanism
 	return nil
+}
+
+func (m *myServiceImpl) ChargeUserWithIdempotencyKey(email, customerID string, amount int, idempotencyKey string) {
+	if m.isRepeatedKey(idempotencyKey) {
+		fmt.Printf("charge already done (key %v); not charged again\n", idempotencyKey)
+		return
+	}
+	m.ChargeUser(email, customerID, amount)
+}
+
+func (m *myServiceImpl) ShipItemWithIdempotencyKey(orderID string, testFailAtShipping bool, idempotencyKey string) error {
+	if testFailAtShipping {
+		return fmt.Errorf("ship failed for order %s", orderID)
+	}
+	if m.isRepeatedKey(idempotencyKey) {
+		fmt.Printf("ship already done (key %v); not shipped again\n", idempotencyKey)
+		return nil
+	}
+	return m.ShipItem(orderID, false)
+}
+
+func (m *myServiceImpl) UpdateExternalSystemWithIdempotencyKey(message, idempotencyKey string) {
+	if m.isRepeatedKey(idempotencyKey) {
+		fmt.Printf("already done (key %v); not sent again: %v\n", idempotencyKey, message)
+		return
+	}
+	m.UpdateExternalSystem(message)
+}
+
+// isRepeatedKey reports whether the key was used before, and records it.
+func (m *myServiceImpl) isRepeatedKey(idempotencyKey string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.usedIdempotencyKeys[idempotencyKey] {
+		return true
+	}
+	m.usedIdempotencyKeys[idempotencyKey] = true
+	return false
 }

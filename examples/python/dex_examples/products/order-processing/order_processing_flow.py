@@ -64,7 +64,12 @@ class Charge(Step[OrderRequest]):
         )
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
-        self.service.charge_user(input.email, input.customer_id, input.amount)
+        self.service.charge_user(
+            input.email,
+            input.customer_id,
+            input.amount,
+            idempotency_key=f"charge-{input.order_id}",
+        )
         order_status.set(context, "charged")
         return go_to(Ship, input)
 
@@ -106,7 +111,11 @@ class Ship(Step[OrderRequest]):
                 "Please approve or provide a tracking number.",
             )
             return go_to(Ship, input)
-        self.service.ship_item(input.order_id, input.test_fail_at_shipping)
+        self.service.ship_item(
+            input.order_id,
+            input.test_fail_at_shipping,
+            idempotency_key=f"ship-{input.order_id}",
+        )
         order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 
@@ -118,7 +127,9 @@ class Refund(Step[OrderRequest]):
         self.service = service
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
-        self.service.update_external_system(f"refund {input.order_id}")
+        self.service.update_external_system(
+            f"refund {input.order_id}", idempotency_key=f"refund-{input.order_id}"
+        )
         order_status.set(context, "refunded")
         return graceful_complete(f"refunded:{input.order_id}")
 

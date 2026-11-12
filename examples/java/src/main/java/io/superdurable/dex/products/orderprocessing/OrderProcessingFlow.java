@@ -108,7 +108,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
         @Override
         public StepDecision execute(final Context context, final OrderRequest order) {
-            service.chargeUser(order.email, order.customerId, order.amount);
+            service.chargeUser(order.email, order.customerId, order.amount, "charge-" + order.orderId);
             orderStatus.set(context, "charged");
             return StepDecision.goTo(Ship.class, order);
         }
@@ -167,7 +167,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         "Please approve or provide a tracking number.");
                 return StepDecision.goTo(Ship.class, order);
             }
-            service.shipItem(order.orderId, order.testFailAtShipping);
+            service.shipItem(order.orderId, order.testFailAtShipping, "ship-" + order.orderId);
             orderStatus.set(context, "shipped");
             return StepDecision.gracefulComplete("shipped:" + order.orderId);
         }
@@ -192,7 +192,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
         @Override
         public StepDecision execute(final Context context, final OrderRequest order) {
-            service.updateExternalSystem("refund " + order.orderId);
+            service.updateExternalSystem("refund " + order.orderId, "refund-" + order.orderId);
             orderStatus.set(context, "refunded");
             return StepDecision.gracefulComplete("refunded:" + order.orderId);
         }
