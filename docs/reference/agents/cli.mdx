@@ -437,8 +437,9 @@ these names in **approval.always**. The other groups keep the CLI core's tools.
   file with the full output. That file exists only on the machine that ran
   the command.
 - A Connector tool whose name a Pi tool has gets the prefix **connector_**,
-  such as **connector_read**. **approval.always** names it that way. If that
-  name is taken too, the prefix repeats until the name is free.
+  such as **connector_read**. **approval.always** names it that way:
+  **read** there makes only Pi's **read** wait. If that name is taken too, the
+  prefix repeats until the name is free.
 - **Deep Agents.** The CLI core's file and shell tools replace Deep Agents' own,
   which would work on a virtual file system. The **task** tool is not offered,
   because a subagent would make its own model and tool calls inside one tool

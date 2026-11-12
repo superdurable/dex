@@ -43,7 +43,9 @@ export class PiToolCallEffects {
   /** Pi's `write` operations. */
   public writeOperations(): WriteOperations {
     return {
+      // A recursive mkdir may create directories before it fails.
       mkdir: async (directory) => {
+        this.hasMaybeChangedState = true;
         await mkdir(directory, { recursive: true });
       },
       writeFile: (absolutePath, content) => {

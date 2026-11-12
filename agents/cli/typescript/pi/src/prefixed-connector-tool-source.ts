@@ -20,7 +20,7 @@ import {
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
 } from "@superdurable/dex-agents";
-import type { HarnessContext, TurnConfig } from "@superdurable/dex-agents-cli-core";
+import { ConnectorsMcpToolSource } from "@superdurable/dex-agents-cli-core";
 
 /**
  * The prefix of a connector tool whose name a Pi tool already has, such as `connector_read`.
@@ -41,7 +41,7 @@ interface RenamedCallReference {
  * A connectors tool source whose tools the agent sees beside Pi's own tools.
  *
  * - A connector tool keeps its name unless a Pi tool has it. Then the agent sees it as `connector_<name>`, and
- *   `approval.always` names it that way. When the source also lists that name, the prefix repeats until the name is
+ *   `approval.always` names it that way only: `read` there gates Pi's `read`, not the connector tool. When the source also lists that name, the prefix repeats until the name is
  *   free, so every offered name is unique. The reserved names are fixed, so every Worker renames the same tools.
  * - A renamed call stores the source's own tool name with the source's reference, so the source checks and runs the
  *   connector operation it listed on any Worker.
@@ -57,14 +57,13 @@ export class PrefixedConnectorToolSource implements ToolSource {
   /**
    * Wraps one connectors tool source.
    *
-   * @param source - The CLI core's connectors tool source.
+   * @param source - The CLI core's connectors tool source. A `ConnectorsMcpToolSource` matches `approval.always`
+   * against the name the agent sees; any other source refuses every call, as the CLI core's disabled source does.
    * @param reservedToolNames - The Pi tool names, which no connector tool may take.
-   * @param context - The harness context, for `approval.always` of the renamed tools.
    */
   public constructor(
     private readonly source: ToolSource,
     private readonly reservedToolNames: ReadonlySet<string>,
-    private readonly context: HarnessContext,
   ) {
     this.sourceName = source.sourceName;
   }
@@ -105,19 +104,19 @@ export class PrefixedConnectorToolSource implements ToolSource {
   ): DeferredToolCall {
     const sourceTool = this.listedByAgentName.get(call.toolName);
     if (sourceTool === undefined || sourceTool.name === call.toolName) {
-      return withWriteApproval(this.source.deferredToolCall(turn, call), false);
+      return withWriteApproval(this.source.deferredToolCall(turn, call));
     }
-    const built = this.source.deferredToolCall(turn, { ...call, toolName: sourceTool.name, listedTool: sourceTool });
+    const sourceCall = { ...call, toolName: sourceTool.name, listedTool: sourceTool };
+    const built =
+      this.source instanceof ConnectorsMcpToolSource
+        ? this.source.deferredToolCall(turn, sourceCall, call.toolName)
+        : this.source.deferredToolCall(turn, sourceCall);
     const reference: RenamedCallReference = { toolName: sourceTool.name, reference: built.toolSourceReference ?? null };
-    const turnConfig = this.context.resolveTurn(turn.sessionSettings ?? {});
-    return withWriteApproval(
-      {
-        ...built,
-        toolName: call.toolName,
-        toolSourceReference: JSON.stringify({ [renamedCallReferenceKey]: reference }),
-      },
-      turnConfig.approval.always.includes(call.toolName),
-    );
+    return withWriteApproval({
+      ...built,
+      toolName: call.toolName,
+      toolSourceReference: JSON.stringify({ [renamedCallReferenceKey]: reference }),
+    });
   }
 
   /**
@@ -126,7 +125,7 @@ export class PrefixedConnectorToolSource implements ToolSource {
    * @param call - The approved call.
    * @returns The source's outcome.
    * @throws {ToolExecutionError} When a write had no approval, when `approval.always` of this Worker names the call's
-   * tool and it had no approval, or when the source refuses or fails the call.
+   * tool, as the agent sees it, and it had no approval, or when the source refuses or fails the call.
    */
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     const { toolName } = call.toolCall;
@@ -138,20 +137,10 @@ export class PrefixedConnectorToolSource implements ToolSource {
     if (renamed === null) {
       return this.source.executeDeferredToolCall(call);
     }
-    if (!call.toolCall.requiresApproval) {
-      let permissions: TurnConfig;
-      try {
-        permissions = await this.context.resolveToolStepPermissions({ flowId: call.flowId, turnId: call.toolCall.turnId });
-      } catch (error: unknown) {
-        throw new ToolExecutionError(`tool ${toolName} did not run: the session's settings are rejected here: ${describe(error)}`, {
-          cause: error,
-        });
-      }
-      if (permissions.approval.always.includes(toolName)) {
-        throw new ToolExecutionError(`tool ${toolName} now needs approval, and this call had none; it did not run`);
-      }
-    }
-    return this.source.executeDeferredToolCall({ ...call, toolCall: asSourceCall(call.toolCall, renamed) });
+    const sourceCall = { ...call, toolCall: asSourceCall(call.toolCall, renamed) };
+    return this.source instanceof ConnectorsMcpToolSource
+      ? this.source.executeDeferredToolCall(sourceCall, toolName)
+      : this.source.executeDeferredToolCall(sourceCall);
   }
 
   /**
@@ -212,8 +201,8 @@ export class PrefixedConnectorToolSource implements ToolSource {
   }
 }
 
-function withWriteApproval(call: DeferredToolCall, isApprovalRequired: boolean): DeferredToolCall {
-  const requiresApproval = call.policy.requiresApproval || isApprovalRequired || call.policy.effect !== "read";
+function withWriteApproval(call: DeferredToolCall): DeferredToolCall {
+  const requiresApproval = call.policy.requiresApproval || call.policy.effect !== "read";
   return requiresApproval === call.policy.requiresApproval ? call : { ...call, policy: { ...call.policy, requiresApproval } };
 }
 
@@ -254,6 +243,3 @@ function asSourceCall<T extends NamedToolCall>(toolCall: T, renamed: RenamedCall
   } as T;
 }
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

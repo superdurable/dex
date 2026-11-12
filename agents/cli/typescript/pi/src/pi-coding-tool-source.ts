@@ -112,7 +112,8 @@ const refusalReferenceKey = "refused";
  *   `non_idempotent_write`, so a call never runs twice.
  * - In its tool Step, a call is checked again with the executing Worker's configuration through
  *   `HarnessContext.resolveToolStepPermissions`. A call refused there records `failed` and does not run.
- * - A failure before a `write` or `edit` wrote its file, or before `bash` started its shell, records `failed`, and the
+ * - A failure before a `write` created a directory or wrote its file, before an `edit` wrote its file, or before `bash`
+ *   started its shell, records `failed`, and the
  *   model sees why. A `bash` command that exits with a non-zero code or that its timeout killed records `failed`
  *   too, with its output. Any other failure after the effect started records `outcome_unknown`.
  * - A call without `timeout` gets the source's default timeout, because cancelling a turn does not stop a running

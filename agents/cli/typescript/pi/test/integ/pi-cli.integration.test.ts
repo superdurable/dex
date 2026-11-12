@@ -270,6 +270,18 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(readFileSync(join(home.workspace, "bash.txt"), "utf8"), "approved\n");
   });
 
+  test("a write that fails after creating its parent directories records outcome_unknown", async () => {
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    await cli.waitForSession();
+    // The file system creates made/ and then refuses the over-long directory name.
+    cli.writeLine(call("write", { path: `made/${"x".repeat(300)}/notes.txt`, content: "never written" }));
+    await cli.stdout.waitFor("write: The tool call's outcome is unknown");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.ok(existsSync(join(home.workspace, "made")), "the write created made/ before it failed");
+  });
+
   test("the file tools reach files outside the workspace, as in Pi", async () => {
     const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
     writeFileSync(join(outside, "shared.txt"), "outside note\n");
@@ -457,7 +469,12 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     const sessionId = await cli.waitForSession();
     const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
     try {
-      await sessions.updateSessionSettings(sessionId, { local_tools: { shell: { enabled: false } } });
+      // The RPC returns false until the session has initialized, which may follow the session line.
+      const deadline = Date.now() + 60_000;
+      while (!(await sessions.updateSessionSettings(sessionId, { local_tools: { shell: { enabled: false } } }))) {
+        assert.ok(Date.now() < deadline, "the session settings were never accepted");
+        await delay(200);
+      }
     } finally {
       await environment.close();
     }
@@ -572,6 +589,29 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.ok(offered.includes("hackernews_get_top_stories"));
     assert.equal(connectors.runCount("read"), 1);
     assert.equal(connectors.runCount("connector_read"), 1);
+  });
+
+  test("approval.always matches the name the agent sees: read gates Pi's read, not a renamed connector read", async () => {
+    const home = newHome({
+      connectors: { mcp: connectorsUrl, enabled: ["files/default", "archive/default"] },
+      approval: { always: ["read"] },
+      local_tools: { browser: false },
+    });
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
+    const connectorReadsBefore = connectors.runCount("read");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("connector_connector_read", { path: "b.txt" }));
+    await cli.stdout.waitFor("connector_connector_read: read through the files connector: b.txt");
+    assert.doesNotMatch(cli.stdout.all, /Approve connector_connector_read/);
+    cli.writeLine(call("read", { path: "notes.txt" }));
+    await cli.stdout.waitFor("Approve read?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("read: buy milk");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(connectors.runCount("read"), connectorReadsBefore + 1);
   });
 
   test("--yes writes no workspace, and the workspace is the directory the command starts in", async () => {

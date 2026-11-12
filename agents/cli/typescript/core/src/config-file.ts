@@ -47,8 +47,16 @@ export interface InitAnswers {
   readonly systemPrompt: string | null;
   /** The enabled connector entries, such as `slack/support-slack`, or `null` for every authorized connection. */
   readonly connectors: readonly string[] | null;
-  /** The workspace path, as written in the file, or `null` to leave the field out and use the command's default. */
-  readonly workspace: string | null;
+  /** The workspace path, as written in the file. */
+  readonly workspace: string;
+  /**
+   * Whether the file gets {@link workspace}. Defaults to `true`. It is `false` when a harness whose default workspace
+   * is the launch directory takes the default, so the file has no `workspace` and the command keeps following the
+   * directory it starts in.
+   *
+   * @since 0.6.0
+   */
+  readonly isWorkspaceWritten?: boolean;
   /** The local tool groups to switch on. */
   readonly localTools: ReadonlySet<LocalToolGroup>;
 }
@@ -89,17 +97,19 @@ export function isConfigPresent(configPath: string): boolean {
 
 /**
  * Returns the answers that `--yes` and non-interactive runs use: the command's default model, the harness
- * instructions, every authorized connection, `~/dex-agent-workspace` (none when the harness defaults to the launch
- * directory), and every local tool group.
+ * instructions, every authorized connection, the harness's default workspace, and every local tool group. For a
+ * harness whose default workspace is the launch directory, the workspace is that directory and is not written.
  * @param harness - The command's harness.
  * @returns The default answers.
  */
 export function defaultInitAnswers(harness: AgentHarness): InitAnswers {
+  const isLaunchDirectory = harness.defaultWorkspaceLocation === "launch_directory";
   return {
     model: harness.defaultModel,
     systemPrompt: null,
     connectors: null,
-    workspace: harness.defaultWorkspaceLocation === "launch_directory" ? null : defaultWorkspace,
+    workspace: isLaunchDirectory ? process.cwd() : defaultWorkspace,
+    ...(isLaunchDirectory ? { isWorkspaceWritten: false } : {}),
     localTools: new Set(localToolGroups),
   };
 }
@@ -138,7 +148,9 @@ export async function askInitQuestions(
   if (connectors === null) {
     return null;
   }
-  const workspace = await ask(`Workspace for local tools [${defaults.workspace ?? "the directory the command starts in"}]: `);
+  const workspaceDefault =
+    defaults.isWorkspaceWritten === false ? `the directory the command starts in, ${defaults.workspace}` : defaults.workspace;
+  const workspace = await ask(`Workspace for local tools [${workspaceDefault}]: `);
   if (workspace === null) {
     return null;
   }
@@ -151,7 +163,12 @@ export async function askInitQuestions(
     model: model === harness.defaultModel ? harness.defaultModel : model,
     systemPrompt: prompt.trim() === "" ? null : prompt.trim(),
     connectors: connectors.trim() === "" ? null : splitList(connectors),
-    workspace: workspace.trim() === "" ? defaults.workspace : workspace.trim(),
+    ...(workspace.trim() === ""
+      ? {
+          workspace: defaults.workspace,
+          ...(defaults.isWorkspaceWritten === undefined ? {} : { isWorkspaceWritten: defaults.isWorkspaceWritten }),
+        }
+      : { workspace: workspace.trim() }),
     localTools: parseLocalToolGroups(tools),
   };
 }
@@ -253,7 +270,7 @@ function renderConfigYaml(answers: InitAnswers, harness: AgentHarness): string {
   }
   document.dex = { server: "auto" };
   document.connectors = { mcp: "auto", ...(answers.connectors === null ? {} : { enabled: [...answers.connectors] }) };
-  if (answers.workspace !== null) {
+  if (answers.isWorkspaceWritten !== false) {
     document.workspace = answers.workspace;
   }
   document.local_tools = {

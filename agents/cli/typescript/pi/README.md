@@ -136,7 +136,8 @@ and connector tools stay on top, and the agent can ask you questions with
   one runs records `outcome_unknown`.
 - A `write` or `edit` that fails before it writes the file, such as an `edit`
   whose `oldText` is not in the file, records `failed`, and the model sees
-  why. A failure after the write started records `outcome_unknown`. A `bash`
+  why. A failure after the write started, including one after `write`
+  created a parent directory, records `outcome_unknown`. A `bash`
   call that fails before its shell starts, such as with an invalid `timeout`,
   records `failed`. So does a command that exits with a non-zero code, or that
   its timeout killed: the model sees its output, then
@@ -169,8 +170,8 @@ and connector tools stay on top, and the agent can ask you questions with
   with. A call whose group is off there, or that ran without approval but now
   needs one, records `failed` and does not run.
 - A connector tool whose name a Pi tool has, such as `read`, gets the prefix
-  `connector_`, as in `connector_read`; `approval.always` names it that way.
-  When that name is taken too, the prefix repeats until the name is free. The
+  `connector_`, as in `connector_read`; `approval.always` names it that way,
+  so `read` there makes only Pi's `read` wait. When that name is taken too, the prefix repeats until the name is free. The
   other connector tools keep their names.
 
 The command imports pi-coding-agent's package root, because the package exports

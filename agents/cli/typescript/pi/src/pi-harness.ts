@@ -146,7 +146,7 @@ export function createPiSessionFlow(
       toolSources: [
         ...context.toolSources.map((source) =>
           source.sourceName === connectorsToolSourceName
-            ? new PrefixedConnectorToolSource(source, new Set(Object.keys(piCodingLocalTools)), context)
+            ? new PrefixedConnectorToolSource(source, new Set(Object.keys(piCodingLocalTools)))
             : source,
         ),
         new PiCodingToolSource(context, section.bashTimeoutSeconds),
