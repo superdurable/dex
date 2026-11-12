@@ -13,7 +13,7 @@ concurrency:
 jobs:
   prepare:
     name: Prepare skills release
-    if: github.ref == 'refs/heads/main' && github.actor == 'longquanzheng'
+    if: github.ref == 'refs/heads/main' && github.triggering_actor == 'longquanzheng'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -54,7 +54,7 @@ jobs:
 
   reject-non-owner:
     name: Reject non-owner dispatch
-    if: github.actor != 'longquanzheng'
+    if: github.triggering_actor != 'longquanzheng'
     runs-on: ubuntu-latest
     steps:
       - run: |
