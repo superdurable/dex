@@ -261,6 +261,21 @@ func (process *KillableProcess) Kill() {
 	process.command = nil
 }
 
+// SignalProcessGroup sends signal to the child's process group.
+//
+// Use syscall.SIGSTOP to freeze a Worker, so a request it would serve waits
+// with its locks held, and syscall.SIGCONT to resume it. It returns an error
+// when the child is not running or the signal cannot be sent. Since 0.6.0.
+func (process *KillableProcess) SignalProcessGroup(signal syscall.Signal) error {
+	if process.command == nil {
+		return fmt.Errorf("%s is not running", process.name)
+	}
+	if err := syscall.Kill(-process.command.Process.Pid, signal); err != nil {
+		return fmt.Errorf("send %v to %s: %w", signal, process.name, err)
+	}
+	return nil
+}
+
 // ReadLog returns the output written since the last Start.
 func (process *KillableProcess) ReadLog() (string, error) {
 	content, err := os.ReadFile(process.logPath)

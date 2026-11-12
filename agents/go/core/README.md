@@ -39,11 +39,12 @@ Supported:
 - the built-in agent loop, with function tools;
 - the OpenAI (`openai-go`) and Anthropic (`anthropic-sdk-go`) model clients.
 
-Not planned for Go: questions (`ask_user`, `answer_question`, tool input
-requests), `durable_wait`, steering and cancellation, plans and plan mode,
+Not planned for Go Workers: questions (`ask_user`, `answer_question`, tool
+input requests), `durable_wait`, steering and cancellation, plans and plan mode,
 compaction, tool tasks, the MCP tool source, GenAI spans, UI streams, and
 framework adapters. Use the Python or TypeScript core for an agent that needs
-any of them.
+any of them. A Go Client still calls their RPCs on those Workers with package
+`remotesession`.
 
 Not supported yet: the built-in loop hook that ends or continues a turn at
 the end of each loop iteration (`decideTurnContinuation` in TypeScript,
@@ -79,6 +80,45 @@ The Flow registers every
 persistence name of the contract, so `get_agent_snapshot` and the Clients of
 every core read every value.
 
+### Calling sessions that other cores serve
+
+Package `remotesession` is a Go Client for sessions that Python or TypeScript
+Workers serve. `remotesession.RemoteSessionFlow` describes the complete session
+RPC set of those cores, with the same names, locks, state loads, transaction
+modes, and wire values: `send_user_message` (with `plan_mode` and `images`),
+`steer_user_message`, `delete_queued_message`, `cancel_turn`,
+`resolve_interrupt`, `answer_question`, `execute_plan`,
+`update_session_settings`, `get_agent_snapshot`, and `list_agent_messages`,
+plus the `AgentEvents` Stream. It embeds `dex.ClientOnlyFlow` and has no Steps,
+so `dex.NewWorker` refuses a Registry that holds it, and the Go Worker's
+`AgentSessionFlow` keeps serving only the RPCs above. It starts no sessions;
+the serving application does.
+
+```go
+flow, err := remotesession.NewRemoteSessionFlow("SupportAgent")
+if err != nil {
+	return err
+}
+registry, err := dex.NewRegistry([]dex.Flow{flow})
+if err != nil {
+	return err
+}
+client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: address})
+if err != nil {
+	return err
+}
+sessions := remotesession.NewRemoteSessionClient(client, flow)
+isQueued, err := sessions.SendUserMessage(ctx, "session-42",
+	dexagents.AgentUserMessage{Text: "Draft a plan for the refund", PlanMode: true})
+```
+
+`RemoteSessionClient` never retries. `resolve_interrupt`, `answer_question`,
+and `cancel_turn` lock `PendingInterrupts`, and session Steps hold it for
+short moments, so these calls can return `*dex.RPCLockConflictError`;
+`steer_user_message` and `delete_queued_message` can return
+`*dex.ChannelMessageNotFoundError` when the session took the message first.
+Both changed nothing, so retry them, or read the snapshot again.
+
 ## Installation
 
 ```bash
@@ -88,7 +128,9 @@ go get github.com/superdurable/dex/agents/go/core
 The module needs Go 1.26 or later. It serves the contract's snake_case RPC
 names, such as `send_user_message`, through `dex.RPCOptions.Name`, which the
 Go SDK gained after `sdk-go/v1.32.0`. Until a release contains it, `go.mod`
-requires a pseudo-version of that change.
+requires a pseudo-version of that change. Package `remotesession` needs
+`dex.ClientOnlyFlow`, which the Go SDK adds in 1.46.0; until that release,
+`go.mod` replaces the Go SDK with the repository copy.
 
 ## Running an agent
 
