@@ -55,12 +55,13 @@ type resumedMsg struct{}
 type terminalSignals struct {
 	mutex   sync.Mutex
 	program terminalProgram
-	// terminalMode is held while the launch check changes the terminal mode,
-	// so a stop before the chat waits until the mode is restored.
-	terminalMode    sync.Mutex
-	earlyExitCode   int
-	onEarlySignal   func()
-	isEarlyReported bool
+	// terminalMode guards the launch terminal check and the Attach handoff.
+	terminalMode sync.Mutex
+	// beforeTerminalModeLock is a test hook; nil in production.
+	beforeTerminalModeLock func()
+	earlyExitCode          int
+	onEarlySignal          func()
+	isEarlyReported        bool
 
 	isForeground func() bool
 	stopProcess  func()
@@ -93,10 +94,13 @@ func (handler *terminalSignals) Start() {
 // Attach hands the signals to the chat program from now on, starting with a
 // signal that came before it.
 func (handler *terminalSignals) Attach(program terminalProgram) {
+	// Taking terminalMode orders the handoff against a stop before the chat.
+	handler.terminalMode.Lock()
 	handler.mutex.Lock()
 	handler.program = program
 	exitCode := handler.earlyExitCode
 	handler.mutex.Unlock()
+	handler.terminalMode.Unlock()
 	if exitCode != 0 {
 		go program.Send(externalSignalMsg{exitCode: exitCode})
 	}
@@ -171,20 +175,41 @@ func (handler *terminalSignals) exit(exitCode int) {
 // suspend stops this process. Before the chat owns the terminal there is
 // nothing to release; afterwards the program releases it on its event loop.
 func (handler *terminalSignals) suspend() {
-	handler.mutex.Lock()
-	program := handler.program
-	handler.mutex.Unlock()
-	if program == nil {
-		handler.terminalMode.Lock()
-		defer handler.terminalMode.Unlock()
-		signal.Reset(syscall.SIGTSTP)
-		handler.stopProcess()
-		signal.Notify(handler.signals, syscall.SIGTSTP)
+	if !handler.isSuspending.CompareAndSwap(false, true) {
 		return
 	}
-	if handler.isSuspending.CompareAndSwap(false, true) {
+	if program := handler.attachedProgram(); program != nil {
 		go program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler}})
+		return
 	}
+	// Off the signal loop, so exit signals never wait for the terminal mode.
+	go handler.stopBeforeChat()
+}
+
+// stopBeforeChat stops this process once no one changes the terminal mode,
+// unless the chat was attached meanwhile.
+func (handler *terminalSignals) stopBeforeChat() {
+	if handler.beforeTerminalModeLock != nil {
+		handler.beforeTerminalModeLock()
+	}
+	handler.terminalMode.Lock()
+	if program := handler.attachedProgram(); program != nil {
+		handler.terminalMode.Unlock()
+		// The chat owns the terminal now: suspend through its event loop.
+		go program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler}})
+		return
+	}
+	defer handler.terminalMode.Unlock()
+	defer handler.isSuspending.Store(false)
+	signal.Reset(syscall.SIGTSTP)
+	handler.stopProcess()
+	signal.Notify(handler.signals, syscall.SIGTSTP)
+}
+
+func (handler *terminalSignals) attachedProgram() terminalProgram {
+	handler.mutex.Lock()
+	defer handler.mutex.Unlock()
+	return handler.program
 }
 
 // suspendCommand runs on the program's event loop with the terminal

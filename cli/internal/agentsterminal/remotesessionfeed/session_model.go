@@ -300,8 +300,6 @@ func (model *sessionModel) matchStream(turnID string, text string, fallback stri
 }
 
 // applySnapshot reconciles the screen with one snapshot. state is not nil.
-// applySnapshot applies a snapshot, or buffers it while a finished turn waits
-// for its end event; see turn_settlement.go.
 func (model *sessionModel) applySnapshot(snapshot dexagents.AgentSnapshot) {
 	if model.settlingTurnID != "" {
 		model.bufferWhileSettling(bufferedInput{snapshot: &snapshot})

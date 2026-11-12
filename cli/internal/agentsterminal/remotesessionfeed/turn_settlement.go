@@ -12,10 +12,7 @@ import (
 	dexagents "github.com/superdurable/dex/agents/go/core"
 )
 
-// maxSettlementInputs bounds the snapshots and events buffered while a turn
-// waits for its end event. The wait lasts at most TurnEndEventWait, so the
-// bound is rarely met; past it, a new snapshot replaces the last buffered
-// input and a new event is dropped, as live events are best effort.
+// maxSettlementInputs bounds the buffer; past it, a snapshot replaces the last input and events drop.
 const maxSettlementInputs = 1024
 
 // bufferedInput is one snapshot or one event that arrived while a turn
@@ -49,9 +46,7 @@ func (model *sessionModel) canSettle() bool {
 	return isWaiting && !model.feed.now().Before(deadline)
 }
 
-// replayWhenSettled replays the buffered inputs in arrival order through the
-// normal path once the settling turn may end. The first snapshot ends it; a
-// later turn that must wait in turn buffers the rest again.
+// replayWhenSettled replays the buffered inputs in arrival order once the settling turn may end.
 func (model *sessionModel) replayWhenSettled() {
 	if model.settlingTurnID == "" || !model.canSettle() {
 		return
