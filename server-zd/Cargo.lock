@@ -1338,6 +1338,7 @@ dependencies = [
  "bytes",
  "dexzd-clock",
  "dexzd-metrics",
+ "dexzd-object-store",
  "dexzd-postgres-connection",
  "md-5 0.10.6",
  "rand 0.10.3",

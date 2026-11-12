@@ -238,3 +238,29 @@ async fn racing_uploads_keep_the_newest_document() {
         document("Race.Flow", 6)
     );
 }
+
+#[tokio::test]
+async fn percent_encoded_flow_types_never_alias_a_version_prefix() {
+    let physical = physical_store(None);
+    let definitions = flow_definitions(&physical);
+    let flow_types = ["a.v/b", "a%2Fb", ".", "..", "中文.v/类型", "name%252F"];
+    for flow_type in flow_types {
+        assert_eq!(
+            upload_outcome(&definitions, upload(flow_type, 1, 100), false).await,
+            FlowDefinitionUploadOutcome::Created
+        );
+        assert_eq!(
+            upload_outcome(&definitions, upload(flow_type, 2, 101), false).await,
+            FlowDefinitionUploadOutcome::Replaced
+        );
+        assert_eq!(
+            stored_content(&definitions, flow_type).await,
+            document(flow_type, 2)
+        );
+    }
+    let mut listed = listed_flow_types(&definitions, 1).await;
+    listed.sort();
+    let mut expected = flow_types.map(str::to_owned).to_vec();
+    expected.sort();
+    assert_eq!(listed, expected);
+}

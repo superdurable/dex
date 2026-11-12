@@ -6,8 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Linearizable ETag replacement of mutable object keys on a store that offers only
-//! create-only conditional writes, such as Aliyun OSS.
+//! Linearizable ETag replacement of mutable keys on stores with only create-only writes.
 
 mod startup_probes;
 mod version_body;
@@ -54,28 +53,20 @@ impl VersionIdSource for RandomVersionIdSource {
     }
 }
 
-/// Derives distinct version IDs from a seed with SplitMix64, for reproducible simulations.
+/// Numbers version IDs for simulations: the seed in the high 64 bits, a counter below.
 #[cfg(feature = "test-util")]
 struct SeededVersionIdSourceForTest {
-    state: std::sync::Mutex<u64>,
+    seed: u64,
+    issued_ids: std::sync::atomic::AtomicU64,
 }
 
 #[cfg(feature = "test-util")]
 impl VersionIdSource for SeededVersionIdSourceForTest {
     fn next_version_id(&self) -> u128 {
-        let mut state = self
-            .state
-            .lock()
-            .expect("the version ID seed lock is not poisoned");
-        let mut next_half = || {
-            *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
-            let mut mixed = *state;
-            mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            mixed ^ (mixed >> 31)
-        };
-        // SplitMix64 is a bijection of its state, so the high halves never repeat.
-        (u128::from(next_half()) << 64) | u128::from(next_half())
+        let sequence = self
+            .issued_ids
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        (u128::from(self.seed) << 64) | u128::from(sequence)
     }
 }
 
@@ -85,12 +76,13 @@ impl VersionIdSource for SeededVersionIdSourceForTest {
 /// Mutable object keys (see [`crate::is_mutable_object_key`]) get linearizable
 /// [`WriteCondition::CreateOnly`] and [`WriteCondition::ReplaceIfEtagMatches`] writes. Each
 /// logical key `K` is stored as create-only versions at `K.v/<u64::MAX - generation>`, so a
-/// one-key listing finds the newest version. A replacement checks that the ETag names the
-/// stored version of its generation, creates the next generation, and confirms it, so one
-/// writer wins each generation. Each version body starts with a header that names the version
-/// and its predecessor; ETags have the form `"g<generation>-<version ID>"`. A delete writes a
-/// tombstone version, except on startup probe keys, whose versions are deleted. A background task deletes
-/// superseded versions, see [`MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION`].
+/// one-key listing finds the newest version. A read returns only the object that listing named,
+/// by its physical ETag. A replacement requires the ETag to name the newest version, creates
+/// the next generation, and confirms it, so one writer wins each generation. Each version body
+/// starts with a header that names the version and its predecessor; ETags have the form
+/// `"g<generation>-<version ID>"`. A delete writes a tombstone version, except on startup probe
+/// keys, whose versions are deleted. A background task deletes superseded versions, see
+/// [`MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION`].
 ///
 /// Every other key is stored at the same physical key and passed to the inner store. Such a
 /// key rejects [`WriteCondition::ReplaceIfEtagMatches`] with
@@ -149,7 +141,8 @@ impl AliyunOssObjectStore {
     /// Wraps `inner` like [`Self::new`], deriving version IDs from `seed` instead of a random
     /// generator, so a deterministic simulation writes the same bodies on every run.
     ///
-    /// Stores that share an inner store must use different seeds.
+    /// Stores that share an inner store must use different seeds; IDs of different seeds
+    /// never collide.
     ///
     /// # Panics
     ///
@@ -159,7 +152,8 @@ impl AliyunOssObjectStore {
         Self::with_version_id_source(
             inner,
             Box::new(SeededVersionIdSourceForTest {
-                state: std::sync::Mutex::new(seed),
+                seed,
+                issued_ids: std::sync::atomic::AtomicU64::new(0),
             }),
         )
     }
@@ -179,11 +173,18 @@ impl AliyunOssObjectStore {
     /// [`STALE_STARTUP_PROBE_AGE`] ago, by the store's clock.
     ///
     /// Such keys remain from processes that stopped during [`crate::startup_self_check`]. A
-    /// check holds its probe for at most [`crate::STARTUP_PROBE_MAXIMUM_LIFETIME`], so a removed
-    /// probe has no holder. The current time is the last-write time of a probe object this call
-    /// writes and deletes, so the host clock does not matter. Call it before the check. Returns
-    /// the number of probe keys removed. Objects whose store reports no last-write time are
-    /// kept.
+    /// running check holds its probe for at most [`crate::STARTUP_PROBE_MAXIMUM_LIFETIME`]. A
+    /// process suspended in the middle of a check, for example by host sleep or `SIGSTOP`, can
+    /// hold it longer. When the suspension outlasts [`STALE_STARTUP_PROBE_AGE`], the sweep may
+    /// remove the probe, and the resumed check then fails or passes on a new probe; restart the
+    /// server after such a failure. Probe keys are separate from leases and the manifest, so
+    /// removing one never affects fencing. Only keys under `probe/` are ever deleted.
+    ///
+    /// The current time is the last-write time of a clock probe object this call writes and
+    /// deletes, so the host clock does not matter. When another sweep removes that clock probe
+    /// first, this sweep removes nothing and returns `0`; a clock probe left behind is removed
+    /// once it is stale. Call it before the check. Returns the number of probe keys removed.
+    /// Objects whose store reports no last-write time are kept.
     ///
     /// # Errors
     ///
@@ -195,7 +196,13 @@ impl AliyunOssObjectStore {
             "{STARTUP_PROBE_OBJECT_KEY_PREFIX}store-clock-{:032x}",
             self.version_ids.next_version_id()
         );
-        let store_now = read_store_time(self, &clock_key).await?;
+        let Some(store_now) = read_store_time(self, &clock_key).await? else {
+            tracing::warn!(
+                key = %clock_key,
+                "another sweep removed this sweep's store clock probe; skipping this sweep"
+            );
+            return Ok(0);
+        };
         let stale_age_micros = i64::try_from(STALE_STARTUP_PROBE_AGE.as_micros())
             .expect("the stale probe age fits in i64 microseconds");
         remove_startup_probes_written_before(
