@@ -69,6 +69,7 @@ from dex_agents import (
     QUESTION_DEADLINE_PASSED,
     QUESTION_DECLINED_TOOL_RESULT,
     SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+    SESSION_TITLE_MAX_CODE_POINTS,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
     TOOL_CALL_NOT_RUN_ERROR_PREFIX,
@@ -91,6 +92,7 @@ from dex_agents import (
     AgentMessagesPage,
     AgentPlan,
     AgentPlanTask,
+    AgentSessionFlow,
     AgentSessionStartInput,
     AgentSessionStatus,
     AgentSnapshot,
@@ -133,6 +135,7 @@ from dex_agents import (
     build_context_summary_prompt,
     build_plan_execution_message,
     build_plan_note,
+    build_session_title,
     build_turn_failure_note,
     describe_tool_call_outcome,
     message_sequence_key,
@@ -156,9 +159,10 @@ from dex_agents.builtin_loop import (
     DEFAULT_MAX_MODEL_CALLS_PER_TURN,
     TOOL_CALL_LIMIT_REACHED_RESULT,
     AgentDefinition,
+    BuiltinLoopAgentRunner,
     build_context_summary_note,
     build_context_summary_omission_note,
-    builtin_agent_session_flow,
+    builtin_agent_session_options,
 )
 from dex_agents.builtin_loop.runner import (
     _read_tool_source_envelope,
@@ -1327,13 +1331,21 @@ def build_event_cases() -> ValueCases:
 # ---------------------------------------------------------------------------
 
 
-def build_manifest_flow() -> Any:
+def build_manifest_flow(*, is_summary_indexed: bool = True) -> Any:
+    """Return the session Flow the manifest describes; names.json lists the opt-in summary too."""
     definition = AgentDefinition(
         name="conformance-manifest",
         instructions="Describe the session Flow.",
         model=ScriptedModelClient(lambda request: ScriptedModelReply(text="ok")),
     )
-    return builtin_agent_session_flow(definition, flow_type=MANIFEST_FLOW_TYPE)
+    return AgentSessionFlow(
+        BuiltinLoopAgentRunner(definition),
+        flow_type=MANIFEST_FLOW_TYPE,
+        options=replace(
+            builtin_agent_session_options(definition),
+            summary_attributes_indexed=is_summary_indexed,
+        ),
+    )
 
 
 def build_session_flow_graph() -> dict[str, Any]:
@@ -1341,11 +1353,14 @@ def build_session_flow_graph() -> dict[str, Any]:
     sys.path.insert(0, str(SUITE_DIR))
     from session_graph import build_session_graph
 
-    flow = build_manifest_flow()
+    # The graph shows a Flow with default options, which leave out the indexed summary.
+    flow = build_manifest_flow(is_summary_indexed=False)
     registry = Registry([flow], allow_async_handlers=True)
-    return build_session_graph(
-        flow, registry._registered_flows[MANIFEST_FLOW_TYPE], build_names()["persistence"]
-    )
+    registered = registry._registered_flows[MANIFEST_FLOW_TYPE]
+    persistence = [
+        entry for entry in build_names()["persistence"] if entry["name"] in registered.persistence
+    ]
+    return build_session_graph(flow, registered, persistence)
 
 
 def build_session_graph_renderings(graph: Mapping[str, Any]) -> dict[str, Any]:
@@ -1412,6 +1427,14 @@ def persistence_kind(definition: object) -> str:
     raise TypeError(f"unknown persistence definition {definition!r}")
 
 
+def persistence_index(definition: object) -> dict[str, Any]:
+    """Return the ``index`` entry of an indexed Attribute, or nothing."""
+    index = getattr(definition, "index", None)
+    if index is None:
+        return {}
+    return {"index": {"type": index.type.value, "key": index.index_key}}
+
+
 def build_names() -> dict[str, Any]:
     flow = build_manifest_flow()
     registry = Registry([flow], allow_async_handlers=True)
@@ -1448,6 +1471,7 @@ def build_names() -> dict[str, Any]:
             "name": name,
             "kind": persistence_kind(definition),
             "value_type": type_name_of(definition.value_type),
+            **persistence_index(definition),
         }
         for name, definition in sorted(registered.persistence.items())
     ]
@@ -1520,8 +1544,10 @@ def build_names() -> dict[str, Any]:
                 "AgentPlan.updated_at",
                 "ContextSummary.created_at",
                 "TurnCancellationRequest.requested_at",
+                "AgentSessionLastActivityAt",
             ],
         },
+        "session_titles": build_session_title_cases(),
         "mcp_resource_and_prompt_tool_names": [
             tool.name for tool in build_resource_and_prompt_tools(MCP_SERVER_NAMES)
         ],
@@ -1543,6 +1569,32 @@ def build_names() -> dict[str, Any]:
             "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
             "default_retained_message_limit": DEFAULT_RETAINED_MESSAGE_LIMIT,
         },
+    }
+
+
+def build_session_title_cases() -> dict[str, Any]:
+    """Return first user messages with the ``AgentSessionTitle`` each core must derive."""
+    examples = [
+        ("plain", "Find open issues about flaky tests"),
+        ("whitespace-runs", "  Fix the\n\tflaky\r\n retry  test\f\v "),
+        ("long", "word " * 30),
+        ("cut-at-space", "a" * 79 + " tail"),
+        ("astral", "\U0001f600" * 90),
+        ("non-ascii-space-kept", "\u00a0caf\u00e9\u3000menu\u2028"),
+        ("only-whitespace", " \t\n "),
+    ]
+    return {
+        "format": (
+            "the first user message with each run of ASCII spaces, tabs, and line breaks "
+            "(U+0009 to U+000D and U+0020) made one space, leading and trailing spaces "
+            "removed, then cut to max_code_points Unicode code points without a trailing "
+            "space; null when nothing is left"
+        ),
+        "max_code_points": SESSION_TITLE_MAX_CODE_POINTS,
+        "examples": [
+            {"name": name, "message": message, "title": build_session_title(message)}
+            for name, message in examples
+        ],
     }
 
 

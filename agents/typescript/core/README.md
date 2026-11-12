@@ -1286,6 +1286,39 @@ does not turn this on; pass `configOverride: { activeStepSearchMode: agentSessio
 `Client.updateFlowConfig` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
+## Listing sessions
+
+Since 0.6.0, a session can keep a summary that a session list needs: its title, the first 80 Unicode code points of
+the first user message; the time its latest turn started or ended; and its turn count. Turn it on with
+`summaryAttributesIndexed: true`; the adapter factories, such as `createBuiltinAgentSessionFlow`, take the same option.
+It is off by default, and `flow.options.summaryAttributesIndexed` tells whether a Flow keeps it. `listAgentSessions` reads one page of sessions in one `Client.searchFlows` call, without a snapshot
+per session and without a running Worker:
+
+```ts
+const flow = createAgentSessionFlow(runner, "SupportAgent", { summaryAttributesIndexed: true });
+const page = await listAgentSessions(client, flow.getFlowType(), { pageSize: 50, titleSearch: "refund" });
+for (const session of sortAgentSessionsByLastActivity(page.sessions)) {
+  console.log(session.sessionId, session.title ?? "—", session.lastActivityAt?.toISOString() ?? "—", session.turnCount);
+}
+```
+
+- Dex returns running sessions first, then the most recently closed and started ones. It cannot sort by last
+  activity, so `sortAgentSessionsByLastActivity` sorts the sessions you loaded.
+- `titleSearch` matches whole words of the title, without case: `flaky` finds "Fix the flaky test", `flak` does not.
+  Pass the same `titleSearch` with each `nextPageToken`.
+- A session without the option, or one that an earlier release started, lists without the summary, and a title search
+  never finds it. An earlier session gains the last activity time and the turn count at its next turn on a Worker with
+  the option. Show each missing value as a dash. Until a Worker with the option has started on the server, a title
+  search throws `SessionTitleSearchUnavailableError`.
+- A session that fails because its state would exceed the server's limit can keep the values of its last turn start.
+- Privacy: the title is the user's own text, and anyone who can search the namespace's Flows reads it. Turn the option
+  on only when the first message may be stored in the search index.
+- The three Attributes are indexed under `text1` (FULL_TEXT), `datetime1` (DATETIME), and `int1` (INT), the generic
+  keys that every Flow type of a namespace shares. A Worker with the option registers them when it starts. With
+  PostgreSQL search, a namespace has three keys of each of these types; the Worker fails to start with
+  `FAILED_PRECONDITION` when the namespace registered one of these keys with another type, or when all three keys of
+  the type are taken by other names. Search queries of other Flow types must filter on `FlowType`.
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
@@ -1418,6 +1451,9 @@ Do not repeat these tool calls unless the user asks again.
 | `PlanExecutions` | ChannelMap, key = `planExecutionKey(revision)` (decimal) | `PlanExecutionRequest { revision }` |
 | `PendingPlanExecution` | Attribute | `PlanExecutionRequest` that `execute_plan` accepted and `AwaitUserMessage` has not consumed |
 | `ContextSummary` | Attribute | `ContextSummary`, set once the session compacts |
+| `AgentSessionTitle` | Attribute, indexed FULL_TEXT `text1`; only with `summaryAttributesIndexed` | string, the first user message's title; set by the first turn only |
+| `AgentSessionLastActivityAt` | Attribute, indexed DATETIME `datetime1`; only with `summaryAttributesIndexed` | string, RFC 3339 time the latest turn started or ended |
+| `AgentSessionTurnCount` | Attribute, indexed INT `int1`; only with `summaryAttributesIndexed` | int64, `AgentState.turnCount` as of the latest turn start or end |
 | `AgentEvents` | Stream | `AgentEvent` |
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`,

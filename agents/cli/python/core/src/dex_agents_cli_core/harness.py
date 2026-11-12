@@ -150,7 +150,15 @@ class AgentHarness(Protocol):
         them in ``AgentDefinition.tool_sources``. Choose each model call's
         model and instructions with ``context.resolve_turn``. Pass
         ``context.media_store`` to an adapter that takes a media store, so
-        the model sees the images the user attaches.
+        the model sees the images the user attaches. Build the Flow with
+        ``AgentSessionOptions.summary_attributes_indexed`` equal to
+        ``context.is_session_summary_indexed``, such as through an adapter's
+        ``summary_attributes_indexed`` argument. The CLI core checks the Flow's
+        persistence schema, which decides the index keys the Worker registers,
+        and its options. It refuses to start with a Flow that declares the
+        indexed session summary when the file's ``sessions.summary`` leaves it
+        off, or the other way around. The check verifies what the Flow
+        declares; it does not sandbox harness code.
 
         Args:
             context: The configuration, workspace, and tool sources.
@@ -187,6 +195,13 @@ class HarnessContext:
             test builds without one.
 
             .. versionadded:: 0.5.0
+        is_session_summary_indexed: Whether the session Flow must keep the
+            indexed session summary, from the file's ``sessions.summary`` and
+            ``dex.server``. Pass it as the Flow's
+            ``summary_attributes_indexed``. ``False`` in a context a test builds
+            without it.
+
+            .. versionadded:: 0.6.0
     """
 
     flow_type: str
@@ -197,6 +212,7 @@ class HarnessContext:
     tool_sources: Sequence[ToolSource]
     resolver: TurnConfigResolver = field(repr=False)
     media_store: MediaStore | None = field(default=None, repr=False)
+    is_session_summary_indexed: bool = False
 
     def resolve_turn(self, session_settings: Mapping[str, Any] | None) -> ResolvedTurn:
         """Return a turn's model, instructions, and narrowed configuration.

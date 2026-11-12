@@ -79,6 +79,7 @@ export function createOpenAISdkSessionFlow(context: HarnessContext): ReturnType<
     runConfig: { modelProvider: new TurnModelProvider(() => context.currentTurn()), tracingDisabled: true },
     toolSources: context.toolSources,
     ...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore }),
+    summaryAttributesIndexed: context.isSessionSummaryIndexed === true,
   });
 }
 

@@ -224,6 +224,23 @@ export interface AgentSessionOptions {
    * @since 0.3.0
    */
   readonly spendLimit?: ModelSpendLimit;
+  /**
+   * Whether the session keeps the indexed `AgentSessionTitle`, `AgentSessionLastActivityAt`, and
+   * `AgentSessionTurnCount` Attributes that `listAgentSessions` reads. Defaults to `false`: the Flow does not
+   * declare them and never writes them.
+   *
+   * Check two things before you enable it. The title is the first 80 Unicode code points of the session's first
+   * user message, and anyone who can search the namespace's Flows reads it, so enable it only when that message may
+   * be stored in the search index. The Worker registers the index keys `text1` (FULL_TEXT), `datetime1` (DATETIME),
+   * and `int1` (INT) when it starts; with PostgreSQL search, startup fails with `FAILED_PRECONDITION` when the
+   * namespace already registered one of these keys with another type, or when all three keys of the type are taken
+   * by other names. Turning it off later stops new writes; the values written before stay in the index. The adapter
+   * factories, such as `createBuiltinAgentSessionFlow`, take the same option. A Flow reports its setting in
+   * `options.summaryAttributesIndexed`.
+   *
+   * @since 0.6.0
+   */
+  readonly summaryAttributesIndexed?: boolean;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -264,6 +281,12 @@ export interface ResolvedAgentSessionOptions {
   readonly runModelLimit?: ResolvedRunModelLimit;
   /** The application's spend limit, or `undefined` for none. */
   readonly spendLimit?: ModelSpendLimit;
+  /**
+   * Whether the session keeps the indexed summary Attributes. A Flow always sets it; optional for 0.5.0 code.
+   *
+   * @since 0.6.0
+   */
+  readonly summaryAttributesIndexed?: boolean;
 }
 
 /**
@@ -569,6 +592,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     retainedMessageLimit: config.retainedMessageLimit,
     runModelLimit: config.runModelLimit,
     ...(config.spendLimit === undefined ? {} : { spendLimit: config.spendLimit }),
+    summaryAttributesIndexed: config.summaryAttributesIndexed,
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
@@ -600,6 +624,12 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly turnSessionSettings = persistence.turnSessionSettings;
     /** The `TurnReplySequence` Attribute; see {@link AgentSessionPersistence.turnReplySequence}. */
     public readonly turnReplySequence = persistence.turnReplySequence;
+    /** The `AgentSessionTitle` Attribute; see {@link AgentSessionPersistence.agentSessionTitle}. */
+    public readonly agentSessionTitle = persistence.agentSessionTitle;
+    /** The `AgentSessionLastActivityAt` Attribute; see {@link AgentSessionPersistence.agentSessionLastActivityAt}. */
+    public readonly agentSessionLastActivityAt = persistence.agentSessionLastActivityAt;
+    /** The `AgentSessionTurnCount` Attribute; see {@link AgentSessionPersistence.agentSessionTurnCount}. */
+    public readonly agentSessionTurnCount = persistence.agentSessionTurnCount;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
@@ -654,6 +684,9 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.sessionSettings,
           persistence.turnSessionSettings,
           persistence.turnReplySequence,
+          ...(config.summaryAttributesIndexed
+            ? [persistence.agentSessionTitle, persistence.agentSessionLastActivityAt, persistence.agentSessionTurnCount]
+            : []),
         ],
         channels: [
           persistence.queuedUserMessages,
@@ -1079,6 +1112,7 @@ function resolveAgentSessionConfig(
     retainedMessageLimit,
     runModelLimit: resolveRunModelLimit(options.runModelLimit),
     spendLimit: options.spendLimit,
+    summaryAttributesIndexed: options.summaryAttributesIndexed ?? false,
   };
 }
 

@@ -8,6 +8,7 @@
 
 //! HTTP and AWS SDK integration coverage of testing controls.
 
+mod aliyun_oss_dialect;
 mod configuration;
 mod credentials;
 mod faults;

@@ -211,7 +211,117 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
+      }
+    },
+    {
+      "name": "sessions-summary-on",
+      "description": "sessions.summary on, which a remote dex.server needs for the session summary.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "dex": {
+          "server": "https://dex.example.com"
+        },
+        "sessions": {
+          "summary": "on"
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "https://dex.example.com"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "on"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "sessions-summary-off",
+      "description": "sessions.summary off.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "sessions": {
+          "summary": "off"
+        }
+      },
+      "effective": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": null,
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": null
+        },
+        "approval": {
+          "always": []
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": []
+          },
+          "web_fetch": true,
+          "browser": true
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "off"
+        },
+        "harness_options": {}
+      }
+    },
+    {
+      "name": "sessions-summary-unknown-value",
+      "description": "sessions.summary takes only auto, on, or off.",
+      "harness_section": "claude",
+      "harness_default_model": "claude-opus-5-5",
+      "config": {
+        "sessions": {
+          "summary": "yes"
+        }
+      },
+      "error": {
+        "code": "schema",
+        "path": "/sessions/summary",
+        "keyword": "enum"
       }
     },
     {
@@ -247,6 +357,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       }
@@ -349,6 +462,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -390,6 +506,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {
           "thinking": "high"
@@ -439,6 +558,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {
           "tracing": false
         }
@@ -487,6 +609,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -530,6 +655,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       }
@@ -575,6 +703,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -615,6 +746,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       }
@@ -657,6 +791,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -698,6 +835,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -738,6 +878,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       }
@@ -814,6 +957,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -825,7 +971,7 @@
       "config": {
         "connectors": {
           "enabled": [
-            "slack/Work Space ✓",
+            "slack/Work Space \u2713",
             "slack/personal.2",
             "reddit/r"
           ]
@@ -843,7 +989,7 @@
           "enabled": [
             {
               "connector": "slack",
-              "connection": "Work Space ✓",
+              "connection": "Work Space \u2713",
               "tools": null
             },
             {
@@ -874,6 +1020,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       }
@@ -930,6 +1079,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -969,6 +1121,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -1007,6 +1162,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       }
@@ -1049,6 +1207,9 @@
           "store": "s3://agent-media/sessions/cli",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       }
     },
@@ -1090,6 +1251,9 @@
         "media": {
           "store": "s3://agent.media-1",
           "endpoint": "http://127.0.0.1:9000"
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       }
@@ -2175,6 +2339,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2235,6 +2402,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       },
@@ -2299,6 +2469,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       },
@@ -2368,6 +2541,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2436,6 +2612,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2500,6 +2679,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2545,6 +2727,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       },
@@ -2608,6 +2793,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       },
@@ -2679,6 +2867,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       },
@@ -2752,6 +2943,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2818,6 +3012,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": []
@@ -2861,6 +3058,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       },
@@ -2930,6 +3130,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": [
@@ -2937,6 +3140,76 @@
         "/dex",
         "/system_prompt_file",
         "/workspace"
+      ]
+    },
+    {
+      "name": "sessions-is-ignored",
+      "description": "sessions belongs to the file; in settings it is ignored with a warning.",
+      "config": "bounded",
+      "session_settings": {
+        "sessions": {
+          "summary": "on"
+        }
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      },
+      "warnings": [
+        "/sessions"
       ]
     },
     {
@@ -3000,6 +3273,9 @@
         "media": {
           "store": "auto",
           "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
         },
         "harness_options": {}
       },
@@ -3069,6 +3345,9 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": [
@@ -3082,8 +3361,8 @@
       "description": "U+E000 sorts before U+10000 by code point, though its UTF-16 code unit is larger.",
       "config": "bounded",
       "session_settings": {
-        "𐀀": 1,
-        "": 2,
+        "\ud800\udc00": 1,
+        "\ue000": 2,
         "z": 3
       },
       "turn": {
@@ -3138,12 +3417,15 @@
           "store": "auto",
           "endpoint": null
         },
+        "sessions": {
+          "summary": "auto"
+        },
         "harness_options": {}
       },
       "warnings": [
         "/z",
-        "/",
-        "/𐀀"
+        "/\ue000",
+        "/\ud800\udc00"
       ]
     },
     {

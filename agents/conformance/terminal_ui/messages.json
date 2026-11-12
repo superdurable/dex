@@ -29,6 +29,16 @@
       "is_valid": true
     },
     {
+      "name": "launch-rejected-dex-setup-failed",
+      "direction": "tui",
+      "message": {
+        "type": "launch_rejected",
+        "code": "dex_setup_failed",
+        "message": "The credential that DEX_CREDENTIAL_FILE names is not usable for dex.auth mode bearer."
+      },
+      "is_valid": true
+    },
+    {
       "name": "request-put-image",
       "direction": "tui",
       "message": {

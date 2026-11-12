@@ -145,7 +145,9 @@ export function createClaudeSdkSessionFlow(context: HarnessContext): AgentSessio
     claudeCodeToolPermission: (turn, toolName, toolInput) => localTools.decideToolCall(turn, toolName, toolInput),
     ...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore }),
   });
-  return createAgentSessionFlow(runner, context.flowType);
+  return createAgentSessionFlow(runner, context.flowType, {
+    summaryAttributesIndexed: context.isSessionSummaryIndexed === true,
+  });
 }
 
 /**

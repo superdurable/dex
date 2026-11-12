@@ -43,6 +43,9 @@ pub enum WriteCondition {
     IfNoneMatchAny,
     /// `If-Match: <etag>`: fail with 404 when no live object exists and 412 when its ETag differs.
     IfMatch(String),
+    /// Aliyun OSS `x-oss-forbid-overwrite: true`: [`Self::IfNoneMatchAny`] in a bucket that never had
+    /// versioning, and unconditional once versioning was enabled or suspended.
+    ForbidOverwriteUnlessVersioned,
 }
 
 /// Object attributes supplied with a PutObject request.
@@ -330,7 +333,13 @@ impl Store {
                 Some(value) => Some(decode_json(value.value())?),
                 None => None,
             };
-            check_write_condition(write_condition, current.as_ref(), bucket, key)?;
+            check_write_condition(
+                write_condition,
+                bucket_record.versioning,
+                current.as_ref(),
+                bucket,
+                key,
+            )?;
             if let Some(upload) = completed_upload {
                 let mut uploads = transaction.open_table(UPLOADS)?;
                 let mut parts = transaction.open_table(PARTS)?;
@@ -438,13 +447,26 @@ fn unix_ms(ulid: Ulid) -> i64 {
 
 fn check_write_condition(
     write_condition: &WriteCondition,
+    versioning: VersioningState,
     current: Option<&VersionRecord>,
     bucket: &str,
     key: &str,
 ) -> Result<(), StoreError> {
     match (write_condition, current) {
-        (WriteCondition::Unconditional, _) | (WriteCondition::IfNoneMatchAny, None) => Ok(()),
-        (WriteCondition::IfNoneMatchAny, Some(_)) => Err(StoreError::PreconditionFailed),
+        (WriteCondition::Unconditional, _)
+        | (WriteCondition::IfNoneMatchAny | WriteCondition::ForbidOverwriteUnlessVersioned, None) => {
+            Ok(())
+        }
+        // Aliyun OSS ignores forbid-overwrite once a bucket's versioning was ever configured.
+        (WriteCondition::ForbidOverwriteUnlessVersioned, Some(_))
+            if versioning != VersioningState::Unversioned =>
+        {
+            Ok(())
+        }
+        (
+            WriteCondition::IfNoneMatchAny | WriteCondition::ForbidOverwriteUnlessVersioned,
+            Some(_),
+        ) => Err(StoreError::PreconditionFailed),
         (WriteCondition::IfMatch(_), None) => Err(StoreError::NoSuchKey {
             bucket: bucket.to_owned(),
             key: key.to_owned(),

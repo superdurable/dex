@@ -38,8 +38,10 @@ export {
   defaultConnectorsMcp,
   defaultDexServer,
   defaultMediaStore,
+  defaultSessionSummary,
   defaultWorkspace,
   isCoveredByConnectorEntry,
+  isSessionSummaryIndexed,
   isShellCommandAllowed,
   parseConfigYaml,
   readSchema,
@@ -50,6 +52,7 @@ export {
   type EffectiveConfig,
   type LocalToolsConfig,
   type MediaConfig,
+  type SessionsConfig,
   type TurnConfig,
 } from "./cli-config.js";
 export {

@@ -76,7 +76,10 @@ export function createVercelAiCliSessionFlow(context: HarnessContext): ReturnTyp
   return createVercelAiAgentSessionFlow(
     { model, toolSources: context.toolSources },
     context.flowType,
-    context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore },
+    {
+      ...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore }),
+      summaryAttributesIndexed: context.isSessionSummaryIndexed === true,
+    },
   );
 }
 

@@ -41,7 +41,10 @@ import { isLocalToolGroupEnabled, type AgentHarness, type HarnessContext } from 
 export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
 /**
  * Environment variable that selects a harness variant: `shell-replacing` for {@link shellReplacingScriptedHarness},
- * `fixed-tool-set` for {@link fixedToolSetScriptedHarness}, or `without-images` for {@link scriptedHarnessWithoutImages}.
+ * `fixed-tool-set` for {@link fixedToolSetScriptedHarness}, `without-images` for {@link scriptedHarnessWithoutImages},
+ * `summary-on` and `summary-off` for {@link summaryForcedOnScriptedHarness} and
+ * {@link summaryForcedOffScriptedHarness}, or `misreported-on` and `misreported-off` for
+ * {@link summaryMisreportedOnScriptedHarness} and {@link summaryMisreportedOffScriptedHarness}.
  */
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
@@ -76,6 +79,44 @@ export const scriptedHarnessWithoutImages: AgentHarness = {
   ...scriptedHarness,
   flowType: "DexAgentsCliScriptedNoImagesSession",
   createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, [], false),
+};
+
+/** The scripted harness keeping the indexed session summary whatever `HarnessContext.isSessionSummaryIndexed` says. */
+export const summaryForcedOnScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  createSessionFlow: (context: HarnessContext) =>
+    createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: true }, [], true),
+};
+
+/** Returns the Flow behind a Proxy whose `options` report the opposite of the summary its schema declares. */
+function misreportSummary(
+  flow: AgentSessionFlow<BuiltinLoopAgentRunner>,
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
+  const options = { ...flow.options, summaryAttributesIndexed: flow.options.summaryAttributesIndexed !== true };
+  return new Proxy(flow, {
+    get: (target, key) => (key === "options" ? options : (Reflect.get(target, key, target) as unknown)),
+  });
+}
+
+/** A harness whose Flow declares the indexed session summary while its options report it off. */
+export const summaryMisreportedOnScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  createSessionFlow: (context: HarnessContext) =>
+    misreportSummary(createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: true }, [], true)),
+};
+
+/** A harness whose Flow declares no indexed session summary while its options report it on. */
+export const summaryMisreportedOffScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  createSessionFlow: (context: HarnessContext) =>
+    misreportSummary(createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: false }, [], true)),
+};
+
+/** The scripted harness leaving out the indexed session summary whatever `HarnessContext.isSessionSummaryIndexed` says. */
+export const summaryForcedOffScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  createSessionFlow: (context: HarnessContext) =>
+    createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: false }, [], true),
 };
 
 /** The scripted harness declaring that its runner fixes its tools when the Flow is built. */
@@ -153,10 +194,13 @@ function createScriptedSessionFlow(
     toolSources: context.toolSources,
     tools,
   };
+  const summaryAttributesIndexed = context.isSessionSummaryIndexed === true;
   if (!supportsImages || context.mediaStore === undefined) {
-    return createBuiltinAgentSessionFlow(definition, context.flowType);
+    return createBuiltinAgentSessionFlow(definition, context.flowType, { summaryAttributesIndexed });
   }
-  return createAgentSessionFlow(new ImageScriptedRunner(definition, context.mediaStore), context.flowType, {});
+  return createAgentSessionFlow(new ImageScriptedRunner(definition, context.mediaStore), context.flowType, {
+    summaryAttributesIndexed,
+  });
 }
 
 async function respond(request: ModelRequest, model: string): Promise<ScriptedModelReply> {

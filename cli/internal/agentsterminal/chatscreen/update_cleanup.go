@@ -17,6 +17,9 @@ import (
 // cannot write escape sequences.
 func replaceUpdateControlCharacters(update sessionfeed.SessionUpdate) sessionfeed.SessionUpdate {
 	switch typed := update.(type) {
+	case sessionfeed.SessionStartFinished:
+		typed.SessionID = oneLine(typed.SessionID)
+		return typed
 	case sessionfeed.SessionOpened:
 		typed.Command, typed.Model, typed.SessionID = oneLine(typed.Command), oneLine(typed.Model), oneLine(typed.SessionID)
 		typed.Workspace, typed.WebURL = oneLine(typed.Workspace), oneLine(typed.WebURL)

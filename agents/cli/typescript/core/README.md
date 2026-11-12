@@ -96,6 +96,20 @@ list, are not part of the suffix, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.
+`sessions` loads up to five pages of 50 sessions, sorts them by last activity,
+and says when more sessions exist. It prints one per line with tab-separated
+columns: the ID, the status, the start time, the time of the latest turn, the
+turn count, and the title, the first 80 Unicode code points of the first
+message. `sessions.summary` in the configuration file decides whether the
+session Flow keeps that summary: `auto`, the default, keeps it only with
+`dex.server: auto`, because a Dex server URL may be shared; `on` keeps it with
+any server; `off` never. The CLI core passes the result to the harness as
+`HarnessContext.isSessionSummaryIndexed`, and the harness builds its Flow with
+`summaryAttributesIndexed` set to it. The command refuses to start when the
+Flow's persistence schema, or its `options.summaryAttributesIndexed`, differs,
+so a custom harness must honor the field. The check verifies what the Flow
+declares; it does not sandbox harness code. A session that a release before 0.6.0 started shows `—` for the
+title, and for the time and the turn count until its next turn.
 Two processes in the same environment share their sessions' Steps. Because
 tool settings may differ between them, the Worker that runs a tool Step
 checks the call again right before it acts, with its own file and the
