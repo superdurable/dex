@@ -668,10 +668,12 @@ fn mutable_object_keys_never_contain_the_version_separator() {
     ));
 }
 
-/// Starts s3local in its Aliyun OSS dialect and returns the S3 store that speaks to it.
-async fn start_aliyun_oss_emulator(
+/// Starts s3local in `emulated_dialect` and returns the S3 store that speaks to it in `dialect`.
+async fn start_dialect_emulator(
     directory: &std::path::Path,
     etag_mode: EtagMode,
+    emulated_dialect: s3local_server::S3ApiDialect,
+    dialect: S3ApiDialect,
 ) -> (s3local_server::ServerHandle, S3ObjectStore) {
     let emulated = Store::open(&StoreConfig {
         root_directory: directory.to_path_buf(),
@@ -689,7 +691,7 @@ async fn start_aliyun_oss_emulator(
         Arc::new(emulated),
         listener,
         s3local_server::ServerConfig {
-            api_dialect: s3local_server::S3ApiDialect::AliyunOss,
+            api_dialect: emulated_dialect,
             ..s3local_server::ServerConfig::default()
         },
     )
@@ -705,24 +707,46 @@ async fn start_aliyun_oss_emulator(
     };
     config.multipart_threshold = 5 * 1024 * 1024;
     config.multipart_part_size = 5 * 1024 * 1024;
-    config.api_dialect = S3ApiDialect::AliyunOss;
+    config.api_dialect = dialect;
     let object_store = S3ObjectStore::new(config)
         .await
-        .expect("the Aliyun OSS dialect store is configured");
+        .expect("the dialect store is configured");
     (server, object_store)
 }
 
 #[tokio::test]
 async fn the_adapter_keeps_its_guarantees_over_the_s3_aliyun_oss_dialect() {
+    check_adapter_guarantees_over_dialect(
+        s3local_server::S3ApiDialect::AliyunOss,
+        S3ApiDialect::AliyunOss,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn the_adapter_keeps_its_guarantees_over_the_s3_tencent_cos_dialect() {
+    check_adapter_guarantees_over_dialect(
+        s3local_server::S3ApiDialect::TencentCos,
+        S3ApiDialect::TencentCos,
+    )
+    .await;
+}
+
+async fn check_adapter_guarantees_over_dialect(
+    emulated_dialect: s3local_server::S3ApiDialect,
+    dialect: S3ApiDialect,
+) {
     for etag_mode in [EtagMode::Md5, EtagMode::Opaque] {
         let directory = tempfile::tempdir().expect("a temporary directory");
-        let (server, s3_store) = start_aliyun_oss_emulator(directory.path(), etag_mode).await;
+        let (server, s3_store) =
+            start_dialect_emulator(directory.path(), etag_mode, emulated_dialect, dialect).await;
         let inner: Arc<dyn ObjectStore> = Arc::new(s3_store);
         let store = AliyunOssObjectStore::new(Arc::clone(&inner));
         for key in MUTABLE_KEYS {
             check_mutable_key(&store, key).await;
         }
-        // Six MiB exceeds the multipart threshold, so these versions are multipart objects.
+        // Six MiB exceeds the multipart threshold, so these versions are multipart objects;
+        // the Tencent COS dialect appends them in one request instead.
         let large = Bytes::from(vec![42; 6 * 1024 * 1024]);
         let WriteOutcome::Written { etag } = store
             .put(

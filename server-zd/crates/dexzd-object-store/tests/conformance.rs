@@ -16,6 +16,8 @@ mod azure_gcs_fake_server;
 mod fake_cloud_server;
 #[path = "conformance/recording_s3_proxy.rs"]
 mod recording_s3_proxy;
+#[path = "conformance/tencent_cos_dialect.rs"]
+mod tencent_cos_dialect;
 
 use std::sync::Arc;
 

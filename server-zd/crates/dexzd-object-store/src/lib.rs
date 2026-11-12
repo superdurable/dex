@@ -40,7 +40,11 @@ pub use db9::{Db9ObjectStore, Db9ObjectStoreConfig};
 pub use in_memory::{FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions};
 pub use instrumented::InstrumentedObjectStore;
 pub use object_store_error::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation};
-pub use s3::{S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig};
+pub use s3::{
+    MAX_TENCENT_COS_APPENDABLE_OBJECT_BYTES, S3ApiDialect, S3Credentials, S3ObjectStore,
+    S3ObjectStoreConfig, TencentCosBucketCheckError, check_tencent_cos_bucket_versioning,
+    check_tencent_cos_create_only_writes, check_tencent_cos_holds_no_data_of_another_provider,
+};
 pub use startup_self_check::{
     STARTUP_PROBE_MAXIMUM_LIFETIME, STARTUP_SELF_CHECK_DEADLINE, StartupSelfCheckError,
     StartupSelfCheckFailure, startup_self_check,

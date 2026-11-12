@@ -31,6 +31,9 @@ pub enum S3ApiDialect {
     AmazonS3,
     /// The S3-compatible endpoint of Aliyun OSS (Alibaba Cloud Object Storage Service).
     AliyunOss,
+    /// The S3-compatible endpoint of Tencent COS (Tencent Cloud Object Storage), whose create-only
+    /// writes use AppendObject at position 0.
+    TencentCos,
 }
 
 impl S3ApiDialect {
@@ -48,6 +51,16 @@ impl S3ApiDialect {
             }
             (Self::AliyunOss, WriteCondition::CreateOnly) => is_file_already_exists(error),
             (Self::AliyunOss, WriteCondition::ReplaceIfEtagMatches { .. }) => false,
+            // Tencent COS conditional writes never use PutObject or CompleteMultipartUpload.
+            (Self::TencentCos, _) => false,
+        }
+    }
+
+    /// Returns whether uploads and DeleteObjects must carry `Content-MD5` instead of CRC32.
+    pub(super) fn requires_content_md5(self) -> bool {
+        match self {
+            Self::AmazonS3 => false,
+            Self::AliyunOss | Self::TencentCos => true,
         }
     }
 
