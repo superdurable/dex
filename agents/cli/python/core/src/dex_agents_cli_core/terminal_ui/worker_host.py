@@ -30,6 +30,7 @@ import logging
 import os
 import signal
 import socket
+import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -178,8 +179,10 @@ def run_worker_host(
         open_run: Builds the Worker and opens the session.
 
     Returns:
-        0 after an orderly stop, 143 after SIGTERM, the startup failure's
-        code, or 2 for bad arguments.
+        2 for bad arguments, or 1 when the launcher is already gone. Once it
+        serves, it never returns: it ends the process with ``os._exit`` and
+        0 after an orderly stop, 143 after SIGTERM, or the startup failure's
+        code.
     """
     parser = argparse.ArgumentParser(prog=WORKER_HOST_COMMAND, add_help=False)
     parser.add_argument("--control-fd", type=int, required=True)
@@ -201,7 +204,13 @@ def run_worker_host(
     host = _WorkerHost(
         control_socket, arguments.launcher_pid, harness_name, run_directory, open_run
     )
-    return asyncio.run(host.serve())
+    exit_code = asyncio.run(host.serve())
+    # Exit at once: a thread left by a library must not hold the process past the watchdog.
+    logging.shutdown()
+    with contextlib.suppress(OSError, ValueError):
+        sys.stdout.flush()
+        sys.stderr.flush()
+    os._exit(exit_code)
 
 
 class _WorkerHost:
@@ -259,7 +268,6 @@ class _WorkerHost:
             if hosted is not None:
                 await hosted.close()
             self._process_groups.remove_record()
-            watchdog.finish()
             await channel.close()
         return _SIGTERM_EXIT_CODE if self._is_sigterm else exit_code
 

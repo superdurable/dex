@@ -216,7 +216,9 @@ def stop_recorded_processes(
     """Stop the Worker host and tool groups one run record names, then delete the record.
 
     Each process gets a signal only while it still has the recorded start
-    time, command line, and process group, and leads that group.
+    time and process group, and leads that group. The Worker host must also
+    have its recorded command line; a tool group need not, because its shell
+    may have exec'd its command since.
 
     Args:
         record_path: The run record.
@@ -237,32 +239,47 @@ def stop_recorded_processes(
         return LeftoverCleanup(None, 0)
     if is_launcher_checked and launcher is not None and _is_same_process(launcher):
         return None
-    targets = [identity for identity in (worker_host, *tools) if identity is not None]
-    signaled = [identity for identity in targets if _signal_if_same(identity, signal.SIGTERM)]
+    # A shell may exec its one command, so a tool group's command line can change after
+    # registration; its pid, group, and start time cannot.
+    targets = [(identity, True) for identity in (worker_host,) if identity is not None]
+    targets += [(identity, False) for identity in tools if identity is not None]
+    signaled = [
+        (identity, is_command_compared)
+        for identity, is_command_compared in targets
+        if _signal_if_same(identity, signal.SIGTERM, is_command_compared=is_command_compared)
+    ]
     deadline = time.monotonic() + grace_seconds
     remaining = list(signaled)
     while remaining and time.monotonic() < deadline:
-        remaining = [identity for identity in remaining if _group_exists(identity.pgid)]
+        remaining = [target for target in remaining if _group_exists(target[0].pgid)]
         if remaining:
             time.sleep(_POLL_SECONDS)
-    for identity in remaining:
-        _signal_if_same(identity, signal.SIGKILL)
+    for identity, is_command_compared in remaining:
+        _signal_if_same(identity, signal.SIGKILL, is_command_compared=is_command_compared)
     with contextlib.suppress(FileNotFoundError):
         record_path.unlink()
+    is_worker_host_stopped = any(is_command_compared for _, is_command_compared in signaled)
     return LeftoverCleanup(
-        worker_host.pid if worker_host is not None and worker_host in signaled else None,
-        sum(1 for identity in signaled if identity is not worker_host),
+        worker_host.pid if worker_host is not None and is_worker_host_stopped else None,
+        sum(1 for _, is_command_compared in signaled if not is_command_compared),
     )
 
 
-def _signal_if_same(identity: ProcessIdentity, signal_number: int) -> bool:
-    if not identity.is_group_leader() or not _is_same_process(identity):
+def _signal_if_same(
+    identity: ProcessIdentity, signal_number: int, *, is_command_compared: bool
+) -> bool:
+    if not identity.is_group_leader() or not _is_same_process(
+        identity, is_command_compared=is_command_compared
+    ):
         return False
     return _signal_group(identity.pgid, signal_number)
 
 
-def _is_same_process(identity: ProcessIdentity) -> bool:
-    return read_process_identity(identity.pid) == identity
+def _is_same_process(identity: ProcessIdentity, *, is_command_compared: bool = True) -> bool:
+    current = read_process_identity(identity.pid)
+    if current is None or (current.pgid, current.started) != (identity.pgid, identity.started):
+        return False
+    return not is_command_compared or current.command == identity.command
 
 
 def _signal_group(pgid: int, signal_number: int) -> bool:

@@ -35,7 +35,6 @@ import pexpect
 import pytest
 
 from dex_agents import LocalDirectoryMediaStore
-from dex_agents.testing import resolve_dexcli_path
 from dex_agents_cli_core import cli, session_flow_type
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import TerminalInterface
@@ -54,6 +53,7 @@ from tests.fake_terminal_ui import (
     FakeTerminalUi,
     chat_transcript,
     insert_pause,
+    is_group_alive,
     is_ready_step,
     load_transcript,
     new_key,
@@ -287,18 +287,50 @@ async def test_a_handoff_that_fails_before_ready_continues_in_plain_text_on_the_
     assert fake.mismatches() == []
 
 
-async def test_a_dexcli_without_the_terminal_ui_means_the_plain_chat(
-    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+NO_COMMON_CONTRACT: dict[str, Any] = {
+    "dexcli_version": "9.0.0",
+    "contracts": {"2": {"modes": {"chat": {"uses_methods": []}}, "capabilities": []}},
+}
+NO_CHAT_MODE: dict[str, Any] = {
+    "dexcli_version": "1.60.0",
+    "contracts": {"1": {"modes": {"sessions": {"uses_methods": []}}, "capabilities": []}},
+}
+
+
+@pytest.mark.parametrize(
+    ("describe", "line"),
+    [
+        (None, "has no terminal UI (agents-tui --describe exited with code 2)"),
+        (
+            NO_COMMON_CONTRACT,
+            "Plain chat: dexcli 9.0.0 speaks no terminal UI contract this command knows.",
+        ),
+        (NO_CHAT_MODE, "Plain chat: dexcli 1.60.0 has no chat terminal UI."),
+    ],
+    ids=["no-agents-tui", "no-common-contract", "mode-missing"],
+)
+async def test_a_dexcli_that_cannot_show_the_chat_means_the_plain_chat(
+    cli_home: CliHome,
+    tmp_path: Path,
+    screen: io.StringIO,
+    describe: Mapping[str, Any] | None,
+    line: str,
 ) -> None:
-    fake = FakeTerminalUi(tmp_path / "tui")
-    child = start_chat(cli_home, fake, screen, environment={"DEXCLI": str(resolve_dexcli_path())})
-    await expect(child, "Plain chat: ")
-    await expect(child, "has no terminal UI")
+    fake = FakeTerminalUi(tmp_path / "tui", describe=describe)
+    environment: dict[str, str] = {}
+    if describe is None:
+        older = tmp_path / "older-dexcli"
+        older.write_text("#!/bin/sh\necho 'unknown command' >&2\nexit 2\n")
+        older.chmod(0o755)
+        environment["DEXCLI"] = str(older)
+    child = start_chat(cli_home, fake, screen, environment=environment)
+    await expect(child, line)
     await read_session_id(child)
     await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert screen.getvalue().count("Session ") == 2
+    assert not fake.was_run()
 
 
 @pytest.mark.parametrize(
@@ -388,20 +420,64 @@ async def test_the_worker_host_and_its_shell_group_end_when_the_launcher_is_kill
                 await sessions.start_session(f"blocked-{uuid.uuid4().hex[:8]}", "block")
                 await asyncio.sleep(3)
         os.kill(child.pid, signal.SIGKILL)
+        if sys.platform.startswith("linux"):
+            # PR_SET_PDEATHSIG kills the Worker host at once; the next run stops its shell group.
+            await wait_until_gone([host_pid], timeout=5)
+            assert is_group_alive(tool_pgid)
+            lines: list[str] = []
+            await asyncio.to_thread(stop_leftover_processes, agents_directory / "run", lines.append)
+            assert lines == ["Stopped 1 leftover tool process group."]
+            await wait_until_gone([tool_pgid], timeout=5)
+            return
         try:
             elapsed = await wait_until_gone([host_pid, tool_pgid], timeout=25)
         except AssertionError as error:
-            log = (agents_directory / f"{HARNESS}.log").read_text().splitlines()
-            processes = subprocess.run(
-                ["ps", "-o", "pid,pgid,ppid,stat,command", "-g", str(host_pid)],
-                capture_output=True,
-                text=True,
-                check=False,
-            ).stdout
-            raise AssertionError(f"{error}\n{processes}\n" + "\n".join(log[-40:])) from None
+            details = describe_groups(agents_directory, host_pid)
+            raise AssertionError(f"{error}\n{details}") from None
         assert elapsed < 20
     finally:
         with_suppressed_kill(child.pid)
+
+
+def describe_groups(agents_directory: Path, host_pid: int) -> str:
+    listing = subprocess.run(
+        ["ps", "-A", "-o", "pid=,pgid=,ppid=,stat=,command="],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.splitlines()
+    processes = [line for line in listing if line.split()[1:2] == [str(host_pid)]]
+    log = (agents_directory / f"{HARNESS}.log").read_text().splitlines()
+    return "\n".join([*processes, *log[-40:]])
+
+
+async def test_a_killed_worker_host_leaves_no_shell_group(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    stopped = {
+        "from": "launcher",
+        "message": {"type": "worker", "state": "stopped", "exit_code": 137},
+    }
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([stopped]))
+    child = start_chat(cli_home, fake, screen, SHELL_CONFIG)
+    session_id = await read_session_id(child)
+    await fake.wait_for("sent", type="ready")
+    agents_directory = cli_home.home / ".dex" / "agents"
+    host_pid = worker_host_pid(agents_directory)
+    async with session_client(
+        cli_home.address, tmp_path / "client-cache", scripted_flow_type(cli_home)
+    ) as sessions:
+        await sessions.send_user_message(
+            session_id, 'call run_shell_command {"command": "sleep 600"}'
+        )
+        tool_pgid = await wait_for_tool_group(agents_directory, host_pid)
+    # The shell may have replaced itself with sleep since it registered; the check still matches.
+    os.kill(host_pid, signal.SIGKILL)
+    await expect(child, resume_line(session_id))
+    assert await wait_for_exit(child) == 1
+    assert_replayed(fake, screen)
+    await wait_until_gone([tool_pgid], timeout=5)
+    assert list((agents_directory / "run").glob("*.json")) == []
 
 
 async def wait_for_tool_group(agents_directory: Path, host_pid: int) -> int:

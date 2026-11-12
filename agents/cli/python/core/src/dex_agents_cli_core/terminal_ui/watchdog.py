@@ -9,7 +9,8 @@
 """The Worker host's watchdog: notice a dead launcher, and bound every shutdown.
 
 It runs on its own thread, outside the event loop. Once the launcher is gone,
-or a shutdown starts, the Worker host has 15 seconds to exit in order; then
+or a shutdown starts, the Worker host has 15 seconds to exit; the process
+ends with ``os._exit``, so the bound covers the event loop's teardown too. Then
 the watchdog stops the registered tool groups and kills its own process
 group. The bound holds only while this thread can take the GIL: a main
 thread stuck in native code that holds the GIL defeats it. On Linux the
@@ -27,6 +28,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from collections.abc import Callable
 
 from dex_agents_cli_core.terminal_ui.process_groups import ToolProcessGroupRegistry
@@ -69,7 +71,6 @@ class ParentDeathWatchdog:
         self._poll_seconds = poll_seconds
         self._hard_exit_seconds = hard_exit_seconds
         self._shutdown_started = threading.Event()
-        self._finished = threading.Event()
         self._thread = threading.Thread(
             target=self._watch, name="dex-agents-worker-host-watchdog", daemon=True
         )
@@ -82,11 +83,6 @@ class ParentDeathWatchdog:
         """Start the hard bound of an orderly shutdown that began for another reason."""
         self._shutdown_started.set()
 
-    def finish(self) -> None:
-        """Report that the orderly shutdown ended, so the watchdog stops."""
-        self._finished.set()
-        self._shutdown_started.set()
-
     def _watch(self) -> None:
         while not self._shutdown_started.wait(self._poll_seconds):
             if os.getppid() != self._launcher_pid:
@@ -94,8 +90,7 @@ class ParentDeathWatchdog:
                 with contextlib.suppress(RuntimeError):
                     self._loop.call_soon_threadsafe(self._on_parent_death)
                 break
-        if self._finished.wait(self._hard_exit_seconds):
-            return
+        time.sleep(self._hard_exit_seconds)
         _LOGGER.error("the orderly shutdown took over %.0f s; killing", self._hard_exit_seconds)
         self._process_groups.stop_all()
         os.killpg(os.getpgrp(), signal.SIGKILL)
