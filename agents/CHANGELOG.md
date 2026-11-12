@@ -4,6 +4,27 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.1 (2026-11-12)
+
+### Changed
+
+- The agents CLI commands download dexcli 1.46.1. A plain drag now selects
+  text in the terminal UI, Up/Down and the mouse wheel scroll the messages,
+  and Dex Web addresses show as links.
+
+### Fixed
+
+- The terminal UI of the Python Agents CLI commands (`dex-agents-cli-core`) no
+  longer prints `The chat closed: dexcli closed the channel.` when you exit
+  normally after a turn failed. `dexcli` closing the channel and exiting by
+  itself is a normal end. The command still exits 1 after a failed turn, as
+  the plain chat does. The line still appears when `dexcli` closes the
+  channel and keeps running, or sends a malformed line.
+- The terminal UI of the Python Agents CLI commands now prints
+  `The chat closed unexpectedly (dexcli exit 143).` when `dexcli` exits 143
+  by itself, such as after a SIGTERM sent to `dexcli` alone, as the
+  TypeScript commands do. The command still exits 1.
+
 ## 0.6.0 (2026-11-12)
 
 ### Breaking
