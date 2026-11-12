@@ -8,7 +8,8 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { useState } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_COPY } from './copy';
 import type { FlowV2Action } from '@superdurable/flow-definition-renderer';
@@ -29,7 +30,10 @@ vi.mock('./useAgentSession', () => ({
 }));
 vi.mock('../catalog/WebCatalogProvider', () => ({ useWebCatalog: () => ({ revisionFor: () => '' }) }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const pastCall = (toolCallId: string, toolName: string, argumentsText: string): ToolCallView => ({
   toolCallId, toolName, turnId: 'turn-1', argumentsText, effect: null, requiresApproval: null,
@@ -136,7 +140,91 @@ describe('SessionView', () => {
     );
 
     expect(screen.getAllByText(SESSION_COPY.chooseWorkingAs('coding.operate'))).toHaveLength(1);
-    expect(screen.getByRole('button', { name: SESSION_COPY.workAs('coding.operate') })).toBeTruthy();
-    expect((screen.getByRole('textbox', { name: SESSION_COPY.steerLabel }) as HTMLTextAreaElement).disabled).toBe(true);
+    // One button sits with the hint at the top; the composer offers its own in place of Send.
+    expect(screen.getAllByRole('button', { name: SESSION_COPY.workAs('coding.operate') })).toHaveLength(2);
+    const composer = screen.getByRole('textbox', { name: SESSION_COPY.steerLabel }) as HTMLTextAreaElement;
+    expect(composer.disabled).toBe(true);
+    expect(composer.placeholder).toBe(SESSION_COPY.composerWorkingAsPlaceholder('coding.operate'));
+  });
+
+  it('offers in the composer the permission that sending checks', () => {
+    const action = (rpcName: string, permission: string): FlowV2Action => ({
+      rpcName, label: rpcName, requiredPermission: permission, input: { kind: 'object', fields: [] },
+    });
+    const mixedSchema = {
+      ...schema,
+      answerQuestion: action('answer_question', 'answers.operate'),
+      steerUserMessage: action('steer_user_message', 'steering.operate'),
+    };
+    loaded = sessionOf({});
+    const onChooseWorkingAs = vi.fn();
+    render(
+      <SessionView
+        flowId="session-1"
+        flowType="CodingAgent"
+        onChooseWorkingAs={onChooseWorkingAs}
+        reloadKey={0}
+        schema={mixedSchema}
+        workQueuePermissions={[]}
+      />,
+    );
+
+    const composerWorkAs = screen.getByRole('button', { name: SESSION_COPY.workAs('steering.operate') });
+    expect(composerWorkAs.closest('.ses-controls')).not.toBeNull();
+    fireEvent.click(composerWorkAs);
+    expect(onChooseWorkingAs).toHaveBeenCalledWith('steering.operate');
+  });
+
+  it('lets a reader choose Working as from the composer, then send to a session they did not start', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ invoked: true, output: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const operate = (rpcName: string): FlowV2Action => ({
+      rpcName, label: rpcName, requiredPermission: 'dex-agents-cli.operate', input: { kind: 'object', fields: [] },
+    });
+    const cliSchema = {
+      ...schema,
+      resolveInterrupt: operate('resolve_interrupt'),
+      answerQuestion: operate('answer_question'),
+      steerUserMessage: operate('steer_user_message'),
+      cancelTurn: operate('cancel_turn'),
+    };
+    loaded = sessionOf({});
+    function RunPage() {
+      const [permissions, setPermissions] = useState<string[]>([]);
+      return (
+        <SessionView
+          flowId="session-1"
+          flowType="DexAgentsClaudeSdkCliSession-abc123"
+          onChooseWorkingAs={(permission) => setPermissions([permission])}
+          reloadKey={0}
+          schema={cliSchema}
+          workQueuePermissions={permissions}
+        />
+      );
+    }
+    render(<RunPage />);
+
+    expect(screen.queryByRole('button', { name: SESSION_COPY.send })).toBeNull();
+    const composerWorkAs = screen.getAllByRole('button', { name: SESSION_COPY.workAs('dex-agents-cli.operate') })
+      .find((button) => button.closest('.ses-controls') !== null);
+    fireEvent.click(composerWorkAs as HTMLElement);
+
+    const composer = screen.getByRole('textbox', { name: SESSION_COPY.steerLabel }) as HTMLTextAreaElement;
+    expect(composer.disabled).toBe(false);
+    await waitFor(() => expect(document.activeElement).toBe(composer));
+    expect(screen.queryByText(SESSION_COPY.chooseWorkingAs('dex-agents-cli.operate'))).toBeNull();
+    fireEvent.change(composer, { target: { value: 'Please also check the tests' } });
+    fireEvent.click(screen.getByRole('button', { name: SESSION_COPY.send }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/v2/agent-sessions/messages');
+    expect(JSON.parse(init.body as string)).toEqual({
+      flowType: 'DexAgentsClaudeSdkCliSession-abc123',
+      flowId: 'session-1',
+      workQueuePermissions: ['dex-agents-cli.operate'],
+      text: 'Please also check the tests',
+    });
+    expect(await screen.findByText(SESSION_COPY.steered)).toBeTruthy();
   });
 });

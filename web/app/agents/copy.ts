@@ -61,6 +61,9 @@ export const SESSION_COPY = {
   steerPlaceholder: 'Tell the agent what to do instead',
   composerIdlePlaceholder: 'Message the agent',
   composerRunningPlaceholder: 'Queue a message for the next turn, or steer this one',
+  composerWorkingAsPlaceholder(permission: string): string {
+    return `Work as ${permission} to message the agent`;
+  },
   steer: 'Steer',
   send: 'Send',
   queue: 'Queue',

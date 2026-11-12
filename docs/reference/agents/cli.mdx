@@ -748,8 +748,27 @@ type to the Dex Server. Dex Web then shows each session's Steps and its
   **Stop turn**. It can also edit the session's settings. See
   [Agent session view](/reference/web/dex-web#agent-session-view).
 - The session Actions require the permission **dex-agents-cli.operate**.
-  Choose it in **Working as** to answer a session's approvals and questions in
-  Dex Web.
+  Choose it in **Working as** to send the session messages and to answer its
+  approvals and questions in Dex Web. Anyone who opens the session in Dex Web
+  can do the same, so on a shared Dex server colleagues can take part in the
+  chat.
+- The [terminal UI](#terminal-ui) shows each message from Dex Web, or from any
+  other client, marked **(another client)**, and asks about the approvals of
+  its turn too. Neither the terminal UI nor Dex Web shows who sent a message.
+- The [plain chat](#plain-chat) follows the turns it starts. A turn that
+  starts right after one of them, such as another client's message queued
+  during it, may also be shown, with its approvals asked in the terminal.
+  For another client's turn that starts while the plain chat waits for your
+  input, answer its approvals in Dex Web. The plain chat may print some of
+  that turn's output, but not its message.
+- A message from another client starts a turn like your own, with this
+  command's local tools and Connectors. The approval rules stay the same. A
+  call without approval in [Workspace and local tools](#local-tools) or
+  [Harnesses with their own tools](#harness-tools) runs at once, such as a
+  file read or a web fetch. A call that needs approval waits for an answer
+  from the terminal UI or from Dex Web, and the first answer decides.
+  **Working as** comes from the browser and is not a login. On a shared
+  server, only let people who may run tools on this machine reach Dex Web.
 - The upload needs server-zd 0.1.26 or later, which the **dexcli dev** that the
   command downloads runs. The outcome, and a failure such as on an older
   server, go to the log file **~/.dex/agents/HARNESS.log**, not the terminal.
