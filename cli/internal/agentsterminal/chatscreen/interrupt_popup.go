@@ -38,6 +38,13 @@ type interruptPopup struct {
 	isShowingAllArguments bool
 	// scrollFromBottom is how many rows a long body is scrolled up from its end.
 	scrollFromBottom int
+	// isReadingConsequence shows only the consequence, for a screen too short
+	// to show it with the options.
+	isReadingConsequence bool
+	consequenceScroll    int
+	// hasReadConsequence records that the whole consequence was shown, which
+	// approving on a short screen needs.
+	hasReadConsequence bool
 }
 
 // popupScrollStep is how many rows PgUp and PgDn move a long popup body.
