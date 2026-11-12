@@ -37,6 +37,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             examples/typescript/package-lock.json
+            examples/typescript/quick-start/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Verify published SDK dependency
@@ -59,6 +60,12 @@ jobs:
             exit 1
           fi
       - name: Typecheck
+        run: npm run typecheck
+      - name: Install Quick Start example dependencies
+        working-directory: examples/typescript/quick-start
+        run: npm ci
+      - name: Typecheck Quick Start example
+        working-directory: examples/typescript/quick-start
         run: npm run typecheck
       - name: Unit tests
         run: npm test
@@ -100,6 +107,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             examples/typescript/package-lock.json
+            examples/typescript/quick-start/package-lock.json
             web/package-lock.json
       - uses: actions/setup-go@v7
         with:
@@ -108,6 +116,9 @@ jobs:
             cli/go.sum
             web/go.sum
       - name: Install dependencies
+        run: npm ci
+      - name: Install Quick Start example dependencies
+        working-directory: examples/typescript/quick-start
         run: npm ci
       - name: Integration tests with dexcli dev
         run: ./run-integration-tests.sh

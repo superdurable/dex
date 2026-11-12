@@ -34,12 +34,19 @@ export interface Order {
 export class OrderDesk {
   /** IDs of the orders this desk cancelled, in order. */
   public readonly cancelledOrderIds: string[] = [];
+  private readonly toolDelayMs: number;
   private readonly orders = new Map<string, Order>([
     ["1001", { orderId: "1001", items: "2 notebooks", status: "shipped" }],
     ["1002", { orderId: "1002", items: "1 desk lamp", status: "processing" }],
   ]);
 
-  public describeOrder(orderId: string): string {
+  /** @param toolDelayMs How long each tool call waits first, so a demo can stop the Worker mid-call. */
+  public constructor(toolDelayMs = 0) {
+    this.toolDelayMs = toolDelayMs;
+  }
+
+  public async describeOrder(orderId: string): Promise<string> {
+    await this.waitForToolDelay();
     const order = this.orders.get(orderId);
     if (order === undefined) {
       return `Order ${orderId} does not exist.`;
@@ -47,7 +54,8 @@ export class OrderDesk {
     return `Order ${order.orderId}: ${order.items}, ${order.status}.`;
   }
 
-  public cancelOrder(orderId: string, reason: string): string {
+  public async cancelOrder(orderId: string, reason: string): Promise<string> {
+    await this.waitForToolDelay();
     const order = this.orders.get(orderId);
     if (order === undefined) {
       return `Order ${orderId} does not exist.`;
@@ -58,5 +66,11 @@ export class OrderDesk {
     order.status = "cancelled";
     this.cancelledOrderIds.push(orderId);
     return `Order ${orderId} is cancelled: ${reason}.`;
+  }
+
+  private async waitForToolDelay(): Promise<void> {
+    if (this.toolDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.toolDelayMs));
+    }
   }
 }

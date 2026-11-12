@@ -52,8 +52,8 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     public OrderProcessingFlow(final MyDependencyService service) {
         this.service = service;
         this.refund = new Refund(service);
-        this.ship = new Ship(service, this.refund);
-        this.charge = new Charge(service, this.ship);
+        this.ship = new Ship(service);
+        this.charge = new Charge(service);
     }
 
     @Override
@@ -79,11 +79,9 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     static final class Charge implements Step<OrderRequest> {
         private final MyDependencyService service;
-        private final Ship ship;
 
-        Charge(final MyDependencyService service, final Ship ship) {
+        Charge(final MyDependencyService service) {
             this.service = service;
-            this.ship = ship;
         }
 
         @Override
@@ -100,7 +98,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
+                            // One hour in production; 3 seconds keeps the demo short.
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .build();
@@ -108,7 +106,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
         @Override
         public StepDecision execute(final Context context, final OrderRequest order) {
-            service.chargeUser(order.email, order.customerId, order.amount);
+            service.chargeUser(order.email, order.customerId, order.amount, "charge-" + order.orderId);
             orderStatus.set(context, "charged");
             return StepDecision.goTo(Ship.class, order);
         }
@@ -116,11 +114,9 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     static final class Ship implements Step<OrderRequest> {
         private final MyDependencyService service;
-        private final Refund refund;
 
-        Ship(final MyDependencyService service, final Refund refund) {
+        Ship(final MyDependencyService service) {
             this.service = service;
-            this.refund = refund;
         }
 
         @Override
@@ -137,14 +133,14 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
+                            // One hour in production; 3 seconds keeps the demo short.
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .onExecuteFailureProceedTo(
                             Refund.class,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
-                                            // .totalDuration(Duration.ofHours(1))
+                                            // One hour in production; 3 seconds keeps the demo short.
                                             .totalDuration(Duration.ofSeconds(3))
                                             .build())
                                     .build())
@@ -167,7 +163,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         "Please approve or provide a tracking number.");
                 return StepDecision.goTo(Ship.class, order);
             }
-            service.shipItem(order.orderId, order.testFailAtShipping);
+            service.shipItem(order.orderId, order.testFailAtShipping, "ship-" + order.orderId);
             orderStatus.set(context, "shipped");
             return StepDecision.gracefulComplete("shipped:" + order.orderId);
         }
@@ -192,7 +188,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
         @Override
         public StepDecision execute(final Context context, final OrderRequest order) {
-            service.updateExternalSystem("refund " + order.orderId);
+            service.updateExternalSystem("refund " + order.orderId, "refund-" + order.orderId);
             orderStatus.set(context, "refunded");
             return StepDecision.gracefulComplete("refunded:" + order.orderId);
         }

@@ -41,6 +41,8 @@ class AgentHarnessExamplesConfig:
     pydantic_ai_model: str = DEMO_MODEL
     langchain_model: str = DEMO_MODEL
     google_adk_model: str = DEMO_MODEL
+    # Each order desk tool call sleeps this long first, so a demo can stop the Worker mid-call.
+    order_desk_tool_delay_seconds: float = 0
     # Signs session tokens. A random key ends every token when the process restarts.
     session_key: bytes = field(default_factory=lambda: secrets.token_bytes(32), repr=False)
 
@@ -60,6 +62,9 @@ class AgentHarnessExamplesConfig:
             pydantic_ai_model=os.environ.get("DEX_PYDANTIC_AI_MODEL", DEMO_MODEL),
             langchain_model=os.environ.get("DEX_LANGCHAIN_MODEL", DEMO_MODEL),
             google_adk_model=os.environ.get("DEX_GOOGLE_ADK_MODEL", DEMO_MODEL),
+            order_desk_tool_delay_seconds=float(
+                os.environ.get("DEX_ORDER_DESK_TOOL_DELAY_SECONDS", "0")
+            ),
             session_key=(
                 session_key.encode()
                 if (session_key := os.environ.get("DEX_AGENT_SESSION_KEY"))

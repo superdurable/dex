@@ -154,6 +154,19 @@ fi
 
 # The agent harness examples have their own project: the OpenAI Agents SDK conflicts with LiteLLM.
 # Arguments for the main suites would not match its tests, so they run with no arguments or alone.
+if ! $only_agent_harnesses && ((${#test_args[@]} == 0)); then
+  (
+    cd "$script_dir/agent-starter"
+    DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+      uv run --frozen pytest -vv tests/
+  )
+  (
+    cd "$script_dir/quick-start"
+    DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+      uv run --frozen pytest -vv tests/
+  )
+fi
+
 if $only_agent_harnesses || ((${#test_args[@]} == 0)); then
   harness_pytest_args=(pytest -vv tests/)
   if ((${#test_args[@]})); then

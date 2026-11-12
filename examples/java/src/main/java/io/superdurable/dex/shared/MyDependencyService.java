@@ -16,10 +16,15 @@
 
 package io.superdurable.dex.shared;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.springframework.stereotype.Component;
 
 @Component
 public class MyDependencyService {
+
+    private final Set<String> usedIdempotencyKeys = ConcurrentHashMap.newKeySet();
 
     public void updateExternalSystem(final String message) {
         System.out.println(
@@ -43,11 +48,45 @@ public class MyDependencyService {
                 amount);
     }
 
+    public void chargeUser(
+            final String email,
+            final String customerId,
+            final int amount,
+            final String idempotencyKey) {
+        if (!usedIdempotencyKeys.add(idempotencyKey)) {
+            System.out.printf("charge already done (key %s); not charged again%n", idempotencyKey);
+            return;
+        }
+        chargeUser(email, customerId, amount);
+    }
+
     public void shipItem(final String orderId, final boolean testFailAtShipping) {
         if (testFailAtShipping) {
             throw new RuntimeException("ship failed for order " + orderId);
         }
         System.out.println("ship item " + orderId);
+    }
+
+    public void shipItem(
+            final String orderId,
+            final boolean testFailAtShipping,
+            final String idempotencyKey) {
+        if (testFailAtShipping) {
+            throw new RuntimeException("ship failed for order " + orderId);
+        }
+        if (!usedIdempotencyKeys.add(idempotencyKey)) {
+            System.out.printf("ship already done (key %s); not shipped again%n", idempotencyKey);
+            return;
+        }
+        shipItem(orderId, false);
+    }
+
+    public void updateExternalSystem(final String message, final String idempotencyKey) {
+        if (!usedIdempotencyKeys.add(idempotencyKey)) {
+            System.out.printf("already done (key %s); not sent again: %s%n", idempotencyKey, message);
+            return;
+        }
+        updateExternalSystem(message);
     }
 
     public void callAPI1(final String data) {

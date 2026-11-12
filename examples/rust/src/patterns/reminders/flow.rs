@@ -15,6 +15,7 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use crate::shared::MyDependencyService;
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, Timer, Wait,
@@ -51,7 +52,9 @@ impl Flow for ReminderFlow {
 }
 
 #[derive(Default)]
-struct ReminderStep;
+struct ReminderStep {
+    service: MyDependencyService,
+}
 
 impl Step for ReminderStep {
     type Input = ();
@@ -67,7 +70,8 @@ impl Step for ReminderStep {
         if !context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete("opted-out".to_string()));
         }
-        context.record_event("reminder", "sent".to_string())?;
-        Ok(StepDecision::go_to(&ReminderStep, ()))
+        self.service
+            .send_email("user@example.com", "Reminder: please respond", "Hello, ...");
+        Ok(StepDecision::go_to(&ReminderStep::default(), ()))
     }
 }

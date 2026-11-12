@@ -14,7 +14,8 @@
     "test": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/workflow/**/*.test.js'",
     "test:integ": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/integ/*.test.js'",
     "smoke": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/e2e/flow-smoke.test.js'",
-    "build:ai-agent-ui": "esbuild src/products/ai-agent/ui/chat-app.tsx src/products/ai-agent/ui/index.html --bundle --format=esm --minify --loader:.html=copy --outdir=dist/src/products/ai-agent/ui --log-level=warning"
+    "build:ai-agent-ui": "esbuild src/products/ai-agent/ui/chat-app.tsx src/products/ai-agent/ui/index.html --bundle --format=esm --minify --loader:.html=copy --outdir=dist/src/products/ai-agent/ui --log-level=warning",
+    "agent-quick-start": "npm run build && node dist/src/products/agent-harnesses/quick-start/quick-start-main.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.106",
@@ -25,12 +26,12 @@
     "@openai/agents": "0.21.0",
     "@superdurable/connector-slack": "0.2.0",
     "@superdurable/connectors-sdk": "0.9.0",
-    "@superdurable/dex": "1.44.0",
-    "@superdurable/dex-agents": "0.4.0",
-    "@superdurable/dex-agents-claude-agent-sdk": "0.4.0",
-    "@superdurable/dex-agents-mastra": "0.4.0",
-    "@superdurable/dex-agents-openai-agents": "0.4.0",
-    "@superdurable/dex-agents-vercel-ai": "0.4.0",
+    "@superdurable/dex": "1.45.0",
+    "@superdurable/dex-agents": "0.5.0",
+    "@superdurable/dex-agents-claude-agent-sdk": "0.5.0",
+    "@superdurable/dex-agents-mastra": "0.5.0",
+    "@superdurable/dex-agents-openai-agents": "0.5.0",
+    "@superdurable/dex-agents-vercel-ai": "0.5.0",
     "ai": "7.0.159",
     "express": "^5.1.0",
     "react": "19.2.1",

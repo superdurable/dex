@@ -78,6 +78,18 @@ jobs:
       - name: Type-check agent harness examples
         working-directory: examples/python/agent-harnesses
         run: uv run --frozen mypy --strict agent_harness_examples tests
+      - name: Install agent starter dependencies
+        working-directory: examples/python/agent-starter
+        run: uv sync --locked
+      - name: Type-check agent starter
+        working-directory: examples/python/agent-starter
+        run: uv run --frozen mypy --strict .
+      - name: Install Quick Start example dependencies
+        working-directory: examples/python/quick-start
+        run: uv sync --locked
+      - name: Type-check Quick Start example
+        working-directory: examples/python/quick-start
+        run: uv run --frozen mypy --strict .
       - name: Verify published package
         run: |
           set -euo pipefail

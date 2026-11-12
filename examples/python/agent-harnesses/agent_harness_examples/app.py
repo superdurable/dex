@@ -153,7 +153,7 @@ class AgentHarnessExamplesApp:
 def _new_claude_agent_sdk_example(
     config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
 ) -> AgentHarnessExample:
-    order_desk = OrderDesk()
+    order_desk = OrderDesk(config.order_desk_tool_delay_seconds)
     flow = build_claude_agent_sdk_order_support_flow(
         order_desk, config.claude_agent_sdk_model, slack_connection
     )
@@ -163,7 +163,7 @@ def _new_claude_agent_sdk_example(
 def _new_openai_agents_example(
     config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
 ) -> AgentHarnessExample:
-    order_desk = OrderDesk()
+    order_desk = OrderDesk(config.order_desk_tool_delay_seconds)
     model = _openai_agents_model(config.openai_agents_model)
     flow = build_openai_agents_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("openai-agents", flow, order_desk)
@@ -172,7 +172,7 @@ def _new_openai_agents_example(
 def _new_pydantic_ai_example(
     config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
 ) -> AgentHarnessExample:
-    order_desk = OrderDesk()
+    order_desk = OrderDesk(config.order_desk_tool_delay_seconds)
     model = _pydantic_ai_model(config.pydantic_ai_model)
     flow = build_pydantic_ai_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("pydantic-ai", flow, order_desk)
@@ -181,7 +181,7 @@ def _new_pydantic_ai_example(
 def _new_langchain_example(
     config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
 ) -> AgentHarnessExample:
-    order_desk = OrderDesk()
+    order_desk = OrderDesk(config.order_desk_tool_delay_seconds)
     model = _langchain_model(config.langchain_model)
     flow = build_langchain_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("langchain", flow, order_desk)
@@ -190,7 +190,7 @@ def _new_langchain_example(
 def _new_google_adk_example(
     config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
 ) -> AgentHarnessExample:
-    order_desk = OrderDesk()
+    order_desk = OrderDesk(config.order_desk_tool_delay_seconds)
     model = _google_adk_model(config.google_adk_model)
     flow = build_google_adk_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("google-adk", flow, order_desk)
