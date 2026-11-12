@@ -149,6 +149,34 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
         self.assertEqual(changelog.count("## 1.45 "), 1)
         self.assertTrue(changelog.endswith(GO_RELEASED_1_44))
 
+    def test_prepare_marks_the_end_of_wrapped_and_single_line_patch_bullets(self) -> None:
+        self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
+        self.commit("1.45.0")
+        self.write(
+            "changelog.d/go/wrapped-000001.md",
+            "---\nsection: Changed\n---\n- A wrapped change\n  that spans\n  three lines.\n",
+        )
+        self.write("changelog.d/go/single-000002.md", "---\nsection: Fixed\n---\n- A single fix.\n")
+        self.run_script("prepare", "go", "--version", "1.45.1", "--date", "2026-11-13")
+        self.commit("1.45.1")
+        self.write(
+            "changelog.d/go/late-000003.md",
+            "---\nsection: Changed\n---\n- A late wrapped\n  change.\n- A late single change.\n",
+        )
+        self.run_script("prepare", "go", "--version", "1.45.1", "--date", "2026-11-13")
+
+        changelog = self.read(GO_CHANGELOG)
+        self.assertIn(
+            "### Changed\n\n"
+            "- A wrapped change\n  that spans\n  three lines. Since 1.45.1.\n"
+            "- A late wrapped\n  change. Since 1.45.1.\n"
+            "- A late single change. Since 1.45.1.\n\n"
+            "### Fixed\n\n- A legacy fix.\n- A single fix. Since 1.45.1.\n",
+            changelog,
+        )
+        self.assertEqual(changelog.count("Since 1.45.1."), 4)
+        self.assertTrue(changelog.endswith(GO_RELEASED_1_44))
+
     def test_prepare_writes_a_new_entry_and_needs_allow_empty_without_changes(self) -> None:
         java = "docs/reference/java/changelog.mdx"
         before = self.read(java)

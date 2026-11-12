@@ -294,8 +294,17 @@ def release_url(tag: str) -> str:
 
 
 def with_since(item: PendingItem, version: str) -> PendingItem:
-    lines = tuple(f"{line.rstrip()} Since {version}." if line.startswith("- ") else line for line in item.lines)
-    return PendingItem(item.section, lines)
+    """Returns item with "Since version." after the last line of each bullet, so wrapped bullets end with it."""
+    lines = list(item.lines)
+    last_bullet_lines: list[int] = []
+    for index, line in enumerate(lines):
+        if line.startswith("- "):
+            last_bullet_lines.append(index)
+        elif line.strip() and last_bullet_lines:
+            last_bullet_lines[-1] = index
+    for index in last_bullet_lines:
+        lines[index] = f"{lines[index].rstrip()} Since {version}."
+    return PendingItem(item.section, tuple(lines))
 
 
 def merge_sections(
