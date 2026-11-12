@@ -46,6 +46,12 @@ provider. The default is `anthropic/claude-opus-5-5`; set `model` in the file
 or pass `--model` to change it. The session settings may pick another model
 for later turns.
 
+The `reasoning_effort` session setting takes `low`, `medium`, or `high`, and
+becomes pi-ai's thinking level of every model call in the turn. Without it,
+the model's own default applies. The command declares
+`anthropic/claude-opus-5-5`, `anthropic/claude-sonnet-5-5`, `openai/gpt-5.2`,
+and `openai/gpt-5-mini` as suggested models for a model picker.
+
 The command reads only API keys, from the environment, as pi-ai names them per
 provider: `ANTHROPIC_API_KEY` for `anthropic`, `OPENAI_API_KEY` for `openai`,
 `GEMINI_API_KEY` for `google`, and so on. It never reads Pi's stored logins

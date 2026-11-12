@@ -34,6 +34,12 @@ environment variable, such as `OPENAI_API_KEY` (with optional
 `OPENAI_BASE_URL`) or `ANTHROPIC_API_KEY`. The command never prints or stores
 a key.
 
+The terminal UI's `/model` suggests `openai/gpt-5.2`, `openai/gpt-5-mini`,
+`anthropic/claude-opus-5-5`, and `anthropic/claude-sonnet-5-5`. The command has
+no reasoning effort setting yet, so `/effort` is not available, and a
+`reasoning_effort` session setting fails the turn with
+`unsupported_reasoning_effort`.
+
 The package pins `@mastra/core` to the version the Mastra adapter's lockfile
 tests, and `ci.sh` fails when the two lockfiles differ. Mastra brings its own
 copies of `@ai-sdk/provider`, 3.x and 4.x, for its model router; the command

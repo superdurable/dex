@@ -51,7 +51,13 @@ export const defaultInstructions =
  * them. The model ID is `openai/<model>` or `anthropic/<model>`; each turn uses the model and instructions its
  * session settings resolve to. The `builtin` section has no options yet; any key in it is a configuration error.
  *
+ * The `reasoning_effort` session setting takes `low`, `medium`, or `high`, and becomes the AI SDK's `reasoning`
+ * option of every model call in the turn. The terminal UI's `/model` suggests `openai/gpt-5.2`, `openai/gpt-5-mini`,
+ * `anthropic/claude-opus-5-5`, and `anthropic/claude-sonnet-5-5`.
+ *
  * Changed in 0.6.0: plan mode is on, and the agent has the `write_todos` built-in tool.
+ *
+ * Changed in 0.7.0: maps the `reasoning_effort` session setting and suggests models.
  *
  * @example
  * ```ts
@@ -67,6 +73,8 @@ export const builtinHarness: AgentHarness = {
   configSection: "builtin",
   flowType: builtinCliFlowType,
   defaultModel: defaultBuiltinModel,
+  supportedReasoningEfforts: ["low", "medium", "high"],
+  suggestedModels: ["openai/gpt-5.2", "openai/gpt-5-mini", "anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5"],
   createSessionFlow: (context) => createBuiltinSessionFlow(context),
 };
 
@@ -82,11 +90,20 @@ export const builtinHarness: AgentHarness = {
 export function createBuiltinSessionFlow(context: HarnessContext): AgentSessionFlow<BuiltinLoopAgentRunner> {
   validateBuiltinSection(context.harnessOptions);
   const modelClients = new Map<string, ModelClient>();
-  const modelClientFor = (modelId: string): ModelClient => {
-    let client = modelClients.get(modelId);
+  const modelClientFor = (modelId: string, reasoningEffort: string | undefined): ModelClient => {
+    const key = JSON.stringify([modelId, reasoningEffort ?? null]);
+    let client = modelClients.get(key);
     if (client === undefined) {
-      client = createAiSdkModelClient(createProviderLanguageModel(modelId));
-      modelClients.set(modelId, client);
+      const modelClient = createAiSdkModelClient(createProviderLanguageModel(modelId));
+      client =
+        reasoningEffort === undefined
+          ? modelClient
+          : {
+              callModel: (request, output) =>
+                modelClient.callModel({ ...request, settings: { ...request.settings, reasoningEffort } }, output),
+              estimateInputTokens: (request) => modelClient.estimateInputTokens(request),
+            };
+      modelClients.set(key, client);
     }
     return client;
   };
@@ -94,10 +111,14 @@ export function createBuiltinSessionFlow(context: HarnessContext): AgentSessionF
     {
       name: "assistant",
       instructions: (turn) => context.resolveTurn(turn.sessionSettings ?? {}).instructions ?? defaultInstructions,
-      model: modelClientFor(context.config.model),
-      resolveModel: (settings) => modelClientFor(context.resolveTurn(settings).model),
+      model: modelClientFor(context.config.model, undefined),
+      resolveModel: (settings) => {
+        const turn = context.resolveTurn(settings);
+        return modelClientFor(turn.model, turn.reasoningEffort);
+      },
       toolSources: context.toolSources,
       builtInTools: ["ask_user", "write_todos"],
+      // planningToolChoice stays auto: Anthropic refuses a forced tool choice once reasoning effort turns on thinking.
       planModeEnabled: true,
     },
     context.flowType,

@@ -36,6 +36,11 @@ the Responses API and reads `OPENAI_API_KEY` and, optionally,
 The SDK's trace upload to the OpenAI platform is off, because the Dex session
 already records every model call and tool call.
 
+The terminal UI's `/model` suggests `gpt-5.2`, `gpt-5-mini`, and `gpt-5-nano`.
+`/effort`, the `reasoning_effort` session setting, takes `low`, `medium`, or
+`high`, and becomes the SDK's `modelSettings.reasoning.effort` of every model
+call in the turn. Without it, the model's own default applies.
+
 ## Configuration and tools
 
 The `openai` section has no options yet, and any key in it is a configuration
