@@ -285,6 +285,7 @@ describe("Stepwise agent turns with an in-process Worker", () => {
       question: `Which color for ${token}?`,
       choices: ["red", "blue"],
       allows_free_text: false,
+      display: null,
     });
     assert.deepEqual(payloadOf(events, "interrupt_resolved"), {
       interrupt_id: "call-1-0-ask_user",

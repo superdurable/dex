@@ -30,6 +30,7 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
+import { boundApprovalDisplay } from "./agent-approval-display.js";
 import {
   buildPlanClearedOutput,
   buildPlanUpdatedOutput,
@@ -106,6 +107,7 @@ import {
   toolCallSkippedAfterWriteDetail,
   toolTaskAbandonedError,
   type AgentInterrupt,
+  type AgentInterruptDisplay,
   type AgentPlan,
   type AgentInterruptKind,
   type AgentSessionStartInput,
@@ -1784,6 +1786,9 @@ function toolApprovalInterrupt(
     question: null,
     choices: [],
     allowsFreeText: true,
+    ...(toolCall.approvalDisplay === undefined || toolCall.approvalDisplay === null
+      ? {}
+      : { display: toolCall.approvalDisplay }),
   };
 }
 
@@ -1926,7 +1931,16 @@ function createToolCallRecord(
     skipped: false,
     truncatedOutputBytes: null,
     runnerToolState: null,
+    ...approvalDisplayOf(requestedToolCall, requiresApproval),
   };
+}
+
+function approvalDisplayOf(
+  requestedToolCall: DeferredToolCall,
+  requiresApproval: boolean,
+): { readonly approvalDisplay?: AgentInterruptDisplay } {
+  const approvalDisplay = requiresApproval ? boundApprovalDisplay(requestedToolCall.approvalDisplay) : null;
+  return approvalDisplay === null ? {} : { approvalDisplay };
 }
 
 function writeToolCallDeferred(events: StreamAgentEventWriter, record: AgentToolCallRecord): void {

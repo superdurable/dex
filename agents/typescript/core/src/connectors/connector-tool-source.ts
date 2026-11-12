@@ -23,6 +23,7 @@ import {
   type QueryResult,
 } from "@superdurable/connectors-sdk";
 
+import { buildConnectorToolApprovalDisplay } from "../agent-approval-display.js";
 import {
   ToolExecutionError,
   ToolOutcomeUnknownError,
@@ -530,7 +531,8 @@ export class ConnectorToolSource implements ToolSource {
   }
 
   /**
-   * Builds the call with the manifest's effect and the call's approval.
+   * Builds the call with the manifest's effect and the call's approval. A call that needs approval carries the
+   * display of {@link buildConnectorToolApprovalDisplay}: the operation, the connection, and the short arguments.
    * @param turn - The `RunModel` context; a `toolPolicies` entry for the tool changes only its approval.
    * @param call - The model's tool call.
    * @returns The deferred call, ordered when it is a write.
@@ -557,6 +559,16 @@ export class ConnectorToolSource implements ToolSource {
       policy: { effect: tool.effect, requiresApproval },
       toolSourceReference: serializeJsonWithSpacedSeparators({ tool: tool.name }),
       ordered: tool.effect !== "read",
+      ...(requiresApproval
+        ? {
+            approvalDisplay: buildConnectorToolApprovalDisplay({
+              connectorId: tool.connectorId,
+              connectionName: tool.connection.name,
+              operation: tool.operationId,
+              arguments: call.arguments,
+            }),
+          }
+        : {}),
     };
   }
 

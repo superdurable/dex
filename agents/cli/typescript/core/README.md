@@ -307,6 +307,31 @@ Each call is one Dex tool Step, recorded in the session.
   downloads Chromium on first use. Each session has one page in the Worker's
   memory.
 - `approval.always` adds approval to any tool by name.
+- An approval says what the call acts on in `AgentInterrupt.display`. A file
+  write's target is its workspace path, and its preview is a unified diff of
+  the file as it is when the model asks against the new content, with the
+  header lines `--- <path> (the file now)` and `+++ <path> (after this write)`
+  (`--- /dev/null (no file now)` for a new file) and
+  `\ No newline at end of file` where a side lacks its last newline. A path's
+  control characters show as `\u00XX`. The preview reads the file with the
+  write's own checks, so it never follows a final link and gives no text when
+  the path changes during the read. It is left out for a file or new content
+  over 64 KiB, a diff over 200 lines, a path the write would refuse, a file
+  that is not UTF-8, an `edit_file` whose `old_text` does not occur once, a
+  side the best-effort credential redaction changes, such as one with
+  `password: …`, `key=value`, or an escaped name such as `pass\u0077ord`,
+  and a credential file
+  such as `.env`, `.aws/credentials`, `.kube/config`, `id_ed25519`,
+  `server.pem`, or `secrets.yaml`. A shell command's target is the working
+  directory, and its summary holds the command with common credential shapes
+  redacted and its control characters written as `\u00XX`, cut at 2 KiB;
+  nothing in it is decoded or rewritten otherwise, and the call's
+  arguments keep the full command. Paths, the working directory, and
+  connection names in a display get the same redaction. Browser actions have
+  no display. The redaction is best-effort hygiene, not a security boundary:
+  the session stores the call's full arguments, and the agent can read the
+  file with its own tools. `agents/conformance/approval_display.json` lists
+  the cases both CLI cores share.
 - A local tool's effect and approval are floors. An explicit `ToolPolicy` for
   it may raise the effect, ranked as in `McpToolSource.mergeToolPolicies`.
   The call waits for approval when the tool asks for it, when the policy sets
@@ -339,6 +364,13 @@ that listing fails, one warning says the run has no connector tools and to
 restart the command once the server answers. Every TypeScript adapter lists
 its tool sources in each model call, so none of the TypeScript commands sets
 it; the Python CLI core's `is_tool_set_fixed_at_build` is the same switch.
+
+A connector call that waits for approval carries the display of
+`buildConnectorToolApprovalDisplay` in `AgentInterrupt.display`: the target
+`<connector>/<connection>` and a summary with the operation, the connection,
+and up to five short arguments, credential-like ones as `<redacted>`, read
+from the tool's `_meta`. A tool whose `_meta` names no connector and
+connection has no display.
 
 The agent sees each connector tool by its MCP name, such as
 `slack_post_thread_reply`. `connectors.enabled` matches only these `_meta`
