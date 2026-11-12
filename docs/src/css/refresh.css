@@ -491,6 +491,26 @@ html[data-theme='dark'] .docs-section-entry__icon--logo {
   border: 1px solid var(--docs-hairline);
 }
 
+/* Home page entry cards: three in a row on a laptop, icon above a title and a few words. */
+.docs-home-sections.docs-home-cards {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: 1rem;
+}
+
+.docs-home-cards .docs-section-entry {
+  flex-direction: column;
+  gap: 0.8rem;
+  margin: 0;
+  padding: 1.15rem 1.2rem 1.25rem;
+  border: 1px solid var(--docs-hairline);
+  border-radius: 16px;
+}
+
+.docs-home-cards .docs-section-entry:hover,
+.docs-home-cards .docs-section-entry:focus-visible {
+  border-color: var(--section-accent);
+}
+
 /* The home page's two calls to action and the SDK shortcuts under them. */
 .docs-home-actions p {
   display: flex;
@@ -550,25 +570,6 @@ html[data-theme='dark'] .docs-section-entry__icon--logo {
   border-color: var(--sd-accent);
   color: var(--sd-accent);
   text-decoration: none;
-}
-
-/* Compact link rows under the home page's card groups. */
-.docs-home-links {
-  margin: 2rem 0 1rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
-}
-
-.docs-home-links p {
-  margin: 0 0 0.75rem;
-  color: var(--docs-subtle);
-  font-size: 0.92rem;
-  line-height: 1.8;
-}
-
-.docs-home-links strong {
-  color: var(--docs-heading);
-  margin-right: 0.25rem;
 }
 
 .docs-section-entry__meta {
