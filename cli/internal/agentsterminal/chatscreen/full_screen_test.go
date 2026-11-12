@@ -10,6 +10,7 @@ package chatscreen
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,7 +48,11 @@ func TestResizeLaysOutEveryFrameAgain(t *testing.T) {
 
 func TestPopupFitsShortScreensWithLongContent(t *testing.T) {
 	longApproval := connectorApproval("approval-1")
-	longApproval.EffectSummary = strings.Repeat("Posts the summary to #eng with connection support-slack. ", 8)
+	var consequence []string
+	for step := 1; step <= 12; step++ {
+		consequence = append(consequence, fmt.Sprintf("Step %d posts the summary to #eng with connection support-slack.", step))
+	}
+	longApproval.EffectSummary = strings.Join(consequence, " ")
 	longApproval.Arguments = append(longApproval.Arguments, sessionfeed.ApprovalArgument{Name: "blocks", Value: strings.Repeat("line\n", 30)})
 	manyChoices := sessionfeed.QuestionAsked{InterruptID: "question-1", Question: strings.Repeat("Which branch should I compare against? ", 12)}
 	for index := range 12 {
@@ -61,8 +66,30 @@ func TestPopupFitsShortScreensWithLongContent(t *testing.T) {
 		requireWellFormedScreen(t, content, 80, height)
 		plain := stripForTest(content)
 		require.Contains(t, plain, "Approve slack_post_channel_message?", "height %d", height)
-		require.Contains(t, plain, "y approve", "the hints stay in the status bar at height %d", height)
-		require.Contains(t, plain, "▸ Approve", "the focused option stays at height %d:\n%s", height, plain)
+		actionCount := len(approval.source.recordedActions())
+		if strings.Contains(plain, "y approve") {
+			require.Contains(t, withoutSpaces(popupText(plain)), withoutSpaces(longApproval.EffectSummary), "approve shows only with the whole consequence at height %d:\n%s", height, plain)
+		} else {
+			require.Contains(t, plain, "Enlarge the window or press e to read the consequence.", "height %d:\n%s", height, plain)
+			approval.press(textKey('y'), key(tea.KeyEnter))
+			require.Len(t, approval.source.recordedActions(), actionCount, "approve is refused before the consequence was read at height %d", height)
+			approval.press(textKey('e'))
+			var seenLines []string
+			for range 20 {
+				for _, line := range splitLines(stripForTest(approval.screen.View().Content)) {
+					inner := strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│"))
+					if strings.HasPrefix(strings.TrimSpace(line), "│") && !strings.HasPrefix(inner, "lines ") && !slices.Contains(seenLines, inner) {
+						seenLines = append(seenLines, inner)
+					}
+				}
+				approval.press(key(tea.KeyPgDown))
+			}
+			require.Equal(t, withoutSpaces(longApproval.EffectSummary), withoutSpaces(strings.Join(seenLines, " ")), "the reading view shows every consequence line at height %d", height)
+			require.True(t, approval.screen.popup.hasReadConsequence)
+			approval.press(textKey('e'))
+		}
+		approval.press(textKey('y'))
+		require.Equal(t, sessionfeed.ResolveApproval{InterruptID: "approval-1", IsApproved: true}, approval.lastAction(), "height %d", height)
 
 		question := newScreenHarness(t, harnessOptions{width: 80, height: height})
 		startTurn(question, "Ask.")
@@ -78,16 +105,16 @@ func TestPopupFitsShortScreensWithLongContent(t *testing.T) {
 		require.Contains(t, plain, "▸ release-11", "the focused choice stays visible at height %d:\n%s", height, plain)
 	}
 
-	harness := newScreenHarness(t, harnessOptions{width: 80, height: 24})
+	harness := newScreenHarness(t, harnessOptions{width: 80, height: 30})
 	startTurn(harness, "Post it.")
 	harness.feed(longApproval)
 	plain := stripForTest(harness.screen.View().Content)
-	require.Contains(t, plain, "↑", "hidden rows above are marked")
-	require.Contains(t, plain, "Posts the summary to #eng", "the consequence shows by default")
+	require.Contains(t, plain, "↑", "hidden argument rows are marked")
+	require.Contains(t, withoutSpaces(popupText(plain)), withoutSpaces(longApproval.EffectSummary), "the consequence has reserved rows")
 	harness.press(key(tea.KeyPgUp), key(tea.KeyPgUp), key(tea.KeyPgUp), key(tea.KeyPgUp), key(tea.KeyPgUp), key(tea.KeyPgUp), key(tea.KeyPgUp), key(tea.KeyPgUp))
 	scrolled := stripForTest(harness.screen.View().Content)
-	require.Contains(t, scrolled, "channel  #eng", "PgUp scrolls the popup to its arguments:\n%s", scrolled)
-	require.Contains(t, scrolled, "↓", "hidden rows below are marked")
+	require.Contains(t, scrolled, "channel  #eng", "PgUp scrolls the arguments:\n%s", scrolled)
+	require.Contains(t, withoutSpaces(popupText(scrolled)), withoutSpaces(longApproval.EffectSummary), "the consequence stays while the arguments scroll")
 }
 
 func TestMessageViewScrollsAndFollows(t *testing.T) {
@@ -158,4 +185,22 @@ func TestCopyLastReply(t *testing.T) {
 	_, command = harness.screen.Update(key(tea.KeyEnter))
 	require.NotNil(t, command, "/copy returns the clipboard command")
 	require.Contains(t, harness.scrollbackText(), "· copied the last reply to the clipboard")
+}
+
+// popupText returns the text inside popup borders as one space-joined line.
+func popupText(screenText string) string {
+	var words []string
+	for _, line := range splitLines(screenText) {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "│") {
+			continue
+		}
+		words = append(words, strings.Fields(strings.Trim(trimmed, "│"))...)
+	}
+	return strings.Join(words, " ")
+}
+
+// withoutSpaces drops all whitespace, so wrapping at hyphens does not matter.
+func withoutSpaces(text string) string {
+	return strings.Join(strings.Fields(text), "")
 }

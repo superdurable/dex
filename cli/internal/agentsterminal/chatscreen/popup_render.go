@@ -36,9 +36,24 @@ type popupPosition struct {
 	count int
 }
 
-// renderApprovalPopup fits maximumHeight rows when positive; a long body
-// scrolls and shows its end first.
-func renderApprovalPopup(
+// approvalPopupLayout is the approval popup at one size.
+type approvalPopupLayout struct {
+	lines []string
+	// isConsequenceVisible reports that the whole consequence shows next to
+	// the options. Approving needs it, or a finished read.
+	isConsequenceVisible bool
+	// consequenceLineCount and readingRoom size the reading view, where the
+	// consequence scrolls alone.
+	consequenceLineCount int
+	readingRoom          int
+}
+
+// consequenceWarning replaces Approve when the consequence does not fit.
+const consequenceWarning = "Enlarge the window or press e to read the consequence."
+
+// layoutApprovalPopup reserves rows for the consequence and options; the
+// arguments scroll in the rest.
+func layoutApprovalPopup(
 	approval sessionfeed.ApprovalRequested,
 	popup interruptPopup,
 	position popupPosition,
@@ -46,41 +61,89 @@ func renderApprovalPopup(
 	maximumHeight int,
 	now time.Time,
 	theme terminaltheme.Theme,
-) []string {
+) approvalPopupLayout {
 	box := newPopupBox(width, theme)
-	var body []string
+	var details []string
 	if text := strings.Join(nonEmptyStrings(approval.SourceLabel, approval.ScopeLabel, approval.EffectLabel), theme.Symbols.Separator); text != "" {
-		body = append(body, theme.Secondary.Render(terminaltheme.TruncateToWidth(text, box.contentWidth, theme.Symbols.Ellipsis)))
+		details = append(details, theme.Secondary.Render(terminaltheme.TruncateToWidth(text, box.contentWidth, theme.Symbols.Ellipsis)))
 	}
 	if !approval.Deadline.IsZero() {
-		body = append(body, theme.Secondary.Render("expires in "+formatRemainingTime(approval.Deadline.Sub(now))))
+		details = append(details, theme.Secondary.Render("expires in "+formatRemainingTime(approval.Deadline.Sub(now))))
 	}
-	body = append(body, "")
-	body = append(body, renderApprovalArguments(approval.Arguments, popup.isShowingAllArguments, box.contentWidth, theme)...)
-	if approval.Preview != nil {
-		body = append(body, "")
-		body = append(body, renderFileChangePreview(*approval.Preview, box.contentWidth, theme)...)
-	}
-	body = append(body, "")
+	arguments := renderApprovalArguments(approval.Arguments, popup.isShowingAllArguments, box.contentWidth, theme)
+	var consequence []string
 	if approval.EffectSummary != "" {
-		body = append(body, terminaltheme.WrapToWidth(approval.EffectSummary, box.contentWidth)...)
+		details = append(append(details, ""), arguments...)
+		consequence = terminaltheme.WrapToWidth(approval.EffectSummary, box.contentWidth)
 	} else {
-		body = append(body, theme.Secondary.Render("The tool does not describe its effect."))
+		// Without a described effect, the concrete arguments are the consequence.
+		consequence = append(arguments, theme.Secondary.Render("The tool does not describe its effect."))
 	}
-	body = append(body, "")
-	focusLine := len(body) + popup.selectedOption
-	if popup.isEnteringText {
-		focusLine = len(body)
-		body = append(body, renderPopupTextInput("Reason", &popup.textInput, box.contentWidth, theme)...)
-	} else {
-		labels := []string{"Approve", "Reject", "Reject with a reason"}
-		keys := []string{"y", "n", "r"}
-		for index, label := range labels {
-			body = append(body, renderPopupOption(label, keys[index], index == popup.selectedOption, box.contentWidth, theme))
+	if approval.Preview != nil {
+		details = append(append(details, ""), renderFileChangePreview(*approval.Preview, box.contentWidth, theme)...)
+	}
+	isTight := maximumHeight > 0 && !popup.isReadingConsequence && 1+len(consequence)+1+len(approvalOptionLabels) > maximumHeight-2
+	options := renderApprovalOptions(popup, isTight && !popup.hasReadConsequence, box.contentWidth, theme)
+	title := "Approve " + approval.ToolName + "?"
+	layout := approvalPopupLayout{consequenceLineCount: len(consequence), readingRoom: max(maximumHeight-3, 1)}
+	room := maximumHeight - 2
+	switch {
+	case maximumHeight <= 0:
+		layout.isConsequenceVisible = true
+		layout.lines = box.Render(title, positionLabel(position), joinPopupSections(details, consequence, options))
+	case popup.isReadingConsequence:
+		start := min(popup.consequenceScroll, max(len(consequence)-layout.readingRoom, 0))
+		window := consequence[start:min(start+layout.readingRoom, len(consequence))]
+		footer := theme.Secondary.Render(fmt.Sprintf("lines %d-%d of %d · PgUp/PgDn read · e back", start+1, start+len(window), len(consequence)))
+		layout.lines = box.Render(title, positionLabel(position), append(append([]string{}, window...), footer))
+	case 1+len(consequence)+1+len(options) <= room:
+		layout.isConsequenceVisible = true
+		detailsRoom := room - (1 + len(consequence) + 1 + len(options))
+		shownDetails := scrollPopupBody(details, detailsRoom, popup.scrollFromBottom, -1, true, theme)
+		layout.lines = box.Render(title, positionLabel(position), joinPopupSections(shownDetails, consequence, options))
+	default:
+		warning := theme.Warning.Render(terminaltheme.TruncateToWidth(consequenceWarning, box.contentWidth, theme.Symbols.Ellipsis))
+		body := append([]string{warning}, options...)
+		if room > len(body) {
+			body = append([]string{warning}, append(consequence[:min(room-len(body), len(consequence))], options...)...)
 		}
+		layout.lines = box.Render(title, positionLabel(position), body[:min(len(body), max(room, 0))])
 	}
-	body = scrollPopupBody(body, maximumHeight-2, popup.scrollFromBottom, focusLine, maximumHeight > 0, theme)
-	return box.Render("Approve "+approval.ToolName+"?", positionLabel(position), body)
+	return layout
+}
+
+// joinPopupSections joins non-empty sections with one empty line between.
+func joinPopupSections(sections ...[]string) []string {
+	var body []string
+	for _, section := range sections {
+		if len(section) == 0 {
+			continue
+		}
+		if len(body) > 0 {
+			body = append(body, "")
+		}
+		body = append(body, section...)
+	}
+	return body
+}
+
+// approvalOptionLabels are the approval choices in order.
+var approvalOptionLabels = []string{"Approve", "Reject", "Reject with a reason"}
+
+func renderApprovalOptions(popup interruptPopup, isApproveBlocked bool, contentWidth int, theme terminaltheme.Theme) []string {
+	if popup.isEnteringText {
+		return renderPopupTextInput("Reason", &popup.textInput, contentWidth, theme)
+	}
+	labels := append([]string{}, approvalOptionLabels...)
+	keys := []string{"y", "n", "r"}
+	if isApproveBlocked {
+		labels[0], keys[0] = "Approve after reading the consequence", "e"
+	}
+	options := make([]string, 0, len(labels))
+	for index, label := range labels {
+		options = append(options, renderPopupOption(label, keys[index], index == popup.selectedOption, contentWidth, theme))
+	}
+	return options
 }
 
 // renderQuestionPopup fits maximumHeight rows when positive; a long body

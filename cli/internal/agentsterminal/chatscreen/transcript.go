@@ -9,6 +9,7 @@
 package chatscreen
 
 import (
+	"sort"
 	"time"
 
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
@@ -34,16 +35,32 @@ const (
 )
 
 type transcriptEntry struct {
-	kind          transcriptBlockKind
-	block         transcriptBlock
-	isSeparated   bool
-	renderedWidth int
-	renderedLines []string
+	kind        transcriptBlockKind
+	block       transcriptBlock
+	isSeparated bool
 }
 
-// transcript is the ordered list of finished blocks.
+// transcript holds the finished blocks and their lines at one width; appends
+// lay out only the new block.
 type transcript struct {
 	entries []transcriptEntry
+	// layoutWidth is the width of lines and entryStarts; 0 means stale.
+	layoutWidth int
+	lines       []string
+	// entryStarts holds each entry's first line, separator included.
+	entryStarts []int
+	theme       terminaltheme.Theme
+}
+
+func newTranscript(theme terminaltheme.Theme) transcript {
+	return transcript{theme: theme}
+}
+
+// transcriptAnchor is an entry and a line within it; len(entries) means the
+// lines after the transcript.
+type transcriptAnchor struct {
+	entryIndex int
+	lineOffset int
 }
 
 // Append adds a block. A blank line separates blocks, except consecutive
@@ -55,30 +72,69 @@ func (history *transcript) Append(kind transcriptBlockKind, block transcriptBloc
 		isSeparated = previous != kind || (kind != transcriptBlockToolRow && kind != transcriptBlockNotice)
 	}
 	history.entries = append(history.entries, transcriptEntry{kind: kind, block: block, isSeparated: isSeparated})
-}
-
-// Replace swaps the block at index, for example the welcome block after the
-// session changes.
-func (history *transcript) Replace(index int, block transcriptBlock) {
-	entry := &history.entries[index]
-	entry.block, entry.renderedWidth, entry.renderedLines = block, 0, nil
-}
-
-// Lines lays out every block at width. Each block's lines are kept until
-// the width changes.
-func (history *transcript) Lines(width int, theme terminaltheme.Theme) []string {
-	var lines []string
-	for index := range history.entries {
-		entry := &history.entries[index]
-		if entry.renderedWidth != width || entry.renderedLines == nil {
-			entry.renderedLines, entry.renderedWidth = entry.block.Render(width, theme), width
-		}
-		if entry.isSeparated {
-			lines = append(lines, "")
-		}
-		lines = append(lines, entry.renderedLines...)
+	if history.layoutWidth > 0 {
+		history.layOutEntry(len(history.entries) - 1)
 	}
-	return lines
+}
+
+// Replace swaps the block at index; the next Lines call lays everything out
+// again.
+func (history *transcript) Replace(index int, block transcriptBlock) {
+	history.entries[index].block = block
+	history.layoutWidth = 0
+}
+
+// Lines returns every line at width. The slice is shared: callers must not
+// change it.
+func (history *transcript) Lines(width int) []string {
+	history.ensureLayout(width)
+	return history.lines
+}
+
+// Anchor returns the entry and offset of line.
+func (history *transcript) Anchor(line int, width int) transcriptAnchor {
+	history.ensureLayout(width)
+	if line >= len(history.lines) {
+		return transcriptAnchor{entryIndex: len(history.entries), lineOffset: line - len(history.lines)}
+	}
+	entryIndex := sort.Search(len(history.entryStarts), func(index int) bool { return history.entryStarts[index] > line }) - 1
+	entryIndex = max(entryIndex, 0)
+	return transcriptAnchor{entryIndex: entryIndex, lineOffset: line - history.entryStarts[entryIndex]}
+}
+
+// LineOf maps an anchor back to a line at width, clamping the offset to the
+// entry's new length.
+func (history *transcript) LineOf(anchor transcriptAnchor, width int) int {
+	history.ensureLayout(width)
+	if anchor.entryIndex >= len(history.entries) {
+		return len(history.lines) + anchor.lineOffset
+	}
+	start := history.entryStarts[anchor.entryIndex]
+	end := len(history.lines)
+	if anchor.entryIndex+1 < len(history.entryStarts) {
+		end = history.entryStarts[anchor.entryIndex+1]
+	}
+	return start + min(anchor.lineOffset, max(end-start-1, 0))
+}
+
+func (history *transcript) ensureLayout(width int) {
+	if history.layoutWidth == width {
+		return
+	}
+	history.layoutWidth = width
+	history.lines, history.entryStarts = nil, nil
+	for index := range history.entries {
+		history.layOutEntry(index)
+	}
+}
+
+func (history *transcript) layOutEntry(index int) {
+	entry := history.entries[index]
+	history.entryStarts = append(history.entryStarts, len(history.lines))
+	if entry.isSeparated {
+		history.lines = append(history.lines, "")
+	}
+	history.lines = append(history.lines, entry.block.Render(history.layoutWidth, history.theme)...)
 }
 
 type userMessageBlock struct {

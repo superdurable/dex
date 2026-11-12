@@ -59,7 +59,7 @@ func (source *recordingSource) recordedActions() []sessionfeed.UserAction {
 
 // screenHarness drives one ChatScreen without a terminal.
 type screenHarness struct {
-	t       *testing.T
+	t       testing.TB
 	screen  *ChatScreen
 	source  *recordingSource
 	profile colorprofile.Profile
@@ -76,7 +76,7 @@ type harnessOptions struct {
 	showsLogo bool
 }
 
-func newScreenHarness(t *testing.T, options harnessOptions) *screenHarness {
+func newScreenHarness(t testing.TB, options harnessOptions) *screenHarness {
 	t.Helper()
 	if options.width == 0 {
 		options.width = 80
@@ -247,7 +247,7 @@ var allWidths = []int{40, 60, 80, 120}
 // scrollbackRaw returns every transcript line, scrolled out or not.
 func (harness *screenHarness) scrollbackRaw() string {
 	width := min(harness.screen.width, maximumContentWidth)
-	return strings.Join(harness.screen.history.Lines(width, harness.screen.theme), "\n")
+	return strings.Join(harness.screen.history.Lines(width), "\n")
 }
 
 // scrollbackText returns the transcript without escape sequences.

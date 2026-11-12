@@ -200,6 +200,7 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 		printedSequences:  map[int64]bool{},
 		notices:           newNoticeFilter(),
 	}
+	screen.history = newTranscript(config.Theme)
 	screen.history.Append(transcriptBlockWelcome, screen.welcome())
 	return screen
 }
@@ -682,7 +683,13 @@ func (screen *ChatScreen) handlePopupKey(key tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	interrupt := screen.interrupts[screen.popupIndex]
+	if interrupt.approval != nil && screen.handleConsequenceKey(key) {
+		return nil
+	}
 	result := screen.popup.HandleKey(interrupt, key)
+	if resolve, isResolve := result.action.(sessionfeed.ResolveApproval); isResolve && resolve.IsApproved && !screen.canApprove() {
+		return nil
+	}
 	switch {
 	case result.isClosed:
 		screen.closePopup()
@@ -703,6 +710,44 @@ func (screen *ChatScreen) handlePopupKey(key tea.KeyPressMsg) tea.Cmd {
 		return screen.submitAction(result.action)
 	}
 	return nil
+}
+
+// canApprove reports whether the consequence is on screen now or was read in
+// full.
+func (screen *ChatScreen) canApprove() bool {
+	return screen.popup.hasReadConsequence || screen.approvalLayout(screen.computeLayout()).isConsequenceVisible
+}
+
+// handleConsequenceKey runs the reading view's keys (e, PgUp/PgDn, Esc) and
+// reports whether key was one.
+func (screen *ChatScreen) handleConsequenceKey(key tea.KeyPressMsg) bool {
+	layout := screen.approvalLayout(screen.computeLayout())
+	popup := &screen.popup
+	if !popup.isReadingConsequence {
+		if key.String() != "e" || layout.isConsequenceVisible {
+			return false
+		}
+		popup.isReadingConsequence, popup.consequenceScroll = true, 0
+	} else {
+		maximumScroll := max(layout.consequenceLineCount-layout.readingRoom, 0)
+		// A page is the reading room, so paging never skips a line.
+		page := max(layout.readingRoom, 1)
+		switch key.String() {
+		case "pgdown", "down", "j":
+			popup.consequenceScroll = min(popup.consequenceScroll+page, maximumScroll)
+		case "pgup", "up", "k":
+			popup.consequenceScroll = max(popup.consequenceScroll-page, 0)
+		case "e", "esc":
+			popup.isReadingConsequence = false
+			return true
+		default:
+			return true
+		}
+	}
+	if popup.consequenceScroll+layout.readingRoom >= layout.consequenceLineCount {
+		popup.hasReadConsequence = true
+	}
+	return true
 }
 
 // nextOpenableInterrupt returns the index of the next interrupt after from

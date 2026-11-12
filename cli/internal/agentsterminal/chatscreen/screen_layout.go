@@ -18,14 +18,44 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 )
 
-// messageScroll is the position of the message view. While following, the
-// view shows the newest lines.
+// messageScroll is the message view position. Off the bottom, its top is
+// anchored to an entry, surviving resizes.
 type messageScroll struct {
 	isFollowing bool
-	top         int
-	// seenLineCount is the line count when the user scrolled away; more
-	// lines show the new-messages indicator.
-	seenLineCount int
+	anchor      transcriptAnchor
+	// seenEntryCount is the entry count when the user scrolled away; more
+	// entries show the new-messages indicator.
+	seenEntryCount int
+}
+
+// messageContent is the transcript followed by the live activity. It never
+// copies the transcript, whose lines are shared.
+type messageContent struct {
+	transcriptLines []string
+	activityLines   []string
+}
+
+func (content messageContent) Len() int {
+	if len(content.activityLines) == 0 {
+		return len(content.transcriptLines)
+	}
+	return len(content.transcriptLines) + 1 + len(content.activityLines)
+}
+
+// Window returns height lines from top, padded with empty lines.
+func (content messageContent) Window(top int, height int) []string {
+	window := make([]string, 0, height)
+	for line := top; line < top+height; line++ {
+		switch {
+		case line < len(content.transcriptLines):
+			window = append(window, content.transcriptLines[line])
+		case line > len(content.transcriptLines) && line-len(content.transcriptLines)-1 < len(content.activityLines):
+			window = append(window, content.activityLines[line-len(content.transcriptLines)-1])
+		default:
+			window = append(window, "")
+		}
+	}
+	return window
 }
 
 const (
@@ -41,7 +71,6 @@ type screenLayout struct {
 	messageHeight int
 	docked        []string
 	input         renderedInput
-	statusBar     []string
 }
 
 // View draws the full screen. It is empty while exiting, so the terminal
@@ -110,43 +139,42 @@ func (screen *ChatScreen) handleMouseWheel(wheel tea.MouseWheelMsg) {
 }
 
 func (screen *ChatScreen) scrollToTop() {
-	screen.leaveFollowing()
-	screen.scroll.top = 0
+	screen.setTop(0, screen.computeLayout())
 }
 
 // scrollBy moves the message view by delta lines. Reaching the end follows
 // new lines again.
 func (screen *ChatScreen) scrollBy(delta int) {
 	layout := screen.computeLayout()
-	lineCount := len(screen.messageLines(layout.contentWidth, screen.now(), 0))
-	maximumTop := max(lineCount-layout.messageHeight, 0)
-	top := screen.scroll.top
+	screen.setTop(screen.currentTop(layout)+delta, layout)
+}
+
+// currentTop returns the first shown line of the message view.
+func (screen *ChatScreen) currentTop(layout screenLayout) int {
+	maximumTop := max(screen.messageContent(layout.contentWidth, screen.now(), 0).Len()-layout.messageHeight, 0)
 	if screen.scroll.isFollowing {
-		top = maximumTop
+		return maximumTop
 	}
-	top = min(max(top+delta, 0), maximumTop)
+	return min(max(screen.history.LineOf(screen.scroll.anchor, layout.contentWidth), 0), maximumTop)
+}
+
+func (screen *ChatScreen) setTop(top int, layout screenLayout) {
+	maximumTop := max(screen.messageContent(layout.contentWidth, screen.now(), 0).Len()-layout.messageHeight, 0)
+	top = min(max(top, 0), maximumTop)
 	if top >= maximumTop {
 		screen.scroll.isFollowing = true
 		return
 	}
-	screen.leaveFollowing()
-	screen.scroll.top = top
-}
-
-func (screen *ChatScreen) leaveFollowing() {
-	if !screen.scroll.isFollowing {
-		return
+	if screen.scroll.isFollowing {
+		screen.scroll.seenEntryCount = len(screen.history.entries)
 	}
-	layout := screen.computeLayout()
 	screen.scroll.isFollowing = false
-	screen.scroll.seenLineCount = len(screen.messageLines(layout.contentWidth, screen.now(), 0))
+	screen.scroll.anchor = screen.history.Anchor(top, layout.contentWidth)
 }
 
 // computeLayout splits the screen: the message view gets what the docked
 // rows, the input, and the status bar leave.
 func (screen *ChatScreen) computeLayout() screenLayout {
-	now := screen.now()
-	spinnerFrame := int(now.UnixMilli() / spinnerFrameInterval.Milliseconds())
 	layout := screenLayout{width: screen.width, contentWidth: min(screen.width, maximumContentWidth)}
 	layout.docked = screen.renderPendingBar(layout.contentWidth)
 	if len(screen.plan.Items) > 0 && screen.plan.Status != sessionfeed.PlanStatusCleared {
@@ -157,8 +185,7 @@ func (screen *ChatScreen) computeLayout() screenLayout {
 		layout.docked = append(layout.docked, " "+renderImageChips(screen.attachments, layout.contentWidth-1, screen.theme))
 	}
 	layout.input = screen.renderInput(screen.width)
-	layout.statusBar = screen.renderStatusBar(layout.contentWidth, now, spinnerFrame)
-	fixedHeight := 1 + len(layout.input.lines) + len(layout.statusBar)
+	fixedHeight := 1 + len(layout.input.lines) + statusBarHeight
 	for len(layout.docked) > 0 && screen.height-fixedHeight-len(layout.docked) < minimumMessageHeight {
 		layout.docked = layout.docked[1:]
 	}
@@ -183,7 +210,7 @@ func (screen *ChatScreen) renderFullScreen() (string, *tea.Cursor) {
 	lines = append(lines, screen.theme.Secondary.Render(strings.Repeat(screen.theme.Symbols.Rule, screen.width)))
 	inputRow := len(lines)
 	lines = append(lines, layout.input.lines...)
-	lines = append(lines, layout.statusBar...)
+	lines = append(lines, screen.renderStatusBar(layout.contentWidth, now, spinnerFrame)...)
 	var cursor *tea.Cursor
 	if !screen.isPopupOpen && !screen.isHelpOpen && !screen.isInputDisabled {
 		cursor = tea.NewCursor(layout.input.cursorColumn, inputRow+layout.input.cursorRow)
@@ -213,14 +240,13 @@ func (screen *ChatScreen) renderTooNarrowScreen(now time.Time, spinnerFrame int)
 	return strings.Join(fitToHeight(lines, screen.height), "\n"), tea.NewCursor(input.cursorColumn, inputRow+input.cursorRow)
 }
 
-// messageLines are the transcript followed by the live activity: the
+// messageContent is the transcript followed by the live activity: the
 // unfinished reply, running tools, and requests in flight.
-func (screen *ChatScreen) messageLines(contentWidth int, now time.Time, spinnerFrame int) []string {
-	lines := screen.history.Lines(contentWidth, screen.theme)
-	if activity := screen.renderActivityLines(contentWidth, now, spinnerFrame); len(activity) > 0 {
-		lines = append(append(lines, ""), activity...)
+func (screen *ChatScreen) messageContent(contentWidth int, now time.Time, spinnerFrame int) messageContent {
+	return messageContent{
+		transcriptLines: screen.history.Lines(contentWidth),
+		activityLines:   screen.renderActivityLines(contentWidth, now, spinnerFrame),
 	}
-	return lines
 }
 
 // renderMessageArea draws the scrolled message view with the help or a popup
@@ -230,17 +256,10 @@ func (screen *ChatScreen) renderMessageArea(layout screenLayout, now time.Time, 
 	if height <= 0 {
 		return nil
 	}
-	lines := screen.messageLines(layout.contentWidth, now, spinnerFrame)
-	top := max(len(lines)-height, 0)
-	if !screen.scroll.isFollowing {
-		top = min(screen.scroll.top, top)
-	}
-	window := append([]string{}, lines[top:min(top+height, len(lines))]...)
-	for len(window) < height {
-		window = append(window, "")
-	}
+	content := screen.messageContent(layout.contentWidth, now, spinnerFrame)
+	window := content.Window(screen.currentTop(layout), height)
 	overlay := screen.renderOverlay(layout, height, now)
-	if len(overlay) == 0 && !screen.scroll.isFollowing && len(lines) > screen.scroll.seenLineCount {
+	if len(overlay) == 0 && !screen.scroll.isFollowing && len(screen.history.entries) > screen.scroll.seenEntryCount {
 		overlay = []string{" " + screen.theme.Accent.Render("↓") + screen.theme.Secondary.Render(" new messages · End follows")}
 	}
 	copy(window[height-len(overlay):], overlay)
@@ -261,15 +280,26 @@ func (screen *ChatScreen) renderOverlay(layout screenLayout, height int, now tim
 		return help[top : top+height]
 	case screen.isPopupOpen && screen.popupIndex < len(screen.interrupts):
 		interrupt := screen.interrupts[screen.popupIndex]
-		position := popupPosition{index: screen.popupIndex, count: len(screen.interrupts)}
-		popupWidth := min(layout.width, maximumPopupWidth+2)
 		if interrupt.approval != nil {
-			return renderApprovalPopup(*interrupt.approval, screen.popup, position, popupWidth, height, now, screen.theme)
+			return screen.approvalLayout(layout).lines
 		}
-		return renderQuestionPopup(*interrupt.question, screen.popup, position, popupWidth, height, screen.theme)
+		position := popupPosition{index: screen.popupIndex, count: len(screen.interrupts)}
+		return renderQuestionPopup(*interrupt.question, screen.popup, position, popupWidth(layout), height, screen.theme)
 	default:
 		return nil
 	}
+}
+
+func popupWidth(layout screenLayout) int {
+	return min(layout.width, maximumPopupWidth+2)
+}
+
+// approvalLayout lays out the open approval at the current size, for drawing
+// and for deciding whether Approve is allowed.
+func (screen *ChatScreen) approvalLayout(layout screenLayout) approvalPopupLayout {
+	interrupt := screen.interrupts[screen.popupIndex]
+	position := popupPosition{index: screen.popupIndex, count: len(screen.interrupts)}
+	return layoutApprovalPopup(*interrupt.approval, screen.popup, position, popupWidth(layout), layout.messageHeight, screen.now(), screen.theme)
 }
 
 // renderActivityLines draws the unfinished reply, running tool rows, and
@@ -367,7 +397,13 @@ func (screen *ChatScreen) popupHints() []string {
 		if screen.popup.isEnteringText {
 			return []string{"Enter reject", "Esc back"}
 		}
+		if screen.popup.isReadingConsequence {
+			return []string{"PgUp/PgDn read", "e back"}
+		}
 		hints := []string{"y approve", "n reject", "r reason"}
+		if !screen.canApprove() {
+			hints = []string{"e read the consequence", "n reject", "r reason"}
+		}
 		if hasNext {
 			hints = append(hints, "Tab next")
 		}
