@@ -1,0 +1,69 @@
+---
+id: failover-and-deploys
+title: 故障转移和部署
+sidebar_label: 故障转移和部署
+slug: /concepts/failover-and-deploys
+description: Worker 崩溃、Dex Server 节点故障转移或部署新代码时，哪些会重新运行，以及你需要怎么做。
+---
+
+# 故障转移和部署
+
+Dex 保存每个已完成的 Step，所以崩溃或部署只会重复正在进行中的工作。这一页列出每种事件，以及哪些会重新运行。
+
+| 事件 | 哪些会重新运行 | 你要做什么 |
+| --- | --- | --- |
+| Worker 崩溃或停止 | 它正在运行的 Step 尝试 | 用[幂等键](/concepts/step#idempotency-keys)标识外部调用。 |
+| Dex Server 节点故障转移 | Worker 已经收到的每次尝试 | 同上。每次尝试还会消耗一次重试。 |
+| 你部署新的 Step 代码 | 已经完成的保持不变 | 让未结束的 Flow 继续正常工作。见 [Flow 代码的版本管理](/concepts/change-flow-code#versioning-flow-code)。 |
+| 你修改 `WaitFor` 代码 | 已经在等待的保持不变 | 已经在等待的 Step 仍然使用旧的条件。 |
+| ASYNC Step 的开始记录丢失 | 这次尝试，在新的快照上运行 | Step 必须看到同一个快照时，用 SYNC。 |
+| ASYNC Step 的结果丢失 | 这个 Step，以及从它开始、直到第一个 SYNC Step 的后续工作 | 让 ASYNC Step 和它之后的工作可以安全地重复。 |
+| 你运行 Time Travel | 所选点之后的每个 Step | 为外部调用设置键，让重复调用不产生效果。 |
+
+## Worker 崩溃或停止 {#a-worker-crashes-or-stops}
+
+在 Step 中途退出的 Worker 会留下一次未完成的尝试。Dex 让这次尝试失败，并按照 Step 的重试策略在另一个 Worker 上重试。重试复用第一次尝试的状态快照。已完成的 Step 不会再运行。正在等待的 Step 不占用 Worker，所以等待期间的崩溃不会重复任何工作。[Step 的保证](/concepts/step#guarantees) 有详细说明。
+
+优雅停止会先排空任务。Worker 默认给正在运行的方法最多 30 秒来完成，然后请求它们取消。见 [Workers and the task queue](/reference/server/workers)（英文）。
+
+## Dex Server 节点故障转移 {#a-dex-server-node-fails-over}
+
+active 节点崩溃后，standby 在 lease 到期再过 1 秒后接管。lease 默认是 10 秒。接着，恢复过程会让 Worker 已经收到的每次尝试以 `NOT_COMPLETED` 失败，每次尝试都消耗一次重试。所以故障转移期间正在运行的 Step 会再运行一次，即使它的 Worker 一直在运行。原因是这些尝试不是新节点分发出去的。旧节点的任务 stream 随它一起结束了，新节点无法知道每次尝试是否已经完成，所以全部重试。
+
+有一个例外。节点还没有保存开始记录的 ASYNC 尝试，会用同一个尝试编号再运行一次，不消耗重试。见 [Lease, hot standby, and step down](/reference/server/high-availability#lease)（英文）。
+
+如果原来的 Worker 在恢复过程让它的尝试失败之后才完成，Dex 会忽略这个迟到的结果。它丢弃这个结果中的 Attribute 写入、Channel 发布和决定。方法发出的外部调用已经发生了，所以重新运行必须使用同样的[幂等键](/concepts/step#idempotency-keys)。
+
+故障转移后，缺少 heartbeat checkpoint 的 Step 会从头开始。方法超时默认是 2 小时，所以最多可能重复 2 小时的工作。长时间运行的 Step 可以不必从头开始。随着工作推进，发送带 checkpoint 值的 heartbeat，例如最后完成的那一批。下一次尝试会收到最新保存的 checkpoint，并从那里继续。checkpoint 可能丢失，所以它之后的工作必须可以安全地重复。见 SDK 参考中的 [Heartbeat](/reference/python/step-options#heartbeat)（英文）（每个 SDK 都有同样的章节）。
+
+优雅的 step down 会释放 lease，所以 standby 立即接管。
+
+### Agent 工具和 server 升级 {#agent-tools-and-server-upgrades}
+
+故障转移期间正在运行的 Agent 的单次尝试（single-attempt）tool，会以 `outcome_unknown` 结束，因为它的尝试已经到达 Worker，然后失败了。见 [Tool Call](/agent-frameworks/tool-calls)。有些 server 升级会停止所有 server 进程，这会以同样的方式让进行中的尝试失败。做这类升级之前，先优雅地停止 Worker。优雅停止不再启动新任务，并让正在运行的 handler 完成并发送结果，最长等待排空超时，默认 30 秒。然后停止并升级 server，再重新启动 Worker。没有 Worker 运行期间发出的调用会在队列中等待；如果是 RPC，则以 `Unavailable` 失败。见 [Workers and the task queue](/reference/server/workers)（英文）和 [Upgrades](/reference/server/upgrades)（英文）。
+
+## 你部署新代码 {#you-deploy-new-code}
+
+每次 Step 尝试运行的是领取它的 Worker 上的代码；Dex 不会 [replay](/concepts/change-flow-code#versioning-flow-code) 之前的 Step。当前正在某个 Step 中等待的 Flow，在条件满足时会运行新的 `Execute`。
+
+在滚动部署期间，缺少某个 Step type 或 RPC 的 Worker 会拒绝它。Dex 把调用交给另一个 Worker，Step 尝试不会被消耗。见 [Routing and availability](/reference/server/workers#routing-and-availability)（英文）。
+
+保留 Step type 或 RPC，直到没有未结束的 Flow 会调用它。保存的版本 Attribute 决定 Flow 走哪条路径。见 [Flow 代码的版本管理](/concepts/change-flow-code#versioning-flow-code)。
+
+## 你修改 WaitFor 代码 {#you-change-waitfor-code}
+
+`WaitFor` 返回一个 Wait，Dex 会保存它。已经在等待的 Step 保留它的 `WaitFor` 当时返回的条件。新的 `WaitFor` 代码作用于部署之后开始的 Step execution。要改变旧 Step 等待的内容，向它的 Channel 发布消息，或者跳过它的 Timer，或者启动一个新的 Flow。
+
+## ASYNC Step 的开始记录或结果丢失 {#an-async-steps-start-or-result-is-lost}
+
+如果节点在保存 ASYNC Step 的开始记录或结果之前失败，这个 Step 会在新的状态快照上再运行一次，直到第一个 SYNC Step 为止的后续工作也会再运行。[SYNC 和 ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async) 解释了重复为什么停在那里。
+
+## 你运行 Time Travel {#you-run-time-travel}
+
+Time Travel 把一个 Flow run 移回更早的某个点，从那里重新运行。那个点之后的每个 Step 都会再运行，连同它的外部调用。见 [用 Time Travel 恢复 Flow](/concepts/change-flow-code#time-travel)。
+
+## 下一步 {#next}
+
+- [Step 的保证](/concepts/step#guarantees)
+- [限制](/intro/limits)
+- [在生产环境运行 Dex](/components/production)

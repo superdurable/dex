@@ -2,6 +2,7 @@
 title: Flow
 sidebar_label: Flow
 slug: /concepts/flow
+description: "Flow 是 Dex 中最顶层的工作单元。一个 Flow type 描述一类业务流程，比如订单、订阅或审批。一个 Flow run 是它的一个实例，比如 42 号订单。"
 ---
 
 # Flow
@@ -20,15 +21,15 @@ Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任�
 
 - 一个 Flow ID 同一时间最多只有一个 active run。
 - 一个 Step 方法写入和发布的内容会一次全部生效，或者都不生效。见 [Step 的保证](/concepts/step#guarantees)。
-- 使用默认的 SYNC durability 时，一个 Step 的结果在下一个 Step 开始前已经 durable 存储。Worker 崩溃和 Dex Server 重启都不会丢失它。
-- 没有空闲的 Worker 时，Step 在 durable 队列里等待，有 Worker 可用时再运行。
+- 使用默认的 SYNC durability 时，一个 Step 的结果在下一个 Step 开始前已经持久化存储。Worker 崩溃和 Dex Server 重启都不会丢失它。
+- 没有空闲的 Worker 时，Step 在持久化队列里等待，有 Worker 可用时再运行。
 
 ## Flow 包含什么 {#implement-a-flow}
 
 在你的语言里实现 **Flow** interface，就定义了一个 Flow。它声明三样东西：
 
 - <a id="steps"></a>**Steps**：start Step，以及 Flow 能到达的其他所有 Step。[Step](/concepts/step) 执行后台工作。
-- <a id="persistence-schema"></a>**Persistence schema**：保存 Flow durable 状态的 [Attribute](/concepts/primitives/attribute) 和 [Channel](/concepts/primitives/channel)。读写未声明的名称会被 Dex 拒绝。
+- <a id="persistence-schema"></a>**Persistence schema**：保存 Flow 持久化状态的 [Attribute](/concepts/primitives/attribute) 和 [Channel](/concepts/primitives/channel)。读写未声明的名称会被 Dex 拒绝。
 - <a id="rpc-handlers"></a>**RPC handlers**：client 在运行中的 Flow 上调用的方法。见 [RPC](/concepts/primitives/rpc)。
 
 start Step 的 input type 也是 Flow 的 start input type。下面这个 Flow 有两个 Step、一个 Attribute、一个 Channel 和一个 RPC。
@@ -178,7 +179,7 @@ impl Flow for ExampleFlow {
 |--------|--------|------|
 | `FlowType` | 应用（Flow 实现） | Dex 路由 Worker 调用和搜索结果使用的稳定类型名。 |
 | **Flow ID** | 应用在 start 时 | 一次 Flow run 的业务身份。ID reuse policy 控制能否用同一个 Flow ID 再启动一个 run。 |
-| **Run ID** | Dex Server | 这个 Flow ID 的一次 run 的身份。Time travel 保留它，并创建一个新的 run attempt。请用 Flow ID 定位 Flow；Run ID 只用于诊断。 |
+| **Run ID** | Dex Server | 这个 Flow ID 的一次 run 的身份。Time travel 保留它，并创建一个新的 run 尝试。请用 Flow ID 定位 Flow；Run ID 只用于诊断。 |
 | `StepType` | 应用（Step 实现） | Flow 内一个 Step 定义的稳定名称。 |
 | `StepExecutionID` | Dex Server | 某个 Step type 的一次执行，格式为 **StepType-Number**。 |
 
@@ -206,9 +207,25 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 
 用稳定的业务 Flow ID 直接启动 Flow。不要先读取或搜索，检查它是否已经存在。要安全地重试同一次启动，做三件事：使用拒绝第二个 run 的 ID reuse policy；每次重试都发送同一个 request ID；打开“返回已有 run，而不是报 already-started 错误”的启动选项。这样，重试一个已经成功的启动时，会拿到那个 run。如果 policy 允许再启动一个 run，重试就可能启动第二个 run。
 
-## 参考
+这三个选项在各个 SDK 里的名称如下：
 
-英文的 SDK 参考包含：
+| SDK | ID reuse policy | Request ID | 返回已有 run |
+| --- | --- | --- | --- |
+| Python | `id_reuse_policy` | `request_id` | `ignore_already_started=True` |
+| Go | **IDReusePolicy** | `RequestID` | `AlreadyStarted` with **IgnoreError: true** |
+| Java | `idReusePolicy(...)` | `requestId(...)` | `ignoreAlreadyStarted(true)` |
+| TypeScript | `idReusePolicy` | `requestId` | **ignoreAlreadyStarted: true** |
+| Rust | `id_reuse_policy(...)` | `request_id(...)` | `ignore_already_started(true)` |
+
+默认的 ID reuse policy 已经会拒绝同一个 Flow ID 的第二个 run，所以大多数 handler 只需要设置后两个。[一个最小的服务](/components/application#minimal-service) 展示了每个 SDK 里这样做的 handler。
+
+<a id="参考"></a>
+
+## 参考 {#reference}
+
+下面的链接打开英文的 Python 参考。[Go](/reference/go)、[Java](/reference/java)、[TypeScript](/reference/typescript) 和 [Rust](/reference/rust) 参考里有同名页面。
+
+SDK 参考包含：
 
 - [Flow](/reference/python/flow) 定义；
 - [StartFlowOptions](/reference/python/start-flow-options)，以及 [Flow timeout 和 timeout handler](/reference/python/start-flow-options#timeout-and-timeout-policy)；
@@ -216,6 +233,6 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 - [StartFlow 最佳实践](/reference/python/start-flow-options#start-flow-best-practices)；
 - [FlowConfig](/reference/python/flow#flow-config) 以及如何更新它。
 
-## 下一步
+## 下一步 {#next}
 
-[Step](/concepts/step)：Step 是 Flow 里的一个后台工作单元。它可以先 durable 地等待某件事发生，再执行工作，然后选择下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。
+[Step](/concepts/step)：Step 是 Flow 里的一个后台工作单元。

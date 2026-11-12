@@ -4,7 +4,7 @@ title: 等待 Attribute 匹配
 
 # 等待 Attribute 匹配
 
-当调用方需要在 durable 业务状态变化后刷新时，使用 `WaitForAttributeMatch`。这个 Attribute 由应用定义，含义也由应用决定。等待只检查这个 Attribute 的值。
+当调用方需要在持久化业务状态变化后刷新时，使用 `WaitForAttributeMatch`。这个 Attribute 由应用定义，含义也由应用决定。等待只检查这个 Attribute 的值。
 
 常见做法是定义一个初始值为 0 的整数 revision Attribute。所有修改业务状态的 Step 和 RPC 都声明这个 Attribute 的 lock。持有 lock 时，它读取 revision、加一、写入业务状态，再写入新的 revision。
 

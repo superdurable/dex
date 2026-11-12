@@ -1,16 +1,20 @@
 ---
 id: index
-title: Correctness and Expressiveness
-sidebar_label: Correctness and Expressiveness
+title: 正确性与表达能力
+sidebar_label: 正确性与表达能力
 slug: /correctness-and-expressiveness
 ---
 
-# Correctness and Expressiveness
+# 正确性与表达能力
 
 本节回答关于 Dex 的两个问题。
 
 - **表达能力（expressiveness）**：Dex 能否表达你需要的程序？
 - **正确性（correctness）**：进程、机器或网络出故障时，Dex 是否仍然正确？
+
+两个证明都经计算机检查，范围也都有限。它们覆盖的是一个只启动一次、接收 Channel 消息的 Flow。在故障情况下，RPC、SubFlow、`StopFlow` 和 Attribute lock 不在证明范围内。故障证明还假设只用 **SYNC** 方法、重试永远不会用完，而且没有 failure policy。证明针对的是 Dex 的模型，而不是 server 代码本身。模型里的每条故障规则都写在实现它的 server 代码旁边，评审者逐条对照代码检查过。[证明的前提](/correctness-and-expressiveness/failure-transparency-proof#what-the-proof-assumes)列出了每个条件，[如何验证](/correctness-and-expressiveness/failure-transparency-proof#how-it-was-checked)介绍了这些检查。
+
+server 代码本身在证明之外接受故障测试。一个[确定性模拟](https://github.com/superdurable/dex/tree/main/server-zd/crates/dexzd-simulation)让真实的 server 引擎面对模拟的对象存储、时钟、Worker 和客户端运行。它注入缓慢和丢失的存储响应、5xx 错误、写入仍在进行时的崩溃、旧进程仍在写入时新进程的接管，以及卡住、失败或断开连接的 Worker。然后它检查每次已确认的写入都保留下来，并且没有任何读取看到未提交或过期的状态。它还覆盖了故障证明没有包含的大部分内容：RPC（包括[事务性 RPC](/concepts/primitives/rpc#transactional-reads-and-writes)）、Attribute lock、作为 SubFlow 启动的子 Flow、StopFlow，以及硬删除的 Attribute。Failure policy 和 recovery Step 在它的 apply-level 阶段运行，这个阶段测试应用每条命令的状态机，不带外围的引擎。ASYNC 持久性不在它的工作负载里。CI 每晚运行它。[server 集成测试](https://github.com/superdurable/dex/tree/main/server-zd/integ)让真实的 Worker 对着真实的 server 运行。
 
 ## 每项功能的覆盖情况 {#coverage}
 
@@ -38,6 +42,6 @@ slug: /correctness-and-expressiveness
 
 [Step 的保证](/concepts/step#guarantees)说明 Step 方法失败或重复运行时 Dex 的承诺。
 
-[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)覆盖 server 崩溃、备用 server 接管、重试、Dex 放弃后仍在运行的 Worker，以及重复的结果。这些故障只会带来重复的外部副作用：去掉它们，剩下的就是这个 Flow 在没有故障时能产生的事件序列。对公平的运行，结局也不变。证明的页面列出了它的条件，例如只覆盖 **SYNC** 方法、重试不会用完。这个证明同样经计算机检查，完整论证见同一篇[论文](/papers/dex-expressiveness.pdf)。
+[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)覆盖 server 崩溃、备用 server 接管、重试、Dex 放弃后仍在运行的 Worker，以及重复的结果。这些故障只会带来重复的外部副作用：去掉它们，剩下的就是这个 Flow 在没有故障时能产生的事件序列。对公平的运行，结局也不变。公平的运行是指：故障最终会停止，server 会不断恢复，每个到期的 Timer 和就绪的 Step 最终都会运行；[证明页面](/correctness-and-expressiveness/failure-transparency-proof)列出了确切的条件。证明的页面列出了它的条件，例如只覆盖 **SYNC** 方法、重试不会用完。这个证明同样经计算机检查，完整论证见同一篇[论文](/papers/dex-expressiveness.pdf)。
 
-两个证明合起来，覆盖那门小型并发语言中每个格式良好的程序。这样的程序在 Dex 上产生的是一次无故障运行的事件，只是外部副作用可能重复，重复也可能来得很晚。[这对你的代码意味着什么](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)说明怎样让重复变得安全。
+在上述条件下，两个证明合起来覆盖那门小型并发语言中每个格式良好的程序。这样的程序在 Dex 上产生的是一次无故障运行的事件，只是外部副作用可能重复，重复也可能来得很晚。[这对你的代码意味着什么](/correctness-and-expressiveness/failure-transparency-proof#what-it-means-for-you)说明怎样让重复变得安全。

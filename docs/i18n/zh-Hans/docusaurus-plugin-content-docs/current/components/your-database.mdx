@@ -1,0 +1,102 @@
+---
+title: Dex 和你的数据库
+sidebar_label: Dex 和你的数据库
+slug: /components/your-database
+description: Step 怎样写入你的服务已有的数据库，什么时候改用 Attribute Store sync 把 Flow 数据复制到 PostgreSQL，以及怎样修复 Dex 丢弃的同步条目。
+---
+
+# Dex 和你的数据库
+
+Dex 保存每个 Flow 的进度。你的服务通常也有自己的数据库，例如支持工具和报表要读的订单表。这一页介绍数据在两者之间流动的两种方式：
+
+- **Step 写入你的数据库。** 写入由你的代码完成，和其他外部调用一样。
+- **Dex 把 Attribute 复制到你的数据库。** Attribute Store sync 把选定的 Attribute 写入你自己的 PostgreSQL 表。
+
+## Step 写入你的数据库 {#step-writes}
+
+Step 写入你的数据库，和它调用支付 API 的方式一样。这次写入在 Dex 自己的提交之外。Dex 在方法返回后才记录 Step 的结果。所以如果在你的数据库提交和 Dex 提交之间发生崩溃，Step 会再运行一次，写入也会再执行一次。
+
+让写入可以安全地重复：
+
+- **用 upsert，而不是 insert。** 用每次尝试都相同的值作为行的键，例如 Flow ID。在订单 Flow 中，订单 ID 就是 Flow ID，所以 **INSERT ... ON CONFLICT (order_id) DO UPDATE** 语句会再次设置同一行。
+- **写入最终值，而不是变化量。** 设置 **status = 'shipped'**，而不是给计数器加一。这样重复的写入留下的还是同一行。
+- **Step 运行多次时，每次调用用自己的键写入。** 循环运行的 Step，例如每天运行一次的提醒，每次运行写一行。把 Step execution ID 加进键里，这样每次运行都有自己的一行，这次运行的重试会更新它。
+
+读取你数据库的 Step，读到的是尝试运行时数据库里的内容，所以重试可能看到不同的行。某个决定必须在各次尝试之间保持一致时，在更早的 Step 里把这个值存进 Attribute，然后读这个 Attribute。[Step 的保证](/concepts/step#guarantees) 说明重试看到哪些状态，以及 Step 什么时候会再运行。
+
+## 写入你的行并启动 Flow {#write-your-row-and-start-the-flow}
+
+handler 经常为同一个请求写入自己的一行，并启动一个 Flow。使用数据库和队列时，这一对操作需要 transactional outbox。使用 Dex 时，启动本身可以安全地重复，所以 handler 直接重试整个请求。
+
+启动 Flow 时，要让重试找到同一个 run：
+
+- 用**订单 ID 作为 Flow ID**。Dex 为每个 ID 只保留一个 Flow。
+- 每次重试都发送同一个 **request ID**，例如 **start-** 加上订单 ID。
+- 设置 **already-started 选项**，这样重试会返回已有的 run，而不是报错。
+
+[一个最小的服务](/components/application#minimal-service) 用每个 SDK 展示了这个 handler，[启动选项和配置](/concepts/flow#start-options) 列出了每个选项的名字。
+
+然后安排两次写入的顺序，让每一种部分失败都以安全的重试结束：
+
+| 什么失败了 | 会发生什么 | 为什么安全 |
+| --- | --- | --- |
+| 写入行失败 | handler 什么也不启动，返回错误。 | Client 重试这个请求。 |
+| 行已写入，然后启动失败或超时 | Client 重试。先再次写入行，再启动。 | 写入行是按订单 ID 的 upsert。启动要么创建 Flow，要么返回第一次尝试创建的 run。 |
+| Flow 已启动，然后响应丢失 | Client 重试。 | 启动返回已有的 run，所以订单只扣款一次。 |
+| handler 在写入行之后崩溃，Client 也一直没有重试 | 存在一行，但没有对应的 Flow。 | 一个定期任务用同样的启动调用为每个这样的行启动 Flow。重复启动是无害的。 |
+
+只有最后一种情况需要定期任务。要避免它，让 Flow 来写入这一行：handler 只启动 Flow，第一个 Step 按 Flow ID upsert 这一行，就像 [Step 写入你的数据库](#step-writes) 描述的那样。这样 Flow 同时负责流程和这一行，任何时刻崩溃，留下的都是一个会重试自己 Step 的 Flow。
+
+### 这些保护持续多久 {#how-long-protections-last}
+
+两种保护都依赖 Flow run 仍然存在：
+
+- **每个 ID 一个 Flow**：只要这个 Flow ID 的任何 run 还存在，就成立。在默认的 ID 复用策略下，同一个 ID 的第二次启动会被拒绝；设置了 already-started 选项时，会返回已有的 run。
+- **重复的启动请求**：只要它启动的 run 还存在，就会返回这个 run。
+
+Dex 会在已关闭的 run 超过[保留期](/components/production#defaults-to-change-before-production)后删除它。之后这个 Flow ID 就空出来了，用同一个 ID 启动会创建一个新的 Flow。除非支付服务仍然会丢弃重复的键，否则这个新 Flow 会再扣一次款。把保留期设得比 Client 可能重试的最长时间还长，或者把订单状态记在你自己的表里，在启动前先检查。见 [Retention](/reference/server/configuration#retention)（英文）。
+
+对正在运行的 Flow 发出的请求，例如 RPC 调用，也会在一个窗口内按 request ID 去重：一个 run 保留最新的 1,000 个 request ID，用更早的 ID 发起的重试会作为新请求运行（见 [Limits](/reference/server/configuration#limits)（英文）表中的 `limits.maxRequestIdsPerRun`）。
+
+## Dex 把 Attribute 复制到你的数据库 {#attribute-store-sync}
+
+[Attribute Store sync](/concepts/primitives/attribute#attribute-store-projection) 把选定的 Attribute 复制到你自己的 PostgreSQL 表。其他代码需要以行的形式读取 Flow 数据时使用它：
+
+- 用 SQL 查询的报表和仪表盘；
+- 按状态列出订单的支持工具；
+- Dex 删除已关闭的 Flow 之后仍需保留的数据。
+
+这份复制是单向的，并且是最终一致的：
+
+- Flow 仍然是数据的权威来源。一行保存的是最新的值，而不是历史。
+- 一行通常在提交后一秒内出现。Step 和 RPC 从不等待它。
+- 用 Flow 的 Attribute 做 Flow 的决定，通过 RPC 或 Client 读取，而不是读这张表。
+
+### Dex 丢弃同步条目时 {#dropped-entries}
+
+PostgreSQL 不可用期间，Flow 继续运行，Dex 会重试这些写入。超过 `syncRetryPolicy.totalDuration`（默认一小时）仍未完成的条目会被丢弃。Dex 记录一条 warning 日志，写明 Flow run 和 store，并增加 `dexzd_attribute_sync_dropped_entries_total`。PostgreSQL 以不可重试的错误拒绝的写入也计入这个指标，例如值超过了列的长度。
+
+被丢弃的条目会让这一行的值变得不确定。修复步骤：
+
+1. 在 `dexzd_attribute_sync_dropped_entries_total` 任何增加时告警。
+2. 在 server 日志中找到受影响的 Flow run。每条 warning 都写明 run 和 store。
+3. 把每一行和 Flow 的 Attribute 做比较。
+4. 再写一次这些 Attribute。之后对同样 Attribute 的写入会正常同步。
+
+[Attribute Store sync](/reference/server/attribute-store-sync)（英文）介绍配置、重试策略和其他指标。
+
+## 订单示例 {#order-example}
+
+在 [订单处理](/use-cases/order-processing) 示例中，Dex 负责订单流程：扣款、等待审批、发货和退款。你的服务仍然可以为其他读取方保留一张订单表。
+
+| 数据 | 存在哪里 | 怎么到那里 |
+| --- | --- | --- |
+| 订单处在哪个 Step，它的等待和重试 | Dex 中的 Flow | Dex 记录 |
+| **order-status**，供支持工具使用 | Flow，加上一张可选的订单表 | Attribute Store sync |
+| 这次扣款的一条账本记录 | 你的支付表 | Charge Step 按订单 ID upsert |
+
+支持工具读订单表。Flow 根据自己的 Attribute 做决定。Charge Step 的账本写入和支付调用都用订单 ID 作为键，所以 Charge 重新运行不会改变任何东西。
+
+## 下一步 {#next}
+
+[Server（server-zd）](/components/server)：Dex Server 保存每个 Flow 的状态，并把 Step 和 RPC 交给 Worker。

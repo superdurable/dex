@@ -1,0 +1,91 @@
+---
+title: 审批
+sidebar_label: 审批
+slug: /agent-frameworks/approvals
+---
+
+# 审批
+
+审批要回答的是：某个 tool call 到底该不该发生。需要审批的调用会一直等到有人答复，可能是几分钟，也可能是几天，等待期间不占用 Worker。
+
+## 审批如何运作 {#approvals}
+
+Tool 的 policy 决定它的调用是否要等待审批；[要求审批](/agent-frameworks/tool-calls#require-approval) 给出了默认值，以及如何按 tool 修改。
+
+审批与重试是两回事：带幂等键的退款仍然是一笔真实的退款。
+
+需要审批的 tool call 会在自己的 `AwaitToolApproval` Step 中等待，直到有人答复。等待期间不占用 Worker slot，并且能挺过 Worker 重启和部署。人可以 [在你的应用中](#approve-from-your-application) 或 [在 Dex Web 中](#approve-in-dex-web) 批准或拒绝这次调用。模型能看到拒绝结果，并据此作出反应。
+
+审批等待期间，turn 也随之等待，新的用户消息会排队，直到这个 turn 结束。如果审批不能无限期等待，请设置审批期限。到期时仍在等待的调用会被 Dex 拒绝。参见 [Approval deadlines](/reference/agents/approvals#approval-deadlines)（英文）。
+
+## 在你的应用中审批 {#approve-from-your-application}
+
+应用通过 session Flow 的 `resolve_interrupt` RPC 答复一个等待中的调用。它传入 interrupt ID、是否批准，以及一条可选的给模型的消息。在 Python 中，`AgentSessionClient` 把这个 RPC 包装为 `resolve_interrupt`。`get_agent_snapshot` 返回的 snapshot 把等待中的调用列在 `pending_interrupts` 下。
+
+示例应用把这个 RPC 暴露为一个 HTTP route。下面是节选：`session_request` 等请求辅助函数在每个标签页链接的文件中。[完整的 Agent 快速开始应用](/agent-frameworks/add-to-your-agent#web-handler) 展示了同一个 route 的完整代码。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/reject", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const rejectionMessage = optionalString(requireBody(request), "reason");
+    const rejection = { interruptId: String(request.params.interruptId), approved: false, rejectionMessage };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, rejection));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+调用 RPC 之前，先检查谁有权审批。示例的 route 只接受持有该 session 签名 token 的调用方。`resolve_interrupt` 可以安全重试：对同一个 interrupt 的第二次调用返回 **False**，并且什么都不改变。Worker 重启期间调用方会看到什么，参见 [部署期间的 RPC](/agent-frameworks/production#rpcs-during-a-deploy)。
+
+## 在 Dex Web 中审批 {#approve-in-dex-web}
+
+你也可以在 Dex Web 中审批调用。如果 server 保存了某个 Flow type 的 session graph，Dex Web 就会为它显示 **Agent session** 标签页。
+
+[Agent 快速开始](/agent-frameworks/quick-start) 程序会自己上传这个 graph，Python 和 TypeScript 都是如此：它的 Worker 在启动时通过 Worker options（Python 中是 `flow_definitions`，TypeScript 中是 `flowDefinitions`）传入 graph。所以只用普通的 **dexcli dev**，Dex Web 就已经能显示这个标签页。上传需要较新的 Dex Agents 和 Dex Server 版本；详情参见 [Upload the session graph from the Worker](/reference/agents/dex-web#upload-the-graph)（英文）。
+
+然后审批这次调用：
+
+1. 打开这个 session 的 run。它的 Flow ID 就是 session ID。
+2. 选择 **Agent session** 标签页。
+3. 把 **Working as** 设为 graph 中的 permission `agent-quick-start.operate`。
+4. 在 `cancel_order` 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 `resolve_interrupt`。
+
+生产环境中的两种做法，参见 [Show sessions in Dex Web](/reference/agents/dex-web)（英文）。
+
+## 下一步 {#next}
+
+- [Tool Call](/agent-frameworks/tool-calls)
+- [Approvals reference](/reference/agents/approvals)（英文）
+

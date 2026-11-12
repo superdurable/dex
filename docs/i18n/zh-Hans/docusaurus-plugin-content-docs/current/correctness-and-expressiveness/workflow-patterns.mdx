@@ -2,8 +2,8 @@
 # The legend defines the no-support mark.
 positive_first_allow:
   - "- 表示不支持"
-title: Workflow Patterns evaluation
-sidebar_label: Workflow Patterns evaluation
+title: Workflow Patterns 评估
+sidebar_label: Workflow Patterns 评估
 slug: /correctness-and-expressiveness/workflow-patterns
 ---
 
@@ -296,7 +296,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **评级**：**+**。`AnyOf` 决定竞争结果，只有一个分支会开始。
 
-**设计模式**：[Deferred Choice](/design-patterns/deferred-choice)。
+**设计模式**：[延迟选择](/design-patterns/deferred-choice)。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DeferredChoiceFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 
@@ -530,7 +530,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 **评级**：**+/-**。Attribute lock 只覆盖一个 Step 方法，所以由多个 Step 组成的区段用只含一条消息的 Channel 作为令牌。
 
-**设计模式**：[Critical Section](/design-patterns/critical-section)。
+**设计模式**：[临界区](/design-patterns/critical-section)。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/state-based.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/state_based.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/state_based.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CriticalSectionFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/state_based.rs)
 
@@ -576,4 +576,4 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 ## 下一步
 
-[开发者参考](/reference)：The Developer Reference holds the details that change from release to release: configuration keys, flags, defaults, limits, metrics, edge cases, and version differences.
+[开发者参考](/reference)：开发者参考记录随版本变化的细节：配置项、flag、默认值、限制、指标、边界情况和版本差异。

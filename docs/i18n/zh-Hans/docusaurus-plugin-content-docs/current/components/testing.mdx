@@ -1,0 +1,398 @@
+---
+id: testing
+title: 测试你的 Flow
+sidebar_label: 测试你的 Flow
+slug: /components/testing
+description: 用 dexcli dev 启动的真实 Dex Server 测试 Flow。测试运行自己的 Worker，给每个 Flow 一个唯一的 ID，按 ID 跳过 Timer，并用 Client 调用等待，而不是 sleep。
+---
+
+# 测试你的 Flow
+
+用真实的 Dex Server 测试 Flow。只有真实的 server 才能证明 Flow 能在 Worker 重启后继续运行、它的输入能正确编码和解码、等待能唤醒它，mock 做不到这些。SDK 也没有为此提供内存中的 server。只对普通的辅助函数做单元测试，例如构造请求体的函数。
+
+**dexcli dev** 几秒内就能启动一个 server，所以每次测试运行都可以启动自己的 server。
+
+## 为测试启动 server {#start-a-server-for-the-tests}
+
+在只给测试使用的端口和数据目录上启动 **dexcli dev**，这样测试永远碰不到你长期运行的本地 server：
+
+```bash
+printf 'dev:\n  durabilityMode: processCrashSafe\n' > zd-overrides.yaml
+dexcli dev -bind-address 127.0.0.1 -dex-port 19802 -web-port 19902 -open=false \
+  -zd-data-dir "$(mktemp -d)" -zd-config zd-overrides.yaml &
+```
+
+等它的输出显示 **Dex development environment is ready**，然后用 `DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:19802` 运行测试。`processCrashSafe` 设置跳过 fsync，让测试 server 更快。它能扛住进程被杀，但扛不住主机崩溃，所以只在测试中使用。见 [Durability](/reference/server/configuration#single-node-local-durability)（英文）。
+
+仓库里的示例在 CI 中就是这样运行测试的。每个语言目录都有一个 `run-integ-tests.sh` 脚本，它启动 **dexcli dev**，等待它就绪，然后运行测试。
+
+## 编写测试 {#write-a-test}
+
+快速开始的重启测试展示了这个模式。它启动自己的 Worker，用唯一的 ID 启动一个 Flow，在第一个 Step 之后停止这个 Worker，再启动第二个 Worker，然后检查在第二个 Worker 上只运行了第二个 Step：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/quick-start',
+    go: 'examples/go/quick-start',
+    java: 'examples/java/quick-start',
+    typescript: 'examples/typescript/quick-start',
+    rust: 'examples/rust/quick-start',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def test_restarted_worker_ships_without_charging_again(tmp_path: Path) -> None:
+    order_id = f"order-{uuid.uuid4().hex}"
+    first_shop = ShopApi()
+    second_shop = ShopApi()
+    client_flow = OrderFlow(ShopApi())
+    with connected_client(client_flow, tmp_path / "client") as client:
+        with running_worker(OrderFlow(first_shop), tmp_path / "worker-1"):
+            client.start_flow(client_flow, order_id, order_id)
+            client.wait_for_step_completion(
+                order_id,
+                StepExecutionId("Charge"),
+                WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
+            )
+        assert _calls_for(order_id, first_shop.charged) == [order_id]
+        assert _calls_for(order_id, first_shop.shipped) == []
+
+        with running_worker(OrderFlow(second_shop), tmp_path / "worker-2"):
+            _skip_ship_delay(client, order_id)
+            result = client.wait_for_flow(order_id, WAIT_TIMEOUT)
+
+    assert result.status == FlowStatus.COMPLETED
+    assert _calls_for(order_id, second_shop.charged) == []
+    assert _calls_for(order_id, second_shop.shipped) == [order_id]
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func TestRestartedWorkerShipsWithoutChargingAgain(t *testing.T) {
+	orderID := "order-" + randomHex(t)
+	firstShop := &quickstart.ShopAPI{}
+	secondShop := &quickstart.ShopAPI{}
+	clientFlow := quickstart.NewOrderFlow(&quickstart.ShopAPI{})
+	client := connectClient(t, clientFlow)
+	ctx := context.Background()
+
+	stopFirstWorker := startWorker(t, quickstart.NewOrderFlow(firstShop))
+	if _, err := client.StartFlow(ctx, clientFlow, orderID, orderID, dex.StartFlowOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.WaitForStepCompletion(ctx, orderID, dex.StepExecutionID{StepType: "Charge"},
+		dex.WaitForStepCompletionOptions{RequestTimeout: waitTimeout}); err != nil {
+		t.Fatal(err)
+	}
+	stopFirstWorker()
+	assertOrders(t, "first Worker charged", callsFor(orderID, firstShop.Charged()), orderID)
+	assertOrders(t, "first Worker shipped", callsFor(orderID, firstShop.Shipped()))
+
+	stopSecondWorker := startWorker(t, quickstart.NewOrderFlow(secondShop))
+	defer stopSecondWorker()
+	skipShipDelay(t, client, orderID)
+	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
+	defer cancel()
+	result, err := client.WaitForFlow(waitCtx, orderID, dex.WaitForFlowOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != dex.FlowCompleted {
+		t.Fatalf("Flow status = %v, want completed", result.Status)
+	}
+	assertOrders(t, "second Worker charged", callsFor(orderID, secondShop.Charged()))
+	assertOrders(t, "second Worker shipped", callsFor(orderID, secondShop.Shipped()), orderID)
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@Test
+void restartedWorkerShipsWithoutChargingAgain() throws Exception {
+    final String orderId = "order-" + UUID.randomUUID().toString().replace("-", "");
+    final ShopApi firstShop = new ShopApi();
+    final ShopApi secondShop = new ShopApi();
+    final OrderFlow clientFlow = new OrderFlow(new ShopApi());
+    final FlowResult result;
+    try (BlobCache cache = QuickStartConfig.openCache(tempDir.resolve("client"));
+            Client client = new Client(new Registry(List.of(clientFlow)), cache,
+                    new ClientOptions(QuickStartConfig.SERVER_ADDRESS))) {
+        requireServer(client);
+        try (RunningWorker worker = RunningWorker.start(
+                new OrderFlow(firstShop), tempDir.resolve("worker-1"))) {
+            client.startFlow(clientFlow, orderId, orderId);
+            client.waitForStepCompletion(
+                    orderId,
+                    StepExecutionId.of("Charge"),
+                    WaitForStepCompletionOptions.newBuilder().requestTimeout(WAIT_TIMEOUT).build());
+        }
+        assertEquals(List.of(orderId), callsFor(orderId, firstShop.charged()));
+        assertEquals(List.of(), callsFor(orderId, firstShop.shipped()));
+
+        try (RunningWorker worker = RunningWorker.start(
+                new OrderFlow(secondShop), tempDir.resolve("worker-2"))) {
+            skipShipDelay(client, orderId);
+            result = client.waitForFlow(orderId, WAIT_TIMEOUT);
+        }
+    }
+
+    assertEquals(FlowStatus.COMPLETED, result.getStatus());
+    assertEquals(List.of(), callsFor(orderId, secondShop.charged()));
+    assertEquals(List.of(orderId), callsFor(orderId, secondShop.shipped()));
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+test("a restarted Worker ships without charging again", async (t) => {
+  const cacheRoot = await mkdtemp(join(tmpdir(), "dex-quick-start-"));
+  const clientFlow = new OrderFlow(new ShopApi());
+  const clientCache = openCache(join(cacheRoot, "client"));
+  const client = new Client(new Registry([clientFlow]), clientCache, {
+    serverAddress: SERVER_ADDRESS,
+  });
+  try {
+    if (!(await isServerReady(client))) {
+      const message = `no Dex server at ${SERVER_ADDRESS}; set DEX_FLOW_SERVICE_ADDRESS`;
+      if (process.env.DEX_EXAMPLES_ALLOW_SKIP === "1") {
+        t.skip(message);
+        return;
+      }
+      assert.fail(message);
+    }
+
+    const orderId = `order-${randomUUID()}`;
+    const firstShop = new ShopApi();
+    const secondShop = new ShopApi();
+
+    await withRunningWorker(new OrderFlow(firstShop), join(cacheRoot, "worker-1"), async () => {
+      await client.startFlow(clientFlow, orderId, orderId);
+      await client.waitForStepCompletion(orderId, StepExecutionId.of("Charge"), {
+        requestTimeoutMs: WAIT_TIMEOUT_MS,
+      });
+    });
+    assert.deepEqual(callsFor(orderId, firstShop.charged), [orderId]);
+    assert.deepEqual(callsFor(orderId, firstShop.shipped), []);
+
+    const result = await withRunningWorker(
+      new OrderFlow(secondShop),
+      join(cacheRoot, "worker-2"),
+      async () => {
+        await skipShipDelay(client, orderId);
+        return client.waitForFlow(orderId, WAIT_TIMEOUT_MS);
+      },
+    );
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(callsFor(orderId, secondShop.charged), []);
+    assert.deepEqual(callsFor(orderId, secondShop.shipped), [orderId]);
+  } finally {
+    await client.close();
+    clientCache.close();
+    await rm(cacheRoot, { recursive: true, force: true });
+  }
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[test]
+fn restarted_worker_ships_without_charging_again() {
+    let _turn = one_worker_test_at_a_time();
+    let directory = tempfile::tempdir().unwrap();
+    let order_id = format!("order-{:016x}", fastrand::u64(..));
+    let first_shop = ShopApi::default();
+    let second_shop = ShopApi::default();
+    let client_flow = OrderFlow::new(ShopApi::default());
+    let Some(client) = connected_client(&client_flow, &directory.path().join("client")) else {
+        return;
+    };
+
+    {
+        let _worker = RunningWorker::start(
+            OrderFlow::new(first_shop.clone()),
+            &directory.path().join("worker-1"),
+        );
+        client
+            .start_flow(&client_flow, &order_id, order_id.clone())
+            .unwrap();
+        client
+            .wait_for_step_completion(
+                &order_id,
+                StepExecutionId::of(&client_flow.charge),
+                WaitForStepCompletionOptions::new().request_timeout(WAIT_TIMEOUT),
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        calls_for(&order_id, first_shop.charged()),
+        std::slice::from_ref(&order_id)
+    );
+    assert!(calls_for(&order_id, first_shop.shipped()).is_empty());
+
+    let result = {
+        let _worker = RunningWorker::start(
+            OrderFlow::new(second_shop.clone()),
+            &directory.path().join("worker-2"),
+        );
+        skip_ship_delay(&client, &client_flow, &order_id);
+        client
+            .wait_for_flow_with_timeout(&order_id, WAIT_TIMEOUT)
+            .unwrap()
+    };
+
+    assert_eq!(result.status(), FlowStatus::Completed);
+    assert!(calls_for(&order_id, second_shop.charged()).is_empty());
+    assert_eq!(calls_for(&order_id, second_shop.shipped()), [order_id]);
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+在你自己的测试中遵循同样的规则：
+
+- **给每个测试一个唯一的 Flow ID。** 这样多个测试可以同时在一个 server 上运行，之前运行留下的 Flow 也不会干扰。
+- **在测试里运行 Worker。** 用应用里同一个 Registry 构造函数来构建它，这样测试检查的是真实的注册。
+- **用 Client 调用等待，而不是 sleep。** `wait_for_step_completion` 等待一个 Step，`wait_for_flow` 等待 Flow 关闭。
+- **使用记录每次调用的 fake。** 测试的 mock API 保存每一次调用，所以测试能看到重复的调用并计数。
+- **给崩溃测试单独的 Worker。** 注册同一个 Flow type 的 Worker 会共享它的任务。停止 Worker 的测试，只能停止自己的 Worker，而不是其他测试正在用的。
+
+## 跳过 Timer {#skip-a-timer}
+
+在测试中跳过 Timer，例如快速开始里那个 60 秒的 Timer。在 Flow 中给这个 Timer 一个 `condition_id`，然后在测试中用 `skip_timer` 跳过它。在 Step 开始等待这个 Timer 之前，这个调用会失败，所以测试会一直重试，直到超过截止时间：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/quick-start',
+    go: 'examples/go/quick-start',
+    java: 'examples/java/quick-start',
+    typescript: 'examples/typescript/quick-start',
+    rust: 'examples/rust/quick-start',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def _skip_ship_delay(client: Client, order_id: str) -> None:
+    """Skips the 60-second Timer once Ship waits on it."""
+    deadline = time.monotonic() + WAIT_TIMEOUT.total_seconds()
+    while True:
+        try:
+            client.skip_timer(
+                order_id,
+                StepExecutionId("Ship"),
+                TimerId.by_condition_id(SHIP_DELAY_TIMER),
+            )
+            return
+        except DexServiceError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.25)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func skipShipDelay(t *testing.T, client *dex.Client, orderID string) {
+	t.Helper()
+	deadline := time.Now().Add(waitTimeout)
+	for {
+		err := client.SkipTimer(context.Background(), orderID, dex.StepExecutionID{StepType: "Ship"},
+			dex.TimerID{ConditionID: quickstart.ShipDelayTimer})
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private static void skipShipDelay(final Client client, final String orderId)
+        throws InterruptedException {
+    final long deadline = System.nanoTime() + WAIT_TIMEOUT.toNanos();
+    while (true) {
+        try {
+            client.skipTimer(
+                    orderId,
+                    StepExecutionId.of("Ship"),
+                    TimerId.byConditionId(OrderFlow.SHIP_DELAY_TIMER));
+            return;
+        } catch (final DexServiceException notWaitingYet) {
+            if (System.nanoTime() >= deadline) {
+                throw notWaitingYet;
+            }
+            Thread.sleep(250L);
+        }
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+async function skipShipDelay(client: Client, orderId: string): Promise<void> {
+  const deadline = Date.now() + WAIT_TIMEOUT_MS;
+  for (;;) {
+    try {
+      await client.skipTimer(
+        orderId,
+        StepExecutionId.of("Ship"),
+        TimerId.byConditionId(SHIP_DELAY_TIMER),
+      );
+      return;
+    } catch (error) {
+      if (!(error instanceof DexServiceError) || Date.now() >= deadline) {
+        throw error;
+      }
+      await sleep(250);
+    }
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        let skipped = client.skip_timer(
+            order_id,
+            StepExecutionId::of(&order_flow.ship),
+            TimerId::by_condition_id(SHIP_DELAY_TIMER),
+        );
+        match skipped {
+            Ok(()) => return,
+            Err(error) if Instant::now() >= deadline => panic!("skip the ship delay: {error}"),
+            Err(_) => thread::sleep(Duration::from_millis(250)),
+        }
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 下一步 {#next}
+
+- [快速开始](/quick-start)：这些测试运行的 Flow。
+- [本地运行](/components/run-locally)：**dexcli dev** 的选项。
+- [Step 的保证](/concepts/step#guarantees)：测试应该检查的行为，例如 Step 再运行一次。

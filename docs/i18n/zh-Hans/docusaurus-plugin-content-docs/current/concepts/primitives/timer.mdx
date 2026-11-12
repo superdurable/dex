@@ -6,7 +6,7 @@ slug: /concepts/primitives/timer
 
 # Timer
 
-**Timer** 是一个等到某个时间点的 durable 等待，由 Dex Server 保存。Step 在 `WaitFor` 中返回它，Timer 触发后运行 `Execute`。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
+**Timer** 是一个等到某个时间点的持久化等待，由 Dex Server 保存。Step 在 `WaitFor` 中返回它，Timer 触发后运行 `Execute`。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
 
 ## 什么时候用 Timer
 
@@ -218,4 +218,4 @@ Step 如何在 `WaitFor` 中组合 condition，见 [Step](/concepts/step)。
 
 ## 下一步
 
-[SubFlow](/concepts/primitives/subflow)：A SubFlow is a Flow run that a parent Flow starts from one of its Steps.
+[SubFlow](/concepts/primitives/subflow)：SubFlow 是父 Flow 从它的某个 Step 中启动的 Flow run。

@@ -174,6 +174,28 @@ function checkOverviewTitles(items) {
 }
 for (const items of Object.values(sidebars)) checkOverviewTitles(items);
 
+// In Chinese, every sidebar group label is translated (i18n/zh-Hans/.../current.json), and its overview page
+// carries that same title.
+const chineseRoot = 'i18n/zh-Hans/docusaurus-plugin-content-docs/current';
+const chineseLabels = JSON.parse(readFileSync(join(docsRoot, `${chineseRoot}.json`), 'utf8'));
+const chineseTitles = docTitles(chineseRoot);
+function checkChineseCategories(items, sidebarName) {
+  for (const item of items) {
+    if (typeof item !== 'object' || item.type !== 'category') continue;
+    const label = chineseLabels[`sidebar.${sidebarName}.category.${item.label}`]?.message;
+    if (!label || !/[一-鿿]/.test(label)) {
+      failures.push(`${chineseRoot}.json: the "${item.label}" group has no Chinese label. Run npx docusaurus write-translations --locale zh-Hans and translate it.`);
+    } else if (item.link?.type === 'doc') {
+      const title = chineseTitles.get(item.link.id);
+      if (title && title !== label) {
+        failures.push(`${chineseRoot}: the "${label}" group opens ${item.link.id}, titled "${title}". Title the Chinese overview page "${label}".`);
+      }
+    }
+    checkChineseCategories(item.items ?? [], sidebarName);
+  }
+}
+for (const [name, items] of Object.entries(sidebars)) checkChineseCategories(items, name);
+
 // The same rules hold in each Developer reference component's own sidebar.
 for (const name of readdirSync(join(docsRoot, 'reference/sidebars')).filter((file) => file.endsWith('.ts'))) {
   const component = name.replace(/\.ts$/, '');
@@ -365,6 +387,20 @@ for (const id of sequenceDocs) {
         }
       });
     }
+  }
+}
+
+// Section headings are statements, not questions ("Start here", not "First time here?").
+for (const root of ['content', 'i18n/zh-Hans/docusaurus-plugin-content-docs/current']) {
+  for (const file of mdxFiles(join(docsRoot, root))) {
+    let fence;
+    readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+      const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+      if (fenceMatch) fence = fence ? (fenceMatch[1][0] === fence ? undefined : fence) : fenceMatch[1][0];
+      else if (!fence && /^#{2,6} .*[?？]\s*(\{#[^}]*\})?\s*$/.test(line)) {
+        failures.push(`${relative(docsRoot, file)}:${index + 1}: "${line}" is a question. Write the heading as a statement.`);
+      }
+    });
   }
 }
 

@@ -1,17 +1,17 @@
 ---
 title: 内置 Agent Loop
-sidebar_label: Built-in Agent Loop
+sidebar_label: 内置 Agent Loop
 ---
 
 # 内置 Agent Loop
 
-内置 agent loop 不需要任何 agent framework 就能运行 Agent。会话由 Dex 管理，每次模型输入都从 durable state 构建。因此 Agent 不依赖 LLM provider 的 conversation API。
+内置 agent loop 不需要任何 Agent 框架就能运行 Agent。会话由 Dex 管理，每次模型输入都从持久化 state 构建。因此 Agent 不依赖 LLM provider 的 conversation API。
 
 ## 何时使用 {#when-to-use-it}
 
-新的 Agent 使用内置 loop。它提供 session 的全部功能：提问、durable wait、plan、steering、compaction 和 MCP tool。它还允许每个 session 从 Worker 允许的模型列表中选择自己的模型。
+新的 Agent 使用内置 loop。它提供 session 的全部功能：提问、持久化 wait、plan、steering、compaction 和 MCP tool。它还允许每个 session 从 Worker 允许的模型列表中选择自己的模型。
 
-如果已经有用 framework 写好的 Agent，请使用 [framework harness](/agent-frameworks#choose-a-harness)。
+如果已经有用框架写好的 Agent，请使用 [框架 harness](/agent-frameworks#choose-a-harness)。
 
 ## Session 如何运行 {#how-a-session-runs}
 
@@ -35,7 +35,7 @@ ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
 
 这里是简化视图。[Crashes and tool call outcomes](/reference/agents/failures)（英文）和 [Workers and timeouts](/reference/agents/workers)（英文）给出了每个 Step 的重试、超时与 failure route。
 
-失败的 `RunModel` 会重试。第三次尝试失败后，这个 turn 失败，session 等待下一条消息。Read 或 idempotent write 在 `CallTool` 中重试。其他写操作在 `CallSingleAttemptTool` 中只运行一次；如果 policy 要求审批，会在审批之后运行。
+失败的 `RunModel` 会重试。第三次尝试失败后，这个 turn 失败，session 等待下一条消息。Read 或幂等写操作在 `CallTool` 中重试。其他写操作在 `CallSingleAttemptTool` 中只运行一次；如果 policy 要求审批，会在审批之后运行。
 
 ## 安装 {#install}
 
@@ -64,9 +64,9 @@ npm i @superdurable/dex-agents @superdurable/dex ai @modelcontextprotocol/sdk
 
 **litellm** extra 和 **ai** package 提供 model client。**mcp** extra 和 `@modelcontextprotocol/sdk` 提供 MCP tool。不用的可以不装。
 
-## Example {#the-example}
+## 示例 {#the-example}
 
-[AI Agent](/use-cases/ai-agent) 是一个长期运行的通用 Agent，有 Python 与 TypeScript 两个版本。它与用户聊天并调用受信任的 MCP tool。它在修改外部系统前等待审批、向用户提问、通过 durable Timer 暂停，并在执行前先制定计划供用户审阅。
+[AI Agent](/use-cases/ai-agent) 是一个长期运行的通用 Agent，有 Python 与 TypeScript 两个版本。它与用户聊天并调用受信任的 MCP tool。它在修改外部系统前等待审批、向用户提问、通过持久化 Timer 暂停，并在执行前先制定计划供用户审阅。
 
 ### Session Flow {#the-session-flow}
 
@@ -179,7 +179,7 @@ const aiAgentFlow = createAiAgentFlow(aiAgentConfig, slack);
 </SdkSnippet>
 </SdkTabs>
 
-## Durable context {#durable-context}
+## 持久化 context {#durable-context}
 
 Session 会把每条 user message、模型输出 item 与 tool result 分别保存为一条 message。最新的 message 是 `AgentMessages` AttributeMap instance，较早的 message 会移入不可变的 `AgentMessageChunks` instance。模型输出 item 会按 provider 返回的原样保存，包括加密的 reasoning item 与 thinking signature，并原样重放。
 
@@ -187,31 +187,31 @@ Session 会把每条 user message、模型输出 item 与 tool result 分别保�
 
 ## 排队消息与 Steer {#queued-messages-and-steer}
 
-Turn 运行期间发送的 message 会在 durable `QueuedUserMessages` queue 中等待。Message 处于 pending 时，UI 会显示 **Steer** 与 **Delete** 控件。
+Turn 运行期间发送的 message 会在持久化 `QueuedUserMessages` queue 中等待。Message 处于 pending 时，UI 会显示 **Steer** 与 **Delete** 控件。
 
-**Steer** 会在 turn 的下一个 safe Step boundary 应用 message。它不会停止已经开始的模型调用或 tool call。尚未开始的 tool call，以及仍在等待的 approval、question 与 durable wait，会记录结构化的 cancellation result。随后 turn 结束，新的 turn 以所有 steered message 开始。**Stop** 调用 `cancel_turn`，以同样方式结束 turn，但不会开始新的 turn。
+**Steer** 会在 turn 的下一个 safe Step boundary 应用 message。它不会停止已经开始的模型调用或 tool call。尚未开始的 tool call，以及仍在等待的 approval、question 与持久化 wait，会记录结构化的 cancellation result。随后 turn 结束，新的 turn 以所有 steered message 开始。**Stop** 调用 `cancel_turn`，以同样方式结束 turn，但不会开始新的 turn。
 
-## 提问与 durable wait {#questions-and-durable-waits}
+## 提问与持久化 wait {#questions-and-durable-waits}
 
 内置 `ask_user` tool 会向用户提问，并在 `AwaitQuestionAnswer` 中等待。UI 会用选择按钮或文本框显示问题，答案会在同一个 turn 中成为该 tool 的 result。
 
 内置 `durable_wait` tool 会在 `AwaitTimer` 中等待一个 [Timer](/concepts/primitives/timer)。等待期间不占用模型调用或 Worker，并且可以跨 Worker 与 engine 重启。Steer 或 **Stop** 会中断等待，queued message 不会。
 
-## Durable plan {#durable-plans}
+## 持久化 plan {#durable-plans}
 
 为一条 message 开启 **Plan mode**，即可让 Agent 制定计划。Planning turn 只能调用内置 `write_todos` tool，它会替换 `AgentPlan` Attribute 并增加 revision。UI 会展示 draft，**Execute plan** 会用审阅过的 revision 调用 `execute_plan`。过期的 revision 会被拒绝。如果 plan 在仍有未完成 task 时停止，它会保持 active，并可以继续执行。Plan 处于 active 时，其他 turn 可以调用所有 tool；只有 draft plan 会把 turn 限制为只能调用 `write_todos`。
 
 ## MCP tool 与审批 {#mcp-tools-and-approvals}
 
-Worker 从本地配置加载受信任的 stdio 或 Streamable HTTP MCP server。Agent 把 Dex Agents 的 `McpToolSource` 作为 tool source，因此模型能看到每个 server 的 tool。Worker 会拒绝它不认识的配置 key，包括这个 example 早期版本中按 tool 设置的配置。每次 MCP 调用都在自己的 tool Step 中运行。无法列出 tool 的 server 会在这次模型调用中被略过，并在下一次调用时重试，因此所有 server 都不可用时，Agent 仍会继续回答。
+Worker 从本地配置加载受信任的 stdio 或 Streamable HTTP MCP server。Agent 把 Dex Agents 的 `McpToolSource` 作为 tool source，因此模型能看到每个 server 的 tool。Worker 会拒绝它不认识的配置 key，包括这个示例早期版本中按 tool 设置的配置。每次 MCP 调用都在自己的 tool Step 中运行。无法列出 tool 的 server 会在这次模型调用中被略过，并在下一次调用时重试，因此所有 server 都不可用时，Agent 仍会继续回答。
 
-Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时，read-only tool 会立即运行，并在崩溃后重试。其他 tool 会在 `AwaitToolApproval` 中等待用户批准，然后最多运行一次。被崩溃打断的写操作会记录为结果未知，并且不会重复执行。每次 MCP 调用都带有 idempotency key，server 可以据此丢弃重复请求。
+Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时，read-only tool 会立即运行，并在崩溃后重试。其他 tool 会在 `AwaitToolApproval` 中等待用户批准，然后最多运行一次。被崩溃打断的写操作会记录为结果未知，并且不会重复执行。每次 MCP 调用都带有幂等键，server 可以据此丢弃重复请求。
 
 开启 `resource_and_prompt_tools_enabled` 后，tool source 还会提供三个 read tool，用于列出并读取 server 的 resource 与 prompt。
 
 ## 实时 event {#live-events}
 
-文本、reasoning summary、tool activity、approval 与 plan 更新会出现在 session 的 `AgentEvents` [Stream](/concepts/primitives/stream) 上。Python example 使用库提供的 browser stream helper，把它以 Server-Sent Events 的形式提供给浏览器。TypeScript example 把它作为供 `useChat` 使用的 AI SDK UI message stream：一个 route 发送用户消息或 tool 审批，并把这一轮的内容流式写入浏览器中的 chat。
+文本、reasoning summary、tool activity、approval 与 plan 更新会出现在 session 的 `AgentEvents` [Stream](/concepts/primitives/stream) 上。Python 示例使用库提供的 browser stream helper，把它以 Server-Sent Events 的形式提供给浏览器。TypeScript 示例把它作为供 `useChat` 使用的 AI SDK UI message stream：一个 route 发送用户消息或 tool 审批，并把这一轮的内容流式写入浏览器中的 chat。
 
 <SdkTabs
   examples={{
@@ -267,7 +267,7 @@ Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时�
 
 ## Session 访问 {#session-access}
 
-Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 session 的 route 在调用 Dex 之前，都会先检查该 session 的 token。**POST /sessions** 会检查所请求的 model 是否在 Worker 允许的 model 之中，选择新的 session ID，并返回它的 token。Token 是用 `DEX_AGENT_SESSION_KEY` 对 session ID 计算的 HMAC-SHA256，因此 example 不存储任何 token，使用同一个 key 的每个进程都接受它。如果请求缺少 **X-Agent-Session-Token** header，或 header 不匹配，route 返回 403。
+Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 session 的 route 在调用 Dex 之前，都会先检查该 session 的 token。**POST /sessions** 会检查所请求的 model 是否在 Worker 允许的 model 之中，选择新的 session ID，并返回它的 token。Token 是用 `DEX_AGENT_SESSION_KEY` 对 session ID 计算的 HMAC-SHA256，因此示例不存储任何 token，使用同一个 key 的每个进程都接受它。如果请求缺少 **X-Agent-Session-Token** header，或 header 不匹配，route 返回 403。
 
 <SdkTabs
   examples={{
@@ -341,7 +341,7 @@ Session ID 不是秘密：它会出现在页面 URL 中。因此，每个指定 
 
 ## 在本地运行 {#run-the-example}
 
-在第一个终端中，用 **dexcli dev** 启动 Dex。它会一直在前台运行。在第二个终端中启动 example。两个 example 都在 `127.0.0.1:8080/products/ai-agent/` 提供 AI Agent 页面，因此一次只运行一个。
+在第一个终端中，用 **dexcli dev** 启动 Dex。它会一直在前台运行。在第二个终端中启动示例。两个示例都在 `127.0.0.1:8080/products/ai-agent/` 提供 AI Agent 页面，因此一次只运行一个。
 
 <SdkTabs
   examples={{
@@ -393,11 +393,11 @@ Python 版的 Flow 与 HTTP route 位于 [examples/python/dex_examples/products/
 
 把每个 provider key 放在 Worker 的环境中，Python 可以放在 `examples/.env`。Worker 从那里读取它，它永远不会进入 Flow state。
 
-Example 页面有自己的审批按钮。如果想在 Dex Web 中审批，请按 [在 Dex Web 中审批](#approve-in-dex-web) 操作，Flow type 用 **AIAgentSession**。
+示例页面有自己的审批按钮。如果想在 Dex Web 中审批，请按 [在 Dex Web 中审批](#approve-in-dex-web) 操作，Flow type 用 **AIAgentSession**。
 
 ### 在 Dex Web 中审批 {#approve-in-dex-web}
 
-Dex Web 需要 session graph 才能显示 **Agent session** tab 及其控件。为 Flow type 把 graph 渲染一次到一个目录，再用 `--flow-rendering-dir` 启动 **dexcli dev**。如果 **dexcli dev** 已经在没有这个参数的情况下运行，先停止它。Dex Web 每次加载页面都会重新读取这个目录，所以重新渲染的 graph 不需要重启就能显示：
+Dex Web 需要 session graph 才能显示 **Agent session** 标签页及其控件。为 Flow type 把 graph 渲染一次到一个目录，再用 `--flow-rendering-dir` 启动 **dexcli dev**。如果 **dexcli dev** 已经在没有这个参数的情况下运行，先停止它。Dex Web 每次加载页面都会重新读取这个目录，所以重新渲染的 graph 不需要重启就能显示：
 
 ```bash
 mkdir -p definitions
@@ -408,11 +408,11 @@ dexcli dev --flow-rendering-dir ./definitions
 
 Python 与 TypeScript package 都会安装 **dex-agents-session-graph**。在 `examples/python` 中，用 **uv run --frozen** 运行它。在 `examples/typescript` 中，用 `npx` 运行它。
 
-在 Dex Web 中打开这个 session 的 run，选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission，例如 `ai-agent.operate`。然后在 tool call 卡片上选择 **Approve** 或 **Reject**。生产环境的做法参见 [在 Dex Web 中显示 session](/reference/agents/dex-web)。
+在 Dex Web 中打开这个 session 的 run，选择 **Agent session** 标签页。把 **Working as** 设为渲染时指定的 permission，例如 `ai-agent.operate`。然后在 tool call 卡片上选择 **Approve** 或 **Reject**。生产环境的做法参见 [在 Dex Web 中显示 session](/reference/agents/dex-web)。
 
 ## 连接 Connector {#connect-connectors}
 
-Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks/connectors-as-tools#connectors-as-tools)。这个 example 加入了 Slack tool `slack_post_thread_reply`，用来在 Slack thread 中回复。
+Agent 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用，见 [把 Connector 用作 tool](/agent-frameworks/connectors-as-tools#connectors-as-tools)。这个示例加入了 Slack tool `slack_post_thread_reply`，用来在 Slack thread 中回复。
 
 ### 提供 tool {#offer-connector-tools}
 
@@ -572,7 +572,7 @@ Agent 把 Slack tool source 和 MCP tool source 放在一起：
 
 Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connection](/reference/agents/connector-tools#connector-tools-connection)。
 
-试用时，先设置 `DEX_CONNECTOR_CONFIG_FILE` 再启动 example。Demo 模型可以直接调用这个 tool：
+试用时，先设置 `DEX_CONNECTOR_CONFIG_FILE` 再启动示例。Demo 模型可以直接调用这个 tool：
 
 ```text
 /tool slack_post_thread_reply {"channelId":"C0123456789","threadTimestamp":"1710000000.000100","text":"Hello from Dex"}
@@ -585,11 +585,11 @@ Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，�
 - 每次模型调用和每次 tool call 都会增加一次 Step 往返。
 - `AgentEvents` 是 best effort。对话内容请读取 session snapshot。
 - 失败的 `RunModel` 会重复它的模型调用。
-- Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。Single-attempt tool 的例外参见 [最多一次有一个例外](/agent-frameworks/tool-calls#tool-runs-twice)。
+- Server 的限制参见 [Limits for long sessions](/reference/agents/session-limits)。单次尝试 tool 的例外参见 [最多一次有一个例外](/agent-frameworks/tool-calls#tool-runs-twice)。
 
 ## 下一步
 
-- [Agent Framework](/agent-frameworks)
+- [Agent 框架](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
 - [Agents reference](/reference/agents/)
 - [Attribute](/concepts/primitives/attribute)

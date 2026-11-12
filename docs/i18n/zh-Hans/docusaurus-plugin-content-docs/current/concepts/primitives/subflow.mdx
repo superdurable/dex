@@ -19,7 +19,7 @@ SubFlow 主要有两种用途：
 
 Dex Server 根据父 Flow ID、Step execution 和 condition 序号计算 SubFlow ID。因此重试或重复启动会找到同一个子 Flow，而不是再启动一个。默认情况下，父 Flow 继续等待运行中的子 Flow，使用已完成子 Flow 的结果，并重启异常结束的子 Flow。
 
-SubFlow ID 用短横线连接各个部分。所以 Step type 含短横线的 Step 不能启动 SubFlow，否则两个父 Flow 可能算出同一个 SubFlow ID，共用一个子 Flow。Dex 会让这样的 WaitFor attempt 直接失败，不再重试。启动 SubFlow 的 Step，Step type 里不要有短横线。
+SubFlow ID 用短横线连接各个部分。所以 Step type 含短横线的 Step 不能启动 SubFlow，否则两个父 Flow 可能算出同一个 SubFlow ID，共用一个子 Flow。Dex 会让这样的 WaitFor 尝试直接失败，不再重试。启动 SubFlow 的 Step，Step type 里不要有短横线。
 
 用同一个父 Flow ID 再启动一次时，新的 run 通常会算出和之前的 run 相同的 SubFlow ID。这时 Dex 按 reuse policy 处理。使用默认 policy 时，新的 run 会拿到之前 run 的子 Flow（无论它还在运行还是已经完成），直到 Dex 删除那个子 Flow。要让每个 run 都启动新的子 Flow，就用 `ALWAYS_RESTART`。如果之前的子 Flow 还在运行，它会被终止。两个子 Flow 都要继续运行时，换一个父 Flow ID。
 
@@ -206,4 +206,4 @@ impl Step for SubFlowParent {
 
 ## 下一步
 
-[Client](/concepts/client)：A Client is how your application talks to Dex from outside a Worker.
+[Client](/concepts/client)：你的应用在 Worker 之外通过 Client 与 Dex 交互。

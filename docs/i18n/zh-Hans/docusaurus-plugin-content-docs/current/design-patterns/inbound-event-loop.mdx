@@ -1,11 +1,11 @@
 ---
-title: Inbound Event Loop
-sidebar_label: Inbound Event Loop
+title: 入站事件循环
+sidebar_label: 入站事件循环
 ---
 
-# Inbound Event Loop
+# 入站事件循环
 
-当 Flow 需要持续接收外部消息，直到收到结论或对话长时间没有动静时，使用这个模式。例如工单里的回复、聊天会话里的消息，或评审讨论里的答复。它是 [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) 的扩展：每条消息都会让不活跃 Timer 重新计时，另一个表示结论的消息会结束循环。
+当 Flow 需要持续接收外部消息，直到收到结论或对话长时间没有动静时，使用这个模式。例如工单里的回复、聊天会话里的消息，或评审讨论里的答复。它是 [不活跃追踪定时器](/design-patterns/durable-timer/inactiveness-tracker-timer) 的扩展：每条消息都会让不活跃 Timer 重新计时，另一个表示结论的消息会结束循环。
 
 ## 结构
 
@@ -40,15 +40,15 @@ AwaitInbound.execute
 
 ## 结论之后到达的回复
 
-如果 Resolve Step 立即结束 Flow，那么在结论之后、Flow 关闭之前收到的回复不会被记录。要保留每一条已接受的回复，让 Resolve 在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow，做法见 [Drain External Channels](/design-patterns/draining-channel-for-external-publishing)。如果回复 Channel 不为空，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。回复 Channel 只能由等待中的 Step 消费。
+如果 Resolve Step 立即结束 Flow，那么在结论之后、Flow 关闭之前收到的回复不会被记录。要保留每一条已接受的回复，让 Resolve 在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow，做法见 [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。如果回复 Channel 不为空，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。回复 Channel 只能由等待中的 Step 消费。
 
 ## 示例
 
-可以从 [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) 的示例开始。它展示了 Timer 与 Channel 的竞争，以及回到同一个 Step 的循环。在它的基础上加上结论 Channel、transcript Attribute 和 RPC 里的输入校验。
+可以从 [不活跃追踪定时器](/design-patterns/durable-timer/inactiveness-tracker-timer) 的示例开始。它展示了 Timer 与 Channel 的竞争，以及回到同一个 Step 的循环。在它的基础上加上结论 Channel、transcript Attribute 和 RPC 里的输入校验。
 
 ## 下一步
 
 - [Channel](/concepts/primitives/channel)
 - [Timer](/concepts/primitives/timer)
 - [RPC](/concepts/primitives/rpc)
-- [Drain Channels](/design-patterns/drain-channels)
+- [排空 Channel](/design-patterns/drain-channels)

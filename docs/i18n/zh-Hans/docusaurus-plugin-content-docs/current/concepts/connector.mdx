@@ -39,8 +39,8 @@ Connector 的结果包含操作输出、回执、选中的分支，以及（如�
 | Effect class | 操作 | 重复调用的效果 |
 | --- | --- | --- |
 | Read | 所有 Query | 不改变任何东西。 |
-| Idempotent write | Connector 标记为可以安全重复的 Mutation | 不会产生第二次效果。Connector 作者已经确认，服务商会忽略带同一个幂等 key 的重复调用。 |
-| Non-idempotent write | 其他所有 Mutation | 可能产生第二次效果。 |
+| 幂等写操作 | Connector 标记为可以安全重复的 Mutation | 不会产生第二次效果。Connector 作者已经确认，服务商会忽略带同一个幂等 key 的重复调用。 |
+| 非幂等写操作 | 其他所有 Mutation | 可能产生第二次效果。 |
 
 Dex 每次重试 Mutation 所在的 Step，Mutation 都发送同一个幂等 key。
 

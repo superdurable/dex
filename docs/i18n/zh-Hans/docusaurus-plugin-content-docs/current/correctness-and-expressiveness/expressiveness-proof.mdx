@@ -1,6 +1,6 @@
 ---
-title: Expressiveness proof
-sidebar_label: Expressiveness proof
+title: 表达能力证明
+sidebar_label: 表达能力证明
 slug: /correctness-and-expressiveness/expressiveness-proof
 ---
 
@@ -47,11 +47,11 @@ Dex 表达并发时，既不使用会阻塞的线程，也不跨等待持有锁�
 | --- | --- | --- |
 | 线程 | 一串 Step，通常每条语句一个。**wait** 用三个 Step，**sleep** 和带超时的 **select** 会多一个入口 Step。线程的位置和局部状态放在 Step 输入中传递。任一时刻，一个运行中的线程就是一个活跃的 Step 执行。 | |
 | **fork** | `GoToMany` 到父线程的下一个 Step 和子线程的第一个 Step。 | |
-| **join** | 结束的线程向自己的 join Channel 发布一条消息，然后返回 `DeadEnd`。执行 join 的 Step 用 `AnyOf` 等待这个 Channel 和自己的取消 Channel。 | [Await Parallel Steps](/design-patterns/parallel/await) |
-| 互斥锁 | 一个 Channel，在互斥锁空闲时持有一个 token。**lock** 用 `ForOne` 等待这个 token，等待者按开始等待的顺序获得服务。**unlock** 把 token 发布回去。 | [Critical Section](/design-patterns/critical-section) |
+| **join** | 结束的线程向自己的 join Channel 发布一条消息，然后返回 `DeadEnd`。执行 join 的 Step 用 `AnyOf` 等待这个 Channel 和自己的取消 Channel。 | [等待并行 Step](/design-patterns/parallel/await) |
+| 互斥锁 | 一个 Channel，在互斥锁空闲时持有一个 token。**lock** 用 `ForOne` 等待这个 token，等待者按开始等待的顺序获得服务。**unlock** 把 token 发布回去。 | [临界区](/design-patterns/critical-section) |
 | 条件变量 | 一个 Attribute 保存等待线程的列表，每个等待者有自己的 Channel。**wait** 把线程加入列表，释放互斥锁，等待自己的 Channel，然后重新获取互斥锁。**signal** 移除第一个等待者，并向它的 Channel 发布消息。**broadcast** 对每个等待者都这样做。 | |
 | **sleep** | 一个定时 Step。它的 `WaitFor` 返回 `AnyOf`，包含一个 Timer 和线程的取消 Channel。 | |
-| 带超时的 **select** | 同一个定时 Step。它用 `AnyOf` 等待一个 Timer、输入 Channel 和取消 Channel。只有胜出的 Condition 会消费消息。 | [Deferred Choice](/design-patterns/deferred-choice) |
+| 带超时的 **select** | 同一个定时 Step。它用 `AnyOf` 等待一个 Timer、输入 Channel 和取消 Channel。只有胜出的 Condition 会消费消息。 | [延迟选择](/design-patterns/deferred-choice) |
 | 取消 | 向被取消线程的取消 Channel 发布一条消息。线程只在本会阻塞的位置看到它。 | |
 | 异常 | 处理器栈放在 Step 输入中传递。**throw** 是一次 `GoTo`，跳到处理器的 Step。 | |
 | 退出或失败 | 带结果的 `ForceComplete`，或带错误的 `ForceFail`。 | |

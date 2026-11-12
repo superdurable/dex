@@ -1,0 +1,471 @@
+---
+title: 把 Dex 加入你的 Agent
+sidebar_label: 把 Dex 加入你的 Agent
+slug: /agent-frameworks/add-to-your-agent
+description: 安装你所用框架的 adapter，复制完整的 agent 文件与宿主文件，再把持久化的 Agent Session 接入一个流式返回回复的 web 应用。
+---
+
+# 把 Dex 加入你的 Agent
+
+[Agent 快速开始](/agent-frameworks/quick-start) 运行的是一个示例。本页把同一个 Agent 移到你自己的代码中：安装框架的 adapter，复制完整文件，再从 web 应用中提供 session。
+
+## 你的应用会有哪些变化 {#what-changes-in-your-app}
+
+- **Agent 定义保持原样。** 你把它包装一层，并为每个 tool 指定一个 policy。
+- **Request handler 的形态会变。** 它把用户消息发给 session 后就返回。回复出现在 session 的 event stream 上，或者在它的 snapshot 中。
+- **你要多运行两样东西。** Worker 进程运行 session 的 Step，Dex Server 存储它们。Dex Server 可以运行在 Dex Cloud 上，也可以运行在你自己的基础设施上；[选择 Dex 的运行方式](/components/choose-how-to-run) 对比了两者。Dex 处于 Beta 阶段，Dex Server 的版本是 0.1，一个集群由一个活动节点提供服务。
+- **每个 turn 都要等待 Dex 提交。** 一个带三个并行 tool call 的 turn 大约多花 0.4 秒；参见 [延迟与成本](/agent-frameworks/sessions#latency-and-cost)。
+
+[生产环境中的 Agent](/agent-frameworks/production) 列出了需要准备的事项。[性能](/intro/performance) 给出具体数字，[限制](/intro/limits#license) 给出许可证说明。
+
+## 在你自己的 Agent 中使用 {#use-it-in-your-own-agent}
+
+把 adapter 和它对应的框架一起安装。每个 adapter 都会引入 Dex Agents core。然后复制下面的 [完整文件](#complete-files)。
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/claude-agent-sdk',
+    typescript: 'agents/typescript/claude-agent-sdk',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-claude-agent-sdk
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**认证**
+
+Worker 用 `ANTHROPIC_API_KEY` 为 Claude Code CLI 认证。把它设置在 Worker 的环境中。它永远不会进入 Flow state。
+
+示例为 CLI 构建的环境中，`ANTHROPIC_API_KEY` 是唯一的 credential。缺少这个 key 时，示例不会注册 Claude agent，只提供其他 harness。
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/google-adk',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-google-adk
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/langgraph',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-langgraph langchain-openai
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/mastra',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/openai-agents',
+    typescript: 'agents/typescript/openai-agents',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-openai-agents
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/pydantic-ai',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/vercel-ai',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai @ai-sdk/openai zod
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
+### 完整文件 {#complete-files}
+
+Agent 快速开始程序每种语言有三个文件。除了示例自带的 order desk 及其 tool，以及入口读取的设置之外，它们只用到 Dex、Dex Agents 和你的框架。在仓库中阅读它们：
+
+| 文件 | Python | TypeScript |
+| --- | --- | --- |
+| 你的 agent 模块，包含普通版和持久化版，以及全部 import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
+| Runner：Registry、Worker、Client，以及一个带审批的 turn | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) |
+| 在命令行提示中请求审批的入口 | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) |
+
+### 把 session 接入你的应用 {#wire-it-into-your-app}
+
+对 Agent 本身的改动很小：就是 [Agent 快速开始第 2 步](/agent-frameworks/quick-start#make-it-durable) 中的那层包装。其余是每个 Dex 应用都有的宿主代码：一个运行 Step 的 Worker，和一个调用它们的 Client。下面这个函数是最小的宿主。它在你的进程中运行一个 Worker 和一个 Client，启动一个 session，发送一条消息，并在 turn 结束后返回 session：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/embed.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-embed.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+"""The smallest host for a durable agent: one Worker, one Client, one turn."""
+
+from __future__ import annotations
+
+import asyncio
+
+from dex import (
+    AsyncClient,
+    AsyncWorker,
+    BlobCacheConfig,
+    ClientOptions,
+    Registry,
+    WorkerOptions,
+    open_blob_cache,
+)
+from dex_agents import AgentSessionClient, AgentSessionFlow, AgentSessionStatus, AgentSnapshot
+
+
+async def ask_agent(
+    session_flow: AgentSessionFlow,
+    session_id: str,
+    message: str,
+    server_address: str = "127.0.0.1:8801",
+    blob_cache_dir: str = ".dex-blob-cache",
+) -> AgentSnapshot:
+    """Starts a session, sends one message, and returns the session after the turn."""
+    registry = Registry((session_flow,), allow_async_handlers=True)
+    cache = open_blob_cache(BlobCacheConfig(blob_cache_dir, 1 << 30))
+    worker = AsyncWorker(registry, cache, WorkerOptions(server_address=server_address))
+    client = AsyncClient(registry, cache, ClientOptions(server_address=server_address))
+    worker_task = asyncio.create_task(worker.start())
+    try:
+        await worker.wait_pull_registered(timeout=30)
+        sessions = AgentSessionClient(client, session_flow)
+        await sessions.start_session(session_id)
+        await sessions.send_user_message(session_id, message)
+        while True:
+            snapshot = await sessions.get_agent_snapshot(session_id)
+            state = snapshot.state
+            if state and state.turn_count >= 1:
+                if state.status == AgentSessionStatus.WAITING_FOR_USER_MESSAGE:
+                    return snapshot
+            if state and state.status == AgentSessionStatus.FAILED:
+                raise RuntimeError(f"the session failed: {state.last_turn_error}")
+            await asyncio.sleep(0.5)
+    finally:
+        await client.close()
+        await worker.close()
+        await worker_task
+        cache.close()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+// The smallest host for a durable agent: one Worker, one Client, one turn.
+
+import { Client, Registry, Worker, openBlobCache } from "@superdurable/dex";
+import {
+  readAgentSnapshot,
+  sendAgentUserMessage,
+  startAgentSession,
+  type AgentSessionFlow,
+  type AgentSnapshot,
+} from "@superdurable/dex-agents";
+
+/** Starts a session, sends one message, and returns the session after the turn. */
+export async function askAgent(
+  flow: AgentSessionFlow,
+  sessionId: string,
+  message: string,
+  serverAddress = "127.0.0.1:8801",
+  blobCacheDir = ".dex-blob-cache",
+): Promise<AgentSnapshot> {
+  const registry = new Registry([flow]);
+  const blobCache = openBlobCache({ directory: blobCacheDir, maxBytes: 1 << 30 });
+  const worker = new Worker(registry, blobCache, { serverAddress });
+  const client = new Client(registry, blobCache, { serverAddress });
+  try {
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 30_000 });
+    await startAgentSession(client, flow, sessionId, {});
+    await sendAgentUserMessage(client, flow, sessionId, { text: message });
+    for (;;) {
+      const snapshot = await readAgentSnapshot(client, flow, sessionId);
+      const state = snapshot.state;
+      if (state?.status === "failed") {
+        throw new Error(`the session failed: ${state.lastTurnError ?? "unknown error"}`);
+      }
+      if (state !== null && state.turnCount >= 1 && state.status === "waiting_for_user_message") {
+        return snapshot;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  } finally {
+    await client.close();
+    await worker.close();
+    blobCache.close();
+  }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+它接收你的模块中 `build_durable_agent` 或 `buildDurableAgent` 返回的 session Flow。需要审批的 turn 会一直等待，直到你的应用处理它；做法参见 [在你的应用中审批](/agent-frameworks/approvals#approve-from-your-application)。
+
+Web 应用把同样的部件分到各个 route 中：
+
+1. 一个包含 session Flow 的 **Registry**、一个运行其 Step 的 **Worker**，以及一个调用它的 **Client**，和上面的函数一样。Worker 主动向外连接 Dex，所以不需要开放端口。两者都会打开一个 blob cache，即存放较大值的本地缓存；[Registry 与 blob cache](/components/application#blob-cache) 对它做了说明。
+2. 一个启动 session 的 route。Session ID 就是 Flow ID。
+3. 一个发送用户消息的 route，以及一个读取 session snapshot（其中包含 Agent 回复）的 route。要在回复生成的同时流式返回，请读取 AgentEvents Stream，如 [下一节](#web-handler) 所示。
+4. 一个批准或拒绝等待中 tool call 的 route。参见 [在你的应用中审批](/agent-frameworks/approvals#approve-from-your-application)。
+
+[订单客服 Agent](/use-cases/order-support-agent) 示例为每个框架都提供了这些 HTTP route。
+
+#### Web handler 中由什么代替框架调用 {#web-handler}
+
+Handler 把消息排入 session 的队列，然后返回。
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+它代替了原来等待回复的 `query` 调用。
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+它代替了原来等待回复的 `Runner.run_async` 调用。
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+它代替了原来等待回复的 `agent.invoke` 调用。
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+它代替了原来等待回复的 `agent.generate` 调用。
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+它代替了原来等待回复的 `Runner.run` 调用。
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+它代替了原来等待回复的 `agent.run` 调用。
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+它代替了原来等待回复的 `generateText` 调用。
+
+</FrameworkTab>
+</FrameworkTabs>
+
+回复出现在 session 的 [AgentEvents Stream](/reference/agents/event-stream#read-the-stream)（英文）上，UI 以 server-sent events 的形式读取它。上面的函数轮询 session snapshot，适合脚本和测试。Chat UI 则读取这个 stream。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/web.py',
+    typescript: 'examples/typescript/src/products/ai-agent',
+  }}>
+<SdkSnippet lang="python">
+
+这个完整的应用托管 Worker 和 Client，并提供 chat UI 需要的所有 route：启动 session、发送消息、读取 session、流式读取它的 event，以及答复审批。完整模块 `quick_start/web.py`：
+
+```python
+"""A complete web app for a durable agent: start, message, read, stream, approve.
+
+It hosts the Worker and the Client in the web process. Add your own
+authentication before you expose these routes: anyone who knows a session ID
+can read and change that session here.
+"""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+from typing import Any
+
+from dex_agents import AgentSessionFlow
+from dex_agents.ui_stream import (
+    AGENT_EVENT_STREAM_HEADERS,
+    agent_snapshot_to_json,
+    stream_agent_event_frames,
+)
+from quart import Quart, Response, jsonify, make_response, request
+
+from agent_harness_examples.quick_start.safe_send import send_user_message_once
+from agent_harness_examples.quick_start.session import QuickStartApp
+
+
+def create_web_app(
+    session_flow: AgentSessionFlow, server_address: str, blob_cache_dir: Path
+) -> Quart:
+    """Returns a Quart app whose routes run one durable agent's sessions."""
+    web = Quart(__name__)
+    apps: list[QuickStartApp] = []
+
+    def dex() -> QuickStartApp:
+        return apps[0]
+
+    # The Worker and the Client bind to the event loop that serves the app.
+    @web.before_serving
+    async def start_worker() -> None:
+        apps.append(QuickStartApp(session_flow, server_address, blob_cache_dir))
+        await dex().start_worker()
+
+    @web.after_serving
+    async def stop_worker() -> None:
+        await apps.pop().close()
+
+    @web.post("/sessions")
+    async def start_session() -> Response:
+        session_id = f"web-{uuid.uuid4().hex}"
+        await dex().sessions.start_session(session_id)
+        return jsonify(session_id=session_id)
+
+    @web.post("/sessions/<session_id>/messages")
+    async def send_message(session_id: str) -> Response:
+        body: dict[str, Any] = await request.get_json()
+        await send_user_message_once(dex().sessions, session_id, str(body["text"]))
+        return jsonify(accepted=True)
+
+    @web.get("/sessions/<session_id>")
+    async def read_session(session_id: str) -> Response:
+        return jsonify(agent_snapshot_to_json(await dex().sessions.get_agent_snapshot(session_id)))
+
+    @web.get("/sessions/<session_id>/events")
+    async def stream_events(session_id: str) -> Response:
+        resume_token = request.headers.get("Last-Event-ID", "")
+        frames = await stream_agent_event_frames(
+            dex().client, session_flow, session_id, resume_token=resume_token
+        )
+        response = await make_response(frames, dict(AGENT_EVENT_STREAM_HEADERS))
+        assert isinstance(response, Response)
+        response.timeout = None
+        return response
+
+    @web.post("/sessions/<session_id>/interrupts/<interrupt_id>")
+    async def resolve(session_id: str, interrupt_id: str) -> Response:
+        body: dict[str, Any] = await request.get_json()
+        accepted = await dex().sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=body.get("approved") is True
+        )
+        return jsonify(accepted=accepted)
+
+    return web
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+[AI Agent](/use-cases/ai-agent) 示例的 chat route 展示了同样的部件。一个 chat route 把消息或审批答复排入队列，并以 Vercel AI SDK UI message 格式流式返回回复。第二个 route 在重新连接后恢复 stream。下面是节选：`requireBody`、`authorizeSession`、`session` 以及其他辅助函数定义在 [完整的 routes 文件](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts) 中。
+
+```ts
+  router.post("/api/chat", async (request, response) => {
+    const body = requireBody(request);
+    const flowId = authorizeSession(request, requireString(body, "id"));
+    const lastMessage = Array.isArray(body.messages) ? (body.messages.at(-1) as JsonBody | undefined) : undefined;
+    const signal = abortSignalOf(response);
+    if (lastMessage?.role === "assistant") {
+      const approvals = readAgentToolApprovalResponses(lastMessage);
+      await sendFetchResponse(response, resolveAgentToolApprovalsWithUIMessageStream({ ...session, flowId, approvals, signal }));
+      return;
+    }
+    const parts = (Array.isArray(lastMessage?.parts) ? lastMessage.parts : []) as JsonBody[];
+    const text = parts.map((part) => (part.type === "text" ? String(part.text) : "")).join("");
+    await sendFetchResponse(response, sendAgentUserMessageWithUIMessageStream({ ...session, flowId, text, signal }));
+  });
+  router.get("/api/chat/:id/stream", async (request, response) => {
+    const resumeToken = request.header(agentResumeTokenHeaderName);
+    const options = { ...session, flowId: sessionIdOf(request), resumeToken, signal: abortSignalOf(response) };
+    await sendFetchResponse(response, createAgentUIMessageStreamResponse(options));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 下一步 {#next}
+
+[Session](/agent-frameworks/sessions)
+

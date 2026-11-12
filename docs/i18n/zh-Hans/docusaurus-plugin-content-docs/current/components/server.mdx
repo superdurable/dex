@@ -38,10 +38,10 @@ db9 是一个独立的数据库产品，使用 PostgreSQL 的通信协议。Dex 
 | 什么出了故障 | Dex Server 怎么做 | Client 和 Worker 看到什么 |
 | --- | --- | --- |
 | 对象存储返回错误或变慢 | 在 lease 期限内带退避重试 lease 续约。如果一次日志写入在 10 秒内没有被对象存储接受，或者续约无法按时完成，节点会停止，进程退出。 | 没有节点提供服务时，调用会失败，Client 会重试。lease 到期后，热备或冷备节点接管。没有备用节点时，要等这个节点重启后才恢复服务。 |
-| lease 被另一个进程拿走，或者存储报告永久错误 | 节点立即停止。 | 新的活跃节点提供服务。Worker 已经领取的 attempt 会失败并重新运行，每次都消耗一次重试。 |
+| lease 被另一个进程拿走，或者存储报告永久错误 | 节点立即停止。 | 新的活跃节点提供服务。Worker 已经领取的尝试会失败并重新运行，每次都消耗一次重试。 |
 | 节点的本地磁盘丢失 | 本地存储只是工作副本。重启时，节点从对象存储重建它并重放日志。 | 已经写入对象存储的数据都会保留。重建期间重启会更慢。 |
 
-英文的 [Lease, hot standby, and step down](/reference/server/high-availability) 给出具体时间，[Failover and Deploys](/concepts/failover-and-deploys) 说明哪些会重新运行。
+英文的 [Lease, hot standby, and step down](/reference/server/high-availability) 给出具体时间，[故障转移和部署](/concepts/failover-and-deploys) 说明哪些会重新运行。
 
 ## 运行
 
@@ -61,4 +61,4 @@ dex-server-zd serve --config /etc/dex-server-zd/config.yaml
 
 ## 下一步
 
-[Run Dex in Production](/components/production)：A checklist for running Dex in production, with a link to the page that covers each item, from the server topology and capacity to backup, upgrades, and monitoring.
+[在生产环境运行 Dex](/components/production)：在生产环境运行 Dex 的检查清单，从 server 拓扑和容量到备份、升级和监控，每一项都链接到对应的页面。

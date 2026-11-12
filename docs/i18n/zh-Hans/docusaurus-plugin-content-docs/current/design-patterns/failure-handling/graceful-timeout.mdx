@@ -1,10 +1,10 @@
 ---
-title: Graceful Timeout
+title: 优雅超时
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/graceful-timeout.json';
 
-# Graceful Timeout
+# 优雅超时
 
 当应用必须处理整个 Flow 的截止时间时，使用 Flow timeout handler。截止时间属于 Flow，所以不需要另写一个与工作赛跑的 Step。
 
@@ -14,7 +14,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/grac
 
 ## 核心实现
 
-Flow 注册 `LongWait` 和 timeout handler。启动 Flow 时设置一个正的 timeout。示例显式把 timeout policy 设为 `HANDLER`。Flow 定义了 timeout handler 时，`HANDLER` 也是默认值。`FlowTimeoutHandlerOptions` 为 handler 单独设置 attempt timeout 和重试策略。
+Flow 注册 `LongWait` 和 timeout handler。启动 Flow 时设置一个正的 timeout。示例显式把 timeout policy 设为 `HANDLER`。Flow 定义了 timeout handler 时，`HANDLER` 也是默认值。`FlowTimeoutHandlerOptions` 为 handler 单独设置尝试超时和重试策略。
 
 <SdkTabs examples={{
   python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
@@ -281,5 +281,5 @@ Timeout handler 成功时，Dex 应用它暂存的写入、best-effort 的 Chann
 
 ## 下一步
 
-- [Failure Handling](/design-patterns/failure-handling)
+- [失败处理](/design-patterns/failure-handling)
 - [Flow options](/reference/python/start-flow-options#timeout-and-timeout-policy)

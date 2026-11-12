@@ -6,101 +6,50 @@ sidebar_label: Durable Agents
 
 # Durable Agents
 
-Dex runs an AI agent as a durable agent session. You can build the agent with the built-in agent loop of Dex Agents, or keep an agent that you already wrote with an agent framework. Both run on the same session Flow, so sessions behave the same either way.
+Dex runs an AI agent as a durable agent session. Build the agent with the built-in agent loop of Dex Agents, or keep one you already wrote with an agent framework; both run on the same session Flow.
 
-:::info What changes in your app
+## What Dex adds to your agent {#what-dex-adds}
 
-- **Your agent definition stays.** You wrap it and give each tool a policy.
-- **Your request handler changes shape.** It sends the user's message to the session and returns. The reply arrives on the session's event stream, or in its snapshot.
-- **You run two more things.** A Worker process runs the session Steps, and Dex Server stores them. Dex Server runs in Dex Cloud or on your own infrastructure; [Choose How to Run Dex](/components/choose-how-to-run) compares the two. Dex is in Beta, Dex Server is at version 0.1, and one active node serves a cluster.
-- **Each turn waits on Dex commits.** A turn with three parallel tool calls adds about 0.4 seconds; see [Latency and cost](/agent-frameworks/sessions#latency-and-cost).
+Dex keeps your agent framework and makes each session durable:
 
-[Agents in Production](/agent-frameworks/production) lists what to set up. [Performance](/intro/performance) gives the numbers, and [Limits](/intro/limits#license) gives the license.
+- **[Durable sessions](/agent-frameworks/sessions).** A session continues after a crash or a deploy from its last finished model call or tool call.
+- **[Tool calls with a policy](/agent-frameworks/tool-calls).** Each tool call runs in its own Step: reads retry, and writes that are not idempotent run at most once.
+- **[Approvals that wait](/agent-frameworks/approvals).** A call that needs a person waits for minutes or days, across restarts and deploys.
+- **[Connectors as tools](/agent-frameworks/connectors-as-tools).** The agent calls official Connector operations under the same tool policies.
+- **[Observability and control](/agent-frameworks/production).** Dex Web shows each session, tracing covers each model call and tool call, and spend limits check model spend.
 
-:::
-
-## Do your agents need this? {#do-you-need-this}
-
-A durable session helps when one of these can happen to your agent:
-
-- **A crash or a deploy in the middle of a conversation.** With Dex, the session continues from the last finished model call or tool call. Without it, the process loses the turn in progress, and the user has to ask again.
-- **A write tool runs twice.** A retry after a timeout can send a second email or a second refund. Dex runs a non-idempotent write at most once, with [one narrow exception](/agent-frameworks/tool-calls#tool-runs-twice). When a write may or may not have happened, Dex records an unknown outcome instead of running it again.
-- **A person must approve a call.** The approval may take minutes or days; see [Approvals](/agent-frameworks/approvals).
-- **A long wait between turns.** A session waits for the next message for as long as it needs; see [Approvals](/agent-frameworks/approvals) for waits on a person.
-
-Many agent frameworks can save the conversation after each step, with a checkpointer. That restores the messages after a crash. A checkpointer does not classify tools, so after a crash it cannot tell whether a write already ran. Dex gives each tool a policy, runs each call in its own Step, and records each call's outcome. You keep your framework. If you are weighing a framework on another durable engine, [Agent frameworks on a durable execution engine](/intro/compared-to-durable-execution#agent-frameworks-on-a-durable-execution-engine) compares them.
-
-To see it, run the [Agent Quick Start](/agent-frameworks/quick-start), or read the two complete examples: [AI Agent](/use-cases/ai-agent), a general agent on the built-in loop, and [Order Support Agent](/use-cases/order-support-agent), the same agent on each framework.
-
-## Dex terms on these pages {#dex-terms}
-
-| Term | Meaning |
-| --- | --- |
-| **Flow** | A durable process that Dex runs to completion. One agent session is one Flow run, and the session ID is its Flow ID. |
-| **Step** | One unit of work in a Flow. Dex records each Step's result, so a Step that finished does not run again. |
-| **Worker** | Your process that runs the Steps. It connects out to Dex, so it needs no open port. |
-| **Client** | The part of your app that starts sessions and calls them. |
-| **Attribute** | A named value that a Flow keeps. A session keeps its conversation and tool calls in Attributes. |
-| **Interrupt** | A point where a turn waits for a person. An approval is an interrupt: the snapshot lists it under `pending_interrupts`, and `resolve_interrupt` answers it. A question to the user is the other kind. |
-| **SYNC** | Each agent session Step is SYNC: Dex stores its result in object storage before the session moves on. |
-| **Blob cache** | A local, size-limited directory where a Worker or Client keeps large values. It holds only copies, so it can live on ephemeral disk and is safe to lose. See [Registry and blob cache](/components/application#blob-cache). |
-| **Activation** | The burst of Steps between two durable waits: it starts when the session takes a user message or an approval answer, and ends when the session waits again. [Tracing](/reference/agents/tracing) emits one trace per activation. |
-| **Turn segment** | In the Claude Agent SDK, the part of a turn that one CLI run handles, in one `RunModel` Step. A write tool call ends a segment. |
-
-The Steps of one turn, such as `RunModel` and `CallSingleAttemptTool`, are listed in [Sessions](/agent-frameworks/sessions#a-durable-agent-session). [Concepts](/concepts) explains Flows, Steps, and the other Dex building blocks.
+To see it, run the [Agent Quick Start](/agent-frameworks/quick-start). [Dex vs. Other Engines](/intro/compared-to-durable-execution#agent-frameworks-on-a-durable-execution-engine) compares Dex with framework checkpointers and other engines, and the [Glossary](/glossary) defines the terms these pages use.
 
 ## Pages in this section {#pages}
 
 - [Agent Quick Start](/agent-frameworks/quick-start): run your agent on Dex, stop its Worker, and watch the session continue.
-- [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent): the install line for each framework, the complete files, and how to wire a session into a web app.
-- [Sessions](/agent-frameworks/sessions): what a session keeps, and how your framework's turn maps onto Steps.
+- [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent): what changes in your app, the install line for each framework, and how to wire a session into a web app.
+- [Sessions](/agent-frameworks/sessions): what a session keeps, [how your framework runs a turn](/agent-frameworks/sessions#how-each-framework-runs-a-turn), and [features by harness](/agent-frameworks/sessions#features-by-harness).
 - [Tool Calls](/agent-frameworks/tool-calls): which calls retry and which run at most once.
 - [Approvals](/agent-frameworks/approvals): let a person approve a call before it runs.
 - [Connectors as Tools](/agent-frameworks/connectors-as-tools): call official Connector operations from the agent.
 - [Agents in Production](/agent-frameworks/production): the checklist before you run sessions in production.
 - [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop): build a new agent without a framework.
+- Examples: [AI Agent](/use-cases/ai-agent) on the built-in loop, and [Order Support Agent](/use-cases/order-support-agent) on each framework.
 
-Operating agents:
-
-- [Tracing](/reference/agents/tracing): OpenTelemetry spans for each model call and tool call, next to your framework's own spans.
-- [Upgrades](/reference/agents/upgrades): how a deploy reaches sessions that are already running.
-- [Session limits](/reference/agents/session-limits): the state limit, message retention, and compaction.
-- [Spend limits](/reference/agents/spend-limits): checking model spend around each model call.
+In the [Agents reference](/reference/agents/): [Tracing](/reference/agents/tracing), [Upgrades](/reference/agents/upgrades), [Session limits](/reference/agents/session-limits), [Spend limits](/reference/agents/spend-limits), and [CLI commands](/reference/agents/cli).
 
 ## Choose a harness {#choose-a-harness}
 
 <a id="coming-from-a-framework"></a>
 
-A harness is the code that runs the agent loop: the built-in loop or a framework. Coming from a framework, find its row. The name opens the Agent Quick Start on that framework's tab, and **Limits** opens that framework's full limits. [Upgrades](/reference/agents/upgrades) explains how a deploy reaches sessions that are already running.
+A harness runs the agent loop: the built-in loop or a framework. Each name opens the Agent Quick Start on that tab.
 
-Most harnesses also have a CLI command. It runs an agent in your terminal without an application. See [CLI commands](/reference/agents/cli).
-
-| Harness | Languages | Check first |
+| Harness | Languages | Limits |
 | --- | --- | --- |
-| [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | Python, TypeScript | CLI tools such as **Bash** rerun with a segment; no Dex compaction. [Limits](/agent-frameworks/sessions/?framework=claude-agent-sdk#limits) |
-| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | Root must be a `BaseAgent`; tool state changes are discarded. [Limits](/agent-frameworks/sessions/?framework=google-adk#limits) |
-| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | Only messages survive between turns; no `interrupt()` of your own. [Limits](/agent-frameworks/sessions/?framework=langchain-langgraph#limits) |
-| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | No Mastra Memory; sub-agents and workflows share one Step. [Limits](/agent-frameworks/sessions/?framework=mastra#limits) |
-| [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | Python, TypeScript | No SDK sessions; hosted tools repeat; MCP via `McpToolSource`. [Limits](/agent-frameworks/sessions/?framework=openai-agents-sdk#limits) |
-| [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai) | Python | Output functions are at least once; `UsageLimits` per Step. [Limits](/agent-frameworks/sessions/?framework=pydantic-ai#limits) |
-| [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | TypeScript | Every tool needs **execute**; approval belongs to Dex. [Limits](/agent-frameworks/sessions/?framework=vercel-ai-sdk#limits) |
-| [Built-in agent loop](/agent-frameworks/built-in-agent-loop) | Python, TypeScript | For a new agent without a framework; no framework limits. |
-
-[How your framework runs a turn](/agent-frameworks/sessions#how-each-framework-runs-a-turn) shows how each harness maps its loop onto Steps.
-
-
-Some session features depend on the harness:
-
-| Feature | Framework adapters | Built-in agent loop |
-| --- | --- | --- |
-| Queued messages, **Steer**, and `cancel_turn` | Yes | Yes |
-| Dex compaction of old messages | Yes, except the Claude Agent SDK | Yes |
-| Questions to the user (`ask_user`) | No | Yes |
-| Plans (plan mode and `execute_plan`) | No | Yes |
-
-## Run sessions in production {#run-sessions-in-production}
-
-[Agents in Production](/agent-frameworks/production) is the checklist: the server you run, authentication, retention, session limits, spend limits, upgrades, tracing, approval deadlines, and Worker sizing.
+| [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | Python, TypeScript | [Limits](/agent-frameworks/sessions/?framework=claude-agent-sdk#limits) |
+| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | [Limits](/agent-frameworks/sessions/?framework=google-adk#limits) |
+| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | [Limits](/agent-frameworks/sessions/?framework=langchain-langgraph#limits) |
+| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | [Limits](/agent-frameworks/sessions/?framework=mastra#limits) |
+| [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | Python, TypeScript | [Limits](/agent-frameworks/sessions/?framework=openai-agents-sdk#limits) |
+| [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai) | Python | [Limits](/agent-frameworks/sessions/?framework=pydantic-ai#limits) |
+| [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | TypeScript | [Limits](/agent-frameworks/sessions/?framework=vercel-ai-sdk#limits) |
+| [Built-in agent loop](/agent-frameworks/built-in-agent-loop) | Python, TypeScript | None |
 
 ## Next
 

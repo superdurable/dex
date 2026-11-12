@@ -1,12 +1,12 @@
 ---
-title: Drain Channels
-sidebar_label: Drain Channels
+title: 排空 Channel
+sidebar_label: 排空 Channel
 slug: /design-patterns/drain-channels
 ---
 
-# Drain Channels
+# 排空 Channel
 
 只在所有 Channel 消息都处理完之后才结束 Flow。按消息由谁发布来选择。
 
-- [Drain Internal Channels](/design-patterns/drain-internal-channels)：消息来自同一个 Flow 的另一个分支，用一条 sentinel 消息标记结束。
-- [Drain External Channels](/design-patterns/draining-channel-for-external-publishing)：消息来自 Worker 之外，Channel 为空时 Flow 结束。
+- [排空内部 Channel](/design-patterns/drain-internal-channels)：消息来自同一个 Flow 的另一个分支，用一条 sentinel 消息标记结束。
+- [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)：消息来自 Worker 之外，Channel 为空时 Flow 结束。

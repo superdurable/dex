@@ -1,11 +1,11 @@
 ---
-title: Critical Section
-sidebar_label: Critical Section
+title: 临界区
+sidebar_label: 临界区
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/critical-section.json';
 
-# Critical Section
+# 临界区
 
 当同一个 Flow 的多个并行分支必须轮流执行一段由多个 Step 组成的流程时，使用 Critical Section。同一时刻只能有一个分支处在这段流程中。
 
@@ -54,7 +54,7 @@ token 只是一条普通消息。如果某个分支离开这段流程时没有�
 - **在段内被取消。** 绝不要取消做受保护工作的 Step。被取消的 Step 不会发布任何消息，它的失败路由也不会运行。发起取消的 Step 或 RPC 也不能替它发布 token。Dex 要到保存发起取消的那个结果时，才确定取消哪些 Step。那时被取消的 Step 可能已经发布了 token，再发一个 token 会让两个分支同时进入这段流程。要提前停止一个分支，给它发送一个它会检查的停止请求，例如由 RPC 设置的 Attribute。看到请求的 Step 通过发布 token 的提前退出离开这段流程。
 - **关闭 Flow。** `ForceComplete`、`ForceFail`、Flow timeout 和 Client 的 `StopFlow` 会结束所有分支，不再有分支等待 token。
 
-Dex 把一个方法的 Channel 发布和它的结果一起保存，要么都保存，要么都不保存。失败的 attempt 不会发布任何消息，所以重试不会产生第二个 token。
+Dex 把一个方法的 Channel 发布和它的结果一起保存，要么都保存，要么都不保存。失败的尝试不会发布任何消息，所以重试不会产生第二个 token。
 
 Dex 归还 token 之后，被取消的 `Execute` 仍可能继续运行，并写入外部系统。这是绝不要取消做受保护工作的 Step 的另一个原因。
 
@@ -648,5 +648,5 @@ fn leave_contract_edit(
 
 - [Channel](/concepts/primitives/channel)
 - [Step](/concepts/step)
-- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
+- [Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery)
 - [Workflow Patterns 评估：WCP-39 Critical Section](/correctness-and-expressiveness/workflow-patterns#wcp-39)

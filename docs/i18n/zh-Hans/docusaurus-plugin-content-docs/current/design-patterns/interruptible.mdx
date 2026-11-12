@@ -1,15 +1,15 @@
 ---
 title: 可中断执行
-sidebar_label: Interruptible execution
+sidebar_label: 可中断执行
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/interruptible.json';
 
 # 可中断执行
 
-在收到 durable 中断信号后，安全地停止长时间工作。
+在收到持久化中断信号后，安全地停止长时间工作。
 
-这个模式适合长时间循环运行的工作，例如批处理。如果要等待外部系统，请改用 [Polling](/design-patterns/polling)。
+这个模式适合长时间循环运行的工作，例如批处理。如果要等待外部系统，请改用 [轮询](/design-patterns/polling)。
 
 `InterruptibleFlow` 并行启动 `WorkA` 和 `WorkB`。要中断它们，客户端调用 **interrupt** RPC，由它写入 `interruptSignal` Attribute。每个分支先做完当前的工作单元，在开始下一个单元前读取这个信号，然后返回 `GracefulComplete`。两个分支都停下后，Flow 才完成。
 
@@ -228,4 +228,4 @@ impl Step for WorkA {
 
 ## 下一步
 
-[Durable Timer](/design-patterns/durable-timer)
+[持久化定时器](/design-patterns/durable-timer)

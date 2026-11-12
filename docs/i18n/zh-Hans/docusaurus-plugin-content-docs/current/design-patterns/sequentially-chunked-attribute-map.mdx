@@ -116,7 +116,7 @@ client.invoke_rpc_with_options(
 
 Flow 启动后，**current** token 始终有效。空的 **current** 返回空页。Archive token 必须是 20 位十进制数字，并且指向 chunk 边界。格式错误的 token，或格式正确但没有对应 chunk 的 token，都会返回明确错误。
 
-Archive chunk 不会再改变，所以同一页再读一次（例如 retry 时）得到的记录相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
+Archive chunk 不会再改变，所以同一页再读一次（例如重试时）得到的记录相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
 
 ## HTTP API
 

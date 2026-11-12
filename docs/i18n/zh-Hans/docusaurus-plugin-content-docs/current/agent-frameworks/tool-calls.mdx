@@ -1,0 +1,143 @@
+---
+title: Tool Call
+sidebar_label: Tool Call
+slug: /agent-frameworks/tool-calls
+---
+
+# Tool Call
+
+无论 Agent 由哪个框架运行，每个 tool 都有一个 policy。Policy 的 effect class 决定失败后 Dex 能否再次运行一次调用。因此读操作可以重试，非幂等写操作最多运行一次。
+
+## Tool policy {#tool-policies-and-approvals}
+
+每个 tool 都有一个 `ToolPolicy`。Policy 设置 tool 的 effect class，由它决定 Dex 能否再次运行一次调用。它还决定调用是否等待审批，见 [要求审批](#require-approval)。
+
+### Effect class {#effect-classes}
+
+| Effect class | Tool 做什么 | 运行于 |
+| --- | --- | --- |
+| **read** | 只读取。再次运行没有影响。 | `CallTool`，会重试 |
+| `idempotent_write` | 写入，用同一个幂等键重复执行不会产生更多效果。 | `CallTool`，会重试 |
+| `non_idempotent_write` | 写入，重复执行可能重复产生效果。 | `CallSingleAttemptTool`，一次 |
+| **unclassified** | 对它一无所知。Dex 把它当作非幂等写操作。 | `CallSingleAttemptTool`，一次 |
+
+一次调用的每次尝试都使用同一个幂等键：session 的 Flow ID、turn ID 和 tool call ID，用斜杠连接，例如 `session-42/turn-3/call-7`。把它传给 tool 写入的服务。如果服务会丢弃重复的 key，就把 tool 归为 `idempotent_write`，这样 Dex 可以在失败后重试它。
+
+### 要求审批 {#require-approval}
+
+Policy 有两个字段：effect class 和 `requires_approval`（TypeScript 中是 `requiresApproval`）。不设置 `requires_approval` 时，由 effect class 决定：
+
+| Effect class | 默认是否等待审批 |
+| --- | --- |
+| **read** | 否 |
+| `idempotent_write` | 否 |
+| `non_idempotent_write` | 是 |
+| **unclassified** | 是 |
+
+把 `requires_approval` 设为 true，就会在任何调用前询问人，例如带幂等键的退款。把它设为 false，非幂等写操作就无需审批直接运行，这次调用仍然最多运行一次。Policy 的优先级高于框架 metadata（例如 MCP 的 read-only hint），也高于 session 的默认 effect。
+
+在 [Agent 快速开始](/agent-frameworks/quick-start) 中，`cancel_order` 的 effect 是 `non_idempotent_write`，且没有设置 `requires_approval`，所以每次调用都等待审批。[审批](/agent-frameworks/approvals) 解释这个等待以及如何答复它。
+
+记录下来的 tool call 保留模型请求它时适用的 effect class 和审批规则。修改后的 policy 只对之后的调用生效。
+
+## Tool call 的结果 {#tool-call-outcomes}
+
+每次 tool call 结束时都有一条记录：
+
+| 记录 | 含义 |
+| --- | --- |
+| **succeeded** | Tool 返回了结果。 |
+| **failed** | Tool 报告了失败，或者 Dex 知道 tool 没有运行。 |
+| **rejected** | 有人拒绝了这次调用，或者它的审批期限已过。 |
+| `outcome_unknown` | Tool 可能已经生效，也可能没有。 |
+
+模型会读取每条记录，并决定下一步做什么。失败或结果未知的调用不会让 session 失败。
+
+失败的调用得到哪种记录，取决于它的 tool 是否可能已经运行：
+
+- **每次尝试都在到达 Worker 之前失败。** Tool 没有运行，所以这次调用记录为 **failed**。它的错误以 "the tool did not run, so it is safe to call again" 开头，模型可以再次调用这个 tool。
+- **某次尝试到达了 Worker，然后 Worker 停止了。** Tool 可能已经运行，即使它的第一个 heartbeat 还没到达 Dex。`CallTool` 会先重试读操作或幂等写操作。尝试次数用完后，读操作记录为 **failed**。其他调用记录为 `outcome_unknown`，Dex 不会再运行它。
+
+[A call that never ran](/reference/agents/failures#never-run-outcome-unknown)（英文）说明 Dex 如何区分这两种情况。
+
+### 最多一次有一个例外 {#tool-runs-twice}
+
+单次尝试 tool 在 `CallSingleAttemptTool` 中运行。Dex 把每次尝试交给一个 Worker，不会把同一次尝试再交给另一个 Worker。如果 tool 运行期间 Worker 挂掉或与 Dex 断开连接，这次调用记录为 `outcome_unknown`，session 不会再次运行这个 tool。
+
+有一种少见的情况仍然可能让单次尝试 tool 运行两次。它始于 Dex 取消一次仍在运行的尝试，例如这次尝试超时。取消是协作式的：Dex 记录失败，但无法停止 tool 代码，所以旧的 Worker 可能继续运行这次调用。随后 turn 带着这个失败继续。如果模型再次请求同一个 tool，新的调用可能在第一次调用还没结束时运行。于是同一个写操作可能运行两次，每次调用各一次。
+
+要让这种情况无害，请把调用的幂等键传给 tool 写入的服务。见 [Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery)（英文）。
+
+### 核对 outcome_unknown {#reconcile-outcome-unknown}
+
+`outcome_unknown` 表示效果可能已经发生，也可能没有。Session 永远不会重试这样的调用，模型会看到结果未知。请在 session 之外按以下步骤核对：
+
+1. **找到这次调用。** Turn 运行期间，`get_agent_snapshot` 把它列在 `tool_calls` 下，状态为 `outcome_unknown`，失败信息在 **error** 中。`AgentEvents` Stream 中有一个状态相同的 `tool_call_finished` event。Turn 结束后，message history 中它的 tool result 会说明结果未知。
+2. **重建它的幂等键**：按 [Effect class](#effect-classes) 的说明，用记录中的 `turn_id` 和 `tool_call_id` 构造。这次调用的每次尝试传给服务的都是这个 key。
+3. **询问服务**是否有使用这个 key 的操作，或者用你自己的业务 key（例如订单 ID）查询效果。如果 Flow 的 history 显示 tool Step 的尝试从未到达 Worker，说明 tool 没有运行。Server 升级前开始的调用可能出现这种情况。
+4. **用 `send_user_message` 把真实结果告诉 session。** 这份报告作为一条用户消息加入对话，模型会把它当作用户说的话来读，你的 UI 也会在 transcript 中显示它，除非你把它过滤掉。所以请把它写成来自应用的说明，例如 "Note from the order system: the cancellation of order 1002 went through."。下一个 turn 的模型会依据它工作，调用已经发生时就不会再次请求。
+
+请在客服工具中运行这些步骤，或者在应用看到这个状态时启动一个小 job 来运行。这些调用需要你自己找出来，因为没有 Step 在等待它们，搜索也就找不到。
+
+下面完整展示 Python 版 Agent 快速开始示例中的这个模块。它对 session history 中每个结果为未知的调用运行第 2 到第 4 步。**check** 询问你的服务，并返回要报告的文本：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/reconcile.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+"""Reports the real outcome of tool calls that the session recorded as outcome_unknown."""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Protocol
+
+from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, AgentSnapshot, MessageRole
+
+# Asks your service about one call: (idempotency key, tool arguments as JSON) -> report text.
+OutcomeCheck = Callable[[str, str], Awaitable[str]]
+
+
+class SessionMessenger(Protocol):
+    async def get_agent_snapshot(self, session_id: str) -> AgentSnapshot: ...
+
+    async def send_user_message(self, session_id: str, text: str) -> bool: ...
+
+
+async def report_unknown_outcomes(
+    sessions: SessionMessenger, session_id: str, check: OutcomeCheck
+) -> list[str]:
+    """Tells the session what really happened to each call with an unknown outcome.
+
+    Returns the reports it sent. A call it reported before is skipped, so running
+    it again sends nothing new.
+    """
+    snapshot = await sessions.get_agent_snapshot(session_id)
+    sent = "\n".join(m.text or "" for m in snapshot.messages if m.role == MessageRole.USER)
+    reports: list[str] = []
+    for message in snapshot.messages:
+        if OUTCOME_UNKNOWN_TOOL_RESULT not in (message.tool_output or ""):
+            continue
+        # Every attempt of the call passed this key to the service.
+        key = f"{session_id}/{message.turn_id}/{message.tool_call_id}"
+        if key in sent:
+            continue
+        report = f"{await check(key, message.tool_arguments or '{}')} (tool call {key})"
+        await sessions.send_user_message(session_id, report)
+        reports.append(report)
+    return reports
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+这个函数先读取 history，跳过 key 已经出现在某条用户消息中的调用，所以请重新运行整个函数，而不是重试单次发送。[部署期间的 RPC](/agent-frameworks/production#rpcs-during-a-deploy) 解释为什么重试的发送可能重复。
+
+## 下一步 {#next}
+
+- [审批](/agent-frameworks/approvals)
+- [把 Connector 用作 tool](/agent-frameworks/connectors-as-tools)
+- [Failures reference](/reference/agents/failures)（英文）

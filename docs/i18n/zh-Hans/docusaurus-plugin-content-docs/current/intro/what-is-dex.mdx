@@ -1,7 +1,7 @@
 ---
 id: what-is-dex
 title: 为什么是 Dex？
-sidebar_label: Why Dex?
+sidebar_label: 为什么是 Dex？
 description: Dex 在流程运行时记录它的每个 Step，所以流程能在崩溃、重启或长时间等待之后继续。本页用一个订单流程说明问题所在、Dex 怎样建模，以及 Dex 和基于 replay 的 durable execution 有什么不同。
 ---
 
@@ -57,7 +57,7 @@ Flow 把数据保存在 **Attribute** 里，例如订单状态。**RPC** 让你�
 
 每个 Step 都带一个用订单 ID 构造的幂等键。
 
-[Order Processing](/use-cases/order-processing) 示例给出了这个 Flow 及其 handler 在每种 SDK 里的完整代码。
+[订单处理](/use-cases/order-processing) 示例给出了这个 Flow 及其 handler 在每种 SDK 里的完整代码。
 
 ## 你的代码在哪里运行 {#where-your-code-runs}
 
@@ -71,11 +71,11 @@ Flow 把数据保存在 **Attribute** 里，例如订单状态。**RPC** 让你�
 
 基于 replay 的引擎通过重放事件历史来重建 workflow 的状态。所以 workflow 代码必须是确定性的，读取时间和随机值都要通过引擎的 API。Dex 不重放代码。Step 代码就是普通代码，可以读时钟，也可以调用任何库。修改代码不会让正在运行的 Flow 因为 replay 而出错。
 
-[Dex vs. Other Engines](/intro/compared-to-durable-execution)（英文）把每一类工具的术语对应到 Dex，并说明什么时候别的工具更合适。
+[Dex vs. 其他引擎](/intro/compared-to-durable-execution)把每一类工具的术语对应到 Dex，并说明什么时候别的工具更合适。
 
 ## 下一步
 
-- [Quick Start](/quick-start)：运行你的第一个 Flow。
-- [Order Processing](/use-cases/order-processing)：在你的机器上运行这个 Flow。
+- [快速开始](/quick-start)：运行你的第一个 Flow。
+- [订单处理](/use-cases/order-processing)：在你的机器上运行这个 Flow。
 - [概念](/concepts)：Step、Attribute、Channel、Timer、RPC，以及 Client API。
 - [设计模式](/design-patterns)：可复用的 Flow 结构。

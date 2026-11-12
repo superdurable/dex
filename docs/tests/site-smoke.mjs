@@ -480,7 +480,7 @@ for (const filePath of htmlIndexFiles) {
   if (referenceMatch) {
     const [, component, version] = referenceMatch;
     const sidebarHtml = html.match(/<nav aria-label="[^"]*" class="menu thin-scrollbar[\s\S]*?<\/nav>/)?.[0] ?? '';
-    assert.match(sidebarHtml, />Design Patterns</, `${route} must show the main docs sidebar`);
+    assert.match(sidebarHtml, route.startsWith("/zh-Hans/") ? />设计模式</ : />Design Patterns</, `${route} must show the main docs sidebar`);
     // The component header opens its overview, so no item under it opens that page again.
     const componentRoot = `/${route.startsWith('/zh-Hans/') ? 'zh-Hans/' : ''}reference/${component}/${version ? `${version}/` : ''}`;
     const rootLinks = [...sidebarHtml.matchAll(/<a\b[^>]*>/g)].map(([tag]) => tag)

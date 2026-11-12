@@ -1,11 +1,11 @@
 ---
-title: Inactiveness Tracker Timer
-sidebar_label: Inactiveness Tracker Timer
+title: 不活跃追踪定时器
+sidebar_label: 不活跃追踪定时器
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inactiveness-tracker.json';
 
-# Inactiveness Tracker Timer
+# 不活跃追踪定时器
 
 当一个动作只应在一段时间没有活动后才发生时，使用这个模式。`InactivenessTrackerFlow` 从 `TrackerStep` 开始，等待 Timer 或 **Active** Channel。如果活动先到达，`TrackerStep` 转回自身，从而开始一个新的 Timer。如果 Timer 先触发，Flow 转到 `ProcessInactiveness`。
 

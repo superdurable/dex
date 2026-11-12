@@ -1,7 +1,8 @@
 ---
-title: Run Locally
+title: 本地运行
 sidebar_label: 本地运行
 slug: /components/run-locally
+description: "安装 dexcli，用 dexcli dev 在你的 macOS 或 Linux 机器上运行 Dex Server 和 Dex Web。"
 ---
 
 # 本地运行
@@ -12,12 +13,26 @@ slug: /components/run-locally
 
 <a id="安装-dexcli"></a>
 
+`dexcli` 支持 macOS 和 Linux，amd64 和 arm64 架构都可以。Windows 不受支持。Linux 归档包或许能在 WSL 2 下运行，文档不涉及这种用法。
+
+在 macOS 或 Linux 上用 Homebrew 安装：
+
 ```bash
 brew install superdurable/tap/dexcli
 brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 ```
 
-## 启动 Dex
+不用 Homebrew 时，从 [`dexcli` releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true) 下载适合你系统的归档包。每个 release 带有 **cli-v** 标签，每种系统一个归档包，例如 `dexcli_vVERSION_linux_amd64.tar.gz`。归档包里有 `dexcli` 和 **dex-server-zd**。把这两个文件放在 `PATH` 上的同一个目录里：
+
+```bash
+tar xzf dexcli_vVERSION_linux_amd64.tar.gz   # VERSION is the release you downloaded
+sudo mv dexcli dex-server-zd /usr/local/bin/
+dexcli version
+```
+
+release 里还有 `checksums.txt`，可以用来校验下载的文件。
+
+## 启动 Dex {#start-dex}
 
 ```bash
 dexcli dev
@@ -52,14 +67,14 @@ Press Ctrl+C to stop.
 - **Worker 已就绪，但什么都没运行。** 确认 Worker 和启动命令注册的是同一个 Flow，并且连接的是同一个 **Dex Server**。Dex Web 会列出这个 Flow，并显示正在等待的 Step。
 - **想从头开始。** 停止 **dexcli dev**，删除它的状态目录。所有 Flow 都会被删除。
 
-## 再运行一个 Dex
+## 再运行一个 Dex {#run-a-second-dex}
 
-在同一台机器上再开一个 **dexcli dev**，它会改用其他空闲端口和独立的状态目录。把它打印出的 **Dex Server** 地址传给 `--server`。
+在同一台机器上再开一个 **dexcli dev**，它会改用其他空闲端口和独立的状态目录。把它打印出的 **Dex Server** 地址传给 `-server`。
 
-## 参考
+## 参考 {#reference}
 
-每个命令、它的 flag，以及 **dexcli dev** 的持久化选项，见英文的 [CLI reference](/reference/cli)。
+[CLI 参考](/reference/cli)（英文）介绍每个命令、它的 flag，以及 **dexcli dev** 的持久化选项。
 
-## 下一步
+## 下一步 {#next}
 
-[Application（Worker 和 Client）](/components/application)：Dex 应用就是你部署的代码。
+[你的应用](/components/application)：Dex 应用就是你部署的代码。
