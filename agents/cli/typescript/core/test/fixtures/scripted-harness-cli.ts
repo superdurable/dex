@@ -35,6 +35,16 @@ if (process.env.DEX_AGENTS_CLI_TEST_IMPORT_NOISE === "1") {
   }, 500).unref();
 }
 
+// Blocks the Worker host's main event loop while the file exists, as a slow host would.
+const pauseFile = process.env.DEX_AGENTS_CLI_TEST_PAUSE_FILE;
+if (pauseFile !== undefined && process.argv[2] === "__worker-host") {
+  setInterval(() => {
+    while (existsSync(pauseFile)) {
+      // Busy until the test removes the file.
+    }
+  }, 50).unref();
+}
+
 // Blocks the Worker host's main event loop for good once the file exists, as a stuck host would.
 const spinFile = process.env.DEX_AGENTS_CLI_TEST_SPIN_FILE;
 if (spinFile !== undefined && process.argv[2] === "__worker-host") {

@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -21,6 +21,7 @@ import { candidateSessionIds } from "../../src/terminal-ui/request-keys.js";
 import { terminalUiTerminalVariables } from "../../src/terminal-ui/terminal-ui-environment.js";
 import { readProcessIdentity } from "../../src/worker-host/process-identity.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
+import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { plainOnlyScriptedHarness } from "../fixtures/scripted-harness.js";
 import {
   FakeTerminalUi,
@@ -33,6 +34,7 @@ import {
   readTranscript,
   runRecords,
   terminalUiEndMarker,
+  transcriptDirectory,
   terminalUiStartMarker,
   waitForRunRecord,
   waitUntil,
@@ -177,6 +179,66 @@ describe("the terminal UI launcher", () => {
     assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
   });
 
+  test("replays every chat transcript of the contract that a real launcher plays", async () => {
+    const connectors = new FakeConnectorsMcpServer();
+    const connectorsUrl = await connectors.start();
+    try {
+      const names = readdirSync(transcriptDirectory)
+        .filter((name) => name.endsWith(".json"))
+        .map((name) => name.replace(/\.json$/, ""))
+        .filter((name) => readTranscript(name).real_roles.includes("launcher"));
+      // The sessions and connectors modes come with the pickers; this launcher hands off only the chat.
+      const replayed = names.filter((name) => name.startsWith("chat_") || name === "ready_timeout");
+      assert.ok(replayed.length >= 9, replayed.join(", "));
+      for (const name of replayed) {
+        const home = newHome(`connectors: {mcp: ${connectorsUrl}}\nlocal_tools: {browser: false}\n`);
+        const pictures = join(home.directory, "pictures");
+        mkdirSync(pictures, { recursive: true });
+        writeFileSync(join(pictures, "screenshot.png"), png);
+        writeFileSync(join(home.directory, "notes.txt"), "not an image");
+        const environment: NodeJS.ProcessEnv = {};
+        let openedFile: string | undefined;
+        if (name === "chat_open_url") {
+          const openerDirectory = mkdtempSync(join(tmpdir(), "dex-agents-opener-"));
+          openedFile = join(openerDirectory, "opened");
+          for (const opener of ["open", "xdg-open"]) {
+            writeFileSync(join(openerDirectory, opener), `#!/bin/sh\necho "$1" >> '${openedFile}'\n`);
+            chmodSync(join(openerDirectory, opener), 0o755);
+          }
+          Object.assign(environment, { DEX_AGENTS_OPEN_BROWSER: "1", PATH: `${openerDirectory}:${process.env.PATH ?? ""}` });
+        }
+        const fake = new FakeTerminalUi([readTranscript(name)], {
+          aliases: {
+            "/home/user/pictures/screenshot.png": join(pictures, "screenshot.png"),
+            "/home/user/notes.txt": join(home.directory, "notes.txt"),
+          },
+        });
+        const terminal = startOnTerminal(home, fake, [], environment);
+        let expectedExit = 0;
+        if (name === "chat_worker_stopped") {
+          await waitForReady(fake);
+          process.kill((await waitForRunRecord(home)).hostPid, "SIGKILL");
+          expectedExit = 1;
+        }
+        if (name === "ready_timeout") {
+          await terminal.terminal.waitFor("Type a message");
+          terminal.type("/exit\r");
+        }
+        assert.equal(await terminal.waitForExit(), expectedExit, `${name}: ${terminal.terminal.all}`);
+        assert.deepEqual(
+          fake.record().filter((event) => event.event === "mismatch"),
+          [],
+          name,
+        );
+        if (openedFile !== undefined) {
+          assert.match(readFileSync(openedFile, "utf8"), new RegExp(`^${engine.webUrl}/v2/flows/`), name);
+        }
+      }
+    } finally {
+      await connectors.stop();
+    }
+  });
+
   test("relays put_image and start_session, and recovers a lost response with get_request_result", async () => {
     const home = newHome();
     const picture = join(home.directory, "picture.png");
@@ -233,6 +295,92 @@ describe("the terminal UI launcher", () => {
     const sessions = await sessionsOf(home);
     assert.equal(sessions.length, 2);
     assert.ok(sessions.includes(newSessionId ?? ""));
+  });
+
+  test("with a slow Worker host, get_request_result reports running, then done", async () => {
+    const home = newHome();
+    const pauseFile = join(home.directory, "pause");
+    const key = newUuidV7();
+    const [sessionId] = candidateSessionIds("scripted", key);
+    const resultRequest = (id: number): TranscriptStep => tuiRequest(id, "get_request_result", { idempotency_key: key });
+    const fake = new FakeTerminalUi([
+      chatTranscript("running_then_done", [
+        tuiPause(1_000),
+        tuiRequest(1, "start_session", {}, key),
+        { from: "tui", message: { type: "cancel", id: 1 } },
+        launcherResponse(1, { error: { code: "cancelled", message: "Stopped waiting for start_session." } }),
+        resultRequest(2),
+        launcherResponse(2, { result: { state: "running" } }),
+        tuiPause(1_000),
+        resultRequest(3),
+        launcherResponse(3, { result: { state: "running" } }),
+        tuiPause(4_000),
+        resultRequest(4),
+        launcherResponse(4, { result: { state: "done", result: { session_id: sessionId } } }),
+      ]),
+    ]);
+    const terminal = startOnTerminal(home, fake, [], { DEX_AGENTS_CLI_TEST_PAUSE_FILE: pauseFile });
+    await waitForReady(fake);
+    writeFileSync(pauseFile, "");
+    await fake.waitForRecord((event) => event.event === "received" && (event.message as { id?: number }).id === 3);
+    rmSync(pauseFile);
+    assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
+    assert.ok((await sessionsOf(home)).includes(sessionId ?? ""));
+  });
+
+  test("with a slow Worker host, a request that timed out and is resent with the same key runs once", async () => {
+    for (const method of ["put_image", "start_session"] as const) {
+      const home = newHome();
+      const pauseFile = join(home.directory, "pause");
+      const picture = join(home.directory, "picture.png");
+      writeFileSync(picture, png);
+      const image = await new LocalDirectoryMediaStore(join(home.directory, "expected-media")).putImage(png);
+      const key = newUuidV7();
+      const [sessionId] = candidateSessionIds("scripted", key);
+      const params = method === "put_image" ? { path: picture } : {};
+      const outcome: TranscriptStep =
+        method === "put_image"
+          ? {
+              from: "launcher",
+              message: {
+                type: "response",
+                id: 2,
+                result: {
+                  image: { type: "image", uri: "", mime_type: image.mimeType, size_bytes: image.sizeBytes, sha256: image.sha256 },
+                  name: "picture.png",
+                },
+              },
+              ignore: ["result.image.uri"],
+            }
+          : launcherResponse(2, { result: { session_id: sessionId } });
+      const fake = new FakeTerminalUi([
+        chatTranscript("timed_out_then_resent", [
+          tuiPause(1_000),
+          tuiRequest(1, method, params, key),
+          { from: "tui", message: { type: "cancel", id: 1 } },
+          launcherResponse(1, { error: { code: "cancelled", message: `Stopped waiting for ${method}.` } }),
+          // The terminal UI resends once with the same key while the first run is still under way.
+          tuiRequest(2, method, params, key),
+          outcome,
+        ]),
+      ]);
+      const before = await sessionsOf(home);
+      const terminal = startOnTerminal(home, fake, [], { DEX_AGENTS_CLI_TEST_PAUSE_FILE: pauseFile });
+      await waitForReady(fake);
+      writeFileSync(pauseFile, "");
+      await fake.waitForRecord((event) => event.event === "sent" && (event.message as { id?: number }).id === 2);
+      rmSync(pauseFile);
+      assert.equal(await terminal.waitForExit(), 0, `${method}: ${terminal.terminal.all}`);
+      const after = await sessionsOf(home);
+      if (method === "put_image") {
+        assert.deepEqual(readdirSync(join(home.mediaDirectory, "sha256")), [image.sha256]);
+        assert.equal(after.length, before.length + 1);
+      } else {
+        // The launcher's own session and the one start_session started: nothing twice.
+        assert.equal(after.length, before.length + 2);
+        assert.ok(after.includes(sessionId ?? ""));
+      }
+    }
   });
 
   test("start_session finds the session its key already started, takes the long ID on a collision, and refuses when both are taken", async () => {
@@ -532,7 +680,12 @@ describe("the terminal UI launcher", () => {
       const recordDirectory = join(home.directory, ".dex", "agents", "run");
       mkdirSync(recordDirectory, { recursive: true });
       // The third group's leader runs the recorded command line but started at another time: a reused pid.
-      const record = { launcher: goneLauncher, host, tool_groups: [tool, { ...reused, start_time: "Thu Jan  1 00:00:00 2026" }] };
+      // A tool's shell may exec its command, so a tool group's command line is not part of its identity.
+      const record = {
+        launcher: goneLauncher,
+        host,
+        tool_groups: [{ ...tool, command_sha256: "0".repeat(64) }, { ...reused, start_time: "Thu Jan  1 00:00:00 2026" }],
+      };
       writeFileSync(join(recordDirectory, `scripted-${host.pid}.json`), JSON.stringify(record));
       const cli = CliProcess.start(home, ["sessions"], { DEX_AGENTS_TERMINAL_UI: "1" });
       processes.push(cli);

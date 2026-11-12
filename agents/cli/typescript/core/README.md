@@ -516,7 +516,8 @@ its launcher, itself, and each registered tool group. With the switch on,
 every command start scans these records. For a record whose launcher no
 longer runs, it sends SIGTERM to the Worker host's group and each tool group,
 then SIGKILL 2 s later, each time only when the process still has the
-recorded start time and command line and leads the recorded group. It then
+recorded start time, leads the recorded group, and, for the Worker host,
+still has the recorded command line (a tool's shell may exec its command). It then
 deletes the record and prints
 `Stopped a leftover worker host (pid N) and 1 tool process group.`
 

@@ -26,7 +26,7 @@ interface StoppedGroups {
 /**
  * Stops what Worker hosts of killed launchers left behind, from `~/.dex/agents/run`. A record counts when its
  * launcher no longer runs. Before each signal, the process must still be the recorded one and lead the recorded
- * group; otherwise nothing is signaled and only the stale record goes.
+ * group (for a tool group, without its command line); otherwise nothing is signaled and only the stale record goes.
  *
  * @param agentsDirectory - `~/.dex/agents`.
  * @param log - Writes one line for each Worker host it stopped.
@@ -68,9 +68,13 @@ export async function cleanUpWorkerHostRecord(agentsDirectory: string, harnessNa
   removeWorkerHostRunRecord(path);
 }
 
-/** Sends SIGTERM to each group whose leader still checks out, then SIGKILL 2 s later after checking again. */
+/**
+ * Sends SIGTERM to each group whose leader still checks out, then SIGKILL 2 s later after checking again. The Worker
+ * host's command line is part of its identity; a tool group's is not, because its shell may exec the command.
+ */
 async function stopGroups(groups: readonly ProcessIdentity[], host: ProcessIdentity): Promise<StoppedGroups> {
-  const signaled = groups.filter((group) => isSameProcessGroupLeader(group));
+  const isLeader = (group: ProcessIdentity): boolean => isSameProcessGroupLeader(group, group === host);
+  const signaled = groups.filter((group) => isLeader(group));
   if (signaled.length === 0) {
     return { isHostStopped: false, toolGroupCount: 0 };
   }
@@ -79,7 +83,7 @@ async function stopGroups(groups: readonly ProcessIdentity[], host: ProcessIdent
   }
   await delay(toolProcessGroupTermGraceMs);
   for (const group of signaled) {
-    if (isSameProcessGroupLeader(group)) {
+    if (isLeader(group)) {
       signalProcessGroup(group.pgid, "SIGKILL");
     }
   }

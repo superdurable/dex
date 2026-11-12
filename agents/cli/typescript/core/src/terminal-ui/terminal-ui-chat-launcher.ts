@@ -151,7 +151,7 @@ export class TerminalUiChatLauncher {
       this.writeResumeLine(sessionId);
       return { kind: "exited", exitCode: 143 };
     }
-    if (exit.signal === "SIGINT" || exit.code === 130 || (signals.isInterrupted && !handoff.isReady)) {
+    if (exit.signal === "SIGINT" || exit.code === 130 || signals.isInterrupted) {
       this.writeResumeLine(sessionId);
       return { kind: "exited", exitCode: 130 };
     }

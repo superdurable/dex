@@ -98,6 +98,8 @@ export class FakeTerminalUi {
       readonly stepTimeoutSeconds?: number;
       /** Whether the script loses its execute permission after `--describe`, so starting the terminal UI fails. */
       readonly isUnrunnableAfterDescribe?: boolean;
+      /** Transcript values to replace with real ones, such as a fixture path with a file this test wrote. */
+      readonly aliases?: Readonly<Record<string, string>>;
     } = {},
   ) {
     this.directory = mkdtempSync(join(tmpdir(), "dex-agents-fake-tui-"));
@@ -117,7 +119,10 @@ export class FakeTerminalUi {
       .map((path, index) => `  ${index + 1}) transcript=${quote(path)} ;;`)
       .concat([`  *) transcript=${quote(transcriptPaths.at(-1) ?? "")} ;;`])
       .join("\n");
-    const host = `${quote(python)} ${quote(contractHostPath)} tui --step-timeout ${options.stepTimeoutSeconds ?? 30}`;
+    const aliasArguments = Object.entries(options.aliases ?? {})
+      .map(([fixture, actual]) => ` --alias ${quote(`${fixture}=${actual}`)}`)
+      .join("");
+    const host = `${quote(python)} ${quote(contractHostPath)} tui --step-timeout ${options.stepTimeoutSeconds ?? 30}${aliasArguments}`;
     const play =
       options.hasMarkers === true
         ? [

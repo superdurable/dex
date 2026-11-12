@@ -63,16 +63,18 @@ export function isSameProcess(recorded: ProcessIdentity): boolean {
 }
 
 /**
- * Returns whether a process still is the recorded one and leads its recorded group: it exists, its start time and
- * command line match, its group is the recorded group, and its pid is that group's ID.
+ * Returns whether a process still is the recorded one and leads its recorded group: it exists, its start time
+ * matches, its group is the recorded group, and its pid is that group's ID. With `isCommandChecked`, its command line
+ * must match too; a tool's shell may exec its command, which changes the command line of the same process.
  * @param recorded - The identity recorded when it started.
+ * @param isCommandChecked - Whether the command line must still match.
  */
-export function isSameProcessGroupLeader(recorded: ProcessIdentity): boolean {
+export function isSameProcessGroupLeader(recorded: ProcessIdentity, isCommandChecked = true): boolean {
   const current = readProcessIdentity(recorded.pid);
   return (
     current !== undefined &&
     current.start_time === recorded.start_time &&
-    current.command_sha256 === recorded.command_sha256 &&
+    (!isCommandChecked || current.command_sha256 === recorded.command_sha256) &&
     current.pgid === recorded.pgid &&
     current.pid === current.pgid
   );
