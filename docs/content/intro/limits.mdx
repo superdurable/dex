@@ -13,7 +13,11 @@ links to the page that covers it.
 
 <a id="defaults-to-change-before-production"></a>
 
-The defaults to change before launch, such as retention and authentication, are on [Run Dex in Production](/components/production#defaults-to-change-before-production).
+Three defaults need a change before launch. [Run Dex in Production](/components/production#defaults-to-change-before-production) says how to change each one.
+
+- **Closed runs are kept for 7 days.** After that the server deletes the run with its Step history, and its Flow ID can start a new Flow.
+- **Public API authentication is off.** Any client that reaches the server can call it until you configure an authenticator.
+- **Step retries stop after 4 hours.** The Flow then fails, unless the Step has its own retry policy or a failure route.
 
 ## Capacity and availability
 

@@ -270,7 +270,7 @@ SDK 参考中的 [Timeouts and total duration](/reference/go/step-options#timeou
 
 ### 进阶保证 {#advanced-guarantees}
 
-[Step 的进阶保证](/concepts/step/advanced-guarantees) 介绍 Dex 为每个方法保存什么、失败和重新投递、SYNC 和 ASYNC Step，以及取消、完成和顺序。
+方法成功时，Dex 把它的 Attribute 写入和 Channel 消息与结果一起保存。方法结果不确定时，Dex 会再运行一次，或者报告结果未知。[Step 的进阶保证](/concepts/step/advanced-guarantees) 给出具体规则：[Dex 保存什么](/concepts/step/advanced-guarantees#what-dex-saves)、[失败和重新投递](/concepts/step/advanced-guarantees#failure-and-redelivery-summary)、[SYNC 和 ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async)，以及[取消、完成和顺序](/concepts/step/advanced-guarantees#cancellation-completion-order)。
 
 <a id="what-dex-saves"></a>
 <a id="failure-and-redelivery"></a>
