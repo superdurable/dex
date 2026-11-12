@@ -27,6 +27,8 @@ import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.
 import { MockMessagesApi } from "../fixtures/mock-messages-api.js";
 
 const noConnectors = { connectors: { enabled: [] }, local_tools: { browser: false } };
+const printClaudeCodeArguments =
+  'p=$PPID; for i in 1 2 3; do ps -ww -o command= -p "$p"; p=$(ps -o ppid= -p "$p" | tr -d " "); done';
 
 function call(toolName: string, toolInput: Readonly<Record<string, unknown>>): string {
   return `call ${toolName} ${JSON.stringify(toolInput)}`;
@@ -113,6 +115,36 @@ describe("dex-agents-claude-sdk with the bundled Claude Code CLI against a scrip
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     assert.equal(connectors.runCount("slack_post_thread_reply"), 1);
+  });
+
+  test("only the Dex connector tools come from MCP, never the user's Claude Code MCP configuration", async () => {
+    const home = newHome({
+      connectors: { mcp: connectorsUrl },
+      local_tools: { browser: false, shell: { enabled: true, allow: [printClaudeCodeArguments] } },
+    });
+    const inheritedServer = (name: string) => ({ mcpServers: { [name]: { type: "http", url: connectorsUrl } } });
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, ".mcp.json"), JSON.stringify(inheritedServer("project-inherited")));
+    writeFileSync(
+      join(home.directory, ".claude.json"),
+      JSON.stringify({
+        ...inheritedServer("user-inherited"),
+        projects: { [realpathSync(home.workspace)]: { enableAllProjectMcpServers: true, hasTrustDialogAccepted: true } },
+      }),
+    );
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("Bash", { command: printClaudeCodeArguments }));
+    await cli.stdout.waitFor("Bash: ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    // The Bash tool's ancestors include the Claude Code CLI with the harness's arguments.
+    const bashOutput = JSON.stringify(api.modelRequests().at(-1)?.["messages"]);
+    assert.match(bashOutput, /--strict-mcp-config/);
+    assert.match(bashOutput, /disableClaudeAiConnectors/);
+    const mcpToolNames = offeredToolNames().filter((toolName) => toolName.startsWith("mcp__"));
+    assert.ok(mcpToolNames.some((toolName) => toolName.endsWith("__hackernews_get_top_stories")), `${mcpToolNames}`);
+    assert.deepEqual(mcpToolNames.filter((toolName) => toolName.includes("inherited")), []);
   });
 
   test("Read runs at once, and Write and Bash run after approval", async () => {

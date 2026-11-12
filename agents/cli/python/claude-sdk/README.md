@@ -66,6 +66,12 @@ Claude Code's own tools replace the CLI core's `files`, `shell`, and
   an approved command runs with your permissions.
 - Claude Code reads no settings files, so their allow rules cannot skip an
   approval. Its other tools, such as subagents, are not offered.
+- The command uses only these Claude Code tools, the CLI core's browser
+  tools, and the connector tools. It loads no MCP servers and no claude.ai
+  connectors from your Claude Code configuration or login, such as a
+  workspace `.mcp.json` or the Gmail connector of a claude.ai account.
+  External tools come only from the Dex connectors, which Dex approves and
+  records as Steps.
 - An approved call is checked again in its tool Step, on the Worker that runs
   it, with that Worker's configuration file narrowed by the turn's session
   settings. It fails without running when its group is off there or its path

@@ -31,6 +31,10 @@ from tests.conftest import (
 
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
 APPROVE_PROMPT = "Approve? [y/N, or n <reason>]"
+PRINT_CLAUDE_CODE_ARGUMENTS = (
+    'p=$PPID; for i in 1 2 3; do ps -ww -o command= -p "$p"; '
+    'p=$(ps -o ppid= -p "$p" | tr -d " "); done'
+)
 
 
 def call(tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -89,6 +93,46 @@ async def test_a_connector_read_runs_at_once_and_a_write_runs_once_after_approva
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert fake_mcp.runs("slack_post_thread_reply") == 1
+
+
+async def test_only_the_dex_connector_tools_come_from_mcp_never_the_user_configuration(
+    cli_home: CliHome, fake_mcp: FakeConnectorsMcp
+) -> None:
+    cli_home.write_config(
+        {
+            "connectors": {"mcp": fake_mcp.url},
+            "local_tools": {"shell": {"enabled": True, "allow": [PRINT_CLAUDE_CODE_ARGUMENTS]}},
+        }
+    )
+
+    def inherited_server(name: str) -> dict[str, Any]:
+        return {"mcpServers": {name: {"type": "http", "url": fake_mcp.url}}}
+
+    cli_home.workspace.mkdir()
+    (cli_home.workspace / ".mcp.json").write_text(json.dumps(inherited_server("project-inherited")))
+    project_settings = {"enableAllProjectMcpServers": True, "hasTrustDialogAccepted": True}
+    (cli_home.home / ".claude.json").write_text(
+        json.dumps(
+            {
+                **inherited_server("user-inherited"),
+                "projects": {os.path.realpath(cli_home.workspace): project_settings},
+            }
+        )
+    )
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    child.sendline(call("Bash", {"command": PRINT_CLAUDE_CODE_ARGUMENTS}))
+    await expect(child, "Bash: ")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    # The Bash tool's ancestors include the Claude Code CLI with the harness's arguments.
+    bash_output = json.dumps(cli_home.model_requests()[-1]["messages"])
+    assert "--strict-mcp-config" in bash_output
+    assert "disableClaudeAiConnectors" in bash_output
+    mcp_tool_names = {name for name in offered_tool_names(cli_home) if name.startswith("mcp__")}
+    assert any(name.endswith("__hackernews_get_top_stories") for name in mcp_tool_names)
+    assert not [name for name in mcp_tool_names if "inherited" in name]
 
 
 async def test_read_runs_at_once_and_write_and_bash_run_after_approval(

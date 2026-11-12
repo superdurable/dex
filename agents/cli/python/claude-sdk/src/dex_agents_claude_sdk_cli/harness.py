@@ -189,13 +189,18 @@ class ClaudeCodeLocalTools:
     def build_options(self, options_context: ClaudeAgentOptionsContext) -> ClaudeAgentOptions:
         """Return one turn segment's options: the turn's model, instructions, and tools.
 
+        .. versionchanged:: 0.6.0
+           The options load no MCP servers or claude.ai connectors from the
+           user's Claude Code configuration or login.
+
         Args:
             options_context: The segment's Flow ID, turn ID, and attempt.
 
         Returns:
             Options with the Claude Code tools the turn switches on and the
             tools of calls the turn already recorded, the workspace as
-            ``cwd``, and no settings files. The environment
+            ``cwd``, no settings files, and no MCP servers or claude.ai
+            connectors from the user's Claude Code configuration. The environment
             passes through unchanged, so ``ANTHROPIC_API_KEY`` or the
             machine's Claude Code login reaches the CLI. The CLI's standard
             error goes to the command's log file, never to the chat terminal.
@@ -220,6 +225,9 @@ class ClaudeCodeLocalTools:
             cwd=str(self._context.workspace),
             # Settings files could allow tools before the session's policy sees them.
             setting_sources=[],
+            # External tools come only from the Dex connectors, never the user's MCP config.
+            strict_mcp_config=True,
+            settings=json.dumps({"disableClaudeAiConnectors": True}),
             # An inherited terminal would get the CLI's control sequences in the chat.
             stderr=ClaudeCodeStderrLog.for_command_log().write_line,
         )
