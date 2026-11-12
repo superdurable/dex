@@ -244,7 +244,7 @@ def test_queue_then_steer_into_the_running_turn(
 
 
 @pytest.mark.needs_slow_streams
-def test_ctrl_c_cancels_turn_then_clears_draft_then_exits(
+def test_ctrl_c_cancels_turn_then_clears_draft_then_exits_on_a_second_press(
     command: TerminalUiCommand, chat_runs: ChatRunFactory
 ) -> None:
     run = chat_runs(
@@ -270,6 +270,10 @@ def test_ctrl_c_cancels_turn_then_clears_draft_then_exits(
     session.press("ctrl_c")
     session.wait_for_display_gone("an unsent draft")
     assert session.is_running(), "Ctrl-C on a draft exited instead of clearing it"
+    # On an empty idle input, the first Ctrl-C only arms the exit; a second within 2 s exits.
+    session.press("ctrl_c")
+    session.wait_for_display("Press Ctrl-C again to exit", timeout_seconds=1.5)
+    assert session.is_running(), "one Ctrl-C on an empty input exited"
     session.press("ctrl_c")
     assert session.wait_for_exit() == 0, session.describe()
     output = session.screen.output_text()
