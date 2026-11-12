@@ -165,6 +165,7 @@ class _ShellOwner(threading.Thread):
         self._exited = threading.Event()
         self._kill_requested = threading.Event()
         self._done = threading.Event()
+        self._selector: selectors.BaseSelector | None = None
         self.finished: asyncio.Future[str] = self._loop.create_future()
 
     def start(self) -> None:
@@ -209,10 +210,8 @@ class _ShellOwner(threading.Thread):
     def _own(self) -> str:
         pid = self._process.pid
         end_reason: str | None = None
-        self._selector = selectors.DefaultSelector()
-        for pipe in (self._stdout, self._stderr):
-            self._selector.register(pipe, selectors.EVENT_READ)
         try:
+            self._open_selector()
             deadline = time.monotonic() + self._timeout_seconds
             while not self._exited.is_set():
                 if self._kill_requested.is_set():
@@ -238,13 +237,34 @@ class _ShellOwner(threading.Thread):
                     self._read_output(min(_MEMBER_POLL_SECONDS, remaining))
                 self._groups.signal_group(pid, signal.SIGKILL)
             self._read_output_until(time.monotonic() + _OUTPUT_AFTER_GROUP_SECONDS)
-            self._selector.close()
+            if self._selector is not None:
+                self._selector.close()
             self._stdout.close()
             self._stderr.close()
             returncode = _release(self._process, self._groups)
         status = f"killed: {end_reason}" if end_reason is not None else f"exit code {returncode}"
         stdout, stderr = self._stdout.text(), self._stderr.text()
         return f"{status}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+
+    def _open_selector(self) -> None:
+        """Watch both pipes; without a selector the output is not read, but the stop still runs."""
+        try:
+            selector = selectors.DefaultSelector()
+        except Exception:  # Such as EMFILE; reading is best effort.
+            _LOGGER.exception("the shell's output cannot be watched")
+            self._stdout.is_ended = True
+            self._stderr.is_ended = True
+            return
+        try:
+            for pipe in (self._stdout, self._stderr):
+                selector.register(pipe, selectors.EVENT_READ)
+        except Exception:
+            _LOGGER.exception("the shell's output cannot be watched")
+            selector.close()
+            self._stdout.is_ended = True
+            self._stderr.is_ended = True
+            return
+        self._selector = selector
 
     def _wait_for_exit(self) -> None:
         wait_until_exited(self._process.pid)
@@ -259,15 +279,16 @@ class _ShellOwner(threading.Thread):
 
     def _read_output(self, timeout: float) -> None:
         """Read what the pipes hold within ``timeout``; a failure ends reading, not the stop."""
-        if self._stdout.is_ended and self._stderr.is_ended:
+        selector = self._selector
+        if selector is None or (self._stdout.is_ended and self._stderr.is_ended):
             time.sleep(max(0.0, timeout))
             return
         try:
-            for key, _ in self._selector.select(timeout):
+            for key, _ in selector.select(timeout):
                 pipe: _CappedOutput = key.fileobj  # type: ignore[assignment]
                 pipe.read_available()
                 if pipe.is_ended:
-                    self._selector.unregister(pipe)
+                    selector.unregister(pipe)
         except Exception:  # Reading is best effort; the group must still be stopped and reaped.
             _LOGGER.exception("the shell's output could not be read")
             self._stdout.is_ended = True

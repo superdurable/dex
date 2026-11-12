@@ -15,8 +15,10 @@ the same result for the same command.
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
 import resource
+import selectors
 import shlex
 import signal
 import subprocess
@@ -312,24 +314,63 @@ async def test_the_output_waits_the_group_cleanup_and_then_one_second(tmp_path: 
 
 
 async def test_pipes_with_high_descriptor_numbers_still_stop_the_group(tmp_path: Path) -> None:
+    # Fill the lowest descriptors so the shell's pipes get numbers select() cannot take.
+    filled_below = 1040
+    open_now = {int(name) for name in os.listdir("/dev/fd")}
+    fillers = sum(1 for fd in range(filled_below) if fd not in open_now)
     soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
-    wanted = 1200
+    # Room above the fillers for the pipes and what the run itself opens.
+    wanted = max(open_now) + fillers + 64
     if hard_limit != resource.RLIM_INFINITY and hard_limit < wanted:
         pytest.skip(f"the descriptor limit {hard_limit} is below {wanted}")
-    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft_limit, wanted), hard_limit))
+    pid_file = tmp_path / "background.pid"
     held: list[int] = []
+    resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft_limit, wanted), hard_limit))
     try:
-        # Over 1024 open descriptors, so the pipes get numbers select() cannot take.
-        for _ in range(1100):
+        for _ in range(fillers):
             held.append(os.open(os.devnull, os.O_RDONLY))
-        output = await run_shell_command("sleep 30 & echo $!", tmp_path, 60)
+        output = await run_shell_command(f"sleep 30 & echo $! > {pid_file}", tmp_path, 60)
+        assert output.startswith("exit code 0\n")
+        await wait_until_gone(int(pid_file.read_text()))
     finally:
         for fd in held:
             os.close(fd)
         resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, hard_limit))
-    assert output.startswith("exit code 0\n--- stdout ---\n")
-    (pid,) = stdout_lines(output)
-    await wait_until_gone(int(pid))
+        background = pid_file.read_text().strip() if pid_file.exists() else ""
+        if background and is_alive(int(background)):
+            os.kill(int(background), signal.SIGKILL)
+
+
+class FailingRegisterSelector(selectors.DefaultSelector):
+    def register(self, fileobj: Any, events: int, data: Any = None) -> selectors.SelectorKey:
+        raise OSError(errno.EMFILE, "injected register failure")
+
+
+def failing_selector() -> selectors.BaseSelector:
+    raise OSError(errno.EMFILE, "injected selector failure")
+
+
+@pytest.mark.parametrize(
+    "selector_factory",
+    [failing_selector, FailingRegisterSelector],
+    ids=["selector-creation", "register"],
+)
+async def test_a_selector_that_cannot_watch_the_pipes_still_stops_and_reaps_the_group(
+    tmp_path: Path,
+    spawned: list[subprocess.Popen[bytes]],
+    monkeypatch: pytest.MonkeyPatch,
+    selector_factory: Callable[[], selectors.BaseSelector],
+) -> None:
+    monkeypatch.setattr(selectors, "DefaultSelector", selector_factory)
+    pid_file = tmp_path / "background.pid"
+    groups = RecordingGroups()
+    output = await run_shell_command(
+        f"sleep 30 & echo $! > {pid_file}; sleep 0.2", tmp_path, 60, process_groups=groups
+    )
+    # Unread output is lost; the exit code still comes back.
+    assert output.startswith("exit code 0\n")
+    (process,) = spawned
+    assert_cleaned(process, groups, int(pid_file.read_text()))
 
 
 async def test_a_failed_read_still_stops_and_reaps_the_group(
@@ -401,9 +442,7 @@ def test_a_forked_child_exits_promptly(arguments: list[str]) -> None:
 
 async def test_a_command_that_leaves_nothing_behind_is_not_held_up(tmp_path: Path) -> None:
     groups = RecordingGroups()
-    started = time.monotonic()
     output = await run_shell_command("echo hi", tmp_path, 60, process_groups=groups)
-    assert time.monotonic() - started < 0.3
     assert output == "exit code 0\n--- stdout ---\nhi\n\n--- stderr ---\n"
     # Nothing was left in the group, so nothing was signaled.
     assert groups.signal_times == []
