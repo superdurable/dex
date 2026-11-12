@@ -6,11 +6,17 @@ slug: /concepts
 description: "Dex has a small programming model. A Flow is a durable program. Steps move it forward. Primitives hold its state and connect it to the outside world. Your application drives Flows through a Client."
 ---
 
+import FlowModelDiagram from '@site/src/components/diagrams/FlowModelDiagram';
+
 # Concepts
 
 Dex has a small programming model. A Flow is a durable program. Steps move it
 forward. Primitives hold its state and connect it to the outside world. Your
 application drives Flows through a Client.
+
+<a id="how-they-fit-together"></a>
+
+<FlowModelDiagram markdownDescription="Your application's Client starts a Flow and calls its RPCs, reads its Attributes or waits on them, and receives live Stream updates. Inside one Flow, identified by one Flow ID, Steps run one after another, wait on Channels, Timers, and SubFlows, and call Connectors; the Flow keeps Attributes, Channels, and Streams." />
 
 ## Flow and Step
 
@@ -43,35 +49,6 @@ A [Connector](/concepts/connector) connects a Flow to an external provider,
 such as an email or payment service. It gives your Flow ready-made Steps that
 call the provider, and Triggers that start or update Flows from provider
 events.
-
-## How they fit together
-
-```text
- Your application                      One Flow (one Flow ID)
- ┌────────────┐   StartFlow, RPC      ┌──────────────────────────────────┐
- │   Client   │ ────────────────────▶ │  Step ──▶ Step ──▶ Step ...      │
- │            │   GetAttributes, wait │   waits on Channel, Timer,       │
- │            │ ◀──────────────────── │   SubFlow; calls Connectors      │
- │            │   Stream (live)       │                                  │
- │            │ ◀──────────────────── │  Attributes  Channels  Streams   │
- └────────────┘                       └──────────────────────────────────┘
-```
-
-A **Flow** is the container. A Flow ID, such as an order number, has at most
-one active run at a time.
-
-**Steps** move the Flow forward. A Step can wait for a Channel message, a Timer,
-or a SubFlow. It then executes its work, such as a call through a Connector. It
-returns a decision that names the next Steps or closes the Flow. Dex retries a
-failed Step.
-
-**Attributes** and **Channels** are the Flow's durable state. Steps and RPCs
-read and write them. Dex saves the state changes of a Step method or RPC
-together with its result. See [Step guarantees](/concepts/step#guarantees).
-
-Your application uses a **Client** to start Flows, invoke RPCs, read
-Attributes, and wait for changes. To change a running Flow, your application
-calls an RPC. A **Stream** carries live updates back to a UI.
 
 ## Components
 

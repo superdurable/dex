@@ -39,31 +39,7 @@ Failures to handle:
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The Flow is a small interpreter. The definition chooses the business path. Four Step types run it:
-
-```text
-DealStart(definition snapshot, buyer, item)
-                    │
-                    ▼
-              InitializeDeal
-                    │
-                    ▼
-          WaitForDealCondition ◄──────────────┐
-          wait on keyed Channel              │
-                    │                         │
-                    ▼                         │
-           ExecuteDealAction                 │
-       one execution per ordered action      │
-                    │                         │
-                    ▼                         │
-         EvaluateDealTransition              │
-       optional wait + case / fallback       │
-                    │                         │
-             next state? ── yes ─────────────┘
-                    │ no
-                    ▼
-       complete with accumulated state data
-```
+The Flow is a small interpreter. The definition chooses the business path, and the four Step types in the graph above run it.
 
 It uses these patterns:
 
@@ -126,7 +102,6 @@ class DealDSLFlow(Flow[DealStart]):
             self.condition_messages,
         )
 
-
 class InitializeDeal(Step[DealStart]):
     def execute(self, context: Context, input: DealStart) -> StepDecision:
         definition = input.definition
@@ -137,7 +112,6 @@ class InitializeDeal(Step[DealStart]):
         self.flow.buyer_id.set(context, input.buyer_id)
         self.flow.state_data.set(context, dict(definition.initial_state_data))
         return go_to(WaitForDealCondition, StateStepInput(definition.initial_state))
-
 
 class WaitForDealCondition(Step[StateStepInput]):
     def wait_for(self, context: Context, input: StateStepInput) -> Wait:
@@ -157,7 +131,6 @@ class WaitForDealCondition(Step[StateStepInput]):
             return go_to(ExecuteDealAction, ActionStepInput(state.name, 0))
         return go_to(EvaluateDealTransition, input)
 
-
 class ExecuteDealAction(Step[ActionStepInput]):
     def execute(self, context: Context, input: ActionStepInput) -> StepDecision:
         state = self.flow.definition.get(context).state(input.state_name)
@@ -168,7 +141,6 @@ class ExecuteDealAction(Step[ActionStepInput]):
         if next_index < len(state.actions):
             return go_to(ExecuteDealAction, ActionStepInput(state.name, next_index))
         return go_to(EvaluateDealTransition, StateStepInput(state.name))
-
 
 class EvaluateDealTransition(Step[StateStepInput]):
     def wait_for(self, context: Context, input: StateStepInput) -> Wait:

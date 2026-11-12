@@ -39,29 +39,7 @@ lock 按 Dex 接受更新的先后排序，而不是按客户端发出请求的�
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-一个带 lock 的 RPC 产生更新，两个 consumer Step 各自按自己的进度投递：
-
-```text
-创建职位（版本 0）
-             │
-             ▼
-          InitStep
-        ┌────┴────┐
-        ▼         ▼
- UpdateLinkedIn  UpdateIndeed
- Posting        Posting
-        │         │
- 等待 LinkedIn  等待 Indeed
- Channel        Channel
-        ▲         ▲
-        │         │
-        └────┬────┘
-             │
- 更新 RPC [UpdatePostingLock]
- 持久化版本 N + 发布相同的 PostingUpdate
-             │
-             └── 返回版本 N
-```
+一个带 lock 的 RPC 产生更新，上图中的两个 consumer Step 各自按自己的进度投递。
 
 它用到以下模式：
 
@@ -91,7 +69,6 @@ UPDATE_VERSION = Attribute("UpdateVersion", int)
 UPDATE_POSTING_LOCK = Attribute("UpdatePostingLock", type(None))
 LINKEDIN_POSTING_UPDATES = Channel("LinkedInPostingUpdates", PostingUpdate)
 INDEED_POSTING_UPDATES = Channel("IndeedPostingUpdates", PostingUpdate)
-
 
 class JobPostingFlow(Flow[None]):
     update_version = UPDATE_VERSION
@@ -137,14 +114,12 @@ class JobPostingFlow(Flow[None]):
         self.indeed_posting_updates.publish(context, update)
         return RPCResult(version)
 
-
 class InitStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         return go_to_many(
             StepMovement.of(UpdateLinkedInPosting, None),
             StepMovement.of(UpdateIndeedPosting, None),
         )
-
 
 class UpdateLinkedInPosting(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:

@@ -38,15 +38,7 @@ The examples call local stubs. In production, give each API call a timeout, an i
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The Flow splits once and can finish in two ways:
-
-```text
-CallAPI1 ─┬─▶ CallAPI2 ─▶ DeadEnd
-          │
-          └─▶ Wait(Ready | 24h Timer) ─▶ CallAPI3 ─┬─▶ Complete
-                                                   └─▶ CallAPI4 ─▶ Complete
-                                                        (Timer only)
-```
+The Flow splits once and can finish in two ways, as the graph above shows.
 
 It combines these design patterns:
 
@@ -109,7 +101,6 @@ class CallAPI1(Step[str]):
             StepMovement.of(CallAPI2, None),
             StepMovement.of(CallAPI3, None),
         )
-
 
 class CallAPI3(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:

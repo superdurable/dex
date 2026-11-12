@@ -1,0 +1,72 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+
+/* Narrow: the application stacks above the Flow. Wide: they sit side by side. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem 0.65rem 0.65rem;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.calls {
+  display: flex;
+  justify-content: space-around;
+  padding: 0.4rem 0;
+}
+
+.layout .calls > .wide {
+  display: none;
+}
+
+div.layout .flow {
+  gap: 0.6rem;
+}
+
+.next {
+  color: var(--cd-accent);
+  font-weight: 600;
+}
+
+@container (min-width: 34rem) {
+  .layout {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 8.5rem) minmax(0, 1.2fr);
+    align-items: center;
+  }
+
+  .calls {
+    flex-direction: column;
+    gap: 0.9rem;
+    padding: 0;
+  }
+
+  .layout .calls > .wide {
+    display: flex;
+  }
+
+  .layout .calls > .narrow {
+    display: none;
+  }
+}

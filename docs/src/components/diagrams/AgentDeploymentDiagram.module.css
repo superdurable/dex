@@ -1,0 +1,93 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+
+/* Narrow: web app, server, and Workers stack. Wide: the server sits between them. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'web' 'to' 'server' 'from' 'worker';
+  gap: 0.4rem;
+}
+
+.web {
+  grid-area: web;
+}
+
+.worker {
+  grid-area: worker;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toServer {
+  grid-area: to;
+}
+
+.fromWorker {
+  grid-area: from;
+}
+
+.toServer,
+.fromWorker {
+  display: flex;
+  justify-content: center;
+  padding: 0.3rem 0;
+}
+
+.layout .toServer > .wide,
+.layout .fromWorker > .wide {
+  display: none;
+}
+
+div.layout .server {
+  grid-area: server;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  text-align: center;
+}
+
+.store {
+  display: flex;
+  max-width: 13rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--cd-accent);
+}
+
+@container (min-width: 40rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 5.5rem) minmax(0, 0.85fr) minmax(0, 6rem) minmax(0, 1.15fr);
+    grid-template-areas: 'web to server from worker';
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .toServer,
+  .fromWorker {
+    padding: 0;
+  }
+
+  .layout .toServer > .wide,
+  .layout .fromWorker > .wide {
+    display: flex;
+  }
+
+  .layout .toServer > .narrow,
+  .layout .fromWorker > .narrow {
+    display: none;
+  }
+}
