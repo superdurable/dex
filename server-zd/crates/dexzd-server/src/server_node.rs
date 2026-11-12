@@ -194,6 +194,7 @@ pub(crate) async fn start_server(
     let should_take_over_held_lease = embedded_s3
         .as_ref()
         .is_some_and(EmbeddedS3::has_exclusive_data_directory);
+    config.log_effective_config(embedded_s3.is_some());
     let components = ComponentConfigs::from_config(config, should_take_over_held_lease)?;
     let authenticator =
         public_api_authentication::public_api_authenticator(&components.authenticators)?;
@@ -209,10 +210,13 @@ pub(crate) async fn start_server(
             address: config.api.listen,
             source,
         })?;
-    let (registry, metrics) = NodeMetrics::registered(
+    let (mut registry, metrics) = NodeMetrics::registered(
         config.local_storage.directory.clone(),
         config.cluster.partition_count as usize,
     );
+    config
+        .effective_config_metrics(embedded_s3.is_some())
+        .register(&mut registry);
     let metrics = Arc::new(metrics);
     metrics.set_role(dexzd_metrics::NodeRole::Starting);
     let metrics_server =
