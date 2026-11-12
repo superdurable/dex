@@ -72,6 +72,10 @@ jobs:
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.suites), 'agents')
     uses: ./.github/workflows/agents-ci.yml
+  agents-terminal-ui:
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.suites), 'agents-terminal-ui')
+    uses: ./.github/workflows/agents-terminal-ui-e2e-ci.yml
   blob-cache-go:
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.suites), 'blob-cache-go')
@@ -182,6 +186,7 @@ jobs:
     needs:
       - plan
       - agents
+      - agents-terminal-ui
       - blob-cache-go
       - cli
       - copyright

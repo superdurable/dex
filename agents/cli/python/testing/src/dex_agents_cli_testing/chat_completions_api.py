@@ -27,6 +27,7 @@ from dex_agents_cli_testing.scripted_model import (
     ScriptedReply,
     ScriptedToolResult,
     scripted_reply,
+    stream_text_deltas,
 )
 
 _USAGE = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
@@ -49,11 +50,12 @@ class ChatCompletionsApiStub(ModelApiStub):
         """Answer a Chat Completions request with the scripted reply."""
         if not self.is_model_request(request):
             return ModelApiResponse(404, body={"error": {"message": "not found"}})
-        completion = _completion_object(
-            request.body, self._reply_source(read_chat_conversation(request.body))
-        )
+        reply = self._reply_source(read_chat_conversation(request.body))
+        completion = _completion_object(request.body, reply)
         if request.body.get("stream"):
-            return ModelApiResponse(events=_stream_chunks(completion), stream_end="[DONE]")
+            return ModelApiResponse(
+                events=_stream_chunks(completion, reply.stream_delay_seconds), stream_end="[DONE]"
+            )
         return ModelApiResponse(body=completion)
 
 
@@ -127,7 +129,9 @@ def _completion_object(body: Mapping[str, Any], reply: ScriptedReply) -> dict[st
     }
 
 
-def _stream_chunks(completion: Mapping[str, Any]) -> Iterator[tuple[None, Mapping[str, Any]]]:
+def _stream_chunks(
+    completion: Mapping[str, Any], delay_seconds: float
+) -> Iterator[tuple[None, Mapping[str, Any]]]:
     choice = completion["choices"][0]
     message = choice["message"]
     base = {key: completion[key] for key in ("id", "created", "model")}
@@ -143,7 +147,8 @@ def _stream_chunks(completion: Mapping[str, Any]) -> Iterator[tuple[None, Mappin
 
     yield chunk({"role": "assistant", "content": ""}, None)
     if message.get("content"):
-        yield chunk({"content": message["content"]}, None)
+        for delta in stream_text_deltas(message["content"], delay_seconds):
+            yield chunk({"content": delta}, None)
     for index, call in enumerate(message.get("tool_calls") or []):
         yield chunk({"tool_calls": [{"index": index, **call}]}, None)
     yield chunk({}, choice["finish_reason"])

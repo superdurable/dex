@@ -1,0 +1,56 @@
+[project]
+name = "dex-agents-cli-terminal-ui-e2e"
+# Never published: the terminal UI end-to-end scenarios of the agent CLI commands.
+version = "0.1.0"
+description = "PTY end-to-end scenarios of the Dex Agents CLI commands with the dexcli terminal UI"
+authors = [{name = "Super Durable"}]
+requires-python = ">=3.11"
+dependencies = [
+    "dex-agents-cli-testing==0.1.0",
+    "pexpect>=4.9,<5",
+    "pyte>=0.8.2,<0.9",
+    "pytest>=8.3,<9",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15,<2",
+    "ruff>=0.8,<0.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = "==0.12.2"
+
+[tool.uv.sources]
+dex-agents = { path = "../../../python/core", editable = true }
+dex-agents-cli-core = { path = "../core", editable = true }
+dex-agents-cli-testing = { path = "../testing", editable = true }
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dex_agents_cli_testing", "dex_agents_cli_terminal_ui_e2e"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests", "scenarios"]
+
+[[tool.mypy.overrides]]
+module = ["pexpect", "pexpect.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# ci.sh runs tests/; run-scenarios.sh runs scenarios/, which need a dexcli with agents-tui.
+testpaths = ["tests"]
+# The scripted model serves from threads; the forked child only execs the command.
+filterwarnings = ["ignore:This process .* is multi-threaded, use of forkpty:DeprecationWarning"]
