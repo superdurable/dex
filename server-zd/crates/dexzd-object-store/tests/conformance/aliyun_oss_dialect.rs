@@ -1162,3 +1162,88 @@ async fn file_already_exists_maps_by_dialect() {
     assert_eq!(requests.swap(0, Ordering::SeqCst), 1);
     accept_task.abort();
 }
+
+#[tokio::test]
+async fn every_layer_of_an_aliyun_oss_stack_reports_no_atomic_replacement() {
+    let emulator = AliyunOssEmulator::start(EtagMode::Md5).await;
+    let inner = Arc::new(emulator.object_store().await);
+    assert!(!inner.supports_replace_if_etag_matches_on_every_key());
+    let adapter = Arc::new(dexzd_object_store::AliyunOssObjectStore::new(inner));
+    let instrumented = dexzd_object_store::InstrumentedObjectStore::new(
+        adapter,
+        dexzd_metrics::NodeMetrics::unregistered(),
+    );
+    assert!(!instrumented.supports_replace_if_etag_matches_on_every_key());
+    emulator.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_create_only_check_passes_and_leaves_no_probe_object() {
+    let emulator = AliyunOssEmulator::start(EtagMode::Md5).await;
+    let store = emulator.object_store().await;
+    dexzd_object_store::check_aliyun_oss_create_only_writes(&store)
+        .await
+        .expect("an unversioned bucket honors x-oss-forbid-overwrite");
+    let listing = store.list("", None, 1000).await.expect("list");
+    assert!(listing.objects.is_empty(), "{:?}", listing.objects);
+    emulator.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_create_only_check_rejects_a_bucket_that_ever_had_versioning() {
+    for versioning in [
+        s3local::VersioningState::Enabled,
+        s3local::VersioningState::Suspended,
+    ] {
+        let emulator = AliyunOssEmulator::start(EtagMode::Md5).await;
+        emulator
+            .store
+            .put_bucket_versioning(BUCKET, versioning)
+            .expect("the bucket versioning changes");
+        let store = emulator.object_store().await;
+        let error = dexzd_object_store::check_aliyun_oss_create_only_writes(&store)
+            .await
+            .expect_err("a versioned bucket ignores x-oss-forbid-overwrite");
+        assert!(
+            matches!(
+                error,
+                dexzd_object_store::AliyunOssBucketCheckError::CreateOnlyIgnored { .. }
+            ),
+            "{versioning:?}: {error:?}"
+        );
+        assert!(error.to_string().contains("versioning"), "{error}");
+        emulator.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn the_provider_check_rejects_metadata_written_in_place() {
+    let emulator = AliyunOssEmulator::start(EtagMode::Md5).await;
+    let store = emulator.object_store().await;
+    dexzd_object_store::check_no_data_of_another_provider(&store)
+        .await
+        .expect("an empty prefix holds no other provider's data");
+    for key in [
+        dexzd_object_store::MANIFEST_OBJECT_KEY,
+        dexzd_object_store::ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY,
+    ] {
+        store
+            .put(key, Bytes::from_static(b"s3"), WriteCondition::CreateOnly)
+            .await
+            .expect("the other provider's object is written");
+        let error = dexzd_object_store::check_no_data_of_another_provider(&store)
+            .await
+            .expect_err("an object at a mutable key came from another provider");
+        assert!(
+            matches!(
+                &error,
+                dexzd_object_store::AliyunOssBucketCheckError::WrittenByAnotherProvider {
+                    key: found,
+                } if found == key
+            ),
+            "{error:?}"
+        );
+        store.delete(key).await.expect("the object is deleted");
+    }
+    emulator.shutdown().await;
+}

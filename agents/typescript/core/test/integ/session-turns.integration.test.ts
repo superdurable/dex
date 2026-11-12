@@ -502,10 +502,10 @@ describe("agent session turns with an in-process Worker", () => {
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.deepEqual(snapshot.toolCalls, []);
     assert.deepEqual(
-      snapshot.messages.map((message) => [message.sequence, message.turnId, message.role]),
+      snapshot.messages.map((message) => [message.sequence, message.turnId, message.role, message.origin]),
       [
-        [1, "turn-1", "user"],
-        [2, "turn-1", "user"],
+        [1, "turn-1", "user", undefined],
+        [2, "turn-1", "user", "turn_failure_note"],
       ],
     );
     assert.equal(

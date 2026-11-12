@@ -97,6 +97,13 @@ func (popup *interruptPopup) HandleKey(interrupt pendingInterrupt, key tea.KeyPr
 	if popup.isEnteringText {
 		return popup.handleTextKey(interrupt, key)
 	}
+	if question := interrupt.question; question != nil && question.AllowsFreeText && isPrintableKey(key) {
+		// Typing answers in free text, never picks a choice by accident.
+		popup.isEnteringText = true
+		popup.selectedOption = len(question.Choices)
+		popup.textInput.HandleEditingKey(key)
+		return popupKeyResult{}
+	}
 	switch key.String() {
 	case "esc":
 		return popupKeyResult{isClosed: true}

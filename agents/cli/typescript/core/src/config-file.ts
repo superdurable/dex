@@ -251,7 +251,7 @@ export function readFileInstructions(effective: EffectiveConfig, configPath: str
 export function describeConfigError(error: ConfigError, configPath: string): string {
   return `${configPath} is invalid: ${error.code} at ${error.path === "" ? "the top level" : error.path}${
     error.keyword === undefined ? "" : ` (${error.keyword})`
-  }`;
+  }${error.validForms === undefined ? "" : `. Use ${error.validForms}.`}`;
 }
 
 /** Resolves a parsed file with the harness's section, default model, and default workspace. */

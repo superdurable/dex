@@ -194,6 +194,7 @@ from dex_agents.values import (
     AgentMessageChunk,
     AgentMessageChunkRange,
     AgentMessageIndex,
+    AgentMessageOrigin,
     AgentMessagesPage,
     AgentPlan,
     AgentSessionStartInput,
@@ -1266,7 +1267,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             if any(user_message.role is not MessageRole.USER for user_message in user_messages):
                 raise ValueError("build_user_message must return a user message")
             state = _append_messages(
-                context, state, turn_id, user_messages, self._message_storage, starts_turn=True
+                context,
+                state,
+                turn_id,
+                user_messages,
+                self._message_storage,
+                starts_turn=True,
+                origins=[] if executed_plan is None else [AgentMessageOrigin.PLAN_EXECUTION],
             )
             AGENT_STATE.set(
                 context,
@@ -2759,16 +2766,29 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         stored_message_count = _count_stored_turn_replies(context, state, turn_id)
         messages = self._build_unfinished_turn_messages(context, state, tool_calls, events)
+        note_origin: AgentMessageOrigin | None = None
         if messages is None:
             messages = []
             if tool_calls:
                 header = TURN_CANCELLED_NOTE_HEADER if is_cancelled else TURN_STEERED_NOTE_HEADER
+                note_origin = (
+                    AgentMessageOrigin.TURN_CANCELLED_NOTE
+                    if is_cancelled
+                    else AgentMessageOrigin.TURN_STEERED_NOTE
+                )
                 # The records are deleted below; the note keeps the next model from repeating them.
                 note = self._runner.build_user_message(build_tool_call_note(header, tool_calls))
                 if note.role is not MessageRole.USER:
                     raise ValueError("build_user_message must return a user message")
                 messages.append(note)
-        state = _append_messages(context, state, turn_id, messages, self._message_storage)
+        state = _append_messages(
+            context,
+            state,
+            turn_id,
+            messages,
+            self._message_storage,
+            origins=[] if note_origin is None else [note_origin],
+        )
         for tool_call in tool_calls:
             AGENT_TOOL_CALLS.delete(context, tool_call.tool_call_id)
         if FRAMEWORK_RUN_STATE.get(context) is not None:
@@ -2848,13 +2868,17 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         messages = list(
             self._build_unfinished_turn_messages(context, state, tool_calls, events) or ()
         )
+        origins: list[AgentMessageOrigin | None] = [None] * len(messages)
         finished_tool_calls = [tool_call for tool_call in tool_calls if tool_call.status.is_final]
         if finished_tool_calls:
             # The records are deleted below; the note keeps the next model from repeating writes.
             messages.append(
                 self._runner.build_user_message(build_turn_failure_note(finished_tool_calls))
             )
-        state = _append_messages(context, state, turn_id, messages, self._message_storage)
+            origins.append(AgentMessageOrigin.TURN_FAILURE_NOTE)
+        state = _append_messages(
+            context, state, turn_id, messages, self._message_storage, origins=origins
+        )
         for tool_call in tool_calls:
             AGENT_TOOL_CALLS.delete(context, tool_call.tool_call_id)
         if FRAMEWORK_RUN_STATE.get(context) is not None:
@@ -3946,13 +3970,17 @@ def _append_messages(
     storage: _MessageStorage,
     *,
     starts_turn: bool = False,
+    origins: Sequence[AgentMessageOrigin | None] = (),
 ) -> AgentState:
     """Store messages, move full chunks out of the window, and apply retention.
 
     Every caller loads the whole ``AgentMessages`` window. A message too large to
     share a chunk gets its own chunk at once, so no later commit can fail on it.
-    The index changes only when chunks are written or deleted.
+    The index changes only when chunks are written or deleted. ``origins``,
+    empty or one per message, marks the messages the session wrote itself.
     """
+    if origins and len(origins) != len(messages):
+        raise ValueError("origins must be empty or have one value per message")
     if not messages and not starts_turn:
         AGENT_STATE.set(context, state)
         return state
@@ -3966,7 +3994,7 @@ def _append_messages(
     sequence = state.next_message_sequence
     created_at = _rfc3339(datetime.now(UTC))
     chunks = list(index.chunks)
-    for message in messages:
+    for position, message in enumerate(messages):
         stored = AgentMessage(
             sequence=sequence,
             turn_id=turn_id,
@@ -3979,6 +4007,7 @@ def _append_messages(
             framework_item=message.framework_item,
             created_at=created_at,
             images=list(message.images),
+            origin=origins[position] if origins else None,
         )
         if _CHUNK_ENVELOPE_BYTES + _message_bytes(stored) > storage.chunk_max_bytes:
             # The first store writes the largest value this message ever needs.

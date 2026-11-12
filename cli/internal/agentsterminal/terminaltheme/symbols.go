@@ -50,6 +50,9 @@ type SymbolSet struct {
 	// DiffAdded and DiffRemoved prefix diff preview lines.
 	DiffAdded   string
 	DiffRemoved string
+	// TaskOpen and TaskDone mark the steps of a plan checklist.
+	TaskOpen string
+	TaskDone string
 }
 
 var unicodeSymbols = SymbolSet{
@@ -75,6 +78,8 @@ var unicodeSymbols = SymbolSet{
 	Image:          "▣",
 	DiffAdded:      "+",
 	DiffRemoved:    "-",
+	TaskOpen:       "☐",
+	TaskDone:       "☑",
 }
 
 var asciiSymbols = SymbolSet{
@@ -100,6 +105,8 @@ var asciiSymbols = SymbolSet{
 	Image:          "#",
 	DiffAdded:      "+",
 	DiffRemoved:    "-",
+	TaskOpen:       "[ ]",
+	TaskDone:       "[x]",
 }
 
 // SpinnerFrame returns the spinner frame for a frame counter.

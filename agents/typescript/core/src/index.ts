@@ -143,6 +143,7 @@ export {
   type AgentMessageChunk,
   type AgentMessageChunkRange,
   type AgentMessageIndex,
+  type AgentMessageOrigin,
   type AgentMessageRole,
   type AgentMessagesPage,
   type AgentPlan,

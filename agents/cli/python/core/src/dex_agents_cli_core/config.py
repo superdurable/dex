@@ -64,9 +64,15 @@ class ConfigError(Exception):
             such as ``anyOf``; ``None`` otherwise.
         schema_errors: For ``schema``, the instance location and keyword of
             every schema error, nested ones included; empty otherwise.
+        valid_forms: For an ``anyOf`` schema error, the ``title`` of the
+            failed schema, which names the values it accepts; ``None`` otherwise.
 
     Its message is ``<code> at "<pointer>"``, followed by
-    `` (schema keyword <keyword>)`` for a schema error, as in the TypeScript CLI core.
+    `` (schema keyword <keyword>)`` for a schema error, as in the TypeScript CLI core,
+    and by ``. Use <valid forms>.`` when the failed schema names them.
+
+    .. versionchanged:: 0.6.0
+       An ``anyOf`` error names the values the field accepts.
     """
 
     def __init__(
@@ -76,6 +82,7 @@ class ConfigError(Exception):
         *,
         keyword: str | None = None,
         schema_errors: frozenset[tuple[str, str]] = frozenset(),
+        valid_forms: str | None = None,
     ) -> None:
         """Create the error.
 
@@ -84,13 +91,19 @@ class ConfigError(Exception):
             path: JSON Pointer of the first problem.
             keyword: The failed JSON Schema keyword of a schema error.
             schema_errors: Every schema error's location and keyword.
+            valid_forms: What the failed schema accepts, from its ``title``.
         """
         message = f"{code} at {json.dumps(path)}"
-        super().__init__(message if keyword is None else f"{message} (schema keyword {keyword})")
+        if keyword is not None:
+            message = f"{message} (schema keyword {keyword})"
+        if valid_forms is not None:
+            message = f"{message}. Use {valid_forms}."
+        super().__init__(message)
         self.code = code
         self.path = path
         self.keyword = keyword
         self.schema_errors = schema_errors
+        self.valid_forms = valid_forms
 
 
 @dataclass(frozen=True)
@@ -568,11 +581,13 @@ def _raise_first_schema_error(validator: Draft202012Validator, instance: object)
     errors = list(validator.iter_errors(instance))
     if errors:
         first = errors[0]
+        title = first.schema.get("title") if isinstance(first.schema, dict) else None
         raise ConfigError(
             "schema",
             _json_pointer(first.absolute_path),
             keyword=str(first.validator),
             schema_errors=schema_error_locations(errors),
+            valid_forms=title if first.validator == "anyOf" and isinstance(title, str) else None,
         )
 
 

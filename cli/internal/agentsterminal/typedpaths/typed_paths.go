@@ -74,6 +74,19 @@ func (resolver PathResolver) ResolveTypedPath(text string) (string, error) {
 	return resolver.absolutePath(path)
 }
 
+// ShortenHomePaths writes the home directory in text as ~. It shortens
+// only at a path boundary.
+func (resolver PathResolver) ShortenHomePaths(text string) string {
+	home := strings.TrimRight(resolver.homeDirectory, string(filepath.Separator))
+	if home == "" {
+		return text
+	}
+	if text == home {
+		return "~"
+	}
+	return strings.ReplaceAll(text, home+string(filepath.Separator), "~"+string(filepath.Separator))
+}
+
 // PastedImagePath returns the absolute path when text, as a terminal pastes
 // a dropped file, names one existing image file.
 func (resolver PathResolver) PastedImagePath(text string) (string, bool) {

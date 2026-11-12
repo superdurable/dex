@@ -89,9 +89,15 @@ from dex_agents_cli_core.dex_server import (
     DexServerError,
     StartedDexcliDevProcess,
     describe_lost_dexcli_dev,
+    describe_unavailable_dex_server,
     resolve_dex_server,
 )
-from dex_agents_cli_core.dexcli_install import DexcliInstallError, download_dexcli, locate_dexcli
+from dex_agents_cli_core.dexcli_install import (
+    DexcliInstallError,
+    DexcliVariableError,
+    download_dexcli,
+    locate_dexcli,
+)
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import (
     SESSION_ACTION_PERMISSION,
@@ -107,6 +113,7 @@ from dex_agents_cli_core.harness import (
 )
 from dex_agents_cli_core.local_tools import LocalToolSource
 from dex_agents_cli_core.local_tools.shell import ShellProcessGroups
+from dex_agents_cli_core.session_list import collect_sessions_for_list
 from dex_agents_cli_core.terminal_ui.contract import LIST_CONNECTORS, PUT_IMAGE, START_SESSION
 from dex_agents_cli_core.terminal_ui.hosted_session import (
     HostedChatSession,
@@ -147,8 +154,6 @@ _SESSION_SUMMARY_ATTRIBUTE_NAMES = frozenset(
         AGENT_SESSION_TURN_COUNT,
     )
 )
-#: Most pages of 50 sessions that ``sessions`` loads before it sorts them.
-SESSION_LIST_MAX_PAGES = 5
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
 # How long the command waits for the session graph upload before it logs a failure.
 _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
@@ -264,6 +269,7 @@ class _CommandDexServer:
         self._environment = environment
         self._started_process = StartedDexcliDevProcess(environment)
         self._reused_web_url: str | None = None
+        self.started_dexcli_dev_lines: list[str] = []
         self._command_task: asyncio.Task[Any] | None = None
         self._received_signals: list[int] = []
 
@@ -309,15 +315,27 @@ class _CommandDexServer:
             self._command_task.cancel()
 
     async def resolve(self, config: EffectiveConfig) -> DexServerEndpoint:
-        """Find or start the Dex server of ``dex.server``."""
+        """Find or start the Dex server of ``dex.server``, printing its progress lines.
+
+        When it starts a ``dexcli dev``, those lines stay in
+        ``started_dexcli_dev_lines`` too, for the terminal UI to show again.
+        """
+        lines: list[str] = []
+
+        def report(line: str) -> None:
+            print(line)
+            lines.append(line)
+
         endpoint = await resolve_dex_server(
             config.dex.server,
             self._environment,
-            report=print,
+            report=report,
             started_process=self._started_process,
         )
         if endpoint.started_pid is None and endpoint.web_url is not None:
             self._reused_web_url = endpoint.web_url
+        if endpoint.started_pid is not None:
+            self.started_dexcli_dev_lines = lines
         return endpoint
 
     def stop_started_dexcli_dev(self) -> None:
@@ -632,6 +650,8 @@ async def _run_terminal_ui(
         if dexcli is None:
             print(f"dexcli is not installed; downloading dexcli {environment.dexcli_version}.")
             dexcli = await asyncio.to_thread(download_dexcli, environment)
+    except DexcliVariableError as error:
+        raise CommandFailure(str(error)) from error
     except DexcliInstallError as error:
         print(f"Plain chat: {error}")
         return None
@@ -669,6 +689,7 @@ async def _run_terminal_ui(
         run_directory=run_directory,
         is_browser_opening_enabled=environment.is_browser_opening_enabled,
         is_resumed=arguments.resume_session_id is not None,
+        startup_notices=tuple(server.started_dexcli_dev_lines),
     )
     return await run_terminal_ui_chat(
         launch, print, restore_signal_handlers=server.install_termination_handlers
@@ -870,9 +891,14 @@ class _SessionWorker:
         try:
             await worker.wait_pull_registered(timeout=_WORKER_REGISTRATION_TIMEOUT_SECONDS)
             await _upload_session_flow_definition(client, flow_type)
-        except BaseException:
-            await session_worker.close()
-            raise
+        except BaseException as failure:
+            await session_worker.close(startup_failure=failure)
+            unavailable = describe_unavailable_dex_server(
+                failure, config.dex.server, endpoint.address
+            )
+            if unavailable is None:
+                raise
+            raise DexServerError(unavailable) from failure
         return session_worker
 
     @property
@@ -891,11 +917,21 @@ class _SessionWorker:
             self.identity,
         )
 
-    async def close(self) -> None:
-        """Stop the Worker, close the browser pages, the Client, and the blob cache."""
+    async def close(self, *, startup_failure: BaseException | None = None) -> None:
+        """Stop the Worker, close the browser pages, the Client, and the blob cache.
+
+        Args:
+            startup_failure: The error that ended ``start``. The Worker's own
+                task raises the same error again, and it is not raised twice.
+        """
         await self._worker.stop()
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             await self._serving
+        except asyncio.CancelledError:
+            pass
+        except Exception as error:
+            if error is not startup_failure:
+                raise
         if self._local_tools is not None:
             await self._local_tools.browser.close()
         await self.client.close()
@@ -1197,24 +1233,22 @@ async def _list_sessions(
         blob_cache,
         ClientOptions(server_address=endpoint.address, flow_service_tls=tls),
     )
-    sessions: list[AgentSessionSummary] = []
-    next_page_token = ""
     try:
-        for _ in range(SESSION_LIST_MAX_PAGES):
-            page = await list_agent_sessions(client, flow_type, next_page_token=next_page_token)
-            sessions.extend(page.sessions)
-            next_page_token = page.next_page_token
-            if not next_page_token:
-                break
+        collected = await collect_sessions_for_list(
+            lambda next_page_token: list_agent_sessions(
+                client, flow_type, next_page_token=next_page_token
+            )
+        )
     finally:
         await client.close()
         blob_cache.close()
-    if not sessions:
+    sessions = collected.sessions
+    if not sessions and not collected.has_more_sessions:
         print("No sessions yet.")
         return 0
     for session in sort_agent_sessions_by_last_activity(sessions):
         print(_session_line(session))
-    if next_page_token:
+    if collected.has_more_sessions:
         print(
             f"More sessions exist; this list sorts the first {len(sessions)} that Dex returns: "
             "running sessions first, then the most recently closed and started."

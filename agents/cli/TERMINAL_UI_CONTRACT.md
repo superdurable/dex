@@ -77,6 +77,12 @@ when any of these holds:
 | `no_common_contract` | No contract version is supported by both sides. |
 | `mode_missing` | Common contracts exist, but none has the mode this subcommand needs. |
 
+dexcli 1.46.0 is the first release whose `agents-tui` speaks contract 1. The
+`describe_failed` line says so and tells the user to point `DEXCLI` at such a
+`dexcli`. The `no_common_contract` line says which side to upgrade: the
+command when every contract `dexcli` speaks is newer than its own, else
+`dexcli`.
+
 Otherwise the launcher takes the contracts both sides support, highest first,
 and uses the first one whose `modes` include the needed mode. A missing mode
 moves only that subcommand to plain text.
@@ -185,7 +191,7 @@ right after the spawn. It holds no secret.
 | `display` | Text to show and never log. Paths write the home directory as `~`. All optional. |
 | `methods` | The local requests the launcher side serves. |
 | `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. An absent boolean is `false`. |
-| `notices` | Notices to show once the first frame is up. It may be, and usually is, empty: the launcher prints startup notices on the terminal before the handoff, so they stay in the scrollback above the terminal UI. |
+| `notices` | Notices to show once the first frame is up, in order: the lines the launcher printed while it started a `dexcli dev`, such as its log file, as `info`, then the Worker host's startup notices, such as connector tools that are unavailable. A reused `dexcli dev` adds no line. It is often empty. |
 | `log_path` | The command's log file, for display. |
 | `connectors` | connectors mode: the rows, in the shape of `list_connectors`'s result. |
 
@@ -585,8 +591,11 @@ operation finishes, `get_request_result` returns its real outcome.
 ## Notices
 
 The launcher turns the Worker host's user-facing log lines into `notice`
-messages. Startup notices, such as `Not authorized yet: …`, are printed
-before the handoff, so they stay in the scrollback above the terminal UI.
+messages. Startup notices, such as `Not authorized yet: …`, go into the launch
+document's `notices` instead of the terminal, because the terminal UI covers
+the screen right after the handoff. Progress lines that the launcher prints
+while it waits, such as for a `dexcli dev` it starts, stay in the scrollback
+too.
 
 Both the launch document's `notices` and `notice` messages are shown like
 this:

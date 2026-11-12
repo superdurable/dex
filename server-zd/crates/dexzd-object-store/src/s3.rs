@@ -119,6 +119,8 @@ pub struct S3ObjectStoreConfig {
     /// Every PutObject, UploadPart, and DeleteObjects request carries `Content-MD5`, and each part
     /// ETag must equal the part's MD5. The bucket must never have had versioning enabled or
     /// suspended, because OSS then ignores `x-oss-forbid-overwrite`.
+    /// [`ObjectStore::supports_replace_if_etag_matches_on_every_key`] returns false in that
+    /// dialect; wrap the store in [`crate::AliyunOssObjectStore`] to replace mutable object keys.
     pub api_dialect: S3ApiDialect,
 }
 
@@ -972,6 +974,13 @@ impl ObjectStore for S3ObjectStore {
             objects,
             next_start_after,
         })
+    }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        match self.api_dialect {
+            S3ApiDialect::AmazonS3 => true,
+            S3ApiDialect::AliyunOss => false,
+        }
     }
 }
 

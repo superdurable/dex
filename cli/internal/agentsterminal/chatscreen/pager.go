@@ -30,7 +30,9 @@ type pagerView struct {
 	// tool is the call a tool pager shows; history is nil then.
 	tool    sessionfeed.ToolCallChanged
 	history *historyPages
-	top     int
+	// plan is the plan a plan pager shows.
+	plan *sessionfeed.PlanChanged
+	top  int
 	// matchRow is the body row of the current search match, or -1.
 	matchRow       int
 	isTypingSearch bool
@@ -53,6 +55,10 @@ type historyPages struct {
 
 func newToolPager(call sessionfeed.ToolCallChanged) *pagerView {
 	return &pagerView{title: "Tool output", tool: call, matchRow: -1}
+}
+
+func newPlanPager(plan sessionfeed.PlanChanged) *pagerView {
+	return &pagerView{title: "Plan", plan: &plan, matchRow: -1}
 }
 
 func newHistoryPager(sessionID string, earlierBeforeSequence int64, deletedBeforeSequence int64) *pagerView {
@@ -110,6 +116,9 @@ func (pager *pagerView) applyEarlierPage(answer sessionfeed.EarlierMessagesRead,
 func (pager *pagerView) bodyRows(width int, theme terminaltheme.Theme) []string {
 	if pager.history != nil {
 		return renderHistoryPages(*pager.history, width, theme)
+	}
+	if pager.plan != nil {
+		return renderPlanPage(*pager.plan, width, theme)
 	}
 	return renderToolOutputPage(pager.tool, width, theme)
 }
@@ -323,6 +332,32 @@ func renderToolOutputPage(call sessionfeed.ToolCallChanged, width int, theme ter
 		rows = append(rows, contentIndent+theme.Accent.Render(theme.Symbols.Image)+" "+theme.Secondary.Render(countedNoun(call.ImageCount, "image")+" returned; images are not shown"))
 	}
 	return rows
+}
+
+// renderPlanPage draws the plan's revision and status, then every step.
+func renderPlanPage(plan sessionfeed.PlanChanged, width int, theme terminaltheme.Theme) []string {
+	done := 0
+	for _, item := range plan.Items {
+		if item.Status == sessionfeed.PlanItemDone {
+			done++
+		}
+	}
+	parts := []string{fmt.Sprintf("revision %d", plan.Revision), planStatusText(plan.Status), fmt.Sprintf("%d of %d done", done, len(plan.Items))}
+	rows := []string{terminaltheme.TruncateToWidth(contentIndent+theme.Secondary.Render(strings.Join(parts, theme.Symbols.Separator)), width, theme.Symbols.Ellipsis), ""}
+	return append(rows, renderPlanItems(plan.Items, contentIndent, width, theme)...)
+}
+
+func planStatusText(status sessionfeed.PlanStatus) string {
+	switch status {
+	case sessionfeed.PlanStatusActive:
+		return "running"
+	case sessionfeed.PlanStatusCompleted:
+		return "completed"
+	case sessionfeed.PlanStatusCleared:
+		return "cleared"
+	default:
+		return "draft"
+	}
 }
 
 // renderHistoryPages draws the earlier pages under a line that says what

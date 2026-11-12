@@ -1,0 +1,104 @@
+{
+  "description": "How the sessions subcommand loads SearchFlows pages. Each page lists how many sessions it holds and whether it has a next page token. A core loads pages until it has row_limit sessions or a page has no token, and sends at most request_limit requests. It keeps the first row_limit sessions in Dex order. has_more is true when it stopped with a next page token or dropped sessions.",
+  "row_limit": 250,
+  "request_limit": 20,
+  "cases": [
+    {
+      "name": "one short last page",
+      "pages": [{"count": 3, "has_next_page_token": false}],
+      "requests": 1,
+      "rows": 3,
+      "has_more": false
+    },
+    {
+      "name": "no sessions",
+      "pages": [{"count": 0, "has_next_page_token": false}],
+      "requests": 1,
+      "rows": 0,
+      "has_more": false
+    },
+    {
+      "name": "full pages end exactly at the row limit",
+      "pages": [
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": false}
+      ],
+      "requests": 5,
+      "rows": 250,
+      "has_more": false
+    },
+    {
+      "name": "full pages reach the row limit with more to load",
+      "pages": [
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": true},
+        {"count": 50, "has_next_page_token": false}
+      ],
+      "requests": 5,
+      "rows": 250,
+      "has_more": true
+    },
+    {
+      "name": "short pages keep loading past five requests",
+      "pages": [
+        {"count": 40, "has_next_page_token": true},
+        {"count": 40, "has_next_page_token": true},
+        {"count": 40, "has_next_page_token": true},
+        {"count": 40, "has_next_page_token": true},
+        {"count": 40, "has_next_page_token": true},
+        {"count": 40, "has_next_page_token": true},
+        {"count": 40, "has_next_page_token": false}
+      ],
+      "requests": 7,
+      "rows": 250,
+      "has_more": true
+    },
+    {
+      "name": "short pages until the last one",
+      "pages": [
+        {"count": 30, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 20, "has_next_page_token": true},
+        {"count": 10, "has_next_page_token": false}
+      ],
+      "requests": 4,
+      "rows": 60,
+      "has_more": false
+    },
+    {
+      "name": "empty pages with a token stop at the request limit",
+      "pages": [
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 0, "has_next_page_token": true},
+        {"count": 3, "has_next_page_token": true},
+        {"count": 4, "has_next_page_token": true},
+        {"count": 5, "has_next_page_token": false}
+      ],
+      "requests": 20,
+      "rows": 7,
+      "has_more": true
+    }
+  ]
+}

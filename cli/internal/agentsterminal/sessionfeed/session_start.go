@@ -38,6 +38,9 @@ type MoveSessionStartToBackground struct{}
 type SwitchSession struct {
 	// SessionID is the session to show.
 	SessionID string
+	// IsResumed loads the session's history, for a session /sessions picked;
+	// false for the new session /new started.
+	IsResumed bool
 }
 
 func (SessionStartChanged) isSessionUpdate()       {}

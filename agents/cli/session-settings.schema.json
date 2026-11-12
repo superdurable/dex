@@ -104,6 +104,7 @@
       "description": "A connector ID, or connector/connection. A connection name has at most 256 characters, no slash, no control character, and no leading or trailing space, as Dex Web requires."
     },
     "connector_entry": {
+      "title": "a connector ID or connector/connection, such as slack or slack/team, or a map with one such key and a tools list",
       "anyOf": [
         {
           "$ref": "#/$defs/connector_key"

@@ -384,6 +384,7 @@ async def test_sessions_sorts_several_pages_and_says_when_more_exist(
         assert lines[0].startswith(f"{oldest}  running  "), listed.stdout
         assert all(line.endswith("  0 turns") for line in lines[1:]), listed.stdout
         assert "More sessions exist" not in listed.stdout
+        assert listed.stdout.splitlines()[-1].startswith("Resume one with: "), listed.stdout
 
         for index in range(200):
             await sessions.start_session(f"extra-{index:03d}")
@@ -392,6 +393,7 @@ async def test_sessions_sorts_several_pages_and_says_when_more_exist(
     assert capped.returncode == 0, capped.stderr
     assert len([line for line in capped.stdout.splitlines() if "  started " in line]) == 250
     assert "More sessions exist; this list sorts the first 250 that Dex returns" in capped.stdout
+    assert capped.stdout.splitlines()[-1].startswith("Resume one with: "), capped.stdout
 
 
 async def _wait_for_visible_running_sessions(

@@ -27,7 +27,7 @@ func TestStopDuringTheTerminalCheckWaitsForRestore(t *testing.T) {
 	var stops atomic.Int32
 	var wasRawAtStop atomic.Bool
 	handler := newTerminalSignals(os.Stdin, nil)
-	handler.stopProcess = func() {
+	handler.stopProcess = func(uint64) {
 		wasRawAtStop.Store(isRaw.Load())
 		stops.Add(1)
 	}

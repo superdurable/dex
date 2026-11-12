@@ -7,6 +7,8 @@ on:
     paths:
       - "sdk-go/**"
       - "server-zd/**"
+      - "sdk-rust/Cargo.toml"
+      - "sdk-rust/crates/dex-blob-cache/**"
       - "protos/**"
       - ".github/workflows/server-zd-integ-ci.yml"
   workflow_dispatch:

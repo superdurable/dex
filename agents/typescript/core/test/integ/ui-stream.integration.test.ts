@@ -1174,7 +1174,7 @@ describe("agent snapshot JSON for browsers", () => {
         '"accepts_turn_control":false},' +
         '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",' +
         '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,' +
-        '"created_at":"2026-11-01T12:00:00.000Z","images":[]}],' +
+        '"created_at":"2026-11-01T12:00:00.000Z","images":[],"origin":null}],' +
         '"pending_interrupts":[{"interrupt_id":"call-1-input-2","kind":"question",' +
         '"tool_call_id":"call-1","tool_name":"refund_order","arguments":"{\\"order_id\\":\\"42\\"}",' +
         '"created_at":"2026-11-01T12:00:01.000Z","deadline":null,"question":"Refund to the card?",' +

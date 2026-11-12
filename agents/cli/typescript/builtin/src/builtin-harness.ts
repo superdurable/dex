@@ -45,9 +45,13 @@ export const defaultInstructions =
  * framework, in the terminal.
  *
  * Every model call is one `RunModel` Step through the core's AI SDK model client, and every tool call is its own
- * tool Step. The agent offers the CLI core's connector and local tools and the `ask_user` built-in tool. The model
- * ID is `openai/<model>` or `anthropic/<model>`; each turn uses the model and instructions its session settings
- * resolve to. The `builtin` section has no options yet; any key in it is a configuration error.
+ * tool Step. The agent offers the CLI core's connector and local tools and two built-in tools: `ask_user` asks the
+ * user a question, and `write_todos` keeps the session's plan. Plan mode is on, so a message with `planMode` drafts a plan
+ * with `write_todos` and `execute_plan` runs it. Both built-in names are reserved: no connector or local tool may use
+ * them. The model ID is `openai/<model>` or `anthropic/<model>`; each turn uses the model and instructions its
+ * session settings resolve to. The `builtin` section has no options yet; any key in it is a configuration error.
+ *
+ * Changed in 0.6.0: plan mode is on, and the agent has the `write_todos` built-in tool.
  *
  * @example
  * ```ts
@@ -93,7 +97,8 @@ export function createBuiltinSessionFlow(context: HarnessContext): AgentSessionF
       model: modelClientFor(context.config.model),
       resolveModel: (settings) => modelClientFor(context.resolveTurn(settings).model),
       toolSources: context.toolSources,
-      builtInTools: ["ask_user"],
+      builtInTools: ["ask_user", "write_todos"],
+      planModeEnabled: true,
     },
     context.flowType,
     {

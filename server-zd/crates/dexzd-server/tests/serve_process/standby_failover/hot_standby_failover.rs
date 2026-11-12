@@ -24,6 +24,7 @@ use super::{
     HOT_SLOTS, SECOND, STANDBY_BUDGET, STARTUP_BUDGET, TAKEOVER_BUDGET, assert_hot_takeover,
 };
 use crate::SHUTDOWN_BUDGET;
+use crate::harness::TestObjectStoreProvider;
 use crate::robustness::workload::Workload;
 
 const THIRD: usize = 2;
@@ -52,7 +53,29 @@ const LOG_CLEANUP_BUDGET: Duration = Duration::from_secs(60);
 /// P1, hot: SIGKILL of the active under load hands the node to the hot standby.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hot_standby_takes_over_when_the_active_is_killed_under_load() {
-    let mut scenario = FailoverScenario::start("hot-killed", &HOT_SLOTS).await;
+    assert_hot_standby_takes_over_when_the_active_is_killed_under_load(
+        "hot_standby_takes_over_when_the_active_is_killed_under_load",
+        TestObjectStoreProvider::S3,
+    )
+    .await;
+}
+
+/// P1, hot, with `objectStore.provider: aliyunOSS`, whose leases and manifest are versioned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn aliyun_oss_hot_standby_takes_over_when_the_active_is_killed_under_load() {
+    assert_hot_standby_takes_over_when_the_active_is_killed_under_load(
+        "aliyun_oss_hot_standby_takes_over_when_the_active_is_killed_under_load",
+        TestObjectStoreProvider::AliyunOss,
+    )
+    .await;
+}
+
+async fn assert_hot_standby_takes_over_when_the_active_is_killed_under_load(
+    test: &str,
+    provider: TestObjectStoreProvider,
+) {
+    let mut scenario =
+        FailoverScenario::start_with_provider("hot-killed", &HOT_SLOTS, provider).await;
     scenario
         .group
         .wait_for_progress(&scenario.workload, ACKNOWLEDGEMENTS_PER_PHASE)
@@ -73,7 +96,7 @@ async fn hot_standby_takes_over_when_the_active_is_killed_under_load() {
     let hot_after = group.wait_for_hot_standby(FIRST, STANDBY_BUDGET).await;
     scenario
         .finish(
-            "hot_standby_takes_over_when_the_active_is_killed_under_load",
+            test,
             killed_at,
             format!("served {served_after:?} after the kill; the restarted process was hot after {hot_after:?}"),
         )

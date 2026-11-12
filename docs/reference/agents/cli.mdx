@@ -222,7 +222,7 @@ download it again.
 
 | Environment variable | Meaning |
 | --- | --- |
-| **DEXCLI** | The **dexcli** executable to run. |
+| **DEXCLI** | The **dexcli** executable to run. A value that is not an executable file stops the command with an error that says to unset **DEXCLI** or point it at **dexcli**. Changed in 0.6.0: the Python commands check it too. |
 | **DEX_AGENTS_DEX_PORT**, **DEX_AGENTS_WEB_PORT** | The ports of the **dexcli dev** that **auto** reuses or starts. |
 | **DEX_AGENTS_DEXCLI_DOWNLOAD_URL** | The base URL of **dexcli** release downloads, such as a mirror. It must be https, or http on 127.0.0.1, localhost, or [::1]. |
 | **DEX_AGENTS_OPEN_BROWSER** | **0** or **false** keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. Since 0.6.0. |
@@ -298,7 +298,15 @@ IPv6 address is invalid, a DNS label starts with **xn--**, or the port is over
 The [configuration schema](https://github.com/superdurable/dex/blob/main/agents/cli/config.schema.json)
 defines every field. A file that fails it stops the command with the error code
 and the JSON Pointer of the problem, such as
-**schema at "/local_tools/shell/allow"**.
+**schema at "/local_tools/shell/allow"**. Since 0.6.0, the error for a field
+that takes one of several forms, such as **dex.server**, also names the forms
+it takes.
+
+When the command cannot reach the Dex server at all, it stops with one line
+that names the server's address and says how to fix it: run **dexcli dev**
+for **auto**, or start the server that **dex.server** names. A server that
+answers but reports **UNAVAILABLE** is named with its details and a hint to
+try again. Changed in 0.6.0: these lines replace the raw gRPC error.
 
 ### Harness options {#harness-options}
 
@@ -374,8 +382,7 @@ dex-agents-claude-sdk sessions
 dex-agents-claude-sdk --resume SESSION_ID
 ```
 
-**sessions** loads up to five pages of 50 sessions and sorts them by last
-activity. When more sessions exist, it says so. Each line has the session ID,
+**sessions** loads up to 250 sessions and sorts them by last activity. When more sessions exist, it says so. Each line has the session ID,
 the status, and the start time. Since 0.6.0 it also has the time of the latest
 turn, the turn count, and the title, the first 80 Unicode code points of the
 first message, when **sessions.summary** keeps the session summary: by
@@ -434,10 +441,18 @@ recorded in the session.
 - The allow list matches whole commands: **ls -la** does not match **ls**.
 - A shell command runs with the system shell in the workspace, in its own
   process group, so Ctrl-C never reaches it. It times out after 120 seconds by
-  default and 600 seconds at most. Changed in 0.6.0: in the TypeScript
-  commands, when it ends, the processes it left in its group end too, such as
-  one it started with **&**: they get SIGTERM, then SIGKILL half a second
-  later. So **cmd &** answers at once and leaves nothing running.
+  default and 600 seconds at most. Changed in 0.6.0: when it ends, the
+  processes it left in its group end too, such as one it started with **&**:
+  they get SIGTERM, then SIGKILL half a second later. So **cmd &** answers at
+  once and leaves nothing running. A process that left the group, for example
+  with **setsid**, is not stopped: once the group is cleaned, the output may
+  still arrive for 1 second, and the result holds what came by then. The
+  result starts with **exit code N**, the number the shell reports (128 plus
+  the signal's number when a signal ended it), or with **killed: timed out
+  after N seconds**, and then has a **--- stdout ---** and a **--- stderr ---**
+  section, each cut at 64 KiB. A shell that cannot start fails the call with
+  **the shell could not start:** and the operating system's reason, whose
+  wording differs between platforms.
 - A command whose Worker died while it ran records **outcome_unknown** and
   never runs again.
 - The browser is headless Chromium: Playwright's own when installed, else the
@@ -454,6 +469,19 @@ your permissions and can change anything, inside the workspace or outside it.
 A concurrent process that swaps a directory for a link during an approved
 write can make the write land outside; the call then reports an error. Only
 OS-level isolation, such as a container, closes that gap.
+
+**dex-agents-builtin** also has two built-in tools that the session runs
+itself. **ask_user** asks you a question and waits for the answer.
+**write_todos** replaces the session's plan and never waits for approval.
+Since 0.6.0, plan mode is on in **dex-agents-builtin**: a planning turn drafts
+a plan with **write_todos** and uses no other tool, and approving the draft
+starts a turn that runs it with every tool. Use plan mode through the terminal
+UI, with **/plan** and **/run**, or through the session API. The plain chat has
+no plan commands and sends them as ordinary messages.
+
+The two names are reserved, so a Connector or local tool with one of them
+fails the turn. Changed in 0.6.0: **write_todos** became reserved. Rename a
+conflicting Connector or local tool, or use another harness.
 
 ### Harnesses with their own tools {#harness-tools}
 

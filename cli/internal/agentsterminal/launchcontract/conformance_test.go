@@ -93,8 +93,7 @@ func TestLaunchConformanceCases(t *testing.T) {
 	}
 }
 
-// The binary's own modes reject the pickers with mode_unsupported until it
-// runs them.
+// A dexcli whose modes lack the pickers rejects them with mode_unsupported.
 func TestLaunchChecksRejectModesThisDexcliDoesNotRun(t *testing.T) {
 	line := []byte(`{"type":"launch","contract":1,"mode":"sessions"}`)
 	_, rejection := CheckLaunchLine(line, SupportedModes{1: {ModeChat}}, environmentLookup(nil))

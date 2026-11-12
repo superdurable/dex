@@ -21,7 +21,6 @@ import {
   sessionFlowDefinitionDocument,
   sortAgentSessionsByLastActivity,
   startAgentSession,
-  type AgentSessionSummary,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type DeferredToolOutcome,
@@ -73,6 +72,8 @@ import {
   type DexServerConnection,
 } from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
+import { waitForQueuedOutput } from "./queued-output.js";
+import { collectSessionsForList } from "./session-list-pages.js";
 import { commandPackageVersion } from "./terminal-ui/command-package-version.js";
 import { TerminalUiChatLauncher, type TerminalUiChatOutcome } from "./terminal-ui/terminal-ui-chat-launcher.js";
 import { negotiateTerminalUi } from "./terminal-ui/terminal-ui-negotiation.js";
@@ -84,12 +85,11 @@ import { workerHostSubcommand } from "./worker-host/worker-host-protocol.js";
 import { TerminalChat } from "./terminal-chat.js";
 import { TerminalInput, lineWaitAborted } from "./terminal-input.js";
 import { TurnConfigResolver } from "./turn-config-resolver.js";
+import { describeUnavailableDexServer } from "./unavailable-dex-server.js";
 
 const subcommands = ["run", "init", "connectors", "sessions"] as const;
 type Subcommand = (typeof subcommands)[number];
 const blobCacheBytes = 256 * 1024 * 1024;
-/** Most pages of 50 sessions that the `sessions` subcommand loads before it sorts them. */
-const sessionListMaxPages = 5;
 
 /**
  * The process a command runs in: its arguments, streams, environment, and whether a person is at a terminal.
@@ -173,7 +173,14 @@ function requireSessionSummarySetting(
  *
  * Changed in 0.6.0: a started `dexcli dev` stops when the command exits instead of running on.
  *
- * A harness command's bin calls it and exits with its result, because open connections can keep Node running:
+ * A harness command's bin calls it and exits with its result, because open connections can keep Node running. When
+ * it returns or throws, its output on `io.stdout` and `io.stderr` has reached the operating system, so exiting at once
+ * loses no line, even when a slow reader such as a pipe has not read them yet. It waits at most 2 seconds for that
+ * output, so a reader that never reads cannot hang the command. A handled SIGTERM, SIGHUP, or SIGINT waits the same
+ * way before the process exits; a second signal exits at once.
+ *
+ * Changed in 0.6.0: it waits for its output before it returns. Before, `process.exit` could cut off the end of a long
+ * `sessions` list written to a pipe.
  *
  * @example
  * ```ts
@@ -191,6 +198,15 @@ function requireSessionSummarySetting(
  * @since 0.5.0
  */
 export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = processAgentCliIo()): Promise<number> {
+  try {
+    return await runAgentCliCommand(harness, io);
+  } finally {
+    // Callers exit the process at once, which drops writes still queued for a slow pipe.
+    await waitForQueuedOutput([io.stdout, io.stderr]);
+  }
+}
+
+async function runAgentCliCommand(harness: AgentHarness, io: AgentCliIo): Promise<number> {
   if (io.argv[0] === workerHostSubcommand) {
     return runWorkerHost(harness, io, (log) => AgentCliCommand.forWorkerHost(harness, io, log));
   }
@@ -607,8 +623,13 @@ export class AgentCliCommand {
     });
     mkdirSync(this.environment.agentsDirectory, { recursive: true });
     this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath(), this.log);
-    await this.worker.start();
-    await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
+    try {
+      await this.worker.start();
+      await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
+    } catch (error: unknown) {
+      const unavailable = describeUnavailableDexServer(error, effective.dex.server, server.serverAddress);
+      throw unavailable === undefined ? error : new Error(unavailable, { cause: error });
+    }
     await this.uploadSessionFlowDefinition(this.client, flowType);
     const startEnvironment = sessionStartEnvironment(identity);
     const resumeSessionId = options.resumeSessionId;
@@ -882,17 +903,11 @@ export class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     });
-    const loadedSessions: AgentSessionSummary[] = [];
-    let nextPageToken = "";
-    for (let pageNumber = 0; pageNumber < sessionListMaxPages; pageNumber += 1) {
-      const page = await listAgentSessions(this.client, flowType, { nextPageToken });
-      loadedSessions.push(...page.sessions);
-      nextPageToken = page.nextPageToken;
-      if (nextPageToken === "") {
-        break;
-      }
-    }
-    if (loadedSessions.length === 0) {
+    const client = this.client;
+    const { sessions: loadedSessions, hasMoreSessions } = await collectSessionsForList((nextPageToken) =>
+      listAgentSessions(client, flowType, { nextPageToken }),
+    );
+    if (loadedSessions.length === 0 && !hasMoreSessions) {
       this.io.stdout.write(`No ${flowType} sessions.\n`);
       return 0;
     }
@@ -908,7 +923,7 @@ export class AgentCliCommand {
       ];
       this.io.stdout.write(`${columns.join("\t")}\n`);
     }
-    if (nextPageToken !== "") {
+    if (hasMoreSessions) {
       this.io.stdout.write(
         `More sessions exist; this list sorts the first ${loadedSessions.length} that Dex returns: ` +
           "running sessions first, then the most recently closed and started.\n",

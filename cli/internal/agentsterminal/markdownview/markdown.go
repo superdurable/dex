@@ -27,7 +27,8 @@ import (
 var replyExtensions = []goldmark.Extender{extension.Table, extension.Strikethrough, extension.TaskList}
 
 // RenderMarkdown returns styled lines of at most width cells. Prose wraps;
-// code lines are truncated.
+// code lines are truncated. A single newline in prose stays a line break,
+// as the streamed reply shows it.
 func RenderMarkdown(source string, width int, theme terminaltheme.Theme) []string {
 	sourceBytes := []byte(source)
 	document := goldmark.New(goldmark.WithExtensions(replyExtensions...)).Parser().Parse(text.NewReader(sourceBytes))
@@ -184,7 +185,7 @@ func (renderer markdownRenderer) renderInline(node ast.Node) string {
 			return value + "\n"
 		}
 		if inline.SoftLineBreak() {
-			return value + " "
+			return value + "\n"
 		}
 		return value
 	case *ast.String:

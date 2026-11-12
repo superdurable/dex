@@ -27,6 +27,7 @@ import { Client, FlowNotFoundError, Registry, openBlobCache } from "@superdurabl
 
 import type { CliEnvironment } from "./cli-environment.js";
 import { resolveDexcliExecutable } from "./dexcli-binary.js";
+import { waitForQueuedOutput } from "./queued-output.js";
 
 const readyLine = "Dex development environment is ready";
 const connectorsMcpLine = /Connectors MCP:\s*(\S+)/;
@@ -283,7 +284,9 @@ export class StartedDexcliDevProcess {
     }
     const exitCode = 128 + constants.signals[signal];
     if (this.stopping === undefined) {
-      void this.stop().then(() => process.exit(exitCode));
+      void this.stop()
+        .then(() => waitForQueuedOutput([process.stdout, process.stderr]))
+        .then(() => process.exit(exitCode));
       return;
     }
     // A signal during the grace period means: do not wait any longer.

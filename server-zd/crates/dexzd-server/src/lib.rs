@@ -79,6 +79,15 @@ pub enum ServerError {
         #[source]
         source: dexzd_object_store::StartupSelfCheckError,
     },
+    /// The bucket of `objectStore.provider: aliyunOSS` cannot hold server-zd data.
+    #[error("object storage bucket {bucket} failed the aliyunOSS startup check: {source}")]
+    AliyunOssBucketCheck {
+        /// Bucket name.
+        bucket: String,
+        /// Failed check.
+        #[source]
+        source: dexzd_object_store::AliyunOssBucketCheckError,
+    },
     /// The embedded S3 emulator of dev or local mode could not start.
     #[error("starting the embedded S3 emulator in {}: {detail}", directory.display())]
     EmbeddedS3 {

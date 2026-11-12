@@ -64,6 +64,8 @@ _KILL_WAIT_SECONDS = 5.0
 _LEFTOVER_WAIT_SECONDS = 2.0
 _STOPPED_LINE = "Stopped the dexcli dev this command started."
 _SHARING_HINT = "To share one dexcli dev across sessions, run dexcli dev yourself first."
+# gRPC core's details when no connection opened: a refused or unreachable port, or no DNS answer.
+_CONNECT_FAILURE_MARKERS = ("failed to connect to all addresses", "DNS resolution failed")
 
 
 class DexServerError(Exception):
@@ -156,6 +158,59 @@ async def describe_lost_dexcli_dev(web_url: str) -> str | None:
         f"the dexcli dev at {web_url} stopped. A dexcli dev that another command started stops "
         f"when that command exits. {_SHARING_HINT}"
     )
+
+
+def describe_unavailable_dex_server(
+    failure: BaseException, server: str, address: str
+) -> str | None:
+    """Return the one-line error for a Worker whose Dex server answered gRPC ``UNAVAILABLE``.
+
+    A connection that never opened, such as a refused port or a host name that
+    does not resolve, says how to start or choose the server. An ``UNAVAILABLE``
+    that a reachable server returned names its details and suggests a retry.
+
+    .. versionadded:: 0.6.0
+
+    Args:
+        failure: The Worker's startup failure.
+        server: The ``dex.server`` value.
+        address: The gRPC target the Worker used.
+
+    Returns:
+        The error text when a gRPC ``UNAVAILABLE`` caused the failure; ``None`` otherwise.
+    """
+    details = _unavailable_details(failure)
+    if details is None:
+        return None
+    if not any(marker in details for marker in _CONNECT_FAILURE_MARKERS):
+        return (
+            f"the Dex server at {address} returned UNAVAILABLE: {details}. It may still be "
+            "starting; try again in a moment."
+        )
+    if server == AUTO:
+        return (
+            f"cannot reach the Dex server of dexcli dev at {address}. Run dexcli dev, or set "
+            "dex.server to the URL of a running Dex server."
+        )
+    return (
+        f"cannot reach the Dex server at {address}, which dex.server names. Start that server, "
+        "or set dex.server to auto to use dexcli dev on this machine."
+    )
+
+
+def _unavailable_details(failure: BaseException) -> str | None:
+    """Return the details of the first gRPC ``UNAVAILABLE`` in the cause chain, or ``None``."""
+    seen: set[int] = set()
+    current: BaseException | None = failure
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        # A grpc.RpcError, matched by shape: grpcio ships no type stubs.
+        code = getattr(current, "code", None)
+        if callable(code) and getattr(code(), "name", None) == "UNAVAILABLE":
+            details = getattr(current, "details", None)
+            return str(details() if callable(details) else "")
+        current = current.__cause__ or current.__context__
+    return None
 
 
 @dataclass(frozen=True)

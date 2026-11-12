@@ -10,17 +10,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
 import struct
 import zlib
 from pathlib import Path
+from typing import Any
 
+from dex_agents import AgentPlan, AgentSessionClient, PlanStatus
 from dex_agents_builtin_cli import BUILTIN_CLI_FLOW_TYPE
 from dex_agents_cli_core import session_flow_type
 from dex_agents_cli_testing import scenarios
-from dex_agents_cli_testing.commands import CommandHome, expect, wait_for_exit
+from dex_agents_cli_testing.commands import (
+    CommandHome,
+    call,
+    expect,
+    read_session_id,
+    session_client,
+    wait_for_exit,
+)
 from dex_agents_cli_testing.fixtures import FakeConnectorsMcp
 from tests.conftest import MOCK_API_KEY
 
@@ -96,6 +106,81 @@ async def test_an_attached_image_reaches_the_responses_api(command_home: Command
     data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
     bodies = [json.dumps(request.body) for request in command_home.model_api.model_requests()]
     assert any(data_url in body for body in bodies), bodies
+
+
+async def test_plan_mode_drafts_a_plan_that_execute_plan_runs(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    command_home.write_config(scenarios.NO_CONNECTORS)
+    child = command_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    flow_type = session_flow_type(
+        BUILTIN_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    todos = [{"content": "Read the notes", "status": "pending"}]
+    async with session_client(command_home.address, tmp_path / "cache", flow_type) as sessions:
+        before_planning = len(command_home.model_api.model_requests())
+        planning_message = call("write_todos", {"todos": todos})
+        assert await sessions.send_user_message(session_id, planning_message, plan_mode=True)
+        draft = await wait_for_plan(sessions, session_id, PlanStatus.DRAFT)
+        assert [task.content for task in draft.tasks] == ["Read the notes"]
+        planning_requests = command_home.model_api.model_requests()[before_planning:]
+        assert planning_requests
+        assert all(tool_names(request.body) == {"write_todos"} for request in planning_requests)
+        before_running = len(command_home.model_api.model_requests())
+        assert await sessions.execute_plan(session_id, draft.revision)
+        await wait_for_plan(sessions, session_id, PlanStatus.ACTIVE)
+    running_request = command_home.model_api.model_requests()[before_running]
+    assert {"write_todos", "read_file"} <= tool_names(running_request.body)
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
+async def test_a_planning_turn_cannot_call_another_tool(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    command_home.write_config(scenarios.NO_CONNECTORS)
+    command_home.workspace.mkdir(parents=True, exist_ok=True)
+    (command_home.workspace / "notes.txt").write_text("buy milk\n")
+    child = command_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    flow_type = session_flow_type(
+        BUILTIN_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    async with session_client(command_home.address, tmp_path / "cache", flow_type) as sessions:
+        planning_message = call("read_file", {"path": "notes.txt"})
+        assert await sessions.send_user_message(session_id, planning_message, plan_mode=True)
+        for _ in range(300):
+            snapshot = await sessions.get_agent_snapshot(session_id)
+            if "unbound read_file" in str(snapshot.messages):
+                break
+            await asyncio.sleep(0.1)
+        else:
+            raise AssertionError("the planning turn never answered")
+        assert snapshot.plan is None
+        assert snapshot.tool_calls == []
+    assert "buy milk" not in json.dumps([r.body for r in command_home.model_api.model_requests()])
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
+def tool_names(body: dict[str, Any]) -> set[str]:
+    """Return the names of the tools a Responses API request offers."""
+    return {str(tool.get("name")) for tool in body.get("tools") or []}
+
+
+async def wait_for_plan(
+    sessions: AgentSessionClient, session_id: str, status: PlanStatus
+) -> AgentPlan:
+    """Poll the session until its plan has a status, and return the plan."""
+    for _ in range(300):
+        snapshot = await sessions.get_agent_snapshot(session_id)
+        if snapshot.plan is not None and snapshot.plan.status is status:
+            return snapshot.plan
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"the plan of {session_id} never became {status}")
 
 
 def png_bytes() -> bytes:

@@ -487,6 +487,10 @@ mod tests {
             }
             Ok(listing)
         }
+
+        fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+            self.inner.supports_replace_if_etag_matches_on_every_key()
+        }
     }
 
     #[async_trait]
@@ -553,6 +557,10 @@ mod tests {
                 metadata.last_modified_unix_micros = None;
             }
             Ok(listing)
+        }
+
+        fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+            self.inner.supports_replace_if_etag_matches_on_every_key()
         }
     }
 

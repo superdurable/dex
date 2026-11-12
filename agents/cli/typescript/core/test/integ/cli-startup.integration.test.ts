@@ -10,6 +10,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { createServer as createHttp2Server } from "node:http2";
+import type { AddressInfo } from "node:net";
 import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, describe, test } from "node:test";
@@ -337,6 +339,59 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.match(cli.stderr.all, /is invalid: schema at \/local_tools\/files \(type\)/);
   });
 
+  test("an unreachable Dex server stops the command with one line that says how to fix it", async () => {
+    const [closedPort] = await findFreeLoopbackPorts(1);
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`dex:\n  server: http://127.0.0.1:${closedPort}\nconnectors: {enabled: []}\nlocal_tools: {browser: false}\n`);
+    const cli = start(home);
+    assert.equal(await cli.waitForExit(), 1);
+    assert.equal(
+      cli.stderr.all,
+      `dex-agents-scripted: cannot reach the Dex server at 127.0.0.1:${closedPort}, which dex.server names. Start ` +
+        "that server, or set dex.server to auto to use dexcli dev on this machine.\n",
+    );
+  });
+
+  test("a reachable Dex server that answers UNAVAILABLE is named with its details", async () => {
+    // Every call gets a trailers-only gRPC response with status 14, as a reachable but unready server sends.
+    const server = createHttp2Server();
+    server.on("stream", (stream) => {
+      stream.respond(
+        { ":status": 200, "content-type": "application/grpc", "grpc-status": "14", "grpc-message": "warming up" },
+        { endStream: true },
+      );
+    });
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const home = new TestHome(enginePorts(engine));
+      home.writeConfig(`dex:\n  server: http://127.0.0.1:${port}\nconnectors: {enabled: []}\nlocal_tools: {browser: false}\n`);
+      const cli = start(home);
+      assert.equal(await cli.waitForExit(), 1);
+      assert.equal(
+        cli.stderr.all,
+        `dex-agents-scripted: the Dex server at 127.0.0.1:${port} returned UNAVAILABLE: warming up. It may still be ` +
+          "starting; try again in a moment.\n",
+      );
+    } finally {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
+  });
+
+  test("an anyOf error names the values the field accepts", async () => {
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig("dex:\n  server: localhost:7233\n");
+    const cli = start(home);
+    assert.equal(await cli.waitForExit(), 2);
+    assert.ok(
+      cli.stderr.all.includes(
+        'is invalid: schema at /dex/server (anyOf). Use "auto" (dexcli dev on this machine), or the http or https ' +
+          "URL of a Dex server, without user info.",
+      ),
+      cli.stderr.all,
+    );
+  });
+
   test("dex.server auto starts dexcli dev when none runs, a command meanwhile reuses it, and it stops with its starter", async () => {
     const [dexPort, webPort] = await findFreeLoopbackPorts(2);
     const home = new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 });
@@ -581,6 +636,8 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       assert.ok(lines[0]?.startsWith(`${oldest}\t`), listed.stdout.all);
       assert.ok(lines.slice(1).every((line) => /\t0\t—$/.test(line)), listed.stdout.all);
       assert.doesNotMatch(listed.stdout.all, /More sessions exist/);
+      // The last line shows that the command wrote all of its output before it exited.
+      assert.match(listed.stdout.all, /Resume one with: dex-agents-\S+ --resume <session>\n$/);
 
       for (let index = 0; index < 200; index += 1) {
         await sessions.startSession(`extra-${String(index).padStart(3, "0")}`);
@@ -594,6 +651,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
         capped.stdout.all,
       );
       assert.match(capped.stdout.all, /More sessions exist; this list sorts the first 250 that Dex returns/);
+      assert.match(capped.stdout.all, /Resume one with: dex-agents-\S+ --resume <session>\n$/);
     } finally {
       await sessionClients.close();
     }

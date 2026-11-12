@@ -102,6 +102,9 @@ type RemoteSessionFeedConfig struct {
 	// Debugf writes one debug log line: a constant event name and the kind of
 	// err, from ErrorKindForLog, never its text. nil for none.
 	Debugf func(event string, err error)
+	// OpenSessionPicker opens the session picker for /sessions. nil hides
+	// /sessions.
+	OpenSessionPicker func()
 }
 
 // RemoteSessionFeed is a sessionfeed.ChatSessionSource over one agent session.
@@ -115,6 +118,8 @@ type RemoteSessionFeed struct {
 	now      func() time.Time
 	debugf   func(event string, err error)
 
+	openSessionPicker func()
+
 	updates *updateQueue
 	inputs  chan loopInput
 
@@ -123,12 +128,19 @@ type RemoteSessionFeed struct {
 
 	isStartingSession atomic.Bool
 
-	stateMutex     sync.Mutex
-	sessionID      string
-	isChannelEnded bool
-	hasFailure     bool
-	attachedImages int
-	isRunning      bool
+	// switchGate lets session actions run together and a switch alone.
+	switchGate         sync.RWMutex
+	sessionActionCount atomic.Int64
+
+	stateMutex sync.Mutex
+	// imageRequests ends when the chat leaves the session.
+	imageRequests       context.Context
+	cancelImageRequests context.CancelFunc
+	sessionID           string
+	isChannelEnded      bool
+	hasFailure          bool
+	attachedImages      int
+	isRunning           bool
 }
 
 // NewRemoteSessionFeed creates the feed. Call Run to start it.
@@ -145,6 +157,7 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 	if debugf == nil {
 		debugf = func(string, error) {}
 	}
+	imageRequests, cancelImageRequests := context.WithCancel(context.Background())
 	return &RemoteSessionFeed{
 		sessions: config.Sessions,
 		requests: config.Requests,
@@ -154,10 +167,15 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 		workDir:  config.WorkingDirectory,
 		now:      now,
 		debugf:   debugf,
-		updates:  newUpdateQueue(),
-		inputs:   make(chan loopInput, 256),
 
-		sessionID: config.Launch.Session.SessionID,
+		openSessionPicker: config.OpenSessionPicker,
+
+		updates: newUpdateQueue(),
+		inputs:  make(chan loopInput, 256),
+
+		sessionID:           config.Launch.Session.SessionID,
+		imageRequests:       imageRequests,
+		cancelImageRequests: cancelImageRequests,
 	}
 }
 
@@ -208,13 +226,16 @@ func (feed *RemoteSessionFeed) SubmitUserAction(ctx context.Context, action sess
 // SlashCommands returns the commands the launch document's methods allow.
 func (feed *RemoteSessionFeed) SlashCommands() []sessionfeed.SlashCommand {
 	commands := []sessionfeed.SlashCommand{
-		{Name: modelCommandName, ArgumentHint: "ID", Description: "change the model from the next turn"},
+		{Name: modelCommandName, ArgumentHint: "ID", IsArgumentOptional: true, Description: "show the model, or change it from the next turn"},
 	}
 	if feed.launch.HasMethod(launchcontract.MethodPutImage) && feed.launch.Capabilities.Images != nil {
 		commands = append(commands, sessionfeed.SlashCommand{Name: imageCommandName, ArgumentHint: "PATH", Description: "attach an image to the next message"})
 	}
 	if feed.launch.HasMethod(launchcontract.MethodStartSession) {
 		commands = append(commands, sessionfeed.SlashCommand{Name: newCommandName, Description: "start a new session and switch to it"})
+	}
+	if feed.openSessionPicker != nil {
+		commands = append(commands, sessionfeed.SlashCommand{Name: sessionsCommandName, Description: "switch to another session of this command"})
 	}
 	if feed.launch.HasMethod(launchcontract.MethodOpenURL) && feed.launch.WebURL() != "" {
 		commands = append(commands, sessionfeed.SlashCommand{Name: webCommandName, Description: "open this session in Dex Web"})

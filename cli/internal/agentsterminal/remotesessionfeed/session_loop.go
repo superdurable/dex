@@ -34,7 +34,10 @@ type snapshotFetched struct {
 	epoch    int64
 	snapshot dexagents.AgentSnapshot
 	history  *dexagents.AgentMessagesPage
-	err      error
+	// cancelledTurns says, for history turns with a found end event, whether
+	// each was cancelled; stored messages do not say.
+	cancelledTurns map[string]bool
+	err            error
 }
 
 type eventReceived struct {
@@ -71,6 +74,7 @@ type refreshRequested struct{}
 
 type sessionSwitchRequested struct {
 	sessionID string
+	isResumed bool
 }
 
 func (snapshotFetched) isLoopInput()        {}
@@ -185,7 +189,7 @@ func (loop *sessionLoop) handleInput(input loopInput) {
 		loop.feed.sessionID = typed.sessionID
 		loop.feed.stateMutex.Unlock()
 		loop.feed.notice(sessionfeed.NoticeSeverityInfo, "── session "+typed.sessionID+" ──")
-		loop.openSession(typed.sessionID, model.epoch+1, false)
+		loop.openSession(typed.sessionID, model.epoch+1, typed.isResumed)
 	}
 }
 
@@ -225,6 +229,9 @@ func (loop *sessionLoop) startFetch() {
 				feed.notice(sessionfeed.NoticeSeverityWarning, "Could not load the history: "+describeError(err)+".")
 			} else {
 				fetched.history = &page
+				if len(page.Messages) > 0 {
+					fetched.cancelledTurns = readHistoryTurnEnds(loop.ctx, feed, model.sessionID, page.Messages[0].TurnID)
+				}
 			}
 		}
 		select {
@@ -252,7 +259,7 @@ func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	}
 	wasLoaded := model.isLoaded
 	if !wasLoaded && fetched.history != nil {
-		model.emitHistory(*fetched.history, fetched.snapshot.State.ActiveTurnID)
+		model.emitHistory(*fetched.history, fetched.snapshot.State.ActiveTurnID, fetched.cancelledTurns)
 	}
 	model.applySnapshot(fetched.snapshot)
 	if !wasLoaded {
@@ -272,17 +279,20 @@ func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	loop.scheduleRefresh(delay)
 }
 
+// applyFetchFailure names an unreachable server once per outage.
 func (loop *sessionLoop) applyFetchFailure(err error) {
 	model := loop.model
-	if isUnavailable(err) && !loop.isUnreachable {
+	isServerDown := isUnavailable(err)
+	if isServerDown && !loop.isUnreachable {
 		loop.isUnreachable = true
 		loop.feed.emit(sessionfeed.ServerReachabilityChanged{IsReachable: false})
+		loop.feed.notice(sessionfeed.NoticeSeverityWarning, "Dex server unreachable; retrying.")
 	}
 	if model.isLoaded {
 		loop.scheduleRefresh(loop.feed.timings.RunningPoll)
 		return
 	}
-	if !loop.isLoadNoticeShown {
+	if !loop.isLoadNoticeShown && !isServerDown {
 		loop.isLoadNoticeShown = true
 		loop.feed.notice(sessionfeed.NoticeSeverityWarning, "Session not loaded yet: the Worker is busy or unreachable. Retrying.")
 	}
@@ -290,6 +300,46 @@ func (loop *sessionLoop) applyFetchFailure(err error) {
 	backoff := time.Second << min(loop.loadFailures-1, 4)
 	loop.scheduleRefresh(min(backoff, loop.feed.timings.MaxLoadBackoff))
 }
+
+// The history reads end events back to its oldest turn, at most this many
+// pages.
+const (
+	historyEventPageSize  = 100
+	historyEventPageCount = 20
+)
+
+// readHistoryTurnEnds returns whether each turn with a found end event was
+// cancelled, reading back to oldestTurnID's end.
+func readHistoryTurnEnds(ctx context.Context, feed *RemoteSessionFeed, sessionID string, oldestTurnID string) map[string]bool {
+	isCancelledByTurn := map[string]bool{}
+	pageToken := ""
+	for range historyEventPageCount {
+		listContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
+		page, err := feed.sessions.ListAgentEvents(listContext, sessionID, historyEventPageSize, pageToken)
+		cancel()
+		if err != nil {
+			feed.debugf("read the history events", err)
+			return isCancelledByTurn
+		}
+		for _, message := range page.Messages {
+			event := message.Value
+			if event.TurnID == nil || !turnEndEventTypes[event.Type] {
+				continue
+			}
+			if _, isKnown := isCancelledByTurn[*event.TurnID]; !isKnown {
+				isCancelledByTurn[*event.TurnID] = event.Type == "turn_cancelled"
+			}
+		}
+		if _, isOldestEnded := isCancelledByTurn[oldestTurnID]; isOldestEnded || page.NextPageToken == "" {
+			return isCancelledByTurn
+		}
+		pageToken = page.NextPageToken
+	}
+	return isCancelledByTurn
+}
+
+// turnEndEventTypes are the AgentEvents types that end a turn.
+var turnEndEventTypes = map[string]bool{"turn_completed": true, "turn_failed": true, "turn_cancelled": true, "turn_steered": true}
 
 // followAgentEvents reads the session's AgentEvents from now on and hands
 // them to the loop until ctx ends or the Stream store is off.
