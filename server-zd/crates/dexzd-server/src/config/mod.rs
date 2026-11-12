@@ -118,9 +118,7 @@ impl Config {
         }
     }
 
-    /// Returns the effective values that the node exposes as `dexzd_config_*` metrics.
-    /// `has_embedded_object_store` is true for `dev` and `local`, the only commands whose
-    /// `dev.durabilityMode` applies.
+    /// Returns the `dexzd_config_*` metric values; durability only with an embedded object store.
     pub(crate) fn effective_config_metrics(
         &self,
         has_embedded_object_store: bool,

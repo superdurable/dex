@@ -36,15 +36,17 @@ async fn local_reports_the_configured_retention_durability_and_limits() {
         "local",
         "retention:\n  closedFlowDuration: 30days\n\
          dev:\n  durabilityMode: strict\n\
+         values:\n  maxValueBytes: 8388608\n\
          limits:\n  maxFlowStateBytes: 134217728\n\
          lifecycle:\n  attemptDrainTimeout: 1500ms\n",
+        &[],
     )
     .await;
     assert_eq!(
         reported,
         ReportedConfig {
             closed_flow_retention_seconds: 2_592_000.0,
-            max_value_bytes: 16_777_216.0,
+            max_value_bytes: 8_388_608.0,
             max_flow_state_bytes: 134_217_728.0,
             attempt_drain_timeout_seconds: 1.5,
             durability_mode: Some("strict".to_owned()),
@@ -54,7 +56,7 @@ async fn local_reports_the_configured_retention_durability_and_limits() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn local_reports_the_defaults_of_unset_keys() {
-    let reported = scrape_single_node_config("local", "").await;
+    let reported = scrape_single_node_config("local", "", &[]).await;
     assert_eq!(
         reported,
         ReportedConfig {
@@ -70,7 +72,7 @@ async fn local_reports_the_defaults_of_unset_keys() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dev_reports_its_profile_drain_default_and_a_configured_durability_mode() {
     let reported =
-        scrape_single_node_config("dev", "dev:\n  durabilityMode: processCrashSafe\n").await;
+        scrape_single_node_config("dev", "dev:\n  durabilityMode: processCrashSafe\n", &[]).await;
     assert_eq!(
         reported,
         ReportedConfig {
@@ -83,8 +85,28 @@ async fn dev_reports_its_profile_drain_default_and_a_configured_durability_mode(
     );
 }
 
-/// Starts `command` with `overrides` and a metrics listener, then returns what `/metrics` reports.
-async fn scrape_single_node_config(command: &str, overrides: &str) -> ReportedConfig {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_reports_the_durability_mode_of_the_durability_flag() {
+    let reported = scrape_single_node_config("local", "", &["--durability", "relaxed"]).await;
+    assert_eq!(
+        reported,
+        ReportedConfig {
+            closed_flow_retention_seconds: 604_800.0,
+            max_value_bytes: 16_777_216.0,
+            max_flow_state_bytes: 67_108_864.0,
+            attempt_drain_timeout_seconds: 30.0,
+            durability_mode: Some("relaxed".to_owned()),
+        }
+    );
+}
+
+/// Starts `command` with `overrides`, `extra_arguments`, and a metrics listener, then returns
+/// what `/metrics` reports.
+async fn scrape_single_node_config(
+    command: &str,
+    overrides: &str,
+    extra_arguments: &[&str],
+) -> ReportedConfig {
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let metrics_address = free_loopback_address();
     let config_path = directory.path().join("single-node.yaml");
@@ -95,7 +117,7 @@ async fn scrape_single_node_config(command: &str, overrides: &str) -> ReportedCo
         ),
     )
     .expect("the overrides are written");
-    let mut process = spawn_single_node(command, directory.path(), &config_path);
+    let mut process = spawn_single_node(command, directory.path(), &config_path, extra_arguments);
     process.wait_until_serving().await;
     let reported = reported_config(metrics_address).await;
     let log = process.log();
@@ -113,6 +135,8 @@ async fn scrape_single_node_config(command: &str, overrides: &str) -> ReportedCo
             "closed_flow_retention_seconds={:?}",
             reported.closed_flow_retention_seconds
         ),
+        format!("max_value_bytes={}", reported.max_value_bytes),
+        format!("max_flow_state_bytes={}", reported.max_flow_state_bytes),
         format!(
             "attempt_drain_timeout_seconds={:?}",
             reported.attempt_drain_timeout_seconds
@@ -130,24 +154,20 @@ async fn scrape_single_node_config(command: &str, overrides: &str) -> ReportedCo
     reported
 }
 
-fn spawn_single_node(command: &str, directory: &Path, config_path: &Path) -> ServeProcess {
-    let data_directory = directory.join("data");
-    let log_path = directory.join(format!("{command}.log"));
-    match command {
-        "dev" => ServeProcess::spawn_dev(
-            &data_directory,
-            config_path,
-            free_loopback_address(),
-            log_path,
-        ),
-        "local" => ServeProcess::spawn_local(
-            &data_directory,
-            config_path,
-            free_loopback_address(),
-            log_path,
-        ),
-        _ => panic!("unknown single-node command {command}"),
-    }
+fn spawn_single_node(
+    command: &str,
+    directory: &Path,
+    config_path: &Path,
+    extra_arguments: &[&str],
+) -> ServeProcess {
+    ServeProcess::spawn_single_node_with_arguments(
+        command,
+        &directory.join("data"),
+        config_path,
+        free_loopback_address(),
+        directory.join(format!("{command}.log")),
+        extra_arguments,
+    )
 }
 
 async fn reported_config(metrics_address: SocketAddr) -> ReportedConfig {

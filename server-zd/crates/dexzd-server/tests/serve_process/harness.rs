@@ -526,6 +526,26 @@ impl ServeProcess {
         address: SocketAddr,
         log_path: PathBuf,
     ) -> Self {
+        Self::spawn_single_node_with_arguments(
+            command,
+            data_directory,
+            config_path,
+            address,
+            log_path,
+            &[],
+        )
+    }
+
+    /// Starts the single-node `command` like `spawn_dev` or `spawn_local`, adding
+    /// `extra_arguments` to its command line.
+    pub(crate) fn spawn_single_node_with_arguments(
+        command: &str,
+        data_directory: &Path,
+        config_path: &Path,
+        address: SocketAddr,
+        log_path: PathBuf,
+        extra_arguments: &[&str],
+    ) -> Self {
         let log = fs::File::create(&log_path).expect("the process log file is created");
         let child = Command::new(env!("CARGO_BIN_EXE_dex-server-zd"))
             .arg(command)
@@ -535,6 +555,7 @@ impl ServeProcess {
             .arg(address.to_string())
             .arg("--config")
             .arg(config_path)
+            .args(extra_arguments)
             .env("RUST_LOG", "info")
             .stdin(Stdio::null())
             .stdout(Stdio::null())

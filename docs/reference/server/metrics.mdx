@@ -91,7 +91,8 @@ waits count toward **flow_read** latency.
 Since 0.1.29, the **dexzd_config_** gauges report the values the running node
 uses. They include defaults for keys the configuration leaves unset, and the
 **dev** profile's own defaults. Each gauge keeps its value until the process
-exits.
+exits. A byte limit above 9223372036854775807, the largest gauge value, reports
+as 9223372036854775807. The startup log line keeps the exact value.
 
 | Metric | Type | Configuration key |
 | --- | --- | --- |

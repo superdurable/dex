@@ -827,7 +827,9 @@ Since 0.1.29, the server reports the values it runs with for these keys:
 and **local** also report **dev.durabilityMode**. Each value is the one in
 effect: a key the configuration leaves unset reports its default, including
 the 2-second **lifecycle.attemptDrainTimeout** of **dev**, and a
-**--durability** flag reports the mode it selected.
+**--durability** flag reports the mode it selected. A byte limit above
+9223372036854775807 reports as 9223372036854775807 in the metrics; the log
+line keeps the exact value.
 
 The server reports them in two places:
 
