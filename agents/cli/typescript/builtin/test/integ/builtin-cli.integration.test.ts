@@ -206,6 +206,35 @@ describe("dex-agents-builtin with the AI SDK OpenAI provider against a scripted 
     assert.match(JSON.stringify(nextTurnRequests.at(-1)), /buy milk/);
   });
 
+  test("plan mode drafts a plan with write_todos that execute_plan runs", async () => {
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    const todos = [{ content: "Read the notes", status: "pending" }];
+    const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    try {
+      assert.equal(await sessions.sendUserMessage(sessionId, call("write_todos", { todos }), true), true);
+      const drafted = await sessions.waitForAgentSnapshot(
+        sessionId,
+        (snapshot) => snapshot.plan?.status === "draft",
+        "a draft plan",
+      );
+      assert.deepEqual(
+        drafted.plan?.tasks.map((task) => task.content),
+        ["Read the notes"],
+      );
+      assert.equal(await sessions.executePlan(sessionId, drafted.plan?.revision ?? 0), true);
+      await sessions.waitForAgentSnapshot(sessionId, (snapshot) => snapshot.plan?.status === "active", "an active plan");
+    } finally {
+      await environment.close();
+    }
+    for (const request of api.modelRequests()) {
+      assert.match(JSON.stringify(request["tools"]), /write_todos/);
+    }
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
   test("a model without a supported provider stops the command", async () => {
     const cli = start(newHome({ ...noConnectors, model: "gpt-5.2" }));
     assert.equal(await cli.waitForExit(), 1);

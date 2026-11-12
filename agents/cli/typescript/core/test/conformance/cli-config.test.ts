@@ -155,6 +155,38 @@ describe("CLI configuration conformance", () => {
     }
   });
 
+  test("every anyOf of the schemas names its valid forms in its title", () => {
+    const untitled = (schema: unknown, pointer: string): string[] => {
+      if (Array.isArray(schema)) {
+        return schema.flatMap((value, index) => untitled(value, `${pointer}/${index}`));
+      }
+      if (typeof schema !== "object" || schema === null) {
+        return [];
+      }
+      const object = schema as Readonly<Record<string, unknown>>;
+      const own = "anyOf" in object && typeof object["title"] !== "string" ? [pointer] : [];
+      return [...own, ...Object.entries(object).flatMap(([key, value]) => untitled(value, `${pointer}/${key}`))];
+    };
+    for (const name of ["config.schema.json", "session-settings.schema.json"]) {
+      assert.deepEqual(untitled(readSchema(name), ""), [], name);
+    }
+  });
+
+  test("an anyOf error ends with the failed schema's title", () => {
+    assert.throws(
+      () => resolveConfig({ media: { store: "/tmp/media" } }, "claude", null),
+      (error: unknown) => {
+        assert.ok(error instanceof ConfigError);
+        assert.match(error.validForms ?? "", /^"auto" \(a directory on this machine\)/);
+        assert.equal(
+          error.message,
+          `schema at "/media/store" (schema keyword anyOf). Use ${error.validForms ?? ""}.`,
+        );
+        return true;
+      },
+    );
+  });
+
   test("code point order differs from UTF-16 order above the BMP", () => {
     const keys = ["\u{10000}", "\u{E000}"];
     assert.deepEqual([...keys].sort(compareCodePoints), ["\u{E000}", "\u{10000}"]);

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -17,10 +18,18 @@ import struct
 import zlib
 from pathlib import Path
 
+from dex_agents import AgentPlan, AgentSessionClient, PlanStatus
 from dex_agents_builtin_cli import BUILTIN_CLI_FLOW_TYPE
 from dex_agents_cli_core import session_flow_type
 from dex_agents_cli_testing import scenarios
-from dex_agents_cli_testing.commands import CommandHome, expect, wait_for_exit
+from dex_agents_cli_testing.commands import (
+    CommandHome,
+    call,
+    expect,
+    read_session_id,
+    session_client,
+    wait_for_exit,
+)
 from dex_agents_cli_testing.fixtures import FakeConnectorsMcp
 from tests.conftest import MOCK_API_KEY
 
@@ -96,6 +105,44 @@ async def test_an_attached_image_reaches_the_responses_api(command_home: Command
     data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
     bodies = [json.dumps(request.body) for request in command_home.model_api.model_requests()]
     assert any(data_url in body for body in bodies), bodies
+
+
+async def test_plan_mode_drafts_a_plan_that_execute_plan_runs(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    command_home.write_config(scenarios.NO_CONNECTORS)
+    child = command_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    flow_type = session_flow_type(
+        BUILTIN_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    todos = [{"content": "Read the notes", "status": "pending"}]
+    async with session_client(command_home.address, tmp_path / "cache", flow_type) as sessions:
+        planning_message = call("write_todos", {"todos": todos})
+        assert await sessions.send_user_message(session_id, planning_message, plan_mode=True)
+        draft = await wait_for_plan(sessions, session_id, PlanStatus.DRAFT)
+        assert [task.content for task in draft.tasks] == ["Read the notes"]
+        assert await sessions.execute_plan(session_id, draft.revision)
+        await wait_for_plan(sessions, session_id, PlanStatus.ACTIVE)
+    offered = [
+        json.dumps(request.body.get("tools")) for request in command_home.model_api.model_requests()
+    ]
+    assert all("write_todos" in tools for tools in offered), offered
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
+async def wait_for_plan(
+    sessions: AgentSessionClient, session_id: str, status: PlanStatus
+) -> AgentPlan:
+    """Poll the session until its plan has a status, and return the plan."""
+    for _ in range(300):
+        snapshot = await sessions.get_agent_snapshot(session_id)
+        if snapshot.plan is not None and snapshot.plan.status is status:
+            return snapshot.plan
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"the plan of {session_id} never became {status}")
 
 
 def png_bytes() -> bytes:

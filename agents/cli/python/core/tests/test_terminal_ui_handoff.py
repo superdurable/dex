@@ -36,6 +36,7 @@ import pexpect
 import pytest
 
 from dex_agents import LocalDirectoryMediaStore
+from dex_agents.testing import find_free_ports, resolve_dexcli_path, resolve_server_zd_path
 from dex_agents_cli_core import cli, session_flow_type
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import TerminalInterface
@@ -354,10 +355,15 @@ NO_CHAT_MODE: dict[str, Any] = {
 @pytest.mark.parametrize(
     ("describe", "line"),
     [
-        (None, "has no terminal UI (agents-tui --describe exited with code 2)"),
+        (
+            None,
+            "has no terminal UI (agents-tui --describe exited with code 2). The terminal UI "
+            "needs dexcli 1.46.0 or later; point DEXCLI at one.",
+        ),
         (
             NO_COMMON_CONTRACT,
-            "Plain chat: dexcli 9.0.0 speaks no terminal UI contract this command knows.",
+            "Plain chat: dexcli 9.0.0 speaks no terminal UI contract this command knows. "
+            "Upgrade this command to use it.",
         ),
         (NO_CHAT_MODE, "Plain chat: dexcli 1.60.0 has no chat terminal UI."),
     ],
@@ -385,6 +391,95 @@ async def test_a_dexcli_that_cannot_show_the_chat_means_the_plain_chat(
     assert await wait_for_exit(child) == 0
     assert screen.getvalue().count("Session ") == 2
     assert not fake.was_run()
+
+
+async def test_worker_notices_reach_the_terminal_ui_in_the_launch_document(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    notice = (
+        "Connector tools are off: connectors.mcp is auto, which needs dex.server: auto. "
+        "Set connectors.mcp to the MCP server's URL."
+    )
+    transcript = chat_transcript([])
+    transcript["steps"][0]["message"]["notices"] = [{"level": "warning", "text": notice}]
+    fake = FakeTerminalUi(tmp_path / "tui", transcript)
+    config = {"dex": {"server": f"http://127.0.0.1:{cli_home.dex_port}"}}
+    child = start_chat(cli_home, fake, screen, config)
+    await read_session_id(child)
+    assert await wait_for_exit(child) == 0
+    assert_replayed(fake, screen)
+    # The launcher printed it nowhere: dexcli shows it once its first frame is up.
+    assert notice not in screen.getvalue()
+
+
+async def test_the_dexcli_dev_the_command_starts_is_shown_in_the_terminal_ui_too(
+    tmp_path: Path, screen: io.StringIO
+) -> None:
+    dex_port, web_port = find_free_ports(2)
+    home = CliHome(tmp_path / "home", dex_port, web_port, tmp_path / "opened-urls.txt")
+    home.home.mkdir()
+    transcript = chat_transcript([])
+    transcript["steps"][0]["ignore"].append("notices")
+    fake = FakeTerminalUi(tmp_path / "tui", transcript, is_launch_notice_recorded=True)
+    # dexcli dev is the real one; agents-tui is the fake.
+    real_dexcli = resolve_dexcli_path()
+    wrapper = tmp_path / "dexcli"
+    wrapper.write_text(
+        f'#!/bin/sh\nif [ "$1" = dev ]; then exec \'{real_dexcli}\' "$@"; fi\n'
+        f"exec '{fake.dexcli}' \"$@\"\n"
+    )
+    wrapper.chmod(0o755)
+    environment = {
+        "DEXCLI": str(wrapper),
+        "DEX_SERVER_ZD_BINARY": str(resolve_server_zd_path(real_dexcli)),
+    }
+    try:
+        child = start_chat(home, fake, screen, environment=environment)
+        await read_session_id(child)
+        assert await wait_for_exit(child) == 0
+        assert_replayed(fake, screen)
+    finally:
+        home.close()
+    (launch,) = [
+        event
+        for event in fake.events()
+        if event["event"] == "received" and event["message"]["type"] == "launch"
+    ]
+    log_path = home.home / ".dex" / "agents" / "dexcli-dev.log"
+    started_line = f"Starting dexcli dev in the background (log: {log_path})."
+    assert launch["notices"][0] == {"level": "info", "text": started_line}
+    assert launch["notices"][1]["text"].startswith("dexcli dev is ready (pid ")
+    # The lines were printed while the command waited, too.
+    assert started_line in screen.getvalue()
+
+
+async def test_an_unreachable_dex_server_fails_the_terminal_ui_with_one_line(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    (closed_port,) = find_free_ports(1)
+    fake = FakeTerminalUi(tmp_path / "tui")
+    config = {**NO_CONNECTORS, "dex": {"server": f"http://127.0.0.1:{closed_port}"}}
+    child = start_chat(cli_home, fake, screen, config)
+    await expect(
+        child,
+        f"{COMMAND}: cannot reach the Dex server at 127.0.0.1:{closed_port}, which dex.server "
+        "names. Start that server, or set dex.server to auto to use dexcli dev on this machine.",
+    )
+    assert await wait_for_exit(child) == 1
+    assert "Traceback" not in screen.getvalue()
+    assert not fake.was_run()
+
+
+async def test_a_dexcli_variable_that_names_no_executable_stops_the_terminal_ui_chat(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    missing = tmp_path / "no-such-dexcli"
+    fake = FakeTerminalUi(tmp_path / "tui")
+    config = {**NO_CONNECTORS, "dex": {"server": f"http://127.0.0.1:{cli_home.dex_port}"}}
+    child = start_chat(cli_home, fake, screen, config, environment={"DEXCLI": str(missing)})
+    await expect(child, f"{COMMAND}: DEXCLI is not an executable file: {missing}. Unset DEXCLI")
+    assert await wait_for_exit(child) == 1
+    assert "Plain chat" not in screen.getvalue()
 
 
 @pytest.mark.parametrize(

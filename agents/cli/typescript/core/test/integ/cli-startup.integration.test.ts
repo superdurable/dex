@@ -337,6 +337,20 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.match(cli.stderr.all, /is invalid: schema at \/local_tools\/files \(type\)/);
   });
 
+  test("an anyOf error names the values the field accepts", async () => {
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig("dex:\n  server: localhost:7233\n");
+    const cli = start(home);
+    assert.equal(await cli.waitForExit(), 2);
+    assert.ok(
+      cli.stderr.all.includes(
+        'is invalid: schema at /dex/server (anyOf). Use "auto" (dexcli dev on this machine), or the http or https ' +
+          "URL of a Dex server, without user info.",
+      ),
+      cli.stderr.all,
+    );
+  });
+
   test("dex.server auto starts dexcli dev when none runs, a command meanwhile reuses it, and it stops with its starter", async () => {
     const [dexPort, webPort] = await findFreeLoopbackPorts(2);
     const home = new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 });

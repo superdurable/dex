@@ -158,6 +158,45 @@ async def describe_lost_dexcli_dev(web_url: str) -> str | None:
     )
 
 
+def describe_unreachable_dex_server(
+    failure: BaseException, server: str, address: str
+) -> str | None:
+    """Return the one-line error for a Worker that cannot reach the Dex server at all.
+
+    Args:
+        failure: The Worker's startup failure.
+        server: The ``dex.server`` value.
+        address: The gRPC target the Worker used.
+
+    Returns:
+        The error text when a gRPC ``UNAVAILABLE`` caused the failure; ``None`` otherwise.
+    """
+    if not _is_caused_by_unavailable(failure):
+        return None
+    if server == AUTO:
+        return (
+            f"cannot reach the Dex server of dexcli dev at {address}. Run dexcli dev, or set "
+            "dex.server to the URL of a running Dex server."
+        )
+    return (
+        f"cannot reach the Dex server at {address}, which dex.server names. Start that server, "
+        "or set dex.server to auto to use dexcli dev on this machine."
+    )
+
+
+def _is_caused_by_unavailable(failure: BaseException) -> bool:
+    seen: set[int] = set()
+    current: BaseException | None = failure
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        # A grpc.RpcError, matched by shape: grpcio ships no type stubs.
+        code = getattr(current, "code", None)
+        if callable(code):
+            return getattr(code(), "name", None) == "UNAVAILABLE"
+        current = current.__cause__ or current.__context__
+    return False
+
+
 @dataclass(frozen=True)
 class _DevServerState:
     pid: int

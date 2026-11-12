@@ -34,8 +34,10 @@ from dex_agents_cli_core.terminal_ui.child_process import ChildProcess
 from dex_agents_cli_core.terminal_ui.contract import (
     CHAT_METHODS,
     DESCRIBE_TIMEOUT_SECONDS,
+    LAUNCHER_CONTRACTS,
     OPEN_URL,
     READY_TIMEOUT_SECONDS,
+    TERMINAL_UI_MINIMUM_DEXCLI_VERSION,
     ChannelProtocolError,
     DescribeOutputError,
     build_terminal_ui_environment,
@@ -72,6 +74,10 @@ _TERMINAL_UI_EXIT_CODES = frozenset({0, 1, 130, 143})
 _HOST_STOPPED_MESSAGE = "The Worker host stopped."
 _TUI_ONLY_TYPES = frozenset({"ready", "launch_rejected", "result"})
 _LAUNCHER_ONLY_TYPES = frozenset({"launch", "response", "notice", "worker"})
+_NEWER_DEXCLI_HINT = (
+    f"The terminal UI needs dexcli {TERMINAL_UI_MINIMUM_DEXCLI_VERSION} or later; "
+    "point DEXCLI at one."
+)
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -119,6 +125,9 @@ class TerminalUiLaunch:
         run_directory: ``~/.dex/agents/run``.
         is_browser_opening_enabled: Whether the command may open a web browser.
         is_resumed: Whether the chat resumes a session.
+        startup_notices: Lines the launcher printed while it started a
+            ``dexcli dev``, such as its log file. The launch document shows
+            them again as ``info`` notices, before the Worker host's own.
     """
 
     command_name: str
@@ -135,6 +144,7 @@ class TerminalUiLaunch:
     run_directory: Path
     is_browser_opening_enabled: bool
     is_resumed: bool
+    startup_notices: Sequence[str] = ()
 
 
 async def describe_terminal_ui(
@@ -181,20 +191,23 @@ async def describe_terminal_ui(
     choice = choose_contract(describe, "chat")
     if choice.contract is None:
         version = describe.get("dexcli_version")
-        reason = (
-            "speaks no terminal UI contract this command knows"
-            if choice.plain_reason == "no_common_contract"
-            else "has no chat terminal UI"
+        if choice.plain_reason != "no_common_contract":
+            return DescribeResult(None, f"Plain chat: dexcli {version} has no chat terminal UI.")
+        if min(int(contract) for contract in describe["contracts"]) > max(LAUNCHER_CONTRACTS):
+            fix = "Upgrade this command to use it."
+        else:
+            fix = _NEWER_DEXCLI_HINT
+        return DescribeResult(
+            None,
+            f"Plain chat: dexcli {version} speaks no terminal UI contract this command knows. "
+            f"{fix}",
         )
-        return DescribeResult(None, f"Plain chat: dexcli {version} {reason}.")
     return DescribeResult(choice.contract, None)
 
 
 def _describe_failed(dexcli: Path, detail: str) -> DescribeResult:
     return DescribeResult(
-        None,
-        f"Plain chat: {dexcli} has no terminal UI ({detail}); point DEXCLI at a dexcli with "
-        "agents-tui.",
+        None, f"Plain chat: {dexcli} has no terminal UI ({detail}). {_NEWER_DEXCLI_HINT}"
     )
 
 
@@ -233,8 +246,6 @@ async def run_terminal_ui_chat(
         if ready is None:
             report("Plain chat: the Worker host closed its control channel before it was ready.")
             return PlainFallback(None)
-        for notice in ready.notices:
-            report(notice)
         if ready.connectors_page_url is not None and launch.is_browser_opening_enabled:
             await open_in_browser(ready.connectors_page_url)
         report(f"Session {ready.session_id}")
@@ -253,7 +264,7 @@ class WorkerReady:
     session_id: str
     flow_type: str
     capabilities: Mapping[str, Any]
-    notices: Sequence[str]
+    notices: Sequence[Mapping[str, str]]
     connectors_page_url: str | None
 
 
@@ -439,7 +450,10 @@ class WorkerHostProcess:
                             session_id=str(message["session_id"]),
                             flow_type=str(message["flow_type"]),
                             capabilities=dict(message["capabilities"]),
-                            notices=[str(notice["text"]) for notice in message["notices"]],
+                            notices=[
+                                {"level": str(notice["level"]), "text": str(notice["text"])}
+                                for notice in message["notices"]
+                            ],
                             connectors_page_url=message.get("connectors_page_url"),
                         )
                     )
@@ -710,7 +724,13 @@ class _Handoff:
             "display": dict(launch.display),
             "methods": list(CHAT_METHODS),
             "capabilities": dict(self._ready.capabilities),
-            "notices": [],
+            "notices": [
+                *(
+                    {"level": "info", "text": cut_notice_text(text)}
+                    for text in launch.startup_notices
+                ),
+                *(dict(notice) for notice in self._ready.notices),
+            ],
             "log_path": launch.log_path_shown,
         }
 

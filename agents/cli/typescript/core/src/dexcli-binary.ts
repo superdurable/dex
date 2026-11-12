@@ -54,7 +54,10 @@ export async function resolveDexcliExecutable(
 ): Promise<string> {
   if (environment.dexcliPath !== undefined) {
     if (!isExecutable(environment.dexcliPath)) {
-      throw new Error(`DEXCLI is not an executable file: ${environment.dexcliPath}`);
+      throw new Error(
+        `DEXCLI is not an executable file: ${environment.dexcliPath}. Unset DEXCLI to use the dexcli on PATH or ` +
+          "the downloaded release, or set it to the path of a dexcli executable.",
+      );
     }
     return environment.dexcliPath;
   }

@@ -176,6 +176,52 @@ async def test_an_invalid_config_names_the_error_code_and_pointer(cli_home: CliH
     assert 'schema at "/local_tools/shell/allow" (schema keyword type)' in completed.stderr
 
 
+async def test_an_anyof_error_names_the_values_the_field_accepts(cli_home: CliHome) -> None:
+    cli_home.write_config(config_yaml({"dex": {"server": "localhost:7233"}}))
+    completed = cli_home.run()
+    assert completed.returncode == 2
+    assert (
+        'schema at "/dex/server" (schema keyword anyOf). Use "auto" (dexcli dev on this '
+        "machine), or the http or https URL of a Dex server, without user info."
+    ) in completed.stderr
+
+
+async def test_an_unreachable_dex_server_fails_with_one_line_that_says_how_to_fix_it(
+    cli_home: CliHome,
+) -> None:
+    (closed_port,) = find_free_ports(1)
+    cli_home.write_config(
+        config_yaml(
+            {"dex": {"server": f"http://127.0.0.1:{closed_port}"}, "connectors": {"enabled": []}}
+        )
+    )
+    completed = cli_home.run(stdin="hello\n")
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert completed.stderr == (
+        f"dex-agents-scripted: cannot reach the Dex server at 127.0.0.1:{closed_port}, which "
+        "dex.server names. Start that server, or set dex.server to auto to use dexcli dev on "
+        "this machine.\n"
+    )
+
+
+async def test_a_dexcli_variable_that_names_no_executable_says_how_to_fix_it(
+    cli_home: CliHome,
+) -> None:
+    missing = cli_home.home / "no-such-dexcli"
+    cli_home.extra_environment["DEXCLI"] = str(missing)
+    # Other ports than the shared dexcli dev's, so the command has to start one.
+    cli_home.dex_port, cli_home.web_port = find_free_ports(2)
+    cli_home.write_config(config_yaml({"connectors": {"enabled": []}}))
+    completed = cli_home.run(stdin="hello\n")
+    assert completed.returncode == 1
+    assert completed.stderr == (
+        f"dex-agents-scripted: DEXCLI is not an executable file: {missing}. Unset DEXCLI to use "
+        "the dexcli on PATH or the downloaded release, or set it to the path of a dexcli "
+        "executable.\n"
+    )
+    assert "Starting dexcli dev" not in completed.stdout
+
+
 async def test_auto_starts_dexcli_dev_when_none_runs_and_stops_it_when_input_ends(
     tmp_path: Path,
 ) -> None:

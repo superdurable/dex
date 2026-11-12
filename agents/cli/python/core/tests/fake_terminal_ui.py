@@ -133,8 +133,12 @@ class FakeTerminalUi:
         describe: Mapping[str, Any] | None = None,
         aliases: Mapping[str, str] | None = None,
         step_timeout_seconds: float = 30.0,
+        is_launch_notice_recorded: bool = False,
     ) -> None:
-        """Write the wrapper, the transcript, and an optional ``--describe`` document."""
+        """Write the wrapper, the transcript, and an optional ``--describe`` document.
+
+        ``is_launch_notice_recorded`` keeps the launch document's notices in the record.
+        """
         directory.mkdir(parents=True, exist_ok=True)
         self.directory = directory
         self.record_path = directory / "record.jsonl"
@@ -151,6 +155,8 @@ class FakeTerminalUi:
             "--step-timeout",
             str(step_timeout_seconds),
         ]
+        if is_launch_notice_recorded:
+            arguments.append("--record-launch-notices")
         for fixture_value, actual_value in (aliases or {}).items():
             arguments += ["--alias", f"{fixture_value}={actual_value}"]
         if describe is not None:
