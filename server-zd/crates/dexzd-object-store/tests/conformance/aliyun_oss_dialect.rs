@@ -235,6 +235,14 @@ async fn check_store_without_atomic_replacement(store: &dyn ObjectStore) {
             .iter()
             .all(|object| object.last_modified_unix_micros.is_some())
     );
+    let head = store
+        .head("objects/a")
+        .await
+        .expect("head succeeds")
+        .expect("the object exists");
+    assert_eq!(head.size, 6);
+    assert_eq!(head.etag, etag);
+    assert!(head.last_modified_unix_micros.is_some());
     let second = store
         .list("objects/", first.next_start_after.as_deref(), 2)
         .await
@@ -283,6 +291,12 @@ async fn check_store_without_atomic_replacement(store: &dyn ObjectStore) {
         b"from-file"
     );
     assert!(store.get_to_file("file", &output).await.is_err());
+    assert_eq!(
+        tokio::fs::read(&output)
+            .await
+            .expect("the existing download remains intact"),
+        b"from-file"
+    );
     assert_no_temporary_downloads(directory.path());
     let absent_path = directory.path().join("absent");
     assert_eq!(
@@ -293,6 +307,7 @@ async fn check_store_without_atomic_replacement(store: &dyn ObjectStore) {
         None
     );
     assert!(!absent_path.exists());
+    assert_no_temporary_downloads(directory.path());
 
     store
         .delete_many(&[
