@@ -30,6 +30,8 @@ from jsonschema import Draft202012Validator
 
 #: The contract versions this launcher speaks, highest first.
 LAUNCHER_CONTRACTS: Final = (1,)
+#: The first dexcli release whose ``agents-tui`` speaks contract 1.
+TERMINAL_UI_MINIMUM_DEXCLI_VERSION: Final = "1.46.0"
 #: The longest channel line, in bytes of UTF-8 without the newline.
 MAX_LINE_BYTES: Final = 1_048_576
 #: How long ``dexcli agents-tui --describe`` may take.

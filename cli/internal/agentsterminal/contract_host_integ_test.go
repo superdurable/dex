@@ -114,15 +114,15 @@ const launchSessionID = "openai-sdk-20261111-142233-a1b2c3"
 // transcriptScreenChecks check what the screen showed, after the host passed.
 var transcriptScreenChecks = map[string]func(t *testing.T, screen string){
 	"chat_start_session_background_switch": func(t *testing.T, screen string) {
-		require.NotContains(t, screen, "Session "+launchSessionID+" stays in Dex", "the chat switched to the new session")
-		require.Regexp(t, `Session openai-sdk-\d{8}-\d{6}-[0-9a-f]{12} stays in Dex`, screen)
+		require.NotContains(t, screen, "Session "+launchSessionID+" keeps running", "the chat switched to the new session")
+		require.Regexp(t, `Session openai-sdk-\d{8}-\d{6}-[0-9a-f]{12} keeps running`, screen)
 	},
 	"chat_start_session_background_exit": func(t *testing.T, screen string) {
 		require.Contains(t, screen, "A new session is already starting.")
-		require.Contains(t, screen, "Session "+launchSessionID+" stays in Dex", "the summary names the session the chat shows")
+		require.Contains(t, screen, "Session "+launchSessionID+" keeps running", "the summary names the session the chat shows")
 	},
 	"chat_start_session_background_stay": func(t *testing.T, screen string) {
-		require.Contains(t, screen, "Session "+launchSessionID+" stays in Dex", "the chat stayed")
+		require.Contains(t, screen, "Session "+launchSessionID+" keeps running", "the chat stayed")
 	},
 	"connectors_refresh": func(t *testing.T, screen string) {
 		require.Contains(t, screen, "slack/support-slack")

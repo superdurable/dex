@@ -42,6 +42,36 @@ def test_packaged_schema_is_the_shared_schema(name: str) -> None:
     assert packaged == (AGENTS_DIR / "cli" / name).read_bytes()
 
 
+def untitled_anyof_pointers(schema: Any, pointer: str = "") -> list[str]:
+    """Return the JSON Pointer of every ``anyOf`` schema without a ``title``."""
+    found: list[str] = []
+    if isinstance(schema, dict):
+        if "anyOf" in schema and not isinstance(schema.get("title"), str):
+            found.append(pointer)
+        for key, value in schema.items():
+            found.extend(untitled_anyof_pointers(value, f"{pointer}/{key}"))
+    elif isinstance(schema, list):
+        for index, value in enumerate(schema):
+            found.extend(untitled_anyof_pointers(value, f"{pointer}/{index}"))
+    return found
+
+
+@pytest.mark.parametrize("name", ["config.schema.json", "session-settings.schema.json"])
+def test_every_anyof_names_its_valid_forms_in_its_title(name: str) -> None:
+    schema = json.loads((AGENTS_DIR / "cli" / name).read_text(encoding="utf-8"))
+    assert untitled_anyof_pointers(schema) == []
+
+
+def test_an_anyof_error_carries_the_failed_schemas_title() -> None:
+    with pytest.raises(ConfigError) as raised:
+        resolve_config({"media": {"store": "/tmp/media"}}, "scripted", None)
+    assert raised.value.valid_forms is not None
+    assert str(raised.value) == (
+        f'schema at "/media/store" (schema keyword anyOf). Use {raised.value.valid_forms}.'
+    )
+    assert raised.value.valid_forms.startswith('"auto" (a directory on this machine)')
+
+
 @pytest.mark.parametrize("case", FIXTURE["yaml_cases"], ids=case_id)
 def test_yaml_case(case: dict[str, Any]) -> None:
     if "error" in case:

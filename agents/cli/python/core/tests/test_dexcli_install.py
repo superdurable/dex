@@ -24,6 +24,7 @@ import pytest
 
 from dex_agents_cli_core.dexcli_install import (
     DexcliInstallError,
+    DexcliVariableError,
     download_dexcli,
     locate_dexcli,
     release_asset_name,
@@ -253,8 +254,17 @@ def test_only_an_old_dexcli_on_the_path_means_a_download(tmp_path: Path) -> None
 
 def test_dexcli_from_the_environment_wins(tmp_path: Path) -> None:
     dexcli = tmp_path / "custom-dexcli"
+    dexcli.write_text("#!/bin/sh\n")
+    dexcli.chmod(0o755)
     environment = CommandEnvironment(home=tmp_path, dexcli=dexcli)
     assert locate_dexcli(environment) == dexcli
+
+
+def test_a_dexcli_variable_without_an_executable_file_says_how_to_fix_it(tmp_path: Path) -> None:
+    missing = tmp_path / "missing-dexcli"
+    environment = CommandEnvironment(home=tmp_path, dexcli=missing)
+    with pytest.raises(DexcliVariableError, match="Unset DEXCLI to use the dexcli on PATH"):
+        locate_dexcli(environment)
 
 
 def test_an_unsupported_platform_says_how_to_install(tmp_path: Path) -> None:
