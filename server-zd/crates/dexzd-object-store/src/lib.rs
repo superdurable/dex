@@ -14,6 +14,7 @@
 //! Every server-zd commit depends on conditional writes, so implementations must honor
 //! [`WriteCondition`] exactly.
 
+mod aliyun_oss;
 mod db9;
 mod file_download;
 mod in_memory;
@@ -25,8 +26,11 @@ mod startup_self_check;
 
 use std::path::Path;
 
+pub use aliyun_oss::{
+    AliyunOssObjectStore, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION, STALE_STARTUP_PROBE_AGE,
+};
 pub use db9::{Db9ObjectStore, Db9ObjectStoreConfig};
-pub use in_memory::{FaultAction, FaultInjector, InMemoryObjectStore};
+pub use in_memory::{FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions};
 pub use instrumented::InstrumentedObjectStore;
 pub use object_store_error::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation};
 pub use s3::{S3Credentials, S3ObjectStore, S3ObjectStoreConfig};
@@ -173,4 +177,60 @@ pub trait ObjectStore: Send + Sync + 'static {
         start_after: Option<&str>,
         max_keys: u32,
     ) -> ObjectStoreResult<ObjectListing>;
+
+    /// Returns whether [`WriteCondition::ReplaceIfEtagMatches`] works on every key.
+    ///
+    /// The default is `true`. A store that returns `false` accepts the condition only on mutable
+    /// object keys, see [`is_mutable_object_key`], and rejects it on any other key with
+    /// [`ObjectStoreErrorKind::Permanent`]. A caller that must replace another key then deletes
+    /// it and writes it again with [`WriteCondition::CreateOnly`], which is not atomic.
+    ///
+    /// A store that wraps another store must return the answer of the wrapped store.
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        true
+    }
+}
+
+/// Object key of the cluster manifest.
+pub const MANIFEST_OBJECT_KEY: &str = "manifest";
+
+/// Object key of the Attribute index registry.
+pub const ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY: &str = "registry/attribute-indexes";
+
+/// Prefix of node lease object keys; see [`node_lease_object_key`].
+pub const NODE_LEASE_OBJECT_KEY_PREFIX: &str = "lease/";
+
+/// Prefix of the probe object keys that [`startup_self_check`] writes and deletes.
+pub const STARTUP_PROBE_OBJECT_KEY_PREFIX: &str = "probe/";
+
+/// Exact mutable object keys; see [`is_mutable_object_key`].
+pub const MUTABLE_OBJECT_KEYS: [&str; 2] =
+    [MANIFEST_OBJECT_KEY, ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY];
+
+/// Prefixes of mutable object keys; see [`is_mutable_object_key`].
+pub const MUTABLE_OBJECT_KEY_PREFIXES: [&str; 2] = [
+    NODE_LEASE_OBJECT_KEY_PREFIX,
+    STARTUP_PROBE_OBJECT_KEY_PREFIX,
+];
+
+/// Returns the object key of the lease of the node `node_id`.
+///
+/// Node IDs contain only `[a-z0-9-]`, so a lease key never contains `.`.
+pub fn node_lease_object_key(node_id: &str) -> String {
+    format!("{NODE_LEASE_OBJECT_KEY_PREFIX}{node_id}")
+}
+
+/// Returns whether `key` is a mutable object key.
+///
+/// Mutable object keys are the only keys that server-zd writes with
+/// [`WriteCondition::ReplaceIfEtagMatches`]: the keys in [`MUTABLE_OBJECT_KEYS`] and the keys
+/// that start with a prefix in [`MUTABLE_OBJECT_KEY_PREFIXES`]. A store without atomic
+/// replacement, such as [`AliyunOssObjectStore`], keeps each of them as a series of create-only
+/// versions and rejects replacement of every other key. Register a key here before writing it
+/// with `ReplaceIfEtagMatches`. Mutable object keys never contain `.`.
+pub fn is_mutable_object_key(key: &str) -> bool {
+    MUTABLE_OBJECT_KEYS.contains(&key)
+        || MUTABLE_OBJECT_KEY_PREFIXES
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
 }

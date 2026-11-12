@@ -1338,6 +1338,8 @@ dependencies = [
  "dexzd-clock",
  "dexzd-metrics",
  "dexzd-postgres-connection",
+ "rand 0.10.3",
+ "rand_chacha 0.10.0",
  "s3local",
  "s3local-server",
  "tempfile",

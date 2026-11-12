@@ -6,7 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use crate::{ObjectStore, ObjectStoreError, WriteCondition, WriteOutcome};
+use crate::{
+    ObjectStore, ObjectStoreError, STARTUP_PROBE_OBJECT_KEY_PREFIX, WriteCondition, WriteOutcome,
+};
 use bytes::Bytes;
 
 /// The conditional-write guarantee that failed during startup.
@@ -40,7 +42,7 @@ pub struct StartupSelfCheckError {
 /// Verifies create-only and ETag replacement semantics, then removes its probe object.
 pub async fn startup_self_check(store: &dyn ObjectStore) -> Result<(), StartupSelfCheckError> {
     let key = format!(
-        "probe/{}-{}",
+        "{STARTUP_PROBE_OBJECT_KEY_PREFIX}{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

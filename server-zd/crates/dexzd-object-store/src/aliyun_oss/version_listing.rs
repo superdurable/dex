@@ -1,0 +1,119 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+//! Listings by logical key.
+//!
+//! A prefix that cannot contain a mutable object key is listed by the inner store directly.
+//! Otherwise the versions of each mutable key collapse into one entry for its newest version,
+//! and deleted keys are hidden. Physical order differs from logical order there: `K.v/...`
+//! sorts after `K-x`, while `K` sorts before it. Such a listing therefore reads every object
+//! under the prefix after `start_after` on each page. server-zd does not list these prefixes
+//! in production.
+
+use std::collections::BTreeMap;
+
+use crate::aliyun_oss::version_keys::{may_list_versioned_keys, versioned_logical_key};
+use crate::aliyun_oss::version_reads::head_versioned;
+use crate::{
+    ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError, ObjectStoreErrorKind,
+    ObjectStoreOperation, ObjectStoreResult, is_mutable_object_key,
+};
+
+/// Keys read per inner listing request.
+const PHYSICAL_PAGE_KEYS: u32 = 1000;
+
+/// One logical key found in a physical listing.
+enum ListedKey {
+    /// A plain object, with its metadata.
+    Plain(ObjectMetadata),
+    /// A mutable object key with at least one version; its newest version is read later.
+    Versioned,
+}
+
+/// Lists logical keys that start with `prefix` and sort after `start_after`.
+pub(super) async fn list_logical_keys(
+    inner: &dyn ObjectStore,
+    prefix: &str,
+    start_after: Option<&str>,
+    max_keys: u32,
+) -> ObjectStoreResult<ObjectListing> {
+    if !(1..=1000).contains(&max_keys) {
+        return Err(ObjectStoreError::new(
+            ObjectStoreOperation::List,
+            prefix,
+            ObjectStoreErrorKind::Permanent,
+            "max_keys must be 1..=1000",
+        ));
+    }
+    if !may_list_versioned_keys(prefix) {
+        return inner.list(prefix, start_after, max_keys).await;
+    }
+    let listed_keys = list_physical_keys(inner, prefix, start_after).await?;
+    let mut objects = Vec::new();
+    let mut has_more_keys = false;
+    for (logical_key, listed_key) in listed_keys {
+        let metadata = match listed_key {
+            ListedKey::Plain(metadata) => Some(metadata),
+            ListedKey::Versioned => {
+                head_versioned(inner, ObjectStoreOperation::List, &logical_key).await?
+            }
+        };
+        let Some(metadata) = metadata else {
+            continue;
+        };
+        if objects.len() == max_keys as usize {
+            has_more_keys = true;
+            break;
+        }
+        objects.push(metadata);
+    }
+    let next_start_after = if has_more_keys {
+        objects.last().map(|object| object.key.clone())
+    } else {
+        None
+    };
+    Ok(ObjectListing {
+        objects,
+        next_start_after,
+    })
+}
+
+/// Reads every physical object under `prefix` after `start_after`, keyed by logical key.
+///
+/// Every relevant physical key sorts after `start_after`: a version key `K.v/...` sorts after
+/// its logical key `K`.
+async fn list_physical_keys(
+    inner: &dyn ObjectStore,
+    prefix: &str,
+    start_after: Option<&str>,
+) -> ObjectStoreResult<BTreeMap<String, ListedKey>> {
+    let mut listed_keys = BTreeMap::new();
+    let mut physical_start_after = start_after.map(str::to_owned);
+    loop {
+        let page = inner
+            .list(prefix, physical_start_after.as_deref(), PHYSICAL_PAGE_KEYS)
+            .await?;
+        for object in page.objects {
+            let is_after_start = |key: &str| start_after.is_none_or(|start| key > start);
+            if let Some(logical_key) = versioned_logical_key(&object.key) {
+                if logical_key.starts_with(prefix) && is_after_start(logical_key) {
+                    listed_keys
+                        .entry(logical_key.to_owned())
+                        .or_insert(ListedKey::Versioned);
+                }
+            } else if !is_mutable_object_key(&object.key) {
+                // Objects stored at a mutable key itself are invisible, as they are to reads.
+                listed_keys.insert(object.key.clone(), ListedKey::Plain(object));
+            }
+        }
+        match page.next_start_after {
+            Some(next) => physical_start_after = Some(next),
+            None => return Ok(listed_keys),
+        }
+    }
+}

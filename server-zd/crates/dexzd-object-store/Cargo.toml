@@ -21,11 +21,13 @@ aws-config.workspace = true
 aws-sdk-s3.workspace = true
 bytes.workspace = true
 dexzd-clock = { path = "../dexzd-clock" }
+rand.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+rand_chacha.workspace = true
 s3local.workspace = true
 s3local-server.workspace = true
 tempfile.workspace = true
