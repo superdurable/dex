@@ -268,7 +268,10 @@ try {
   // The note in a language file links the other language's file, not the file's own language.
   assert.doesNotMatch(homeRust, /这部分没有 Rust 版本；见 \[[^\]]+\]\([^)]*index\.rust\.md\)/);
   assert.match(homeRust, /```rust\nlet sample = 1;\n```/);
-  await assert.rejects(readFile(join(outDir, 'index.python.md'), 'utf8'), {code: 'ENOENT'});
+  // index.python.md serves the same Markdown as index.md, so a reader can name any language.
+  assert.equal(await readFile(join(outDir, 'index.python.md'), 'utf8'), home);
+  // Every Markdown file points AI readers at llms.txt.
+  assert.match(home, /^---\n[\s\S]*?\n---\n\n> 供 AI 智能体使用的全部页面索引：https:\/\/docs\.example\.test\/zh-Hans\/llms\.txt\n/);
   for (const file of [home, homeGo, homeJava, homeRust]) assert.doesNotMatch(file, /overridden/);
 
   // Flow graphs read as a numbered list of Steps, start Step first: each Step is one paragraph of plain sentences,
@@ -294,7 +297,9 @@ try {
 
   assert.match(await readFile(join(outDir, 'reference/go/1.32.md'), 'utf8'), /# Earlier version/);
   const index = await readFile(join(outDir, 'llms.txt'), 'utf8');
-  assert.match(index, /\n含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，\.md 文件显示 Python；换成其他语言时，把 \.md 换成 \.go\.md、\.java\.md、\.typescript\.md 或 \.rust\.md。llms-full\.txt 把下面所有页面合成一个文件。\n/);
+  assert.match(index, /\n含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，\.md 文件显示 Python，\.python\.md 与它相同；[^\n]*llms-full\.go\.txt[^\n]*\n/);
+  // llms-full.<language>.txt carries that language's code.
+  assert.match(await readFile(join(outDir, 'llms-full.go.txt'), 'utf8'), /const sample = 1/);
   assert.match(index, /^# Fixture\n\n> Dex 是 Durable Execution 平台。/);
   // Archived versions keep their Markdown twin but stay out of llms.txt.
   assert.equal((index.match(/^-/gm) ?? []).length, 3);
