@@ -20,6 +20,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -126,29 +127,36 @@ async def test_each_stream_keeps_at_most_64_kib(tmp_path: Path) -> None:
 
 
 class RecordingGroups:
-    """A call-local group that records the signals and the release, like the Worker host's."""
+    """A group like the Worker host's registry: a lock guards each signal and the reap."""
 
     def __init__(self) -> None:
-        self.sigterm_sent = asyncio.Event()
+        self.sigterm_sent = threading.Event()
         self.released: list[int] = []
+        self.signals_after_release: list[int] = []
+        self.reaped_under_lock = False
+        self._lock = threading.Lock()
 
     def register(self, pid: int) -> None:
         pass
 
     def signal_group(self, pid: int, signal_number: int) -> bool:
-        if pid in self.released:
-            return False
-        if signal_number == signal.SIGTERM:
-            self.sigterm_sent.set()
-        try:
-            os.killpg(pid, signal_number)
-        except (ProcessLookupError, PermissionError):
-            return False
-        return True
+        with self._lock:
+            if pid in self.released:
+                self.signals_after_release.append(signal_number)
+                return False
+            if signal_number == signal.SIGTERM:
+                self.sigterm_sent.set()
+            try:
+                os.killpg(pid, signal_number)
+            except (ProcessLookupError, PermissionError):
+                return False
+            return True
 
     def release(self, pid: int, reap: Callable[[], object]) -> None:
-        reap()
-        self.released.append(pid)
+        with self._lock:
+            reap()
+            self.reaped_under_lock = True
+            self.released.append(pid)
 
 
 @pytest.fixture
@@ -170,6 +178,8 @@ def assert_cleaned(
     process: subprocess.Popen[bytes], groups: RecordingGroups, background_pid: int | None
 ) -> None:
     assert groups.released == [process.pid]
+    assert groups.reaped_under_lock
+    assert groups.signals_after_release == []
     assert process.returncode is not None
     assert process.stdout is not None and process.stdout.closed
     assert process.stderr is not None and process.stderr.closed
@@ -190,7 +200,7 @@ async def test_a_cancel_in_the_sigterm_grace_still_cleans_up(
         )
     )
     # The shell exited and the group got SIGTERM, which the background process ignores.
-    await asyncio.wait_for(groups.sigterm_sent.wait(), 10)
+    assert await asyncio.to_thread(groups.sigterm_sent.wait, 10)
     call.cancel()
     with pytest.raises(asyncio.CancelledError):
         await call
@@ -214,3 +224,83 @@ async def test_repeated_cancels_while_the_command_runs_still_clean_up(
         await call
     (process,) = spawned
     assert_cleaned(process, groups, None)
+
+
+def run_in_own_loop(body: Callable[[asyncio.AbstractEventLoop], None]) -> None:
+    loop = asyncio.new_event_loop()
+    try:
+        body(loop)
+    finally:
+        loop.close()
+
+
+async def wait_for_release(groups: RecordingGroups, timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not groups.released:
+        if time.monotonic() > deadline:
+            raise AssertionError("the shell was never released")
+        await asyncio.sleep(0.05)
+
+
+async def test_a_call_cancelled_before_its_first_await_still_cleans_up(
+    tmp_path: Path, spawned: list[subprocess.Popen[bytes]]
+) -> None:
+    pid_file = tmp_path / "background.pid"
+    groups = RecordingGroups()
+
+    def cancel_at_once(loop: asyncio.AbstractEventLoop) -> None:
+        call = loop.create_task(
+            run_shell_command(
+                f"{IGNORES_SIGTERM} & echo $! > {pid_file}; sleep 30",
+                tmp_path,
+                60,
+                process_groups=groups,
+            )
+        )
+        # One step runs the call up to its first await, right after the spawn; then cancel it.
+        loop.call_soon(call.cancel)
+        with pytest.raises(asyncio.CancelledError):
+            loop.run_until_complete(call)
+
+    await asyncio.to_thread(run_in_own_loop, cancel_at_once)
+    (process,) = spawned
+    assert_cleaned(process, groups, int(pid_file.read_text()) if pid_file.exists() else None)
+
+
+async def test_a_closed_event_loop_still_gets_the_shell_cleaned(
+    tmp_path: Path, spawned: list[subprocess.Popen[bytes]]
+) -> None:
+    pid_file = tmp_path / "background.pid"
+    groups = RecordingGroups()
+
+    def close_while_running(loop: asyncio.AbstractEventLoop) -> None:
+        loop.create_task(
+            run_shell_command(
+                f"{IGNORES_SIGTERM} & echo $! > {pid_file}; sleep 30",
+                tmp_path,
+                2,
+                process_groups=groups,
+            )
+        )
+        loop.run_until_complete(asyncio.sleep(0.5))
+        # The loop closes with the call still pending: no cancel ever reaches it.
+
+    await asyncio.to_thread(run_in_own_loop, close_while_running)
+    # The owner thread enforces the timeout itself and cleans up without the loop.
+    await wait_for_release(groups)
+    (process,) = spawned
+    assert_cleaned(process, groups, int(pid_file.read_text()))
+
+
+async def test_the_output_waits_the_group_cleanup_and_then_one_second(tmp_path: Path) -> None:
+    leaver = "import os, time; os.setsid(); print(os.getpid(), flush=True); time.sleep(30)"
+    command = (
+        f"{shlex.quote(sys.executable)} -c {shlex.quote(leaver)} & {IGNORES_SIGTERM} & sleep 0.3"
+    )
+    started = time.monotonic()
+    output = await run_shell_command(command, tmp_path, 60)
+    elapsed = time.monotonic() - started
+    (pid,) = stdout_lines(output)
+    os.kill(int(pid), signal.SIGKILL)
+    # The SIGTERM grace (0.5 s) passes in full, then the 1 s output wait does.
+    assert 0.3 + 0.5 + 1.0 <= elapsed < NOT_WAITING_SECONDS

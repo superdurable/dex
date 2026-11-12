@@ -483,10 +483,15 @@ These checks have limits:
   The shell is reaped only after that, without a reap in between (`waitid`
   with `WNOWAIT`, or kqueue on macOS before Python 3.13), so its group ID is
   never reused while it is signaled; a cancelled call finishes this cleanup
-  before the cancellation propagates. The result holds what the pipes carried
-  until 1 s after the shell exited, each stream cut at 64 KiB with a
-  `[cut at 65536 bytes]` line; a process that left the group (`setsid`) and
-  still holds them is not stopped and no longer delays the result. The result
+  before the cancellation propagates. One thread per call owns the shell: it
+  alone waits for it, signals its group, reads the pipes, and reaps it, so a
+  cancelled call, a closing event loop, or an exiting interpreter (an `atexit`
+  hook kills and waits for each, 3 s at most) never leaves a reaped leader's
+  group signaled. Once the group is cleaned, the output may still arrive for
+  1 s, each stream cut at 64 KiB with a `[cut at 65536 bytes]` line; a
+  process that left the group (`setsid`) and still holds the pipes is not
+  stopped and no longer delays the result. A shell that cannot start fails
+  with `the shell could not start: <reason>`, the operating system's text. The result
   has the TypeScript CLI core's form: `exit code N` (the shell's status, 128
   plus the signal for a signal), then `--- stdout ---` and `--- stderr ---`.
   It is a single-attempt write: a Worker that dies during it records

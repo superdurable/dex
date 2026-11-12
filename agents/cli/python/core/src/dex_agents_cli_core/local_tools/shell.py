@@ -11,13 +11,17 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import contextlib
 import os
+import select
 import signal
 import subprocess
-from collections.abc import Callable, Coroutine
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import IO, Any, Protocol
+from typing import IO, Protocol
 
 from dex_agents import ToolExecutionError
 from dex_agents_cli_core.process_exit import wait_until_exited
@@ -29,9 +33,12 @@ MAX_SHELL_TIMEOUT_SECONDS = 600
 _MAX_OUTPUT_BYTES = 64 * 1024
 # How long background processes a finished shell left may take to end after SIGTERM.
 _LEFT_BEHIND_GRACE_SECONDS = 0.5
-# How long after the shell exits its output may still arrive.
-_OUTPUT_AFTER_EXIT_SECONDS = 1.0
+# How long, after the group is cleaned, the output may still arrive.
+_OUTPUT_AFTER_GROUP_SECONDS = 1.0
 _READ_BYTES = 65536
+_POLL_SECONDS = 0.05
+# How long an exiting interpreter waits for each shell it kills.
+_EXIT_CLEANUP_SECONDS = 3.0
 
 
 class ShellProcessGroups(Protocol):
@@ -65,12 +72,16 @@ async def run_shell_command(
     The command gets its own process group, so the terminal's Ctrl-C never
     reaches it. When the shell exits, the processes it left in its group, such
     as ``sleep 30 &``, get SIGTERM, then SIGKILL 0.5 s later; only then is the
-    shell reaped. A timeout kills the whole group at once. The output is what
-    the pipes carried until 1 s after the shell exited, at the latest: a
-    process that left the group (``setsid``) and still holds them is not
-    stopped and does not hold up the result. A cancelled call still cleans the
-    group, reaps the shell, and closes the pipes before the cancellation
-    propagates.
+    shell reaped. A timeout kills the whole group at once. After the group is
+    cleaned, the output may still arrive for 1 s: a process that left the
+    group (``setsid``) and still holds the pipes is not stopped and does not
+    hold up the result longer.
+
+    One thread per call owns the shell: it alone waits for it, signals its
+    group, reads its output, and reaps it, so a cancelled call, a closing
+    event loop, or an exiting interpreter never leaves the group signaled
+    after its leader was reaped. A cancelled call kills the group and waits
+    for that thread before the cancellation propagates.
 
     Args:
         command: The command text.
@@ -92,7 +103,8 @@ async def run_shell_command(
         stream's text, cut at 64 KiB with a ``[cut at 65536 bytes]`` line.
 
     Raises:
-        ToolExecutionError: If the shell cannot start.
+        ToolExecutionError: If the shell cannot start, as ``the shell could not
+            start: <reason>``; the reason is the operating system's own text.
     """
     groups = process_groups if process_groups is not None else _OwnedProcessGroups()
     try:
@@ -106,85 +118,148 @@ async def run_shell_command(
         )
     except OSError as error:
         raise ToolExecutionError(f"the shell could not start: {error.strerror}") from error
-    # Synchronous, so no cancellation can come between the spawn and the registration.
+    # Synchronous, so no cancellation can come between the spawn and the owner thread.
     try:
         groups.register(process.pid)
     except BaseException:
         _kill_and_reap(process)
         raise
-    run = _ShellRun(process, groups)
-    end_reason: str | None = None
+    owner = _ShellOwner(process, groups, timeout_seconds)
+    owner.start()
     try:
-        await asyncio.wait_for(asyncio.shield(run.exited), timeout_seconds)
-    except TimeoutError:
-        end_reason = f"timed out after {timeout_seconds} seconds"
-        groups.signal_group(process.pid, signal.SIGKILL)
+        await asyncio.shield(owner.finished)
     except asyncio.CancelledError:
-        groups.signal_group(process.pid, signal.SIGKILL)
-        await _complete_despite_cancellation(run.clean_up())
+        owner.kill()
+        while not owner.finished.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(owner.finished)
         raise
-    returncode = await _complete_despite_cancellation(run.clean_up())
-    status = f"killed: {end_reason}" if end_reason is not None else f"exit code {returncode}"
-    return f"{status}\n--- stdout ---\n{run.stdout.text()}\n--- stderr ---\n{run.stderr.text()}"
+    return owner.finished.result()
 
 
-class _ShellRun:
-    """One running shell: its output, its exit, and the cleanup that must always finish."""
+class _ShellOwner(threading.Thread):
+    """The one thread that waits for a shell, signals its group, reads its output, and reaps it."""
 
-    def __init__(self, process: subprocess.Popen[bytes], groups: ShellProcessGroups) -> None:
+    def __init__(
+        self, process: subprocess.Popen[bytes], groups: ShellProcessGroups, timeout_seconds: int
+    ) -> None:
+        super().__init__(name=f"dex-agents-shell-{process.pid}", daemon=True)
         assert process.stdout is not None and process.stderr is not None
-        loop = asyncio.get_running_loop()
-        self._loop = loop
+        self._loop = asyncio.get_running_loop()
         self._process = process
         self._groups = groups
-        self.stdout = _PipeOutput(loop, process.stdout)
-        self.stderr = _PipeOutput(loop, process.stderr)
-        # The shell is never reaped before its group is cleaned, so its pid, which
-        # is the group's ID, cannot be reused while anything may signal it.
-        self.exited = asyncio.ensure_future(asyncio.to_thread(wait_until_exited, process.pid))
+        self._timeout_seconds = timeout_seconds
+        self._stdout = _CappedOutput(process.stdout)
+        self._stderr = _CappedOutput(process.stderr)
+        self._exited = threading.Event()
+        self._kill_requested = threading.Event()
+        self._done = threading.Event()
+        self.finished: asyncio.Future[str] = self._loop.create_future()
 
-    async def clean_up(self) -> int:
-        """Stop the group, collect the output, close the pipes, then reap; return the status."""
-        process = self._process
+    def start(self) -> None:
+        """Start owning the shell; an exiting interpreter still gets it cleaned first."""
+        with _OWNERS_LOCK:
+            _OWNERS.add(self)
+        threading.Thread(target=self._wait_for_exit, name=f"{self.name}-exit", daemon=True).start()
+        super().start()
+
+    def kill(self) -> None:
+        """Kill the command's group now, as for a cancelled call."""
+        self._kill_requested.set()
+
+    def wait_done(self, timeout: float) -> None:
+        """Wait until the shell is reaped and released, or the timeout passes."""
+        self._done.wait(timeout)
+
+    def run(self) -> None:
+        outcome: str | BaseException
         try:
-            await self.exited
-            output_deadline = self._loop.time() + _OUTPUT_AFTER_EXIT_SECONDS
-            output = asyncio.gather(self.stdout.done, self.stderr.done)
-            # The shell is a zombie now, so its group ID stays reserved while the group is cleaned.
-            self._groups.signal_group(process.pid, signal.SIGTERM)
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(asyncio.shield(output), _LEFT_BEHIND_GRACE_SECONDS)
-            self._groups.signal_group(process.pid, signal.SIGKILL)
-            with contextlib.suppress(TimeoutError):
-                remaining = max(0.0, output_deadline - self._loop.time())
-                await asyncio.wait_for(asyncio.shield(output), remaining)
+            outcome = self._own()
+        except BaseException as error:  # The caller gets it; the shell is released below.
+            outcome = error
         finally:
-            self.stdout.stop()
-            self.stderr.stop()
-            for pipe in (process.stdout, process.stderr):
-                if pipe is not None:
-                    pipe.close()
-            returncode = _release(process, self._groups)
-        return returncode
+            with _OWNERS_LOCK:
+                _OWNERS.discard(self)
+            self._done.set()
+        with contextlib.suppress(RuntimeError):
+            self._loop.call_soon_threadsafe(self._report, outcome)
 
-
-async def _complete_despite_cancellation(cleanup: Coroutine[Any, Any, int]) -> int:
-    """Run a cleanup to its end even when the caller is cancelled; then re-raise that."""
-    task = asyncio.ensure_future(cleanup)
-    is_cancelled = False
-    while not task.done():
+    def _own(self) -> str:
+        pid = self._process.pid
+        end_reason: str | None = None
         try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            is_cancelled = True
-    if is_cancelled:
-        task.result()
-        raise asyncio.CancelledError
-    return task.result()
+            deadline = time.monotonic() + self._timeout_seconds
+            while not self._exited.is_set():
+                if self._kill_requested.is_set():
+                    end_reason = end_reason or "cancelled"
+                    break
+                if time.monotonic() >= deadline:
+                    end_reason = f"timed out after {self._timeout_seconds} seconds"
+                    break
+                self._read_output(min(_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
+            if end_reason is not None:
+                self._groups.signal_group(pid, signal.SIGKILL)
+                while not self._exited.is_set():
+                    self._read_output(_POLL_SECONDS)
+            # The shell is a zombie now, so its group ID stays reserved while the group is cleaned.
+            self._groups.signal_group(pid, signal.SIGTERM)
+            self._read_output_until(time.monotonic() + _LEFT_BEHIND_GRACE_SECONDS)
+            self._groups.signal_group(pid, signal.SIGKILL)
+            self._read_output_until(time.monotonic() + _OUTPUT_AFTER_GROUP_SECONDS)
+        finally:
+            self._stdout.close()
+            self._stderr.close()
+            returncode = _release(self._process, self._groups)
+        status = f"killed: {end_reason}" if end_reason is not None else f"exit code {returncode}"
+        stdout, stderr = self._stdout.text(), self._stderr.text()
+        return f"{status}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+
+    def _wait_for_exit(self) -> None:
+        wait_until_exited(self._process.pid)
+        self._exited.set()
+
+    def _read_output_until(self, deadline: float) -> None:
+        while not (self._stdout.is_ended and self._stderr.is_ended):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            self._read_output(min(_POLL_SECONDS, remaining))
+
+    def _read_output(self, timeout: float) -> None:
+        pipes = [pipe for pipe in (self._stdout, self._stderr) if not pipe.is_ended]
+        if not pipes:
+            time.sleep(timeout)
+            return
+        readable, _, _ = select.select(pipes, [], [], timeout)
+        for pipe in readable:
+            pipe.read_available()
+
+    def _report(self, outcome: str | BaseException) -> None:
+        if self.finished.done():
+            return
+        if isinstance(outcome, BaseException):
+            self.finished.set_exception(outcome)
+        else:
+            self.finished.set_result(outcome)
+
+
+_OWNERS: set[_ShellOwner] = set()
+_OWNERS_LOCK = threading.Lock()
+
+
+@atexit.register
+def _clean_up_owned_shells() -> None:
+    """Kill and reap the shells still running when the interpreter exits, each within a bound."""
+    with _OWNERS_LOCK:
+        owners = list(_OWNERS)
+    for owner in owners:
+        owner.kill()
+    for owner in owners:
+        owner.wait_done(_EXIT_CLEANUP_SECONDS)
 
 
 class _OwnedProcessGroups:
-    """The process group of one command that nothing outside this call signals."""
+    """The process group of one command that only its owner thread signals."""
 
     def __init__(self) -> None:
         self._released: set[int] = set()
@@ -208,39 +283,31 @@ class _OwnedProcessGroups:
         self._released.add(pid)
 
 
-class _PipeOutput:
-    """Read one pipe on the event loop until EOF or ``stop``, keeping at most 64 KiB of it."""
+class _CappedOutput:
+    """One pipe, read to EOF without blocking, keeping at most 64 KiB of it."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, pipe: IO[bytes]) -> None:
-        self._loop = loop
-        self._fd = pipe.fileno()
+    def __init__(self, pipe: IO[bytes]) -> None:
+        self._pipe = pipe
         self._chunks: list[bytes] = []
         self._kept_bytes = 0
         self._is_cut = False
-        self.done: asyncio.Future[None] = loop.create_future()
-        os.set_blocking(self._fd, False)
-        loop.add_reader(self._fd, self._read)
+        self.is_ended = False
+        os.set_blocking(pipe.fileno(), False)
 
-    def text(self) -> str:
-        """Return the kept output as text, with a line that says when it was cut."""
-        text = b"".join(self._chunks).decode("utf-8", errors="replace")
-        return f"{text}\n[cut at {_MAX_OUTPUT_BYTES} bytes]" if self._is_cut else text
+    def fileno(self) -> int:
+        """Return the pipe's descriptor, for ``select``."""
+        return self._pipe.fileno()
 
-    def stop(self) -> None:
-        """Stop reading, whether or not the pipe reached EOF."""
-        if not self.done.done():
-            self._loop.remove_reader(self._fd)
-            self.done.set_result(None)
-
-    def _read(self) -> None:
+    def read_available(self) -> None:
+        """Read what the pipe holds now; at EOF, mark it ended."""
         try:
-            chunk = os.read(self._fd, _READ_BYTES)
+            chunk = os.read(self._pipe.fileno(), _READ_BYTES)
         except BlockingIOError:
             return
         except OSError:
             chunk = b""
         if not chunk:
-            self.stop()
+            self.is_ended = True
             return
         room = _MAX_OUTPUT_BYTES - self._kept_bytes
         if len(chunk) > room:
@@ -249,6 +316,16 @@ class _PipeOutput:
         if chunk:
             self._chunks.append(chunk)
             self._kept_bytes += len(chunk)
+
+    def close(self) -> None:
+        """Stop reading and close the pipe."""
+        self.is_ended = True
+        self._pipe.close()
+
+    def text(self) -> str:
+        """Return the kept output as text, with a line that says when it was cut."""
+        text = b"".join(self._chunks).decode("utf-8", errors="replace")
+        return f"{text}\n[cut at {_MAX_OUTPUT_BYTES} bytes]" if self._is_cut else text
 
 
 def _kill_and_reap(process: subprocess.Popen[bytes]) -> None:
