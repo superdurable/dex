@@ -125,13 +125,29 @@ func ResolveDexcliPath() (string, error) {
 // ready line appears in the output written by this start. Kill sends SIGKILL
 // to the whole process group, so neither the child nor anything it started
 // shuts down cleanly. A killed process can be started again.
+//
+// The child is reaped only while no signal is being sent, so a signal never
+// reaches a process group whose number the system reused after the child
+// exited. After the child exits, Kill and SignalProcessGroup send nothing.
 type KillableProcess struct {
 	name      string
 	logPath   string
-	command   *exec.Cmd
 	logOffset int64
-	exited    chan error
+	// mu orders reaping and signalling; the child is reaped only while it is held.
+	mu    sync.Mutex
+	child *killableChild
 }
+
+// killableChild is one started child; its fields after exited is closed are final.
+type killableChild struct {
+	command   *exec.Cmd
+	hasExited bool
+	exitErr   error
+	exited    chan struct{}
+}
+
+// childReapPollInterval is how often the reaper checks, without blocking, whether the child exited.
+const childReapPollInterval = 20 * time.Millisecond
 
 // NewKillableProcess creates a stopped process whose output appends to logPath.
 func NewKillableProcess(name string, logPath string) *KillableProcess {
@@ -147,7 +163,8 @@ func (process *KillableProcess) LogPath() string {
 //
 // environment nil inherits this process's environment. It returns an error
 // when the process is already running, exits before it is ready, or misses
-// readyTimeout, after which it is killed.
+// readyTimeout, after which it is killed. A child that exited after an
+// earlier Start may be started again.
 func (process *KillableProcess) Start(
 	ctx context.Context,
 	arguments []string,
@@ -155,7 +172,7 @@ func (process *KillableProcess) Start(
 	readyLine string,
 	readyTimeout time.Duration,
 ) error {
-	if process.command != nil {
+	if process.IsRunning() {
 		return fmt.Errorf("%s is already running", process.name)
 	}
 	if err := os.MkdirAll(filepath.Dir(process.logPath), 0o755); err != nil {
@@ -183,9 +200,11 @@ func (process *KillableProcess) Start(
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start %s: %w", process.name, err)
 	}
-	process.command = command
-	process.exited = make(chan error, 1)
-	go func(exited chan<- error) { exited <- command.Wait() }(process.exited)
+	child := &killableChild{command: command, exited: make(chan struct{})}
+	process.mu.Lock()
+	process.child = child
+	process.mu.Unlock()
+	go process.reapChild(child)
 	deadline := time.Now().Add(readyTimeout)
 	for time.Now().Before(deadline) {
 		output, err := process.ReadLog()
@@ -196,15 +215,19 @@ func (process *KillableProcess) Start(
 			return nil
 		}
 		select {
-		case exitErr := <-process.exited:
-			process.command = nil
+		case <-child.exited:
 			// Re-read: the child may have written its failure after the read above.
 			finalOutput, readErr := process.ReadLog()
+			if readErr == nil && strings.Contains(finalOutput, readyLine) {
+				// It was ready, then exited on its own.
+				return nil
+			}
+			process.forgetChild(child)
 			if readErr != nil {
-				return fmt.Errorf("%s exited before it was ready (%v); read its log: %w", process.name, exitErr, readErr)
+				return fmt.Errorf("%s exited before it was ready (%v); read its log: %w", process.name, child.exitErr, readErr)
 			}
 			return fmt.Errorf("%s exited before it was ready (%v); output tail of %s:\n%s",
-				process.name, exitErr, process.logPath, tailOfOutput(finalOutput))
+				process.name, child.exitErr, process.logPath, tailOfOutput(finalOutput))
 		case <-ctx.Done():
 			process.Kill()
 			return ctx.Err()
@@ -218,6 +241,63 @@ func (process *KillableProcess) Start(
 	}
 	return fmt.Errorf("%s was not ready in %s; output tail of %s:\n%s",
 		process.name, readyTimeout, process.logPath, tailOfOutput(output))
+}
+
+// reapChild polls until the child exits, then reaps it while holding mu.
+//
+// exec.Cmd.Wait would reap outside the lock, and a signal sent after that
+// could reach a reused process group.
+func (process *KillableProcess) reapChild(child *killableChild) {
+	ticker := time.NewTicker(childReapPollInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		if process.tryReapChild(child) {
+			return
+		}
+	}
+}
+
+// tryReapChild reaps the child if it exited and reports whether it did.
+func (process *KillableProcess) tryReapChild(child *killableChild) bool {
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	var status syscall.WaitStatus
+	pid, err := syscall.Wait4(child.command.Process.Pid, &status, syscall.WNOHANG, nil)
+	if errors.Is(err, syscall.EINTR) || (err == nil && pid == 0) {
+		return false
+	}
+	if err != nil {
+		child.exitErr = fmt.Errorf("wait for %s: %w", process.name, err)
+	} else {
+		child.exitErr = describeChildExit(status)
+	}
+	child.hasExited = true
+	if releaseErr := child.command.Process.Release(); releaseErr != nil {
+		fmt.Fprintf(os.Stderr, "release %s: %v\n", process.name, releaseErr)
+	}
+	close(child.exited)
+	return true
+}
+
+// describeChildExit returns nil for exit status 0 and an error naming the status or signal otherwise.
+func describeChildExit(status syscall.WaitStatus) error {
+	switch {
+	case status.Signaled():
+		return fmt.Errorf("signal: %v", status.Signal())
+	case status.ExitStatus() != 0:
+		return fmt.Errorf("exit status %d", status.ExitStatus())
+	default:
+		return nil
+	}
+}
+
+// forgetChild drops child if it is still the current one.
+func (process *KillableProcess) forgetChild(child *killableChild) {
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	if process.child == child {
+		process.child = nil
+	}
 }
 
 // startFailureOutputTailBytes bounds the child output quoted in a Start error.
@@ -236,41 +316,46 @@ func tailOfOutput(output string) string {
 
 // IsRunning reports whether the child runs.
 func (process *KillableProcess) IsRunning() bool {
-	if process.command == nil {
-		return false
-	}
-	select {
-	case exitErr := <-process.exited:
-		process.exited <- exitErr
-		return false
-	default:
-		return true
-	}
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	return process.child != nil && !process.child.hasExited
 }
 
 // Kill sends SIGKILL to the child's process group and waits for the child to exit.
+//
+// It sends nothing when the child already exited: its process group number
+// may belong to another process by then.
 func (process *KillableProcess) Kill() {
-	if process.command == nil {
+	process.mu.Lock()
+	child := process.child
+	if child == nil {
+		process.mu.Unlock()
 		return
 	}
-	if err := syscall.Kill(-process.command.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-		fmt.Fprintf(os.Stderr, "kill %s: %v\n", process.name, err)
+	if !child.hasExited {
+		if err := syscall.Kill(-child.command.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			fmt.Fprintf(os.Stderr, "kill %s: %v\n", process.name, err)
+		}
 	}
+	process.mu.Unlock()
 	// The exit status of a killed child is always an error; only the exit matters.
-	<-process.exited
-	process.command = nil
+	<-child.exited
+	process.forgetChild(child)
 }
 
 // SignalProcessGroup sends signal to the child's process group.
 //
 // Use syscall.SIGSTOP to freeze a Worker, so a request it would serve waits
 // with its locks held, and syscall.SIGCONT to resume it. It returns an error
-// when the child is not running or the signal cannot be sent. Since 0.6.0.
+// when the child is not running, including after it exited on its own, or
+// the signal cannot be sent. Since 0.6.0.
 func (process *KillableProcess) SignalProcessGroup(signal syscall.Signal) error {
-	if process.command == nil {
+	process.mu.Lock()
+	defer process.mu.Unlock()
+	if process.child == nil || process.child.hasExited {
 		return fmt.Errorf("%s is not running", process.name)
 	}
-	if err := syscall.Kill(-process.command.Process.Pid, signal); err != nil {
+	if err := syscall.Kill(-process.child.command.Process.Pid, signal); err != nil {
 		return fmt.Errorf("send %v to %s: %w", signal, process.name, err)
 	}
 	return nil

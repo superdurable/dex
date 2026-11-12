@@ -9,6 +9,7 @@
 package dexagents
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -1001,11 +1002,11 @@ type ExecutePlanRequest struct {
 
 // UnmarshalJSON decodes the wire object and checks its required fields.
 //
-// It returns an error for a missing revision field or a wrong JSON type.
+// It returns an error for a missing or null revision field, or a wrong JSON type.
 func (request *ExecutePlanRequest) UnmarshalJSON(data []byte) error {
 	type wireExecutePlanRequest ExecutePlanRequest
 	var decoded wireExecutePlanRequest
-	if err := decodeWireObject(data, &decoded, "ExecutePlanRequest", "revision"); err != nil {
+	if err := decodeNonNullWireObject(data, &decoded, "ExecutePlanRequest", "revision"); err != nil {
 		return err
 	}
 	*request = ExecutePlanRequest(decoded)
@@ -1027,7 +1028,8 @@ type SteerUserMessageRequest struct {
 
 // UnmarshalJSON decodes the wire object and checks its required fields.
 //
-// It returns an error for a missing message_id or text field, or a wrong JSON type.
+// It returns an error for a missing message_id or text field, or a wrong JSON type. Either
+// field may be null.
 func (request *SteerUserMessageRequest) UnmarshalJSON(data []byte) error {
 	type wireSteerUserMessageRequest SteerUserMessageRequest
 	var decoded wireSteerUserMessageRequest
@@ -1049,11 +1051,11 @@ type DeleteQueuedMessageRequest struct {
 
 // UnmarshalJSON decodes the wire object and checks its required fields.
 //
-// It returns an error for a missing message_id field or a wrong JSON type.
+// It returns an error for a missing or null message_id field, or a wrong JSON type.
 func (request *DeleteQueuedMessageRequest) UnmarshalJSON(data []byte) error {
 	type wireDeleteQueuedMessageRequest DeleteQueuedMessageRequest
 	var decoded wireDeleteQueuedMessageRequest
-	if err := decodeWireObject(data, &decoded, "DeleteQueuedMessageRequest", "message_id"); err != nil {
+	if err := decodeNonNullWireObject(data, &decoded, "DeleteQueuedMessageRequest", "message_id"); err != nil {
 		return err
 	}
 	*request = DeleteQueuedMessageRequest(decoded)
@@ -1098,11 +1100,11 @@ type AnswerQuestionRequest struct {
 
 // UnmarshalJSON decodes the wire object and checks its required fields.
 //
-// It returns an error for a missing interrupt_id or answer field, or a wrong JSON type.
+// It returns an error for a missing or null interrupt_id or answer field, or a wrong JSON type.
 func (request *AnswerQuestionRequest) UnmarshalJSON(data []byte) error {
 	type wireAnswerQuestionRequest AnswerQuestionRequest
 	var decoded wireAnswerQuestionRequest
-	if err := decodeWireObject(data, &decoded, "AnswerQuestionRequest", "interrupt_id", "answer"); err != nil {
+	if err := decodeNonNullWireObject(data, &decoded, "AnswerQuestionRequest", "interrupt_id", "answer"); err != nil {
 		return err
 	}
 	*request = AnswerQuestionRequest(decoded)
@@ -1347,6 +1349,20 @@ func decodeWireObject(data []byte, target any, typeName string, requiredKeys ...
 		return fmt.Errorf("decode %s: %w", typeName, err)
 	}
 	return nil
+}
+
+// decodeNonNullWireObject is decodeWireObject whose required fields must also not be JSON null.
+func decodeNonNullWireObject(data []byte, target any, typeName string, requiredKeys ...string) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return fmt.Errorf("%s must be a JSON object: %w", typeName, err)
+	}
+	for _, key := range requiredKeys {
+		if value, isPresent := keys[key]; isPresent && string(bytes.TrimSpace(value)) == "null" {
+			return fmt.Errorf("%s field %q must not be null", typeName, key)
+		}
+	}
+	return decodeWireObject(data, target, typeName, requiredKeys...)
 }
 
 func decodeWireEnum[Enum ~string](text []byte, target *Enum, typeName string, allowed ...Enum) error {

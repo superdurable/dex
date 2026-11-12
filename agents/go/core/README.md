@@ -90,9 +90,11 @@ modes, and wire values: `send_user_message` (with `plan_mode` and `images`),
 `resolve_interrupt`, `answer_question`, `execute_plan`,
 `update_session_settings`, `get_agent_snapshot`, and `list_agent_messages`,
 plus the `AgentEvents` Stream. It embeds `dex.ClientOnlyFlow` and has no Steps,
-so `dex.NewWorker` refuses a Registry that holds it, and the Go Worker's
-`AgentSessionFlow` keeps serving only the RPCs above. It starts no sessions;
-the serving application does.
+so `dex.NewWorker` refuses a Registry that holds it. The Go Worker's
+`AgentSessionFlow` keeps serving only its existing RPCs: `send_user_message`,
+`resolve_interrupt`, `get_agent_snapshot`, `list_agent_messages`, and
+`update_session_settings`. `remotesession` starts no sessions; the serving
+application does.
 
 ```go
 flow, err := remotesession.NewRemoteSessionFlow("SupportAgent")

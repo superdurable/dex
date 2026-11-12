@@ -133,6 +133,14 @@ func TestNewRequestTypesRejectMissingRequiredFields(t *testing.T) {
 		{`{}`, &dexagents.DeleteQueuedMessageRequest{}},
 		{`{"interrupt_id":"call-1"}`, &dexagents.AnswerQuestionRequest{}},
 		{`null`, &dexagents.CancelTurnRequest{}},
+		{`{"revision":null}`, &dexagents.ExecutePlanRequest{}},
+		{`{"revision":"3"}`, &dexagents.ExecutePlanRequest{}},
+		{`{"message_id":null}`, &dexagents.DeleteQueuedMessageRequest{}},
+		{`{"interrupt_id":null,"answer":"blue"}`, &dexagents.AnswerQuestionRequest{}},
+		{`{"interrupt_id":"call-1","answer":null}`, &dexagents.AnswerQuestionRequest{}},
+		{`{"interrupt_id":"call-1","answer":5}`, &dexagents.AnswerQuestionRequest{}},
+		{`{"message_id":5,"text":null}`, &dexagents.SteerUserMessageRequest{}},
+		{`{"turn_id":4}`, &dexagents.CancelTurnRequest{}},
 	} {
 		require.Error(t, json.Unmarshal([]byte(testCase.wire), testCase.value), testCase.wire)
 	}
