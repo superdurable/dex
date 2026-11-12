@@ -720,7 +720,7 @@ class _Handoff:
             self._report(f"The chat closed unexpectedly (dexcli exit {status}).")
         elif is_channel_failed and not is_signaled:
             self._report(f"The chat closed: {self._channel_end_reason}.")
-        self._report_resume()
+        # After ready, dexcli's exit summary is the only resume line: /new can switch sessions.
         if self._is_interrupted:
             return 130
         if self._is_terminated:

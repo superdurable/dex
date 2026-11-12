@@ -161,6 +161,12 @@ def resume_line(session_id: str) -> str:
     return f"Session {session_id} keeps running. Resume it with: {COMMAND} --resume {session_id}"
 
 
+def assert_no_launcher_resume_line(screen: io.StringIO, session_id: str) -> None:
+    # After ready, dexcli's exit summary is the only resume line: /new can switch sessions.
+    assert resume_line(session_id) not in screen.getvalue()
+    assert "keeps running. Resume it with" not in screen.getvalue()
+
+
 def assert_replayed(fake: FakeTerminalUi, screen: io.StringIO) -> None:
     assert fake.mismatches() == []
     assert "closed unexpectedly" not in screen.getvalue()
@@ -220,8 +226,8 @@ async def test_a_chat_hands_off_and_relays_each_local_request(
     fake = FakeTerminalUi(tmp_path / "tui", transcript)
     child = start_chat(cli_home, fake, screen, environment={"DEX_AGENTS_OPEN_BROWSER": "1"})
     session_id = await read_session_id(child)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 0
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
     assert cli_home.opened_urls.read_text().splitlines() == [page]
     for started in (started_id, session_id):
@@ -265,8 +271,8 @@ async def test_nothing_the_worker_host_writes_reaches_the_terminal(
         check=True,
     ).stdout
     (control_fd,) = re.findall(r"__worker-host --control-fd (\d+)", host_command)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 0
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
     shown = screen.getvalue()
     # Only the launcher's own import writes before the handoff; the Worker host's go to the log.
@@ -326,6 +332,8 @@ async def test_a_handoff_that_fails_before_ready_continues_in_plain_text_on_the_
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert fake.mismatches() == []
+    # The plain chat it fell back to prints the resume line itself.
+    assert resume_line(session_id) in screen.getvalue()
 
 
 NO_COMMON_CONTRACT: dict[str, Any] = {
@@ -514,8 +522,8 @@ async def test_a_killed_worker_host_leaves_no_shell_group(
         tool_pgid = await wait_for_tool_group(agents_directory, host_pid)
     # The shell may have replaced itself with sleep since it registered; the check still matches.
     os.kill(host_pid, signal.SIGKILL)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 1
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
     await wait_until_gone([tool_pgid], timeout=5)
     assert list((agents_directory / "run").glob("*.json")) == []
@@ -549,8 +557,8 @@ async def test_a_worker_host_killed_mid_request_answers_host_stopped(
     await fake.wait_for("sent", type="request", id=1)
     await asyncio.sleep(0.3)
     os.kill(host_pid, signal.SIGKILL)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 1
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
 
 
@@ -582,8 +590,8 @@ async def test_a_lost_response_is_recovered_with_get_request_result(
     os.kill(host_pid, signal.SIGSTOP)
     await fake.wait_for("received", type="response", id=1, error_code="cancelled")
     os.kill(host_pid, signal.SIGCONT)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 0
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
 
 
@@ -616,8 +624,8 @@ async def test_a_key_that_arrives_again_while_it_runs_shares_the_first_outcome(
     await fake.wait_for("sent", type="request", id=2)
     await asyncio.sleep(0.3)
     os.kill(host_pid, signal.SIGCONT)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 0
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
 
 
@@ -637,8 +645,8 @@ async def test_get_request_result_reports_running_until_the_session_starts(
     os.kill(host_pid, signal.SIGSTOP)
     await fake.wait_for("received", type="response", id=3)
     os.kill(host_pid, signal.SIGCONT)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 0
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
 
 
@@ -725,8 +733,8 @@ async def test_a_fifth_waiting_request_is_busy(
     os.kill(host_pid, signal.SIGSTOP)
     await fake.wait_for("received", type="response", id=7)
     os.kill(host_pid, signal.SIGCONT)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 0
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
 
 
@@ -743,8 +751,8 @@ async def test_the_command_exits_as_the_terminal_ui_did(
     fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([], tui_exit=terminal_ui_exit))
     child = start_chat(cli_home, fake, screen)
     session_id = await read_session_id(child)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == command_exit
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
     assert list((cli_home.home / ".dex" / "agents" / "run").glob("*.json")) == []
 
@@ -758,8 +766,8 @@ async def test_sigterm_to_the_launcher_ends_the_chat_with_143(
     await fake.wait_for("sent", type="ready")
     host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
     os.kill(child.pid, signal.SIGTERM)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 143
+    assert_no_launcher_resume_line(screen, session_id)
     await wait_until_gone([host_pid], timeout=15)
 
 
@@ -777,8 +785,8 @@ async def test_a_killed_terminal_ui_restores_the_terminal_and_stops_the_worker_h
     for pid in tui_pids:
         os.kill(int(pid), signal.SIGKILL)
     await expect(child, "The chat closed unexpectedly (dexcli exit 137).")
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 1
+    assert_no_launcher_resume_line(screen, session_id)
     assert "\x1b[?1049l\x1b[?2004l\x1b[?25h" in screen.getvalue()
     await wait_until_gone([host_pid], timeout=15)
 
@@ -882,8 +890,8 @@ async def test_the_launcher_replays_each_conformance_transcript(
         child.sendeof()
         assert await wait_for_exit(child) == 0
     else:
-        await expect(child, resume_line(session_id))
         assert await wait_for_exit(child) == (1 if name == "chat_worker_stopped" else 0)
+        assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
 
 
@@ -895,8 +903,8 @@ async def test_a_protocol_error_after_ready_fails_the_chat_even_when_dexcli_exit
     child = start_chat(cli_home, fake, screen)
     session_id = await read_session_id(child)
     await expect(child, "The chat closed: dexcli sent a malformed line.")
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 1
+    assert_no_launcher_resume_line(screen, session_id)
     assert fake.mismatches() == []
 
 
@@ -913,8 +921,8 @@ async def test_an_external_sigint_ends_the_chat_with_130(
         os.killpg(child.pid, signal.SIGINT)
     else:
         os.kill(child.pid, signal.SIGINT)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 130
+    assert_no_launcher_resume_line(screen, session_id)
     assert "Plain chat" not in screen.getvalue()
     await wait_until_gone([host_pid], timeout=15)
 
@@ -963,8 +971,8 @@ async def test_a_worker_host_that_closes_its_channel_after_ready_answers_host_st
         environment={CONTROL_CHANNEL_END_VARIABLE: "after-ready"},
     )
     session_id = await read_session_id(child)
-    await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 1
+    assert_no_launcher_resume_line(screen, session_id)
     assert_replayed(fake, screen)
 
 

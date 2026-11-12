@@ -157,7 +157,10 @@ The steps of a run:
    the launcher waits 1 s for `dexcli` to exit, forwards SIGINT, then sends
    SIGTERM 2 s later, and exits 130 without a plain fallback.
 6. When `dexcli` exits, the launcher restores the terminal mode (and resets
-   the screen when `dexcli` died), prints the `--resume` line, sends
+   the screen when `dexcli` died) and prints no `--resume` line of its own:
+   after `ready`, `dexcli`'s exit summary is the only one, because `/new` can
+   switch sessions. (Before `ready`, and in the plain chat, the command prints
+   it.) Then it sends
    `shutdown`, and waits 10 s, then SIGTERM, then after 2 s SIGKILL to the
    Worker host's group. The command exits like `dexcli`: 0, 1, or 130; 1
    after a `dexcli` SIGTERM or crash, or after the Worker host stopped; 143
