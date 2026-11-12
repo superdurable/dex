@@ -457,7 +457,9 @@ if snapshot.plan is not None and snapshot.plan.status is PlanStatus.DRAFT:
   never runs. It marks the plan `active`, writes `plan_execution_started`, and
   starts an `executing` turn with every tool, whose user message is `[Dex] The
   user approved plan revision <n>. Execute it and keep the task statuses
-  current with write_todos.`.
+  current with write_todos.`. The stored message has `origin`
+  `plan_execution`; see
+  [User messages the session writes](#user-messages-the-session-writes).
 - `build_plan_note(plan, interaction_mode)` returns the note that shows the
   model the plan. The built-in loop adds it as user text before the turn's items in
   every model call, so the model always sees the latest plan.
@@ -1306,6 +1308,37 @@ for interrupt in snapshot.pending_interrupts:
   and drops a preview over `MAX_APPROVAL_PREVIEW_BYTES` (16 KiB). A tool
   without a display, and every approval a Worker before 0.6.0 raised, has
   `display` `None`: show the concrete arguments, not a guessed effect.
+
+## User messages the session writes
+
+Since 0.6.0, a stored `USER` message that the session wrote itself, not a
+person, carries `AgentMessage.origin`, an `AgentMessageOrigin` value. Show
+such a message as a session note, or hide it, never as text the user typed.
+
+| `origin` | Message |
+| --- | --- |
+| `plan_execution` | The message with which `execute_plan` starts the turn, `build_plan_execution_message(revision)` |
+| `turn_failure_note` | The note `RecordTurnFailure` stores for the model after a failed turn whose tools ran |
+| `turn_steered_note` | The note that lists the tool calls that ran before `steer_user_message` ended the turn |
+| `turn_cancelled_note` | The note that lists the tool calls that ran before `cancel_turn` ended the turn |
+
+```python
+page = await sessions.list_agent_messages(session_id)
+for message in page.messages:
+    if message.origin == AgentMessageOrigin.PLAN_EXECUTION:
+        print("Running the approved plan")
+    elif message.origin is None and message.role is MessageRole.USER:
+        print(f"> {message.text}")
+```
+
+- Only the session sets `origin`. `send_user_message`, the start input's
+  initial message, and a runner's messages, such as a
+  `decide_turn_continuation` message, have none.
+- The wire field is `origin`, `null` when absent. Messages stored before
+  0.6.0 have none, and an earlier Worker ignores the field.
+- A later release may add values. `origin` is a plain string, so a value
+  this release does not know still decodes; treat any `origin` as written by
+  the session.
 
 ## Listing sessions
 

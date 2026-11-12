@@ -121,6 +121,28 @@ short moments, so these calls can return `*dex.RPCLockConflictError`;
 `*dex.ChannelMessageNotFoundError` when the session took the message first.
 Both changed nothing, so retry them, or read the snapshot again.
 
+Since 0.6.0, a stored user message that the session wrote itself has
+`AgentMessage.Origin`: `AgentMessageOriginPlanExecution` for the message
+that starts an `execute_plan` turn, and `AgentMessageOriginTurnFailureNote`,
+`AgentMessageOriginTurnSteeredNote`, or `AgentMessageOriginTurnCancelledNote`
+for a note to the model about tool calls that already ran. Show such a
+message as a session note, or hide it, never as text the user typed. A
+message that a user sent, and every message stored before 0.6.0, has a nil
+`Origin`. Decoding keeps a value that a later release adds. The Go Worker
+sets `AgentMessageOriginTurnFailureNote` on its turn-failure note.
+
+```go
+page, err := sessions.ListAgentMessages(ctx, "session-42", nil, 50)
+if err != nil {
+	return err
+}
+for _, message := range page.Messages {
+	if message.Origin != nil && *message.Origin == dexagents.AgentMessageOriginPlanExecution {
+		fmt.Println("Running the approved plan")
+	}
+}
+```
+
 ## Installation
 
 ```bash

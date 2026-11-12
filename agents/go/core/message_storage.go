@@ -35,13 +35,15 @@ const (
 //
 // isTurnStart marks the user messages that start a turn, so TurnReplySequence records where the
 // turn's replies begin. An append with no messages that starts no turn writes nothing else. The
-// AgentMessageIndex is written only when a chunk is added or deleted.
+// AgentMessageIndex is written only when a chunk is added or deleted. A non-nil origin marks every
+// message as written by the session itself.
 func (flow *AgentSessionFlow) appendMessages(
 	ctx dex.Context,
 	state AgentState,
 	turnID string,
 	messages []FrameworkMessage,
 	isTurnStart bool,
+	origin *AgentMessageOrigin,
 ) (AgentState, error) {
 	if len(messages) == 0 && !isTurnStart {
 		return state, AgentStateAttribute.Set(ctx, state)
@@ -75,6 +77,7 @@ func (flow *AgentSessionFlow) appendMessages(
 			ToolOutput:    message.ToolOutput,
 			FrameworkItem: message.FrameworkItem,
 			CreatedAt:     createdAt,
+			Origin:        origin,
 		}
 		messageBytes, err := encodedMessageBytes(stored)
 		if err != nil {

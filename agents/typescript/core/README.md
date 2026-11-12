@@ -487,7 +487,8 @@ if (snapshot.plan?.status === "draft") {
   never runs. It marks the plan `active`, writes `plan_execution_started`, and
   starts an `executing` turn with every tool, whose user message is `[Dex] The
   user approved plan revision <n>. Execute it and keep the task statuses
-  current with write_todos.`.
+  current with write_todos.`. The stored message has `origin`
+  `plan_execution`; see [User messages the session writes](#user-messages-the-session-writes).
 - `buildPlanNote(plan, interactionMode)` returns the note that shows the model
   the plan. The built-in loop adds it as user text before the turn's messages in every
   model call, so the model always sees the latest plan.
@@ -1323,6 +1324,36 @@ for (const interrupt of snapshot.pendingInterrupts) {
   (2 KiB), ending them with `…`, and drops a preview over `maxApprovalPreviewBytes` (16 KiB). A tool without a
   display, and every approval a Worker before 0.6.0 raised, has `display` `null`: show the concrete arguments, not a
   guessed effect.
+
+## User messages the session writes
+
+Since 0.6.0, a stored `user` message that the session wrote itself, not a person, carries
+`AgentMessage.origin`. Show such a message as a session note, or hide it, never as text the user typed.
+
+| `origin` | Message |
+| --- | --- |
+| `plan_execution` | The message with which `execute_plan` starts the turn, `buildPlanExecutionMessage(revision)` |
+| `turn_failure_note` | The note `RecordTurnFailure` stores for the model after a failed turn whose tools ran |
+| `turn_steered_note` | The note that lists the tool calls that ran before `steer_user_message` ended the turn |
+| `turn_cancelled_note` | The note that lists the tool calls that ran before `cancel_turn` ended the turn |
+
+```ts
+const page = await client.invokeRPC(flow.listAgentMessages, sessionId, { beforeSequence: null, limit: 50 });
+for (const message of page.messages) {
+  if (message.origin === "plan_execution") {
+    console.log("Running the approved plan");
+  } else if (message.origin === undefined && message.role === "user") {
+    console.log(`> ${message.text ?? ""}`);
+  }
+}
+```
+
+- Only the session sets `origin`. `send_user_message`, the start input's initial message, and a runner's messages,
+  such as a `decideTurnContinuation` message, have none.
+- The wire field is `origin`, `null` when absent; a decoded message omits it. Messages stored before 0.6.0 have
+  none, and an earlier Worker ignores the field.
+- A later release may add values. The decoder keeps a value it does not know, so treat any `origin` as written by
+  the session.
 
 ## Listing sessions
 

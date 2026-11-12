@@ -106,6 +106,7 @@ import {
   turnSteeredNoteHeader,
   type AgentEventType,
   type AgentInterruptKind,
+  type AgentMessageOrigin,
   type AgentMessageRole,
   type AgentSessionStatus,
   type AgentToolCallRecordStatus,
@@ -449,6 +450,12 @@ describe("the conformance suite's names manifest", () => {
       failed: true,
     } satisfies Record<AgentSessionStatus, true>,
     MessageRole: { user: true, assistant: true, tool: true } satisfies Record<AgentMessageRole, true>,
+    AgentMessageOrigin: {
+      plan_execution: true,
+      turn_failure_note: true,
+      turn_steered_note: true,
+      turn_cancelled_note: true,
+    } satisfies Record<AgentMessageOrigin, true>,
     ToolEffect: {
       read: true,
       idempotent_write: true,

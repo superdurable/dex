@@ -282,6 +282,15 @@ func (harness *remoteSessionHarness) testPlanMode(t *testing.T) {
 	require.True(t, isAccepted)
 	snapshot = harness.waitForIdleTurns(t, sessionID, 2)
 	require.Equal(t, approvedPlanMessage, lastMessageText(t, snapshot))
+	origins := map[string]*dexagents.AgentMessageOrigin{}
+	for _, message := range snapshot.Messages {
+		if message.Role == dexagents.MessageRoleUser {
+			origins[message.TurnID] = message.Origin
+		}
+	}
+	planExecution := dexagents.AgentMessageOriginPlanExecution
+	require.Equal(t, map[string]*dexagents.AgentMessageOrigin{"turn-1": nil, "turn-2": &planExecution}, origins,
+		"only the message that starts the plan execution was written by the session")
 }
 
 func (harness *remoteSessionHarness) testImages(t *testing.T) {

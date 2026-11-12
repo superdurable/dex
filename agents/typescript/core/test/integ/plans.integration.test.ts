@@ -20,6 +20,7 @@ import {
   planningTurnInstruction,
   planningTurnToolRejection,
   writeTodosCalledMoreThanOnce,
+  type AgentMessage,
   type AgentSnapshot,
 } from "../../src/index.js";
 import { BuiltinLoopAgentRunner } from "../../src/builtin-loop/index.js";
@@ -246,6 +247,16 @@ describe("plans: write_todos, plan mode, and execute_plan", () => {
       "[Dex] The user approved plan revision 2. Execute it and keep the task statuses current with write_todos.",
     );
     assert.ok(executing?.userTexts.at(-2)?.startsWith("[Dex] The current plan, revision 2, is active:"));
+    // Only the session-written message of the execution carries an origin, in the snapshot and in history.
+    const userOrigins = (messages: readonly AgentMessage[]) =>
+      messages.filter((message) => message.role === "user").map((message) => [message.turnId, message.origin]);
+    const expectedOrigins = [
+      ["turn-1", undefined],
+      ["turn-2", undefined],
+      ["turn-3", "plan_execution"],
+    ];
+    assert.deepEqual(userOrigins(snapshot.messages), expectedOrigins);
+    assert.deepEqual(userOrigins((await sessions.listAgentMessages(sessionId, null, 50)).messages), expectedOrigins);
     const thirdTurnEvents = (await sessions.listAgentEvents(sessionId))
       .filter((event) => event.turnId === "turn-3")
       .map((event) => event.type);

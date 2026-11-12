@@ -60,6 +60,32 @@ class MessageRole(StrEnum):
     TOOL = "tool"
 
 
+class AgentMessageOrigin(StrEnum):
+    """Name why the session wrote a ``USER`` message itself.
+
+    ``AgentMessage.origin`` holds one of these values. A later release may
+    add values. Show a message with a value you do not know as a note from
+    the session, never as text the user typed.
+
+    .. versionadded:: 0.6.0
+
+    Attributes:
+        PLAN_EXECUTION: ``execute_plan`` started the turn with the text of
+            ``build_plan_execution_message``.
+        TURN_FAILURE_NOTE: ``RecordTurnFailure`` told the model which tool
+            calls of the failed turn ran.
+        TURN_STEERED_NOTE: ``steer_user_message`` ended the turn, and the
+            note lists the tool calls that ran.
+        TURN_CANCELLED_NOTE: ``cancel_turn`` ended the turn, and the note
+            lists the tool calls that ran.
+    """
+
+    PLAN_EXECUTION = "plan_execution"
+    TURN_FAILURE_NOTE = "turn_failure_note"
+    TURN_STEERED_NOTE = "turn_steered_note"
+    TURN_CANCELLED_NOTE = "turn_cancelled_note"
+
+
 class ToolEffect(StrEnum):
     """Classify what a tool call does to the world outside the session.
 
@@ -391,6 +417,25 @@ class AgentMessage:
             those a tool result returned. Empty for an item without images.
 
             .. versionadded:: 0.5.0
+        origin: Why the session wrote this ``USER`` message itself, usually an
+            ``AgentMessageOrigin`` value, or ``None``. It is ``None`` for a
+            message that a user or the start input sent, for ``ASSISTANT``
+            and ``TOOL`` messages, and for every message stored before 0.6.0.
+            Show a message that has an origin as a session note, not as text
+            the user typed. Only the session sets it: neither
+            ``send_user_message`` nor a runner's messages can. The value is a
+            plain string, so a value that a later release adds still decodes.
+            Earlier Workers ignore the field.
+
+            .. versionadded:: 0.6.0
+
+    Example:
+        >>> page = await sessions.list_agent_messages("session-42")
+        >>> for message in page.messages:
+        ...     if message.origin == AgentMessageOrigin.PLAN_EXECUTION:
+        ...         print("Running the approved plan")
+        ...     elif message.origin is None and message.role is MessageRole.USER:
+        ...         print(f"> {message.text}")
     """
 
     sequence: int
@@ -404,6 +449,7 @@ class AgentMessage:
     framework_item: str
     created_at: str
     images: list[AgentImageReference] = field(default_factory=list)
+    origin: str | None = None
 
 
 class QuestionResolution(StrEnum):

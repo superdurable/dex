@@ -11,6 +11,7 @@ package remotesessionfeed
 import (
 	"encoding/json"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -245,6 +246,10 @@ func (model *sessionModel) emitStoredMessage(message dexagents.AgentMessage, isH
 	}
 	switch message.Role {
 	case dexagents.MessageRoleUser:
+		if message.Origin != nil {
+			model.emitSessionWrittenMessage(*message.Origin, text)
+			return
+		}
 		recorded := sessionfeed.UserMessageRecorded{Text: text, TurnID: message.TurnID, Sequence: model.screenSequence(message.Sequence), Images: storedImages(message.Images)}
 		if !isHistory && !model.isFirstApply {
 			if isLocal, isPrinted := model.takeLocalSend(text); isPrinted {
@@ -272,6 +277,24 @@ func (model *sessionModel) emitStoredMessage(message dexagents.AgentMessage, isH
 		}
 		model.emit(historyToolRow(message))
 	}
+}
+
+// planExecutionRevisionPattern reads the revision from the text of
+// buildPlanExecutionMessage, which the agents conformance texts fix.
+var planExecutionRevisionPattern = regexp.MustCompile(`^\[Dex\] The user approved plan revision (\d+)\.`)
+
+// emitSessionWrittenMessage shows a user message the session wrote itself.
+// A plan execution becomes one notice line. Notes for the model and origins
+// this release does not know show nothing: the turn's outcome already shows.
+func (model *sessionModel) emitSessionWrittenMessage(origin dexagents.AgentMessageOrigin, text string) {
+	if origin != dexagents.AgentMessageOriginPlanExecution {
+		return
+	}
+	notice := "Running the approved plan"
+	if match := planExecutionRevisionPattern.FindStringSubmatch(text); match != nil {
+		notice = "Running plan revision " + match[1]
+	}
+	model.emit(sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: notice})
 }
 
 // matchStream returns the streamed Step whose text the final message

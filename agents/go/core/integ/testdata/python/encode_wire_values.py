@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 
 from dex.codec import CodecRegistry
 
@@ -38,6 +39,7 @@ from dex_agents.values import (
     AgentMessageChunk,
     AgentMessageChunkRange,
     AgentMessageIndex,
+    AgentMessageOrigin,
     AgentMessagesPage,
     AgentPlan,
     AgentPlanTask,
@@ -192,6 +194,19 @@ VALUES: list[tuple[str, type, object]] = [
     ),
     ("AgentState", AgentState, STATE),
     ("AgentMessage", AgentMessage, MESSAGE),
+    (
+        "AgentMessage/plan-execution",
+        AgentMessage,
+        replace(
+            MESSAGE,
+            role=MessageRole.USER,
+            tool_call_id=None,
+            tool_name=None,
+            tool_arguments=None,
+            origin=AgentMessageOrigin.PLAN_EXECUTION,
+        ),
+    ),
+    ("AgentMessage/unknown-origin", AgentMessage, replace(MESSAGE, origin="later_origin")),
     *((f"AgentToolCall/{call.tool_call_id}", AgentToolCall, call) for call in TOOL_CALLS),
     ("AgentMessageChunk", AgentMessageChunk, AgentMessageChunk(messages=[MESSAGE])),
     (
