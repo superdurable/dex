@@ -8,6 +8,101 @@ sidebar_label: Change log
 
 This page lists user-visible changes to dexcli, newest first; each section covers the changes since the previous release of this component.
 
+## 1.46 {#v1-46}
+
+Released 2026-11-12 as [cli-v1.46.0](https://github.com/superdurable/dex/releases/tag/cli-v1.46.0).
+
+### Added
+
+- **dexcli agents-tui** shows the message with which an approved plan starts
+  running as the notice "Running plan revision N", not as a user message from
+  another client. It hides the notes the session writes for the model after a
+  failed, steered, or cancelled turn. It reads **AgentMessage.origin**, which
+  dex-agents 0.6.0 sets on these messages.
+- The **dexcli agents-tui** chat opens a tool's whole stored output in a
+  pager with **Ctrl-O**, or picks one of the latest turn's tools with
+  **/tools**. **/history** pages through the messages stored before the ones
+  a resumed chat shows. The pager scrolls with **j**/**k** and the page keys,
+  searches with **/**, and closes with **q**.
+- Replies render tables, strikethrough, and task lists. Tool rows count the
+  images a tool returned.
+- The approval popup shows what a call acts on, what it does, and the diff
+  of a file write, when the tool's source describes them; otherwise it shows
+  the concrete arguments.
+- Pasting the path of an image file, as a terminal does for a dropped file,
+  asks whether to attach it. **Tab** completes the path after **/image** and
+  keeps its quotes or backslash escapes; **/image** reads them the same way.
+- The welcome area shows the Dex logo when the terminal is large enough.
+- **/run** shows as unavailable in the command list, with the reason, until
+  the session waits for approval of a draft plan.
+- **dexcli agents-tui** also runs the **sessions** and **connectors** modes of
+  terminal UI contract 1. The **sessions** mode is a full-screen, paged list of
+  a command's sessions. It shows the title, last activity, and turn count when
+  the sessions have them, and only the ID, status, and start time otherwise.
+  **/** filters the loaded sessions and searches titles in Dex. Enter on a
+  running session hands it back to the command to resume. The
+  **connectors** mode lists the connections of the connector tools, refreshes
+  them with **r**, and opens the Dex Web Connectors page with **a**.
+- In the agents chat, **/sessions** opens the same session list and switches
+  the chat to the picked session with its history. Before **/sessions** or
+  **/new** switches, the chat asks whether to drop attached images, and it
+  waits for the current session's requests to finish. Messages and commands
+  meant for the previous session are not sent to the new one; the chat says
+  so.
+- **dexcli agents-tui** runs the full-screen chat of the agents CLI commands
+  under terminal UI contract 1. It is a hidden command that a command's
+  launcher starts with **--channel-fd**; **--describe** prints the contracts
+  and modes it supports. The **chat** mode talks to the
+  agent session directly, with the snapshot as the record and live events
+  for streaming, and asks the launcher for local work such as **/image** and
+  **/new**.
+
+### Changed
+
+- **dexcli agents-tui**: the exit summary now says the session keeps running
+  and how to resume it, in the same words as the plain chat of the agents
+  commands, instead of "stays in Dex".
+- In the **dexcli agents-tui** chat, an idle **Ctrl-C** asks for a second
+  press within two seconds before it exits. A first press still clears a
+  draft. **Esc** on an empty input cancels the running turn, as **Ctrl-C**
+  does; the status line names it.
+- An approval or question that waited before the chat loaded the session
+  stays in the pending bar until **Tab** opens it. One that arrives while the
+  user types opens once the input stays empty for a second.
+- In the pending bar, **Up** and **Down** pick the queued message that **s**
+  and **x** act on. Any other letter returns to the input and is typed there.
+- Typing in a question's choice list starts a free-text answer, when the
+  question allows one.
+- **write_todos** rows list the plan's steps as a checklist, and **Ctrl-P**
+  shows the whole plan. **ask_user** rows show no raw result, and a waiting
+  question is called a question.
+- **/model** without an ID shows the current model and leaves **/model** in
+  the input to type one; an ID with spaces is refused.
+- The status line says "writing reply" while text streams. A stopped Worker
+  dims the input. The welcome area keeps the session the chat started with,
+  and the exit line names it after a switch.
+- Paths under the home directory show as **~**. **/web** with the browser
+  switched off shows the link as information.
+
+### Fixed
+
+- The **dexcli agents-tui** chat shows the first reply after **/new** or
+  **/sessions**, and counts the new session's turns and usage from zero.
+- A reply that follows a tool call prints below its tool row, whole, even
+  when the session reports the finished row after the reply's text.
+- A finished reply keeps single line breaks, as it showed while streaming,
+  so it no longer jumps when the turn ends.
+- A resumed chat no longer labels the user's own queued messages as from
+  another client, and marks the cancelled turns of its history.
+- A cancelled turn says that the reply is incomplete only when part of it
+  was shown.
+- When the Dex server becomes unreachable, the chat says so once, instead
+  of reporting that the session has not loaded.
+- A suspend (SIGTSTP) stops the chat once, and **fg** brings it back. Before,
+  the stop could come back as a second suspend, and keys typed then were
+  lost. Without a job-control shell, as in a command started in its own
+  session, the chat keeps running instead of stopping.
+
 ## 1.45 {#v1-45}
 
 Released 2026-11-11 as [cli-v1.45.0](https://github.com/superdurable/dex/releases/tag/cli-v1.45.0).
