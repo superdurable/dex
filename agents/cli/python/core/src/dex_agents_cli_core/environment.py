@@ -70,9 +70,15 @@ class CommandEnvironment:
         is_terminal_ui_enabled: Whether ``run`` on a terminal may hand the chat
             to the ``dexcli`` terminal UI. ``DEX_AGENTS_TERMINAL_UI`` set to
             ``1`` or ``true`` turns it on; it is off otherwise.
+
+            .. versionadded:: 0.6.0
         terminal_type: ``TERM``, or ``None`` when it is not set.
+
+            .. versionadded:: 0.6.0
         terminal_variables: The variables the terminal UI may get: the
             terminal, locale, and Dex auth variables that are set.
+
+            .. versionadded:: 0.6.0
     """
 
     home: Path

@@ -31,6 +31,7 @@ dex-agents-<name> [run|init|connectors|sessions] [options]
   -y, --yes             Write and use the defaults instead of asking.
   -r, --resume <id>     Continue a session.
   -m, --model <id>      Override the configured model.
+      --plain           Chat in plain text lines, without the dexcli terminal UI.
 ```
 
 Without a configuration file, `run` asks the `init` questions at a terminal
@@ -104,6 +105,92 @@ The first Ctrl-C during a turn cancels it (`cancel_turn`), and a second Ctrl-C
 exits. Ctrl-C while idle, Ctrl-D, and `/exit` also exit. Exiting never ends the
 session: it stays in Dex, and the command prints the `--resume` line that
 continues it. New sessions are named `<name>-YYYYMMDD-HHMMSS-<6 hex digits>`.
+
+### The terminal UI (off by default)
+
+With `DEX_AGENTS_TERMINAL_UI=1`, `run` on a terminal hands the chat to the
+`dexcli agents-tui` terminal UI, following
+[contract 1](../../TERMINAL_UI_CONTRACT.md). Until the terminal UI ships, the
+variable is the only way to turn it on; without it, `run` is the plain chat
+above. `--plain`, a standard input or output that is not a terminal,
+`TERM=dumb` or no `TERM`, Windows, and a harness whose `terminal_interface` is
+`TerminalInterface.PLAIN` always use the plain chat, before any `dexcli` probe.
+
+The command then splits into three processes:
+
+| Process | Runs | Terminal | Process group |
+| --- | --- | --- | --- |
+| Launcher (the command the user ran) | Configuration, `init` questions, the Dex server, `dexcli --describe`, the relay of local requests | Writes only before and after the handoff; its own output goes to the log meanwhile | The foreground one |
+| Worker host (`<command> __worker-host`) | The harness, local tools, connectors, the Worker, and the session | Never: standard input is `/dev/null`, output goes to `~/.dex/agents/<name>.log` | Its own session (`start_new_session`) |
+| `dexcli agents-tui --channel-fd <N>` | The chat screen; RPCs and Streams against Dex | Owns it | The foreground one |
+
+The steps of a run:
+
+1. The launcher stops what a killed Worker host left behind (below), finds
+   `dexcli` as `dexcli dev` does, and runs `dexcli agents-tui --describe`
+   (5 s). An older `dexcli`, no common contract, or no chat mode prints
+   `Plain chat: <why>.` and continues in the plain chat.
+2. It starts the Worker host with a `socketpair` control channel, passes the
+   actual fd number with `--control-fd`, and waits for `worker_ready`. A
+   startup failure exits with the code and message the plain chat would.
+   Startup notices, the session line, and the Dex Web line print before the
+   handoff, so they stay above the terminal UI.
+3. It saves the terminal mode, installs a SIGINT handler that does nothing
+   (never `SIG_IGN`, which `exec` would keep), leaves SIGTSTP at its default,
+   and starts `dexcli` with the channel fd and only the allow-listed
+   environment: no provider key, no `PATH`.
+4. A failure before `ready` (5 s from the spawn) restores the terminal mode,
+   prints `Plain chat: <why>.`, stops the Worker host, and resumes the same
+   session in the plain chat.
+5. After `ready` the launcher relays `put_image`, `start_session`, and
+   `list_connectors` to the Worker host and serves `open_url` itself. It keeps
+   the one key table, the 4-request in-flight limit, and `cancel` for every
+   method, so a stopped Worker host never takes them with it. When the Worker
+   host exits it sends `worker stopped` and answers every waiting and later
+   relayed request with `host_stopped`.
+6. When `dexcli` exits, the launcher restores the terminal mode (and resets
+   the screen when `dexcli` died), prints the `--resume` line, sends
+   `shutdown`, and waits 10 s, then SIGTERM, then after 2 s SIGKILL to the
+   Worker host's group. The command exits like `dexcli`: 0, 1, or 130; 1
+   after a `dexcli` SIGTERM or crash, or after the Worker host stopped; 143
+   when the launcher itself got SIGTERM, which it forwards.
+
+`start_session` derives `<name>-YYYYMMDD-HHMMSS-<6 hex digits>` from the
+request's key, then the same with 12 digits, and starts each with the key as
+the StartFlow request ID and `ignore_already_started`. The Dex server returns
+the session a key already started and refuses one another request holds, so a
+resent key never starts a second session, even from a new launcher.
+
+**The Worker host never outlives the launcher for long.** It stops in order
+when the control channel ends, on `shutdown`, on SIGTERM, or when its
+watchdog thread finds `getppid()` changed (checked every second). The
+watchdog bounds every stop at 15 s: then it stops the registered tool process
+groups and sends SIGKILL to its own process group. On Linux the Worker host
+also sets `PR_SET_PDEATHSIG` to SIGKILL. The bound holds only while the
+watchdog thread can take the GIL: a main thread stuck in native code that
+holds the GIL defeats it, as do SIGSTOP and a kernel-level hang. A blocked
+event loop or a blocking system call does not.
+
+The shell tool runs each command in its own process group, which the Worker
+host's group kill does not reach. So the shell tool registers the group right
+after the spawn and unregisters it right after the reap, and the Worker host
+mirrors the registry in its run record,
+`~/.dex/agents/run/<name>-<pid>.json`, with its own and the launcher's
+identity (start time and command line from `ps`). It signals a group only
+while the group's leader is its unreaped child. A later `run` with the
+terminal UI on stops what a record names when the record's launcher is gone:
+before each signal (SIGTERM, then SIGKILL 2 s later) it checks that the
+process still has the recorded start time, command line, and group, and leads
+the group; otherwise it only deletes the record. It prints, for example,
+`Stopped a leftover worker host (pid 4242) and 1 tool process group.`
+Processes that a harness starts outside these groups, such as the ones Claude
+Code's own tools start, are not covered.
+
+`tests/test_terminal_ui_handoff.py` runs the real launcher and Worker host on
+a pseudo-terminal against the contract host's `tui` role as `dexcli`, and
+injects faults with SIGSTOP and SIGKILL. `tests/test_terminal_ui_rules.py`
+runs the launcher's rules over every case file in
+`agents/conformance/terminal_ui/`.
 
 ## The Dex server
 

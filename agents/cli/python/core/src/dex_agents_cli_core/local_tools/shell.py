@@ -27,7 +27,10 @@ _MAX_OUTPUT_CHARACTERS = 50_000
 
 
 class ShellProcessGroups(Protocol):
-    """Where a shell command registers its process group while its leader is unreaped."""
+    """Where a shell command registers its process group while its leader is unreaped.
+
+    .. versionadded:: 0.6.0
+    """
 
     def register(self, pid: int) -> None:
         """Register the leader of a new process group right after its spawn."""
@@ -55,6 +58,9 @@ async def run_shell_command(
         workspace: The working directory.
         timeout_seconds: Seconds before the command is killed.
         process_groups: Where to register the command's process group, or ``None``.
+
+    .. versionchanged:: 0.6.0
+        Added ``process_groups``.
 
     Returns:
         The exit code, standard output, and standard error.

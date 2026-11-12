@@ -467,6 +467,9 @@ class _Handoff:
             self._worker_host.subscribe(lambda _: None)
         if self._is_hung_up:
             return 129
+        if isinstance(outcome, str) and self._is_terminated:
+            self._restore_terminal(saved_mode, is_reset_written=True)
+            return 143
         if isinstance(outcome, str):
             self._restore_terminal(saved_mode, is_reset_written=outcome != "rejected")
             self._report(f"Plain chat: {self._plain_reason}")

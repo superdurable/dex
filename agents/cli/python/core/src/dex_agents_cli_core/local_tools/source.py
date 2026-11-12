@@ -253,6 +253,9 @@ class LocalToolSource:
             browser: The browser pages; ``None`` creates them on first use.
             process_groups: Where shell commands register their process groups, so a
                 Worker host can stop them when it exits; ``None`` registers nothing.
+
+        .. versionchanged:: 0.6.0
+            Added ``process_groups``.
         """
         self._workspace = workspace
         self._files = WorkspaceFiles(workspace)

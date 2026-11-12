@@ -573,6 +573,25 @@ async def test_a_fifth_waiting_request_is_busy(
     assert_replayed(fake, screen)
 
 
+@pytest.mark.parametrize(
+    ("terminal_ui_exit", "command_exit"), [(0, 0), (1, 1), (130, 130), (143, 1)]
+)
+async def test_the_command_exits_as_the_terminal_ui_did(
+    cli_home: CliHome,
+    tmp_path: Path,
+    screen: io.StringIO,
+    terminal_ui_exit: int,
+    command_exit: int,
+) -> None:
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([], tui_exit=terminal_ui_exit))
+    child = start_chat(cli_home, fake, screen)
+    session_id = await read_session_id(child)
+    await expect(child, resume_line(session_id))
+    assert await wait_for_exit(child) == command_exit
+    assert_replayed(fake, screen)
+    assert list((cli_home.home / ".dex" / "agents" / "run").glob("*.json")) == []
+
+
 async def test_sigterm_to_the_launcher_ends_the_chat_with_143(
     cli_home: CliHome, tmp_path: Path, screen: io.StringIO
 ) -> None:

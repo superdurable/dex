@@ -67,7 +67,7 @@ class TerminalInterface(StrEnum):
         DEXCLI: The ``dexcli`` terminal UI, when it is available and turned on.
         PLAIN: Always the plain text chat.
 
-    .. versionadded:: 0.7.0
+    .. versionadded:: 0.6.0
     """
 
     DEXCLI = "dexcli"
