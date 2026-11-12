@@ -57,7 +57,10 @@ from dex_agents_cli_core import (
     resolve_turn_tool_policy,
 )
 from dex_agents_deepagents_cli.connector_tool_names import PrefixedConnectorToolSource
-from dex_agents_deepagents_cli.workspace_backend import build_workspace_backend
+from dex_agents_deepagents_cli.workspace_backend import (
+    bind_artifacts_session,
+    build_workspace_backend,
+)
 from dex_agents_langgraph import (
     CompiledGraphSource,
     DurableToolCallMiddleware,
@@ -121,7 +124,7 @@ DEEP_AGENTS_TOOL_RULES: Mapping[str, DeepAgentsToolRule] = {
     EXECUTE_TOOL_NAME: DeepAgentsToolRule(
         ToolEffect.NON_IDEMPOTENT_WRITE, frozenset({LocalToolGroup.SHELL})
     ),
-    # A subagent may use every file tool and execute, without their own Steps.
+    # A subagent may use every file tool and execute, without their own Steps or approvals.
     TASK_TOOL_NAME: DeepAgentsToolRule(
         ToolEffect.NON_IDEMPOTENT_WRITE, frozenset({LocalToolGroup.FILES, LocalToolGroup.SHELL})
     ),
@@ -129,9 +132,7 @@ DEEP_AGENTS_TOOL_RULES: Mapping[str, DeepAgentsToolRule] = {
 }
 
 #: Tools whose ``approval.always`` entry makes ``task`` wait too: a subagent calls them unseen.
-_TASK_APPROVAL_TOOL_NAMES = frozenset(
-    {"write_file", "edit_file", "delete", EXECUTE_TOOL_NAME, TASK_TOOL_NAME}
-)
+_TASK_APPROVAL_TOOL_NAMES = frozenset(DEEP_AGENTS_TOOL_RULES)
 
 
 class DeepAgentsHarness:
@@ -264,7 +265,8 @@ class DeepAgentsAgentRunner(LangGraphAgentRunner):
 
     async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
         """Run one model call and give each Deep Agents tool call the turn's policy."""
-        outcome = await super().run_model_step(turn)
+        with bind_artifacts_session(turn.flow_id):
+            outcome = await super().run_model_step(turn)
         if not isinstance(outcome, ToolCallsRequested):
             return outcome
         turn_config = self._context.resolve_turn(turn.session_settings)
@@ -289,7 +291,8 @@ class DeepAgentsAgentRunner(LangGraphAgentRunner):
             raise ToolExecutionError(
                 f"tool {call.tool_call.tool_name} is switched off for this session"
             )
-        return await super().execute_deferred_tool_call(call)
+        with bind_artifacts_session(call.flow_id):
+            return await super().execute_deferred_tool_call(call)
 
 
 def _with_turn_policy(

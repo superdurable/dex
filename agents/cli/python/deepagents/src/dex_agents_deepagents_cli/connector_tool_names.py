@@ -37,8 +37,10 @@ class PrefixedConnectorToolSource:
 
     A connector tool keeps its name unless a Deep Agents tool has it; then
     the model sees it as ``connector_<name>``, and ``approval.always`` names
-    it that way. The source still runs the connector operation it listed.
-    Every call that is not a read waits for approval.
+    it that way. When the source also lists that name, the prefix repeats
+    until the name is free, so every offered name is unique. The source
+    still runs the connector operation it listed. Every call that is not a
+    read waits for approval.
     """
 
     def __init__(self, source: ToolSource, reserved_tool_names: Collection[str]) -> None:
@@ -59,13 +61,13 @@ class PrefixedConnectorToolSource:
 
     async def list_tools(self) -> Sequence[SourceToolDefinition]:
         """Return the source's listing, each colliding name prefixed."""
-        return [self._agent_visible(tool) for tool in await self._source.list_tools()]
+        return self._agent_visible_listing(await self._source.list_tools())
 
     def cached_tools(self) -> Sequence[SourceToolDefinition]:
         """Return the source's last listing, each colliding name prefixed."""
         read_cache = getattr(self._source, "cached_tools", None)
         cached: Sequence[SourceToolDefinition] = read_cache() if callable(read_cache) else ()
-        return [self._agent_visible(tool) for tool in cached]
+        return self._agent_visible_listing(cached)
 
     def deferred_tool_call(
         self,
@@ -110,12 +112,27 @@ class PrefixedConnectorToolSource:
         options: ToolCallStepOptions | None = provide(tool_call) if callable(provide) else None
         return options
 
-    def _agent_visible(self, tool: SourceToolDefinition) -> SourceToolDefinition:
-        if tool.name not in self._reserved_tool_names:
-            return tool
-        if not dataclasses.is_dataclass(tool) or isinstance(tool, type):
-            raise TypeError(f"cannot rename the listed tool {tool.name}: it is not a dataclass")
-        renamed: SourceToolDefinition = dataclasses.replace(
-            tool, name=f"{COLLIDING_CONNECTOR_TOOL_PREFIX}{tool.name}"
-        )
-        return renamed
+    def _agent_visible_listing(
+        self, tools: Sequence[SourceToolDefinition]
+    ) -> list[SourceToolDefinition]:
+        # Names the source lists and Deep Agents' names stay taken; renamed tools avoid them all.
+        taken = set(self._reserved_tool_names)
+        taken.update(tool.name for tool in tools if tool.name not in self._reserved_tool_names)
+        visible: list[SourceToolDefinition] = []
+        for tool in tools:
+            if tool.name not in self._reserved_tool_names:
+                visible.append(tool)
+                continue
+            name = f"{COLLIDING_CONNECTOR_TOOL_PREFIX}{tool.name}"
+            while name in taken:
+                name = f"{COLLIDING_CONNECTOR_TOOL_PREFIX}{name}"
+            taken.add(name)
+            visible.append(_renamed(tool, name))
+        return visible
+
+
+def _renamed(tool: SourceToolDefinition, name: str) -> SourceToolDefinition:
+    if not dataclasses.is_dataclass(tool) or isinstance(tool, type):
+        raise TypeError(f"cannot rename the listed tool {tool.name}: it is not a dataclass")
+    renamed: SourceToolDefinition = dataclasses.replace(tool, name=name)
+    return renamed

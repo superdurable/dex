@@ -198,10 +198,11 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     Step records the update after the output text, and the next ``RunModel``
     applies it with the recorded ``ToolMessage``.
 
-    With ``should_defer_tool_calls_before_middleware``, a tool Step runs the
-    call through its tool node's middleware tool wrappers, such as Deep
-    Agents' large result eviction, once. The next ``RunModel`` replays the
-    wrapped result without running them again.
+    With ``should_defer_tool_calls_before_middleware``, each attempt of a
+    tool Step runs the call through its tool node's middleware tool
+    wrappers, such as Deep Agents' large result eviction. A retried attempt
+    runs them again, so their side effects follow the tool's retry policy.
+    The next ``RunModel`` replays the recorded result without running them.
 
     Tool sources, such as ``ConnectorToolSource``, add tools that the runner
     lists in every ``RunModel``. ``DurableToolCallMiddleware`` adds them to
@@ -342,7 +343,8 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 their order. Each tool call's tool Step then runs the
                 middleware tool wrappers of its root graph tool node, such as
                 ``FilesystemMiddleware``'s large result eviction, around the
-                tool, once. Each wrapper sees the graph state at the call's
+                tool, in each attempt of that Step; a retried attempt runs
+                them again. Each wrapper sees the graph state at the call's
                 deferral without the message list, and may write state as a
                 tool does. ``RunModel`` replays the recorded result before
                 the wrappers, so they never run there. Defaults to
@@ -879,6 +881,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             tools_by_name.pop(excluded_tool_name, None)
         wrapping_tool_nodes: dict[str, ToolNode] = {}
         if self._should_defer_tool_calls_before_middleware:
+            _require_tool_node_call_path()
             graph = _with_tool_calls_deferred_first(graph)
             wrapping_tool_nodes = _tool_nodes_with_wrappers_by_tool_name(graph, tools_by_name)
         return _LoadedGraph(
@@ -1161,6 +1164,16 @@ def _tool_nodes_with_wrappers_by_tool_name(
             if tools_by_name.get(tool_name) is tool:
                 nodes.setdefault(tool_name, bound)
     return nodes
+
+
+def _require_tool_node_call_path() -> None:
+    # A private LangGraph method; the dependency range pins the versions that have it.
+    if not callable(getattr(ToolNode, "_arun_one", None)):
+        raise RuntimeError(
+            "should_defer_tool_calls_before_middleware needs a langgraph-prebuilt release "
+            "whose ToolNode has _arun_one; install the version range dex-agents-langgraph "
+            "declares"
+        )
 
 
 async def _run_through_tool_node_wrappers(

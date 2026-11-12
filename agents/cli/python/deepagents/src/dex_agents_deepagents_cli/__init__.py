@@ -45,7 +45,9 @@ from dex_agents_deepagents_cli.harness import (
 )
 from dex_agents_deepagents_cli.workspace_backend import (
     DEEP_AGENTS_ARTIFACT_PREFIXES,
+    SessionArtifactsBackend,
     WorkspaceShellBackend,
+    bind_artifacts_session,
     build_workspace_backend,
     default_artifacts_directory,
 )
@@ -65,9 +67,11 @@ __all__ = [
     "DeepAgentsToolRule",
     "LocalToolSwitchesMiddleware",
     "PrefixedConnectorToolSource",
+    "SessionArtifactsBackend",
     "TurnChatModelSelector",
     "TurnInstructionsMiddleware",
     "WorkspaceShellBackend",
+    "bind_artifacts_session",
     "build_deep_agent",
     "build_workspace_backend",
     "deep_agents_chat_model",

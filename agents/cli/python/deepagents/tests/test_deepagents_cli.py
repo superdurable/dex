@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 from collections import Counter
 from pathlib import Path
@@ -32,7 +33,10 @@ from dex_agents_cli_testing.commands import (
     session_client,
     wait_for_exit,
 )
-from dex_agents_cli_testing.fake_connectors_mcp import COLLIDING_READ_FILE_OUTPUT
+from dex_agents_cli_testing.fake_connectors_mcp import (
+    COLLIDING_READ_FILE_OUTPUT,
+    PREFIXED_READ_FILE_OUTPUT,
+)
 from dex_agents_cli_testing.fixtures import FakeConnectorsMcp
 from dex_agents_deepagents_cli import (
     DEEP_AGENTS_TOOL_RULES,
@@ -173,8 +177,12 @@ async def test_a_connector_tool_named_like_a_deep_agents_tool_gets_a_prefix(
     (workspace / "notes.txt").write_text("buy milk\n")
     child = _spawn(command_home)
     await expect(child, "> ")
-    child.sendline(call("connector_read_file", {"file_path": "remote.txt"}))
-    await expect(child, f"connector_read_file: {COLLIDING_READ_FILE_OUTPUT}: remote.txt")
+    # The server also lists connector_read_file, so the renamed read_file takes the next name.
+    child.sendline(call("connector_connector_read_file", {"file_path": "remote.txt"}))
+    await expect(child, f": {COLLIDING_READ_FILE_OUTPUT}: remote.txt")
+    await expect(child, "> ")
+    child.sendline(call("connector_read_file", {"file_path": "archived.txt"}))
+    await expect(child, f"connector_read_file: {PREFIXED_READ_FILE_OUTPUT}: archived.txt")
     await expect(child, "> ")
     child.sendline(call("read_file", {"file_path": str(workspace / "notes.txt")}))
     await expect(child, "buy milk")
@@ -182,9 +190,12 @@ async def test_a_connector_tool_named_like_a_deep_agents_tool_gets_a_prefix(
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert fake_mcp.runs("read_file") == 1
+    assert fake_mcp.runs("connector_read_file") == 1
     names = Counter(_offered_tool_names(command_home))
     assert names["read_file"] == 1
     assert names["connector_read_file"] == 1
+    assert names["connector_connector_read_file"] == 1
+    assert max(names.values()) == 1
 
 
 async def test_session_settings_change_the_model(command_home: CommandHome, tmp_path: Path) -> None:
@@ -283,6 +294,50 @@ async def test_task_runs_a_subagent_that_writes_a_workspace_file_in_one_tool_ste
     final_input = requests[-1].body["input"]
     outputs = [item for item in final_input if item.get("type") == "function_call_output"]
     assert len(outputs) == 1
+
+
+async def test_task_waits_when_approval_always_names_a_tool_the_subagent_can_call(
+    command_home: CommandHome,
+) -> None:
+    command_home.write_config({**scenarios.NO_CONNECTORS, "approval": {"always": ["read_file"]}})
+    workspace = _workspace(command_home)
+    (workspace / "notes.txt").write_text("buy milk\n")
+    subagent_prompt = call("read_file", {"file_path": str(workspace / "notes.txt")})
+    child = _spawn(command_home)
+    await expect(child, "> ")
+    child.sendline(
+        call("task", {"description": subagent_prompt, "subagent_type": "general-purpose"})
+    )
+    await expect(child, "[approval] task")
+    await expect(child, APPROVE_PROMPT)
+    assert len(command_home.model_api.model_requests()) == 1
+    child.sendline("n not now")
+    await expect(child, "task: ")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    # The rejected call never ran its subagent.
+    assert len(command_home.model_api.model_requests()) == 2
+
+
+async def test_a_large_result_is_evicted_to_the_sessions_own_private_directory(
+    command_home: CommandHome,
+) -> None:
+    command_home.write_config(scenarios.NO_CONNECTORS)
+    _workspace(command_home)
+    child = _spawn(command_home)
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    child.sendline(call("execute", {"command": "head -c 90000 /dev/zero | tr '\\0' x"}))
+    await expect(child, "/large_tool_results/")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    artifacts = command_home.home / ".dex" / "agents" / "deepagents-artifacts"
+    session_directory = artifacts / hashlib.sha256(session_id.encode()).hexdigest()
+    [evicted] = list((session_directory / "large_tool_results").iterdir())
+    assert evicted.read_text().count("x") >= 80_000
+    assert [path.name for path in artifacts.iterdir()] == [session_directory.name]
 
 
 async def test_session_settings_change_the_instructions(

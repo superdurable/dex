@@ -61,7 +61,7 @@ call runs in its own tool Step, after approval when its policy asks for it.
 | `ls`, `read_file`, `glob`, `grep` | Reads of the real workspace files. They run at once. |
 | `write_file`, `edit_file`, `delete` | Writes of the real workspace files. They run at once unless `approval.always` names the tool. |
 | `execute` | Runs a command with `/bin/sh` in the workspace. It runs at once unless `approval.always` names it; `local_tools.shell.allow` has no effect. |
-| `task` | Runs a subagent inside the call's tool Step. It runs at once unless `approval.always` names `task`, a file write, or `execute`. |
+| `task` | Runs a subagent inside the call's tool Step. It runs at once unless `approval.always` names any Deep Agents tool, because the subagent may call it without its own approval. |
 | `write_todos` | Updates the todo list in the agent's state. It runs at once. |
 
 - Deep Agents asks for no approval unless `interrupt_on` names a tool, and
@@ -70,16 +70,21 @@ call runs in its own tool Step, after approval when its policy asks for it.
 - The file tools use Deep Agents' `LocalShellBackend` on the host's paths,
   rooted at the workspace, so a file tool and `execute` name a file the same
   way. Paths are absolute. A path that resolves outside the workspace fails
-  with an error the model sees. `execute` is not confined.
+  with an error the model sees, and `ls`, `glob`, and `grep` leave out
+  entries whose real path is outside it, such as a link to a file elsewhere.
+  `execute` is not confined.
 - `local_tools.files` and `local_tools.shell.enabled` switch the tools on and
   off per turn. `task` needs both, because a subagent uses both.
-- Each tool Step runs Deep Agents' tool middleware around the tool once, such
-  as `FilesystemMiddleware`'s eviction of a large result to a file. The
+- Each tool Step attempt runs Deep Agents' tool middleware around the tool,
+  such as `FilesystemMiddleware`'s eviction of a large result to a file. A
+  retried attempt runs it again. The
   session Flow sets the adapter's `should_defer_tool_calls_before_middleware`
-  for that. Deep Agents writes evicted results and long user messages to
-  `dex-agents-deepagents-<user ID>` in the system's temporary directory, under
+  for that. Deep Agents writes evicted results and long user messages under
   the paths `/large_tool_results/` and `/conversation_history/`, which its
-  file tools read.
+  file tools read. Each session keeps them in its own directory,
+  `~/.dex/agents/deepagents-artifacts/<SHA-256 of the session ID>/`, mode
+  0700, so two sessions never see each other's files and a restarted Worker
+  on the same machine finds them.
 - `edit_file`, `execute`, and `task` calls are never retried, so a Worker that
   dies during one records `outcome_unknown`. `write_file` and `delete` calls
   may run again after a failure.
@@ -135,8 +140,14 @@ outside the workspace, which is refused; `write_file` waiting for approval
 when `approval.always` names it, and rejected file and connector writes that
 never run; a connector read and an approved connector write that runs once; a
 connector tool named `read_file`, which the model sees as
-`connector_read_file`; `write_todos`; and a `task` subagent that writes a
-workspace file inside one tool Step.
+`connector_connector_read_file` beside a connector tool named
+`connector_read_file`; `write_todos`; a `task` subagent that writes a
+workspace file inside one tool Step, and a `task` that waits for approval
+when `approval.always` names `read_file`; and a large `execute` result that
+lands in the session's own artifacts directory. Backend tests cover links to
+files outside the workspace, which `ls`, `glob`, and `grep` leave out with
+and without ripgrep and which reads and writes refuse, and two sessions that
+write the same large-result path without seeing each other's file.
 They also cover the offered tools, which are Deep Agents' own and none of
 the CLI core's file and shell tools; switched-off file and shell tools, which
 are not offered; a model change and a `system_prompt` in the session

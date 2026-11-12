@@ -90,7 +90,8 @@ class DurableToolCallMiddleware(AgentMiddleware):
     this middleware cannot be first in a Deep Agents agent. Set the session
     Flow's ``should_defer_tool_calls_before_middleware`` to make the deferral
     the outermost tool wrapper anyway. Each tool Step then runs every
-    middleware tool wrapper, this one included, around the tool once.
+    middleware tool wrapper, this one included, around the tool in each
+    attempt.
 
     With a runner ``media_store``, it also replaces each image reference in
     the request's messages with the image's bytes, as a base64 image block,
