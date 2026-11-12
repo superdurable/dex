@@ -90,6 +90,8 @@ _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
 _SESSION_LIST_PAGE_SIZE = 50
 _SESSION_START_TIMEOUT_SECONDS = 60.0
 _SESSION_START_POLL_SECONDS = 0.1
+# The shell's exit code for a command that Ctrl-C ended.
+_INTERRUPTED_EXIT_CODE = 130
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -99,6 +101,14 @@ class CommandError(Exception):
 
 class CommandFailure(Exception):
     """Report a failure at run time; the command prints it and exits with code 1."""
+
+
+class _InitCancelled(Exception):
+    """Ctrl-C or the end of input during the init questions; nothing was written."""
+
+    def __init__(self, exit_code: int) -> None:
+        super().__init__("the init questions were cancelled")
+        self.exit_code = exit_code
 
 
 @dataclass(frozen=True)
@@ -126,7 +136,9 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     Returns:
         The exit code: 0 on success, 1 for a failure at run time, such as a
         Dex server or an explicit connectors MCP server that is unavailable,
-        and 2 for a usage or configuration error.
+        2 for a usage or configuration error, and 130 for Ctrl-C during the init
+        questions. Input that ends during the init questions exits with 1. A
+        cancelled init writes no file.
     """
     arguments = _parse_arguments(harness, argv)
     try:
@@ -136,15 +148,20 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         return 2
     _configure_logging(environment, harness)
     try:
+        if arguments.command == "init":
+            return _init(arguments, environment, harness)
+        # Outside asyncio.run, because its SIGINT handler would keep Ctrl-C from ending input().
+        loaded = _load_config(arguments, environment, harness)
         match arguments.command:
-            case "init":
-                return _init(arguments, environment, harness)
             case "sessions":
-                return asyncio.run(_list_sessions(arguments, environment, harness))
+                return asyncio.run(_list_sessions(loaded, environment, harness))
             case "connectors":
-                return asyncio.run(_list_connectors(arguments, environment, harness))
+                return asyncio.run(_list_connectors(loaded, environment, harness))
             case _:
-                return asyncio.run(_run(arguments, environment, harness))
+                return asyncio.run(_run(arguments, loaded, environment, harness))
+    except _InitCancelled as cancelled:
+        print("\nCancelled; no configuration written.", file=sys.stderr)
+        return cancelled.exit_code
     except (CommandError, ConfigFileError) as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
@@ -248,15 +265,19 @@ def _ask(question: str, default: str) -> str:
     shown = f" [{default}]" if default else ""
     try:
         answer = input(f"{question}{shown}: ")
+    except KeyboardInterrupt:
+        raise _InitCancelled(_INTERRUPTED_EXIT_CODE) from None
     except EOFError:
-        answer = ""
+        raise _InitCancelled(1) from None
     return answer if answer.strip() else default
 
 
 async def _run(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    arguments: _Arguments,
+    loaded: LoadedConfig,
+    environment: CommandEnvironment,
+    harness: AgentHarness,
 ) -> int:
-    loaded = _load_config(arguments, environment, harness)
     config = _with_model_override(loaded.config, arguments)
     media_store = _build_media_store(config, environment)
     prompt_text = _read_system_prompt_file(config, loaded, environment)
@@ -268,7 +289,14 @@ async def _run(
         _report_ignored_settings,
     )
     endpoint = await _resolve_server(config, environment)
-    connectors = await _connect_connectors(config, endpoint, resolver, harness, media_store)
+    connectors = await _connect_connectors(
+        config,
+        endpoint,
+        resolver,
+        harness,
+        media_store,
+        is_browser_opening_enabled=environment.is_browser_opening_enabled,
+    )
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
@@ -409,6 +437,8 @@ async def _connect_connectors(
     resolver: TurnConfigResolver,
     harness: AgentHarness,
     media_store: MediaStore,
+    *,
+    is_browser_opening_enabled: bool,
 ) -> ConnectorsMcpToolSource | None:
     """Check the connectors MCP server and return its source, or ``None`` for no connector tools.
 
@@ -445,7 +475,7 @@ async def _connect_connectors(
             report=_report_on_standard_error,
             media_store=media_store,
         )
-    _report_unauthorized(config, catalog, endpoint.web_url)
+    _report_unauthorized(config, catalog, endpoint.web_url, is_browser_opening_enabled)
     source = ConnectorsMcpToolSource(
         url, resolver, report=_report_on_standard_error, media_store=media_store
     )
@@ -468,7 +498,10 @@ def _restart_for_connector_tools(harness: AgentHarness) -> str:
 
 
 def _report_unauthorized(
-    config: EffectiveConfig, catalog: Sequence[ConnectorCatalogTool], web_url: str | None
+    config: EffectiveConfig,
+    catalog: Sequence[ConnectorCatalogTool],
+    web_url: str | None,
+    is_browser_opening_enabled: bool,
 ) -> None:
     missing = [
         entry
@@ -480,7 +513,7 @@ def _report_unauthorized(
     page = f"{web_url}{CONNECTORS_WEB_PATH}" if web_url else "the Dex Web Connectors page"
     names = ", ".join(_entry_text(entry) for entry in missing)
     print(f"No authorized connection for {names}. Authorize it on {page}.")
-    if web_url is not None and _is_interactive():
+    if web_url is not None and is_browser_opening_enabled and _is_interactive():
         webbrowser.open(f"{web_url}{CONNECTORS_WEB_PATH}")
 
 
@@ -586,9 +619,8 @@ async def _open_session(
 
 
 async def _list_sessions(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    loaded: LoadedConfig, environment: CommandEnvironment, harness: AgentHarness
 ) -> int:
-    loaded = _load_config(arguments, environment, harness)
     endpoint = await _resolve_server(loaded.config, environment)
     workspace = environment.expand_path(loaded.config.workspace, loaded.directory)
     flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
@@ -617,9 +649,8 @@ async def _list_sessions(
 
 
 async def _list_connectors(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    loaded: LoadedConfig, environment: CommandEnvironment, harness: AgentHarness
 ) -> int:
-    loaded = _load_config(arguments, environment, harness)
     config = loaded.config
     endpoint = await _resolve_server(config, environment)
     url = _connectors_mcp_url(config, endpoint)

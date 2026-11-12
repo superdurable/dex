@@ -1,9 +1,8 @@
 name: Publish agents Python packages to PyPI
-run-name: Publish agents Python packages ${{ inputs.version || github.event.release.tag_name }}
+run-name: Publish agents Python packages ${{ inputs.version }}
 
+# No release trigger: creating the agents/v* Release must never upload packages by itself.
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -27,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agents-python-publish-${{ github.event.release.tag_name || inputs.version }}
+  group: agents-python-publish-${{ inputs.version }}
   cancel-in-progress: false
 
 env:
@@ -42,9 +41,6 @@ env:
 jobs:
   prepare:
     name: Validate release
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (startsWith(github.event.release.tag_name, 'agents/v') && !github.event.release.draft)
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
@@ -58,33 +54,22 @@ jobs:
         id: release
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
           DISPATCH_VERSION: ${{ inputs.version }}
           DISPATCH_PUBLISH: ${{ inputs.publish }}
           DISPATCH_SKIP_PACKAGES: ${{ inputs.skip_packages }}
           RELEASE_REF: ${{ github.ref }}
         run: |
-          if [[ "${EVENT_NAME}" == "release" ]]; then
-            version="${RELEASE_TAG#agents/v}"
-            publish=true
+          version="${DISPATCH_VERSION}"
+          publish="${DISPATCH_PUBLISH}"
+          # The release tag is allowed too, so a later run uploads exactly the released commit.
+          if [[ "${publish}" == "true" && "${RELEASE_REF}" != "refs/heads/main" ]]; then
+            if [[ "${RELEASE_REF}" != "refs/tags/agents/v${version}" ]]; then
+              echo "Manual publishing is allowed only from main or the tag agents/v${version}" >&2
+              exit 1
+            fi
             if ! git merge-base --is-ancestor HEAD origin/main; then
               echo "Release tag must point to a commit on main" >&2
               exit 1
-            fi
-          else
-            version="${DISPATCH_VERSION}"
-            publish="${DISPATCH_PUBLISH}"
-            # The release tag is allowed too, so a later run uploads exactly the released commit.
-            if [[ "${publish}" == "true" && "${RELEASE_REF}" != "refs/heads/main" ]]; then
-              if [[ "${RELEASE_REF}" != "refs/tags/agents/v${version}" ]]; then
-                echo "Manual publishing is allowed only from main or the tag agents/v${version}" >&2
-                exit 1
-              fi
-              if ! git merge-base --is-ancestor HEAD origin/main; then
-                echo "Release tag must point to a commit on main" >&2
-                exit 1
-              fi
             fi
           fi
           if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
