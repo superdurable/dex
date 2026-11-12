@@ -7,10 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { PassThrough } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import { findFreeLoopbackPorts, PrivateDexEngine } from "@superdurable/dex-agents/testing";
@@ -278,6 +279,50 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.match(cli.stdout.all, /slack\/support-slack \(not enabled in the configuration\): post_thread_reply/);
     assert.match(cli.stdout.all, /Configured but not authorized: gmail\/work/);
     assert.match(cli.stderr.all, /Add them with "\+ Add" on http:\/\/127\.0\.0\.1:\d+\/v1\/connectors/);
+  });
+
+  test("at a terminal, an unauthorized connection opens the Connectors page unless DEX_AGENTS_OPEN_BROWSER is 0", async () => {
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(
+      `connectors:\n  mcp: "${connectorsUrl}"\n  enabled: [hackernews, gmail/work]\nlocal_tools: {browser: false}\n`,
+    );
+    // A fake open and xdg-open on PATH record the URL instead of opening a real browser.
+    const fakeBinDirectory = join(home.directory, "fake-bin");
+    const openedUrlsPath = join(home.directory, "opened-urls.txt");
+    mkdirSync(fakeBinDirectory);
+    for (const name of ["open", "xdg-open"]) {
+      writeFileSync(join(fakeBinDirectory, name), `#!/bin/sh\necho "$1" >> '${openedUrlsPath}'\n`, { mode: 0o755 });
+    }
+    const runInteractive = async (environment: NodeJS.ProcessEnv): Promise<string> => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const output = new TextCollector(stdout);
+      const errors = new TextCollector(stderr);
+      const run = runAgentCli(scriptedHarness, { argv: [], stdin, stdout, stderr, isInteractive: true, environment });
+      await output.waitFor(/Session \S+\. Type a message/);
+      stdin.write("/exit\n");
+      assert.equal(await run, 0);
+      return errors.all;
+    };
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${fakeBinDirectory}:${originalPath ?? ""}`;
+    try {
+      const suppressed = await runInteractive(home.environment());
+      assert.match(suppressed, /Not authorized yet: gmail\/work\. Add them with "\+ Add" on http:\/\/127\.0\.0\.1:\d+\/v1\/connectors/);
+      await delay(1_000);
+      assert.equal(existsSync(openedUrlsPath), false);
+
+      const opening = home.environment();
+      delete opening.DEX_AGENTS_OPEN_BROWSER;
+      await runInteractive(opening);
+      for (let attempt = 0; attempt < 100 && !existsSync(openedUrlsPath); attempt += 1) {
+        await delay(100);
+      }
+      assert.match(readFileSync(openedUrlsPath, "utf8").trim(), /^http:\/\/127\.0\.0\.1:\d+\/v1\/connectors$/);
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 
   test("the sessions subcommand lists the command's sessions", async () => {
