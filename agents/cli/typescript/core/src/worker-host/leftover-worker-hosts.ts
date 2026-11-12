@@ -18,7 +18,7 @@ import {
 } from "./worker-host-run-record.js";
 
 /** What one cleanup stopped. */
-interface StoppedGroups {
+export interface StoppedGroups {
   readonly isHostStopped: boolean;
   readonly toolGroupCount: number;
 }
@@ -40,7 +40,7 @@ export async function cleanUpLeftoverWorkerHosts(agentsDirectory: string, log: (
     const stopped =
       record === undefined
         ? { isHostStopped: false, toolGroupCount: 0 }
-        : await stopGroups([record.host, ...record.tool_groups], record.host);
+        : await stopRecordedGroups([record.host, ...record.tool_groups], record.host);
     removeWorkerHostRunRecord(path);
     if (stopped.isHostStopped || stopped.toolGroupCount > 0) {
       const groups = stopped.toolGroupCount === 1 ? "1 tool process group" : `${stopped.toolGroupCount} tool process groups`;
@@ -63,28 +63,57 @@ export async function cleanUpWorkerHostRecord(agentsDirectory: string, harnessNa
   const path = workerHostRunRecordPath(agentsDirectory, harnessName, hostPid);
   const record = readWorkerHostRunRecord(path);
   if (record !== undefined) {
-    await stopGroups([record.host, ...record.tool_groups], record.host);
+    await stopRecordedGroups([record.host, ...record.tool_groups], record.host);
   }
   removeWorkerHostRunRecord(path);
 }
 
+/** The process checks and signals of leftover cleanup; tests replace them. */
+export interface LeftoverProcessControl {
+  /** Whether the recorded process still leads its group, with or without its command line. */
+  isLeader(group: ProcessIdentity, isCommandChecked: boolean): boolean;
+  /** Sends a signal to a process group. */
+  signal(pgid: number, signal: NodeJS.Signals): void;
+  /** Waits between SIGTERM and SIGKILL. */
+  waitForGrace(): Promise<void>;
+}
+
+const systemProcessControl: LeftoverProcessControl = {
+  isLeader: (group, isCommandChecked) => isSameProcessGroupLeader(group, isCommandChecked),
+  signal: (pgid, signal) => signalProcessGroup(pgid, signal),
+  waitForGrace: () => delay(toolProcessGroupTermGraceMs),
+};
+
 /**
- * Sends SIGTERM to each group whose leader still checks out, then SIGKILL 2 s later after checking again. The Worker
- * host's command line is part of its identity; a tool group's is not, because its shell may exec the command.
+ * Sends SIGTERM to each group whose leader still checks out, checking each one right before its own signal, because
+ * signaling an earlier group can end a later group's leader. 2 s later it sends SIGKILL to each signaled group whose
+ * leader still checks out. The Worker host's command line is part of its identity; a tool group's is not, because
+ * its shell may exec the command.
+ * @param groups - The Worker host first, then its tool groups.
+ * @param host - The Worker host's identity.
+ * @param control - The process checks and signals.
+ * @returns What it stopped.
  */
-async function stopGroups(groups: readonly ProcessIdentity[], host: ProcessIdentity): Promise<StoppedGroups> {
-  const isLeader = (group: ProcessIdentity): boolean => isSameProcessGroupLeader(group, group === host);
-  const signaled = groups.filter((group) => isLeader(group));
+export async function stopRecordedGroups(
+  groups: readonly ProcessIdentity[],
+  host: ProcessIdentity,
+  control: LeftoverProcessControl = systemProcessControl,
+): Promise<StoppedGroups> {
+  const isLeader = (group: ProcessIdentity): boolean => control.isLeader(group, group === host);
+  const signaled: ProcessIdentity[] = [];
+  for (const group of groups) {
+    if (isLeader(group)) {
+      control.signal(group.pgid, "SIGTERM");
+      signaled.push(group);
+    }
+  }
   if (signaled.length === 0) {
     return { isHostStopped: false, toolGroupCount: 0 };
   }
-  for (const group of signaled) {
-    signalProcessGroup(group.pgid, "SIGTERM");
-  }
-  await delay(toolProcessGroupTermGraceMs);
+  await control.waitForGrace();
   for (const group of signaled) {
     if (isLeader(group)) {
-      signalProcessGroup(group.pgid, "SIGKILL");
+      control.signal(group.pgid, "SIGKILL");
     }
   }
   const isHostStopped = signaled.includes(host);

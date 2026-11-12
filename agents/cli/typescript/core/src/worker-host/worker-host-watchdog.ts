@@ -29,8 +29,8 @@ export type WatchdogReport = { readonly type: "launcher_gone" };
 
 /**
  * The Worker host's parent-death watchdog, in a worker thread. It checks every second that the launcher is still
- * the parent. Once the launcher is gone, or an orderly shutdown starts, it allows 15 s; then it stops the
- * registered tool process groups and kills the host's own process group.
+ * the parent. Once the launcher is gone, or an orderly shutdown starts, it allows 15 s; then it kills the host's own
+ * process group. It never signals tool process groups: the main thread stops them in an orderly shutdown.
  */
 export class WorkerHostWatchdog {
   private readonly thread: Worker;

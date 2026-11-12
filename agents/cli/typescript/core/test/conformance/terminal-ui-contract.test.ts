@@ -28,6 +28,8 @@ import { buildTerminalUiEnvironment, type TerminalUiAuth } from "../../src/termi
 import { chooseContract, launcherContractVersions, parseDescription } from "../../src/terminal-ui/terminal-ui-negotiation.js";
 import { terminalUiChannelValidator, terminalUiSchemaValidator } from "../../src/terminal-ui/terminal-ui-schemas.js";
 import { isTerminalUiSelected } from "../../src/terminal-ui/terminal-ui-selection.js";
+import { stopRecordedGroups } from "../../src/worker-host/leftover-worker-hosts.js";
+import type { ProcessIdentity } from "../../src/worker-host/process-identity.js";
 import { startSessionForKey, type SessionStarter } from "../../src/worker-host/worker-host-methods.js";
 
 const caseDirectory = fileURLToPath(new URL("../../../../../../conformance/terminal_ui/", import.meta.url));
@@ -359,6 +361,49 @@ describe("terminal UI selection", () => {
     ]) {
       assert.equal(isTerminalUiSelected(refused), false, JSON.stringify(refused));
     }
+  });
+});
+
+describe("leftover cleanup", () => {
+  test("checks each group right before its own signal, so a group whose leader ended meanwhile gets none", async () => {
+    const identity = (pid: number): ProcessIdentity => ({
+      pid,
+      pgid: pid,
+      start_time: "Wed Nov 11 18:00:00 2026",
+      command_sha256: "0".repeat(64),
+    });
+    const host = identity(100);
+    const tool = identity(200);
+    const signals: string[] = [];
+    let isToolLeaderAlive = true;
+    const stopped = await stopRecordedGroups([host, tool], host, {
+      isLeader: (group) => group === host || isToolLeaderAlive,
+      signal: (pgid, signal) => {
+        signals.push(`${signal} ${pgid}`);
+        // Stopping the Worker host ends the tool group's leader before its turn.
+        if (pgid === host.pgid) {
+          isToolLeaderAlive = false;
+        }
+      },
+      waitForGrace: () => Promise.resolve(),
+    });
+    assert.deepEqual(signals, ["SIGTERM 100", "SIGKILL 100"]);
+    assert.deepEqual(stopped, { isHostStopped: true, toolGroupCount: 0 });
+  });
+
+  test("checks again before SIGKILL", async () => {
+    const host: ProcessIdentity = { pid: 100, pgid: 100, start_time: "x", command_sha256: "0".repeat(64) };
+    const signals: string[] = [];
+    let isAlive = true;
+    await stopRecordedGroups([host], host, {
+      isLeader: () => isAlive,
+      signal: (pgid, signal) => signals.push(`${signal} ${pgid}`),
+      waitForGrace: () => {
+        isAlive = false;
+        return Promise.resolve();
+      },
+    });
+    assert.deepEqual(signals, ["SIGTERM 100"]);
   });
 });
 

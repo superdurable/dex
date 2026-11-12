@@ -499,7 +499,11 @@ launcher is gone or a shutdown started, it allows 15 s; then it sends SIGKILL
 to the Worker host's own group. It never signals a tool process group: a
 thread cannot tell whether the main thread already reaped the group's leader.
 
-The shell tool runs each command in its own process group. In a Worker host,
+The shell tool runs each command in its own process group. A timeout or a
+cancellation kills the group only while the shell runs. Once the shell exited,
+nothing signals its group: a background child it left keeps running, and
+output written more than 1 s after the shell exited is not collected. In a
+Worker host,
 `runShellCommand` registers that group right after the spawn and releases it
 on the shell's `exit` event. An orderly shutdown, on the main thread, sends
 SIGTERM to each registered group whose shell has not exited, then SIGKILL
@@ -514,11 +518,13 @@ command line) of
 its launcher, itself, and each registered tool group. With the switch on,
 every command start scans these records. For a record whose launcher no
 longer runs, it sends SIGTERM to the Worker host's group and each tool group,
-then SIGKILL 2 s later, each time only when the process still has the
-recorded start time, leads the recorded group, and, for the Worker host,
-still has the recorded command line (a tool's shell may exec its command). It
-then deletes the record and prints, for example,
-`Stopped a leftover worker host (pid N) and 1 tool process group.`
+then SIGKILL 2 s later. It checks each group right before each of its signals:
+the process still has the recorded start time, leads the recorded group, and,
+for the Worker host, still has the recorded command line (a tool's shell may
+exec its command). It then deletes the record and prints, for example,
+`Stopped a leftover worker host (pid N) and 1 tool process group.` The start
+time from `ps -o lstart` has one-second resolution, so a pid reused within
+the same second passes the check: the cleanup is best effort.
 
 Known limits: the 1 s plus 15 s bound needs the Worker host to be scheduled
 at all, so it does not hold while the process is stopped. Tool process groups

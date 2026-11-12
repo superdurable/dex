@@ -17,12 +17,15 @@ export const defaultShellTimeoutSeconds = 120;
 /** The longest timeout a call may set, in seconds. */
 export const maximumShellTimeoutSeconds = 600;
 const maximumOutputBytes = 64 * 1024;
+/** How long the output may still arrive after the shell exited. */
+const outputDrainMs = 1_000;
 
 /**
  * Runs one command with the system shell in a directory and returns its exit status and output.
  *
- * The command runs in its own process group, which a timeout or the cancellation signal ends. A non-zero exit
- * is a result the model sees, not a failure.
+ * The command runs in its own process group, which a timeout or the cancellation signal ends while the shell runs.
+ * Once the shell exited, nothing signals the group: background children it left keep running, and output they write
+ * more than 1 s after the shell exited is not collected. A non-zero exit is a result the model sees, not a failure.
  *
  * @param command - The command text.
  * @param workingDirectory - The directory to run it in.
@@ -54,18 +57,30 @@ export function runShellCommand(
     const stderr = new CappedOutput();
     let endReason: string | undefined;
     const killGroup = (reason: string): void => {
+      // Once the shell exited, its pid may name another process, so its group is never signaled.
+      if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
+        return;
+      }
       endReason ??= reason;
-      if (child.pid !== undefined) {
-        try {
-          process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGKILL");
-        } catch {
-          // The group already exited.
-        }
+      try {
+        process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGKILL");
+      } catch {
+        // The group already exited.
       }
     };
     const timer = setTimeout(() => killGroup(`timed out after ${timeoutSeconds} seconds`), timeoutSeconds * 1000);
     const onAbort = (): void => killGroup("cancelled");
     signal.addEventListener("abort", onAbort, { once: true });
+    let drainTimer: NodeJS.Timeout | undefined;
+    child.once("exit", () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      // A background child may hold the pipes open; it keeps running, and its later output is dropped.
+      drainTimer = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+      }, outputDrainMs);
+    });
     child.stdout.on("data", (chunk: Buffer) => stdout.append(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.append(chunk));
     child.once("error", (error) => {
@@ -75,6 +90,7 @@ export function runShellCommand(
     });
     child.once("close", (code, exitSignal) => {
       clearTimeout(timer);
+      clearTimeout(drainTimer);
       signal.removeEventListener("abort", onAbort);
       const status =
         endReason !== undefined

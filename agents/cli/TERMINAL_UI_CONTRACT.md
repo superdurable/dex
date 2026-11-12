@@ -827,7 +827,9 @@ The bounds do not hold:
 
 The Worker host writes a run record of itself and of each tool process group
 it starts. On a later start, a launcher stops what a dead launcher left, and
-checks the identity again right before each SIGTERM and before each SIGKILL.
+checks each group's identity again right before that group's SIGTERM and
+before its SIGKILL, because signaling one group can end another group's
+leader.
 Any mismatch, or a process that is gone, removes the record entry and sends
 nothing.
 
@@ -839,6 +841,9 @@ nothing.
 A tool group leader is a shell that may `exec` its command, which changes its
 command line but not its pid, group, or start time. So the command line is
 not part of a tool group's identity. The start time is what the system
-reports, such as `ps -o lstart` in the C locale. A record holds the SHA-256
+reports, such as `ps -o lstart` in the C locale. It has a resolution of one
+second, so a process that reused a recorded pid within the same second as
+the recorded one passes the check. The cleanup is best effort, and this is
+its remaining risk. A record holds the SHA-256
 of the Worker host's command line (UTF-8, as `ps -ww -o command=` prints it),
 never its text, because a command line can carry a secret.
