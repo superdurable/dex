@@ -65,6 +65,7 @@ dexzd-worker-dispatch = { path = "crates/dexzd-worker-dispatch" }
 dhat = "0.3"
 futures = "0.3"
 http-body-util = "0.1"
+humantime = "2"
 humantime-serde = "1"
 http = "1"
 hyper = { version = "1", features = ["client", "http1"] }

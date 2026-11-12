@@ -64,7 +64,7 @@ impl fmt::Display for UnexpectedResponseStatus {
 
 impl StdError for UnexpectedResponseStatus {}
 
-/// Timeouts of the HTTP clients that one connector builds.
+/// Timeouts of the HTTP clients that one connector builds, unless the client options override them.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TransportTimeouts {
     pub(crate) connect: Duration,
@@ -72,6 +72,34 @@ pub(crate) struct TransportTimeouts {
     pub(crate) read_idle: Option<Duration>,
     /// Longest duration of one request, including its body; `None` disables it.
     pub(crate) total: Option<Duration>,
+}
+
+impl TransportTimeouts {
+    /// Returns these timeouts with each one that `options` sets, such as a metadata endpoint's 1 s connect.
+    fn overridden_by(self, options: &ClientOptions) -> object_store::Result<Self> {
+        Ok(Self {
+            connect: option_duration(options, ClientConfigKey::ConnectTimeout)?
+                .unwrap_or(self.connect),
+            read_idle: option_duration(options, ClientConfigKey::ReadTimeout)?.or(self.read_idle),
+            total: option_duration(options, ClientConfigKey::Timeout)?.or(self.total),
+        })
+    }
+}
+
+/// Returns the duration that `options` sets for `key`, or `None` when it sets none.
+fn option_duration(
+    options: &ClientOptions,
+    key: ClientConfigKey,
+) -> object_store::Result<Option<Duration>> {
+    options
+        .get_config_value(&key)
+        .map(|value| {
+            humantime::parse_duration(&value).map_err(|error| object_store::Error::Generic {
+                store: USER_AGENT,
+                source: Box::new(error),
+            })
+        })
+        .transpose()
 }
 
 /// Builds reqwest clients wrapped in [`ResponseStatusClassifyingService`]; following redirects would repeat writes.
@@ -93,20 +121,21 @@ impl HttpConnector for ResponseStatusClassifyingConnector {
         let allow_http = options
             .get_config_value(&ClientConfigKey::AllowHttp)
             .is_some_and(|value| value == "true");
+        let timeouts = self.timeouts.overridden_by(options)?;
         let mut builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(USER_AGENT)
             .http1_only()
-            .connect_timeout(self.timeouts.connect)
+            .connect_timeout(timeouts.connect)
             .no_gzip()
             .no_brotli()
             .no_zstd()
             .no_deflate()
             .https_only(!allow_http);
-        if let Some(read_idle) = self.timeouts.read_idle {
+        if let Some(read_idle) = timeouts.read_idle {
             builder = builder.read_timeout(read_idle);
         }
-        if let Some(total) = self.timeouts.total {
+        if let Some(total) = timeouts.total {
             builder = builder.timeout(total);
         }
         let client = builder
@@ -132,6 +161,8 @@ struct ResponseStatusClassifyingService {
 #[async_trait]
 impl HttpService for ResponseStatusClassifyingService {
     async fn call(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
+        // object_store reports failed POSTs, such as multipart completions, without their status.
+        let is_post = request.method() == http::Method::POST;
         let response = self.inner.execute(request).await?;
         let status = response.status().as_u16();
         let header = |name: &str| {
@@ -155,7 +186,11 @@ impl HttpService for ResponseStatusClassifyingService {
                 _ => Ok(response),
             };
         }
-        let handling = classify_failed_status(self.cloud, status, &service_code);
+        let handling = if is_post {
+            FailedStatusHandling::Classify
+        } else {
+            classify_failed_status(self.cloud, status, &service_code)
+        };
         if handling == FailedStatusHandling::PassThrough {
             return Ok(response);
         }
@@ -246,4 +281,35 @@ pub(crate) fn http_failure_cause(error: &(dyn StdError + 'static)) -> HttpFailur
         current = candidate.source();
     }
     HttpFailureCause::NotHttp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_options_override_the_connector_timeouts() {
+        let defaults = TransportTimeouts {
+            connect: Duration::from_secs(30),
+            read_idle: Some(Duration::from_secs(30)),
+            total: None,
+        };
+        let metadata_options = ClientOptions::new()
+            .with_timeout_disabled()
+            .with_connect_timeout(Duration::from_secs(1));
+        let timeouts = defaults
+            .overridden_by(&metadata_options)
+            .expect("the options parse");
+        assert_eq!(timeouts.connect, Duration::from_secs(1));
+        assert_eq!(timeouts.read_idle, Some(Duration::from_secs(30)));
+        assert_eq!(timeouts.total, None);
+        let write_options = ClientOptions::new()
+            .with_connect_timeout(Duration::from_millis(1500))
+            .with_timeout(Duration::from_secs(45));
+        let timeouts = defaults
+            .overridden_by(&write_options)
+            .expect("the options parse");
+        assert_eq!(timeouts.connect, Duration::from_millis(1500));
+        assert_eq!(timeouts.total, Some(Duration::from_secs(45)));
+    }
 }

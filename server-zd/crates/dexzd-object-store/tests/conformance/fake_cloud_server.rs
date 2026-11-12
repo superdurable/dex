@@ -8,6 +8,7 @@
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -53,6 +54,8 @@ pub(super) enum FakeResponse {
     },
     /// Reads the whole request, then closes the connection without answering.
     DropConnection,
+    /// Waits, then answers as the inner response does.
+    Delayed(Duration, Box<FakeResponse>),
 }
 
 impl FakeResponse {
@@ -159,8 +162,13 @@ async fn serve_connection(
             .lock()
             .expect("fake server records remain available")
             .push(request.clone());
-        let response = (responder.lock().expect("the responder remains available"))(&request);
+        let mut response = (responder.lock().expect("the responder remains available"))(&request);
+        while let FakeResponse::Delayed(delay, inner) = response {
+            tokio::time::sleep(delay).await;
+            response = *inner;
+        }
         match response {
+            FakeResponse::Delayed(..) => unreachable!("delays are unwrapped above"),
             FakeResponse::DropConnection => return,
             FakeResponse::Reply {
                 status,

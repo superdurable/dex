@@ -599,6 +599,69 @@ async fn azure_gcs_lost_multipart_completion_is_outcome_unknown() {
             ObjectStoreErrorKind::OutcomeUnknown,
             "{cloud:?}: {error}"
         );
+        assert_multipart_requests(cloud, &server, 1, 0);
+    }
+}
+
+/// Asserts the completion and abort requests that a one-part upload sent.
+fn assert_multipart_requests(
+    cloud: FakeCloud,
+    server: &FakeCloudServer,
+    completions: usize,
+    aborts: usize,
+) {
+    let requests = server.requests();
+    let count = |predicate: &dyn Fn(&RecordedRequest) -> bool| {
+        requests.iter().filter(|request| predicate(request)).count()
+    };
+    match cloud {
+        FakeCloud::AzureBlob => {
+            let blocks = count(&|request| request.decoded_target().contains("comp=block&"));
+            assert_eq!(blocks, 1, "{cloud:?} block uploads");
+            let block_lists = count(&|request| request.decoded_target().contains("comp=blocklist"));
+            assert_eq!(block_lists, completions, "{cloud:?} completions");
+        }
+        FakeCloud::GoogleCloudStorage => {
+            let initiations = count(&|request| {
+                request.method == "POST" && request.decoded_target().contains("uploads")
+            });
+            assert_eq!(initiations, 1, "{cloud:?} initiations");
+            let parts = count(&|request| request.method == "PUT");
+            assert_eq!(parts, 1, "{cloud:?} part uploads");
+            let gcs_completions = count(&|request| {
+                request.method == "POST" && request.decoded_target().contains("uploadId")
+            });
+            assert_eq!(gcs_completions, completions, "{cloud:?} completions");
+            let gcs_aborts = count(&|request| request.method == "DELETE");
+            assert_eq!(gcs_aborts, aborts, "{cloud:?} aborts");
+        }
+    }
+}
+
+#[tokio::test]
+async fn azure_gcs_rejected_multipart_completion_is_permanent_and_aborted() {
+    for cloud in CLOUDS {
+        let server = FakeCloudServer::start(move |request| {
+            multipart_response(cloud, request, || match cloud {
+                FakeCloud::AzureBlob => azure_error(403, "AuthorizationPermissionMismatch"),
+                FakeCloud::GoogleCloudStorage => gcs_error(403, "AccessDenied"),
+            })
+        })
+        .await;
+        let error = large_write_store(cloud, &server)
+            .put(
+                "objects/a",
+                Bytes::from_static(b"body"),
+                WriteCondition::Unconditional,
+            )
+            .await
+            .expect_err("a rejected completion fails the write");
+        assert_eq!(
+            error.kind,
+            ObjectStoreErrorKind::Permanent,
+            "{cloud:?}: {error}"
+        );
+        assert_multipart_requests(cloud, &server, 1, 1);
     }
 }
 
@@ -630,6 +693,7 @@ async fn azure_gcs_failed_multipart_parts_leave_the_target_untouched() {
             ObjectStoreErrorKind::Transient,
             "{cloud:?}: {error}"
         );
+        assert_multipart_requests(cloud, &server, 0, 1);
     }
 }
 
@@ -968,5 +1032,46 @@ async fn azure_gcs_head_on_a_missing_bucket() {
             .await
             .expect("a GCS HEAD 404 reads as absent")
             .is_none()
+    );
+}
+
+#[tokio::test]
+async fn azure_pending_copy_deadline_bounds_a_slow_poll() {
+    let server = FakeCloudServer::start(move |request| {
+        if request.method == "HEAD" && !is_staging_target(request) {
+            return FakeResponse::Delayed(
+                Duration::from_secs(3),
+                Box::new(azure_copy_status("success")),
+            );
+        }
+        staged_create_response(FakeCloud::AzureBlob, request, || {
+            FakeResponse::with_headers(202, vec![("x-ms-copy-status", "pending".to_owned())])
+        })
+    })
+    .await;
+    let store = store_with(FakeCloud::AzureBlob, server.endpoint(), |config| {
+        config.single_put_max_bytes = 1;
+        config.pending_copy_timeout = Duration::from_millis(800);
+    });
+    let started = std::time::Instant::now();
+    let error = store
+        .put(
+            "objects/a",
+            Bytes::from_static(b"body"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect_err("a poll past the deadline fails the create");
+    assert_eq!(error.kind, ObjectStoreErrorKind::OutcomeUnknown, "{error}");
+    assert!(
+        started.elapsed() < Duration::from_millis(2500),
+        "the deadline bounds the slow poll: {:?}",
+        started.elapsed()
+    );
+    assert!(
+        !server.requests_with_method("POST").iter().any(|request| {
+            request.body_contains("/staging/0") || request.body_contains("/staging/1")
+        }),
+        "a copy that may still read the staging object keeps it"
     );
 }

@@ -43,7 +43,13 @@ pub(super) async fn wait_for_pending_copy(
         }
         tokio::time::sleep(interval).await;
         interval = (interval * 2).min(MAX_POLL_INTERVAL);
-        match reads.head(target).await {
+        // The deadline bounds each poll too, including the read client's own retries.
+        let Ok(polled) = tokio::time::timeout_at(deadline, reads.head(target)).await else {
+            return PendingCopyEnd::StillPending(format!(
+                "{last_observation}; the last poll timed out"
+            ));
+        };
+        match polled {
             Ok(metadata) => return PendingCopyEnd::Succeeded(metadata),
             Err(error) => match classified_status(&error) {
                 Some(status) if status.is_failed_copy() => {
