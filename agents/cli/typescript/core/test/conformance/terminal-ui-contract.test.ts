@@ -332,14 +332,42 @@ describe("terminal UI contract 1: the launch document", () => {
     flowType: "DexAgentsCliScriptedSession-ab12cd",
     sessionId: "scripted-20261111-142233-a1b2c3",
     isResumed: false,
-    model: "scripted/default",
+    model: "scripted/other",
+    harnessDefaultModel: "scripted/default",
+    suggestedModels: ["scripted/small", "scripted/other", "scripted/large"],
     workspace: "/home/user/dex-agent-workspace",
     configPath: "/home/user/.dex/agents/scripted.yaml",
     methods: ["put_image", "start_session", "list_connectors", "open_url", "get_request_result"],
-    capabilities: { images: { max_per_message: 20, max_bytes: 3_750_000 }, plan_mode: false, turn_control: true },
+    capabilities: {
+      images: { max_per_message: 20, max_bytes: 3_750_000 },
+      plan_mode: false,
+      turn_control: true,
+      reasoning_effort: { values: ["low", "medium", "high"] },
+    },
     logPath: "/home/user/.dex/agents/scripted.log",
     homeDirectory: "/home/user",
   };
+
+  test("display.models lists the configured model, the harness default, then its suggestions, each once", () => {
+    const document = chatLaunchDocument({ ...launchDetails, startedDexcliDevLines: [], workerHostStartupLines: [] });
+    const validate = terminalUiSchemaValidator("launch");
+    assert.equal(validate(document), true, JSON.stringify(validate.errors));
+    assert.deepEqual((document.display as { models: unknown }).models, [
+      "scripted/other",
+      "scripted/default",
+      "scripted/small",
+      "scripted/large",
+    ]);
+    const withoutDefault = chatLaunchDocument({
+      ...launchDetails,
+      model: "scripted/default",
+      harnessDefaultModel: null,
+      suggestedModels: [],
+      startedDexcliDevLines: [],
+      workerHostStartupLines: [],
+    });
+    assert.deepEqual((withoutDefault.display as { models: unknown }).models, ["scripted/default"]);
+  });
 
   test("the chat launch document passes the launch schema and writes paths with ~", () => {
     const document = chatLaunchDocument({
@@ -350,9 +378,10 @@ describe("terminal UI contract 1: the launch document", () => {
     const validate = terminalUiSchemaValidator("launch");
     assert.equal(validate(document), true, JSON.stringify(validate.errors));
     assert.deepEqual(document.display, {
-      model: "scripted/default",
+      model: "scripted/other",
       workspace: "~/dex-agent-workspace",
       config_path: "~/.dex/agents/scripted.yaml",
+      models: ["scripted/other", "scripted/default", "scripted/small", "scripted/large"],
     });
     assert.equal(document.log_path, "~/.dex/agents/scripted.log");
     // The dexcli dev lines come first, as info; the Worker host's startup lines follow, as warnings.

@@ -58,7 +58,8 @@ class ConfigError(Exception):
         code: The stable error code from the conformance file: ``yaml``,
             ``schema``, ``invalid_url``, ``duplicate_tool``,
             ``duplicate_connection``, ``model_required``,
-            ``widens_connectors``, or ``widens_local_tools``.
+            ``widens_connectors``, ``widens_local_tools``, or
+            ``unsupported_reasoning_effort``.
         path: JSON Pointer of the first problem, ``""`` for the whole value.
         keyword: For ``schema``, the JSON Schema keyword of the first error,
             such as ``anyOf``; ``None`` otherwise.
@@ -73,6 +74,9 @@ class ConfigError(Exception):
 
     .. versionchanged:: 0.6.0
        An ``anyOf`` error names the values the field accepts.
+
+    .. versionchanged:: 0.7.0
+       The ``unsupported_reasoning_effort`` code, at ``/reasoning_effort``.
     """
 
     def __init__(
@@ -350,10 +354,17 @@ class TurnConfigResolution:
     Attributes:
         config: The turn's configuration.
         warnings: JSON Pointers of the ignored top-level settings keys, sorted.
+        reasoning_effort: The session settings' ``reasoning_effort``, one of
+            the values the harness command declares, or ``None`` when the
+            settings set none. ``None`` means the model's own default: pass
+            no reasoning effort to the SDK.
+
+            .. versionadded:: 0.7.0
     """
 
     config: EffectiveConfig
     warnings: tuple[str, ...] = ()
+    reasoning_effort: str | None = None
 
 
 def parse_config_yaml(text: str) -> object:
@@ -460,21 +471,44 @@ def is_session_summary_indexed(config: EffectiveConfig) -> bool:
 
 
 def resolve_turn_config(
-    effective: EffectiveConfig, session_settings: object
+    effective: EffectiveConfig,
+    session_settings: object,
+    *,
+    supported_reasoning_efforts: Sequence[str] = (),
 ) -> TurnConfigResolution:
     """Return one turn's configuration: the file's, narrowed by the session settings.
+
+    The settings' ``reasoning_effort`` is checked last, after every
+    narrowing rule, against the values the harness command declares.
+
+    Example:
+        >>> resolution = resolve_turn_config(
+        ...     effective, {"reasoning_effort": "high"},
+        ...     supported_reasoning_efforts=("low", "medium", "high"))
+        >>> resolution.reasoning_effort
+        'high'
+
+    .. versionchanged:: 0.7.0
+       The ``supported_reasoning_efforts`` argument, the result's
+       ``reasoning_effort``, and the ``unsupported_reasoning_effort`` error.
 
     Args:
         effective: The file's effective configuration, which bounds the turn.
         session_settings: The session's settings, or ``None`` for none.
+        supported_reasoning_efforts: The ``reasoning_effort`` values the
+            harness command declares, its ``supported_reasoning_efforts``.
+            Empty, the default, rejects every ``reasoning_effort``.
 
     Returns:
-        The turn's configuration and the ignored settings keys.
+        The turn's configuration, the ignored settings keys, and the turn's
+        reasoning effort.
 
     Raises:
         ConfigError: ``schema``, ``duplicate_tool``, ``duplicate_connection``,
-            ``widens_connectors``, or ``widens_local_tools``. The whole
-            override is rejected.
+            ``widens_connectors``, ``widens_local_tools``, or
+            ``unsupported_reasoning_effort`` at ``/reasoning_effort`` for a
+            value outside ``supported_reasoning_efforts``. The whole override
+            is rejected.
     """
     if session_settings is None:
         return TurnConfigResolution(effective)
@@ -505,7 +539,10 @@ def resolve_turn_config(
     local_tools = _narrow_local_tools(
         effective.local_tools, session_settings.get("local_tools", {})
     )
-    return TurnConfigResolution(replace(turn, local_tools=local_tools), warnings)
+    reasoning_effort = session_settings.get("reasoning_effort")
+    if reasoning_effort is not None and reasoning_effort not in supported_reasoning_efforts:
+        raise ConfigError("unsupported_reasoning_effort", "/reasoning_effort")
+    return TurnConfigResolution(replace(turn, local_tools=local_tools), warnings, reasoning_effort)
 
 
 def canonical_operation_name(name: str) -> str:

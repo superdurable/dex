@@ -58,6 +58,13 @@ function call(toolName: string, toolInput: Readonly<Record<string, unknown>>): s
   return `call ${toolName} ${JSON.stringify(toolInput)}`;
 }
 
+/** Returns the effort of a Messages API request's last effort marker, which sets the level of the reply. */
+function activeEffortOf(request: Readonly<Record<string, unknown>>): unknown {
+  const messages = (request["messages"] as readonly Readonly<Record<string, unknown>>[] | undefined) ?? [];
+  const marker = [...messages].reverse().find((message) => message["output_config"] !== undefined);
+  return (marker?.["output_config"] as { readonly effort?: unknown } | undefined)?.effort;
+}
+
 describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
   let engine: PrivateDexEngine;
   let api: MockMessagesApi;
@@ -486,6 +493,42 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.ok(!offeredToolNames().includes("bash"));
     assert.ok(offeredToolNames().includes("read"));
     assert.equal(existsSync(join(home.workspace, "bash.txt")), false);
+  });
+
+  test("a session's reasoning_effort is the thinking level of each model call of the next turn, and an undeclared one fails the turn", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    cli.writeLine("say before");
+    await cli.stdout.waitFor("said: before");
+    const firstTurnRequests = api.modelRequests();
+    assert.ok(firstTurnRequests.length >= 1);
+    for (const request of firstTurnRequests) {
+      assert.notEqual(activeEffortOf(request), "medium");
+    }
+
+    const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    try {
+      assert.equal(await sessions.updateSessionSettings(sessionId, { reasoning_effort: "medium" }), true);
+      cli.writeLine(call("read", { path: "notes.txt" }));
+      await cli.stdout.waitFor("read: buy milk");
+      const nextTurnRequests = api.modelRequests().slice(firstTurnRequests.length);
+      // The first request calls the tool; the last one carries its result.
+      assert.ok(nextTurnRequests.length >= 2);
+      for (const request of nextTurnRequests) {
+        assert.notEqual((request["thinking"] as { readonly type?: unknown } | undefined)?.type, "disabled");
+        assert.equal(activeEffortOf(request), "medium");
+      }
+      assert.equal(await sessions.updateSessionSettings(sessionId, { reasoning_effort: "xhigh" }), true);
+    } finally {
+      await environment.close();
+    }
+    cli.writeLine("say after");
+    await cli.stdout.waitFor('Turn failed: unsupported_reasoning_effort at "/reasoning_effort"', 120_000);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 1);
   });
 
   test("an approved call is checked again by the Worker that runs it", async () => {

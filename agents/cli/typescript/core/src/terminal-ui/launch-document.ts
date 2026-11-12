@@ -21,6 +21,8 @@ export interface SessionFlowCapabilities {
   readonly plan_mode: boolean;
   /** Whether the Flow supports steer and cancel. */
   readonly turn_control: boolean;
+  /** Present only when the harness declares reasoning efforts, with its values from least to most effort. */
+  readonly reasoning_effort?: { readonly values: readonly string[] };
 }
 
 /** The parts of a chat launch document that come from the command, the server, and the Worker host. */
@@ -35,6 +37,10 @@ export interface ChatLaunchDetails {
   readonly sessionId: string;
   readonly isResumed: boolean;
   readonly model: string;
+  /** The harness's `defaultModel`, which `/model` offers after {@link model}. */
+  readonly harnessDefaultModel: string | null;
+  /** The harness's `suggestedModels`, which `/model` offers after the default model. */
+  readonly suggestedModels: readonly string[];
   readonly workspace: string;
   readonly configPath: string | null;
   readonly methods: readonly string[];
@@ -79,6 +85,7 @@ export function chatLaunchDocument(details: ChatLaunchDetails): Record<string, u
       model: details.model,
       workspace: home(details.workspace),
       config_path: details.configPath === null ? null : home(details.configPath),
+      models: displayModels(details),
     },
     methods: [...details.methods],
     capabilities: details.capabilities,
@@ -123,6 +130,12 @@ function launchNotices(details: ChatLaunchDetails, logPathShown: string): { leve
     notices.push(notice);
   }
   return notices;
+}
+
+/** Returns the models `/model` offers: the configured model, the harness default, then the suggestions, once each. */
+function displayModels(details: ChatLaunchDetails): string[] {
+  const models = [details.model, ...(details.harnessDefaultModel === null ? [] : [details.harnessDefaultModel])];
+  return [...new Set([...models, ...details.suggestedModels])];
 }
 
 function displayPath(path: string, homeDirectory: string): string {

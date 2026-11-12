@@ -148,6 +148,15 @@ class DeepAgentsHarness:
     which runs Deep Agents' tool middleware once. As in Deep Agents without
     ``interrupt_on``, its own tools run without approval unless
     ``approval.always`` names them; connector writes always wait for one.
+
+    The command declares no reasoning effort values, because LangChain chat
+    models have no provider-neutral effort option. A ``reasoning_effort``
+    session setting fails the turn with ``unsupported_reasoning_effort``.
+    ``suggested_models`` lists OpenAI and Anthropic models for the terminal
+    UI's ``/model``.
+
+    .. versionchanged:: 0.7.0
+       The suggested models.
     """
 
     name = "deepagents"
@@ -156,6 +165,12 @@ class DeepAgentsHarness:
     default_model: str | None = DEFAULT_DEEPAGENTS_MODEL
     replaced_local_tools: frozenset[LocalToolGroup] = frozenset(
         {LocalToolGroup.FILES, LocalToolGroup.SHELL}
+    )
+    suggested_models = (
+        "openai:gpt-5.2",
+        "openai:gpt-5-mini",
+        "anthropic:claude-opus-5-5",
+        "anthropic:claude-sonnet-5-5",
     )
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:

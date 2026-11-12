@@ -38,6 +38,12 @@ The model defaults to `openai/gpt-5.2`; set `model` in the file or pass
 `--model` to change it. It is a LiteLLM model name, `<provider>/<model>`, such
 as `anthropic/claude-opus-5-5`. A session's settings may change the model and
 the instructions; each model call uses the values of its turn.
+The session setting `reasoning_effort` may be `low`, `medium`, or `high`.
+Each model call sends it as LiteLLM's `reasoning_effort`; LiteLLM turns it
+into thinking for Anthropic models. Without it, the provider's default
+applies. In the terminal UI, `/effort` sets it, and `/model` also offers
+`openai/gpt-5.2`, `openai/gpt-5-mini`, `anthropic/claude-opus-5-5`, and
+`anthropic/claude-sonnet-5-5`.
 `system_prompt` replaces the default instructions. The `builtin` section has
 no options yet, and any key in it is a configuration error.
 
@@ -87,7 +93,8 @@ request. A fake connectors MCP server serves a connector read and write. The
 tests cover a chat turn and `--resume`, `read_file` without approval and
 `write_file` after approval, a connector read and an approved connector write
 that runs once, session settings that change the model, and a key in the
-`builtin` section.
+`builtin` section. A `reasoning_effort` in the session settings reaches the
+next Responses API request, and an undeclared one fails the turn.
 They also cover a `system_prompt` set in the session settings, which reaches
 the next model request, and a rejected file write and connector write, which
 never run.

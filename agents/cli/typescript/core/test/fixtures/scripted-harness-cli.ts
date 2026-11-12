@@ -17,6 +17,7 @@ import {
   scriptedHarness,
   scriptedHarnessVariantVariable,
   scriptedHarnessWithoutImages,
+  scriptedHarnessWithoutReasoningEffort,
   shellReplacingScriptedHarness,
   summaryForcedOffScriptedHarness,
   summaryForcedOnScriptedHarness,
@@ -33,6 +34,7 @@ const variants: Readonly<Record<string, AgentHarness>> = {
   "summary-off": summaryForcedOffScriptedHarness,
   "misreported-on": summaryMisreportedOnScriptedHarness,
   "misreported-off": summaryMisreportedOffScriptedHarness,
+  "without-reasoning-effort": scriptedHarnessWithoutReasoningEffort,
 };
 
 // Writes to the terminal at import and later, as a framework's import side effects might.

@@ -54,6 +54,7 @@ export {
   type MediaConfig,
   type SessionsConfig,
   type TurnConfig,
+  type TurnResolution,
 } from "./cli-config.js";
 export {
   defaultDexcliDevDexPort,

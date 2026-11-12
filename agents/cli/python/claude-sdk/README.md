@@ -38,6 +38,12 @@ The model defaults to `claude-opus-5-5`; set `model` in the file or pass
 The `claude` section has no options yet, and any key in it is a configuration
 error.
 
+The session setting `reasoning_effort` may be `low`, `medium`, `high`,
+`xhigh`, or `max`. Each turn passes it to Claude Code as the Claude Agent
+SDK's `effort` option. Without it, Claude Code's default applies. In the
+terminal UI, `/effort` sets it, and `/model` also offers `claude-opus-5-5`,
+`claude-sonnet-5-5`, `claude-haiku-5-5`, and `claude-fable-5-2`.
+
 ## Local tools
 
 Claude Code's own tools replace the CLI core's `files`, `shell`, and
@@ -111,6 +117,8 @@ that runs once, `Read`, `Glob`, `Grep`, and `WebFetch` without approval,
 `Write`, `Edit`, and `Bash` after approval, an allow-listed command run in the
 workspace and an allow-listed background command that still waits, paths and
 patterns that leave the workspace, a dangling link to outside, session
-settings that switch the shell off, an approved call that the Worker running
+settings that switch the shell off, a `reasoning_effort` in the session
+settings that reaches the Messages API request and an undeclared one that
+fails the turn, an approved call that the Worker running
 it refuses after its file switched the group off, and the environment that
 reaches Claude Code with and without a key.

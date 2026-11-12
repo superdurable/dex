@@ -13,6 +13,7 @@ The last user message picks the reply:
 * ``tools``: lists the offered tool names, sorted.
 * ``cached``: lists the sources' cached tool names when the Flow was built, sorted.
 * ``model``: names the turn's model; ``prompt``: shows the turn's instructions.
+* ``effort``: names the turn's reasoning effort, or ``default`` without one.
 * ``history``: lists the earlier user messages.
 * ``call <tool> <json arguments>``: calls one tool.
 * ``calls <json list of [tool, arguments]>``: calls several tools in one response.
@@ -111,6 +112,8 @@ class ScriptedHarness:
         supports_images: bool = True,
         forced_summary_indexed: bool | None = None,
         is_summary_misreported: bool = False,
+        supported_reasoning_efforts: tuple[str, ...] = (),
+        suggested_models: tuple[str, ...] = (),
     ) -> None:
         self._tool_policies = dict(tool_policies or {})
         # A harness that ignores HarnessContext.is_session_summary_indexed, for the CLI's refusal.
@@ -119,6 +122,8 @@ class ScriptedHarness:
         self._has_replacement_shell_tool = has_replacement_shell_tool
         self.is_tool_set_fixed_at_build = is_tool_set_fixed_at_build
         self._supports_images = supports_images
+        self.supported_reasoning_efforts = supported_reasoning_efforts
+        self.suggested_models = suggested_models
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         cached_at_build = sorted(
@@ -126,13 +131,14 @@ class ScriptedHarness:
             for source in context.tool_sources
             for tool in getattr(source, "cached_tools", tuple)()
         )
-        models: dict[str, ScriptedModelClient] = {}
+        models: dict[tuple[str, str | None], ScriptedModelClient] = {}
 
         def resolve_model(session_settings: Mapping[str, Any]) -> ScriptedModelClient:
-            model_name = context.resolve_turn(session_settings).model
-            if model_name not in models:
-                models[model_name] = ScriptedModelClient(_responder(model_name, cached_at_build))
-            return models[model_name]
+            turn = context.resolve_turn(session_settings)
+            key = (turn.model, turn.reasoning_effort)
+            if key not in models:
+                models[key] = ScriptedModelClient(_responder(*key, cached_at_build))
+            return models[key]
 
         def instructions(instruction_context: InstructionContext) -> str:
             turn = context.resolve_turn(instruction_context.session_settings)
@@ -235,7 +241,7 @@ def build_session_flow_without_tools(flow_type: str = SCRIPTED_FLOW_TYPE) -> Age
     return ScriptedHarness().create_session_flow(context)
 
 
-def _responder(model_name: str, cached_at_build: list[str]) -> Any:
+def _responder(model_name: str, reasoning_effort: str | None, cached_at_build: list[str]) -> Any:
     async def respond(request: ModelRequest) -> ScriptedModelReply:
         results = ScriptedModelClient.tool_results(request)
         if results:
@@ -254,6 +260,8 @@ def _responder(model_name: str, cached_at_build: list[str]) -> Any:
                 return ScriptedModelReply(text="cached: " + ",".join(cached_at_build))
             case "model":
                 return ScriptedModelReply(text=f"model: {model_name}")
+            case "effort":
+                return ScriptedModelReply(text=f"effort: {reasoning_effort or 'default'}")
             case "prompt":
                 return ScriptedModelReply(text=f"prompt: {request.instructions}")
             case "history":

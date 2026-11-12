@@ -97,7 +97,7 @@ func (screen *ChatScreen) appendBlock(kind transcriptBlockKind, block transcript
 // handleScrollKey scrolls the message view and reports whether key did. Home
 // and End need an empty input.
 func (screen *ChatScreen) handleScrollKey(key tea.KeyPressMsg) bool {
-	if screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen {
+	if screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen || screen.settingPicker != nil {
 		return false
 	}
 	page := max(screen.computeLayout().messageHeight-1, 1)
@@ -274,6 +274,8 @@ func (screen *ChatScreen) renderOverlay(layout screenLayout, height int, now tim
 		return help[top : top+height]
 	case screen.isToolPickerOpen:
 		return screen.renderToolPicker(layout.contentWidth, height)
+	case screen.settingPicker != nil:
+		return screen.renderSettingPicker(layout.contentWidth, height)
 	case screen.isPopupOpen && screen.popupIndex < len(screen.interrupts):
 		interrupt := screen.interrupts[screen.popupIndex]
 		if interrupt.approval != nil {
@@ -343,11 +345,7 @@ func (screen *ChatScreen) renderActivityLines(width int, now time.Time, spinnerF
 // row with key hints.
 func (screen *ChatScreen) renderStatusBar(width int, now time.Time, spinnerFrame int) []string {
 	symbols := screen.theme.Symbols
-	separator := screen.theme.Secondary.Render(symbols.Separator)
-	identity := " " + strings.Join(nonEmptyStrings(screen.session.Command, screen.session.Model, screen.theme.Secondary.Render(screen.session.Workspace)), separator)
-	if screen.session.Workspace == "" {
-		identity = " " + strings.Join(nonEmptyStrings(screen.session.Command, screen.session.Model), separator)
-	}
+	identity := screen.statusIdentity(width)
 	var metrics []string
 	if turnNumber := screen.displayedTurnNumber(); turnNumber > 0 {
 		metrics = append(metrics, fmt.Sprintf("turn %d", turnNumber))
@@ -367,6 +365,43 @@ func (screen *ChatScreen) renderStatusBar(width int, now time.Time, spinnerFrame
 		joinLeftAndRight(status, screen.fittingHints(hints, width-terminaltheme.DisplayWidth(status)-2), width, symbols.Ellipsis),
 	}
 }
+
+// statusIdentity is the session row's left part: the command, model,
+// reasoning effort, and workspace. A row too wide for width that shows an
+// effort drops the workspace, then shortens or drops the model, to keep it.
+func (screen *ChatScreen) statusIdentity(width int) string {
+	separator := screen.theme.Secondary.Render(screen.theme.Symbols.Separator)
+	effort := ""
+	if screen.session.ReasoningEffort != "" {
+		effort = screen.session.ReasoningEffort + " effort"
+	}
+	workspace := ""
+	if screen.session.Workspace != "" {
+		workspace = screen.theme.Secondary.Render(screen.session.Workspace)
+	}
+	join := func(model string, workspace string) string {
+		return " " + strings.Join(nonEmptyStrings(screen.session.Command, model, effort, workspace), separator)
+	}
+	model := screen.session.Model
+	identity := join(model, workspace)
+	if effort == "" || terminaltheme.DisplayWidth(identity) <= width {
+		return identity
+	}
+	identity = join(model, "")
+	overflow := terminaltheme.DisplayWidth(identity) - width
+	if overflow <= 0 {
+		return identity
+	}
+	if modelWidth := terminaltheme.DisplayWidth(model) - overflow; modelWidth >= minimumStatusModelWidth {
+		return join(terminaltheme.TruncateToWidth(model, modelWidth, screen.theme.Symbols.Ellipsis), "")
+	}
+	// The row truncates at its end when even the command and effort do not fit.
+	return join("", "")
+}
+
+// minimumStatusModelWidth is the shortest model statusIdentity shortens to;
+// below it, the row leaves the model out.
+const minimumStatusModelWidth = 4
 
 // fittingHints joins as many leading hints as fit in room cells.
 func (screen *ChatScreen) fittingHints(hints []string, room int) string {
@@ -400,6 +435,8 @@ func (screen *ChatScreen) currentHints() []string {
 		return []string{"PgUp/PgDn scroll", "Esc close"}
 	case screen.isToolPickerOpen:
 		return []string{"Enter open", "j/k move", "Esc close"}
+	case screen.settingPicker != nil:
+		return []string{"Enter choose", "j/k move", "Esc close"}
 	case screen.isPopupOpen && screen.popupIndex < len(screen.interrupts):
 		return screen.popupHints()
 	default:

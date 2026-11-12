@@ -167,15 +167,17 @@ def test_session_case(case: dict[str, Any]) -> None:
     config = FIXTURE["session_configs"][case["config"]]
     effective = resolve_config(config, harness["harness_section"], harness["harness_default_model"])
     settings = case["session_settings"]
+    efforts = harness["supported_reasoning_efforts"]
     if "turn" in case:
         if settings is not None:
             assert list(SESSION_SETTINGS_VALIDATOR.iter_errors(settings)) == []
-        turn, warnings = resolve_turn(effective, settings)
+        turn, warnings = resolve_turn(effective, settings, efforts)
         assert turn == case["turn"]
         assert warnings == case["warnings"]
+        assert (settings or {}).get("reasoning_effort") == case.get("reasoning_effort")
         return
     expect_error(
-        lambda: resolve_turn(effective, settings),
+        lambda: resolve_turn(effective, settings, efforts),
         case["error"],
         SESSION_SETTINGS_VALIDATOR,
         settings,

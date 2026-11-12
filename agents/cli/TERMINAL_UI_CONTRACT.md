@@ -56,7 +56,7 @@ nothing else on stdout and no update notice anywhere.
  "contracts":{"1":{"modes":{"chat":{"uses_methods":["put_image","start_session","list_connectors","open_url","get_request_result"]},
                             "sessions":{"uses_methods":[]},
                             "connectors":{"uses_methods":["list_connectors","open_url"]}},
-                   "capabilities":["images","plan_mode","turn_control"]}}}
+                   "capabilities":["images","plan_mode","turn_control","reasoning_effort"]}}}
 ```
 
 - `contracts` is keyed by the contract version as a decimal string without
@@ -184,9 +184,11 @@ right after the spawn. It holds no secret.
         "auth":{"mode":"none"},
         "web_url":"http://127.0.0.1:8802"},
  "session":{"flow_type":"DexAgentsOpenAISdkCliSession-ab12cd","session_id":"openai-sdk-20261111-142233-a1b2c3","is_resumed":false},
- "display":{"model":"gpt-5.2","workspace":"~/dex-agent-workspace","config_path":"~/.dex/agents/openai-sdk.yaml"},
+ "display":{"model":"gpt-5.2","workspace":"~/dex-agent-workspace","config_path":"~/.dex/agents/openai-sdk.yaml",
+            "models":["gpt-5.2","gpt-5-mini","gpt-5-nano"]},
  "methods":["put_image","start_session","list_connectors","open_url","get_request_result"],
- "capabilities":{"images":{"max_per_message":20,"max_bytes":3750000},"plan_mode":false,"turn_control":true},
+ "capabilities":{"images":{"max_per_message":20,"max_bytes":3750000},"plan_mode":false,"turn_control":true,
+                 "reasoning_effort":{"values":["low","medium","high"]}},
  "notices":[],
  "log_path":"~/.dex/agents/openai-sdk.log"}
 ```
@@ -199,9 +201,9 @@ right after the spawn. It holds no secret.
 | `dex.auth` | How to authenticate, as in the table above. A launch document whose `auth` carries `credential`, `api_key`, `token`, or `access_token` fails the schema. |
 | `dex.web_url` | The Dex Web base URL, or `null`. `open_url` only opens URLs under it. |
 | `session` | chat: `flow_type`, `session_id`, and `is_resumed` (`true` loads the history). sessions: `flow_type`. |
-| `display` | Text to show and never log. Paths write the home directory as `~`. All optional. |
+| `display` | Text to show and never log. Paths write the home directory as `~`. All optional. `models` lists the model IDs `/model` offers: the configured model first, then the harness command's suggestions. See [Model and reasoning effort](#model-and-reasoning-effort). |
 | `methods` | The local requests the launcher side serves. |
-| `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. An absent boolean is `false`. |
+| `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. `reasoning_effort` is present only when the harness command maps the `reasoning_effort` session setting to its SDK, with the `values` it accepts, from least to most effort. An absent boolean is `false`. |
 | `notices` | Notices to show once the first frame is up, in order: the lines the launcher printed while it started a `dexcli dev`, such as its log file, as `info`, then the Worker host's startup notices, such as connector tools that are unavailable. A reused `dexcli dev` adds no line. It is often empty. |
 | `log_path` | The command's log file, for display. |
 | `connectors` | connectors mode: the rows, in the shape of `list_connectors`'s result. |
@@ -210,7 +212,7 @@ Values in the example are illustrations; the CLI core constants decide.
 
 | Mode | The launcher must provide | Optional; without it |
 | --- | --- | --- |
-| `chat` | `session` (chat form) | `put_image`: no `/image` and no pasted images. `start_session`: no `/new`. `list_connectors`: no `/connectors`. `open_url`: no `/web` or Dex Web key. `get_request_result`: a timed-out request counts as unknown. |
+| `chat` | `session` (chat form) | `put_image`: no `/image` and no pasted images. `start_session`: no `/new`. `list_connectors`: no `/connectors`. `open_url`: no `/web` or Dex Web key. `get_request_result`: a timed-out request counts as unknown. `display.models`: `/model` offers only `display.model`. `capabilities.reasoning_effort`: `/effort` says the command has no reasoning effort setting. |
 | `sessions` | `session.flow_type`; the launcher handles `result` | `open_url` |
 | `connectors` | `connectors` | `list_connectors`: no refresh key. `open_url` |
 
@@ -603,6 +605,37 @@ opened. `refused` is checked first, so a URL outside `web_url` is
 exactly one of `result` or `error`, as the original response would. `running`
 and `unknown` hold neither. A `cancelled` response is not an outcome: once the
 operation finishes, `get_request_result` returns its real outcome.
+
+## Model and reasoning effort
+
+`/model` and `/effort` change the session's settings, not the configuration
+file. The terminal UI reads the session's settings from its snapshot, sets
+`model` or `reasoning_effort` in them, and writes them back with the session's
+`update_session_settings` RPC on the Dex server. No local request is involved.
+The new value applies from the next turn, and `--resume` keeps it, because
+the session stores its settings.
+
+- `/model` with no argument offers `display.models`, with the current model
+  marked. The current model is the session settings' `model`, else
+  `display.model`. `/model <ID>` takes any ID without spaces, listed or not.
+- `/effort` with no argument offers `capabilities.reasoning_effort.values`
+  and `default`, with the current value marked. `default` removes
+  `reasoning_effort` from the settings, so the model's own default applies.
+  `/effort <value>` takes only one of these. So `default` is reserved: no
+  command declares it, and a launch document that lists it fails the schema.
+- A suggested model ID is not empty and has no space or control character,
+  the same rule as `/model <ID>`. The CLI cores check each harness's
+  suggestions at startup.
+- `reasoning_effort` is a session setting of
+  [`session-settings.schema.json`](session-settings.schema.json). A Worker
+  rejects a value its harness command does not declare, and the turn fails.
+
+dexcli 1.47.0 is the first release that reads `display.models` and
+`capabilities.reasoning_effort`. Older releases ignore them, as they ignore
+every unknown field. A launcher that sends neither, such as one of agents
+0.6.0, gets a `/model` picker with `display.model` only, and `/effort` says
+the command has no reasoning effort setting. A Worker of agents 0.6.0 ignores
+a `reasoning_effort` setting and reports it as an unknown key.
 
 ## Notices
 

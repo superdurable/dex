@@ -41,6 +41,12 @@ export const defaultInstructions =
  * Each turn uses the model and instructions its session settings resolve to. The `mastra` section has no options
  * yet; any key in it is a configuration error.
  *
+ * The command declares no reasoning efforts, so a session's `reasoning_effort` fails the turn. The terminal UI's
+ * `/model` suggests `openai/gpt-5.2`, `openai/gpt-5-mini`, `anthropic/claude-opus-5-5`, and
+ * `anthropic/claude-sonnet-5-5`.
+ *
+ * Changed in 0.7.0: suggests models.
+ *
  * @example
  * ```ts
  * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
@@ -55,6 +61,8 @@ export const mastraHarness: AgentHarness = {
   configSection: "mastra",
   flowType: mastraCliFlowType,
   defaultModel: defaultMastraModel,
+  // No reasoning efforts: Mastra's model router has no verified per-call reasoning option.
+  suggestedModels: ["openai/gpt-5.2", "openai/gpt-5-mini", "anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5"],
   createSessionFlow: (context) => createMastraCliSessionFlow(context),
 };
 

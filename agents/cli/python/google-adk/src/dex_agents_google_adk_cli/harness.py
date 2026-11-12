@@ -48,6 +48,15 @@ class GoogleAdkHarness:
     sends the running turn's model and instructions, so session settings
     that change them apply from the next turn. The CLI core's connector and
     local tools are the agent's only tools.
+
+    The command declares no reasoning effort values, because Gemini models
+    set thinking differently by generation: Gemini 3 takes a thinking level
+    and Gemini 2.5 a thinking token budget. A ``reasoning_effort`` session
+    setting fails the turn with ``unsupported_reasoning_effort``.
+    ``suggested_models`` lists Gemini models for the terminal UI's ``/model``.
+
+    .. versionchanged:: 0.7.0
+       The suggested models.
     """
 
     name = "google-adk"
@@ -55,6 +64,7 @@ class GoogleAdkHarness:
     flow_type = GOOGLE_ADK_CLI_FLOW_TYPE
     default_model: str | None = DEFAULT_GOOGLE_ADK_MODEL
     replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
+    suggested_models = ("gemini-2.5-flash", "gemini-2.5-pro")
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         """Build the ADK agent session Flow from the effective configuration.

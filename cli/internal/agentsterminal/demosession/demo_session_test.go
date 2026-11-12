@@ -135,6 +135,39 @@ func TestDemoSessionQueuesMessagesDuringATurn(t *testing.T) {
 	require.Equal(t, "Also check nightly.", recorded.Text, "the queued message starts the next turn")
 }
 
+func isNoticeRaised(update sessionfeed.SessionUpdate) bool {
+	_, isNotice := update.(sessionfeed.NoticeRaised)
+	return isNotice
+}
+
+func isSessionOpened(update sessionfeed.SessionUpdate) bool {
+	_, isOpened := update.(sessionfeed.SessionOpened)
+	return isOpened
+}
+
+// The demo's /model and /effort change the session it describes.
+func TestDemoSessionChangesTheModelAndEffort(t *testing.T) {
+	driver := newDemoDriver(t)
+	opened := driver.readUntil(isSessionOpened).(sessionfeed.SessionOpened)
+	require.Equal(t, []string{"gpt-5.2", "gpt-5-mini", "gpt-5-nano"}, opened.Models)
+	require.Equal(t, []string{"low", "medium", "high"}, opened.ReasoningEffortValues)
+
+	driver.submit(sessionfeed.RunSlashCommand{Name: "effort", Argument: "bogus"})
+	notice := driver.readUntil(isNoticeRaised).(sessionfeed.NoticeRaised)
+	require.Equal(t, `Unknown reasoning effort "bogus"; choose one of low, medium, high, default.`, notice.Text)
+
+	driver.submit(sessionfeed.RunSlashCommand{Name: "model", Argument: "gpt-5-mini"})
+	driver.submit(sessionfeed.RunSlashCommand{Name: "effort", Argument: "high"})
+	driver.readUntil(func(update sessionfeed.SessionUpdate) bool {
+		changed, isOpened := update.(sessionfeed.SessionOpened)
+		return isOpened && changed.ReasoningEffort == "high"
+	})
+	driver.submit(sessionfeed.RunSlashCommand{Name: "effort", Argument: "default"})
+	changed := driver.readUntil(isSessionOpened).(sessionfeed.SessionOpened)
+	require.Equal(t, "gpt-5-mini", changed.Model)
+	require.Empty(t, changed.ReasoningEffort)
+}
+
 func TestDemoSessionStopsWithItsContext(t *testing.T) {
 	demo := NewDemoSession(DemoSessionConfig{})
 	ctx, cancel := context.WithCancel(context.Background())

@@ -1,13 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Dex Agents CLI session settings",
-  "description": "The settings of one session that a Dex Agents CLI command runs: the JSON object that start_session and update_session_settings store, at most 16 KiB. They override the configuration file from the next turn on. model and system_prompt replace the file's values. connectors.enabled may only narrow the file's connections and tools, approval.always only adds tools that need approval, and local_tools may only switch tools off or shrink the shell allow list. An omitted field keeps the file's value; there are no defaults here. Other top-level keys belong to other readers of the settings: they are ignored and reported as warnings, so they never fail a turn. Unknown keys inside a known field are errors. Settings that fail this schema or try to widen the file are rejected as a whole, and the turn fails with the error. A session without settings uses the file as it is. Do not put secrets in settings: they are stored in the session.",
+  "description": "The settings of one session that a Dex Agents CLI command runs: the JSON object that start_session and update_session_settings store, at most 16 KiB. They override the configuration file from the next turn on. model and system_prompt replace the file's values, and reasoning_effort sets the reasoning effort, which the file has no field for. connectors.enabled may only narrow the file's connections and tools, approval.always only adds tools that need approval, and local_tools may only switch tools off or shrink the shell allow list. An omitted field keeps the file's value; there are no defaults here. Other top-level keys belong to other readers of the settings: they are ignored and reported as warnings, so they never fail a turn. Unknown keys inside a known field are errors. Settings that fail this schema or try to widen the file are rejected as a whole, and the turn fails with the error. A session without settings uses the file as it is. Do not put secrets in settings: they are stored in the session.",
   "$comment": "The $defs shared with config.schema.json must stay identical to it; the tests in agents/cli/tests check them.",
   "type": "object",
   "properties": {
     "model": {
       "$ref": "#/$defs/model",
       "description": "Replaces the file's model."
+    },
+    "reasoning_effort": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,31}(?![\\s\\S])",
+      "description": "The reasoning effort of every model call, one of the values the harness command declares, such as low, medium, or high. Omitted: the model's own default. A harness command that declares no values rejects it."
     },
     "system_prompt": {
       "type": "string",

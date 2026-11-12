@@ -30,7 +30,7 @@ import {
 } from "@superdurable/dex-agents";
 
 import type { AgentHarness, HarnessContext, LocalToolGroup } from "./agent-harness.js";
-import { localToolGroups } from "./agent-harness.js";
+import { localToolGroups, requireValidHarnessDeclarations } from "./agent-harness.js";
 import {
   ConfigError,
   canonicalOperationName,
@@ -195,6 +195,8 @@ function requireSessionSummarySetting(
  * @returns The exit code: 0 on success, 1 for a failure or for input that ended during the `init` questions, 2 for
  * invalid arguments or configuration, and 130 for Ctrl-C during the `init` questions. A cancelled `init` writes no
  * file.
+ * @throws {Error} Since 0.7.0, before anything else, when the harness's `supportedReasoningEfforts` or
+ * `suggestedModels` has a malformed or repeated entry: a programming error of the harness.
  * @since 0.5.0
  */
 export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = processAgentCliIo()): Promise<number> {
@@ -207,6 +209,7 @@ export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = proces
 }
 
 async function runAgentCliCommand(harness: AgentHarness, io: AgentCliIo): Promise<number> {
+  requireValidHarnessDeclarations(harness);
   if (io.argv[0] === workerHostSubcommand) {
     return runWorkerHost(harness, io, (log) => AgentCliCommand.forWorkerHost(harness, io, log));
   }
@@ -529,6 +532,8 @@ export class AgentCliCommand {
       {
         commandName: `dex-agents-${this.harness.name}`,
         harnessName: this.harness.name,
+        harnessDefaultModel: this.harness.defaultModel,
+        suggestedModels: this.harness.suggestedModels ?? [],
         commandVersion: commandPackageVersion(),
         dexcli,
         start: {
@@ -585,6 +590,7 @@ export class AgentCliCommand {
       readFileInstructions(effective, loaded.configPath, this.environment.homeDirectory),
       (warnings) => this.log(`Session settings keys ignored: ${warnings.join(", ")}`),
       (flowId) => this.readTurnSessionSettings(flowId),
+      this.harness.supportedReasoningEfforts ?? [],
     );
     const workspace = this.prepareWorkspace(effective, loaded);
     const identity = this.sessionEnvironmentIdentity(loaded, workspace);

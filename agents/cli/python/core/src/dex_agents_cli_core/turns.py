@@ -48,9 +48,17 @@ class ResolvedTurn(EffectiveConfig):
     Attributes:
         instructions: ``system_prompt``, else the text of ``system_prompt_file``,
             else ``None`` for the harness's own default instructions.
+        reasoning_effort: The turn's reasoning effort from the session
+            settings, one of the harness's ``supported_reasoning_efforts``, or
+            ``None`` when the settings set none. With ``None``, pass no
+            reasoning effort to the SDK, so the model's own default applies.
+            ``to_json`` leaves it out, as it does ``instructions``.
+
+            .. versionadded:: 0.7.0
     """
 
     instructions: str | None = None
+    reasoning_effort: str | None = None
 
 
 class TurnConfigResolver:
@@ -65,8 +73,13 @@ class TurnConfigResolver:
         file_config: EffectiveConfig,
         file_instructions: str | None,
         report_warnings: Callable[[Sequence[str]], None],
+        *,
+        supported_reasoning_efforts: Sequence[str] = (),
     ) -> None:
         """Bound every turn by the file's configuration.
+
+        .. versionchanged:: 0.7.0
+           The ``supported_reasoning_efforts`` argument.
 
         Args:
             file_config: The file's effective configuration.
@@ -74,10 +87,14 @@ class TurnConfigResolver:
                 the text of ``system_prompt_file``, else ``None``.
             report_warnings: Called once per distinct settings with the JSON
                 Pointers of their ignored keys.
+            supported_reasoning_efforts: The ``reasoning_effort`` values the
+                harness command declares. Empty, the default, rejects every
+                ``reasoning_effort`` setting with ``unsupported_reasoning_effort``.
         """
         self._file_config = file_config
         self._file_instructions = file_instructions
         self._report_warnings = report_warnings
+        self._supported_reasoning_efforts = tuple(supported_reasoning_efforts)
         self._cache: dict[str, ResolvedTurn] = {}
 
     @property
@@ -100,7 +117,8 @@ class TurnConfigResolver:
             The turn's configuration and instructions.
 
         Raises:
-            ConfigError: If the settings fail the schema or widen the file. Its
+            ConfigError: If the settings fail the schema, widen the file, or
+                set a ``reasoning_effort`` the harness does not declare. Its
                 message is ``<code> at "<pointer>"``.
         """
         settings = dict(session_settings) if session_settings else None
@@ -108,7 +126,11 @@ class TurnConfigResolver:
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        resolution = resolve_turn_config(self._file_config, settings)
+        resolution = resolve_turn_config(
+            self._file_config,
+            settings,
+            supported_reasoning_efforts=self._supported_reasoning_efforts,
+        )
         if resolution.warnings:
             self._report_warnings(resolution.warnings)
         turn = resolution.config
@@ -118,6 +140,7 @@ class TurnConfigResolver:
         resolved = ResolvedTurn(
             **{field.name: getattr(turn, field.name) for field in dataclasses.fields(turn)},
             instructions=instructions,
+            reasoning_effort=resolution.reasoning_effort,
         )
         if len(self._cache) >= _RESOLUTION_CACHE_SIZE:
             self._cache.clear()

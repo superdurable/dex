@@ -141,6 +141,9 @@ type LaunchDisplay struct {
 	Workspace string `json:"workspace"`
 	// ConfigPath is the configuration path, or nil.
 	ConfigPath *string `json:"config_path"`
+	// Models are the model IDs /model offers, the configured model first;
+	// nil when the launcher sends none.
+	Models []string `json:"models"`
 }
 
 // LaunchCapabilities says what the built session Flow supports.
@@ -151,6 +154,16 @@ type LaunchCapabilities struct {
 	IsPlanMode bool `json:"plan_mode"`
 	// HasTurnControl reports a Flow that supports steer and cancel.
 	HasTurnControl bool `json:"turn_control"`
+	// ReasoningEffort holds the reasoning effort values, or nil when the
+	// command has no reasoning effort setting.
+	ReasoningEffort *ReasoningEffortValues `json:"reasoning_effort"`
+}
+
+// ReasoningEffortValues lists the reasoning_effort session setting values a
+// command accepts.
+type ReasoningEffortValues struct {
+	// Values are the accepted values, from least to most effort.
+	Values []string `json:"values"`
 }
 
 // ImageLimits bounds the images of one user message.

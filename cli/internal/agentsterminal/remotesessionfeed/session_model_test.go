@@ -11,8 +11,10 @@ package remotesessionfeed
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -39,6 +41,8 @@ type fakeSessions struct {
 	listMessages func(sessionID string, beforeSequence *int64, limit int64) (dexagents.AgentMessagesPage, error)
 	// listEvents answers ListAgentEvents when set.
 	listEvents func(pageSize int32, beforePageToken string) (dex.StreamMessagesPage[dexagents.AgentEvent], error)
+	// writtenSettings are the UpdateSessionSettings arguments, in order.
+	writtenSettings []map[string]any
 }
 
 func (sessions *fakeSessions) SendUserMessage(context.Context, string, dexagents.AgentUserMessage) (bool, error) {
@@ -72,8 +76,20 @@ func (sessions *fakeSessions) ExecutePlan(context.Context, string, int64) (bool,
 	return true, nil
 }
 
-func (sessions *fakeSessions) UpdateSessionSettings(context.Context, string, map[string]any) (bool, error) {
+// UpdateSessionSettings records the settings and stores them in the
+// snapshot, as the session would.
+func (sessions *fakeSessions) UpdateSessionSettings(_ context.Context, _ string, sessionSettings map[string]any) (bool, error) {
+	sessions.mutex.Lock()
+	defer sessions.mutex.Unlock()
+	sessions.writtenSettings = append(sessions.writtenSettings, maps.Clone(sessionSettings))
+	sessions.snapshot.SessionSettings = maps.Clone(sessionSettings)
 	return true, nil
+}
+
+func (sessions *fakeSessions) recordedSettings() []map[string]any {
+	sessions.mutex.Lock()
+	defer sessions.mutex.Unlock()
+	return slices.Clone(sessions.writtenSettings)
 }
 
 func (sessions *fakeSessions) GetAgentSnapshot(context.Context, string) (dexagents.AgentSnapshot, error) {

@@ -131,6 +131,8 @@ type ChatScreen struct {
 	pager                   *pagerView
 	isToolPickerOpen        bool
 	toolPickerIndex         int
+	// settingPicker is the open /model or /effort picker, or nil.
+	settingPicker *settingPicker
 	// turnTools are the calls of the newest turn that ran tools, with their
 	// output for Ctrl-O and /tools.
 	turnTools             []sessionfeed.ToolCallChanged
@@ -470,6 +472,9 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 	if screen.isToolPickerOpen {
 		return screen.handleToolPickerKey(keyName)
 	}
+	if screen.settingPicker != nil {
+		return screen.handleSettingPickerKey(keyName)
+	}
 	if screen.pendingPastedImage != nil {
 		return screen.handlePastedImageKey(key)
 	}
@@ -553,7 +558,7 @@ func (screen *ChatScreen) handlePaste(content string) {
 		}
 	case screen.isPopupOpen && screen.popup.isEnteringText:
 		screen.popup.textInput.InsertText(content)
-	case screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen || screen.pendingFocus != pendingFocusNone:
+	case screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen || screen.settingPicker != nil || screen.pendingFocus != pendingFocusNone:
 	case screen.pendingPastedImage != nil:
 		screen.keepPastedText()
 		screen.input.InsertText(content)
@@ -657,7 +662,7 @@ func (screen *ChatScreen) forgetSessionViews(nextSessionID string) {
 	screen.interruptFeedback, screen.interruptOutcomes = map[string]string{}, map[string]string{}
 	screen.pendingFocus, screen.pendingDelete = pendingFocusNone, nil
 	screen.queuedMessages = nil
-	screen.pager, screen.isToolPickerOpen = nil, false
+	screen.pager, screen.isToolPickerOpen, screen.settingPicker = nil, false, nil
 	screen.pathCompletions, screen.isPathCompletionPartial = nil, false
 	screen.pathCompletionRequestID++
 	if screen.pendingPastedImage != nil {
@@ -743,6 +748,13 @@ func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
 		return nil
 	case runCommandName:
 		return screen.runPlan()
+	}
+	if parsed.argument == "" && (parsed.name == modelCommandName || parsed.name == effortCommandName) {
+		if screen.openSettingPicker(parsed.name) {
+			return nil
+		}
+		// With nothing to offer, the source explains the setting.
+		return screen.submitAction(sessionfeed.RunSlashCommand{Name: parsed.name})
 	}
 	if command, _ := screen.commands.Lookup(parsed.name); command.IsArgumentOptional && parsed.argument == "" {
 		// The command shows its current value; the argument is ready to type.
@@ -1008,9 +1020,9 @@ func (screen *ChatScreen) handleCompletionKey(key tea.KeyPressMsg) (tea.Cmd, boo
 // handleInterruptKey applies Ctrl-C: cancel a running turn, clear a draft,
 // or exit.
 func (screen *ChatScreen) handleInterruptKey() tea.Cmd {
-	if screen.pager != nil || screen.isToolPickerOpen {
+	if screen.pager != nil || screen.isToolPickerOpen || screen.settingPicker != nil {
 		// The first Ctrl-C closes the reader, so the draft behind it stays.
-		screen.pager, screen.isToolPickerOpen = nil, false
+		screen.pager, screen.isToolPickerOpen, screen.settingPicker = nil, false, nil
 		return nil
 	}
 	if !screen.isTurnRunning {
@@ -1589,6 +1601,7 @@ func (screen *ChatScreen) disableInput(exitCode int) {
 	screen.pendingFocus = pendingFocusNone
 	screen.pager = nil
 	screen.isToolPickerOpen = false
+	screen.settingPicker = nil
 	screen.pendingPastedImage = nil
 }
 
@@ -1672,7 +1685,7 @@ func (screen *ChatScreen) addInterrupt(interrupt pendingInterrupt) {
 
 // isOtherViewOpen reports a view that an arriving interrupt must not cover.
 func (screen *ChatScreen) isOtherViewOpen() bool {
-	return screen.isHelpOpen || screen.pager != nil || screen.isToolPickerOpen || screen.pendingPastedImage != nil
+	return screen.isHelpOpen || screen.pager != nil || screen.isToolPickerOpen || screen.settingPicker != nil || screen.pendingPastedImage != nil
 }
 
 func (screen *ChatScreen) resolveInterrupt(resolved sessionfeed.InterruptResolved) {

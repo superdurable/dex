@@ -166,6 +166,8 @@ interface AgentHarness {
   readonly defaultModel: string | null;
   readonly replacedLocalTools?: readonly LocalToolGroup[];
   readonly defaultWorkspaceLocation?: "dex_agent_workspace" | "launch_directory"; // TypeScript only
+  readonly supportedReasoningEfforts?: readonly string[]; // reasoning_effort values, least effort first
+  readonly suggestedModels?: readonly string[]; // what /model offers after the default model
   createSessionFlow(context: HarnessContext): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
 }
 
@@ -177,7 +179,7 @@ interface HarnessContext {
   readonly harnessOptions: Readonly<Record<string, unknown>>;
   readonly toolSources: readonly ToolSource[]; // connectors, then local tools
   readonly mediaStore?: MediaStore; // media.store; the CLI core always sets it
-  resolveTurn(sessionSettings: SessionSettings): ResolvedTurn; // model, instructions, narrowing
+  resolveTurn(sessionSettings: SessionSettings): ResolvedTurn; // model, instructions, reasoningEffort, narrowing
   currentTurn(): ResolvedTurn; // the running model call's turn, else the file
   resolveToolStepPermissions(step: { flowId: string; turnId: string }): Promise<ResolvedTurn>; // in a tool Step
 }
@@ -199,6 +201,18 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   `approval.always`. A harness reads only the model and the instructions,
   with `resolveTurn` in each model call. Rejected settings throw there, so
   the turn fails with the error code and JSON Pointer.
+- `supportedReasoningEfforts` lists the values of the `reasoning_effort`
+  session setting that the harness maps to its SDK, such as `low`, `medium`,
+  and `high`. A turn whose settings set one has it in
+  `ResolvedTurn.reasoningEffort`; pass it to every model call of that turn,
+  and pass nothing when it is absent, so the model's own default applies. A
+  value the harness does not list fails the turn with
+  `unsupported_reasoning_effort` at `/reasoning_effort`, and a harness that
+  lists none rejects every value. The configuration file has no reasoning
+  effort. `suggestedModels` are the model IDs the terminal UI's `/model`
+  offers after the configured model and `defaultModel`. Each entry must be
+  unique, and each effort a lowercase name; otherwise `runAgentCli` throws at
+  startup.
 - `defaultWorkspaceLocation: "launch_directory"` makes the directory the
   command starts in the workspace when the file sets none, as Pi does, and
   `init` then writes no `workspace`. The default is `~/dex-agent-workspace`.
@@ -261,6 +275,8 @@ The Python CLI core uses the same names in snake case:
 | `HarnessContext` with `flowType`, `config`, `workspace`, `instructions`, `harnessOptions`, `toolSources`, `mediaStore`, `resolveTurn`, `currentTurn` | `HarnessContext` with the same fields in snake case; `mediaStore` and `media_store` are absent only in a context a test builds |
 | `LocalToolGroup` | `LocalToolGroup` (`files`, `shell`, `web_fetch`, `browser`) |
 | `terminalInterface` (`"dexcli"` or `"plain"`) | `terminal_interface` |
+| `supportedReasoningEfforts`, `suggestedModels` | `supported_reasoning_efforts`, `suggested_models` |
+| `ResolvedTurn.reasoningEffort` | `ResolvedTurn.reasoning_effort` |
 | `runAgentCli(harness)` | `run_agent_cli(harness)` |
 | `isLocalToolGroupEnabled`, `isShellCommandApprovalRequired`, `resolveTurnToolPolicy` | the same names in snake case |
 | `HarnessContext.resolveToolStepPermissions(step)` | `HarnessContext.resolve_tool_step_permissions(step)` |
@@ -522,9 +538,15 @@ Otherwise the command becomes a thin **launcher** with two children:
   The Worker host opens the session exactly as the text chat does, then
   reports the session, its Flow type, and the capabilities of the Flow it
   built: `images` only when the runner implements
-  `buildUserMessageWithImages`, `plan_mode` from the Flow's options, and
-  `turn_control`. A startup failure, such as a `--resume` of another
-  environment's session, exits with the code the text chat would use.
+  `buildUserMessageWithImages`, `plan_mode` from the Flow's options,
+  `turn_control`, and `reasoning_effort` with the harness's
+  `supportedReasoningEfforts` only when it declares some. A startup failure,
+  such as a `--resume` of another environment's session, exits with the code
+  the text chat would use.
+- The launch document's `display.models` lists the configured model (the
+  file's `model` or `--model`), then the harness's `defaultModel`, then its
+  `suggestedModels`, each once. `/model` and `/effort` write the session's
+  settings through the Dex server, so they need no local request.
 - The launch document's `notices` are the lines the command printed while it
   started a `dexcli dev`, as `info`, then the Worker host's log lines before
   its session opened, as `warning`. Those Worker host lines print on the

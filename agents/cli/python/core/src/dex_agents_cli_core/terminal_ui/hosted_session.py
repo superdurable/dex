@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import stat
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -42,12 +42,15 @@ _CONNECTIONS_TIMEOUT_SECONDS = 10.0
 _LOGGER = logging.getLogger(__name__)
 
 
-def session_flow_capabilities(flow: AgentSessionFlow) -> dict[str, Any]:
+def session_flow_capabilities(
+    flow: AgentSessionFlow, *, supported_reasoning_efforts: Sequence[str] = ()
+) -> dict[str, Any]:
     """Return the launch document's ``capabilities`` of the session Flow the Worker serves.
 
     Images are present when the runner builds user messages with images.
     Every agent session Flow supports steer and cancel; the snapshot's
-    ``accepts_turn_control`` still decides each time.
+    ``accepts_turn_control`` still decides each time. ``reasoning_effort``
+    is present only when the harness declares reasoning effort values.
     """
     capabilities: dict[str, Any] = {}
     if isinstance(flow.runner, ImageUserMessageBuilder):
@@ -57,6 +60,8 @@ def session_flow_capabilities(flow: AgentSessionFlow) -> dict[str, Any]:
         }
     capabilities["plan_mode"] = flow.options.plan_mode_enabled
     capabilities["turn_control"] = True
+    if supported_reasoning_efforts:
+        capabilities["reasoning_effort"] = {"values": list(supported_reasoning_efforts)}
     return capabilities
 
 

@@ -22,6 +22,11 @@ import type { ResolvedTurn } from "@superdurable/dex-agents-cli-core";
  * change both per turn through its session settings. This model reads the running turn on every call, delegates
  * to that turn's model, and adds the turn's instructions as the system message when the prompt has none.
  *
+ * When the turn has a reasoning effort, each call sets it as the `reasoning` call option. Otherwise the call keeps
+ * its own `reasoning`, so the model's default applies.
+ *
+ * Changed in 0.7.0: sets the turn's reasoning effort.
+ *
  * @example
  * ```ts
  * const model = new TurnLanguageModel(() => context.currentTurn(), createProviderLanguageModel, "Help the user.");
@@ -69,7 +74,7 @@ export class TurnLanguageModel implements LanguageModelV4 {
    * @returns The model's result.
    */
   public doGenerate(options: LanguageModelV4CallOptions): PromiseLike<LanguageModelV4GenerateResult> {
-    return this.turnModel().doGenerate(this.withInstructions(options));
+    return this.turnModel().doGenerate(this.withTurnOptions(options));
   }
 
   /**
@@ -79,7 +84,7 @@ export class TurnLanguageModel implements LanguageModelV4 {
    * @returns The model's stream.
    */
   public doStream(options: LanguageModelV4CallOptions): PromiseLike<LanguageModelV4StreamResult> {
-    return this.turnModel().doStream(this.withInstructions(options));
+    return this.turnModel().doStream(this.withTurnOptions(options));
   }
 
   private turnModel(): LanguageModelV4 {
@@ -90,6 +95,15 @@ export class TurnLanguageModel implements LanguageModelV4 {
       this.models.set(modelId, model);
     }
     return model;
+  }
+
+  private withTurnOptions(options: LanguageModelV4CallOptions): LanguageModelV4CallOptions {
+    const reasoningEffort = this.currentTurn().reasoningEffort;
+    const withInstructions = this.withInstructions(options);
+    return reasoningEffort === undefined
+      ? withInstructions
+      : // The CLI core accepts only the declared efforts, which the call option's type includes.
+        { ...withInstructions, reasoning: reasoningEffort as NonNullable<LanguageModelV4CallOptions["reasoning"]> };
   }
 
   private withInstructions(options: LanguageModelV4CallOptions): LanguageModelV4CallOptions {

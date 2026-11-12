@@ -40,11 +40,12 @@ func displayedPointer(path string) string {
 
 // The contract schemas end patterns with (?![\s\S]); \z is Go's equivalent.
 var (
-	harnessNamePattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*\z`)
-	lowercaseNamePattern  = regexp.MustCompile(`^[a-z][a-z0-9_]*\z`)
-	idempotencyKeyPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z`)
-	sha256HexPattern      = regexp.MustCompile(`^[0-9a-f]{64}\z`)
-	sessionIDPattern      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*-[0-9]{8}-[0-9]{6}-(?:[0-9a-f]{6}|[0-9a-f]{12})\z`)
+	harnessNamePattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*\z`)
+	lowercaseNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9_]*\z`)
+	reasoningEffortPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}\z`)
+	idempotencyKeyPattern  = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z`)
+	sha256HexPattern       = regexp.MustCompile(`^[0-9a-f]{64}\z`)
+	sessionIDPattern       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*-[0-9]{8}-[0-9]{6}-(?:[0-9a-f]{6}|[0-9a-f]{12})\z`)
 )
 
 // maximumRequestID is 2^53-1, the largest ID every JSON reader keeps exactly.

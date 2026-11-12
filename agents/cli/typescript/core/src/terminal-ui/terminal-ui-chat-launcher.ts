@@ -41,6 +41,10 @@ const relayedChatMethods = ["put_image", "start_session", "list_connectors"] as 
 export interface TerminalUiChatLaunch {
   readonly commandName: string;
   readonly harnessName: string;
+  /** The harness's `defaultModel`, for the launch document's `display.models`. */
+  readonly harnessDefaultModel: string | null;
+  /** The harness's `suggestedModels`, for the launch document's `display.models`. */
+  readonly suggestedModels: readonly string[];
   readonly commandVersion: string;
   /** The `dexcli` executable, an absolute path. */
   readonly dexcli: string;
@@ -356,6 +360,8 @@ class TerminalUiHandoff {
       sessionId: ready.sessionId,
       isResumed: ready.isResumed,
       model: launch.start.effective.model,
+      harnessDefaultModel: launch.harnessDefaultModel,
+      suggestedModels: launch.suggestedModels,
       workspace: ready.workspace,
       configPath: launch.configPath,
       methods: [...methods.keys(), "get_request_result"],

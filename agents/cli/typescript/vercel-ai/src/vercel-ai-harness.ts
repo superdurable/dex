@@ -42,6 +42,12 @@ export const defaultInstructions =
  * `anthropic/<model>`; each turn uses the model and instructions its session settings resolve to. The
  * `vercel_ai` section has no options yet; any key in it is a configuration error.
  *
+ * The `reasoning_effort` session setting takes `low`, `medium`, or `high`, and becomes the AI SDK's `reasoning`
+ * call option of every model call in the turn. The terminal UI's `/model` suggests `openai/gpt-5.2`,
+ * `openai/gpt-5-mini`, `anthropic/claude-opus-5-5`, and `anthropic/claude-sonnet-5-5`.
+ *
+ * Changed in 0.7.0: maps the `reasoning_effort` session setting and suggests models.
+ *
  * @example
  * ```ts
  * import { processAgentCliIo, runAgentCli } from "@superdurable/dex-agents-cli-core";
@@ -56,6 +62,8 @@ export const vercelAiHarness: AgentHarness = {
   configSection: "vercel_ai",
   flowType: vercelAiCliFlowType,
   defaultModel: defaultVercelAiModel,
+  supportedReasoningEfforts: ["low", "medium", "high"],
+  suggestedModels: ["openai/gpt-5.2", "openai/gpt-5-mini", "anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5"],
   createSessionFlow: (context) => createVercelAiCliSessionFlow(context),
 };
 

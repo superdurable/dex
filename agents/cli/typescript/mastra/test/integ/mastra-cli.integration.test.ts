@@ -165,6 +165,26 @@ describe("dex-agents-mastra with the Mastra model router against a scripted Resp
     assert.match(JSON.stringify(nextTurnRequests.at(-1)), /buy milk/);
   });
 
+  test("the command declares no reasoning efforts, so a session's reasoning_effort fails the turn", async () => {
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    cli.writeLine("say before");
+    await cli.stdout.waitFor("said: before");
+    const firstTurnRequestCount = api.modelRequests().length;
+    const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    try {
+      assert.equal(await sessions.updateSessionSettings(sessionId, { reasoning_effort: "low" }), true);
+    } finally {
+      await environment.close();
+    }
+    cli.writeLine("say after");
+    await cli.stdout.waitFor('Turn failed: unsupported_reasoning_effort at "/reasoning_effort"', 120_000);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 1);
+    assert.equal(api.modelRequests().length, firstTurnRequestCount);
+  });
+
   test("a key in the mastra section is a configuration error", async () => {
     const cli = start(newHome({ ...noConnectors, mastra: { max_turns: 3 } }));
     assert.equal(await cli.waitForExit(), 2);

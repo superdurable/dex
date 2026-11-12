@@ -42,6 +42,12 @@ The model defaults to `openai:gpt-5.2`; set `model` in the file or pass
 `--model` to change it. It is a Pydantic AI model name, `<provider>:<model>`,
 such as `anthropic:claude-opus-5-5`. A session's settings may change the model
 and the instructions; each model call uses the values of its turn.
+The session setting `reasoning_effort` may be `low`, `medium`, or `high`;
+each model call sends it as Pydantic AI's `thinking` model setting, which
+each provider maps to its own option. Without it, the model's default
+applies. In the terminal UI, `/effort` sets it, and `/model` also offers
+`openai:gpt-5.2`, `openai:gpt-5-mini`, `anthropic:claude-opus-5-5`, and
+`anthropic:claude-sonnet-5-5`.
 `system_prompt` replaces the default instructions. The `pydantic_ai` section
 has no options yet, and any key in it is a configuration error.
 
@@ -81,7 +87,8 @@ request. A fake connectors MCP server serves a connector read and write. The
 tests cover a chat turn and `--resume`, `read_file` without approval and
 `write_file` after approval, a connector read and an approved connector write
 that runs once, session settings that change the model, and a key in the
-`pydantic_ai` section.
+`pydantic_ai` section. A `reasoning_effort` in the session settings reaches
+the next Responses API request, and an undeclared one fails the turn.
 They also cover a `system_prompt` set in the session settings, which reaches
 the next model request, and a rejected file write and connector write, which
 never run.

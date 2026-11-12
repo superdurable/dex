@@ -107,6 +107,8 @@ from dex_agents_cli_core.harness import (
     SessionEnvironmentIdentity,
     TerminalInterface,
     current_session_environment_identity,
+    declared_reasoning_efforts,
+    declared_suggested_models,
     namespace_session_flow_type,
     session_flow_type,
     session_start_environment,
@@ -226,6 +228,9 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         Input that ends during the init questions exits with 1. A cancelled
         init writes no file.
     """
+    # A bad declaration is the harness's programming error, so it raises in every subcommand.
+    declared_reasoning_efforts(harness)
+    declared_suggested_models(harness)
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
     if raw_arguments[:1] == [WORKER_HOST_COMMAND]:
         return _run_worker_host(harness, raw_arguments[1:])
@@ -398,7 +403,7 @@ async def _open_hosted_run(
         def report_ignored_settings(warnings: Sequence[str]) -> None:
             reports.report(f"Session settings keys ignored: {', '.join(warnings)}")
 
-        inputs = _prepare_run(start.model, loaded, environment, report_ignored_settings)
+        inputs = _prepare_run(start.model, loaded, environment, harness, report_ignored_settings)
         endpoint = DexServerEndpoint(
             address=start.server_address,
             is_tls=start.is_tls,
@@ -438,17 +443,22 @@ async def _open_hosted_run(
         connectors_mcp_url=_connectors_mcp_url(inputs.config, endpoint),
         web_url=endpoint.web_url,
     )
-    return _HostedCliRun(session_worker, session_id, hosted)
+    return _HostedCliRun(session_worker, session_id, hosted, declared_reasoning_efforts(harness))
 
 
 class _HostedCliRun:
     """The Worker host's started Worker, its session, and the requests it serves."""
 
     def __init__(
-        self, session_worker: _SessionWorker, session_id: str, hosted: HostedChatSession
+        self,
+        session_worker: _SessionWorker,
+        session_id: str,
+        hosted: HostedChatSession,
+        supported_reasoning_efforts: Sequence[str],
     ) -> None:
         self._session_worker = session_worker
         self._session_id = session_id
+        self._supported_reasoning_efforts = tuple(supported_reasoning_efforts)
         self._request_handlers: dict[str, RequestHandler] = {
             PUT_IMAGE: hosted.put_image,
             START_SESSION: hosted.start_session,
@@ -465,7 +475,10 @@ class _HostedCliRun:
 
     @property
     def capabilities(self) -> Mapping[str, Any]:
-        return session_flow_capabilities(self._session_worker.flow)
+        return session_flow_capabilities(
+            self._session_worker.flow,
+            supported_reasoning_efforts=self._supported_reasoning_efforts,
+        )
 
     @property
     def request_handlers(self) -> Mapping[str, RequestHandler]:
@@ -603,7 +616,7 @@ async def _run(
     log_path: Path | None,
     server: _CommandDexServer,
 ) -> int:
-    inputs = _prepare_run(arguments.model, loaded, environment, _report_ignored_settings)
+    inputs = _prepare_run(arguments.model, loaded, environment, harness, _report_ignored_settings)
     endpoint = await server.resolve(inputs.config)
     if _is_terminal_ui_wanted(arguments, environment, harness):
         outcome = await _run_terminal_ui(
@@ -682,6 +695,7 @@ async def _run_terminal_ui(
             "config_path": None
             if loaded.path is None
             else _path_shown(loaded.path, environment.home),
+            "models": _offered_models(inputs.config.model, harness),
         },
         log_path=log_path,
         log_path_shown=_path_shown(log_path, environment.home),
@@ -693,6 +707,12 @@ async def _run_terminal_ui(
     return await run_terminal_ui_chat(
         launch, print, restore_signal_handlers=server.install_termination_handlers
     )
+
+
+def _offered_models(configured_model: str, harness: AgentHarness) -> list[str]:
+    """Return the ``/model`` choices: the configured model, the default, then the suggestions."""
+    candidates = [configured_model, harness.default_model, *declared_suggested_models(harness)]
+    return list(dict.fromkeys(model for model in candidates if model is not None))
 
 
 def _path_shown(path: Path, home: Path) -> str:
@@ -716,6 +736,7 @@ def _prepare_run(
     model: str | None,
     loaded: LoadedConfig,
     environment: CommandEnvironment,
+    harness: AgentHarness,
     report_ignored_settings: Callable[[Sequence[str]], None],
 ) -> _RunInputs:
     config = loaded.config if model is None else replace(loaded.config, model=model)
@@ -727,6 +748,7 @@ def _prepare_run(
         config,
         config.system_prompt if config.system_prompt is not None else prompt_text,
         report_ignored_settings,
+        supported_reasoning_efforts=declared_reasoning_efforts(harness),
     )
     return _RunInputs(config, media_store, workspace, resolver)
 
