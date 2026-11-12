@@ -275,6 +275,8 @@ impl TestObjectStoreProvider {
     }
 
     /// Rewrites the configuration at `path`, written for s3, to select this provider.
+    ///
+    /// Every store then drops `forcePathStyle`, which aliyunOSS rejects.
     pub(crate) fn select_in_config(self, path: &Path) {
         if self == Self::S3 {
             return;
@@ -290,6 +292,7 @@ impl TestObjectStoreProvider {
             selected, contents,
             "the configuration has a primary objectStore"
         );
+        let selected = selected.replace("    forcePathStyle: true\n", "");
         fs::write(path, selected).expect("the serve configuration is written");
     }
 }

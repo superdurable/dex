@@ -14,9 +14,11 @@ use std::time::Duration;
 
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{
-    FlowConfig, FlowDefinitionUpload, FlowDefinitionUploadOutcome, FlowStartOptions, FlowStatus,
-    GetFlowDefinitionsRequest, GetFlowSummaryRequest, StartFlowRequest, StepOptions,
-    UploadFlowDefinitionsRequest, WaitForFlowRequest, WorkerTarget,
+    AttributeWrite, FlowConfig, FlowDefinitionUpload, FlowDefinitionUploadOutcome,
+    FlowStartOptions, FlowStatus, GetAttributesRequest, GetFlowDefinitionsRequest,
+    GetFlowSummaryRequest, GetHistoryEventsRequest, SetAttributesRequest, StartFlowRequest,
+    StepOptions, StopFlowRequest, StopType, UploadFlowDefinitionsRequest, Value,
+    WaitForFlowRequest, WorkerTarget, value,
 };
 use s3local::VersioningState;
 use s3local_server::{S3ApiDialect, SignatureVerification};
@@ -26,9 +28,10 @@ use tonic::transport::Channel;
 use super::harness::{
     S3Emulator, ServeConfig, ServeProcess, TestObjectStoreProvider, free_loopback_address,
 };
+use super::metrics::try_scrape;
 use super::{
-    FLOW_TYPE, HELD_LEASE_DURATION, NODE_ID, PRIMARY_BUCKET, PRIMARY_PREFIX, SHUTDOWN_BUDGET,
-    run_greeting_flow, start_greeting_worker, string_value,
+    FLOW_TYPE, HARD_DELETE_BUCKET, HELD_LEASE_DURATION, NODE_ID, PRIMARY_BUCKET, PRIMARY_PREFIX,
+    SHUTDOWN_BUDGET, run_greeting_flow, start_greeting_worker, string_value,
 };
 
 /// Snapshots and log cleanup run every second, so retention and cleanup delete objects soon.
@@ -40,6 +43,13 @@ const MULTIPART_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
 const LARGE_INPUT_BYTES: usize = 12 * 1024 * 1024;
 const CLEANUP_BUDGET: Duration = Duration::from_secs(60);
 const FAILED_STARTUP_BUDGET: Duration = Duration::from_secs(30);
+const OFFLOAD_FLOW_ID: &str = "aliyun-offloaded-history";
+const HARD_DELETE_FLOW_ID: &str = "aliyun-hard-delete";
+/// Enough small writes to seal several 4 KiB history segments and fill more than one page.
+const OFFLOAD_WRITES: usize = 1_100;
+const UPLOAD_BUDGET: Duration = Duration::from_secs(60);
+const OBJECT_STORE_PAGE_READS: &str =
+    "dexzd_history_reads_total{kind=\"page\",source=\"object_store\"} ";
 /// A Flow type with `.`, which a Flow definition object key keeps.
 const DEFINITION_FLOW_TYPE: &str = "Order_Flow-v1.2";
 
@@ -48,6 +58,9 @@ struct AliyunOssServer<'a> {
     directory: &'a Path,
     endpoint: &'a str,
     local_directory: PathBuf,
+    hard_delete_endpoint: Option<&'a str>,
+    /// YAML sections appended to the configuration.
+    extra_config: &'a str,
 }
 
 impl AliyunOssServer<'_> {
@@ -61,7 +74,7 @@ impl AliyunOssServer<'_> {
         let path = self.directory.join(format!("{name}.yaml"));
         ServeConfig {
             primary_endpoint: self.endpoint,
-            hard_delete_endpoint: None,
+            hard_delete_endpoint: self.hard_delete_endpoint,
             listen,
             local_directory: &self.local_directory,
             lease_duration: HELD_LEASE_DURATION,
@@ -71,7 +84,8 @@ impl AliyunOssServer<'_> {
         .write_with_snapshot_schedule(&path, SNAPSHOT_INTERVAL, LOG_DELETION_DELAY);
         let mut contents = std::fs::read_to_string(&path).expect("the configuration is readable");
         contents.push_str(&format!(
-            "commit:\n  multipartThresholdBytes: {MULTIPART_THRESHOLD_BYTES}\n"
+            "commit:\n  multipartThresholdBytes: {MULTIPART_THRESHOLD_BYTES}\n{}",
+            self.extra_config
         ));
         std::fs::write(&path, contents).expect("the configuration is written");
         TestObjectStoreProvider::AliyunOss.select_in_config(&path);
@@ -95,6 +109,8 @@ async fn aliyun_oss_serve_cleans_up_objects_and_recovers_after_warm_and_cold_res
         directory: directory.path(),
         endpoint: &endpoint,
         local_directory: directory.path().join("store"),
+        hard_delete_endpoint: None,
+        extra_config: "",
     };
 
     let mut first = server.spawn("first");
@@ -174,6 +190,8 @@ async fn aliyun_oss_startup_rejects_a_bucket_that_ever_had_versioning() {
             directory: directory.path(),
             endpoint: &endpoint,
             local_directory: directory.path().join("store"),
+            hard_delete_endpoint: None,
+            extra_config: "",
         };
         let mut process = server.spawn("versioned");
         let status = process.wait_for_exit(FAILED_STARTUP_BUDGET).await;
@@ -219,6 +237,8 @@ async fn aliyun_oss_startup_rejects_data_written_by_the_s3_provider() {
         directory: directory.path(),
         endpoint: &endpoint,
         local_directory: directory.path().join("aliyun-oss-store"),
+        hard_delete_endpoint: None,
+        extra_config: "",
     };
     let mut process = server.spawn("aliyun-oss");
     let status = process.wait_for_exit(FAILED_STARTUP_BUDGET).await;
@@ -251,6 +271,8 @@ async fn aliyun_oss_replaces_flow_definitions() {
         directory: directory.path(),
         endpoint: &endpoint,
         local_directory: directory.path().join("store"),
+        hard_delete_endpoint: None,
+        extra_config: "",
     };
     let mut process = server.spawn("definitions");
     let mut flow_client = FlowServiceClient::new(process.wait_until_serving().await);
@@ -299,6 +321,256 @@ async fn aliyun_oss_replaces_flow_definitions() {
     let status = restarted.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", restarted.log());
     primary.shutdown().await;
+}
+
+/// Offloaded history is uploaded as segment objects and read back from object storage.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn aliyun_oss_offloaded_history_is_uploaded_and_read_back() {
+    let primary = S3Emulator::start_with_dialect(
+        PRIMARY_BUCKET,
+        SignatureVerification::Strict,
+        S3ApiDialect::AliyunOss,
+    )
+    .await;
+    let endpoint = primary.endpoint();
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let metrics = free_loopback_address();
+    let extra_config =
+        format!("history:\n  segmentTargetBytes: 4096\nmetrics:\n  listen: '{metrics}'\n");
+    let server = AliyunOssServer {
+        directory: directory.path(),
+        endpoint: &endpoint,
+        local_directory: directory.path().join("store"),
+        hard_delete_endpoint: None,
+        extra_config: &extra_config,
+    };
+    let mut process = server.spawn("offload");
+    let mut flow_client = FlowServiceClient::new(process.wait_until_serving().await);
+    start_idle_flow(&mut flow_client, OFFLOAD_FLOW_ID).await;
+    for write in 0..OFFLOAD_WRITES {
+        flow_client
+            .set_attributes(SetAttributesRequest {
+                flow_id: OFFLOAD_FLOW_ID.to_owned(),
+                attributes: vec![AttributeWrite {
+                    key: "counter".to_owned(),
+                    value: Some(string_value(&format!("write {write}"))),
+                    ..AttributeWrite::default()
+                }],
+                request_id: format!("write-{write}"),
+                ..SetAttributesRequest::default()
+            })
+            .await
+            .expect("SetAttributes commits");
+    }
+    let history_prefix = format!("{PRIMARY_PREFIX}/history/");
+    wait_until(UPLOAD_BUDGET, "three history segment objects exist", || {
+        primary.keys_under(PRIMARY_BUCKET, &history_prefix).len() >= 3
+    })
+    .await;
+
+    let mut event_ids = Vec::new();
+    let mut next_page_token = Vec::new();
+    loop {
+        let page = flow_client
+            .get_history_events(GetHistoryEventsRequest {
+                flow_id: OFFLOAD_FLOW_ID.to_owned(),
+                estimate_page_size: 5_000,
+                next_page_token,
+                ..GetHistoryEventsRequest::default()
+            })
+            .await
+            .unwrap_or_else(|status| panic!("GetHistoryEvents failed: {status}\n{}", process.log()))
+            .into_inner();
+        event_ids.extend(page.events.iter().map(|event| event.event_id));
+        next_page_token = page.next_page_token;
+        if next_page_token.is_empty() {
+            break;
+        }
+    }
+    let expected: Vec<i64> = (1..=i64::try_from(event_ids.len()).expect("few events")).collect();
+    assert_eq!(event_ids, expected, "every event once, in order");
+    assert!(event_ids.len() > OFFLOAD_WRITES);
+    let deadline = tokio::time::Instant::now() + UPLOAD_BUDGET;
+    while object_store_page_reads(metrics).await == 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no history page was read from object storage:\n{}",
+            process.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let status = process.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", process.log());
+    primary.shutdown().await;
+}
+
+/// A separate hard-delete destination stores, reads, and deletes a value through its own
+/// aliyunOSS stack.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn aliyun_oss_hard_delete_store_keeps_and_erases_a_value() {
+    let primary = S3Emulator::start_with_dialect(
+        PRIMARY_BUCKET,
+        SignatureVerification::Strict,
+        S3ApiDialect::AliyunOss,
+    )
+    .await;
+    let hard_delete = S3Emulator::start_with_dialect(
+        HARD_DELETE_BUCKET,
+        SignatureVerification::Off,
+        S3ApiDialect::AliyunOss,
+    )
+    .await;
+    let endpoint = primary.endpoint();
+    let hard_delete_endpoint = hard_delete.endpoint();
+    let directory = TempDir::new().expect("a temporary test directory can be created");
+    let server = AliyunOssServer {
+        directory: directory.path(),
+        endpoint: &endpoint,
+        local_directory: directory.path().join("store"),
+        hard_delete_endpoint: Some(&hard_delete_endpoint),
+        extra_config: "",
+    };
+    let mut process = server.spawn("hard-delete");
+    let mut flow_client = FlowServiceClient::new(process.wait_until_serving().await);
+    let run_id = start_idle_flow(&mut flow_client, HARD_DELETE_FLOW_ID).await;
+    flow_client
+        .set_attributes(SetAttributesRequest {
+            flow_id: HARD_DELETE_FLOW_ID.to_owned(),
+            run_id: run_id.clone(),
+            attributes: vec![AttributeWrite {
+                key: "secret".to_owned(),
+                value: Some(string_value("credential")),
+                is_hard_delete_on_null: true,
+                ..AttributeWrite::default()
+            }],
+            request_id: "set-secret".to_owned(),
+            ..SetAttributesRequest::default()
+        })
+        .await
+        .expect("the hard-delete Attribute is stored");
+    let stored = secret_attribute(&mut flow_client, &run_id).await;
+    assert_eq!(stored, Some(string_value("credential")));
+    let value_objects = hard_delete_value_keys(&hard_delete);
+    assert_eq!(value_objects.len(), 1, "{value_objects:?}");
+
+    flow_client
+        .stop_flow(StopFlowRequest {
+            flow_id: HARD_DELETE_FLOW_ID.to_owned(),
+            run_id: run_id.clone(),
+            stop_type: StopType::Terminate as i32,
+            ..StopFlowRequest::default()
+        })
+        .await
+        .expect("StopFlow closes the run");
+    flow_client
+        .set_attributes(SetAttributesRequest {
+            flow_id: HARD_DELETE_FLOW_ID.to_owned(),
+            run_id: run_id.clone(),
+            attributes: vec![AttributeWrite {
+                key: "secret".to_owned(),
+                value: Some(Value {
+                    kind: Some(value::Kind::NullValue(0)),
+                }),
+                is_hard_delete_on_null: true,
+                ..AttributeWrite::default()
+            }],
+            request_id: "erase-secret".to_owned(),
+            ..SetAttributesRequest::default()
+        })
+        .await
+        .expect("the closed run accepts a hard-delete erase");
+    assert_eq!(secret_attribute(&mut flow_client, &run_id).await, None);
+    wait_until(
+        UPLOAD_BUDGET,
+        "the hard-delete value object is deleted",
+        || hard_delete_value_keys(&hard_delete).is_empty(),
+    )
+    .await;
+    let status = process.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", process.log());
+    hard_delete.shutdown().await;
+    primary.shutdown().await;
+}
+
+/// Starts `flow_id` on a pull Worker that never runs, so the run stays open; returns its run ID.
+async fn start_idle_flow(flow_client: &mut FlowServiceClient<Channel>, flow_id: &str) -> String {
+    flow_client
+        .start_flow(StartFlowRequest {
+            flow_id: flow_id.to_owned(),
+            flow_type: FLOW_TYPE.to_owned(),
+            start_step_type: "GreetStep".to_owned(),
+            step_input: Some(string_value("idle")),
+            step_options: Some(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            }),
+            flow_start_options: Some(FlowStartOptions {
+                flow_config_override: Some(FlowConfig {
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    ..FlowConfig::default()
+                }),
+                ..FlowStartOptions::default()
+            }),
+            request_id: format!("{flow_id}-start"),
+            ..StartFlowRequest::default()
+        })
+        .await
+        .expect("StartFlow succeeds")
+        .into_inner()
+        .run_id
+}
+
+async fn secret_attribute(
+    flow_client: &mut FlowServiceClient<Channel>,
+    run_id: &str,
+) -> Option<Value> {
+    flow_client
+        .get_attributes(GetAttributesRequest {
+            flow_id: HARD_DELETE_FLOW_ID.to_owned(),
+            run_id: run_id.to_owned(),
+            all_keys: true,
+            ..GetAttributesRequest::default()
+        })
+        .await
+        .expect("GetAttributes reads the hard-delete store")
+        .into_inner()
+        .attributes
+        .into_iter()
+        .find(|attribute| attribute.key == "secret")
+        .and_then(|attribute| attribute.value)
+}
+
+/// Returns the hard-delete value objects, without startup probes.
+fn hard_delete_value_keys(hard_delete: &S3Emulator) -> Vec<String> {
+    hard_delete
+        .keys_under(HARD_DELETE_BUCKET, "hard-delete/")
+        .into_iter()
+        .filter(|key| !key.starts_with("hard-delete/probe/"))
+        .collect()
+}
+
+/// Returns the history pages that the node read from object storage, or 0 while its metrics
+/// listener is down.
+async fn object_store_page_reads(metrics: SocketAddr) -> u64 {
+    let Ok(body) = try_scrape(metrics, "/metrics").await else {
+        return 0;
+    };
+    body.lines()
+        .find_map(|line| line.strip_prefix(OBJECT_STORE_PAGE_READS))
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// Polls `condition` until it holds, failing after `budget`.
+async fn wait_until(budget: Duration, what: &str, condition: impl Fn() -> bool) {
+    let deadline = tokio::time::Instant::now() + budget;
+    while !condition() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "{what} did not happen within {budget:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 /// Checks that only versions hold the mutable object keys, which the adapter manages.
