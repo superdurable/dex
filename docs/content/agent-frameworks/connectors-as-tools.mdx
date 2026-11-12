@@ -557,8 +557,6 @@ The adapter offers the Connector tools after the agent's tools, as AI SDK tools 
 
 ### Configure the connection {#configure-connector-connection}
 
-[Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
-
 To try it, start the example with `DEX_CONNECTOR_CONFIG_FILE` set. Then ask the agent to reply in a Slack thread, with the channel ID and the thread timestamp:
 
 ```text
@@ -566,6 +564,8 @@ Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursda
 ```
 
 The post waits for approval, like `cancel_order`.
+
+[Connections](/reference/agents/connector-tools#connector-tools-connection) explains where the Worker finds the **support-slack** connection and what the Slack app needs.
 
 ## Next
 

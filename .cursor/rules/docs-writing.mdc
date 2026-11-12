@@ -88,6 +88,12 @@ These rules come from the docs revisit plan,
   steps, or term definitions. A table on an overview has only columns that
   help a reader choose and go, such as name, language, and link. Terms go in
   the Glossary, and the overview links to them.
+- A page's opening and the first paragraph of each section get the reader
+  going on that section's job. Keep only essential links there, such as a
+  prerequisite to follow first. Move "see X for the full code" pointers,
+  caveats, and version notes to the end of the section or to Next.
+- Charts carry names and short labels, not sentences. Put the explanation in
+  the text around the chart.
 
 ### Page skeletons
 

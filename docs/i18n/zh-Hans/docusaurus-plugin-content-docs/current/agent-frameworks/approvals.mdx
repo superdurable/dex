@@ -10,11 +10,11 @@ slug: /agent-frameworks/approvals
 
 ## 审批如何运作 {#approvals}
 
+需要审批的 Tool Call 会在自己的 `AwaitToolApproval` Step 中等待，直到有人答复。等待期间不占用 Worker slot，并且能挺过 Worker 重启和部署。人可以 [在你的应用中](#approve-from-your-application) 或 [在 Dex Web 中](#approve-in-dex-web) 批准或拒绝这次调用。模型能看到拒绝结果，并据此作出反应。
+
 Tool 的 policy 决定它的调用是否要等待审批；[要求审批](/agent-frameworks/tool-calls#require-approval) 给出了默认值，以及如何按 tool 修改。
 
 审批与重试是两回事：带幂等键的退款仍然是一笔真实的退款。
-
-需要审批的 Tool Call 会在自己的 `AwaitToolApproval` Step 中等待，直到有人答复。等待期间不占用 Worker slot，并且能挺过 Worker 重启和部署。人可以 [在你的应用中](#approve-from-your-application) 或 [在 Dex Web 中](#approve-in-dex-web) 批准或拒绝这次调用。模型能看到拒绝结果，并据此作出反应。
 
 审批等待期间，turn 也随之等待，新的用户消息会排队，直到这个 turn 结束。如果审批不能无限期等待，请设置审批期限。到期时仍在等待的调用会被 Dex 拒绝。参见 [Approval deadlines](/reference/agents/approvals#approval-deadlines)（英文）。
 

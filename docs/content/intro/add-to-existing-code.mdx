@@ -10,20 +10,28 @@ import FunctionToFlowDiagram from '@site/src/components/diagrams/FunctionToFlowD
 
 # Add Dex to Existing Code
 
-This page turns code you already run into a Flow, so it continues after a crash, a restart, or a long wait. The same steps apply to:
+This page turns code you already run, such as a function, a queue consumer, a cron job, a webhook handler, or a script, into a Flow that continues after a crash, a restart, or a long wait.
 
-- a function that calls several services in a row;
-- a queue consumer or an event handler;
-- a cron job or a background job;
-- a webhook handler that does more than one thing;
-- a chain of calls across services, such as a saga;
-- a script that someone reruns by hand when it stops.
+<FunctionToFlowDiagram markdownDescription="Before: one function charges the buyer, waits for approval, ships, and refunds; a crash leaves it half done. After: a Flow of Steps, Charge then Ship, which waits for approval or 24 hours, then Done, with Refund when Ship fails." />
 
-The worked example below is one order function. [Order Processing](/use-cases/order-processing) has its full code in every SDK.
+## Let a coding agent do it {#with-a-coding-agent}
 
-<FunctionToFlowDiagram markdownDescription="Before: one order function charges the buyer, saves the status, polls for approval with a 24-hour reminder, ships, saves the status, and refunds if shipping keeps failing; a crash between lines leaves the order half done. After: a Flow per order with a Charge Step, a Ship Step that waits for an approval message or a 24-hour Timer, and a Refund Step on Ship's failure route, with an order-status Attribute and an approve RPC. Dex saves each Step, so a crash repeats at most the Step that was running." />
+Install Dex Skills in your coding agent, then point it at the code. In Claude Code:
 
-## Before you start: install the SDK {#install}
+```bash
+claude plugin marketplace add superdurable/dex-skills
+claude plugin install superdurable-dex@superdurable
+```
+
+Then ask for the change, naming the function and where it lives:
+
+```text
+/superdurable-dex:dex-sdk Turn handle_order in orders/service.py into a Dex Flow with one Step per external call, and add an integration test.
+```
+
+The agent follows the steps on the rest of this page, so read on to review its work. [Install and use Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) covers Codex, Cursor, and other hosts.
+
+## Do it by hand: install the SDK {#install}
 
 Add the SDK and a Worker to the service that runs this code. [Add Dex to an existing service](/components/application#add-to-a-service) shows the install command for each language and where the Worker and Client go.
 

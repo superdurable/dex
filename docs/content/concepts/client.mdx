@@ -56,8 +56,7 @@ The SDK Clients do not expose this request. Call it through gRPC or with
 
 Dex runs a repeated command again today. An RPC that the caller retries
 after a lost response runs again, and a repeated `PublishToChannel` delivers
-the message twice. [Limits](/intro/limits#requests-that-can-repeat)
-tracks the planned fix.
+the message twice.
 
 Pick the path by what must hold when no Worker runs:
 
@@ -73,6 +72,8 @@ AttributeMap. The RPC or the Step that handles the command checks that record
 first, and does nothing for an ID it already handled. If more than one Step or
 RPC can handle commands at the same time, [lock](/concepts/primitives/attribute#locking)
 that record.
+
+[Limits](/intro/limits#requests-that-can-repeat) tracks the planned fix.
 
 ## How it relates to the other Primitives {#related-primitives}
 

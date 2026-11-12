@@ -18,7 +18,6 @@ import {frameworkLogoMarkup} from '../frameworkLogos';
 import {
   Arrow,
   ConceptDiagramFrame,
-  Detail,
   DiagramIcon,
   Eyebrow,
   IconBadge,
@@ -31,10 +30,7 @@ const copy = {
   en: {
     app: 'YOUR APP',
     web: 'Web app or API',
-    webDetail: 'HTTP routes for your users.',
-    client: 'Start sessions, send messages, stream replies.',
     hosting: 'Dex Cloud / self-hosted',
-    serverDetail: 'Stores each session and hands its work to Workers.',
     worker: 'YOUR AGENT WORKER',
     builtIn: 'Built-in loop',
     adapter: 'Dex Agents adapter',
@@ -44,10 +40,7 @@ const copy = {
   'zh-Hans': {
     app: '你的应用',
     web: 'Web 应用或 API',
-    webDetail: '面向用户的 HTTP 路由。',
-    client: '启动 Session、发送消息、流式返回回复。',
     hosting: 'Dex Cloud / 自托管',
-    serverDetail: '保存每个 Session，并把工作交给 Worker。',
     worker: '你的 Agent Worker',
     builtIn: '内置 Agent Loop',
     adapter: 'Dex Agents 适配器',
@@ -67,14 +60,12 @@ export default function AgentStackDiagram({markdownDescription}: {markdownDescri
           <Eyebrow icon={AppWindow}>{text.app}</Eyebrow>
           <Tile>
             <TileTitle>{text.web}</TileTitle>
-            <Detail>{text.webDetail}</Detail>
           </Tile>
           <Tile>
             <span className={styles.heading}>
               <IconBadge icon={Laptop} isSmall />
               <TileTitle>Client</TileTitle>
             </span>
-            <Detail>{text.client}</Detail>
           </Tile>
         </div>
         <div className={styles.toServer}>
@@ -84,7 +75,6 @@ export default function AgentStackDiagram({markdownDescription}: {markdownDescri
         <Tile tone="accent" className={styles.server}>
           <IconBadge icon={Server} tone="accent" isSolid />
           <TileTitle>Dex Server</TileTitle>
-          <Detail>{text.serverDetail}</Detail>
           <span className={styles.hosting}>{text.hosting}</span>
         </Tile>
         <div className={styles.toWorker}>

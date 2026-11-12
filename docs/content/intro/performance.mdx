@@ -8,7 +8,7 @@ description: Measured throughput and latency of one Dex Server node on AWS with 
 
 # Performance
 
-This page gives measured numbers for one Dex Server node and what it costs to run. Every run and its settings are in the [benchmark results folder](https://github.com/superdurable/dex/tree/main/benchmark/results), and [Reproduce a result](#reproduce-a-result) shows how to repeat one.
+This page gives measured numbers for one Dex Server node and what it costs to run.
 
 ## How the benchmark ran
 
@@ -19,6 +19,8 @@ The numbers below were measured on 2026-11-09 in AWS us-west-2:
 - **Versions:** Dex Server (server-zd) v0.1.23 for Steps, Flows, and Channel wakes; v0.1.25 for RPCs and reads.
 - **Runs:** each point had a 10-second warmup and a 45-second measurement on a new server. Most points ran three times, and the tables show the median. Flow starts ran once per point.
 - **Load model:** a fixed number of concurrent clients, each sending its next request when the last one returns. Latency grows with the client count once the server is busy.
+
+Every run and its settings are in the [benchmark results folder](https://github.com/superdurable/dex/tree/main/benchmark/results), and [Reproduce a result](#reproduce-a-result) shows how to repeat one.
 
 ## Peak throughput
 

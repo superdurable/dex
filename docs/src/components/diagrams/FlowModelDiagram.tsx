@@ -29,18 +29,16 @@ import styles from './FlowModelDiagram.module.css';
 const copy = {
   en: {
     app: 'YOUR APPLICATION',
-    client: 'Starts Flows, calls RPCs, and reads state.',
     flow: 'ONE FLOW · ONE FLOW ID',
-    waits: 'Steps wait on Channels, Timers, and SubFlows, and call Connectors.',
+    waits: 'Waits on Channels, Timers, SubFlows.',
     start: 'StartFlow / RPC',
     read: 'GetAttributes / wait',
     stream: 'Stream (live)',
   },
   'zh-Hans': {
     app: '你的应用',
-    client: '启动 Flow、调用 RPC、读取状态。',
     flow: '一个 Flow · 一个 Flow ID',
-    waits: 'Step 等待 Channel、Timer 和 SubFlow，并调用 Connector。',
+    waits: '等待 Channel、Timer、SubFlow。',
     start: 'StartFlow / RPC',
     read: 'GetAttributes / 等待',
     stream: 'Stream（实时）',
@@ -61,7 +59,6 @@ export default function FlowModelDiagram({markdownDescription}: {markdownDescrip
               <IconBadge icon={Laptop} isSmall />
               <TileTitle>Client</TileTitle>
             </span>
-            <Detail>{text.client}</Detail>
           </Tile>
         </div>
         <div className={styles.calls}>

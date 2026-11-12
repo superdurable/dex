@@ -29,9 +29,9 @@ const copy = {
   en: {
     users: 'USERS',
     web: 'Web app replicas',
-    webDetail: 'Hold a Client: start sessions, send messages, stream replies.',
+    webDetail: 'Hold a Client.',
     worker: 'Worker processes',
-    workerDetail: 'Run the session Flow: model calls, tool calls, approvals.',
+    workerDetail: 'Run the session Flow.',
     server: 'Session state in object storage.',
     rpc: 'RPCs, reads',
     pull: 'pull tasks (outbound only)',
@@ -39,9 +39,9 @@ const copy = {
   'zh-Hans': {
     users: '用户',
     web: 'Web 应用副本',
-    webDetail: '持有 Client：启动 Session、发送消息、流式返回回复。',
+    webDetail: '持有 Client。',
     worker: 'Worker 进程',
-    workerDetail: '运行 Session Flow：模型调用、Tool Call、审批。',
+    workerDetail: '运行 Session Flow。',
     server: 'Session 状态保存在对象存储中。',
     rpc: 'RPC、读取',
     pull: '拉取任务（只出站）',

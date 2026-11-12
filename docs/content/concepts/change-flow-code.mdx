@@ -10,8 +10,7 @@ description: How to deploy changed Flow code while Flows are still open, with a 
 
 Flows can stay open for days or months, so new code often meets Flows that
 started under old code. This page shows how to change code safely and how to
-rerun a Flow after a fix. [Failover and Deploys](/concepts/failover-and-deploys)
-lists what runs again during a deploy.
+rerun a Flow after a fix.
 
 ## Versioning Flow code {#versioning-flow-code}
 
@@ -78,7 +77,7 @@ an explicitly approved retirement plan.
 
 ### Check before you deploy {#check-before-you-deploy}
 
-To test a new Worker build against open Flows, run these checks. Dex has no single command for it yet:
+To test a new Worker build against open Flows, run these checks:
 
 1. **List the open Flows of the type.** Search for running Flows, and for the
    Step types they wait in. `ActiveStepTypes` is a built-in search field.
@@ -104,6 +103,8 @@ To test a new Worker build against open Flows, run these checks. Dex has no sing
       for each Flow to finish.
    4. Check each Flow's result and Attributes, and that the new build raised no
       decoding error.
+
+These checks are manual, since Dex has no single command for them yet.
 
 ### Example: add a fee to Charge {#versioning-example}
 
@@ -159,6 +160,6 @@ in the server reference covers the request options and limits.
 
 ## Next
 
-- [Failover and Deploys](/concepts/failover-and-deploys)
+- [Failover and Deploys](/concepts/failover-and-deploys): what runs again during a deploy.
 - [Step guarantees](/concepts/step#guarantees)
 - [Your Application](/components/application)

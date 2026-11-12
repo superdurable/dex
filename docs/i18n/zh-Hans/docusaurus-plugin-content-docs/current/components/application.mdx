@@ -377,7 +377,9 @@ curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
 
 ## 通过 RPC 发命令、读状态 {#send-commands-through-rpcs}
 
-要改变 Flow 的 handler 调用一个 RPC，比如 **approve**。RPC 需要有正在运行的 Worker（[RPC 保证](/concepts/primitives/rpc#guarantees)）。要在没有 Worker 运行时保存一条消息，见[没有 Worker 运行时投递事件](/concepts/client#deliver-without-a-worker)。RPC 把消息发到 Channel，正在等待的 Step 就会醒来。要读取 Flow 的 handler 调用读 RPC，比如 **describe**。RPC 在 Worker 上基于 Flow 的当前状态运行，所以 handler 读写的状态和 Step 用的是同一份。handler 从构造函数或工厂函数参数拿到 Client 和 Flow。
+要改变 Flow 的 handler 调用一个 RPC，比如 **approve**。RPC 把消息发到 Channel，正在等待的 Step 就会醒来。要读取 Flow 的 handler 调用读 RPC，比如 **describe**。RPC 在 Worker 上基于 Flow 的当前状态运行，所以 handler 读写的状态和 Step 用的是同一份。handler 从构造函数或工厂函数参数拿到 Client 和 Flow。
+
+RPC 需要有正在运行的 Worker（[RPC 保证](/concepts/primitives/rpc#guarantees)）。要在没有 Worker 运行时保存一条消息，见[没有 Worker 运行时投递事件](/concepts/client#deliver-without-a-worker)。
 
 [订单处理](/use-cases/order-processing) 示例用完整代码展示了这三种模式。
 

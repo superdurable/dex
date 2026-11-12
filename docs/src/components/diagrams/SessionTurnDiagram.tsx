@@ -28,36 +28,30 @@ const copy = {
   en: {
     app: 'YOUR APP',
     appTitle: 'Client',
-    appDetail: 'Sends a message, streams the reply.',
     flow: 'SESSION FLOW · ONE PER SESSION',
     loop: "YOUR FRAMEWORK'S AGENT LOOP",
     model: 'Model call',
     tool: 'Tool call',
     approval: 'Approval',
-    note: 'Each chip is a Step. Dex records its result before the turn moves on.',
+    note: 'Each chip is a Step that Dex records.',
     message: 'message',
     calls: 'calls',
     models: 'Models',
-    modelsDetail: 'LLM providers',
     tools: 'Tools',
-    toolsDetail: 'Your APIs, Connectors',
   },
   'zh-Hans': {
     app: '你的应用',
     appTitle: 'Client',
-    appDetail: '发送消息，流式接收回复。',
     flow: 'SESSION FLOW · 每个 Session 一个',
     loop: '你的框架的 Agent Loop',
     model: '模型调用',
     tool: 'Tool Call',
     approval: '审批',
-    note: '每个标签都是一个 Step。Turn 继续之前，Dex 先记录它的结果。',
+    note: '每个标签都是 Dex 记录的一个 Step。',
     message: '消息',
     calls: '调用',
     models: '模型',
-    modelsDetail: 'LLM 提供方',
     tools: 'Tool',
-    toolsDetail: '你的 API、Connector',
   },
 };
 
@@ -81,7 +75,6 @@ export default function SessionTurnDiagram({markdownDescription}: {markdownDescr
           <Eyebrow icon={AppWindow}>{text.app}</Eyebrow>
           <Tile>
             <TileTitle>{text.appTitle}</TileTitle>
-            <Detail>{text.appDetail}</Detail>
           </Tile>
         </div>
         <div className={styles.in}>
@@ -114,14 +107,12 @@ export default function SessionTurnDiagram({markdownDescription}: {markdownDescr
               <IconBadge icon={Brain} isSmall />
               <TileTitle>{text.models}</TileTitle>
             </span>
-            <Detail>{text.modelsDetail}</Detail>
           </Tile>
           <Tile>
             <span className={styles.heading}>
               <IconBadge icon={Wrench} isSmall />
               <TileTitle>{text.tools}</TileTitle>
             </span>
-            <Detail>{text.toolsDetail}</Detail>
           </Tile>
         </div>
       </div>

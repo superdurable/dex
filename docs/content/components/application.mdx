@@ -420,7 +420,9 @@ Both requests return the same Flow, and the Worker prints **Charged** once.
 
 ## Send commands and read state through RPCs {#send-commands-through-rpcs}
 
-A handler that changes a Flow calls an RPC, such as **approve**. An RPC needs a running Worker ([RPC guarantees](/concepts/primitives/rpc#guarantees)). To store a message while no Worker runs, see [Deliver an event when no Worker runs](/concepts/client#deliver-without-a-worker). The RPC publishes the message to a Channel, and the waiting Step wakes. A handler that reads a Flow calls a read RPC, such as **describe**. An RPC runs against the Flow's current state on a Worker, so the handler reads and writes the same state that the Steps use. The handlers get the Client and the Flow from their constructor or factory arguments.
+A handler that changes a Flow calls an RPC, such as **approve**. The RPC publishes the message to a Channel, and the waiting Step wakes. A handler that reads a Flow calls a read RPC, such as **describe**. An RPC runs against the Flow's current state on a Worker, so the handler reads and writes the same state that the Steps use. The handlers get the Client and the Flow from their constructor or factory arguments.
+
+An RPC needs a running Worker ([RPC guarantees](/concepts/primitives/rpc#guarantees)). To store a message while no Worker runs, see [Deliver an event when no Worker runs](/concepts/client#deliver-without-a-worker).
 
 The [Order Processing](/use-cases/order-processing) example shows these three patterns in full code.
 

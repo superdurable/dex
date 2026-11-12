@@ -10,11 +10,11 @@ An approval asks whether a tool call should happen at all. A call that needs app
 
 ## How an approval works {#approvals}
 
+A tool call that needs approval waits in its own `AwaitToolApproval` Step until someone answers. The wait holds no Worker slot, and it survives Worker restarts and deploys. A person approves or rejects the call [from your application](#approve-from-your-application) or [in Dex Web](#approve-in-dex-web). The model sees a rejection and can react to it.
+
 A tool's policy decides whether its calls wait for approval; [Require approval](/agent-frameworks/tool-calls#require-approval) gives the defaults and how to change them per tool.
 
 Approval is separate from retry: a refund with an idempotency key is still a real refund.
-
-A tool call that needs approval waits in its own `AwaitToolApproval` Step until someone answers. The wait holds no Worker slot, and it survives Worker restarts and deploys. A person approves or rejects the call [from your application](#approve-from-your-application) or [in Dex Web](#approve-in-dex-web). The model sees a rejection and can react to it.
 
 While an approval waits, the turn waits with it, and new user messages queue until the turn ends. If an approval must not wait forever, set an approval deadline. Dex rejects a call that is still pending at the deadline. See [Approval deadlines](/reference/agents/approvals#approval-deadlines).
 

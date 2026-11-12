@@ -557,8 +557,6 @@ Graph 中的每个 Agent 都在自己的 tool 之后提供 Connector tool。在 
 
 ### 配置 connection {#configure-connector-connection}
 
-Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）。
-
 试用时，先设置 `DEX_CONNECTOR_CONFIG_FILE` 再启动示例。然后让 Agent 在某个 Slack thread 中回复，并给出 channel ID 和 thread timestamp：
 
 ```text
@@ -566,6 +564,8 @@ Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursda
 ```
 
 这次发帖和 `cancel_order` 一样，会等待审批。
+
+Worker 从哪里找到 connection **support-slack**、Slack app 需要什么，见 [Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）。
 
 ## 下一步 {#next}
 

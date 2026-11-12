@@ -39,8 +39,6 @@ A failed `RunModel` retries. After its third attempt, the turn fails and the ses
 
 ## Install
 
-In TypeScript, the Dex SDK is a peer package, so install it too.
-
 <SdkTabs
   examples={{
     python: 'agents/python/core',
@@ -61,6 +59,8 @@ npm i @superdurable/dex-agents @superdurable/dex ai @modelcontextprotocol/sdk
 
 </SdkSnippet>
 </SdkTabs>
+
+In TypeScript, the Dex SDK is a peer package, so install it too.
 
 The **litellm** extra and the **ai** package add model clients. The **mcp** extra and `@modelcontextprotocol/sdk` add MCP tools. Leave out what you do not use.
 
@@ -397,7 +397,7 @@ The example page has its own approval buttons. To approve from Dex Web instead, 
 
 ### Approve in Dex Web {#approve-in-dex-web}
 
-Dex Web approves a built-in loop call the same way as any other session; [Approve in Dex Web](/agent-frameworks/approvals#approve-in-dex-web) shows how. Use the Flow type **AIAgentSession** and the permission `ai-agent.operate`.
+To approve a built-in loop call in Dex Web, use the Flow type **AIAgentSession** and the permission `ai-agent.operate`. Dex Web approves it the same way as any other session; [Approve in Dex Web](/agent-frameworks/approvals#approve-in-dex-web) shows how.
 
 ## Connect Connectors {#connect-connectors}
 

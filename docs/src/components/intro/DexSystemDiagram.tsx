@@ -43,9 +43,9 @@ const EN: Copy = {
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
   persist: 'Persists Flow instances and execution.',
-  operate: 'OPERATE · CONNECTS TO DEX SERVER',
-  cli: 'Runs Dex locally and operates Flows from a shell.',
-  web: 'Inspect and act on Flows in the browser.',
+  operate: 'OPERATE',
+  cli: 'Run Dex locally; manage Flows.',
+  web: 'Inspect and act on Flows.',
 };
 
 const ZH: Copy = {
@@ -55,9 +55,9 @@ const ZH: Copy = {
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
   persist: '持久化 Flow 实例及其执行。',
-  operate: '运维 · 连接 Dex Server',
-  cli: '在本机运行 Dex，并在终端中操作 Flow。',
-  web: '在浏览器中查看和操作 Flow。',
+  operate: '运维',
+  cli: '本机运行 Dex，管理 Flow。',
+  web: '查看和操作 Flow。',
 };
 
 function RoleNode({

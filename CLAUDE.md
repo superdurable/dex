@@ -413,7 +413,9 @@ regenerated. Resolve them with the revert-and-confirm procedure in
   titles, never "Overview". A group overview is a wayfinder: it links to
   child pages and sections and does not repeat their caveats, limits, API
   names, or term definitions; terms go in the Glossary. Headings are
-  statements, not questions. Every page in the reading sequence (not a group
+  statements, not questions. Section openings keep only essential links;
+  pointers elsewhere and caveats go at the end of the section or in Next.
+  Charts use short labels, not sentences. Every page in the reading sequence (not a group
   overview, the home page, Get Started, or the Glossary) ends with one last
   section named Next (下一步 in Chinese); following its first link gives a
   linear reading order. The home page and Get
