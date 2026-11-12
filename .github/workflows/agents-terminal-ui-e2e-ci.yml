@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - "agents/cli/**"
+      - "agents/conformance/terminal_ui/**"
+      - "agents/python/core/**"
+      - "agents/typescript/core/**"
+      - "cli/cmd/**"
       - "cli/internal/agentsterminal/**"
       - ".github/workflows/agents-terminal-ui-e2e-ci.yml"
   workflow_dispatch:

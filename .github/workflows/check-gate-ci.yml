@@ -57,6 +57,10 @@ jobs:
               - '.github/workflows/agents-typescript-publish.yml'
             agents_terminal_ui:
               - 'agents/cli/**'
+              - 'agents/conformance/terminal_ui/**'
+              - 'agents/python/core/**'
+              - 'agents/typescript/core/**'
+              - 'cli/cmd/**'
               - 'cli/internal/agentsterminal/**'
               - '.github/workflows/agents-terminal-ui-e2e-ci.yml'
             sdk_go:
