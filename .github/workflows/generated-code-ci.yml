@@ -1,21 +1,6 @@
 name: Generated Code CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "protos/**"
-      - "sdk-go/gen/dexpb/**"
-      - "sdk-java/src/main/java/io/superdurable/gen/**"
-      - "sdk-python/dex/dexpb/**"
-      - "sdk-python/pyproject.toml"
-      - "sdk-python/uv.lock"
-      - "sdk-typescript/src/gen/**"
-      - "sdk-typescript/scripts/generate-proto.mjs"
-      - "sdk-typescript/package.json"
-      - "sdk-typescript/package-lock.json"
-      - "Makefile"
-      - ".github/workflows/generated-code-ci.yml"
   pull_request:
     paths:
       - "protos/**"
@@ -31,13 +16,15 @@ on:
       - "Makefile"
       - ".github/workflows/generated-code-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: generated-code-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: generated-code-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   freshness:

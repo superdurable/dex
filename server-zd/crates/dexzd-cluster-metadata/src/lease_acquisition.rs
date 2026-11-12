@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dexzd_clock::WallClock;
-use dexzd_object_store::ObjectStore;
+use dexzd_object_store::{ObjectStore, node_lease_object_key};
 use dexzd_protocol::dexzd::v1::NodeLease;
 use prost::Message;
 use tokio::sync::watch;
@@ -77,7 +77,7 @@ pub async fn read_node_lease(
     store: &dyn ObjectStore,
     node_id: &str,
 ) -> Result<Option<NodeLease>, MetadataError> {
-    let Some(content) = store.get(&format!("lease/{node_id}")).await? else {
+    let Some(content) = store.get(&node_lease_object_key(node_id)).await? else {
         return Ok(None);
     };
     let lease = NodeLease::decode(content.bytes).map_err(|source| MetadataError::Decode {

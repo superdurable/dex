@@ -64,14 +64,14 @@ def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
     async def approve() -> Response:
         output = await app_state.client.invoke_rpc(
             app_state.order_processing.approve,
-            required_query("workflowId"),
+            _required_flow_id(),
             optional_query("notes", ""),
         )
         return jsonify(output)
 
     @blueprint.get("/describe")
     async def describe() -> Response:
-        flow_id = required_query("workflowId")
+        flow_id = _required_flow_id()
         status = await app_state.client.invoke_rpc(
             app_state.order_processing.describe,
             flow_id,
@@ -79,3 +79,8 @@ def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
         return jsonify({"flowID": flow_id, "status": status})
 
     return blueprint
+
+
+def _required_flow_id() -> str:
+    """Reads the Flow ID from flowId, or from its alias workflowId."""
+    return optional_query("workflowId", "") or required_query("flowId")

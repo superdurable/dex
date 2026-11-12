@@ -1,33 +1,6 @@
 name: Copyright
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "agents/**"
-      - "cli/**"
-      - "sdk-go/**"
-      - "blob-cache-go/**"
-      - "sdk-java/**"
-      - "sdk-python/**"
-      - "sdk-rust/**"
-      - "s3local/**"
-      - "server-zd/**"
-      - "web/**"
-      - "examples/go/**"
-      - "examples/java/**"
-      - "examples/python/**"
-      - "protos/**"
-      - "script/licenseheaders/**"
-      - "script/release/**"
-      - "LICENSE"
-      - "LEGACY_NOTICES.md"
-      - "LICENSING.md"
-      - "CLA.md"
-      - "CLA-INDIVIDUAL.md"
-      - "CLA-CORPORATE.md"
-      - "Makefile"
-      - ".github/workflows/copyright-ci.yml"
   pull_request:
     paths:
       - "agents/**"
@@ -55,6 +28,13 @@ on:
       - "Makefile"
       - ".github/workflows/copyright-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
+
+# Only pull request runs share a group, so superseded PR commits cancel; main and release runs never do.
+concurrency:
+  group: copyright-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   copyright-check:

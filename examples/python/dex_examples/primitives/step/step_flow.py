@@ -38,9 +38,6 @@ class StepSecond(Step[int]):
 
 
 class Example(Step[int]):
-    def __init__(self, second: StepSecond) -> None:
-        self.second = second
-
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.until(approval.for_one())
 
@@ -51,7 +48,7 @@ class Example(Step[int]):
 class StepFlow(Flow[int]):
     def __init__(self) -> None:
         self.second = StepSecond()
-        self.example = Example(self.second)
+        self.example = Example()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.example).other_steps(self.second)

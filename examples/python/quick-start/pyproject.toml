@@ -1,0 +1,27 @@
+[project]
+name = "dex-examples-python-quick-start"
+version = "0.1.0"
+description = "The Dex Quick Start: charge, wait on a Timer, then ship"
+authors = [{name = "Super Durable"}]
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dex-python-sdk==1.45.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.5.1,<2",
+    "pytest>=8.2,<9",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true

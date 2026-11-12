@@ -14,6 +14,11 @@ on:
         required: false
         default: true
         type: boolean
+      run_tests:
+        description: Run the Rust SDK suite first; false only when the caller already ran it on this commit
+        required: false
+        default: true
+        type: boolean
   pull_request:
     paths:
       - "sdk-rust/**"
@@ -42,6 +47,20 @@ env:
   RUSTUP_TOOLCHAIN: "1.97.1"
 
 jobs:
+  # Publishing waits for the Rust SDK suite on this exact release commit.
+  # Pull requests run that suite in its own workflow.
+  tests:
+    name: Rust SDK tests
+    if: >
+      toJSON(inputs.run_tests) != 'false' && (
+      github.event_name == 'workflow_call' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'sdk-rust/v'))
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/sdk-rust-ci.yml
+
   prepare:
     name: Validate release
     if: >
@@ -139,8 +158,11 @@ jobs:
 
   publish:
     name: Publish Rust crates
-    if: github.event_name == 'release' || inputs.publish == true
-    needs: prepare
+    needs: [prepare, tests]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success'
+      && (needs.tests.result == 'success' || toJSON(inputs.run_tests) == 'false')
+      && (github.event_name == 'release' || inputs.publish == true)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

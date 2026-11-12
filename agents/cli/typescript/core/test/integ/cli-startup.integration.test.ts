@@ -14,7 +14,13 @@ import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
+import { listAgentSessions, sortAgentSessionsByLastActivity, type AgentSessionSummary } from "@superdurable/dex-agents";
+import {
+  findFreeLoopbackPorts,
+  pollUntil,
+  PrivateDexEngine,
+  type AgentSessionTestClient,
+} from "@superdurable/dex-agents/testing";
 
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
 import {
@@ -567,10 +573,11 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       chat.writeLine("/exit");
       assert.equal(await chat.waitForExit(), 0);
 
+      await waitForVisibleRunningSessions(sessions, home.sessionFlowType(), 61, oldest);
       const listed = start(home, ["sessions"]);
       assert.equal(await listed.waitForExit(), 0);
       const lines = listed.stdout.all.split("\n").filter((line) => line.includes("\trunning\t"));
-      assert.equal(lines.length, 61);
+      assert.equal(lines.length, 61, listed.stdout.all);
       assert.ok(lines[0]?.startsWith(`${oldest}\t`), listed.stdout.all);
       assert.ok(lines.slice(1).every((line) => /\t0\t—$/.test(line)), listed.stdout.all);
       assert.doesNotMatch(listed.stdout.all, /More sessions exist/);
@@ -578,12 +585,49 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       for (let index = 0; index < 200; index += 1) {
         await sessions.startSession(`extra-${String(index).padStart(3, "0")}`);
       }
+      await waitForVisibleRunningSessions(sessions, home.sessionFlowType(), 261);
       const capped = start(home, ["sessions"]);
       assert.equal(await capped.waitForExit(), 0);
-      assert.equal(capped.stdout.all.split("\n").filter((line) => line.includes("\trunning\t")).length, 250);
+      assert.equal(
+        capped.stdout.all.split("\n").filter((line) => line.includes("\trunning\t")).length,
+        250,
+        capped.stdout.all,
+      );
       assert.match(capped.stdout.all, /More sessions exist; this list sorts the first 250 that Dex returns/);
     } finally {
       await sessionClients.close();
     }
   });
 });
+
+/**
+ * Waits until search shows every running session, since Flow search is eventually consistent.
+ * @param sessions - The test client whose Client searches.
+ * @param flowType - The session Flow type.
+ * @param count - The number of running sessions to wait for.
+ * @param mostRecentSessionId - The session that must sort first by last activity, if any.
+ * @returns A Promise that resolves once search shows them.
+ */
+async function waitForVisibleRunningSessions(
+  sessions: AgentSessionTestClient,
+  flowType: string,
+  count: number,
+  mostRecentSessionId?: string,
+): Promise<void> {
+  await pollUntil(
+    async () => {
+      const running: AgentSessionSummary[] = [];
+      let nextPageToken = "";
+      do {
+        const page = await listAgentSessions(sessions.client, flowType, { nextPageToken });
+        running.push(...page.sessions.filter((session) => session.status === "running"));
+        nextPageToken = page.nextPageToken;
+      } while (nextPageToken !== "");
+      const isMostRecentFirst =
+        mostRecentSessionId === undefined ||
+        sortAgentSessionsByLastActivity(running)[0]?.sessionId === mostRecentSessionId;
+      return running.length === count && isMostRecentFirst ? true : undefined;
+    },
+    { description: `search to show ${count} running sessions`, timeoutMs: 30_000 },
+  );
+}

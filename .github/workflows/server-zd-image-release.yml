@@ -105,9 +105,25 @@ jobs:
             exit 1
           fi
 
+  # Publishing waits for the server-zd suites on this exact release commit.
+  test-server-zd:
+    name: Server ZD tests
+    needs: metadata
+    if: needs.metadata.outputs.publish == 'true'
+    uses: ./.github/workflows/server-zd-ci.yml
+  test-server-zd-integ:
+    name: Server integration tests
+    needs: metadata
+    if: needs.metadata.outputs.publish == 'true'
+    uses: ./.github/workflows/server-zd-integ-ci.yml
+
+  # Smoke pushes image digests when publishing, so it waits for the tests then.
   smoke:
     name: Smoke ${{ matrix.arch }}
-    needs: metadata
+    needs: [metadata, test-server-zd, test-server-zd-integ]
+    if: >-
+      !cancelled() && needs.metadata.result == 'success' && (needs.metadata.outputs.publish != 'true'
+      || (needs.test-server-zd.result == 'success' && needs.test-server-zd-integ.result == 'success'))
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:

@@ -10,15 +10,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bytes::Bytes;
 use dexzd_clock::WallClock;
-use dexzd_object_store::{ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome};
+use dexzd_object_store::{
+    ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY, ObjectStore, ObjectStoreErrorKind, WriteCondition,
+    WriteOutcome,
+};
 use dexzd_protocol::attribute_index::is_system_search_field;
 use dexzd_protocol::dex::IndexType;
 use dexzd_protocol::dexzd::v1::{AttributeIndexRegistration, AttributeIndexRegistry};
 use prost::Message;
 
 use crate::MetadataError;
-
-const REGISTRY_KEY: &str = "registry/attribute-indexes";
 
 /// Maximum distinct Attribute index keys per tenant and type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,10 +59,10 @@ pub struct AttributeIndexDeclaration {
 pub async fn read_attribute_index_registry(
     store: &dyn ObjectStore,
 ) -> Result<AttributeIndexRegistry, MetadataError> {
-    match store.get(REGISTRY_KEY).await? {
+    match store.get(ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY).await? {
         Some(content) => {
             AttributeIndexRegistry::decode(content.bytes).map_err(|source| MetadataError::Decode {
-                key: REGISTRY_KEY,
+                key: ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY,
                 source,
             })
         }
@@ -78,12 +79,12 @@ pub async fn register_attribute_indexes(
     capacity: Option<&AttributeIndexCapacity>,
 ) -> Result<AttributeIndexRegistry, MetadataError> {
     loop {
-        let current_object = store.get(REGISTRY_KEY).await?;
+        let current_object = store.get(ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY).await?;
         let current = match &current_object {
             Some(content) => {
                 AttributeIndexRegistry::decode(content.bytes.clone()).map_err(|source| {
                     MetadataError::Decode {
-                        key: REGISTRY_KEY,
+                        key: ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY,
                         source,
                     }
                 })?
@@ -129,7 +130,7 @@ pub async fn register_attribute_indexes(
         });
         let result = store
             .put(
-                REGISTRY_KEY,
+                ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY,
                 Bytes::from(proposed.encode_to_vec()),
                 condition,
             )
@@ -230,7 +231,7 @@ fn stored_index_type(
     registration: &AttributeIndexRegistration,
 ) -> Result<IndexType, MetadataError> {
     IndexType::try_from(registration.index_type).map_err(|_| MetadataError::InvalidMetadata {
-        key: REGISTRY_KEY,
+        key: ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY,
         detail: format!(
             "attribute index {:?} has stored type {}",
             registration.index_key, registration.index_type

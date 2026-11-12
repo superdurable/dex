@@ -15,7 +15,13 @@
  */
 
 export class MyDependencyService {
-  public updateExternalSystem(message: string): void {
+  private readonly usedIdempotencyKeys = new Set<string>();
+
+  public updateExternalSystem(message: string, idempotencyKey = ""): void {
+    if (this.isRepeatedKey(idempotencyKey)) {
+      console.log(`already done (key ${idempotencyKey}); not sent again: ${message}`);
+      return;
+    }
     console.log(`update external system via RPC/Kafka/DB: ${message}`);
   }
 
@@ -23,13 +29,21 @@ export class MyDependencyService {
     console.log(`send email to=${recipient} subject=${subject} content=${content}`);
   }
 
-  public chargeUser(email: string, customerId: string, amount: number): void {
+  public chargeUser(email: string, customerId: string, amount: number, idempotencyKey = ""): void {
+    if (this.isRepeatedKey(idempotencyKey)) {
+      console.log(`charge already done (key ${idempotencyKey}); not charged again`);
+      return;
+    }
     console.log(`charge user email=${email} customerId=${customerId} amount=${amount}`);
   }
 
-  public shipItem(orderId: string, testFailAtShipping: boolean): void {
+  public shipItem(orderId: string, testFailAtShipping: boolean, idempotencyKey = ""): void {
     if (testFailAtShipping) {
       throw new Error(`ship failed for order ${orderId}`);
+    }
+    if (this.isRepeatedKey(idempotencyKey)) {
+      console.log(`ship already done (key ${idempotencyKey}); not shipped again`);
+      return;
     }
     console.log(`ship item ${orderId}`);
   }
@@ -69,6 +83,18 @@ export class MyDependencyService {
   public undoCreateDebitMemo(_account: string, _amount: number, _notes: string): void {}
 
   public undoCreateCreditMemo(_account: string, _amount: number, _notes: string): void {}
+
+  /** Reports whether a key was used before, and records it; an empty key never repeats. */
+  private isRepeatedKey(idempotencyKey: string): boolean {
+    if (idempotencyKey === "") {
+      return false;
+    }
+    if (this.usedIdempotencyKeys.has(idempotencyKey)) {
+      return true;
+    }
+    this.usedIdempotencyKeys.add(idempotencyKey);
+    return false;
+  }
 }
 
 export const myDependencyService = new MyDependencyService();

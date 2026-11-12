@@ -1,16 +1,7 @@
 name: Push Docker images (main)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "sdk-go/**"
-      - "protos/**"
-      - "web/**"
-      - "packages/flow-definition-renderer/**"
-      - "go.work"
-      - ".dockerignore"
-      - ".github/workflows/docker-image-latest.yml"
+  # Releases publish versioned images; main pushes no longer rebuild latest.
   workflow_dispatch:
 
 jobs:

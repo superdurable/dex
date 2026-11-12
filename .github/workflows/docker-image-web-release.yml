@@ -9,6 +9,11 @@ on:
         description: Dex Web image semantic version without the v prefix
         required: true
         type: string
+      run_tests:
+        description: Run the Dex Web suite first; false only when the caller already ran it on this commit
+        required: false
+        default: true
+        type: boolean
   workflow_dispatch:
     inputs:
       version:
@@ -22,11 +27,25 @@ on:
         type: boolean
 
 jobs:
+  # Publishing waits for the Dex Web suite on this exact release commit.
+  tests:
+    name: Dex Web tests
+    if: >
+      toJSON(inputs.run_tests) != 'false' && (
+      inputs.version != '' ||
+      startsWith(github.event.release.tag_name, 'web/v'))
+    permissions:
+      contents: read
+    uses: ./.github/workflows/web-ci.yml
+
   docker:
+    needs: tests
     runs-on: ubuntu-latest
     if: >
+      !cancelled() &&
+      (needs.tests.result == 'success' || toJSON(inputs.run_tests) == 'false') && (
       inputs.version != '' ||
-      startsWith(github.event.release.tag_name, 'web/v')
+      startsWith(github.event.release.tag_name, 'web/v'))
     steps:
       - uses: actions/checkout@v7
       - name: Resolve image tag

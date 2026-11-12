@@ -13,7 +13,7 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dexzd_object_store::{InMemoryObjectStore, ObjectStore, ObjectStoreResult};
+use dexzd_object_store::{ObjectStore, ObjectStoreResult};
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -24,7 +24,7 @@ use crate::engine_simulation::simulated_object_store::storage_observations::Stor
 
 /// What the fault layers of every process share.
 pub(crate) struct SharedObjectStorage {
-    pub(crate) store: Arc<InMemoryObjectStore>,
+    pub(crate) store: Arc<dyn ObjectStore>,
     pub(crate) trace: Arc<EventTrace>,
     pub(crate) observations: Arc<Mutex<StorageObservations>>,
     /// The process whose lease write landed last.
@@ -37,7 +37,7 @@ pub(crate) struct SharedObjectStorage {
 
 impl SharedObjectStorage {
     pub(crate) fn new(
-        store: Arc<InMemoryObjectStore>,
+        store: Arc<dyn ObjectStore>,
         trace: Arc<EventTrace>,
         observations: Arc<Mutex<StorageObservations>>,
     ) -> Self {

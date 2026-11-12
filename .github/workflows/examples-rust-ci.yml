@@ -1,25 +1,21 @@
 name: Rust examples CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "examples/rust/**"
-      - "examples/entity-store/**"
-      - ".github/workflows/examples-rust-ci.yml"
   pull_request:
     paths:
       - "examples/rust/**"
       - "examples/entity-store/**"
       - ".github/workflows/examples-rust-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: examples-rust-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: examples-rust-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -53,6 +49,22 @@ jobs:
         run: make clippy
       - name: Run catalog integration tests
         run: make test
+      - name: Verify Quick Start published SDK dependency
+        working-directory: examples/rust/quick-start
+        run: |
+          set -euo pipefail
+          cargo tree --locked -p dex-sdk | tee /tmp/dex-quick-start-rust-sdk-tree.txt
+          grep -qE '^dex-sdk v[0-9]' /tmp/dex-quick-start-rust-sdk-tree.txt
+          if grep -q '(/' /tmp/dex-quick-start-rust-sdk-tree.txt; then
+            echo "examples/rust/quick-start must depend on published dex-sdk, not a path dependency"
+            exit 1
+          fi
+      - name: Check Quick Start formatting
+        working-directory: examples/rust/quick-start
+        run: cargo fmt --all --check
+      - name: Run Quick Start Clippy
+        working-directory: examples/rust/quick-start
+        run: cargo clippy --all-targets --locked -- -D warnings
 
   integ:
     name: Integration tests with dexcli dev (pull, zd)
