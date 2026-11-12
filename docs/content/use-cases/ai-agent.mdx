@@ -11,7 +11,7 @@ An AI agent talks with a user, calls tools, and acts on other systems. A real ag
 ## What Dex adds to an agent
 
 - **The conversation is durable.** Dex stores every message in Attributes. A Worker restart loses nothing.
-- **A crash repeats little.** Model calls and tool calls run in Steps. A crash repeats only the Step that was running. Nothing replays the loop.
+- **A crash repeats little.** Model calls and tool calls run in Steps. A crash repeats only the Step that was running.
 - **Writes run once.** A tool policy marks each tool as a read or a write. A write that must not repeat gets a single attempt.
 - **Approvals can wait.** A tool call that needs approval waits in its own Step, for as long as it takes. No Worker holds the wait.
 - **People can see and act.** Dex Web shows each session as a conversation. An operator approves or rejects a tool call there.

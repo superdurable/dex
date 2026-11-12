@@ -98,6 +98,39 @@ connection.
 A Connector tool stores only the logical connection name with the call, as a
 Connector Step does. The credentials stay with the Worker.
 
+## Outcomes {#outcomes}
+
+The operation ends in one of its branches, and the branch decides the tool call's record. In the manifest, a Connector author marks the branches where nothing took effect as **rejected**, and the branches where the write may have taken effect as **unknown**. Dex uses the first row that matches. Every row above the rejected row, except the success row, records `outcome_unknown`, so doubt never becomes a safe failure:
+
+| Branch | Record | The model sees |
+| --- | --- | --- |
+| **uncertain** | `outcome_unknown` | That the outcome is unknown |
+| A Mutation's **defect** | `outcome_unknown` | That the outcome is unknown |
+| A success branch, such as **sent** or **refunded** | **succeeded** | The result value |
+| Any other Mutation branch, when its single-dispatch fence cannot prove that nothing was sent | `outcome_unknown` | That the outcome is unknown |
+| A branch marked **rejected**, such as `providerRejected` | **failed** | The branch and the provider's message |
+| A branch marked **unknown**, or a Mutation branch that is not listed | `outcome_unknown` | That the outcome is unknown |
+| A Query branch that is not listed, including **defect** | **failed** | The branch and the message |
+
+A Mutation's **defect** can happen after the provider was called, so the write may have taken effect. A Mutation with a single-dispatch fence records whether its request may have left. If it may have, marking the branch **rejected** does not turn the failure into a rejection.
+
+Reconcile `outcome_unknown` as for any tool; see [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown).
+
+## Crashes {#crashes}
+
+A Worker crash during a Connector write never sends the write twice. How a write recovers depends on how the Connector can tell whether the provider got it:
+
+- **Deduplicated by the provider.** The Connector sends the call's idempotency key, and the provider drops a repeated key.
+- **Looked up first.** The provider has no idempotency key. Before a retry sends anything, the Connector looks for the earlier write at the provider. The Connector also records, during the attempt, whether the request has left the Worker.
+
+| What happened | Retry-safe write, deduplicated by the provider | Retry-safe write, looked up first | Single-attempt write |
+| --- | --- | --- | --- |
+| The Worker died before the request was sent | Dex retries with the same key. The write happens once, and the call records **succeeded**. | Dex retries. The lookup finds no write, but nothing proves that the request was never sent, so the retry sends nothing. The call records `outcome_unknown`. | The call records `outcome_unknown`. Nothing was sent. |
+| The Worker died after the provider accepted the write | Dex retries with the same key. The provider drops the repeat, and the call records **succeeded**. One write. | Dex retries. If the lookup finds the write, the call records **succeeded**. If not, it records `outcome_unknown`. One write either way. | The call records `outcome_unknown`. One write. |
+| The provider asked to retry later, such as for a rate limit | Dex retries. The write happens once. | Dex retries. The write happens once. | The call records **failed**, with "not sent; the provider asked to retry later", if the Connector recorded that the request never left the Worker or that the provider refused it without acting. Otherwise it records `outcome_unknown`. |
+
+A single-attempt write records **failed** only when the Connector's record proves that nothing was sent, because a request to retry later alone proves nothing. The model can then call it again without anyone checking the provider. The later writes of that response are still skipped.
+
 ## The Slack tool in the examples {#slack-example}
 
 The agent examples open the Slack connection **support-slack**. Without a
