@@ -36,7 +36,12 @@ type interruptPopup struct {
 	isEnteringText        bool
 	textInput             inputEditor
 	isShowingAllArguments bool
+	// scrollFromBottom is how many rows a long body is scrolled up from its end.
+	scrollFromBottom int
 }
+
+// popupScrollStep is how many rows PgUp and PgDn move a long popup body.
+const popupScrollStep = 5
 
 // popupKeyResult is what a key did in the popup.
 type popupKeyResult struct {
@@ -74,6 +79,14 @@ func newInterruptPopup(interrupt pendingInterrupt) interruptPopup {
 
 // HandleKey applies one key to the popup of interrupt.
 func (popup *interruptPopup) HandleKey(interrupt pendingInterrupt, key tea.KeyPressMsg) popupKeyResult {
+	switch key.String() {
+	case "pgup":
+		popup.scrollFromBottom += popupScrollStep
+		return popupKeyResult{}
+	case "pgdown":
+		popup.scrollFromBottom = max(popup.scrollFromBottom-popupScrollStep, 0)
+		return popupKeyResult{}
+	}
 	if popup.isEnteringText {
 		return popup.handleTextKey(interrupt, key)
 	}
@@ -84,9 +97,11 @@ func (popup *interruptPopup) HandleKey(interrupt pendingInterrupt, key tea.KeyPr
 		return popupKeyResult{isNextRequested: true}
 	case "up", "k":
 		popup.selectedOption = max(popup.selectedOption-1, 0)
+		popup.scrollFromBottom = 0
 		return popupKeyResult{}
 	case "down", "j":
 		popup.selectedOption = min(popup.selectedOption+1, popup.optionCount(interrupt)-1)
+		popup.scrollFromBottom = 0
 		return popupKeyResult{}
 	}
 	if interrupt.approval != nil {

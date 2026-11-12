@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -60,12 +59,11 @@ func (source *recordingSource) recordedActions() []sessionfeed.UserAction {
 
 // screenHarness drives one ChatScreen without a terminal.
 type screenHarness struct {
-	t          *testing.T
-	screen     *ChatScreen
-	source     *recordingSource
-	profile    colorprofile.Profile
-	now        time.Time
-	scrollback []string
+	t       *testing.T
+	screen  *ChatScreen
+	source  *recordingSource
+	profile colorprofile.Profile
+	now     time.Time
 }
 
 type harnessOptions struct {
@@ -93,12 +91,8 @@ func newScreenHarness(t *testing.T, options harnessOptions) *screenHarness {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	harness.screen = NewChatScreen(ctx, ChatScreenConfig{
-		Source: harness.source,
-		Theme:  terminaltheme.NewTheme(options.profile, !options.isASCII),
-		PrintScrollback: func(text string) tea.Cmd {
-			harness.scrollback = append(harness.scrollback, text)
-			return nil
-		},
+		Source:           harness.source,
+		Theme:            terminaltheme.NewTheme(options.profile, !options.isASCII),
 		Now:              func() time.Time { return harness.now },
 		SessionCommands:  options.commands,
 		ShowsStartupLogo: options.showsLogo,
@@ -111,6 +105,7 @@ func newScreenHarness(t *testing.T, options harnessOptions) *screenHarness {
 			sessionfeed.SessionOpened{
 				Command: "openai-sdk", Model: "gpt-5.2", SessionID: "openai-sdk-20261111-142233-a1b2c3",
 				IsNewSession: true, AcceptsTurnControl: true,
+				Workspace: "~/dex-agent-workspace", WebURL: "http://127.0.0.1:8802",
 			},
 			sessionfeed.SessionLoaded{},
 		)
@@ -165,16 +160,11 @@ func (harness *screenHarness) advance(duration time.Duration) {
 	harness.now = harness.now.Add(duration)
 }
 
-// frame returns the scrollback, a marker, and the live area, downsampled to
-// the harness profile.
+// frame returns the whole screen, downsampled to the harness profile.
 func (harness *screenHarness) frame() string {
 	view := harness.screen.View()
 	var builder strings.Builder
-	for _, block := range harness.scrollback {
-		builder.WriteString(block)
-		builder.WriteString("\n")
-	}
-	builder.WriteString("~~~~ live area ~~~~\n")
+	fmt.Fprintf(&builder, "~~~~ %dx%d ~~~~\n", harness.screen.width, harness.screen.height)
 	builder.WriteString(view.Content)
 	builder.WriteString("\n")
 	if view.Cursor != nil {
@@ -242,11 +232,11 @@ func widthMatrix(t *testing.T, name string, widths []int, build func(harness *sc
 	t.Helper()
 	set := newGoldenFrameSet(t)
 	for _, width := range widths {
-		harness := newScreenHarness(t, harnessOptions{width: width})
+		harness := newScreenHarness(t, harnessOptions{width: width, height: goldenHeight})
 		build(harness)
 		set.add(fmt.Sprintf("ansi width %d", width), harness.frame())
 	}
-	noColor := newScreenHarness(t, harnessOptions{width: 80, profile: colorprofile.ASCII})
+	noColor := newScreenHarness(t, harnessOptions{width: 80, height: goldenHeight, profile: colorprofile.ASCII})
 	build(noColor)
 	set.add("no_color width 80", noColor.frame())
 	set.compare(name)
@@ -254,9 +244,15 @@ func widthMatrix(t *testing.T, name string, widths []int, build func(harness *sc
 
 var allWidths = []int{40, 60, 80, 120}
 
-// scrollbackText returns the printed scrollback without escape sequences.
+// scrollbackRaw returns every transcript line, scrolled out or not.
+func (harness *screenHarness) scrollbackRaw() string {
+	width := min(harness.screen.width, maximumContentWidth)
+	return strings.Join(harness.screen.history.Lines(width, harness.screen.theme), "\n")
+}
+
+// scrollbackText returns the transcript without escape sequences.
 func (harness *screenHarness) scrollbackText() string {
-	return terminaltheme.StripStyles(strings.Join(harness.scrollback, "\n"))
+	return terminaltheme.StripStyles(harness.scrollbackRaw())
 }
 
 func splitLines(text string) []string {
@@ -269,8 +265,4 @@ func displayWidthForTest(line string) int {
 
 func stripForTest(line string) string {
 	return terminaltheme.StripStyles(line)
-}
-
-func itoaForTest(value int) string {
-	return strconv.Itoa(value)
 }

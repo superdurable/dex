@@ -206,7 +206,7 @@ func TestHistoryRecordsAndRetentionWindow(t *testing.T) {
 func TestNoticesAreCleanedCutAndDeduplicated(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{width: 100})
 	harness.feed(sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityWarning, Text: "bad\x1b]0;title\x07\ttext\u0085end"})
-	require.NotContains(t, strings.Join(harness.scrollback, ""), "\x1b]0;")
+	require.NotContains(t, harness.scrollbackRaw(), "\x1b]0;")
 	require.Contains(t, harness.scrollbackText(), "! bad ]0;title  text end")
 
 	long := strings.Repeat("é", 600)
@@ -233,7 +233,7 @@ func TestSessionTextCannotWriteEscapeSequences(t *testing.T) {
 		sessionfeed.AssistantTextDelta{TurnID: "turn-1", StepExecutionID: "step-1", Attempt: 1, Text: "a\x1b]8;;http://x\x07link\n\n"},
 		finishedTool("call-1", "run\x1b[2J", "arg\x1b[H", sessionfeed.ToolCallSucceeded, "ok\x9b", time.Second),
 	)
-	raw := strings.Join(harness.scrollback, "\n")
+	raw := harness.scrollbackRaw() + harness.screen.View().Content
 	require.NotContains(t, raw, "\x1b]8;")
 	require.NotContains(t, raw, "\x1b[2J")
 	require.NotContains(t, raw, "\x1b[H")
@@ -290,57 +290,14 @@ func TestWorkerStoppingShowsInTheContextLine(t *testing.T) {
 	require.Contains(t, harness.plainFrame(), "! Worker stopping")
 }
 
-func TestPopupKeepsItsConsequenceOnAShortScreen(t *testing.T) {
-	harness := newScreenHarness(t, harnessOptions{width: 80, height: 14})
-	startTurn(harness, "Post it.")
-	for index := range 6 {
-		harness.feed(sessionfeed.ToolCallChanged{ToolCallID: "call-" + string(rune('a'+index)), ToolName: "run_shell_command", KeyArgument: "sleep 60", Status: sessionfeed.ToolCallRunning, StartedAt: harness.now})
-	}
-	approval := connectorApproval("approval-1")
-	approval.Arguments = append(approval.Arguments, sessionfeed.ApprovalArgument{Name: "blocks", Value: strings.Repeat("line\n", 30)})
-	harness.feed(approval)
-	frame := harness.screen.View().Content
-	lines := splitLines(frame)
-	require.LessOrEqual(t, len(lines), 13, "the live area fits the screen")
-	plain := stripForTest(frame)
-	for _, required := range []string{"Approve slack_post_channel_message?", "Posts to #eng with connection support-slack.", "▸ Approve", "Reject with a reason", "y approve"} {
-		require.Contains(t, plain, required)
-	}
-	require.Contains(t, plain, "more lines · e shows all")
-
-	question := newScreenHarness(t, harnessOptions{width: 80, height: 12})
-	startTurn(question, "Ask.")
-	question.feed(sessionfeed.QuestionAsked{InterruptID: "question-1", Question: strings.Repeat("Which branch should I compare against? ", 30), Choices: []string{"main", "release-0.6"}})
-	questionFrame := stripForTest(question.screen.View().Content)
-	require.LessOrEqual(t, len(splitLines(questionFrame)), 11)
-	for _, required := range []string{"The agent asks", "▸ main", "release-0.6", "Decline", "Enter answer"} {
-		require.Contains(t, questionFrame, required)
-	}
-}
-
 func TestWideTerminalsKeepColumnsNearTheText(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{width: 200})
 	playToolTurn(harness)
-	for _, line := range splitLines(harness.plainFrame()) {
-		require.LessOrEqual(t, displayWidthForTest(line), 90, "line %q reaches too far right", line)
+	for _, line := range splitLines(stripForTest(harness.screen.View().Content)) {
+		if strings.Trim(line, "─") == "" {
+			continue
+		}
+		require.LessOrEqual(t, displayWidthForTest(line), maximumContentWidth, "line %q reaches too far right", line)
 	}
-	require.Contains(t, harness.plainFrame(), "running tools 9s · 1.2k tok")
-}
-
-func TestReflowCorrection(t *testing.T) {
-	harness := newScreenHarness(t, harnessOptions{width: 80})
-	harness.screen.isTerminalReflowing = true
-	playToolTurn(harness)
-	harness.screen.View()
-	frame := harness.screen.lastFrame
-	expected := 0
-	for row := 0; row < frame.cursorRow; row++ {
-		expected += max((frame.lineWidths[row]-1)/40, 0)
-	}
-	expected += frame.cursorColumn / 40
-	require.Positive(t, expected)
-	require.Equal(t, "\x1b["+itoaForTest(expected)+"A", harness.screen.ReflowCorrection(40))
-	require.Empty(t, harness.screen.ReflowCorrection(120), "growing needs no correction")
-	harness.screen.isTerminalReflowing = false
-	require.Empty(t, harness.screen.ReflowCorrection(40), "a terminal that does not reflow needs none")
+	require.Contains(t, harness.plainFrame(), "turn 1 · 1.2k tok")
 }

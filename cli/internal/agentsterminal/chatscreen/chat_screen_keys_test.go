@@ -173,7 +173,7 @@ func TestCtrlCTwiceBeforeCancelIsConfirmed(t *testing.T) {
 	startTurn(harness, "Run the tests.")
 	harness.press(ctrlKey('c'), ctrlKey('c'))
 	require.True(t, harness.screen.isExiting)
-	frame := harness.plainFrame()
+	frame := harness.scrollbackText()
 	require.Contains(t, frame, "! Exited before the cancel was confirmed; the turn may still run. Resume with:")
 	require.Contains(t, frame, "--resume openai-sdk-20261111-142233-a1b2c3")
 }
@@ -337,7 +337,8 @@ func TestFeedClosedExits(t *testing.T) {
 func TestResizeReflowsLiveArea(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{width: 120})
 	playToolTurn(harness)
-	require.Contains(t, harness.plainFrame(), "openai-sdk · gpt-5.2 · turn 1")
+	require.Contains(t, harness.plainFrame(), "openai-sdk · gpt-5.2")
+	require.Contains(t, harness.plainFrame(), "turn 1")
 	harness.screen.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
 	frame := harness.screen.View().Content
 	for _, line := range splitLines(frame) {
@@ -354,10 +355,10 @@ func TestLiveAreaFitsEveryWidth(t *testing.T) {
 		harness.feed(connectorApproval("approval-1"), fileApproval("approval-2"))
 		limit := min(width, maximumContentWidth)
 		for _, line := range splitLines(harness.screen.View().Content) {
-			require.LessOrEqual(t, displayWidthForTest(line), limit, "width %d: line %q is too wide", width, line)
+			require.LessOrEqual(t, displayWidthForTest(line), width, "width %d: line %q is too wide", width, line)
 			require.False(t, strings.HasSuffix(stripForTest(line), " "), "width %d: line %q ends with a space", width, line)
 		}
-		for _, block := range harness.scrollback {
+		for _, block := range []string{harness.scrollbackRaw()} {
 			for _, line := range splitLines(block) {
 				require.LessOrEqual(t, displayWidthForTest(line), limit, "width %d: scrollback line %q is too wide", width, line)
 				require.False(t, strings.HasSuffix(stripForTest(line), " "), "width %d: scrollback line %q ends with a space", width, line)

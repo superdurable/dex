@@ -19,6 +19,7 @@ func replaceUpdateControlCharacters(update sessionfeed.SessionUpdate) sessionfee
 	switch typed := update.(type) {
 	case sessionfeed.SessionOpened:
 		typed.Command, typed.Model, typed.SessionID = oneLine(typed.Command), oneLine(typed.Model), oneLine(typed.SessionID)
+		typed.Workspace, typed.WebURL = oneLine(typed.Workspace), oneLine(typed.WebURL)
 		return typed
 	case sessionfeed.UserMessageRecorded:
 		typed.Text, typed.Origin = manyLines(typed.Text), oneLine(typed.Origin)

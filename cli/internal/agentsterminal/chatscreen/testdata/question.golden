@@ -1,6 +1,17 @@
 ==== choices and free text ====
+~~~~ 80x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
+  ␛[2mcopies the last reply.␛[m
+
 ␛[2m›␛[m Compare the branches.
-~~~~ live area ~~~~
+
+
  ␛[34m╭─ ␛[m␛[1;94mThe agent asks␛[m ␛[34m───────────────────────────────────────────────────────────╮␛[m
  ␛[34m│␛[m Which branch should I compare against?                                     ␛[34m│␛[m
  ␛[34m│␛[m                                                                            ␛[34m│␛[m
@@ -9,11 +20,25 @@
  ␛[34m│␛[m   Type an answer…                                                          ␛[34m│␛[m
  ␛[34m│␛[m   Decline                                                                  ␛[34m│␛[m
  ␛[34m╰────────────────────────────────────────────────────────────────────────────╯␛[m
-␛[2m j/k choose · Enter answer · Esc later␛[m
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                             ␛[2mturn 1␛[m
+ ␛[36m⠏␛[m running model                           ␛[2mj/k choose · Enter answer · Esc later␛[m
 
 ==== no_color, second choice focused ====
+~~~~ 80x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
+  ␛[2mcopies the last reply.␛[m
+
 ␛[2m›␛[m Compare the branches.
-~~~~ live area ~~~~
+
+
  ␛[m╭─ ␛[m␛[1mThe agent asks␛[m ␛[m───────────────────────────────────────────────────────────╮␛[m
  ␛[m│␛[m Which branch should I compare against?                                     ␛[m│␛[m
  ␛[m│␛[m                                                                            ␛[m│␛[m
@@ -22,4 +47,7 @@
  ␛[m│␛[m   Type an answer…                                                          ␛[m│␛[m
  ␛[m│␛[m   Decline                                                                  ␛[m│␛[m
  ␛[m╰────────────────────────────────────────────────────────────────────────────╯␛[m
-␛[2m j/k choose · Enter answer · Esc later␛[m
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[m›␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                             ␛[2mturn 1␛[m
+ ␛[m⠏␛[m running model                           ␛[2mj/k choose · Enter answer · Esc later␛[m

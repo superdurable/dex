@@ -11,10 +11,11 @@ package chatscreen
 import (
 	"strings"
 
+	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 )
 
-// The startup logo needs this much room; smaller terminals skip it.
+// The welcome logo needs this much room; smaller terminals skip it.
 const (
 	minimumLogoWidth  = 40
 	minimumLogoHeight = 15
@@ -40,6 +41,48 @@ var asciiLogoRows = []logoRow{
 	{bar: "|#|", chevron: "  \\\\", text: "Dex", isTitle: true},
 	{bar: "|#|", chevron: "  //", text: "Super Durable"},
 	{bar: "|#|", chevron: " //"},
+}
+
+// welcomeBlock opens the message view: the logo, where the session runs,
+// and how to start.
+type welcomeBlock struct {
+	session     sessionfeed.SessionOpened
+	isLogoShown bool
+}
+
+func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string {
+	var lines []string
+	if block.isLogoShown {
+		lines = append(lines, renderStartupLogo(theme)...)
+		lines = append(lines, "")
+	}
+	session := block.session
+	sessionText := session.SessionID
+	if sessionText != "" && session.IsNewSession {
+		sessionText += theme.Secondary.Render(" (new)")
+	} else if sessionText != "" {
+		sessionText += theme.Secondary.Render(" (resumed)")
+	}
+	rows := [][2]string{
+		{"command", session.Command},
+		{"model", session.Model},
+		{"directory", session.Workspace},
+		{"session", sessionText},
+		{"Dex Web", session.WebURL},
+	}
+	for _, row := range rows {
+		if row[1] == "" {
+			continue
+		}
+		line := contentIndent + theme.Secondary.Render(terminaltheme.PadRight(row[0]+":", 11)) + row[1]
+		lines = append(lines, terminaltheme.TruncateToWidth(line, width, theme.Symbols.Ellipsis))
+	}
+	tip := "Type a message to start. /help lists commands. Shift-drag selects text; /copy copies the last reply."
+	lines = append(lines, "")
+	for _, line := range terminaltheme.WrapToWidth(tip, max(width-len(contentIndent), 1)) {
+		lines = append(lines, contentIndent+theme.Secondary.Render(strings.TrimRight(line, " ")))
+	}
+	return lines
 }
 
 // renderStartupLogo draws the brand mark. Its green chevron is the one
