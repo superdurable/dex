@@ -6,7 +6,7 @@ slug: /use-cases/order-processing
 
 # Order Processing
 
-Build and run the order-processing Flow from [Why Dex?](/intro/what-is-dex). You start Dex, register a Worker and a Client, start the Flow from an HTTP controller, approve the shipment, and inspect the Execution graph in Dex Web.
+Run the order Flow that [Why Dex?](/intro/what-is-dex) describes. You start Dex, run the samples app, start an order over HTTP, approve the shipment, and look at the run in Dex Web.
 
 ## 1. Start Dex
 
@@ -22,13 +22,15 @@ cd dex
 
 ## 2. Flow, Steps, and RPCs
 
-The Flow charges the buyer, waits for the seller's approval on a Channel, and then ships. When a reminder Timer fires first, the Flow reminds the seller and keeps waiting. If the ship retries run out, the Flow moves to the Refund Step. [Why Dex?](/intro/what-is-dex) explains the design.
+The code below is the Flow from [Why Dex?](/intro/what-is-dex), with its Steps, its approve and describe RPCs, and its Attribute.
 
 Pass the mock payment and shipping API to the Flow constructor. Do not set them later with a setter, and do not read them from a global variable.
 
 Each Step passes an idempotency key built from the order ID, which is also the Flow ID. [Idempotency keys](/concepts/step#idempotency-keys) explains why.
 
-The **order-status** Attribute is indexed, so you can search Flows by status. Its index key, **keyword1**, is a numbered search slot that Flow types share, not a field name. [Read and search Attributes](/concepts/primitives/attribute#read-and-search-attributes) explains slots.
+The **order-status** Attribute is indexed, so you can search Flows by status. Its index key, **keyword1**, names a search slot. Each indexed Attribute takes one slot, so the limit on slots matters only when you index many Attributes. [Read and search Attributes](/concepts/primitives/attribute#read-and-search-attributes) explains slots.
+
+The **dex:group** and **dex:explanation** comments label each Step in the Flow graph that Dex Web and these docs draw. They do not change what the code does.
 
 <SdkTabs
   examples={{
@@ -59,7 +61,7 @@ class Charge(Step[OrderRequest]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
+                # One hour in production; 3 seconds keeps the demo short.
                 total_duration=timedelta(seconds=3),
             )
         )
@@ -85,14 +87,14 @@ class Ship(Step[OrderRequest]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
+                # One hour in production; 3 seconds keeps the demo short.
                 total_duration=timedelta(seconds=3),
             )
         ).on_execute_failure_proceed_to(
             Refund,
             StepOptions(
                 execute_retry=RetryPolicy(
-                    # total_duration=timedelta(hours=1),
+                    # One hour in production; 3 seconds keeps the demo short.
                     total_duration=timedelta(seconds=3),
                 )
             ),
@@ -228,7 +230,7 @@ func (chargeStep) GetStepType() string {
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
+			// One hour in production; 3 seconds keeps the demo short.
 			TotalDuration: 3 * time.Second,
 		},
 	}
@@ -257,14 +259,14 @@ func (shipStep) GetStepType() string {
 func (step shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
+			// One hour in production; 3 seconds keeps the demo short.
 			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
 			refundStep{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{
-					// TotalDuration: time.Hour,
+					// One hour in production; 3 seconds keeps the demo short.
 					TotalDuration: 3 * time.Second,
 				},
 			},
@@ -397,7 +399,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
+                            // One hour in production; 3 seconds keeps the demo short.
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .build();
@@ -434,14 +436,14 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
+                            // One hour in production; 3 seconds keeps the demo short.
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .onExecuteFailureProceedTo(
                             Refund.class,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
-                                            // .totalDuration(Duration.ofHours(1))
+                                            // One hour in production; 3 seconds keeps the demo short.
                                             .totalDuration(Duration.ofSeconds(3))
                                             .build())
                                     .build())
@@ -560,7 +562,7 @@ class Charge implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
+        // One hour in production; 3 seconds keeps the demo short.
         totalDurationMs: 3_000,
       },
     };
@@ -588,12 +590,12 @@ class Ship implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
+        // One hour in production; 3 seconds keeps the demo short.
         totalDurationMs: 3_000,
       },
       executeFailure: ExecuteFailure.proceedTo(Refund, {
         executeRetry: {
-          // totalDurationMs: 60 * 60 * 1000,
+          // One hour in production; 3 seconds keeps the demo short.
           totalDurationMs: 3_000,
         },
       }),
@@ -717,7 +719,7 @@ impl Step for Charge {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
             RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
+                // One hour in production; 3 seconds keeps the demo short.
                 .total_duration(Duration::from_secs(3)),
         )
     }
@@ -751,7 +753,7 @@ impl Step for Ship {
         StepOptions::new()
             .execute_retry(
                 RetryPolicy::new()
-                    // .total_duration(Duration::from_secs(60 * 60))
+                    // One hour in production; 3 seconds keeps the demo short.
                     .total_duration(Duration::from_secs(3)),
             )
             .on_execute_failure_proceed_to(&Refund::default())
@@ -803,7 +805,7 @@ impl Step for Refund {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
             RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
+                // One hour in production; 3 seconds keeps the demo short.
                 .total_duration(Duration::from_secs(3)),
         )
     }
@@ -834,7 +836,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 ## 3. Worker and Client
 
-Create a Registry, a Worker, and a Client that connect to **dexcli** at **127.0.0.1:8801**. Construct the Flow with the mock API service, then register it. The samples app registers every example Flow in one Registry, so the snippets below show only the lines for this Flow where they can.
+Create a Registry, a Worker, and a Client that connect to **dexcli** at **127.0.0.1:8801**. Construct the Flow with the mock API service, then register it. The samples app registers every example Flow in one Registry, so the snippets below show only the lines for this Flow where they can. The Python samples app runs on an async web framework, so it uses **AsyncWorker** and **AsyncClient**. The [Quick Start](/quick-start) uses the synchronous **Worker** and **Client**, which work the same way.
 
 The Worker connects out to **dexcli** to receive tasks, so it needs no open inbound port.
 [Workers and the task queue](/reference/server/workers) covers capacity, readiness, and
@@ -1042,7 +1044,7 @@ The controller gets the Client and the Flow from its constructor or factory argu
 
 
 def _required_flow_id() -> str:
-    """Reads flowId, or the older workflowId name that the playground still sends."""
+    """Reads the Flow ID from flowId, or from its alias workflowId."""
     return optional_query("workflowId", "") or required_query("flowId")
 ```
 
@@ -1121,7 +1123,7 @@ func (controller *controller) describe(request *gin.Context) {
 	httputil.Respond(request, gin.H{"flowID": flowID, "status": output}, err)
 }
 
-// requiredFlowID reads flowId, or the older workflowId name that the playground still sends.
+// requiredFlowID reads the Flow ID from flowId, or from its alias workflowId.
 func requiredFlowID(request *gin.Context) (string, bool) {
 	if flowID := request.Query("workflowId"); flowID != "" {
 		return flowID, true
@@ -1191,7 +1193,7 @@ public class OrderProcessingController {
         return ResponseEntity.ok(response);
     }
 
-    /** Returns flowId, or the older workflowId name that the playground still sends. */
+    /** Returns the Flow ID from flowId, or from its alias workflowId. */
     private static String requiredFlowId(final String flowId, final String workflowId) {
         if (workflowId != null && !workflowId.isEmpty()) {
             return workflowId;
@@ -1248,7 +1250,7 @@ export function createOrderProcessingRouter(
   return router;
 }
 
-/** Reads flowId, or the older workflowId name that the playground still sends. */
+/** Reads the Flow ID from flowId, or from its alias workflowId. */
 function flowIdFromQuery(query: Record<string, unknown>): string {
   return String(query.workflowId ?? query.flowId ?? "");
 }
@@ -1390,6 +1392,22 @@ curl -s "http://127.0.0.1:8080/products/order-processing/approve?flowId=FLOW_ID"
 ```
 
 Replace **FLOW_ID** with the **flowID** you copied. The Flow ships the item and completes.
+
+### Try the refund path
+
+Start an order whose shipping always fails:
+
+```bash
+curl -s 'http://127.0.0.1:8080/products/order-processing/start?testFailAtShipping=true'
+```
+
+Approve it as before. The Ship Step fails and retries for 3 seconds. Then the Flow moves to the Refund Step, which refunds the buyer and completes the Flow. Read its status:
+
+```bash
+curl -s "http://127.0.0.1:8080/products/order-processing/describe?flowId=FLOW_ID"
+```
+
+The status is **refunded**. In Dex Web, the Execution graph shows Charge, Ship, and then Refund.
 
 ## 6. Dex Web
 

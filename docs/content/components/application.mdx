@@ -17,7 +17,7 @@ A process can run a Worker, a Client, or both.
 
 ## How it fits with the other components
 
-Workers and Clients connect to the Dex Server (server-zd). Every Worker is a
+Workers and Clients connect to Dex Server. Every Worker is a
 pull Worker. It opens outbound task streams to the server and never listens for
 calls. So a Worker needs no inbound port and can run behind NAT or a firewall.
 

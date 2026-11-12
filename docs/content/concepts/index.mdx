@@ -80,8 +80,8 @@ processes that run it:
 
 - Your **application** hosts the Flow code in Workers and calls Dex through
   Clients.
-- **Dex Server** stores Flow state and hands Steps and RPCs to Workers. Its
-  binary and its reference pages use the name **server-zd**.
+- [Dex Server](/components/server) stores Flow state and hands Steps and RPCs
+  to Workers.
 - **dexcli** runs a local Dex, and **Dex Web** lets operators inspect Flows.
 
 ## What Dex guarantees {#guarantees}
@@ -90,6 +90,11 @@ Dex saves each Step's result together with the move to the next Step. A Step
 that finished does not run again. A Step that was cut off can run again, so
 key each external call with an [idempotency key](/concepts/step#idempotency-keys). [Step](/concepts/step#guarantees)
 lists every guarantee and its limits.
+
+Parallel Steps and RPCs share the Flow's Attributes, and Dex does not isolate
+them by default. Locks are opt-in. As a rule of thumb, lock any Attribute that
+two parallel Steps, or a Step and an RPC, read and then write. See
+[Attribute locks](/concepts/primitives/attribute#locking).
 [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again
 after a crash, a server failover, or a deploy.
 

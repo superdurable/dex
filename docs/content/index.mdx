@@ -12,7 +12,7 @@ You write the process as a **Flow**: a set of **Steps** in your own language, ea
 
 ## New to Dex
 
-Start with the [Quick Start](/quick-start). [Get Started](/get-started) suggests a path by goal, with the time each one takes.
+Start with the [Quick Start](/quick-start). If a process of yours breaks halfway today, follow [Fix a process that breaks halfway](/get-started#fix-a-process). [Get Started](/get-started) suggests a path for each goal, with the time each one takes.
 
 <div className="docs-home-sections">
   <DocsSection section="intro" to="/quick-start" title="Quick Start">
@@ -50,7 +50,7 @@ Start with the [Quick Start](/quick-start). [Get Started](/get-started) suggests
 
 <div className="docs-home-sections">
   <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable agents">
-    Keep your agent framework. Each tool call runs in its own Step. Writes run at most once, apart from one documented case, and approvals can wait for days.
+    Keep your agent framework. Each tool call runs in its own Step. Tools that are not safe to repeat run at most once, and approvals can wait for days.
   </DocsSection>
   <DocsSection section="product-examples" to="/use-cases" title="Business processes">
     Orders, subscriptions, onboarding, and money transfer.
@@ -62,6 +62,8 @@ Start with the [Quick Start](/quick-start). [Get Started](/get-started) suggests
     Retries, compensation, and parallel calls across services.
   </DocsSection>
 </div>
+
+In a durable agent, a tool that is not safe to repeat runs at most once, with [one exception](/agent-frameworks/tool-calls#tool-runs-twice).
 
 ## Optional: build with your coding agent
 
@@ -99,7 +101,7 @@ https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
     Reusable Flow shapes for parallel work, timers, failures, and messaging.
   </DocsSection>
   <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
-    Computer-checked proofs of what Dex can express and what failures can change. They cover one Flow that receives Channel messages. The failure proof assumes SYNC Steps and leaves out RPCs, SubFlows, locks, and failure policies.
+    A machine-checked proof of what a crash can and cannot change, with its limits stated, and a proof of what Dex can express.
   </DocsSection>
   <DocsSection section="glossary" to="/glossary" title="Glossary">
     Every Dex term in one place.

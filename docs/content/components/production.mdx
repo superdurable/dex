@@ -16,7 +16,7 @@ decide and set up before launch. Each item links to the page with the details.
 | Item | What to know | Details |
 | --- | --- | --- |
 | Topology | One active Dex Server node serves the cluster. Hot standby nodes can take over when it stops. The active node holds a lease in object storage. | [Dex Server](/components/server), [Lease, hot standby, and step down](/reference/server/high-availability) |
-| Capacity and cost | Size the node from the measured peaks and the S3 request cost. | [Performance and Maturity](/intro/performance-and-maturity), [Limits and Sharp Edges](/intro/limits-and-sharp-edges#capacity-and-availability) |
+| Capacity and cost | Size the node from the measured peaks and the S3 request cost. Past one node, run separate clusters. | [Performance and Maturity](/intro/performance-and-maturity), [Grow past one node](/intro/limits-and-sharp-edges#grow-past-one-node) |
 | Storage | Object storage, such as Amazon S3, holds all server state. The db9 provider can replace it with a PostgreSQL-compatible database. Give each cluster its own bucket prefix and an IAM policy confined to it. | [Object storage and backup](/reference/server/object-storage) |
 | Configuration | **serve** reads one YAML file. Start from the minimal production configuration. | [Install and configure server-zd](/reference/server/configuration) |
 | Retention | A closed Flow run stays available for 7 days by default, then the server may delete it. Set **retention.closedFlowDuration** to your audit needs. | [Retention](/reference/server/configuration#retention) |

@@ -45,6 +45,7 @@ const sidebars: SidebarsConfig = {
         'agent-frameworks/tool-calls',
         'agent-frameworks/approvals',
         'agent-frameworks/connectors-as-tools',
+        'agent-frameworks/production',
         'agent-frameworks/built-in-agent-loop',
       ],
     },

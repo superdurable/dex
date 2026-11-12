@@ -397,7 +397,10 @@ A Step's **durability** chooses when Dex stores its progress.
 
 Choose **SYNC** for effects that need the tightest guarantees. Choose
 **ASYNC** for short Steps where latency matters and a rare rerun is
-acceptable. A **StepOptions** setting picks the durability of one Step, and
+acceptable. Good ASYNC candidates are fast reads, internal bookkeeping, and
+calls that a key already makes safe to repeat. Keep **SYNC** for a payment,
+an email, or any call whose rerun on a newer snapshot could send different
+arguments. A **StepOptions** setting picks the durability of one Step, and
 **FlowConfig** sets it for a whole Flow.
 [Performance and Maturity](/intro/performance-and-maturity) gives measured
 latency for both.

@@ -116,7 +116,7 @@ The code is already in the folder you cloned. This step and the next one walk th
 
 A Flow is a process that Dex runs to completion. Each Step is one unit of work in it. Dex saves the result of each Step, so a Step that finished does not run again.
 
-**Charge** calls the payment API and moves to **Ship**. **Ship** waits on a 30-second Timer, then calls the shipping API. Each call passes an idempotency key, which the next steps explain. The mock API comes in through the constructor.
+**Charge** calls the payment API and moves to **Ship**. **Ship** waits on a Timer, 30 seconds by default, then calls the shipping API. Each call passes an idempotency key, which the next steps explain. The mock API comes in through the constructor.
 
 <SdkTabs
   examples={{
@@ -144,7 +144,7 @@ class Ship(Step[str]):
 
     def wait_for(self, context: Context, input: str) -> Wait:
         return Wait.until(
-            Timer.by_duration(timedelta(seconds=30), condition_id=SHIP_DELAY_TIMER)
+            Timer.by_duration(SHIP_DELAY, condition_id=SHIP_DELAY_TIMER)
         )
 
     def execute(self, context: Context, input: str) -> StepDecision:
@@ -203,7 +203,7 @@ func (step Charge) Execute(_ dex.Context, orderID string) (*dex.StepDecision, er
 	return dex.GoTo(Ship{}, orderID), nil
 }
 
-// Ship waits on a 30-second Timer, then ships the order.
+// Ship waits on a Timer, 30 seconds by default, then ships the order.
 type Ship struct {
 	dex.StepDefaults
 	shop *ShopAPI
@@ -211,7 +211,7 @@ type Ship struct {
 
 // WaitFor waits on the ship-delay Timer.
 func (Ship) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
-	return dex.Until(dex.Timer(30*time.Second, dex.WithConditionID(ShipDelayTimer))), nil
+	return dex.Until(dex.Timer(ShipDelay(), dex.WithConditionID(ShipDelayTimer))), nil
 }
 
 // Execute ships the order and completes the Flow.
@@ -276,7 +276,7 @@ public final class OrderFlow implements Flow<String> {
 
         @Override
         public Wait waitFor(final Context context, final String orderId) {
-            return Wait.until(Timer.byDuration(Duration.ofSeconds(30), SHIP_DELAY_TIMER));
+            return Wait.until(Timer.byDuration(QuickStartConfig.SHIP_DELAY, SHIP_DELAY_TIMER));
         }
 
         @Override
@@ -323,7 +323,7 @@ class Ship implements Step<string> {
   }
 
   public waitFor(_context: Context, _orderId: string): Wait {
-    return Wait.until(Timer.byDuration(30_000, SHIP_DELAY_TIMER));
+    return Wait.until(Timer.byDuration(SHIP_DELAY_MS, SHIP_DELAY_TIMER));
   }
 
   public async execute(_context: Context, orderId: string): Promise<StepDecision> {
@@ -383,7 +383,7 @@ impl Step for Ship {
     type Input = String;
 
     fn wait_for(&self, _context: &mut Context, _order_id: String) -> HandlerResult<Wait> {
-        let delay = Timer::by_duration(Duration::from_secs(30)).with_id(SHIP_DELAY_TIMER);
+        let delay = Timer::by_duration(ship_delay_from_environment()).with_id(SHIP_DELAY_TIMER);
         Ok(Wait::until(delay))
     }
 
@@ -424,7 +424,9 @@ impl Flow for OrderFlow {
 </SdkSnippet>
 </SdkTabs>
 
-The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker.
+The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker. Its **condition_id**, **ship-delay**, names the Timer so that a test or an operator can skip it.
+
+Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains the other choice.
 
 A decision names the next Step by its type. Python, Java, and TypeScript pass the class. Go passes an empty **Ship** struct value, and Rust passes a **Ship** value.
 
@@ -432,7 +434,13 @@ A decision names the next Step by its type. Python, Java, and TypeScript pass th
 
 The Worker runs the Steps. It connects out to Dex for work, so it needs no open port. The Client starts Flows.
 
-The Client starts a Flow by its registered definition, so both programs build the same Flow and register it. The Client uses that registration to name the Flow type and encode the input, so its copy of the mock API is never called. The SDK Clients have no call that starts a Flow by its type name alone. **dexcli flow start --flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache) for large values.
+Both programs build the same Flow and register it.
+
+:::note Details
+
+The Client uses the registered Flow to name its type and encode the input, so its copy of the mock API is never called. The SDK Clients have no call that starts a Flow by its type name alone; **dexcli flow start -flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache), which keeps copies of large values.
+
+:::
 
 <SdkTabs
   examples={{
@@ -814,7 +822,7 @@ Charged order-1a2b3c4d with key charge-order-1a2b3c4d
 
 ## 5. Stop the Worker
 
-Within 30 seconds, press Ctrl+C in the Worker's terminal. Then start the Worker again with the same command.
+Within 30 seconds, press Ctrl+C in the Worker's terminal. Then start the Worker again with the same command. If you need more time, start the Worker in step 4 with **QUICK_START_SHIP_DELAY_SECONDS=60** in front of its command.
 
 When the Timer fires, the new Worker prints the shipment:
 
@@ -830,7 +838,7 @@ It does not print **Charged** again. Dex had saved the result of Charge, so only
 - **The Worker does not print "Worker is ready".** Check that **dexcli dev** is still running and printed "Dex development environment is ready".
 - **Dex runs on another address.** Set **DEX_FLOW_SERVICE_ADDRESS**, such as **127.0.0.1:8801**, in both the Worker's and the start command's terminal.
 - **The start command fails.** Run it from the example folder, after the install command in step 1.
-- **Ship ran before you stopped the Worker.** You missed the 30-second window. Start another Flow and stop the Worker sooner.
+- **Ship ran before you stopped the Worker.** You missed the 30-second window. Start another Flow and stop the Worker sooner, or start the Worker with **QUICK_START_SHIP_DELAY_SECONDS=60**.
 - **The Worker keeps running after Ctrl+C.** It finishes the running Step first. To stop it at once, use **kill -9** with its process number.
 
 ## 6. Stop the Worker inside a Step

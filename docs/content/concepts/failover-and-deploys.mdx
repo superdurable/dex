@@ -39,7 +39,9 @@ When the active node crashes, a standby takes over after the lease expires,
 plus 1 second. The lease is 10 seconds by default. Recovery then fails every
 attempt that a Worker had received, with **NOT_COMPLETED**, and each attempt
 consumes a retry. So a Step that was running during a failover runs again,
-even if its Worker kept running.
+even if its Worker kept running. The reason is that the new node did not hand
+out those attempts. The old node's task streams ended with it, so the new node
+cannot learn whether each attempt finished, and it retries them all.
 
 There is one exception. An ASYNC attempt whose start the node had not yet
 saved runs again with the same attempt number and consumes no retry. See

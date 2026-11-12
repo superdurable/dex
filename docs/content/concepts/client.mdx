@@ -29,6 +29,28 @@ Use a Client at the boundary between your application and its Flows:
   Timer, update its configuration, or time travel it. See
   [Stop a Flow](/reference/server/runtime-client#stop-a-flow).
 
+## Start Flows from an API service {#start-from-an-api-service}
+
+The Client starts a Flow by its registered definition. It uses the registration
+to name the Flow type and to encode the start input and RPC arguments. So the
+service that starts Flows builds the Flow objects too. The Client never runs a
+Step, so those objects never call their services, and stand-ins work. The
+[Quick Start](/quick-start) does this: its start program builds the Flow with a
+mock API that is never called. Each Client process also opens its own
+[blob cache](/components/application#blob-cache).
+
+## Deliver an event when no Worker runs {#deliver-without-a-worker}
+
+The SDK path for a command is an RPC. An RPC runs on a Worker. If no Worker of
+the Flow type takes it within 10 seconds, the caller gets an **Unavailable**
+error, and nothing is stored.
+
+The FlowService request **PublishToChannel** stores Channel messages on the
+server with no Worker connected. A waiting Step wakes when a Worker runs again.
+The SDK Clients do not expose this request. Call it through gRPC or with
+**dexcli api call PublishToChannel**. A repeated publish is not dropped today;
+see [Limits and Sharp Edges](/intro/limits-and-sharp-edges).
+
 ## How it relates to the other Primitives {#related-primitives}
 
 - [Flow](/concepts/flow): **StartFlow** creates a Flow run under a **Flow ID** that you

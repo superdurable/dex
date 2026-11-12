@@ -16,9 +16,7 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 Most backends keep their state in a database and build each process around it.
 Below, one order process is built that way, one design at a time, and then as a Dex Flow.
 
-The full order process charges the buyer and ships the item.
-It waits for the seller's approval before shipping and reminds the seller while it waits.
-It refunds the buyer when shipping still fails after an hour.
+It is the order process from [Why Dex?](/intro/what-is-dex): charge, wait for the seller's approval with reminders, ship, and refund if shipping keeps failing.
 These are the parts each design needs for it:
 
 <ArchitectureComparison markdownTable={{

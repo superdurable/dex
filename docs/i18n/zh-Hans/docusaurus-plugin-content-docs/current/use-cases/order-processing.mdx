@@ -6,7 +6,7 @@ slug: /use-cases/order-processing
 
 # Order Processing
 
-从头构建并运行 [为什么是 Dex？](/intro/what-is-dex) 里的 order-processing Flow。你会启动 Dex，注册 Worker 和 Client，用 HTTP controller 启动 Flow，批准发货，再在 Dex Web 里查看 Execution graph。
+运行 [为什么是 Dex？](/intro/what-is-dex) 里介绍的订单 Flow。你会启动 Dex，运行示例应用，通过 HTTP 下一个订单，批准发货，再在 Dex Web 里查看这次运行。
 
 ## 1. 启动 Dex
 
@@ -22,13 +22,15 @@ cd dex
 
 ## 2. Flow、Step 和 RPC
 
-这条 Flow 先扣款，再通过 Channel 等卖家审批，然后发货。如果提醒 Timer 先到，Flow 就提醒卖家并继续等待。发货 retry 用尽后，Flow 进入 Refund Step。设计见 [为什么是 Dex？](/intro/what-is-dex)。
+下面的代码就是 [为什么是 Dex？](/intro/what-is-dex) 里的 Flow，包括它的 Step、approve 和 describe 两个 RPC，以及它的 Attribute。
 
 把 mock 的支付和发货 API 传给 Flow 的 constructor。不要事后用 setter 设置，也不要从全局变量读取。
 
 每个 Step 都带上用订单 ID 构造的幂等键，订单 ID 也就是 Flow ID。原因见 [幂等键](/concepts/step#idempotency-keys)。
 
-**order-status** Attribute 建了索引，所以可以按状态搜索 Flow。它的索引键 **keyword1** 是各个 Flow 类型共用的编号搜索槽位，不是字段名。槽位的说明见 [读取和搜索 Attribute](/concepts/primitives/attribute#read-and-search-attributes)。
+**order-status** Attribute 建了索引，所以可以按状态搜索 Flow。它的索引键 **keyword1** 指定一个搜索槽位。每个带索引的 Attribute 占用一个槽位，所以只有在给很多 Attribute 建索引时，槽位上限才有影响。槽位的说明见 [读取和搜索 Attribute](/concepts/primitives/attribute#read-and-search-attributes)。
+
+**dex:group** 和 **dex:explanation** 注释用来标注 Dex Web 和本文档所画 Flow 图里的每个 Step。它们不改变代码的行为。
 
 <SdkTabs
   examples={{
@@ -59,7 +61,7 @@ class Charge(Step[OrderRequest]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
+                # One hour in production; 3 seconds keeps the demo short.
                 total_duration=timedelta(seconds=3),
             )
         )
@@ -85,14 +87,14 @@ class Ship(Step[OrderRequest]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
+                # One hour in production; 3 seconds keeps the demo short.
                 total_duration=timedelta(seconds=3),
             )
         ).on_execute_failure_proceed_to(
             Refund,
             StepOptions(
                 execute_retry=RetryPolicy(
-                    # total_duration=timedelta(hours=1),
+                    # One hour in production; 3 seconds keeps the demo short.
                     total_duration=timedelta(seconds=3),
                 )
             ),
@@ -228,7 +230,7 @@ func (chargeStep) GetStepType() string {
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
+			// One hour in production; 3 seconds keeps the demo short.
 			TotalDuration: 3 * time.Second,
 		},
 	}
@@ -257,14 +259,14 @@ func (shipStep) GetStepType() string {
 func (step shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
+			// One hour in production; 3 seconds keeps the demo short.
 			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
 			refundStep{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{
-					// TotalDuration: time.Hour,
+					// One hour in production; 3 seconds keeps the demo short.
 					TotalDuration: 3 * time.Second,
 				},
 			},
@@ -397,7 +399,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
+                            // One hour in production; 3 seconds keeps the demo short.
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .build();
@@ -434,14 +436,14 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
+                            // One hour in production; 3 seconds keeps the demo short.
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .onExecuteFailureProceedTo(
                             Refund.class,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
-                                            // .totalDuration(Duration.ofHours(1))
+                                            // One hour in production; 3 seconds keeps the demo short.
                                             .totalDuration(Duration.ofSeconds(3))
                                             .build())
                                     .build())
@@ -560,7 +562,7 @@ class Charge implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
+        // One hour in production; 3 seconds keeps the demo short.
         totalDurationMs: 3_000,
       },
     };
@@ -588,12 +590,12 @@ class Ship implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
+        // One hour in production; 3 seconds keeps the demo short.
         totalDurationMs: 3_000,
       },
       executeFailure: ExecuteFailure.proceedTo(Refund, {
         executeRetry: {
-          // totalDurationMs: 60 * 60 * 1000,
+          // One hour in production; 3 seconds keeps the demo short.
           totalDurationMs: 3_000,
         },
       }),
@@ -717,7 +719,7 @@ impl Step for Charge {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
             RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
+                // One hour in production; 3 seconds keeps the demo short.
                 .total_duration(Duration::from_secs(3)),
         )
     }
@@ -751,7 +753,7 @@ impl Step for Ship {
         StepOptions::new()
             .execute_retry(
                 RetryPolicy::new()
-                    // .total_duration(Duration::from_secs(60 * 60))
+                    // One hour in production; 3 seconds keeps the demo short.
                     .total_duration(Duration::from_secs(3)),
             )
             .on_execute_failure_proceed_to(&Refund::default())
@@ -803,7 +805,7 @@ impl Step for Refund {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
             RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
+                // One hour in production; 3 seconds keeps the demo short.
                 .total_duration(Duration::from_secs(3)),
         )
     }
@@ -834,7 +836,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 ## 3. Worker 和 Client
 
-创建连接到 **dexcli**（**127.0.0.1:8801**）的 Registry、Worker 和 Client。用 mock API service 构造 Flow，再注册它。示例应用把所有示例 Flow 注册在同一个 Registry 里，所以下面的代码片段尽量只展示这条 Flow 相关的行。
+创建连接到 **dexcli**（**127.0.0.1:8801**）的 Registry、Worker 和 Client。用 mock API service 构造 Flow，再注册它。示例应用把所有示例 Flow 注册在同一个 Registry 里，所以下面的代码片段尽量只展示这条 Flow 相关的行。Python 示例应用运行在异步 Web 框架上，所以使用 **AsyncWorker** 和 **AsyncClient**。[Quick Start](/quick-start) 用的是同步的 **Worker** 和 **Client**，两者的工作方式相同。
 
 Worker 主动连到 **dexcli** 接收任务，所以不需要开放入站端口。容量、就绪状态和生产环境配置见英文的 [Workers and the task queue](/reference/server/workers)。
 
@@ -1040,7 +1042,7 @@ controller 从 constructor 或 factory 参数拿到 Client 和 Flow。
 
 
 def _required_flow_id() -> str:
-    """Reads flowId, or the older workflowId name that the playground still sends."""
+    """Reads the Flow ID from flowId, or from its alias workflowId."""
     return optional_query("workflowId", "") or required_query("flowId")
 ```
 
@@ -1119,7 +1121,7 @@ func (controller *controller) describe(request *gin.Context) {
 	httputil.Respond(request, gin.H{"flowID": flowID, "status": output}, err)
 }
 
-// requiredFlowID reads flowId, or the older workflowId name that the playground still sends.
+// requiredFlowID reads the Flow ID from flowId, or from its alias workflowId.
 func requiredFlowID(request *gin.Context) (string, bool) {
 	if flowID := request.Query("workflowId"); flowID != "" {
 		return flowID, true
@@ -1189,7 +1191,7 @@ public class OrderProcessingController {
         return ResponseEntity.ok(response);
     }
 
-    /** Returns flowId, or the older workflowId name that the playground still sends. */
+    /** Returns the Flow ID from flowId, or from its alias workflowId. */
     private static String requiredFlowId(final String flowId, final String workflowId) {
         if (workflowId != null && !workflowId.isEmpty()) {
             return workflowId;
@@ -1246,7 +1248,7 @@ export function createOrderProcessingRouter(
   return router;
 }
 
-/** Reads flowId, or the older workflowId name that the playground still sends. */
+/** Reads the Flow ID from flowId, or from its alias workflowId. */
 function flowIdFromQuery(query: Record<string, unknown>): string {
   return String(query.workflowId ?? query.flowId ?? "");
 }
@@ -1388,6 +1390,22 @@ curl -s "http://127.0.0.1:8080/products/order-processing/approve?flowId=FLOW_ID"
 ```
 
 把 **FLOW_ID** 换成刚才复制的 **flowID**。这条 Flow 会发货并完成。
+
+### 试试退款路径
+
+下一个发货总会失败的订单：
+
+```bash
+curl -s 'http://127.0.0.1:8080/products/order-processing/start?testFailAtShipping=true'
+```
+
+像上面一样批准它。Ship Step 失败后会重试 3 秒。之后 Flow 进入 Refund Step，给买家退款并完成 Flow。读取它的状态：
+
+```bash
+curl -s "http://127.0.0.1:8080/products/order-processing/describe?flowId=FLOW_ID"
+```
+
+状态是 **refunded**。在 Dex Web 里，Execution graph 显示 Charge、Ship，然后是 Refund。
 
 ## 6. Dex Web
 

@@ -49,6 +49,10 @@ What a Step waits for, returned from WaitFor: a Timer, a Channel message, a SubF
 
 A package that connects a Flow to an external provider. It gives the Flow ready-made Steps, and Triggers that turn provider events into Flow starts or RPC calls.
 
+#### [db9](/reference/server/object-storage#db9)
+
+A separate database product that speaks the PostgreSQL wire protocol. Dex Server can keep its data there instead of in object storage. Stock PostgreSQL is not a listed production store.
+
 #### [Dex Server](/components/server)
 
 The server that stores every Flow's state and hands work to Workers. Its binary is **dex-server-zd**, and its reference calls it **server-zd**.
@@ -75,7 +79,7 @@ The top-level durable program. It contains Steps, Attributes, Channels, and RPCs
 
 #### [Flow Definition Graph](/components/server)
 
-A static map of a Flow type's Steps and the moves between them. Workers or dexcli publish it, and Dex Web draws the Flow from it.
+A map of a Flow type's Steps and every move their code can make. **dexcli visualize** builds it from your source code without running it. Workers or dexcli publish it, and Dex Web draws the Flow from it.
 
 #### [Flow ID](/concepts/flow#identifiers)
 

@@ -74,9 +74,20 @@ To repeat a point on your own AWS account, run **benchmark/aws/reproduce.sh**. [
 
 ## Release status
 
-- **Dex is in Beta.** Releases keep published APIs, configuration files, wire formats, and stored data compatible. A breaking change needs an explicit decision and comes with a migration path. [Limits and Sharp Edges](/intro/limits-and-sharp-edges) covers the server version, upgrades, and failover.
+| Part | Where it stands |
+| --- | --- |
+| Dex | Beta. Published APIs, configuration, wire formats, and stored data stay compatible. |
+| Dex Server (server-zd) | Version 0.1.x. Upgrades roll forward only, and some stop the cluster. |
+| SDKs | Version 1.x, in Go, Python, Java, TypeScript, and Rust. |
+| Compatibility | Decided by protocol ranges, not version numbers. A Worker or Client works with a server when their ranges overlap. |
+
+[Upgrades and compatibility](/reference/server/upgrades) gives the protocol ranges.
+[Limits and Sharp Edges](/intro/limits-and-sharp-edges#capacity-and-availability)
+covers upgrades that stop the cluster.
+
+- **Breaking changes come with a migration path.** A breaking change needs an explicit decision first.
 - **Some options are not supported yet.** A Flow start delay and a Flow-level retry policy are rejected. An Attribute Store, the optional database that receives copies of chosen Attributes, can only be PostgreSQL. Flow state itself always stays in Dex Server. [Unsupported features](/reference/server#unsupported-features) links each open issue.
-- **Five SDKs.** Go, Python, Java, TypeScript, and Rust have the same Flow model.
+- **Five SDKs, one model.** Go, Python, Java, TypeScript, and Rust have the same Flow model.
 - **dexcli dev runs a pinned server.** Each dexcli release archive includes the **dex-server-zd** release it was tested with, and **dexcli dev** runs that one. [Run Locally](/components/run-locally) shows how to install and update it.
 
 ## License

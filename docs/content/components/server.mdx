@@ -11,11 +11,12 @@ stores that state in object storage, such as Amazon S3 or an S3-compatible
 store, and needs no other database. Dex Server ships as one binary,
 **dex-server-zd**. Its releases and reference pages call it **server-zd**.
 
-Instead of object storage, Dex Server can keep the same data in db9, a
-PostgreSQL-compatible database. It talks to db9 over the PostgreSQL wire
-protocol, and its storage tests also run against PostgreSQL 16. The database
-must give durable transactions, row locks, and strongly consistent reads, so a
-read replica does not qualify. See
+Instead of object storage, Dex Server can keep the same data in db9. db9 is a
+separate database product that speaks the PostgreSQL wire protocol. The db9
+provider's storage tests also run against PostgreSQL 16, but the docs do not
+list stock PostgreSQL as a supported production store today. The database must
+give durable transactions, row locks, and strongly consistent reads, so a read
+replica does not qualify. See
 [db9 provider](/reference/server/object-storage#db9).
 
 ## How it works
@@ -48,8 +49,10 @@ throughput and latency for one node.
 - [dexcli](/components/cli) calls the same API. **dexcli dev** also
   starts Dex Server on your machine.
 - Dex Server stores one Flow Definition Graph for each Flow type. That graph
-  is a static map of the Flow's Steps and the moves between them. Workers or
-  **dexcli** publish it. Each graph records when it was generated. A graph with
+  is a map of the Flow's Steps and every move their code can make.
+  **dexcli visualize** builds it by reading your Flow's source code, without
+  running it, so the graph lists possible moves, not the moves of one run.
+  Workers or **dexcli** publish it. Each graph records when it was generated. A graph with
   a later generation time replaces an older one, whatever the upload order. Dex
   Web reads it to draw the Flow.
 - Dex Server can write selected Attributes to PostgreSQL. See

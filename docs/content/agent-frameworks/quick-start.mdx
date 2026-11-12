@@ -44,7 +44,7 @@ Keep **dexcli dev** running. Open a second terminal in the **dex** folder for th
 
 Each framework's example file has two functions. The first is the agent as the framework alone writes it, with the two tools. The second wraps the same agent in a Dex agent session and gives each tool a policy. That is the only change to the agent.
 
-**look_up_order** is a read. **cancel_order** is a non-idempotent write, so it runs at most once, and by default it waits for approval. [Require approval](/agent-frameworks/tool-calls#require-approval) explains the default.
+**look_up_order** is a read, and **cancel_order** is a non-idempotent write. [Tool Calls](/agent-frameworks/tool-calls) says how each kind runs and why the write waits for approval.
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -576,6 +576,12 @@ The session also needs a Worker and a Client, as any Dex application does. The e
             WorkerOptions(
                 server_address=server_address,
                 pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+                # Dex Web draws the session and offers Approve from this graph.
+                flow_definitions=[
+                    session_flow_definition_document(
+                        session_flow.get_flow_type(), ACTION_PERMISSION
+                    )
+                ],
             ),
         )
         self.client = AsyncClient(
@@ -832,7 +838,7 @@ uv run --frozen python -m agent_harness_examples.quick_start openai-agents --ses
 
 Use your framework's name, and **npm run agent-quick-start --** for TypeScript. A new Worker starts, and the program asks about the same **cancel_order** call. Type **y**. The order is cancelled once. The model calls and the look-up before the restart did not run again.
 
-A person can also approve the call in Dex Web instead of in your program. [Approvals](/agent-frameworks/approvals) shows how.
+A person can also approve the call in Dex Web instead of in your program. In Python, the program's Worker uploads the session graph, so Dex Web shows the **Agent session** tab with plain **dexcli dev**. [Approve in Dex Web](/agent-frameworks/approvals#approve-in-dex-web) shows the steps.
 
 ## 5. Stop it while a tool runs {#stop-while-a-tool-runs}
 
@@ -1582,7 +1588,7 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): A
 </FrameworkTab>
 </FrameworkTabs>
 
-**The runner.** It creates the Registry, the Worker, and the Client in one process, and runs one turn. It asks once for each tool call that waits for approval. It is the same for every framework:
+**The runner.** It creates the Registry, the Worker, and the Client in one process, and runs one turn. In Python, the Worker also uploads the session graph that Dex Web draws. It asks once for each tool call that waits for approval. It is the same for every framework:
 
 <SdkTabs
   examples={{
@@ -1622,9 +1628,12 @@ from dex_agents import (
     AgentSessionStatus,
     MessageRole,
 )
+from dex_agents.session_graph import session_flow_definition_document
 
 
 PULL_REGISTRATION_TIMEOUT_SECONDS = 30.0
+# The Dex Web role that may approve, reject, and send messages in a session.
+ACTION_PERMISSION = "agent-quick-start.operate"
 # Tool calls run as parallel Steps, so the Worker needs a slot for each one.
 MAX_CONCURRENT_TASKS = 16
 POLL_INTERVAL_SECONDS = 0.5
@@ -1648,6 +1657,12 @@ class QuickStartApp:
             WorkerOptions(
                 server_address=server_address,
                 pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+                # Dex Web draws the session and offers Approve from this graph.
+                flow_definitions=[
+                    session_flow_definition_document(
+                        session_flow.get_flow_type(), ACTION_PERMISSION
+                    )
+                ],
             ),
         )
         self.client = AsyncClient(
@@ -1918,9 +1933,127 @@ await main();
 
 ### Wire the session into your app {#wire-it-into-your-app}
 
-The quick start program shows the pieces your app needs, in one process. A web app splits them across routes:
+The change to your agent is small: the wrap in step 2. The rest is hosting code that every Dex app has, a Worker that runs Steps and a Client that calls them. This function is the smallest host. It runs one Worker and one Client in your process, starts a session, sends one message, and returns the session after the turn:
 
-1. A **Registry** with your session Flow, a **Worker** that runs its Steps, and a **Client** that calls it, as in step 2. The Worker connects out to Dex, so it needs no open port. Both open a blob cache, a local cache for large values; [Registry and blob cache](/components/application#blob-cache) explains it.
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/embed.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-embed.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+"""The smallest host for a durable agent: one Worker, one Client, one turn."""
+
+from __future__ import annotations
+
+import asyncio
+
+from dex import (
+    AsyncClient,
+    AsyncWorker,
+    BlobCacheConfig,
+    ClientOptions,
+    Registry,
+    WorkerOptions,
+    open_blob_cache,
+)
+from dex_agents import AgentSessionClient, AgentSessionFlow, AgentSessionStatus, AgentSnapshot
+
+
+async def ask_agent(
+    session_flow: AgentSessionFlow,
+    session_id: str,
+    message: str,
+    server_address: str = "127.0.0.1:8801",
+    blob_cache_dir: str = ".dex-blob-cache",
+) -> AgentSnapshot:
+    """Starts a session, sends one message, and returns the session after the turn."""
+    registry = Registry((session_flow,), allow_async_handlers=True)
+    cache = open_blob_cache(BlobCacheConfig(blob_cache_dir, 1 << 30))
+    worker = AsyncWorker(registry, cache, WorkerOptions(server_address=server_address))
+    client = AsyncClient(registry, cache, ClientOptions(server_address=server_address))
+    worker_task = asyncio.create_task(worker.start())
+    try:
+        await worker.wait_pull_registered(timeout=30)
+        sessions = AgentSessionClient(client, session_flow)
+        await sessions.start_session(session_id)
+        await sessions.send_user_message(session_id, message)
+        while True:
+            snapshot = await sessions.get_agent_snapshot(session_id)
+            state = snapshot.state
+            if state and state.turn_count >= 1:
+                if state.status == AgentSessionStatus.WAITING_FOR_USER_MESSAGE:
+                    return snapshot
+            if state and state.status == AgentSessionStatus.FAILED:
+                raise RuntimeError(f"the session failed: {state.last_turn_error}")
+            await asyncio.sleep(0.5)
+    finally:
+        await client.close()
+        await worker.close()
+        await worker_task
+        cache.close()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+// The smallest host for a durable agent: one Worker, one Client, one turn.
+
+import { Client, Registry, Worker, openBlobCache } from "@superdurable/dex";
+import {
+  readAgentSnapshot,
+  sendAgentUserMessage,
+  startAgentSession,
+  type AgentSessionFlow,
+  type AgentSnapshot,
+} from "@superdurable/dex-agents";
+
+/** Starts a session, sends one message, and returns the session after the turn. */
+export async function askAgent(
+  flow: AgentSessionFlow,
+  sessionId: string,
+  message: string,
+  serverAddress = "127.0.0.1:8801",
+  blobCacheDir = ".dex-blob-cache",
+): Promise<AgentSnapshot> {
+  const registry = new Registry([flow]);
+  const blobCache = openBlobCache({ directory: blobCacheDir, maxBytes: 1 << 30 });
+  const worker = new Worker(registry, blobCache, { serverAddress });
+  const client = new Client(registry, blobCache, { serverAddress });
+  try {
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 30_000 });
+    await startAgentSession(client, flow, sessionId, {});
+    await sendAgentUserMessage(client, flow, sessionId, { text: message });
+    for (;;) {
+      const snapshot = await readAgentSnapshot(client, flow, sessionId);
+      const state = snapshot.state;
+      if (state?.status === "failed") {
+        throw new Error(`the session failed: ${state.lastTurnError ?? "unknown error"}`);
+      }
+      if (state !== null && state.turnCount >= 1 && state.status === "waiting_for_user_message") {
+        return snapshot;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  } finally {
+    await client.close();
+    await worker.close();
+    blobCache.close();
+  }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+It takes the session Flow that your module's **build_durable_agent** or **buildDurableAgent** returns. A turn that needs an approval waits until your app resolves it; [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) shows how.
+
+A web app splits the same pieces across routes:
+
+1. A **Registry** with your session Flow, a **Worker** that runs its Steps, and a **Client** that calls it, as in the function above. The Worker connects out to Dex, so it needs no open port. Both open a blob cache, a local cache for large values; [Registry and blob cache](/components/application#blob-cache) explains it.
 2. A route that starts a session. The session ID is the Flow ID.
 3. A route that sends a user message, and one that reads the session snapshot with the agent's reply. To stream the reply as it is written, read the [AgentEvents Stream](/reference/agents/event-stream#read-the-stream).
 4. A route that approves or rejects a waiting tool call. [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) covers it.

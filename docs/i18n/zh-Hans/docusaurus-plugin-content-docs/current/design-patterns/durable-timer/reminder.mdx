@@ -19,16 +19,21 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/remi
 
 ```python
 class ReminderStep(Step[None]):
-    def __init__(self, service: ServiceDependency, opt_out: Channel[None]) -> None:
+    def __init__(
+        self,
+        service: ServiceDependency,
+        opt_out: Channel[None],
+    ) -> None:
         self.service = service
         self.opt_out = opt_out
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
-        return Wait.any_of(Timer.by_duration(REMINDER_INTERVAL), self.opt_out.for_one())
+        return Wait.any_of(
+            Timer.by_duration(REMINDER_INTERVAL),
+            self.opt_out.for_one(),
+        )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         if not context.has_timer_fired():
             return graceful_complete()
         self.service.send_email("Reminder: please respond", "Hello, ...")

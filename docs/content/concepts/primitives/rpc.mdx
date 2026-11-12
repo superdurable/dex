@@ -45,7 +45,8 @@ See [Step guarantees](/concepts/step#guarantees).
 
 An RPC handler reads a snapshot of the Flow. Steps and other RPCs can change the
 Flow between that read and the moment Dex saves the RPC's changes. A
-transactional RPC does not change this. When the RPC's change depends on what it read, declare a lock on that
+transactional RPC, one that Dex saves only if the Channel messages it deletes
+are still pending, does not change this. When the RPC's change depends on what it read, declare a lock on that
 Attribute in this RPC and in every Step and RPC that writes it. Dex then runs
 them one at a time. If the Flow closes while the handler runs, Dex rejects the
 RPC's changes. The handler's calls to external systems have still happened.

@@ -22,10 +22,18 @@ links to the page that covers it.
   call it. Configure an authenticator before you expose the port. See
   [Authentication](/reference/server/authentication).
 
+- **Retries stop after 4 hours, and then the Flow fails.** By default a Step
+  method retries without an attempt limit for 4 hours from its first hand-out
+  to a Worker. When that time runs out, the default failure policy fails the
+  Flow. Set a longer total duration for Steps that wait on slow systems, or a
+  failure policy that moves to a recovery Step. See
+  [StepOptions](/concepts/step#stepoptions).
+
 ## Capacity and availability
 
 - **One active node is the ceiling of a cluster.** One node owns every
   partition, so a larger load needs a larger node or a separate cluster. See
+  [Grow past one node](#grow-past-one-node) and
   [Performance and Maturity](/intro/performance-and-maturity).
 - **Failover takes up to the lease duration plus 1 second.** The lease is 10
   seconds by default. A single-replica setup should use 60 seconds, so it waits
@@ -41,6 +49,24 @@ links to the page that covers it.
   the SDKs are at 1.x. A Worker or Client works with a server when their
   protocol ranges overlap. See
   [Upgrades and compatibility](/reference/server/upgrades).
+
+## Grow past one node {#grow-past-one-node}
+
+A cluster has one active node, so its capacity is one node's capacity. Two
+options work today:
+
+- **Use a larger node.** The benchmark on a 16-vCPU node reaches several times
+  the throughput of a 2-vCPU node. See
+  [Performance and Maturity](/intro/performance-and-maturity).
+- **Run separate clusters.** Each cluster uses its own object storage prefix,
+  since one prefix holds one cluster. Split Flows between clusters by Flow
+  type, or by a business key such as the tenant. Point each service's Client
+  and Workers at the cluster that owns its Flows.
+
+Separate clusters do not share Flows. A Flow cannot move from one cluster to
+another. A SubFlow starts in the same cluster as its parent, and RPCs and
+Channel messages reach only Flows in the cluster that the Client is connected
+to. See [Install and configure server-zd](/reference/server/configuration).
 
 ## Requests that can repeat
 

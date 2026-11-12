@@ -28,6 +28,190 @@ This choice has two sides:
 
 Dex drops the replay rule, but one rule takes its place. A Step can run more than once, so each external effect must depend only on what Dex passes the Step, not on which attempt is running. In practice, that means an [idempotency key](/concepts/step#idempotency-keys) that stays the same on every attempt. Every other tool on this page leaves the same duty to you. The [failure proof](/correctness-and-expressiveness/failure-transparency-proof) makes the same assumption. Reading the clock or a random value inside a Step is fine. Using one inside an idempotency key is not.
 
+### The same process in both models
+
+A reminder loop shows the difference. The process sends a reminder at each interval until the person opts out.
+
+In Temporal, the loop is ordinary code that the engine replays. This sketch is illustrative, not from the Dex examples:
+
+```python
+@workflow.defn
+class ReminderWorkflow:
+    def __init__(self) -> None:
+        self.opted_out = False
+
+    @workflow.signal
+    def opt_out(self) -> None:
+        self.opted_out = True
+
+    @workflow.run
+    async def run(self) -> None:
+        while True:
+            try:
+                await workflow.wait_condition(
+                    lambda: self.opted_out, timeout=REMINDER_INTERVAL
+                )
+                return
+            except asyncio.TimeoutError:
+                await workflow.execute_activity(
+                    send_reminder, start_to_close_timeout=timedelta(seconds=30)
+                )
+```
+
+In Dex, the loop is a Step that moves to itself. It waits for the Timer or the opt-out Channel, and its decision chooses what comes next. This excerpt is from the runnable [Reminder](/design-patterns/durable-timer/reminder) pattern:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/reminders/reminder_flow.py',
+    go: 'examples/go/patterns/reminders/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/reminders/ReminderFlow.java',
+    typescript: 'examples/typescript/src/patterns/reminders/reminder-flow.ts',
+    rust: 'examples/rust/src/patterns/reminders/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class ReminderStep(Step[None]):
+    def __init__(
+        self,
+        service: ServiceDependency,
+        opt_out: Channel[None],
+    ) -> None:
+        self.service = service
+        self.opt_out = opt_out
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.any_of(
+            Timer.by_duration(REMINDER_INTERVAL),
+            self.opt_out.for_one(),
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        if not context.has_timer_fired():
+            return graceful_complete()
+        self.service.send_email("Reminder: please respond", "Hello, ...")
+        return go_to(ReminderStep, None)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type reminderStep struct {
+	dex.StepDefaults
+	service patternsservice.ServiceDependency
+}
+
+func (reminderStep) WaitFor(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(5*time.Second),
+		OptOut.ForOne(),
+	), nil
+}
+
+func (step reminderStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	if !ctx.HasTimerFired() {
+		return dex.GracefulComplete(nil), nil
+	}
+	step.service.SendEmail("Reminder: please respond", "Hello, ...")
+	return dex.GoTo(reminderStep{}, nil), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class ReminderStep implements Step<Void> {
+    @Override
+    public Class<Void> getInputType() {
+        return Void.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Void input) {
+        return Wait.anyOf(
+                Timer.byDuration(Duration.ofSeconds(5)),
+                optOut.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        if (!context.hasTimerFired()) {
+            return StepDecision.gracefulComplete();
+        }
+        service.sendEmail("Reminder: please respond", "Hello, ...");
+        return StepDecision.goTo(ReminderStep.class, null);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+class ReminderStep implements Step<void> {
+  public constructor(private readonly service: ServiceDependency) {}
+
+  public getStepType(): string {
+    return "ReminderStep";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(
+      Timer.byDuration(REMINDER_WAIT_MS),
+      optOut.forOne(),
+    );
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    if (!context.hasTimerFired()) {
+      return gracefulComplete();
+    }
+    this.service.sendEmail("Reminder: please respond", "Hello, ...");
+    return goTo(ReminderStep, undefined);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct ReminderStep;
+
+impl Step for ReminderStep {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            Timer::by_duration(Duration::from_secs(5)),
+            OPT_OUT.for_one(),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        if !context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete("opted-out".to_string()));
+        }
+        context.record_event("reminder", "sent".to_string())?;
+        Ok(StepDecision::go_to(&ReminderStep, ()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Temporal version reads top to bottom, and the engine rebuilds its local variables by replay. The Dex version names each state, and Dex stores the wait and the decision instead of replaying code.
+
 If you know iWF, Dex grew out of it. A Dex Step is an iWF State, and **WaitFor** is **WaitUntil**.
 
 ## Replay-based workflow engines
@@ -40,9 +224,9 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 | Run ID | Run ID |
 | Activity | The work inside a Step's **Execute** |
 | Workflow code between activities | Step decisions: **GoTo**, **GoToMany**, **GracefulComplete**, **DeadEnd** |
-| Signal | Channel message |
+| Signal | Channel message. An SDK Client sends it through an RPC of the Flow, which needs a connected Worker. The FlowService **PublishToChannel** request stores the message with no Worker online. See [Publish messages](/concepts/primitives/channel#publish-messages). |
 | Query | Read-only RPC, or a direct Attribute read from the Client |
-| Update | RPC that writes Attributes or publishes to a Channel. Unlike an update, an RPC has no update-ID deduplication and never queues: with no Worker free for 10 seconds, the caller gets **Unavailable**. |
+| Update | RPC that writes Attributes or publishes to a Channel. Both need a Worker to accept the call. An RPC has no update-ID deduplication, and with no Worker free for 10 seconds the caller gets **Unavailable**. |
 | Timer or sleep | Timer condition in a Step's **WaitFor** |
 | Child workflow | SubFlow |
 | Task queue and sticky queue | Flow type queue with sticky routing |
@@ -54,10 +238,10 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 **Different.**
 
 - Dex has no event history to replay. A Worker does not rebuild state, so it needs no history cache.
-- Versioning works by keeping old Step types and making additive changes. Dex has no patch or version markers in code. Temporal offers patch markers and Worker Versioning, which pins a workflow to the Worker deployment that started it or moves it to a new one. [Your Application](/components/application#versioning-flow-code) explains the Dex rules.
+- Versioning works by keeping old Step types and making additive changes. Dex has no patch or version markers in code. Temporal offers patch markers and Worker Versioning, which pins a workflow to the Worker deployment that started it or moves it to a new one. [Change Flow Code](/concepts/change-flow-code#versioning-flow-code) explains the Dex rules.
 - Steps that run in parallel in one Flow share its Attributes. Two of them can overwrite each other's update unless they declare an [Attribute lock](/concepts/primitives/attribute#locking). A Temporal workflow runs on one thread, so only one piece of its code runs at a time. Its signal and update handlers can still interleave at await points, and Temporal offers a workflow mutex for that case. The difference is smaller than "one writer" suggests, but it is real: Dex Steps run in parallel on different Workers.
 - A retry of a Step method reuses the state snapshot of its first attempt. An activity retry reads whatever it fetches on that attempt.
-- Temporal drops a repeated signal that carries the same request ID. Dex does not yet drop a repeated Channel publish. A publish sent again after a lost response can deliver the message twice. Publishing once through request IDs is planned in [issue 1519](https://github.com/superdurable/dex/issues/1519).
+- Temporal drops a repeated signal that carries the same request ID, on a best-effort basis. Dex does not yet drop a repeated Channel publish, so a publish sent again after a lost response can deliver the message twice. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
 - Each Step method chooses **SYNC** or **ASYNC** durability. An ASYNC Step moves on before its result is saved, and may run again after a server crash.
 - The Dex server is one binary on object storage, with one active node and standbys. Temporal runs several services on a database such as Cassandra, MySQL, or PostgreSQL.
 
@@ -82,7 +266,7 @@ Restate is an example. A handler is a function. Each side effect runs through th
 - The handler code between journaled calls must still be deterministic, because it runs again. Dex Step code runs once per attempt and needs no such rule.
 - A virtual object allows one writer per key at a time. In Dex, Steps and RPCs of one Flow can run at the same time. Locks are opt-in per Attribute.
 - A Restate shared handler runs alongside others and cannot write the object's state. It can still call other services. A Dex RPC may write Attributes, and an RPC without a lock can run alongside Steps.
-- Restate deduplicates an invocation that carries the same idempotency key. Dex deduplicates a Flow start by Flow ID and request ID, but not yet a repeated Channel publish or RPC ([issue 1519](https://github.com/superdurable/dex/issues/1519)).
+- Restate deduplicates an invocation that carries the same idempotency key. Dex deduplicates a Flow start by Flow ID and request ID, but not yet a repeated Channel publish or RPC. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
 - Dex keeps each Step's input, output, and error, and Dex Web shows them per Step.
 
 ## Database-backed workflow libraries
@@ -104,7 +288,7 @@ DBOS is an example. It is a library inside your application. Workflows and steps
 **Different.**
 
 - The workflow function must be deterministic between steps, because it runs again on recovery.
-- DBOS **send** takes an idempotency key, so a repeated send delivers once. A repeated Dex Channel publish can deliver twice today ([issue 1519](https://github.com/superdurable/dex/issues/1519)).
+- DBOS **send** takes an idempotency key, so a repeated send delivers once. A repeated Dex Channel publish can deliver twice today. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
 - DBOS needs no separate server: many application processes share one PostgreSQL database that you already run. Dex runs its own server on object storage, and your Workers connect to it. Dex can sync Attribute values to a database you run.
 
 ## Step function services

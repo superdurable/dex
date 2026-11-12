@@ -205,7 +205,7 @@ Turn on **Plan mode** for a message to ask the agent for a plan. A planning turn
 
 The Worker loads trusted stdio or Streamable HTTP MCP servers from local configuration. The agent takes the **McpToolSource** of Dex Agents as a tool source, so the model sees every server's tools. The Worker refuses configuration keys it does not know, including the per-tool settings of earlier versions of the example. Each MCP call runs in its own tool Step. A server that cannot be listed is left out of that model call and tried again on the next one, so the agent keeps answering when every server is down.
 
-A tool's effect decides how it runs. When a server's annotations are trusted, a read-only tool runs at once and is retried after a crash. Every other tool waits in **AwaitToolApproval** until the user approves it, then runs at most once. A write that a crash cut off is recorded with an unknown outcome and never repeated, and each MCP call carries an idempotency key so the server can drop a duplicate.
+A tool's effect decides how it runs, as [Tool Calls](/agent-frameworks/tool-calls) describes. When a server's annotations are trusted, a read-only tool runs at once. Every other tool waits in **AwaitToolApproval** until the user approves it. Each MCP call carries an idempotency key so the server can drop a duplicate.
 
 With **resource_and_prompt_tools_enabled**, the tool source also offers three read tools that list and read a server's resources and prompts.
 

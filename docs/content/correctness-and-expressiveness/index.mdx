@@ -59,7 +59,11 @@ The [Failure transparency proof](/correctness-and-expressiveness/failure-transpa
 covers server crashes, standby takeovers, retries, Workers that keep running
 after Dex gave up on them, and duplicate results. These failures add only
 repeated external effects: remove them, and the rest is a sequence the Flow
-can produce without failures. For fair runs, the ending stays the same too.
+can produce without failures. For fair runs, the ending stays the same too. A
+fair run is one where failures stop eventually, the server keeps coming back,
+and every due Timer and ready Step eventually runs; the
+[proof page](/correctness-and-expressiveness/failure-transparency-proof) lists
+the exact conditions.
 The proof's page lists its conditions, such as **SYNC** methods only and
 retries that never run out. This proof is also computer-checked, and the same
 [paper](/papers/dex-expressiveness.pdf) has the full argument.

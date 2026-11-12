@@ -51,51 +51,31 @@ To see it, run the [Agent Quick Start](/agent-frameworks/quick-start), or read t
 - [Tool Calls](/agent-frameworks/tool-calls): which calls retry and which run at most once.
 - [Approvals](/agent-frameworks/approvals): let a person approve a call before it runs.
 - [Connectors as Tools](/agent-frameworks/connectors-as-tools): call official Connector operations from the agent.
+- [Agents in Production](/agent-frameworks/production): the checklist before you run sessions in production.
 - [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop): build a new agent without a framework.
 - [Tracing](/reference/agents/tracing): OpenTelemetry spans for each model call and tool call, next to your framework's own spans.
 
-## Coming from a framework {#coming-from-a-framework}
-
-Start with your framework's Quick Start tab, then read its limits. [Upgrades](/reference/agents/upgrades) explains how a deploy reaches sessions that are already running.
-
-| You use | Run it | Check first |
-| --- | --- | --- |
-| Claude Agent SDK | [Quick Start](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | [Limits](/agent-frameworks/sessions/?framework=claude-agent-sdk#limits) |
-| Google ADK | [Quick Start](/agent-frameworks/quick-start/?framework=google-adk) | [Limits](/agent-frameworks/sessions/?framework=google-adk#limits) |
-| LangChain or LangGraph | [Quick Start](/agent-frameworks/quick-start/?framework=langchain-langgraph) | [Limits](/agent-frameworks/sessions/?framework=langchain-langgraph#limits) |
-| Mastra | [Quick Start](/agent-frameworks/quick-start/?framework=mastra) | [Limits](/agent-frameworks/sessions/?framework=mastra#limits) |
-| OpenAI Agents SDK | [Quick Start](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | [Limits](/agent-frameworks/sessions/?framework=openai-agents-sdk#limits) |
-| Pydantic AI | [Quick Start](/agent-frameworks/quick-start/?framework=pydantic-ai) | [Limits](/agent-frameworks/sessions/?framework=pydantic-ai#limits) |
-| Vercel AI SDK | [Quick Start](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | [Limits](/agent-frameworks/sessions/?framework=vercel-ai-sdk#limits) |
-
 ## Choose a harness {#choose-a-harness}
 
-A harness is the code that runs the agent loop: the built-in loop or a framework. Each framework link opens the Agent Quick Start on that framework's tab, with a runnable example and the steps to run it locally.
+<a id="coming-from-a-framework"></a>
+
+A harness is the code that runs the agent loop: the built-in loop or a framework. Coming from a framework, find its row. The name opens the Agent Quick Start on that framework's tab, and **Limits** opens that framework's full limits. [Upgrades](/reference/agents/upgrades) explains how a deploy reaches sessions that are already running.
 
 | Harness | Languages | How the loop maps onto Steps | Choose it when | Check first |
 | --- | --- | --- | --- | --- |
-| [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | Python, TypeScript | The Claude Code CLI runs a turn segment in one **RunModel** Step. Reads run inside it. A write ends the segment and runs in its own Step. | You want the Claude Code agent loop and its tools. | Tools inside the CLI, such as **Bash**, run again when a segment reruns. No Dex compaction. |
-| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Google ADK agent. | The root must be a **BaseAgent**. A tool's state and artifact changes are discarded. |
-| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | One **RunModel** Step runs the graph to its next tool calls. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. | Only the message list survives between turns. The graph may raise no interrupts of its own. |
-| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. | Mastra Memory is not used. Sub-agents, workflows, and Memory tools cannot run in their own Step. |
-| [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | Python, TypeScript | One model call per **RunModel** Step. Each function tool call is its own Step. | You have an OpenAI Agents SDK agent, with or without handoffs. | MCP server tools and local shell tools are refused by default. Do not use SDK sessions. |
-| [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Pydantic AI agent. | Output functions are at least once. **UsageLimits** apply per Step, not per turn. |
-| [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You have AI SDK tools and models in a TypeScript application. | Every tool needs **execute**. AI SDK **toolApproval** is not used; approval belongs to Dex. |
+| [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | Python, TypeScript | The Claude Code CLI runs a turn segment in one **RunModel** Step. Reads run inside it. A write ends the segment and runs in its own Step. | You want the Claude Code agent loop and its tools. | Tools inside the CLI, such as **Bash**, run again when a segment reruns. No Dex compaction. [Limits](/agent-frameworks/sessions/?framework=claude-agent-sdk#limits) |
+| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Google ADK agent. | The root must be a **BaseAgent**. A tool's state and artifact changes are discarded. [Limits](/agent-frameworks/sessions/?framework=google-adk#limits) |
+| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | One **RunModel** Step runs the graph to its next tool calls. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. | Only the message list survives between turns. The graph may raise no interrupts of its own. [Limits](/agent-frameworks/sessions/?framework=langchain-langgraph#limits) |
+| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. | Mastra Memory is not used. Sub-agents, workflows, and Memory tools cannot run in their own Step. [Limits](/agent-frameworks/sessions/?framework=mastra#limits) |
+| [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | Python, TypeScript | One model call per **RunModel** Step. Each function tool call is its own Step. | You have an OpenAI Agents SDK agent, with or without handoffs. | MCP server tools and local shell tools are refused by default. Do not use SDK sessions. [Limits](/agent-frameworks/sessions/?framework=openai-agents-sdk#limits) |
+| [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Pydantic AI agent. | Output functions are at least once. **UsageLimits** apply per Step, not per turn. [Limits](/agent-frameworks/sessions/?framework=pydantic-ai#limits) |
+| [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You have AI SDK tools and models in a TypeScript application. | Every tool needs **execute**. AI SDK **toolApproval** is not used; approval belongs to Dex. [Limits](/agent-frameworks/sessions/?framework=vercel-ai-sdk#limits) |
 | [Built-in agent loop](/agent-frameworks/built-in-agent-loop) | Python, TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You start a new agent. You want Dex to own the model input, with questions, durable waits, plans, and MCP tools. | No framework limits. You write the agent with Dex Agents instead of a framework. |
 
-[Sessions](/agent-frameworks/sessions#limits) lists every limit of each framework.
 
 ## Run sessions in production {#run-sessions-in-production}
 
-- [Read the stream](/reference/agents/event-stream#read-the-stream): show the reply in your UI as the model writes it.
-- [Tracing](/reference/agents/tracing): OpenTelemetry spans for each model call and tool call.
-- [Latency and cost](/agent-frameworks/sessions#latency-and-cost): what each Step adds to a turn, and what a retried model call costs.
-- [Upgrades](/reference/agents/upgrades): deploy new agent code while sessions wait.
-- [Spend limits](/reference/agents/spend-limits): cap model spend per account or API key.
-- [Workers and timeouts](/reference/agents/workers): size the Workers that run sessions.
-- [Performance and Maturity](/intro/performance-and-maturity): measured Step latency, release status, and the license.
-
-The [Agents reference](/reference/agents/) covers the rest: install, limits, approval deadlines, Connector tools, credentials, and Dex Web.
+[Agents in Production](/agent-frameworks/production) is the checklist: the server you run, authentication, retention, session limits, spend limits, upgrades, tracing, approval deadlines, and Worker sizing.
 
 ## Related {#related}
 

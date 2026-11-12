@@ -77,6 +77,44 @@ One narrow case can still run a single-attempt tool twice. Dex cannot force a ru
 
 Run these steps from a support tool or a small job that your app starts when it sees the status. No search finds these calls for you, because no Step waits on them.
 
+This function from the Python quick start example runs steps 2 to 4 for every call in the session's history whose result says the outcome is unknown. **check** asks your service and returns the text to report:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/reconcile.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+async def report_unknown_outcomes(
+    sessions: SessionMessenger, session_id: str, check: OutcomeCheck
+) -> list[str]:
+    """Tells the session what really happened to each call with an unknown outcome.
+
+    Returns the reports it sent. A call it reported before is skipped, so running
+    it again sends nothing new.
+    """
+    snapshot = await sessions.get_agent_snapshot(session_id)
+    sent = "\n".join(m.text or "" for m in snapshot.messages if m.role == MessageRole.USER)
+    reports: list[str] = []
+    for message in snapshot.messages:
+        if OUTCOME_UNKNOWN_TOOL_RESULT not in (message.tool_output or ""):
+            continue
+        # Every attempt of the call passed this key to the service.
+        key = f"{session_id}/{message.turn_id}/{message.tool_call_id}"
+        if key in sent:
+            continue
+        report = f"{await check(key, message.tool_arguments or '{}')} (tool call {key})"
+        await sessions.send_user_message(session_id, report)
+        reports.append(report)
+    return reports
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**send_user_message** is an RPC, and Dex does not drop a repeated RPC: a retry after a lost response can queue the same report twice. So the function reads the history first and skips a call whose key a user message already names. Run it again instead of retrying one **send_user_message** call blindly.
+
 ## Related
 
 - [Approvals](/agent-frameworks/approvals)
