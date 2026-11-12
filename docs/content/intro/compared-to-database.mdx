@@ -171,7 +171,7 @@ One duty stays with you: each external call passes an [idempotency key](/concept
 
 <ExecutionApproachDiagram approach="dex" markdownDescription="The frontend API starts the Flow through the Client. Dex Server sends each Step task to one of your Workers, and the Steps call the charge, ship, and refund APIs." />
 
-The Flow has a Charge Step, a Ship Step that waits for approval with reminders, and a Refund Step. [Why Dex?](/intro/what-is-dex#example-order-processing) walks through each Step. The frontend calls a Client API that waits until the Charge Step completes, then shows "payment received".
+The Flow has a Charge Step, a Ship Step that waits for approval with reminders, and a Refund Step. The frontend calls a Client API that waits until the Charge Step completes, then shows "payment received".
 
 <DocsFlowDefinitionGraph graph={orderProcessingFlow} markdownReference="/intro/what-is-dex#example-order-processing" markdownReferenceLabel="Why Dex?" />
 

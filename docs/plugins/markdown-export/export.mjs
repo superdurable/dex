@@ -518,16 +518,55 @@ function sdkLanguages(nodes) {
  *   first language's file.
  */
 function selectLanguage(nodes, language, pageUrl, copy) {
-  return nodes.flatMap(node => {
+  return collapseMissingLanguageNotes(nodes.flatMap(node => {
     if (node.type === sdkGroupType) {
       if (node.variants[language]) return node.variants[language];
       const other = Object.keys(node.variants)[0];
-      return [{type: 'paragraph', children: [text(copy.missingLanguage(sdkLabels[language])),
-        {type: 'link', url: pageUrl(other), data: {keepLanguage: true}, children: [text(copy.missingLanguagePage(sdkLabels[other]))]}, text(copy.missingLanguageEnd)]}];
+      const url = pageUrl(other);
+      return [{type: 'paragraph', data: {missingLanguageNote: url}, children: [text(copy.missingLanguage(sdkLabels[language])),
+        {type: 'link', url, data: {keepLanguage: true}, children: [text(copy.missingLanguagePage(sdkLabels[other]))]}, text(copy.missingLanguageEnd)]}];
     }
     if (!Array.isArray(node.children)) return [node];
     return [{...node, children: selectLanguage(node.children, language, pageUrl, copy)}];
-  });
+  }));
+}
+
+/**
+ * Keeps one missing-language note where sibling notes point at the same page.
+ *
+ * A later note is dropped when it follows a note for the same page directly, or with only a lead-in
+ * paragraph ending in a colon between them; that lead-in introduced the missing code, so it goes too.
+ *
+ * @returns {object[]} The siblings without the repeated notes and their orphaned lead-ins.
+ */
+function collapseMissingLanguageNotes(nodes) {
+  const result = [];
+  for (const node of nodes) {
+    const url = node.data?.missingLanguageNote;
+    if (url) {
+      const last = result.at(-1);
+      if (last?.data?.missingLanguageNote === url) continue;
+      const beforeLast = result.at(-2);
+      if (beforeLast?.data?.missingLanguageNote === url && isLeadIn(last)) {
+        result.pop();
+        continue;
+      }
+    }
+    result.push(node);
+  }
+  return result;
+}
+
+/** Reports whether a node is a short paragraph ending in a colon, which introduces the block after it. */
+function isLeadIn(node) {
+  if (node?.type !== 'paragraph') return false;
+  const value = plainText(node).trim();
+  return value.length <= 120 && /[:：]$/.test(value);
+}
+
+function plainText(node) {
+  if (typeof node.value === 'string') return node.value;
+  return (node.children ?? []).map(plainText).join('');
 }
 
 /**

@@ -80,6 +80,28 @@ ${fence}
 </SdkSnippet>
 </SdkTabs>
 
+<SdkTabs>
+<SdkSnippet lang="go">
+
+${fence}go
+const goOnlyFirst = 1
+${fence}
+
+</SdkSnippet>
+</SdkTabs>
+
+The same sample as a session:
+
+<SdkTabs>
+<SdkSnippet lang="go">
+
+${fence}go
+const goOnlySecond = 1
+${fence}
+
+</SdkSnippet>
+</SdkTabs>
+
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 <DocsFlowDefinitionGraph graph={flowDefinition} markdownReference="/" markdownReferenceLabel="Graph home" />
@@ -179,6 +201,9 @@ try {
   assert.doesNotMatch(home, /const fromChild = 1/);
   assert.match(home, /这部分没有 Python 版本；见 \[Go 页面\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.go\.md\)。/);
   assert.doesNotMatch(home, /var fromProp/);
+  // Back-to-back notes for the same page collapse into one, and a lead-in left between them goes too.
+  assert.equal(home.match(/这部分没有 Python 版本/g).length, 1);
+  assert.doesNotMatch(home, /The same sample as a session:/);
   const homeGo = await readFile(join(outDir, 'index.go.md'), 'utf8');
   assert.match(homeGo, /language: "go"/);
   assert.match(homeGo, /本页代码为 Go。其他语言：\[Python\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.md\)/);
@@ -188,6 +213,7 @@ try {
   assert.match(homeGo, /例子: \[examples\/go\/sample.go\]/);
   assert.match(homeGo, /```go\nconst fromChild = 1\n```/);
   assert.doesNotMatch(homeGo, /```python\nsample = 1/);
+  assert.match(homeGo, /const goOnlyFirst = 1\n```\n\nThe same sample as a session:\n\n\*\*Go\*\*\n\n```go\nconst goOnlySecond = 1/);
   const homeJava = await readFile(join(outDir, 'index.java.md'), 'utf8');
   assert.match(homeJava, /\*\*Java\*\*\n\n```java\nvar fromProp = 1;\n```\n\n例子: \[examples\/java\/Sample.java\]/);
   const homeRust = await readFile(join(outDir, 'index.rust.md'), 'utf8');
