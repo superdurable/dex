@@ -19,8 +19,10 @@ file tools on the in-state ``StateBackend``, and adds these tools:
 * ``echo_text`` (read) returns its text unchanged.
 * ``wait_at_gate`` (read) waits at the gate it names.
 
-``task`` is excluded. A middleware records each model request's model and tool names.
+``task`` is excluded. A middleware records each model request's model and tool names, and
+each tool call its tool wrapper sees.
 The ``read_file`` agent also has a tool source whose ``read_file`` replaces Deep Agents'.
+The evicting agent's ``FilesystemMiddleware`` evicts every tool result over a small limit.
 Two more Flows share one compiled graph whose recorder comes before the durable middleware,
 one with the deferral first and one in middleware order.
 """
@@ -37,6 +39,7 @@ from typing import Annotated, Any, NotRequired
 
 from deepagents import create_deep_agent
 from deepagents.graph import DeepAgentState
+from deepagents.middleware import FilesystemMiddleware
 from dex_agents import (
     AgentSessionFlow,
     AgentTurnContext,
@@ -71,6 +74,9 @@ DEEP_AGENT_FLOW_TYPE = "ScriptedDeepAgent"
 SOURCE_READ_FILE_DEEP_AGENT_FLOW_TYPE = "SourceReadFileDeepAgent"
 SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE = "SharedGraphDeferredFirstDeepAgent"
 SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE = "SharedGraphMiddlewareOrderDeepAgent"
+EVICTING_DEEP_AGENT_FLOW_TYPE = "EvictingDeepAgent"
+#: Tokens above which the evicting agent writes a tool result to a file instead.
+EVICTION_TOKEN_LIMIT = 50
 MODEL_REQUESTS_LOG_NAME = "model-requests.jsonl"
 #: The model the session settings may pick; the graph's own model is the scripted default.
 TURN_MODEL_NAME = "scripted-turn-model"
@@ -79,6 +85,7 @@ TOOL_WRAPPER_INVOCATION_PREFIX = "tool-wrapper:"
 DEEP_AGENT_TOOL_POLICIES = {
     "write_file": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False),
     "read_file": ToolPolicy(ToolEffect.READ),
+    "ls": ToolPolicy(ToolEffect.READ),
     "set_topic": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
     "pad_topic": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
     "get_topic": ToolPolicy(ToolEffect.READ),
@@ -146,6 +153,16 @@ def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
             flow_type=SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE,
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
         ),
+        langchain_agent_session_flow(
+            _deep_agent_factory(
+                state_dir,
+                FilesystemMiddleware(tool_token_limit_before_evict=EVICTION_TOKEN_LIMIT),
+            ),
+            flow_type=EVICTING_DEEP_AGENT_FLOW_TYPE,
+            tool_policies=DEEP_AGENT_TOOL_POLICIES,
+            excluded_tool_names=["task"],
+            should_defer_tool_calls_before_middleware=True,
+        ),
     ]
 
 
@@ -172,12 +189,18 @@ def build_recorder_first_deep_agent(state_dir: Path) -> CompiledGraph:
     )
 
 
-def _deep_agent_factory(state_dir: Path) -> Callable[[], Awaitable[CompiledGraph]]:
+def _deep_agent_factory(
+    state_dir: Path, *extra_middleware: AgentMiddleware[Any, Any, Any]
+) -> Callable[[], Awaitable[CompiledGraph]]:
     async def build_deep_agent() -> CompiledGraph:
         return create_deep_agent(
             _scripted_model(state_dir),
             tools=_build_topic_tools(state_dir),
-            middleware=[DurableToolCallMiddleware(), _ModelRequestRecorder(state_dir)],
+            middleware=[
+                DurableToolCallMiddleware(),
+                _ModelRequestRecorder(state_dir),
+                *extra_middleware,
+            ],
             state_schema=TopicState,
         )
 
@@ -306,7 +329,6 @@ class _ModelRequestRecorder(AgentMiddleware[Any, Any, Any]):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
-        # Only a recorder outside the deferral records in a session.
         self._invocations.record(f"{TOOL_WRAPPER_INVOCATION_PREFIX}{request.tool_call['name']}")
         return await handler(request)
 
