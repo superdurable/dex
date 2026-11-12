@@ -10,15 +10,15 @@ An agent can call official [Connector](/concepts/connector) operations as tools.
 
 ## How it works {#connectors-as-tools}
 
-Every harness can call [Connector](/concepts/connector) operations as tools. `ConnectorToolSource` offers the operations you name. The agent takes it as a tool source, through `tool_sources` in Python and `toolSources` in TypeScript. Each call runs one operation in its own tool Step, through the Connector SDK. So the Call ID, the idempotency key, and credential handling work as they do in a Connector Step. The Call ID is the same on every attempt of the tool Step.
+`ConnectorToolSource` offers the operations you name, and the agent takes it as a tool source (`tool_sources` in Python, `toolSources` in TypeScript). Each call runs one operation in its own tool Step, so the Call ID, the idempotency key, and credentials work as in a Connector Step. The Call ID stays the same on every attempt.
 
-[Connect a Connector](#connect-connectors) below shows the wiring for each framework, and the [Built-in agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) shows it without one. For packages, tool names, result size, and connections, see the [Connector tools reference](/reference/agents/connector-tools).
+The Connect a Connector section shows the wiring for each framework; the [Built-in agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) shows it without one. The [Connector tools reference](/reference/agents/connector-tools) covers packages, tool names, result size, and connections.
 
 ### Which operations are offered {#connector-tools-offered}
 
-The application names each operation an agent may use; every other operation stays hidden. The Connector author must also have reviewed the operation for agent use and marked it as exposed in its manifest, `dex-connector.json`. Dex refuses any other operation when the agent is defined.
+The application names each operation an agent may use, and the Connector's manifest, `dex-connector.json`, must mark it as exposed for agents. Dex refuses any other operation when the agent is defined.
 
-Dex checks the model's arguments against the operation's input schema before the operation runs. A misspelled field, a wrong type, or a missing field fails the call with a message the model can correct. The operation does not run.
+Dex checks the model's arguments against the operation's input schema first. A wrong or missing field fails the call, before the operation runs, with a message the model can correct.
 
 ### Effect classes {#connector-tools-effects}
 
@@ -30,15 +30,13 @@ The manifest decides whether a call can run again, and so which Step runs it:
 | Mutation that the manifest marks retry-safe (**agent.retry: safe**) | `idempotent_write` | `CallTool`, with retries |
 | Any other Mutation | `non_idempotent_write` | `CallSingleAttemptTool`, once |
 
-The Connector author marks a Mutation retry-safe after review. It means that a repeat with the same Call ID cannot make a second effect. A call whose attempts run out records **failed** for a Query and `outcome_unknown` for a Mutation.
+Retry-safe means a repeat with the same Call ID makes no second effect. A call whose attempts run out records **failed** for a Query and `outcome_unknown` for a Mutation.
 
 A session's tool policy for a Connector tool changes only its approval. The effect class always comes from the manifest.
 
 ### Approval {#connector-tools-approval}
 
-By default, a Connector tool waits for approval only when its manifest recommends it (**agent.approval: recommended**), as for a refund. Other Mutations run without approval, because approving every message would make an always-on agent unusable.
-
-The application can override that for each tool, either way. It can also pass a predicate that decides for each call from the call's arguments, such as refunds above a limit. A predicate that raises asks for approval. Arguments that fail the schema check never wait for approval, because the call never runs.
+By default, a Connector tool waits for approval when its manifest recommends it (**agent.approval: recommended**), as for a refund, and other Mutations run directly. The application can override that for each tool, or pass a predicate that decides per call from its arguments, such as refunds above a limit. A predicate that raises asks for approval.
 
 ### Outcomes {#connector-tools-outcomes}
 
@@ -50,7 +48,7 @@ Reconcile `outcome_unknown` as for any tool; see [Reconcile outcome_unknown](/ag
 
 Connector writes of one model response run one at a time, in the model's order. Reads, and calls of other tools, run in parallel. A write that needs approval asks for it only when its turn comes.
 
-When a write fails, ends `outcome_unknown`, or is rejected by a person or by its provider, the later Connector writes of that response do not run. Each records **failed** with its **skipped** field set and an error that starts "the tool did not run, so it is safe to call again". Dex Web shows these calls as skipped.
+When a write fails, ends `outcome_unknown`, or is rejected, the later Connector writes of that response are skipped. Each records **failed** with **skipped** set and an error that starts "the tool did not run, so it is safe to call again", and Dex Web shows it as skipped.
 
 ### Crashes {#connector-tools-crashes}
 
@@ -62,11 +60,9 @@ The example adds the Slack tool `slack_post_thread_reply`, which replies in a Sl
 
 ### The Slack tool in the example {#slack-connector-tool}
 
-When the project configuration has the Slack connection **support-slack**, each example agent also gets `slack_post_thread_reply`. This tool is the Slack Connector operation `postThreadReply`, and the agent uses it to reply in a Slack thread. The Worker opens the connection from `DEX_CONNECTOR_CONFIG_FILE` in local development, or from the **DEX_PROJECT_\*** settings when deployed. [Connections](/reference/agents/connector-tools#connector-tools-connection) covers both. [The Slack tool in the examples](/reference/agents/connector-tools#slack-example) covers what happens without the connection and what the Slack app needs.
+With the Slack connection **support-slack** configured, each example agent gets `slack_post_thread_reply`, the Slack operation `postThreadReply`. The Worker opens the connection from `DEX_CONNECTOR_CONFIG_FILE` locally, or from the **DEX_PROJECT_\*** settings when deployed; [Connections](/reference/agents/connector-tools#connector-tools-connection) covers both, and [the Slack tool in the examples](/reference/agents/connector-tools#slack-example) covers the Slack app.
 
-The Connector's manifest decides whether a call can run again. `postThreadReply` is a Mutation that its manifest does not mark retry-safe, so the call runs once, in `CallSingleAttemptTool`. A Worker crash never sends the post twice; see [Crashes](#connector-tools-crashes).
-
-Slack's manifest lets `postThreadReply` run without approval. So the example passes `requires_approval=True` in Python and **requiresApproval: true** in TypeScript, and every post waits in `AwaitToolApproval` until a person approves it. [Approval](#connector-tools-approval) covers how the manifest and the application decide approval.
+`postThreadReply` is a single-attempt Mutation, so a post runs once, in `CallSingleAttemptTool`, and a Worker crash never sends it twice. The example also sets `requires_approval=True` (**requiresApproval: true** in TypeScript), so every post waits in `AwaitToolApproval` for a person.
 
 ### Offer the tool {#offer-connector-tools}
 

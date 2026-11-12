@@ -96,6 +96,8 @@ Skipping missing token usage metadata for agent order_support and model mock/ord
 Agent: Local demo response: Order 1001: 2 notebooks, shipped.
 ```
 
+The two lines that start with `Skipping` are Google ADK log lines about the demo model's token counts. They are harmless.
+
 </SdkSnippet>
 </SdkTabs>
 
@@ -185,17 +187,7 @@ Agent: Local demo response: Order 1001: 2 notebooks, shipped.
 OPENAI_API_KEY is not set, skipping trace export
 ```
 
-To start from one file instead, with published packages only, use the one-file starter: the same agent with its Worker and Client in one Python file. It calls a real model, so set `OPENAI_API_KEY`. With `dexcli dev` running:
-
-```bash
-mkdir order-agent && cd order-agent
-python3 -m venv .venv && source .venv/bin/activate
-pip install dex-agents-openai-agents==0.5.0 dex-python-sdk==1.45.0
-curl -fsSLO https://raw.githubusercontent.com/superdurable/dex/main/examples/python/agent-starter/agent.py
-python agent.py "Cancel order 1002, it was a mistake"
-```
-
-The program asks **Approve cancel_order? [y/N]** before the write runs. [agent.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-starter/agent.py) is the whole program.
+The last line is the OpenAI Agents SDK noting that it exports traces only with a key. It is harmless.
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
@@ -216,6 +208,27 @@ It prints the session ID and the agent's reply:
 Session openai-agents-quick-start-<8 hex digits>
 Agent: <the model's reply about order 1001>
 ```
+
+</SdkSnippet>
+</SdkTabs>
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-starter/agent.py',
+  }}>
+<SdkSnippet lang="python">
+
+To start from one file instead, with published packages only, use the one-file starter: the same agent with its Worker and Client in one Python file. It calls a real model, so set `OPENAI_API_KEY`. With `dexcli dev` running:
+
+```bash
+mkdir order-agent && cd order-agent
+python3 -m venv .venv && source .venv/bin/activate
+pip install dex-agents-openai-agents==0.5.0 dex-python-sdk==1.45.0
+curl -fsSLO https://raw.githubusercontent.com/superdurable/dex/main/examples/python/agent-starter/agent.py
+python agent.py "Cancel order 1002, it was a mistake"
+```
+
+The program asks **Approve cancel_order? [y/N]** before the write runs. [agent.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-starter/agent.py) is the whole program.
 
 </SdkSnippet>
 </SdkTabs>

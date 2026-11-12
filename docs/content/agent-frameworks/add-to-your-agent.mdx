@@ -331,7 +331,7 @@ This replaces the `generateText` call that waited for the reply.
 </FrameworkTab>
 </FrameworkTabs>
 
-The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The polling in `ask_agent` above suits scripts and tests. A chat UI reads the stream instead. In Python, this complete app hosts the Worker and the Client and serves every route a chat UI needs: start a session, send a message, read the session, stream its events, and answer an approval. In TypeScript, the [AI Agent](/use-cases/ai-agent) example's chat routes show the same two halves.
+The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The function above polls the session snapshot, which suits scripts and tests. A chat UI reads the stream instead.
 
 <SdkTabs
   examples={{
@@ -340,7 +340,7 @@ The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-
   }}>
 <SdkSnippet lang="python">
 
-The whole module, `quick_start/web.py`:
+This complete app hosts the Worker and the Client and serves every route a chat UI needs: start a session, send a message, read the session, stream its events, and answer an approval. The whole module, `quick_start/web.py`:
 
 ```python
 """A complete web app for a durable agent: start, message, read, stream, approve.
@@ -429,7 +429,7 @@ def create_web_app(
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
-One chat route queues the message, or the approval answers, and streams the reply in the Vercel AI SDK UI message format. A second route resumes the stream after a reconnect. This is an excerpt: `requireBody`, `authorizeSession`, `session`, and the other helpers are defined in the [full routes file](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts).
+The [AI Agent](/use-cases/ai-agent) example's chat routes show the same pieces. One chat route queues the message, or the approval answers, and streams the reply in the Vercel AI SDK UI message format. A second route resumes the stream after a reconnect. This is an excerpt: `requireBody`, `authorizeSession`, `session`, and the other helpers are defined in the [full routes file](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts).
 
 ```ts
   router.post("/api/chat", async (request, response) => {
