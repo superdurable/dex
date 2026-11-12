@@ -107,7 +107,7 @@ pub struct ObjectStoreConfig {
     /// Dev and local modes set 127.0.0.1:0 until startup replaces it with the bound embedded S3 address.
     /// The server connects to this endpoint; it does not advertise it.
     pub endpoint: String,
-    /// Defaults to us-east-1; region used for bucket lookup and request signing. Only s3 uses it.
+    /// Defaults to us-east-1; region used for bucket lookup and request signing. Only s3 and aliyunOSS use it.
     pub region: String,
     /// Defaults to empty and must be set before serving; bucket containing cluster manifests, logs, and snapshots.
     /// For azureBlob it names the container.
