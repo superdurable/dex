@@ -55,6 +55,8 @@ MAX_LINE_BYTES: Final = 1_048_576
 READY_TIMEOUT_SECONDS: Final = 5.0
 MAX_IN_FLIGHT_REQUESTS: Final = 4
 SESSION_ID_SUFFIX_LENGTHS: Final = (6, 12)
+# An alias this long also replaces its text inside longer strings, such as a URL.
+MIN_SUBSTRING_ALIAS_LENGTH: Final = 8
 IDEMPOTENCY_CAPACITY: Final = 256
 IDEMPOTENCY_RETENTION_MS: Final = 600_000
 NOTICE_MAX_CODE_POINTS: Final = 500
@@ -437,6 +439,184 @@ def parse_channel_line(line: bytes) -> dict[str, Any]:
     return message
 
 
+# A JSON Schema 2020-12 subset: exactly the keywords the three terminal UI schemas use.
+
+
+class ContractSchemas:
+    """The terminal UI schemas, checked without third-party libraries."""
+
+    def __init__(self, schema_directory: Path) -> None:
+        launch = self._load(schema_directory / "terminal-ui-launch.schema.json")
+        channel = self._load(schema_directory / "terminal-ui-channel.schema.json")
+        self._roots: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
+            "launch": (launch, launch),
+        }
+        for name in channel["$defs"]:
+            self._roots[name] = (channel, {"$ref": f"#/$defs/{name}"})
+
+    @staticmethod
+    def _load(path: Path) -> dict[str, Any]:
+        schema: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return schema
+
+    def has_result_definition(self, method: str) -> bool:
+        """Return whether the channel schema defines ``<method>_result``."""
+        return f"{method}_result" in self._roots
+
+    def violations(self, definition: str, instance: object) -> list[str]:
+        """Return the JSON Pointers where instance breaks a definition; empty when valid.
+
+        ``definition`` is ``launch`` or a ``$defs`` name of the channel schema.
+        """
+        root, schema = self._roots[definition]
+        found: list[str] = []
+        _check_schema(root, schema, instance, "", found)
+        return found
+
+
+def _check_schema(
+    root: Mapping[str, Any], schema: object, instance: object, pointer: str, found: list[str]
+) -> None:
+    if schema is True:
+        return
+    if schema is False or not isinstance(schema, dict):
+        found.append(pointer)
+        return
+    if "$ref" in schema:
+        _check_schema(root, _resolve_reference(root, schema["$ref"]), instance, pointer, found)
+    _check_type_and_values(schema, instance, pointer, found)
+    _check_combinators(root, schema, instance, pointer, found)
+    if isinstance(instance, dict):
+        _check_object(root, schema, instance, pointer, found)
+    if isinstance(instance, list):
+        _check_array(root, schema, instance, pointer, found)
+
+
+def _resolve_reference(root: Mapping[str, Any], reference: str) -> object:
+    if not reference.startswith("#/"):
+        raise ValueError(f"unsupported $ref {reference}")
+    node: object = root
+    for part in reference[2:].split("/"):
+        if not isinstance(node, dict):
+            raise ValueError(f"bad $ref {reference}")
+        node = node[part]
+    return node
+
+
+_JSON_TYPES: Final = {
+    "object": lambda value: isinstance(value, dict),
+    "array": lambda value: isinstance(value, list),
+    "string": lambda value: isinstance(value, str),
+    "boolean": lambda value: isinstance(value, bool),
+    "null": lambda value: value is None,
+    "integer": lambda value: (isinstance(value, int) and not isinstance(value, bool))
+    or (isinstance(value, float) and value.is_integer()),
+    "number": lambda value: isinstance(value, int | float) and not isinstance(value, bool),
+}
+
+
+def _check_type_and_values(
+    schema: Mapping[str, Any], instance: object, pointer: str, found: list[str]
+) -> None:
+    if "type" in schema:
+        names = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
+        if not any(_JSON_TYPES[name](instance) for name in names):
+            found.append(pointer)
+            return
+    if "const" in schema and not _json_equal(instance, schema["const"]):
+        found.append(pointer)
+    if "enum" in schema and not any(_json_equal(instance, item) for item in schema["enum"]):
+        found.append(pointer)
+    if isinstance(instance, str):
+        if "pattern" in schema and re.search(schema["pattern"], instance) is None:
+            found.append(pointer)
+        if len(instance) < schema.get("minLength", 0):
+            found.append(pointer)
+        if "maxLength" in schema and len(instance) > schema["maxLength"]:
+            found.append(pointer)
+    if isinstance(instance, int | float) and not isinstance(instance, bool):
+        if "minimum" in schema and instance < schema["minimum"]:
+            found.append(pointer)
+        if "maximum" in schema and instance > schema["maximum"]:
+            found.append(pointer)
+
+
+def _check_combinators(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    instance: object,
+    pointer: str,
+    found: list[str],
+) -> None:
+    def is_valid(subschema: object) -> bool:
+        nested: list[str] = []
+        _check_schema(root, subschema, instance, pointer, nested)
+        return not nested
+
+    for subschema in schema.get("allOf", []):
+        _check_schema(root, subschema, instance, pointer, found)
+    if "anyOf" in schema and not any(is_valid(subschema) for subschema in schema["anyOf"]):
+        found.append(pointer)
+    if "oneOf" in schema and sum(is_valid(subschema) for subschema in schema["oneOf"]) != 1:
+        found.append(pointer)
+    if "not" in schema and is_valid(schema["not"]):
+        found.append(pointer)
+    if "if" in schema:
+        branch = schema.get("then") if is_valid(schema["if"]) else schema.get("else")
+        if branch is not None:
+            _check_schema(root, branch, instance, pointer, found)
+
+
+def _check_object(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    instance: dict[str, Any],
+    pointer: str,
+    found: list[str],
+) -> None:
+    for name in schema.get("required", []):
+        if name not in instance:
+            found.append(pointer)
+    properties: Mapping[str, Any] = schema.get("properties", {})
+    for name, value in instance.items():
+        child = f"{pointer}/{_escape_pointer(name)}"
+        if name in properties:
+            _check_schema(root, properties[name], value, child, found)
+        elif "additionalProperties" in schema:
+            _check_schema(root, schema["additionalProperties"], value, child, found)
+        if "propertyNames" in schema:
+            _check_schema(root, schema["propertyNames"], name, pointer, found)
+
+
+def _check_array(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    instance: list[Any],
+    pointer: str,
+    found: list[str],
+) -> None:
+    if "items" in schema:
+        for index, item in enumerate(instance):
+            _check_schema(root, schema["items"], item, f"{pointer}/{index}", found)
+    if schema.get("uniqueItems"):
+        canonical = [json.dumps(item, sort_keys=True) for item in instance]
+        if len(set(canonical)) != len(canonical):
+            found.append(pointer)
+
+
+def _json_equal(left: object, right: object) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    return left == right
+
+
+def _escape_pointer(name: str) -> str:
+    return name.replace("~", "~0").replace("/", "~1")
+
+
+CONTRACT_SCHEMAS: Final = ContractSchemas(Path(__file__).resolve().parents[1])
+
+
 # Transcript replay.
 
 
@@ -469,6 +649,7 @@ class TranscriptReplay:
         recorder: ReplayRecorder,
         step_timeout_seconds: float,
         started_at: float,
+        initial_aliases: Mapping[str, str],
     ) -> None:
         self._role = role
         self._transcript = transcript
@@ -476,7 +657,16 @@ class TranscriptReplay:
         self._recorder = recorder
         self._step_timeout_seconds = step_timeout_seconds
         self._started_at = started_at
-        self._aliases: dict[str, str] = {}
+        self._aliases: dict[str, str] = {
+            fixture: actual
+            for fixture, actual in initial_aliases.items()
+            if fixture not in PROTOCOL_CONSTANT_VALUES
+        }
+        self._request_methods: dict[object, str] = {}
+        # A launch the transcript rejects may break the schema on purpose.
+        self._is_launch_rejected = any(
+            step.get("message", {}).get("type") == "launch_rejected" for step in transcript["steps"]
+        )
         self._fixture_harness = _launch_harness(transcript)
         self._actual_harness = self._fixture_harness
         self._is_channel_closed = False
@@ -535,7 +725,9 @@ class TranscriptReplay:
             self._channel.send_line(line)
             self._recorder.record("sent_raw_line", bytes=len(line))
             return
-        message = _substitute(step["message"], self._aliases)
+        message = substitute_aliases(step["message"], self._aliases)
+        if message.get("type") == "request" and isinstance(message.get("method"), str):
+            self._request_methods[message.get("id")] = message["method"]
         self._channel.send_message(message)
         self._recorder.record("sent", message=summarize_message(message))
 
@@ -557,7 +749,31 @@ class TranscriptReplay:
         if received is None:
             raise ReplayMismatchError(f"expected {expected_summary} but the channel ended")
         self._recorder.record("received", message=summarize_message(received))
+        if not step.get("malformed"):
+            self._check_received_schema(received)
         self._compare(step["message"], received, step.get("ignore", []))
+
+    def _check_received_schema(self, received: Mapping[str, Any]) -> None:
+        if received.get("type") == "launch":
+            if self._is_launch_rejected:
+                return
+            violations = CONTRACT_SCHEMAS.violations("launch", received)
+        else:
+            direction = "from_tui" if self._role == "launcher" else "from_launcher"
+            violations = CONTRACT_SCHEMAS.violations(direction, received)
+        method = self._request_methods.get(received.get("id"))
+        if not violations and received.get("type") == "response" and "result" in received:
+            if method is not None and CONTRACT_SCHEMAS.has_result_definition(method):
+                violations = CONTRACT_SCHEMAS.violations(f"{method}_result", received["result"])
+                violations = [f"result{path}" if path else "result" for path in violations]
+        if violations:
+            summary = json.dumps(summarize_message(received), sort_keys=True)
+            raise ReplayMismatchError(
+                f"received {summary}, which breaks the contract schema at "
+                f"{', '.join(sorted(set(violations)))}"
+            )
+        if received.get("type") == "request" and isinstance(received.get("method"), str):
+            self._request_methods[received.get("id")] = received["method"]
 
     def _receive_raw_step(self, step: Mapping[str, Any], timeout_seconds: float) -> None:
         expected = step["raw_line"].encode("utf-8")
@@ -602,13 +818,14 @@ class TranscriptReplay:
     def _compare(
         self, fixture: Mapping[str, Any], received: Mapping[str, Any], ignore: Any
     ) -> None:
-        expected = _substitute(fixture, self._aliases)
+        expected = substitute_aliases(fixture, self._aliases)
+        compared_ignore = [*ignore, *_free_text_paths(fixture)]
         if expected.get("type") == "launch" and "command.harness" in ignore:
             self._actual_harness = str(_read_path(received, "command.harness"))
         for path in ignore:
             self._bind_alias(path, _read_path(fixture, path), _read_path(received, path))
         differing = differing_paths(
-            _without_paths(expected, ignore), _without_paths(received, ignore)
+            _without_paths(expected, compared_ignore), _without_paths(received, compared_ignore)
         )
         if differing.known_paths or differing.unknown_field_count:
             raise ReplayMismatchError(
@@ -619,6 +836,8 @@ class TranscriptReplay:
 
     def _bind_alias(self, path: str, fixture_value: object, received_value: object) -> None:
         if not isinstance(fixture_value, str) or not isinstance(received_value, str):
+            return
+        if PROTOCOL_CONSTANT_FIELDS & set(path.split(".")):
             return
         self._aliases[fixture_value] = received_value
         if path.endswith("idempotency_key"):
@@ -790,14 +1009,77 @@ def _launch_harness(transcript: Mapping[str, Any]) -> str:
     return ""
 
 
-def _substitute(value: Any, aliases: Mapping[str, str]) -> Any:
+def substitute_aliases(value: Any, aliases: Mapping[str, str]) -> Any:
+    """Return value with each bound transcript value replaced by the one received.
+
+    Values under PROTOCOL_CONSTANT_FIELDS, at any depth, are never replaced.
+    """
     if isinstance(value, str):
-        return aliases.get(value, value)
+        if value in aliases:
+            return aliases[value]
+        return _substitute_substrings(value, aliases)
     if isinstance(value, list):
-        return [_substitute(item, aliases) for item in value]
+        return [substitute_aliases(item, aliases) for item in value]
     if isinstance(value, dict):
-        return {key: _substitute(item, aliases) for key, item in value.items()}
+        return {
+            key: item if key in PROTOCOL_CONSTANT_FIELDS else substitute_aliases(item, aliases)
+            for key, item in value.items()
+        }
     return value
+
+
+# Fields whose values the contract fixes; an alias never rewrites or binds them.
+PROTOCOL_CONSTANT_FIELDS: Final = frozenset(
+    {"type", "method", "methods", "code", "mode", "state", "level", "contract", "language"}
+)
+# Values --alias may not rebind, because they spell protocol constants.
+PROTOCOL_CONSTANT_VALUES: Final = frozenset(
+    {
+        "launch",
+        "response",
+        "notice",
+        "worker",
+        "ready",
+        "launch_rejected",
+        "request",
+        "cancel",
+        "result",
+        "chat",
+        "sessions",
+        "connectors",
+        "info",
+        "warning",
+        "error",
+        "reconnecting",
+        "stopping",
+        "stopped",
+        "done",
+        "running",
+        "unknown",
+    }
+)
+
+
+def _substitute_substrings(text: str, aliases: Mapping[str, str]) -> str:
+    """Replace, in one pass and longest first, every alias long enough to match inside text."""
+    keys = sorted(
+        (key for key in aliases if len(key) >= MIN_SUBSTRING_ALIAS_LENGTH and key in text),
+        key=len,
+        reverse=True,
+    )
+    if not keys:
+        return text
+    pattern = re.compile("|".join(re.escape(key) for key in keys))
+    return pattern.sub(lambda match: aliases[match.group(0)], text)
+
+
+def _free_text_paths(message: Mapping[str, Any]) -> list[str]:
+    """Return the paths of human text that implementations word freely; never compared."""
+    if message.get("type") == "launch_rejected":
+        return ["message"]
+    if message.get("type") == "response":
+        return ["error.message", "result.error.message"]
+    return []
 
 
 def _read_path(message: Mapping[str, Any], path: str) -> object:
@@ -844,7 +1126,13 @@ def run_launcher_role(arguments: argparse.Namespace) -> int:
         os.close(child_fd)
         channel = ChannelConnection(launcher_socket)
         replay = TranscriptReplay(
-            "launcher", transcript, channel, recorder, arguments.step_timeout, started_at
+            "launcher",
+            transcript,
+            channel,
+            recorder,
+            arguments.step_timeout,
+            started_at,
+            parse_aliases(arguments.alias),
         )
         try:
             replay.run()
@@ -1013,6 +1301,7 @@ def run_terminal_ui_role(arguments: argparse.Namespace) -> int:
         recorder,
         arguments.step_timeout,
         started_at,
+        parse_aliases(arguments.alias),
     )
     try:
         replay.run()
@@ -1039,6 +1328,17 @@ def _describe_terminal() -> dict[str, Any] | None:
     }
 
 
+def parse_aliases(assignments: Sequence[str]) -> dict[str, str]:
+    """Parse --alias FIXTURE=ACTUAL options; they never apply to protocol constants."""
+    aliases: dict[str, str] = {}
+    for assignment in assignments:
+        fixture, separator, actual = assignment.partition("=")
+        if not separator or not fixture:
+            raise SystemExit(f"--alias needs FIXTURE=ACTUAL, not {assignment!r}")
+        aliases[fixture] = actual
+    return aliases
+
+
 def load_transcript(path: Path) -> dict[str, Any]:
     """Read a transcript file."""
     transcript: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
@@ -1056,6 +1356,13 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     launcher.add_argument("--screen-log", help="file that receives the PTY output")
     launcher.add_argument("--step-timeout", type=float, default=10.0)
     launcher.add_argument(
+        "--alias",
+        action="append",
+        default=[],
+        metavar="FIXTURE=ACTUAL",
+        help="stand ACTUAL in for the transcript's FIXTURE value, also inside longer strings",
+    )
+    launcher.add_argument(
         "--extra-env",
         action="append",
         default=[],
@@ -1068,6 +1375,13 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     terminal_ui.add_argument("--record", help="JSON Lines file of what the host saw")
     terminal_ui.add_argument("--describe-file", help="the --describe document to print")
     terminal_ui.add_argument("--step-timeout", type=float, default=10.0)
+    terminal_ui.add_argument(
+        "--alias",
+        action="append",
+        default=[],
+        metavar="FIXTURE=ACTUAL",
+        help="stand ACTUAL in for the transcript's FIXTURE value, also inside longer strings",
+    )
     terminal_ui.add_argument("subcommand", choices=["agents-tui"])
     terminal_ui.add_argument("--describe", action="store_true")
     terminal_ui.add_argument("--channel-fd", type=int)

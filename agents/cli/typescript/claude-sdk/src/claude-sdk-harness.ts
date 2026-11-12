@@ -186,8 +186,12 @@ export class ClaudeCodeLocalTools {
    * The environment passes through unchanged, so `ANTHROPIC_API_KEY` or the machine's Claude Code login reaches
    * the CLI.
    *
+   * Changed in 0.6.0: the options load no MCP servers or claude.ai connectors from the user's Claude Code
+   * configuration or login.
+   *
    * @returns Options with the Claude Code tools the turn switches on and the tools of calls the turn already
-   * recorded, the workspace as `cwd`, and no settings files.
+   * recorded, the workspace as `cwd`, no settings files, and no MCP servers or claude.ai connectors from the
+   * user's Claude Code configuration.
    */
   public buildOptions(): ClaudeAgentQueryOptions {
     const turn = this.context.currentTurn();
@@ -202,6 +206,9 @@ export class ClaudeCodeLocalTools {
       cwd: this.context.workspace,
       // Settings files could allow tools before the session's policy sees them.
       settingSources: [],
+      // External tools come only from the Dex connectors, never from the user's MCP configuration.
+      strictMcpConfig: true,
+      settings: { disableClaudeAiConnectors: true },
     };
   }
 

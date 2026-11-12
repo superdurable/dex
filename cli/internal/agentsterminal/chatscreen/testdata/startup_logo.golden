@@ -1,0 +1,83 @@
+==== UTF-8 ====
+~~~~ 80x24 ~~~~
+  ␛[2m▐█▌␛[m␛[32m ▜▙␛[m
+  ␛[2m▐█▌␛[m␛[32m  ▜█▙␛[m  ␛[1mDex␛[m
+  ␛[2m▐█▌␛[m␛[32m  ▟█▛␛[m  ␛[2mSuper Durable␛[m
+  ␛[2m▐█▌␛[m␛[32m ▟▛␛[m
+
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
+  ␛[2mcopies the last reply.␛[m
+
+
+
+
+
+
+
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[34m›␛[m ␛[2mType a message. /help lists commands.␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m
+ ␛[2mready␛[m                                          ␛[2mEnter send · /help · Ctrl-D exit␛[m
+~~~~ cursor 3,21 ~~~~
+
+==== ASCII ====
+~~~~ 80x24 ~~~~
+  ␛[2m|#|␛[m␛[32m \\␛[m
+  ␛[2m|#|␛[m␛[32m  \\␛[m   ␛[1mDex␛[m
+  ␛[2m|#|␛[m␛[32m  //␛[m   ␛[2mSuper Durable␛[m
+  ␛[2m|#|␛[m␛[32m //␛[m
+
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
+  ␛[2mcopies the last reply.␛[m
+
+
+
+
+
+
+
+␛[2m--------------------------------------------------------------------------------␛[m
+ ␛[34m>␛[m ␛[2mType a message. /help lists commands.␛[m
+ openai-sdk␛[2m - ␛[mgpt-5.2␛[2m - ␛[m␛[2m~/dex-agent-workspace␛[m
+ ␛[2mready␛[m                                          ␛[2mEnter send - /help - Ctrl-D exit␛[m
+~~~~ cursor 3,21 ~~~~
+
+==== no_color ====
+~~~~ 80x24 ~~~~
+  ␛[2m▐█▌␛[m␛[m ▜▙␛[m
+  ␛[2m▐█▌␛[m␛[m  ▜█▙␛[m  ␛[1mDex␛[m
+  ␛[2m▐█▌␛[m␛[m  ▟█▛␛[m  ␛[2mSuper Durable␛[m
+  ␛[2m▐█▌␛[m␛[m ▟▛␛[m
+
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
+  ␛[2mcopies the last reply.␛[m
+
+
+
+
+
+
+
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[m›␛[m ␛[2mType a message. /help lists commands.␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m
+ ␛[2mready␛[m                                          ␛[2mEnter send · /help · Ctrl-D exit␛[m
+~~~~ cursor 3,21 ~~~~

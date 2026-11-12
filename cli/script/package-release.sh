@@ -121,10 +121,11 @@ for target in "${targets[@]}"; do
       exit 1
     }
   fi
-  cp "${cli_directory}/LICENSE" "${cli_directory}/LEGACY_NOTICES.md" "${package_directory}/"
+  cp "${cli_directory}/LICENSE" "${cli_directory}/LEGACY_NOTICES.md" \
+    "${cli_directory}/THIRD_PARTY_NOTICES.md" "${package_directory}/"
   cp -R "${cli_directory}/LICENSES" "${package_directory}/LICENSES"
   tar -C "${package_directory}" -czf "${output_directory}/${name}.tar.gz" \
-    dexcli dex-server-zd LICENSE LEGACY_NOTICES.md LICENSES
+    dexcli dex-server-zd LICENSE LEGACY_NOTICES.md THIRD_PARTY_NOTICES.md LICENSES
 done
 
 cd "${output_directory}"
