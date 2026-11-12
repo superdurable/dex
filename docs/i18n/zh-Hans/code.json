@@ -90,5 +90,9 @@
   "theme.SearchBar.label": {
     "message": "搜索…",
     "description": "The ARIA label and placeholder for search button"
+  },
+  "shell.header.themeToggle": {
+    "message": "切换浅色和深色",
+    "description": "The accessible name of the header theme switch"
   }
 }
