@@ -15,6 +15,7 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{
     BehaviorVersion, Credentials, Region, retry::RetryConfig, timeout::TimeoutConfig,
 };
+use aws_sdk_s3::operation::put_object::builders::PutObjectFluentBuilder;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{
     ChecksumAlgorithm, CompletedMultipartUpload, CompletedPart, Delete, ObjectIdentifier,
@@ -22,15 +23,21 @@ use aws_sdk_s3::types::{
 use bytes::Bytes;
 
 use crate::file_download::TemporaryDownloadFile;
-use crate::s3_error::{is_conflict_error, is_precondition_error, map_sdk_error, required};
+use crate::s3_error::{is_conflict_error, map_sdk_error, required};
 use crate::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
     ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
 };
 
+mod api_dialect;
 mod file_read;
 mod optional_read;
 
+pub use api_dialect::S3ApiDialect;
+use api_dialect::{
+    BodyMd5, atomic_replacement_unsupported, insert_body_content_md5,
+    insert_forbid_overwrite_header,
+};
 use file_read::read_single_put_file;
 use optional_read::OptionalReadError;
 
@@ -102,6 +109,17 @@ pub struct S3ObjectStoreConfig {
     pub multipart_threshold: usize,
     /// Multipart part size; default 8 MiB and must be at least 5 MiB.
     pub multipart_part_size: usize,
+    /// Request dialect of the endpoint. Defaults to [`S3ApiDialect::AmazonS3`].
+    ///
+    /// [`S3ApiDialect::AliyunOss`] targets the S3-compatible endpoint of Aliyun OSS, which rejects
+    /// `If-None-Match` and `If-Match` on writes. In that dialect, [`WriteCondition::CreateOnly`]
+    /// sends `x-oss-forbid-overwrite: true` on PutObject and CompleteMultipartUpload, and HTTP 409
+    /// `FileAlreadyExists` reports [`WriteOutcome::PreconditionFailed`].
+    /// [`WriteCondition::ReplaceIfEtagMatches`] fails with a permanent error before any request.
+    /// Every PutObject, UploadPart, and DeleteObjects request carries `Content-MD5`, and each part
+    /// ETag must equal the part's MD5. The bucket must never have had versioning enabled or
+    /// suspended, because OSS then ignores `x-oss-forbid-overwrite`.
+    pub api_dialect: S3ApiDialect,
 }
 
 impl S3ObjectStoreConfig {
@@ -117,6 +135,7 @@ impl S3ObjectStoreConfig {
             request_timeout: Duration::from_secs(30),
             multipart_threshold: DEFAULT_PART_SIZE,
             multipart_part_size: DEFAULT_PART_SIZE,
+            api_dialect: S3ApiDialect::AmazonS3,
         }
     }
 }
@@ -130,6 +149,7 @@ pub struct S3ObjectStore {
     multipart_threshold: usize,
     multipart_part_size: usize,
     request_timeout: Duration,
+    api_dialect: S3ApiDialect,
 }
 
 impl S3ObjectStore {
@@ -206,6 +226,7 @@ impl S3ObjectStore {
             multipart_threshold: config.multipart_threshold,
             multipart_part_size: config.multipart_part_size,
             request_timeout: config.request_timeout,
+            api_dialect: config.api_dialect,
         };
         if !store.key_prefix.is_empty() {
             store
@@ -243,31 +264,69 @@ impl S3ObjectStore {
         format!("{}{}", self.key_prefix, key)
     }
 
+    fn reject_unsupported_condition(
+        &self,
+        key: &str,
+        condition: &WriteCondition,
+    ) -> ObjectStoreResult<()> {
+        match (self.api_dialect, condition) {
+            (S3ApiDialect::AliyunOss, WriteCondition::ReplaceIfEtagMatches { .. }) => {
+                Err(atomic_replacement_unsupported(key))
+            }
+            _ => Ok(()),
+        }
+    }
+
     async fn put_single(
         &self,
         key: &str,
         body: Bytes,
         condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
-        let is_conditional = condition != WriteCondition::Unconditional;
-        let is_replace_if_etag_matches =
-            matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. });
-        let mut request = self
+        let content_md5 = self.content_md5(&body);
+        let request = self
             .client
             .put_object()
             .bucket(&self.bucket)
             .key(self.full_key(key))
-            .body(ByteStream::from(body));
-        request = match condition {
-            WriteCondition::Unconditional => request,
-            WriteCondition::CreateOnly => request.if_none_match("*"),
-            WriteCondition::ReplaceIfEtagMatches { etag } => request.if_match(etag),
+            .body(ByteStream::from(body))
+            .set_content_md5(content_md5);
+        self.send_put_object(key, request, condition).await
+    }
+
+    /// Returns the body's `Content-MD5` in the Aliyun OSS dialect, and `None` otherwise.
+    fn content_md5(&self, body: &[u8]) -> Option<String> {
+        (self.api_dialect == S3ApiDialect::AliyunOss).then(|| BodyMd5::of(body).content_md5())
+    }
+
+    async fn send_put_object(
+        &self,
+        key: &str,
+        request: PutObjectFluentBuilder,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        let sent = match (self.api_dialect, &condition) {
+            (_, WriteCondition::Unconditional) => request.send().await,
+            (S3ApiDialect::AmazonS3, WriteCondition::CreateOnly) => {
+                request.if_none_match("*").send().await
+            }
+            (S3ApiDialect::AmazonS3, WriteCondition::ReplaceIfEtagMatches { etag }) => {
+                request.if_match(etag).send().await
+            }
+            (S3ApiDialect::AliyunOss, WriteCondition::CreateOnly) => {
+                request
+                    .customize()
+                    .mutate_request(insert_forbid_overwrite_header)
+                    .send()
+                    .await
+            }
+            (S3ApiDialect::AliyunOss, WriteCondition::ReplaceIfEtagMatches { .. }) => {
+                return Err(atomic_replacement_unsupported(key));
+            }
         };
-        let response = match request.send().await {
+        let response = match sent {
             Ok(response) => response,
-            Err(error)
-                if is_conditional && is_precondition_error(&error, is_replace_if_etag_matches) =>
-            {
+            Err(error) if self.api_dialect.is_precondition_failure(&error, &condition) => {
                 return Ok(WriteOutcome::PreconditionFailed);
             }
             Err(error) => return Err(map_sdk_error(ObjectStoreOperation::Put, key, true, error)),
@@ -335,6 +394,7 @@ impl S3ObjectStore {
                     error.to_string(),
                 )
             })?;
+            let part_md5 = self.part_md5(chunk);
             let response = self
                 .client
                 .upload_part()
@@ -343,6 +403,7 @@ impl S3ObjectStore {
                 .upload_id(upload_id)
                 .part_number(part_number)
                 .body(ByteStream::from(Bytes::copy_from_slice(chunk)))
+                .set_content_md5(part_md5.as_ref().map(BodyMd5::content_md5))
                 .send()
                 .await
                 .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
@@ -352,6 +413,9 @@ impl S3ObjectStore {
                 key,
                 "part ETag",
             )?;
+            if let Some(part_md5) = &part_md5 {
+                part_md5.verify_part_etag(key, part_number, etag)?;
+            }
             parts.push(
                 CompletedPart::builder()
                     .part_number(part_number)
@@ -363,6 +427,11 @@ impl S3ObjectStore {
             .await
     }
 
+    /// Returns the part's MD5 in the Aliyun OSS dialect, and `None` otherwise.
+    fn part_md5(&self, part: &[u8]) -> Option<BodyMd5> {
+        (self.api_dialect == S3ApiDialect::AliyunOss).then(|| BodyMd5::of(part))
+    }
+
     async fn put_multipart_file(
         &self,
         key: &str,
@@ -370,12 +439,15 @@ impl S3ObjectStore {
         condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
         let full_key = self.full_key(key);
+        // Aliyun OSS omits part CRC32 checksums, so a composite CRC32 cannot be completed.
+        let checksum_algorithm =
+            (self.api_dialect == S3ApiDialect::AmazonS3).then_some(ChecksumAlgorithm::Crc32);
         let started = self
             .client
             .create_multipart_upload()
             .bucket(&self.bucket)
             .key(&full_key)
-            .checksum_algorithm(ChecksumAlgorithm::Crc32)
+            .set_checksum_algorithm(checksum_algorithm)
             .send()
             .await
             .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
@@ -443,15 +515,20 @@ impl S3ObjectStore {
                 break;
             }
             buffer.truncate(filled);
-            let response = self
+            let part_md5 = self.part_md5(&buffer);
+            let request = self
                 .client
                 .upload_part()
                 .bucket(&self.bucket)
                 .key(full_key)
                 .upload_id(upload_id)
                 .part_number(part_number)
-                .body(ByteStream::from(buffer))
-                .checksum_algorithm(ChecksumAlgorithm::Crc32)
+                .body(ByteStream::from(buffer));
+            let request = match &part_md5 {
+                None => request.checksum_algorithm(ChecksumAlgorithm::Crc32),
+                Some(part_md5) => request.content_md5(part_md5.content_md5()),
+            };
+            let response = request
                 .send()
                 .await
                 .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
@@ -461,19 +538,25 @@ impl S3ObjectStore {
                 key,
                 "part ETag",
             )?;
-            let checksum_crc32 = required(
-                response.checksum_crc32(),
-                ObjectStoreOperation::Put,
-                key,
-                "part CRC32 checksum",
-            )?;
-            parts.push(
-                CompletedPart::builder()
-                    .part_number(part_number)
-                    .e_tag(etag)
-                    .checksum_crc32(checksum_crc32)
-                    .build(),
-            );
+            let part = CompletedPart::builder()
+                .part_number(part_number)
+                .e_tag(etag);
+            let part = match &part_md5 {
+                None => {
+                    let checksum_crc32 = required(
+                        response.checksum_crc32(),
+                        ObjectStoreOperation::Put,
+                        key,
+                        "part CRC32 checksum",
+                    )?;
+                    part.checksum_crc32(checksum_crc32)
+                }
+                Some(part_md5) => {
+                    part_md5.verify_part_etag(key, part_number, etag)?;
+                    part
+                }
+            };
+            parts.push(part.build());
             part_number += 1;
         }
         self.complete_upload(key, full_key, upload_id, parts, condition)
@@ -488,29 +571,38 @@ impl S3ObjectStore {
         parts: Vec<CompletedPart>,
         condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
-        let is_conditional = condition != WriteCondition::Unconditional;
-        let is_replace_if_etag_matches =
-            matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. });
         let upload = CompletedMultipartUpload::builder()
             .set_parts(Some(parts))
             .build();
-        let mut request = self
+        let request = self
             .client
             .complete_multipart_upload()
             .bucket(&self.bucket)
             .key(full_key)
             .upload_id(upload_id)
             .multipart_upload(upload);
-        request = match condition {
-            WriteCondition::Unconditional => request,
-            WriteCondition::CreateOnly => request.if_none_match("*"),
-            WriteCondition::ReplaceIfEtagMatches { etag } => request.if_match(etag),
+        let sent = match (self.api_dialect, &condition) {
+            (_, WriteCondition::Unconditional) => request.send().await,
+            (S3ApiDialect::AmazonS3, WriteCondition::CreateOnly) => {
+                request.if_none_match("*").send().await
+            }
+            (S3ApiDialect::AmazonS3, WriteCondition::ReplaceIfEtagMatches { etag }) => {
+                request.if_match(etag).send().await
+            }
+            (S3ApiDialect::AliyunOss, WriteCondition::CreateOnly) => {
+                request
+                    .customize()
+                    .mutate_request(insert_forbid_overwrite_header)
+                    .send()
+                    .await
+            }
+            (S3ApiDialect::AliyunOss, WriteCondition::ReplaceIfEtagMatches { .. }) => {
+                return Err(atomic_replacement_unsupported(key));
+            }
         };
-        let response = match request.send().await {
+        let response = match sent {
             Ok(response) => response,
-            Err(error)
-                if is_conditional && is_precondition_error(&error, is_replace_if_etag_matches) =>
-            {
+            Err(error) if self.api_dialect.is_precondition_failure(&error, &condition) => {
                 return Ok(WriteOutcome::PreconditionFailed);
             }
             Err(error) => return Err(map_sdk_error(ObjectStoreOperation::Put, key, true, error)),
@@ -547,33 +639,16 @@ impl S3ObjectStore {
         else {
             return self.put_multipart_file(key, path, condition).await;
         };
-        let is_conditional = condition != WriteCondition::Unconditional;
-        let is_replace_if_etag_matches =
-            matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. });
-        let mut request = self
+        let content_md5 = self.content_md5(&body);
+        let request = self
             .client
             .put_object()
             .bucket(&self.bucket)
             .key(self.full_key(key))
             .body(ByteStream::from(body))
-            .checksum_algorithm(ChecksumAlgorithm::Crc32);
-        request = match condition {
-            WriteCondition::Unconditional => request,
-            WriteCondition::CreateOnly => request.if_none_match("*"),
-            WriteCondition::ReplaceIfEtagMatches { etag } => request.if_match(etag),
-        };
-        let response = match request.send().await {
-            Ok(response) => response,
-            Err(error)
-                if is_conditional && is_precondition_error(&error, is_replace_if_etag_matches) =>
-            {
-                return Ok(WriteOutcome::PreconditionFailed);
-            }
-            Err(error) => return Err(map_sdk_error(ObjectStoreOperation::Put, key, true, error)),
-        };
-        Ok(WriteOutcome::Written {
-            etag: required(response.e_tag(), ObjectStoreOperation::Put, key, "ETag")?.to_owned(),
-        })
+            .checksum_algorithm(ChecksumAlgorithm::Crc32)
+            .set_content_md5(content_md5);
+        self.send_put_object(key, request, condition).await
     }
 }
 
@@ -585,6 +660,7 @@ impl ObjectStore for S3ObjectStore {
         body: Bytes,
         condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
+        self.reject_unsupported_condition(key, &condition)?;
         let mut conflict_retries = 0;
         loop {
             let result = if body.len() >= self.multipart_threshold {
@@ -611,6 +687,7 @@ impl ObjectStore for S3ObjectStore {
         path: &Path,
         condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
+        self.reject_unsupported_condition(key, &condition)?;
         let mut conflict_retries = 0;
         loop {
             let result = self.put_file_once(key, path, condition.clone()).await;
@@ -780,14 +857,24 @@ impl ObjectStore for S3ObjectStore {
                     error.to_string(),
                 )
             })?;
-        let response = self
+        let request = self
             .client
             .delete_objects()
             .bucket(&self.bucket)
-            .delete(delete)
-            .send()
-            .await
-            .map_err(|error| map_sdk_error(ObjectStoreOperation::Delete, "", true, error))?;
+            .delete(delete);
+        let sent = match self.api_dialect {
+            S3ApiDialect::AmazonS3 => request.send().await,
+            // Aliyun OSS requires Content-MD5, and the SDK sends only a CRC32 checksum.
+            S3ApiDialect::AliyunOss => {
+                request
+                    .customize()
+                    .mutate_request(insert_body_content_md5)
+                    .send()
+                    .await
+            }
+        };
+        let response =
+            sent.map_err(|error| map_sdk_error(ObjectStoreOperation::Delete, "", true, error))?;
         if let Some(error) = response.errors().first() {
             let kind = match error.code().unwrap_or("") {
                 "SlowDown" | "Throttling" | "ThrottlingException" => {

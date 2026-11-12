@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+#[path = "conformance/aliyun_oss_dialect.rs"]
+mod aliyun_oss_dialect;
 #[path = "conformance/recording_s3_proxy.rs"]
 mod recording_s3_proxy;
 

@@ -195,6 +195,13 @@ binary; `start` uses explicit defaults and ignores `S3LOCAL_*` environment varia
 | `--control-authentication` | `S3LOCAL_CONTROL_AUTHENTICATION` | `off` | `root` requires root SigV4 signatures on every test control when signature verification is strict. |
 | `--access-key-id` | `S3LOCAL_ACCESS_KEY_ID` | `s3local` | Root access key; the only identity that can manage credentials. |
 | `--secret-access-key` | `S3LOCAL_SECRET_ACCESS_KEY` | `s3local` | Root signing secret. |
+| `--api-dialect` | `S3LOCAL_API_DIALECT` | `amazon-s3` | `amazon-s3` or `aliyun-oss`. |
+
+The `aliyun-oss` dialect emulates the S3-compatible endpoint of Aliyun OSS. PutObject and
+CompleteMultipartUpload reject `If-None-Match` and `If-Match` with `400 NotImplemented`. They honor
+`x-oss-forbid-overwrite: true` atomically and return `409 FileAlreadyExists` when the key exists.
+UploadPart responses omit checksum headers. DeleteObjects without `Content-MD5` returns
+`400 MissingArgument`. The `amazon-s3` dialect ignores `x-oss-forbid-overwrite`.
 
 Opaque ETags identify a committed version rather than its MD5. Repeated HEAD/GET requests and
 server restarts return the same ETag for that version. Writing identical bytes creates a different

@@ -13,7 +13,9 @@ use std::sync::Arc;
 use http::HeaderMap;
 use s3local::{DeleteObjectOutcome, DeleteObjectRequest, Store, StoreError};
 
+use super::api_dialect::require_delete_objects_content_md5;
 use super::request_body::read_small_body;
+use crate::config::S3ApiDialect;
 use crate::policy::{CredentialPolicy, object_arn};
 use crate::s3_error::S3Error;
 use crate::server::{S3Response, run_store_operation, xml_response};
@@ -35,12 +37,14 @@ pub(crate) async fn delete_objects(
     headers: HeaderMap,
     body: crate::server::RequestBody,
     policy: Option<CredentialPolicy>,
+    api_dialect: S3ApiDialect,
 ) -> Result<S3Response, S3Error> {
     {
         let bucket = bucket.clone();
         run_store_operation(&store, move |store| store.bucket(&bucket)).await?;
     }
     let body = read_small_body(body, &headers, MAX_DELETE_BODY_BYTES).await?;
+    require_delete_objects_content_md5(&headers, api_dialect)?;
     body.verify_integrity(&headers, true)?;
     let document = parse_document(&body.bytes, "Delete")?;
     let is_quiet = document
