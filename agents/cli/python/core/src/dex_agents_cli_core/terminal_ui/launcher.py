@@ -480,6 +480,7 @@ class _Handoff:
         self._is_interrupted = False
         self._is_hung_up = False
         self._channel_end_reason: str | None = None
+        self._is_protocol_error = False
         self._process: ChildProcess | None = None
         self._plain_reason = ""
 
@@ -507,7 +508,7 @@ class _Handoff:
         if isinstance(outcome, str) and (self._is_terminated or self._is_interrupted):
             self._restore_terminal(saved_mode, is_reset_written=True)
             self._report_resume()
-            return 143 if self._is_terminated else 130
+            return 130 if self._is_interrupted else 143
         if isinstance(outcome, str):
             self._restore_terminal(saved_mode, is_reset_written=outcome != "rejected")
             self._report(f"Plain chat: {self._plain_reason}")
@@ -629,6 +630,7 @@ class _Handoff:
             except ChannelProtocolError as error:
                 _LOGGER.error("the terminal UI channel broke: %s", error)
                 self._channel_end_reason = "dexcli sent a malformed line"
+                self._is_protocol_error = True
                 await channel.close()
                 return
             if message is None:
@@ -710,16 +712,27 @@ class _Handoff:
         is_unexpected = returncode < 0 or returncode not in _TERMINAL_UI_EXIT_CODES
         is_signaled = self._is_terminated or self._is_interrupted
         self._restore_terminal(saved_mode, is_reset_written=is_unexpected or is_signaled)
+        # A protocol error fails the chat even when dexcli then exits 0.
+        is_channel_failed = self._channel_end_reason is not None and (
+            returncode != 0 or self._is_protocol_error
+        )
         if is_unexpected and not is_signaled:
             self._report(f"The chat closed unexpectedly (dexcli exit {status}).")
-        elif returncode != 0 and self._channel_end_reason is not None and not is_signaled:
+        elif is_channel_failed and not is_signaled:
             self._report(f"The chat closed: {self._channel_end_reason}.")
         self._report_resume()
+        if self._is_interrupted:
+            return 130
         if self._is_terminated:
             return 143
-        if self._is_interrupted or returncode == 130:
+        if returncode == 130:
             return 130
-        if is_unexpected or returncode in (1, 143) or self._worker_host.is_stopped:
+        if (
+            is_unexpected
+            or returncode in (1, 143)
+            or self._is_protocol_error
+            or self._worker_host.is_stopped
+        ):
             return 1
         return 0
 

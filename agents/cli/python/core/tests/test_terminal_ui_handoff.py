@@ -887,6 +887,19 @@ async def test_the_launcher_replays_each_conformance_transcript(
     assert_replayed(fake, screen)
 
 
+async def test_a_protocol_error_after_ready_fails_the_chat_even_when_dexcli_exits_0(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    steps = [{"from": "tui", "raw_line": "this is not JSON"}, {"close": "launcher"}]
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript(steps))
+    child = start_chat(cli_home, fake, screen)
+    session_id = await read_session_id(child)
+    await expect(child, "The chat closed: dexcli sent a malformed line.")
+    await expect(child, resume_line(session_id))
+    assert await wait_for_exit(child) == 1
+    assert fake.mismatches() == []
+
+
 @pytest.mark.parametrize("is_group_broadcast", [False, True], ids=["launcher-only", "group"])
 async def test_an_external_sigint_ends_the_chat_with_130(
     cli_home: CliHome, tmp_path: Path, screen: io.StringIO, is_group_broadcast: bool

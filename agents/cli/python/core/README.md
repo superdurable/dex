@@ -161,7 +161,10 @@ The steps of a run:
    `shutdown`, and waits 10 s, then SIGTERM, then after 2 s SIGKILL to the
    Worker host's group. The command exits like `dexcli`: 0, 1, or 130; 1
    after a `dexcli` SIGTERM or crash, or after the Worker host stopped; 143
-   when the launcher itself got SIGTERM, which it forwards.
+   when the launcher itself got SIGTERM, which it forwards; 130 whenever the
+   launcher got SIGINT. A malformed line from `dexcli` after `ready` fails the
+   chat with 1 even when `dexcli` then exits 0; a closed channel followed by
+   `dexcli` exiting 0 is a normal end.
 
 `start_session` derives `<name>-YYYYMMDD-HHMMSS-<6 hex digits>` from the
 request's key, and the same with 12 digits. Every StartFlow passes the key as

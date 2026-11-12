@@ -793,8 +793,7 @@ Node, a daemon thread in Python.
 1. Every 1 s it checks whether the parent is still the launcher. When it is
    not, it starts an orderly shutdown and arms the hard bound at once.
 2. A shutdown that starts for another reason (EOF on the control channel,
-   `shutdown` from the launcher, SIGTERM) also arms the bound. Node arms it at
-   once. Python arms it at the watchdog's next check, up to 1 s later.
+   `shutdown` from the launcher, SIGTERM) also arms the bound at once.
 3. 15 s after the bound is armed, if the Worker host still runs, the watchdog
    sends SIGTERM to every registered tool process group, waits up to 2 s for
    them, and sends SIGKILL to those left.
@@ -806,8 +805,18 @@ can run:
 | Platform and core | Launcher died | A shutdown began |
 | --- | --- | --- |
 | Node (TypeScript), macOS and Linux | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
-| Python, macOS | about 1 + 15 + 2 = 18 s | about 1 + 15 + 2 = 18 s |
-| Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 1 + 15 + 2 = 18 s |
+| Python, macOS | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
+| Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 15 + 2 = 17 s |
+
+Python's watchdog may signal tool groups (step 3) because the Python shell
+tool owns every reap of a tool group leader: it spawns the shell with
+`subprocess.Popen` outside asyncio's child watcher, waits for its exit
+without reaping it (`waitid` with `WNOWAIT`, or kqueue on macOS before
+Python 3.13), stops what the shell left in its group, and only then reaps
+it with `waitpid`, under the registry lock that every signal also takes.
+So no signal can reach a reaped leader's reused pid. A core whose tool
+leaders are reaped elsewhere, such as by an event loop's child watcher,
+must not signal tool groups from its watchdog.
 
 The bounds do not hold:
 
