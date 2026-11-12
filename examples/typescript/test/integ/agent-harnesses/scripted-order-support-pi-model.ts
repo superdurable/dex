@@ -16,6 +16,9 @@
 
 import type { Api, Model } from "@earendil-works/pi-ai";
 
+/** The placeholder key the scripted Messages API accepts. */
+export const scriptedPiApiKey = "sk-ant-test-not-a-real-key";
+
 /** A pi-ai Anthropic Messages model whose requests go to the scripted Messages API at `baseUrl`. */
 export function createScriptedOrderSupportPiModel(baseUrl: string): Model<Api> {
   return {

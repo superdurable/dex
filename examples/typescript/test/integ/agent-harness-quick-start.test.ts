@@ -34,43 +34,32 @@ import * as mastra from "../../src/products/agent-harnesses/quick-start/mastra-q
 import * as openAIAgents from "../../src/products/agent-harnesses/quick-start/openai-agents-quick-start.js";
 import * as pi from "../../src/products/agent-harnesses/quick-start/pi-quick-start.js";
 import { askAgent } from "../../src/products/agent-harnesses/quick-start/quick-start-embed.js";
-import {
-  QuickStartApp,
-  runTurn,
-  type QuickStartSessionFlow,
-} from "../../src/products/agent-harnesses/quick-start/quick-start-session.js";
+import type { OrderSupportSessionFlow } from "../../src/products/agent-harnesses/order-support/order-support-routes.js";
+import { QuickStartApp, runTurn } from "../../src/products/agent-harnesses/quick-start/quick-start-session.js";
 import * as vercelAi from "../../src/products/agent-harnesses/quick-start/vercel-ai-quick-start.js";
 import { scriptedCancelReason, scriptedReplyPrefix } from "./agent-harnesses/order-support-script.js";
 import { createScriptedOrderSupportLanguageModel } from "./agent-harnesses/scripted-order-support-language-model.js";
 import { ScriptedOrderSupportMessagesApi } from "./agent-harnesses/scripted-order-support-messages-api.js";
 import { ScriptedOrderSupportOpenAIModel } from "./agent-harnesses/scripted-order-support-openai-model.js";
-import { createScriptedOrderSupportPiModel } from "./agent-harnesses/scripted-order-support-pi-model.js";
+import { createScriptedOrderSupportPiModel, scriptedPiApiKey } from "./agent-harnesses/scripted-order-support-pi-model.js";
 
 process.env.MASTRA_TELEMETRY_DISABLED = "1";
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
 const stateDirectory = mkdtempSync(join(tmpdir(), "dex-typescript-agent-quick-start-"));
 const cancelledReply = `${scriptedReplyPrefix}Order 1002 is cancelled: ${scriptedCancelReason}.`;
 let messagesApi: ScriptedOrderSupportMessagesApi;
-const savedAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
 
 before(async () => {
   messagesApi = await ScriptedOrderSupportMessagesApi.start();
-  // pi-ai reads the provider key from the environment, as the example does.
-  process.env.ANTHROPIC_API_KEY = "sk-ant-test-not-a-real-key";
   mkdirSync(join(stateDirectory, "home"), { recursive: true });
 });
 
 after(async () => {
-  if (savedAnthropicApiKey === undefined) {
-    delete process.env.ANTHROPIC_API_KEY;
-  } else {
-    process.env.ANTHROPIC_API_KEY = savedAnthropicApiKey;
-  }
   await messagesApi.stop();
   rmSync(stateDirectory, { recursive: true, force: true });
 });
 
-const frameworks: Record<string, (orderDesk: OrderDesk) => QuickStartSessionFlow> = {
+const frameworks: Record<string, (orderDesk: OrderDesk) => OrderSupportSessionFlow> = {
   "Claude Agent SDK": (orderDesk) =>
     claudeAgentSdk.buildDurableAgent(orderDesk, "claude-opus-5-5", {
       PATH: "/usr/bin:/bin",
@@ -86,7 +75,7 @@ const frameworks: Record<string, (orderDesk: OrderDesk) => QuickStartSessionFlow
     }),
   Mastra: (orderDesk) => mastra.buildDurableAgent(orderDesk, createScriptedOrderSupportLanguageModel()),
   "OpenAI Agents SDK": (orderDesk) => openAIAgents.buildDurableAgent(orderDesk, new ScriptedOrderSupportOpenAIModel()),
-  Pi: (orderDesk) => pi.buildDurableAgent(orderDesk, createScriptedOrderSupportPiModel(messagesApi.baseUrl)),
+  Pi: (orderDesk) => pi.buildDurableAgent(orderDesk, createScriptedOrderSupportPiModel(messagesApi.baseUrl), scriptedPiApiKey),
   "Vercel AI SDK": (orderDesk) => vercelAi.buildDurableAgent(orderDesk, createScriptedOrderSupportLanguageModel()),
 };
 

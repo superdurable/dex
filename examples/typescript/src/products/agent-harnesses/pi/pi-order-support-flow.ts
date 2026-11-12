@@ -53,11 +53,13 @@ export function loadPiOrderSupportModel(): Model<Api> {
  * Builds the order support session Flow. Dex runs the agent loop: each model call and each tool call is its own Step.
  * look_up_order only reads, so it runs without approval. cancel_order waits for approval and runs at most once.
  * With a Slack connection, slack_post_thread_reply also waits for approval and runs at most once.
+ * Without apiKey, pi-ai reads the provider's key from the environment.
  */
 export function createPiOrderSupportFlow(
   orderDesk: OrderDesk,
   model: Model<Api>,
   slack: Connection | undefined,
+  apiKey?: string,
 ): OrderSupportSessionFlow {
   const lookUpOrder: AgentTool<typeof lookUpOrderArguments> = {
     name: "look_up_order",
@@ -79,7 +81,7 @@ export function createPiOrderSupportFlow(
     {
       name: "order-support",
       instructions: orderSupportInstructions,
-      model: createPiAiModelClient(model),
+      model: createPiAiModelClient(model, { apiKey }),
       tools: [piAgentFunctionTool(lookUpOrder, { effect: "read" }), piAgentFunctionTool(cancelOrder)],
       toolSources: createSlackConnectorToolSources(slack),
     },

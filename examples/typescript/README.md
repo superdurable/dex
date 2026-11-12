@@ -61,7 +61,7 @@ Use a fresh local store and a new port after changing an example's index schema.
 Application searches must constrain `FlowType` and parenthesize caller filters.
 The sample search endpoints enforce their Flow type.
 
-Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
+Use Node.js 22.19 or later, or Node.js 24; pi-ai needs 22.19. Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
 
 Workers always use pull task streams, one per execution slot. Startup waits for

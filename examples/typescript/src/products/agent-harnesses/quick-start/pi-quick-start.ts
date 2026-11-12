@@ -57,14 +57,21 @@ export function buildPlainAgent(orderDesk: OrderDesk, model: Model<Api>): Agent 
   });
 }
 
-/** Returns the same agent as a durable Dex agent session: the same model and tools, plus tool effects. */
-export function buildDurableAgent(orderDesk: OrderDesk, model: Model<Api>): AgentSessionFlow<BuiltinLoopAgentRunner> {
+/**
+ * Returns the same agent as a durable Dex agent session: the same model and tools, plus tool effects.
+ * Without apiKey, pi-ai reads the provider's key from the environment.
+ */
+export function buildDurableAgent(
+  orderDesk: OrderDesk,
+  model: Model<Api>,
+  apiKey?: string,
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
   const { lookUpOrder, cancelOrder } = buildOrderTools(orderDesk);
   return createBuiltinAgentSessionFlow(
     {
       name: "order-support",
       instructions: orderSupportInstructions,
-      model: createPiAiModelClient(model),
+      model: createPiAiModelClient(model, { apiKey }),
       tools: [
         piAgentFunctionTool(lookUpOrder, { effect: "read" }),
         piAgentFunctionTool(cancelOrder, { effect: "non_idempotent_write" }),

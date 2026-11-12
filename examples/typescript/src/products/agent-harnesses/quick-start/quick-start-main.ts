@@ -29,17 +29,18 @@ import { startAgentSession, type AgentInterrupt } from "@superdurable/dex-agents
 import { environmentOr } from "../../../config/env.js";
 import { buildClaudeCliEnvironment } from "../claude-agent-sdk/claude-agent-sdk-order-support-flow.js";
 import { OrderDesk } from "../order-support/order-desk.js";
+import type { OrderSupportSessionFlow } from "../order-support/order-support-routes.js";
 import { loadPiOrderSupportModel } from "../pi/pi-order-support-flow.js";
 import * as claudeAgentSdk from "./claude-agent-sdk-quick-start.js";
 import * as mastra from "./mastra-quick-start.js";
 import * as openAIAgents from "./openai-agents-quick-start.js";
 import * as pi from "./pi-quick-start.js";
-import { QuickStartApp, runTurn, type QuickStartSessionFlow } from "./quick-start-session.js";
+import { QuickStartApp, runTurn } from "./quick-start-session.js";
 import * as vercelAi from "./vercel-ai-quick-start.js";
 
 const frameworks = ["claude-agent-sdk", "mastra", "openai-agents", "pi", "vercel-ai"] as const;
 
-function buildQuickStartAgent(framework: string, orderDesk: OrderDesk): QuickStartSessionFlow {
+function buildQuickStartAgent(framework: string, orderDesk: OrderDesk): OrderSupportSessionFlow {
   switch (framework) {
     case "claude-agent-sdk":
       return claudeAgentSdk.buildDurableAgent(

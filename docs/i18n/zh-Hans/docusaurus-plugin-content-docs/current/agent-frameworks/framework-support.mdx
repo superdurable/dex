@@ -115,7 +115,7 @@ Pi 是一个用于 Agent 的 TypeScript 工具包。它的 **pi-ai** 包调用�
 
 运行 Agent Loop 的是 Dex，而不是 Pi。Session Flow 就是[内置 Agent Loop](/agent-frameworks/built-in-agent-loop)：`createBuiltinAgentSessionFlow`，模型客户端来自 `createPiAiModelClient`，tool 来自 `piAgentFunctionTool`。Pi 的 `Agent` 和 `agentLoop` 不会被使用。
 
-每个 `RunModel` Step 发出一次 pi-ai 请求。pi-ai 自己的重试是关闭的，所以每次重试都是一次新的 `RunModel` 尝试。
+每个 `RunModel` Step 发出一次 pi-ai 请求。pi-ai 自己的重试是关闭的，所以每次重试都是一次新的 `RunModel` 尝试。Bedrock 是例外，见[限制](#limits)。
 
 每次 Pi Tool Call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。没有显式的 `effect` 时，由 tool 的 `replay` 字段决定：`safe` 是幂等写操作，`never` 是非幂等写操作。
 
@@ -254,6 +254,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 - 模型看到 tool 结果中的文本。只有 Session Flow 配有 media store 时，模型才能看到结果中的图片；否则每张图片都变成一段文本说明。结果的 **details** 不会被保存。
 - pi-durable 的 `defineTool` tool 只有在不使用 **api**、也不返回 **control** 时，才能通过 `piDurableFunctionTool` 运行。把这样的 tool 改写成 Pi `AgentTool`。
 - 把 pi-durable Extension 的 tool 和 prompt 移到 Agent 定义中。Extension 和 fork 不受支持。
+- 使用 Bedrock（`bedrock-converse-stream`）时，AWS SDK 会在一次 `RunModel` 尝试内部重试，因为 pi-ai 在这里忽略自己的重试设置。一次尝试默认最多发出 3 个请求，Dex 的 `RunModel` 重试会让请求数成倍增加。结果仍然正确，因为模型调用没有副作用。要让每次尝试只发出一个请求，在 Worker 的 AWS 配置中设置 `AWS_MAX_ATTEMPTS=1` 或 profile 的 `max_attempts`。
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">

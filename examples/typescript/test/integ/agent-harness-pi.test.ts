@@ -19,25 +19,22 @@ import assert from "node:assert/strict";
 import { createPiOrderSupportFlow } from "../../src/products/agent-harnesses/pi/pi-order-support-flow.js";
 import { registerOrderSupportScenarios } from "./agent-harnesses/order-support-scenarios.js";
 import { ScriptedOrderSupportMessagesApi } from "./agent-harnesses/scripted-order-support-messages-api.js";
-import { createScriptedOrderSupportPiModel } from "./agent-harnesses/scripted-order-support-pi-model.js";
+import { createScriptedOrderSupportPiModel, scriptedPiApiKey } from "./agent-harnesses/scripted-order-support-pi-model.js";
 
 let messagesApi: ScriptedOrderSupportMessagesApi;
-const savedAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
 
 registerOrderSupportScenarios({
   harnessName: "Pi",
   createFlow: async (orderDesk, slack) => {
     messagesApi = await ScriptedOrderSupportMessagesApi.start();
-    // pi-ai reads the provider key from the environment, as the example does.
-    process.env.ANTHROPIC_API_KEY = "sk-ant-test-not-a-real-key";
-    return createPiOrderSupportFlow(orderDesk, createScriptedOrderSupportPiModel(messagesApi.baseUrl), slack);
+    return createPiOrderSupportFlow(
+      orderDesk,
+      createScriptedOrderSupportPiModel(messagesApi.baseUrl),
+      slack,
+      scriptedPiApiKey,
+    );
   },
   close: async () => {
-    if (savedAnthropicApiKey === undefined) {
-      delete process.env.ANTHROPIC_API_KEY;
-    } else {
-      process.env.ANTHROPIC_API_KEY = savedAnthropicApiKey;
-    }
     assert.deepEqual(messagesApi.unservedRequests, []);
     await messagesApi.stop();
   },

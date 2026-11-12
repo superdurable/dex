@@ -400,6 +400,7 @@ export function createPiOrderSupportFlow(
   orderDesk: OrderDesk,
   model: Model<Api>,
   slack: Connection | undefined,
+  apiKey?: string,
 ): OrderSupportSessionFlow {
   const lookUpOrder: AgentTool<typeof lookUpOrderArguments> = {
     name: "look_up_order",
@@ -421,7 +422,7 @@ export function createPiOrderSupportFlow(
     {
       name: "order-support",
       instructions: orderSupportInstructions,
-      model: createPiAiModelClient(model),
+      model: createPiAiModelClient(model, { apiKey }),
       tools: [piAgentFunctionTool(lookUpOrder, { effect: "read" }), piAgentFunctionTool(cancelOrder)],
       toolSources: createSlackConnectorToolSources(slack),
     },
