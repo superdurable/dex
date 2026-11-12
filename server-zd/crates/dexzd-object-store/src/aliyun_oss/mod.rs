@@ -9,6 +9,7 @@
 //! Linearizable ETag replacement of mutable object keys on a store that offers only
 //! create-only conditional writes, such as Aliyun OSS.
 
+mod bucket_checks;
 mod startup_probes;
 mod version_body;
 mod version_keys;
@@ -28,6 +29,10 @@ use crate::{
     ByteRange, ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError,
     ObjectStoreErrorKind, ObjectStoreOperation, ObjectStoreResult, STARTUP_PROBE_OBJECT_KEY_PREFIX,
     WriteCondition, WriteOutcome,
+};
+pub use bucket_checks::{
+    AliyunOssBucketCheckError, check_aliyun_oss_create_only_writes,
+    check_no_data_of_another_provider,
 };
 pub use startup_probes::STALE_STARTUP_PROBE_AGE;
 use startup_probes::{purge_startup_probe, remove_startup_probes_written_before};

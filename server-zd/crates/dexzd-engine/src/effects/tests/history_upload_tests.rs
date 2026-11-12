@@ -28,8 +28,8 @@ use dexzd_keyspace::row_keys::{
 use dexzd_keyspace::{ColumnFamily, PartitionId, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_metrics::HistoryUploadOutcome;
 use dexzd_object_store::{
-    FaultAction, FaultInjector, InMemoryObjectStore, ObjectStore, ObjectStoreOperation,
-    WriteCondition,
+    FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions, ObjectStore,
+    ObjectStoreOperation, WriteCondition,
 };
 use dexzd_protocol::dex::{AttributeWrite, SetAttributesRequest, StopFlowRequest, StopType};
 use dexzd_protocol::dexzd::v1::{
@@ -533,7 +533,15 @@ async fn an_unknown_write_outcome_is_retried_and_finds_the_written_object() {
 async fn assert_seeded_object_is_replaced(
     seeded_object: impl FnOnce(&HistorySegmentContent) -> Vec<u8>,
 ) {
-    let harness = EffectHarness::new();
+    assert_seeded_object_is_replaced_in(DurableState::new(), seeded_object).await;
+}
+
+/// Runs [`assert_seeded_object_is_replaced`] with the objects of `durable`.
+async fn assert_seeded_object_is_replaced_in(
+    durable: DurableState,
+    seeded_object: impl FnOnce(&HistorySegmentContent) -> Vec<u8>,
+) {
+    let harness = EffectHarness::with_config(durable, EffectsConfig::default());
     harness.rebuild_all_partitions().await;
     enable_history_offload(&harness);
     let upload_slots = hold_upload_slots(&harness).await;
@@ -584,6 +592,29 @@ async fn an_existing_object_with_other_content_is_replaced_then_acknowledged() {
 #[tokio::test(start_paused = true)]
 async fn an_existing_object_that_does_not_decode_is_replaced_then_acknowledged() {
     assert_seeded_object_is_replaced(|_| b"not a history segment".to_vec()).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_store_without_atomic_replacement_deletes_then_creates_a_mismatched_object() {
+    let objects = Arc::new(InMemoryObjectStore::with_options(
+        InMemoryObjectStoreOptions {
+            rejects_replace_if_etag_matches: true,
+            ..InMemoryObjectStoreOptions::default()
+        },
+    ));
+    assert!(!objects.supports_replace_if_etag_matches_on_every_key());
+    let durable = DurableState {
+        objects: Arc::clone(&objects),
+        ..DurableState::new()
+    };
+    assert_seeded_object_is_replaced_in(durable, |_| b"not a history segment".to_vec()).await;
+    assert_eq!(
+        objects.call_count(
+            ObjectStoreOperation::Delete,
+            HISTORY_SEGMENT_OBJECT_KEY_PREFIX
+        ),
+        1
+    );
 }
 
 #[tokio::test(start_paused = true)]

@@ -108,6 +108,10 @@ impl ObjectStore for ReadOnlyObjectStore {
     ) -> ObjectStoreResult<ObjectListing> {
         self.inner.list(prefix, start_after, max_keys).await
     }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
 }
 
 #[cfg(test)]

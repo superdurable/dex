@@ -366,6 +366,7 @@ fn encode_from_committed_state(
 /// of this segment. Any other existing object came from committed history that no longer
 /// exists, such as an older restored snapshot, or from a determinism bug; committed state is
 /// authoritative while the segment is SEALED, so it is replaced with an If-Match write.
+/// A store without atomic replacement deletes the object and creates it again instead.
 ///
 /// Returns the stored segment, the object storage error, which leaves no partial object, or
 /// [`EffectError::Stopped`] when the node stops during a call.
@@ -376,9 +377,10 @@ async fn store_segment_object(
     let store = &context.history_object_store;
     let key = segment.identity.object_key.as_str();
     let body_size = segment.body.len() as u64;
+    let has_atomic_replacement = store.supports_replace_if_etag_matches_on_every_key();
     let mut condition = WriteCondition::CreateOnly;
+    let mut is_replacement = false;
     for _ in 0..MAX_CONDITIONAL_WRITES {
-        let is_replacement = matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. });
         let written =
             until_stopped(context, store.put(key, segment.body.clone(), condition)).await?;
         if let WriteOutcome::Written { .. } = written {
@@ -391,6 +393,7 @@ async fn store_segment_object(
         }
         let Some(existing) = until_stopped(context, store.get(key)).await? else {
             condition = WriteCondition::CreateOnly;
+            is_replacement = false;
             continue;
         };
         let existing_checksum = verified_content_checksum(context, existing.bytes).await?;
@@ -404,9 +407,15 @@ async fn store_segment_object(
             existing_object_size_bytes = existing.object_size,
             "an existing history segment object differs from committed state; replacing it"
         );
-        condition = WriteCondition::ReplaceIfEtagMatches {
-            etag: existing.etag,
-        };
+        is_replacement = true;
+        if has_atomic_replacement {
+            condition = WriteCondition::ReplaceIfEtagMatches {
+                etag: existing.etag,
+            };
+        } else {
+            until_stopped(context, store.delete(key)).await?;
+            condition = WriteCondition::CreateOnly;
+        }
     }
     Err(EffectError::ObjectStore(ObjectStoreError::new(
         ObjectStoreOperation::Put,

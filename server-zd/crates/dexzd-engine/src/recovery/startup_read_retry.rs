@@ -270,4 +270,8 @@ impl ObjectStore for StartupReadRetryStore {
         })
         .await
     }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
 }

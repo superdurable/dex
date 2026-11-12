@@ -243,7 +243,10 @@ impl Config {
         if configuration.object_store.provider != ObjectStoreProvider::S3 {
             return Err(ConfigError::Invalid {
                 field: "objectStore.provider",
-                message: "db9 requires serve mode; dev and local use embedded S3".to_owned(),
+                message: format!(
+                    "{} requires serve mode; dev and local use embedded S3",
+                    configuration.object_store.provider.yaml_name()
+                ),
             });
         }
         if configuration.standby.mode == StandbyMode::Hot {

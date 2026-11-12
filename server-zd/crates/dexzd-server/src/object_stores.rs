@@ -10,8 +10,9 @@ use std::sync::Arc;
 
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
-    Db9ObjectStore, Db9ObjectStoreConfig, InstrumentedObjectStore, ObjectStore, S3Credentials,
-    S3ObjectStore, S3ObjectStoreConfig, startup_self_check,
+    AliyunOssObjectStore, Db9ObjectStore, Db9ObjectStoreConfig, InstrumentedObjectStore,
+    ObjectStore, S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig,
+    check_aliyun_oss_create_only_writes, check_no_data_of_another_provider, startup_self_check,
 };
 
 use crate::ServerError;
@@ -26,6 +27,13 @@ pub(crate) struct ObjectStores {
     pub(crate) hard_delete: Arc<dyn ObjectStore>,
 }
 
+/// Whether a store holds the cluster metadata, which only the primary store does.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StoreRole {
+    Primary,
+    HardDelete,
+}
+
 impl ObjectStores {
     /// Connects to the configured stores and verifies that each supports conditional writes.
     pub(crate) async fn connect(
@@ -36,21 +44,28 @@ impl ObjectStores {
         let primary = match config.provider {
             ObjectStoreProvider::Db9 => connect_db9(config, metrics).await?,
             ObjectStoreProvider::S3 => {
-                let primary_config = S3ObjectStoreConfig {
-                    endpoint: non_empty(&config.endpoint),
-                    key_prefix: config.prefix.clone(),
-                    force_path_style: config.force_path_style,
-                    credentials: s3_credentials(
-                        "objectStore.credentialsSource",
-                        config.credentials_source,
-                        config.credentials.as_ref(),
-                    )?,
-                    ..S3ObjectStoreConfig::new(config.region.clone(), config.bucket.clone())
-                };
-                connect_store(primary_config, multipart_threshold_bytes, metrics).await?
+                connect_store(primary_config(config)?, multipart_threshold_bytes, metrics).await?
+            }
+            ObjectStoreProvider::AliyunOss => {
+                connect_aliyun_oss_store(
+                    primary_config(config)?,
+                    StoreRole::Primary,
+                    multipart_threshold_bytes,
+                    metrics,
+                )
+                .await?
             }
         };
         let hard_delete = match &config.hard_delete_store {
+            Some(location) if config.provider == ObjectStoreProvider::AliyunOss => {
+                connect_aliyun_oss_store(
+                    location_config(location)?,
+                    StoreRole::HardDelete,
+                    multipart_threshold_bytes,
+                    metrics,
+                )
+                .await?
+            }
             Some(location) => {
                 connect_store(
                     location_config(location)?,
@@ -66,6 +81,20 @@ impl ObjectStores {
             hard_delete,
         })
     }
+}
+
+fn primary_config(config: &ObjectStoreConfig) -> Result<S3ObjectStoreConfig, ServerError> {
+    Ok(S3ObjectStoreConfig {
+        endpoint: non_empty(&config.endpoint),
+        key_prefix: config.prefix.clone(),
+        force_path_style: config.force_path_style,
+        credentials: s3_credentials(
+            "objectStore.credentialsSource",
+            config.credentials_source,
+            config.credentials.as_ref(),
+        )?,
+        ..S3ObjectStoreConfig::new(config.region.clone(), config.bucket.clone())
+    })
 }
 
 fn location_config(
@@ -85,27 +114,86 @@ fn location_config(
 }
 
 async fn connect_store(
-    mut config: S3ObjectStoreConfig,
+    config: S3ObjectStoreConfig,
     multipart_threshold_bytes: u64,
     metrics: &NodeMetrics,
 ) -> Result<Arc<dyn ObjectStore>, ServerError> {
+    let bucket = config.bucket.clone();
+    let store = new_s3_store(config, multipart_threshold_bytes).await?;
+    let instrumented = InstrumentedObjectStore::new(Arc::new(store), metrics.clone());
+    startup_self_check(&instrumented)
+        .await
+        .map_err(|source| ServerError::ObjectStoreSelfCheck { bucket, source })?;
+    Ok(Arc::new(instrumented))
+}
+
+/// Connects an Aliyun OSS bucket and checks it before the server uses it.
+///
+/// Metrics see logical keys, because instrumentation wraps the versioning adapter.
+async fn connect_aliyun_oss_store(
+    mut config: S3ObjectStoreConfig,
+    role: StoreRole,
+    multipart_threshold_bytes: u64,
+    metrics: &NodeMetrics,
+) -> Result<Arc<dyn ObjectStore>, ServerError> {
+    config.api_dialect = S3ApiDialect::AliyunOss;
+    let bucket = config.bucket.clone();
+    let inner: Arc<dyn ObjectStore> =
+        Arc::new(new_s3_store(config, multipart_threshold_bytes).await?);
+    let bucket_check_error = |source| ServerError::AliyunOssBucketCheck {
+        bucket: bucket.clone(),
+        source,
+    };
+    if role == StoreRole::Primary {
+        check_no_data_of_another_provider(inner.as_ref())
+            .await
+            .map_err(bucket_check_error)?;
+    }
+    check_aliyun_oss_create_only_writes(inner.as_ref())
+        .await
+        .map_err(bucket_check_error)?;
+    let adapter = Arc::new(AliyunOssObjectStore::new(inner));
+    match adapter.remove_stale_startup_probes(now_unix_micros()).await {
+        Ok(0) => {}
+        Ok(removed_probe_keys) => {
+            tracing::info!(
+                bucket,
+                removed_probe_keys,
+                "removed stale startup probe objects"
+            );
+        }
+        // Leftover probes only use storage, so a failed cleanup does not stop startup.
+        Err(error) => {
+            tracing::warn!(bucket, %error, "removing stale startup probe objects failed");
+        }
+    }
+    let instrumented = InstrumentedObjectStore::new(adapter, metrics.clone());
+    startup_self_check(&instrumented)
+        .await
+        .map_err(|source| ServerError::ObjectStoreSelfCheck { bucket, source })?;
+    Ok(Arc::new(instrumented))
+}
+
+async fn new_s3_store(
+    mut config: S3ObjectStoreConfig,
+    multipart_threshold_bytes: u64,
+) -> Result<S3ObjectStore, ServerError> {
     config.multipart_threshold = usize::try_from(multipart_threshold_bytes).map_err(|_| {
         ServerError::ConfigValueOutOfRange {
             field: "commit.multipartThresholdBytes",
         }
     })?;
     let bucket = config.bucket.clone();
-    let store = S3ObjectStore::new(config)
+    S3ObjectStore::new(config)
         .await
-        .map_err(|source| ServerError::ObjectStore {
-            bucket: bucket.clone(),
-            source,
-        })?;
-    let instrumented = InstrumentedObjectStore::new(Arc::new(store), metrics.clone());
-    startup_self_check(&instrumented)
-        .await
-        .map_err(|source| ServerError::ObjectStoreSelfCheck { bucket, source })?;
-    Ok(Arc::new(instrumented))
+        .map_err(|source| ServerError::ObjectStore { bucket, source })
+}
+
+fn now_unix_micros() -> i64 {
+    let since_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock is after the Unix epoch");
+    i64::try_from(since_epoch.as_micros()).expect("the current time fits in i64 microseconds")
 }
 
 fn s3_credentials(
