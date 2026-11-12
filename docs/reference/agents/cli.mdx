@@ -749,11 +749,13 @@ type to the Dex Server. Dex Web then shows each session's Steps and its
   chat. The terminal shows each message from Dex Web, or from any other client,
   marked **(another client)**. Neither shows who sent it.
 - A message from another client starts a turn like your own, with this
-  command's local tools. The approval rules stay the same. A call that needs
-  approval waits for an answer from the terminal or from Dex Web, and the
-  first answer decides. **Working as** comes from the browser and is not a
-  login. On a shared server, only let people who may run tools on this
-  machine reach Dex Web.
+  command's local tools and Connectors. The approval rules stay the same. A
+  call without approval in [Workspace and local tools](#local-tools) or
+  [Harnesses with their own tools](#harness-tools) runs at once, such as a
+  file read or a web fetch. A call that needs approval waits for an answer
+  from the terminal or from Dex Web, and the first answer decides.
+  **Working as** comes from the browser and is not a login. On a shared
+  server, only let people who may run tools on this machine reach Dex Web.
 - The upload needs server-zd 0.1.26 or later, which the **dexcli dev** that the
   command downloads runs. The outcome, and a failure such as on an older
   server, go to the log file **~/.dex/agents/HARNESS.log**, not the terminal.
