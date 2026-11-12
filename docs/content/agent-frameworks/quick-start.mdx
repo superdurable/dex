@@ -29,8 +29,29 @@ The steps run inside a clone of the Dex repository. To start in an empty folder 
 
 - `dexcli`: run **brew install superdurable/tap/dexcli**. [Run Locally](/components/run-locally) has the other ways to install it.
 - Git, to get the example, and `jq` for one check in step 5.
-- **Python 3.11 or later with uv**, or **Node.js 22 or later with npm**, depending on your framework.
-- For Python, nothing else: Google ADK, LangChain, OpenAI Agents SDK, and Pydantic AI run on a local demo model that needs no API key. The Claude Agent SDK and every TypeScript framework call a real model, so they need your provider key, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, in the environment.
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+You need Python 3.11 or later with uv. Google ADK, LangChain, OpenAI Agents SDK, and Pydantic AI run on a local demo model that needs no API key. The Claude Agent SDK calls a real model, so it needs `ANTHROPIC_API_KEY` in the environment.
+
+```bash
+python3 --version   # 3.11 or later
+uv --version
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+You need Node.js 22 or later with npm. Every TypeScript framework calls a real model, so it needs your provider key, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, in the environment.
+
+```bash
+node --version   # v22 or later
+npm --version
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## 1. Get the example {#get-the-example}
 
@@ -1023,6 +1044,14 @@ You have run your first durable agent. Its Worker went away in the middle of a c
 
 ## Start in an empty folder {#start-in-an-empty-folder}
 
+The one-file starter is Python only. There is no TypeScript starter yet, so TypeScript readers use the steps above.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-starter/agent.py',
+  }}>
+<SdkSnippet lang="python">
+
 The steps above run inside a clone of the Dex repository. To start in your own folder instead, use the one-file starter. It is the OpenAI Agents SDK agent from step 2 with its host in the same file, and it imports only published packages. It calls a real model, so it needs `OPENAI_API_KEY`.
 
 Keep `dexcli dev` running in another terminal, then run:
@@ -1037,12 +1066,6 @@ python agent.py "Cancel order 1002, it was a mistake"
 ```
 
 The program asks **Approve cancel_order? [y/N]** before the write runs. This is the whole file:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-starter/agent.py',
-  }}>
-<SdkSnippet lang="python">
 
 ```python
 """A durable OpenAI Agents SDK agent in one file.

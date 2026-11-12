@@ -16,6 +16,7 @@ decide and set up before launch. Each item links to the page with the details.
 - One Dex Server node, with a hot standby if you need fast failover.
 - One object storage bucket and prefix for the cluster.
 - Authentication turned on before the API is reachable.
+- TLS in front of the API port, or a private network. See [TLS](/reference/server/authentication#tls).
 - Retention set to at least your longest client retry window.
 - Metrics served and alerts on the node and its lease.
 

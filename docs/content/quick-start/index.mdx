@@ -180,6 +180,10 @@ class OrderFlow(Flow[str]):
 
 A decision names the next Step by its class: `go_to(Ship, input)`.
 
+Its `condition_id`, **ship-delay**, names the Timer, so a test or an operator can end the wait early with **skip-timer** instead of waiting it out.
+
+`graceful_complete` ends the Flow successfully once no other Step is running, and returns the Flow's result.
+
 </SdkSnippet>
 <SdkSnippet lang="go">
 
@@ -243,6 +247,10 @@ func (step Ship) Execute(_ dex.Context, orderID string) (*dex.StepDecision, erro
 ```
 
 A decision names the next Step by its type: `dex.GoTo` takes an empty `Ship` struct value.
+
+Its `dex.WithConditionID` option, **ship-delay**, names the Timer, so a test or an operator can end the wait early with **skip-timer** instead of waiting it out.
+
+`dex.GracefulComplete` ends the Flow successfully once no other Step is running, and returns the Flow's result.
 
 </SdkSnippet>
 <SdkSnippet lang="java">
@@ -311,6 +319,10 @@ public final class OrderFlow implements Flow<String> {
 
 A decision names the next Step by its class: `StepDecision.goTo(Ship.class, orderId)`.
 
+The second argument to `Timer.byDuration`, **ship-delay**, names the Timer, so a test or an operator can end the wait early with **skip-timer** instead of waiting it out.
+
+`StepDecision.gracefulComplete` ends the Flow successfully once no other Step is running, and returns the Flow's result.
+
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
@@ -375,6 +387,10 @@ export class OrderFlow implements Flow<string> {
 ```
 
 A decision names the next Step by its class. TypeScript types do not exist at run time, so a Step returns its Step type from `getStepType()`, and a Step whose input is not a JSON object names its codec, such as `stringCodec` for the order ID.
+
+The second argument to `Timer.byDuration`, **ship-delay**, names the Timer, so a test or an operator can end the wait early with **skip-timer** instead of waiting it out.
+
+`gracefulComplete` ends the Flow successfully once no other Step is running, and returns the Flow's result.
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
@@ -448,12 +464,14 @@ impl Flow for OrderFlow {
 
 A decision names the next Step with a `Ship` value.
 
+Its `with_id`, **ship-delay**, names the Timer, so a test or an operator can end the wait early with **skip-timer** instead of waiting it out.
+
+`StepDecision::graceful_complete` ends the Flow successfully once no other Step is running, and returns the Flow's result.
+
 </SdkSnippet>
 </SdkTabs>
 
-The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker. Its `condition_id`, **ship-delay**, names the Timer, so a test or an operator can end the wait early with **skip-timer** instead of waiting it out.
-
-`graceful_complete` (`GracefulComplete` in the other SDKs) ends the Flow successfully once no other Step is running, and returns the Flow's result.
+The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker.
 
 ## 3. Add a Worker and a Client
 

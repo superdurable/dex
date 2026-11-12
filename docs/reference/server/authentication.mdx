@@ -61,14 +61,18 @@ when the file changes, so a rotated token needs no restart:
 | Rust | **credential(...)** on the **ClientOptions** and **WorkerOptions** builders | **FileCredential::new(path)** |
 
 Each SDK also has an **ApiKeyCredential**, which exchanges an API key for a
-short-lived token at a token endpoint you run.
+short-lived token at a token endpoint you run. The endpoint takes an HTTPS
+**POST** with a JSON body of **server_id** and **api_key**, and answers 200
+with a JSON body of **access_token**, **token_type** set to **Bearer**, and
+**expires_in** in seconds.
 
 ## TLS {#tls}
 
 **api.listen** serves plaintext gRPC, so bearer credentials cross the network in
 clear text. Terminate TLS in front of the server, or restrict the network to
 trusted callers. When TLS is in front, set the SDK's **flow_service_tls**
-option (**FlowServiceTLS** in Go, **flowServiceTls** in Java and TypeScript) on
+option (**FlowServiceTLS** in Go, **flowServiceTls** in Java and TypeScript,
+**flow_service_tls(...)** on the Rust builders) on
 Workers and Clients.
 
 ## Admin credentials {#admin-credentials}

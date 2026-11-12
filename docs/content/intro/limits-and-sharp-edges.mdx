@@ -13,9 +13,8 @@ links to the page that covers it.
 
 ## Defaults to change before production
 
-- **Closed Flow runs are deleted after 7 days.** A closed run stays available
-  for 7 days by default. After that, the server may delete it, including its
-  Step history. Set a longer retention, or copy what you must keep to your own
+- **Closed Flow runs are deleted after 7 days.** After that default, the
+  server may delete a closed run, including its Step history. Set a longer retention, or copy what you must keep to your own
   database. See [Retention](/reference/server/configuration#retention) and
   [Dex and Your Database](/components/your-database).
 - **A deleted run frees its Flow ID.** After retention deletes a closed run, a
@@ -47,9 +46,7 @@ links to the page that covers it.
   [Failover and Deploys](/concepts/failover-and-deploys).
 - **The partition count is fixed at the first start.** The first start
   records `cluster.partitionCount`, 1024 by default for **serve**, and a
-  later start with a different count fails. A partition is one of the fixed
-  slices that the server splits its Flows and task queues into; on a one-node
-  cluster the node owns all of them. Most clusters keep the default; fewer
+  later start with a different count fails. Most clusters keep the default; fewer
   partitions make each built-in SearchFlows call scan less, so choose the
   count before the first production start if search speed matters. See
   [Partition count](/reference/server/configuration#single-node-partition-count).
