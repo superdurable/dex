@@ -55,7 +55,8 @@ only when a section genuinely doesn't apply.
   names, or term definitions; terms go in the Glossary. Headings are
   statements, not questions. Section openings keep only essential links;
   pointers elsewhere and caveats go at the end of the section or in Next.
-  Charts use short labels, not sentences. Every page in the reading sequence (not a group
+  Charts use short labels, not sentences; green is Dex, blue a third-party
+  service or framework, grey your own code. Every page in the reading sequence (not a group
   overview, the home page, Get Started, or the Glossary) ends with one last
   section named Next (下一步 in Chinese); following its first link gives a
   linear reading order. The home page and Get

@@ -9,6 +9,21 @@ description: 安装你所用框架的适配器，复制完整的 Agent 文件与
 
 把 [Agent 快速开始](/agent-frameworks/quick-start) 中的示例 Agent 移到你自己的代码中：安装框架的适配器，复制完整文件，再在 Web 应用中对外提供 Session。
 
+<CodingAgentBox>
+
+```text
+用 Dex 让 <file> 中的 Agent 变得持久。
+
+1. 阅读 https://docs.superdurable.io/zh-Hans/agent-frameworks/add-to-your-agent.md 和 https://docs.superdurable.io/zh-Hans/agent-frameworks/framework-support.md，把它们当作唯一依据。
+2. 用对应框架的 Dex Agents 适配器包装这个 Agent，并给每个 tool 指定策略：read、idempotent_write 或 non_idempotent_write。
+3. 把 Session 接入我的 Web 应用：启动 Session、发送消息、流式返回回复。
+4. 在 dexcli dev 上运行，向我展示一个带 Tool Call 的 turn。
+
+规则：无法判断类别的 tool 先问我。不要编造 API。
+```
+
+</CodingAgentBox>
+
 ## 你的应用会有哪些变化 {#what-changes-in-your-app}
 
 - **Agent 定义保持原样。** 你把它包装一层，并为每个 tool 指定一个策略。
@@ -42,7 +57,6 @@ def build_plain_agent(order_desk: OrderDesk, model: str) -> ClaudeAgentOptions:
         mcp_servers={"orders": orders},
         allowed_tools=["mcp__orders__look_up_order", "mcp__orders__cancel_order"],
     )
-
 
 def build_durable_agent(order_desk: OrderDesk, model: str) -> AgentSessionFlow:
     """Returns the same agent as a durable Dex agent session."""
@@ -136,7 +150,6 @@ def build_plain_agent(order_desk: OrderDesk, model: str | BaseLlm) -> LlmAgent:
         tools=[look_up_order, cancel_order],
     )
 
-
 def build_durable_agent(order_desk: OrderDesk, model: str | BaseLlm) -> AgentSessionFlow:
     """Returns the same agent as a durable Dex agent session."""
     return adk_agent_session_flow(
@@ -185,7 +198,6 @@ def build_plain_agent(
         system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
         middleware=middleware,
     )
-
 
 def build_durable_agent(order_desk: OrderDesk, model: str | BaseChatModel) -> AgentSessionFlow:
     """Returns the same agent as a durable Dex agent session."""
@@ -283,7 +295,6 @@ def build_plain_agent(order_desk: OrderDesk, model: str | Model) -> Agent:
         tools=[look_up_order, cancel_order],
     )
 
-
 def build_durable_agent(order_desk: OrderDesk, model: str | Model) -> AgentSessionFlow:
     """Returns the same agent as a durable Dex agent session."""
     return openai_agents_session_flow(
@@ -364,7 +375,6 @@ def build_plain_agent(order_desk: OrderDesk, model: str | Model) -> Agent[None, 
         return order_desk.cancel_order(order_id, reason)
 
     return agent
-
 
 def build_durable_agent(order_desk: OrderDesk, model: str | Model) -> AgentSessionFlow:
     """Returns the same agent as a durable Dex agent session."""
@@ -601,7 +611,6 @@ from dex import (
 )
 from dex_agents import AgentSessionClient, AgentSessionFlow, AgentSessionStatus, AgentSnapshot
 
-
 async def ask_agent(
     session_flow: AgentSessionFlow,
     session_id: str,
@@ -778,7 +787,6 @@ from quart import Quart, Response, jsonify, make_response, request
 
 from agent_harness_examples.quick_start.safe_send import send_user_message_once
 from agent_harness_examples.quick_start.session import QuickStartApp
-
 
 def create_web_app(
     session_flow: AgentSessionFlow, server_address: str, blob_cache_dir: Path

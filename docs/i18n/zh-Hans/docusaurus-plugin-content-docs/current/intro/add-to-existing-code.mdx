@@ -14,24 +14,24 @@ import FunctionToFlowDiagram from '@site/src/components/diagrams/FunctionToFlowD
 
 <FunctionToFlowDiagram markdownDescription="改造前：一个函数依次扣款、等待审批、发货、退款；崩溃会让它停在半路。改造后：一个由 Step 组成的 Flow，先 Charge，再 Ship（等待审批或 24 小时），然后完成；Ship 失败时运行 Refund。" />
 
-## 让编程 Agent 来做 {#with-a-coding-agent}
-
-在你的编程 Agent 中安装 Dex Skills，然后让它处理这段代码。在 Claude Code 中：
-
-```bash
-claude plugin marketplace add superdurable/dex-skills
-claude plugin install superdurable-dex@superdurable
-```
-
-然后提出修改要求，写明函数名和它所在的位置：
+<CodingAgentBox>
 
 ```text
-/superdurable-dex:dex-sdk 把 orders/service.py 中的 handle_order 改成 Dex Flow，每个外部调用一个 Step，并加上集成测试。
+把 <file> 中的 <function> 改成 Dex Flow。
+
+1. 阅读 https://docs.superdurable.io/zh-Hans/intro/add-to-existing-code.md，把它当作唯一依据。
+2. 每个会改变其他系统的调用都放进自己的 Step，把等待移到 WaitFor，把状态保存在 Attribute 中。
+3. 给每个外部写操作加上幂等键。
+4. 加一个在 dexcli dev 上运行的集成测试。
+
+规则：保持现有行为不变。不要编造 API。修改这个函数以外的代码之前先问我。
 ```
 
-Agent 会按本页后面的步骤来做，所以继续往下读，可以检查它的改动。[安装与使用 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) 介绍 Codex、Cursor 和其他 host。
+</CodingAgentBox>
 
-## 手动来做：安装 SDK {#install}
+<a id="with-a-coding-agent"></a>
+
+## 安装 SDK {#install}
 
 在运行这段代码的服务里加入 SDK 和一个 Worker。[把 Dex 加入现有服务](/components/application#add-to-a-service)给出每种语言的安装命令，以及 Worker 和 Client 放在哪里。
 

@@ -184,6 +184,7 @@ try {
   await mkdir(contentPath, {recursive: true});
   await mkdir(contentPathLocalized, {recursive: true});
   await copyFile(join(docsRoot, 'src/data/dex-skill-hosts.json'), join(siteDir, 'src/data/dex-skill-hosts.json'));
+  await copyFile(join(docsRoot, 'src/data/coding-agent-hosts.json'), join(siteDir, 'src/data/coding-agent-hosts.json'));
   await copyFile(join(docsRoot, 'src/data/crash-timeline.json'), join(siteDir, 'src/data/crash-timeline.json'));
   await writeFile(join(siteDir, 'src/data/graph.json'), JSON.stringify(graph));
   await writeFile(join(outDir, 'img/example.png'), '');

@@ -9,6 +9,21 @@ description: 从下载的示例把你所用框架的 Agent 作为持久化 Dex S
 
 把你所用框架的 Agent 作为持久化 Dex Session 运行，然后在对话中途停止它，看它继续运行。整个过程大约 10 分钟。
 
+<CodingAgentBox>
+
+```text
+在这个文件夹里运行 Dex Agent 快速开始。
+
+1. 阅读 https://docs.superdurable.io/zh-Hans/agent-frameworks/quick-start.md，把它当作唯一依据。
+2. 问我想用哪个框架和哪种语言。
+3. 启动 dexcli dev，运行示例 Agent。
+4. 批准 cancel_order 调用，在它等待时停掉程序，再重启，向我展示 Session 继续运行。
+
+规则：只做这个快速开始里的内容。不要编造 API。安装其他东西之前先问我。
+```
+
+</CodingAgentBox>
+
 <a id="before-you-start"></a>
 <a id="what-you-will-build"></a>
 <a id="run-it"></a>
@@ -37,7 +52,6 @@ uv run --frozen python -m agent_harness_examples.quick_start claude-agent-sdk "L
 
 需要 Python 3.11 或更高版本以及 uv。它会调用 Claude，所以先设置 `ANTHROPIC_API_KEY`。
 
-
 它会打印 Session ID 和 Agent 的回复：
 
 ```text
@@ -56,7 +70,6 @@ npm run agent-quick-start -- claude-agent-sdk "Look up order 1001"
 ```
 
 需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
-
 
 它会打印 Session ID 和 Agent 的回复：
 
@@ -85,7 +98,6 @@ uv run --frozen python -m agent_harness_examples.quick_start google-adk "Look up
 ```
 
 需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
-
 
 它会打印 Session ID 和 Agent 的回复：
 
@@ -119,7 +131,6 @@ uv run --frozen python -m agent_harness_examples.quick_start langchain "Look up 
 
 需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
 
-
 它会打印 Session ID 和 Agent 的回复：
 
 ```text
@@ -147,7 +158,6 @@ npm run agent-quick-start -- mastra "Look up order 1001"
 ```
 
 需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
-
 
 它会打印 Session ID 和 Agent 的回复：
 
@@ -178,7 +188,6 @@ uv run --frozen python -m agent_harness_examples.quick_start openai-agents "Look
 
 需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
 
-
 它会打印 Session ID 和 Agent 的回复：
 
 ```text
@@ -200,7 +209,6 @@ npm run agent-quick-start -- openai-agents "Look up order 1001"
 ```
 
 需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
-
 
 它会打印 Session ID 和 Agent 的回复：
 
@@ -251,7 +259,6 @@ uv run --frozen python -m agent_harness_examples.quick_start pydantic-ai "Look u
 
 需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
 
-
 它会打印 Session ID 和 Agent 的回复：
 
 ```text
@@ -279,7 +286,6 @@ npm run agent-quick-start -- vercel-ai "Look up order 1001"
 ```
 
 需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
-
 
 它会打印 Session ID 和 Agent 的回复：
 
@@ -354,7 +360,6 @@ dexcli flow history --all SESSION_ID | jq '.events[]
 `finalAttempt` 是 **2**。第一次尝试在 Worker 断开时失败；因为 `look_up_order` 是读操作，Dex 在新的 Worker 上再次运行了它。它之前的模型调用只运行了一次。
 
 现在对写操作做同样的事：设置延迟后要求取消订单 1002，批准它，在 20 秒内杀掉程序，再带上 `--session-id` 运行。Dex 把 `cancel_order` 记录为 `outcome_unknown`，并且不会再运行第二次，因为它是非幂等写操作。Agent 会告诉用户结果未知，由你的应用在任何人重试之前先检查订单系统。[核对 outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) 介绍具体做法。
-
 
 ## 是什么让它变得持久 {#make-it-durable}
 

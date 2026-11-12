@@ -94,6 +94,8 @@ These rules come from the docs revisit plan,
   caveats, and version notes to the end of the section or to Next.
 - Charts carry names and short labels, not sentences. Put the explanation in
   the text around the chart.
+- Chart colors have fixed roles: green is Dex, blue is a third-party service
+  or framework, grey is your own code, and amber marks a failure or crash.
 
 ### Page skeletons
 

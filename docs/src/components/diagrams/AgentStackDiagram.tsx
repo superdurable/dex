@@ -91,7 +91,7 @@ export default function AgentStackDiagram({markdownDescription}: {markdownDescri
                 {label}
               </span>
             ))}
-            <span className={styles.framework}>
+            <span className={`${styles.framework} ${styles.dex}`}>
               <DiagramIcon icon={Bot} size={15} />
               {text.builtIn}
             </span>

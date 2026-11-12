@@ -10,6 +10,21 @@ description: 运行一个 Flow：它为订单扣款，在 Timer 上等待，然�
 
 运行你的第一个 Flow，在它等待的中途停掉 Worker，然后看 Dex 在重启后继续这个 Flow。整个过程大约 10 分钟。
 
+<CodingAgentBox>
+
+```text
+在这个文件夹里构建 Dex 快速开始应用。
+
+1. 阅读 https://docs.superdurable.io/zh-Hans/quick-start.md，把它当作包名、命令和代码的唯一依据。
+2. 问我想用哪种语言：Python、Go、Java、TypeScript 或 Rust。
+3. 启动 dexcli dev，运行 Worker，启动一个 Flow。
+4. 在 Flow 等待 Timer 时停掉 Worker，再重启它，向我展示 Flow 已经完成。
+
+规则：只做这个快速开始里的内容。不要编造 API。安装其他东西之前先问我。
+```
+
+</CodingAgentBox>
+
 <a id="before-you-start"></a>
 
 ## 1. 安装 Dex 并获取代码 {#1-install-dex-and-get-the-code}
@@ -146,7 +161,6 @@ class Charge(Step[str]):
         self.shop.charge(input, idempotency_key=f"charge-{input}")
         return go_to(Ship, input)
 
-
 class Ship(Step[str]):
     def __init__(self, shop: ShopApi) -> None:
         self.shop = shop
@@ -159,7 +173,6 @@ class Ship(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         self.shop.ship(input, idempotency_key=f"ship-{input}")
         return graceful_complete(f"shipped {input}")
-
 
 class OrderFlow(Flow[str]):
     def __init__(self, shop: ShopApi) -> None:
@@ -959,24 +972,7 @@ dexcli flow summary -output table order-1a2b3c4d
 
 你已经运行了第一个持久化 Flow。它的 Worker 在等待中途停止，Flow 依然完成，而且没有再次运行 Charge。
 
-## 可选：用 coding agent 来构建 {#optional-build-it-with-a-coding-agent}
-
-如果你使用装有 [Dex Skills](/build-with-ai/dex-developer-skill) 的 coding agent，它可以替你完成这些步骤。把下面的 prompt 复制给它：
-
-```text
-Build the Dex Quick Start app in this folder.
-
-1. Read https://docs.superdurable.io/quick-start.md and treat it as the source
-   of truth for package names, commands, and code.
-2. Install Dex Skills.
-3. Ask which language I want: Python, Go, Java, TypeScript, or Rust.
-4. Start dexcli dev, run the Worker, and start one Flow.
-5. Stop the Worker while the Flow waits on its Timer, restart it, and show me
-   that the Flow completed.
-
-Rules: stay inside this Quick Start. Do not invent APIs. Ask me before
-installing anything else.
-```
+<a id="optional-build-it-with-a-coding-agent"></a>
 
 ## 下一步 {#next}
 

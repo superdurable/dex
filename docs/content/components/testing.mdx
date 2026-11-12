@@ -16,6 +16,23 @@ functions, such as a function that builds a request body.
 **dexcli dev** starts a server in a few seconds, so each test run can start its
 own.
 
+<CodingAgentBox>
+
+```text
+Add an integration test for the <FlowType> Flow.
+
+1. Read https://docs.superdurable.io/components/testing.md and treat it as the
+   source of truth.
+2. Run the test against a dexcli dev server, with its own Workers and a unique
+   Flow ID for each Flow.
+3. Cover the normal path and one failure path. Skip Timers by ID, and wait by
+   polling instead of sleeping.
+
+Rules: do not mock Dex. Do not invent APIs.
+```
+
+</CodingAgentBox>
+
 ## Start a server for the tests
 
 Start **dexcli dev** on ports and a data directory that only the tests use, so

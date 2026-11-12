@@ -64,17 +64,19 @@ function RoleNode({
   icon,
   title,
   detail,
+  tone = 'neutral',
   className,
 }: {
   icon: LucideIcon;
   title: string;
   detail: string;
+  tone?: 'neutral' | 'accent';
   className: string;
 }): ReactNode {
   return (
-    <Tile className={clsx(styles.role, className)}>
+    <Tile tone={tone} className={clsx(styles.role, className)}>
       <span className={styles.roleHeading}>
-        <IconBadge icon={icon} isSmall />
+        <IconBadge icon={icon} tone={tone} isSmall />
         <TileTitle>{title}</TileTitle>
       </span>
       <Detail>{detail}</Detail>
@@ -141,8 +143,8 @@ export default function DexSystemDiagram({
             <span className={styles.toolsLabel}>
               <Eyebrow icon={Wrench}>{copy.operate}</Eyebrow>
             </span>
-            <RoleNode icon={SquareTerminal} title="dexcli" detail={copy.cli} className={styles.tool} />
-            <RoleNode icon={Monitor} title="Dex Web" detail={copy.web} className={styles.tool} />
+            <RoleNode icon={SquareTerminal} title="dexcli" detail={copy.cli} tone="accent" className={styles.tool} />
+            <RoleNode icon={Monitor} title="Dex Web" detail={copy.web} tone="accent" className={styles.tool} />
           </div>
         ) : null}
       </div>

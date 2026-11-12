@@ -10,6 +10,24 @@ description: Run a Flow that charges an order, waits on a Timer, and ships it. S
 
 Run your first Flow, stop its Worker in the middle of a wait, and watch Dex continue the Flow after a restart. It takes about 10 minutes.
 
+<CodingAgentBox>
+
+```text
+Build the Dex Quick Start app in this folder.
+
+1. Read https://docs.superdurable.io/quick-start.md and treat it as the source
+   of truth for package names, commands, and code.
+2. Ask which language I want: Python, Go, Java, TypeScript, or Rust.
+3. Start dexcli dev, run the Worker, and start one Flow.
+4. Stop the Worker while the Flow waits on its Timer, restart it, and show me
+   that the Flow completed.
+
+Rules: stay inside this Quick Start. Do not invent APIs. Ask me before
+installing anything else.
+```
+
+</CodingAgentBox>
+
 <a id="before-you-start"></a>
 
 ## 1. Install Dex and get the code
@@ -146,7 +164,6 @@ class Charge(Step[str]):
         self.shop.charge(input, idempotency_key=f"charge-{input}")
         return go_to(Ship, input)
 
-
 class Ship(Step[str]):
     def __init__(self, shop: ShopApi) -> None:
         self.shop = shop
@@ -159,7 +176,6 @@ class Ship(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         self.shop.ship(input, idempotency_key=f"ship-{input}")
         return graceful_complete(f"shipped {input}")
-
 
 class OrderFlow(Flow[str]):
     def __init__(self, shop: ShopApi) -> None:
@@ -939,25 +955,7 @@ Charge for order-5e6f7a8b already done (key charge-order-5e6f7a8b); not charged 
 
 When the Ship Timer fires, 60 seconds after Charge finishes by default, the Worker ships the order.
 
-## 7. See the run in Dex Web
-
-Open [http://127.0.0.1:8802](http://127.0.0.1:8802) and select your Flow. The Execution graph shows each Step that ran:
-
-![Dex Web Execution graph](/img/quick-start/step-graph.png)
-
-The Timeline tab shows the same run's events from left to right:
-
-![Dex Web Timeline](/img/quick-start/timeline.png)
-
-To check from a terminal instead, ask `dexcli` for the Flow's summary. Use the Flow ID that the start command printed:
-
-```bash
-dexcli flow summary -output table order-1a2b3c4d
-```
-
-The `flowStatus` row reads `FLOW_STATUS_COMPLETED`.
-
-You have run your first durable Flow. Its Worker stopped in the middle of a wait, and the Flow finished without running Charge again.
+<a id="optional-build-it-with-a-coding-agent"></a>
 
 ## Optional: build it with a coding agent
 

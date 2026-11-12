@@ -13,11 +13,12 @@ import type {LucideIcon} from 'lucide-react';
 import styles from './ConceptDiagram.module.css';
 
 /** neutral is muted; accent marks the path a diagram is about; wait marks durable waiting. */
-export type DiagramTone = 'neutral' | 'accent' | 'wait';
+export type DiagramTone = 'neutral' | 'accent' | 'wait' | 'external';
 
 function toneClass(prefix: 'tile' | 'title' | 'code' | 'chip' | 'badge' | 'arrow', tone: DiagramTone): string | undefined {
   if (tone === 'accent') return styles[`${prefix}Accent`];
   if (tone === 'wait') return styles[`${prefix}Wait`];
+  if (tone === 'external') return styles[`${prefix}External`];
   return undefined;
 }
 

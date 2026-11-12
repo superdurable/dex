@@ -99,6 +99,10 @@ div.layout .server {
 
 .framework svg {
   flex: none;
+  color: var(--cd-external);
+}
+
+.framework.dex svg {
   color: var(--cd-accent);
 }
 

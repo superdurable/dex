@@ -34,6 +34,7 @@ const localeCopies = {
     steps: 'Steps',
     when: 'when',
     diagram: 'Diagram',
+    codingAgent: {title: 'Do it with a coding agent', install: 'Install Dex Skills once:', prompt: 'Then paste this prompt:'},
     graph: {
       conditionOpen: ' when its condition holds (', timerOpen: words => ` when ${words} (`, isCaseLowered: true, sentenceEnd: '.', clauseJoiner: '; ', groupJoiner: ' ',
       flowGraphOf: 'Flow graph of', listsItsSteps: 'lists its Steps.', flowGraph: 'Flow graph',
@@ -79,6 +80,7 @@ const localeCopies = {
     steps: 'Step 列表',
     when: '条件',
     diagram: '图示',
+    codingAgent: {title: '用编程 Agent 来做', install: '先安装一次 Dex Skills：', prompt: '然后粘贴这段提示词：'},
     graph: {
       conditionOpen: '（条件 ', timerOpen: words => `（${words}：`, isCaseLowered: false, sentenceEnd: '。', clauseJoiner: '；', groupJoiner: ' ',
       flowGraphOf: 'Flow 图：', listsItsSteps: '列出了它的 Step。', flowGraph: 'Flow 图',
@@ -172,6 +174,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
   const otherLocaleBases = (i18n.locales ?? []).filter(item => item !== locale && item !== i18n.defaultLocale)
     .map(item => `/${item}/`);
   const hostData = JSON.parse(await readFile(join(siteDir, 'src/data/dex-skill-hosts.json'), 'utf8'));
+  const codingAgentHosts = JSON.parse(await readFile(join(siteDir, 'src/data/coding-agent-hosts.json'), 'utf8'));
   const entries = new Map();
   const fullTexts = new Map();
   // Per SDK language, each page's body with that language's code, for llms-full.<language>.txt.
@@ -185,7 +188,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
     const source = await readFile(sourcePath, 'utf8');
     const context = {page, siteDir, sourcePath, routes, knownRoutes, otherLocaleBases, outDir, baseUrl, siteUrl: siteConfig.url,
       canonicalUrl: new URL(siteConfig.trailingSlash ? `${page.permalink.replace(/\/+$/, '')}/` : page.permalink, siteConfig.url).href,
-      locale, copy, hostData, imports: new Map(), headingIds: new Map(), headingDepth: 1};
+      locale, copy, hostData, codingAgentHosts, imports: new Map(), headingIds: new Map(), headingDepth: 1};
     const prepared = prepareSource(source, {headingIds: context.headingIds, locale, sourcePath});
     let tree;
     try {
@@ -509,6 +512,7 @@ async function expandJsx(node, context) {
   if (name === 'DocsFlowDefinitionGraph') return expandGraph(node, context);
   if (name === 'DexSkillHostTabs') return expandHostTabs(node, context);
   if (name === 'DocsSection') return expandDocsSection(node, context);
+  if (name === 'CodingAgentBox') return expandCodingAgentBox(node, context);
   if (name === 'FrameworkTabs') return expandFrameworkTabs(node, context);
   if (name === 'CrashTimeline') return expandCrashTimeline(node, context);
   if (name === 'img') {
@@ -658,6 +662,15 @@ async function expandDocsSection(node, context) {
     {type: 'text', value: ': '},
     ...description,
   ]}];
+}
+
+// Mirrors CodingAgentBox.tsx: the install command for each host, then the page's prompt.
+async function expandCodingAgentBox(node, context) {
+  const {hosts} = context.codingAgentHosts;
+  const copy = context.copy.codingAgent;
+  const installs = hosts.flatMap(host => [paragraph(`${host.label}:`), {type: 'code', lang: 'bash', value: host.install}]);
+  return [{type: 'blockquote', children: [paragraph(copy.title, true), paragraph(copy.install), ...installs,
+    paragraph(copy.prompt), ...await transformChildren(node.children, context)]}];
 }
 
 // A group of section cards exports as a bullet list, one card per item.

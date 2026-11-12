@@ -13,6 +13,8 @@
 .root {
   --cd-accent: var(--section-accent, var(--ifm-color-primary));
   --cd-wait: var(--docs-warn, #92400e);
+  /* Color roles: accent (green) is Dex, external (blue) is a third-party service or framework, neutral is your code. */
+  --cd-external: #2563eb;
   --cd-ink: var(--docs-heading, var(--text));
   --cd-text: var(--docs-text, var(--text));
   --cd-subtle: var(--muted-strong);
@@ -21,6 +23,7 @@
   --cd-raise: 0 1px 2px rgb(0 0 0 / 0.05), 0 10px 24px -14px rgb(0 0 0 / 0.22);
   --cd-accent-tint: color-mix(in srgb, var(--cd-accent) 10%, var(--surface-solid));
   --cd-wait-tint: color-mix(in srgb, var(--cd-wait) 10%, var(--surface-solid));
+  --cd-external-tint: color-mix(in srgb, var(--cd-external) 9%, var(--surface-solid));
   --cd-group: color-mix(in srgb, var(--cd-subtle) 7%, transparent);
   --cd-line: color-mix(in srgb, var(--cd-subtle) 60%, transparent);
 
@@ -39,6 +42,8 @@
   --cd-raise: 0 1px 2px rgb(0 0 0 / 0.45);
   --cd-accent-tint: color-mix(in srgb, var(--cd-accent) 15%, var(--surface-solid));
   --cd-wait-tint: color-mix(in srgb, var(--cd-wait) 13%, var(--surface-solid));
+  --cd-external: #60a5fa;
+  --cd-external-tint: color-mix(in srgb, var(--cd-external) 14%, var(--surface-solid));
   --cd-group: color-mix(in srgb, #ffffff 4%, transparent);
 }
 
@@ -380,4 +385,29 @@
   .root .arrowFlowing.arrowLeft .arrowLine {
     animation: none;
   }
+}
+
+/* ---------- External tone: third-party services and frameworks ---------- */
+.root .tile.tileExternal {
+  background: var(--cd-external-tint);
+  box-shadow: none;
+}
+
+.root .title.titleExternal {
+  color: var(--cd-external);
+}
+
+.root .chip.chipExternal {
+  background: color-mix(in srgb, var(--cd-external) 14%, transparent);
+  color: var(--cd-external);
+}
+
+.root .badge.badgeExternal {
+  background: var(--cd-external-tint);
+  color: var(--cd-external);
+}
+
+.root .arrow.arrowExternal,
+.root .arrow.arrowExternal .arrowLabel {
+  color: var(--cd-external);
 }

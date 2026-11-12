@@ -469,6 +469,22 @@ html[data-theme='dark'] {
   gap: 0.75rem;
 }
 
+.docs-section-entry__icon--logo {
+  --section-icon-bg: color-mix(in srgb, #2563eb 12%, transparent);
+  --section-icon-fg: #2563eb;
+}
+
+html[data-theme='dark'] .docs-section-entry__icon--logo {
+  --section-icon-bg: color-mix(in srgb, #60a5fa 16%, transparent);
+  --section-icon-fg: #60a5fa;
+}
+
+.docs-section-entry:hover .docs-section-entry__icon--logo,
+.docs-section-entry:focus-visible .docs-section-entry__icon--logo {
+  background: var(--section-icon-fg);
+  color: var(--docs-tint);
+}
+
 .docs-harness-cards .docs-section-entry {
   margin: 0;
   align-items: flex-start;
@@ -777,4 +793,54 @@ html[data-theme='dark'] .exec-node {
   .theme-doc-markdown > h2 {
     margin-top: 2.5rem;
   }
+}
+
+/* ---------- Coding agent box: the same copy-and-paste card at the top of every task guide ---------- */
+.coding-agent-box {
+  display: grid;
+  gap: 0.55rem;
+  margin: 1.25rem 0 1.75rem;
+  padding: 1rem 1.1rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--sd-accent) 35%, var(--docs-hairline));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--sd-accent) 6%, var(--docs-tint));
+}
+
+.coding-agent-box__title {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  color: var(--docs-heading);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.coding-agent-box__icon {
+  display: grid;
+  width: 1.9rem;
+  height: 1.9rem;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--sd-accent);
+  color: var(--sd-on-accent);
+}
+
+.coding-agent-box__label {
+  margin: 0;
+  color: var(--docs-subtle);
+  font-size: 0.88rem;
+}
+
+.coding-agent-box .coding-agent-box__tabs {
+  margin-bottom: 0;
+}
+
+.coding-agent-box .theme-code-block {
+  margin-bottom: 0.6rem;
+}
+
+/* A long prompt scrolls inside its code block instead of widening the page. */
+.coding-agent-box > * {
+  min-width: 0;
 }

@@ -14,24 +14,27 @@ This page turns code you already run, such as a function, a queue consumer, a cr
 
 <FunctionToFlowDiagram markdownDescription="Before: one function charges the buyer, waits for approval, ships, and refunds; a crash leaves it half done. After: a Flow of Steps, Charge then Ship, which waits for approval or 24 hours, then Done, with Refund when Ship fails." />
 
-## Let a coding agent do it {#with-a-coding-agent}
-
-Install Dex Skills in your coding agent, then point it at the code. In Claude Code:
-
-```bash
-claude plugin marketplace add superdurable/dex-skills
-claude plugin install superdurable-dex@superdurable
-```
-
-Then ask for the change, naming the function and where it lives:
+<CodingAgentBox>
 
 ```text
-/superdurable-dex:dex-sdk Turn handle_order in orders/service.py into a Dex Flow with one Step per external call, and add an integration test.
+Turn <function> in <file> into a Dex Flow.
+
+1. Read https://docs.superdurable.io/intro/add-to-existing-code.md and treat it
+   as the source of truth.
+2. Give each call that changes another system its own Step, move waits into
+   WaitFor, and keep state in Attributes.
+3. Add an idempotency key to every external write.
+4. Add an integration test that runs against dexcli dev.
+
+Rules: keep the existing behavior. Do not invent APIs. Ask me before changing
+code outside this function.
 ```
 
-The agent follows the steps on the rest of this page, so read on to review its work. [Install and use Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) covers Codex, Cursor, and other hosts.
+</CodingAgentBox>
 
-## Do it by hand: install the SDK {#install}
+<a id="with-a-coding-agent"></a>
+
+## Install the SDK {#install}
 
 Add the SDK and a Worker to the service that runs this code. [Add Dex to an existing service](/components/application#add-to-a-service) shows the install command for each language and where the Worker and Client go.
 

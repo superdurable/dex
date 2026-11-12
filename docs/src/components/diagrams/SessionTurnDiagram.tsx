@@ -98,19 +98,19 @@ export default function SessionTurnDiagram({markdownDescription}: {markdownDescr
           <Detail>{text.note}</Detail>
         </Tile>
         <div className={styles.out}>
-          <Arrow direction="right" tone="accent" isFlowing label={text.calls} className={styles.wide} />
-          <Arrow direction="down" tone="accent" isFlowing label={text.calls} className={styles.narrow} />
+          <Arrow direction="right" tone="external" isFlowing label={text.calls} className={styles.wide} />
+          <Arrow direction="down" tone="external" isFlowing label={text.calls} className={styles.narrow} />
         </div>
         <div className={styles.external}>
-          <Tile>
+          <Tile tone="external">
             <span className={styles.heading}>
-              <IconBadge icon={Brain} isSmall />
+              <IconBadge icon={Brain} tone="external" isSmall />
               <TileTitle>{text.models}</TileTitle>
             </span>
           </Tile>
-          <Tile>
+          <Tile tone="external">
             <span className={styles.heading}>
-              <IconBadge icon={Wrench} isSmall />
+              <IconBadge icon={Wrench} tone="external" isSmall />
               <TileTitle>{text.tools}</TileTitle>
             </span>
           </Tile>
