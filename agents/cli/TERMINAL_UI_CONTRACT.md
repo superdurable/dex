@@ -839,6 +839,14 @@ reaches a reaped leader's reused pid. A core whose tool leaders are reaped
 elsewhere, such as by an event loop's child watcher, must not signal tool
 groups from its watchdog.
 
+In Node, the leader of a tool group is a gatekeeper shell: it runs the
+command with `/bin/sh -c`, reports the command's exit status to the main
+thread, and waits until the main thread has stopped what the command left in
+the group (SIGTERM, then SIGKILL 0.5 s later). So the leader stays unreaped,
+and its pid stays the group's, for as long as the main thread may signal the
+group. When the Worker host goes away first, the gatekeeper kills its own
+group once the command ends.
+
 Each number below adds scheduling delay, and holds only while the watchdog
 can run:
 
@@ -861,7 +869,9 @@ The bounds do not hold:
 
 The Worker host writes a run record of itself and of each tool process group
 it starts. On a later start, a launcher stops what a dead launcher left, and
-checks the identity again right before each SIGTERM and before each SIGKILL.
+checks each group's identity again right before that group's own SIGTERM and
+before its SIGKILL, because signaling one group can end another group's
+leader.
 Any mismatch, or a process that is gone, removes the record entry and sends
 nothing.
 

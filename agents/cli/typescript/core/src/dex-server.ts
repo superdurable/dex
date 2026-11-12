@@ -212,6 +212,21 @@ export class StartedDexcliDevProcess {
   }
 
   /**
+   * Leaves SIGTERM, SIGHUP, and SIGINT to the terminal UI handoff, which ends the terminal UI and the Worker host in
+   * order first; the command's close then stops this server.
+   */
+  public releaseSignals(): void {
+    this.removeSignalListeners();
+  }
+
+  /** Takes SIGTERM, SIGHUP, and SIGINT back after the handoff, while this server still runs. */
+  public reclaimSignals(): void {
+    if (this.stopping === undefined && this.isLeaderRunning()) {
+      this.listenForTerminationSignals();
+    }
+  }
+
+  /**
    * Stops the group once, SIGTERM then SIGKILL, and removes the record. A signal during the stop kills the group
    * at once and exits.
    * @returns A Promise that resolves after the leader exited, at once when nothing was started.

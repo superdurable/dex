@@ -29,6 +29,7 @@ import {
 } from "../../src/index.js";
 import {
   fixedToolSetScriptedHarness,
+  plainOnlyScriptedHarness,
   scriptedHarness,
   scriptedHarnessDirectoryVariable,
   scriptedHarnessVariantVariable,
@@ -141,11 +142,16 @@ export class CliProcess {
    * Starts the scripted harness command.
    * @param home - The test home.
    * @param commandArguments - Arguments after the command name.
+   * @param environment - Variables to add or replace.
    * @returns The process.
    */
-  public static start(home: TestHome, commandArguments: readonly string[] = []): CliProcess {
+  public static start(
+    home: TestHome,
+    commandArguments: readonly string[] = [],
+    environment: NodeJS.ProcessEnv = {},
+  ): CliProcess {
     const child = spawn(process.execPath, [cliEntryPath, ...commandArguments], {
-      env: home.environment(),
+      env: { ...home.environment(), ...environment },
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
     });
@@ -343,6 +349,7 @@ export class TestHome {
       ...(this.harness === shellReplacingScriptedHarness ? { [scriptedHarnessVariantVariable]: "shell-replacing" } : {}),
       ...(this.harness === scriptedHarnessWithoutImages ? { [scriptedHarnessVariantVariable]: "without-images" } : {}),
       ...(this.harness === fixedToolSetScriptedHarness ? { [scriptedHarnessVariantVariable]: "fixed-tool-set" } : {}),
+      ...(this.harness === plainOnlyScriptedHarness ? { [scriptedHarnessVariantVariable]: "plain-only" } : {}),
       ...(this.harness === summaryForcedOnScriptedHarness ? { [scriptedHarnessVariantVariable]: "summary-on" } : {}),
       ...(this.harness === summaryForcedOffScriptedHarness ? { [scriptedHarnessVariantVariable]: "summary-off" } : {}),
       ...(this.harness === summaryMisreportedOnScriptedHarness ? { [scriptedHarnessVariantVariable]: "misreported-on" } : {}),

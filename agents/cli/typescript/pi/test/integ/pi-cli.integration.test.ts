@@ -30,6 +30,7 @@ import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, RefusingProxy, TestHome, enginePorts, mockApiKey, openSessionClient } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
+import { runWithTerminalUi } from "../fixtures/terminal-ui-handoff.js";
 import { MockMessagesApi } from "../fixtures/mock-messages-api.js";
 
 const noConnectors = { connectors: { enabled: [] }, local_tools: { browser: false } };
@@ -728,5 +729,13 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(await cli.waitForExit(), 2);
     assert.match(cli.stderr.all, /schema at "\/pi\/max_turns"/);
     assert.deepEqual(api.modelRequests(), []);
+  });
+
+  test("at a terminal with the terminal UI switched on, Pi keeps the plain chat and never starts the terminal UI", async () => {
+    const home = newHome(noConnectors);
+    const run = await runWithTerminalUi(home.environment(), "/exit\r");
+    assert.equal(run.exitCode, 0, run.terminal);
+    assert.equal(run.launchCount, 0, run.terminal);
+    assert.match(run.terminal, /Type a message/);
   });
 });

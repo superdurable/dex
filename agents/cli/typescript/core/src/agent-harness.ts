@@ -139,6 +139,15 @@ export interface AgentHarness {
    */
   readonly isToolSetFixedAtBuild?: boolean;
   /**
+   * Which chat the command shows at a terminal: `"dexcli"`, the `dexcli` terminal UI when it is available, or
+   * `"plain"`, the text chat only. Defaults to `"dexcli"`. A harness with its own terminal interface, such as Pi,
+   * declares `"plain"`. Without a terminal, or with `--plain`, every command uses the text chat. The Python CLI
+   * core calls it `terminal_interface`.
+   *
+   * @since 0.6.0
+   */
+  readonly terminalInterface?: "dexcli" | "plain";
+  /**
    * Builds the session Flow. The CLI core calls it once at startup and registers the Flow in its Worker and Client.
    *
    * Build the Flow with `summaryAttributesIndexed` equal to {@link HarnessContext.isSessionSummaryIndexed}, such as

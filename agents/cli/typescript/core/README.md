@@ -28,6 +28,7 @@ dex-agents-<harness> [run|init|connectors|sessions] [options]
   -y, --yes             Write and use the defaults instead of asking.
   -r, --resume <id>     Continue a session.
   -m, --model <id>      Override the configured model.
+      --plain           Chat in plain text, without the terminal UI.
 ```
 
 Without a configuration file, `run` asks the `init` questions at a terminal
@@ -255,6 +256,7 @@ The Python CLI core uses the same names in snake case:
 | `createSessionFlow(context)` | `create_session_flow(context)` |
 | `HarnessContext` with `flowType`, `config`, `workspace`, `instructions`, `harnessOptions`, `toolSources`, `mediaStore`, `resolveTurn`, `currentTurn` | `HarnessContext` with the same fields in snake case; `mediaStore` and `media_store` are absent only in a context a test builds |
 | `LocalToolGroup` | `LocalToolGroup` (`files`, `shell`, `web_fetch`, `browser`) |
+| `terminalInterface` (`"dexcli"` or `"plain"`) | `terminal_interface` |
 | `runAgentCli(harness)` | `run_agent_cli(harness)` |
 | `isLocalToolGroupEnabled`, `isShellCommandApprovalRequired`, `resolveTurnToolPolicy` | the same names in snake case |
 | `HarnessContext.resolveToolStepPermissions(step)` | `HarnessContext.resolve_tool_step_permissions(step)` |
@@ -480,6 +482,171 @@ entry is refused.
 | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `auto` reuses or starts. |
 | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. It must be `https`, or `http` on 127.0.0.1, localhost, or [::1]. |
 | `DEX_AGENTS_OPEN_BROWSER` | `0` or `false` keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. |
+| `DEX_AGENTS_TERMINAL_UI` | Internal: `1` makes the chat try the `dexcli` terminal UI. See [The terminal UI](#the-terminal-ui-internal). |
+
+## The terminal UI (internal)
+
+The chat can run in `dexcli agents-tui`, a terminal UI that `dexcli` draws.
+It is off until it ships: only `DEX_AGENTS_TERMINAL_UI=1` turns it on, and
+without it every command behaves as described above. `--plain` keeps the text
+chat even then. The handoff follows
+[terminal UI contract 1](../../TERMINAL_UI_CONTRACT.md); this section covers
+the launcher side that this core implements. Only the chat (`run`) hands off
+for now; `sessions` and `connectors` stay text.
+
+A run tries the terminal UI only when all of these hold, checked in this
+order before anything else: the switch is on, the platform is not Windows,
+`--plain` is absent, stdin and stdout are terminals, `TERM` is not `dumb`, and
+the harness does not declare `terminalInterface: "plain"` (Pi does). The
+command then resolves `dexcli` as for `dexcli dev` and runs
+`dexcli agents-tui --describe` with an empty environment and a 5 s limit. When
+that fails, or no common contract has the chat mode, it prints one
+`Plain chat: <reason>.` line and runs the text chat in its own process, as
+before.
+
+Otherwise the command becomes a thin **launcher** with two children:
+
+| Process | stdin | stdout and stderr | Process group | Environment |
+| --- | --- | --- | --- | --- |
+| launcher (the command) | the terminal, never read during the handoff | the terminal; its own JavaScript writes go to the log during the handoff | foreground | the user's |
+| Worker host: the same bin with the hidden `__worker-host` argument | `/dev/null` | `~/.dex/agents/<harness>.log` | its own (`detached`), which it leads | the user's, with the provider keys |
+| `dexcli agents-tui --channel-fd 3` | the terminal | the terminal | foreground | the contract's allow-list only |
+
+- The launcher sends the Worker host the effective configuration, the
+  resolved Dex server, and the `--resume` ID over Node's IPC channel. That
+  channel is internal to one core version (`src/worker-host/worker-host-protocol.ts`).
+  The Worker host opens the session exactly as the text chat does, then
+  reports the session, its Flow type, and the capabilities of the Flow it
+  built: `images` only when the runner implements
+  `buildUserMessageWithImages`, `plan_mode` from the Flow's options, and
+  `turn_control`. A startup failure, such as a `--resume` of another
+  environment's session, exits with the code the text chat would use.
+- Its log lines before the handoff print on the terminal, as today. After
+  `ready` they reach the terminal UI as `notice` messages, cut to 500 code
+  points.
+- The launcher saves the terminal mode with `stty -g`, starts `dexcli` with
+  the channel on fd 3, and writes the launch document. `dexcli` must send
+  `ready` within 5 s of its spawn. Before `ready`, any failure (`dexcli`
+  exits or cannot start, `launch_rejected`, the channel ends or breaks, or the
+  timeout) stops `dexcli` if it still runs (1 s to exit on its own, then
+  SIGTERM, then SIGKILL 2 s later), restores the terminal, stops the Worker
+  host, prints `Plain chat: <reason>.`, and continues in the text chat with
+  `--resume` of the same session. A signal that arrives meanwhile ends the
+  command instead, without that line.
+- After `ready` the launcher relays `put_image`, `start_session`, and
+  `list_connectors` to the Worker host and serves `open_url` itself.
+  `src/terminal-ui/local-request-relay.ts` checks each request against the
+  channel schema, answers `busy` beyond 4 in flight, remembers each key's
+  outcome (`request-outcome-table.ts`), answers `get_request_result`, and
+  answers `cancel` at once. `start_session` starts one of the two session IDs
+  the key derives, with the key as the start request ID and "ignore already
+  started": the 12-digit one when it exists and this key started it, else the
+  6-digit one, else the 12-digit one. So a resent key finds its own session.
+  `open_url` answers `browser_off` when `DEX_AGENTS_OPEN_BROWSER` is off, and
+  `open_failed` when the platform's opener (`open` or `xdg-open`) fails.
+  `host_stopped` is never remembered as a key's outcome.
+- When the Worker host exits, every waiting and later relayed request answers
+  `host_stopped`, and the terminal UI gets `worker` `stopped` with the exit
+  status.
+- When `dexcli` exits, the launcher restores the saved terminal mode; after a
+  crash or a kill it also leaves the alternate screen, turns off bracketed
+  paste, and shows the cursor, then prints
+  `The chat closed unexpectedly (dexcli exit N).` A channel that ends or
+  breaks after `ready` also ends the chat: `dexcli` gets 1 s to exit, then
+  SIGTERM, and the line names the cause. The launcher stops the Worker host:
+  `shutdown`, up to 10 s, then SIGTERM to its group and SIGKILL 2 s later. A
+  Worker host that still has not exited 2 s after SIGKILL, such as one stuck in
+  the kernel, is left with its run record; the launcher says so, finishes, and
+  the next start's leftover cleanup stops it.
+  After `ready` it prints no `--resume` line of its own: `dexcli`'s exit
+  summary names the session, because `/new` may have switched to another one.
+  It prints one only when `dexcli` never sent `ready`, and the plain chat it
+  falls back to prints its own.
+- During the handoff, and until the Worker host stopped, the launcher owns
+  SIGTERM, SIGHUP, and SIGINT, so the handlers of a `dexcli dev` the command
+  started step aside and come back afterwards; the command's close then stops
+  that `dexcli dev` as usual. A signal that arrives while the Worker host stops
+  decides the exit code and never cuts that stop short.
+
+| Exit | When |
+| --- | --- |
+| 0 | `dexcli` exited 0 and the Worker host kept running. |
+| 1 | `dexcli` exited 1, crashed, or was killed after `ready`, or the Worker host stopped during the chat. |
+| 2 | The Worker host could not open the session, as for the text chat. |
+| 130 | An external SIGINT, to the foreground group or to the launcher alone. |
+| 143 | SIGTERM to the launcher: it sends SIGTERM to `dexcli`, SIGKILL after 2 s. |
+| from the text chat | A failure before `ready`. |
+
+Signals while `dexcli` runs: the launcher keeps a SIGINT handler (never
+`SIG_IGN`, which `dexcli` would inherit). A SIGINT to the foreground group
+reaches `dexcli` too, so the handler gives it 1 s to exit on its own; only
+then does it forward SIGINT, and after 2 s more it stops `dexcli` with SIGTERM.
+SIGTSTP stays at its default so job control stops the launcher with `dexcli`.
+SIGTERM is handled as above. On SIGHUP, which a closed terminal sends to
+`dexcli` too, the launcher gives `dexcli` 1 s to exit, then SIGTERM, and exits
+129 without touching the terminal.
+The Worker host is in another process group, so terminal signals never reach
+it.
+
+The Worker host stops when the launcher asks, when the IPC channel
+disconnects, on SIGTERM, or when its watchdog finds the launcher gone. The
+watchdog runs in a `worker_threads` thread, so it keeps working while the
+main event loop is stuck. It checks `process.ppid` every second. Once the
+launcher is gone or a shutdown started, it allows 15 s; then it sends SIGKILL
+to the Worker host's own group. It never signals a tool process group: a
+thread cannot tell whether the main thread already reaped the group's leader.
+
+The shell tool runs each command in its own process group, led by a small
+gatekeeper shell that runs the command with `/bin/sh -c`. When the command
+ends, what it left in the group, such as a process started with `&` or a
+grandchild that still holds its output, gets SIGTERM, then SIGKILL 0.5 s
+later, and the call answers once it is gone. So `cmd &` answers at once and
+leaves nothing running. A timeout or a cancellation kills the whole group. A
+process that left the group, such as one that called `setsid`, is not
+stopped: the call stops waiting for its output 1 s after the group ended. The
+status is the number the shell reports, so a command that a signal ended shows
+128 plus the signal's number, as `exit 143` does. On Windows, which has no
+process groups, a timeout or a cancellation kills the shell, and the call
+stops waiting for output 1 s after the shell exited.
+The gatekeeper stays alive, and unreaped, until the group is cleaned, so the
+main thread signals the group only while the gatekeeper has not reported its
+exit, and the group's ID cannot name another process. When the Worker host
+goes away first, the gatekeeper kills its own group once the command ends. In
+a Worker host, `runShellCommand` registers the group right after the spawn
+and releases it on the gatekeeper's `exit` event. An orderly shutdown, on the
+main thread, sends SIGTERM to each registered group whose gatekeeper has not
+exited, then SIGKILL after 2 s. When the main loop is stuck, nothing stops the
+tool groups: they keep running after the Worker host ends, and the next
+command start stops them from the run record.
+
+Each Worker host keeps a run record, `~/.dex/agents/run/<harness>-<pid>.json`,
+with the `ps` identity (pid, process group, start time, and the SHA-256 of the
+command line) of
+its launcher, itself, and each registered tool group. With the switch on,
+every command start scans these records. For a record whose launcher no
+longer runs, it sends SIGTERM to the Worker host's group and each tool group,
+then SIGKILL 2 s later. It checks each group right before each of its signals:
+the process still has the recorded start time, leads the recorded group, and,
+for the Worker host, still has the recorded command line (a tool's shell may
+exec its command). It then deletes the record and prints, for example,
+`Stopped a leftover worker host (pid N) and 1 tool process group.` The start
+time from `ps -o lstart` has one-second resolution, so a pid reused within
+the same second passes the check: the cleanup is best effort.
+
+Known limits: the 1 s plus 15 s bound needs the Worker host to be scheduled
+at all, so it does not hold while the process is stopped. Tool process groups
+have no bound when the Worker host's main loop is stuck; the next command
+start cleans them up. Processes that a
+harness starts outside the Worker host's group, such as Claude Code's own Bash
+tool, are not registered, and a tool group whose leader was already reaped by
+another process is not signaled. If the launcher and `dexcli` are both killed,
+nobody restores the terminal; run `reset` or `stty sane`. Node cannot
+redirect its own file descriptors, so during the handoff only JavaScript
+stream writes of the launcher go to the log. A module the launcher loads,
+such as a harness's framework, that writes to fd 1 or 2 directly while
+`dexcli` runs would reach the terminal UI's screen; the CLI core's own code
+never does (a conformance test checks it), and such a harness must load the
+framework in `createSessionFlow` instead.
 
 ## Development
 
@@ -488,8 +655,11 @@ DEXCLI=/path/to/dexcli ./ci.sh
 ```
 
 `ci.sh` builds the core, installs the locked dependencies, typechecks, and
-runs the conformance cases of `agents/conformance/cli_config.json` and the
-integration tests. The integration tests run a scripted built-in loop harness
+runs the conformance cases of `agents/conformance/cli_config.json` and
+`agents/conformance/terminal_ui`, and the integration tests. The terminal UI
+tests need Python 3.11 or later on `PATH`: they run the command on a
+pseudo-terminal and point `DEXCLI` at a script that runs the contract host
+(`agents/cli/tests/terminal_ui_contract_host.py`) as the terminal UI. The integration tests run a scripted built-in loop harness
 against a private `dexcli dev`, a fake connectors MCP server, and a local
 web page. `.npmrc` sets `install-links`, so the local core is copied with one
 shared `@superdurable/dex`, as in a published install.

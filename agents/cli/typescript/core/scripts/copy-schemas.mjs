@@ -16,6 +16,12 @@ const packageDirectory = dirname(dirname(fileURLToPath(import.meta.url)));
 const sharedCliDirectory = join(packageDirectory, "..", "..");
 const targetDirectory = join(packageDirectory, "dist", "schemas");
 mkdirSync(targetDirectory, { recursive: true });
-for (const name of ["config.schema.json", "session-settings.schema.json"]) {
+for (const name of [
+  "config.schema.json",
+  "session-settings.schema.json",
+  "terminal-ui-launch.schema.json",
+  "terminal-ui-channel.schema.json",
+  "terminal-ui-describe.schema.json",
+]) {
   copyFileSync(join(sharedCliDirectory, name), join(targetDirectory, name));
 }

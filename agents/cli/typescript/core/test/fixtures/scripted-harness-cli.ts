@@ -8,9 +8,12 @@
 
 // The scripted test harness as a command, the way a harness package's bin calls the CLI core.
 
+import { existsSync, writeSync } from "node:fs";
+
 import { processAgentCliIo, runAgentCli, type AgentHarness } from "../../src/index.js";
 import {
   fixedToolSetScriptedHarness,
+  plainOnlyScriptedHarness,
   scriptedHarness,
   scriptedHarnessVariantVariable,
   scriptedHarnessWithoutImages,
@@ -25,10 +28,41 @@ const variants: Readonly<Record<string, AgentHarness>> = {
   "shell-replacing": shellReplacingScriptedHarness,
   "fixed-tool-set": fixedToolSetScriptedHarness,
   "without-images": scriptedHarnessWithoutImages,
+  "plain-only": plainOnlyScriptedHarness,
   "summary-on": summaryForcedOnScriptedHarness,
   "summary-off": summaryForcedOffScriptedHarness,
   "misreported-on": summaryMisreportedOnScriptedHarness,
   "misreported-off": summaryMisreportedOffScriptedHarness,
 };
+
+// Writes to the terminal at import and later, as a framework's import side effects might.
+if (process.env.DEX_AGENTS_CLI_TEST_IMPORT_NOISE === "1") {
+  writeSync(2, "import noise right away\n");
+  setInterval(() => {
+    console.error("import noise later");
+  }, 500).unref();
+}
+
+// Blocks the Worker host's main event loop while the file exists, as a slow host would.
+const pauseFile = process.env.DEX_AGENTS_CLI_TEST_PAUSE_FILE;
+if (pauseFile !== undefined && process.argv[2] === "__worker-host") {
+  setInterval(() => {
+    while (existsSync(pauseFile)) {
+      // Busy until the test removes the file.
+    }
+  }, 50).unref();
+}
+
+// Blocks the Worker host's main event loop for good once the file exists, as a stuck host would.
+const spinFile = process.env.DEX_AGENTS_CLI_TEST_SPIN_FILE;
+if (spinFile !== undefined && process.argv[2] === "__worker-host") {
+  setInterval(() => {
+    if (existsSync(spinFile)) {
+      for (;;) {
+        // Spin.
+      }
+    }
+  }, 100).unref();
+}
 const harness = variants[process.env[scriptedHarnessVariantVariable] ?? ""] ?? scriptedHarness;
 process.exit(await runAgentCli(harness, processAgentCliIo()));
