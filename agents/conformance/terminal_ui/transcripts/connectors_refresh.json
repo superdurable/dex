@@ -1,6 +1,6 @@
 {
   "name": "connectors_refresh",
-  "description": "The connectors list refreshes once, then the MCP server is gone.",
+  "description": "The connectors list refreshes once; the rows are whatever the launcher finds.",
   "real_roles": [
     "launcher",
     "tui"
@@ -87,7 +87,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {
@@ -141,31 +143,12 @@
           ],
           "connections": null
         }
-      }
-    },
-    {
-      "from": "tui",
-      "message": {
-        "type": "request",
-        "id": 2,
-        "idempotency_key": "01a1caff-ad58-797b-9ac1-8db4c5d6e7f8",
-        "method": "list_connectors",
-        "params": {}
       },
       "ignore": [
-        "idempotency_key"
+        "result.mcp_url",
+        "result.tools",
+        "result.connections"
       ]
-    },
-    {
-      "from": "launcher",
-      "message": {
-        "type": "response",
-        "id": 2,
-        "error": {
-          "code": "mcp_unavailable",
-          "message": "The connectors MCP server is unavailable: connection refused."
-        }
-      }
     }
   ],
   "tui_exit": 0

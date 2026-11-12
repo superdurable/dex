@@ -2,7 +2,6 @@
   "name": "chat_get_request_result_timed_out_then_resent",
   "description": "The query itself gets no answer: dexcli cancels it and resends the same key once.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -69,7 +68,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {
