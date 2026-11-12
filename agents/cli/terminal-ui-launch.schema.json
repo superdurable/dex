@@ -365,6 +365,15 @@
             "string",
             "null"
           ]
+        },
+        "models": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "The model IDs that /model offers, in order: the configured model first, then the harness command's suggestions. Optional; without it, /model offers only model. The user may still type any other ID."
         }
       }
     },
@@ -395,6 +404,24 @@
         },
         "turn_control": {
           "type": "boolean"
+        },
+        "reasoning_effort": {
+          "type": "object",
+          "description": "Present only when the harness command maps the reasoning_effort session setting to its SDK. Without it, /effort is not available.",
+          "required": [
+            "values"
+          ],
+          "properties": {
+            "values": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,31}(?![\\s\\S])"
+              },
+              "description": "The reasoning_effort values the command accepts, from least to most effort, such as low, medium, high. An empty list offers none."
+            }
+          }
         }
       }
     },

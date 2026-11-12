@@ -11,6 +11,7 @@ package launchcontract
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -260,6 +261,36 @@ func checkDisplay(rules *jsonRules, value any) {
 	if configPath, exists := display["config_path"]; exists {
 		rules.nullableString("/display/config_path", configPath)
 	}
+	if models, exists := display["models"]; exists {
+		checkUniqueStrings(rules, "/display/models", models, nil)
+	}
+}
+
+// checkUniqueStrings checks a uniqueItems array of non-empty strings, each
+// matching pattern unless pattern is nil.
+func checkUniqueStrings(rules *jsonRules, path string, value any, pattern *regexp.Regexp) {
+	items, isArray := rules.array(path, value)
+	if !isArray {
+		return
+	}
+	seen := map[string]bool{}
+	for index, item := range items {
+		var text string
+		var isValid bool
+		if pattern == nil {
+			text, isValid = rules.string(itemPath(path, index), item, 1)
+		} else {
+			text, isValid = rules.pattern(itemPath(path, index), item, pattern)
+		}
+		if !isValid {
+			return
+		}
+		if seen[text] {
+			rules.fail(path, "uniqueItems")
+			return
+		}
+		seen[text] = true
+	}
 }
 
 func checkMethodNames(rules *jsonRules, path string, value any) {
@@ -296,6 +327,12 @@ func checkCapabilities(rules *jsonRules, value any) {
 	for _, name := range []string{"plan_mode", "turn_control"} {
 		if flag, exists := capabilities[name]; exists {
 			rules.boolean("/capabilities/"+name, flag)
+		}
+	}
+	if effort, exists := capabilities["reasoning_effort"]; exists {
+		if values, isObject := rules.object("/capabilities/reasoning_effort", effort); isObject &&
+			rules.required("/capabilities/reasoning_effort", values, "values") {
+			checkUniqueStrings(rules, "/capabilities/reasoning_effort/values", values["values"], reasoningEffortPattern)
 		}
 	}
 }

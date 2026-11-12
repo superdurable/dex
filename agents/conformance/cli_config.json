@@ -12,10 +12,11 @@
     "duplicate_connection": "Two entries cover the same connection. path is the later entry.",
     "model_required": "Neither the file nor the harness command gives a model.",
     "widens_connectors": "A session entry is not inside any entry of the file. path is the entry.",
-    "widens_local_tools": "A session switches on what the file switches off, or allows a command the file does not."
+    "widens_local_tools": "A session switches on what the file switches off, or allows a command the file does not.",
+    "unsupported_reasoning_effort": "A session's reasoning_effort passes the schema but is not one of the values the harness command declares, or the command declares none. path is \"/reasoning_effort\"."
   },
   "warnings": "Resolving session settings also returns warnings: the JSON Pointer of every top-level key the session settings schema does not define, sorted by key in Unicode code point order. Those keys are ignored. Settings that fail resolution report no warnings. A TypeScript CLI core must compare code points: the default Array sort compares UTF-16 code units and puts U+10000 before U+E000.",
-  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then connectors.mcp, then media.endpoint; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser.",
+  "check_order": "Report the first failure in this order: yaml; schema; invalid_url for dex.server, then connectors.mcp, then media.endpoint; then connector entries in list order, each checked for duplicate_tool, duplicate_connection against earlier entries, and (sessions only) widens_connectors; then model_required; then local_tools in the order files, shell.enabled, shell.allow by index, web_fetch, browser; then, for sessions only, reasoning_effort against the harness command's values.",
   "harness_sections": [
     "claude",
     "openai",
@@ -2279,7 +2280,12 @@
   },
   "session_harness": {
     "harness_section": "claude",
-    "harness_default_model": null
+    "harness_default_model": null,
+    "supported_reasoning_efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   "session_cases": [
     {
@@ -3429,6 +3435,73 @@
       ]
     },
     {
+      "name": "reasoning-effort-from-the-harness-values",
+      "description": "reasoning_effort is a session setting: no warning, the file's configuration, and the turn's reasoning effort in reasoning_effort. A case without reasoning_effort expects none.",
+      "config": "bounded",
+      "session_settings": {
+        "reasoning_effort": "high"
+      },
+      "turn": {
+        "model": "claude-opus-5-5",
+        "system_prompt": null,
+        "system_prompt_file": "~/notes/assistant-prompt.md",
+        "dex": {
+          "server": "auto"
+        },
+        "connectors": {
+          "mcp": "auto",
+          "enabled": [
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "tools": null
+            },
+            {
+              "connector": "hackernews",
+              "connection": null,
+              "tools": null
+            },
+            {
+              "connector": "gmail",
+              "connection": "personal",
+              "tools": [
+                "get_message",
+                "send_message"
+              ]
+            }
+          ]
+        },
+        "approval": {
+          "always": [
+            "slack_post_channel_message"
+          ]
+        },
+        "workspace": "~/dex-agent-workspace",
+        "local_tools": {
+          "files": true,
+          "shell": {
+            "enabled": true,
+            "allow": [
+              "git status",
+              "ls"
+            ]
+          },
+          "web_fetch": true,
+          "browser": false
+        },
+        "media": {
+          "store": "auto",
+          "endpoint": null
+        },
+        "sessions": {
+          "summary": "auto"
+        },
+        "harness_options": {}
+      },
+      "warnings": [],
+      "reasoning_effort": "high"
+    },
+    {
       "name": "add-a-connector",
       "description": "A connector the file does not list.",
       "config": "bounded",
@@ -3713,6 +3786,48 @@
         "code": "schema",
         "path": "",
         "keyword": "type"
+      }
+    },
+    {
+      "name": "reasoning-effort-not-declared",
+      "description": "A value the harness command does not declare is rejected.",
+      "config": "bounded",
+      "session_settings": {
+        "reasoning_effort": "xhigh"
+      },
+      "error": {
+        "code": "unsupported_reasoning_effort",
+        "path": "/reasoning_effort"
+      }
+    },
+    {
+      "name": "reasoning-effort-not-a-name",
+      "description": "reasoning_effort is a lowercase name; the schema rejects anything else.",
+      "config": "bounded",
+      "session_settings": {
+        "reasoning_effort": "High"
+      },
+      "error": {
+        "code": "schema",
+        "path": "/reasoning_effort",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "widening-before-reasoning-effort",
+      "description": "Widening is reported before an undeclared reasoning_effort.",
+      "config": "shell_off",
+      "session_settings": {
+        "reasoning_effort": "xhigh",
+        "local_tools": {
+          "shell": {
+            "enabled": true
+          }
+        }
+      },
+      "error": {
+        "code": "widens_local_tools",
+        "path": "/local_tools/shell/enabled"
       }
     }
   ]

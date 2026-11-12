@@ -234,6 +234,76 @@
       }
     },
     {
+      "name": "chat-models-and-reasoning-effort",
+      "description": "A chat with suggested models and reasoning effort values. dexcli 1.47.0 reads them; older releases ignore them.",
+      "terminal_ui_environment": {},
+      "launch": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml",
+          "models": [
+            "gpt-5.2",
+            "gpt-5-mini",
+            "gpt-5-nano"
+          ]
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true,
+          "reasoning_effort": {
+            "values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
       "name": "chat-tls",
       "description": "TLS with a CA file and server name.",
       "terminal_ui_environment": {},
@@ -1776,6 +1846,265 @@
         "code": "invalid_launch",
         "path": "/capabilities/images",
         "keyword": "required"
+      }
+    },
+    {
+      "name": "reasoning-effort-without-values",
+      "description": "reasoning_effort needs its values.",
+      "terminal_ui_environment": {},
+      "launch": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml"
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true,
+          "reasoning_effort": {}
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "expected": {
+        "exit_code": 2,
+        "code": "invalid_launch",
+        "path": "/capabilities/reasoning_effort",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "reasoning-effort-value-uppercase",
+      "description": "A reasoning effort value is a lowercase name.",
+      "terminal_ui_environment": {},
+      "launch": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml"
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true,
+          "reasoning_effort": {
+            "values": [
+              "low",
+              "High"
+            ]
+          }
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "expected": {
+        "exit_code": 2,
+        "code": "invalid_launch",
+        "path": "/capabilities/reasoning_effort/values/1",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "display-models-duplicate",
+      "description": "display.models lists each model once.",
+      "terminal_ui_environment": {},
+      "launch": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml",
+          "models": [
+            "gpt-5.2",
+            "gpt-5.2"
+          ]
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "expected": {
+        "exit_code": 2,
+        "code": "invalid_launch",
+        "path": "/display/models",
+        "keyword": "uniqueItems"
+      }
+    },
+    {
+      "name": "display-models-empty-id",
+      "description": "A suggested model ID is not empty.",
+      "terminal_ui_environment": {},
+      "launch": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml",
+          "models": [
+            "gpt-5.2",
+            ""
+          ]
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "expected": {
+        "exit_code": 2,
+        "code": "invalid_launch",
+        "path": "/display/models/1",
+        "keyword": "minLength"
       }
     },
     {
