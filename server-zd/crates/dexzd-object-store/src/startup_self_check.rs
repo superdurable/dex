@@ -14,18 +14,13 @@ use crate::{
 use bytes::Bytes;
 use tokio::time::Instant;
 
-/// Longest time [`startup_self_check`] spends on its conditional writes and the final delete.
-///
-/// A check that overruns it fails, so a slow store fails startup instead of leaving a probe
-/// object in use indefinitely.
+/// Longest time [`startup_self_check`] runs before it fails, so a slow store fails startup.
 pub const STARTUP_SELF_CHECK_DEADLINE: Duration = Duration::from_secs(5 * 60);
 
 /// Longest time the cleanup after a failed or overrun check may take.
 const PROBE_CLEANUP_LIMIT: Duration = Duration::from_secs(60);
 
-/// Longest time a [`startup_self_check`] call holds its probe object, cleanup included.
-///
-/// A probe object older than this, by store time, has no holder.
+/// Longest time a running [`startup_self_check`] holds its probe; suspension extends it.
 pub const STARTUP_PROBE_MAXIMUM_LIFETIME: Duration =
     Duration::from_secs(STARTUP_SELF_CHECK_DEADLINE.as_secs() + PROBE_CLEANUP_LIMIT.as_secs());
 

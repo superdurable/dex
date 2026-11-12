@@ -31,6 +31,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# Enables test-util for this crate's own integration tests.
+dexzd-object-store = { workspace = true, features = ["test-util"] }
 rand_chacha.workspace = true
 s3local.workspace = true
 s3local-server.workspace = true

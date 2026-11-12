@@ -20,12 +20,8 @@ use crate::{
     WriteCondition, WriteOutcome,
 };
 
-/// Age, by store time, after which
-/// [`crate::AliyunOssObjectStore::remove_stale_startup_probes`] removes a probe key.
-///
-/// A [`crate::startup_self_check`] holds its probe for at most
-/// [`STARTUP_PROBE_MAXIMUM_LIFETIME`], far less than this age.
-pub const STALE_STARTUP_PROBE_AGE: Duration = Duration::from_secs(60 * 60);
+/// Store-clock age after which the stale probe sweep removes a probe key: 24 hours.
+pub const STALE_STARTUP_PROBE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 // The margin also covers clock rate differences between the host and the store.
 const _: () =
@@ -65,11 +61,11 @@ pub(super) async fn purge_startup_probe(
     }
 }
 
-/// Returns the store's time: the last-write time of a new `clock_key` object, deleted again.
+/// Returns the store's time from a new `clock_key` object, or `None` if another sweep removed it.
 pub(super) async fn read_store_time(
     store: &dyn ObjectStore,
     clock_key: &str,
-) -> ObjectStoreResult<i64> {
+) -> ObjectStoreResult<Option<i64>> {
     let operation = ObjectStoreOperation::Put;
     let created = store
         .put(clock_key, Bytes::new(), WriteCondition::CreateOnly)
@@ -82,19 +78,21 @@ pub(super) async fn read_store_time(
             "the store clock key already exists",
         ));
     }
-    let written_at = store
-        .head(clock_key)
-        .await?
-        .and_then(|metadata| metadata.last_modified_unix_micros);
+    let Some(clock_object) = store.head(clock_key).await? else {
+        return Ok(None);
+    };
     store.delete(clock_key).await?;
-    written_at.ok_or_else(|| {
-        ObjectStoreError::new(
-            operation,
-            clock_key,
-            ObjectStoreErrorKind::Permanent,
-            "the store reports no last-write time, so probe ages are unknown",
-        )
-    })
+    clock_object
+        .last_modified_unix_micros
+        .map(Some)
+        .ok_or_else(|| {
+            ObjectStoreError::new(
+                operation,
+                clock_key,
+                ObjectStoreErrorKind::Permanent,
+                "the store reports no last-write time, so probe ages are unknown",
+            )
+        })
 }
 
 /// Deletes probe keys whose newest object predates `cutoff_unix_micros`; returns their count.

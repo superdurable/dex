@@ -6,9 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Physical keys: generation `g` of key `K` lives at `K.v/<u64::MAX - g>`, newest first.
-//!
-//! The crate README proves the mapping injective.
+//! Physical keys: generation `g` of `K` is `K.v/<u64::MAX - g>`; the README proves injectivity.
 
 use crate::{
     MUTABLE_OBJECT_KEY_PREFIXES, MUTABLE_OBJECT_KEYS, ObjectStoreError, ObjectStoreErrorKind,
@@ -21,10 +19,7 @@ const VERSION_KEY_SEPARATOR: &str = ".v/";
 /// Digits of `u64::MAX`, the width of an inverted generation.
 const INVERTED_GENERATION_DIGITS: usize = 20;
 
-/// Bytes that a physical version key adds to its logical mutable key.
-///
-/// A caller that limits key lengths adds this to the logical key when the store is an
-/// [`crate::AliyunOssObjectStore`].
+/// Bytes a physical version key adds to its logical key; count them when limiting key lengths.
 pub const VERSION_OBJECT_KEY_SUFFIX_BYTES: usize =
     VERSION_KEY_SEPARATOR.len() + INVERTED_GENERATION_DIGITS;
 

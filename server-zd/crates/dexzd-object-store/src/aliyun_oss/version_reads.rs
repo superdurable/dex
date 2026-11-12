@@ -256,11 +256,9 @@ pub(super) fn inner_error(
 
 /// Returns whether `content` came from `listed`; unique version bodies make physical ETags unique.
 fn is_listed_object(listed: &ObjectMetadata, content: &ObjectContent) -> bool {
+    // ETags are opaque and compare byte for byte; only surrounding quotes may differ.
     listed.size == content.object_size
-        && listed
-            .etag
-            .trim_matches('"')
-            .eq_ignore_ascii_case(content.etag.trim_matches('"'))
+        && listed.etag.trim_matches('"') == content.etag.trim_matches('"')
 }
 
 fn decode_header(

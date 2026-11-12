@@ -20,9 +20,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use dexzd_object_store::{
     AliyunOssObjectStore, ByteRange, FaultAction, MANIFEST_OBJECT_KEY, ObjectStore,
-    ObjectStoreErrorKind, ObjectStoreOperation, STARTUP_PROBE_MAXIMUM_LIFETIME,
-    STARTUP_SELF_CHECK_DEADLINE, StartupSelfCheckFailure, WriteCondition, WriteOutcome,
-    startup_self_check,
+    ObjectStoreErrorKind, ObjectStoreOperation, STALE_STARTUP_PROBE_AGE,
+    STARTUP_PROBE_MAXIMUM_LIFETIME, STARTUP_SELF_CHECK_DEADLINE, StartupSelfCheckFailure,
+    WriteCondition, WriteOutcome, startup_self_check,
 };
 
 use create_only_store::{
@@ -567,7 +567,7 @@ async fn deleting_a_startup_probe_removes_every_version_and_stale_probes_are_rem
     store.delete("probe/2-2").await.expect("delete");
     assert!(physical.physical_keys("probe/2-2").await.is_empty());
     assert_eq!(physical.physical_keys("probe/1-1").await.len(), 2);
-    tokio::time::sleep(Duration::from_secs(59 * 60)).await;
+    tokio::time::sleep(STALE_STARTUP_PROBE_AGE - Duration::from_secs(60)).await;
     store
         .put(
             "probe/3-3",
@@ -860,7 +860,7 @@ async fn the_probe_sweep_ages_probes_by_the_store_clock_only() {
         .await
         .expect("create");
     assert_eq!(store.remove_stale_startup_probes().await.expect("sweep"), 0);
-    tokio::time::sleep(Duration::from_secs(59 * 60)).await;
+    tokio::time::sleep(STALE_STARTUP_PROBE_AGE - Duration::from_secs(60)).await;
     assert_eq!(store.remove_stale_startup_probes().await.expect("sweep"), 0);
     tokio::time::sleep(Duration::from_secs(2 * 60)).await;
     assert_eq!(store.remove_stale_startup_probes().await.expect("sweep"), 1);
@@ -916,7 +916,453 @@ async fn a_startup_check_that_stalls_past_its_deadline_fails_before_its_probe_ca
         error.detail
     );
     assert_eq!(physical.physical_keys("probe/").await.len(), 1);
-    tokio::time::sleep(Duration::from_secs(3601)).await;
+    tokio::time::sleep(STALE_STARTUP_PROBE_AGE + Duration::from_secs(1)).await;
     assert_eq!(store.remove_stale_startup_probes().await.expect("sweep"), 1);
     assert!(physical.physical_keys("probe/").await.is_empty());
+}
+
+/// Polls `future` once, so it starts and stops at its first wait.
+async fn poll_once<F: std::future::Future + Unpin>(future: &mut F) {
+    std::future::poll_fn(|context| {
+        assert!(
+            std::pin::Pin::new(&mut *future).poll(context).is_pending(),
+            "the call waits at its injected delay"
+        );
+        std::task::Poll::Ready(())
+    })
+    .await;
+}
+
+/// Returns every physical key outside `probe/` with its physical ETag.
+async fn non_probe_objects(physical: &CreateOnlyStore) -> Vec<(String, String)> {
+    let mut objects = Vec::new();
+    for key in physical.physical_keys("").await {
+        if !key.starts_with("probe/") {
+            let etag = physical
+                .store
+                .head(&key)
+                .await
+                .expect("head")
+                .expect("listed")
+                .etag;
+            objects.push((key, etag));
+        }
+    }
+    objects
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_sweep_during_a_suspended_startup_check_touches_only_probes() {
+    let suspension = STALE_STARTUP_PROBE_AGE + Duration::from_secs(1);
+    // Each case suspends the check at another probe call: a put, or a read of a version.
+    for (operation, skipped_calls) in [
+        (ObjectStoreOperation::Put, 1),
+        (ObjectStoreOperation::Get, 0),
+        (ObjectStoreOperation::Get, 1),
+        (ObjectStoreOperation::List, 1),
+        (ObjectStoreOperation::List, 3),
+        (ObjectStoreOperation::List, 4),
+    ] {
+        let physical = CreateOnlyStore::new();
+        let owner = AliyunOssObjectStore::new(physical.inner());
+        let sweeper = AliyunOssObjectStore::new(physical.inner());
+        let first = create(&owner, "one").await;
+        replace(&owner, &first, "two").await;
+        for key in ["lease/node-a", "snapshot/node-a/file"] {
+            owner
+                .put(key, Bytes::from_static(b"kept"), WriteCondition::CreateOnly)
+                .await
+                .expect("create");
+        }
+        let untouched = non_probe_objects(&physical).await;
+        physical.faults.inject(
+            operation,
+            "probe/",
+            skipped_calls,
+            1,
+            FaultAction::Delay(suspension),
+        );
+        let mut check = Box::pin(startup_self_check(&owner));
+        poll_once(&mut check).await;
+        assert!(!physical.physical_keys("probe/").await.is_empty());
+        // The process is suspended: its timers do not run while the store clock moves on.
+        tokio::time::advance(suspension).await;
+        let removed = sweeper.remove_stale_startup_probes().await.expect("sweep");
+        assert_eq!(
+            removed, 1,
+            "{operation:?} {skipped_calls}: the probe is stale"
+        );
+        // The resumed check either fails, so the server restarts, or passes on a new probe.
+        let resumed = check.await;
+        assert!(
+            resumed.as_ref().is_ok()
+                || resumed
+                    .as_ref()
+                    .is_err_and(|error| !error.detail.is_empty()),
+            "{operation:?} {skipped_calls}: {resumed:?}"
+        );
+        assert!(physical.physical_keys("probe/").await.is_empty());
+        assert_eq!(non_probe_objects(&physical).await, untouched);
+        assert_eq!(current_body(&owner).await, Bytes::from_static(b"two"));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_sweep_whose_clock_probe_another_sweep_removed_skips() {
+    let physical = CreateOnlyStore::new();
+    let owner = AliyunOssObjectStore::new(physical.inner());
+    let sweeper = AliyunOssObjectStore::new(physical.inner());
+    store_stale_probe(&owner).await;
+    physical.faults.inject(
+        ObjectStoreOperation::Get,
+        "probe/store-clock-",
+        0,
+        1,
+        FaultAction::Delay(STALE_STARTUP_PROBE_AGE + Duration::from_secs(1)),
+    );
+    let mut sweep = Box::pin(owner.remove_stale_startup_probes());
+    poll_once(&mut sweep).await;
+    tokio::time::advance(STALE_STARTUP_PROBE_AGE + Duration::from_secs(1)).await;
+    // The other sweep removes the old probe and the suspended sweep's clock probe as leftovers.
+    assert_eq!(
+        sweeper.remove_stale_startup_probes().await.expect("sweep"),
+        2
+    );
+    assert_eq!(sweep.await.expect("the suspended sweep skips"), 0);
+    assert!(physical.physical_keys("probe/").await.is_empty());
+}
+
+/// Stores a probe key whose owner is gone.
+async fn store_stale_probe(store: &AliyunOssObjectStore) {
+    store
+        .put(
+            "probe/1-gone",
+            Bytes::from_static(b"probe"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create");
+}
+
+/// Wraps a store and renames two physical ETags that differ only in letter case.
+struct OpaqueCasePairStore {
+    inner: Arc<dyn ObjectStore>,
+}
+
+fn rename_opaque_case_pair(etag: &mut String) {
+    match etag.as_str() {
+        "\"0000000000000001\"" => *etag = "\"OpaqueTag\"".to_owned(),
+        "\"0000000000000004\"" => *etag = "\"oPAQUEtAG\"".to_owned(),
+        _ => {}
+    }
+}
+
+#[async_trait::async_trait]
+impl ObjectStore for OpaqueCasePairStore {
+    async fn put(
+        &self,
+        key: &str,
+        body: Bytes,
+        condition: WriteCondition,
+    ) -> dexzd_object_store::ObjectStoreResult<WriteOutcome> {
+        let mut outcome = self.inner.put(key, body, condition).await?;
+        if let WriteOutcome::Written { etag } = &mut outcome {
+            rename_opaque_case_pair(etag);
+        }
+        Ok(outcome)
+    }
+
+    async fn put_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: WriteCondition,
+    ) -> dexzd_object_store::ObjectStoreResult<WriteOutcome> {
+        let mut outcome = self.inner.put_file(key, path, condition).await?;
+        if let WriteOutcome::Written { etag } = &mut outcome {
+            rename_opaque_case_pair(etag);
+        }
+        Ok(outcome)
+    }
+
+    async fn get(
+        &self,
+        key: &str,
+    ) -> dexzd_object_store::ObjectStoreResult<Option<dexzd_object_store::ObjectContent>> {
+        let mut content = self.inner.get(key).await?;
+        if let Some(content) = &mut content {
+            rename_opaque_case_pair(&mut content.etag);
+        }
+        Ok(content)
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> dexzd_object_store::ObjectStoreResult<Option<dexzd_object_store::ObjectContent>> {
+        let mut content = self.inner.get_range(key, range).await?;
+        if let Some(content) = &mut content {
+            rename_opaque_case_pair(&mut content.etag);
+        }
+        Ok(content)
+    }
+
+    async fn get_to_file(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+    ) -> dexzd_object_store::ObjectStoreResult<Option<u64>> {
+        self.inner.get_to_file(key, path).await
+    }
+
+    async fn head(
+        &self,
+        key: &str,
+    ) -> dexzd_object_store::ObjectStoreResult<Option<dexzd_object_store::ObjectMetadata>> {
+        let mut metadata = self.inner.head(key).await?;
+        if let Some(metadata) = &mut metadata {
+            rename_opaque_case_pair(&mut metadata.etag);
+        }
+        Ok(metadata)
+    }
+
+    async fn delete(&self, key: &str) -> dexzd_object_store::ObjectStoreResult<()> {
+        self.inner.delete(key).await
+    }
+
+    async fn delete_many(&self, keys: &[String]) -> dexzd_object_store::ObjectStoreResult<()> {
+        self.inner.delete_many(keys).await
+    }
+
+    async fn list(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+        max_keys: u32,
+    ) -> dexzd_object_store::ObjectStoreResult<dexzd_object_store::ObjectListing> {
+        let mut listing = self.inner.list(prefix, start_after, max_keys).await?;
+        for object in &mut listing.objects {
+            rename_opaque_case_pair(&mut object.etag);
+        }
+        Ok(listing)
+    }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        false
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn opaque_physical_etags_that_differ_only_in_case_name_different_objects() {
+    let physical = CreateOnlyStore::new();
+    let inner = Arc::new(OpaqueCasePairStore {
+        inner: physical.inner(),
+    });
+    let store = Arc::new(AliyunOssObjectStore::new(inner));
+    physical.faults.inject(
+        ObjectStoreOperation::Put,
+        &version_key(KEY, 1),
+        0,
+        1,
+        FaultAction::Delay(Duration::from_secs(200)),
+    );
+    let stale_store = Arc::clone(&store);
+    let stale = tokio::spawn(async move {
+        stale_store
+            .put(KEY, Bytes::from_static(b"bad"), WriteCondition::CreateOnly)
+            .await
+    });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let first = create(store.as_ref(), "one").await;
+    physical.faults.inject(
+        ObjectStoreOperation::Get,
+        &version_key(KEY, 1),
+        0,
+        1,
+        FaultAction::Delay(Duration::from_secs(220)),
+    );
+    let reader_store = Arc::clone(&store);
+    let reader = tokio::spawn(async move { reader_store.get(KEY).await });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let second = replace(store.as_ref(), &first, "two").await;
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    replace(store.as_ref(), &second, "tri").await;
+    physical.wait_for_generations(KEY, &[3, 2]).await;
+    physical.faults.inject(
+        ObjectStoreOperation::List,
+        &format!("{KEY}.v/"),
+        0,
+        1,
+        FaultAction::Delay(Duration::from_secs(50)),
+    );
+    let observed = reader
+        .await
+        .expect("the reader finishes")
+        .expect("get")
+        .expect("exists");
+    assert_eq!(
+        stale
+            .await
+            .expect("the stale creator finishes")
+            .expect("the stale create completes"),
+        WriteOutcome::PreconditionFailed
+    );
+    assert_eq!(
+        observed.bytes,
+        Bytes::from_static(b"tri"),
+        "case-folding opaque ETags would expose a rejected resurrection"
+    );
+}
+
+#[cfg(feature = "test-util")]
+#[tokio::test(start_paused = true)]
+async fn seeded_version_ids_of_different_seeds_never_confirm_a_second_create() {
+    let physical = CreateOnlyStore::new();
+    let delayed = Arc::new(AliyunOssObjectStore::with_seeded_version_ids_for_test(
+        physical.inner(),
+        0,
+    ));
+    // This seed's SplitMix stream was the first one shifted by two steps.
+    let winner = AliyunOssObjectStore::with_seeded_version_ids_for_test(
+        physical.inner(),
+        0x9e37_79b9_7f4a_7c15_u64.wrapping_mul(2),
+    );
+    delayed
+        .put(
+            "lease/consume-first-id",
+            Bytes::from_static(b"unused"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create");
+    physical.faults.inject(
+        ObjectStoreOperation::Put,
+        &version_key(KEY, 1),
+        0,
+        1,
+        FaultAction::Delay(Duration::from_secs(200)),
+    );
+    let delayed_store = Arc::clone(&delayed);
+    let stale = tokio::spawn(async move {
+        delayed_store
+            .put(
+                KEY,
+                Bytes::from_static(b"second-create"),
+                WriteCondition::CreateOnly,
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let first = create(&winner, "one").await;
+    let second = replace(&winner, &first, "two").await;
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    replace(&winner, &second, "three").await;
+    physical.wait_for_generations(KEY, &[3, 2]).await;
+    let stale_outcome = stale.await.expect("the stale creator finishes");
+    assert!(
+        !matches!(stale_outcome, Ok(WriteOutcome::Written { .. })),
+        "seeds shared a version ID and confirmed a second create: {stale_outcome:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_replacement_checked_before_reclamation_cannot_land_afterwards() {
+    let physical = CreateOnlyStore::new();
+    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let first = create(store.as_ref(), "one").await;
+    physical.faults.inject(
+        ObjectStoreOperation::Put,
+        &version_key(KEY, 2),
+        0,
+        1,
+        FaultAction::Delay(Duration::from_secs(200)),
+    );
+    let delayed_store = Arc::clone(&store);
+    let expected = first.clone();
+    let delayed = tokio::spawn(async move {
+        delayed_store
+            .put(
+                KEY,
+                Bytes::from_static(b"stale"),
+                WriteCondition::ReplaceIfEtagMatches { etag: expected },
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let second = replace(store.as_ref(), &first, "two").await;
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    let third = replace(store.as_ref(), &second, "three").await;
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    replace(store.as_ref(), &third, "four").await;
+    physical.wait_for_generations(KEY, &[4, 3]).await;
+    assert_eq!(
+        delayed
+            .await
+            .expect("the delayed writer finishes")
+            .expect("the delayed replacement completes"),
+        WriteOutcome::PreconditionFailed
+    );
+    assert_eq!(
+        current_body(store.as_ref()).await,
+        Bytes::from_static(b"four")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_delete_that_loses_its_tombstone_race_deletes_the_newer_version() {
+    let physical = CreateOnlyStore::new();
+    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    let first = create(store.as_ref(), "one").await;
+    physical.faults.inject(
+        ObjectStoreOperation::Put,
+        &version_key(KEY, 2),
+        0,
+        1,
+        FaultAction::Delay(Duration::from_secs(10)),
+    );
+    let delete_store = Arc::clone(&store);
+    let deletion = tokio::spawn(async move { delete_store.delete(KEY).await });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    replace(store.as_ref(), &first, "two").await;
+    deletion
+        .await
+        .expect("the delete finishes")
+        .expect("the delete succeeds");
+    assert!(store.get(KEY).await.expect("get").is_none());
+    assert_eq!(physical.generations(KEY).await, [3, 2, 1]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn racing_creates_over_a_tombstone_have_one_winner() {
+    let physical = CreateOnlyStore::new();
+    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    create(store.as_ref(), "one").await;
+    store.delete(KEY).await.expect("delete");
+    physical
+        .faults
+        .delay_randomly(727, RandomDelays::uniform(Duration::from_millis(50)));
+    let mut creators = Vec::new();
+    for creator in 0..16_u8 {
+        let writer_store = Arc::clone(&store);
+        let creator_task = tokio::spawn(async move {
+            writer_store
+                .put(KEY, Bytes::from(vec![creator]), WriteCondition::CreateOnly)
+                .await
+                .expect("create")
+        });
+        creators.push(creator_task);
+    }
+    let mut winners = 0;
+    for creator in creators {
+        if matches!(
+            creator.await.expect("the creator finishes"),
+            WriteOutcome::Written { .. }
+        ) {
+            winners += 1;
+        }
+    }
+    assert_eq!(winners, 1);
+    let current = store.get(KEY).await.expect("get").expect("exists");
+    assert_eq!(etag_generation(&current.etag), 3);
 }
