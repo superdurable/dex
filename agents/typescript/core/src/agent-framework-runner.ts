@@ -304,7 +304,7 @@ export interface DeferredToolCall {
    * with a call whose policy requires approval and shows it as {@link AgentInterrupt.display} when it raises the
    * approval; it ignores it for other calls. Build it from the call's concrete arguments: name the target and
    * what the call does to it, show a credential-like argument as `<redacted>` and pass shown text through
-   * `redactInlineCredentials`, and never promise how often the call runs or what it achieves. The session cuts a
+   * `redactInlineCredentials` as best-effort hygiene (the session stores the full arguments anyway), and never promise how often the call runs or what it achieves. The session cuts a
    * target over `maxApprovalTargetBytes` and a summary over `maxApprovalSummaryBytes` and drops a preview over
    * `maxApprovalPreviewBytes`. The CLI's local tools, the CLI's connector tools, and `ConnectorToolSource` set it.
    * @example

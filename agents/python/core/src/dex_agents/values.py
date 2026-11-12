@@ -468,12 +468,14 @@ class AgentInterruptDisplay:
 
     The text describes the request, not its result: it never says how often
     the call runs or what it achieves, because a retried write may run again
-    and a provider may refuse it. It never holds a credential: a source shows
-    the value of a credential-like argument, such as ``api_key``,
-    ``clientSecret``, or ``credentials``, as ``"<redacted>"`` (see
-    ``dex_agents.approval_display.is_credential_like_name``), and replaces
-    credentials written inline in text it shows (see
-    ``dex_agents.approval_display.redact_inline_credentials``). The session
+    and a provider may refuse it. Its text comes from the call's arguments,
+    which the session stores in full as before. As best-effort hygiene, a
+    source shows the value of a credential-like argument, such as
+    ``api_key``, ``clientSecret``, or ``credentials``, as ``"<redacted>"``
+    (see ``dex_agents.approval_display.is_credential_like_name``), and
+    replaces common credential shapes in text it shows (see
+    ``dex_agents.approval_display.redact_inline_credentials``). This is not a
+    security boundary: a credential in another form can still appear. The session
     cuts a target over ``MAX_APPROVAL_TARGET_BYTES`` and a summary over
     ``MAX_APPROVAL_SUMMARY_BYTES``, ending them with ``…``, and drops a
     preview over ``MAX_APPROVAL_PREVIEW_BYTES``, so a display adds little to

@@ -125,7 +125,7 @@ _MAX_DISPLAYED_ARGUMENTS = 5
 _MAX_DISPLAYED_ARGUMENT_CHARACTERS = 80
 
 # Explicit ASCII classes keep the patterns identical to the TypeScript core's.
-_ESCAPE_SEQUENCE = re.compile(r"\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
+_ESCAPE_SEQUENCE = re.compile(r"\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})|%([0-9a-fA-F]{2})")
 _PRIVATE_KEY_BLOCK = re.compile(
     r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)",
     re.ASCII,
@@ -134,6 +134,8 @@ _URL_USER_INFO = re.compile(
     r"([A-Za-z][A-Za-z0-9+.-]*://)([^ \t\n\r\f\v/:@'\"]+):([^ \t\n\r\f\v/@'\"]+)@", re.ASCII
 )
 _USER_FLAG = re.compile(r"(^|[ \t\n\r\f\v])(-u|--user|--proxy-user)([ \t]+|=)", re.ASCII)
+_SSHPASS = re.compile(r"(^|[ \t\n\r\f\v])(sshpass[ \t]+-p)([ \t]*)", re.ASCII)
+_YAML_BLOCK_INDICATOR = re.compile(r"[|>][+-]?[0-9]?[ \t]*(?:#[^\n]*)?", re.ASCII)
 _NAMED_VALUE = re.compile(
     r"([\"']?)([A-Za-z_][A-Za-z0-9_.-]*)([\"']?)([ \t]*)([:=])([ \t]*)", re.ASCII
 )
@@ -160,7 +162,8 @@ def is_credential_like_name(name: str) -> bool:
 
     A display shows the value of such an argument, header, field, or variable
     as ``REDACTED_ARGUMENT_VALUE``. The name is split into words at ``_``,
-    ``-``, ``.``, spaces, and camelCase boundaries, ignoring case. It is a
+    ``-``, ``.``, and spaces, and again at camelCase boundaries, ignoring
+    case, so ``pAsSwOrD`` is one word. It is a
     credential name when a word is one of ``apikey``, ``auth``,
     ``authorization``, ``bearer``, ``cookie``, ``cred``, ``credential``,
     ``dsn``, ``jwt``, ``key``, ``otp``, ``pass``, ``passphrase``, ``passwd``,
@@ -189,9 +192,14 @@ def is_credential_like_name(name: str) -> bool:
     Returns:
         ``True`` when the name looks like it holds a credential.
     """
-    words = [
-        word for word in _WORD_SEPARATOR.split(_CAMEL_CASE_BOUNDARY.sub("_", name).lower()) if word
-    ]
+    # Whole lowercased words first, so ``pAsSwOrD`` matches before camelCase splits it.
+    return any(
+        _has_credential_words([word for word in _WORD_SEPARATOR.split(spelling.lower()) if word])
+        for spelling in (name, _CAMEL_CASE_BOUNDARY.sub("_", name))
+    )
+
+
+def _has_credential_words(words: list[str]) -> bool:
     if any(word in _CREDENTIAL_WORDS or word.endswith(_CREDENTIAL_WORD_ENDINGS) for word in words):
         return True
     return any(
@@ -202,28 +210,37 @@ def is_credential_like_name(name: str) -> bool:
 
 
 def redact_inline_credentials(text: str) -> str:
-    r"""Replace the credentials written inline in a text with ``REDACTED_ARGUMENT_VALUE``.
+    r"""Replace common credential shapes in a text with ``REDACTED_ARGUMENT_VALUE``.
 
     The text may be a shell command or a file; every other character stays as
-    it is. It reads ``\uXXXX`` and ``\xXX`` escapes as the characters they
-    stand for, so an escaped name such as ``password`` is found, but it
-    returns the text with the escapes as written: only the characters of
-    each credential found are replaced. It replaces private key blocks; the
-    password of a URL such as ``https://user:pass@host``; the password of
-    ``-u user:pass``, ``--user``, and ``--proxy-user``; and the whole value
-    after a name that ``is_credential_like_name`` matches, in a
-    ``name=value`` assignment, a ``name: value`` header or field, a JSON
-    member, or a ``--name value`` flag, which covers query parameters such as
-    ``?token=…``. A value ends at its closing quote, escaped quotes included,
-    or at whitespace, ``&``, ``;``, ``,``, ``}``, ``]``, or ``)``; the value
-    of an ``Authorization`` or ``Cookie`` header runs to the end of its line,
-    and its scheme, such as ``Bearer``, stays. A value that is exactly
-    ``REDACTED_ARGUMENT_VALUE`` stays. Outside a header, a token-shaped word
-    after ``Bearer``, ``Basic``, or ``Digest`` is replaced, and so are common
-    token shapes, such as AWS access key IDs and GitHub, Slack, GitLab, and
-    OpenAI-style keys and JWTs. The rules are conservative: a generic
-    ``key=value`` is replaced too. They cannot find every credential: a value
-    in an unusual form stays as it is.
+    it is. It is best-effort hygiene that keeps common credentials out of an
+    approval display, not a security boundary: a credential in a form it does
+    not know, such as one spelled with Unicode lookalike letters, stays as it
+    is, and the call's arguments still hold the full text.
+
+    It reads ``\uXXXX``, ``\xXX``, and ``%XX`` escapes as the characters they
+    stand for, so an escaped name such as ``pass\u0077ord`` or ``%70assword``
+    is found, but it returns the text with the escapes as written: only the
+    characters of each credential found are replaced. It replaces private key
+    blocks; the password of a URL such as ``https://user:pass@host``; the
+    password of ``-u user:pass``, ``--user``, ``--proxy-user``, and
+    ``sshpass -p``; and the value after a name that
+    ``is_credential_like_name`` matches, in a ``name=value`` assignment, a
+    ``name: value`` header or field, a JSON member, or a ``--name value``
+    flag, which covers query parameters such as ``?token=…``. A value runs as
+    a shell word: backslash escapes, line continuations, and adjacent quoted
+    parts join it, escaped quotes stay inside a quoted part, and it ends at
+    whitespace, ``&``, ``;``, ``,``, ``}``, ``]``, or ``)``; an unclosed quote
+    runs to the end of its line. A triple-quoted value runs to its closing
+    quotes, or to the end of the text, and a YAML block scalar after
+    ``name: |`` or ``name: >`` covers its indented lines. The value of an
+    ``Authorization`` or ``Cookie`` header runs to the end of its line, with
+    folded and continued lines, and its scheme, such as ``Bearer``, stays. A
+    value that is exactly ``REDACTED_ARGUMENT_VALUE`` stays. Outside a header,
+    a token-shaped word after ``Bearer``, ``Basic``, or ``Digest`` is
+    replaced, and so are common token shapes, such as AWS access key IDs and
+    GitHub, Slack, GitLab, and OpenAI-style keys and JWTs. The rules are
+    conservative: a generic ``key=value`` is replaced too.
 
     .. versionadded:: 0.6.0
 
@@ -270,7 +287,7 @@ def _read_text_units(text: str) -> list[_TextUnit]:
     while index < len(text):
         escape = _ESCAPE_SEQUENCE.match(text, index)
         if escape is not None:
-            code = int(escape.group(1) or escape.group(2), 16)
+            code = int(escape.group(1) or escape.group(2) or escape.group(3), 16)
             # A lone surrogate reads as written, so the text the rules read stays valid Unicode.
             if not 0xD800 <= code <= 0xDFFF:
                 units.append(_TextUnit(chr(code), index, escape.end()))
@@ -351,35 +368,144 @@ def _find_value_secrets(
         if kind is None:
             position = value_start
             continue
+        is_named = pattern is _NAMED_VALUE
         # A quote right before a name, with none after it, is the quote the value ends at.
-        has_outer_quote = pattern is _NAMED_VALUE and match.group(1) and not match.group(3)
-        outer_quote = match.group(1) if has_outer_quote else "\x00"
-        value_end = _find_value_end(text, value_start, kind == "header", outer_quote)
-        secret = _find_secret_in_value(text, value_start, value_end, kind)
+        has_outer_quote = is_named and match.group(1) and not match.group(3)
+        outer_quote = match.group(1) if has_outer_quote else ""
+        field_start = match.start() if is_named and match.group(5) == ":" else -1
+        end, secret = _read_value(text, value_start, kind, outer_quote, field_start)
         if secret is not None:
             secrets.append(secret)
-        position = value_end
+        position = max(end, value_start)
     return secrets
 
 
-def _find_value_end(text: str, start: int, is_header: bool, outer_quote: str) -> int:
-    """Return where a value ends.
+def _read_value(
+    text: str, start: int, kind: str, outer_quote: str, field_start: int
+) -> tuple[int, tuple[int, int] | None]:
+    """Read the value that starts at ``start``.
 
-    That is its closing quote, a stop character, or, for a header, the line
-    end. An ``outer_quote`` opened before the name also ends it; another quote
-    continues it, skipping a quoted part that closes.
+    It is a triple-quoted string, a YAML block scalar after ``name:`` (when
+    ``field_start`` is the field's index), a header line with its folded and
+    continued lines, or a shell word with its escapes, adjacent quoted parts,
+    and line continuations. An unclosed quote runs to the end of its line, and
+    an unclosed triple quote to the end of the text.
+
+    Returns:
+        Where the value ends and the span that holds the credential, or
+        ``None`` for none.
     """
-    if start < len(text) and text[start] in _QUOTES:
-        return _find_quoted_end(text, start)
+    for delimiter in ('"""', "'''"):
+        if text.startswith(delimiter, start):
+            close = text.find(delimiter, start + 3)
+            end = len(text) if close < 0 else close + 3
+            return end, _secret_span(text, start + 3, len(text) if close < 0 else close)
+    line_end = _find_line_end(text, start)
+    if field_start >= 0 and _YAML_BLOCK_INDICATOR.fullmatch(text, start, line_end):
+        block_end = _find_yaml_block_end(text, field_start, line_end)
+        if block_end > line_end:
+            return block_end, _secret_span(text, line_end + 1, block_end)
+        return block_end, None
+    if kind == "header" and text[start : start + 1] not in _QUOTES:
+        end = _find_header_end(text, start, outer_quote)
+        scheme = _AUTHORIZATION_SCHEME.match(text[start:end])
+        return end, _secret_span(text, start + (0 if scheme is None else scheme.end()), end)
+    end = _find_shell_word_end(text, start, outer_quote)
+    quote = text[start : start + 1]
+    is_quoted = quote in _QUOTES and bool(quote) and end - start >= 2 and text[end - 1] == quote
+    secret_start = start + 1 if is_quoted else start
+    secret_end = end - 1 if is_quoted else end
+    if kind == "user":
+        separator = text[secret_start:secret_end].find(":")
+        secret_start = secret_end if separator < 0 else secret_start + separator + 1
+    return end, _secret_span(text, secret_start, secret_end)
+
+
+def _secret_span(text: str, start: int, end: int) -> tuple[int, int] | None:
+    secret = text[start:end]
+    if not secret or secret == REDACTED_ARGUMENT_VALUE:
+        return None
+    return start, end
+
+
+def _find_line_end(text: str, start: int) -> int:
+    newline = text.find("\n", start)
+    return len(text) if newline < 0 else newline
+
+
+def _find_yaml_block_end(text: str, field_start: int, indicator_end: int) -> int:
+    """Return the end of the YAML block whose lines are indented past the field's."""
+    field_line_start = text.rfind("\n", 0, field_start) + 1
+    field_indent = _count_indent(text, field_line_start)
+    block_end = indicator_end
+    line_start = indicator_end + 1
+    while line_start <= len(text) and indicator_end < len(text):
+        line_end = _find_line_end(text, line_start)
+        is_blank = text[line_start:line_end].strip() == ""
+        if not is_blank and _count_indent(text, line_start) <= field_indent:
+            break
+        if not is_blank:
+            block_end = line_end
+        if line_end >= len(text):
+            break
+        line_start = line_end + 1
+    return block_end
+
+
+def _count_indent(text: str, line_start: int) -> int:
+    index = line_start
+    while index < len(text) and text[index] in " \t":
+        index += 1
+    return index - line_start
+
+
+def _find_header_end(text: str, start: int, outer_quote: str) -> int:
+    """Return the end of a header value with its continued and folded lines."""
     index = start
     while index < len(text) and text[index] != outer_quote:
         character = text[index]
-        if character in ("\n\r" if is_header else _BARE_VALUE_STOPS):
+        following = text[index + 1 : index + 2]
+        if character == "\\" and following in ("\n", "\r"):
+            index += 3 if following == "\r" and text[index + 2 : index + 3] == "\n" else 2
+            continue
+        if character in "\n\r":
+            is_crlf = character == "\r" and following == "\n"
+            next_index = index + 2 if is_crlf else index + 1
+            if text[next_index : next_index + 1] in (" ", "\t") and next_index < len(text):
+                index = next_index
+                continue
             break
-        quoted_end = _find_quoted_end(text, index) if character in _QUOTES else index + 1
-        is_closed = quoted_end - 1 > index and text[quoted_end - 1] == character
-        index = quoted_end if is_closed else index + 1
+        index += 1
+    while index > start and text[index - 1] in "\r\n":
+        index -= 1
     return index
+
+
+def _find_shell_word_end(text: str, start: int, outer_quote: str) -> int:
+    """Return the end of a shell word, or of a JSON or YAML value.
+
+    A backslash escapes the next character, a line continuation included; a
+    closed quoted part continues the word; an unclosed quote runs to the end
+    of its line; and a stop character or ``outer_quote`` ends it.
+    """
+    index = start
+    while index < len(text):
+        character = text[index]
+        if outer_quote and character == outer_quote:
+            break
+        if character == "\\":
+            index += 2
+            continue
+        if character in _QUOTES:
+            quoted_end = _find_quoted_end(text, index)
+            if quoted_end - 1 > index and text[quoted_end - 1] == character:
+                index = quoted_end
+                continue
+            return _find_line_end(text, index)
+        if character in _BARE_VALUE_STOPS:
+            break
+        index += 1
+    return min(index, len(text))
 
 
 def _find_quoted_end(text: str, start: int) -> int:
@@ -393,30 +519,6 @@ def _find_quoted_end(text: str, start: int) -> int:
     return min(index, len(text))
 
 
-def _find_secret_in_value(text: str, start: int, end: int, kind: str) -> tuple[int, int] | None:
-    """Return the span of a value that holds the credential.
-
-    That is inside its quotes, after a header's scheme, or after ``user:``.
-    """
-    if end <= start:
-        return None
-    quote = text[start] if text[start] in _QUOTES else ""
-    is_closed = bool(quote) and end - start >= 2 and text[end - 1] == quote
-    inner_start = start + 1 if quote else start
-    inner_end = end - 1 if is_closed else end
-    inner = text[inner_start:inner_end]
-    if kind == "user":
-        separator = inner.find(":")
-        inner_start = inner_end if separator < 0 else inner_start + separator + 1
-    elif kind == "header" and not quote:
-        scheme = _AUTHORIZATION_SCHEME.match(inner)
-        inner_start += 0 if scheme is None else scheme.end()
-    secret = text[inner_start:inner_end]
-    if not secret or secret == REDACTED_ARGUMENT_VALUE:
-        return None
-    return inner_start, inner_end
-
-
 def _is_header_name(name: str) -> bool:
     words = re.split(r"[^a-z0-9]+", name.lower())
     return "authorization" in words or "cookie" in words or "cookies" in words
@@ -426,6 +528,11 @@ _SECRET_FINDERS: tuple[Callable[[str], list[tuple[int, int]]], ...] = (
     lambda text: _match_spans(text, _PRIVATE_KEY_BLOCK, 0),
     lambda text: _match_spans(text, _URL_USER_INFO, 3),
     lambda text: _find_value_secrets(text, _USER_FLAG, lambda match, start, scanned: "user"),
+    lambda text: _find_value_secrets(
+        text,
+        _SSHPASS,
+        lambda match, start, scanned: None if scanned[start : start + 1] == "-" else "value",
+    ),
     lambda text: _find_value_secrets(text, _NAMED_VALUE, _named_value_kind),
     lambda text: _find_value_secrets(text, _FLAG_VALUE, _flag_value_kind),
     _standalone_scheme_spans,
@@ -443,8 +550,9 @@ def build_connector_tool_approval_display(
     argument order: each string of at most 80 characters on one line, number,
     and boolean, as JSON. A credential-like argument (see
     ``is_credential_like_name``) shows ``REDACTED_ARGUMENT_VALUE`` instead of
-    its value, and a string value has its inline credentials replaced (see
-    ``redact_inline_credentials``). Longer text, objects, and lists are left
+    its value, and string values and the connector, connection, and
+    operation names have their inline credentials replaced (see
+    ``redact_inline_credentials``), as best-effort hygiene. Longer text, objects, and lists are left
     out; the approval UI shows them from the arguments. The summary never uses
     the operation's description, which says what the operation is for, not
     what this call does. ``ConnectorToolSource`` and the CLI's connector tools
@@ -474,7 +582,12 @@ def build_connector_tool_approval_display(
         The display, with no preview.
     """
     key_arguments = _describe_key_arguments(arguments)
-    head = f"Calls {connector_id} {operation} with connection {connection_name}"
+    connector_id = redact_inline_credentials(connector_id)
+    connection_name = redact_inline_credentials(connection_name)
+    head = (
+        f"Calls {connector_id} {redact_inline_credentials(operation)} "
+        f"with connection {connection_name}"
+    )
     summary = f"{head}; {', '.join(key_arguments)}." if key_arguments else f"{head}."
     return AgentInterruptDisplay(target=f"{connector_id}/{connection_name}", summary=summary)
 

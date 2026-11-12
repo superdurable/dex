@@ -49,7 +49,10 @@
       "GITHUB_TOKEN",
       "PGPASSWORD",
       "MYTOKEN",
-      "ciToken"
+      "ciToken",
+      "pAsSwOrD",
+      "PassWord",
+      "APIKEY"
     ],
     "not_credential": [
       "channel",
@@ -194,11 +197,11 @@
     },
     {
       "text": "password='unterminated value",
-      "redacted": "password='<redacted>"
+      "redacted": "password=<redacted>"
     },
     {
       "text": "password=a\"b more",
-      "redacted": "password=<redacted> more"
+      "redacted": "password=<redacted>"
     },
     {
       "text": "-H 'Authorization: Bearer t1' x",
@@ -247,6 +250,66 @@
     {
       "text": "pass\\u0077ord=hunter2 ./run",
       "redacted": "pass\\u0077ord=<redacted> ./run"
+    },
+    {
+      "text": "PASSWORD=alpha\\ beta ./run",
+      "redacted": "PASSWORD=<redacted> ./run"
+    },
+    {
+      "text": "echo password='alpha'\\''beta' && ls",
+      "redacted": "echo password='<redacted>' && ls"
+    },
+    {
+      "text": "password=alpha\\\nbeta && ls",
+      "redacted": "password=<redacted> && ls"
+    },
+    {
+      "text": "Authorization: Bearer alpha\r\n beta\r\nHost: example.org",
+      "redacted": "Authorization: Bearer <redacted>\r\nHost: example.org"
+    },
+    {
+      "text": "pAsSwOrD=alpha",
+      "redacted": "pAsSwOrD=<redacted>"
+    },
+    {
+      "text": "curl 'https://example.org/?%70assword=alpha'",
+      "redacted": "curl 'https://example.org/?%70assword=<redacted>"
+    },
+    {
+      "text": "password = \"\"\"alpha\nbeta\"\"\"\nuser = \"demo\"",
+      "redacted": "password = \"\"\"<redacted>\"\"\"\nuser = \"demo\""
+    },
+    {
+      "text": "password = '''alpha",
+      "redacted": "password = '''<redacted>"
+    },
+    {
+      "text": "password: |\n  alpha\n  beta\nuser: demo\n",
+      "redacted": "password: |\n<redacted>\nuser: demo\n"
+    },
+    {
+      "text": "password: >-\n  alpha\n\n  beta\n",
+      "redacted": "password: >-\n<redacted>\n"
+    },
+    {
+      "text": "sshpass -p alpha ssh host",
+      "redacted": "sshpass -p <redacted> ssh host"
+    },
+    {
+      "text": "sshpass -palpha ssh host",
+      "redacted": "sshpass -p<redacted> ssh host"
+    },
+    {
+      "text": "ls -p alpha",
+      "redacted": "ls -p alpha"
+    },
+    {
+      "text": "/work/password=alpha",
+      "redacted": "/work/password=<redacted>"
+    },
+    {
+      "text": "100%25 done",
+      "redacted": "100%25 done"
     }
   ],
   "connector_displays": [
@@ -281,6 +344,14 @@
       "arguments": "not json",
       "target": "a/b",
       "summary": "Calls a c with connection b."
+    },
+    {
+      "connector_id": "slack",
+      "connection_name": "password=alpha",
+      "operation": "postMessage",
+      "arguments": "{\"pAsSwOrD\": \"alpha\", \"channel\": \"#eng\"}",
+      "target": "slack/password=<redacted>",
+      "summary": "Calls slack postMessage with connection password=<redacted>; pAsSwOrD: <redacted>, channel: \"#eng\"."
     }
   ],
   "cli": {
@@ -384,6 +455,30 @@
         "current": null,
         "new": "key=value\n",
         "preview": null
+      },
+      {
+        "path": "notes/mixed.txt",
+        "current": null,
+        "new": "pAsSwOrD=alpha\n",
+        "preview": null
+      },
+      {
+        "path": "notes/settings.toml",
+        "current": null,
+        "new": "password = \"\"\"alpha\nbeta\"\"\"\n",
+        "preview": null
+      },
+      {
+        "path": "notes/settings.yaml",
+        "current": null,
+        "new": "password: |\n  alpha\n",
+        "preview": null
+      },
+      {
+        "path": "notes/token=alpha/readme.md",
+        "current": null,
+        "new": "hello\n",
+        "preview": "--- /dev/null (no file now)\n+++ notes/token=<redacted>/readme.md (after this write)\n@@ -0,0 +1 @@\n+hello\n"
       },
       {
         "path": "notes/today.txt",
@@ -542,6 +637,24 @@
         "command": "pass\\u0077ord=hunter2 ./run",
         "target": "/work/app",
         "summary": "Runs a shell command in /work/app: pass\\u0077ord=<redacted> ./run"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "PASSWORD=alpha\\ beta ./run",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: PASSWORD=<redacted> ./run"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "sshpass -p alpha ssh host",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: sshpass -p <redacted> ssh host"
+      },
+      {
+        "workspace": "/work/password=alpha",
+        "command": "ls",
+        "target": "/work/password=<redacted>",
+        "summary": "Runs a shell command in /work/password=<redacted>: ls"
       }
     ],
     "escaped_paths": [

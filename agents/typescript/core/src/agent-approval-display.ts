@@ -87,10 +87,12 @@ const maxDisplayedArguments = 5;
 const maxDisplayedArgumentCharacters = 80;
 
 // Explicit ASCII classes keep the patterns identical to the Python core's, which compiles them with re.ASCII.
-const escapeSequencePattern = /\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})/y;
+const escapeSequencePattern = /\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})|%([0-9a-fA-F]{2})/y;
 const privateKeyBlockPattern = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/dg;
 const urlUserInfoPattern = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^ \t\n\r\f\v/:@'"]+):([^ \t\n\r\f\v/@'"]+)@/dg;
 const userFlagPattern = /(^|[ \t\n\r\f\v])(-u|--user|--proxy-user)([ \t]+|=)/g;
+const sshpassPattern = /(^|[ \t\n\r\f\v])(sshpass[ \t]+-p)([ \t]*)/g;
+const yamlBlockIndicatorPattern = /^[|>][+-]?[0-9]?[ \t]*(?:#[^\n]*)?$/;
 const namedValuePattern = /(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)([ \t]*)([:=])([ \t]*)/g;
 const flagValuePattern = /(^|[ \t\n\r\f\v])(--?)([A-Za-z][A-Za-z0-9_-]*)([ \t]+)/g;
 const standaloneSchemePattern = /\b(bearer|basic|digest)([ \t]+)([A-Za-z0-9._~+/-]+=*)/dgi;
@@ -104,7 +106,8 @@ const bareValueStops = new Set([" ", "\t", "\n", "\r", "\f", "\v", "&", ";", ","
  * Whether an argument, header, field, or variable name looks like it holds a credential, so a display shows its
  * value as {@link redactedArgumentValue}.
  *
- * The name is split into words at `_`, `-`, `.`, spaces, and camelCase boundaries, ignoring case. It is a credential
+ * The name is split into words at `_`, `-`, `.`, and spaces, and again at camelCase boundaries, ignoring case, so
+ * `pAsSwOrD` is one word. It is a credential
  * name when a word is one of `apikey`, `auth`, `authorization`, `bearer`, `cookie`, `cred`, `credential`, `dsn`,
  * `jwt`, `key`, `otp`, `pass`, `passphrase`, `passwd`, `password`, `privatekey`, `pwd`, `secret`, `session`,
  * `sessionid`, `signature`, or `token` (and the plural forms `apikeys`, `cookies`, `creds`, `credentials`,
@@ -125,36 +128,44 @@ const bareValueStops = new Set([" ", "\t", "\n", "\r", "\f", "\v", "&", ";", ","
  * @since 0.6.0
  */
 export function isCredentialLikeName(name: string): boolean {
-  const words = name
-    .replace(/(?<=[a-z0-9])(?=[A-Z])/g, "_")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((word) => word !== "");
-  return (
-    words.some((word) => credentialWords.has(word) || credentialWordEndings.some((ending) => word.endsWith(ending))) ||
-    credentialPhrases.some((phrase) =>
-      words.some((_word, index) => phrase.every((part, offset) => words[index + offset] === part)),
-    )
-  );
+  // Whole lowercased words first, so `pAsSwOrD` matches before camelCase splits it.
+  return [name, name.replace(/(?<=[a-z0-9])(?=[A-Z])/g, "_")].some((spelling) => {
+    const words = spelling
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word !== "");
+    return (
+      words.some((word) => credentialWords.has(word) || credentialWordEndings.some((ending) => word.endsWith(ending))) ||
+      credentialPhrases.some((phrase) =>
+        words.some((_word, index) => phrase.every((part, offset) => words[index + offset] === part)),
+      )
+    );
+  });
 }
 
 /**
- * Replaces the credentials written inline in a text, such as a shell command or a file, with
+ * Replaces common credential shapes written inline in a text, such as a shell command or a file, with
  * {@link redactedArgumentValue}, and leaves every other character as it is.
  *
- * It reads `\uXXXX` and `\xXX` escapes as the characters they stand for, so an escaped name such as `pass\u0077ord`
- * is found, but it returns the text with the escapes as written: only the characters of each credential found are
- * replaced. It replaces private key blocks; the password of a URL such as `https://user:pass@host`; the password of
- * `-u user:pass`, `--user`, and `--proxy-user`; and the whole value after a name that {@link isCredentialLikeName}
- * matches, in a `name=value` assignment, a `name: value` header or field, a JSON member, or a `--name value` flag,
- * which covers query parameters such as `?token=…`. A value ends at its closing quote, escaped quotes included, or
- * at whitespace, `&`, `;`, `,`, `}`, `]`, or `)`; the value of an `Authorization` or `Cookie` header runs to the end
- * of its line, and its scheme, such as `Bearer`, stays. A value that is exactly {@link redactedArgumentValue} stays.
- * Outside a header, a token-shaped word after `Bearer`, `Basic`, or `Digest` is replaced, and so are common token
- * shapes, such as AWS access key IDs and GitHub, Slack, GitLab, and OpenAI-style keys and JWTs. The rules are
- * conservative: a generic `key=value` is replaced too. They cannot find every credential: a value in an unusual form
- * stays as it is. The Python core applies the same rules; the shared cases are in
- * `agents/conformance/approval_display.json`.
+ * It is best-effort hygiene that keeps common credentials out of an approval display, not a security boundary: a
+ * credential in a form it does not know, such as one spelled with Unicode lookalike letters, stays as it is, and the
+ * call's arguments still hold the full text.
+ *
+ * It reads `\uXXXX`, `\xXX`, and `%XX` escapes as the characters they stand for, so an escaped name such as
+ * `pass\u0077ord` or `%70assword` is found, but it returns the text with the escapes as written: only the characters
+ * of each credential found are replaced. It replaces private key blocks; the password of a URL such as
+ * `https://user:pass@host`; the password of `-u user:pass`, `--user`, `--proxy-user`, and `sshpass -p`; and the value
+ * after a name that {@link isCredentialLikeName} matches, in a `name=value` assignment, a `name: value` header or
+ * field, a JSON member, or a `--name value` flag, which covers query parameters such as `?token=…`. A value runs as a
+ * shell word: backslash escapes, line continuations, and adjacent quoted parts join it, escaped quotes stay inside a
+ * quoted part, and it ends at whitespace, `&`, `;`, `,`, `}`, `]`, or `)`; an unclosed quote runs to the end of its
+ * line. A triple-quoted value runs to its closing quotes, or to the end of the text, and a YAML block scalar after
+ * `name: |` or `name: >` covers its indented lines. The value of an `Authorization` or `Cookie` header runs to the end
+ * of its line, with folded and continued lines, and its scheme, such as `Bearer`, stays. A value that is exactly
+ * {@link redactedArgumentValue} stays. Outside a header, a token-shaped word after `Bearer`, `Basic`, or `Digest` is
+ * replaced, and so are common token shapes, such as AWS access key IDs and GitHub, Slack, GitLab, and OpenAI-style
+ * keys and JWTs. The rules are conservative: a generic `key=value` is replaced too. The Python core applies the same
+ * rules; the shared cases are in `agents/conformance/approval_display.json`.
  *
  * @example
  * ```ts
@@ -195,6 +206,7 @@ const secretFinders: readonly ((text: string) => SecretSpan[])[] = [
   (text) => matchSpans(text, privateKeyBlockPattern, 0),
   (text) => matchSpans(text, urlUserInfoPattern, 3),
   (text) => findValueSecrets(text, userFlagPattern, () => "user"),
+  (text) => findValueSecrets(text, sshpassPattern, (_match, valueStart) => (text[valueStart] === "-" ? null : "value")),
   (text) =>
     findValueSecrets(text, namedValuePattern, (match, valueStart) => {
       const isComparison = match[5] === "=" && text[valueStart] === "=";
@@ -221,7 +233,7 @@ function readTextUnits(text: string): TextUnit[] {
     escapeSequencePattern.lastIndex = index;
     const escape = escapeSequencePattern.exec(text);
     if (escape !== null && escape.index === index) {
-      const code = Number.parseInt(escape[1] ?? escape[2]!, 16);
+      const code = Number.parseInt(escape[1] ?? escape[2] ?? escape[3]!, 16);
       // A lone surrogate reads as written, so the text the rules read stays valid Unicode.
       if (code < 0xd800 || code > 0xdfff) {
         units.push({ text: String.fromCharCode(code), start: index, end: index + escape[0].length, isMarker: false });
@@ -298,35 +310,161 @@ function findValueSecrets(
       position = valueStart;
       continue;
     }
+    const isNamed = pattern === namedValuePattern;
     // A quote right before a name, with none after it, is the quote the value ends at.
-    const hasOuterQuote = pattern === namedValuePattern && match[1] !== "" && match[3] === "";
-    const valueEnd = findValueEnd(text, valueStart, kind === "header", hasOuterQuote ? match[1]! : "\u0000");
-    const secret = findSecretInValue(text, valueStart, valueEnd, kind);
-    if (secret !== null) {
-      secrets.push(secret);
+    const outerQuote = isNamed && match[1] !== "" && match[3] === "" ? match[1]! : "";
+    const value = readValue(text, valueStart, kind, outerQuote, isNamed && match[5] === ":" ? match.index : -1);
+    if (value.secret !== null) {
+      secrets.push(value.secret);
     }
-    position = valueEnd;
+    position = Math.max(value.end, valueStart);
   }
 }
 
 /**
- * Where a value starting at `start` ends: its closing quote, a stop character, or, for a header, the line end. An
- * `outerQuote` opened before the name also ends it; another quote continues it, skipping a quoted part that closes.
+ * Reads the value that starts at `start`: a triple-quoted string, a YAML block scalar after `name:` (when
+ * `fieldStart` is the field's index), a header line with its folded and continued lines, or a shell word with its
+ * escapes, adjacent quoted parts, and line continuations. An unclosed quote runs to the end of its line, and an
+ * unclosed triple quote to the end of the text.
+ * @returns Where the value ends and the span that holds the credential, or `null` for none.
  */
-function findValueEnd(text: string, start: number, isHeader: boolean, outerQuote: string): number {
-  if (isQuote(text[start])) {
-    return findQuotedEnd(text, start);
+function readValue(
+  text: string,
+  start: number,
+  kind: ValueKind,
+  outerQuote: string,
+  fieldStart: number,
+): { readonly end: number; readonly secret: SecretSpan | null } {
+  for (const delimiter of ['"""', "'''"]) {
+    if (text.startsWith(delimiter, start)) {
+      const close = text.indexOf(delimiter, start + 3);
+      const end = close < 0 ? text.length : close + 3;
+      return { end, secret: secretSpan(text, start + 3, close < 0 ? text.length : close) };
+    }
   }
-  let index = start;
-  while (index < text.length && text[index] !== outerQuote) {
-    const character = text[index]!;
-    if (isHeader ? character === "\n" || character === "\r" : bareValueStops.has(character)) {
+  const lineEnd = findLineEnd(text, start);
+  if (fieldStart >= 0 && yamlBlockIndicatorPattern.test(text.slice(start, lineEnd))) {
+    const blockEnd = findYamlBlockEnd(text, fieldStart, lineEnd);
+    return { end: blockEnd, secret: blockEnd > lineEnd ? secretSpan(text, lineEnd + 1, blockEnd) : null };
+  }
+  if (kind === "header" && !isQuote(text[start])) {
+    const end = findHeaderEnd(text, start, outerQuote);
+    const scheme = authorizationSchemePattern.exec(text.slice(start, end));
+    return { end, secret: secretSpan(text, start + (scheme === null ? 0 : scheme[0].length), end) };
+  }
+  const end = findShellWordEnd(text, start, outerQuote);
+  const quote = text[start];
+  const isQuoted = isQuote(quote) && end - start >= 2 && text[end - 1] === quote;
+  let secretStart = isQuoted ? start + 1 : start;
+  const secretEnd = isQuoted ? end - 1 : end;
+  if (kind === "user") {
+    const separator = text.slice(secretStart, secretEnd).indexOf(":");
+    secretStart = separator < 0 ? secretEnd : secretStart + separator + 1;
+  }
+  return { end, secret: secretSpan(text, secretStart, secretEnd) };
+}
+
+/** The span, or `null` when it is empty or already exactly the marker. */
+function secretSpan(text: string, start: number, end: number): SecretSpan | null {
+  const secret = text.slice(start, end);
+  return secret === "" || secret === redactedArgumentValue ? null : [start, end];
+}
+
+function findLineEnd(text: string, start: number): number {
+  const newline = text.indexOf("\n", start);
+  return newline < 0 ? text.length : newline;
+}
+
+/** The end of the YAML block whose indicator line ends at `indicatorEnd`: its lines indented past the field's. */
+function findYamlBlockEnd(text: string, fieldStart: number, indicatorEnd: number): number {
+  const fieldLineStart = text.lastIndexOf("\n", fieldStart - 1) + 1;
+  const fieldIndent = countIndent(text, fieldLineStart);
+  let blockEnd = indicatorEnd;
+  let lineStart = indicatorEnd + 1;
+  while (lineStart <= text.length && indicatorEnd < text.length) {
+    const lineEnd = findLineEnd(text, lineStart);
+    const isBlank = text.slice(lineStart, lineEnd).trim() === "";
+    if (!isBlank && countIndent(text, lineStart) <= fieldIndent) {
       break;
     }
-    const quotedEnd = isQuote(character) ? findQuotedEnd(text, index) : index + 1;
-    index = quotedEnd - 1 > index && text[quotedEnd - 1] === character ? quotedEnd : index + 1;
+    if (!isBlank) {
+      blockEnd = lineEnd;
+    }
+    if (lineEnd >= text.length) {
+      break;
+    }
+    lineStart = lineEnd + 1;
+  }
+  return blockEnd;
+}
+
+function countIndent(text: string, lineStart: number): number {
+  let index = lineStart;
+  while (text[index] === " " || text[index] === "\t") {
+    index += 1;
+  }
+  return index - lineStart;
+}
+
+/** The end of a header value: its line, and each next line a `\\` continues or that starts with a space or tab. */
+function findHeaderEnd(text: string, start: number, outerQuote: string): number {
+  let index = start;
+  while (index < text.length && text[index] !== outerQuote) {
+    if (text[index] === "\\" && (text[index + 1] === "\n" || text[index + 1] === "\r")) {
+      index += text[index + 1] === "\r" && text[index + 2] === "\n" ? 3 : 2;
+      continue;
+    }
+    if (text[index] === "\n" || text[index] === "\r") {
+      const next = text[index] === "\r" && text[index + 1] === "\n" ? index + 2 : index + 1;
+      if (text[next] === " " || text[next] === "\t") {
+        index = next;
+        continue;
+      }
+      break;
+    }
+    index += 1;
+  }
+  return trimEndIndex(text, start, index);
+}
+
+function trimEndIndex(text: string, start: number, end: number): number {
+  let index = end;
+  while (index > start && (text[index - 1] === "\r" || text[index - 1] === "\n")) {
+    index -= 1;
   }
   return index;
+}
+
+/**
+ * The end of a shell word, or of a JSON or YAML value: a backslash escapes the next character, a line continuation
+ * included; a closed quoted part continues the word; an unclosed quote runs to the end of its line; and a stop
+ * character or `outerQuote` ends it.
+ */
+function findShellWordEnd(text: string, start: number, outerQuote: string): number {
+  let index = start;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (outerQuote !== "" && character === outerQuote) {
+      break;
+    }
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (isQuote(character)) {
+      const quotedEnd = findQuotedEnd(text, index);
+      if (quotedEnd - 1 > index && text[quotedEnd - 1] === character) {
+        index = quotedEnd;
+        continue;
+      }
+      return findLineEnd(text, index);
+    }
+    if (bareValueStops.has(character)) {
+      break;
+    }
+    index += 1;
+  }
+  return Math.min(index, text.length);
 }
 
 /** The index after the quote that closes the one at `start`, skipping escaped double quotes, or the line end. */
@@ -337,27 +475,6 @@ function findQuotedEnd(text: string, start: number): number {
     index += quote === '"' && text[index] === "\\" ? 2 : 1;
   }
   return Math.min(index < text.length && text[index] === quote ? index + 1 : index, text.length);
-}
-
-/** The span of a value that holds the credential: inside its quotes, after a header's scheme, or after `user:`. */
-function findSecretInValue(text: string, start: number, end: number, kind: ValueKind): SecretSpan | null {
-  if (end <= start) {
-    return null;
-  }
-  const quote = isQuote(text[start]) ? text[start]! : "";
-  const isClosed = quote !== "" && end - start >= 2 && text[end - 1] === quote;
-  let innerStart = quote === "" ? start : start + 1;
-  const innerEnd = isClosed ? end - 1 : end;
-  const inner = text.slice(innerStart, innerEnd);
-  if (kind === "user") {
-    const separator = inner.indexOf(":");
-    innerStart = separator < 0 ? innerEnd : innerStart + separator + 1;
-  } else if (kind === "header" && quote === "") {
-    const scheme = authorizationSchemePattern.exec(inner);
-    innerStart += scheme === null ? 0 : scheme[0].length;
-  }
-  const secret = text.slice(innerStart, innerEnd);
-  return secret === "" || secret === redactedArgumentValue ? null : [innerStart, innerEnd];
 }
 
 function isHeaderName(name: string): boolean {
@@ -392,7 +509,8 @@ export interface ConnectorToolApprovalDisplayInput {
  * The target is `<connectorId>/<connectionName>`. The summary names the operation and the connection and lists up to
  * five top-level arguments in argument order: each string of at most 80 characters on one line, number, and boolean,
  * as JSON. A credential-like argument (see {@link isCredentialLikeName}) shows {@link redactedArgumentValue} instead
- * of its value, and a string value has its inline credentials replaced (see {@link redactInlineCredentials}). Longer
+ * of its value, and string values and the connector, connection, and operation names have their inline credentials
+ * replaced (see {@link redactInlineCredentials}), as best-effort hygiene. Longer
  * text, objects, and lists are left out; the approval UI shows them from the arguments. The summary never uses the
  * operation's description, which says what the operation is for, not what this call does. `ConnectorToolSource` and
  * the CLI's connector tools use it; a source of other connector tools may too.
@@ -413,9 +531,11 @@ export interface ConnectorToolApprovalDisplayInput {
  */
 export function buildConnectorToolApprovalDisplay(input: ConnectorToolApprovalDisplayInput): AgentInterruptDisplay {
   const keyArguments = describeKeyArguments(input.arguments);
-  const head = `Calls ${input.connectorId} ${input.operation} with connection ${input.connectionName}`;
+  const connectorId = redactInlineCredentials(input.connectorId);
+  const connectionName = redactInlineCredentials(input.connectionName);
+  const head = `Calls ${connectorId} ${redactInlineCredentials(input.operation)} with connection ${connectionName}`;
   return {
-    target: `${input.connectorId}/${input.connectionName}`,
+    target: `${connectorId}/${connectionName}`,
     summary: keyArguments.length === 0 ? `${head}.` : `${head}; ${keyArguments.join(", ")}.`,
     preview: null,
   };

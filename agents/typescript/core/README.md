@@ -1308,13 +1308,17 @@ for (const interrupt of snapshot.pendingInterrupts) {
   inline credentials redacted and its control characters escaped, cut at 2 KiB; the full command is in the call's
   arguments.
 - A display never says how often the call runs or what it achieves, and never uses a tool's description as its
-  effect. A credential-like argument (`isCredentialLikeName`) shows `<redacted>`, and `redactInlineCredentials`
-  replaces credentials written inline: the whole value after a credential-like name, `Authorization` and `Cookie`
-  header values, URL passwords, and common token shapes. It reads `\uXXXX` and `\xXX` escapes as the characters
-  they stand for to find credentials, but changes no other text: escapes stay as written, and only the characters
-  of each credential become `<redacted>`. It is
-  conservative, so a generic `key=value` is redacted too, and the CLI leaves out a file preview whose text it
-  changes. It finds common forms only; `agents/conformance/approval_display.json` lists the cases both cores share.
+  effect.
+- Redaction in a display is best-effort hygiene, not a security boundary. The display's text comes from the call's
+  arguments, which the session stores in full as before, and an agent can read a workspace file with its own tools.
+  A credential-like argument (`isCredentialLikeName`) shows `<redacted>`, and `redactInlineCredentials` replaces
+  common credential shapes: the value after a credential-like name, read as a shell word, a triple-quoted string, or
+  a YAML block; `Authorization` and `Cookie` header values; URL passwords; `sshpass -p`; and common token shapes.
+  It reads `\uXXXX`, `\xXX`, and `%XX` escapes to find credentials but changes no other text: escapes stay as
+  written, and only the characters of each credential become `<redacted>`. It is conservative, so a generic
+  `key=value` is redacted too, and the CLI leaves out a file preview whose text it changes. It finds common forms
+  only, and Unicode lookalike letters are out of scope; `agents/conformance/approval_display.json` lists the cases
+  both cores share.
 - The session cuts a target over `maxApprovalTargetBytes` (1 KiB) and a summary over `maxApprovalSummaryBytes`
   (2 KiB), ending them with `…`, and drops a preview over `maxApprovalPreviewBytes` (16 KiB). A tool without a
   display, and every approval a Worker before 0.6.0 raised, has `display` `null`: show the concrete arguments, not a

@@ -22,20 +22,22 @@ section: Added
   `<connector>/<connection>`, and the summary names the operation, the
   connection, and up to five short scalar arguments, never the operation's
   description. A credential-like argument, such as `credentials`, `apiKey`, or
-  `PGPASSWORD`, shows `<redacted>`, and string values have their inline
-  credentials replaced. The new `is_credential_like_name`
+  `PGPASSWORD`, shows `<redacted>`, and string values and names have common
+  credential shapes replaced. The new `is_credential_like_name`
   (`isCredentialLikeName`) and `redact_inline_credentials`
   (`redactInlineCredentials`) hold the rules, and
-  `agents/conformance/approval_display.json` fixes them for every core.
+  `agents/conformance/approval_display.json` fixes them for every core. This
+  redaction is best-effort hygiene for displayed text, not a security
+  boundary: the session stores the call's full arguments as before.
 - Python and TypeScript CLI cores: a `write_file` or `edit_file` approval names
   the workspace path and carries a unified diff of the file as it is when the
   model asks against the new content, with header lines that say so and
   `\ No newline at end of file` markers. The preview reads the file with the
   write's own link and workspace checks. It is left out for files or content
-  over 64 KiB, diffs over 200 lines, paths the write would refuse, content
-  with an inline credential, and credential files such as `.env`,
-  `.aws/credentials`, `.kube/config`, or `secrets.yaml`. A
+  over 64 KiB, diffs over 200 lines, paths the write would refuse, content the
+  best-effort credential redaction changes, and credential files such as
+  `.env`, `.aws/credentials`, `.kube/config`, or `secrets.yaml`. A
   `run_shell_command` approval names the working directory and the command
-  with its inline credentials redacted; the call's arguments keep the full
+  with common credential shapes redacted; the call's arguments keep the full
   command. A connector tool's approval names its operation, connection, and
   short arguments.

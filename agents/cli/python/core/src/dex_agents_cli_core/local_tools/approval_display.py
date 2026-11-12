@@ -87,7 +87,7 @@ def build_write_file_display(
 ) -> AgentInterruptDisplay:
     """Return a ``write_file`` call's path, size, and diff against the file now."""
     source = files.read_text_for_preview(path, MAX_PREVIEW_INPUT_BYTES)
-    target = escape_control_characters(path if source is None else source[0])
+    target = _describe_path(path if source is None else source[0])
     return AgentInterruptDisplay(
         target=target,
         summary=f"Writes {_describe_bytes(content)} to {target}.",
@@ -100,7 +100,7 @@ def build_edit_file_display(
 ) -> AgentInterruptDisplay:
     """Return an ``edit_file`` call's path, sizes, and diff when ``old_text`` occurs once."""
     source = files.read_text_for_preview(path, MAX_PREVIEW_INPUT_BYTES)
-    target = escape_control_characters(path if source is None else source[0])
+    target = _describe_path(path if source is None else source[0])
     current = None if source is None else source[1]
     preview = None
     if source is not None and current is not None and old_text and current.count(old_text) == 1:
@@ -121,13 +121,24 @@ def build_shell_command_display(workspace: str, command: str) -> AgentInterruptD
     escaped; the full command stays in the call's arguments. The session cuts a summary over
     ``MAX_APPROVAL_SUMMARY_BYTES``.
     """
-    directory = escape_control_characters(workspace)
+    directory = _describe_path(workspace)
     return AgentInterruptDisplay(
         target=directory,
         summary=(
             f"Runs a shell command in {directory}: "
             f"{escape_control_characters(redact_inline_credentials(command))}"
         ),
+    )
+
+
+def _describe_path(path: str) -> str:
+    """Return a path as displays show it.
+
+    Each component's inline credentials are redacted, as in a ``password=…``
+    name, and control characters are escaped.
+    """
+    return escape_control_characters(
+        "/".join(redact_inline_credentials(part) for part in path.split("/"))
     )
 
 
@@ -195,7 +206,7 @@ def build_file_preview(display_path: str, current_text: str | None, new_text: st
         or (current_text is not None and _has_inline_credential(current_text))
     ):
         return None
-    diff = _unified_diff(escape_control_characters(display_path), current_text, new_text)
+    diff = _unified_diff(_describe_path(display_path), current_text, new_text)
     if diff is None or len(diff.encode("utf-8", "surrogatepass")) > MAX_APPROVAL_PREVIEW_BYTES:
         return None
     return diff

@@ -609,10 +609,11 @@ export type AgentInterruptKind = "tool_approval" | "question";
  * description.
  *
  * The text describes the request, not its result: it never says how often the call runs or what it achieves,
- * because a retried write may run again and a provider may refuse it. It never holds a credential: a source shows
- * the value of a credential-like argument, such as `api_key`, `clientSecret`, or `credentials`, as `<redacted>` (see
- * {@link isCredentialLikeName}), and replaces credentials written inline in text it shows (see
- * {@link redactInlineCredentials}). The session cuts a target over {@link maxApprovalTargetBytes} and a summary
+ * because a retried write may run again and a provider may refuse it. Its text comes from the call's arguments, which
+ * the session stores in full as before. As best-effort hygiene, a source shows the value of a credential-like
+ * argument, such as `api_key`, `clientSecret`, or `credentials`, as `<redacted>` (see {@link isCredentialLikeName}),
+ * and replaces common credential shapes in text it shows (see {@link redactInlineCredentials}). This is not a
+ * security boundary: a credential in another form can still appear. The session cuts a target over {@link maxApprovalTargetBytes} and a summary
  * over {@link maxApprovalSummaryBytes}, ending them with `…`, and drops a preview over
  * {@link maxApprovalPreviewBytes}, so a display adds little to the records that hold it.
  *

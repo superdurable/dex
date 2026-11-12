@@ -59,7 +59,7 @@ const credentialStemEndings = ["apikey", "credentials", "password", "passwd", "s
  */
 export function buildWriteFileDisplay(files: WorkspaceFiles, path: string, content: string): AgentInterruptDisplay {
   const source = files.readTextForPreview(path, maximumPreviewInputBytes);
-  const target = escapeControlCharacters(source?.displayPath ?? path);
+  const target = describePath(source?.displayPath ?? path);
   return {
     target,
     summary: `Writes ${describeBytes(content)} to ${target}.`,
@@ -83,7 +83,7 @@ export function buildEditFileDisplay(
   newText: string,
 ): AgentInterruptDisplay {
   const source = files.readTextForPreview(path, maximumPreviewInputBytes);
-  const target = escapeControlCharacters(source?.displayPath ?? path);
+  const target = describePath(source?.displayPath ?? path);
   const current = source?.text ?? null;
   const isEditable = current !== null && oldText !== "" && current.split(oldText).length === 2;
   return {
@@ -105,12 +105,20 @@ export function buildEditFileDisplay(
  * @returns The display.
  */
 export function buildShellCommandDisplay(workspace: string, command: string): AgentInterruptDisplay {
-  const directory = escapeControlCharacters(workspace);
+  const directory = describePath(workspace);
   return {
     target: directory,
     summary: `Runs a shell command in ${directory}: ${escapeControlCharacters(redactInlineCredentials(command))}`,
     preview: null,
   };
+}
+
+/**
+ * A path as displays show it: each component's inline credentials redacted, as in a `password=…` name, and control
+ * characters escaped.
+ */
+function describePath(path: string): string {
+  return escapeControlCharacters(path.split("/").map(redactInlineCredentials).join("/"));
 }
 
 /**
@@ -182,7 +190,7 @@ export function buildFilePreview(displayPath: string, currentText: string | null
   ) {
     return null;
   }
-  const diff = buildUnifiedDiff(escapeControlCharacters(displayPath), currentText, newText);
+  const diff = buildUnifiedDiff(describePath(displayPath), currentText, newText);
   return diff !== undefined && Buffer.byteLength(diff, "utf8") <= maxApprovalPreviewBytes ? diff : null;
 }
 

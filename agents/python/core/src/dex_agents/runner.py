@@ -324,8 +324,9 @@ class DeferredToolCall:
             it for other calls. Build it from the call's concrete arguments:
             name the target and what the call does to it, show a
             credential-like argument as ``"<redacted>"`` and pass shown text
-            through ``redact_inline_credentials``, and never promise how often
-            the call runs or what it achieves. The session cuts a target over
+            through ``redact_inline_credentials`` as best-effort hygiene (the
+            session stores the full arguments anyway), and never promise how
+            often the call runs or what it achieves. The session cuts a target over
             ``MAX_APPROVAL_TARGET_BYTES`` and a summary over
             ``MAX_APPROVAL_SUMMARY_BYTES`` and drops a preview over
             ``MAX_APPROVAL_PREVIEW_BYTES``. The
