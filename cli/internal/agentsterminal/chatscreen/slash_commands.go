@@ -23,11 +23,13 @@ const (
 	dropCommandName    = "drop"
 	planCommandName    = "plan"
 	runCommandName     = "run"
+	copyCommandName    = "copy"
 )
 
 // screenCommands are the commands the chat screen runs itself.
 var screenCommands = []sessionfeed.SlashCommand{
 	{Name: approveCommandName, Description: "open the waiting approvals and questions"},
+	{Name: copyCommandName, Description: "copy the last reply to the clipboard"},
 	{Name: dropCommandName, Description: "delete the last queued message"},
 	{Name: exitCommandName, Description: "exit; the session stays in Dex"},
 	{Name: helpCommandName, Description: "list keys and commands"},

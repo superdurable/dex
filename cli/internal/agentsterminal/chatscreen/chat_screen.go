@@ -6,20 +6,18 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-// Package chatscreen is the inline agents chat screen. Finished blocks go to
-// the terminal scrollback.
+// Package chatscreen is the full-screen agents chat: a scrollable message
+// view, the input, and a two-line status bar.
 package chatscreen
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/colorprofile"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 )
@@ -31,31 +29,24 @@ type ChatScreenConfig struct {
 	// Theme holds the styles and symbols. Required; build it with
 	// terminaltheme.NewTheme.
 	Theme terminaltheme.Theme
-	// PrintScrollback writes finished lines above the live area. Required; see
-	// NewScrollbackPrinter.
-	PrintScrollback func(text string) tea.Cmd
 	// Now returns the current time. Default: time.Now. Tests fix it so
 	// spinner frames and elapsed times are stable.
 	Now func() time.Time
 	// SessionCommands are the source's slash commands. Default: none. They
 	// cannot redefine the screen's own commands.
 	SessionCommands []sessionfeed.SlashCommand
-	// IsTerminalReflowing reports a terminal that rewraps lines when it
-	// narrows. Default false. See ReflowCorrection.
-	IsTerminalReflowing bool
-	// ShowsStartupLogo prints the Dex logo above the first frame on a 40x15
+	// ShowsStartupLogo shows the Dex logo in the welcome area on a 40x15
 	// terminal or larger. Default false.
 	ShowsStartupLogo bool
 }
 
 // ChatScreen is the chat screen model.
 type ChatScreen struct {
-	ctx             context.Context
-	source          sessionfeed.ChatSessionSource
-	theme           terminaltheme.Theme
-	printScrollback func(text string) tea.Cmd
-	now             func() time.Time
-	commands        slashCommandRegistry
+	ctx      context.Context
+	source   sessionfeed.ChatSessionSource
+	theme    terminaltheme.Theme
+	now      func() time.Time
+	commands slashCommandRegistry
 
 	width  int
 	height int
@@ -85,8 +76,10 @@ type ChatScreen struct {
 	replies           *replyStream
 	liveToolCalls     []sessionfeed.ToolCallChanged
 	turnToolNameWidth int
-	pendingLines      []string
-	lastBlockKind     scrollbackBlockKind
+	history           transcript
+	scroll            messageScroll
+	lastReplyText     string
+	isLogoAllowed     bool
 
 	interrupts        []pendingInterrupt
 	isPopupOpen       bool
@@ -108,20 +101,15 @@ type ChatScreen struct {
 	cancelRequestedTurnID     string
 	isWaitingForSessionUpdate bool
 	isTicking                 bool
-	isPrinting                bool
-	sessionCommands           []sessionfeed.SlashCommand
-	messageQueue              []sessionfeed.SendUserMessage
-	isSendingMessage          bool
-	isTerminalReflowing       bool
-	lastFrame                 renderedFrame
-	isLogoPending             bool
-}
-
-// renderedFrame is the last drawn live area: its line widths and cursor.
-type renderedFrame struct {
-	lineWidths   []int
-	cursorRow    int
-	cursorColumn int
+	helpScrollFromTop         int
+	exitReason                string
+	// openedSession is the first SessionOpened, which the welcome area shows
+	// with the newest model.
+	openedSession    sessionfeed.SessionOpened
+	isSessionKnown   bool
+	sessionCommands  []sessionfeed.SlashCommand
+	messageQueue     []sessionfeed.SendUserMessage
+	isSendingMessage bool
 }
 
 // activeTurn is the running turn shown in the context line.
@@ -151,18 +139,6 @@ const (
 	pendingFocusQueuedMessage
 )
 
-// scrollbackBlockKind decides where blank lines separate printed blocks.
-type scrollbackBlockKind int
-
-const (
-	scrollbackBlockNone scrollbackBlockKind = iota
-	scrollbackBlockUserMessage
-	scrollbackBlockReply
-	scrollbackBlockToolRow
-	scrollbackBlockNotice
-	scrollbackBlockLogo
-)
-
 type sessionUpdateMsg struct {
 	update sessionfeed.SessionUpdate
 }
@@ -185,11 +161,10 @@ type messageSubmittedMsg struct {
 
 type animationTickMsg struct{}
 
-// scrollbackPrintedMsg follows each printed block, so the next block is
-// printed only after it and blocks keep their order.
-type scrollbackPrintedMsg struct{}
-
-const defaultScreenWidth = 80
+const (
+	defaultScreenWidth  = 80
+	defaultScreenHeight = 24
+)
 
 // NewChatScreen returns a chat screen whose source calls use ctx. Cancel ctx
 // after the program ends.
@@ -200,9 +175,6 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 	if config.Source == nil {
 		panic("chat screen source must not be nil")
 	}
-	if config.PrintScrollback == nil {
-		panic("chat screen scrollback printer must not be nil")
-	}
 	if len(config.Theme.Symbols.SpinnerFrames) == 0 {
 		panic("chat screen theme must come from terminaltheme.NewTheme")
 	}
@@ -210,32 +182,43 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 	if now == nil {
 		now = time.Now
 	}
-	return &ChatScreen{
-		ctx:                 ctx,
-		source:              config.Source,
-		theme:               config.Theme,
-		printScrollback:     config.PrintScrollback,
-		now:                 now,
-		commands:            newSlashCommandRegistry(config.SessionCommands, false),
-		sessionCommands:     config.SessionCommands,
-		isTerminalReflowing: config.IsTerminalReflowing,
-		isLogoPending:       config.ShowsStartupLogo,
-		width:               defaultScreenWidth,
-		isServerReachable:   true,
-		replies:             newReplyStream(),
-		interruptFeedback:   map[string]string{},
-		interruptOutcomes:   map[string]string{},
-		printedSequences:    map[int64]bool{},
-		notices:             newNoticeFilter(),
+	screen := &ChatScreen{
+		ctx:               ctx,
+		source:            config.Source,
+		theme:             config.Theme,
+		now:               now,
+		commands:          newSlashCommandRegistry(config.SessionCommands, false),
+		sessionCommands:   config.SessionCommands,
+		isLogoAllowed:     config.ShowsStartupLogo,
+		width:             defaultScreenWidth,
+		height:            defaultScreenHeight,
+		scroll:            messageScroll{isFollowing: true},
+		isServerReachable: true,
+		replies:           newReplyStream(),
+		interruptFeedback: map[string]string{},
+		interruptOutcomes: map[string]string{},
+		printedSequences:  map[int64]bool{},
+		notices:           newNoticeFilter(),
 	}
+	screen.history.Append(transcriptBlockWelcome, screen.welcome())
+	return screen
 }
 
-// NewScrollbackPrinter downsamples each block to profile, because Bubble Tea
-// prints scrollback lines unchanged.
-func NewScrollbackPrinter(profile colorprofile.Profile) func(text string) tea.Cmd {
-	return func(text string) tea.Cmd {
-		return tea.Println(terminaltheme.DownsampleStyledText(profile, text))
+func (screen *ChatScreen) welcome() welcomeBlock {
+	isLogoShown := screen.isLogoAllowed && screen.width >= minimumLogoWidth && screen.height >= minimumLogoHeight
+	session := screen.session
+	session.IsNewSession = screen.openedSession.IsNewSession
+	return welcomeBlock{session: session, isLogoShown: isLogoShown}
+}
+
+// ExitSummary is the line printed after the full screen closes: where the
+// session stays.
+func (screen *ChatScreen) ExitSummary() string {
+	if screen.session.SessionID == "" {
+		return screen.exitReason
 	}
+	summary := "Session " + screen.session.SessionID + " stays in Dex. Resume with: " + screen.resumeCommand()
+	return strings.TrimSpace(screen.exitReason + " " + summary)
 }
 
 // ExitCode returns the process exit code after the program ends: 1 when the
@@ -254,13 +237,10 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	var commands []tea.Cmd
 	switch typed := message.(type) {
 	case tea.WindowSizeMsg:
-		screen.width, screen.height = typed.Width, typed.Height
-		if screen.isLogoPending {
-			screen.isLogoPending = false
-			if typed.Width >= minimumLogoWidth && typed.Height >= minimumLogoHeight {
-				screen.printBlock(scrollbackBlockLogo, renderStartupLogo(screen.theme))
-			}
-		}
+		screen.width, screen.height = max(typed.Width, 1), max(typed.Height, 1)
+		screen.history.Replace(0, screen.welcome())
+	case tea.MouseWheelMsg:
+		screen.handleMouseWheel(typed)
 	case tea.KeyPressMsg:
 		commands = append(commands, screen.handleKey(typed))
 	case tea.PasteMsg:
@@ -285,83 +265,11 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case animationTickMsg:
 		screen.isTicking = false
 		commands = append(commands, screen.startAnimation())
-	case scrollbackPrintedMsg:
-		screen.isPrinting = false
 	}
-	commands = append(commands, screen.flushScrollback())
-	if screen.isExiting && !screen.isPrinting {
+	if screen.isExiting {
 		commands = append(commands, tea.Quit)
 	}
 	return screen, tea.Batch(commands...)
-}
-
-// View draws the live area. It is empty while exiting, so only the
-// scrollback stays on the terminal.
-func (screen *ChatScreen) View() tea.View {
-	if screen.isExiting {
-		return tea.NewView("")
-	}
-	content, cursor := screen.renderLiveArea()
-	screen.rememberFrame(content, cursor)
-	view := tea.NewView(content)
-	view.Cursor = cursor
-	return view
-}
-
-func (screen *ChatScreen) rememberFrame(content string, cursor *tea.Cursor) {
-	lines := strings.Split(content, "\n")
-	frame := renderedFrame{lineWidths: make([]int, len(lines))}
-	for index, line := range lines {
-		frame.lineWidths[index] = terminaltheme.DisplayWidth(line)
-	}
-	frame.cursorRow, frame.cursorColumn = len(lines)-1, frame.lineWidths[len(lines)-1]
-	if cursor != nil {
-		frame.cursorRow, frame.cursorColumn = cursor.Y, cursor.X
-	}
-	screen.lastFrame = frame
-}
-
-// ReflowCorrection returns a cursor-up that lets the renderer erase an old
-// frame the terminal rewrapped when narrowing.
-func (screen *ChatScreen) ReflowCorrection(width int) string {
-	if !screen.isTerminalReflowing || width <= 0 || width >= screen.width {
-		return ""
-	}
-	addedRows := 0
-	for row, lineWidth := range screen.lastFrame.lineWidths {
-		if row >= screen.lastFrame.cursorRow {
-			break
-		}
-		addedRows += max((lineWidth-1)/width, 0)
-	}
-	addedRows += screen.lastFrame.cursorColumn / width
-	if addedRows == 0 {
-		return ""
-	}
-	return fmt.Sprintf("\x1b[%dA", addedRows)
-}
-
-// NewResizeFilter returns the Bubble Tea message filter that writes the
-// screen's ReflowCorrection to output before a resize is handled.
-func NewResizeFilter(screen *ChatScreen, output io.Writer) func(tea.Model, tea.Msg) tea.Msg {
-	return func(_ tea.Model, message tea.Msg) tea.Msg {
-		size, isSize := message.(tea.WindowSizeMsg)
-		if !isSize {
-			return message
-		}
-		if correction := screen.ReflowCorrection(size.Width); correction != "" {
-			if _, err := io.WriteString(output, correction); err != nil {
-				// The resize still applies; only stale rows of the old frame may remain.
-				return message
-			}
-		}
-		return message
-	}
-}
-
-// contentWidth is the width finished blocks and the live area are drawn at.
-func (screen *ChatScreen) contentWidth() int {
-	return min(max(screen.width, 1), maximumContentWidth)
 }
 
 func (screen *ChatScreen) waitForSessionUpdate() tea.Cmd {
@@ -431,17 +339,25 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 	if keyName == "ctrl+c" {
 		return screen.handleInterruptKey()
 	}
+	if screen.handleScrollKey(key) {
+		return nil
+	}
 	if keyName == "ctrl+z" {
 		screen.printNotice(sessionfeed.NoticeSeverityWarning, "Ctrl-Z does not suspend this chat. Exit with Ctrl-D; the session keeps running.")
 		return nil
 	}
 	if keyName == "f1" {
-		screen.isHelpOpen = !screen.isHelpOpen
+		screen.isHelpOpen, screen.helpScrollFromTop = !screen.isHelpOpen, 0
 		return nil
 	}
 	if screen.isHelpOpen {
-		if keyName == "esc" || keyName == "q" {
+		switch keyName {
+		case "esc", "q":
 			screen.isHelpOpen = false
+		case "pgup":
+			screen.helpScrollFromTop = max(screen.helpScrollFromTop-popupScrollStep, 0)
+		case "pgdown":
+			screen.helpScrollFromTop += popupScrollStep
 		}
 		return nil
 	}
@@ -541,7 +457,7 @@ func (screen *ChatScreen) sendMessage(message sessionfeed.SendUserMessage) tea.C
 	if screen.isTurnRunning || screen.isTurnStarting {
 		screen.localQueuedTexts = append(screen.localQueuedTexts, message.Text)
 	} else {
-		screen.printBlock(scrollbackBlockUserMessage, renderUserMessage(message.Text, "", message.Images, screen.contentWidth(), screen.theme))
+		screen.printUserMessage(userMessageBlock{text: message.Text, images: message.Images})
 		screen.isTurnStarting = true
 	}
 	return screen.queueMessage(message)
@@ -565,8 +481,10 @@ func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
 	}
 	switch parsed.name {
 	case helpCommandName:
-		screen.isHelpOpen = true
+		screen.isHelpOpen, screen.helpScrollFromTop = true, 0
 		return nil
+	case copyCommandName:
+		return screen.copyLastReply()
 	case exitCommandName:
 		screen.exit(0)
 		return nil
@@ -586,6 +504,17 @@ func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
 		return screen.runPlan()
 	}
 	return screen.submitAction(sessionfeed.RunSlashCommand{Name: parsed.name, Argument: parsed.argument})
+}
+
+// copyLastReply copies the last reply's markdown with OSC 52, which most
+// terminals pass to the system clipboard.
+func (screen *ChatScreen) copyLastReply() tea.Cmd {
+	if screen.lastReplyText == "" {
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no reply to copy yet")
+		return nil
+	}
+	screen.printNotice(sessionfeed.NoticeSeverityInfo, "copied the last reply to the clipboard")
+	return tea.SetClipboard(screen.lastReplyText)
 }
 
 // openWaitingInterrupt opens the first waiting approval or question. It
@@ -880,7 +809,11 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 	switch typed := replaceUpdateControlCharacters(update).(type) {
 	case sessionfeed.SessionOpened:
 		screen.session = typed
+		if !screen.isSessionKnown {
+			screen.openedSession, screen.isSessionKnown = typed, true
+		}
 		screen.lastTurnNumber = max(screen.lastTurnNumber, typed.TurnCount)
+		screen.history.Replace(0, screen.welcome())
 		screen.commands = newSlashCommandRegistry(screen.sessionCommands, typed.SupportsPlanMode)
 	case sessionfeed.SessionLoaded:
 		if !screen.isSessionLoaded {
@@ -952,7 +885,12 @@ func (screen *ChatScreen) printRecordedUserMessage(recorded sessionfeed.UserMess
 		screen.printedSequences[recorded.Sequence] = true
 	}
 	screen.flushReplies()
-	screen.printBlock(scrollbackBlockUserMessage, renderUserMessage(recorded.Text, recorded.Origin, recorded.Images, screen.contentWidth(), screen.theme))
+	screen.printUserMessage(userMessageBlock{text: recorded.Text, origin: recorded.Origin, images: recorded.Images})
+}
+
+func (screen *ChatScreen) printUserMessage(block userMessageBlock) {
+	screen.lastReplyText = ""
+	screen.appendBlock(transcriptBlockUserMessage, block)
 }
 
 func (screen *ChatScreen) printHistoryWindow(window sessionfeed.HistoryWindowChanged) {
@@ -1018,9 +956,7 @@ func (screen *ChatScreen) endTurn(ended sessionfeed.TurnEnded) {
 	screen.liveToolCalls = nil
 	switch ended.Outcome {
 	case sessionfeed.TurnOutcomeCancelled:
-		screen.printBlock(scrollbackBlockNotice, []string{
-			contentIndent + screen.theme.Secondary.Render(screen.theme.Symbols.NotRun+" turn cancelled; the reply above is incomplete"),
-		})
+		screen.appendBlock(transcriptBlockNotice, turnCancelledBlock{})
 	case sessionfeed.TurnOutcomeFailed:
 		screen.printNotice(sessionfeed.NoticeSeverityError, ended.FailureText)
 	}
@@ -1078,6 +1014,7 @@ func (screen *ChatScreen) applyWorkerState(changed sessionfeed.WorkerStateChange
 	}
 	screen.flushReplies()
 	screen.printNotice(sessionfeed.NoticeSeverityError, text)
+	screen.exitReason = fmt.Sprintf("The Worker stopped (exit %d).", changed.ExitCode)
 	screen.disableInput(1)
 }
 
@@ -1094,6 +1031,7 @@ func (screen *ChatScreen) handleFeedFailure(err error) tea.Cmd {
 		text += hint
 	}
 	screen.printNotice(sessionfeed.NoticeSeverityError, text)
+	screen.exitReason = "The command stopped."
 	screen.exit(1)
 	return nil
 }
@@ -1241,493 +1179,16 @@ func (screen *ChatScreen) printReplyOutputs(outputs []replyOutput) {
 		case replyOutputCorrection:
 			screen.printNotice(sessionfeed.NoticeSeverityInfo, output.text)
 		default:
-			screen.printBlock(scrollbackBlockReply, renderAssistantMarkdown(output.text, screen.contentWidth(), screen.theme))
+			screen.lastReplyText = strings.TrimLeft(screen.lastReplyText+"\n\n"+output.text, "\n")
+			screen.appendBlock(transcriptBlockReply, replyBlock{markdown: output.text})
 		}
 	}
 }
 
 func (screen *ChatScreen) printToolRow(call sessionfeed.ToolCallChanged) {
-	clock := toolRowClock{now: screen.now()}
-	screen.printBlock(scrollbackBlockToolRow, renderToolRow(call, screen.turnToolNameWidth, screen.contentWidth(), clock, screen.theme))
+	screen.appendBlock(transcriptBlockToolRow, toolRowBlock{call: call, nameWidth: screen.turnToolNameWidth, printedAt: screen.now()})
 }
 
 func (screen *ChatScreen) printNotice(severity sessionfeed.NoticeSeverity, text string) {
-	screen.printBlock(scrollbackBlockNotice, renderNoticeLine(severity, text, screen.contentWidth(), screen.theme))
-}
-
-// printBlock queues lines for the scrollback. A blank line separates blocks,
-// except between consecutive tool rows or notices.
-func (screen *ChatScreen) printBlock(kind scrollbackBlockKind, lines []string) {
-	if len(lines) == 0 {
-		return
-	}
-	isSameGroup := kind == screen.lastBlockKind && (kind == scrollbackBlockToolRow || kind == scrollbackBlockNotice)
-	if screen.lastBlockKind != scrollbackBlockNone && !isSameGroup {
-		screen.pendingLines = append(screen.pendingLines, "")
-	}
-	screen.pendingLines = append(screen.pendingLines, lines...)
-	screen.lastBlockKind = kind
-}
-
-// flushScrollback keeps one print in flight, because Bubble Tea runs commands
-// concurrently. A nil printer command printed synchronously.
-func (screen *ChatScreen) flushScrollback() tea.Cmd {
-	if screen.isPrinting || len(screen.pendingLines) == 0 {
-		return nil
-	}
-	text := strings.Join(screen.pendingLines, "\n")
-	screen.pendingLines = nil
-	printCommand := screen.printScrollback(text)
-	if printCommand == nil {
-		return nil
-	}
-	screen.isPrinting = true
-	return tea.Sequence(printCommand, func() tea.Msg { return scrollbackPrintedMsg{} })
-}
-
-// renderLiveArea draws the redrawn bottom area and returns the terminal
-// cursor position, or nil when the cursor is hidden.
-func (screen *ChatScreen) renderLiveArea() (string, *tea.Cursor) {
-	width := screen.contentWidth()
-	now := screen.now()
-	spinnerFrame := int(now.UnixMilli() / spinnerFrameInterval.Milliseconds())
-	if terminaltheme.ClassifyWidth(width) == terminaltheme.WidthTooNarrow {
-		return screen.renderTooNarrowArea(width, now, spinnerFrame)
-	}
-	lines := screen.renderActivityLines(width, now, spinnerFrame)
-	if len(lines) > 0 {
-		lines = append(lines, "")
-	}
-	if screen.isPopupOpen && screen.popupIndex < len(screen.interrupts) && !screen.isHelpOpen && !screen.isInputDisabled {
-		return screen.renderPopupArea(lines, width, now), nil
-	}
-	var cursor *tea.Cursor
-	switch {
-	case screen.isInputDisabled:
-		lines = append(lines, renderHintLine([]string{"Press any key to exit"}, width, screen.theme))
-	case screen.isHelpOpen:
-		lines = append(lines, screen.capToScreenShare(renderHelpOverlay(screen.commands, width, screen.theme))...)
-		lines = append(lines, "", renderHintLine([]string{"Esc close"}, width, screen.theme))
-	default:
-		lines = append(lines, screen.renderPendingBar(width)...)
-		if len(screen.plan.Items) > 0 && screen.plan.Status != sessionfeed.PlanStatusCleared {
-			lines = append(lines, renderPlanLine(screen.plan.Items, width, screen.theme))
-		}
-		lines = append(lines, screen.renderContextLine(width, now, spinnerFrame))
-		lines = append(lines, screen.renderCompletionList(width)...)
-		if len(screen.attachments) > 0 {
-			lines = append(lines, " "+renderImageChips(screen.attachments, width-1, screen.theme))
-		}
-		input := screen.renderInput(width)
-		cursorRow := len(lines) + input.cursorRow
-		lines = append(lines, input.lines...)
-		lines = append(lines, renderHintLine(screen.inputHints(), width, screen.theme))
-		cursor = tea.NewCursor(input.cursorColumn, cursorRow)
-	}
-	if screen.height > 0 && len(lines) > screen.height-1 {
-		dropped := len(lines) - (screen.height - 1)
-		lines = lines[dropped:]
-		if cursor != nil {
-			cursor.Y -= dropped
-			if cursor.Y < 0 {
-				cursor = nil
-			}
-		}
-	}
-	return strings.Join(lines, "\n"), cursor
-}
-
-func (screen *ChatScreen) renderTooNarrowArea(width int, now time.Time, spinnerFrame int) (string, *tea.Cursor) {
-	symbol, _ := screen.contextStatus(now, spinnerFrame)
-	if symbol == "" {
-		symbol = screen.theme.Secondary.Render(screen.theme.Symbols.Queued)
-	}
-	lines := []string{terminaltheme.TruncateToWidth(" "+symbol+" Resize to 40 columns for the full view.", width, screen.theme.Symbols.Ellipsis)}
-	input := screen.renderInput(width)
-	cursorRow := len(lines) + input.cursorRow
-	lines = append(lines, input.lines...)
-	return strings.Join(lines, "\n"), tea.NewCursor(input.cursorColumn, cursorRow)
-}
-
-// renderActivityLines draws the unfinished reply, running tool rows, and
-// the feedback of requests in flight.
-func (screen *ChatScreen) renderActivityLines(width int, now time.Time, spinnerFrame int) []string {
-	var lines []string
-	if pending := screen.replies.PendingText(); pending != "" {
-		lines = append(lines, renderPlainReply(pending, width)...)
-	} else if screen.reasoningTail != "" {
-		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Secondary.Render("thinking… "+screen.reasoningTail), width, screen.theme.Symbols.Ellipsis))
-	}
-	if len(lines) > 0 && len(screen.liveToolCalls) > 0 {
-		lines = append(lines, "")
-	}
-	clock := toolRowClock{now: now, spinnerFrame: spinnerFrame}
-	for _, call := range screen.liveToolCalls {
-		lines = append(lines, renderToolRow(call, screen.turnToolNameWidth, width, clock, screen.theme)...)
-	}
-	for _, interrupt := range screen.interrupts {
-		if feedback, exists := screen.interruptFeedback[interrupt.InterruptID()]; exists {
-			lines = append(lines, contentIndent+screen.theme.Secondary.Render(screen.theme.Symbols.Queued+" "+feedback))
-		}
-	}
-	return lines
-}
-
-// renderPopupArea draws the popup first, then the activity lines that still
-// fit above it.
-func (screen *ChatScreen) renderPopupArea(activityLines []string, width int, now time.Time) string {
-	popupBudget := 0
-	if screen.height > 0 {
-		popupBudget = max(screen.height-2, minimumPopupHeight)
-	}
-	interrupt := screen.interrupts[screen.popupIndex]
-	position := popupPosition{index: screen.popupIndex, count: len(screen.interrupts)}
-	var popupLines []string
-	if interrupt.approval != nil {
-		popupLines = renderApprovalPopup(*interrupt.approval, screen.popup, position, width, popupBudget, now, screen.theme)
-	} else {
-		popupLines = renderQuestionPopup(*interrupt.question, screen.popup, position, width, popupBudget, screen.theme)
-	}
-	popupLines = append(popupLines, renderHintLine(screen.popupHints(), width, screen.theme))
-	if screen.height > 0 {
-		room := max(screen.height-1-len(popupLines), 0)
-		if len(activityLines) > room {
-			activityLines = activityLines[len(activityLines)-room:]
-		}
-	}
-	return strings.Join(append(activityLines, popupLines...), "\n")
-}
-
-func (screen *ChatScreen) popupHints() []string {
-	interrupt := screen.interrupts[screen.popupIndex]
-	hasNext := len(screen.interrupts) > 1
-	if interrupt.approval != nil {
-		if screen.popup.isEnteringText {
-			return []string{"Enter reject", "Esc back"}
-		}
-		hints := []string{"y approve", "n reject", "r reason"}
-		if hasNext {
-			hints = append(hints, "Tab next")
-		}
-		return append(hints, "Esc later")
-	}
-	if screen.popup.isEnteringText {
-		return []string{"Enter answer", "Esc back"}
-	}
-	hints := []string{"j/k choose", "Enter answer"}
-	if hasNext {
-		hints = append(hints, "Tab next")
-	}
-	return append(hints, "Esc later")
-}
-
-// renderPendingBar draws the waiting approvals and the queued messages.
-func (screen *ChatScreen) renderPendingBar(width int) []string {
-	var lines []string
-	symbols := screen.theme.Symbols
-	if text := screen.waitingInterruptsText(); text != "" {
-		line := screen.theme.Warning.Render(symbols.AwaitingUser) + " " + text + screen.theme.Secondary.Render(symbols.Separator+"Tab opens")
-		lines = append(lines, screen.renderPendingRow(line, screen.pendingFocus == pendingFocusInterrupts, width))
-	}
-	for index, message := range screen.queuedMessages {
-		isLast := index == len(screen.queuedMessages)-1
-		right := ""
-		if isLast && screen.canActOnQueuedMessage() {
-			right = screen.theme.Secondary.Render("Tab acts on it")
-		}
-		left := screen.theme.Secondary.Render(symbols.Queued+" queued") + "  " + message.Text
-		line := left
-		if right != "" {
-			room := width - 2 - terminaltheme.DisplayWidth(symbols.Separator) - terminaltheme.DisplayWidth(right)
-			line = terminaltheme.TruncateToWidth(left, max(room, 8), symbols.Ellipsis) + screen.theme.Secondary.Render(symbols.Separator) + right
-		}
-		lines = append(lines, screen.renderPendingRow(line, isLast && screen.pendingFocus == pendingFocusQueuedMessage, width))
-	}
-	for _, text := range screen.localQueuedTexts {
-		line := screen.theme.Secondary.Render(symbols.Queued+" queueing") + "  " + text
-		lines = append(lines, screen.renderPendingRow(line, false, width))
-	}
-	for _, message := range screen.heldMessages {
-		line := screen.theme.Secondary.Render(symbols.Queued+" waiting for the session") + "  " + message.Text
-		lines = append(lines, screen.renderPendingRow(line, false, width))
-	}
-	if screen.pendingDelete != nil {
-		question := fmt.Sprintf(" Delete the queued message %q? It will not be sent.", screen.pendingDelete.Text)
-		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Warning.Render(symbols.Warning)+question, width, symbols.Ellipsis))
-	}
-	return lines
-}
-
-func (screen *ChatScreen) renderPendingRow(line string, isFocused bool, width int) string {
-	prefix := contentIndent
-	if isFocused {
-		prefix = screen.theme.Accent.Render(screen.theme.Symbols.Focus) + " "
-	}
-	return terminaltheme.TruncateToWidth(prefix+line, width, screen.theme.Symbols.Ellipsis)
-}
-
-func (screen *ChatScreen) waitingInterruptsText() string {
-	if screen.isPopupOpen {
-		return ""
-	}
-	approvalCount, questionCount := 0, 0
-	for _, interrupt := range screen.interrupts {
-		switch {
-		case interrupt.isSubmitting:
-		case interrupt.approval != nil:
-			approvalCount++
-		default:
-			questionCount++
-		}
-	}
-	var parts []string
-	if approvalCount > 0 {
-		parts = append(parts, countedNoun(approvalCount, "approval"))
-	}
-	if questionCount > 0 {
-		parts = append(parts, countedNoun(questionCount, "question"))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, ", ") + " waiting"
-}
-
-func countedNoun(count int, noun string) string {
-	if count == 1 {
-		return "1 " + noun
-	}
-	return fmt.Sprintf("%d %ss", count, noun)
-}
-
-// renderContextLine draws command, model, turn, status, and usage, dropping
-// the command, then the turn, to fit.
-func (screen *ChatScreen) renderContextLine(width int, now time.Time, spinnerFrame int) string {
-	widthClass := terminaltheme.ClassifyWidth(width)
-	symbols := screen.theme.Symbols
-	symbol, statusText := screen.contextStatus(now, spinnerFrame)
-	status := statusText
-	if symbol != "" {
-		status = symbol + " " + statusText
-	}
-	isNewSession := screen.session.IsNewSession && !screen.isTurnRunning && screen.isSessionLoaded
-	newSessionLabel := screen.theme.Strong.Render("New session")
-	if isNewSession && symbol == "" {
-		status = ""
-	}
-	if widthClass == terminaltheme.WidthCompact {
-		if isNewSession && status == "" {
-			status = newSessionLabel
-		}
-		return " " + terminaltheme.TruncateToWidth(status, width-1, symbols.Ellipsis)
-	}
-	model := screen.session.Model
-	if widthClass == terminaltheme.WidthNarrow {
-		model = terminaltheme.TruncateKeepingTail(model, 16, symbols.Ellipsis)
-	}
-	usage := ""
-	if screen.totalTokens > 0 {
-		usage = screen.theme.Secondary.Render(formatTokenCount(screen.totalTokens))
-	}
-	turn := ""
-	if turnNumber := screen.displayedTurnNumber(); turnNumber > 0 && !isNewSession {
-		turn = fmt.Sprintf("turn %d", turnNumber)
-	}
-	parts := contextLineParts{
-		separator:       screen.theme.Secondary.Render(symbols.Separator),
-		isNewSession:    isNewSession,
-		newSessionLabel: newSessionLabel,
-		command:         screen.session.Command,
-		model:           model,
-		turn:            turn,
-		status:          status,
-		usage:           usage,
-	}
-	line := parts.Join()
-	if terminaltheme.DisplayWidth(line) > width && !isNewSession {
-		parts.command = ""
-		line = parts.Join()
-	}
-	if terminaltheme.DisplayWidth(line) > width && !isNewSession {
-		parts.turn = ""
-		line = parts.Join()
-	}
-	return terminaltheme.TruncateToWidth(line, width, symbols.Ellipsis)
-}
-
-// contextLineParts are the styled parts of the context line.
-type contextLineParts struct {
-	separator       string
-	isNewSession    bool
-	newSessionLabel string
-	command         string
-	model           string
-	turn            string
-	status          string
-	usage           string
-}
-
-func (parts contextLineParts) Join() string {
-	if parts.isNewSession {
-		return " " + strings.Join(nonEmptyStrings(parts.newSessionLabel, parts.command, parts.model, parts.status, parts.usage), parts.separator)
-	}
-	return " " + strings.Join(nonEmptyStrings(parts.command, parts.model, parts.turn, parts.status, parts.usage), parts.separator)
-}
-
-func (screen *ChatScreen) displayedTurnNumber() int {
-	if screen.isTurnRunning {
-		return screen.turn.number
-	}
-	return screen.lastTurnNumber
-}
-
-// contextStatus returns the styled status symbol, empty for none, and the
-// status text.
-func (screen *ChatScreen) contextStatus(now time.Time, spinnerFrame int) (string, string) {
-	theme := screen.theme
-	symbols := theme.Symbols
-	spinner := theme.Info.Render(symbols.SpinnerFrame(spinnerFrame))
-	switch {
-	case screen.workerState == sessionfeed.WorkerStateStopped:
-		return theme.Error.Render(symbols.Failed), "Worker stopped"
-	case !screen.isServerReachable:
-		return theme.Error.Render(symbols.Failed), "server unreachable" + symbols.Separator + "retrying"
-	case !screen.isSessionLoaded:
-		return spinner, "loading session"
-	case screen.workerState == sessionfeed.WorkerStateReconnecting:
-		return theme.Warning.Render(symbols.Warning), "Worker reconnecting"
-	case screen.workerState == sessionfeed.WorkerStateStopping:
-		return theme.Warning.Render(symbols.Warning), "Worker stopping"
-	case !screen.isTurnRunning:
-		return "", theme.Secondary.Render("ready")
-	case screen.cancelState == cancelStateRequesting:
-		return theme.Secondary.Render(symbols.Queued), "requesting cancel…"
-	case screen.cancelState == cancelStateConfirmed:
-		return spinner, "cancelling…"
-	case screen.turn.activity == sessionfeed.TurnActivityAwaitingUser:
-		return theme.Warning.Render(symbols.AwaitingUser), "waiting for you"
-	}
-	symbol := theme.Info.Render(symbols.Running)
-	if now.Sub(screen.turn.activityAt) > spinnerDelay {
-		symbol = spinner
-	}
-	text := activityText(screen.turn.activity)
-	if elapsed := now.Sub(screen.turn.startedAt); elapsed >= elapsedTimeDelay {
-		text += " " + formatElapsedSeconds(elapsed)
-	}
-	return symbol, text
-}
-
-func activityText(activity sessionfeed.TurnActivity) string {
-	switch activity {
-	case sessionfeed.TurnActivityRunningTools:
-		return "running tools"
-	case sessionfeed.TurnActivityCompacting:
-		return "compacting"
-	default:
-		return "running model"
-	}
-}
-
-const maximumCompletionRows = 6
-
-func (screen *ChatScreen) renderCompletionList(width int) []string {
-	if !screen.isCompletionVisible() {
-		return nil
-	}
-	matches := screen.completionMatches()
-	selected := min(screen.completionIndex, len(matches)-1)
-	first := max(selected-maximumCompletionRows+1, 0)
-	last := min(first+maximumCompletionRows, len(matches))
-	nameWidth := 0
-	for _, command := range matches[first:last] {
-		nameWidth = max(nameWidth, terminaltheme.DisplayWidth(completionName(command)))
-	}
-	lines := make([]string, 0, last-first)
-	for index := first; index < last; index++ {
-		command := matches[index]
-		name := terminaltheme.PadRight(completionName(command), nameWidth)
-		prefix := "   "
-		if index == selected {
-			prefix = " " + screen.theme.Accent.Render(screen.theme.Symbols.Focus) + " "
-			name = screen.theme.Focused.Render(name)
-		}
-		line := prefix + name + "  " + screen.theme.Secondary.Render(command.Description)
-		lines = append(lines, terminaltheme.TruncateToWidth(line, width, screen.theme.Symbols.Ellipsis))
-	}
-	return lines
-}
-
-func completionName(command sessionfeed.SlashCommand) string {
-	if command.ArgumentHint == "" {
-		return "/" + command.Name
-	}
-	return "/" + command.Name + " " + command.ArgumentHint
-}
-
-const maximumInputRows = 8
-
-func (screen *ChatScreen) renderInput(width int) renderedInput {
-	prompt := " " + screen.theme.Accent.Render(screen.theme.Symbols.UserPrompt) + " "
-	placeholder := screen.theme.Secondary.Render(screen.inputPlaceholder())
-	return screen.input.Render(prompt, placeholder, width, maximumInputRows)
-}
-
-func (screen *ChatScreen) inputPlaceholder() string {
-	switch {
-	case !screen.isSessionLoaded:
-		return "type a message; it is sent when the session loads"
-	case screen.isPlanModeArmed:
-		return "type what to plan"
-	case screen.isTurnRunning:
-		return "type to queue a message"
-	case screen.session.IsNewSession:
-		if screen.commands.Has("image") {
-			return "Type a message. /image attaches a picture, /help lists commands."
-		}
-		return "Type a message. /help lists commands."
-	default:
-		return "type a message"
-	}
-}
-
-func (screen *ChatScreen) inputHints() []string {
-	switch {
-	case screen.pendingDelete != nil:
-		return []string{"y delete", "n keep"}
-	case screen.pendingFocus == pendingFocusInterrupts:
-		return []string{"Enter opens", "Esc back"}
-	case screen.pendingFocus == pendingFocusQueuedMessage:
-		return []string{"s steer", "x delete", "Esc back"}
-	case screen.isCompletionVisible():
-		return []string{"Tab complete", "Enter run", "Esc close"}
-	}
-	var hints []string
-	if screen.input.IsEmpty() && screen.waitingInterruptCount() > 0 {
-		hints = append(hints, "Tab opens approvals")
-	}
-	if !screen.isTurnRunning {
-		return append(hints, "Enter send", "/help", "Ctrl-D exit")
-	}
-	hints = append(hints, "Enter queue")
-	switch {
-	case screen.isExitArmed || screen.cancelState == cancelStateConfirmed:
-		hints = append(hints, "Ctrl-C exit")
-	case screen.session.AcceptsTurnControl:
-		hints = append(hints, "Ctrl-C cancel turn")
-	}
-	return append(hints, "/help")
-}
-
-// capToScreenShare keeps at most 60 percent of the screen height of lines.
-func (screen *ChatScreen) capToScreenShare(lines []string) []string {
-	if screen.height <= 0 {
-		return lines
-	}
-	limit := max(screen.height*6/10, 3)
-	if len(lines) <= limit {
-		return lines
-	}
-	hidden := len(lines) - limit + 1
-	return append(lines[:limit-1], contentIndent+screen.theme.Secondary.Render(moreLinesText(hidden, screen.theme.Symbols.Ellipsis)))
+	screen.appendBlock(transcriptBlockNotice, noticeBlock{severity: severity, text: text})
 }

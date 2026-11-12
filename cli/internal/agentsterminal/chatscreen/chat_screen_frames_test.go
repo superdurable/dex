@@ -9,6 +9,7 @@
 package chatscreen
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,9 @@ import (
 
 // Golden frames cover the key screens' rendering; other tests assert
 // semantics.
+
+// goldenHeight keeps golden screens short.
+const goldenHeight = 24
 
 var demoCommands = []sessionfeed.SlashCommand{
 	{Name: "model", ArgumentHint: "ID", Description: "change the model"},
@@ -42,7 +46,7 @@ func TestApprovalFrames(t *testing.T) {
 
 func TestApprovalWithPreviewFrame(t *testing.T) {
 	set := newGoldenFrameSet(t)
-	harness := newScreenHarness(t, harnessOptions{})
+	harness := newScreenHarness(t, harnessOptions{height: goldenHeight})
 	startTurn(harness, "Fix the backoff and tell #eng.")
 	approval := connectorApproval("approval-1")
 	approval.Deadline = harness.now.Add(9*time.Minute + 20*time.Second)
@@ -55,11 +59,11 @@ func TestApprovalWithPreviewFrame(t *testing.T) {
 func TestQuestionFrames(t *testing.T) {
 	set := newGoldenFrameSet(t)
 	question := sessionfeed.QuestionAsked{InterruptID: "question-1", Question: "Which branch should I compare against?", Choices: []string{"main", "release-0.6"}, AllowsFreeText: true}
-	harness := newScreenHarness(t, harnessOptions{})
+	harness := newScreenHarness(t, harnessOptions{height: goldenHeight})
 	startTurn(harness, "Compare the branches.")
 	harness.feed(question)
 	set.add("choices and free text", harness.frame())
-	noColor := newScreenHarness(t, harnessOptions{profile: colorprofile.ASCII})
+	noColor := newScreenHarness(t, harnessOptions{height: goldenHeight, profile: colorprofile.ASCII})
 	startTurn(noColor, "Compare the branches.")
 	noColor.feed(question)
 	noColor.press(key(tea.KeyDown))
@@ -69,7 +73,7 @@ func TestQuestionFrames(t *testing.T) {
 
 func TestPendingBarFrames(t *testing.T) {
 	set := newGoldenFrameSet(t)
-	harness := newScreenHarness(t, harnessOptions{})
+	harness := newScreenHarness(t, harnessOptions{height: goldenHeight})
 	startTurn(harness, "Post the summary.")
 	harness.feed(connectorApproval("approval-1"), fileApproval("approval-2"))
 	harness.press(key(tea.KeyEscape))
@@ -85,7 +89,7 @@ func TestPendingBarFrames(t *testing.T) {
 
 func TestErrorFrames(t *testing.T) {
 	set := newGoldenFrameSet(t)
-	harness := newScreenHarness(t, harnessOptions{})
+	harness := newScreenHarness(t, harnessOptions{height: goldenHeight})
 	startTurn(harness, "Summarize.")
 	harness.feed(
 		sessionfeed.TurnEnded{TurnID: "turn-1", Outcome: sessionfeed.TurnOutcomeFailed, FailureText: "The turn failed: model call returned 401 (invalid API key). Set OPENAI_API_KEY and send again."},
@@ -99,7 +103,7 @@ func TestErrorFrames(t *testing.T) {
 
 func TestHelpAndCompletionFrames(t *testing.T) {
 	set := newGoldenFrameSet(t)
-	harness := newScreenHarness(t, harnessOptions{commands: demoCommands})
+	harness := newScreenHarness(t, harnessOptions{height: goldenHeight, commands: demoCommands})
 	harness.press(key(tea.KeyF1))
 	set.add("help", harness.frame())
 	harness.press(key(tea.KeyEscape))
@@ -110,10 +114,10 @@ func TestHelpAndCompletionFrames(t *testing.T) {
 
 func TestNarrowAndASCIIFrames(t *testing.T) {
 	set := newGoldenFrameSet(t)
-	narrow := newScreenHarness(t, harnessOptions{width: 30})
+	narrow := newScreenHarness(t, harnessOptions{height: goldenHeight, width: 30})
 	playToolTurn(narrow)
 	set.add("width 30", narrow.frame())
-	ascii := newScreenHarness(t, harnessOptions{isASCII: true})
+	ascii := newScreenHarness(t, harnessOptions{height: goldenHeight, isASCII: true})
 	playToolTurn(ascii)
 	ascii.feed(connectorApproval("approval-1"))
 	set.add("ASCII symbols", ascii.frame())
@@ -126,9 +130,9 @@ func TestStartupLogoFrames(t *testing.T) {
 		label   string
 		options harnessOptions
 	}{
-		{"UTF-8", harnessOptions{showsLogo: true}},
-		{"ASCII", harnessOptions{showsLogo: true, isASCII: true}},
-		{"no_color", harnessOptions{showsLogo: true, profile: colorprofile.ASCII}},
+		{"UTF-8", harnessOptions{height: goldenHeight, showsLogo: true}},
+		{"ASCII", harnessOptions{height: goldenHeight, showsLogo: true, isASCII: true}},
+		{"no_color", harnessOptions{height: goldenHeight, showsLogo: true, profile: colorprofile.ASCII}},
 	}
 	for _, testCase := range cases {
 		harness := newScreenHarness(t, testCase.options)
@@ -140,14 +144,14 @@ func TestStartupLogoFrames(t *testing.T) {
 func TestStartupLogoSkipsSmallTerminals(t *testing.T) {
 	for _, options := range []harnessOptions{{showsLogo: true, width: 39}, {showsLogo: true, height: 14}} {
 		harness := newScreenHarness(t, options)
-		if len(harness.scrollback) != 0 {
-			t.Fatalf("logo printed at %dx%d: %q", options.width, options.height, harness.scrollback)
+		if strings.Contains(harness.scrollbackText(), "Super Durable") {
+			t.Fatalf("logo shown at %dx%d", options.width, options.height)
 		}
 	}
 	harness := newScreenHarness(t, harnessOptions{showsLogo: true})
 	harness.screen.Update(tea.WindowSizeMsg{Width: 90, Height: 30})
-	if len(harness.scrollback) != 1 {
-		t.Fatalf("the logo prints once, got %d blocks", len(harness.scrollback))
+	if count := strings.Count(harness.scrollbackText(), "Super Durable"); count != 1 {
+		t.Fatalf("the logo shows once, got %d", count)
 	}
 }
 

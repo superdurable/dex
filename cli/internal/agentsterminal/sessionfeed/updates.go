@@ -35,6 +35,11 @@ type SessionOpened struct {
 	// SupportsPlanMode reports a Flow built with plan mode, which enables
 	// /plan and /run.
 	SupportsPlanMode bool
+	// Workspace is the agent's working directory for display, with the home
+	// directory as "~"; empty when unknown.
+	Workspace string
+	// WebURL is the Dex Web base URL, or empty without Dex Web.
+	WebURL string
 }
 
 // SessionLoaded reports that the first snapshot arrived. The screen holds

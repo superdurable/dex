@@ -1,30 +1,38 @@
 ==== width 30 ====
-␛[2m›␛[m Find open issues about flaky
-  tests and post a summary to
-  #eng.
+~~~~ 30x24 ~~~~
 
-  I'll search the issue
-  tracker first.
 
-  ␛[32m✓␛[m search_fi…  ␛[2m"flaky" in te…␛[m
-  ␛[32m✓␛[m read_file   ␛[2mtests/integ/r…␛[m
-~~~~ live area ~~~~
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
  ␛[36m⠙␛[m Resize to 40 columns for t…
  ␛[34m›␛[m ␛[2mtype to queue a message␛[m
-~~~~ cursor 3,1 ~~~~
+~~~~ cursor 3,23 ~~~~
 
 ==== ASCII symbols ====
-␛[2m>␛[m Find open issues about flaky tests and post a summary to #eng.
-
-  I'll search the issue tracker first.
-
-  ␛[32m+␛[m search_files      ␛[2m"flaky" in tests/                       12 matches    0.4s␛[m
-  ␛[32m+␛[m read_file         ␛[2mtests/integ/retry_test.go                210 lines    0.1s␛[m
-~~~~ live area ~~~~
-  ␛[36m\␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                      15.2s␛[m
-    ␛[2m|␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
-    ␛[2m|␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
-    ␛[2m|␛[m ␛[2m~ 18 more lines␛[m
+~~~~ 80x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
 
  ␛[34m+- ␛[m␛[1;94mApprove slack_post_channel_message?␛[m ␛[34m--------------------------------------+␛[m
  ␛[34m|␛[m ␛[2mconnector - slack/support-slack - write␛[m                                    ␛[34m|␛[m
@@ -40,4 +48,7 @@
  ␛[34m|␛[m   Reject                                                                 ␛[2mn␛[m ␛[34m|␛[m
  ␛[34m|␛[m   Reject with a reason                                                   ␛[2mr␛[m ␛[34m|␛[m
  ␛[34m+----------------------------------------------------------------------------+␛[m
-␛[2m y approve - n reject - r reason - Esc later␛[m
+␛[2m--------------------------------------------------------------------------------␛[m
+ ␛[34m>␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m - ␛[mgpt-5.2␛[2m - ␛[m␛[2m~/dex-agent-workspace␛[m                  ␛[2mturn 1 - 1.2k tok␛[m
+ ␛[36m\␛[m running tools 9s                  ␛[2my approve - n reject - r reason - Esc later␛[m

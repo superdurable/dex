@@ -72,12 +72,10 @@ func runDemo(ctx context.Context, stdin *os.File, stdout *os.File) error {
 	theme := terminaltheme.NewTheme(profile, terminaltheme.IsUnicodeLocale(os.LookupEnv))
 	demo := demosession.NewDemoSession(demosession.DemoSessionConfig{Pace: 1})
 	screen := chatscreen.NewChatScreen(programContext, chatscreen.ChatScreenConfig{
-		Source:              demo,
-		Theme:               theme,
-		PrintScrollback:     chatscreen.NewScrollbackPrinter(profile),
-		SessionCommands:     demosession.DemoSlashCommands(),
-		IsTerminalReflowing: isTerminalReflowing(os.LookupEnv),
-		ShowsStartupLogo:    true,
+		Source:           demo,
+		Theme:            theme,
+		SessionCommands:  demosession.DemoSlashCommands(),
+		ShowsStartupLogo: true,
 	})
 	program := tea.NewProgram(
 		screen,
@@ -86,9 +84,13 @@ func runDemo(ctx context.Context, stdin *os.File, stdout *os.File) error {
 		tea.WithOutput(stdout),
 		tea.WithEnvironment(environment),
 		tea.WithColorProfile(profile),
-		tea.WithFilter(chatscreen.NewResizeFilter(screen, stdout)),
 	)
-	finalModel, err := program.Run()
+	_, err := program.Run()
+	if summary := screen.ExitSummary(); summary != "" {
+		if _, writeErr := fmt.Fprintln(stdout, summary); writeErr != nil {
+			return fmt.Errorf("agents-tui: print the exit summary: %w", writeErr)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, tea.ErrInterrupted) {
 			return &ExitError{Code: interruptedExitCode}
@@ -98,22 +100,8 @@ func runDemo(ctx context.Context, stdin *os.File, stdout *os.File) error {
 		}
 		return fmt.Errorf("agents-tui: run the terminal program: %w", err)
 	}
-	finalScreen, isChatScreen := finalModel.(*chatscreen.ChatScreen)
-	if !isChatScreen {
-		return fmt.Errorf("agents-tui: terminal program returned %T", finalModel)
-	}
-	if code := finalScreen.ExitCode(); code != 0 {
+	if code := screen.ExitCode(); code != 0 {
 		return &ExitError{Code: code}
 	}
 	return nil
-}
-
-// isTerminalReflowing reports whether the terminal rewraps lines when it
-// narrows. Real xterm and the Linux console truncate them instead.
-func isTerminalReflowing(lookupEnv func(string) (string, bool)) bool {
-	if _, isXterm := lookupEnv("XTERM_VERSION"); isXterm {
-		return false
-	}
-	terminalName, _ := lookupEnv("TERM")
-	return terminalName != "linux"
 }

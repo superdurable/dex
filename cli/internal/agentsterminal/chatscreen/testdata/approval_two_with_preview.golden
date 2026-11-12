@@ -1,6 +1,8 @@
 ==== second of two, with preview ====
-␛[2m›␛[m Fix the backoff and tell #eng.
-~~~~ live area ~~~~
+~~~~ 80x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
  ␛[34m╭─ ␛[m␛[1;94mApprove edit_file?␛[m ␛[34m────────────────────────────────────────────── 2 of 2 ─╮␛[m
  ␛[34m│␛[m ␛[2mlocal file · workspace · write␛[m                                             ␛[34m│␛[m
  ␛[34m│␛[m                                                                            ␛[34m│␛[m
@@ -18,4 +20,7 @@
  ␛[34m│␛[m   Reject                                                                 ␛[2mn␛[m ␛[34m│␛[m
  ␛[34m│␛[m   Reject with a reason                                                   ␛[2mr␛[m ␛[34m│␛[m
  ␛[34m╰────────────────────────────────────────────────────────────────────────────╯␛[m
-␛[2m y approve · n reject · r reason · Tab next · Esc later␛[m
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                             ␛[2mturn 1␛[m
+ ␛[36m⠏␛[m running model          ␛[2my approve · n reject · r reason · Tab next · Esc later␛[m

@@ -143,6 +143,8 @@ func (script *demoScript) play() error {
 		SessionID:          demoSessionID,
 		IsNewSession:       true,
 		AcceptsTurnControl: true,
+		Workspace:          "~/dex-agent-workspace",
+		WebURL:             "http://127.0.0.1:8802",
 	}); err != nil {
 		return err
 	}
@@ -176,6 +178,7 @@ func (script *demoScript) play() error {
 				if err := script.send(sessionfeed.SessionOpened{
 					Command: demoCommand, Model: model, SessionID: demoSessionID,
 					TurnCount: script.turnNumber, IsNewSession: script.turnNumber == 0, AcceptsTurnControl: true,
+					Workspace: "~/dex-agent-workspace", WebURL: "http://127.0.0.1:8802",
 				}); err != nil {
 					return err
 				}
