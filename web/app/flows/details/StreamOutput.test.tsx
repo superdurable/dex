@@ -455,6 +455,45 @@ describe('StreamOutput', () => {
     expect(screen.queryByRole('button', { name: /Back to latest/ })).toBeNull();
   });
 
+  it('leaves the page in place when trimming switches the view by itself', () => {
+    const messages = [
+      streamMessage({ stringValue: 'one' }, 1),
+      streamMessage({ intValue: 2 }, 2),
+      streamMessage({ stringValue: ' three' }, 3),
+      streamMessage({ stringValue: ' four' }, 4),
+      streamMessage({ intValue: 5 }, 5),
+    ];
+    const renderKept = (count: number) => (
+      <StreamOutput entries={entriesOf(messages.slice(0, count), '', 2)} status="listening" timezone="UTC" />
+    );
+    const { container, rerender } = render(renderKept(2));
+    const layout = { scrollY: 600, outputHeight: 2000 };
+    stubPageLayout(screen.getByTestId('stream-scroll'), layout);
+    fireEvent.scroll(window);
+
+    // Keeping the last 2 drops message 2, the only non-text one, so the view becomes a transcript.
+    rerender(renderKept(4));
+    expect(container.querySelector('.stream-transcript')).not.toBeNull();
+    rerender(renderKept(5));
+    expect(container.querySelector('.stream-entries')).not.toBeNull();
+
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    expect(window.scrollBy).not.toHaveBeenCalled();
+    expect(layout.scrollY).toBe(600);
+  });
+
+  it('moves the page neither on the first mount nor when the first messages arrive', () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    const first = [streamMessage({ stringValue: 'one' }, 1)];
+    const { rerender } = renderOutput(first);
+    rerender(<StreamOutput entries={entriesOf([...first, streamMessage({ stringValue: ' two' }, 2)])} status="listening" timezone="UTC" />);
+    renderOutput([streamMessage({ intValue: 1 }, 1)]);
+
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
   it('registers its window listeners once and removes them on unmount', () => {
     const addEventListener = vi.spyOn(window, 'addEventListener');
     const removeEventListener = vi.spyOn(window, 'removeEventListener');

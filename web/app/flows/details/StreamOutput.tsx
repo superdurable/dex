@@ -360,6 +360,8 @@ export function StreamOutput({
   const isNewestFirstRef = useRef(isNewestFirst);
   const latestSequenceNumberRef = useRef(latestSequenceNumber);
   const shownViewRef = useRef(view);
+  const isViewPickedRef = useRef(false);
+  const hasSwitchedToEntriesByItselfRef = useRef(isNewestFirst);
 
   // The page scrolls, not the output, so the reader's place is read from the window.
   const followScrollPosition = useCallback(() => {
@@ -396,9 +398,14 @@ export function StreamOutput({
     if (!output) return;
     if (shownViewRef.current !== view) {
       shownViewRef.current = view;
-      showLatestInWindow(output, isNewestFirst);
+      // Trimming can flip the view back and forth; only a pick or the first switch to entries moves the page.
+      const isFirstSwitchToEntries = isNewestFirst && !isViewPickedRef.current && !hasSwitchedToEntriesByItselfRef.current;
+      const shouldShowLatest = isViewPickedRef.current || isFirstSwitchToEntries;
+      if (isFirstSwitchToEntries) hasSwitchedToEntriesByItselfRef.current = true;
+      isViewPickedRef.current = false;
       scrollAnchorRef.current = null;
-      isFollowingTranscriptEndRef.current = !isNewestFirst;
+      isFollowingTranscriptEndRef.current = shouldShowLatest && !isNewestFirst;
+      if (shouldShowLatest) showLatestInWindow(output, isNewestFirst);
     } else if (isNewestFirst) {
       const anchor = scrollAnchorRef.current;
       if (anchor) restoreStreamScrollAnchor(output, anchor);
@@ -410,6 +417,7 @@ export function StreamOutput({
   }, [followScrollPosition, isNewestFirst, latestSequenceNumber, records, view]);
 
   const pickView = (option: StreamOutputView) => {
+    isViewPickedRef.current = option !== view;
     setPickedView(option);
   };
 
