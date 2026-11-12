@@ -56,6 +56,9 @@ type sessionModel struct {
 	turnEndDeadlines map[string]time.Time
 
 	localSends          []localSend
+	// queuedBeforeChat are the texts queued before this chat loaded the
+	// session; they may be this user's, so they carry no origin.
+	queuedBeforeChat []string
 	pendingInterrupts   map[string]dexagents.AgentInterrupt
 	ownResolutions      map[string]sessionfeed.InterruptResolution
 	resolvedByEvent     map[string]interruptResolvedPayload
@@ -201,7 +204,7 @@ func (model *sessionModel) takeLocalSend(text string) (bool, bool) {
 
 // emitHistory shows the newest stored page of a resumed session, without the
 // running turn, which the live path shows.
-func (model *sessionModel) emitHistory(page dexagents.AgentMessagesPage, activeTurnID *string) {
+func (model *sessionModel) emitHistory(page dexagents.AgentMessagesPage, activeTurnID *string, cancelledTurns map[string]bool) {
 	window := sessionfeed.HistoryWindowChanged{}
 	if page.NextBeforeSequence != nil {
 		window.EarlierBeforeSequence = *page.NextBeforeSequence
@@ -218,22 +221,38 @@ func (model *sessionModel) emitHistory(page dexagents.AgentMessagesPage, activeT
 			continue
 		}
 		if message.TurnID != turnInProgress {
-			model.endHistoryTurn(turnInProgress)
+			model.endHistoryTurn(turnInProgress, cancelledTurns[turnInProgress])
 			turnInProgress = message.TurnID
 		}
 		model.emitStoredMessage(message, true)
 		model.lastSeenSequence = max(model.lastSeenSequence, message.Sequence)
 	}
-	model.endHistoryTurn(turnInProgress)
+	model.endHistoryTurn(turnInProgress, cancelledTurns[turnInProgress])
 }
 
-func (model *sessionModel) endHistoryTurn(turnID string) {
+func (model *sessionModel) endHistoryTurn(turnID string, isCancelled bool) {
 	if turnID == "" {
 		return
 	}
 	model.finishedTurns[turnID] = true
 	model.lastTurnNumber = max(model.lastTurnNumber, turnNumberOf(turnID, model.lastTurnNumber))
-	model.emit(sessionfeed.TurnEnded{TurnID: turnID, Outcome: sessionfeed.TurnOutcomeCompleted})
+	ended := sessionfeed.TurnEnded{TurnID: turnID, Outcome: sessionfeed.TurnOutcomeCompleted}
+	if isCancelled {
+		ended.Outcome = sessionfeed.TurnOutcomeCancelled
+	}
+	model.emit(ended)
+}
+
+// takeQueuedBeforeChat removes text from the messages queued before this
+// chat and reports whether it was one.
+func (model *sessionModel) takeQueuedBeforeChat(text string) bool {
+	for index, queued := range model.queuedBeforeChat {
+		if strings.TrimSpace(queued) == strings.TrimSpace(text) {
+			model.queuedBeforeChat = append(model.queuedBeforeChat[:index], model.queuedBeforeChat[index+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 // emitStoredMessage shows one stored message. User messages of history carry
@@ -249,7 +268,7 @@ func (model *sessionModel) emitStoredMessage(message dexagents.AgentMessage, isH
 		if !isHistory && !model.isFirstApply {
 			if isLocal, isPrinted := model.takeLocalSend(text); isPrinted {
 				return
-			} else if !isLocal {
+			} else if !isLocal && !model.takeQueuedBeforeChat(text) {
 				recorded.Origin = otherClientOrigin
 			}
 		}
@@ -318,6 +337,9 @@ func (model *sessionModel) applySnapshotNow(snapshot dexagents.AgentSnapshot) {
 	if !model.isLoaded {
 		model.isLoaded = true
 		model.isFirstApply = true
+		for _, queued := range snapshot.QueuedMessages {
+			model.queuedBeforeChat = append(model.queuedBeforeChat, queued.Message.Text)
+		}
 		defer func() { model.isFirstApply = false }()
 		if model.isResumed {
 			// The history page showed the finished turns.

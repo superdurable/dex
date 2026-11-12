@@ -437,11 +437,13 @@ func renderPlanLine(items []sessionfeed.PlanItem, width int, theme terminaltheme
 var helpKeyRows = [][2]string{
 	{"Enter", "send, or queue while a turn runs"},
 	{"Shift-Enter", "new line (also Alt-Enter, Ctrl-J)"},
-	{"Ctrl-C", "cancel the turn; again to exit"},
+	{"Ctrl-C", "cancel the turn or clear the input; press again to exit"},
+	{"Esc", "cancel the running turn (empty input)"},
 	{"Ctrl-D", "exit (empty input)"},
-	{"Tab", "complete a /command or an /image path; on empty input, focus waiting approvals and queued messages"},
+	{"Tab", "complete a /command or an /image path; on empty input, focus waiting approvals and queued messages, then Up/Down picks one"},
 	{"Up/Down", "recall earlier messages"},
 	{"Ctrl-O", "open the last tool's full output"},
+	{"Ctrl-P", "show the plan's steps"},
 	{"PgUp/PgDn", "scroll the messages; End follows new ones"},
 	{"F1", "show this help"},
 }
@@ -457,11 +459,7 @@ func renderHelpOverlay(registry slashCommandRegistry, width int, theme terminalt
 	}
 	lines = append(lines, "", contentIndent+theme.Title.Render("Commands"))
 	for _, command := range registry.Commands() {
-		name := "/" + command.Name
-		if command.ArgumentHint != "" {
-			name += " " + command.ArgumentHint
-		}
-		lines = append(lines, renderHelpRow(name, command.Description, keyWidth, descriptionWidth)...)
+		lines = append(lines, renderHelpRow(completionName(command), command.Description, keyWidth, descriptionWidth)...)
 	}
 	return lines
 }

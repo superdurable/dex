@@ -34,7 +34,10 @@ type snapshotFetched struct {
 	epoch    int64
 	snapshot dexagents.AgentSnapshot
 	history  *dexagents.AgentMessagesPage
-	err      error
+	// cancelledTurns are the history's turns that recent events show as
+	// cancelled; the stored messages do not say.
+	cancelledTurns map[string]bool
+	err            error
 }
 
 type eventReceived struct {
@@ -225,6 +228,7 @@ func (loop *sessionLoop) startFetch() {
 				feed.notice(sessionfeed.NoticeSeverityWarning, "Could not load the history: "+describeError(err)+".")
 			} else {
 				fetched.history = &page
+				fetched.cancelledTurns = readCancelledTurns(loop.ctx, feed, model.sessionID)
 			}
 		}
 		select {
@@ -252,7 +256,7 @@ func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	}
 	wasLoaded := model.isLoaded
 	if !wasLoaded && fetched.history != nil {
-		model.emitHistory(*fetched.history, fetched.snapshot.State.ActiveTurnID)
+		model.emitHistory(*fetched.history, fetched.snapshot.State.ActiveTurnID, fetched.cancelledTurns)
 	}
 	model.applySnapshot(fetched.snapshot)
 	if !wasLoaded {
@@ -272,23 +276,60 @@ func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	loop.scheduleRefresh(delay)
 }
 
+// applyFetchFailure says once per outage that the Dex server is unreachable;
+// other load failures say the session has not loaded yet.
 func (loop *sessionLoop) applyFetchFailure(err error) {
 	model := loop.model
-	if isUnavailable(err) && !loop.isUnreachable {
+	isServerDown := isUnavailable(err)
+	if isServerDown && !loop.isUnreachable {
 		loop.isUnreachable = true
 		loop.feed.emit(sessionfeed.ServerReachabilityChanged{IsReachable: false})
+		loop.feed.notice(sessionfeed.NoticeSeverityWarning, "Dex server unreachable; retrying.")
 	}
 	if model.isLoaded {
 		loop.scheduleRefresh(loop.feed.timings.RunningPoll)
 		return
 	}
-	if !loop.isLoadNoticeShown {
+	if !loop.isLoadNoticeShown && !isServerDown {
 		loop.isLoadNoticeShown = true
 		loop.feed.notice(sessionfeed.NoticeSeverityWarning, "Session not loaded yet: the Worker is busy or unreachable. Retrying.")
 	}
 	loop.loadFailures++
 	backoff := time.Second << min(loop.loadFailures-1, 4)
 	loop.scheduleRefresh(min(backoff, loop.feed.timings.MaxLoadBackoff))
+}
+
+// Reading cancelled turns for the history is best effort: at most this many
+// of the newest retained events.
+const (
+	historyEventPageSize  = 100
+	historyEventPageCount = 3
+)
+
+// readCancelledTurns returns the turns that the newest retained events show
+// as cancelled, or nil when the events cannot be read.
+func readCancelledTurns(ctx context.Context, feed *RemoteSessionFeed, sessionID string) map[string]bool {
+	cancelled := map[string]bool{}
+	pageToken := ""
+	for range historyEventPageCount {
+		listContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
+		page, err := feed.sessions.ListAgentEvents(listContext, sessionID, historyEventPageSize, pageToken)
+		cancel()
+		if err != nil {
+			feed.debugf("read the history events", err)
+			return cancelled
+		}
+		for _, message := range page.Messages {
+			if event := message.Value; event.Type == "turn_cancelled" && event.TurnID != nil {
+				cancelled[*event.TurnID] = true
+			}
+		}
+		if page.NextPageToken == "" {
+			return cancelled
+		}
+		pageToken = page.NextPageToken
+	}
+	return cancelled
 }
 
 // followAgentEvents reads the session's AgentEvents from now on and hands

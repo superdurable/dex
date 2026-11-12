@@ -688,9 +688,14 @@ func (screen *ChatScreen) renderToolPicker(width int, height int) []string {
 	return lines
 }
 
+// completionName is "/name", "/name ARG", or "/name [ARG]" for an optional
+// argument.
 func completionName(command sessionfeed.SlashCommand) string {
-	if command.ArgumentHint == "" {
+	switch {
+	case command.ArgumentHint == "":
 		return "/" + command.Name
+	case command.IsArgumentOptional:
+		return "/" + command.Name + " [" + command.ArgumentHint + "]"
 	}
 	return "/" + command.Name + " " + command.ArgumentHint
 }

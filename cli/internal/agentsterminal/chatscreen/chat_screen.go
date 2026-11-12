@@ -729,6 +729,10 @@ func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
 	case runCommandName:
 		return screen.runPlan()
 	}
+	if command, _ := screen.commands.Lookup(parsed.name); command.IsArgumentOptional && parsed.argument == "" {
+		// The command shows its current value; the argument is ready to type.
+		screen.input.SetValue("/" + parsed.name + " ")
+	}
 	return screen.submitAction(sessionfeed.RunSlashCommand{Name: parsed.name, Argument: parsed.argument})
 }
 
@@ -945,7 +949,7 @@ func (screen *ChatScreen) handleCompletionKey(key tea.KeyPressMsg) (tea.Cmd, boo
 		screen.input.SetValue(completed)
 		screen.completionIndex = 0
 	case "enter":
-		if selected.ArgumentHint != "" {
+		if selected.ArgumentHint != "" && !selected.IsArgumentOptional {
 			screen.input.SetValue("/" + selected.Name + " ")
 			return nil, true
 		}
