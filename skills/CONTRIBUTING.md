@@ -39,6 +39,12 @@ pages in the same pull request, or state in the pull request why they need no
 change. A skills change does not wait for a Dex release, and a Dex release
 never requires a skills change.
 
+The Skills hold only stable core rules. UI and feature details belong in the
+Developer reference. So do nuanced edge-case semantics, such as the order of
+waiters and locks, cancellation and close corner cases, retry deduplication
+details, and naming-restriction corner cases. Link to that reference instead
+of restating it.
+
 ## Keep skills and docs in step
 
 `doc-map.yaml` maps each skills file to the docs pages that hold the same
@@ -141,6 +147,11 @@ routing, or packaging. Create it from the Dex checkout:
 python3 script/release/changelog_fragments.py new skills --bump patch
 ```
 
+Every skills upgrade needs the owner's confirmation first. The owner is
+`longquanzheng` on GitHub. Confirm before you add a fragment, and confirm its
+bump level. Confirm before each run of **Prepare skills release** and before
+each merge of a skills release-prep pull request.
+
 Write the change-log bullets in the new `changelog.d/skills/` file. Keep them
 short. Its `bump` sets the release level:
 
@@ -164,8 +175,9 @@ outside a release-prep pull request, unless the description contains a line
 `changelog: correction: <reason>`. The 0.x release notes are archived in
 `CHANGELOG-0.x.md`.
 
-To release, the release cutter runs **Prepare skills release** in the Dex
-GitHub Actions, or runs this on a fresh branch from Dex `main`:
+To release, the owner runs **Prepare skills release** in the Dex GitHub
+Actions, or runs this on a fresh branch from Dex `main`. The workflow fails
+for anyone else who dispatches it:
 
 ```bash
 python3 script/release/changelog_fragments.py prepare skills --date <YYYY-MM-DD>

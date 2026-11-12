@@ -13,7 +13,7 @@ concurrency:
 jobs:
   prepare:
     name: Prepare skills release
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.actor == 'longquanzheng'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -50,4 +50,13 @@ jobs:
     steps:
       - run: |
           echo "Skills releases are prepared only from main" >&2
+          exit 1
+
+  reject-non-owner:
+    name: Reject non-owner dispatch
+    if: github.actor != 'longquanzheng'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Skills releases need the owner's confirmation; only longquanzheng may dispatch this workflow" >&2
           exit 1
