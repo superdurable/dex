@@ -443,6 +443,7 @@ describe("dex-agents-claude-sdk with the bundled Claude Code CLI against a scrip
     assert.equal(run.exitCode, 0, run.terminal);
     assert.equal(run.launchCount, 1, run.terminal);
     assert.equal(run.whileTerminalUiRan, "", run.terminal);
-    assert.match(run.terminal, /keeps running\. Resume it with: dex-agents-claude-sdk --resume /);
+    // After ready, the terminal UI's exit summary is the only resume line.
+    assert.doesNotMatch(run.terminal, /keeps running\. Resume it with/);
   });
 });

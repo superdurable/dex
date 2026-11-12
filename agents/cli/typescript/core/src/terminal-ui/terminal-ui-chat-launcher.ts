@@ -53,6 +53,8 @@ export interface TerminalUiChatLaunch {
   readonly environment: NodeJS.ProcessEnv;
   /** Whether `open_url` may start a browser. */
   readonly isBrowserOpeningEnabled: boolean;
+  /** The command's own signal handlers, which the handoff takes over while the terminal UI runs. */
+  readonly commandSignals: { release(): void; reclaim(): void };
   /** Opens a URL in the user's browser; resolves with whether a browser opener took it. */
   readonly openInBrowser: (url: string) => Promise<boolean>;
 }
@@ -119,6 +121,7 @@ export class TerminalUiChatLauncher {
 
   private async handOff(host: WorkerHostProcess, ready: WorkerHostReady): Promise<TerminalUiChatOutcome> {
     const terminalMode = new TerminalModeGuard();
+    this.launch.commandSignals.release();
     const signals = new LauncherSignals();
     const redirect = new LauncherOutputRedirect(this.launch.logFilePath);
     let handoff: TerminalUiHandoff;
@@ -128,6 +131,7 @@ export class TerminalUiChatLauncher {
     } finally {
       redirect.close();
       signals.close();
+      this.launch.commandSignals.reclaim();
     }
     const exit = handoff.exit;
     const isAbnormalEnd =
@@ -147,21 +151,21 @@ export class TerminalUiChatLauncher {
     if (signals.isHangUp) {
       return { kind: "exited", exitCode: 129 };
     }
-    if (handoff.wasStoppedByLauncher) {
+    // After ready, dexcli's exit summary says how to resume: /new may have switched to another session.
+    if (!handoff.isReady) {
       this.writeResumeLine(sessionId);
+    }
+    if (handoff.wasStoppedByLauncher) {
       return { kind: "exited", exitCode: 143 };
     }
     if (exit.signal === "SIGINT" || exit.code === 130 || signals.isInterrupted) {
-      this.writeResumeLine(sessionId);
       return { kind: "exited", exitCode: 130 };
     }
     if (handoff.contractEnd === undefined && (exit.code === 0 || exit.code === 1)) {
-      this.writeResumeLine(sessionId);
       return { kind: "exited", exitCode: exit.code === 1 || hasHostStoppedDuringChat ? 1 : 0 };
     }
     const reason = handoff.contractEnd ?? `dexcli exit ${describeExit(exit)}`;
     this.writeLine(`The chat closed unexpectedly (${reason}).`);
-    this.writeResumeLine(sessionId);
     return { kind: "exited", exitCode: 1 };
   }
 
@@ -207,8 +211,13 @@ class LauncherSignals {
     this.isTerminateRequested = true;
     this.onTerminate?.();
   };
+  private onHangUpRequest: (() => void) | undefined;
   private readonly onHangUp = (): void => {
+    const isFirst = !this.isHangUp;
     this.isHangUp = true;
+    if (isFirst) {
+      this.onHangUpRequest?.();
+    }
   };
 
   public constructor() {
@@ -235,6 +244,17 @@ class LauncherSignals {
   public whenInterrupted(handler: () => void): void {
     this.onInterruptRequest = handler;
     if (this.isInterrupted) {
+      handler();
+    }
+  }
+
+  /**
+   * Sets what the first SIGHUP does; one that already arrived calls it at once.
+   * @param handler - Ends the terminal UI.
+   */
+  public whenHungUp(handler: () => void): void {
+    this.onHangUpRequest = handler;
+    if (this.isHangUp) {
       handler();
     }
   }
@@ -345,6 +365,8 @@ class TerminalUiHandoff {
       void this.stop();
     });
     signals.whenInterrupted(() => void this.interrupt());
+    // A hangup of the terminal reaches dexcli too; a SIGHUP to the launcher alone must still end it.
+    signals.whenHungUp(() => void this.stopUnlessExiting());
   }
 
   private receive(message: ChannelMessage): void {

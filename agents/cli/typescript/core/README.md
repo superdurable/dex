@@ -520,9 +520,15 @@ Otherwise the command becomes a thin **launcher** with two children:
   paste, and shows the cursor, then prints
   `The chat closed unexpectedly (dexcli exit N).` A channel that ends or
   breaks after `ready` also ends the chat: `dexcli` gets 1 s to exit, then
-  SIGTERM, and the line names the cause. It prints the `--resume` line and
-  stops the Worker host: `shutdown`, up to 10 s, then SIGTERM to its group and
-  SIGKILL 2 s later.
+  SIGTERM, and the line names the cause. The launcher stops the Worker host:
+  `shutdown`, up to 10 s, then SIGTERM to its group and SIGKILL 2 s later.
+  After `ready` it prints no `--resume` line of its own: `dexcli`'s exit
+  summary names the session, because `/new` may have switched to another one.
+  It prints one only when `dexcli` never sent `ready`, and the plain chat it
+  falls back to prints its own.
+- During the handoff the launcher owns SIGTERM, SIGHUP, and SIGINT, so the
+  handlers of a `dexcli dev` the command started step aside and come back
+  afterwards; the command's close then stops that `dexcli dev` as usual.
 
 | Exit | When |
 | --- | --- |
@@ -538,7 +544,9 @@ Signals while `dexcli` runs: the launcher keeps a SIGINT handler (never
 reaches `dexcli` too, so the handler gives it 1 s to exit on its own; only
 then does it forward SIGINT, and after 2 s more it stops `dexcli` with SIGTERM.
 SIGTSTP stays at its default so job control stops the launcher with `dexcli`.
-SIGTERM is handled as above.
+SIGTERM is handled as above. On SIGHUP, which a closed terminal sends to
+`dexcli` too, the launcher gives `dexcli` 1 s to exit, then SIGTERM, and exits
+129 without touching the terminal.
 The Worker host is in another process group, so terminal signals never reach
 it.
 
@@ -550,18 +558,22 @@ launcher is gone or a shutdown started, it allows 15 s; then it sends SIGKILL
 to the Worker host's own group. It never signals a tool process group: a
 thread cannot tell whether the main thread already reaped the group's leader.
 
-The shell tool runs each command in its own process group. A timeout or a
-cancellation kills the group only while the shell runs. Once the shell exited,
-nothing signals its group: a background child it left keeps running, and
-output written more than 1 s after the shell exited is not collected. In a
-Worker host,
-`runShellCommand` registers that group right after the spawn and releases it
-on the shell's `exit` event. An orderly shutdown, on the main thread, sends
-SIGTERM to each registered group whose shell has not exited, then SIGKILL
-after 2 s. Node reaps a child and reports its exit on the main event loop, so
-until then the shell's pid cannot name another process. When the main loop is
-stuck, nothing stops the tool groups: they keep running after the Worker host
-ends, and the next command start stops them from the run record.
+The shell tool runs each command in its own process group, led by a small
+gatekeeper shell that runs the command with `/bin/sh -c`. When the command
+ends, what it left in the group, such as a process started with `&` or a
+grandchild that still holds its output, gets SIGTERM, then SIGKILL 0.5 s
+later, and the call answers once it is gone. So `cmd &` answers at once and
+leaves nothing running. A timeout or a cancellation kills the whole group.
+The gatekeeper stays alive, and unreaped, until the group is cleaned, so the
+main thread signals the group only while the gatekeeper has not reported its
+exit, and the group's ID cannot name another process. When the Worker host
+goes away first, the gatekeeper kills its own group once the command ends. In
+a Worker host, `runShellCommand` registers the group right after the spawn
+and releases it on the gatekeeper's `exit` event. An orderly shutdown, on the
+main thread, sends SIGTERM to each registered group whose gatekeeper has not
+exited, then SIGKILL after 2 s. When the main loop is stuck, nothing stops the
+tool groups: they keep running after the Worker host ends, and the next
+command start stops them from the run record.
 
 Each Worker host keeps a run record, `~/.dex/agents/run/<harness>-<pid>.json`,
 with the `ps` identity (pid, process group, start time, and the SHA-256 of the

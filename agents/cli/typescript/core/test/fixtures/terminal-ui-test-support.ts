@@ -138,6 +138,8 @@ export class FakeTerminalUi {
       this.executable,
       [
         "#!/bin/sh",
+        // Every other dexcli command, such as dexcli dev, is the real one.
+        `if [ "$1" != "agents-tui" ]; then exec ${quote(process.env.DEXCLI ?? "dexcli")} "$@"; fi`,
         `if [ "$2" = "--describe" ]; then echo describe >> ${quote(join(this.directory, "describes"))};${
           options.isUnrunnableAfterDescribe === true ? ' chmod a-x "$0";' : ""
         } exec ${host}${describeArguments} "$@"; fi`,

@@ -15,7 +15,7 @@ import { after, afterEach, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { LocalDirectoryMediaStore, startAgentSession } from "@superdurable/dex-agents";
-import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
+import { PrivateDexEngine, findFreeLoopbackPorts } from "@superdurable/dex-agents/testing";
 
 import { candidateSessionIds } from "../../src/terminal-ui/request-keys.js";
 import { terminalUiTerminalVariables } from "../../src/terminal-ui/terminal-ui-environment.js";
@@ -155,10 +155,9 @@ describe("the terminal UI launcher", () => {
     });
     assert.equal(await terminal.waitForExit(), 0);
     const output = terminal.terminal.all;
-    const sessionId = /Session (\S+) keeps running/.exec(output)?.[1];
-    assert.ok(sessionId !== undefined, output);
-    assert.deepEqual(await sessionsOf(home), [sessionId]);
-    assert.match(output, new RegExp(`Resume it with: dex-agents-scripted --resume ${sessionId}`));
+    assert.equal((await sessionsOf(home)).length, 1);
+    // After ready, the terminal UI's exit summary is the only resume line.
+    assert.doesNotMatch(output, /keeps running\. Resume it with/);
     const start = fake.record().find((event) => event.event === "start");
     assert.ok(start !== undefined);
     const names = (start.environment_names as string[]).filter((name) => !addedByTheShell.has(name));
@@ -179,7 +178,7 @@ describe("the terminal UI launcher", () => {
     const terminal = startOnTerminal(home, fake, [], {}, [], link);
     assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
     assert.equal(fake.launchCount, 1);
-    assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+    assert.doesNotMatch(terminal.terminal.all, /keeps running\. Resume it with/);
   });
 
   test("replays every chat transcript of the contract that a real launcher plays", async () => {
@@ -437,7 +436,7 @@ describe("the terminal UI launcher", () => {
     );
     process.kill(record.hostPid, "SIGKILL");
     assert.equal(await terminal.waitForExit(), 1, terminal.terminal.all);
-    assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+    assert.doesNotMatch(terminal.terminal.all, /keeps running\. Resume it with/);
   });
 
   test("open_url opens the page with the platform's opener, and says when no browser opened it", async () => {
@@ -512,7 +511,7 @@ describe("the terminal UI launcher", () => {
       const terminal = startOnTerminal(home, fake);
       assert.equal(await terminal.waitForExit(30_000), 1, terminal.terminal.all);
       assert.ok(terminal.terminal.all.includes(`The chat closed unexpectedly (${reason}).`), terminal.terminal.all);
-      assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+      assert.doesNotMatch(terminal.terminal.all, /keeps running\. Resume it with/);
       // The Worker host removes its run record when it stops.
       await waitUntil(() => runRecords(home).length === 0, "the Worker host stopped");
     }
@@ -643,8 +642,18 @@ describe("the terminal UI launcher", () => {
     const record = await waitForRunRecord(home, (candidate) => candidate.tool_groups.length === 1);
     const shellGroup = record.tool_groups[0]?.pgid ?? 0;
     assert.ok(isProcessGroupAlive(shellGroup));
-    // The shell holds stdin, stdout, and stderr only: no channel of the launcher or the terminal UI.
-    assert.deepEqual(openFileDescriptors(shellGroup).filter((fd) => fd > 2), []);
+    // The command holds stdin, stdout, and stderr only: no channel of the launcher, the terminal UI, or its
+    // gatekeeper, whose fds 3 and 4 talk to the Worker host.
+    const commandPids = execFileSync("pgrep", ["-g", String(shellGroup), "-f", shellCommand], { encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .map(Number)
+      .filter((pid) => pid !== shellGroup);
+    assert.ok(commandPids.length > 0);
+    for (const pid of commandPids) {
+      assert.deepEqual(openFileDescriptors(pid).filter((fd) => fd > 2), [], `pid ${pid}`);
+    }
+    assert.deepEqual(openFileDescriptors(shellGroup).filter((fd) => fd > 4), []);
     if (isHostStuck) {
       writeFileSync(spinFile, "");
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -689,6 +698,71 @@ describe("the terminal UI launcher", () => {
     assert.deepEqual(runRecords(home), []);
   });
 
+  test("a shell command's background job ends with the command, in the plain chat and in the Worker host", async () => {
+    const command = "sleep 30 & echo $!";
+    const config = `connectors: {enabled: []}\nlocal_tools: {browser: false, shell: {enabled: true, allow: [${JSON.stringify(command)}]}}\n`;
+    const call = `call run_shell_command ${JSON.stringify({ command })}`;
+    const backgroundPid = (text: string): number => Number(/result: exit code 0\n--- stdout ---\n(\d+)/.exec(text)?.[1] ?? 0);
+    // The plain chat runs the shell tool in the command's own process.
+    const plainHome = newHome(config);
+    const plain = CliProcess.start(plainHome);
+    processes.push(plain);
+    await plain.waitForSession();
+    plain.writeLine(call);
+    const plainPid = backgroundPid(await plain.stdout.waitFor(/result: exit code 0\n--- stdout ---\n\d+/));
+    assert.ok(plainPid > 0);
+    await waitUntil(() => !isProcessAlive(plainPid), "the plain chat's background sleep ended", 5_000);
+    plain.writeLine("/exit");
+    assert.equal(await plain.waitForExit(), 0);
+    // The terminal UI's Worker host runs it there.
+    const home = newHome(config);
+    const fake = new FakeTerminalUi([chatTranscript("background_job", [tuiPause(20_000)])]);
+    const terminal = startOnTerminal(home, fake);
+    await waitForReady(fake);
+    const sessionId = await onlySession(home);
+    const sessions = await sessionClients.of(home);
+    await sessions.sendUserMessage(sessionId, call);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 15_000 });
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    const hostPid = backgroundPid(snapshot.messages.at(-1)?.text ?? "");
+    assert.ok(hostPid > 0, JSON.stringify(snapshot.messages.at(-1)));
+    await waitUntil(() => !isProcessAlive(hostPid), "the Worker host's background sleep ended", 5_000);
+    assert.deepEqual((await waitForRunRecord(home)).tool_groups, []);
+    await terminal.waitForExit();
+  });
+
+  test("SIGTERM and SIGHUP during the handoff, and SIGTERM in the plain chat after a fallback, stop the dexcli dev the command started", async () => {
+    const [launch] = readTranscript("chat_ready_then_exit").steps;
+    const rejected: Transcript = {
+      ...readTranscript("chat_ready_then_exit"),
+      steps: [launch ?? {}, { from: "tui", message: { type: "launch_rejected", code: "auth_missing", message: "DEX_API_KEY is not set." } }],
+      tui_exit: 2,
+    };
+    for (const [signal, isFallback, exitCode] of [
+      ["SIGTERM", false, 143],
+      ["SIGHUP", false, 129],
+      ["SIGTERM", true, 143],
+    ] as const) {
+      const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+      const home = newHome(quietConfig, new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 }));
+      const fake = new FakeTerminalUi([isFallback ? rejected : chatTranscript("own_dexcli_dev", [tuiPause(60_000)])]);
+      const terminal = startOnTerminal(home, fake);
+      const startedLine = await terminal.terminal.waitFor(/dexcli dev is ready \(pid \d+\)/, 120_000);
+      const devPid = Number(/pid (\d+)/.exec(startedLine)?.[1]);
+      const record = await waitForRunRecord(home);
+      if (isFallback) {
+        await terminal.terminal.waitFor("Type a message");
+      } else {
+        await waitForReady(fake);
+      }
+      process.kill(record.launcher.pid, signal);
+      assert.equal(await terminal.waitForExit(), exitCode, `${signal}: ${terminal.terminal.all}`);
+      // The terminal UI and the Worker host stop first; then the command's close stops the dexcli dev.
+      await waitUntil(() => !isProcessGroupAlive(devPid), `the started dexcli dev stopped after ${signal}`, 30_000);
+      await waitUntil(() => !isProcessAlive(record.hostPid), "the Worker host stopped");
+    }
+  });
+
   test("SIGTERM to the Worker host reports it stopping and stopped, and the chat then exits 1", async () => {
     const home = newHome();
     const fake = new FakeTerminalUi([
@@ -702,7 +776,7 @@ describe("the terminal UI launcher", () => {
     const record = await waitForRunRecord(home);
     process.kill(record.hostPid, "SIGTERM");
     assert.equal(await terminal.waitForExit(), 1, terminal.terminal.all);
-    assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+    assert.doesNotMatch(terminal.terminal.all, /keeps running\. Resume it with/);
   });
 
   test("a command start stops what a killed launcher's Worker host left, but only processes that still match their record", async () => {
@@ -750,7 +824,7 @@ describe("the terminal UI launcher", () => {
       // A terminal sends SIGINT to the foreground process group; kill -INT reaches the launcher alone.
       process.kill(target === "launcher" ? record.launcher.pid : -record.launcher.pid, signal);
       assert.equal(await terminal.waitForExit(), exitCode, terminal.terminal.all);
-      assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+      assert.doesNotMatch(terminal.terminal.all, /keeps running\. Resume it with/);
       await waitUntil(() => !isProcessAlive(record.hostPid), "the Worker host stopped");
     }
   });
@@ -788,7 +862,7 @@ describe("the terminal UI launcher", () => {
     await waitUntil(() => existsSync(join(directory, "ready")), "the terminal UI is ready");
     process.kill(record.launcher.pid, "SIGINT");
     assert.equal(await terminal.waitForExit(), 130, terminal.terminal.all);
-    assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+    assert.doesNotMatch(terminal.terminal.all, /keeps running\. Resume it with/);
     await waitUntil(() => !isProcessAlive(record.hostPid), "the Worker host stopped");
   });
 
