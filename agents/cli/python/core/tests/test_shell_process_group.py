@@ -28,6 +28,7 @@ from typing import Any
 
 import pytest
 
+from dex_agents_cli_core.local_tools import shell
 from dex_agents_cli_core.local_tools.shell import run_shell_command
 
 # A generous bound: each case would otherwise wait for a 30 s job.
@@ -134,6 +135,7 @@ class RecordingGroups:
         self.released: list[int] = []
         self.signals_after_release: list[int] = []
         self.reaped_under_lock = False
+        self.signal_times: list[tuple[int, float]] = []
         self._lock = threading.Lock()
 
     def register(self, pid: int) -> None:
@@ -141,6 +143,7 @@ class RecordingGroups:
 
     def signal_group(self, pid: int, signal_number: int) -> bool:
         with self._lock:
+            self.signal_times.append((signal_number, time.monotonic()))
             if pid in self.released:
                 self.signals_after_release.append(signal_number)
                 return False
@@ -304,3 +307,83 @@ async def test_the_output_waits_the_group_cleanup_and_then_one_second(tmp_path: 
     os.kill(int(pid), signal.SIGKILL)
     # The SIGTERM grace (0.5 s) passes in full, then the 1 s output wait does.
     assert 0.3 + 0.5 + 1.0 <= elapsed < NOT_WAITING_SECONDS
+
+
+async def test_pipes_with_high_descriptor_numbers_still_stop_the_group(tmp_path: Path) -> None:
+    # Over 1024 open descriptors, so the pipes get numbers select() cannot take.
+    held = [os.open(os.devnull, os.O_RDONLY) for _ in range(1100)]
+    try:
+        output = await run_shell_command("sleep 30 & echo $!", tmp_path, 60)
+    finally:
+        for fd in held:
+            os.close(fd)
+    assert output.startswith("exit code 0\n--- stdout ---\n")
+    (pid,) = stdout_lines(output)
+    await wait_until_gone(int(pid))
+
+
+async def test_a_failed_read_still_stops_and_reaps_the_group(
+    tmp_path: Path, spawned: list[subprocess.Popen[bytes]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing_read(self: Any) -> None:
+        raise RuntimeError("injected read failure")
+
+    monkeypatch.setattr(shell._CappedOutput, "read_available", failing_read)
+    pid_file = tmp_path / "background.pid"
+    groups = RecordingGroups()
+    output = await run_shell_command(
+        f"sleep 30 & echo $! > {pid_file}; sleep 0.2", tmp_path, 60, process_groups=groups
+    )
+    assert output.startswith("exit code 0\n")
+    (process,) = spawned
+    assert_cleaned(process, groups, int(pid_file.read_text()))
+
+
+async def test_the_sigterm_grace_lasts_even_when_the_pipes_ended(tmp_path: Path) -> None:
+    groups = RecordingGroups()
+    await run_shell_command(
+        f"{IGNORES_SIGTERM} >/dev/null 2>&1 &", tmp_path, 60, process_groups=groups
+    )
+    sent = [signal_number for signal_number, _ in groups.signal_times]
+    assert sent == [signal.SIGTERM, signal.SIGKILL]
+    (_, sigterm_at), (_, sigkill_at) = groups.signal_times
+    assert sigkill_at - sigterm_at >= 0.45
+
+
+@pytest.mark.parametrize("failing_thread", ["-exit", ""], ids=["exit-thread", "owner-thread"])
+async def test_an_owner_that_cannot_start_leaves_nothing_behind(
+    tmp_path: Path,
+    spawned: list[subprocess.Popen[bytes]],
+    monkeypatch: pytest.MonkeyPatch,
+    failing_thread: str,
+) -> None:
+    real_start = threading.Thread.start
+
+    def failing_start(thread: threading.Thread) -> None:
+        name = thread.name
+        if name.startswith("dex-agents-shell-") and name.endswith("-exit") == bool(failing_thread):
+            raise RuntimeError("can't start new thread")
+        real_start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", failing_start)
+    groups = RecordingGroups()
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        await run_shell_command("sleep 30", tmp_path, 60, process_groups=groups)
+    monkeypatch.setattr(threading.Thread, "start", real_start)
+    (process,) = spawned
+    assert_cleaned(process, groups, None)
+    assert shell._OWNERS == set()
+
+
+@pytest.mark.parametrize("arguments", [[], ["--hold-lock"]], ids=["active-shell", "lock-held"])
+def test_a_forked_child_exits_promptly(arguments: list[str]) -> None:
+    completed = subprocess.run(
+        [sys.executable, "-m", "tests.fork_with_shell_owner", *arguments],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    seconds = float(completed.stdout.split()[3])
+    assert seconds < 1.5, completed.stdout

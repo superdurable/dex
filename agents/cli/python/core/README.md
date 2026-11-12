@@ -479,7 +479,8 @@ These checks have limits:
   group, so Ctrl-C never reaches it. It times out after 120 seconds by default
   and 600 at most; a timeout kills the whole group and is a result,
   `killed: timed out after N seconds`. When the shell exits, what it left
-  running in its group (`sleep 30 &`) gets SIGTERM, then SIGKILL 0.5 s later.
+  running in its group (`sleep 30 &`) gets SIGTERM, then SIGKILL 0.5 s later,
+  even when the pipes already ended, so every command takes at least 0.5 s.
   The shell is reaped only after that, without a reap in between (`waitid`
   with `WNOWAIT`, or kqueue on macOS before Python 3.13), so its group ID is
   never reused while it is signaled; a cancelled call finishes this cleanup
@@ -487,7 +488,11 @@ These checks have limits:
   alone waits for it, signals its group, reads the pipes, and reaps it, so a
   cancelled call, a closing event loop, or an exiting interpreter (an `atexit`
   hook kills and waits for each, 3 s at most) never leaves a reaped leader's
-  group signaled. Once the group is cleaned, the output may still arrive for
+  group signaled. It reads with `selectors`, so pipe descriptors above 1024
+  work; a failed read only ends reading, and the stop sequence still runs. An
+  owner thread that cannot start kills and reaps the shell before the error
+  propagates, and a forked child forgets its parent's owners. Once the group
+  is cleaned, the output may still arrive for
   1 s, each stream cut at 64 KiB with a `[cut at 65536 bytes]` line; a
   process that left the group (`setsid`) and still holds the pipes is not
   stopped and no longer delays the result. A shell that cannot start fails

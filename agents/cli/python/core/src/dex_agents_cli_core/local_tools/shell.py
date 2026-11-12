@@ -13,8 +13,9 @@ from __future__ import annotations
 import asyncio
 import atexit
 import contextlib
+import logging
 import os
-import select
+import selectors
 import signal
 import subprocess
 import threading
@@ -39,6 +40,7 @@ _READ_BYTES = 65536
 _POLL_SECONDS = 0.05
 # How long an exiting interpreter waits for each shell it kills.
 _EXIT_CLEANUP_SECONDS = 3.0
+_LOGGER = logging.getLogger(__name__)
 
 
 class ShellProcessGroups(Protocol):
@@ -124,8 +126,12 @@ async def run_shell_command(
     except BaseException:
         _kill_and_reap(process)
         raise
-    owner = _ShellOwner(process, groups, timeout_seconds)
-    owner.start()
+    try:
+        owner = _ShellOwner(process, groups, timeout_seconds)
+        owner.start()
+    except BaseException:
+        _abandon(process, groups)
+        raise
     try:
         await asyncio.shield(owner.finished)
     except asyncio.CancelledError:
@@ -157,11 +163,22 @@ class _ShellOwner(threading.Thread):
         self.finished: asyncio.Future[str] = self._loop.create_future()
 
     def start(self) -> None:
-        """Start owning the shell; an exiting interpreter still gets it cleaned first."""
+        """Start owning the shell; an exiting interpreter still gets it cleaned first.
+
+        Raises:
+            RuntimeError: If a thread cannot start; the caller then abandons the shell.
+        """
         with _OWNERS_LOCK:
             _OWNERS.add(self)
-        threading.Thread(target=self._wait_for_exit, name=f"{self.name}-exit", daemon=True).start()
-        super().start()
+        try:
+            threading.Thread(
+                target=self._wait_for_exit, name=f"{self.name}-exit", daemon=True
+            ).start()
+            super().start()
+        except BaseException:
+            with _OWNERS_LOCK:
+                _OWNERS.discard(self)
+            raise
 
     def kill(self) -> None:
         """Kill the command's group now, as for a cancelled call."""
@@ -187,26 +204,34 @@ class _ShellOwner(threading.Thread):
     def _own(self) -> str:
         pid = self._process.pid
         end_reason: str | None = None
+        self._selector = selectors.DefaultSelector()
+        for pipe in (self._stdout, self._stderr):
+            self._selector.register(pipe, selectors.EVENT_READ)
         try:
             deadline = time.monotonic() + self._timeout_seconds
             while not self._exited.is_set():
                 if self._kill_requested.is_set():
-                    end_reason = end_reason or "cancelled"
+                    end_reason = "cancelled"
                     break
                 if time.monotonic() >= deadline:
                     end_reason = f"timed out after {self._timeout_seconds} seconds"
                     break
                 self._read_output(min(_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
-            if end_reason is not None:
+        finally:
+            # Whatever ended the wait, even a failed read, the whole stop sequence runs.
+            if not self._exited.is_set():
                 self._groups.signal_group(pid, signal.SIGKILL)
-                while not self._exited.is_set():
-                    self._read_output(_POLL_SECONDS)
+                while not self._exited.wait(_POLL_SECONDS):
+                    self._read_output(0.0)
             # The shell is a zombie now, so its group ID stays reserved while the group is cleaned.
             self._groups.signal_group(pid, signal.SIGTERM)
-            self._read_output_until(time.monotonic() + _LEFT_BEHIND_GRACE_SECONDS)
+            # EOF only ends reading: what the shell left gets its whole grace before SIGKILL.
+            sigkill_at = time.monotonic() + _LEFT_BEHIND_GRACE_SECONDS
+            self._read_output_until(sigkill_at)
+            time.sleep(max(0.0, sigkill_at - time.monotonic()))
             self._groups.signal_group(pid, signal.SIGKILL)
             self._read_output_until(time.monotonic() + _OUTPUT_AFTER_GROUP_SECONDS)
-        finally:
+            self._selector.close()
             self._stdout.close()
             self._stderr.close()
             returncode = _release(self._process, self._groups)
@@ -226,13 +251,20 @@ class _ShellOwner(threading.Thread):
             self._read_output(min(_POLL_SECONDS, remaining))
 
     def _read_output(self, timeout: float) -> None:
-        pipes = [pipe for pipe in (self._stdout, self._stderr) if not pipe.is_ended]
-        if not pipes:
+        """Read what the pipes hold within ``timeout``; a failure ends reading, not the stop."""
+        if self._stdout.is_ended and self._stderr.is_ended:
             time.sleep(timeout)
             return
-        readable, _, _ = select.select(pipes, [], [], timeout)
-        for pipe in readable:
-            pipe.read_available()
+        try:
+            for key, _ in self._selector.select(timeout):
+                pipe: _CappedOutput = key.fileobj  # type: ignore[assignment]
+                pipe.read_available()
+                if pipe.is_ended:
+                    self._selector.unregister(pipe)
+        except Exception:  # Reading is best effort; the group must still be stopped and reaped.
+            _LOGGER.exception("the shell's output could not be read")
+            self._stdout.is_ended = True
+            self._stderr.is_ended = True
 
     def _report(self, outcome: str | BaseException) -> None:
         if self.finished.done():
@@ -245,6 +277,17 @@ class _ShellOwner(threading.Thread):
 
 _OWNERS: set[_ShellOwner] = set()
 _OWNERS_LOCK = threading.Lock()
+
+
+def _forget_owners_after_fork() -> None:
+    """A forked child runs none of its parent's owner threads, and may inherit a held lock."""
+    global _OWNERS_LOCK
+    _OWNERS_LOCK = threading.Lock()
+    _OWNERS.clear()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_forget_owners_after_fork)
 
 
 @atexit.register
@@ -326,6 +369,15 @@ class _CappedOutput:
         """Return the kept output as text, with a line that says when it was cut."""
         text = b"".join(self._chunks).decode("utf-8", errors="replace")
         return f"{text}\n[cut at {_MAX_OUTPUT_BYTES} bytes]" if self._is_cut else text
+
+
+def _abandon(process: subprocess.Popen[bytes], groups: ShellProcessGroups) -> None:
+    """Stop and reap a registered shell that no owner thread took over."""
+    groups.signal_group(process.pid, signal.SIGKILL)
+    for pipe in (process.stdout, process.stderr):
+        if pipe is not None:
+            pipe.close()
+    _release(process, groups)
 
 
 def _kill_and_reap(process: subprocess.Popen[bytes]) -> None:
