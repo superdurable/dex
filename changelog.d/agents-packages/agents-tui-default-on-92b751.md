@@ -7,5 +7,3 @@ section: Changed
   output is not a terminal, when `TERM` is unset or `dumb`, on Windows, and in
   `dex-agents-pi`; it is used with a `Plain chat:` line when `dexcli` has no
   terminal UI or the terminal UI fails to start.
-- TypeScript CLI core: an unset or empty `TERM` keeps the plain chat, as in
-  the Python CLI core.

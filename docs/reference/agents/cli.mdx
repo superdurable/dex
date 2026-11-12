@@ -759,9 +759,10 @@ graph and its Actions.
   the plain chat. See [The chat](#chat).
 - **A killed command leaves its Worker for a short time.** In the terminal UI,
   the command's Worker runs in its own process. When the command gets SIGKILL,
-  that process stops within about 15 seconds. A shell command it started can
-  keep running until the next start of a command stops it. A process that
-  left the shell command's process group is never stopped.
+  that process stops within about 15 seconds, unless it is stuck, such as in
+  native code of a Python command. A shell command it started can keep
+  running until the next terminal UI start of a command stops it. A process
+  that left the shell command's process group is never stopped.
 
 - **Sessions stay in their environment.** A session resumes only with the host,
   user, configuration file, and workspace that started it. Without a
