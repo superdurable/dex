@@ -9,13 +9,29 @@
 """The test command: ``python -m tests.scripted_cli`` runs the CLI core with the scripted harness.
 
 ``DEX_AGENTS_TEST_WITHOUT_IMAGES=1`` runs a harness whose runner takes no images.
+``DEX_AGENTS_TEST_FORCED_SUMMARY=on`` or ``off`` runs a harness that ignores
+``HarnessContext.is_session_summary_indexed``; ``misreported-on`` or
+``misreported-off`` declares that summary while its options report the opposite.
 """
 
 import os
 
 from dex_agents_cli_core import run_agent_cli
-from tests.scripted_harness import WITHOUT_IMAGES_ENVIRONMENT_VARIABLE, ScriptedHarness
+from tests.scripted_harness import (
+    FORCED_SUMMARY_ENVIRONMENT_VARIABLE,
+    WITHOUT_IMAGES_ENVIRONMENT_VARIABLE,
+    ScriptedHarness,
+)
 
 if __name__ == "__main__":
     supports_images = os.environ.get(WITHOUT_IMAGES_ENVIRONMENT_VARIABLE) != "1"
-    raise SystemExit(run_agent_cli(ScriptedHarness(supports_images=supports_images)))
+    forced = os.environ.get(FORCED_SUMMARY_ENVIRONMENT_VARIABLE)
+    raise SystemExit(
+        run_agent_cli(
+            ScriptedHarness(
+                supports_images=supports_images,
+                forced_summary_indexed=None if forced is None else forced.endswith("on"),
+                is_summary_misreported=forced is not None and forced.startswith("misreported"),
+            )
+        )
+    )

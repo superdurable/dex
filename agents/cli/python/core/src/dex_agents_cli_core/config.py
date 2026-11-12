@@ -234,6 +234,23 @@ class MediaConfig:
 
 
 @dataclass(frozen=True)
+class SessionsConfig:
+    """The ``sessions`` section: how the command keeps its sessions.
+
+    Session settings never change it.
+
+    Attributes:
+        summary: ``auto``, ``on``, or ``off``: whether each session keeps the
+            indexed title, last activity time, and turn count that
+            ``sessions`` shows. See ``is_session_summary_indexed``.
+
+    .. versionadded:: 0.6.0
+    """
+
+    summary: str = AUTO
+
+
+@dataclass(frozen=True)
 class EffectiveConfig:
     """A configuration with every default applied: a file's, or one turn's.
 
@@ -253,6 +270,10 @@ class EffectiveConfig:
         media: The media store of the images. Session settings never change it.
 
             .. versionadded:: 0.5.0
+        sessions: How the command keeps its sessions. Session settings never
+            change it.
+
+            .. versionadded:: 0.6.0
     """
 
     model: str
@@ -265,6 +286,7 @@ class EffectiveConfig:
     local_tools: LocalToolsConfig = field(default_factory=LocalToolsConfig)
     harness_options: Mapping[str, Any] = field(default_factory=dict)
     media: MediaConfig = field(default_factory=MediaConfig)
+    sessions: SessionsConfig = field(default_factory=SessionsConfig)
 
     def to_json(self) -> dict[str, Any]:
         """Return the configuration in the conformance file's JSON shape.
@@ -303,6 +325,7 @@ class EffectiveConfig:
                 "browser": self.local_tools.browser,
             },
             "media": {"store": self.media.store, "endpoint": self.media.endpoint},
+            "sessions": {"summary": self.sessions.summary},
             "harness_options": json.loads(json.dumps(self.harness_options)),
         }
 
@@ -398,7 +421,29 @@ def resolve_config(
         ),
         harness_options=json.loads(json.dumps(config.get(harness_section, {}))),
         media=MediaConfig(store=media.get("store", AUTO), endpoint=endpoint),
+        sessions=SessionsConfig(summary=config.get("sessions", {}).get("summary", AUTO)),
     )
+
+
+def is_session_summary_indexed(config: EffectiveConfig) -> bool:
+    """Return whether the command's sessions keep the indexed session summary.
+
+    ``sessions.summary: auto`` keeps it only with ``dex.server: auto``, the
+    ``dexcli dev`` of this machine that the command reuses or starts. A Dex
+    server URL may be shared, so its search index and index keys stay
+    untouched unless ``sessions.summary`` is ``on``.
+
+    Args:
+        config: The file's effective configuration.
+
+    Returns:
+        ``True`` to build the session Flow with
+        ``AgentSessionOptions.summary_attributes_indexed``.
+
+    .. versionadded:: 0.6.0
+    """
+    summary = config.sessions.summary
+    return summary == "on" or (summary == AUTO and config.dex.server == AUTO)
 
 
 def resolve_turn_config(

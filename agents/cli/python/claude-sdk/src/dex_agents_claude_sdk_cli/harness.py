@@ -156,6 +156,7 @@ class ClaudeSdkHarness:
                 default_tool_effect=ToolEffect.UNCLASSIFIED,
                 tracing=AgentTracingOptions(),
                 run_model_limit=RunModelLimit(),
+                summary_attributes_indexed=context.is_session_summary_indexed,
             ),
         )
 

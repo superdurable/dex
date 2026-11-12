@@ -84,7 +84,10 @@ class BuiltinHarness:
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
         )
         return builtin_agent_session_flow(
-            definition, flow_type=context.flow_type, media_store=context.media_store
+            definition,
+            flow_type=context.flow_type,
+            media_store=context.media_store,
+            summary_attributes_indexed=context.is_session_summary_indexed,
         )
 
 

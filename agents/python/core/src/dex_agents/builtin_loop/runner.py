@@ -1320,7 +1320,11 @@ def builtin_agent_session_options(definition: AgentDefinition) -> AgentSessionOp
 
 
 def builtin_agent_session_flow(
-    definition: AgentDefinition, *, flow_type: str, media_store: MediaStore | None = None
+    definition: AgentDefinition,
+    *,
+    flow_type: str,
+    media_store: MediaStore | None = None,
+    summary_attributes_indexed: bool = False,
 ) -> AgentSessionFlow:
     """Build the durable session Flow of one agent on the built-in agent loop.
 
@@ -1349,6 +1353,13 @@ def builtin_agent_session_flow(
 
             .. versionadded:: 0.5.0
 
+        summary_attributes_indexed: Whether the session keeps the indexed
+            session summary that ``list_agent_sessions`` reads. Defaults to
+            ``False``. See ``AgentSessionOptions.summary_attributes_indexed``
+            for what it stores and the index keys it registers.
+
+            .. versionadded:: 0.6.0
+
     Returns:
         ``AgentSessionFlow(BuiltinLoopAgentRunner(definition, media_store=media_store), ...)``
         with options from ``builtin_agent_session_options``.
@@ -1359,7 +1370,10 @@ def builtin_agent_session_flow(
     return AgentSessionFlow(
         BuiltinLoopAgentRunner(definition, media_store=media_store),
         flow_type=flow_type,
-        options=builtin_agent_session_options(definition),
+        options=replace(
+            builtin_agent_session_options(definition),
+            summary_attributes_indexed=summary_attributes_indexed,
+        ),
     )
 
 

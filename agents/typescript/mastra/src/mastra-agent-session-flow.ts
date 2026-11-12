@@ -106,6 +106,7 @@ export function createMastraAgentSessionFlow(
     messageChunkSize,
     messageChunkMaxBytes,
     retainedMessageLimit,
+    summaryAttributesIndexed,
     ...runnerOptions
   } = options;
   const runner = new MastraAgentRunner(agent, {
@@ -125,5 +126,6 @@ export function createMastraAgentSessionFlow(
     ...(messageChunkSize === undefined ? {} : { messageChunkSize }),
     ...(messageChunkMaxBytes === undefined ? {} : { messageChunkMaxBytes }),
     ...(retainedMessageLimit === undefined ? {} : { retainedMessageLimit }),
+    ...(summaryAttributesIndexed === undefined ? {} : { summaryAttributesIndexed }),
   });
 }

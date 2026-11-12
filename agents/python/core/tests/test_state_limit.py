@@ -40,6 +40,8 @@ from dex_agents import (
     AgentSessionFlow,
     AgentSessionStatus,
     AgentSnapshot,
+    AgentState,
+    list_agent_sessions,
 )
 from dex_agents.session_flow import _is_state_limit_failure
 from dex_agents.testing import (
@@ -51,7 +53,11 @@ from dex_agents.testing import (
 from dex_agents.testing.worker import TEST_BLOB_CACHE_BYTES
 from dex_agents.ui_stream import stream_agent_event_frames, stream_agent_event_frames_sync
 from tests.conftest import CORE_DIR
-from tests.scripted_agent import INVOCATION_LOG_NAME, STATE_DIR_ENVIRONMENT_VARIABLE
+from tests.scripted_agent import (
+    INVOCATION_LOG_NAME,
+    STATE_DIR_ENVIRONMENT_VARIABLE,
+    SUMMARY_INDEXED_ENVIRONMENT_VARIABLE,
+)
 from tests.state_limit_agent import build_state_limit_agent_flow
 
 WORKER_MODULE = "tests.state_limit_worker"
@@ -137,7 +143,11 @@ class StateLimitHarness:
 
 @asynccontextmanager
 async def _state_limit_harness(
-    tmp_path: Path, *, state_limit: int = STATE_LIMIT_BYTES, value_limit: int = STATE_LIMIT_BYTES
+    tmp_path: Path,
+    *,
+    state_limit: int = STATE_LIMIT_BYTES,
+    value_limit: int = STATE_LIMIT_BYTES,
+    is_summary_indexed: bool = False,
 ) -> AsyncIterator[StateLimitHarness]:
     config_path = tmp_path / "server-zd.yaml"
     config_path.write_text(
@@ -147,13 +157,16 @@ async def _state_limit_harness(
     )
     state_dir = tmp_path / "agent-state"
     state_dir.mkdir()
-    flow = build_state_limit_agent_flow(state_dir)
+    flow = build_state_limit_agent_flow(state_dir, summary_attributes_indexed=is_summary_indexed)
+    worker_env = {STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)}
+    if is_summary_indexed:
+        worker_env[SUMMARY_INDEXED_ENVIRONMENT_VARIABLE] = "1"
     async with AgentTestStack(
         tmp_path,
         [flow],
         WORKER_MODULE,
         worker_cwd=CORE_DIR,
-        worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+        worker_env=worker_env,
         server_zd_config=config_path,
     ) as stack:
         await stack.start_worker()
@@ -274,6 +287,40 @@ async def test_a_session_with_no_room_to_store_its_failure_still_reports_it(
 
         # A Step without a failure route, or a route whose commit did not fit, left its turn active.
         assert any(stored_active_turns)
+
+
+async def test_the_summary_turn_count_matches_the_stored_state_of_a_failed_session(
+    tmp_path: Path,
+) -> None:
+    """When the failure's commit does not fit, the summary keeps the values of the turn start."""
+    async with _state_limit_harness(tmp_path, is_summary_indexed=True) as harness:
+
+        async def run_to_failure(first_answer_characters: int) -> tuple[str, AgentState | None]:
+            session_id = harness.new_session_id()
+            await harness.sessions.start_session(session_id)
+            for text in [
+                "pad 25000",
+                f"pad {first_answer_characters}",
+                *[SMALL_TOOL_TURN] * NO_ROOM_SMALL_TURNS,
+            ]:
+                assert await harness.sessions.send_user_message(session_id, text)
+            await harness.close_reason(session_id)
+            return session_id, (await harness.stored_snapshot(session_id)).state
+
+        failed = await asyncio.gather(
+            *[run_to_failure(25_000 + 37 * offset) for offset in range(NO_ROOM_SESSIONS)]
+        )
+
+        page = await list_agent_sessions(
+            harness.stack.client, harness.flow.get_flow_type(), page_size=100
+        )
+        turn_counts = {session.session_id: session.turn_count for session in page.sessions}
+        stored_turn_counts = {
+            session_id: None if state is None else state.turn_count for session_id, state in failed
+        }
+        assert turn_counts == stored_turn_counts
+        # Some failures did not fit, so their sessions keep the turn start's count.
+        assert any(state is not None and state.active_turn_id is not None for _, state in failed)
 
 
 async def test_the_event_stream_of_a_failed_session_ends(tmp_path: Path) -> None:
