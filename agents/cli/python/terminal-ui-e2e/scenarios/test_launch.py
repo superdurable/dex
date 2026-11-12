@@ -79,6 +79,11 @@ def test_started_dexcli_dev_stops_on_exit(
         match = _DEV_READY_NOTICE.search(notice)
         assert match is not None, session.describe()
         dev_pid = int(match.group(1))
+        session.process_tree.record()
+        owned = {process.pid: process.command for process in session.process_tree.owned}
+        assert "dexcli dev" in owned.get(dev_pid, ""), f"dexcli dev {dev_pid} not recorded: {owned}"
+        assert any("dex-server-zd" in owned_command for owned_command in owned.values()), owned
+        assert any("__worker-host" in owned_command for owned_command in owned.values()), owned
         dex_port = int(run.environment(run.binaries.dexcli, False)["DEX_AGENTS_DEX_PORT"])
         assert _is_listening(dex_port)
         session.press("ctrl_d")

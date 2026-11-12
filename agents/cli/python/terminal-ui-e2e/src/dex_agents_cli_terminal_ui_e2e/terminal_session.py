@@ -20,6 +20,7 @@ from typing import BinaryIO
 
 import pexpect
 
+from dex_agents_cli_terminal_ui_e2e.process_tree import ProcessTreeRecord
 from dex_agents_cli_terminal_ui_e2e.terminal_screen import TerminalScreen
 
 KEYS = {
@@ -40,6 +41,7 @@ _POLL_SECONDS = 0.05
 # Bubble Tea reads a lone ESC as the Escape key only after a short pause.
 _KEY_GAP_SECONDS = 0.15
 _HANGUP_EXIT_SECONDS = 30.0
+_PROCESS_RECORD_SECONDS = 1.0
 
 
 class ScreenWaitTimeout(AssertionError):
@@ -52,6 +54,8 @@ class TerminalSession:
     Attributes:
         screen: What the terminal shows.
         exit_code: The exit code once the process ended, or a negative signal number.
+        process_tree: Every process the command started, recorded about once a
+            second while output is read.
     """
 
     def __init__(
@@ -74,6 +78,8 @@ class TerminalSession:
             env=dict(environment),
             dimensions=(lines, columns),
         )
+        self.process_tree = ProcessTreeRecord(self.pid)
+        self._last_process_record = 0.0
 
     @property
     def pid(self) -> int:
@@ -178,6 +184,7 @@ class TerminalSession:
         ``dexcli dev``; only one that outlives that is killed.
         """
         if self.exit_code is None and self._child.isalive():
+            self.process_tree.record()
             with contextlib.suppress(ProcessLookupError):
                 os.kill(self.pid, signal.SIGHUP)
             try:
@@ -200,6 +207,11 @@ class TerminalSession:
         )
 
     def _read_available(self, timeout_seconds: float) -> None:
+        if self.exit_code is None and (
+            time.monotonic() - self._last_process_record >= _PROCESS_RECORD_SECONDS
+        ):
+            self.process_tree.record()
+            self._last_process_record = time.monotonic()
         if self.exit_code is not None:
             time.sleep(timeout_seconds)
             return

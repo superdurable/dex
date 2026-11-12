@@ -17,6 +17,9 @@ full-screen scroll region go to ``scrollback``, as a real terminal keeps them.
 The terminal UI draws on the alternate screen and scrolls its own
 transcript, so a line can leave the screen without reaching the scrollback.
 ``seen_lines`` keeps every line any frame showed, for "did it show" checks.
+A frame is the screen at a frame boundary: the end of a read, a cursor hide
+or show, the end of a synchronized update, a full clear, or a screen switch.
+One read can hold several frames, so each boundary records the screen first.
 """
 
 from __future__ import annotations
@@ -38,6 +41,8 @@ _ANY_ESCAPE = re.compile(
 )
 _PYTE_CSI_FINALS = frozenset(pyte.Stream.csi)
 _ALTERNATE_SCREEN_MODES = frozenset({47, 1047, 1049})
+# Cursor visibility and synchronized output, which renderers toggle around each frame.
+_FRAME_BOUNDARY_MODES = frozenset({25, 2026})
 
 
 @dataclass
@@ -112,8 +117,7 @@ class TerminalScreen:
             self._apply_control_sequence(match)
             position = match.end()
         self._stream.feed(buffered[position:])
-        for line in self.display():
-            self._seen_lines.setdefault(line, None)
+        self._record_frame()
 
     def resize(self, columns: int, lines: int) -> None:
         """Change the size, as a terminal window resize does."""
@@ -148,6 +152,10 @@ class TerminalScreen:
         decoded = _ANY_ESCAPE.sub(b"", bytes(self.raw)).decode("utf-8", errors="replace")
         return decoded.replace("\r", "")
 
+    def _record_frame(self) -> None:
+        for line in self.display():
+            self._seen_lines.setdefault(line, None)
+
     def _apply_control_sequence(self, match: re.Match[bytes]) -> None:
         parameters, intermediates, final = match.group(1), match.group(2), match.group(3)
         final_character = final.decode()
@@ -155,6 +163,10 @@ class TerminalScreen:
             return
         if parameters[:1] == b"?":
             modes = _numbers(parameters[1:])
+            if final_character in "hl" and (
+                _FRAME_BOUNDARY_MODES.union(_ALTERNATE_SCREEN_MODES).intersection(modes)
+            ):
+                self._record_frame()
             if final_character in "hl" and _ALTERNATE_SCREEN_MODES.intersection(modes):
                 self._switch_alternate_screen(final_character == "h")
                 others = [mode for mode in modes if mode not in _ALTERNATE_SCREEN_MODES]
@@ -164,6 +176,8 @@ class TerminalScreen:
             if final_character in _PYTE_CSI_FINALS:
                 self._stream.feed(match.group(0))
             return
+        if final_character == "J" and (_numbers(parameters) or [0])[0] in (2, 3):
+            self._record_frame()
         if final_character in "ST":
             count = max(1, (_numbers(parameters) or [1])[0])
             self._scroll(count, is_up=final_character == "S")

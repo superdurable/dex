@@ -29,6 +29,14 @@ creates a trigger file, each process writes canary lines to fds 1 and 2,
 and so does a child it starts. The lines must reach the command log and never
 the terminal.
 
+## Processes a command starts
+
+While a command runs, its session records every process it starts: the
+Worker host, a `dexcli dev` with `dex-server-zd`, and their children. After
+the command exits, the scenario waits for each one to exit. If one is still
+running, the scenario stops it and fails. It also fails when the ports of a
+`dexcli dev` the command started still answer.
+
 ## Running
 
 ```bash

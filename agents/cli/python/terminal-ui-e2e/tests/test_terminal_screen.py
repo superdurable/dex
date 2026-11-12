@@ -56,3 +56,24 @@ def test_output_text_drops_escape_sequences() -> None:
     screen = TerminalScreen(20, 3)
     screen.feed(b"\x1b[1mbold\x1b[m \x1b]8;;http://x\x07link\x1b]8;;\x07\r\n")
     assert screen.output_text() == "bold link\n"
+
+
+def test_frame_overwritten_in_the_same_read_is_still_seen() -> None:
+    screen = TerminalScreen(20, 3)
+    screen.feed(b"\x1b[?25lfirst frame\x1b[?25h\x1b[?25l\x1b[Hsecond frame\x1b[?25h")
+    assert screen.display()[0] == "second frame"
+    assert "first frame" in screen.seen_lines()
+
+
+def test_frame_cleared_in_the_same_read_is_still_seen() -> None:
+    screen = TerminalScreen(20, 3)
+    screen.feed(b"popup\x1b[2J\x1b[Hafter")
+    assert screen.display()[0] == "after"
+    assert "popup" in screen.seen_lines()
+
+
+def test_alternate_screen_opened_and_closed_in_one_read_is_seen() -> None:
+    screen = TerminalScreen(20, 3)
+    screen.feed(b"main\x1b[?1049h\x1b[Hpager page\x1b[?1049l")
+    assert screen.display()[0] == "main"
+    assert "pager page" in screen.seen_lines()

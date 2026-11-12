@@ -14,6 +14,7 @@ import os
 import signal
 import subprocess
 import time
+from pathlib import Path
 
 from dex_agents_cli_terminal_ui_e2e.chat_run import ChatRun, ChatRunFactory, session_id_on_screen
 from dex_agents_cli_terminal_ui_e2e.command_targets import TerminalUiCommand
@@ -24,14 +25,29 @@ READY_STATUS = "Enter send"
 CANARY_ROLES = ("launcher", "worker-host")
 # The stdout of dexcli dev, which a command that starts it must keep off the terminal.
 DEXCLI_DEV_OUTPUT = ("Dex development environment is ready", "Press Ctrl+C to stop.")
-# The tool's own output is the tool result, which the terminal UI may show; the
-# controlling terminal and a child that outlives the tool are not.
-CANARY_SCRIPT = (
-    "echo canary script ran\n"
-    f"(echo {CANARY_TEXT} shell tty > /dev/tty) 2>/dev/null\n"
-    f"(sleep 1; echo {CANARY_TEXT} shell background fd 2 >&2) &\n"
-    "exit 0\n"
-)
+SHELL_RAN_TEXT = "canary script ran"
+
+
+def canary_script(marker_dir: Path) -> str:
+    """Return the shell tool's script: it writes a marker for each step it reached.
+
+    The tool's own output is the tool result, which the terminal UI may show; the
+    controlling terminal and a child that outlives the tool are not.
+    """
+    return (
+        f"echo {SHELL_RAN_TEXT}\n"
+        f"echo ran > '{marker_dir}/shell-ran'\n"
+        f"if (echo {CANARY_TEXT} shell tty > /dev/tty) 2>/dev/null; then\n"
+        f"  echo opened > '{marker_dir}/shell-tty'\n"
+        "else\n"
+        f"  echo no-terminal > '{marker_dir}/shell-tty'\n"
+        "fi\n"
+        f"(echo started > '{marker_dir}/shell-background-started'; sleep 1; "
+        f"echo {CANARY_TEXT} shell background fd 2 >&2; "
+        f"echo done > '{marker_dir}/shell-background-done') &\n"
+        f"while [ ! -e '{marker_dir}/shell-background-started' ]; do sleep 0.05; done\n"
+        "exit 0\n"
+    )
 
 
 def test_no_output_reaches_the_terminal(
@@ -55,7 +71,7 @@ def test_no_output_reaches_the_terminal(
         ],
         own_dev_server=True,
     )
-    (run.workspace / "canary.sh").write_text(CANARY_SCRIPT, encoding="utf-8")
+    (run.workspace / "canary.sh").write_text(canary_script(run.canary_dir), encoding="utf-8")
     run.write_config(shell_allow=("sh canary.sh",))
     session = run.spawn(has_canary=True)
     session.wait_for_display(READY_STATUS, timeout_seconds=180)
@@ -74,7 +90,20 @@ def test_no_output_reaches_the_terminal(
     if any(f"Approve {tools.shell_tool}?" in line for line in session.screen.display()):
         session.type_text("y")
         session.wait_for_text("SHELL-CANARY-DONE", timeout_seconds=90)
-    session.pump(2.0)
+    # Positive evidence first: the tool ran, tried /dev/tty, and started its background child.
+    shell_results = [
+        str(result.get("output"))
+        for entry in run.model_requests()
+        if entry.get("prompt") == "run the canary script"
+        for result in entry.get("tool_results") or []
+    ]
+    assert any(SHELL_RAN_TEXT in result for result in shell_results), shell_results
+    assert (run.canary_dir / "shell-ran").exists()
+    assert (run.canary_dir / "shell-tty").exists()
+    assert (run.canary_dir / "shell-background-started").exists()
+    # The CLI core's shell tool stops a command's background processes, so the
+    # child may never finish; when it lives on, its late write must stay off screen.
+    session.pump(3.0)
     _assert_nothing_leaked(session)
     session.press("ctrl_d")
     assert session.wait_for_exit(timeout_seconds=90) == 0, session.describe()
