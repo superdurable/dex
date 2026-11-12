@@ -35,7 +35,9 @@ OpenAI-compatible Chat Completions API.
 
 | Variable | Default |
 | --- | --- |
-| `DEX_FLOW_SERVICE_ADDRESS` | `127.0.0.1:8801` |
+| `DEX_FLOW_SERVICE_ADDRESS` | `localhost:8801`, the Go SDK default |
+| `DEX_TLS`, `DEX_TLS_CA_FILE`, `DEX_TLS_SERVER_NAME` | unset; plaintext gRPC. See [Run against a remote Dex server](#run-against-a-remote-dex-server) |
+| `DEX_API_KEY`, `DEX_TOKEN_URL`, `DEX_SERVER_ID` | unset; no credential |
 | `DEX_AI_AGENT_HTTP_ADDRESS` | `127.0.0.1:8090` |
 | `DEX_AI_AGENT_NOTES_FILE` | `$TMPDIR/dex-ai-agent/notes.jsonl` |
 | `DEX_AI_AGENT_STAGE_PAUSE` | `1.5s`, the pause between the stages of `fetch_page` and `publish_note` |
@@ -48,6 +50,46 @@ pass the folder to `dexcli dev`. Slack setup needs it too:
 dexcli visualize products/ai-agent/workflow.go --json --schema-version 2.0 --out /tmp/dex-flows/ai-agent
 dexcli dev --engine zd --flow-rendering-dir /tmp/dex-flows
 ```
+
+## Run against a remote Dex server
+
+By default the app connects to `dexcli dev` over plaintext gRPC without a
+credential. To use a Dex server that requires TLS and an API key, set these
+variables in the shell that starts the app. They have the same names and
+meaning as in `dexcli`. The example supports API key credentials only: it
+stops at startup when `DEX_CREDENTIAL` or `DEX_CREDENTIAL_FILE` is set.
+
+```bash
+export DEX_FLOW_SERVICE_ADDRESS=dex.example.com:443
+export DEX_TLS=true
+export DEX_API_KEY="$(cat ~/.dex/api-key)"
+export DEX_TOKEN_URL=https://auth.example.com/oauth/token
+export DEX_SERVER_ID=orders-production
+./dex-ai-agent
+```
+
+- `DEX_TLS` takes `true` or `false` (any value of Go's `strconv.ParseBool`).
+  With TLS, the app verifies the server certificate against the system root
+  CAs. `DEX_TLS_CA_FILE` adds the PEM certificates in a file to them, and
+  `DEX_TLS_SERVER_NAME` overrides the name the certificate must match.
+- With `DEX_API_KEY`, the Worker and the Client exchange the key at
+  `DEX_TOKEN_URL` for short-lived access tokens for `DEX_SERVER_ID`.
+  The token URL must use `https`, except for a loopback host. Against a
+  remote server, also set `DEX_TLS=true`; otherwise the access tokens cross
+  the network in plaintext.
+- An invalid or missing value stops the app at startup with an error that
+  names the variable. Surrounding whitespace is ignored, and a blank value
+  counts as unset.
+
+The chat page and Slack setup work the same way. See
+[Authentication](https://docs.superdurable.io/reference/server/authentication#sdk-credentials)
+in the Dex server reference for API key credentials and TLS,
+[Authentication](https://docs.superdurable.io/reference/cli/#authentication)
+and [Connect over TLS](https://docs.superdurable.io/reference/cli/#connect-over-tls)
+in the dexcli reference for the same variables, and
+[`APIKeyCredential`](https://pkg.go.dev/github.com/superdurable/dex/sdk-go/dex#APIKeyCredential)
+and [`FlowServiceTLSOptions`](https://pkg.go.dev/github.com/superdurable/dex/sdk-go/dex#FlowServiceTLSOptions)
+for the Go API.
 
 ## Set up Slack
 

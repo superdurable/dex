@@ -31,6 +31,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -72,15 +74,24 @@ func runAIAgentApp(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create the blob cache: %w", err)
 	}
-	flowServiceAddress := os.Getenv("DEX_FLOW_SERVICE_ADDRESS")
+	connection, err := readFlowServiceConnection()
+	if err != nil {
+		return errors.Join(err, cache.Close())
+	}
 	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-		FlowServiceAddress: flowServiceAddress,
+		FlowServiceAddress: connection.address,
+		FlowServiceTLS:     connection.tls,
+		Credential:         connection.credential,
 		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 16},
 	})
 	if err != nil {
 		return errors.Join(err, cache.Close())
 	}
-	client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: flowServiceAddress})
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		FlowServiceAddress: connection.address,
+		FlowServiceTLS:     connection.tls,
+		Credential:         connection.credential,
+	})
 	if err != nil {
 		return errors.Join(err, stopWorker(worker), cache.Close())
 	}
@@ -133,6 +144,87 @@ func describeSlack(slackSettings aiagent.SlackSettings) string {
 	return "channel " + slackSettings.Channel.Value.ChannelID
 }
 
+// flowServiceConnection holds how the Worker and the Client reach the Dex server.
+type flowServiceConnection struct {
+	address    string
+	tls        *dex.FlowServiceTLSOptions
+	credential dex.Credential
+}
+
+// readFlowServiceConnection reads the Dex server settings, using the environment variable names of dexcli.
+// It returns a plaintext connection without a credential when no TLS or API key setting is set.
+func readFlowServiceConnection() (flowServiceConnection, error) {
+	if readTrimmedEnvironment("DEX_CREDENTIAL") != "" || readTrimmedEnvironment("DEX_CREDENTIAL_FILE") != "" {
+		return flowServiceConnection{}, errors.New("this example supports only API key credentials; unset DEX_CREDENTIAL and DEX_CREDENTIAL_FILE and set DEX_API_KEY")
+	}
+	tlsOptions, err := readFlowServiceTLSOptions()
+	if err != nil {
+		return flowServiceConnection{}, err
+	}
+	credential, err := readAPIKeyCredential()
+	if err != nil {
+		return flowServiceConnection{}, err
+	}
+	return flowServiceConnection{
+		address:    readTrimmedEnvironment("DEX_FLOW_SERVICE_ADDRESS"),
+		tls:        tlsOptions,
+		credential: credential,
+	}, nil
+}
+
+// readFlowServiceTLSOptions returns nil for plaintext gRPC, or the TLS options when DEX_TLS is true.
+func readFlowServiceTLSOptions() (*dex.FlowServiceTLSOptions, error) {
+	caFile := readTrimmedEnvironment("DEX_TLS_CA_FILE")
+	serverName := readTrimmedEnvironment("DEX_TLS_SERVER_NAME")
+	isTLSEnabled := false
+	if value := readTrimmedEnvironment("DEX_TLS"); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("DEX_TLS must be a boolean such as true or false, not %q", value)
+		}
+		isTLSEnabled = parsed
+	}
+	if !isTLSEnabled {
+		if caFile != "" || serverName != "" {
+			return nil, errors.New("DEX_TLS_CA_FILE and DEX_TLS_SERVER_NAME require DEX_TLS=true")
+		}
+		return nil, nil
+	}
+	tlsOptions := &dex.FlowServiceTLSOptions{ServerName: serverName}
+	if caFile != "" {
+		caPEM, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("read the DEX_TLS_CA_FILE certificates: %w", err)
+		}
+		tlsOptions.AdditionalRootCAsPEM = caPEM
+	}
+	return tlsOptions, nil
+}
+
+// readAPIKeyCredential returns nil when DEX_API_KEY is unset, or a credential that exchanges the key for access tokens.
+func readAPIKeyCredential() (dex.Credential, error) {
+	apiKey := readTrimmedEnvironment("DEX_API_KEY")
+	tokenURL := readTrimmedEnvironment("DEX_TOKEN_URL")
+	serverID := readTrimmedEnvironment("DEX_SERVER_ID")
+	if apiKey == "" {
+		if tokenURL != "" || serverID != "" {
+			return nil, errors.New("DEX_TOKEN_URL and DEX_SERVER_ID require DEX_API_KEY")
+		}
+		return nil, nil
+	}
+	if tokenURL == "" {
+		return nil, errors.New("an API key requires DEX_TOKEN_URL")
+	}
+	if serverID == "" {
+		return nil, errors.New("an API key requires DEX_SERVER_ID")
+	}
+	credential, err := dex.APIKeyCredential(tokenURL, serverID, apiKey)
+	if err != nil {
+		return nil, fmt.Errorf("create the Dex API key credential from DEX_API_KEY, DEX_TOKEN_URL, and DEX_SERVER_ID: %w", err)
+	}
+	return credential, nil
+}
+
 func stopWorker(worker *dex.Worker) error {
 	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -144,4 +236,9 @@ func environmentOr(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// readTrimmedEnvironment returns the variable without surrounding whitespace, so a blank value counts as unset.
+func readTrimmedEnvironment(name string) string {
+	return strings.TrimSpace(os.Getenv(name))
 }
