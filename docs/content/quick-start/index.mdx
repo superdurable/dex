@@ -23,7 +23,7 @@ The mock API prints each call, so the Worker's output shows which Steps ran. You
 
 ## Before you start
 
-- macOS or Linux. `dexcli` does not run on Windows.
+- macOS or Linux. `dexcli` does not run on Windows; see [Install dexcli](/components/run-locally#install-dexcli) for WSL 2.
 - `dexcli`: install it with **brew install superdurable/tap/dexcli**, or see [Run Locally](/components/run-locally) to install it without Homebrew.
 - The toolchain for your language: Python 3.11 or later with uv, Go 1.24 or later, JDK 17 or later, Node.js 22.18 or later, or Rust 1.97 or later.
 - Git, to get the example code.
@@ -449,7 +449,7 @@ Both Steps are SYNC, the default: Dex stores each result before the Flow moves o
 
 In Python, Steps can also be **async def** methods. Run them with `AsyncWorker` and a Registry created with `allow_async_handlers=True`; [Python Workers](/reference/python/workers) shows the setup.
 
-The Client uses the registered Flow to name its type and encode the input, so its copy of the mock API is never called. The SDK Clients have no call that starts a Flow by its type name alone; **dexcli flow start -flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache), which keeps copies of large values.
+The Client uses the registered Flow to name its type and encode the input, so its copy of the mock API is never called. In your own API service, pass stand-ins the same way; see [Start Flows from an API service](/concepts/client#start-from-an-api-service). The SDK Clients have no call that starts a Flow by its type name alone; **dexcli flow start -flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache), which keeps copies of large values.
 
 :::
 

@@ -37,7 +37,9 @@ service that starts Flows builds the Flow objects too. The Client never runs a
 Step, so those objects never call their services, and stand-ins work. The
 [Quick Start](/quick-start) does this: its start program builds the Flow with a
 mock API that is never called. Each Client process also opens its own
-[blob cache](/components/application#blob-cache).
+[blob cache](/components/application#blob-cache). A service in another language
+can start a Flow by type name through the FlowService `StartFlow` request over
+gRPC, or from a terminal with `dexcli flow start -flow-type`.
 
 ## Deliver an event when no Worker runs {#deliver-without-a-worker}
 

@@ -24,11 +24,7 @@ links to the page that covers it.
 - **Public API authentication is off.** Any client that reaches the server can
   call it. Configure an authenticator before you expose the port. See
   [Authentication](/reference/server/authentication).
-- **Retries stop after 4 hours, and then the Flow fails.** By default a Step
-  method retries without an attempt limit for 4 hours from its first hand-out
-  to a Worker. When that time runs out, the default failure policy fails the
-  Flow. Set a longer total duration for Steps that wait on slow systems, or a
-  failure policy that moves to a recovery Step. See
+- **Retries stop after 4 hours, and then the Flow fails.** See the defaults in
   [StepOptions](/concepts/step#stepoptions).
 
 ## Capacity and availability
@@ -51,7 +47,10 @@ links to the page that covers it.
   [Failover and Deploys](/concepts/failover-and-deploys).
 - **The partition count is fixed at the first start.** The first start
   records `cluster.partitionCount`, 1024 by default for **serve**, and a
-  later start with a different count fails. Most clusters keep the default.
+  later start with a different count fails. A partition is one of the fixed
+  slices that the server splits its Flows and task queues into; on a one-node
+  cluster the node owns all of them, and the count mainly sets how much each
+  built-in search scans. Most clusters keep the default.
   Fewer partitions make each SearchFlows call with the built-in search scan
   less, so choose the count before the first production start if search
   speed matters. See
@@ -91,8 +90,7 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 
 [Send a command at most once](/concepts/client#inbound-commands) gives the pattern that drops a repeated command.
 
-- **A Step runs at least once.** A Step that a crash cut off runs again, and so
-  do its external calls. Pass an idempotency key. See
+- **A Step runs at least once.** See
   [Idempotency keys](/concepts/step#idempotency-keys).
 - **An ASYNC Step can rerun on a new snapshot.** If a server node fails before
   it saves an ASYNC Step's start, the attempt runs again and can read different
@@ -115,9 +113,8 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 - **A canceled method keeps running.** Dex does not stop the code. The method
   should check for cancellation and return. See
   [Step](/concepts/step#guarantees).
-- **Parallel writers overwrite each other unless they lock.** Locks are opt-in,
-  bind only the methods that declare them, and are held through external calls
-  and retries. See [Locks](/concepts/primitives/attribute#locking).
+- **Parallel writers overwrite each other unless they lock.** See
+  [Locks](/concepts/primitives/attribute#locking).
 - **Index slots are limited.** With the PostgreSQL search backend, each tenant
   has 10 Keyword slots and 3 for each other index type, shared by every Flow
   type. The registry has no delete. See

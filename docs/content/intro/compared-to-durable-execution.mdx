@@ -36,11 +36,11 @@ This choice has two sides:
 
 ### Determinism moved; it did not vanish {#determinism-moved-it-did-not-vanish}
 
-Dex drops the replay rule, but one rule takes its place. A Step can run more than once, so each external effect must depend only on what Dex passes the Step, not on which attempt is running. In practice, that means an [idempotency key](/concepts/step#idempotency-keys) that stays the same on every attempt. Every other tool on this page leaves the same duty to you. The [failure proof](/correctness-and-expressiveness/failure-transparency-proof) makes the same assumption. Reading the clock or a random value inside a Step is fine for the Step's own decisions and for the data Dex saves. It is not fine inside an idempotency key. When an effect must be identical on a rerun, such as the body of an email, build it only from what Dex passes the Step.
+Dex drops the replay rule, but one rule takes its place. A Step can run more than once, so each external effect must depend only on what Dex passes the Step, not on which attempt is running; see [Idempotency keys](/concepts/step#idempotency-keys). Every other tool on this page leaves the same duty to you. The [failure proof](/correctness-and-expressiveness/failure-transparency-proof) makes the same assumption. Reading the clock or a random value inside a Step is fine for the Step's own decisions and for the data Dex saves. It is not fine inside an idempotency key. When an effect must be identical on a rerun, such as the body of an email, build it only from what Dex passes the Step.
 
 ### Concurrency defaults
 
-Dex runs the Steps of one Flow in parallel, on different Workers, and an RPC can run alongside them. They share the Flow's Attributes. Dex does not isolate them unless they declare an [Attribute lock](/concepts/primitives/attribute#locking), so two of them that read and then write the same Attribute can lose an update. A Temporal workflow runs its code on one thread, and a Restate virtual object allows one exclusive handler per key at a time. Both give one writer by default. In Dex you choose which Attributes need a lock.
+Dex runs the Steps of one Flow in parallel, on different Workers, and an RPC can run alongside them. They share the Flow's Attributes without isolation; see [Attribute locks](/concepts/primitives/attribute#locking). A Temporal workflow runs its code on one thread, and a Restate virtual object allows one exclusive handler per key at a time. Both give one writer by default. In Dex you choose which Attributes need a lock.
 
 ### The same process in both models
 

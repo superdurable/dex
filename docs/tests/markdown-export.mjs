@@ -170,16 +170,29 @@ try {
   assert.match(home, /!\[Example\]\(https:\/\/docs.example.test\/img\/example.png\)/);
   assert.match(home, /Jump to <a id="kept-anchor"><\/a>the anchor text here./);
 
-  // SDK snippets follow the page tab order, and fences keep their own language.
-  const sdkOrder = ['**Python**', '**Go**', '**Rust**'].map(label => home.indexOf(label));
-  assert.deepEqual([...sdkOrder].sort((left, right) => left - right), sdkOrder, 'SDK snippets must follow the page tab order');
-  assert.match(home, /```rust\nlet sample = 1;\n```/);
-  assert.match(home, /```bash\ngo run .\/sample\n```/);
-  assert.match(home, /```go\nconst sample = 1\n```/);
-  assert.match(home, /https:\/\/github.com\/superdurable\/dex\/tree\/main\/examples\/go\/sample.go/);
-  assert.match(home, /例子: \[examples\/go\/sample.go\]/);
-  assert.match(home, /\*\*Go\*\*\n\n```go\nconst fromChild = 1\n```\n\n\*\*Java\*\*\n\n```java\nvar fromProp = 1;\n```\n\n例子: \[examples\/java\/Sample.java\]/);
-  assert.doesNotMatch(home, /overridden/);
+  // A page with code in several SDKs gets one Markdown file per language. The default file shows the first
+  // language in tab order, and a group without that language shows its own first language.
+  assert.match(home, /\n本页代码为 Python。其他语言：\[Go\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.go\.md\) · \[Java\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.java\.md\) · \[Rust\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.rust\.md\)\n/);
+  assert.match(home, /language: "python"/);
+  assert.match(home, /```python\nsample = 1\n```/);
+  assert.doesNotMatch(home, /```rust\nlet sample = 1;\n```/);
+  assert.match(home, /\*\*Go\*\*\n\n```go\nconst fromChild = 1\n```/);
+  assert.doesNotMatch(home, /var fromProp/);
+  const homeGo = await readFile(join(outDir, 'index.go.md'), 'utf8');
+  assert.match(homeGo, /language: "go"/);
+  assert.match(homeGo, /本页代码为 Go。其他语言：\[Python\]/);
+  assert.match(homeGo, /```bash\ngo run .\/sample\n```/);
+  assert.match(homeGo, /```go\nconst sample = 1\n```/);
+  assert.match(homeGo, /https:\/\/github.com\/superdurable\/dex\/tree\/main\/examples\/go\/sample.go/);
+  assert.match(homeGo, /例子: \[examples\/go\/sample.go\]/);
+  assert.match(homeGo, /```go\nconst fromChild = 1\n```/);
+  assert.doesNotMatch(homeGo, /```python\nsample = 1/);
+  const homeJava = await readFile(join(outDir, 'index.java.md'), 'utf8');
+  assert.match(homeJava, /\*\*Java\*\*\n\n```java\nvar fromProp = 1;\n```\n\n例子: \[examples\/java\/Sample.java\]/);
+  const homeRust = await readFile(join(outDir, 'index.rust.md'), 'utf8');
+  assert.match(homeRust, /```rust\nlet sample = 1;\n```/);
+  assert.match(await readFile(join(outDir, 'index.python.md'), 'utf8'), /```python\nsample = 1\n```/);
+  for (const file of [home, homeGo, homeJava, homeRust]) assert.doesNotMatch(file, /overridden/);
 
   // Flow graphs read as a numbered list of Steps, start Step first: each Step is one paragraph of plain sentences,
   // and code expressions appear only in parentheses.
@@ -204,6 +217,7 @@ try {
 
   assert.match(await readFile(join(outDir, 'reference/go/1.32.md'), 'utf8'), /# Earlier version/);
   const index = await readFile(join(outDir, 'llms.txt'), 'utf8');
+  assert.match(index, /\n含代码的页面有按语言划分的 Markdown：把 \.md 换成 \.go\.md、\.java\.md、\.typescript\.md 或 \.rust\.md。\n/);
   assert.match(index, /^# Fixture\n\n> Dex 是 Durable Execution 平台。/);
   // Archived versions keep their Markdown twin but stay out of llms.txt.
   assert.equal((index.match(/^-/gm) ?? []).length, 3);

@@ -89,14 +89,13 @@ processes that run it:
 Dex saves each Step's result together with the move to the next Step. A Step
 that finished does not run again; the one exception is an
 [ASYNC Step](/concepts/step#sync-and-async), which can run again if a server
-node fails before its result is written. A Step that was cut off can run again, so
-key each external call with an [idempotency key](/concepts/step#idempotency-keys).
+node fails before its result is written. A Step that was cut off can run again;
+see [Idempotency keys](/concepts/step#idempotency-keys).
 A retry reads the [state snapshot](/concepts/step#guarantees) of the first
 attempt, not newer writes. [Step](/concepts/step#guarantees) lists every
 guarantee and its limits.
 
-Lock any Attribute that two parallel Steps, or a Step and an RPC, read and then
-write; Dex does not isolate them by default. See
+Parallel Steps and RPCs share Attributes without isolation; see
 [Attribute locks](/concepts/primitives/attribute#locking).
 [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again
 after a crash, a server failover, or a deploy.

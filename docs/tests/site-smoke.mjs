@@ -15,7 +15,7 @@ import remarkParse from 'remark-parse';
 import remarkMdx from 'remark-mdx';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
-import {prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
+import {languageMarkdownPath, prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
 import {markdownPath} from '../src/markdownPath.mjs';
 import './markdown-export.mjs';
 import {readReferenceDocuments, compareVersions} from '../scripts/snapshot-reference.mjs';
@@ -572,42 +572,64 @@ for (const [canonical, {html, route}] of canonicalPages) {
   assert.deepEqual(markdownLinks.map(([, label]) => label), [markdownLinkLabel], `${pathname} needs one localized robot link`);
   assert.doesNotMatch(markdownLinks[0][0], /\stitle=/, `${pathname} robot link must not repeat its label in title`);
   assert.ok(html.indexOf('<h1') >= 0 && html.indexOf('<h1') < markdownLinks[0].index, `${pathname} robot link must follow the h1`);
-  const tree = markdownParser.parse(markdown);
-  const codeBlocks = [];
-  visitMarkdown(tree, node => {
-    if (node.type === 'code') codeBlocks.push(node);
-    if (node.type === 'html') assert.match(node.value, /^(?:<a id="[^"<>]+">(?:<\/a>)?|<\/a>)$/, `${pathname} contains leftover JSX/HTML`);
-    if (node.type === 'text') assert.doesNotMatch(node.value, /^\s*:::/m, `${pathname} contains a leftover admonition fence`);
-    if (['link', 'definition', 'image'].includes(node.type)) {
-      assert.match(node.url, /^(?:https?:\/\/|mailto:)/, `${pathname} contains non-absolute URL ${node.url}`);
-      const target = new URL(node.url);
-      if (target.origin === siteOrigin) {
-        assert.ok(canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
-          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) || isRetainedApiReferencePath(target.pathname) ||
-          (archivedCanonicalUrls.has(canonical) && isApiReferenceVersionPath(target.pathname)),
-          `${pathname} links to missing ${target.pathname}`);
+  const auditMarkdownFile = (filePath, text) => {
+    const blocks = [];
+    visitMarkdown(markdownParser.parse(text), node => {
+      if (node.type === 'code') blocks.push(node);
+      if (node.type === 'html') assert.match(node.value, /^(?:<a id="[^"<>]+">(?:<\/a>)?|<\/a>)$/, `${filePath} contains leftover JSX/HTML`);
+      if (node.type === 'text') assert.doesNotMatch(node.value, /^\s*:::/m, `${filePath} contains a leftover admonition fence`);
+      if (['link', 'definition', 'image'].includes(node.type)) {
+        assert.match(node.url, /^(?:https?:\/\/|mailto:)/, `${filePath} contains non-absolute URL ${node.url}`);
+        const target = new URL(node.url);
+        if (target.origin === siteOrigin) {
+          assert.ok(canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
+            outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) || isRetainedApiReferencePath(target.pathname) ||
+            (archivedCanonicalUrls.has(canonical) && isApiReferenceVersionPath(target.pathname)),
+            `${filePath} links to missing ${target.pathname}`);
+        }
       }
-    }
-  });
+    });
+    return blocks;
+  };
+  const codeBlocks = auditMarkdownFile(pathname, markdown);
   const source = await readFile(join(docsRoot, '..', metadata.source), 'utf8');
   const sourceTree = sourceParser.parse(prepareSource(source, {headingIds: new Map(), locale, sourcePath: metadata.source}));
-  const expectedBlocks = [];
+  const groups = [];
   visitMarkdown(sourceTree, node => {
     if (node.name !== 'SdkTabs' && !(node.name === 'SdkSnippet' && !node.isInsideSdkTabs)) return;
     const snippets = node.name === 'SdkSnippet' ? [node] : node.children.filter(child => child.name === 'SdkSnippet');
     snippets.forEach(snippet => { snippet.isInsideSdkTabs = node.name === 'SdkTabs'; });
-    const blocksByLanguage = new Map(snippets.map(snippet => {
+    groups.push(new Map(snippets.map(snippet => {
       const language = snippet.attributes.find(attribute => attribute.name === 'lang')?.value;
       return [language, snippet.children.filter(child => child.type === 'code')
         .map(block => ({lang: block.lang || language, value: block.value}))];
-    }));
-    for (const language of sdkOrder) expectedBlocks.push(...(blocksByLanguage.get(language) ?? []));
+    })));
   });
-  let codeCursor = 0;
-  for (const expected of expectedBlocks) {
-    while (codeCursor < codeBlocks.length && !(codeBlocks[codeCursor].lang === expected.lang && codeBlocks[codeCursor].value === expected.value)) codeCursor++;
-    assert.ok(codeCursor < codeBlocks.length, `${pathname} lost or reordered the ${expected.lang} SDK snippet`);
-    codeCursor++;
+  const assertBlocksInOrder = (filePath, blocks, expectedBlocks) => {
+    let codeCursor = 0;
+    for (const expected of expectedBlocks) {
+      while (codeCursor < blocks.length && !(blocks[codeCursor].lang === expected.lang && blocks[codeCursor].value === expected.value)) codeCursor++;
+      assert.ok(codeCursor < blocks.length, `${filePath} lost or reordered the ${expected.lang} SDK snippet`);
+      codeCursor++;
+    }
+  };
+  // Prop-only SdkTabs have no SdkSnippet children here, so the exporter's own test covers them.
+  const pageLanguages = sdkOrder.filter(language => groups.some(group => group.has(language)));
+  // A group without the file's language shows its own first language in tab order.
+  const blocksFor = language => groups.flatMap(group => group.get(language) ?? group.get(sdkOrder.find(item => group.has(item))) ?? []);
+  if (pageLanguages.length > 1) {
+    assert.match(markdown, new RegExp(`^language: "${pageLanguages[0]}"$`, 'm'), `${pathname} must show its first SDK language`);
+    assertBlocksInOrder(pathname, codeBlocks, blocksFor(pageLanguages[0]));
+    for (const language of pageLanguages) {
+      const languagePath = languageMarkdownPath(pathname, language);
+      const languageMarkdown = await readFile(join(root, languagePath.slice(1)), 'utf8');
+      assert.match(languageMarkdown, new RegExp(`^language: "${language}"$`, 'm'), `${languagePath} must name its language`);
+      assert.equal(JSON.parse(languageMarkdown.match(/^canonical_url: (.+)$/m)?.[1] ?? 'null'), canonical,
+        `${languagePath} has incorrect HTML canonical`);
+      assertBlocksInOrder(languagePath, auditMarkdownFile(languagePath, languageMarkdown), blocksFor(language));
+    }
+  } else {
+    assertBlocksInOrder(pathname, codeBlocks, groups.flatMap(group => [...group.values()].flat()));
   }
   markdownPages++;
   // A page that only says it moved stays out of llms.txt.

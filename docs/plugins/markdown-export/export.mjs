@@ -55,6 +55,9 @@ const localeCopies = {
       messages: count => (count === '1' ? ' (1 message)' : ` (${count} messages)`),
     },
     summary: 'Dex is a Durable Execution platform. Each entry links to the Markdown export of a documentation page.',
+    languageNote: 'Pages with code have per-language Markdown: replace .md with .go.md, .java.md, .typescript.md, or .rust.md.',
+    codeLanguage: label => `Code on this page is in ${label}. Other languages: `,
+    languageSeparator: ' · ',
     otherPages: 'Other pages',
     admonitions: {note: 'Note', tip: 'Tip', info: 'Info', warning: 'Warning', danger: 'Danger', caution: 'Caution',
       important: 'Important', secondary: 'Secondary', success: 'Success'},
@@ -85,6 +88,9 @@ const localeCopies = {
       messages: count => `（${count} 条消息）`,
     },
     summary: 'Dex 是 Durable Execution 平台。每个条目链接到一个文档页面的 Markdown 版本。',
+    languageNote: '含代码的页面有按语言划分的 Markdown：把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。',
+    codeLanguage: label => `本页代码为 ${label}。其他语言：`,
+    languageSeparator: ' · ',
     otherPages: '其他页面',
     admonitions: {note: '备注', tip: '提示', info: '信息', warning: '注意', danger: '危险', caution: '警告',
       important: '重要', secondary: '补充', success: '成功'},
@@ -157,18 +163,34 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
       canonical_url: context.canonicalUrl,
       source: relative(resolve(siteDir, '..'), sourcePath).split('\\').join('/'),
       locale};
-    const yaml = Object.entries(frontMatter).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
-    const markdown = `---\n${yaml}\n---\n\n${tree.children.some(node => node.type === 'heading' && node.depth === 1) ? '' : `# ${page.title}\n\n`}${writer.stringify(tree)}`;
     const pathname = markdownPath(page.permalink, baseUrl);
-    if (writtenPaths.has(pathname)) throw new Error(`Duplicate Markdown output: ${pathname}`);
-    writtenPaths.add(pathname);
-    await writeOutput(outDir, baseUrl, pathname, markdown);
+    // A page with code in several SDKs gets one file per language; the default file shows the first language.
+    const languages = sdkLanguages(tree.children);
+    const outputs = languages.length > 1
+      ? [{path: pathname, language: languages[0]},
+        ...languages.map(language => ({path: languageMarkdownPath(pathname, language), language}))]
+      : [{path: pathname, language: languages[0]}];
+    for (const output of outputs) {
+      const children = output.language ? selectLanguage(tree.children, output.language) : tree.children;
+      if (languages.length > 1) {
+        const note = languageNote(output.language, languages, pathname, siteConfig.url, copy);
+        const at = children[0]?.type === 'heading' && children[0].depth === 1 ? 1 : 0;
+        children.splice(at, 0, note);
+      }
+      const fields = languages.length > 1 ? {...frontMatter, language: output.language} : frontMatter;
+      const yaml = Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
+      const hasTitle = children.some(node => node.type === 'heading' && node.depth === 1);
+      const markdown = `---\n${yaml}\n---\n\n${hasTitle ? '' : `# ${page.title}\n\n`}${writer.stringify({...tree, children})}`;
+      if (writtenPaths.has(output.path)) throw new Error(`Duplicate Markdown output: ${output.path}`);
+      writtenPaths.add(output.path);
+      await writeOutput(outDir, baseUrl, output.path, markdown);
+    }
     if (movedNoticePattern.test(leadText)) movedPages.add(page);
     entries.set(page, `- [${escapeLabel(page.title)}](${new URL(pathname, siteConfig.url).href})${description ? `: ${description}` : ''}`);
   }
   // Archived versions keep Markdown twins but stay out of llms.txt, like the sitemap.
   const sections = llmsSections(versions.filter(item => item.version.isLast), copy, movedPages);
-  const index = [`# ${siteConfig.title}`, `> ${copy.summary}`,
+  const index = [`# ${siteConfig.title}`, `> ${copy.summary}`, copy.languageNote,
     ...sections.map(section => `## ${section.title}\n\n${section.pages.map(page => entries.get(page)).join('\n')}`)];
   await writeOutput(outDir, baseUrl, `${baseUrl}llms.txt`, `${index.join('\n\n')}\n`);
   console.log(`[markdown-export] Exported ${pages.length} pages (${locale}) from ${versions.length} docs version(s).`);
@@ -447,8 +469,57 @@ async function expandSdkTabs(node, context) {
     snippets.set(snippet.language, {...snippet, example: attribute(child, 'example', context) ?? examples[snippet.language]});
   }
   if (!snippets.size) fail(context, node, 'SdkTabs requires at least one SDK snippet');
-  return sdkOrder.filter(language => snippets.has(language))
-    .flatMap(language => snippetMarkdown(language, snippets.get(language), context));
+  // One group per SdkTabs; selectLanguage later keeps one language per output file.
+  const variants = {};
+  for (const language of sdkOrder.filter(item => snippets.has(item))) {
+    variants[language] = snippetMarkdown(language, snippets.get(language), context);
+  }
+  return [{type: sdkGroupType, variants}];
+}
+
+const sdkGroupType = 'dexSdkGroup';
+
+/**
+ * Lists the SDK languages that the page's SdkTabs groups contain, in tab order.
+ *
+ * @returns {string[]} The languages present anywhere in the tree, in `sdkOrder`.
+ */
+function sdkLanguages(nodes) {
+  const found = new Set();
+  const visit = list => {
+    for (const node of list) {
+      if (node.type === sdkGroupType) Object.keys(node.variants).forEach(language => found.add(language));
+      else if (Array.isArray(node.children)) visit(node.children);
+    }
+  };
+  visit(nodes);
+  return sdkOrder.filter(language => found.has(language));
+}
+
+/**
+ * Replaces each SdkTabs group with the snippet for one language.
+ *
+ * @returns {object[]} New child nodes. A group without that language shows its first language in tab order.
+ */
+function selectLanguage(nodes, language) {
+  return nodes.flatMap(node => {
+    if (node.type === sdkGroupType) return node.variants[language] ?? Object.values(node.variants)[0];
+    if (!Array.isArray(node.children)) return [node];
+    return [{...node, children: selectLanguage(node.children, language)}];
+  });
+}
+
+/** Returns the path of a page's Markdown for one SDK language, such as `/quick-start.go.md`. */
+export function languageMarkdownPath(pathname, language) {
+  return pathname.replace(/\.md$/, `.${language}.md`);
+}
+
+function languageNote(language, languages, pathname, siteUrl, copy) {
+  const links = languages.filter(item => item !== language).flatMap((item, index) => [
+    ...(index ? [text(copy.languageSeparator)] : []),
+    {type: 'link', url: new URL(languageMarkdownPath(pathname, item), siteUrl).href, children: [text(sdkLabels[item])]},
+  ]);
+  return {type: 'paragraph', children: [text(copy.codeLanguage(sdkLabels[language])), ...links]};
 }
 
 async function snippetContent(node, context) {
