@@ -40,7 +40,8 @@ public final class StartMain {
                 Client client = new Client(
                         registry, cache, new ClientOptions(QuickStartConfig.SERVER_ADDRESS))) {
             client.startFlow(orderFlow, orderId, orderId);
-            System.out.println("Started Flow " + orderId + ". Ship runs in 60 seconds.");
+            System.out.println("Started Flow " + orderId + ". Ship runs in "
+                    + QuickStartConfig.SHIP_DELAY.toSeconds() + " seconds.");
         }
     }
 }

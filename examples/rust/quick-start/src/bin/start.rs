@@ -18,7 +18,7 @@
 
 use std::error::Error;
 
-use dex_quick_start::config::{QuickStartConfig, open_blob_cache};
+use dex_quick_start::config::{QuickStartConfig, open_blob_cache, ship_delay_from_environment};
 use dex_quick_start::order_flow::OrderFlow;
 use dex_quick_start::shop_api::ShopApi;
 use dex_sdk::{Client, ClientOptions, Registry};
@@ -34,6 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let options = ClientOptions::new().server_address(config.server_address);
     let client = Client::try_new(registry, cache, options)?;
     client.start_flow(&order_flow, &order_id, order_id.clone())?;
-    println!("Started Flow {order_id}. Ship runs in 60 seconds.");
+    let seconds = ship_delay_from_environment().as_secs();
+    println!("Started Flow {order_id}. Ship runs in {seconds} seconds.");
     Ok(())
 }

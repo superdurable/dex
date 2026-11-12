@@ -20,7 +20,7 @@ import { randomUUID } from "node:crypto";
 
 import { Client, Registry } from "@superdurable/dex";
 
-import { SERVER_ADDRESS, openCache } from "./config.ts";
+import { SERVER_ADDRESS, SHIP_DELAY_MS, openCache } from "./config.ts";
 import { OrderFlow } from "./order-flow.ts";
 import { ShopApi } from "./shop-api.ts";
 
@@ -31,7 +31,7 @@ const cache = openCache(".dex-blob-cache/client");
 const client = new Client(registry, cache, { serverAddress: SERVER_ADDRESS });
 try {
   await client.startFlow(orderFlow, orderId, orderId);
-  console.log(`Started Flow ${orderId}. Ship runs in 60 seconds.`);
+  console.log(`Started Flow ${orderId}. Ship runs in ${SHIP_DELAY_MS / 1000} seconds.`);
 } finally {
   await client.close();
   cache.close();

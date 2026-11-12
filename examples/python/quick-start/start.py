@@ -22,7 +22,7 @@ from pathlib import Path
 
 from dex import Client, ClientOptions, Registry
 
-from quick_start.config import SERVER_ADDRESS, open_cache
+from quick_start.config import SERVER_ADDRESS, SHIP_DELAY, open_cache
 from quick_start.order_flow import OrderFlow
 from quick_start.shop_api import ShopApi
 
@@ -35,7 +35,8 @@ def main() -> None:
     client = Client(registry, cache, ClientOptions(server_address=SERVER_ADDRESS))
     try:
         client.start_flow(order_flow, order_id, order_id)
-        print(f"Started Flow {order_id}. Ship runs in 60 seconds.", flush=True)
+        seconds = int(SHIP_DELAY.total_seconds())
+        print(f"Started Flow {order_id}. Ship runs in {seconds} seconds.", flush=True)
     finally:
         client.close()
         cache.close()
