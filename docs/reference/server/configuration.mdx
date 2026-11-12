@@ -60,7 +60,7 @@ S3-compatible store, set it to an HTTP or HTTPS URL. Set
   [db9 provider](/reference/server/object-storage#db9).
 - **aliyunOSS**, since 0.1.27: an Aliyun OSS bucket. See
   [Aliyun OSS provider](/reference/server/object-storage#aliyun-oss).
-- **azureBlob** or **googleCloudStorage**, since 0.1.27: Azure Blob Storage or
+- **azureBlob** or **googleCloudStorage**, since 0.1.28: Azure Blob Storage or
   Google Cloud Storage through its native API. See
   [Azure Blob Storage and Google Cloud Storage](#azure-gcs).
 
@@ -83,7 +83,7 @@ counts. Never point two deployments at the same prefix.
 
 ## Azure Blob Storage and Google Cloud Storage {#azure-gcs}
 
-Since 0.1.27, **serve** can keep its object storage in Azure Blob Storage or
+Since 0.1.28, **serve** can keep its object storage in Azure Blob Storage or
 Google Cloud Storage. The server uses each cloud's native API. Both clouds
 support create-only and compare-and-swap writes, so the server stores the same
 objects under the prefix as it does on S3.
