@@ -182,7 +182,8 @@ func (screen *ChatScreen) computeLayout() screenLayout {
 	layout := screenLayout{width: screen.width, contentWidth: min(screen.width, maximumContentWidth)}
 	layout.docked = screen.renderPendingBar(layout.contentWidth)
 	if len(screen.plan.Items) > 0 && screen.plan.Status != sessionfeed.PlanStatusCleared {
-		layout.docked = append(layout.docked, renderPlanLine(screen.plan.Items, layout.contentWidth, screen.theme))
+		layout.docked = append(layout.docked, joinLeftAndRight(renderPlanLine(screen.plan.Items, layout.contentWidth, screen.theme),
+			screen.theme.Secondary.Render("Ctrl-P steps"), layout.contentWidth, screen.theme.Symbols.Ellipsis))
 	}
 	layout.docked = append(layout.docked, screen.renderCompletionList(layout.contentWidth)...)
 	layout.docked = append(layout.docked, screen.renderPathCompletions(layout.contentWidth)...)
@@ -316,19 +317,36 @@ func (screen *ChatScreen) approvalLayout(layout screenLayout) approvalPopupLayou
 // renderActivityLines draws the unfinished reply, running tool rows, and
 // the feedback of requests in flight.
 func (screen *ChatScreen) renderActivityLines(width int, now time.Time, spinnerFrame int) []string {
-	var lines []string
+	var replyLines []string
+	for _, held := range screen.heldReplies {
+		if held.kind == replyOutputMarkdown {
+			replyLines = append(replyLines, renderAssistantMarkdown(held.text, width, screen.theme)...)
+		}
+	}
 	if pending := screen.replies.PendingText(); pending != "" {
-		lines = append(lines, renderPlainReply(pending, width)...)
-	} else if screen.reasoningTail != "" {
-		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Secondary.Render("thinking… "+screen.reasoningTail), width, screen.theme.Symbols.Ellipsis))
+		replyLines = append(replyLines, renderPlainReply(pending, width)...)
+	} else if screen.reasoningTail != "" && len(replyLines) == 0 {
+		replyLines = append(replyLines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Secondary.Render("thinking… "+screen.reasoningTail), width, screen.theme.Symbols.Ellipsis))
 	}
-	if len(lines) > 0 && len(screen.liveToolCalls) > 0 {
-		lines = append(lines, "")
+	if len(replyLines) > maximumLiveReplyLines {
+		replyLines = replyLines[len(replyLines)-maximumLiveReplyLines:]
 	}
+	var toolLines []string
 	clock := toolRowClock{now: now, spinnerFrame: spinnerFrame}
 	for _, call := range screen.liveToolCalls {
-		lines = append(lines, renderToolRow(call, screen.turnToolNameWidth, width, clock, screen.theme)...)
+		toolLines = append(toolLines, renderToolRow(call, screen.turnToolNameWidth, width, clock, screen.theme)...)
 	}
+	// Text that followed a running tool row shows below it.
+	isReplyAfterTools := len(screen.heldReplies) > 0 || screen.repliesAfterTools[screen.replies.PendingGroupKey()]
+	first, second := replyLines, toolLines
+	if isReplyAfterTools {
+		first, second = toolLines, replyLines
+	}
+	lines := first
+	if len(first) > 0 && len(second) > 0 {
+		lines = append(lines, "")
+	}
+	lines = append(lines, second...)
 	for _, interrupt := range screen.interrupts {
 		if feedback, exists := screen.interruptFeedback[interrupt.InterruptID()]; exists {
 			lines = append(lines, contentIndent+screen.theme.Secondary.Render(screen.theme.Symbols.Queued+" "+feedback))
@@ -392,6 +410,8 @@ func (screen *ChatScreen) currentHints() []string {
 	switch {
 	case screen.isInputDisabled:
 		return []string{"Press any key to exit"}
+	case screen.isIdleExitArmed():
+		return []string{"Press Ctrl-C again to exit"}
 	case screen.isHelpOpen:
 		return []string{"PgUp/PgDn scroll", "Esc close"}
 	case screen.isToolPickerOpen:
@@ -426,6 +446,13 @@ func (screen *ChatScreen) popupHints() []string {
 		return []string{"Enter answer", "Esc back"}
 	}
 	hints := []string{"j/k choose", "Enter answer"}
+	if interrupt.question.AllowsFreeText {
+		// Typing starts a free-text answer, so j and k type too.
+		hints = []string{"Up/Down choose", "Enter answer"}
+		if !hasNext {
+			hints = append(hints, "or type an answer")
+		}
+	}
 	if hasNext {
 		hints = append(hints, "Tab next")
 	}
@@ -440,10 +467,13 @@ func (screen *ChatScreen) renderPendingBar(width int) []string {
 		line := screen.theme.Warning.Render(symbols.AwaitingUser) + " " + text + screen.theme.Secondary.Render(symbols.Separator+"Tab opens")
 		lines = append(lines, screen.renderPendingRow(line, screen.pendingFocus == pendingFocusInterrupts, width))
 	}
+	selectedID := screen.selectedQueuedMessage().MessageID
+	isQueuedFocus := screen.pendingFocus == pendingFocusQueuedMessage
 	for index, message := range screen.queuedMessages {
 		isLast := index == len(screen.queuedMessages)-1
+		isFocused := isQueuedFocus && message.MessageID == selectedID
 		right := ""
-		if isLast && screen.canActOnQueuedMessage() {
+		if screen.canActOnQueuedMessage() && ((isQueuedFocus && isFocused) || (!isQueuedFocus && isLast)) {
 			right = screen.theme.Secondary.Render("Tab acts on it")
 		}
 		left := screen.theme.Secondary.Render(symbols.Queued+" queued") + "  " + message.Text
@@ -452,7 +482,7 @@ func (screen *ChatScreen) renderPendingBar(width int) []string {
 			room := width - 2 - terminaltheme.DisplayWidth(symbols.Separator) - terminaltheme.DisplayWidth(right)
 			line = terminaltheme.TruncateToWidth(left, max(room, 8), symbols.Ellipsis) + screen.theme.Secondary.Render(symbols.Separator) + right
 		}
-		lines = append(lines, screen.renderPendingRow(line, isLast && screen.pendingFocus == pendingFocusQueuedMessage, width))
+		lines = append(lines, screen.renderPendingRow(line, isFocused, width))
 	}
 	for _, text := range screen.localQueuedTexts {
 		line := screen.theme.Secondary.Render(symbols.Queued+" queueing") + "  " + text
@@ -558,6 +588,9 @@ func (screen *ChatScreen) contextStatus(now time.Time, spinnerFrame int) (string
 		symbol = spinner
 	}
 	text := activityText(screen.turn.activity)
+	if screen.turn.activity == sessionfeed.TurnActivityRunningModel && screen.isWritingReply {
+		text = "writing reply"
+	}
 	if elapsed := now.Sub(screen.turn.startedAt); elapsed >= elapsedTimeDelay {
 		text += " " + formatElapsedSeconds(elapsed)
 	}
@@ -666,12 +699,17 @@ const maximumInputRows = 8
 
 func (screen *ChatScreen) renderInput(width int) renderedInput {
 	prompt := " " + screen.theme.Accent.Render(screen.theme.Symbols.UserPrompt) + " "
+	if screen.isInputDisabled {
+		prompt = " " + screen.theme.Secondary.Render(screen.theme.Symbols.UserPrompt) + " "
+	}
 	placeholder := screen.theme.Secondary.Render(screen.inputPlaceholder())
 	return screen.input.Render(prompt, placeholder, width, maximumInputRows)
 }
 
 func (screen *ChatScreen) inputPlaceholder() string {
 	switch {
+	case screen.isInputDisabled:
+		return "this chat cannot continue"
 	case !screen.isSessionLoaded:
 		return "type a message; it is sent when the session loads"
 	case screen.isPlanModeArmed:
@@ -707,7 +745,7 @@ func (screen *ChatScreen) inputHints() []string {
 	}
 	var hints []string
 	if screen.input.IsEmpty() && screen.waitingInterruptCount() > 0 {
-		hints = append(hints, "Tab opens approvals")
+		hints = append(hints, screen.waitingInterruptsHint())
 	}
 	if !screen.isTurnRunning {
 		return append(hints, "Enter send", "/help", "Ctrl-D exit")
@@ -716,8 +754,29 @@ func (screen *ChatScreen) inputHints() []string {
 	switch {
 	case screen.isExitArmed || screen.cancelState == cancelStateConfirmed:
 		hints = append(hints, "Ctrl-C exit")
-	case screen.session.AcceptsTurnControl:
-		hints = append(hints, "Ctrl-C cancel turn")
+	case screen.canRequestCancel():
+		hints = append(hints, "Esc interrupt")
 	}
 	return append(hints, "/help")
+}
+
+// waitingInterruptsHint names what Tab opens: approvals, questions, or both.
+func (screen *ChatScreen) waitingInterruptsHint() string {
+	hasApproval, hasQuestion := false, false
+	for _, interrupt := range screen.interrupts {
+		switch {
+		case interrupt.isSubmitting:
+		case interrupt.approval != nil:
+			hasApproval = true
+		default:
+			hasQuestion = true
+		}
+	}
+	switch {
+	case hasApproval && hasQuestion:
+		return "Tab opens them"
+	case hasQuestion:
+		return "Tab opens questions"
+	}
+	return "Tab opens approvals"
 }

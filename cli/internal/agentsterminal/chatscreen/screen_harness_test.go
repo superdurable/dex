@@ -64,6 +64,18 @@ type screenHarness struct {
 	source  *recordingSource
 	profile colorprofile.Profile
 	now     time.Time
+	// delayed are the messages the screen asked to get later.
+	delayed []tea.Msg
+}
+
+// deliverDelayed delivers the delayed messages asked for so far.
+func (harness *screenHarness) deliverDelayed() {
+	messages := harness.delayed
+	harness.delayed = nil
+	for _, message := range messages {
+		_, command := harness.screen.Update(message)
+		harness.runCommand(command)
+	}
 }
 
 type harnessOptions struct {
@@ -99,6 +111,11 @@ func newScreenHarness(t testing.TB, options harnessOptions) *screenHarness {
 	})
 	// Animation ticks would sleep; the fixed clock selects spinner frames.
 	harness.screen.isTicking = true
+	// Delayed messages wait for deliverDelayed, so no test sleeps.
+	harness.screen.delayedMessage = func(_ time.Duration, message tea.Msg) tea.Cmd {
+		harness.delayed = append(harness.delayed, message)
+		return nil
+	}
 	harness.screen.Update(tea.WindowSizeMsg{Width: options.width, Height: options.height})
 	if !options.skipIntro {
 		harness.feed(

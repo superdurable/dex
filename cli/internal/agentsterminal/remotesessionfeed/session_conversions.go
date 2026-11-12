@@ -58,7 +58,67 @@ func liveToolRow(call dexagents.AgentToolCall) sessionfeed.ToolCallChanged {
 			row.Reason = "a steered message replaced the turn"
 		}
 	}
+	describeBuiltInToolRow(&row, call.Arguments, false)
 	return row
+}
+
+// The built-in tools whose rows show their meaning instead of raw JSON.
+const (
+	askUserToolName    = "ask_user"
+	writeTodosToolName = "write_todos"
+)
+
+// describeBuiltInToolRow replaces the JSON of ask_user and write_todos rows.
+// A live answer shows in its own notice, so only a history row carries it.
+func describeBuiltInToolRow(row *sessionfeed.ToolCallChanged, arguments string, isHistory bool) {
+	switch row.ToolName {
+	case askUserToolName:
+		if !row.Status.IsFinished() || row.Status == sessionfeed.ToolCallFailed {
+			return
+		}
+		row.Summary = ""
+		var result struct {
+			Status string `json:"status"`
+			Answer string `json:"answer"`
+		}
+		if json.Unmarshal([]byte(row.OutputText), &result) != nil || !isHistory {
+			return
+		}
+		switch result.Status {
+		case "answered":
+			row.Summary = "answered: " + firstLine(result.Answer)
+		case "declined":
+			row.Summary = "declined"
+		}
+	case writeTodosToolName:
+		var written struct {
+			Todos []struct {
+				Content string                   `json:"content"`
+				Status  dexagents.PlanTaskStatus `json:"status"`
+			} `json:"todos"`
+		}
+		if json.Unmarshal([]byte(arguments), &written) != nil {
+			return
+		}
+		row.PlanItems = make([]sessionfeed.PlanItem, 0, len(written.Todos))
+		for _, todo := range written.Todos {
+			row.PlanItems = append(row.PlanItems, sessionfeed.PlanItem{Title: firstLine(todo.Content), Status: planItemStatus(todo.Status)})
+		}
+		row.KeyArgument = stepCountText(len(written.Todos))
+		if row.Status.IsFinished() && row.Status != sessionfeed.ToolCallFailed {
+			row.Summary = "plan updated"
+			if len(written.Todos) == 0 {
+				row.Summary = "plan cleared"
+			}
+		}
+	}
+}
+
+func stepCountText(count int) string {
+	if count == 1 {
+		return "1 step"
+	}
+	return fmt.Sprintf("%d steps", count)
 }
 
 // toolCallStatus maps a record's status to the screen's display state.
@@ -70,8 +130,10 @@ func toolCallStatus(call dexagents.AgentToolCall) sessionfeed.ToolCallStatus {
 		return sessionfeed.ToolCallCancelled
 	}
 	switch call.Status {
-	case dexagents.ToolCallStatusAwaitingApproval, dexagents.ToolCallStatusAwaitingAnswer:
+	case dexagents.ToolCallStatusAwaitingApproval:
 		return sessionfeed.ToolCallAwaitingApproval
+	case dexagents.ToolCallStatusAwaitingAnswer:
+		return sessionfeed.ToolCallAwaitingAnswer
 	case dexagents.ToolCallStatusWaitingForTimer, dexagents.ToolCallStatusWaitingForTask:
 		return sessionfeed.ToolCallQueued
 	case dexagents.ToolCallStatusRejected:
@@ -107,6 +169,11 @@ func historyToolRow(message dexagents.AgentMessage) sessionfeed.ToolCallChanged 
 		row.Summary = firstLine(*message.ToolOutput)
 		row.OutputText = *message.ToolOutput
 	}
+	arguments := ""
+	if message.ToolArguments != nil {
+		arguments = *message.ToolArguments
+	}
+	describeBuiltInToolRow(&row, arguments, true)
 	return row
 }
 

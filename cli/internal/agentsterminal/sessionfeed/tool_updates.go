@@ -20,6 +20,9 @@ const (
 	ToolCallRunning
 	// ToolCallAwaitingApproval waits for the user's approval.
 	ToolCallAwaitingApproval
+	// ToolCallAwaitingAnswer is an ask_user call that waits for the user's
+	// answer.
+	ToolCallAwaitingAnswer
 	// ToolCallSucceeded finished successfully.
 	ToolCallSucceeded
 	// ToolCallFailed finished with an error.
@@ -81,6 +84,9 @@ type ToolCallChanged struct {
 	OutputText string
 	// ImageCount is how many images the tool returned with its output.
 	ImageCount int
+	// PlanItems are the steps a write_todos call wrote, shown as a checklist
+	// under its row; nil for every other tool.
+	PlanItems []PlanItem
 }
 
 // ApprovalArgument is one tool argument shown in an approval popup or the

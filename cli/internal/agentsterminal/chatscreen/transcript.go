@@ -174,8 +174,15 @@ func (block noticeBlock) Render(width int, theme terminaltheme.Theme) []string {
 	return renderNoticeLine(block.severity, block.text, width, theme)
 }
 
-type turnCancelledBlock struct{}
+type turnCancelledBlock struct {
+	// isReplyIncomplete reports that part of the turn's reply was printed.
+	isReplyIncomplete bool
+}
 
-func (turnCancelledBlock) Render(_ int, theme terminaltheme.Theme) []string {
-	return []string{contentIndent + theme.Secondary.Render(theme.Symbols.NotRun+" turn cancelled; the reply above is incomplete")}
+func (block turnCancelledBlock) Render(_ int, theme terminaltheme.Theme) []string {
+	text := " turn cancelled"
+	if block.isReplyIncomplete {
+		text += "; the reply above is incomplete"
+	}
+	return []string{contentIndent + theme.Secondary.Render(theme.Symbols.NotRun+text)}
 }

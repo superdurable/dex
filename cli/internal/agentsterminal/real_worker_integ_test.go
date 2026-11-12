@@ -298,7 +298,7 @@ func (stack *realWorkerStack) testQueueAndSteer(t *testing.T) {
 	stack.startSession(t, sessionID)
 	chat := stack.openChat(t, sessionID, false)
 	chat.typeText("stall steer-gate\r")
-	chat.waitForScreen("Ctrl-C cancel turn")
+	chat.waitForScreen("Esc interrupt")
 	chat.typeText("say steered\r")
 	stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
 		return len(snapshot.QueuedMessages) == 1
@@ -455,7 +455,7 @@ func (stack *realWorkerStack) testCtrlCCancelsTheTurn(t *testing.T) {
 	})
 	require.True(t, running.State.AcceptsTurnControl)
 	// Ctrl-C cancels only once the chat shows the running turn.
-	chat.waitForScreen("Ctrl-C cancel turn")
+	chat.waitForScreen("Esc interrupt")
 	chat.typeText("\x03")
 	chat.waitForScreen("cancelling")
 	require.NoError(t, os.WriteFile(filepath.Join(stack.coordination, "cancel-gate.released"), nil, 0o600))

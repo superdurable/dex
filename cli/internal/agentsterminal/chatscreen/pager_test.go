@@ -475,7 +475,7 @@ func TestCtrlCClosesThePagerBeforeTheDraft(t *testing.T) {
 	harness.press(ctrlKey('c'))
 	require.False(t, harness.screen.isExiting)
 	require.True(t, harness.screen.input.IsEmpty())
-	harness.press(ctrlKey('c'))
+	harness.press(ctrlKey('c'), ctrlKey('c'))
 	require.True(t, harness.screen.isExiting)
 }
 

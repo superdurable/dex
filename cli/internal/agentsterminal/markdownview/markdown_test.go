@@ -107,3 +107,14 @@ func TestRenderMarkdownTables(t *testing.T) {
 		"- [ ] fix the test",
 	}, plain(19))
 }
+
+// The streamed reply shows each source line on its own row, so the finished
+// render keeps single newlines instead of joining them.
+func TestRenderMarkdownKeepsSingleNewlines(t *testing.T) {
+	theme := terminaltheme.NewTheme(colorprofile.ANSI, true)
+	var plain []string
+	for _, line := range RenderMarkdown("Line 1: the fox.\nLine 2: the dog.\n\n- item\n  continued", 40, theme) {
+		plain = append(plain, terminaltheme.StripStyles(line))
+	}
+	require.Equal(t, []string{"Line 1: the fox.", "Line 2: the dog.", "", "- item", "  continued"}, plain)
+}
