@@ -8,6 +8,7 @@
 
 //! One handler per S3 operation.
 
+mod api_dialect;
 mod bucket;
 mod copy_object;
 mod cors;
