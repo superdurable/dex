@@ -105,7 +105,7 @@ func (controller *controller) describe(request *gin.Context) {
 	httputil.Respond(request, gin.H{"flowID": flowID, "status": output}, err)
 }
 
-// requiredFlowID reads flowId, or the older workflowId name that the playground still sends.
+// requiredFlowID reads the Flow ID from flowId, or from its alias workflowId.
 func requiredFlowID(request *gin.Context) (string, bool) {
 	if flowID := request.Query("workflowId"); flowID != "" {
 		return flowID, true

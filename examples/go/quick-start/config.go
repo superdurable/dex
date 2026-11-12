@@ -21,6 +21,7 @@
 package quickstart
 
 import (
+	"log"
 	"os"
 	"strconv"
 	"time"
@@ -47,6 +48,20 @@ func HTTPPort() string {
 		return port
 	}
 	return "8080"
+}
+
+// ShipDelay returns how long Ship waits, from QUICK_START_SHIP_DELAY_SECONDS; 30 seconds by default.
+func ShipDelay() time.Duration {
+	value := os.Getenv("QUICK_START_SHIP_DELAY_SECONDS")
+	if value == "" {
+		return 30 * time.Second
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil {
+		log.Printf("QUICK_START_SHIP_DELAY_SECONDS=%q is not a whole number; using 30: %v", value, err)
+		return 30 * time.Second
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // NewShopAPIFromEnvironment returns the mock API that the Worker calls, with its keys

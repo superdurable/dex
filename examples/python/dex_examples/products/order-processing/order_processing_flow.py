@@ -58,7 +58,7 @@ class Charge(Step[OrderRequest]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
+                # One hour in production; 3 seconds keeps the demo short.
                 total_duration=timedelta(seconds=3),
             )
         )
@@ -84,14 +84,14 @@ class Ship(Step[OrderRequest]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
+                # One hour in production; 3 seconds keeps the demo short.
                 total_duration=timedelta(seconds=3),
             )
         ).on_execute_failure_proceed_to(
             Refund,
             StepOptions(
                 execute_retry=RetryPolicy(
-                    # total_duration=timedelta(hours=1),
+                    # One hour in production; 3 seconds keeps the demo short.
                     total_duration=timedelta(seconds=3),
                 )
             ),

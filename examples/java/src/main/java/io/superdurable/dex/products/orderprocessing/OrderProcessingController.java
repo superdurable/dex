@@ -88,7 +88,7 @@ public class OrderProcessingController {
         return ResponseEntity.ok(response);
     }
 
-    /** Returns flowId, or the older workflowId name that the playground still sends. */
+    /** Returns the Flow ID from flowId, or from its alias workflowId. */
     private static String requiredFlowId(final String flowId, final String workflowId) {
         if (workflowId != null && !workflowId.isEmpty()) {
             return workflowId;

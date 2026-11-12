@@ -14,8 +14,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from dex import (
     Context,
     Flow,
@@ -28,6 +26,7 @@ from dex import (
     graceful_complete,
 )
 
+from quick_start.config import SHIP_DELAY
 from quick_start.shop_api import ShopApi
 
 SHIP_DELAY_TIMER = "ship-delay"
@@ -48,7 +47,7 @@ class Ship(Step[str]):
 
     def wait_for(self, context: Context, input: str) -> Wait:
         return Wait.until(
-            Timer.by_duration(timedelta(seconds=30), condition_id=SHIP_DELAY_TIMER)
+            Timer.by_duration(SHIP_DELAY, condition_id=SHIP_DELAY_TIMER)
         )
 
     def execute(self, context: Context, input: str) -> StepDecision:

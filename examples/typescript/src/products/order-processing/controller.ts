@@ -62,7 +62,7 @@ export function createOrderProcessingRouter(
   return router;
 }
 
-/** Reads flowId, or the older workflowId name that the playground still sends. */
+/** Reads the Flow ID from flowId, or from its alias workflowId. */
 function flowIdFromQuery(query: Record<string, unknown>): string {
   return String(query.workflowId ?? query.flowId ?? "");
 }

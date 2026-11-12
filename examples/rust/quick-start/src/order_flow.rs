@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
-
 use dex_sdk::{
     Context, Flow, HandlerError, HandlerResult, Step, StepDecision, StepList, Timer, Wait,
 };
 
+use crate::config::ship_delay_from_environment;
 use crate::shop_api::ShopApi;
 
 pub const SHIP_DELAY_TIMER: &str = "ship-delay";
@@ -50,7 +49,7 @@ impl Step for Ship {
     type Input = String;
 
     fn wait_for(&self, _context: &mut Context, _order_id: String) -> HandlerResult<Wait> {
-        let delay = Timer::by_duration(Duration::from_secs(30)).with_id(SHIP_DELAY_TIMER);
+        let delay = Timer::by_duration(ship_delay_from_environment()).with_id(SHIP_DELAY_TIMER);
         Ok(Wait::until(delay))
     }
 

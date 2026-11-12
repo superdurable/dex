@@ -57,6 +57,15 @@ impl QuickStartConfig {
     }
 }
 
+/// How long Ship waits, from `QUICK_START_SHIP_DELAY_SECONDS`; 30 seconds by default.
+pub fn ship_delay_from_environment() -> Duration {
+    let seconds = std::env::var("QUICK_START_SHIP_DELAY_SECONDS")
+        .ok()
+        .and_then(|seconds| seconds.parse().ok())
+        .unwrap_or(30);
+    Duration::from_secs(seconds)
+}
+
 /// Opens a local cache for large Flow values, up to 1 GiB.
 pub fn open_blob_cache(directory: impl AsRef<Path>) -> std::io::Result<Arc<BlobCache>> {
     let directory = directory.as_ref();

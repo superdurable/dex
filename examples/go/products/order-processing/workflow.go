@@ -113,7 +113,7 @@ func (chargeStep) GetStepType() string {
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
+			// One hour in production; 3 seconds keeps the demo short.
 			TotalDuration: 3 * time.Second,
 		},
 	}
@@ -142,14 +142,14 @@ func (shipStep) GetStepType() string {
 func (step shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
+			// One hour in production; 3 seconds keeps the demo short.
 			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
 			refundStep{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{
-					// TotalDuration: time.Hour,
+					// One hour in production; 3 seconds keeps the demo short.
 					TotalDuration: 3 * time.Second,
 				},
 			},

@@ -24,8 +24,6 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 
-import java.time.Duration;
-
 public final class OrderFlow implements Flow<String> {
     public static final String SHIP_DELAY_TIMER = "ship-delay";
 
@@ -75,7 +73,7 @@ public final class OrderFlow implements Flow<String> {
 
         @Override
         public Wait waitFor(final Context context, final String orderId) {
-            return Wait.until(Timer.byDuration(Duration.ofSeconds(30), SHIP_DELAY_TIMER));
+            return Wait.until(Timer.byDuration(QuickStartConfig.SHIP_DELAY, SHIP_DELAY_TIMER));
         }
 
         @Override

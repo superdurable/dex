@@ -97,7 +97,7 @@ class Charge implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
+        // One hour in production; 3 seconds keeps the demo short.
         totalDurationMs: 3_000,
       },
     };
@@ -125,12 +125,12 @@ class Ship implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
+        // One hour in production; 3 seconds keeps the demo short.
         totalDurationMs: 3_000,
       },
       executeFailure: ExecuteFailure.proceedTo(Refund, {
         executeRetry: {
-          // totalDurationMs: 60 * 60 * 1000,
+          // One hour in production; 3 seconds keeps the demo short.
           totalDurationMs: 3_000,
         },
       }),

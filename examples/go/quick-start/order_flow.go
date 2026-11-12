@@ -20,11 +20,7 @@
 
 package quickstart
 
-import (
-	"time"
-
-	"github.com/superdurable/dex/sdk-go/dex"
-)
+import "github.com/superdurable/dex/sdk-go/dex"
 
 // ShipDelayTimer is the condition ID of the Timer that Ship waits on.
 const ShipDelayTimer = "ship-delay"
@@ -67,7 +63,7 @@ func (step Charge) Execute(_ dex.Context, orderID string) (*dex.StepDecision, er
 	return dex.GoTo(Ship{}, orderID), nil
 }
 
-// Ship waits on a 30-second Timer, then ships the order.
+// Ship waits on a Timer, 30 seconds by default, then ships the order.
 type Ship struct {
 	dex.StepDefaults
 	shop *ShopAPI
@@ -75,7 +71,7 @@ type Ship struct {
 
 // WaitFor waits on the ship-delay Timer.
 func (Ship) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
-	return dex.Until(dex.Timer(30*time.Second, dex.WithConditionID(ShipDelayTimer))), nil
+	return dex.Until(dex.Timer(ShipDelay(), dex.WithConditionID(ShipDelayTimer))), nil
 }
 
 // Execute ships the order and completes the Flow.

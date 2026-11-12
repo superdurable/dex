@@ -27,6 +27,7 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
+import { SHIP_DELAY_MS } from "./config.ts";
 import type { ShopApi } from "./shop-api.ts";
 
 export const SHIP_DELAY_TIMER = "ship-delay";
@@ -62,7 +63,7 @@ class Ship implements Step<string> {
   }
 
   public waitFor(_context: Context, _orderId: string): Wait {
-    return Wait.until(Timer.byDuration(30_000, SHIP_DELAY_TIMER));
+    return Wait.until(Timer.byDuration(SHIP_DELAY_MS, SHIP_DELAY_TIMER));
   }
 
   public async execute(_context: Context, orderId: string): Promise<StepDecision> {

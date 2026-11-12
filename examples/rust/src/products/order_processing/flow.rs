@@ -114,7 +114,7 @@ impl Step for Charge {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
             RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
+                // One hour in production; 3 seconds keeps the demo short.
                 .total_duration(Duration::from_secs(3)),
         )
     }
@@ -148,7 +148,7 @@ impl Step for Ship {
         StepOptions::new()
             .execute_retry(
                 RetryPolicy::new()
-                    // .total_duration(Duration::from_secs(60 * 60))
+                    // One hour in production; 3 seconds keeps the demo short.
                     .total_duration(Duration::from_secs(3)),
             )
             .on_execute_failure_proceed_to(&Refund::default())
@@ -200,7 +200,7 @@ impl Step for Refund {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
             RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
+                // One hour in production; 3 seconds keeps the demo short.
                 .total_duration(Duration::from_secs(3)),
         )
     }

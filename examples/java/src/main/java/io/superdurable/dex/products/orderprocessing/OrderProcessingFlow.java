@@ -100,7 +100,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
+                            // One hour in production; 3 seconds keeps the demo short.
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .build();
@@ -137,14 +137,14 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
+                            // One hour in production; 3 seconds keeps the demo short.
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .onExecuteFailureProceedTo(
                             Refund.class,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
-                                            // .totalDuration(Duration.ofHours(1))
+                                            // One hour in production; 3 seconds keeps the demo short.
                                             .totalDuration(Duration.ofSeconds(3))
                                             .build())
                                     .build())

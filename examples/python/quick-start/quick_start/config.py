@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from dex import BlobCache, BlobCacheConfig, open_blob_cache
@@ -27,6 +28,7 @@ SERVER_ADDRESS = os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
 HTTP_PORT = int(os.environ.get("QUICK_START_HTTP_PORT", "8080"))
 CHARGE_DELAY_SECONDS = float(os.environ.get("QUICK_START_CHARGE_DELAY_SECONDS", "0"))
 SHOP_API_KEYS_PATH = Path(".shop-api-keys")
+SHIP_DELAY = timedelta(seconds=int(os.environ.get("QUICK_START_SHIP_DELAY_SECONDS", "30")))
 
 
 def new_shop_api() -> ShopApi:

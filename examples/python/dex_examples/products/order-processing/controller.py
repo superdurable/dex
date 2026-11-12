@@ -82,5 +82,5 @@ def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
 
 
 def _required_flow_id() -> str:
-    """Reads flowId, or the older workflowId name that the playground still sends."""
+    """Reads the Flow ID from flowId, or from its alias workflowId."""
     return optional_query("workflowId", "") or required_query("flowId")

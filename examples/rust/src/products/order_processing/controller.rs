@@ -45,7 +45,7 @@ struct StartQuery {
 struct WorkflowQuery {
     #[serde(default, rename = "flowId")]
     flow_id: String,
-    /// The older name that the playground still sends.
+    /// An alias of flowId.
     #[serde(default, rename = "workflowId")]
     workflow_id: String,
     #[serde(default)]
