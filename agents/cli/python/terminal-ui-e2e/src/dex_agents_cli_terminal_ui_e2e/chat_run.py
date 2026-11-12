@@ -151,7 +151,6 @@ class ChatRun:
             LANG="en_US.UTF-8",
             TERM="xterm-256color",
             DEXCLI=str(dexcli),
-            DEX_AGENTS_TERMINAL_UI="1",
             DEX_AGENTS_DEX_PORT=str(dex_port),
             DEX_AGENTS_WEB_PORT=str(web_port),
             DEX_AGENTS_OPEN_BROWSER="0",

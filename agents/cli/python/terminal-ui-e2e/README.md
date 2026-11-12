@@ -1,9 +1,8 @@
 # Terminal UI end-to-end scenarios
 
-These scenarios run an agent CLI command with `DEX_AGENTS_TERMINAL_UI=1` on a
-pseudo-terminal. The terminal UI is `dexcli agents-tui`. A pyte screen
-renders what the terminal shows, and each check reads lines from it. The
-package is never published.
+These scenarios run an agent CLI command on a pseudo-terminal. The terminal
+UI is `dexcli agents-tui`. A pyte screen renders what the terminal shows, and
+each check reads lines from it. The package is never published.
 
 Each run uses its own home and workspace. The model is the mock model API of
 [`../testing`](../testing), driven by a scenario of scripted turns. A
