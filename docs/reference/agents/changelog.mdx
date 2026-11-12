@@ -14,6 +14,47 @@ All agents packages share one version line. The
 in the repository has the full details of each release, including API names
 and upgrade steps.
 
+## 0.6 {#v0-6}
+
+Released 2026-11-12 as [agents/v0.6.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.6.0).
+
+### Breaking
+
+- **dex-agents-deepagents**: file writes and shell commands no longer wait for approval by default, as in Deep Agents without **interrupt_on**. Name the tool in **approval.always** to make it wait. **local_tools.shell.allow** has no effect on this command, and its file tools are Deep Agents' own, which take absolute paths. [Reference](/reference/agents/cli#harness-tools).
+- **dex-agents-pi**: file writes, edits, and **bash** no longer wait for approval by default, as in Pi. Name the tool in **approval.always** to make it wait. **local_tools.shell.allow** has no effect on this command. The file tools and **bash** have no workspace boundary. Without **workspace** in the file, the workspace is the directory the command starts in. [Reference](/reference/agents/cli#harness-tools).
+
+### Added
+
+- Python and TypeScript cores: **ToolExecutionResult** has an optional **is_finished_by_resumed_turn** (**isFinishedByResumedTurn**) for a tool Step that only approves a tool the resumed **RunModel** runs, such as a Claude Code tool. The session still records the call as succeeded and writes **tool_call_started**, and the runner writes the call's **tool_call_finished** when the call really runs. Runners that leave it unset behave as before.
+- Python and TypeScript cores: a tool approval can say what the call acts on and what it does. A tool source returns an **AgentInterruptDisplay** with a target, a summary, and an optional preview, and the session stores it in the new optional **AgentInterrupt.display**, on the call's record, and in the **interrupt_raised** event. The session cuts a long target or summary and drops a long preview. **ConnectorToolSource** names the operation, the connection, and short arguments, and shows common credential shapes, such as a **credentials** or **apiKey** argument or a Bearer value, as redacted. This redaction is best-effort hygiene for displayed text, not a security boundary: the session stores the call's full arguments as before. An approval without a display, such as one a Worker before 0.6.0 raised, has none: show its arguments.
+- Python and TypeScript CLI commands: a file write's approval carries a diff against the file as it is when the model asks, left out for credential files and content the redaction changes. A shell command's approval carries the working directory and the command with common credential shapes redacted. A Connector tool's approval carries its operation, connection, and short arguments.
+- Python and TypeScript cores: with the new **summary_attributes_indexed** (**summaryAttributesIndexed**) option, a session keeps its title, the time of its latest turn, and its turn count in three indexed Attributes. It is off by default, because the title is the user's first message and the index keys share the namespace's index capacity. **list_agent_sessions** and **listAgentSessions** read a page of sessions with them, and an optional title search, without a snapshot per session and without a Worker. [Reference](/reference/agents/approvals#list-sessions).
+- The CLI commands have a new **sessions.summary** setting. Its default, **auto**, keeps the session summary only with **dex.server: auto**, the local **dexcli dev**; **on** keeps it with any server, and **off** never. Their **sessions** subcommand sorts up to five pages of 50 sessions by last activity, says when more exist, and shows the time of the latest turn, the turn count, and the title. [Reference](/reference/agents/cli#resume).
+
+### Changed
+
+- **dex-agents-claude-sdk**: the command loads no MCP servers and no claude.ai connectors from your Claude Code configuration or login. Its external tools come only from the Dex Connectors, which Dex approves and records.
+- Agents CLI reference: **dex-agents-builtin** documents its built-in tools and
+  plan mode, and the page describes the errors for an unreachable Dex server,
+  a field with several forms, and a **DEXCLI** that names no executable file.
+- Dex Agents CLI commands: when a shell command ends, what it left running in its process group, such as **sleep 30 &**, gets SIGTERM and SIGKILL 0.5 seconds later. A process that left the group, for example with **setsid**, is not stopped; once the group is cleaned, the result waits at most 1 more second for its output. The result starts with **exit code N** (128 plus the signal's number for a signal) or **killed: timed out after N seconds**, then has a **--- stdout ---** and a **--- stderr ---** section, each cut at 64 KiB. [Workspace and local tools](/reference/agents/cli#local-tools).
+- Dex Agents CLI commands: a **dexcli dev** that a command started for **dex.server: auto** now stops, with its Dex Web, when the command exits, including on SIGTERM and SIGHUP. A reused **dexcli dev** keeps running. To share one Dex server across commands, run **dexcli dev** yourself first or set **dex.server**. Sessions stay on disk, so a later command can **--resume** them. A command killed with SIGKILL leaves its **dexcli dev** running; stop it with **kill**. [The local Dex server](/reference/agents/cli#dex-server).
+- **dex-agents-deepagents** keeps Deep Agents' own file tools, **execute**, **write_todos**, and **task**, on the real workspace files, with the Connector, web fetch, and browser tools on top. Connector writes always wait for approval. File tools refuse paths outside the workspace, also through links, as a guardrail rather than a sandbox: **execute** runs any command with your permissions. **task** runs its subagent inside one tool Step and waits for approval whenever **approval.always** names any Deep Agents tool. A Connector tool whose name a Deep Agents tool has gets the prefix **connector_**. Large tool results go to a private directory of each session, deleted at startup after 30 days without changes. [Reference](/reference/agents/cli#harness-tools).
+- Python LangGraph adapter: with **should_defer_tool_calls_before_middleware**, each tool Step attempt runs the tool node's middleware tool wrappers, such as Deep Agents' large-result eviction, and the tool runtime has the graph's store.
+- Python LangGraph adapter, behavior change: middleware tool wrappers run in each tool Step by default, with the deferral as the outermost wrapper whatever the middleware order. **should_defer_tool_calls_before_middleware** now defaults to **True**; pass **False** to keep the earlier order. Each turn keeps the order it started with, so a Worker with the other setting finishes it without running a wrapper twice.
+- **dex-agents-pi** keeps Pi's own **read**, **grep**, **find**, **ls**, **write**, **edit**, and **bash** with Pi's behavior, each call in its own tool Step, and adds the Connector, web fetch, browser, and **ask_user** tools. **grep** and **find** run **rg** and **fd**, which Pi downloads when they are missing. Connector writes always wait for approval. A Connector tool whose name a Pi tool has gets the prefix **connector_**. [Reference](/reference/agents/cli#harness-tools).
+- Agents CLI reference: The chat describes the terminal UI, now the default at
+  a terminal: its keys, slash commands, approval and question panels, the
+  message queue, **--plain**, and when the command keeps the plain chat. Resume
+  a session, Images, and Known limitations cover the terminal UI too.
+- In the TypeScript CLI commands, a **run_shell_command** command that ends also ends what it left in its process group, such as a process it started in the background, so the call answers at once and leaves nothing running.
+
+### Fixed
+
+- Python and TypeScript Claude Agent SDK adapters: when the user rejects a call of a Claude Code tool, such as **Write** or **Bash**, the model sees "The user rejected this Write call: not now" instead of a PreToolUse hook error. Deadline, planning-turn, and cancellation rejections keep their recorded text, and the session still records the call as rejected.
+- Python and TypeScript Claude Agent SDK adapters: an approved Claude Code tool call writes one **tool_call_started**, from its tool Step, and one **tool_call_finished**, from the Claude Code run in the resumed turn. The finish is **failed** when that run fails, such as a **Bash** command that exits with an error, and **outcome_unknown** when the turn segment ends without its result. The **dex-agents-claude-sdk** commands no longer print each approved call twice.
+- **dex-agents-claude-sdk** (Python): Claude Code's standard error goes to the command's log file without terminal control sequences, so the chat no longer shows the cursor control code that Claude Code writes when it exits.
+
 ## 0.5 {#v0-5}
 
 Released 2026-11-11 as [agents/v0.5.0](https://github.com/superdurable/dex/releases/tag/agents%2Fv0.5.0).
