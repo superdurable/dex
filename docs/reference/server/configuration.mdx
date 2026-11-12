@@ -1,6 +1,7 @@
 ---
 title: Install and configure server-zd
 sidebar_label: Install and configure
+description: "How to install server-zd, a minimal production configuration, and the configuration keys for durability, limits, and performance."
 ---
 
 # Install and configure server-zd
@@ -21,7 +22,7 @@ dex-server-zd serve --config /etc/dex-server-zd/config.yaml
 ~~~
 
 **serve** reads every setting from one YAML file. The
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.26/server-zd/config/dex-server-zd.example.yaml)
 lists every key with its default. An unknown key fails startup. An invalid
 value also fails startup, and the error names the YAML path of the rejected
 field. The image includes the example at
@@ -51,13 +52,21 @@ required. Replace **BUCKET** and **PREFIX** with your bucket and key prefix.
 Leave **objectStore.endpoint** empty to use AWS endpoint resolution. For an
 S3-compatible store, set it to an HTTP or HTTPS URL. Set
 **objectStore.forcePathStyle** when that store needs path-style addressing.
-Since 0.1.24, **objectStore.provider: db9** stores this state in a db9 database
-instead. See [db9 provider](/reference/server/object-storage#db9).
+Since 0.1.24, **objectStore.provider: db9** stores this state in db9, a
+PostgreSQL-compatible database, instead of S3. The server then depends on that
+database instead of object storage. See
+[db9 provider](/reference/server/object-storage#db9).
+
+This configuration runs a single replica, so it sets **lease.duration** to 60
+seconds. No standby can take over a single replica, and the longer lease makes
+fewer lease requests to object storage. With hot standbys, keep the 10-second
+default. [Lease, hot standby, and step down](/reference/server/high-availability#lease)
+explains the trade-off.
 
 A node ID has 1 to 63 characters. It uses lowercase letters, digits, and
 hyphens, and it starts with a letter or a digit.
 
-One object storage prefix holds one Dex cluster, and a cluster runs one node.
+One object storage prefix holds one Dex cluster, and a cluster has one active node at a time.
 The first start records **cluster.nodeId** and **cluster.partitionCount**.
 Neither can change later. A start with a different node ID fails and names the
 recorded one. A start with a different partition count fails and reports both
@@ -82,7 +91,7 @@ persistent disk. **--log-dir** also writes the log to
 **dex-server-zd.log** in that directory.
 
 The optional **--config** file holds overrides. It uses the keys of the
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml).
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.26/server-zd/config/dex-server-zd.example.yaml).
 Put only the keys you want to change in it: every key in the file replaces the
 single-node default. Do not copy the whole example. A copy sets **api.listen**
 to **0.0.0.0:8801**, which has no authentication unless the file also
@@ -635,7 +644,7 @@ oldest request IDs.
 | --- | --- | --- |
 | **values.maxValueBytes** | 16777216 (16 MiB) | Largest serialized application value, such as an Attribute value or a Channel message. A larger value is rejected. |
 | **api.grpcMaxMessageBytes** | 33554432 (32 MiB) | Largest incoming or outgoing gRPC message. Must exceed **values.maxValueBytes**. Since 0.1.21, a GetHistoryEvents page ends before an event that would make the response larger, and its next page token continues the read. A single event larger than this limit fails the read with RESOURCE_EXHAUSTED and names the event ID. |
-| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Active state budget of one Flow run. Active state is the run's current rows and the values they hold: Attributes, Channel messages, Step executions with their inputs, locals, and attempt snapshots, timers, locks, request IDs kept for deduplication, and outbox rows. A Step that completed, or that a cancellation without a Flow close ended, keeps no Step execution row. A Failed Step and a Step that a Flow close canceled keep a small one. It also counts a small bookkeeping row, under 100 bytes, for each stored value, superseded ones included, in runs that started before 0.1.23. It does not count history records, checkpoints, or the superseded values that history keeps for time travel. server-zd checks it when a command increases the run's active state while that active state exceeds the budget. The checked commands are a Flow start, a Client Attribute write, a Client Channel publish, an RPC that changes Flow state, a Step heartbeat, and a Step completion. An RPC changes Flow state when it writes or deletes Attributes, publishes or deletes Channel messages, or starts or cancels Steps. The increase leaves out what a Step attempt holds only until its method ends, such as the Attributes and Channel messages it loaded and its locks. Such a Flow start, Client write, or RPC fails with RESOURCE_EXHAUSTED. Such a Step heartbeat or completion fails the attempt without retry. Client deletions, reads, and RPCs that change no Flow state still run. On a run over its budget, an RPC that changes no Flow state keeps no reply value or request ID for deduplication. A retry with the same request ID is then handled as a new RPC: it runs again while the Flow is running, and fails with NOT_FOUND once the Flow has closed, even if that RPC's own commit closed it. The history of a transactional RPC still records its output. A child Flow result that reaches its parent is not checked; **limits.maxChildFlowResultBytes** bounds it instead. Changed in 0.1.21: superseded values no longer count. A Flow that already failed on this limit stays failed; time travel can resume it. Changed in 0.1.23: the rows of completed Steps and of Steps canceled without a Flow close no longer count, so a long-lived run's active state stops growing with every Step it ran. Changed in 0.1.23: a run that starts with 0.1.23 or later no longer counts the bookkeeping rows of superseded values. Those rows wait for the history window or for an upload, like history. Before, a run that offloads history and rewrites values often could fill a small budget with them before its first history segment was sealed and uploaded. |
+| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Active state budget of one Flow run. A command that grows a run over budget fails. See [Flow state budget](#flow-state-budget). |
 | **limits.maxChildFlowResultBytes** | 16777216 (16 MiB) | Largest total size of the result outputs that a child Flow delivers to its parent. A Step completion that would make a child Flow's collected outputs larger fails the attempt without retry. Unless the Step's failure policy recovers, the child Flow fails, and the parent receives that failure. A Flow without a parent has no such limit. |
 | **limits.maxFlowIdBytes** | 1000 | Longest Flow ID, in UTF-8 bytes. |
 | **limits.maxRequestIdsPerRun** | 1000 | Newest request IDs that one run keeps for deduplication. A retry with an older request ID runs as a new request. |
@@ -651,6 +660,22 @@ Each Flow run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
 **limits.maxChildFlowResultBytes**, and **limits.maxRequestIdsPerRun** when it
 starts. A new value applies only to Flow runs that start after the node
 restarts with it.
+
+### Flow state budget {#flow-state-budget}
+
+**limits.maxFlowStateBytes** sets the active state budget of one Flow run. The default is 64 MiB.
+
+Active state is the run's current rows and the values they hold: Attributes, Channel messages, Step executions with their inputs, locals, and attempt snapshots, timers, locks, request IDs kept for deduplication, and outbox rows. A Step that completed, or that a cancellation without a Flow close ended, keeps no Step execution row. A Failed Step and a Step that a Flow close canceled keep a small one. It also counts a small bookkeeping row, under 100 bytes, for each stored value, superseded ones included, in runs that started before 0.1.23. It does not count history records, checkpoints, or the superseded values that history keeps for time travel.
+
+server-zd checks it when a command increases the run's active state while that active state exceeds the budget. The checked commands are a Flow start, a Client Attribute write, a Client Channel publish, an RPC that changes Flow state, a Step heartbeat, and a Step completion. An RPC changes Flow state when it writes or deletes Attributes, publishes or deletes Channel messages, or starts or cancels Steps. The increase leaves out what a Step attempt holds only until its method ends, such as the Attributes and Channel messages it loaded and its locks. Such a Flow start, Client write, or RPC fails with RESOURCE_EXHAUSTED. Such a Step heartbeat or completion fails the attempt without retry. Client deletions, reads, and RPCs that change no Flow state still run.
+
+On a run over its budget, an RPC that changes no Flow state keeps no reply value or request ID for deduplication. A retry with the same request ID is then handled as a new RPC: it runs again while the Flow is running, and fails with NOT_FOUND once the Flow has closed, even if that RPC's own commit closed it. The history of a transactional RPC still records its output. A child Flow result that reaches its parent is not checked; **limits.maxChildFlowResultBytes** bounds it instead.
+
+Changed in 0.1.21: superseded values no longer count. A Flow that already failed on this limit stays failed; time travel can resume it.
+
+Changed in 0.1.23: the rows of completed Steps and of Steps canceled without a Flow close no longer count, so a long-lived run's active state stops growing with every Step it ran.
+
+Changed in 0.1.23: a run that starts with 0.1.23 or later no longer counts the bookkeeping rows of superseded values. Those rows wait for the history window or for an upload, like history. Before, a run that offloads history and rewrites values often could fill a small budget with them before its first history segment was sealed and uploaded.
 
 ## Flow definitions {#flow-definitions}
 

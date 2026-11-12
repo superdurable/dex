@@ -29,10 +29,13 @@ help: ## Show targets
 githooks: ## Install commit-msg and pre-commit hooks (agent attribution + docs prose)
 	bash script/install-githooks
 
-docs-prose-check: ## Fail when product-doc MDX prose uses inline backticks
+docs-prose-check: ## Check product-doc MDX prose and structure (no README links, group headers open overviews, pages end with Next, positive-first openings and headings, Chinese pages keep their sections)
 	python3 script/docs_no_inline_backticks.py
+	cd docs && node --no-warnings tests/docs-structure.mjs
+	cd docs && node --no-warnings tests/docs-positive-first.mjs
+	cd docs && node --no-warnings tests/docs-locale-sections.mjs
 
-docs-prose-fix: ## Replace inline backticks with **bold** in product-doc MDX prose
+docs-prose-fix: ## No-op: identifiers use inline code since D8
 	python3 script/docs_no_inline_backticks.py --fix
 
 ci-runner-check: ## Verify CI workflows use GitHub-hosted runners

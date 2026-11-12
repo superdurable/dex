@@ -11,9 +11,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-Init Step 向 **RequestChannel** 写入请求，初始化 **CurrSubFlowNum**，并启动 N 个 worker。**CurrSubFlowNum** 记录正在运行的 SubFlow 数量。HandleRequest Step 的 Execute 持有它的 Attribute lock 并加一；HandleSubFlow Step 的 Execute 持有同一把 lock 并减一。
+Init Step 向 `RequestChannel` 写入请求，初始化 `CurrSubFlowNum`，并启动 N 个 worker。`CurrSubFlowNum` 记录正在运行的 SubFlow 数量。HandleRequest Step 的 Execute 持有它的 Attribute lock 并加一；HandleSubFlow Step 的 Execute 持有同一把 lock 并减一。
 
-最后一个 active worker 返回 **ForceCompleteIfChannelsEmpty**。Dex 检查 **RequestChannel**，只有为空才完成 Flow。如果 RPC 已先发布新请求，Dex 改为再调度一个 HandleRequest Step。检查和完成一起发生，中间不会插进新请求。在应用代码里先查 size 再完成做不到这一点。
+最后一个 active worker 返回 `ForceCompleteIfChannelsEmpty`。Dex 检查 `RequestChannel`，只有为空才完成 Flow。如果 RPC 已先发布新请求，Dex 改为再调度一个 HandleRequest Step。检查和完成一起发生，中间不会插进新请求。在应用代码里先查 size 再完成做不到这一点。
 
 ## 核心实现
 
@@ -560,7 +560,7 @@ impl Step for ShortLiveHandleSubFlow {
 </SdkSnippet>
 </SdkTabs>
 
-## 相关内容
+## 下一步
 
 - [多父 Flow 分区](/design-patterns/parallel-subflows/partitioning)
 - [Step decision](/reference/python/step-decisions#forcecompleteifchannelsempty)

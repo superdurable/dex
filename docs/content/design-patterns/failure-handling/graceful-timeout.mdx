@@ -8,13 +8,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/grac
 
 Use a Flow timeout handler when your application must react to a deadline for the whole Flow. The deadline belongs to the Flow, so you do not need a separate Step that races the work.
 
-**FlowGracefulTimeout** starts **LongWait**. When the Flow deadline expires, Dex runs **handleTimeout**. The handler works like an **Execute** method.
+`FlowGracefulTimeout` starts `LongWait`. When the Flow deadline expires, Dex runs `handleTimeout`. The handler works like an `Execute` method.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 
-The Flow registers **LongWait** and the timeout handler. Start the Flow with a positive timeout. The example sets the timeout policy to **HANDLER** explicitly. **HANDLER** is also the default when the Flow defines a timeout handler. **FlowTimeoutHandlerOptions** gives the handler its own attempt timeout and retry policy.
+The Flow registers `LongWait` and the timeout handler. Start the Flow with a positive timeout. The example sets the timeout policy to `HANDLER` explicitly. `HANDLER` is also the default when the Flow defines a timeout handler. `FlowTimeoutHandlerOptions` gives the handler its own attempt timeout and retry policy.
 
 <SdkTabs examples={{
   python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
@@ -279,7 +279,7 @@ client.start_flow_with_options(
 
 If the timeout handler succeeds, Dex applies its staged writes, best-effort Channel deletions, Channel publications, and decision. If the handler still fails after its retries, Dex fails the Flow.
 
-## Related
+## Next
 
 - [Failure Handling](/design-patterns/failure-handling)
 - [Flow options](/reference/python/start-flow-options#timeout-and-timeout-policy)

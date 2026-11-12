@@ -13,9 +13,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/drai
 
 当消息来自 Worker 外部、而且可能突发到来时，使用这个模式。Client 调用 RPC，由 RPC 把每条消息追加到 Channel。Channel 一空，Flow 就完成，所以 Flow 只在有工作时运行。下一条消息会再次启动它。
 
-**ProcessMessage** 返回 **ForceCompleteIfChannelsEmpty** decision。Dex 在保存这个 decision 时检查 Channel，所以检查和完成之间不会插进新消息。Channel 为空时，Flow 完成。如果 Channel 中还有消息，或者某个 Step 已经取走消息、但还没执行完 **Execute**，Dex 会改走 fallback movement，回到 **ProcessMessage**。
+`ProcessMessage` 返回 `ForceCompleteIfChannelsEmpty` decision。Dex 在保存这个 decision 时检查 Channel，所以检查和完成之间不会插进新消息。Channel 为空时，Flow 完成。如果 Channel 中还有消息，或者某个 Step 已经取走消息、但还没执行完 `Execute`，Dex 会改走 fallback movement，回到 `ProcessMessage`。
 
-被 **ForceCompleteIfChannelsEmpty** 检查的 Channel 只能由一个 Step 消费。
+被 `ForceCompleteIfChannelsEmpty` 检查的 Channel 只能由一个 Step 消费。
 
 ## Step Graph
 
@@ -541,7 +541,7 @@ match run_blocking(move || {
 </SdkSnippet>
 </SdkTabs>
 
-## 相关内容
+## 下一步
 
 - [Channel](/concepts/primitives/channel)
 - [RPC](/concepts/primitives/rpc)

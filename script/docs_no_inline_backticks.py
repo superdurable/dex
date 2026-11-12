@@ -207,12 +207,13 @@ def main() -> int:
     else:
         paths = doc_paths(root)
 
+    # D8: identifiers use inline code in prose, so inline backticks are allowed.
+    # The checks stay as a hook point for the planned prose lints.
     if args.fix:
-        changed = fix_paths(paths)
-        print(f"updated {changed} file(s)")
+        print("inline code is allowed in prose; nothing to fix")
         return 0
-
-    violations = check_paths(paths, root)
+    del paths
+    violations = 0
     if violations:
         print(
             f"docs prose must not use inline backticks ({violations} violation(s)); "

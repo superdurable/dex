@@ -14,9 +14,9 @@ An example is an offer to a customer. The customer can accept it or reject it. I
 
 ## How it works
 
-One Step waits for every event at once. Its **WaitFor** returns **AnyOf** with one Condition per event. Each customer response is a Channel Condition. The deadline is a Timer.
+One Step waits for every event at once. Its `WaitFor` returns `AnyOf` with one Condition per event. Each customer response is a Channel Condition. The deadline is a Timer.
 
-When the first Condition is satisfied, the Step's **Execute** runs. It checks which Condition won and moves to the matching branch.
+When the first Condition is satisfied, the Step's `Execute` runs. It checks which Condition won and moves to the matching branch.
 
 ```pseudocode
 rpc acceptCustomerOffer(note) -> OfferAccepted.publish(note)
@@ -33,21 +33,21 @@ Only one Condition wins, so only one branch ever starts.
 
 ## Rules
 
-- **AnyOf** consumes a message only from the Condition that wins. A response that lost stays pending in its Channel.
+- `AnyOf` consumes a message only from the Condition that wins. A response that lost stays pending in its Channel.
 - When several Channel Conditions are ready at the same time, the first one declared wins. Declare them in business priority order. In the example, an acceptance and a rejection that are both pending select the acceptance.
-- In **Execute**, check **HasTimerFired** for the Timer. Do not treat a missing response as expiry. Read the Channel results for the responses. A Channel that lost returns no results.
+- In `Execute`, check `HasTimerFired` for the Timer. Do not treat a missing response as expiry. Read the Channel results for the responses. A Channel that lost returns no results.
 - The Timer starts when the Step starts waiting. It survives Worker and Server restarts. While the Step waits, it holds no Worker.
 - A response that arrives after the choice cannot change the chosen branch. While the Flow still runs, the RPC succeeds and publishes a message that no Step consumes. After the Flow closes, Dex rejects the RPC. So a successful RPC call does not mean the response won. A caller that needs to know the outcome reads the Flow result.
-- To test the expiry branch, skip the Timer with the Client **SkipTimer**. Do not shorten the business deadline for tests.
+- To test the expiry branch, skip the Timer with the Client `SkipTimer`. Do not shorten the business deadline for tests.
 
 ## Related shapes
 
-- [Reminder](/design-patterns/durable-timer/reminder), [Inactivity tracker](/design-patterns/durable-timer/inactiveness-tracker-timer), and [Inbound Event Loop](/design-patterns/inbound-event-loop) also wait on **AnyOf** of a Timer and a Channel. They loop back to the same Step. Deferred Choice decides once and moves on.
+- [Reminder](/design-patterns/durable-timer/reminder), [Inactivity tracker](/design-patterns/durable-timer/inactiveness-tracker-timer), and [Inbound Event Loop](/design-patterns/inbound-event-loop) also wait on `AnyOf` of a Timer and a Channel. They loop back to the same Step. Deferred Choice decides once and moves on.
 - [First-Win Parallel Steps](/design-patterns/parallel/first-win) races work that the Flow started itself. Deferred Choice races events from outside.
 
 ## Example
 
-**OfferResponseFlow** starts with the offer ID. **AwaitOfferResponse** waits for the **acceptCustomerOffer** RPC, the **rejectCustomerOffer** RPC, or the 3-day Timer. It moves to **FulfillOffer**, **CloseRejectedOffer**, or **ExpireOffer**. Each of those completes the Flow with its outcome.
+`OfferResponseFlow` starts with the offer ID. `AwaitOfferResponse` waits for the `acceptCustomerOffer` RPC, the `rejectCustomerOffer` RPC, or the 3-day Timer. It moves to `FulfillOffer`, `CloseRejectedOffer`, or `ExpireOffer`. Each of those completes the Flow with its outcome.
 
 <SdkTabs
   examples={{
@@ -243,11 +243,11 @@ impl Step for AwaitOfferResponse {
 
 ## Anti-patterns
 
-- One parallel Step per event, where the first to finish cancels the others. One **AnyOf** wait makes the choice with no race between branches.
+- One parallel Step per event, where the first to finish cancels the others. One `AnyOf` wait makes the choice with no race between branches.
 - A Timer loop that checks an Attribute to see whether the customer answered.
 - A separate Flow, cron job, or database job that enforces the deadline.
 
-## Related
+## Next
 
 - [Timer](/concepts/primitives/timer)
 - [Channel](/concepts/primitives/channel)

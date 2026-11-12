@@ -11,7 +11,7 @@ Go customer-refund 示例包含两个互相独立的 Flow。两者都会发布 F
 
 ## 确定性策略
 
-**CustomerRefundFlow** 运行七个 Step。它先确认订单存在，再应用 30 天规则。调用支付 provider 之前，它会先记录幂等 key。如果 provider 拒绝退款，或者结果未知，Flow 会把这个结果记为 case 状态。
+`CustomerRefundFlow` 运行七个 Step。它先确认订单存在，再应用 30 天规则。调用支付 provider 之前，它会先记录幂等 key。如果 provider 拒绝退款，或者结果未知，Flow 会把这个结果记为 case 状态。
 
 <DocsFlowDefinitionGraph graph={deterministicFlow} />
 
@@ -19,11 +19,11 @@ Summary 展示 charge reference、请求金额和 recommendation。Display 额�
 
 ## Agentic 审核
 
-**AgenticCustomerRefundFlow** 在一个由 Step 组成的循环里收集证据。随后由 guardrail 决定：要么自动执行决定，要么等待经理审批。每次等待经理审批都有自己的 gate key。Flow 会先记录要执行的操作，再执行 billing、subscription 和 customer-message 操作。这些操作都是幂等的。
+`AgenticCustomerRefundFlow` 在一个由 Step 组成的循环里收集证据。随后由 guardrail 决定：要么自动执行决定，要么等待经理审批。每次等待经理审批都有自己的 gate key。Flow 会先记录要执行的操作，再执行 billing、subscription 和 customer-message 操作。这些操作都是幂等的。
 
 <DocsFlowDefinitionGraph graph={agenticFlow} />
 
-批准 Action 没有输入，因此直接显示为按钮。拒绝 Action 要求填写原因。Dex Web 会自动填入一个隐藏的 gate key，取自详情页打开时读到的 Attribute 值。RPC 发布 verdict 之前，会把这个 key 与当前 gate 比较。如果 gate 已经变了，RPC 会返回错误，操作员需要刷新页面。
+批准 Action 直接显示为按钮，不需要输入。拒绝 Action 要求填写原因。Dex Web 会自动填入一个隐藏的 gate key，取自详情页打开时读到的 Attribute 值。RPC 发布 verdict 之前，会把这个 key 与当前 gate 比较。如果 gate 已经变了，RPC 会返回错误，操作员需要刷新页面。
 
 两个 Action 也会读取当前 case status。Flow Definition Graph 2.0 中的可见性条件只控制按钮是否出现，不做权限控制。
 
@@ -46,3 +46,7 @@ var deterministicCaseStatus = dex.DefineAttribute[string](
 </SdkTabs>
 
 协议与操作流程见 [Dex Web](/reference/web/dex-web)。
+
+## 下一步
+
+[运行 Dex](/components)：A Dex application runs on four components: your application, the server, the CLI, and Web.

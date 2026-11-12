@@ -9,13 +9,14 @@ const sidebars: SidebarsConfig = {
     'start-flow-options',
     {
       type: 'category',
-      label: 'Step',
+      label: 'Step methods',
       link: {type: 'doc', id: 'step'},
       items: ['step-options', 'step-decisions', 'waits'],
     },
     {
       type: 'category',
       label: 'Primitives',
+      link: {type: 'doc', id: 'primitives'},
       items: ['attribute', 'rpc', 'channel', 'stream', 'timer', 'subflow'],
     },
     'client',

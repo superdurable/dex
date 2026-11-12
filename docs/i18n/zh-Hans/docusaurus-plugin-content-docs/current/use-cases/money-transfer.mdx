@@ -17,7 +17,7 @@ import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json'
 3. 只有在目标账户贷记成功后才完成。
 4. 当带副作用的 Step 在重试耗尽后仍然失败时，对转账进行补偿。
 
-这个 Flow 从不等待审批、Channel 消息或 RPC，只在重试之间等待。Go、Java、Python 和 TypeScript 示例会对每个带副作用的 Step 重试最多一小时，并对补偿重试最多 24 小时。Rust 示例只尝试三次，让集成测试能很快结束。
+这个 Flow 只在重试之间等待，从不等待审批、Channel 消息或 RPC。Go、Java、Python 和 TypeScript 示例会对每个带副作用的 Step 重试最多一小时，并对补偿重试最多 24 小时。Rust 示例只尝试三次，让集成测试能很快结束。
 
 Rust 示例简化了余额检查：金额为正数即通过。它把账务变动记录为事件。其他语言的示例会调用带有明确余额检查和撤销方法的内存依赖服务。
 
@@ -35,7 +35,7 @@ Rust 示例简化了余额检查：金额为正数即通过。它把账务变动
 
 这个 Flow 是一个依次运行各 Step 的 saga：
 
-**CheckBalance** → **CreateDebitMemo** → **Debit** → **CreateCreditMemo** → **Credit**
+`CheckBalance` → `CreateDebitMemo` → **Debit** → `CreateCreditMemo` → **Credit**
 
 它用到以下设计模式：
 
@@ -409,7 +409,7 @@ fn transfer_retry() -> RetryPolicy {
 
 ![已完成的 Money transfer Step 执行图](/img/use-cases/money-transfer-step-execution-graph.jpg)
 
-## 相关内容
+## 下一步
 
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
 - [Failure Handling](/design-patterns/failure-handling)

@@ -2,6 +2,7 @@
 title: Step
 sidebar_label: Step
 slug: /concepts/step
+description: "A Step is one unit of background work in a Flow. It can wait durably for something to happen, then do its work, then choose what runs next. Dex runs Steps on your Workers and records each result."
 ---
 
 import StepWaitExecuteDiagram from '@site/src/components/primitives/step/StepWaitExecuteDiagram';
@@ -13,10 +14,11 @@ A **Step** is one unit of background work in a [Flow](/concepts/flow). It
 can wait durably for something to happen, then do its work, then choose what
 runs next. Dex runs Steps on your Workers and records each result.
 
-A native struct or class implements the Step. Its type is the **StepType**.
+A native struct or class implements the Step. Its type is the `StepType`.
 One Step type can run many times in a Flow, even in parallel. Each run is a
-**StepExecution**, identified by a **StepExecutionID** such as
-**Charge-2**.
+`StepExecution`, identified by a `StepExecutionID` such as
+**Charge-2**: the Step type, then the execution number of that type in the Flow.
+So **Charge-2** is the second run of **Charge**.
 
 ## Step input {#step-input}
 
@@ -28,11 +30,11 @@ is the Flow's start input.
 
 A Step has one or two methods.
 
-- **WaitFor** is optional. It returns a durable **Wait**. Dex stores the wait,
-  checks its conditions for you, and calls **Execute** once they are met.
-- **Execute** is required. It does the work and returns a **StepDecision**.
+- `WaitFor` is optional. It returns a durable **Wait**. Dex stores the wait,
+  checks its conditions for you, and calls `Execute` once they are met.
+- `Execute` is required. It does the work and returns a `StepDecision`.
 
-If a Step has no **WaitFor**, **Execute** runs immediately.
+If a Step has no `WaitFor`, `Execute` runs immediately.
 
 <StepWaitExecuteDiagram markdownDescription="The WaitFor of ExampleStep returns a Wait, and Dex evaluates its Timer, Channel, or SubFlow condition. When the condition is satisfied, Execute returns GoTo(Complete Flow, input + 1). A StepDecision can be GoTo, GracefulComplete, or ForceFail." />
 
@@ -59,9 +61,6 @@ class StepSecond(Step[int]):
 
 
 class Example(Step[int]):
-    def __init__(self, second: StepSecond) -> None:
-        self.second = second
-
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.until(approval.for_one())
 
@@ -139,8 +138,6 @@ const approval = new Channel("Approval", stringCodec);
 class Example implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
-  public constructor(private readonly flow: StepFlow) {}
-
   public getStepType(): string {
     return "Example";
   }
@@ -207,37 +204,37 @@ impl Step for StepSecond {
 
 ## Waiting {#waiting}
 
-A wait does not hold a Worker or a thread. Dex keeps it in the Flow's state
-and wakes the Step when a condition is met. A Step can wait on three kinds of
+Dex keeps a wait in the Flow's state, so it holds no Worker or thread, and wakes the Step when a condition is met. A Step can wait on three kinds of
 condition:
 
 - a [Timer](/concepts/primitives/timer) fires;
 - a message arrives on a [Channel](/concepts/primitives/channel);
 - a [SubFlow](/concepts/primitives/subflow) completes.
 
-Combine conditions with **AnyOf** or **AllOf**. **AnyCombinationOf** accepts
-any one of several groups of conditions. After the wait, **Execute** reads what
+Combine conditions with `AnyOf` or `AllOf`. `AnyCombinationOf` accepts
+any one of several groups of conditions. After the wait, `Execute` reads what
 satisfied it, such as the Channel messages it consumed. See
 [Waits](/reference/python/waits).
 
 To wait for parallel branches, use a **Join**. It is not another kind of
-condition: it waits on a ChannelMap that the branches report to. See
+condition: it waits on a [ChannelMap](/concepts/primitives/channel#channelmap) that the branches report to. See
 [Await Parallel Steps](/design-patterns/parallel/await).
 
 ## StepDecision {#stepdecision-movements}
 
-**Execute** returns a **StepDecision**. It can go to one next Step or to
+`Execute` returns a `StepDecision`. It can go to one next Step or to
 several Steps at once. This is how you build branching, loops, and parallel
-work.
+work. `GoTo` names the next Step by its Step type and passes its input. The
+Flow's registered instance of that Step type runs it.
 
 <StepDecisionMovementsDiagram markdownDescription="GoTo: ExampleStep returns GoTo(Complete Flow), which completes the Flow. GoToMany: ExampleStep starts StepA and StepB, which run in parallel. Loop: ExampleStep goes to ProcessStep, and ProcessStep goes back to ExampleStep." />
 
 A decision can also close the Flow or end a branch:
 
-- **GracefulComplete** asks Dex to complete the Flow once no other Step is active.
-- **ForceComplete** completes the Flow immediately.
-- **ForceFail** fails the Flow immediately.
-- **DeadEnd** ends this branch without closing the Flow.
+- `GracefulComplete` asks Dex to complete the Flow once no other Step is active.
+- `ForceComplete` completes the Flow immediately.
+- `ForceFail` fails the Flow immediately.
+- `DeadEnd` ends this branch without closing the Flow.
 
 Completing decisions can return the Flow output, which a client reads as the
 Flow result. When several completing decisions return an output, the result
@@ -249,85 +246,111 @@ A decision can also cancel other active Steps. See the
 [Parallel Steps](/design-patterns/parallel) and
 [Parallel SubFlows](/design-patterns/parallel-subflows) patterns.
 
+## Guarantees {#guarantees}
+
+In short: finished work is saved, unfinished work can repeat.
+
+Four rules matter most. The first two are all you need for a first Flow.
+[Advanced Step Guarantees](/concepts/step/advanced-guarantees) explains the
+details behind the other two.
+
+- **A finished Step stays finished.** Dex saves its result together with
+  the move to the next Step. This holds for SYNC Steps, the default; an ASYNC
+  result lost in a server failover reruns, as
+  [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async) explains.
+- **A Step that was cut off can run again.** A crash, a timeout, or a retry
+  can repeat a method that already called an external system. So a Step runs
+  at least once, not exactly once. The next section says how to make that
+  safe.
+- **A retry sees the state of its first attempt.** A method's **state
+  snapshot** is the Flow state that Dex passes to it: every ordinary Attribute,
+  the size of every Channel, and the AttributeMap values and pending Channel
+  messages that its `StepOptions` select. Dex takes it when it hands attempt 1
+  to a Worker. A retry of `Execute` reuses that snapshot, so it does not see
+  Attribute writes made since then. To wait for such a write, have the writer publish a
+  Channel message, and wait for it in the next Step's `WaitFor`. Hard-delete
+  Attributes are the exception: Dex reads them again on every attempt. See
+  [Short-lived secrets](/concepts/primitives/attribute#hard-delete-attributes).
+- **Parallel writers can overwrite each other.** Two Steps or RPCs that read
+  and then write the same Attribute need a lock on it. See [What Dex saves](/concepts/step/advanced-guarantees#what-dex-saves).
+
+### Idempotency keys {#idempotency-keys}
+
+Send an idempotency key with each external call whose repeat would cause harm,
+such as a charge or an order email. A harmless repeat, such as a reminder, can
+skip the key. The service that applies the effect uses the key to
+drop a repeat. Build the key from values that stay the same on every attempt:
+
+- the Flow ID and a name for the call, such as **charge-order-1042**, when the
+  Flow makes that call once;
+- the Flow ID and the `StepExecutionID`, such as `order-1042/Charge-2`,
+  when the Step runs more than once in the Flow.
+
+The attempt number, the time, and a random value change on each retry, so leave them out of the key. Other pages link here instead of repeating this rule.
+
 ## StepOptions {#stepoptions}
 
-A Step returns **StepOptions** to control how its methods run. **WaitFor** and
-**Execute** each have their own settings.
+A Step returns `StepOptions` to control how its methods run. `WaitFor` and
+`Execute` each have their own settings.
 
 - **Timeout** limits one attempt of a method.
 - **Retry policy** runs the same method again after a failed attempt.
 - <a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="step-failed-events-and-last-failure-info"></a>**Failure
   policy** decides what happens when retries run out. By default the Flow
-  fails. **Execute** can go to a recovery Step instead. **WaitFor** can proceed
-  to **Execute**. See [WaitFor failure policy](/reference/python/failure-and-retries#waitfor-failure-policy),
+  fails. `Execute` can go to a recovery Step instead. `WaitFor` can proceed
+  to `Execute`. See [WaitFor failure policy](/reference/python/failure-and-retries#waitfor-failure-policy),
   [Execute failure policy](/reference/python/failure-and-retries#execute-failure-policy), and
   [Last failure info](/reference/python/failure-and-retries#last-failure-info).
 - **Durability** chooses when Dex stores the result. **SYNC**, the default,
   stores it before the next work starts. **ASYNC** is faster, but a server
-  failure can make the method run again.
+  failure can make the method run again. See
+  [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async).
 - **Heartbeat** lets a long method report progress and save a checkpoint.
 - **State loading** and **Attribute locks** choose which state the method
   loads and which Attributes it locks.
 
-A **StepDecision** can override the options for one Step execution.
+A `StepDecision` can override the options for one Step execution.
 
-## Guarantees {#guarantees}
+Each method uses the server defaults until StepOptions set its own. The defaults are the same for every SDK:
 
-Dex saves each **WaitFor** or **Execute** call on its own. It saves the call's
-Attribute writes and Channel publications together with its result, and only
-when the method succeeds. Calls to external systems are not part of this save.
+| Setting | Default |
+| --- | --- |
+| Method timeout, for one attempt | 2 hours |
+| Heartbeat timeout | 1 minute |
+| Retry attempts | No limit within the total duration |
+| Retry total duration | 4 hours from the first hand-out to a Worker |
+| Retry backoff | 1 second, doubling up to 100 seconds |
+| Durability | SYNC |
+| Failure policy | Fail the Flow |
 
-A Step method's changes take effect all at once. They are not protected from
-other Steps and RPCs, though. A method reads the Flow state as it was when Dex
-handed the method to a Worker. Other Steps and RPCs can change that state
-before the method's changes take effect. Dex does not check that the values
-the method read are still current. So two Steps or RPCs that read and then
-write the same Attribute can overwrite each other's update. To prevent this,
-have both declare a lock on that Attribute. Dex then runs them one at a time.
-See [Attribute locks](/concepts/primitives/attribute#locking).
+[Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration)
+in the SDK reference explains how these limits interact.
 
+## Advanced guarantees {#advanced-guarantees}
+
+A method's Attribute writes and Channel publications are saved together with
+its result, and only when it succeeds. When a method's outcome is uncertain, Dex
+runs it again or reports an unknown outcome. A SYNC Step saves its result before
+the Flow moves on; an ASYNC result can be lost in a server failover and run
+again. [Advanced Step Guarantees](/concepts/step/advanced-guarantees) gives the
+exact rules: [what Dex saves](/concepts/step/advanced-guarantees#what-dex-saves),
+[failure and redelivery](/concepts/step/advanced-guarantees#failure-and-redelivery-summary),
+[SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async), and
+[cancellation, completion, and order](/concepts/step/advanced-guarantees#cancellation-completion-order).
+
+<a id="what-dex-saves"></a>
 <a id="failure-and-redelivery"></a>
+<a id="failure-and-redelivery-summary"></a>
 <a id="heartbeats-not-acknowledged"></a>
 <a id="same-attempt-redelivery"></a>
 <a id="unknown-outcome"></a>
 <a id="design-for-redelivery"></a>
-
-A Step method can run more than once. A retry runs it again after a failure.
-Dex cannot always tell whether a failed attempt ran the work. Make each
-external effect idempotent. Key it by the Flow ID and the StepExecutionID, or
-by your own business key. See
-[Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery) for the cases where
-Dex cannot tell.
-
-When retries run out, the recovery Step learns whether the work certainly did
-not run, or may have run.
-
-Canceling a Step discards everything its current method has not saved: its
-Attribute writes, its Channel publications, and its decision. What its
-**WaitFor** already saved stays. A decision or an RPC never cancels the Steps that it
-starts itself. [Channel guarantees](/concepts/primitives/channel#guarantees)
-say what happens to the messages a canceled Step consumed.
-
-Dex does not stop a canceled method's code. The method should check for
-cancellation and return. Until it does, its code keeps running. Its calls to external
-systems still take effect, even after the Flow has closed.
-
-**GracefulComplete** ends its own branch and asks Dex to complete the Flow. Dex
-begins to complete the Flow as soon as no Step is active. Until then, other
-Steps and RPCs can still start new Steps, and those Steps delay completion too.
-A later branch that ends with **DeadEnd** does not withdraw the request. After
-the last Step ends, the Flow can stay **RUNNING** briefly while Dex finishes
-pending Attribute Sync writes and transactional RPCs that already started.
-
-Without a pending **GracefulComplete**, a Flow with no active Step keeps
-running. An RPC can still start new Steps in it. End the last branch with a
-completing decision. If a Flow must not wait forever, set a Flow timeout.
-
-Dex starts ready Steps roughly in the order they became ready, but not
-strictly. Do not rely on the order in which parallel Steps start or finish.
-Use a Channel or an Attribute lock when the order matters.
+<a id="sync-and-async"></a>
+<a id="cancellation-completion-order"></a>
 
 ## Reference
+
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
 
 The SDK reference covers:
 
@@ -344,3 +367,7 @@ The SDK reference covers:
 - [state loading](/reference/python/step-options#selective-state-loading) and
   [Attribute locks](/reference/server/runtime-data#attribute-locks);
 - [failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
+
+## Next
+
+[Advanced Step Guarantees](/concepts/step/advanced-guarantees): What Dex saves for each Step method, when a method runs again or ends with an unknown outcome, how SYNC and ASYNC durability differ, and how cancellation, completion, and Step order work.

@@ -1,6 +1,7 @@
 ---
 title: Local Connector setup
 sidebar_label: Local Connector setup
+description: "Dex Web can configure official Connector releases for a local application. This works only in dexcli dev bound to a loopback address. The setup APIs are not available in production Dex Web, on a non-loopback listener, or with a blobstore definition source."
 ---
 
 # Local Connector setup
@@ -18,14 +19,14 @@ Generate Flow Definition Graph 2.0 files, then start the local stack:
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Connectors** in the **Experimental** menu, at **/v1/connectors**. Changed in 1.41: the former **/v2/connectors** URL redirects here. Changed in 1.42: the menu offers **Connectors** whenever **dexcli dev** runs, even with no Flow Definition Graph files, so plain **dexcli dev** is enough to [add a connection](#add-a-connection) for an agent tool. Dex Web groups Steps and Trigger
+Open **Connectors** in the **Experimental** menu, at **/v1/connectors**. Changed in 1.41.0: the former **/v2/connectors** URL redirects here. Changed in 1.42.0: the menu offers **Connectors** whenever **dexcli dev** runs, even with no Flow Definition Graph files, so plain **dexcli dev** is enough to [add a connection](#add-a-connection) for an agent tool. Dex Web groups Steps and Trigger
 bindings by Connector ID and connection name. The sidebar lists each group by
 the Connector's release display name, such as **LLM**, with its connection name
 below it. Each group shows the Flows, Steps, operations, bindings, exact module
 version, and one of these states: **Missing**, **Ready**, **Expired**,
 **Conflict**, or **Unsupported**.
 
-Since 1.42, the sidebar also lists each connection that no loaded Flow uses:
+Since 1.42.0, the sidebar also lists each connection that no loaded Flow uses:
 every connection you added and every saved connection in the file. Such a
 connection says that no loaded Flow uses it. It shows its own module version
 and no Flow operation or Trigger tabs. A saved one whose module is not an exact
@@ -120,7 +121,7 @@ with wider permissions. Dex writes each update to a temporary file in the same
 directory, syncs it, and renames it into place, so an application never reads
 a partial file.
 
-Since 1.43, every write to **connections.json** holds an exclusive lock on
+Since 1.43.0, every write to **connections.json** holds an exclusive lock on
 **connections.json.lock** in the same directory. An application that uses the
 connectors Go SDK takes the same lock when it writes back a refreshed
 credential, so neither write overwrites the other. Dex Web reads the file again
@@ -130,7 +131,7 @@ than 15 seconds, the write changes nothing and fails with HTTP 503
 **CONNECTOR_CONNECTIONS_FILE_BUSY**. Try the save again. The lock uses
 **flock** on macOS and Linux. Other platforms take no lock.
 
-Since 1.43, each connection record that Dex Web saves for an authorization
+Since 1.43.0, each connection record that Dex Web saves for an authorization
 carries a top-level **authorizationId** field, next to **provider** and
 **authMethodId**. It is a random UUID version 4 string and is not secret. It
 identifies the account behind the credentials. Dex Web generates a new value
@@ -196,7 +197,7 @@ maps them to credentials, the OAuth client ID and client secret remain in
 memory and are not written to disk. Dex stores the access token after checking
 the granted scopes. Dex Web does not refresh the access token itself, and it
 stores a refresh token only when the release maps one. Reauthorize when the connection
-becomes **Expired**. Changed in 1.42: after the provider redirects back, the
+becomes **Expired**. Changed in 1.42.0: after the provider redirects back, the
 Connectors page selects the connection you authorized.
 
 Before OAuth starts, Dex shows the exact Redirect URI so you can copy it into
