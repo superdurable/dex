@@ -4,9 +4,21 @@ title: 持久化 Agent
 sidebar_label: 持久化 Agent
 ---
 
+import AgentStackDiagram from '@site/src/components/diagrams/AgentStackDiagram';
+
 # 持久化 Agent
 
 Dex 把 AI Agent 作为持久化的 Agent Session 运行。你可以用 Dex Agents 的内置 Agent Loop 构建 Agent，也可以保留已经用 Agent 框架写好的 Agent；两者运行在同一个 Session Flow 上。
+
+Dex 上的持久化 Agent 由三部分组成：
+
+- **你的应用：**Web 应用或 API，通过 Dex Client 启动 Session、发送消息、流式返回回复。
+- **Dex Server：**保存每个 Session，并把它的工作交给 Worker。它运行在 Dex Cloud 上，或你自己的基础设施上。
+- **你的 Agent Worker：**用你的框架或内置 Agent Loop 写成的 Agent，通过 Dex Agents 适配器运行。
+
+<AgentStackDiagram markdownDescription="你的应用（带 Dex Client 的 Web 应用或 API）在 Dex Server 上启动并驱动 Session，Dex Server 运行在 Dex Cloud 上或自托管。你的 Agent Worker 从 Dex Server 拉取 Step，通过 Dex Agents 适配器运行你的 Agent，支持 Claude Agent SDK、Google ADK、LangChain 和 LangGraph、Mastra、OpenAI Agents SDK、Pydantic AI、Vercel AI SDK 或内置 Agent Loop。" />
+
+你的 Agent 保留它的框架和代码。Dex 把每个 Session 作为一个 Flow 运行，每次模型调用、Tool Call 和审批完成时都记录为一个 Step。Worker 崩溃或部署之后，Session 从最后一次完成的调用之后继续。
 
 ## Dex 为你的 Agent 带来什么 {#what-dex-adds}
 

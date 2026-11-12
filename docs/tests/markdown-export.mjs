@@ -305,9 +305,10 @@ try {
 
   // Skill hosts sit one level below the surrounding section.
   assert.match(home, /## Install and use\n\n选择你使用的 host/);
-  assert.match(home, /\n### Codex Desktop\n\n#### Plugin/);
-  assert.match(home, /\n##### /);
-  assert.doesNotMatch(home, /\n## Codex Desktop/);
+  assert.match(home, /\n### Claude\n\n#### Claude Code CLI\n\n##### Plugin/);
+  assert.match(home, /\n#### Codex Desktop\n/);
+  assert.match(home, /\n###### /);
+  assert.doesNotMatch(home, /\n## Claude\n/);
   assert.match(home, /```text\nhttps:\/\/github.com\/superdurable\/dex-skills\n```/);
 
   assert.match(await readFile(join(outDir, 'reference/go/1.32.md'), 'utf8'), /# Earlier version/);

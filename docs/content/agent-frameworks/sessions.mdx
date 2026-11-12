@@ -4,9 +4,13 @@ sidebar_label: Sessions
 slug: /agent-frameworks/sessions
 ---
 
+import SessionTurnDiagram from '@site/src/components/diagrams/SessionTurnDiagram';
+
 # Sessions
 
 A durable agent session is one Flow run that holds one conversation. Each model call and each tool call runs in a Step. So a crash, a deploy, or a long wait repeats nothing that already finished.
+
+<SessionTurnDiagram markdownDescription="Your app's Client sends a message into the session Flow. Inside it, your framework's agent loop runs as Steps: a model call (RunModel), a tool call (CallTool), an approval (AwaitToolApproval), then the next model call. Dex records each Step's result before the turn moves on, and the Steps call your models and tools." />
 
 ## A durable agent session {#a-durable-agent-session}
 

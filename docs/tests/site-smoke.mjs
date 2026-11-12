@@ -338,7 +338,7 @@ assert.match(dexSkillHostTabsSource, /groupId="dex-skill-host"/);
 assert.match(dexSkillHostTabsSource, /queryString="host"/);
 assert.match(dexSkillHostTabsSource, /<TabItem key=\{host\.id\} label=\{host\.label\} value=\{host\.id\}>/);
 for (const {hosts} of Object.values(dexSkillHostData.locales)) {
-  assert.deepEqual(hosts.map((host) => host.id), ['codex-desktop', 'codex-cli', 'claude-desktop', 'claude-cli', 'cursor', 'others']);
+  assert.deepEqual(hosts.map((host) => host.id), ['claude', 'codex', 'cursor', 'others']);
 }
 assert.doesNotMatch(dexSkillHostTabsSource, /\blazy(?:=|\s)/);
 for (const source of dexSkillSources) {
@@ -726,16 +726,13 @@ console.log(
 
 function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
   const tabLabels = [...html.matchAll(/role="tab"[^>]*>([^<]+)<\/li>/g)].map((match) => match[1]);
-  assert.deepEqual(tabLabels, [
-    'Codex Desktop',
-    'Codex CLI',
-    'Claude Desktop',
-    'Claude Code CLI',
-    'Cursor',
-    otherClientsLabel,
-  ]);
-  assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>Codex Desktop<\/li>/);
-  assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 6);
+  // One tab per vendor, Claude first; each tab covers the CLI, then the desktop app.
+  assert.deepEqual(tabLabels, ['Claude', 'Codex', 'Cursor', otherClientsLabel]);
+  assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>Claude<\/li>/);
+  assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 4);
+  for (const client of ['Claude Code CLI', 'Claude Desktop', 'Codex CLI', 'Codex Desktop']) {
+    assert.match(html, new RegExp(`<h3[^>]*>${client}</h3>`), `the host tabs need a ${client} section`);
+  }
   // Only string CodeBlock children render the theme-code-block container with its copy button.
   const codeBlocks = (html.match(/class="[^"]*\btheme-code-block\b/g) ?? []).length;
   assert.ok(codeBlocks >= 8, 'skill host code blocks must render as highlighted CodeBlocks');

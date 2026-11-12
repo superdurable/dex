@@ -4,9 +4,13 @@ sidebar_label: Session
 slug: /agent-frameworks/sessions
 ---
 
+import SessionTurnDiagram from '@site/src/components/diagrams/SessionTurnDiagram';
+
 # Session
 
 持久化 Agent Session 是承载一段对话的一次 Flow run。每次模型调用和每次 Tool Call 都在一个 Step 中运行。因此崩溃、部署或长时间等待都不会重复已经完成的工作。
+
+<SessionTurnDiagram markdownDescription="你的应用的 Client 把消息发送到 Session Flow。在 Flow 内部，你的框架的 Agent Loop 以 Step 运行：模型调用（RunModel）、Tool Call（CallTool）、审批（AwaitToolApproval），然后是下一次模型调用。Turn 继续之前，Dex 先记录每个 Step 的结果，这些 Step 调用你的模型和 Tool。" />
 
 ## 持久化 Agent Session {#a-durable-agent-session}
 
