@@ -24,7 +24,7 @@ Dex 目前处于 Beta 阶段：已发布的 API 和存储的数据保持兼容�
 
 这个流程还要等待。卖家必须批准发货，可能要等一天。等待期间，网店会提醒卖家。如果发货一直失败，网店就给买家退款。
 
-数据库能保存订单，但不会运行这个流程。剩下的部分团队只能自己搭：状态列、队列、重试 topic、提醒任务，以及修复卡住订单的工具。[与数据库对比](/intro/compared-to-database)一步步搭出了这种设计。
+数据库能保存订单，但不会运行这个流程。剩下的部分团队只能自己搭：状态列、队列、重试 topic、提醒任务，以及修复卡住订单的工具。[Dex vs. 数据库](/intro/compared-to-database)一步步搭出了这种设计。
 
 ## Dex 怎样建模一个流程 {#how-dex-models-a-process}
 
@@ -71,7 +71,7 @@ Flow 把数据保存在 **Attribute** 里，例如订单状态。**RPC** 让你�
 
 基于 replay 的引擎通过重放事件历史来重建 workflow 的状态。所以 workflow 代码必须是确定性的，读取时间和随机值都要通过引擎的 API。Dex 不重放代码。Step 代码就是普通代码，可以读时钟，也可以调用任何库。修改代码不会让正在运行的 Flow 因为 replay 而出错。
 
-[Compared to Existing Durable Execution](/intro/compared-to-durable-execution)（英文）把每一类工具的术语对应到 Dex，并说明什么时候别的工具更合适。
+[Dex vs. Other Engines](/intro/compared-to-durable-execution)（英文）把每一类工具的术语对应到 Dex，并说明什么时候别的工具更合适。
 
 ## 下一步
 

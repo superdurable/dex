@@ -26,7 +26,7 @@ An online store charges the buyer and then ships the item. Between the two calls
 
 The process also waits. The seller must approve the shipment, maybe a day later. The store reminds the seller while it waits. If shipping keeps failing, the store refunds the buyer.
 
-A database stores the order, but it does not run this process. Teams build the rest themselves: status columns, queues, retry topics, a reminder job, and tools to repair stuck orders. [Compared to Database](/intro/compared-to-database) builds that design step by step.
+A database stores the order, but it does not run this process. Teams build the rest themselves: status columns, queues, retry topics, a reminder job, and tools to repair stuck orders. [Dex vs. Databases](/intro/compared-to-database) builds that design step by step.
 
 ## How Dex models a process
 
@@ -69,11 +69,11 @@ Your application contains a **Worker** and a **Client**, both built with the Dex
 
 ## Coming from another durable execution tool
 
-Dex records each Step result instead of replaying your code, so a code change cannot break a running Flow with a replay error. [Compared to Existing Durable Execution](/intro/compared-to-durable-execution) has the details.
+Dex records each Step result instead of replaying your code, so a code change cannot break a running Flow with a replay error. [Dex vs. Other Engines](/intro/compared-to-durable-execution) has the details.
 
 ## Next
 
-- [Compared to Database](/intro/compared-to-database): the same process on a database and queues, then as a Flow.
+- [Dex vs. Databases](/intro/compared-to-database): the same process on a database and queues, then as a Flow.
 - [Quick Start](/quick-start): run your first Flow.
 - [Order Processing](/use-cases/order-processing): run this Flow on your machine.
 - [Concepts](/concepts): Step, Attribute, Channel, Timer, RPC, and the Client APIs.
