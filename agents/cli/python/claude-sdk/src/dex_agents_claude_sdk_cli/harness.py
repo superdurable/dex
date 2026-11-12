@@ -227,7 +227,7 @@ class ClaudeCodeLocalTools:
             setting_sources=[],
             # External tools come only from the Dex connectors, never the user's MCP config.
             strict_mcp_config=True,
-            settings=json.dumps({"disableClaudeAiConnectors": True}),
+            settings=json.dumps({"disableClaudeAiConnectors": True}, separators=(",", ":")),
             # An inherited terminal would get the CLI's control sequences in the chat.
             stderr=ClaudeCodeStderrLog.for_command_log().write_line,
         )

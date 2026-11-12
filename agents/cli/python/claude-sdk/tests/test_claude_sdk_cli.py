@@ -126,10 +126,26 @@ async def test_only_the_dex_connector_tools_come_from_mcp_never_the_user_configu
     await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
-    # The Bash tool's ancestors include the Claude Code CLI with the harness's arguments.
-    bash_output = json.dumps(cli_home.model_requests()[-1]["messages"])
-    assert "--strict-mcp-config" in bash_output
-    assert "disableClaudeAiConnectors" in bash_output
+    # Only the CLI arguments prove the two options: setting_sources=[] already drops every MCP
+    # source this test can create, and claude.ai connectors need a real claude.ai login.
+    bash_output = "\n".join(
+        block["content"]
+        if isinstance(block["content"], str)
+        else "\n".join(part.get("text", "") for part in block["content"] or [])
+        for request in cli_home.model_requests()
+        for message in request.get("messages") or []
+        if isinstance(message.get("content"), list)
+        for block in message["content"]
+        if block.get("type") == "tool_result"
+    )
+    # The Bash tool's ancestors include the Claude Code CLI; its settings JSON has no spaces.
+    claude_code_arguments = next(
+        (line.split() for line in bash_output.splitlines() if "--settings" in line.split()), None
+    )
+    assert claude_code_arguments is not None, bash_output
+    assert "--strict-mcp-config" in claude_code_arguments, bash_output
+    settings = json.loads(claude_code_arguments[claude_code_arguments.index("--settings") + 1])
+    assert settings["disableClaudeAiConnectors"] is True
     mcp_tool_names = {name for name in offered_tool_names(cli_home) if name.startswith("mcp__")}
     assert any(name.endswith("__hackernews_get_top_stories") for name in mcp_tool_names)
     assert not [name for name in mcp_tool_names if "inherited" in name]
