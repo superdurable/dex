@@ -73,6 +73,9 @@ func TestChatWithARealPythonWorker(t *testing.T) {
 	t.Run("QueueAndSteer", stack.testQueueAndSteer)
 	t.Run("PlanAndRun", stack.testPlanAndRun)
 	t.Run("ImageThroughPutImage", stack.testImageThroughPutImage)
+	t.Run("PastedImagePathAttaches", stack.testPastedImagePathAttaches)
+	t.Run("CtrlOShowsTheToolOutput", stack.testCtrlOShowsTheToolOutput)
+	t.Run("HistoryReadsEarlierMessages", stack.testHistoryReadsEarlierMessages)
 	t.Run("DebugLogAndStderrStayPrivate", stack.testDebugLogAndStderrStayPrivate)
 }
 
@@ -174,6 +177,99 @@ func (stack *realWorkerStack) testImageThroughPutImage(t *testing.T) {
 	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
 	require.Equal(t, "saw 1 images", lastAssistantText(finished))
 	chat.waitForScreen("saw 1 images")
+	chat.exit()
+}
+
+// putImageLaunch is a chat launch whose launcher stores one image through
+// put_image, answering with the Worker's stored reference.
+func (stack *realWorkerStack) putImageLaunch(t *testing.T) chatLaunch {
+	referenceText, err := os.ReadFile(filepath.Join(stack.coordination, "image-reference.json"))
+	require.NoError(t, err)
+	var reference map[string]any
+	require.NoError(t, json.Unmarshal(referenceText, &reference))
+	return chatLaunch{
+		methods:   []string{"put_image"},
+		hasImages: true,
+		launcherSteps: []any{
+			map[string]any{"from": "tui", "message": map[string]any{
+				"type": "request", "id": 1, "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+				"method": "put_image", "params": map[string]any{"path": "/home/user/dot.png"},
+			}, "ignore": []string{"idempotency_key", "params.path"}},
+			map[string]any{"from": "launcher", "message": map[string]any{
+				"type": "response", "id": 1, "result": map[string]any{"image": reference, "name": "dot.png"},
+			}},
+		},
+	}
+}
+
+// A terminal pastes a dropped file as its path; the chat offers to attach
+// it, and Enter stores it through put_image.
+func (stack *realWorkerStack) testPastedImagePathAttaches(t *testing.T) {
+	sessionID := "terminal-ui-paste"
+	stack.startSession(t, sessionID)
+	imagePath := filepath.Join(t.TempDir(), "dot.png")
+	require.NoError(t, os.WriteFile(imagePath, []byte("\x89PNG stand-in; the launcher side stores images"), 0o600))
+	chat := stack.openChatWithLaunch(t, sessionID, false, stack.putImageLaunch(t))
+	chat.waitForScreen("Type a message.")
+	chat.typeText("\x1b[200~'" + imagePath + "'\x1b[201~")
+	chat.waitForScreen("Attach dot.png?")
+	chat.typeText("\r")
+	chat.waitForScreen("image/png")
+	time.Sleep(300 * time.Millisecond)
+	chat.typeText("describe\r")
+	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	require.Equal(t, "saw 1 images", lastAssistantText(finished))
+	chat.waitForScreen("saw 1 images")
+	chat.exit()
+}
+
+// Ctrl-O opens the last tool's stored output with its arguments; raw mode
+// keeps ^O from the terminal's discard character.
+func (stack *realWorkerStack) testCtrlOShowsTheToolOutput(t *testing.T) {
+	sessionID := "terminal-ui-tool-output"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("publish pager note\r")
+	chat.waitForScreen("Approve publish_note?")
+	chat.typeText("y")
+	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	chat.waitForScreen("publish_note: published pager note")
+	chat.typeText("\x0f")
+	chat.waitForScreen("Tool output")
+	chat.waitForScreen("Arguments")
+	require.Contains(t, chat.screenSince("Tool output"), "published pager note", "the pager shows the stored output")
+	chat.typeText("q")
+	chat.waitForScreen("Ctrl-D exit")
+	chat.exit()
+}
+
+// A resumed chat shows the newest page; /history reads the page before it.
+func (stack *realWorkerStack) testHistoryReadsEarlierMessages(t *testing.T) {
+	sessionID := "terminal-ui-history"
+	stack.startSession(t, sessionID)
+	// Two stored messages per turn; 26 turns leave one page above the newest 50.
+	for turn := 1; turn <= 26; turn++ {
+		text := fmt.Sprintf("say filler %d", turn)
+		if turn == 1 {
+			text = "say oldest-entry"
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		isQueued, err := stack.sessions.SendUserMessage(ctx, sessionID, dexagents.AgentUserMessage{Text: text})
+		cancel()
+		require.NoError(t, err)
+		require.True(t, isQueued)
+		stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(int64(turn)))
+	}
+	chat := stack.openChat(t, sessionID, true)
+	// The "earlier messages: /history" notice sits above the window, so it
+	// never draws; the renderer writes only changed cells of similar rows.
+	chat.waitForScreen("turn 26")
+	require.NotContains(t, chat.screen(), "oldest-entry", "the first turn is above the newest page")
+	chat.typeText("/history\r")
+	chat.waitForScreen("Earlier messages")
+	chat.waitForScreen("said: oldest-entry")
+	chat.waitForScreen("start of the session")
+	chat.typeText("q")
 	chat.exit()
 }
 
