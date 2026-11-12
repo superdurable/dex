@@ -6,23 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Manual checks of `objectStore.provider: aliyunOSS` against a real Aliyun OSS bucket.
-//!
-//! CI never runs them. Run them after changing aliyunOSS code, after upgrading aws-sdk, and
-//! before a release. The bucket must never have had versioning enabled. Each test writes under
-//! a new prefix, `dexzd-manual-test/<unix-nanos>/`, and deletes every object under it at the end,
-//! also when a check fails. From `server-zd/`:
-//!
-//! ```text
-//! DEX_OSS_ENDPOINT=https://s3.oss-cn-hangzhou.aliyuncs.com \
-//! DEX_OSS_REGION=cn-hangzhou \
-//! DEX_OSS_BUCKET=<bucket> \
-//! DEX_OSS_ACCESS_KEY_ID=<access key ID> \
-//! DEX_OSS_SECRET_ACCESS_KEY=<secret access key> \
-//! cargo test -p dexzd-server --test serve_process real_aliyun_oss -- --ignored --nocapture --test-threads=1
-//! ```
-//!
-//! With `--ignored`, a missing variable fails the test and names every missing variable.
+//! Manual checks against a real Aliyun OSS bucket; see `crates/dexzd-server/README.md`.
 
 use std::fs;
 use std::panic::resume_unwind;
@@ -43,7 +27,7 @@ use tempfile::TempDir;
 use super::harness::{ServeProcess, free_loopback_address};
 use super::{NODE_ID, SHUTDOWN_BUDGET, run_greeting_flow, start_greeting_worker};
 
-const MANUAL_TEST_DOC: &str = "crates/dexzd-server/tests/serve_process/aliyun_oss_real_bucket.rs";
+const MANUAL_TEST_DOC: &str = "crates/dexzd-server/README.md";
 const MULTIPART_FILE_BYTES: usize = 20 * 1024 * 1024;
 const PART_BYTES: usize = 8 * 1024 * 1024;
 const DELETE_BATCH_KEYS: usize = 1000;
@@ -159,7 +143,7 @@ impl RealBucket {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs a real Aliyun OSS bucket; run manually, see crates/dexzd-server/tests/serve_process/aliyun_oss_real_bucket.rs"]
+#[ignore = "needs a real Aliyun OSS bucket; run manually, see crates/dexzd-server/README.md"]
 async fn real_aliyun_oss_bucket_passes_the_object_store_checks() {
     RealBucket::from_environment()
         .run_then_delete_prefix(check_object_store)
@@ -167,7 +151,7 @@ async fn real_aliyun_oss_bucket_passes_the_object_store_checks() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs a real Aliyun OSS bucket; run manually, see crates/dexzd-server/tests/serve_process/aliyun_oss_real_bucket.rs"]
+#[ignore = "needs a real Aliyun OSS bucket; run manually, see crates/dexzd-server/README.md"]
 async fn real_aliyun_oss_bucket_serves_and_recovers_after_a_restart() {
     RealBucket::from_environment()
         .run_then_delete_prefix(check_serve_and_restart)

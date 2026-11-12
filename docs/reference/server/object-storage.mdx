@@ -270,13 +270,18 @@ names **x-oss-forbid-overwrite** and versioning. A bucket cannot return to the
 unversioned state, so use a new bucket.
 
 OSS has no conditional replacement of an object. The server therefore stores
-each object that it replaces, such as the cluster manifest, node leases, the
-Attribute index registry, and Flow definitions, as a series of versions. A key
-**K** becomes objects under **K.v/**, one per change. The server manages these
-objects and deletes old versions itself. Do not edit, copy, or delete them, and
-do not add a lifecycle rule that expires them. A version key is 23 bytes longer
-than **K**, and OSS allows keys of at most 1023 bytes. So UploadFlowDefinitions
-accepts Flow types whose object keys are 24 bytes shorter than on S3.
+its mutable metadata objects as a series of versions. These are the cluster
+manifest, the Attribute index registry, node leases, startup probes, and Flow
+definitions. A key **K** becomes objects under **K.v/**, one per change. The
+server manages these objects and deletes old versions itself. Do not edit,
+copy, or delete them, and do not add a lifecycle rule that expires them. A
+version key is 23 bytes longer than **K**, and OSS allows keys of at most 1023
+bytes. So **UploadFlowDefinitions** accepts Flow types whose object keys are 24
+bytes shorter than on S3.
+
+Every other object keeps its key. Log batches, snapshots, and history segments
+are written once. In the rare case that an uploaded history segment differs from
+committed history, the server deletes it and writes it again.
 
 Data cannot move between **aliyunOSS** and another provider, because the
 object layouts differ. If the prefix holds a cluster manifest or an Attribute
