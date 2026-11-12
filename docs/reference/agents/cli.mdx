@@ -121,7 +121,8 @@ writes **~/.dex/agents/HARNESS.yaml**, such as
 - the system prompt, empty for the harness's default instructions;
 - the connectors to enable, comma-separated, empty for every authorized
   connection;
-- the workspace, **~/dex-agent-workspace** by default;
+- the workspace, **~/dex-agent-workspace** by default, or for
+  **dex-agents-pi** the directory the command starts in;
 - whether to allow the file tools, shell commands, web fetching, and the
   browser;
 - when shell commands are allowed, the commands that run without approval.
@@ -236,7 +237,7 @@ claude: {}
 | **connectors.mcp** | **auto** | The Connectors MCP server. **auto** uses the one **dexcli dev** serves. Otherwise an http or https URL on 127.0.0.1, localhost, or [::1]. |
 | **connectors.enabled** | Every authorized connection | The connections, and their operations, that the agent may call. See [Connectors](#connectors). |
 | **approval.always** | Empty | Tool names, as the agent sees them, whose every call waits for approval. They add to the approvals the tools already require. |
-| **workspace** | **~/dex-agent-workspace** | The only directory the file tools use, and the working directory of shell commands. |
+| **workspace** | **~/dex-agent-workspace**; for **dex-agents-pi**, the directory the command starts in | The only directory the file tools use, and the working directory of shell commands. **dex-agents-pi** uses it only as the working directory; see [Harnesses with their own tools](#harness-tools). |
 | **local_tools.files** | **true** | Read, write, list, and search files in the workspace. |
 | **local_tools.shell.enabled** | **true** | Run shell commands in the workspace. |
 | **local_tools.shell.allow** | Empty | Commands that run without approval. A command matches only when its whole text equals an entry. |
@@ -268,7 +269,7 @@ any key in it is a configuration error.
 | Field | Default | Meaning |
 | --- | --- | --- |
 | **pi.load_project_context** | **true** | Each model call adds the project context files after the instructions, as Pi does: the **AGENTS.md** in Pi's global directory, **~/.pi/agent**, and the one in the workspace and in each directory above it, outermost first. In each directory, the first of **AGENTS.override.md**, **AGENTS.md**, **AGENTS.MD**, **CLAUDE.md**, and **CLAUDE.MD** counts. |
-| **pi.bash_timeout_seconds** | **120** | Seconds a **bash** command runs when the model passes no timeout. A whole number from 1 to 600. |
+| **pi.bash_timeout_seconds** | **120** | Seconds a **bash** command runs when the model passes no timeout. A whole number from 1 to 600. Pi has no default timeout, but cancelling a turn waits for a running tool call, so the command keeps one. |
 | **pi.provider_base_urls** | Empty | An http or https URL per provider that replaces the URL in pi-ai's catalog, such as a proxy. |
 
 The Pi command reads the context files in every model call, so an edited file
@@ -407,8 +408,8 @@ Each Deep Agents tool runs only while the turn switches its group on.
 | **dex-agents-claude-sdk** | **shell** | **Bash** | Unless the allow list has the whole command text. A background command always waits. |
 | **dex-agents-claude-sdk** | **web_fetch** | **WebFetch** | None |
 | **dex-agents-pi** | **files** | **read**, **grep**, **find**, **ls** | None |
-| **dex-agents-pi** | **files** | **write**, **edit** | Every call |
-| **dex-agents-pi** | **shell** | **bash** | Unless the allow list has the whole command text |
+| **dex-agents-pi** | **files** | **write**, **edit** | None, unless **approval.always** names the tool |
+| **dex-agents-pi** | **shell** | **bash** | None, unless **approval.always** names it. **local_tools.shell.allow** has no effect. |
 | **dex-agents-deepagents** | **files** | **ls**, **read_file**, **glob**, **grep** | None |
 | **dex-agents-deepagents** | **files** | **write_file**, **edit_file**, **delete** | None, unless **approval.always** names the tool |
 | **dex-agents-deepagents** | **shell** | **execute** | None, unless **approval.always** names it. **local_tools.shell.allow** has no effect. |
@@ -422,12 +423,31 @@ Each Deep Agents tool runs only while the turn switches its group on.
   offered. These tools run inside the Claude Code CLI, not in their own Steps,
   so a Worker that dies during a turn segment can run one of them twice. The
   browser and Connector tools still run in their own Steps.
-- **Pi.** Each call is its own tool Step, and a **write**, **edit**, or
-  **bash** call never runs twice. The file tools go through the CLI core's
-  workspace rules. **find** and **grep** walk the workspace themselves, so the
-  command needs neither **fd** nor **rg**. They skip **.git** and
-  **node_modules** and do not read **.gitignore**. A **grep** or **find** call
-  has 10 seconds in all.
+- **Pi.** The agent keeps Pi's own tools and behavior and adds the Connector,
+  web fetch, browser, and **ask_user** tools. As in Pi, no tool call waits for
+  approval unless **approval.always** names the tool. Connector writes always
+  wait for approval.
+- Each Pi tool call is its own tool Step. Reads retry. A **write**, **edit**,
+  or **bash** call never runs twice: a Worker that dies during one records
+  **outcome_unknown**. A **bash** command that exits with a non-zero code, or
+  that its timeout killed, records **failed** with its output.
+- Pi's tools have no workspace boundary. The workspace is their working
+  directory, so a relative path resolves against it. An absolute path or
+  **~** reaches any file you can reach, and **bash** runs any command with
+  your permissions. This is neither a guardrail nor a sandbox. Use OS-level
+  isolation, such as a container, when the agent must not reach other files.
+- **grep** and **find** run **rg** and **fd**, so **grep** respects
+  **.gitignore**. When one is missing, Pi downloads it to
+  **~/.pi/agent/bin** on first use. With **PI_OFFLINE=1** it downloads
+  nothing, and the call fails until you install the tool.
+- A **bash** command's output so far reaches the session as
+  **pi.tool_progress** events. When the output is cut, the result names the
+  file with the full output. That file exists only on the machine that ran
+  the command.
+- A Connector tool whose name a Pi tool has gets the prefix **connector_**,
+  such as **connector_read**. **approval.always** names it that way:
+  **read** there makes only Pi's **read** wait. If that name is taken too, the
+  prefix repeats until the name is free.
 - **Deep Agents.** The agent keeps Deep Agents' own tools and adds the
   Connector, web fetch, and browser tools. As in Deep Agents without
   **interrupt_on**, its file tools, **execute**, and **task** run without
@@ -532,9 +552,8 @@ the same store.
 Session settings cannot change the store. Keep every image for as long as its
 sessions may replay it: a missing image fails the turn.
 
-Every command except **dex-agents-pi** shows the images to its model. With
-**dex-agents-pi**, a message with images is not sent: the command says so and
-removes the attached images. Send the message again without them.
+Every command shows the images to its model. In **dex-agents-pi**, an image
+that **read** returns reaches the model too, after the result's text.
 
 ## Sessions in Dex Web {#dex-web}
 
@@ -561,10 +580,15 @@ graph and its Actions.
 ## Known limitations {#limitations}
 
 - **Sessions stay in their environment.** A session resumes only with the host,
-  user, configuration file, and workspace that started it. See
-  [Resume a session](#resume).
+  user, configuration file, and workspace that started it. Without a
+  **workspace** in the file, **dex-agents-pi** resumes a session only from the
+  directory it started in. See [Resume a session](#resume).
 - **The local tools are not a sandbox.** An approved shell command runs with
   your permissions. See [Workspace and local tools](#local-tools).
+- **Pi's tools reach every file you can.** In **dex-agents-pi**, the file
+  tools and **bash** have no workspace boundary, and they run without approval
+  unless **approval.always** names them. See
+  [Harnesses with their own tools](#harness-tools).
 - **Deep Agents file tools are a guardrail, not a sandbox.** In
   **dex-agents-deepagents**, **execute** runs any command with your
   permissions, without approval unless **approval.always** names it. The file
@@ -573,9 +597,6 @@ graph and its Actions.
   [Harnesses with their own tools](#harness-tools).
 - **Claude Code tools can run twice.** In **dex-agents-claude-sdk**, a Worker
   that dies during a turn segment runs the segment again, with its tool calls.
-- **Pi takes no images.** **dex-agents-pi** does not send a message with
-  images. An image that its **read** tool returns reaches the model only as a
-  note naming the image type.
 - **Gemini sees no tool images in the Python built-in loop.**
   **dex-agents-builtin** in Python sends a Gemini model, a **gemini/**,
   **vertex_ai/**, or **vertex_ai_beta/** model, the images of user messages

@@ -206,6 +206,8 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * Builds the deferred call, with the turn's approval rules.
    * @param turn - The `RunModel` context.
    * @param call - The model's call.
+   * @param approvalToolName - The name `approval.always` matches; defaults to `call.toolName`. A wrapper that offers
+   * the tool under another name passes that name. Since 0.6.0.
    * @returns The deferred call.
    */
   public deferredToolCall(
@@ -216,6 +218,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
       readonly arguments: string;
       readonly listedTool: SourceToolDefinition;
     },
+    approvalToolName: string = call.toolName,
   ): DeferredToolCall {
     const turnConfig = this.turns.turnOf(turn);
     const mcpTool = this.findMcpTool(call.listedTool, call.toolName);
@@ -253,7 +256,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
       toolName: call.toolName,
       policy: {
         effect: inner.policy.effect,
-        requiresApproval: inner.policy.requiresApproval || turnConfig.approval.always.includes(call.toolName),
+        requiresApproval: inner.policy.requiresApproval || turnConfig.approval.always.includes(approvalToolName),
       },
     };
   }
@@ -261,15 +264,19 @@ export class ConnectorsMcpToolSource implements ToolSource {
   /**
    * Runs one call in its tool Step.
    * @param call - The approved call.
+   * @param approvalToolName - The name `approval.always` matches; defaults to the call's tool name. Since 0.6.0.
    * @returns The tool's outcome.
    * @throws {ToolExecutionError} When the tool is switched off for the session or failed.
    */
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+  public async executeDeferredToolCall(
+    call: DeferredToolExecution,
+    approvalToolName: string = call.toolCall.toolName,
+  ): Promise<DeferredToolOutcome> {
     throwWhenDisabled(call.toolCall);
     const reference = readConnectorCallReference(call.toolCall);
     const mcpCall = withMcpReference(call, reference);
     const expected = reference[expectedIdentityReferenceKey];
-    await this.authorizeOnThisWorker(call, expected);
+    await this.authorizeOnThisWorker(call, expected, approvalToolName);
     // Only a resume that never sends may skip the listing, so a changed catalog cannot block it.
     if (!this.mcp.willResumeToolTaskWithoutSending(mcpCall)) {
       await this.requireSameBinding(call.toolCall.toolName, expected);
@@ -325,6 +332,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
   private async authorizeOnThisWorker(
     call: DeferredToolExecution,
     expected: ExpectedConnectorIdentity | null,
+    approvalToolName: string,
   ): Promise<void> {
     const { toolName } = call.toolCall;
     let permissions: TurnConfig;
@@ -346,8 +354,8 @@ export class ConnectorsMcpToolSource implements ToolSource {
         `tool ${toolName} is not enabled in the configuration of the Worker that ran it; it did not run`,
       );
     }
-    if (!call.toolCall.requiresApproval && permissions.approval.always.includes(toolName)) {
-      throw new ToolExecutionError(`tool ${toolName} now needs approval, and this call had none; it did not run`);
+    if (!call.toolCall.requiresApproval && permissions.approval.always.includes(approvalToolName)) {
+      throw new ToolExecutionError(`tool ${approvalToolName} now needs approval, and this call had none; it did not run`);
     }
   }
 
