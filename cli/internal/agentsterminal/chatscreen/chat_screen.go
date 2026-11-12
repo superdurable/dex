@@ -37,7 +37,7 @@ type ChatScreenConfig struct {
 	// spinner frames and elapsed times are stable.
 	Now func() time.Time
 	// SessionCommands are the source's slash commands. Default: none. They
-	// cannot redefine /help or /exit.
+	// cannot redefine the screen's own commands.
 	SessionCommands []sessionfeed.SlashCommand
 }
 
@@ -304,6 +304,10 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 	if keyName == "ctrl+c" {
 		return screen.handleInterruptKey()
 	}
+	if keyName == "ctrl+z" {
+		screen.printNotice(sessionfeed.NoticeSeverityWarning, "Ctrl-Z does not suspend this chat. Ctrl-C exits; the session stays in Dex.")
+		return nil
+	}
 	if keyName == "f1" {
 		screen.isHelpOpen = !screen.isHelpOpen
 		return nil
@@ -408,12 +412,62 @@ func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
 	case exitCommandName:
 		screen.exit(0)
 		return nil
+	case approveCommandName:
+		screen.openWaitingInterrupt()
+		return nil
+	case steerCommandName:
+		return screen.steerLastQueuedMessage()
+	case dropCommandName:
+		screen.confirmQueuedMessageDelete()
+		return nil
 	}
 	if !screen.commands.Has(parsed.name) {
 		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Unknown command /%s. /help lists commands.", parsed.name))
 		return nil
 	}
 	return screen.submitAction(sessionfeed.RunSlashCommand{Name: parsed.name, Argument: parsed.argument})
+}
+
+// openWaitingInterrupt opens the first waiting approval or question. It
+// never approves anything: the popup shows the consequences first.
+func (screen *ChatScreen) openWaitingInterrupt() {
+	next := screen.nextOpenableInterrupt(-1)
+	if next < 0 {
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "nothing is waiting for you")
+		return
+	}
+	screen.openPopup(next)
+}
+
+func (screen *ChatScreen) steerLastQueuedMessage() tea.Cmd {
+	if !screen.explainQueuedMessageUnavailable("steer") {
+		return nil
+	}
+	screen.pendingFocus = pendingFocusNone
+	last := screen.queuedMessages[len(screen.queuedMessages)-1]
+	return screen.submitAction(sessionfeed.SteerQueuedMessage{MessageID: last.MessageID})
+}
+
+func (screen *ChatScreen) confirmQueuedMessageDelete() {
+	if !screen.explainQueuedMessageUnavailable("delete") {
+		return
+	}
+	screen.pendingFocus = pendingFocusQueuedMessage
+	screen.isConfirmingQueuedDelete = true
+}
+
+// explainQueuedMessageUnavailable reports whether a queued message can be
+// acted on, printing why not when it cannot.
+func (screen *ChatScreen) explainQueuedMessageUnavailable(verb string) bool {
+	switch {
+	case len(screen.queuedMessages) == 0:
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no queued message to "+verb)
+		return false
+	case !screen.session.AcceptsTurnControl:
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "this agent cannot "+verb+" queued messages")
+		return false
+	}
+	return true
 }
 
 func (screen *ChatScreen) recallHistory(step int) {
@@ -1204,27 +1258,47 @@ func (screen *ChatScreen) renderContextLine(width int, now time.Time, spinnerFra
 	if turnNumber := screen.displayedTurnNumber(); turnNumber > 0 && !isNewSession {
 		turn = fmt.Sprintf("turn %d", turnNumber)
 	}
-	separator := screen.theme.Secondary.Render(symbols.Separator)
-	joinParts := func() string {
-		if isNewSession {
-			return " " + strings.Join(nonEmptyStrings(newSessionLabel, command, model), separator)
-		}
-		return " " + strings.Join(nonEmptyStrings(command, model, turn, status), separator)
+	parts := contextLineParts{
+		separator:       screen.theme.Secondary.Render(symbols.Separator),
+		isNewSession:    isNewSession,
+		newSessionLabel: newSessionLabel,
+		command:         command,
+		model:           model,
+		turn:            turn,
+		status:          status,
 	}
-	left := joinParts()
 	room := width
 	if right != "" {
 		room -= terminaltheme.DisplayWidth(right) + 2
 	}
+	left := parts.Join()
 	if terminaltheme.DisplayWidth(left) > room && !isNewSession {
-		command = ""
-		left = joinParts()
+		parts.command = ""
+		left = parts.Join()
 	}
 	if terminaltheme.DisplayWidth(left) > room && !isNewSession {
-		turn = ""
-		left = joinParts()
+		parts.turn = ""
+		left = parts.Join()
 	}
 	return renderLeftRightLine(left, right, width, symbols.Ellipsis)
+}
+
+// contextLineParts are the styled parts of the context line.
+type contextLineParts struct {
+	separator       string
+	isNewSession    bool
+	newSessionLabel string
+	command         string
+	model           string
+	turn            string
+	status          string
+}
+
+func (parts contextLineParts) Join() string {
+	if parts.isNewSession {
+		return " " + strings.Join(nonEmptyStrings(parts.newSessionLabel, parts.command, parts.model), parts.separator)
+	}
+	return " " + strings.Join(nonEmptyStrings(parts.command, parts.model, parts.turn, parts.status), parts.separator)
 }
 
 func (screen *ChatScreen) displayedTurnNumber() int {

@@ -61,6 +61,9 @@ func Execute(ctx context.Context, args []string, stdin *os.File, stdout *os.File
 	return runDemo(ctx, stdin, stdout)
 }
 
+// interruptedExitCode is the shell convention for a SIGINT exit.
+const interruptedExitCode = 130
+
 func runDemo(ctx context.Context, stdin *os.File, stdout *os.File) error {
 	programContext, cancelProgram := context.WithCancel(ctx)
 	defer cancelProgram()
@@ -84,6 +87,9 @@ func runDemo(ctx context.Context, stdin *os.File, stdout *os.File) error {
 	)
 	finalModel, err := program.Run()
 	if err != nil {
+		if errors.Is(err, tea.ErrInterrupted) {
+			return &ExitError{Code: interruptedExitCode}
+		}
 		if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {
 			return nil
 		}

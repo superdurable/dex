@@ -359,3 +359,40 @@ func TestLiveAreaFitsEveryWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestPendingSlashCommands(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 120})
+	harness.typeText("/approve")
+	harness.press(key(tea.KeyEnter))
+	require.Contains(t, harness.plainFrame(), "· nothing is waiting for you")
+	harness.typeText("/steer")
+	harness.press(key(tea.KeyEnter))
+	require.Contains(t, harness.plainFrame(), "· no queued message to steer")
+
+	startTurn(harness, "Post it.")
+	harness.feed(connectorApproval("approval-1"))
+	harness.press(key(tea.KeyEscape))
+	actionCount := len(harness.source.recordedActions())
+	harness.typeText("/approve")
+	harness.press(key(tea.KeyEnter))
+	require.True(t, harness.screen.isPopupOpen, "/approve opens the popup")
+	require.Len(t, harness.source.recordedActions(), actionCount, "/approve never approves by itself")
+	harness.press(key(tea.KeyEscape))
+
+	harness.feed(sessionfeed.QueuedMessagesChanged{Messages: []sessionfeed.QueuedMessage{{MessageID: "message-1", Text: "later"}}})
+	harness.typeText("/steer")
+	harness.press(key(tea.KeyEnter))
+	require.Equal(t, sessionfeed.SteerQueuedMessage{MessageID: "message-1"}, harness.lastAction())
+	harness.typeText("/drop")
+	harness.press(key(tea.KeyEnter))
+	require.Contains(t, harness.plainFrame(), "Delete the queued message? It will not be sent.")
+	harness.press(textKey('y'))
+	require.Equal(t, sessionfeed.DeleteQueuedMessage{MessageID: "message-1"}, harness.lastAction())
+}
+
+func TestCtrlZShowsAHintInsteadOfSuspending(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 120})
+	harness.press(ctrlKey('z'))
+	require.False(t, harness.screen.isExiting)
+	require.Contains(t, harness.plainFrame(), "! Ctrl-Z does not suspend this chat. Ctrl-C exits; the session stays in Dex.")
+}

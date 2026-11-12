@@ -14,7 +14,8 @@ type UserAction interface {
 	isUserAction()
 }
 
-// SendUserMessage sends a message. While a turn runs, the session queues it.
+// SendUserMessage sends a message. The screen prints it only when idle; a
+// queued one returns as UserMessageRecorded.
 type SendUserMessage struct {
 	// Text is the message text.
 	Text string

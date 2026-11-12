@@ -11,10 +11,13 @@
   F1           show this help
 
   Commands
+  /approve     open the waiting approvals and questions
+  /drop        delete the last queued message
   /exit        exit; the session stays in Dex
   /help        list keys and commands
   /image PATH  attach an image to the next message
   /model ID    change the model
+  /steer       steer the last queued message into the turn
 
  Esc close
 
@@ -41,6 +44,6 @@
   Ctrl-C       cancel the turn; again to exit
   Ctrl-D       exit (empty input)
   Tab          complete a /command; on empty input, focus waiting approvals and
-  … 9 more lines
+  … 12 more lines
 
  Esc close

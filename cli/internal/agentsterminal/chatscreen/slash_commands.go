@@ -16,14 +16,20 @@ import (
 )
 
 const (
-	helpCommandName = "help"
-	exitCommandName = "exit"
+	helpCommandName    = "help"
+	exitCommandName    = "exit"
+	approveCommandName = "approve"
+	steerCommandName   = "steer"
+	dropCommandName    = "drop"
 )
 
 // screenCommands are the commands the chat screen runs itself.
 var screenCommands = []sessionfeed.SlashCommand{
-	{Name: helpCommandName, Description: "list keys and commands"},
+	{Name: approveCommandName, Description: "open the waiting approvals and questions"},
+	{Name: dropCommandName, Description: "delete the last queued message"},
 	{Name: exitCommandName, Description: "exit; the session stays in Dex"},
+	{Name: helpCommandName, Description: "list keys and commands"},
+	{Name: steerCommandName, Description: "steer the last queued message into the turn"},
 }
 
 // slashCommandRegistry holds the screen commands and the session commands,
@@ -36,8 +42,10 @@ func newSlashCommandRegistry(sessionCommands []sessionfeed.SlashCommand) slashCo
 	commands := make([]sessionfeed.SlashCommand, 0, len(screenCommands)+len(sessionCommands))
 	commands = append(commands, screenCommands...)
 	for _, command := range sessionCommands {
-		if command.Name == helpCommandName || command.Name == exitCommandName {
-			panic("session commands must not redefine /" + command.Name)
+		for _, screenCommand := range screenCommands {
+			if command.Name == screenCommand.Name {
+				panic("session commands must not redefine /" + command.Name)
+			}
 		}
 		commands = append(commands, command)
 	}
