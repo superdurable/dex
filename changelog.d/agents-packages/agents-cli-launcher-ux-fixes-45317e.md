@@ -3,8 +3,9 @@ section: Fixed
 ---
 - Python and TypeScript CLI cores: a Dex server that cannot be reached at
   startup stops the command with one line that names its address and says how
-  to fix it, instead of the raw gRPC error. The Python commands printed a
-  traceback before.
+  to fix it, instead of the raw gRPC error. A reachable server that answers
+  `UNAVAILABLE` is named with its details and a hint to try again. The Python
+  commands printed a traceback before.
 - Python and TypeScript CLI cores: a configuration error on a field that takes
   one of several forms, such as `dex.server`, names the forms it takes.
 - Python CLI core: when `dexcli` has no terminal UI, the `Plain chat:` line

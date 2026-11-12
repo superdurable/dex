@@ -39,6 +39,11 @@ function pngBytes(): Buffer {
   ]);
 }
 
+function toolNames(request: Readonly<Record<string, unknown>>): string[] {
+  const tools = (request["tools"] as readonly Readonly<Record<string, unknown>>[] | undefined) ?? [];
+  return tools.map((tool) => String(tool["name"])).sort();
+}
+
 function call(toolName: string, toolInput: Readonly<Record<string, unknown>>): string {
   return `call ${toolName} ${JSON.stringify(toolInput)}`;
 }
@@ -212,7 +217,9 @@ describe("dex-agents-builtin with the AI SDK OpenAI provider against a scripted 
     const sessionId = await cli.waitForSession();
     const todos = [{ content: "Read the notes", status: "pending" }];
     const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    let runningRequestIndex: number;
     try {
+      const planningRequestIndex = api.modelRequests().length;
       assert.equal(await sessions.sendUserMessage(sessionId, call("write_todos", { todos }), true), true);
       const drafted = await sessions.waitForAgentSnapshot(
         sessionId,
@@ -223,14 +230,42 @@ describe("dex-agents-builtin with the AI SDK OpenAI provider against a scripted 
         drafted.plan?.tasks.map((task) => task.content),
         ["Read the notes"],
       );
+      const planningRequests = api.modelRequests().slice(planningRequestIndex);
+      assert.ok(planningRequests.length > 0);
+      for (const request of planningRequests) {
+        assert.deepEqual(toolNames(request), ["write_todos"]);
+      }
+      runningRequestIndex = api.modelRequests().length;
       assert.equal(await sessions.executePlan(sessionId, drafted.plan?.revision ?? 0), true);
       await sessions.waitForAgentSnapshot(sessionId, (snapshot) => snapshot.plan?.status === "active", "an active plan");
     } finally {
       await environment.close();
     }
-    for (const request of api.modelRequests()) {
-      assert.match(JSON.stringify(request["tools"]), /write_todos/);
+    const runningTools = toolNames(api.modelRequests()[runningRequestIndex] ?? {});
+    assert.ok(runningTools.includes("write_todos") && runningTools.includes("read_file"), runningTools.join(", "));
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("a planning turn cannot run another tool", async () => {
+    const home = newHome(noConnectors);
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    try {
+      assert.equal(await sessions.sendUserMessage(sessionId, call("read_file", { path: "notes.txt" }), true), true);
+      const answered = await sessions.waitForAgentSnapshot(
+        sessionId,
+        (snapshot) => JSON.stringify(snapshot.messages).includes("read_file: "),
+        "the planning turn's answer",
+      );
+      assert.equal(answered.plan ?? null, null);
+    } finally {
+      await environment.close();
     }
+    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /buy milk/);
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
   });

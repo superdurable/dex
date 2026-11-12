@@ -191,7 +191,7 @@ right after the spawn. It holds no secret.
 | `display` | Text to show and never log. Paths write the home directory as `~`. All optional. |
 | `methods` | The local requests the launcher side serves. |
 | `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. An absent boolean is `false`. |
-| `notices` | Notices to show once the first frame is up, in order: the launcher's own startup lines as `info`, such as the log file of a `dexcli dev` it started, then the Worker host's startup notices, such as connector tools that are unavailable. It is often empty. |
+| `notices` | Notices to show once the first frame is up, in order: the lines the launcher printed while it started a `dexcli dev`, such as its log file, as `info`, then the Worker host's startup notices, such as connector tools that are unavailable. A reused `dexcli dev` adds no line. It is often empty. |
 | `log_path` | The command's log file, for display. |
 | `connectors` | connectors mode: the rows, in the shape of `list_connectors`'s result. |
 

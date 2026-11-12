@@ -89,7 +89,7 @@ from dex_agents_cli_core.dex_server import (
     DexServerError,
     StartedDexcliDevProcess,
     describe_lost_dexcli_dev,
-    describe_unreachable_dex_server,
+    describe_unavailable_dex_server,
     resolve_dex_server,
 )
 from dex_agents_cli_core.dexcli_install import (
@@ -894,12 +894,12 @@ class _SessionWorker:
             await _upload_session_flow_definition(client, flow_type)
         except BaseException as failure:
             await session_worker.close(startup_failure=failure)
-            unreachable = describe_unreachable_dex_server(
+            unavailable = describe_unavailable_dex_server(
                 failure, config.dex.server, endpoint.address
             )
-            if unreachable is None:
+            if unavailable is None:
                 raise
-            raise DexServerError(unreachable) from failure
+            raise DexServerError(unavailable) from failure
         return session_worker
 
     @property

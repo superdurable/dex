@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,7 +22,9 @@ import pytest
 
 from dex_agents.testing import find_free_ports
 from dex_agents_cli_core import parse_config_yaml
-from tests.conftest import CliHome, config_yaml, expect, wait_for_exit
+from dex_agents_cli_core.dex_server import describe_unavailable_dex_server
+from tests.conftest import PACKAGE_DIR, CliHome, config_yaml, expect, wait_for_exit
+from tests.unavailable_dex_server import UNAVAILABLE_DETAILS
 
 
 async def test_tty_without_a_config_asks_the_init_questions_then_chats(cli_home: CliHome) -> None:
@@ -204,6 +208,34 @@ async def test_an_unreachable_dex_server_fails_with_one_line_that_says_how_to_fi
     )
 
 
+async def test_a_reachable_dex_server_that_answers_unavailable_is_named_with_its_details(
+    cli_home: CliHome,
+) -> None:
+    server = subprocess.Popen(
+        [sys.executable, "-m", "tests.unavailable_dex_server"],
+        cwd=PACKAGE_DIR,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert server.stdout is not None
+        port = int(server.stdout.readline())
+        cli_home.write_config(
+            config_yaml(
+                {"dex": {"server": f"http://127.0.0.1:{port}"}, "connectors": {"enabled": []}}
+            )
+        )
+        completed = cli_home.run(stdin="hello\n")
+    finally:
+        server.kill()
+        server.wait()
+    assert completed.returncode == 1, completed.stdout + completed.stderr
+    assert completed.stderr == (
+        f"dex-agents-scripted: the Dex server at 127.0.0.1:{port} returned UNAVAILABLE: "
+        f"{UNAVAILABLE_DETAILS}. It may still be starting; try again in a moment.\n"
+    )
+
+
 async def test_a_dexcli_variable_that_names_no_executable_says_how_to_fix_it(
     cli_home: CliHome,
 ) -> None:
@@ -316,3 +348,29 @@ async def test_a_service_that_only_looks_ready_is_not_taken_for_dexcli_dev(
     assert completed.returncode == 1
     assert "answers, but it is not a dexcli dev" in completed.stderr
     assert "echo: hello" not in completed.stdout
+
+
+class _FakeRpcError(Exception):
+    """An error shaped like grpc.RpcError, with a status code name and details."""
+
+    def __init__(self, code_name: str, details: str) -> None:
+        super().__init__(details)
+        self._code = type("Code", (), {"name": code_name})()
+        self._details = details
+
+    def code(self) -> object:
+        return self._code
+
+    def details(self) -> str:
+        return self._details
+
+
+def test_an_unavailable_cause_is_found_below_another_status_code() -> None:
+    outer = _FakeRpcError("DEADLINE_EXCEEDED", "deadline exceeded")
+    outer.__cause__ = _FakeRpcError("UNAVAILABLE", "failed to connect to all addresses")
+    assert describe_unavailable_dex_server(outer, "auto", "127.0.0.1:7233") == (
+        "cannot reach the Dex server of dexcli dev at 127.0.0.1:7233. Run dexcli dev, or set "
+        "dex.server to the URL of a running Dex server."
+    )
+    other = _FakeRpcError("NOT_FOUND", "no such Flow")
+    assert describe_unavailable_dex_server(other, "auto", "127.0.0.1:7233") is None
