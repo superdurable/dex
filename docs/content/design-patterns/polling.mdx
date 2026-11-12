@@ -54,7 +54,7 @@ The polling Step can use either durability. See [Step options](/reference/python
 
 When `ExecuteMethodTimeout` expires, Dex fails the attempt with a timeout. If `TotalDuration` leaves no time for another retry, the Step fails. Route that failure with the `ExecuteFailure` option to a short Step that records the business failure. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 
-The failure record does not include the last observed status. The progress Stream and the logs show it.
+The progress Stream and the logs show the last observed status; the failure record leaves it out.
 
 The timeouts bound only a fixed duration. Check any other business condition inside the loop, such as a lease that another system owns and that can expire.
 
@@ -66,7 +66,7 @@ Write a Stream message only when the observed status changes, and record a heart
 
 ## Locks
 
-Do not hold `ExecuteLockAttributes` for the whole wait. Return the result from the polling Step, and commit anything that needs a lock in a short following Step.
+Return the result from the polling Step, and commit anything that needs a lock in a short following Step, so `ExecuteLockAttributes` is held only briefly.
 
 ## Example
 

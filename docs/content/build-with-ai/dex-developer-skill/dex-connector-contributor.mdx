@@ -47,9 +47,7 @@ provider's documented public API or official SDK. It checks the provider's
 authentication scopes, rate limits, idempotency support, pagination, event
 acknowledgement, and failure behavior.
 
-It does not scrape private endpoints, copy browser credentials,
-reverse-engineer internal protocols, or claim provider support that is not
-publicly documented.
+It stays within what the provider documents publicly: no scraping of private endpoints, copying of browser credentials, or reverse-engineering of internal protocols.
 
 ## Repository and fork workflow
 
@@ -86,7 +84,7 @@ The skill follows this order:
 - Calls that change data at the provider are idempotent. When the result of
   such a call is unknown, the Connector first queries the provider to find out
   what happened.
-- Credentials and raw secrets never go into Flow input, Attributes, Results,
+- Credentials and raw secrets stay out of Flow input, Attributes, Results,
   receipts, Streams, logs, fixtures, generated values, or release artifacts.
 - Each module pins an exact published Dex Go SDK version. Branches, SHAs,
   pseudo-versions, and local replacements are never committed.

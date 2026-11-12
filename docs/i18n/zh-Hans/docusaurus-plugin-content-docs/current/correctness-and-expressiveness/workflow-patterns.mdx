@@ -1,4 +1,7 @@
 ---
+# The legend defines the no-support mark.
+positive_first_allow:
+  - "- 表示不支持"
 title: Workflow Patterns evaluation
 sidebar_label: Workflow Patterns evaluation
 slug: /correctness-and-expressiveness/workflow-patterns
@@ -28,7 +31,7 @@ Dex 构件是编程模型的一部分：Primitive、Step decision、等待条件
 - token 里有 round key 和分支数。round key 来自开启这一轮的 Step 执行，所以应用不用保存计数器，也不用保存 key。
 - 每个分支结束时上报一个结果。
 - 汇合 Step 等待全部分支、第一个分支或其中 n 个分支。它的等待是普通的条件，可以和 Timer 组合。
-- 一轮的结果永远不会计入另一轮。
+- 每一轮的结果只计入这一轮。
 - 汇合在所有分支上报之前就触发时，下一轮的拆分 Step 会先等完上一轮剩下的结果。这就是复位，不需要额外的 Step。
 
 当工作在子 Flow 中运行时，用 `AllOf` 等待 **SubFlow** 就是原生的汇合。
@@ -59,7 +62,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 
 - 33 个模式直接支持（**+**）。
 - 10 个模式间接支持（**+/-**）。
-- 没有不支持（**-**）的模式。
+- 每个模式都至少有间接支持，没有不支持（**-**）的模式。
 
 ## 与已发表评估的比较 {#comparison-with-a-published-evaluation}
 
@@ -570,3 +573,7 @@ Join 计数的是分支上报的结果，它不观察分支 Step 本身。由此
 **评级**：**+**。`ForceComplete` 就是显式结束。
 
 **示例**：[TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs)
+
+## 下一步
+
+[开发者参考](/reference)：The Developer Reference holds the details that change from release to release: configuration keys, flags, defaults, limits, metrics, edge cases, and version differences.

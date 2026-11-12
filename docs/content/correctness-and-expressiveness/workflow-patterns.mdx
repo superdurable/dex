@@ -48,7 +48,7 @@ ChannelMap, and all five SDKs provide it.
 - Each branch reports one result when it ends.
 - The join Step waits for every branch, for the first one, or for n of them.
   Its wait is an ordinary condition, so it combines with a Timer.
-- Results of one round never count toward another round.
+- Results count only toward their own round.
 - When the join fires before every branch reports, the next round's split
   Step first waits for the rest of the previous round. This is the reset. It
   needs no extra Step.
@@ -111,7 +111,7 @@ test sends two competing responses and checks that exactly one branch runs.
 
 - 33 patterns have direct support (**+**).
 - 10 patterns have indirect support (**+/-**).
-- No pattern is unsupported (**-**).
+- Every pattern has at least indirect support; none is unsupported (**-**).
 
 ## Comparison with a published evaluation {#comparison-with-a-published-evaluation}
 
@@ -635,3 +635,7 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 **Rating:** **+**. `ForceComplete` is the explicit end.
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs)
+
+## Next
+
+[Developer Reference](/reference): The Developer Reference holds the details that change from release to release: configuration keys, flags, defaults, limits, metrics, edge cases, and version differences.

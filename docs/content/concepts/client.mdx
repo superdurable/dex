@@ -54,7 +54,7 @@ The SDK Clients do not expose this request. Call it through gRPC or with
 
 ## Send a command at most once {#inbound-commands}
 
-Dex does not drop a repeated command today. An RPC that the caller retries
+Dex runs a repeated command again today. An RPC that the caller retries
 after a lost response runs again, and a repeated `PublishToChannel` delivers
 the message twice. [Limits](/intro/limits#requests-that-can-repeat)
 tracks the planned fix.
@@ -108,7 +108,7 @@ that record.
 - A wait checks the Flow's saved state. It returns when the condition holds, when the
   Flow closes, or when its request timeout expires. A later call waits again
   from the current state.
-- A wait is not a final result. Read the Flow result or the business state to
+- Treat a finished wait as a checkpoint, not a final result. Read the Flow result or the business state to
   decide what happened.
 - An error that says the Flow is closing does not prove that an earlier request
   succeeded. Read the Flow's stored state before you act again.
@@ -191,3 +191,7 @@ The links below open the Python reference. Each page has the same name in the [G
   as ID reuse and request idempotency.
 - [Client](/reference/python/client) in each SDK reference lists the Client
   calls in that language. The SDK doc comments give their parameters and errors.
+
+## Next
+
+[Connector](/concepts/connector): A Connector connects a Flow to an external provider, such as an email, payment, or news service.

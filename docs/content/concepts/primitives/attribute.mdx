@@ -361,8 +361,7 @@ lock, two that read and then write it can overwrite each other's update. See
 the Step method or RPC starts and releases it when it finishes. A Step waits for
 its lock. An RPC that cannot get a lock fails, and you retry it.
 
-Dex has no lint or warning for an unlocked read-then-write today. Lock any
-Attribute that two parallel Steps, or a Step and an RPC, read and then write.
+Lock any Attribute that two parallel Steps, or a Step and an RPC, read and then write. Dex has no lint or warning for an unlocked read-then-write today.
 To catch a missing lock, write a test that runs those Steps or RPCs at the same
 time and checks the final value.
 
@@ -531,3 +530,7 @@ API names in that language.
 [Data primitive semantics](/reference/server/runtime-data#attributes) covers
 initial values, Client reads, indexes, hard-delete Attributes, and locks in
 detail.
+
+## Next
+
+[RPC](/concepts/primitives/rpc): An RPC (Remote Procedure Call) lets code outside a Flow interact with a running Flow.

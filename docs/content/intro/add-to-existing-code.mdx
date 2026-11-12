@@ -231,7 +231,7 @@ Give each external call an [idempotency key](/concepts/step#idempotency-keys). H
 
 ## When an API has no idempotency key
 
-Some APIs do not accept a key, and a repeated call has a second effect. Dex cannot remove that risk, but you can make the window small:
+Some APIs take no key, so a repeated call has a second effect. You can make that window small:
 
 - **Check first.** Send your own reference with the call, such as the order ID in a shipment's reference field. At the start of the Step, look the effect up by that reference. If it already exists, skip the call.
 - **Record the attempt.** If the API has no lookup, write a row keyed like an idempotency key, such as **ship-order-1042**, to your own database in the same Step, just before the call. On a rerun, a row that is already there means the call may have happened. Stop and check by hand, or go to a recovery Step, instead of calling again.

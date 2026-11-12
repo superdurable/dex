@@ -288,7 +288,7 @@ Follow the same rules in your own tests:
 
 ## Skip a Timer
 
-A test should not wait for a Timer, such as the Quick Start's 60-second one. Give the Timer a
+Skip Timers in tests, such as the Quick Start's 60-second one. Give the Timer a
 `condition_id` in the Flow, then skip it from the test with `skip_timer`.
 The call fails until the Step waits on the Timer, so the test retries it until
 a deadline:

@@ -102,21 +102,21 @@ The proof holds under these conditions:
   Attribute locks are outside the proof.
 - **SYNC methods only.** An **ASYNC** method can lose its start in a server
   crash. It then runs again on a new snapshot, so its effects can differ.
-- **Retries never run out, and every error is retryable.** Running out of
+- **Retries continue until an attempt succeeds, and every error is retryable.** Running out of
   retries, or a non-retryable error, fails the Flow. Without failures, a Flow
   fails only when its own code fails it. A long server outage can use up the
   retry time.
-- **No failure policy.** A policy that proceeds after a failure changes what
+- **Failures retry; no failure policy applies.** A policy that proceeds after a failure changes what
   runs next.
 - **Code ignores its attempt.** Effects and results do not depend on the
   attempt number, the first attempt time, the last error, or the last
   heartbeat value. Code that resumes from a heartbeat checkpoint is outside the
   proof.
-- **No hard-delete Attributes.** Dex reads them again on every attempt.
+- **Attributes are the ordinary kind, not hard-delete.** Dex reads them again on every attempt.
 - **Every attempt command names its task.** The server tags each command of a
   started attempt, such as its result, a heartbeat, or its failure, with the
   task that ran it. Every logged command of this kind carries the tag.
-- **The clock does not step back.** On one server, the clock does not step
+- **The clock only moves forward.** On one server, the clock does not step
   back between checking that a timer is due and stamping the command that
   fires it.
 - **Timers fire in order.** Each firing takes the earliest due timers first,

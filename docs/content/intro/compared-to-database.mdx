@@ -145,7 +145,7 @@ The charge consumer handles it and publishes a message to **ship-requests**.
 
 Queues solve the problems of Design 1, but they bring harder ones:
 
-- Most queues cannot commit "charge done" and "enqueue ship" together. If the ship message is published but the acknowledgement of the charge message times out, the queue delivers the charge message again. The charge step then runs again while the ship step runs for the same order.
+- Most queues commit "charge done" and "enqueue ship" separately. If the ship message is published but the acknowledgement of the charge message times out, the queue delivers the charge message again. The charge step then runs again while the ship step runs for the same order.
   - Teams usually add a database row as the source of truth to drop duplicates.
   - The standard fix is a **transactional outbox**. The consumer writes "charge done" and an outbox row in one database transaction. A relay process reads the outbox and publishes the ship message. The relay can publish a message twice, so each consumer still drops duplicates by order ID.
 - Retries with backoff and a DLQ are often missing.

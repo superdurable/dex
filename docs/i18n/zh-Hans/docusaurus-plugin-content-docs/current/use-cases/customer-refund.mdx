@@ -23,7 +23,7 @@ Summary 展示 charge reference、请求金额和 recommendation。Display 额�
 
 <DocsFlowDefinitionGraph graph={agenticFlow} />
 
-批准 Action 没有输入，因此直接显示为按钮。拒绝 Action 要求填写原因。Dex Web 会自动填入一个隐藏的 gate key，取自详情页打开时读到的 Attribute 值。RPC 发布 verdict 之前，会把这个 key 与当前 gate 比较。如果 gate 已经变了，RPC 会返回错误，操作员需要刷新页面。
+批准 Action 直接显示为按钮，不需要输入。拒绝 Action 要求填写原因。Dex Web 会自动填入一个隐藏的 gate key，取自详情页打开时读到的 Attribute 值。RPC 发布 verdict 之前，会把这个 key 与当前 gate 比较。如果 gate 已经变了，RPC 会返回错误，操作员需要刷新页面。
 
 两个 Action 也会读取当前 case status。Flow Definition Graph 2.0 中的可见性条件只控制按钮是否出现，不做权限控制。
 
@@ -46,3 +46,7 @@ var deterministicCaseStatus = dex.DefineAttribute[string](
 </SdkTabs>
 
 协议与操作流程见 [Dex Web](/reference/web/dex-web)。
+
+## 下一步
+
+[运行 Dex](/components)：A Dex application runs on four components: your application, the server, the CLI, and Web.

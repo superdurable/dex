@@ -198,7 +198,7 @@ Flow 不再推进或失败时，按英文的 [Troubleshoot a Flow run](/referenc
 
 ## Flow 代码版本控制 {#versioning-flow-code}
 
-Dex 不会重新执行你之前的 Step 代码来决定 Flow 下一步做什么，所以部署改过的代码不会引起重放错误。但你仍要保证正在运行的 Flow 在部署后继续正常工作。它们可能遇到业务规则变了、Step 实现没有了、RPC 改名了，或者数据不兼容。
+Dex 根据已记录的状态决定 Flow 下一步做什么，不会重新执行你之前的 Step 代码，所以部署改过的代码不会引起重放错误。但你仍要保证正在运行的 Flow 在部署后继续正常工作。它们可能遇到业务规则变了、Step 实现没有了、RPC 改名了，或者数据不兼容。
 
 ### 在 Flow 启动时锁定业务行为
 
@@ -234,7 +234,7 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 4. **一起部署。** 同一个 Worker 构建包含带分支的 **Charge**、**Refund** 和 `RefundWithFee`。滚动部署期间，缺少 `RefundWithFee` 的旧 Worker 会把这个调用交给新 Worker。
 5. **退役旧路径。** 当没有任何运行中的 Flow 是版本 1 时，删除版本 1 的分支和 **Refund**。先搜索这样的 Flow。如果 **pricing-version** 是带索引的 Attribute，搜索时除了 Flow type 还可以按它过滤。
 
-整个过程都不需要在 Step 代码里加版本标记。无论哪个 Worker 构建来处理，都是保存的 Attribute 决定 Flow 走哪条路径。
+无论哪个 Worker 构建来处理，都是保存的 Attribute 决定 Flow 走哪条路径，所以 Step 代码里不需要版本标记。
 
 ## 用 Time Travel 恢复 Flow {#time-travel}
 
@@ -243,3 +243,7 @@ Time Travel 把一次 Flow run 移回它历史中较早的一个点，并从那�
 这个点之后的 Step 会再次运行，它们的外部调用也会再次发生。按 [Step](/concepts/step#guarantees) 的说明给每次调用加上幂等键，重复的调用就不会产生第二次效果。
 
 目标点必须在 Flow 最近的历史窗口内。回到 run 开头的 Time Travel 总是可用。可以从 Dex Web、`dexcli` 或 Client 发起。服务端参考中的英文 [Time travel](/reference/server/runtime-client#time-travel) 介绍请求选项和限制。
+
+## 下一步
+
+[Test Your Flows](/components/testing)：Test a Flow against a real Dex Server started with dexcli dev.

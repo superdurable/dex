@@ -136,7 +136,7 @@ The adapter copies the agent graph once and intercepts every function tool. So t
 
 Each function tool call runs in its own Step. The next `RunModel` restores the SDK's run state and gives it the recorded results. The tool does not run again.
 
-A handoff is not a function tool. It runs inside `RunModel`, so a Step that hands off also makes the next agent's model call.
+A handoff runs inside `RunModel`, unlike a function tool, so a Step that hands off also makes the next agent's model call.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
@@ -181,7 +181,7 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 - One write call per segment leaves the turn. A reply with two writes costs one more segment and model call. The writes of one reply never run as parallel Steps.
 - Tools that run inside the CLI, such as **Bash** or **Edit**, are at least once. They run again when a segment reruns. Files the CLI changes are not recorded.
 - A segment must finish within the `RunModel` method timeout, 15 minutes by default. Raise it with `run_model_limit` in Python or `runModelLimit` in TypeScript.
-- Dex compaction is not available. Claude Code compacts its own transcript. A long session ends at the state limit, not the context window: the active state of one session, 64 MiB by default ([Session limits](/reference/agents/session-limits)).
+- Claude Code compacts its own transcript, and Dex compaction stays off. A long session ends at the state limit, not the context window: the active state of one session, 64 MiB by default ([Session limits](/reference/agents/session-limits)).
 - A recorded tool result keeps text only.
 - A write call inside a subagent is denied. The model is asked to call it from the main conversation.
 
@@ -210,7 +210,7 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 <FrameworkTab framework="mastra">
 
 - Tools Mastra runs itself, such as sub-agents, workflows, and Memory tools, cannot run in a Step. The adapter offers one only when `toolPolicies` names it as a read without approval. It then runs inside `RunModel` and repeats when that Step reruns.
-- Mastra Memory is not used. Do not select a Memory thread in the agent's defaults or scopes. The session stores every message and gives the agent the history. For memory across sessions, give the agent a tool over a store you own, as [What a session remembers](#what-a-session-remembers) describes.
+- The session stores every message and gives the agent the history, in place of Mastra Memory. Leave the Memory thread unset in the agent's defaults and scopes. For memory across sessions, give the agent a tool over a store you own, as [What a session remembers](#what-a-session-remembers) describes.
 - `beforeToolCall` and `afterToolCall` hooks run only for tools Mastra runs itself.
 - A tool result reaches the model as text. `toModelOutput` is not applied.
 - A tool that calls `suspend()` fails. Use the session's approval instead.

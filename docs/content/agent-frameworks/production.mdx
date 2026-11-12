@@ -70,7 +70,7 @@ connects. The session itself loses nothing.
   call with **Unavailable** changed nothing.
 - **resolve_interrupt is safe to retry.** An approval that already went through
   returns **False** the second time, and nothing runs again.
-- **send_user_message is not.** Dex does not drop a repeated RPC. If the
+- **send_user_message can send twice.** Dex runs a repeated RPC again. If the
   response is lost, a retry can queue the same message twice. Before you resend,
   read the session with `get_agent_snapshot` and look for the message in
   **messages** and `queued_messages`. If it is queued twice, remove the copy

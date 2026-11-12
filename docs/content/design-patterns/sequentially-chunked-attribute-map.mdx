@@ -116,7 +116,7 @@ client.invoke_rpc_with_options(
 
 The **current** token is always valid after the Flow starts. An empty **current** returns an empty page. Archive tokens must contain exactly 20 decimal digits and identify a chunk boundary. A malformed token or a valid-looking token without a stored chunk returns an explicit error.
 
-Archived chunks never change, so a page read again, such as on a retry, returns the same records. To update older records, use a different pattern or a separate index.
+Archived chunks are immutable, so a page read again, such as on a retry, returns the same records. To update older records, use a different pattern or a separate index.
 
 ## HTTP API
 
@@ -127,3 +127,7 @@ GET  /patterns/sequentially-chunked-attribute-map/subscribers?pageToken=current
 ```
 
 The chunk size is part of the stored layout. A later version of the application can use a new chunk size for new archives. Its page-token logic must then read both layouts.
+
+## Next
+
+[Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map)

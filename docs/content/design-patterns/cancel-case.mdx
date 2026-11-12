@@ -11,7 +11,7 @@ Use this pattern when canceling a Flow must also stop the child Flows it started
 
 An example is a loan application that runs its credit check as a child Flow. When the applicant withdraws, the application closes. The credit check must stop too.
 
-Dex does not stop a SubFlow when its parent closes. The SubFlow keeps running when its parent completes, fails, times out, or is stopped. The parent must stop each child before it closes.
+A SubFlow keeps running when its parent completes, fails, times out, or is stopped. The parent must stop each child before it closes.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -65,7 +65,7 @@ One cancel message satisfies one wait. When several Steps each hold a child at t
 - Use a ChannelMap with one key per Step. The cancel RPC publishes to every key, and each Step waits on its own key.
 - Or have the cancel RPC publish one message per waiting Step to a single Channel.
 
-Do not close the Flow from the first Step that sees a cancel message. Its `ForceFail` cancels the other Steps before they stop their children. Every Step that holds a child must stop its own child before anything closes the Flow.
+Every Step that holds a child must stop its own child before anything closes the Flow. Closing the Flow from the first Step that sees a cancel message would break this: its `ForceFail` cancels the other Steps before they stop their children.
 
 ## Example
 

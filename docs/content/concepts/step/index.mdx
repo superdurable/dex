@@ -204,8 +204,7 @@ impl Step for StepSecond {
 
 ## Waiting {#waiting}
 
-A wait does not hold a Worker or a thread. Dex keeps it in the Flow's state
-and wakes the Step when a condition is met. A Step can wait on three kinds of
+Dex keeps a wait in the Flow's state, so it holds no Worker or thread, and wakes the Step when a condition is met. A Step can wait on three kinds of
 condition:
 
 - a [Timer](/concepts/primitives/timer) fires;
@@ -255,7 +254,7 @@ Four rules matter most. The first two are all you need for a first Flow.
 [Advanced guarantees](#advanced-guarantees) explains the details behind the
 other two.
 
-- **A finished Step does not run again.** Dex saves its result together with
+- **A finished Step stays finished.** Dex saves its result together with
   the move to the next Step. This holds for SYNC Steps, the default; an ASYNC
   result lost in a server failover reruns, as
   [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async) explains.
@@ -287,8 +286,7 @@ drop a repeat. Build the key from values that stay the same on every attempt:
 - the Flow ID and the `StepExecutionID`, such as `order-1042/Charge-2`,
   when the Step runs more than once in the Flow.
 
-Do not use the attempt number, the time, or a random value in the key. They
-change on a retry. Other pages link here instead of repeating this rule.
+Build the key only from values that stay the same on a retry. The attempt number, the time, and a random value all change. Other pages link here instead of repeating this rule.
 
 ## StepOptions {#stepoptions}
 
@@ -313,8 +311,7 @@ A Step returns `StepOptions` to control how its methods run. `WaitFor` and
 
 A `StepDecision` can override the options for one Step execution.
 
-Without StepOptions, each method uses the server defaults. They are the same
-for every SDK:
+Each method uses the server defaults until StepOptions set its own. The defaults are the same for every SDK:
 
 | Setting | Default |
 | --- | --- |
@@ -364,3 +361,7 @@ The SDK reference covers:
 - [state loading](/reference/python/step-options#selective-state-loading) and
   [Attribute locks](/reference/server/runtime-data#attribute-locks);
 - [failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
+
+## Next
+
+[Advanced Step Guarantees](/concepts/step/advanced-guarantees): What Dex saves for each Step method, when a method runs again or ends with an unknown outcome, how SYNC and ASYNC durability differ, and how cancellation, completion, and Step order work.

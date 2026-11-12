@@ -215,3 +215,7 @@ timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由�
 - [Flow ID、RequestID 和 already-started 处理](/reference/python/start-flow-options#flow-id-request-id-and-already-started)；
 - [StartFlow 最佳实践](/reference/python/start-flow-options#start-flow-best-practices)；
 - [FlowConfig](/reference/python/flow#flow-config) 以及如何更新它。
+
+## 下一步
+
+[Step](/concepts/step)：Step 是 Flow 里的一个后台工作单元。它可以先 durable 地等待某件事发生，再执行工作，然后选择下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。

@@ -19,7 +19,7 @@ The transfer accepts a source account, destination account, amount, and note. It
 3. Complete only after the destination account is credited.
 4. Compensate the transfer when a side-effecting Step still fails after all its retries.
 
-The Flow never waits for approval, a Channel message, or an RPC. It waits only between retries. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example allows three attempts instead, so its integration test finishes quickly.
+The Flow waits only between retries, never for approval, a Channel message, or an RPC. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example allows three attempts instead, so its integration test finishes quickly.
 
 The Rust example stubs the balance check: any positive amount passes. It records ledger changes as events. The other examples call an in-memory dependency service with explicit balance and undo methods.
 

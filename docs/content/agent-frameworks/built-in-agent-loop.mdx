@@ -267,7 +267,7 @@ The page first loads the session snapshot with the resume token to open the Stre
 
 ## Session access {#session-access}
 
-A session ID is not a secret: it appears in the page URL. So every route that names a session also checks the session's token before it calls Dex. **POST /sessions** checks the requested model against the models the Worker allows, picks a new session ID, and returns its token. The token is an HMAC-SHA256 of the session ID under `DEX_AGENT_SESSION_KEY`, so the example stores no token, and every process with the same key accepts it. A route that gets a missing or different **X-Agent-Session-Token** header answers 403.
+A session ID appears in the page URL, so treat it as public. So every route that names a session also checks the session's token before it calls Dex. **POST /sessions** checks the requested model against the models the Worker allows, picks a new session ID, and returns its token. The token is an HMAC-SHA256 of the session ID under `DEX_AGENT_SESSION_KEY`, so the example stores no token, and every process with the same key accepts it. A route that gets a missing or different **X-Agent-Session-Token** header answers 403.
 
 <SdkTabs
   examples={{

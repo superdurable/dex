@@ -35,7 +35,7 @@ Dex 有一个经计算机检查的证明，说明它能表达什么。
 
 ## 这对你意味着什么 {#why-it-matters}
 
-Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是一组 Step：它们读写 Attribute，发布和消费 Channel 消息，并等待 Timer。所以你可能会担心：有些并发逻辑是不是没法写成 Flow？
+Dex 表达并发时，既不使用会阻塞的线程，也不跨等待持有锁。一个 Flow 是一组 Step：它们读写 Attribute，发布和消费 Channel 消息，并等待 Timer。所以你可能会担心：有些并发逻辑是不是没法写成 Flow？
 
 这个证明表明：凡是能用上面这些构件写出的并发逻辑，都能写成 Flow。
 
@@ -57,7 +57,7 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 | 退出或失败 | 带结果的 `ForceComplete`，或带错误的 `ForceFail`。 | |
 | 外部副作用 | 一个 `Execute`，它唯一的副作用就是这次外部调用。 | |
 
-互斥锁不能用 Attribute 锁实现，因为它只覆盖一个 Step 方法，不覆盖等待。Channel token 可以跨多个 Step 和等待持有。
+互斥锁用 Channel token 实现，因为 token 可以跨多个 Step 和等待持有，而 Attribute 锁只覆盖一个 Step 方法。
 
 ## 如何验证 {#how-it-was-checked}
 
@@ -65,7 +65,7 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 ## 故障 {#what-it-does-not-cover}
 
-这个证明覆盖没有故障的运行。[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)把它扩展到崩溃、恢复、重试和消息重投。在那个页面列出的条件下，从有故障的运行中去掉重复的外部副作用，剩下的就是一次无故障的运行。两个证明合起来表明：这门语言中格式良好的程序在 Dex 上运行时，产生的是一次无故障运行的事件，只是外部副作用可能重复。
+这个证明覆盖无故障的运行。[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)把它扩展到崩溃、恢复、重试和消息重投。在那个页面列出的条件下，从有故障的运行中去掉重复的外部副作用，剩下的就是一次无故障的运行。两个证明合起来表明：这门语言中格式良好的程序在 Dex 上运行时，产生的是一次无故障运行的事件，只是外部副作用可能重复。
 
 ## 下一步
 

@@ -37,7 +37,7 @@ A Stream gives up durability for speed:
   messages. A slow reader can miss them.
 - A Step write goes out at once, while the Step still runs. A later Step failure
   does not roll it back.
-- A failed Stream write never fails the Step.
+- A Step succeeds even when a Stream write fails.
 - A reader sees messages in the order Dex stored them.
 
 The capacity is shared by all Flow runs with the same Flow type and
@@ -280,3 +280,7 @@ API names in that language.
 [Data primitive semantics](/reference/server/runtime-data#streams) covers write
 semantics, buffered text, reads, listing, capacity, and storage in detail. The
 server settings are in [Streams](/reference/server/configuration#streams).
+
+## Next
+
+[Timer](/concepts/primitives/timer): A Timer is a durable wait until a point in time.

@@ -15,8 +15,7 @@ lists what runs again during a deploy.
 
 ## Versioning Flow code {#versioning-flow-code}
 
-Dex does not re-run your earlier Step code to decide what a Flow does next.
-So deploying changed code never causes a replay error. You still have to keep
+Dex decides what a Flow does next from its recorded state, without re-running your earlier Step code. So deploying changed code never causes a replay error. You still have to keep
 open Flows working across a deployment. They can meet changed business rules,
 missing Step implementations, renamed RPCs, or incompatible data.
 
@@ -54,8 +53,7 @@ which Step and which error. See [Metrics](/reference/server/metrics).
 
 ### Keep old definitions until old Flows finish
 
-Do not delete or rename a Flow type, Step type, or RPC implementation while an
-open Flow can still call it. Deploy the new definition alongside the old one.
+Keep a Flow type, Step type, or RPC implementation registered under its name while an open Flow can still call it. Deploy the new definition alongside the old one.
 New Flows reach it in one of two ways: a decision that branches on the version
 stored at start goes to the new Step type, or new code starts a new Flow type.
 Keep the old implementation available through retries and any approved Time
@@ -80,8 +78,7 @@ an explicitly approved retirement plan.
 
 ### Check before you deploy {#check-before-you-deploy}
 
-Dex has no command that tests a new Worker build against open Flows. Run these
-checks instead:
+To test a new Worker build against open Flows, run these checks. Dex has no single command for it yet:
 
 1. **List the open Flows of the type.** Search for running Flows, and for the
    Step types they wait in. `ActiveStepTypes` is a built-in search field.
@@ -133,8 +130,7 @@ keep the old price.
    **pricing-version** is an indexed Attribute, the search can filter on it
    as well as on the Flow type.
 
-No step of this needs a version marker in Step code. The stored Attribute
-decides which path a Flow takes, whatever Worker build serves it.
+The stored Attribute decides which path a Flow takes, whatever Worker build serves it, so Step code needs no version marker.
 
 ## Recover a Flow with Time Travel {#time-travel}
 

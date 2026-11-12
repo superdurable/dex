@@ -27,7 +27,7 @@ The deadline branch waits for the 60-day Timer or a message on `CompleteProcess`
 
 Failures and other outcomes to handle:
 
-- No acceptance arrives before the deadline. This is an expected **timeout** result, not an infrastructure failure.
+- The deadline passes without an acceptance. This is an expected **timeout** result, not an infrastructure failure.
 - A decline is requested after the status has changed, or an acceptance is requested after completion. The RPC rejects the invalid transition without scheduling a notification Step.
 - Email and recruiting-system calls can fail temporarily. Their adapters should return the error so that Dex retries the Step that made the call.
 - A dependency can complete a call and the Worker can then fail before Dex records success. In production, send email and notifications with an idempotency key or another way to drop duplicates.

@@ -25,7 +25,7 @@ Its Summary shows the charge reference, requested amount, and recommendation. It
 
 <DocsFlowDefinitionGraph graph={agenticFlow} />
 
-The approval Action has no input and appears as a direct button. The rejection Action asks for a reason. Dex Web fills in a hidden gate key. It takes the key from the Attribute values it read when the detail page opened. Before the RPC publishes a verdict, it compares that key with the current gate. If the gate has changed, the RPC returns an error and the operator must refresh the page.
+The approval Action appears as a direct button, with no input. The rejection Action asks for a reason. Dex Web fills in a hidden gate key. It takes the key from the Attribute values it read when the detail page opened. Before the RPC publishes a verdict, it compares that key with the current gate. If the gate has changed, the RPC returns an error and the operator must refresh the page.
 
 Both Actions also read the current case status. The visibility condition in Flow Definition Graph 2.0 only controls whether a button appears. It does not authorize anyone.
 
@@ -48,3 +48,7 @@ var deterministicCaseStatus = dex.DefineAttribute[string](
 </SdkTabs>
 
 See [Dex Web](/reference/web/dex-web) for the protocol and operator workflow.
+
+## Next
+
+[Run Dex](/components): A Dex application runs on four components: your application, the server, the CLI, and Web.

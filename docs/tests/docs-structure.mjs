@@ -14,6 +14,7 @@
 // 3. A page's closing list of links is one section named Next (下一步 in Chinese), and it comes last.
 // 4. The home page and Get Started link straight to the page that does each job: no ordered reading lists.
 // 5. A group's overview page has the group's name as its title, so the header and the page agree.
+// 6. Every sidebar page that is not a group overview, the home page, Get Started, or the Glossary ends with Next.
 
 import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
@@ -170,6 +171,42 @@ function checkOverviewTitles(items) {
   }
 }
 for (const items of Object.values(sidebars)) checkOverviewTitles(items);
+
+
+// Every page in the reading sequence ends with Next, so the order comes from one place.
+const routerDocs = new Set(['index', 'intro/get-started', 'glossary']);
+const sequenceDocs = [];
+function collectSequence(items) {
+  for (const item of items) {
+    const id = docId(item);
+    if (id) sequenceDocs.push(id);
+    if (item && typeof item === 'object' && item.type === 'category') collectSequence(item.items ?? []);
+  }
+}
+collectSequence(sidebars.docs);
+const docFiles = new Map();
+for (const root of ['content', 'i18n/zh-Hans/docusaurus-plugin-content-docs/current']) {
+  for (const file of mdxFiles(join(docsRoot, root))) {
+    const rel = relative(join(docsRoot, root), file).split('\\').join('/');
+    const source = readFileSync(file, 'utf8');
+    const frontMatter = source.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+    const idField = frontMatter.match(/^id:\s*(.+)$/m)?.[1].trim();
+    const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
+    const id = `${dir}${idField ?? rel.slice(dir.length).replace(/\.mdx?$/, '')}`;
+    docFiles.set(`${root}:${id}`, {file, source});
+  }
+}
+for (const id of sequenceDocs) {
+  if (routerDocs.has(id)) continue;
+  for (const root of ['content', 'i18n/zh-Hans/docusaurus-plugin-content-docs/current']) {
+    const doc = docFiles.get(`${root}:${id}`);
+    if (!doc) continue;
+    const withoutCode = doc.source.replace(/^([ \t]*)(`{3,}|~{3,})[\s\S]*?^\1\2[ \t]*$/gm, '');
+    if (!/^## (Next|下一步)(\s|$)/m.test(withoutCode)) {
+      failures.push(`${relative(docsRoot, doc.file)}: ends without a Next section. Add "## Next" (下一步) with the one or two pages a reader opens next.`);
+    }
+  }
+}
 
 if (failures.length > 0) {
   console.error(failures.join('\n'));

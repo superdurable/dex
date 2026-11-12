@@ -40,7 +40,7 @@ ReleaseContractEditToken.execute -> ContractEditToken.publish("contract"); deadE
     // the ExecuteFailure route of EnterContractEdit, EditContract, and SaveContractEdit
 ```
 
-Dex 不保证下一个拿到 token 的是哪个等待中的分支。不要依赖进入顺序。
+任何等待中的分支都可能下一个拿到 token，顺序不固定。
 
 ## 每个出口都要归还 token
 
@@ -56,7 +56,7 @@ token 只是一条普通消息。如果某个分支离开这段流程时没有�
 
 Dex 把一个方法的 Channel 发布和它的结果一起保存，要么都保存，要么都不保存。失败的 attempt 不会发布任何消息，所以重试不会产生第二个 token。
 
-Dex 无法阻止被取消的方法继续调用外部系统。Dex 归还 token 之后，被取消的 `Execute` 仍可能继续运行并写入。这是绝不要取消做受保护工作的 Step 的另一个原因。
+Dex 归还 token 之后，被取消的 `Execute` 仍可能继续运行，并写入外部系统。这是绝不要取消做受保护工作的 Step 的另一个原因。
 
 ## 规则
 

@@ -58,7 +58,7 @@ Connector Trigger 是 Flow 之外长期运行的事件源。它保留服务商�
 
 连接是服务商那边一个具名、已授权的账号。Flow 定义按名称引用连接，而不是引用凭证。你的应用在调用服务商时，把名称解析成凭证。
 
-已保存的凭证永远不会进入 Flow 输入、Attribute、结果、回执、Stream、日志或生成的产物。
+已保存的凭证始终留在 Flow 输入、Attribute、结果、回执、Stream、日志和生成的产物之外。
 
 ## 语言
 
@@ -85,10 +85,14 @@ Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称�
 2. 在 Dex Web 中打开 **Connectors** 页面。它列出 Flow 定义用到的连接名称。逐个授权。
 3. 用 Dex Web 显示的连接文件启动你的应用。
 
-要使用没有被任何 Flow 定义引用的连接，例如 agent 工具使用的连接，在同一个页面上按名称添加它，然后像其他连接一样授权。
+要使用 Flow 定义之外的连接，例如 agent 工具使用的连接，在同一个页面上按名称添加它，然后像其他连接一样授权。
 
 Dex Web 只配置确切的官方 Connector 版本。Connector 的界面运行在沙箱 iframe 中，已保存的凭证永远不会进入其中。
 
 连接文件以明文保存密钥，只能在本地使用。不要提交它，也不要在生产环境中使用。
 
 每一步的细节和设置见英文的 [Local Connector setup](/reference/web/local-connector-setup)。
+
+## 下一步
+
+[设计模式](/design-patterns)

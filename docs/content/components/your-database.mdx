@@ -115,8 +115,7 @@ The copy is one way and eventually consistent:
   history.
 - A row usually appears within a second of the commit. A Step or RPC never
   waits for it.
-- Do not make Flow decisions from the table. Read the Flow's Attributes through
-  an RPC or the Client instead.
+- Make Flow decisions from the Flow's Attributes, read through an RPC or the Client, not from the table.
 
 ### When Dex drops a sync entry {#dropped-entries}
 
@@ -155,3 +154,7 @@ Your service can still keep an orders table for its other readers.
 The support tool reads the orders table. The Flow decides from its own
 Attributes. The Charge Step's ledger write and its payment call both use the
 order ID as their key, so a rerun of Charge changes nothing.
+
+## Next
+
+[Dex Server](/components/server): Dex Server stores every Flow's state and hands Steps and RPCs to Workers.

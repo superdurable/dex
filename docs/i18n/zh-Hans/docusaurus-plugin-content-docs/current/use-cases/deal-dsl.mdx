@@ -19,7 +19,7 @@ import flowDefinition from '@site/src/data/flow-definitions/deal-dsl.json';
 5. 把条件消息合并进 `DealStateData`，再按声明顺序执行状态动作。每个动作都有独立的 `ExecuteDealAction` execution 和持久化检查点。
 6. 动作结束后运行 `EvaluateDealTransition`。它可以再等待一个外部条件，然后拿状态数据中的一个值依次与各分支比较，选择第一个相等分支的状态，或者兜底状态。
 7. 重复解释器循环，直到进入没有后续转换的状态。Flow 最终用累计的状态数据完成。
-8. 修改定义不能影响已经在运行的交易。Go 应用把可编辑定义保存在 PostgreSQL 中，并在启动新 Flow 时传入快照。
+8. 已经在运行的交易保留启动时的定义。Go 应用把可编辑定义保存在 PostgreSQL 中，并在启动新 Flow 时传入快照。
 
 Flow 只会等待前置条件消息、状态转换消息，以及 Step 重试前的间隔。
 

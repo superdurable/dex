@@ -37,8 +37,7 @@ See [Attribute locks](/concepts/primitives/attribute#locking).
 
 ## Failure and redelivery {#failure-and-redelivery-summary}
 
-In short: when Dex cannot tell whether a method finished, it runs the method
-again or tells you the outcome is unknown.
+In short: when a method's outcome is uncertain, Dex runs the method again or tells you the outcome is unknown.
 
 These cases repeat a method or leave its outcome unknown. They hold for every
 SDK:
@@ -47,7 +46,7 @@ SDK:
   retry policy runs the method again. Its external calls may already have
   happened. A server restart or failover does the same to every attempt that
   a Worker had.
-- **Heartbeats are not acknowledged.** A heartbeat checkpoint can be lost, so a
+- **Heartbeats are fire-and-forget.** A heartbeat checkpoint can be lost, so a
   rerun can start from an older checkpoint.
 - **A canceled method keeps running.** Dex does not stop its code. Its
   external calls still take effect.
@@ -102,8 +101,7 @@ Attribute writes, its Channel publications, and its decision. What its
 starts itself. [Channel guarantees](/concepts/primitives/channel#guarantees)
 say what happens to the messages a canceled Step consumed.
 
-Dex does not stop a canceled method's code. The method should check for
-cancellation and return. Until it does, its code keeps running. Its calls to external
+A canceled method's code keeps running until the method returns. The method should check for cancellation and return. Its calls to external
 systems still take effect, even after the Flow has closed.
 
 `GracefulComplete` ends its own branch and asks Dex to complete the Flow. Dex
@@ -113,9 +111,7 @@ A later branch that ends with `DeadEnd` does not withdraw the request. After
 the last Step ends, the Flow can stay `RUNNING` briefly while Dex finishes
 pending Attribute Sync writes and transactional RPCs that already started.
 
-Without a pending `GracefulComplete`, a Flow with no active Step keeps
-running. An RPC can still start new Steps in it. End the last branch with a
-completing decision. If a Flow must not wait forever, set a Flow timeout.
+A Flow with no active Step keeps running until a `GracefulComplete` is pending, and an RPC can still start new Steps in it. End the last branch with a completing decision. If a Flow must not wait forever, set a Flow timeout.
 
 Dex starts ready Steps roughly in the order they became ready, but not
 strictly. Do not rely on the order in which parallel Steps start or finish.

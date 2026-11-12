@@ -29,7 +29,7 @@ Failures to handle:
 - A downstream API can be unavailable, time out, or reject its input. The Step must return that error, so that its retry and failure policy can handle it.
 - A downstream call can succeed and its response can still be lost. Dex may then retry the Step, so production API operations must be idempotent.
 - A **Swap** RPC or **Ready** publish can target an unknown or completed Flow and return a client error. Callers should keep the Flow ID and handle that error.
-- **Ready** may never arrive. This is an expected outcome. When the Timer fires, the Flow continues through `CallAPI4`.
+- The Timer can fire before **Ready** arrives. This is an expected outcome, and the Flow continues through `CallAPI4`.
 - If **Swap** runs between the reads of `CallAPI2` and `CallAPI3`, the two Steps see different values. The branches do not share a snapshot. Each reads the value that is current when it runs.
 
 The examples call local stubs. In production, give each API call a timeout, an idempotency key, and a retry or recovery policy that fits that API.

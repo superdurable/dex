@@ -41,7 +41,7 @@ cd quick-start
 uv sync --locked
 ```
 
-You need Python 3.11 or later, with uv. Without uv, create a virtual environment and install the SDK version that `pyproject.toml` pins. Then run each Python command below with `.venv/bin/python` in place of **uv run --frozen python**:
+You need Python 3.11 or later, with uv. If you use pip instead, create a virtual environment and install the SDK version that `pyproject.toml` pins. Then run each Python command below with `.venv/bin/python` in place of **uv run --frozen python**:
 
 ```bash
 python3 -m venv .venv
@@ -870,11 +870,11 @@ Worker is ready (process 41388). Press Ctrl+C to stop it.
 Shipped order-1a2b3c4d with key ship-order-1a2b3c4d
 ```
 
-It does not print **Charged** again. Dex had saved the result of Charge, so only Ship ran.
+Only Ship ran: Dex had saved the result of Charge, so **Charged** appears once.
 
 ### If nothing happens
 
-- **The Worker does not print "Worker is ready".** Check that **dexcli dev** is still running and printed "Dex development environment is ready".
+- **"Worker is ready" is missing.** Check that **dexcli dev** is still running and printed "Dex development environment is ready".
 - **Dex runs on another address.** Set `DEX_FLOW_SERVICE_ADDRESS`, such as **127.0.0.1:8801**, in both the Worker's and the start command's terminal.
 - **The start command fails.** Run it from the example folder, after the install command in step 1.
 - **Ship ran before you stopped the Worker.** You missed the 60-second window. Restart the Worker with `QUICK_START_SHIP_DELAY_SECONDS=120` and start a new Flow.

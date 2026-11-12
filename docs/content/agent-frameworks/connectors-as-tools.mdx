@@ -16,7 +16,7 @@ Each harness page shows the wiring in its Connect Connectors section, such as [B
 
 ### Which operations are offered {#connector-tools-offered}
 
-Nothing is exposed by default. The application names each operation an agent may use. The Connector author must also have reviewed the operation for agent use and marked it as exposed in its manifest, `dex-connector.json`. Dex refuses any other operation when the agent is defined.
+The application names each operation an agent may use; every other operation stays hidden. The Connector author must also have reviewed the operation for agent use and marked it as exposed in its manifest, `dex-connector.json`. Dex refuses any other operation when the agent is defined.
 
 Dex checks the model's arguments against the operation's input schema before the operation runs. A misspelled field, a wrong type, or a missing field fails the call with a message the model can correct. The operation does not run.
 
@@ -93,7 +93,7 @@ Each call runs one Slack operation in its own tool Step, through the Connector S
 
 The Connector's manifest decides whether a call can run again. `postThreadReply` is a Mutation that its manifest does not mark retry-safe, so the call runs once, in `CallSingleAttemptTool`. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/connectors-as-tools#connector-tools-crashes).
 
-Slack's manifest does not ask for approval of `postThreadReply`. So the example passes `requires_approval=True` in Python and **requiresApproval: true** in TypeScript, and every post waits in `AwaitToolApproval` until a person approves it. [Approval](/agent-frameworks/connectors-as-tools#connector-tools-approval) covers how the manifest and the application decide approval.
+Slack's manifest lets `postThreadReply` run without approval. So the example passes `requires_approval=True` in Python and **requiresApproval: true** in TypeScript, and every post waits in `AwaitToolApproval` until a person approves it. [Approval](/agent-frameworks/connectors-as-tools#connector-tools-approval) covers how the manifest and the application decide approval.
 
 When one model response asks for several Connector writes, they run one at a time, in order. See [Write order](/agent-frameworks/connectors-as-tools#connector-tools-write-order).
 

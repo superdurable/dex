@@ -25,7 +25,7 @@ import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagemen
 
 需要处理的故障和其他结果：
 
-- 截止时间前没有收到接受。这是预期的 **timeout** 结果，不是基础设施故障。
+- 截止时间到了，仍未收到接受。这是预期的 **timeout** 结果，不是基础设施故障。
 - 状态改变后请求拒绝，或流程完成后请求接受。RPC 会拒绝无效状态转换，并且不会调度通知 Step。
 - 邮件和招聘系统调用可能临时失败。适配器应返回错误，让 Dex 重试发起该调用的 Step。
 - 依赖系统可能已经完成调用，但 Worker 在 Dex 记录成功之前就失败了。生产环境发送邮件和通知时，要使用幂等键或其他去重方式。

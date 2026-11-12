@@ -23,7 +23,7 @@ import flowDefinition from '@site/src/data/flow-definitions/user-onboarding-proc
 
 需要处理的故障和其他结果：
 
-- 重复用户名不能使用同一个 Flow ID 启动第二个 Flow。启动端点会报告该入驻流程已经存在。
+- 重复用户名对应同一个 Flow ID，所以不会启动第二个 Flow。启动端点会报告该入驻流程已经存在。
 - 用户可能一直不验证邮箱或不完成任务。Flow 会一直等待并发送提醒，直到流程完成、被取消或达到 Flow 超时。
 - 任务完成操作可能乱序到达。这时 RPC 会返回该任务不在等待中，也不会发布 Channel 消息。
 - Step method 或 RPC 可能在返回前失败。这时 Dex 不会保存该 method 的任何 Attribute 写入或 Channel 消息。重试会从该 method 运行前已保存的状态开始。
@@ -398,3 +398,7 @@ impl Step for AccomplishTask1 {
     style={{display: 'block', width: '100%', maxWidth: '420px', margin: '1rem auto'}}
   />
 </a>
+
+## 下一步
+
+[转账](/use-cases/money-transfer)

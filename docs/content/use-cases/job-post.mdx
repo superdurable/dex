@@ -23,7 +23,7 @@ Each Flow is one job posting for its whole life. It must:
 7. Retry each job-board call independently with exponential backoff: three seconds initially, at most 60 seconds between attempts, no more than 100 attempts, and no longer than one hour.
 8. Stop the Flow when the posting is deleted. Search can find active postings through their indexed Attributes.
 
-The update RPC does not wait for LinkedIn or Indeed. It returns the new version as soon as Dex has saved the posting and both Channel messages.
+The update RPC returns the new version as soon as Dex has saved the posting and both Channel messages, without waiting for LinkedIn or Indeed.
 
 Failures to handle:
 

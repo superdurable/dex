@@ -29,9 +29,10 @@ help: ## Show targets
 githooks: ## Install commit-msg and pre-commit hooks (agent attribution + docs prose)
 	bash script/install-githooks
 
-docs-prose-check: ## Check product-doc MDX prose and structure (no README links, Overview-first sidebar groups)
+docs-prose-check: ## Check product-doc MDX prose and structure (no README links, group headers open overviews, pages end with Next, positive-first openings)
 	python3 script/docs_no_inline_backticks.py
 	cd docs && node --no-warnings tests/docs-structure.mjs
+	cd docs && node --no-warnings tests/docs-positive-first.mjs
 
 docs-prose-fix: ## No-op: identifiers use inline code since D8
 	python3 script/docs_no_inline_backticks.py --fix

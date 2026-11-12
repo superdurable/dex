@@ -121,7 +121,7 @@ fn process_order(order: &Order) -> Result<(), ApiError> {
 
 队列解决了方案 1 的问题，但带来了更难的问题：
 
-- 大多数队列无法把「扣款完成」和「发出发货消息」一起提交。如果发货消息已经发出，但扣款消息的确认超时了，队列会再投递一次扣款消息。于是同一笔订单在发货的同时，又在重复扣款。
+- 大多数队列把「扣款完成」和「发出发货消息」分开提交。如果发货消息已经发出，但扣款消息的确认超时了，队列会再投递一次扣款消息。于是同一笔订单在发货的同时，又在重复扣款。
   - 团队通常再加一行数据库记录作为唯一可信来源，用来去重。
 - 带退避的 retry 和 DLQ 往往要自己补。
   - 比如 Kafka 要额外建 retry topic，SQS 要靠 visibility timeout 绕过去。
@@ -168,3 +168,7 @@ Dex 记录每个 Step 的输入、输出和错误。运维人员可以查看每�
 <RequirementChangeComparison markdownDescription="发货失败一小时后给买家退款：数据库方案要加 refund-requests 队列和退款消费者，发货消费者还要记下第一次失败的时间，一小时后放弃。Dex 加一个 Refund Step，Ship Step retry 一小时后进入 Refund Step。发货前等卖家审批：数据库方案要加审批表和审批接口，并改由审批接口写入 ship-requests，扣款消费者不再写。Dex 加一个 approve RPC，Ship Step 等待卖家 Channel 上的消息。提醒卖家：数据库方案要加一个提醒 cron job，扫描审批表，找出还在等的订单。在 Dex 里，Ship Step 同时等一个 Timer，Timer 到了就发提醒，然后继续等。" />
 
 [为什么是 Dex？](/intro/what-is-dex) 给出这条 Flow 的 Dex 代码，[Quick Start](/quick-start) 会把它跑起来。
+
+## 下一步
+
+[Compared to Existing Durable Execution](/intro/compared-to-durable-execution)：How Dex relates to replay-based workflow engines, journal-based durable function runtimes, database-backed workflow libraries, step function services, and agent framework checkpoints, and when another tool fits better.

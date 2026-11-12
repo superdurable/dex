@@ -67,7 +67,7 @@ Polling Step 可以使用任一种 durability。见 [Step options](/reference/py
 
 ## 锁
 
-不要在整个等待期间持有 `ExecuteLockAttributes`。由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中。
+由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中，这样 `ExecuteLockAttributes` 只会短暂持有。
 
 ## 示例
 
@@ -448,8 +448,8 @@ impl Step for RecordJobWaitFailure {
 
 - Step 等待一个 Timer，再移动到自己来进行下一次 poll。
 - 把 retry policy、backoff 或 `RetryAfter` 当作 polling 循环，把“尚未就绪”作为错误返回。
-- 长时间循环却从不记录 heartbeat，也不写进度。
-- 外部调用没有自己的 timeout。
+- 长时间循环，既不记录 heartbeat，也不写进度。
+- 外部调用缺少自己的 timeout。
 - 手写一个截止时间，重复 `ExecuteMethodTimeout` 或 `TotalDuration` 已经提供的限制。
 - 每一页结果都启动一个新的 Flow。应该把 page token 留在循环里。
 

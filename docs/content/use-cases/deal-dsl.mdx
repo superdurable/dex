@@ -21,7 +21,7 @@ The process represents one buyer's deal for one item. The item can be a dataset,
 5. Merge the condition message into `DealStateData`, then execute the state's actions in their declared order. Each action gets its own `ExecuteDealAction` execution and durable checkpoint.
 6. Run `EvaluateDealTransition` after the actions. It can wait for another external condition. It then compares one state-data value with a list of cases, in order, and selects the state of the first equal case or the fallback state.
 7. Repeat the interpreter loop until it reaches a state without a transition. The Flow then completes with the accumulated state data.
-8. Edits to a definition must not change deals that are already running. The Go application stores editable definitions in PostgreSQL and passes a snapshot into each new Flow.
+8. Running deals keep the definition they started with. The Go application stores editable definitions in PostgreSQL and passes a snapshot into each new Flow.
 
 The Flow waits only for precondition messages, transition messages, and the delay before a Step retry.
 

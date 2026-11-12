@@ -194,7 +194,7 @@ impl Step for StepSecond {
 
 ## 等待 {#waiting}
 
-等待不占用 Worker 或线程。Dex 把它保存在 Flow 的状态里，条件满足时唤醒 Step。Step 可以等待三类条件：
+Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程，条件满足时再唤醒 Step。Step 可以等待三类条件：
 
 - [Timer](/concepts/primitives/timer) 触发；
 - [Channel](/concepts/primitives/channel) 上有消息到达；
@@ -234,7 +234,7 @@ Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Exec
 
 `StepDecision` 可以为某一次 Step execution 覆盖这些选项。
 
-不设置 StepOptions 时，每个方法使用 server 的默认值。所有 SDK 的默认值都一样：
+每个方法使用 server 的默认值，除非 StepOptions 另行设置。所有 SDK 的默认值都一样：
 
 | 设置 | 默认值 |
 | --- | --- |
@@ -266,7 +266,7 @@ SDK 参考中的 [Timeouts and total duration](/reference/go/step-options#timeou
 - Flow 只调用一次时，用 Flow ID 加调用的名字，例如 **charge-order-1042**；
 - 同一个 Flow 里这个 Step 会运行多次时，用 Flow ID 加 `StepExecutionID`，例如 `order-1042/Charge-2`。
 
-不要在键里使用 attempt 编号、时间或随机值，它们在重试时会变。其他页面都链接到这里，而不是重复这条规则。
+只用重试时保持不变的值构造键。attempt 编号、时间和随机值都会变。其他页面都链接到这里，而不是重复这条规则。
 
 ### 进阶保证 {#advanced-guarantees}
 
@@ -294,3 +294,7 @@ SDK 参考包含：
 - [重试和失败策略](/reference/python/failure-and-retries#retry-and-failure-policies)、[durability](/reference/python/step-options#durability)、[超时](/reference/python/step-options#timeouts-and-total-duration)、[heartbeat](/reference/python/step-options#heartbeat) 和[取消](/reference/python/step-options#cancellation)；
 - [状态加载](/reference/python/step-options#selective-state-loading)和 [Attribute locks](/reference/server/runtime-data#attribute-locks)；
 - [失败与重新投递](/reference/python/failure-and-retries#failure-and-redelivery)。
+
+## 下一步
+
+[Step 的进阶保证](/concepts/step/advanced-guarantees)：Dex 为每个 Step 方法保存什么，方法什么时候会重新运行或结果未知，SYNC 和 ASYNC 的区别，以及取消、完成和 Step 顺序。

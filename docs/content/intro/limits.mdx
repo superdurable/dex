@@ -43,11 +43,11 @@ The defaults to change before launch, such as retention and authentication, are 
   process stopped, standbys included, before the new version starts. Upgrades
   roll forward only. The upgrades page names each such release, so read it
   before you upgrade. See [Upgrades and compatibility](/reference/server/upgrades).
-- **Beta compatibility has no fixed support window.** Published APIs,
+- **Beta compatibility runs without a fixed support window.** Published APIs,
   configuration, wire formats, and stored data stay compatible, and a breaking
   change comes with a migration path. No support period for older releases is
   promised. See [Release status](#release-status).
-- **Version numbers do not decide compatibility.** Dex Server is at 0.1.x and
+- **Protocol ranges decide compatibility, not version numbers.** Dex Server is at 0.1.x and
   the SDKs are at 1.x. A Worker or Client works with a server when their
   protocol ranges overlap. See
   [Upgrades and compatibility](/reference/server/upgrades).
@@ -65,8 +65,7 @@ options work today:
   type, or by a business key such as the tenant. Point each service's Client
   and Workers at the cluster that owns its Flows.
 
-Separate clusters do not share Flows. A Flow cannot move from one cluster to
-another. A SubFlow starts in the same cluster as its parent, and RPCs and
+Each cluster keeps its own Flows, and a Flow stays in the cluster that started it. A SubFlow starts in the same cluster as its parent, and RPCs and
 Channel messages reach only Flows in the cluster that the Client is connected
 to. See [Install and configure server-zd](/reference/server/configuration).
 
@@ -91,7 +90,7 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 
 ## Workers and code
 
-- **An RPC never queues.** If no Worker takes it within 10 seconds, the caller
+- **An RPC needs a Worker within 10 seconds.** If no Worker takes it in that time, the caller
   gets an **Unavailable** error. Steps wait in a durable queue instead. See
   [Routing and availability](/reference/server/workers#routing-and-availability).
 - **A canceled method keeps running.** Dex does not stop the code. The method
@@ -118,7 +117,7 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 covers upgrades that stop the cluster.
 
 - **Breaking changes come with a migration path.** A breaking change needs an explicit decision first.
-- **Some options are not supported yet.** A Flow start delay and a Flow-level retry policy are rejected. An Attribute Store, the optional database that receives copies of chosen Attributes, can only be PostgreSQL. Flow state itself always stays in Dex Server. [Unsupported features](/reference/server#unsupported-features) links each open issue.
+- **Some options are still unsupported.** A Flow start delay and a Flow-level retry policy are rejected. An Attribute Store, the optional database that receives copies of chosen Attributes, can only be PostgreSQL. Flow state itself always stays in Dex Server. [Unsupported features](/reference/server#unsupported-features) links each open issue.
 - **Five SDKs, one model.** Go, Python, Java, TypeScript, and Rust have the same Flow model.
 - **dexcli dev runs a pinned server.** Each dexcli release archive includes the **dex-server-zd** release it was tested with, and **dexcli dev** runs that one. [Run Locally](/components/run-locally) shows how to install and update it.
 
@@ -129,7 +128,7 @@ Dex is source-available under the **Sustainable Use License 1.0**, which is not 
 - **You may** use Dex for your own business operations, whatever your company's size.
 - **You may** use Dex as hidden backend infrastructure for a commercial product. This holds when the product's value comes from other features, and its customers do not get direct access to a substantial set of Dex features.
 - **You may** charge for consulting, installation, workflow development, and support.
-- **You may not**, without a commercial license, white-label, host, or resell Dex. You may not build an automation, process, workflow, or software-building platform whose value comes entirely or mostly from Dex.
+- **You need a commercial license** to white-label, host, or resell Dex, or to build an automation, process, workflow, or software-building platform whose value comes entirely or mostly from Dex.
 - **You may** distribute Dex or changes to it only free of charge and for non-commercial purposes.
 
 Dex Skills are under the MIT License. The docs and examples keep their own licenses, and earlier material keeps its original license. The [licensing guide](https://github.com/superdurable/dex/blob/main/LICENSING.md) explains these terms, and the license text in the repository is what applies. For questions or a commercial license, write to `licensing@superdurable.io`.

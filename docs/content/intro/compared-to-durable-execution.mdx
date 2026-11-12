@@ -27,7 +27,7 @@ Every tool on this page records the progress of a process outside the process it
 
 Most durable execution tools let you write a process as one function. They make that function durable by recording its progress and replaying the function to rebuild its state.
 
-Dex does not replay your code. A Flow is a set of Steps. Each Step returns a decision that names the next Steps, or completes the Flow. Dex records each Step's result together with that decision.
+Dex records Step results instead of replaying your code. A Flow is a set of Steps. Each Step returns a decision that names the next Steps, or completes the Flow. Dex records each Step's result together with that decision.
 
 This choice has two sides:
 
@@ -262,7 +262,7 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 
 **Different.**
 
-- Dex has no event history to replay. A Worker does not rebuild state, so it needs no history cache. Sticky routing still exists: Dex first offers a Flow's next task to the Worker that served that Flow before, for up to 5 seconds, then to any Worker of the Flow type. It is best effort, and correctness never depends on it. See [Routing and availability](/reference/server/workers#routing-and-availability).
+- A Worker reads saved state instead of rebuilding it from an event history, so it needs no history cache. Sticky routing still exists: Dex first offers a Flow's next task to the Worker that served that Flow before, for up to 5 seconds, then to any Worker of the Flow type. It is best effort, and correctness never depends on it. See [Routing and availability](/reference/server/workers#routing-and-availability).
 - Versioning works by keeping old Step types and making additive changes. Dex has no patch or version markers in code. Temporal offers patch markers and Worker Versioning, which pins a workflow to the Worker deployment that started it or moves it to a new one. [Change Flow Code](/concepts/change-flow-code#versioning-flow-code) explains the Dex rules. Dex has no replay-style test command that checks a new Worker build against open Flows; [Check before you deploy](/concepts/change-flow-code#check-before-you-deploy) gives the manual check.
 - On shared Attributes, see [Concurrency defaults](#concurrency-defaults). A Temporal workflow runs on one thread, so only one piece of its code runs at a time. Its signal and update handlers can still interleave at await points, and Temporal offers a workflow mutex for that case. The difference is smaller than "one writer" suggests, but it is real: Dex Steps run in parallel on different Workers.
 - A retry of a Step method reuses the state snapshot of its first attempt. An activity retry reads whatever it fetches on that attempt.

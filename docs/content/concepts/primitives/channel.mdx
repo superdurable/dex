@@ -29,7 +29,7 @@ ChannelMap, and it counts the branches and keys each round for you. See
 ## Guarantees
 
 - Dex stores every message durably with the Flow.
-- Dex does not yet drop a repeated publish. See
+- A repeated publish delivers the message twice today. See
   [Publish messages](#publish-messages).
 - Messages stay in arrival order.
 - One wait consumes a message. Dex does not copy it to other waiting Steps.
@@ -320,8 +320,7 @@ Dex Server also accepts a `PublishToChannel` request on its FlowService API,
 for example through **dexcli api**. The server stores that message with no
 Worker online. The SDK Clients do not expose this request.
 
-Neither path drops a repeated publish yet: a request sent again after a lost
-response publishes the message twice. See
+On both paths, a request sent again after a lost response publishes the message twice. See
 [Requests that can repeat](/intro/limits#requests-that-can-repeat). Make
 the consuming Step safe for a duplicate message. For example, put a business
 key, such as an approval ID, in the message and skip a key the Flow has already
@@ -355,3 +354,7 @@ API names in that language.
 [Data primitive semantics](/reference/server/runtime-data#channels) covers wait
 conditions, pending messages, deletion, state loading, and ChannelMap keys in
 detail.
+
+## Next
+
+[Stream](/concepts/primitives/stream): A Stream delivers messages from a Flow to a reader in real time.

@@ -141,3 +141,7 @@ GET  /patterns/hash-partitioned-attribute-map/customer-profile?emailAddress=alic
 ```
 
 Partition 数量是持久化数据的一部分。修改它会把大多数 key 移到别的 partition，因此需要完整 rehash 或新的 Flow 版本。这个示例没有实现删除、全目录枚举、跨字段搜索和调整 partition 数量。
+
+## 下一步
+
+[Entity Flow with SQL Projection](/design-patterns/entity-store)：Keep one Flow for each entity, such as a user.

@@ -40,7 +40,7 @@ The Flow's internal Channels and Attributes do not count.
 
 ## Why it matters to you {#why-it-matters}
 
-Dex has no threads that block, and no locks held across a wait. A Flow is a
+Dex models concurrency without threads that block or locks held across a wait. A Flow is a
 set of Steps that read and write Attributes, publish and consume Channel
 messages, and wait on Timers. So you may wonder whether some concurrent logic
 cannot be written as a Flow.
