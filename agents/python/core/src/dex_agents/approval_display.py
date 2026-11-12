@@ -33,6 +33,7 @@ import json
 import math
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from dex_agents.values import AgentInterruptDisplay
@@ -203,12 +204,14 @@ def is_credential_like_name(name: str) -> bool:
 def redact_inline_credentials(text: str) -> str:
     r"""Replace the credentials written inline in a text with ``REDACTED_ARGUMENT_VALUE``.
 
-    The text may be a shell command or a file. It first decodes ``\uXXXX`` and
-    ``\xXX`` escapes, so an escaped name such as ``password`` is found;
-    the returned text keeps them decoded. It then replaces private key
-    blocks; the password of a URL such as ``https://user:pass@host``; the
-    password of ``-u user:pass``, ``--user``, and ``--proxy-user``; and the
-    whole value after a name that ``is_credential_like_name`` matches, in a
+    The text may be a shell command or a file; every other character stays as
+    it is. It reads ``\uXXXX`` and ``\xXX`` escapes as the characters they
+    stand for, so an escaped name such as ``password`` is found, but it
+    returns the text with the escapes as written: only the characters of
+    each credential found are replaced. It replaces private key blocks; the
+    password of a URL such as ``https://user:pass@host``; the password of
+    ``-u user:pass``, ``--user``, and ``--proxy-user``; and the whole value
+    after a name that ``is_credential_like_name`` matches, in a
     ``name=value`` assignment, a ``name: value`` header or field, a JSON
     member, or a ``--name value`` flag, which covers query parameters such as
     ``?token=…``. A value ends at its closing quote, escaped quotes included,
@@ -227,23 +230,98 @@ def redact_inline_credentials(text: str) -> str:
     Example:
         >>> redact_inline_credentials("curl -H 'Authorization: Bearer t1'")
         "curl -H 'Authorization: Bearer <redacted>'"
+        >>> redact_inline_credentials("printf '\\x41'")
+        "printf '\\x41'"
 
     Args:
         text: The text.
 
     Returns:
-        The text with escapes decoded and each credential found replaced.
+        The text with each credential found replaced and nothing else changed.
     """
-    redacted = _ESCAPE_SEQUENCE.sub(_decode_escape_sequence, text)
-    redacted = _PRIVATE_KEY_BLOCK.sub(lambda match: REDACTED_ARGUMENT_VALUE, redacted)
-    redacted = _URL_USER_INFO.sub(
-        lambda match: f"{match.group(1)}{match.group(2)}:{REDACTED_ARGUMENT_VALUE}@", redacted
+    units = _read_text_units(text)
+    for find_secrets in _SECRET_FINDERS:
+        secrets = find_secrets("".join(unit.text for unit in units))
+        if secrets:
+            units = _replace_with_markers(units, secrets)
+    return "".join(
+        REDACTED_ARGUMENT_VALUE if unit.is_marker else text[unit.start : unit.end] for unit in units
     )
-    redacted = _redact_values_after(redacted, _USER_FLAG, lambda match, start, text: "user")
-    redacted = _redact_values_after(redacted, _NAMED_VALUE, _named_value_kind)
-    redacted = _redact_values_after(redacted, _FLAG_VALUE, _flag_value_kind)
-    redacted = _STANDALONE_SCHEME.sub(_redact_standalone_scheme, redacted)
-    return _TOKEN_SHAPES.sub(lambda match: REDACTED_ARGUMENT_VALUE, redacted)
+
+
+@dataclass(frozen=True)
+class _TextUnit:
+    """One character of the text as the rules read it.
+
+    An escape sequence reads as the character it stands for, and a found
+    credential reads as the marker. ``start`` and ``end`` are its span in the
+    original text.
+    """
+
+    text: str
+    start: int
+    end: int
+    is_marker: bool = False
+
+
+def _read_text_units(text: str) -> list[_TextUnit]:
+    units: list[_TextUnit] = []
+    index = 0
+    while index < len(text):
+        escape = _ESCAPE_SEQUENCE.match(text, index)
+        if escape is not None:
+            code = int(escape.group(1) or escape.group(2), 16)
+            # A lone surrogate reads as written, so the text the rules read stays valid Unicode.
+            if not 0xD800 <= code <= 0xDFFF:
+                units.append(_TextUnit(chr(code), index, escape.end()))
+                index = escape.end()
+                continue
+        units.append(_TextUnit(text[index], index, index + 1))
+        index += 1
+    return units
+
+
+def _replace_with_markers(
+    units: list[_TextUnit], secrets: list[tuple[int, int]]
+) -> list[_TextUnit]:
+    """Replace the units each span touches with one marker unit covering their original text."""
+    replaced: list[_TextUnit] = []
+    offset = 0
+    secret_index = 0
+    marker: tuple[int, int] | None = None
+    for unit in units:
+        unit_start = offset
+        unit_end = offset + len(unit.text)
+        offset = unit_end
+        while secret_index < len(secrets) and secrets[secret_index][1] <= unit_start:
+            secret_index += 1
+        secret = secrets[secret_index] if secret_index < len(secrets) else None
+        if secret is not None and secret[0] < unit_end and secret[1] > unit_start:
+            marker = (unit.start, unit.end) if marker is None else (marker[0], unit.end)
+            if secret[1] <= unit_end:
+                replaced.append(_TextUnit(REDACTED_ARGUMENT_VALUE, *marker, is_marker=True))
+                marker = None
+                secret_index += 1
+            continue
+        if marker is not None:
+            replaced.append(_TextUnit(REDACTED_ARGUMENT_VALUE, *marker, is_marker=True))
+            marker = None
+        replaced.append(unit)
+    if marker is not None:
+        replaced.append(_TextUnit(REDACTED_ARGUMENT_VALUE, *marker, is_marker=True))
+    return replaced
+
+
+def _match_spans(text: str, pattern: re.Pattern[str], group: int) -> list[tuple[int, int]]:
+    return [match.span(group) for match in pattern.finditer(text)]
+
+
+def _standalone_scheme_spans(text: str) -> list[tuple[int, int]]:
+    return [
+        match.span(3)
+        for match in _STANDALONE_SCHEME.finditer(text)
+        if _TOKEN_SHAPED.search(match.group(3))
+    ]
 
 
 def _named_value_kind(match: re.Match[str], value_start: int, text: str) -> str | None:
@@ -259,36 +337,29 @@ def _flag_value_kind(match: re.Match[str], value_start: int, text: str) -> str |
     return None
 
 
-def _redact_standalone_scheme(match: re.Match[str]) -> str:
-    if _TOKEN_SHAPED.search(match.group(3)):
-        return f"{match.group(1)}{match.group(2)}{REDACTED_ARGUMENT_VALUE}"
-    return match.group(0)
-
-
-def _redact_values_after(
+def _find_value_secrets(
     text: str,
     pattern: re.Pattern[str],
     kind_of: Callable[[re.Match[str], int, str], str | None],
-) -> str:
-    """Replace the value after each match ``kind_of`` accepts, scanning left to right."""
-    output: list[str] = []
+) -> list[tuple[int, int]]:
+    """Return the credential span of the value after each match ``kind_of`` accepts."""
+    secrets: list[tuple[int, int]] = []
     position = 0
     while (match := pattern.search(text, position)) is not None:
         value_start = match.end()
         kind = kind_of(match, value_start, text)
         if kind is None:
-            output.append(text[position:value_start])
             position = value_start
             continue
         # A quote right before a name, with none after it, is the quote the value ends at.
         has_outer_quote = pattern is _NAMED_VALUE and match.group(1) and not match.group(3)
         outer_quote = match.group(1) if has_outer_quote else "\x00"
         value_end = _find_value_end(text, value_start, kind == "header", outer_quote)
-        output.append(text[position:value_start])
-        output.append(_redact_value(text[value_start:value_end], kind))
+        secret = _find_secret_in_value(text, value_start, value_end, kind)
+        if secret is not None:
+            secrets.append(secret)
         position = value_end
-    output.append(text[position:])
-    return "".join(output)
+    return secrets
 
 
 def _find_value_end(text: str, start: int, is_header: bool, outer_quote: str) -> int:
@@ -322,26 +393,28 @@ def _find_quoted_end(text: str, start: int) -> int:
     return min(index, len(text))
 
 
-def _redact_value(value: str, kind: str) -> str:
-    if not value:
-        return value
-    quote = value[0] if value[0] in _QUOTES else ""
-    is_closed = bool(quote) and len(value) >= 2 and value.endswith(quote)
-    inner = value if not quote else value[1:-1] if is_closed else value[1:]
-    closing = quote if is_closed else ""
+def _find_secret_in_value(text: str, start: int, end: int, kind: str) -> tuple[int, int] | None:
+    """Return the span of a value that holds the credential.
+
+    That is inside its quotes, after a header's scheme, or after ``user:``.
+    """
+    if end <= start:
+        return None
+    quote = text[start] if text[start] in _QUOTES else ""
+    is_closed = bool(quote) and end - start >= 2 and text[end - 1] == quote
+    inner_start = start + 1 if quote else start
+    inner_end = end - 1 if is_closed else end
+    inner = text[inner_start:inner_end]
     if kind == "user":
-        user, separator, password = inner.partition(":")
-        if not separator or password == REDACTED_ARGUMENT_VALUE:
-            return value
-        return f"{quote}{user}:{REDACTED_ARGUMENT_VALUE}{closing}"
-    if inner == REDACTED_ARGUMENT_VALUE:
-        return value
-    scheme = _AUTHORIZATION_SCHEME.match(inner) if kind == "header" and not quote else None
-    if scheme is not None:
-        if inner[scheme.end() :] == REDACTED_ARGUMENT_VALUE:
-            return value
-        return f"{scheme.group(0)}{REDACTED_ARGUMENT_VALUE}"
-    return f"{quote}{REDACTED_ARGUMENT_VALUE}{closing}"
+        separator = inner.find(":")
+        inner_start = inner_end if separator < 0 else inner_start + separator + 1
+    elif kind == "header" and not quote:
+        scheme = _AUTHORIZATION_SCHEME.match(inner)
+        inner_start += 0 if scheme is None else scheme.end()
+    secret = text[inner_start:inner_end]
+    if not secret or secret == REDACTED_ARGUMENT_VALUE:
+        return None
+    return inner_start, inner_end
 
 
 def _is_header_name(name: str) -> bool:
@@ -349,10 +422,15 @@ def _is_header_name(name: str) -> bool:
     return "authorization" in words or "cookie" in words or "cookies" in words
 
 
-def _decode_escape_sequence(match: re.Match[str]) -> str:
-    code = int(match.group(1) or match.group(2), 16)
-    # A lone surrogate stays escaped, so the text stays valid Unicode.
-    return match.group(0) if 0xD800 <= code <= 0xDFFF else chr(code)
+_SECRET_FINDERS: tuple[Callable[[str], list[tuple[int, int]]], ...] = (
+    lambda text: _match_spans(text, _PRIVATE_KEY_BLOCK, 0),
+    lambda text: _match_spans(text, _URL_USER_INFO, 3),
+    lambda text: _find_value_secrets(text, _USER_FLAG, lambda match, start, scanned: "user"),
+    lambda text: _find_value_secrets(text, _NAMED_VALUE, _named_value_kind),
+    lambda text: _find_value_secrets(text, _FLAG_VALUE, _flag_value_kind),
+    _standalone_scheme_spans,
+    lambda text: _match_spans(text, _TOKEN_SHAPES, 0),
+)
 
 
 def build_connector_tool_approval_display(

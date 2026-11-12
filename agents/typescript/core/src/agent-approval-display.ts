@@ -87,17 +87,17 @@ const maxDisplayedArguments = 5;
 const maxDisplayedArgumentCharacters = 80;
 
 // Explicit ASCII classes keep the patterns identical to the Python core's, which compiles them with re.ASCII.
-const escapeSequencePattern = /\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})/g;
-const privateKeyBlockPattern = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g;
-const urlUserInfoPattern = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^ \t\n\r\f\v/:@'"]+):([^ \t\n\r\f\v/@'"]+)@/g;
+const escapeSequencePattern = /\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})/y;
+const privateKeyBlockPattern = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/dg;
+const urlUserInfoPattern = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^ \t\n\r\f\v/:@'"]+):([^ \t\n\r\f\v/@'"]+)@/dg;
 const userFlagPattern = /(^|[ \t\n\r\f\v])(-u|--user|--proxy-user)([ \t]+|=)/g;
 const namedValuePattern = /(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)([ \t]*)([:=])([ \t]*)/g;
 const flagValuePattern = /(^|[ \t\n\r\f\v])(--?)([A-Za-z][A-Za-z0-9_-]*)([ \t]+)/g;
-const standaloneSchemePattern = /\b(bearer|basic|digest)([ \t]+)([A-Za-z0-9._~+/-]+=*)/gi;
+const standaloneSchemePattern = /\b(bearer|basic|digest)([ \t]+)([A-Za-z0-9._~+/-]+=*)/dgi;
 const tokenShapedPattern = /[0-9+/=._~-]/;
 const authorizationSchemePattern = /^(bearer|basic|digest|token|negotiate)[ \t]+/i;
 const tokenShapesPattern =
-  /\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/g;
+  /\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/dg;
 const bareValueStops = new Set([" ", "\t", "\n", "\r", "\f", "\v", "&", ";", ",", "}", "]", ")"]);
 
 /**
@@ -140,84 +140,173 @@ export function isCredentialLikeName(name: string): boolean {
 
 /**
  * Replaces the credentials written inline in a text, such as a shell command or a file, with
- * {@link redactedArgumentValue}.
+ * {@link redactedArgumentValue}, and leaves every other character as it is.
  *
- * It first decodes `\uXXXX` and `\xXX` escapes, so an escaped name such as `pass\u0077ord` is found; the returned
- * text keeps them decoded. It then replaces private key blocks; the password of a URL such as
- * `https://user:pass@host`; the password of `-u user:pass`, `--user`, and `--proxy-user`; and the whole value after
- * a name that {@link isCredentialLikeName} matches, in a `name=value` assignment, a `name: value` header or field, a
- * JSON member, or a `--name value` flag, which covers query parameters such as `?token=…`. A value ends at its
- * closing quote, escaped quotes included, or at whitespace, `&`, `;`, `,`, `}`, `]`, or `)`; the value of an
- * `Authorization` or `Cookie` header runs to the end of its line, and its scheme, such as `Bearer`, stays. A value
- * that is exactly {@link redactedArgumentValue} stays. Outside a header, a token-shaped word after `Bearer`, `Basic`,
- * or `Digest` is replaced, and so are common token shapes, such as AWS access key IDs and GitHub, Slack, GitLab, and
- * OpenAI-style keys and JWTs. The rules are conservative: a generic `key=value` is replaced too. They cannot find
- * every credential: a value in an unusual form stays as it is. The Python core applies the same rules; the shared
- * cases are in `agents/conformance/approval_display.json`.
+ * It reads `\uXXXX` and `\xXX` escapes as the characters they stand for, so an escaped name such as `pass\u0077ord`
+ * is found, but it returns the text with the escapes as written: only the characters of each credential found are
+ * replaced. It replaces private key blocks; the password of a URL such as `https://user:pass@host`; the password of
+ * `-u user:pass`, `--user`, and `--proxy-user`; and the whole value after a name that {@link isCredentialLikeName}
+ * matches, in a `name=value` assignment, a `name: value` header or field, a JSON member, or a `--name value` flag,
+ * which covers query parameters such as `?token=…`. A value ends at its closing quote, escaped quotes included, or
+ * at whitespace, `&`, `;`, `,`, `}`, `]`, or `)`; the value of an `Authorization` or `Cookie` header runs to the end
+ * of its line, and its scheme, such as `Bearer`, stays. A value that is exactly {@link redactedArgumentValue} stays.
+ * Outside a header, a token-shaped word after `Bearer`, `Basic`, or `Digest` is replaced, and so are common token
+ * shapes, such as AWS access key IDs and GitHub, Slack, GitLab, and OpenAI-style keys and JWTs. The rules are
+ * conservative: a generic `key=value` is replaced too. They cannot find every credential: a value in an unusual form
+ * stays as it is. The Python core applies the same rules; the shared cases are in
+ * `agents/conformance/approval_display.json`.
  *
  * @example
  * ```ts
  * redactInlineCredentials('curl -H "Authorization: Bearer t1" https://api.example.com?token=t1');
  * // 'curl -H "Authorization: Bearer <redacted>" https://api.example.com?token=<redacted>'
+ * redactInlineCredentials("printf '\\x41'"); // "printf '\\x41'", unchanged
  * ```
  * @param text - The text.
- * @returns The text with escapes decoded and each credential found replaced.
+ * @returns The text with each credential found replaced and nothing else changed.
  * @since 0.6.0
  */
 export function redactInlineCredentials(text: string): string {
-  let redacted = text.replace(escapeSequencePattern, decodeEscapeSequence);
-  redacted = redacted.replace(privateKeyBlockPattern, () => redactedArgumentValue);
-  redacted = redacted.replace(
-    urlUserInfoPattern,
-    (_match, scheme: string, user: string) => `${scheme}${user}:${redactedArgumentValue}@`,
-  );
-  redacted = redactValuesAfter(redacted, userFlagPattern, () => "user");
-  redacted = redactValuesAfter(redacted, namedValuePattern, (match, valueStart, scanned) => {
-    const isComparison = match[5] === "=" && scanned[valueStart] === "=";
-    if (isComparison || !isCredentialLikeName(match[2]!)) {
-      return null;
+  let units = readTextUnits(text);
+  for (const findSecrets of secretFinders) {
+    const secrets = findSecrets(units.map((unit) => unit.text).join(""));
+    if (secrets.length > 0) {
+      units = replaceWithMarkers(units, secrets);
     }
-    return isHeaderName(match[2]!) ? "header" : "value";
-  });
-  redacted = redactValuesAfter(redacted, flagValuePattern, (match, valueStart, scanned) =>
-    isCredentialLikeName(match[3]!) && scanned[valueStart] !== "-" ? "value" : null,
-  );
-  redacted = redacted.replace(standaloneSchemePattern, (match: string, scheme: string, gap: string, value: string) =>
-    tokenShapedPattern.test(value) ? `${scheme}${gap}${redactedArgumentValue}` : match,
-  );
-  return redacted.replace(tokenShapesPattern, () => redactedArgumentValue);
+  }
+  return units.map((unit) => (unit.isMarker ? redactedArgumentValue : text.slice(unit.start, unit.end))).join("");
+}
+
+/**
+ * One character of the text as the rules read it: an escape sequence reads as the character it stands for, and a
+ * found credential reads as the marker. `start` and `end` are its span in the original text.
+ */
+interface TextUnit {
+  readonly text: string;
+  readonly start: number;
+  readonly end: number;
+  readonly isMarker: boolean;
+}
+
+/** A span `[start, end)` of the text the rules read that holds a credential. */
+type SecretSpan = readonly [number, number];
+
+const secretFinders: readonly ((text: string) => SecretSpan[])[] = [
+  (text) => matchSpans(text, privateKeyBlockPattern, 0),
+  (text) => matchSpans(text, urlUserInfoPattern, 3),
+  (text) => findValueSecrets(text, userFlagPattern, () => "user"),
+  (text) =>
+    findValueSecrets(text, namedValuePattern, (match, valueStart) => {
+      const isComparison = match[5] === "=" && text[valueStart] === "=";
+      if (isComparison || !isCredentialLikeName(match[2]!)) {
+        return null;
+      }
+      return isHeaderName(match[2]!) ? "header" : "value";
+    }),
+  (text) =>
+    findValueSecrets(text, flagValuePattern, (match, valueStart) =>
+      isCredentialLikeName(match[3]!) && text[valueStart] !== "-" ? "value" : null,
+    ),
+  (text) =>
+    [...text.matchAll(standaloneSchemePattern)]
+      .filter((match) => tokenShapedPattern.test(match[3]!))
+      .map((match) => [match.indices![3]![0], match.indices![3]![1]] as const),
+  (text) => matchSpans(text, tokenShapesPattern, 0),
+];
+
+function readTextUnits(text: string): TextUnit[] {
+  const units: TextUnit[] = [];
+  let index = 0;
+  while (index < text.length) {
+    escapeSequencePattern.lastIndex = index;
+    const escape = escapeSequencePattern.exec(text);
+    if (escape !== null && escape.index === index) {
+      const code = Number.parseInt(escape[1] ?? escape[2]!, 16);
+      // A lone surrogate reads as written, so the text the rules read stays valid Unicode.
+      if (code < 0xd800 || code > 0xdfff) {
+        units.push({ text: String.fromCharCode(code), start: index, end: index + escape[0].length, isMarker: false });
+        index += escape[0].length;
+        continue;
+      }
+    }
+    units.push({ text: text[index]!, start: index, end: index + 1, isMarker: false });
+    index += 1;
+  }
+  return units;
+}
+
+/** Replaces the units each span touches with one marker unit that covers their original text. */
+function replaceWithMarkers(units: readonly TextUnit[], secrets: readonly SecretSpan[]): TextUnit[] {
+  const replaced: TextUnit[] = [];
+  let offset = 0;
+  let secretIndex = 0;
+  let marker: { start: number; end: number } | null = null;
+  for (const unit of units) {
+    const unitStart = offset;
+    const unitEnd = offset + unit.text.length;
+    offset = unitEnd;
+    while (secretIndex < secrets.length && secrets[secretIndex]![1] <= unitStart) {
+      secretIndex += 1;
+    }
+    const secret = secrets[secretIndex];
+    const isSecret = secret !== undefined && secret[0] < unitEnd && secret[1] > unitStart;
+    if (isSecret) {
+      marker = marker === null ? { start: unit.start, end: unit.end } : { start: marker.start, end: unit.end };
+      if (secret[1] <= unitEnd) {
+        replaced.push({ text: redactedArgumentValue, start: marker.start, end: marker.end, isMarker: true });
+        marker = null;
+        secretIndex += 1;
+      }
+      continue;
+    }
+    if (marker !== null) {
+      replaced.push({ text: redactedArgumentValue, start: marker.start, end: marker.end, isMarker: true });
+      marker = null;
+    }
+    replaced.push(unit);
+  }
+  if (marker !== null) {
+    replaced.push({ text: redactedArgumentValue, start: marker.start, end: marker.end, isMarker: true });
+  }
+  return replaced;
+}
+
+/** The span of the given group of each match. */
+function matchSpans(text: string, pattern: RegExp, group: number): SecretSpan[] {
+  return [...text.matchAll(pattern)].map((match) => [match.indices![group]![0], match.indices![group]![1]] as const);
 }
 
 type ValueKind = "value" | "header" | "user";
 
-/** Replaces the value after each match the kind function accepts, scanning left to right. */
-function redactValuesAfter(
+/** The credential span of the value after each match the kind function accepts, scanning left to right. */
+function findValueSecrets(
   text: string,
   pattern: RegExp,
-  kindOf: (match: RegExpExecArray, valueStart: number, scanned: string) => ValueKind | null,
-): string {
-  let output = "";
+  kindOf: (match: RegExpExecArray, valueStart: number) => ValueKind | null,
+): SecretSpan[] {
+  const secrets: SecretSpan[] = [];
   let position = 0;
   for (;;) {
     pattern.lastIndex = position;
     const match = pattern.exec(text);
     if (match === null) {
-      break;
+      return secrets;
     }
     const valueStart = match.index + match[0].length;
-    const kind = kindOf(match, valueStart, text);
+    const kind = kindOf(match, valueStart);
     if (kind === null) {
-      output += text.slice(position, valueStart);
       position = valueStart;
       continue;
     }
     // A quote right before a name, with none after it, is the quote the value ends at.
     const hasOuterQuote = pattern === namedValuePattern && match[1] !== "" && match[3] === "";
     const valueEnd = findValueEnd(text, valueStart, kind === "header", hasOuterQuote ? match[1]! : "\u0000");
-    output += text.slice(position, valueStart) + redactValue(text.slice(valueStart, valueEnd), kind);
+    const secret = findSecretInValue(text, valueStart, valueEnd, kind);
+    if (secret !== null) {
+      secrets.push(secret);
+    }
     position = valueEnd;
   }
-  return output + text.slice(position);
 }
 
 /**
@@ -250,29 +339,25 @@ function findQuotedEnd(text: string, start: number): number {
   return Math.min(index < text.length && text[index] === quote ? index + 1 : index, text.length);
 }
 
-function redactValue(value: string, kind: ValueKind): string {
-  if (value === "") {
-    return value;
+/** The span of a value that holds the credential: inside its quotes, after a header's scheme, or after `user:`. */
+function findSecretInValue(text: string, start: number, end: number, kind: ValueKind): SecretSpan | null {
+  if (end <= start) {
+    return null;
   }
-  const quote = isQuote(value[0]) ? value[0]! : "";
-  const isClosed = quote !== "" && value.length >= 2 && value.endsWith(quote);
-  const inner = quote === "" ? value : value.slice(1, isClosed ? -1 : undefined);
-  const closing = isClosed ? quote : "";
+  const quote = isQuote(text[start]) ? text[start]! : "";
+  const isClosed = quote !== "" && end - start >= 2 && text[end - 1] === quote;
+  let innerStart = quote === "" ? start : start + 1;
+  const innerEnd = isClosed ? end - 1 : end;
+  const inner = text.slice(innerStart, innerEnd);
   if (kind === "user") {
     const separator = inner.indexOf(":");
-    if (separator < 0 || inner.slice(separator + 1) === redactedArgumentValue) {
-      return value;
-    }
-    return `${quote}${inner.slice(0, separator)}:${redactedArgumentValue}${closing}`;
+    innerStart = separator < 0 ? innerEnd : innerStart + separator + 1;
+  } else if (kind === "header" && quote === "") {
+    const scheme = authorizationSchemePattern.exec(inner);
+    innerStart += scheme === null ? 0 : scheme[0].length;
   }
-  if (inner === redactedArgumentValue) {
-    return value;
-  }
-  const scheme = kind === "header" && quote === "" ? authorizationSchemePattern.exec(inner) : null;
-  if (scheme !== null) {
-    return inner.slice(scheme[0].length) === redactedArgumentValue ? value : `${scheme[0]}${redactedArgumentValue}`;
-  }
-  return `${quote}${redactedArgumentValue}${closing}`;
+  const secret = text.slice(innerStart, innerEnd);
+  return secret === "" || secret === redactedArgumentValue ? null : [innerStart, innerEnd];
 }
 
 function isHeaderName(name: string): boolean {
@@ -282,12 +367,6 @@ function isHeaderName(name: string): boolean {
 
 function isQuote(character: string | undefined): boolean {
   return character === '"' || character === "'";
-}
-
-function decodeEscapeSequence(match: string, unicode: string | undefined, byte: string | undefined): string {
-  const code = Number.parseInt(unicode ?? byte ?? "", 16);
-  // A lone surrogate stays escaped, so the text stays valid Unicode.
-  return code >= 0xd800 && code <= 0xdfff ? match : String.fromCharCode(code);
 }
 
 /**

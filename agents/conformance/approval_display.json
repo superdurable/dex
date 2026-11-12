@@ -178,7 +178,7 @@
     },
     {
       "text": "{\"pass\\u0077ord\":\"topsecret\"}",
-      "redacted": "{\"password\":\"<redacted>\"}"
+      "redacted": "{\"pass\\u0077ord\":\"<redacted>\"}"
     },
     {
       "text": "token=\\x41\\x42",
@@ -230,7 +230,23 @@
     },
     {
       "text": "printf '\\x1b[31mred'",
-      "redacted": "printf '\u001b[31mred'"
+      "redacted": "printf '\\x1b[31mred'"
+    },
+    {
+      "text": "printf '\\x41'",
+      "redacted": "printf '\\x41'"
+    },
+    {
+      "text": "echo \"A\"",
+      "redacted": "echo \"A\""
+    },
+    {
+      "text": "{\\u0022password\\u0022:\\u0022topsecret\\u0022}",
+      "redacted": "{\\u0022password\\u0022:\\u0022<redacted>\\u0022}"
+    },
+    {
+      "text": "pass\\u0077ord=hunter2 ./run",
+      "redacted": "pass\\u0077ord=<redacted> ./run"
     }
   ],
   "connector_displays": [
@@ -508,6 +524,24 @@
         "command": "PASSWORD=abc<redacted>def ./run",
         "target": "/work/app",
         "summary": "Runs a shell command in /work/app: PASSWORD=<redacted> ./run"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "printf '\\x41'",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: printf '\\x41'"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "echo \"A\"",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: echo \"A\""
+      },
+      {
+        "workspace": "/work/app",
+        "command": "pass\\u0077ord=hunter2 ./run",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: pass\\u0077ord=<redacted> ./run"
       }
     ],
     "escaped_paths": [

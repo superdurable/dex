@@ -1289,8 +1289,10 @@ for interrupt in snapshot.pending_interrupts:
   (`is_credential_like_name`) shows `<redacted>`, and
   `redact_inline_credentials` replaces credentials written inline: the whole
   value after a credential-like name, `Authorization` and `Cookie` header
-  values, URL passwords, and common token shapes. It decodes `\uXXXX` and
-  `\xXX` escapes first. It is conservative, so a generic `key=value` is
+  values, URL passwords, and common token shapes. It reads `\uXXXX` and
+  `\xXX` escapes as the characters they stand for to find credentials, but
+  changes no other text: escapes stay as written, and only the characters of
+  each credential become `<redacted>`. It is conservative, so a generic `key=value` is
   redacted too, and the CLI leaves out a file preview whose text it changes.
   It finds common forms only; `agents/conformance/approval_display.json`
   lists the cases both cores share.
