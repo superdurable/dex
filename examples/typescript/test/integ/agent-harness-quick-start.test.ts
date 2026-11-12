@@ -25,20 +25,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
-import { readAgentSnapshot, sendAgentUserMessage, startAgentSession, type AgentSessionFlow } from "@superdurable/dex-agents";
+import { readAgentSnapshot, sendAgentUserMessage, startAgentSession } from "@superdurable/dex-agents";
 import { pollUntil } from "@superdurable/dex-agents/testing";
 
 import { OrderDesk } from "../../src/products/agent-harnesses/order-support/order-desk.js";
 import * as claudeAgentSdk from "../../src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.js";
 import * as mastra from "../../src/products/agent-harnesses/quick-start/mastra-quick-start.js";
 import * as openAIAgents from "../../src/products/agent-harnesses/quick-start/openai-agents-quick-start.js";
+import * as pi from "../../src/products/agent-harnesses/quick-start/pi-quick-start.js";
 import { askAgent } from "../../src/products/agent-harnesses/quick-start/quick-start-embed.js";
+import type { OrderSupportSessionFlow } from "../../src/products/agent-harnesses/order-support/order-support-routes.js";
 import { QuickStartApp, runTurn } from "../../src/products/agent-harnesses/quick-start/quick-start-session.js";
 import * as vercelAi from "../../src/products/agent-harnesses/quick-start/vercel-ai-quick-start.js";
 import { scriptedCancelReason, scriptedReplyPrefix } from "./agent-harnesses/order-support-script.js";
 import { createScriptedOrderSupportLanguageModel } from "./agent-harnesses/scripted-order-support-language-model.js";
 import { ScriptedOrderSupportMessagesApi } from "./agent-harnesses/scripted-order-support-messages-api.js";
 import { ScriptedOrderSupportOpenAIModel } from "./agent-harnesses/scripted-order-support-openai-model.js";
+import { createScriptedOrderSupportPiModel, scriptedPiApiKey } from "./agent-harnesses/scripted-order-support-pi-model.js";
 
 process.env.MASTRA_TELEMETRY_DISABLED = "1";
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
@@ -56,7 +59,7 @@ after(async () => {
   rmSync(stateDirectory, { recursive: true, force: true });
 });
 
-const frameworks: Record<string, (orderDesk: OrderDesk) => AgentSessionFlow> = {
+const frameworks: Record<string, (orderDesk: OrderDesk) => OrderSupportSessionFlow> = {
   "Claude Agent SDK": (orderDesk) =>
     claudeAgentSdk.buildDurableAgent(orderDesk, "claude-opus-5-5", {
       PATH: "/usr/bin:/bin",
@@ -72,6 +75,7 @@ const frameworks: Record<string, (orderDesk: OrderDesk) => AgentSessionFlow> = {
     }),
   Mastra: (orderDesk) => mastra.buildDurableAgent(orderDesk, createScriptedOrderSupportLanguageModel()),
   "OpenAI Agents SDK": (orderDesk) => openAIAgents.buildDurableAgent(orderDesk, new ScriptedOrderSupportOpenAIModel()),
+  Pi: (orderDesk) => pi.buildDurableAgent(orderDesk, createScriptedOrderSupportPiModel(messagesApi.baseUrl), scriptedPiApiKey),
   "Vercel AI SDK": (orderDesk) => vercelAi.buildDurableAgent(orderDesk, createScriptedOrderSupportLanguageModel()),
 };
 

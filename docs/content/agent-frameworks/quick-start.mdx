@@ -72,7 +72,7 @@ npm install
 npm run agent-quick-start -- claude-agent-sdk "Look up order 1001"
 ```
 
-You need Node.js 22 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+You need Node.js 22.19 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
 It prints the session ID and the agent's reply:
 
@@ -160,7 +160,7 @@ npm install
 npm run agent-quick-start -- mastra "Look up order 1001"
 ```
 
-You need Node.js 22 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+You need Node.js 22.19 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
 It prints the session ID and the agent's reply:
 
@@ -211,7 +211,7 @@ npm install
 npm run agent-quick-start -- openai-agents "Look up order 1001"
 ```
 
-You need Node.js 22 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+You need Node.js 22.19 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
 It prints the session ID and the agent's reply:
 
@@ -240,6 +240,34 @@ python agent.py "Cancel order 1002, it was a mistake"
 ```
 
 The program asks **Approve cancel_order? [y/N]** before the write runs. [agent.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-starter/agent.py) is the whole program.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- pi "Look up order 1001"
+```
+
+You need Node.js 22.19 or later, because pi-ai needs it. It calls a real model, so set your provider key first, such as `OPENAI_API_KEY`. `DEX_PI_MODEL` picks another pi-ai model, such as **anthropic/claude-opus-5-5**.
+
+It prints the session ID and the agent's reply:
+
+```text
+Session pi-quick-start-<8 hex digits>
+Agent: <the model's reply about order 1001>
+```
 
 </SdkSnippet>
 </SdkTabs>
@@ -288,7 +316,7 @@ npm install
 npm run agent-quick-start -- vercel-ai "Look up order 1001"
 ```
 
-You need Node.js 22 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+You need Node.js 22.19 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 
 It prints the session ID and the agent's reply:
 

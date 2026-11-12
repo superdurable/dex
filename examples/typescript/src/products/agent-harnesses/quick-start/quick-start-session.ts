@@ -22,8 +22,9 @@ import {
   sendAgentUserMessage,
   sessionFlowDefinitionDocument,
   type AgentInterrupt,
-  type AgentSessionFlow,
 } from "@superdurable/dex-agents";
+
+import type { OrderSupportSessionFlow } from "../order-support/order-support-routes.js";
 
 const pullRegistrationTimeoutMs = 30_000;
 const pollIntervalMs = 500;
@@ -35,13 +36,13 @@ export type ApprovalDecider = (interrupt: AgentInterrupt) => Promise<boolean>;
 /** One Registry, Worker, and Client for one durable agent, in this process. */
 export class QuickStartApp {
   private constructor(
-    public readonly flow: AgentSessionFlow,
+    public readonly flow: OrderSupportSessionFlow,
     public readonly client: Client,
     private readonly worker: Worker,
     private readonly blobCache: BlobCache,
   ) {}
 
-  public static async start(flow: AgentSessionFlow, serverAddress: string, blobCacheDir: string): Promise<QuickStartApp> {
+  public static async start(flow: OrderSupportSessionFlow, serverAddress: string, blobCacheDir: string): Promise<QuickStartApp> {
     const registry = new Registry([flow]);
     const blobCache = openBlobCache({ directory: blobCacheDir, maxBytes: 1 << 30 });
     const worker = new Worker(registry, blobCache, {

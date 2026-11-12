@@ -11,7 +11,7 @@ description: 每个 Agent 框架在 Dex 上怎样运行一个 turn、支持哪�
 
 ## 你的框架如何运行一个 turn {#how-each-framework-runs-a-turn}
 
-大多数适配器会在 tool 运行前让框架停下，因此每次 Tool Call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。需要审批的调用先在 `AwaitToolApproval` 中等待。下一个 `RunModel` 把记录下来的结果交给框架，因此没有 tool 会再次运行。一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。Claude Agent SDK 是例外：它在 `RunModel` 内部运行读操作。
+大多数适配器会在 tool 运行前让框架停下，因此每次 Tool Call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。需要审批的调用先在 `AwaitToolApproval` 中等待。下一个 `RunModel` 把记录下来的结果交给框架，因此没有 tool 会再次运行。一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。Claude Agent SDK 是例外：它在 `RunModel` 内部运行读操作。使用 Pi 时，Agent Loop 由 Dex 自己运行，所以每次 Pi Tool Call 都在自己的 Step 中运行。
 
 下面的标签页展示每个框架如何被暂停和恢复，以及各框架的不同之处。
 
@@ -101,6 +101,27 @@ OpenAI Agents SDK 用 instructions、function tool 和 handoff 定义 Agent。De
 与 function tool 不同，handoff 在 `RunModel` 内运行，因此执行 handoff 的 Step 也会进行下一个 Agent 的模型调用。
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+Pi 是一个用于 Agent 的 TypeScript 工具包。它的 **pi-ai** 包调用多家 provider 的模型，它的 agent core 定义 tool。Dex 的包在持久化 Session 中运行 Pi Agent 的模型和 tool。它支持 TypeScript。
+
+**何时使用**
+
+你的 Agent 已经在用 pi-ai 模型和 Pi tool 时使用它。保留模型和 tool，由 Dex 负责 Session 和 Agent Loop。
+
+把 Agent 从 **pi-durable**（Pi 的一个持久化 harness）迁移到 Dex 时，也使用它。Dex 替代的是 pi-durable，而不是 Pi。你的 pi-ai 模型和大部分 Pi tool 可以直接沿用。harness 的入口代码需要改写：`Harness.open`、根对话、`submit` 和 `wait` 变成 Session Flow、Worker 和 Client 调用。pi-durable API 的兼容层在 [issue 1571](https://github.com/superdurable/dex/issues/1571) 中跟踪。
+
+**Session 如何运行**
+
+运行 Agent Loop 的是 Dex，而不是 Pi。Session Flow 就是[内置 Agent Loop](/agent-frameworks/built-in-agent-loop)：`createBuiltinAgentSessionFlow`，模型客户端来自 `createPiAiModelClient`，tool 来自 `piAgentFunctionTool`。Pi 的 `Agent` 和 `agentLoop` 不会被使用。
+
+每个 `RunModel` Step 发出一次 pi-ai 请求。pi-ai 自己的重试是关闭的，所以每次重试都是一次新的 `RunModel` 尝试。Bedrock 是例外，见[限制](#limits)。
+
+每次 Pi Tool Call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。没有显式的 `effect` 时，由 tool 的 `replay` 字段决定：`safe` 是幂等写操作，`never` 是非幂等写操作。
+
+一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。Session 把每个模型回复存成 pi-ai message，因此一个 Session 可以在两个 turn 之间更换模型。
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 Pydantic AI 用 tool、dependency 和 output type 定义有类型的 Agent。Dex 适配器在持久化 Session 内运行 Pydantic AI Agent。它支持 Python。
@@ -137,7 +158,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 
 有些 Session 功能取决于 harness：
 
-| 功能 | 框架适配器 | 内置 Agent Loop |
+| 功能 | 框架适配器 | 内置 Agent Loop 和 Pi |
 | --- | --- | --- |
 | 排队消息、**Steer** 和 `cancel_turn` | 是 | 是 |
 | Dex 对旧 message 的 compaction | 是，Claude Agent SDK 除外 | 是 |
@@ -221,6 +242,19 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 - Function tool 的名称在整个 Agent graph 中必须唯一。Graph 在构建 Flow 时被复制，因此之后对它的修改不会影响 Flow。
 - Session 本身就是 history。不要使用 server 管理的 conversation state 或 SDK session。用 `send_user_message` 发送每条新消息，Session 会把之前的 turn 交给 Agent。
 - 在 Python 中，作为 tool 使用的 Agent 会在一个 tool Step 内运行它的嵌套 run。TypeScript 会拒绝这种用法；请改用 handoff。
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+- Dex 并行运行同一个模型回复中的 Tool Call，所以带 `executionMode: "sequential"` 的 tool 会被拒绝。让这个 tool 可以并行运行，或者把这些调用合并到一个 tool 中。
+- Dex 忽略 `AgentToolResult.terminate`，Pi 的 `finishTurn` 也不会运行。要在 tool 之后结束或继续一个 turn，使用 Agent 定义的 `decideTurnContinuation` hook。
+- Pi 的 `beforeToolCall` 和 `afterToolCall` hook 不会运行。审批由 tool policy 决定，tool 自己修改自己的结果。
+- Session 压缩旧消息，取代 Pi 的 `transformContext`。要修改单次请求，使用 `createPiAiModelClient` 的 `prepareRequest` 选项。
+- pi-ai 的 tool choice 只有 **auto** 或 **none**，所以强制调用某个 tool 的请求会失败。让 `planningToolChoice` 保持 **auto**。
+- 模型看到 tool 结果中的文本。只有 Session Flow 配有 media store 时，模型才能看到结果中的图片；否则每张图片都变成一段文本说明。结果的 **details** 不会被保存。
+- pi-durable 的 `defineTool` tool 只有在不使用 **api**、也不返回 **control** 时，才能通过 `piDurableFunctionTool` 运行。把这样的 tool 改写成 Pi `AgentTool`。
+- 把 pi-durable Extension 的 tool 和 prompt 移到 Agent 定义中。Extension 和 fork 不受支持。
+- 使用 Bedrock（`bedrock-converse-stream`）时，AWS SDK 会在一次 `RunModel` 尝试内部重试，因为 pi-ai 在这里忽略自己的重试设置。一次尝试默认最多发出 3 个请求，Dex 的 `RunModel` 重试会让请求数成倍增加。结果仍然正确，因为模型调用没有副作用。要让每次尝试只发出一个请求，在 Worker 的 AWS 配置中设置 `AWS_MAX_ATTEMPTS=1` 或 profile 的 `max_attempts`。
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">

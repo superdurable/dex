@@ -383,6 +383,58 @@ export function createOpenAIAgentsOrderSupportFlow(
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+Flow type 是 `PiOrderSupportAgent`。完整示例位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。
+
+tool 是 Pi `AgentTool` 对象。`piAgentFunctionTool` 把每个 tool 变成内置 Agent Loop 的 tool，`createPiAiModelClient` 把 pi-ai 模型变成 Session 的模型客户端。`cancel_order` 声明了 `replay: "never"`，所以它是非幂等写操作。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/pi/pi-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createPiOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: Model<Api>,
+  slack: Connection | undefined,
+  apiKey?: string,
+): OrderSupportSessionFlow {
+  const lookUpOrder: AgentTool<typeof lookUpOrderArguments> = {
+    name: "look_up_order",
+    label: "Look up order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: lookUpOrderArguments,
+    execute: async (_toolCallId, { order_id }) => textResult(await orderDesk.describeOrder(order_id)),
+  };
+  const cancelOrder: AgentTool<typeof cancelOrderArguments> = {
+    name: "cancel_order",
+    label: "Cancel order",
+    description: "Cancel one order that has not shipped yet.",
+    parameters: cancelOrderArguments,
+    // Not safe to repeat, so Dex asks for approval first and runs it at most once.
+    replay: "never",
+    execute: async (_toolCallId, { order_id, reason }) => textResult(await orderDesk.cancelOrder(order_id, reason)),
+  };
+  return createBuiltinAgentSessionFlow(
+    {
+      name: "order-support",
+      instructions: orderSupportInstructions,
+      model: createPiAiModelClient(model, { apiKey }),
+      tools: [piAgentFunctionTool(lookUpOrder, { effect: "read" }), piAgentFunctionTool(cancelOrder)],
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    piOrderSupportFlowType,
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 Flow type 是 `PydanticAIOrderSupport`。完整示例位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。
@@ -541,8 +593,8 @@ def _new_claude_agent_sdk_example(
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
 // ...
-// One order desk for the four agent harness examples; each harness registers its own session Flow type.
-const orderDesk = new OrderDesk();
+// One order desk for the five agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk(Number(environmentOr("DEX_ORDER_DESK_TOOL_DELAY_SECONDS", "0")) * 1000);
 // ...
 const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
   ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment(), slack)
@@ -619,8 +671,8 @@ def _langchain_model(model: str) -> str | BaseChatModel:
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
 // ...
-// One order desk for the four agent harness examples; each harness registers its own session Flow type.
-const orderDesk = new OrderDesk();
+// One order desk for the five agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk(Number(environmentOr("DEX_ORDER_DESK_TOOL_DELAY_SECONDS", "0")) * 1000);
 // ...
 const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel(), slack);
 ```
@@ -660,10 +712,32 @@ def _openai_agents_model(model: str) -> str | Model:
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
 // ...
-// One order desk for the four agent harness examples; each harness registers its own session Flow type.
-const orderDesk = new OrderDesk();
+// One order desk for the five agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk(Number(environmentOr("DEX_ORDER_DESK_TOOL_DELAY_SECONDS", "0")) * 1000);
 // ...
 const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel(), slack);
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
+// One order desk for the five agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk(Number(environmentOr("DEX_ORDER_DESK_TOOL_DELAY_SECONDS", "0")) * 1000);
+// ...
+const piOrderSupportFlow = createPiOrderSupportFlow(orderDesk, loadPiOrderSupportModel(), slack);
 ```
 
 </SdkSnippet>
@@ -709,8 +783,8 @@ def _pydantic_ai_model(model: str) -> str | PydanticAIModel:
 // One Slack connection for the agent examples; without it they offer no Slack tools.
 const slack = await openSlackConnectionFromProject();
 // ...
-// One order desk for the four agent harness examples; each harness registers its own session Flow type.
-const orderDesk = new OrderDesk();
+// One order desk for the five agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk(Number(environmentOr("DEX_ORDER_DESK_TOOL_DELAY_SECONDS", "0")) * 1000);
 // ...
 const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel(), slack);
 ```
@@ -1035,6 +1109,43 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 ```
 
 </SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 Session token。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
 <SdkSnippet lang="typescript">
 
 ```typescript
@@ -1452,6 +1563,55 @@ Python 应用监听 **127.0.0.1:8081**，TypeScript 应用监听 **127.0.0.1:808
 | `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。 |
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+mkdir -p definitions
+npx dex-agents-session-graph --flow-type PiOrderSupportAgent \
+  --permission order-support.operate --out definitions/pi.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** 会一直在前台运行。在第二个终端里启动示例：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+OPENAI_API_KEY=... npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+应用监听 **127.0.0.1:8080**。Dex Web 位于 `http://127.0.0.1:8802`。
+
+这个示例需要真实模型和 Node.js 22.19 或更高版本。pi-ai 从 Worker 的环境中读取 provider key，默认模型读取 `OPENAI_API_KEY`。
+
+| 变量 | 默认值 | 含义 |
+| --- | --- | --- |
+| `DEX_PI_MODEL` | **openai/gpt-5-mini** | pi-ai 内置目录中的 `<provider>/<model ID>`。 |
+| `OPENAI_API_KEY` | 无；默认模型必填 | pi-ai 读取的 provider key。其他 provider 读取各自的变量，例如 `ANTHROPIC_API_KEY`。 |
+| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。 |
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
@@ -1715,6 +1875,33 @@ curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
 
 ```bash
 base=http://127.0.0.1:8080/products/agent-harnesses/openai-agents
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
+  -d '{"message": "Please cancel order 1002"}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+循环会一直读取 snapshot，直到 Agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 Agent 的回答。
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+启动一个 Session，让 Agent 取消订单 1002，然后批准这次调用：
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+base=http://127.0.0.1:8080/products/agent-harnesses/pi
 session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
   -d '{"message": "Please cancel order 1002"}')
 id=$(echo "$session" | jq -r .session_id)

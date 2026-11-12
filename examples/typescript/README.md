@@ -3,9 +3,9 @@
 These examples target [`@superdurable/dex@1.38.0`](https://www.npmjs.com/package/@superdurable/dex).
 
 The [AI Agent](./src/products/ai-agent) also depends on the Dex Agents library,
-[`@superdurable/dex-agents@0.4.0`](https://www.npmjs.com/package/@superdurable/dex-agents),
+[`@superdurable/dex-agents@0.5.0`](https://www.npmjs.com/package/@superdurable/dex-agents),
 installed from npm. The [agent harness examples](./src/products/agent-harnesses) add its adapters for
-the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, and Mastra, also 0.4.0. Both offer
+the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, Mastra, and Pi, also 0.5.0. Both offer
 the Slack Connector as an agent tool through [`@superdurable/connector-slack@0.2.0`](https://www.npmjs.com/package/@superdurable/connector-slack)
 and [`@superdurable/connectors-sdk@0.9.0`](https://www.npmjs.com/package/@superdurable/connectors-sdk).
 
@@ -61,7 +61,7 @@ Use a fresh local store and a new port after changing an example's index schema.
 Application searches must constrain `FlowType` and parenthesize caller filters.
 The sample search endpoints enforce their Flow type.
 
-Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
+Use Node.js 22.19 or later, or Node.js 24; pi-ai needs 22.19. Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
 
 Workers always use pull task streams, one per execution slot. Startup waits for

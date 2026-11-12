@@ -30,7 +30,14 @@ npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/
 npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
 npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
 npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
+npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
 ```
+
+Since 0.5.0, the Pi package, **@superdurable/dex-agents-pi**, runs Pi agents on
+the built-in agent loop. It peer-depends on **@earendil-works/pi-ai**, which
+needs Node 22.19 or later. It reads Pi tools through structural types, so it
+does not depend on **@earendil-works/pi-agent-core** or
+**@earendil-works/pi-durable**. Install them when your tools use them.
 
 ## The core only {#core-only}
 

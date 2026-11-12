@@ -350,6 +350,55 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: string | Model): 
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+tool 是 Pi `AgentTool` 对象。普通 Agent 由 Pi 的 `Agent` 运行。持久化 Agent 保留模型和 tool，由 Dex 运行 Agent Loop。
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/pi-quick-start.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the agent as Pi alone writes it. Pi's Agent runs the loop in this process. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: Model<Api>): Agent {
+  const { lookUpOrder, cancelOrder } = buildOrderTools(orderDesk);
+  return new Agent({
+    initialState: { systemPrompt: orderSupportInstructions, model, tools: [lookUpOrder, cancelOrder] },
+    streamFn: streamSimple,
+  });
+}
+
+/**
+ * Returns the same agent as a durable Dex agent session: the same model and tools, plus tool effects.
+ * Without apiKey, pi-ai reads the provider's key from the environment.
+ */
+export function buildDurableAgent(
+  orderDesk: OrderDesk,
+  model: Model<Api>,
+  apiKey?: string,
+): AgentSessionFlow<BuiltinLoopAgentRunner> {
+  const { lookUpOrder, cancelOrder } = buildOrderTools(orderDesk);
+  return createBuiltinAgentSessionFlow(
+    {
+      name: "order-support",
+      instructions: orderSupportInstructions,
+      model: createPiAiModelClient(model, { apiKey }),
+      tools: [
+        piAgentFunctionTool(lookUpOrder, { effect: "read" }),
+        piAgentFunctionTool(cancelOrder, { effect: "non_idempotent_write" }),
+      ],
+    },
+    "PiQuickStart",
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 <SdkTabs
@@ -538,6 +587,25 @@ npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdura
 </SdkTabs>
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+<SdkTabs
+  examples={{
+    typescript: 'agents/typescript/pi',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm i @superdurable/dex-agents-pi @superdurable/dex-agents @superdurable/dex @earendil-works/pi-ai
+npm i @earendil-works/pi-agent-core @earendil-works/pi-schema
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+第二行安装 Pi 的 agent core（提供 `AgentTool` 类型）和 pi-schema（提供带类型的参数）。你的 tool 用到它们时才需要安装。pi-ai 需要 Node.js 22.19 或更高版本。
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 <SdkTabs
@@ -578,7 +646,7 @@ Agent 快速开始程序每种语言有三个文件。除了示例自带的 orde
 
 | 文件 | Python | TypeScript |
 | --- | --- | --- |
-| 你的 Agent 模块，包含普通版和持久化版，以及全部 import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
+| 你的 Agent 模块，包含普通版和持久化版，以及全部 import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [pi](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/pi-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
 | Runner：Registry、Worker、Client，以及一个带审批的 turn | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) |
 | 在命令行提示中请求审批的入口 | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) |
 
@@ -738,6 +806,11 @@ Handler 把消息排入 Session 的队列，然后返回。
 <FrameworkTab framework="openai-agents-sdk">
 
 它代替了原来等待回复的 `Runner.run` 调用。
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+它代替了原来等待回复的 `agent.prompt` 调用。
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">

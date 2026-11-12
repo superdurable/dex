@@ -11,7 +11,7 @@ Every agent framework runs on the same session Flow through its own adapter. Pic
 
 ## How your framework runs a turn {#how-each-framework-runs-a-turn}
 
-Most adapters stop the framework before a tool runs, so each tool call runs in its own Step, in parallel: `CallTool` for a read or an idempotent write, `CallSingleAttemptTool` for any other write. A call that needs approval waits in `AwaitToolApproval` first. The next `RunModel` gives the framework the recorded results, so no tool runs again. A turn that looks up an order runs `RunModel`, `CallTool`, `ResumeTurn`, and `RunModel`. The Claude Agent SDK is the exception: it runs reads inside `RunModel`.
+Most adapters stop the framework before a tool runs, so each tool call runs in its own Step, in parallel: `CallTool` for a read or an idempotent write, `CallSingleAttemptTool` for any other write. A call that needs approval waits in `AwaitToolApproval` first. The next `RunModel` gives the framework the recorded results, so no tool runs again. A turn that looks up an order runs `RunModel`, `CallTool`, `ResumeTurn`, and `RunModel`. The Claude Agent SDK is the exception: it runs reads inside `RunModel`. With Pi, Dex runs the loop itself, so every Pi tool call runs in its own Step.
 
 The tabs show how each framework is stopped and resumed, and where a framework differs.
 
@@ -101,6 +101,27 @@ Each function tool call runs in its own Step. The next `RunModel` restores the S
 A handoff runs inside `RunModel`, unlike a function tool, so a Step that hands off also makes the next agent's model call.
 
 </FrameworkTab>
+<FrameworkTab framework="pi">
+
+Pi is a TypeScript toolkit for agents. Its **pi-ai** package calls models from many providers, and its agent core defines tools. The Dex package runs a Pi agent's models and tools in a durable session. It is available for TypeScript.
+
+**When to use it**
+
+Use it when your agent already uses pi-ai models and Pi tools. Keep the models and the tools, and let Dex own the session and the loop.
+
+Use it also when you move an agent from **pi-durable**, a durable harness for Pi, to Dex. Dex replaces pi-durable, not Pi. Your pi-ai models and most of your Pi tools carry over. The harness entry code changes: `Harness.open`, the root conversation, `submit`, and `wait` become a session Flow, a Worker, and Client calls. A compatibility layer for the pi-durable API is tracked in [issue 1571](https://github.com/superdurable/dex/issues/1571).
+
+**How a session runs**
+
+Dex runs the agent loop, not Pi. The session Flow is the [built-in agent loop](/agent-frameworks/built-in-agent-loop): `createBuiltinAgentSessionFlow`, with a model client from `createPiAiModelClient` and tools from `piAgentFunctionTool`. Pi's `Agent` and `agentLoop` are not used.
+
+Each `RunModel` Step makes one pi-ai request. pi-ai's own retries are off, so a retry is a new `RunModel` attempt. Bedrock is the exception; see [Limits](#limits).
+
+Each Pi tool call runs in its own Step, in parallel: `CallTool` for a read or an idempotent write, `CallSingleAttemptTool` for any other write. Without an explicit `effect`, the tool's `replay` field picks it: `safe` is an idempotent write, and `never` is a non-idempotent write.
+
+A turn that looks up an order runs `RunModel`, `CallTool`, `ResumeTurn`, and `RunModel`. The session stores each model response as a pi-ai message, so a session can change its model between turns.
+
+</FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
 Pydantic AI defines a typed agent with tools, dependencies, and output types. The Dex adapter runs a Pydantic AI agent inside a durable session. It is available for Python.
@@ -137,7 +158,7 @@ Each tool call runs the tool's original **execute** in its own Step. The next `R
 
 Some session features depend on the harness:
 
-| Feature | Framework adapters | Built-in agent loop |
+| Feature | Framework adapters | Built-in agent loop and Pi |
 | --- | --- | --- |
 | Queued messages, **Steer**, and `cancel_turn` | Yes | Yes |
 | Dex compaction of old messages | Yes, except the Claude Agent SDK | Yes |
@@ -221,6 +242,19 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 - Function tool names must be unique across the agent graph. The graph is copied when the Flow is built, so later changes to it do not reach the Flow.
 - The session is the history. Do not use server-managed conversation state or SDK sessions. Send each new message with `send_user_message`, and the session gives the agent the earlier turns.
 - An agent used as a tool runs its nested run inside one tool Step in Python. TypeScript rejects it; hand off instead.
+
+</FrameworkTab>
+<FrameworkTab framework="pi">
+
+- Dex runs the tool calls of one model response in parallel, so a tool with `executionMode: "sequential"` is rejected. Make the tool safe to run in parallel, or combine the calls into one tool.
+- Dex ignores `AgentToolResult.terminate`, and Pi's `finishTurn` does not run. To end or continue a turn after tools, use the `decideTurnContinuation` hook of the agent definition.
+- Pi's `beforeToolCall` and `afterToolCall` hooks do not run. Tool policies decide approval, and a tool changes its own result.
+- The session compacts old messages in place of Pi's `transformContext`. To change one request, use the `prepareRequest` option of `createPiAiModelClient`.
+- pi-ai's tool choice is **auto** or **none**, so a request that forces a tool fails. Keep `planningToolChoice` at **auto**.
+- The model sees the text of a tool result. It sees the result's images only when the session Flow has a media store; otherwise each image becomes a text note. The result's **details** are not stored.
+- A pi-durable `defineTool` tool runs through `piDurableFunctionTool` only when it does not use **api** and returns no **control**. Rewrite such a tool as a Pi `AgentTool`.
+- Move the tools and prompt of a pi-durable Extension into the agent definition. Extensions and fork are not supported.
+- With Bedrock (`bedrock-converse-stream`), the AWS SDK retries inside one `RunModel` attempt, because pi-ai ignores its own retry setting there. One attempt may send up to 3 requests by default, and Dex's `RunModel` retries multiply them. Results stay correct, because a model call has no side effects. To keep one request per attempt, set `AWS_MAX_ATTEMPTS=1` or a profile's `max_attempts` in the Worker's AWS configuration.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
