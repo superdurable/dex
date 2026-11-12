@@ -54,7 +54,7 @@ The inner store must create atomically and list consistently right after each wr
 
 The shared conformance suite exercises the in-memory implementation and an in-process s3local in strict, process-crash-safe, and relaxed durability modes. It needs no cloud credentials or external service.
 
-`aliyun_oss_conformance` and `aliyun_oss_versioned_cas` run `AliyunOssObjectStore` over an in-memory store that rejects `ReplaceIfEtagMatches`. They cover racing writers, stale writers after reclamation, superseded writers, injected faults, tombstones, and probe removal. The racing histories are checked for one winner per generation and real-time order.
+`aliyun_oss_conformance` and `aliyun_oss_versioned_cas` run `AliyunOssObjectStore` over an in-memory store that rejects `ReplaceIfEtagMatches`. They cover racing writers, stale writers after reclamation and resurrection, superseded writers, injected faults, tombstones, probe removal, and Flow definition keys. The racing histories must fit a sequential compare-and-swap order in real time. One conformance test also runs the adapter over `S3ObjectStore` against s3local's Aliyun OSS dialect, with content and opaque ETags.
 
 ## db9 SQL provider
 

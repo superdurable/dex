@@ -25,9 +25,11 @@ use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, ByteRange, InMemoryObjectStore, InMemoryObjectStoreOptions,
     InstrumentedObjectStore, MANIFEST_OBJECT_KEY, MUTABLE_OBJECT_KEY_PREFIXES, MUTABLE_OBJECT_KEYS,
-    ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome, is_mutable_object_key,
+    ObjectStore, ObjectStoreErrorKind, S3ApiDialect, S3Credentials, S3ObjectStore,
+    S3ObjectStoreConfig, WriteCondition, WriteOutcome, is_mutable_object_key,
     node_lease_object_key, startup_self_check,
 };
+use s3local::{Durability, EtagMode, Store, StoreConfig};
 
 use create_only_store::{CreateOnlyStore, etag_generation, version_key};
 
@@ -664,4 +666,146 @@ fn mutable_object_keys_never_contain_the_version_separator() {
     assert!(is_mutable_object_key(
         "registry/flow-definitions/7/types/Order_Flow-v1.2"
     ));
+}
+
+/// Starts s3local in its Aliyun OSS dialect and returns the S3 store that speaks to it.
+async fn start_aliyun_oss_emulator(
+    directory: &std::path::Path,
+    etag_mode: EtagMode,
+) -> (s3local_server::ServerHandle, S3ObjectStore) {
+    let emulated = Store::open(&StoreConfig {
+        root_directory: directory.to_path_buf(),
+        durability: Durability::Relaxed,
+        etag_mode,
+    })
+    .expect("the emulator store opens");
+    emulated
+        .create_bucket("versioned-cas", false)
+        .expect("the emulator bucket is created");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the emulator binds");
+    let server = s3local_server::start_with_config(
+        Arc::new(emulated),
+        listener,
+        s3local_server::ServerConfig {
+            api_dialect: s3local_server::S3ApiDialect::AliyunOss,
+            ..s3local_server::ServerConfig::default()
+        },
+    )
+    .expect("the emulator starts");
+    let mut config = S3ObjectStoreConfig::new("us-east-1", "versioned-cas");
+    config.endpoint = Some(format!("http://{}", server.local_address()));
+    config.key_prefix = "dexzd/versioned".to_owned();
+    config.force_path_style = true;
+    config.credentials = S3Credentials::Static {
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
+        session_token: None,
+    };
+    config.multipart_threshold = 5 * 1024 * 1024;
+    config.multipart_part_size = 5 * 1024 * 1024;
+    config.api_dialect = S3ApiDialect::AliyunOss;
+    let object_store = S3ObjectStore::new(config)
+        .await
+        .expect("the Aliyun OSS dialect store is configured");
+    (server, object_store)
+}
+
+#[tokio::test]
+async fn the_adapter_keeps_its_guarantees_over_the_s3_aliyun_oss_dialect() {
+    for etag_mode in [EtagMode::Md5, EtagMode::Opaque] {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let (server, s3_store) = start_aliyun_oss_emulator(directory.path(), etag_mode).await;
+        let inner: Arc<dyn ObjectStore> = Arc::new(s3_store);
+        let store = AliyunOssObjectStore::new(Arc::clone(&inner));
+        for key in MUTABLE_KEYS {
+            check_mutable_key(&store, key).await;
+        }
+        // Six MiB exceeds the multipart threshold, so these versions are multipart objects.
+        let large = Bytes::from(vec![42; 6 * 1024 * 1024]);
+        let WriteOutcome::Written { etag } = store
+            .put(
+                MANIFEST_OBJECT_KEY,
+                large.clone(),
+                WriteCondition::CreateOnly,
+            )
+            .await
+            .expect("a large create")
+        else {
+            panic!("a large create after a delete must succeed");
+        };
+        let larger = Bytes::from(vec![7; 6 * 1024 * 1024 + 1]);
+        let replaced = store
+            .put(
+                MANIFEST_OBJECT_KEY,
+                larger.clone(),
+                WriteCondition::ReplaceIfEtagMatches { etag: etag.clone() },
+            )
+            .await
+            .expect("a large replacement");
+        assert!(matches!(replaced, WriteOutcome::Written { .. }));
+        assert_eq!(
+            store
+                .put(
+                    MANIFEST_OBJECT_KEY,
+                    large,
+                    WriteCondition::ReplaceIfEtagMatches { etag }
+                )
+                .await
+                .expect("a stale replacement"),
+            WriteOutcome::PreconditionFailed
+        );
+        assert_eq!(
+            store
+                .get(MANIFEST_OBJECT_KEY)
+                .await
+                .expect("get")
+                .expect("exists")
+                .bytes,
+            larger
+        );
+        // Bound reads rely on listing, whole reads, and range reads naming one object alike.
+        let listed = inner
+            .list("manifest.v/", None, 1)
+            .await
+            .expect("list")
+            .objects
+            .remove(0);
+        let whole = inner.get(&listed.key).await.expect("get").expect("exists");
+        let header = inner
+            .get_range(
+                &listed.key,
+                ByteRange {
+                    start: 0,
+                    end_inclusive: 37,
+                },
+            )
+            .await
+            .expect("get_range")
+            .expect("exists");
+        assert_eq!(listed.etag, whole.etag, "{etag_mode:?}");
+        assert_eq!(listed.etag, header.etag, "{etag_mode:?}");
+        assert_eq!(listed.size, whole.object_size);
+        assert_eq!(listed.size, header.object_size);
+        startup_self_check(&store)
+            .await
+            .expect("the startup self check passes through the adapter");
+        assert_eq!(
+            store
+                .remove_stale_startup_probes()
+                .await
+                .expect("the probe sweep reads store time"),
+            0
+        );
+        assert!(
+            inner
+                .list("probe/", None, 10)
+                .await
+                .expect("list")
+                .objects
+                .is_empty()
+        );
+        server.shutdown().await;
+    }
 }
