@@ -24,7 +24,7 @@ The mock API prints each call, so the Worker's output shows which Steps ran. You
 ## Before you start
 
 - macOS or Linux. **dexcli** does not run on Windows.
-- **dexcli**, installed in step 1.
+- **dexcli**: install it with **brew install superdurable/tap/dexcli**, or see [Run Locally](/components/run-locally) to install it without Homebrew.
 - The toolchain for your language: Python 3.11 or later with uv, Go 1.24 or later, JDK 17 or later, Node.js 22.18 or later, or Rust 1.97 or later.
 - Git, to get the example code.
 
@@ -43,7 +43,11 @@ dexcli dev
 Dex development environment is ready
 
 Dex Web:       http://127.0.0.1:8802
+Connectors MCP: http://127.0.0.1:8802/mcp
 Dex Server:    127.0.0.1:8801
+State dir:     /Users/you/.dex/zd/8801
+
+Press Ctrl+C to stop.
 ```
 
 Keep it running. Log lines from the server scroll above this block.
@@ -116,7 +120,7 @@ The code is already in the folder you cloned. This step and the next one walk th
 
 A Flow is a process that Dex runs to completion. Each Step is one unit of work in it. Dex saves the result of each Step, so a Step that finished does not run again.
 
-**Charge** calls the payment API and moves to **Ship**. **Ship** waits on a Timer, 30 seconds by default, then calls the shipping API. Each call passes an idempotency key, which the next steps explain. The mock API comes in through the constructor.
+**Charge** calls the payment API and moves to **Ship**. **Ship** waits on a Timer, 30 seconds by default, then calls the shipping API. Each call passes an idempotency key, which step 6 shows at work. The mock API comes in through the constructor.
 
 <SdkTabs
   examples={{
@@ -424,7 +428,9 @@ impl Flow for OrderFlow {
 </SdkSnippet>
 </SdkTabs>
 
-The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker. Its **condition_id**, **ship-delay**, names the Timer so that a test or an operator can skip it.
+The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker. Its **condition_id**, **ship-delay**, names the Timer, so a test or an operator can end the wait early with **skip-timer** instead of waiting it out.
+
+**graceful_complete** (**GracefulComplete** in the other SDKs) ends the Flow successfully once no other Step is running, and returns the Flow's result.
 
 A decision names the next Step by its type. Python, Java, and TypeScript pass the class. Go passes an empty **Ship** struct value, and Rust passes a **Ship** value.
 
@@ -437,6 +443,8 @@ Both programs build the same Flow and register it. So a web service that starts 
 :::note Details
 
 Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains the other choice.
+
+In Python, Steps can also be **async def** methods. Run them with **AsyncWorker** and a Registry created with **allow_async_handlers=True**; [Python Workers](/reference/python/workers) shows the setup.
 
 The Client uses the registered Flow to name its type and encode the input, so its copy of the mock API is never called. The SDK Clients have no call that starts a Flow by its type name alone; **dexcli flow start -flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache), which keeps copies of large values.
 
@@ -722,7 +730,7 @@ The order ID is also the Flow ID. Dex runs one Flow for each ID.
 
 ## 4. Start a Flow
 
-Start the Worker in the second terminal, in the example folder:
+Start the Worker in the second terminal, in the example folder. On a slow machine, put **QUICK_START_SHIP_DELAY_SECONDS=60** in front of the command, so step 5 has a 60-second window instead of 30:
 
 <SdkTabs>
 <SdkSnippet lang="python">
@@ -822,7 +830,7 @@ Charged order-1a2b3c4d with key charge-order-1a2b3c4d
 
 ## 5. Stop the Worker
 
-Within 30 seconds, press Ctrl+C in the Worker's terminal. Then start the Worker again with the same command. If you need more time, start the Worker in step 4 with **QUICK_START_SHIP_DELAY_SECONDS=60** in front of its command.
+Within 30 seconds, press Ctrl+C in the Worker's terminal. Then start the Worker again with the same command. If you miss the window, restart the Worker with **QUICK_START_SHIP_DELAY_SECONDS=60** in front of its command, and start a new Flow.
 
 When the Timer fires, the new Worker prints the shipment:
 
@@ -838,7 +846,7 @@ It does not print **Charged** again. Dex had saved the result of Charge, so only
 - **The Worker does not print "Worker is ready".** Check that **dexcli dev** is still running and printed "Dex development environment is ready".
 - **Dex runs on another address.** Set **DEX_FLOW_SERVICE_ADDRESS**, such as **127.0.0.1:8801**, in both the Worker's and the start command's terminal.
 - **The start command fails.** Run it from the example folder, after the install command in step 1.
-- **Ship ran before you stopped the Worker.** You missed the 30-second window. Start another Flow and stop the Worker sooner, or start the Worker with **QUICK_START_SHIP_DELAY_SECONDS=60**.
+- **Ship ran before you stopped the Worker.** You missed the 30-second window. Restart the Worker with **QUICK_START_SHIP_DELAY_SECONDS=60** and start a new Flow.
 - **The Worker keeps running after Ctrl+C.** It finishes the running Step first. To stop it at once, use **kill -9** with its process number.
 
 ## 6. Stop the Worker inside a Step

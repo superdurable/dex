@@ -1,20 +1,40 @@
 ---
-title: Get Started
+title: 开始使用
 sidebar_label: Get Started
 slug: /get-started
+description: 按目标选一个起点。每条路径都写明需要多长时间，以及最后你会得到什么。
 ---
 
 # 开始使用
 
-Dex 让一个流程在崩溃、重启和长时间等待之后继续运行。你用普通代码把流程写成由 Step 组成的 Flow。Dex 记录每个 Step 的结果，所以出错之后，Flow 从最后一个记录下来的 Step 继续。
+按你的目标选一条路径。每一行写明需要多长时间，以及最后你会得到什么。
 
-## 从哪里开始
+## 按目标选路径
 
-- **10 分钟试一试。** [Quick Start](/quick-start) 运行一个 Flow，在等待中途停掉 Worker，再看 Dex 让它继续。
-- **让 coding agent 来写。** [使用 AI 构建](/build-with-ai/dex-developer-skill) 安装 Dex Skills，让 agent 写出正确的 Dex 代码。
-- **让已有的 agent 变成 durable。** [Agent Quick Start](/agent-frameworks/quick-start) 把你用框架写的 agent 跑成 durable session。
-- **先理解模型。** [概念](/concepts) 介绍 Flow、Step 和六个 Primitive。
+| 你的目标 | 从这里开始 | 时间 | 最后你会得到 |
+| --- | --- | --- | --- |
+| 修复一个中途失败的流程 | [修复中途失败的流程](#fix-a-process) | 大约 45 分钟 | 一次你停掉又重启过的运行、完整的订单示例，以及一份迁移你自己流程的检查清单。 |
+| 看 Dex 跑起来 | [Quick Start](/quick-start) | 大约 10 分钟 | 在你的机器上，一个 Flow 在 Worker 停掉后继续完成，并且没有重复扣款。 |
+| 让 agent 变得 durable | [Agent Quick Start](/agent-frameworks/quick-start) | 大约 10 分钟 | 用你的框架写的 agent session，在 Worker 重启期间一直等待审批。 |
+| 把 Dex 加进一个服务 | [Application（Worker 和 Client）](/components/application) | 阅读大约 15 分钟 | Worker 和 Client 的配置，以及在真实服务里使用 Flow 的规则。 |
+| 让 coding agent 写代码 | [Dex Skills](/build-with-ai/dex-developer-skill) | 安装大约 5 分钟 | 装进 coding agent 的 Dex Skills，让它写出正确的 Dex 代码。 |
+| 先理解模型 | [概念](/concepts) | 阅读大约 20 分钟 | Flow、Step、六个 Primitive，以及 Dex 给出的保证。 |
+| 判断 Dex 是否合适 | [评估 Dex](#evaluate-dex) | 阅读大约 30 分钟 | Dex 和你现在用的方案对比如何，它的实测数据，以及它的许可证。 |
 
-## 评估 Dex
+## 评估 Dex {#evaluate-dex}
 
-[为什么是 Dex？](/intro/what-is-dex) 用一个订单流程走一遍。[Compared to Database](/intro/compared-to-database) 和 [Compared to Existing Durable Execution](/intro/compared-to-durable-execution) 说明 Dex 和你现在用的方案有什么不同。
+1. [为什么是 Dex？](/intro/what-is-dex) 用一个订单流程从头讲到尾。
+2. [与数据库对比](/intro/compared-to-database) 先用数据库和队列构建这个流程，再写成 Flow。
+3. [Compared to Existing Durable Execution](/intro/compared-to-durable-execution)（英文）把其他工具的术语对应到 Dex，并说明什么时候别的工具更合适。
+4. [Performance and Maturity](/intro/performance-and-maturity)（英文）给出实测数据、发布状态和许可证。
+5. [Limits and Sharp Edges](/intro/limits-and-sharp-edges)（英文）列出 Dex 目前还不做什么，以及上生产前要了解的默认值。
+
+## 修复中途失败的流程 {#fix-a-process}
+
+1. [为什么是 Dex？](/intro/what-is-dex) 展示扣款成功、发货却一直没有执行的情况。
+2. [与数据库对比](/intro/compared-to-database) 先用状态列和队列构建这个流程，再写成 Flow。
+3. [Quick Start](/quick-start)（英文）运行一个小版本，并在中途停掉它的 Worker。
+4. [Order Processing](/use-cases/order-processing) 是带审批、提醒和退款的完整流程。
+5. [Port Your Process to a Flow](/intro/port-your-process)（英文）把你自己的函数拆成 Step，最后给出一份检查清单。
+6. [Limits and Sharp Edges](/intro/limits-and-sharp-edges)（英文）列出上生产前要了解的事情。
+7. [Run Dex in Production](/components/production)（英文）列出你要运行的东西：一个 Dex Server 节点、一个可选的备用节点，以及对象存储。

@@ -296,6 +296,13 @@ as Channel results.
 | **AtMost** | Immediately, including when the queue is empty. | Up to the requested number of currently queued messages. |
 | **AtLeastAtMost** | At least the lower bound is queued. | From the lower bound up to the upper bound of currently queued messages. |
 
+A wake includes commits to object storage before the woken Step runs, so it
+takes about as long as a SYNC Step. In the
+[benchmark](/intro/performance-and-maturity#latency-below-the-peak), the time
+from a publish to the start of the woken Step was 139 ms at p50 on the larger
+node at half of its peak. The benchmark's wake throughput also counts the client
+setup between wakes, so compare latency, not wakes per second, with Steps.
+
 ## Publish messages {#publish-messages}
 
 Inside a Step or RPC, publish with the handler **Context**.

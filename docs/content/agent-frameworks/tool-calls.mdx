@@ -73,7 +73,7 @@ To make that harmless, pass the call's idempotency key to the service that the t
 **outcome_unknown** means the effect may or may not have happened. The session never retries such a call, and the model sees that the outcome is unknown. Reconcile it outside the session, with these steps:
 
 1. **Find the call.** While the turn runs, **get_agent_snapshot** lists it under **tool_calls**, with the status **outcome_unknown** and the failure in **error**. The **AgentEvents** Stream has a **tool_call_finished** event with the same status. After the turn, its tool result in the message history says that the outcome is unknown.
-2. **Rebuild its idempotency key** from the record: the session ID, the record's **turn_id**, and its **tool_call_id**, joined by slashes, such as **session-42/turn-3/call-7**. It is the key every attempt of the call passed to the service.
+2. **Rebuild its idempotency key** from the record's **turn_id** and **tool_call_id**, as [Effect classes](#effect-classes) describes. It is the key every attempt of the call passed to the service.
 3. **Ask the service** whether it holds an operation with that key, or look the effect up by your own business key, such as the order ID. If the Flow's history shows that the tool Step's attempt never reached a Worker, the tool did not run. This can happen for a call that started before a server upgrade.
 4. **Tell the session the real outcome** with **send_user_message**. The session has no separate channel for this: the report joins the conversation as a user message, and the model reads it as the user's words, and your UI shows it in the transcript unless you filter it. So word it as a note from your application, such as "Note from the order system: the cancellation of order 1002 went through." The next turn's model works from it, and does not ask for the call again when it already happened.
 
@@ -115,7 +115,7 @@ async def report_unknown_outcomes(
 </SdkSnippet>
 </SdkTabs>
 
-**send_user_message** is an RPC, and Dex does not drop a repeated RPC: a retry after a lost response can queue the same report twice. So the function reads the history first and skips a call whose key a user message already names. Run it again instead of retrying one **send_user_message** call blindly.
+The function reads the history first and skips a call whose key a user message already names, so run it again rather than retrying one send. [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy) explains why a retried send can repeat.
 
 ## Related
 

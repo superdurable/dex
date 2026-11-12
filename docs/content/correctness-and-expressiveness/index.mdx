@@ -41,6 +41,24 @@ nightly. The
 [server integration tests](https://github.com/superdurable/dex/tree/main/server-zd/integ)
 run real Workers against a real server.
 
+## What covers each feature {#coverage}
+
+| Feature | Lean failure proof | Deterministic simulation | Server integration tests |
+| --- | --- | --- | --- |
+| SYNC Steps | Yes | Yes | Yes |
+| ASYNC Steps | No | No | Yes (**create_test.go**, **any_command_close_test.go**) |
+| RPCs, including transactional RPCs | No | Yes | Yes (**rpc_test.go**) |
+| Attribute locks | No | Yes | Yes (**locking_test.go**) |
+| SubFlows | No | Yes | Yes (**subflow_test.go**) |
+| Failure policies and recovery Steps | No | Yes, in the apply-level stage | Yes (**wf_state_execute_method_fail_and_proceed_test.go**) |
+| Heartbeats | Partly: resuming from a heartbeat checkpoint is outside the proof | Yes, with and without values | Yes (**pull_worker_test.go**) |
+| Time Travel | No | No: the simulated clients do not call it | Yes (**reset_by_state_id_test.go**) |
+| StopFlow | No | Yes | Yes (**wf_stop_test.go**) |
+
+The proof column follows [What the proof assumes](/correctness-and-expressiveness/failure-transparency-proof#what-the-proof-assumes).
+The simulation column follows the simulation README. The test files are in
+[server-zd/integ](https://github.com/superdurable/dex/tree/main/server-zd/integ).
+
 ## Expressiveness
 
 The [Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof)

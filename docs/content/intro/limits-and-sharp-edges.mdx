@@ -21,7 +21,6 @@ links to the page that covers it.
 - **Public API authentication is off.** Any client that reaches the server can
   call it. Configure an authenticator before you expose the port. See
   [Authentication](/reference/server/authentication).
-
 - **Retries stop after 4 hours, and then the Flow fails.** By default a Step
   method retries without an attempt limit for 4 hours from its first hand-out
   to a Worker. When that time runs out, the default failure policy fails the
@@ -105,19 +104,20 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 - **A canceled method keeps running.** Dex does not stop the code. The method
   should check for cancellation and return. See
   [Step](/concepts/step#guarantees).
-- **Parallel writers overwrite each other unless they lock.** Steps and RPCs
-  that run at the same time share the Flow's Attributes. Dex does not check
-  that a value a method read is still current when it writes, so two
-  read-then-write updates can lose one of them. Declare a lock on such an
-  Attribute. See [What Dex saves](/concepts/step#what-dex-saves).
-- **Locks are opt-in.** A lock binds only the Steps and RPCs that declare it. A
-  locked method holds the lock while it runs, including its external calls. A
-  retry keeps its locks while it waits. See
-  [Locks](/concepts/primitives/attribute#locking).
+- **Parallel writers overwrite each other unless they lock.** Locks are opt-in,
+  bind only the methods that declare them, and are held through external calls
+  and retries. See [Locks](/concepts/primitives/attribute#locking).
 - **Index slots are limited.** With the PostgreSQL search backend, each tenant
   has 10 Keyword slots and 3 for each other index type, shared by every Flow
   type. The registry has no delete. See
   [PostgreSQL search](/reference/server/search#postgresql-search).
+
+## License {#license}
+
+- **Dex is source-available, not OSI open source.** The Sustainable Use License
+  lets you run Dex for your own business, but not host, resell, or build a
+  platform whose value comes mostly from Dex without a commercial license. See
+  [License](/intro/performance-and-maturity#license).
 
 ## Related
 

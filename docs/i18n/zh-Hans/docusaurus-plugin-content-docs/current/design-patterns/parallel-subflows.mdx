@@ -12,12 +12,12 @@ sidebar_label: Parallel SubFlows
 
 ## 选择模式
 
-- [基础父 Flow](/design-patterns/parallel-subflows/basic) — 启动运行时数量的 SubFlow，并等待它们全部完成。
-- [等待一半完成](/design-patterns/parallel-subflows/wait-for-half) — 等待一半 SubFlow，然后由每个未完成的 Step 停止自己的子 Flow。
-- [高级：长生命周期父 Flow](/design-patterns/parallel-subflows/long-lived-parent) — 保持固定 worker pool，并通过向 Channel 发布消息的 RPC 接收请求。
-- [高级：短生命周期父 Flow](/design-patterns/parallel-subflows/short-lived-parent) — 处理完排队的请求，在没有 SubFlow 运行且 Channel 为空时完成，不会丢掉最后时刻到达的请求。
-- [高级：多父 Flow 分区](/design-patterns/parallel-subflows/partitioning) — 把请求分散到多个父 Flow，SubFlow 总并发量随父 Flow 数量增长。
-- [高级：高可用背压](/design-patterns/parallel-subflows/back-pressure) — 父 Flow 过载并拒绝请求时，通过一个会重试的 Flow 提交请求，直到父 Flow 接受。
+- [基础父 Flow](/design-patterns/parallel-subflows/basic)：启动运行时数量的 SubFlow，并等待它们全部完成。
+- [等待一半完成](/design-patterns/parallel-subflows/wait-for-half)：等待一半 SubFlow，然后由每个未完成的 Step 停止自己的子 Flow。
+- [高级：长生命周期父 Flow](/design-patterns/parallel-subflows/long-lived-parent)：保持固定 worker pool，并通过向 Channel 发布消息的 RPC 接收请求。
+- [高级：短生命周期父 Flow](/design-patterns/parallel-subflows/short-lived-parent)：处理完排队的请求，在没有 SubFlow 运行且 Channel 为空时完成，不会丢掉最后时刻到达的请求。
+- [高级：多父 Flow 分区](/design-patterns/parallel-subflows/partitioning)：把请求分散到多个父 Flow，SubFlow 总并发量随父 Flow 数量增长。
+- [高级：高可用背压](/design-patterns/parallel-subflows/back-pressure)：父 Flow 过载并拒绝请求时，通过一个会重试的 Flow 提交请求，直到父 Flow 接受。
 
 前四页是父 Flow 的几种形状。分区和背压建立在它们之上。
 

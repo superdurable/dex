@@ -226,7 +226,7 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 | --- | --- |
 | Workflow type and Workflow ID | Flow type and Flow ID |
 | Run ID | Run ID |
-| Activity | The work inside a Step's **Execute** |
+| Activity | The work inside a Step's **Execute**. The whole **Execute** is one retry unit. For one durable call per unit, give each call its own Step. Each SYNC Step costs one commit to object storage, about 105 ms at p50 in the [benchmark](/intro/performance-and-maturity). |
 | Workflow code between activities | Step decisions: **GoTo**, **GoToMany**, **GracefulComplete**, **DeadEnd** |
 | Signal | Channel message. An SDK Client sends it through an RPC of the Flow, which needs a connected Worker. The FlowService **PublishToChannel** request stores the message with no Worker online. See [Publish messages](/concepts/primitives/channel#publish-messages). |
 | Query | Read-only RPC, or a direct Attribute read from the Client |
@@ -236,6 +236,10 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 | Task queue and sticky queue | Flow type queue with sticky routing. Dex routes by Flow type, not by Step type: any Worker that registers a Flow type can receive any of its Steps. To send some work to a separate pool of Workers, give it its own Flow type, for example a SubFlow that only that pool registers. |
 | Search attributes | Indexed Attributes |
 | Reset | Time Travel. It keeps the same Run ID, while a Temporal reset starts a new run. |
+| Continue-As-New and history size limits | Not needed. Dex keeps a window of each run's newest history events, 50,000 by default, and prunes older ones. A run's active state still has a size budget. See [History window](/reference/server/configuration#history-window). |
+| Local activity | The closest is an **ASYNC** Step. It moves on before its result is saved, so it can run again after a server failure. |
+| Cancellation scope | An RPC can cancel active Steps of its Flow by Step type, and **StopFlow** stops the whole Flow. Cancellation is cooperative: Step code checks for it and returns. See [Cancel running Steps](/concepts/primitives/rpc#cancel-running-steps). |
+| Schedule | No built-in schedule. A Flow that loops on a Timer runs work on an interval. See [Cron schedule](/design-patterns/durable-timer/cron). |
 
 **The same.** One active run per Flow ID, with an ID reuse policy. Pull Workers that ask the server for tasks. Durable timers and waits that hold no Worker. Retry policies per unit of work.
 
@@ -243,10 +247,11 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 
 - Dex has no event history to replay. A Worker does not rebuild state, so it needs no history cache. Sticky routing still exists: Dex first offers a Flow's next task to the Worker that served that Flow before, for up to 5 seconds, then to any Worker of the Flow type. It is best effort, and correctness never depends on it. See [Routing and availability](/reference/server/workers#routing-and-availability).
 - Versioning works by keeping old Step types and making additive changes. Dex has no patch or version markers in code. Temporal offers patch markers and Worker Versioning, which pins a workflow to the Worker deployment that started it or moves it to a new one. [Change Flow Code](/concepts/change-flow-code#versioning-flow-code) explains the Dex rules.
-- Steps that run in parallel in one Flow share its Attributes. Two of them can overwrite each other's update unless they declare an [Attribute lock](/concepts/primitives/attribute#locking). A Temporal workflow runs on one thread, so only one piece of its code runs at a time. Its signal and update handlers can still interleave at await points, and Temporal offers a workflow mutex for that case. The difference is smaller than "one writer" suggests, but it is real: Dex Steps run in parallel on different Workers.
+- On shared Attributes, see [Concurrency defaults](#concurrency-defaults). A Temporal workflow runs on one thread, so only one piece of its code runs at a time. Its signal and update handlers can still interleave at await points, and Temporal offers a workflow mutex for that case. The difference is smaller than "one writer" suggests, but it is real: Dex Steps run in parallel on different Workers.
 - A retry of a Step method reuses the state snapshot of its first attempt. An activity retry reads whatever it fetches on that attempt.
+- A Dex RPC is weaker than a Temporal Update. It has no update-ID deduplication, so a retried RPC runs again. With no Worker free for 10 seconds, the caller gets **Unavailable**.
 - Temporal drops a repeated signal that carries the same request ID, on a best-effort basis. Dex does not yet drop a repeated Channel publish, so a publish sent again after a lost response can deliver the message twice. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
-- Each Step method chooses **SYNC** or **ASYNC** durability. An ASYNC Step moves on before its result is saved, and may run again after a server crash.
+- Each Step method chooses [SYNC or ASYNC](/concepts/step#sync-and-async) durability.
 - The Dex server is one binary on object storage, with one active node and standbys. Temporal runs several services on a database such as Cassandra, MySQL, or PostgreSQL.
 
 ## Journal-based durable function runtimes
@@ -255,9 +260,10 @@ Restate is an example. A handler is a function. Each side effect runs through th
 
 | Restate term | Nearest Dex term |
 | --- | --- |
-| Service handler or workflow | Flow |
+| Workflow | Flow |
+| Service handler | No direct match. A stateless handler is plain application code; a Dex Flow is a process with its own state and runs. |
 | Journaled action (**ctx.run**) | Step **Execute** |
-| Virtual object key | Flow ID |
+| Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A Flow run closes, and a closed run is deleted after retention (7 days by default), while a virtual object lives on. |
 | Object state (key-value) | Attributes |
 | Awakeable or durable promise | Channel message that a Step waits for |
 | Durable sleep | Timer |
@@ -270,7 +276,7 @@ Restate is an example. A handler is a function. Each side effect runs through th
 - The handler code between journaled calls must still be deterministic, because it runs again. Dex does not replay Step code, so a code change cannot break a running Flow. The effects a Step sends still follow the rule in [Determinism moved](#determinism-moved-it-did-not-vanish).
 - A virtual object allows one writer per key at a time. In Dex, Steps and RPCs of one Flow can run at the same time. Locks are opt-in per Attribute.
 - A Restate shared handler runs alongside others and cannot write the object's state. It can still call other services. A Dex RPC may write Attributes, and an RPC without a lock can run alongside Steps.
-- Restate deduplicates an invocation that carries the same idempotency key. Dex deduplicates a Flow start by Flow ID and request ID, but not yet a repeated Channel publish or RPC. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
+- Restate deduplicates an invocation that carries the same idempotency key, and a Temporal Update carries an update ID. Both drop a repeated inbound request. Dex deduplicates a Flow start by Flow ID and request ID, but not yet a repeated Channel publish or RPC. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
 - Dex keeps each Step's input, output, and error, and Dex Web shows them per Step.
 
 ## Database-backed workflow libraries
@@ -336,7 +342,7 @@ These integrations record each model call, and each tool call they wrap, as a un
 
 **Different.**
 
-- Each Dex tool has an effect class. A read or an idempotent write may run again after a failure. A non-idempotent write runs in a single attempt.
+- Each Dex tool has an effect class. A read or an idempotent write may run again after a failure. A non-idempotent write runs in a single attempt by default. On Temporal you get a single attempt by setting the activity's maximum attempts to 1; in Dex it is the default for a write, with approval wiring and an **outcome_unknown** record built in.
 - A single-attempt tool that a crash cut off records **outcome_unknown**. Dex does not run it again, and the model sees that outcome. [Tool Calls](/agent-frameworks/tool-calls) gives the rules and their one exception.
 - The effect class also sets whether a call waits for approval by default. The approval wait holds no Worker, for minutes or for days. [Approvals](/agent-frameworks/approvals) explains the wait.
 - One Dex adapter model covers several frameworks, and the session Flow is the same for each of them.
@@ -349,6 +355,8 @@ These integrations record each model call, and each tool call they wrap, as a un
 - **Your process is one short function in one service, and you already run PostgreSQL.** A database-backed library adds no new server.
 - **Your team already runs another engine at scale.** A move costs more than the difference on this page, unless replay or versioning errors are a real problem for you.
 - **You need one writer per key without thinking about locks.** A virtual object or a single-threaded workflow gives that by default. In Dex you declare Attribute locks.
+- **You need more than one node's capacity in one cluster.** One active Dex Server node serves a cluster. Past it, you run separate clusters. See [Grow past one node](/intro/limits-and-sharp-edges#grow-past-one-node).
+- **You need an OSI open source license.** Dex is source-available under the Sustainable Use License, which limits hosting or reselling Dex as a platform. Temporal and DBOS are MIT licensed. See [License](/intro/performance-and-maturity#license).
 
 ## Related
 

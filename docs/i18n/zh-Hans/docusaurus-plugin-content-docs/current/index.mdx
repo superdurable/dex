@@ -7,39 +7,109 @@ slug: /
 
 # Dex 文档
 
-Dex 是一个 **Durable Execution** 平台。数据库保存你的数据；Dex 还会保存流程的进度：哪些 Step 已经运行、返回了什么、流程正在等什么。进程崩溃、重启，或者等了很久之后，流程都会从停下的地方继续。
+Dex 是一个 **Durable Execution** 平台。数据库保存你的数据，Dex 还保存流程的进度：哪些 Step 已经运行，返回了什么，流程正在等什么。进程崩溃、重启或者等了很久之后，流程会从停下的地方继续。
 
-你用普通的应用代码写流程，用到的是 Flow、Step、Attribute、Channel、RPC 和 Connector。
+你用自己的语言把流程写成一个 **Flow**：一组 **Step**，每个 Step 说明下一步运行哪个 Step。你服务里的 **Worker** 负责运行这些 Step。[概念](/concepts)介绍其他的构件。
+
+## 刚接触 Dex
+
+**从这里开始：**[Quick Start](/quick-start)，大约 10 分钟。
+
+其他入口：
+
+- 你现在有一个会中途失败的流程：[修复中途失败的流程](/get-started#fix-a-process)。
+- 你在构建 AI agent：[Durable Agents](/agent-frameworks)。
+- 你想把 Dex 加进已有的服务：[在现有服务中加入 Dex](/components/application#add-to-a-service)。
+- 所有路径和各自的耗时：[开始使用](/get-started)。
 
 <div className="docs-home-sections">
-  <DocsSection section="intro" to="/intro/what-is-dex" title="从这里开始">
-    为什么选 Dex、在 Quick Start 里写出第一个 Flow，以及 Dex 与数据库的对比。
+  <DocsSection section="intro" to="/quick-start" title="Quick Start">
+    运行一个 Flow，停掉它的 Worker，看 Dex 让它继续。大约 10 分钟。
   </DocsSection>
-  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="使用 AI 构建">
-    安装 Dex skills，让 coding agent 写出正确的 Dex 代码。
+  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="用 AI 构建">
+    安装 Dex Skills，让 coding agent 写出正确的 Dex 代码。
   </DocsSection>
-  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable Agents">
-    把 AI agent 作为 durable session 跑在 Dex 上，可以用内置 agent loop，也可以用你的 agent 框架。
+  <DocsSection section="intro" to="/intro/what-is-dex" title="为什么是 Dex？">
+    一个订单流程，从扣款到发货或退款。
   </DocsSection>
-  <DocsSection section="concepts" to="/concepts" title="Concepts">
-    Flow、Step、Attribute、RPC、Channel、Stream、Timer、SubFlow、Client 和 Connector。
+  <DocsSection section="concepts" to="/concepts" title="概念">
+    Flow、Step 和六个 Primitive。
   </DocsSection>
-  <DocsSection section="design-patterns" to="/design-patterns" title="Design Patterns">
-    并行任务、定时器、失败处理、轮询和 Channel 排空等可复用的 Flow 写法。
+</div>
+
+## 评估 Dex
+
+<div className="docs-home-sections">
+  <DocsSection section="intro" to="/intro/compared-to-database" title="与数据库对比">
+    同一个订单流程，先用数据库和队列构建，再写成 Flow。
   </DocsSection>
-  <DocsSection section="product-examples" to="/use-cases" title="示例">
-    完整的业务流程，例如 AI agent、订阅和转账。
+  <DocsSection section="intro" to="/intro/compared-to-durable-execution" title="与现有 Durable Execution 对比">
+    Dex 和基于 replay 的引擎有什么不同，以及什么时候该选别的工具。
   </DocsSection>
-  <DocsSection section="components" to="/components" title="运行 Dex">
-    Application、server、CLI、Web，以及它们如何一起运行。
+  <DocsSection section="intro" to="/intro/performance-and-maturity" title="性能与成熟度">
+    实测的吞吐和延迟、发布状态和许可证。
   </DocsSection>
-  <DocsSection section="reference" to="/reference" title="Developer Reference">
-    每个 SDK、server、CLI 和 Web 的分版本细节。
+  <DocsSection section="intro" to="/intro/limits-and-sharp-edges" title="限制与注意事项">
+    Dex 目前还不做什么，以及上生产前要了解的默认值。
   </DocsSection>
-  <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
-    Dex 能表达什么的机器验证证明，以及按 Workflow Patterns 做的评估。
+</div>
+
+## 你可以构建什么
+
+<div className="docs-home-sections">
+  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable agent">
+    保留你的 agent 框架。每次工具调用在自己的 Step 里运行，不能安全重复的工具不会被重试。审批可以等上好几天。
   </DocsSection>
-  <DocsSection section="glossary" to="/glossary" title="Glossary">
-    所有 Dex 术语集中在一页。
+  <DocsSection section="product-examples" to="/use-cases" title="业务流程">
+    订单、订阅、用户开通和转账。
+  </DocsSection>
+  <DocsSection section="design-patterns" to="/design-patterns/durable-timer" title="定时器和计划任务">
+    提醒、截止时间和 cron。
+  </DocsSection>
+  <DocsSection section="product-examples" to="/use-cases/microservice-orchestration" title="服务编排">
+    跨服务的重试、补偿和并行调用。
+  </DocsSection>
+</div>
+
+## 可选：用 coding agent 构建
+
+如果你的 coding agent 装了 [Dex Skills](/build-with-ai/dex-developer-skill)，把下面这段贴给它。它会替你走一遍同样的 Quick Start：
+
+```text
+Build the Dex Quick Start app in this folder. Read
+https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
+```
+
+## 运行 Dex
+
+<div className="docs-home-sections">
+  <DocsSection section="components" to="/components/run-locally" title="本地运行">
+    用 dexcli dev 在本机启动 Dex Server 和 Dex Web。
+  </DocsSection>
+  <DocsSection section="components" to="/components/application" title="你的应用">
+    在你的服务里运行 Worker 和 Client。
+  </DocsSection>
+  <DocsSection section="components" to="/components/server" title="Dex Server">
+    server 保存什么，以及它怎样把工作交给 Worker。
+  </DocsSection>
+  <DocsSection section="components" to="/components/web" title="Dex Web">
+    查看 Flow run 并对它们执行操作。
+  </DocsSection>
+</div>
+
+## 参考
+
+<div className="docs-home-sections">
+  <DocsSection section="reference" to="/reference" title="开发者参考">
+    各 SDK、server、CLI、Web 和 agents 包的版本化细节。
+  </DocsSection>
+  <DocsSection section="design-patterns" to="/design-patterns" title="设计模式">
+    可复用的 Flow 结构，涵盖并行、定时器、失败处理和消息。
+  </DocsSection>
+  <DocsSection section="correctness" to="/correctness-and-expressiveness" title="正确性与表达能力">
+    一个经过机器检查的证明，说明崩溃能改变什么、不能改变什么，范围是只收 Channel 消息、只用 SYNC Step 的单个 Flow。另有一个证明说明 Dex 能表达什么。RPC、SubFlow 和 lock 由模拟测试覆盖。
+  </DocsSection>
+  <DocsSection section="glossary" to="/glossary" title="术语表">
+    所有 Dex 术语集中在一处。
   </DocsSection>
 </div>

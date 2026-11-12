@@ -52,7 +52,7 @@ The Channel wake throughput includes untimed setup before each publish. Only its
 
 - **A SYNC Step waits for S3.** Dex Server commits a SYNC Step's result to object storage before the Flow moves on. Each commit is one S3 PUT. At the SYNC peaks, a commit took 41 to 98 milliseconds on average. Under load, a SYNC Step also waits for its batch, so it needs many concurrent Flows to reach peak throughput.
 - **What a Flow adds.** At the half-peak load on c7gd.large, a SYNC Step took 105 milliseconds at p50. A Flow with five SYNC Steps in a row therefore spends about half a second waiting on Dex commits, plus the time of your own code. Agent sessions use SYNC Steps for model calls and tool calls, so each one adds a commit to a turn.
-- **An ASYNC Step does not wait.** The Flow moves on before the commit, so a Step takes 1 to 2 milliseconds at low load. If the server node fails before the commit, the Step runs again. [Step guarantees](/concepts/step#guarantees) cover that case.
+- **An ASYNC Step does not wait.** The Flow moves on before the commit, so a Step takes 1 to 2 milliseconds at low load. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains the trade-off.
 - **S3 requests follow batches, not Steps.** Dex Server groups writes into log batches. A busy node made 23 to 98 log PUTs per second, whatever its size. At USD 0.005 per 1,000 PUTs, that is at most about USD 1.8 per busy hour per node. An idle node renews its lease with about 0.3 PUTs per second.
 - **CPU is the limit.** The 2-vCPU node used 93 to 99% of its CPU at every peak. The 16-vCPU node used 68 to 87% at most peaks. Reads of large Attributes on the 16-vCPU node were limited by its 15 Gbps network instead.
 - **Reads need no Worker.** An RPC runs on a Worker. A direct Attribute read goes only to Dex Server.
@@ -68,7 +68,13 @@ Dex Server needs one instance, an optional standby instance, and object storage.
 | Busy node, low end of the measured range | 23 | about 60 million | about USD 300 |
 | Busy node at the highest measured rate, all month | 98 | about 254 million | about USD 1,270 |
 
-Most deployments sit between the first two rows, because a node is busy only part of the time. The benchmark did not measure stored bytes per Flow. A closed Flow run is deleted after the retention period, 7 days by default, so storage follows the number of runs in that window.
+Most deployments sit between the first two rows, because a node is busy only part of the time.
+
+A worked example for a light load: 1 million orders a month, each a Flow with five SYNC Steps, is 5 million Steps. A SYNC Step stores its start and its result, and each log commit is one PUT. At light load a batch rarely holds more than one commit, so the upper bound is about 2 PUTs per Step: 10 million PUTs, about USD 50 a month, plus about USD 4 for lease renewals. Under heavier load several commits share a batch, so the cost per Step falls. The monthly total is then:
+
+- instances: the active node, plus a standby if you run one, at your provider's hourly price;
+- PUTs: the estimate above, or the table's rows for a node that stays busy;
+- stored bytes: the runs kept in the retention window, at your provider's price. The benchmark did not measure stored bytes per Flow. A closed Flow run is deleted after the retention period, 7 days by default, so storage follows the number of runs in that window.
 
 To repeat a point on your own AWS account, run **benchmark/aws/reproduce.sh**. [Reproduce a result](https://github.com/superdurable/dex/blob/main/benchmark/README.md#reproduce-a-result) lists its inputs.
 

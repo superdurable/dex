@@ -10,33 +10,28 @@ Dex is a **Durable Execution** platform. A database stores your data. Dex also s
 
 You write the process as a **Flow**: a set of **Steps** in your own language, each of which says which Step runs next. A **Worker** in your service runs the Steps. [Concepts](/concepts) introduces the other building blocks.
 
-## New to Dex
-
 **Start here:** the [Quick Start](/quick-start). It takes about 10 minutes.
 
-Other ways in:
-
-- A process of yours breaks halfway today: [Fix a process that breaks halfway](/get-started#fix-a-process).
-- Building an AI agent: [Durable Agents](/agent-frameworks).
-- Adding Dex to a service you already run: [Add Dex to an existing service](/components/application#add-to-a-service).
-- Every path, with the time each takes: [Get Started](/get-started).
+## Try it
 
 <div className="docs-home-sections">
-  <DocsSection section="intro" to="/quick-start" title="Quick Start">
-    Run a Flow, stop its Worker, and watch Dex continue it. About 10 minutes.
+  <DocsSection section="intro" to="/intro/what-is-dex" title="Why Dex">
+    The order process, from charge to ship or refund.
+  </DocsSection>
+  <DocsSection section="intro" to="/get-started#fix-a-process" title="Fix a process that breaks halfway">
+    A 20-minute first visit, then the pages to read before you port your own process.
+  </DocsSection>
+  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable agents">
+    Keep your agent framework. Each tool call runs in its own Step, and a tool that is not safe to repeat is not retried. Approvals can wait for days.
   </DocsSection>
   <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Build with AI">
     Install Dex Skills so a coding agent writes correct Dex code.
   </DocsSection>
-  <DocsSection section="intro" to="/intro/what-is-dex" title="Why Dex">
-    The order process, from charge to ship or refund.
-  </DocsSection>
-  <DocsSection section="concepts" to="/concepts" title="Concepts">
-    Flow, Step, and the six primitives.
-  </DocsSection>
 </div>
 
-## Evaluate Dex
+[Get Started](/get-started) lists every path with the time each takes.
+
+## Evaluate it
 
 <div className="docs-home-sections">
   <DocsSection section="intro" to="/intro/compared-to-database" title="Compared to Database">
@@ -53,48 +48,29 @@ Other ways in:
   </DocsSection>
 </div>
 
-## What you can build
+## Use it in your service
 
 <div className="docs-home-sections">
-  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable agents">
-    Keep your agent framework. Each tool call runs in its own Step, and a tool that is not safe to repeat is not retried. Approvals can wait for days.
+  <DocsSection section="components" to="/components/application#add-to-a-service" title="Add Dex to a service">
+    Install the SDK, run a Worker and a Client, and start Flows from your handlers.
   </DocsSection>
-  <DocsSection section="product-examples" to="/use-cases" title="Business processes">
-    Orders, subscriptions, onboarding, and money transfer.
+  <DocsSection section="intro" to="/intro/port-your-process" title="Port your process">
+    Split a function or a queue consumer into Steps, with a checklist.
   </DocsSection>
-  <DocsSection section="design-patterns" to="/design-patterns/durable-timer" title="Timers and schedules">
-    Reminders, deadlines, and cron.
+  <DocsSection section="components" to="/components/production" title="Run Dex in production">
+    The server, storage, defaults, and upgrades to plan for.
   </DocsSection>
-  <DocsSection section="product-examples" to="/use-cases/microservice-orchestration" title="Service orchestration">
-    Retries, compensation, and parallel calls across services.
+  <DocsSection section="product-examples" to="/use-cases" title="Examples">
+    Orders, subscriptions, onboarding, money transfer, and agents.
   </DocsSection>
 </div>
 
-## Optional: build with your coding agent
-
-If your coding agent has [Dex Skills](/build-with-ai/dex-developer-skill), paste this into it. It follows the same Quick Start for you:
+If your coding agent has [Dex Skills](/build-with-ai/dex-developer-skill), you can paste this into it instead. It follows the same Quick Start for you:
 
 ```text
 Build the Dex Quick Start app in this folder. Read
 https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
 ```
-
-## Run Dex
-
-<div className="docs-home-sections">
-  <DocsSection section="components" to="/components/run-locally" title="Run locally">
-    Start Dex Server and Dex Web on your machine with dexcli dev.
-  </DocsSection>
-  <DocsSection section="components" to="/components/application" title="Your application">
-    Run a Worker and a Client inside your service.
-  </DocsSection>
-  <DocsSection section="components" to="/components/server" title="Dex Server">
-    What the server stores and how it hands work to Workers.
-  </DocsSection>
-  <DocsSection section="components" to="/components/web" title="Dex Web">
-    Inspect and act on Flow runs.
-  </DocsSection>
-</div>
 
 ## Reference
 
@@ -104,6 +80,9 @@ https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
   </DocsSection>
   <DocsSection section="design-patterns" to="/design-patterns" title="Design Patterns">
     Reusable Flow shapes for parallel work, timers, failures, and messaging.
+  </DocsSection>
+  <DocsSection section="concepts" to="/concepts" title="Concepts">
+    Flow, Step, and the six primitives.
   </DocsSection>
   <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
     A machine-checked proof of what a crash can and cannot change, for one Flow with Channel messages and SYNC Steps, plus a proof of what Dex can express. Simulation tests cover RPCs, SubFlows, and locks.

@@ -18,12 +18,45 @@ Agent sessions run on the same Dex Server as every other Flow. Check each item b
 | Model spend | Dex has no built-in spend limit. Check spend per account or API key around each model call. | [Spend limits](/reference/agents/spend-limits) |
 | Credentials | Keep model API keys and tool credentials in the Worker's environment or a secret store, never in session input or messages. | [Credentials](/reference/agents/credentials) |
 | Approval deadlines | Without a deadline, an approval waits until someone answers, and the turn waits with it. Set a deadline when a call must not wait forever. | [Approval deadlines](/reference/agents/approvals#approval-deadlines) |
-| Upgrades | A deploy takes effect at the next model call or tool call. Keep each agent's Flow type stable, and read the change log before a rolling deploy. | [Upgrades](/reference/agents/upgrades) |
+| Upgrades | A deploy takes effect at the next model call or tool call. Some releases cannot run next to the one before: stop every older Worker before a newer one starts. The release notes name them. | [Upgrades](/reference/agents/upgrades#release-notes) |
 | Workers | Each running model call, tool call, and RPC holds one Worker task slot. Size Workers for parallel tool calls. | [Workers and timeouts](/reference/agents/workers) |
 | Streaming | The AgentEvents Stream carries live text to your UI. Size it for your traffic. | [AgentEvents Stream](/reference/agents/event-stream) |
 | Tracing | Sessions can emit OpenTelemetry spans for each model call and tool call. Content capture is off by default. | [Tracing](/reference/agents/tracing) |
+| Deployment shape | Web replicas hold a Client. Worker processes run the session Flow. | [Deployment shape](#deployment-shape) |
 | Calls during a deploy | **send_user_message** and **resolve_interrupt** are RPCs. They need a running Worker, and a retried **send_user_message** can queue a message twice. | [RPCs during a deploy](#rpcs-during-a-deploy) |
 | Unknown outcomes | A write that a crash interrupted records **outcome_unknown** and does not run again. Decide who reconciles it. | [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) |
+
+## Deployment shape {#deployment-shape}
+
+A production setup has three kinds of process:
+
+```text
+ users ──▶ web app replicas            Worker processes
+           (Client: start sessions,    (session Flow: RunModel,
+            send messages, stream)      tool calls, approvals)
+                 │                            ▲
+                 │  RPCs, reads              │  pull tasks (outbound only)
+                 ▼                            │
+              ┌──────────────── Dex Server ───┴──┐
+              │  session state in object storage │
+              └──────────────────────────────────┘
+```
+
+- **Web app replicas** hold a Client. They start sessions, send messages, and
+  stream replies. They need the session Flow's definition to encode calls, but
+  never run a Step.
+- **Worker processes** run the session Flow: every model call, tool call, and
+  approval wait. For a small app, the web process can host the Worker too, as
+  the Agent Quick Start program does.
+- **Dex Server** keeps every session. Workers connect out to it, so they need no
+  inbound port.
+
+During a rolling deploy, each Step runs the code of the Worker that takes it.
+A turn in progress finishes its next model call or tool call on the new code.
+A Worker that lacks a Step type declines it, and another Worker takes it. A
+few releases cannot run next to the one before, and need every older Worker
+stopped first; the [Upgrades release notes](/reference/agents/upgrades#release-notes)
+name them.
 
 ## RPCs during a deploy {#rpcs-during-a-deploy}
 
@@ -42,6 +75,82 @@ connects. The session itself loses nothing.
   read the session with **get_agent_snapshot** and look for the message in
   **messages** and **queued_messages**. If it is queued twice, remove the copy
   with **delete_queued_message**.
+
+This helper does that. It retries a send that may not have arrived, checks the
+session before each retry, and deletes an extra queued copy. It tells messages
+apart by their text, so call it once for each message a user sends.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/safe_send.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-safe-send.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+async def send_user_message_once(
+    sessions: MessageSessions,
+    session_id: str,
+    text: str,
+    *,
+    attempts: int = 5,
+    retry_delay_seconds: float = 1.0,
+) -> None:
+    """Queues one user message, retrying a failed send without queuing it twice.
+
+    Before each retry it reads the session, and stops when a new copy of the
+    text is there. At the end it deletes any extra queued copy. It tells
+    messages apart by their text, so call it once for each message a user sends.
+
+    Raises:
+        DexServiceError: When no attempt reached a Worker, or on any other error.
+    """
+    copies_before = _copies(await sessions.get_agent_snapshot(session_id), text)
+    for attempt in range(1, attempts + 1):
+        try:
+            await sessions.send_user_message(session_id, text)
+            break
+        except DexServiceError as error:
+            if error.code not in UNCERTAIN_CODES or attempt == attempts:
+                raise
+        await asyncio.sleep(retry_delay_seconds)
+        if _copies(await sessions.get_agent_snapshot(session_id), text) > copies_before:
+            break
+    await _delete_extra_copies(sessions, session_id, text, copies_before + 1)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+export async function sendUserMessageOnce(
+  sessions: MessageSessions,
+  sessionId: string,
+  text: string,
+  { attempts = 5, retryDelayMs = 1_000 }: { attempts?: number; retryDelayMs?: number } = {},
+): Promise<void> {
+  const copiesBefore = countCopies(await sessions.getAgentSnapshot(sessionId), text);
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await sessions.sendUserMessage(sessionId, text);
+      break;
+    } catch (error) {
+      const isUncertain = error instanceof DexServiceError && UNCERTAIN_CODES.includes(error.code);
+      if (!isUncertain || attempt === attempts) {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    if (countCopies(await sessions.getAgentSnapshot(sessionId), text) > copiesBefore) {
+      break;
+    }
+  }
+  await deleteExtraCopies(sessions, sessionId, text, copiesBefore + 1);
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat)
 lists the other requests that can repeat.

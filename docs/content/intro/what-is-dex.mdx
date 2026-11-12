@@ -63,7 +63,7 @@ Your application contains a **Worker** and a **Client**, both built with the Dex
 
 ## How this differs from replay-based durable execution
 
-Replay-based engines rebuild a workflow's state by replaying its event history. So workflow code must be deterministic, and it reads the time and random values through the engine's APIs. Dex does not replay code. Step code is ordinary code that may read the clock and call any library. A code change does not break a running Flow with a replay error.
+Replay-based engines rebuild a workflow's state by replaying its event history, so workflow code must be deterministic. Dex does not replay code, so a code change cannot break a running Flow with a replay error.
 
 [Compared to Existing Durable Execution](/intro/compared-to-durable-execution) maps each tool family's terms onto Dex, and says when another tool fits better.
 

@@ -1,45 +1,46 @@
 ---
 id: index
-title: Concepts
+title: 概念
 sidebar_label: Overview
 slug: /concepts
+description: "Dex 的编程模型很小。Flow 是一个 durable 程序，Step 推动它前进，Primitive 保存它的状态并把它和外部世界连起来。你的应用通过 Client 驱动 Flow。"
 ---
 
-# Concepts
+# 概念
 
-Dex 的编程模型很精简。Flow 是一个 durable program，Step 推进它，Primitive 保存它的状态并把它和外部连接起来。你的应用通过 Client 驱动 Flow。
+Dex 的编程模型很小。Flow 是一个 durable 程序。Step 推动它前进。Primitive 保存它的状态，并把它和外部世界连起来。你的应用通过 Client 驱动 Flow。
 
 ## Flow 和 Step {#flow-and-step}
 
-| 概念 | 是什么 | 用来做什么 |
+| 概念 | 它是什么 | 用它来 |
 | --- | --- | --- |
-| [Flow](/concepts/flow) | 带业务 ID 的 durable program。它拥有自己的 Step、状态和消息。 | 建模一个业务流程或实体。 |
-| [Step](/concepts/step) | Flow 中的一个工作单元。它先等待，再执行，然后决定接下来运行什么。 | 完成工作，推进流程。 |
-
-<a id="primitive-一览"></a>
+| [Flow](/concepts/flow) | 一个带业务 ID 的 durable 程序。它拥有自己的 Step、状态和消息。 | 建模一个业务流程或一个实体。 |
+| [Step](/concepts/step) | Flow 里的一个工作单元。它等待、执行，并决定接下来运行什么。 | 做工作，推动流程前进。 |
 
 ## Primitive {#the-primitives}
 
 Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
 
-| Primitive | 是什么 | 用来做什么 |
+| Primitive | 它是什么 | 用它来 |
 | --- | --- | --- |
-| [Attribute](/concepts/primitives/attribute) | 属于一个 Flow 的 durable 状态。 | 在 Step 之间保存数据，从外部读取，并按它搜索。 |
-| [RPC](/concepts/primitives/rpc) | 对 Flow 的同步调用。 | 从应用发送命令、读取视图。 |
-| [Channel](/concepts/primitives/channel) | Flow 中的 durable 消息队列。 | 投递 Step 等待的消息。 |
-| [Stream](/concepts/primitives/stream) | 读取方可以续读的 best-effort feed。 | 向 UI 推送实时进度。 |
-| [Timer](/concepts/primitives/timer) | 等到某个时间的 durable 等待。 | 设置截止时间、提醒和定时任务。 |
-| [SubFlow](/concepts/primitives/subflow) | 由另一个 Flow 作为子 Flow 启动的 Flow。 | 把大量或并行的工作拆成子 Flow。 |
+| [Attribute](/concepts/primitives/attribute) | 属于一个 Flow 的 durable 状态。 | 在 Step 之间保存数据，从外部读取它，并按它搜索。 |
+| [RPC](/concepts/primitives/rpc) | 对一个 Flow 的同步调用。 | 从你的应用发送命令、读取视图。 |
+| [Channel](/concepts/primitives/channel) | Flow 里的一个 durable 消息队列。 | 投递 Step 等待的消息。 |
+| [Stream](/concepts/primitives/stream) | 一个尽力而为、读者可以续读的数据流。 | 把实时进度推送给 UI。 |
+| [Timer](/concepts/primitives/timer) | 一个等到某个时间点的 durable 等待。 | 设置截止时间、提醒和计划任务。 |
+| [SubFlow](/concepts/primitives/subflow) | 由另一个 Flow 作为子 Flow 启动的 Flow。 | 把大块或并行的工作拆成子 Flow。 |
 
 ## Client {#client}
 
-[Client](/concepts/client) 是应用在 Worker 之外使用的 API，用来启动、调用、读取、等待和运维 Flow。
+[Client](/concepts/client) 是你的应用在 Worker 之外使用的 API。用它来启动、调用、读取、等待和操作 Flow。
 
 ## Connector {#connector}
 
-[Connector](/concepts/connector) 把 Flow 接到外部服务商，例如邮件或支付服务。它为 Flow 提供调用服务商的现成 Step，以及根据服务商事件启动或更新 Flow 的 Trigger。
+[Connector](/concepts/connector) 把 Flow 连接到外部服务商，例如邮件或支付服务。它为你的 Flow 提供调用该服务商的现成 Step，以及根据服务商事件启动或更新 Flow 的 Trigger。
 
-## 它们如何配合
+<a id="它们如何配合"></a>
+
+## 它们如何配合 {#how-they-fit-together}
 
 ```text
  Your application                      One Flow (one Flow ID)
@@ -52,25 +53,39 @@ Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
  └────────────┘                       └──────────────────────────────────┘
 ```
 
-**Flow** 是容器。一个 Flow ID（例如一个订单号）同一时间最多只有一个 active run。
+**Flow** 是容器。一个 Flow ID（例如订单号）同一时间最多只有一个活跃的 run。
 
-**Step** 推进 Flow。Step 可以等待 Channel 消息、Timer 或 SubFlow，然后执行自己的工作，例如通过 Connector 调用外部服务。最后它返回一个 decision，指定接下来的 Step，或者关闭 Flow。Step 失败时，Dex 会重试。
+**Step** 推动 Flow 前进。Step 可以等待 Channel 消息、Timer 或 SubFlow。然后它执行自己的工作，例如通过 Connector 发起调用。它返回一个决定，指定接下来的 Step，或者结束 Flow。Step 失败时 Dex 会重试。
 
-**Attribute** 和 **Channel** 是 Flow 的 durable 状态。Step 和 RPC 读写它们。Dex 把 Step 方法或 RPC 的状态变更和它的结果一起保存，见 [Step 的保证](/concepts/step#guarantees)。
+**Attribute** 和 **Channel** 是 Flow 的 durable 状态。Step 和 RPC 读写它们。Dex 把一个 Step 方法或 RPC 的状态修改和它的结果一起保存。见 [Step 的保证](/concepts/step#guarantees)。
 
-应用通过 **Client** 启动 Flow、调用 RPC、读取 Attribute 和等待变化。要修改运行中的 Flow，应用调用 RPC。**Stream** 把实时更新送回 UI。
+你的应用用 **Client** 启动 Flow、调用 RPC、读取 Attribute，以及等待变化。要修改一个正在运行的 Flow，你的应用调用 RPC。**Stream** 把实时更新带回 UI。
 
-## Component
+<a id="component"></a>
 
-这些概念组成编程模型。[Component](/components) 是运行它的进程：
+## 组件 {#components}
 
-- 你的 **application** 在 Worker 中运行 Flow 代码，并通过 Client 调用 Dex。
-- **server-zd** 保存 Flow 状态，并把 Step 和 RPC 交给 Worker。
+概念是编程模型。[组件](/components)是运行它的进程：
+
+- 你的**应用**在 Worker 里托管 Flow 代码，并通过 Client 调用 Dex。
+- [Dex Server](/components/server) 保存 Flow 状态，并把 Step 和 RPC 交给 Worker。
 - **dexcli** 在本地运行 Dex，**Dex Web** 让运维人员查看 Flow。
 
-## 下一步
+## Dex 保证什么 {#guarantees}
 
-- 先读 [Flow](/concepts/flow) 和 [Step](/concepts/step)。各个 Primitive 都建立在它们之上。
-- [Design patterns](/design-patterns) 说明如何组合这些概念解决常见问题。
-- [Correctness and expressiveness](/correctness-and-expressiveness) 说明 Dex 能表达什么，以及它如何保持正确。
-- [Developer reference](/reference) 包含参数、默认值、上限和版本细节。
+Dex 把每个 Step 的结果和转到下一个 Step 的动作一起保存。已经完成的 Step 不会再运行。被中途打断的 Step 可能再运行一次，所以每次外部调用都要带上[幂等键](/concepts/step#idempotency-keys)。[Step](/concepts/step#guarantees) 列出了每一条保证和它的限制。
+
+并行的 Step 和 RPC 共享 Flow 的 Attribute，Dex 默认不隔离它们。lock 需要显式声明。经验法则：两个并行 Step，或者一个 Step 和一个 RPC，如果都会先读后写同一个 Attribute，就给它加锁。见 [Attribute lock](/concepts/primitives/attribute#locking)。[Failover and Deploys](/concepts/failover-and-deploys)（英文）列出崩溃、server 故障转移或部署之后哪些工作会再运行。
+
+## 修改 Flow 代码 {#change-flow-code}
+
+Dex 不重放你的代码，所以部署永远不会因为 replay 错误让一个运行中的 Flow 失败。运行中的 Flow 仍然可能遇到改变了的规则或改了名的 Step。[Flow 代码版本控制](/concepts/change-flow-code#versioning-flow-code)（英文）说明怎样让它们继续工作。修复之后，[Time Travel](/concepts/change-flow-code#time-travel)（英文）可以让 Flow 从更早的某个点重新运行。
+
+<a id="下一步"></a>
+
+## 下一步 {#where-to-go-next}
+
+- 先读 [Flow](/concepts/flow) 和 [Step](/concepts/step)。Primitive 都建立在它们之上。
+- [设计模式](/design-patterns)说明怎样组合这些概念来解决常见问题。
+- [Correctness and expressiveness](/correctness-and-expressiveness) 说明 Dex 能表达什么，以及它怎样保持正确。
+- [开发者参考](/reference)收录参数、默认值、限制和版本细节。

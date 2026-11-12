@@ -23,7 +23,7 @@ You see what Dex adds to a plain agent, then run it from the command line and as
 
 ## Before you start {#before-you-start}
 
-- **dexcli**, installed as [Run Locally](/components/run-locally) shows.
+- **dexcli**: run **brew install superdurable/tap/dexcli**. [Run Locally](/components/run-locally) has the other ways to install it.
 - Git, to get the example, and **jq** for one check in step 5.
 - **Python 3.11 or later with uv**, or **Node.js 22 or later with npm**, depending on your framework.
 - For Python, nothing else: Google ADK, LangChain, OpenAI Agents SDK, and Pydantic AI run on a local demo model that needs no API key. The Claude Agent SDK and every TypeScript framework call a real model, so they need your provider key, such as **ANTHROPIC_API_KEY** or **OPENAI_API_KEY**, in the environment.
@@ -42,7 +42,7 @@ Keep **dexcli dev** running. Open a second terminal in the **dex** folder for th
 
 ## 2. Make your agent durable {#make-it-durable}
 
-Each framework's example file has two functions. The first is the agent as the framework alone writes it, with the two tools. The second wraps the same agent in a Dex agent session and gives each tool a policy. That is the only change to the agent.
+Each framework's example file has two functions. The first is the agent as the framework alone writes it, with the two tools. The second wraps the same agent in a Dex agent session and gives each tool a policy. For these two function tools, that is the only change. Tools the framework runs itself, such as MCP servers and hosted tools, need the changes in your framework's [Limits](/agent-frameworks/sessions#limits).
 
 **look_up_order** is a read, and **cancel_order** is a non-idempotent write. [Tool Calls](/agent-frameworks/tool-calls) says how each kind runs and why the write waits for approval.
 
@@ -835,13 +835,140 @@ Type **y**. The agent cancels the order and replies.
 
 Ask to cancel an order again, in a new session. When the program asks you to approve, press Ctrl+C instead. The program, its Worker, and its Client are gone, and the program prints how to resume. The session keeps waiting in Dex, and the wait holds no Worker.
 
-Run the program again with the session ID it printed, and no message:
+Run the program again from the same folder, with the session ID it printed and no message:
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+uv run --frozen python -m agent_harness_examples.quick_start claude-agent-sdk --session-id SESSION_ID
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm run agent-quick-start -- claude-agent-sdk --session-id SESSION_ID
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+uv run --frozen python -m agent_harness_examples.quick_start google-adk --session-id SESSION_ID
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+uv run --frozen python -m agent_harness_examples.quick_start langchain --session-id SESSION_ID
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm run agent-quick-start -- mastra --session-id SESSION_ID
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="python">
 
 ```bash
 uv run --frozen python -m agent_harness_examples.quick_start openai-agents --session-id SESSION_ID
 ```
 
-Use your framework's name, and **npm run agent-quick-start --** for TypeScript. A new Worker starts, and the program asks about the same **cancel_order** call. Type **y**. The order is cancelled once. The model calls and the look-up before the restart did not run again.
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm run agent-quick-start -- openai-agents --session-id SESSION_ID
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+uv run --frozen python -m agent_harness_examples.quick_start pydantic-ai --session-id SESSION_ID
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+npm run agent-quick-start -- vercel-ai --session-id SESSION_ID
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
+A new Worker starts, and the program asks about the same **cancel_order** call. Type **y**. The order is cancelled once. The model calls and the look-up before the restart did not run again.
 
 A person can also approve the call in Dex Web instead of in your program. The program's Worker uploads the session graph, so Dex Web shows the **Agent session** tab with plain **dexcli dev**. [Approve in Dex Web](/agent-frameworks/approvals#approve-in-dex-web) shows the steps.
 
@@ -1172,7 +1299,7 @@ The [Order Support Agent](/use-cases/order-support-agent) example has these rout
 
 #### What replaces Runner.run in a web handler {#web-handler}
 
-Without Dex, a handler calls the framework, such as **Runner.run**, and waits for the reply. With Dex, the handler queues the message on the session and returns. The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The polling in **ask_agent** above suits scripts and tests; a chat UI streams. The [AI Agent](/use-cases/ai-agent) example's routes show both halves:
+Without Dex, a handler calls the framework, such as **Runner.run**, and waits for the reply. With Dex, the handler queues the message on the session and returns. The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The polling in **ask_agent** above suits scripts and tests. A chat UI reads the stream instead. The [AI Agent](/use-cases/ai-agent) example's routes show both halves:
 
 <SdkTabs
   examples={{

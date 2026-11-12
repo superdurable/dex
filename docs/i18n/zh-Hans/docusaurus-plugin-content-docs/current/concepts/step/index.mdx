@@ -2,6 +2,7 @@
 title: Step
 sidebar_label: Step
 slug: /concepts/step
+description: "Step 是 Flow 里的一个后台工作单元。它可以先 durable 地等待某件事发生，再执行工作，然后选择下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。"
 ---
 
 import StepWaitExecuteDiagram from '@site/src/components/primitives/step/StepWaitExecuteDiagram';
@@ -15,7 +16,7 @@ Step 由一个原生 struct 或 class 实现，它的类型就是 **StepType**�
 
 ## Step input {#step-input}
 
-每个 Step execution 有自己的 typed input，Dex 把它和 execution 一起保存。input 用来区分同一个 Step type 的不同 execution。start Step 的 input 就是 Flow 的 start input。
+每次 Step execution 都有自己带类型的输入，Dex 把它和这次 execution 一起保存。输入用来区分同一个 Step type 的不同 execution。起始 Step 的输入就是 Flow 的启动输入。
 
 ## WaitFor 和 Execute {#waitfor-and-execute}
 
@@ -201,11 +202,11 @@ impl Step for StepSecond {
 
 用 **AnyOf** 或 **AllOf** 组合条件。**AnyCombinationOf** 在几组条件中任意一组全部满足时成立。等待结束后，**Execute** 可以读取满足它的结果，比如它消费的 Channel 消息。见 [Waits](/reference/python/waits)。
 
-要等待并行分支，用 **Join**。它不是另一类条件：它等待的是各分支上报结果的 ChannelMap。见 [等待并行 Step](/design-patterns/parallel/await)。
+要等待并行分支，用 **Join**。它不是另一类条件：它等待的是各分支上报结果的 [ChannelMap](/concepts/primitives/channel#channelmap)。见 [等待并行 Step](/design-patterns/parallel/await)。
 
 ## StepDecision {#stepdecision-movements}
 
-**Execute** 返回一个 **StepDecision**。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。
+**Execute** 返回一个 **StepDecision**。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。**GoTo** 用 Step type 指定下一个 Step，并传入它的输入。由 Flow 注册的该 Step type 实例来运行它。
 
 <StepDecisionMovementsDiagram markdownDescription="GoTo：ExampleStep 返回 GoTo(Complete Flow)，完成 Flow。GoToMany：ExampleStep 启动 StepA 和 StepB，两者并行运行。循环：ExampleStep 转到 ProcessStep，ProcessStep 再回到 ExampleStep。" />
 
@@ -227,13 +228,29 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 - **Timeout** 限制方法的一次 attempt。
 - **Retry policy** 在 attempt 失败后再次运行同一个方法。
 - <a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="step-failed-事件与-last-failure-info"></a>**Failure policy** 决定重试用完之后怎么办。默认让 Flow 失败。**Execute** 可以改为进入一个 recovery Step，**WaitFor** 可以继续执行 **Execute**。见 [WaitFor failure policy](/reference/python/failure-and-retries#waitfor-failure-policy)、[Execute failure policy](/reference/python/failure-and-retries#execute-failure-policy) 和 [Last failure info](/reference/python/failure-and-retries#last-failure-info)。
-- **Durability** 决定 Dex 什么时候存储结果。默认的 **SYNC** 在下一步工作开始前存储。**ASYNC** 更快，但 server 故障可能让方法再运行一次。
+- **Durability** 决定 Dex 什么时候存储结果。默认的 **SYNC** 在下一步工作开始前存储。**ASYNC** 更快，但 server 故障可能让方法再运行一次。见 [SYNC 和 ASYNC Step](#sync-and-async)。
 - **Heartbeat** 让长时间运行的方法报告进度并保存 checkpoint。
 - **State loading** 和 **Attribute locks** 决定方法加载哪些状态、锁住哪些 Attribute。
 
 **StepDecision** 可以为某一次 Step execution 覆盖这些选项。
 
+不设置 StepOptions 时，每个方法使用 server 的默认值。所有 SDK 的默认值都一样：
+
+| 设置 | 默认值 |
+| --- | --- |
+| 方法超时（单次 attempt） | 2 小时 |
+| Heartbeat 超时 | 1 分钟 |
+| 重试次数 | 在总时长内不限次数 |
+| 重试总时长 | 从第一次交给 Worker 起 4 小时 |
+| 重试退避 | 1 秒起，每次翻倍，最多 100 秒 |
+| Durability | SYNC |
+| Failure policy | 让 Flow 失败 |
+
+SDK 参考中的 [Timeouts and total duration](/reference/go/step-options#timeouts-and-total-duration)（英文）说明这些限制怎样相互作用。
+
 ## 保证 {#guarantees}
+
+简而言之：完成的工作会被保存，没完成的工作可能重复。
 
 最重要的有四条：
 
@@ -253,6 +270,8 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 ### Dex 保存什么 {#what-dex-saves}
 
+简而言之：一个方法的写入会一起保存，但它们和其他 Step 及 RPC 之间没有隔离。
+
 Dex 单独保存每次 **WaitFor** 或 **Execute** 调用。它把这次调用的 Attribute 写入和 Channel 发布与结果一起保存，而且只在方法成功时保存。对外部系统的调用不在这次保存里。
 
 一个 Step 方法的修改会一次全部生效。但这挡不住其他 Step 和 RPC 同时修改同样的状态。方法读到的是 Dex 把它交给 Worker 时的 Flow 状态。在方法的修改生效之前，其他 Step 和 RPC 可能已经改了这些状态。Dex 不检查方法读到的值是否仍然是最新的。所以两个先读后写同一个 Attribute 的 Step 或 RPC，可能互相覆盖对方的更新。要避免这种情况，让它们都在这个 Attribute 上声明 lock。Dex 会让它们依次执行。见 [Attribute lock](/concepts/primitives/attribute#locking)。
@@ -264,6 +283,8 @@ Dex 单独保存每次 **WaitFor** 或 **Execute** 调用。它把这次调用�
 <a id="design-for-redelivery"></a>
 
 ### 失败和重新投递 {#failure-and-redelivery-summary}
+
+简而言之：Dex 无法判断一个方法是否完成时，会再运行它，或者告诉你结果未知。
 
 以下情况会让方法重复运行，或让它的结果未知。它们对每个 SDK 都成立：
 
@@ -282,7 +303,7 @@ Step 的 **durability** 决定 Dex 什么时候保存它的进度。
 - **SYNC** 是默认值。Dex 在 Worker 收到任务之前保存每次 attempt 的开始，在 Flow 继续之前保存结果。每一次都要等待写入对象存储。
 - **ASYNC** 在保存开始和结果之前，就把任务交给 Worker 并开始后续工作。Dex 把这些写入合并成大约 20 毫秒一批。单个 Flow 跑得更快。如果 Dex Server 节点在写入之前失败，Dex 会在新的状态快照上再运行同一次 attempt，所以它可能读到不同的 Attribute 值。从丢失的结果开始的后续工作也会再运行。
 
-需要最严格保证的效果选 **SYNC**。延迟重要、偶尔重新运行可以接受的短 Step 选 **ASYNC**。**StepOptions** 设置单个 Step 的 durability，**FlowConfig** 设置整个 Flow 的。[Performance and Maturity](/intro/performance-and-maturity) 给出两者的实测延迟。
+需要最严格保证的效果选 **SYNC**。延迟重要、偶尔重新运行可以接受的短 Step 选 **ASYNC**。适合 ASYNC 的有：快速读取、内部记账，以及已经有幂等键保证可以安全重复的调用。付款、发邮件，或者任何在更新的快照上重新运行可能发出不同参数的调用，都保持 **SYNC**。**StepOptions** 设置单个 Step 的 durability，**FlowConfig** 设置整个 Flow 的。[Performance and Maturity](/intro/performance-and-maturity) 给出两者的实测延迟。
 
 ### 取消、完成和顺序 {#cancellation-completion-order}
 
@@ -298,7 +319,9 @@ Dex 大致按 Step 就绪的顺序启动它们，但不严格保证。不要依�
 
 ## 参考
 
-英文的 SDK 参考包含：
+下面的链接打开英文的 Python 参考。Go、Java、TypeScript 和 Rust 参考里有同名页面：[Go](/reference/go)、[Java](/reference/java)、[TypeScript](/reference/typescript)、[Rust](/reference/rust)。
+
+SDK 参考包含：
 
 - [Step 方法](/reference/python/step)，以及每个方法提交什么；
 - [等待](/reference/python/waits)、条件结果和 [AnyCombinationOf](/reference/python/waits#anycombinationof)；

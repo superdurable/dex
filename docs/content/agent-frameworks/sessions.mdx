@@ -12,7 +12,7 @@ A durable agent session is one Flow run that holds one conversation. Each model 
 
 One Flow run is one agent session. The Flow ID is the session ID. Dex Agents builds the session Flow: the **dex-agents** package in Python and **@superdurable/dex-agents** in TypeScript. A framework adapter adds one agent framework to it.
 
-The session stores the conversation in Attributes. A session waits for the next user message without holding a Worker. It can wait for days.
+The session stores the conversation in Attributes. A session waits for the next user message without using a Worker task slot.
 
 Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The Steps of one turn are:
 

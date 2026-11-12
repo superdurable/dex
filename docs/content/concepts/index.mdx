@@ -87,21 +87,21 @@ processes that run it:
 ## What Dex guarantees {#guarantees}
 
 Dex saves each Step's result together with the move to the next Step. A Step
-that finished does not run again. A Step that was cut off can run again, so
+that finished does not run again; the one exception is an
+[ASYNC Step](/concepts/step#sync-and-async), which can run again if a server
+node fails before its result is written. A Step that was cut off can run again, so
 key each external call with an [idempotency key](/concepts/step#idempotency-keys). [Step](/concepts/step#guarantees)
 lists every guarantee and its limits.
 
-Parallel Steps and RPCs share the Flow's Attributes, and Dex does not isolate
-them by default. Locks are opt-in. As a rule of thumb, lock any Attribute that
-two parallel Steps, or a Step and an RPC, read and then write. See
+Lock any Attribute that two parallel Steps, or a Step and an RPC, read and then
+write; Dex does not isolate them by default. See
 [Attribute locks](/concepts/primitives/attribute#locking).
 [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again
 after a crash, a server failover, or a deploy.
 
 ## Change Flow code {#change-flow-code}
 
-Dex does not replay your code, so a deploy never fails an open Flow with a
-replay error. Open Flows can still meet changed rules or renamed Steps.
+Open Flows can meet changed rules or renamed Steps after a deploy.
 [Versioning Flow code](/concepts/change-flow-code#versioning-flow-code) shows how
 to keep them working. [Time Travel](/concepts/change-flow-code#time-travel) runs
 a Flow again from an earlier point after a fix.

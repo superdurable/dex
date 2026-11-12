@@ -21,6 +21,18 @@ server-zd 先把每次写入提交到对象存储，再确认这次写入。它�
 - server-zd 为每个 Flow type 保存一份 Flow Definition Graph。Worker 或 **dexcli** 发布它。每份 graph 都记录了自己的生成时间。生成时间更晚的 graph 替换较早的，与上传顺序无关。Dex Web 读取它来画出 Flow。
 - server-zd 可以把选定的 Attribute 写入 PostgreSQL，见[在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。
 
+## 依赖什么 {#dependencies}
+
+| 依赖 | 是否必需 | 没有它会少什么 |
+| --- | --- | --- |
+| 对象存储，例如 Amazon S3 或兼容 S3 的存储 | 必需，或用 db9 代替 | Dex Server 无法运行：每个 Flow 的记录都在这里 |
+| db9，代替对象存储 | 否 | 不少什么，它只是另一种存储 |
+| PostgreSQL 或 ParadeDB 搜索后端 | 否 | 默认的内置搜索会在预算内扫描每个分区的搜索文档。外部后端用 SQL 处理大量或频繁的搜索。见英文的 [Search backends](/reference/server/search)。 |
+| PostgreSQL Attribute Store | 否 | 把选定的 Attribute 复制到你自己的表里。见 [在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。 |
+| metrics 监听端口 | 否 | Prometheus 指标。见英文的 [Metrics](/reference/server/metrics)。 |
+
+db9 是一个独立的数据库产品，使用 PostgreSQL 的通信协议。Dex Server 可以把命令日志、lease、快照和值存在 db9 里，而不是 S3。目前普通的 PostgreSQL 还不是受支持的生产存储，虽然 db9 provider 的测试也会在 PostgreSQL 16 上运行。这个数据库必须提供持久的事务、行锁和强一致读，所以只读副本不行。见英文的 [db9 provider](/reference/server/object-storage#db9)。
+
 ## 运行
 
 本地开发时运行 **dexcli dev**。它启动使用内嵌对象存储的 server-zd，同时启动 Dex Web。

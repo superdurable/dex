@@ -39,6 +39,13 @@ absent field, and keep the previous meaning of existing field values. For an
 incompatible payload or output contract, introduce a new Step type or RPC name
 instead of silently changing the old one.
 
+If a newer Worker cannot decode a stored input or Attribute, the attempt fails
+with a decoding error, like any error a Step method raises. Each retry fails the
+same way, so the Step fails when its retry window ends (4 hours by default),
+and its failure policy applies. By default the Flow then fails. Dex Web shows
+the error type and message on the attempt. Fix the code, then rerun the Step
+with [Time Travel](#time-travel).
+
 ### Keep old definitions until old Flows finish
 
 Do not delete or rename a Flow type, Step type, or RPC implementation while an
@@ -62,6 +69,26 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 
 Only remove the old code after the result is empty or every remaining Flow has
 an explicitly approved retirement plan.
+
+### Check before you deploy {#check-before-you-deploy}
+
+Dex has no command that tests a new Worker build against open Flows. Run these
+checks instead:
+
+1. **List the open Flows of the type.** Search for running Flows, and for the
+   Step types they wait in. **ActiveStepTypes** is a built-in search field.
+
+   ~~~bash
+   dexcli flow search --query 'FlowType = "OrderFlow" AND ExecutionStatus = "Running"'
+   dexcli flow search --query 'FlowType = "OrderFlow" AND ActiveStepTypes = "Ship"'
+   ~~~
+
+2. **Confirm the new build registers every Step type and RPC those Flows can
+   reach.** A Worker that lacks one hands the call to another Worker. If none has
+   it, a Step waits in the queue and an RPC fails.
+3. **Run the integration tests of the new build against Flows started by the old
+   one.** Start Flows with the old build, stop it, start the new build, and let
+   them finish. [Test Your Flows](/components/testing) shows the setup.
 
 ### Example: add a fee to Charge {#versioning-example}
 
@@ -108,7 +135,10 @@ Turn it off with **skip_writes_reapply** (**dexcli**: **-skip-writes-reapply**)
 when that input should not count again. The FlowService call is named
 **ResetFlow**; these docs call it Time Travel.
 
-The target point must be inside the Flow's recent history window. Time Travel
+The target point must be inside the Flow's recent history window. By default
+the window keeps about the newest 50,000 history events of each run on
+**serve**, and 5,000 on **dev**. The server key is **history.windowEvents**, and
+a Flow can set its own size in its Flow configuration. Time Travel
 to the beginning of the run is always available. Start it from Dex Web,
 **dexcli**, or a Client. [Time travel](/reference/server/runtime-client#time-travel)
 in the server reference covers the request options and limits.

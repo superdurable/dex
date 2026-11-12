@@ -43,6 +43,11 @@ cargo add dex-sdk                                # Rust
 For Java, add **io.superdurable:dex-sdk** from Maven Central to your Gradle or
 Maven build.
 
+Pin the SDK version in your build, as the [Quick Start](/quick-start) examples
+do. An SDK and a Dex Server work together when their protocol ranges overlap,
+not when their version numbers match; [Upgrades](/reference/server/upgrades)
+explains the rule.
+
 The Worker can run in two places:
 
 - **Inside your service process.** Start it next to your HTTP server, as the
@@ -70,7 +75,10 @@ A Worker and a Client each take two more objects:
 - **A Registry of your Flows.** The Worker runs the Steps and RPCs of the
   Flows in it. The Client uses the same definitions to encode a Flow's start
   input and its RPC arguments, and to decode results. So a Client builds the
-  Flow objects too, even though it never runs a Step.
+  Flow objects too, even though it never runs a Step. A service in another language either has the Flow code in its
+  own language, or calls the FlowService **StartFlow** request over gRPC with
+  the Flow type and an input that the Flow can decode, as
+  **dexcli flow start** does.
 - **A blob cache.** Dex sends a large value, such as a big Attribute, as a
   reference. The blob cache is a local, size-limited directory that keeps
   those values, so the process does not download them again. Give each Worker
@@ -208,7 +216,7 @@ curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
 
 ## Send commands and read state through RPCs {#send-commands-through-rpcs}
 
-A handler that changes a Flow calls an RPC, such as **approve**. The RPC publishes the message to a Channel, and the waiting Step wakes. A handler that reads a Flow calls a read RPC, such as **describe**. An RPC runs against the Flow's current state on a Worker, so the handler reads and writes the same state that the Steps use. The handlers get the Client and the Flow from their constructor or factory arguments.
+A handler that changes a Flow calls an RPC, such as **approve**. An RPC needs a running Worker: when no Worker takes it within 10 seconds, the caller gets **Unavailable**. To store a message while no Worker runs, see [Deliver an event when no Worker runs](/concepts/client#deliver-without-a-worker). The RPC publishes the message to a Channel, and the waiting Step wakes. A handler that reads a Flow calls a read RPC, such as **describe**. An RPC runs against the Flow's current state on a Worker, so the handler reads and writes the same state that the Steps use. The handlers get the Client and the Flow from their constructor or factory arguments.
 
 The [Order Processing](/use-cases/order-processing) example shows these three patterns in full code.
 

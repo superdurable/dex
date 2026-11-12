@@ -1,22 +1,31 @@
 ---
 title: Dex Server
 sidebar_label: Dex Server
-description: "Dex Server stores every Flow's state and hands Steps and RPCs to Workers. It stores that state in object storage, such as Amazon S3 or an S3-compatible store, and needs no other database. Dex Server ships as one binary, dex-server-zd. Its releases and reference pages call it server-zd."
+description: "Dex Server stores every Flow's state and hands Steps and RPCs to Workers. Object storage, such as Amazon S3, is its only required dependency. Search backends, an Attribute Store, and metrics are optional."
 ---
 
 # Dex Server
 
 Dex Server stores every Flow's state and hands Steps and RPCs to Workers. It
-stores that state in object storage, such as Amazon S3 or an S3-compatible
-store, and needs no other database. Dex Server ships as one binary,
-**dex-server-zd**. Its releases and reference pages call it **server-zd**.
+ships as one binary, **dex-server-zd**; its releases and the
+[Server reference](/reference/server/) call it **server-zd**.
 
-Instead of object storage, Dex Server can keep the same data in db9. db9 is a
-separate database product that speaks the PostgreSQL wire protocol. The db9
-provider's storage tests also run against PostgreSQL 16, but the docs do not
-list stock PostgreSQL as a supported production store today. The database must
-give durable transactions, row locks, and strongly consistent reads, so a read
-replica does not qualify. See
+## What it depends on {#dependencies}
+
+| Dependency | Required? | What you lose without it |
+| --- | --- | --- |
+| Object storage, such as Amazon S3 or an S3-compatible store | Yes, or db9 in its place | Dex Server cannot run: this is the record of every Flow |
+| db9, instead of object storage | No | Nothing; it is an alternative store |
+| A PostgreSQL or ParadeDB search backend | No | The built-in search, the default, scans each partition's search documents with a budget. An external backend serves large or frequent searches from SQL. See [Search backends](/reference/server/search). |
+| A PostgreSQL Attribute Store | No | Copies of selected Attributes in your own tables. See [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection). |
+| A metrics listener | No | Prometheus metrics. See [Metrics](/reference/server/metrics). |
+
+db9 is a separate database product that speaks the PostgreSQL wire protocol.
+Dex Server can keep its command logs, lease, snapshots, and values there
+instead of in S3. Stock PostgreSQL is not a supported production store for
+this today, although the db9 provider's tests also run against PostgreSQL 16.
+The database must give durable transactions, row locks, and strongly
+consistent reads, so a read replica does not qualify. See
 [db9 provider](/reference/server/object-storage#db9).
 
 ## How it works

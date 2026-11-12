@@ -8,8 +8,8 @@ slug: /design-patterns/attribute-map-partitioning
 
 把不断增长的集合放在一个 Attribute 里，它会变成一个很大的 value，每次写入都要整个重写。这两种模式都把数据拆到有大小上限的 **AttributeMap** instance 中，每次读取或写入只涉及一个 instance。
 
-- [顺序分块 AttributeMap](/design-patterns/sequentially-chunked-attribute-map) — 将有序历史 append 到有大小上限的不可变 chunk。
-- [Hash 分区 AttributeMap](/design-patterns/hash-partitioned-attribute-map) — 通过稳定业务 key 直接查找和更新结构化记录。
+- [顺序分块 AttributeMap](/design-patterns/sequentially-chunked-attribute-map)：将有序历史 append 到有大小上限的不可变 chunk。
+- [Hash 分区 AttributeMap](/design-patterns/hash-partitioned-attribute-map)：通过稳定业务 key 直接查找和更新结构化记录。
 
 按访问方式选择：
 
