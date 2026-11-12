@@ -26,7 +26,9 @@ result, joined with ``; ``. At startup the Worker stores a PNG in its
 ``image-reference.json`` in the state directory.
 
 Usage: remote_session_worker.py <Flow type>, with ``REMOTE_SESSION_STATE_DIR``
-naming the state directory.
+naming the state directory. ``REMOTE_SESSION_SUMMARY_INDEXED=1`` turns on
+``summary_attributes_indexed``, which registers the summary index keys in the
+namespace.
 """
 
 from __future__ import annotations
@@ -56,6 +58,7 @@ from dex_agents.testing import (
 )
 
 STATE_DIR_ENVIRONMENT_VARIABLE = "REMOTE_SESSION_STATE_DIR"
+SUMMARY_INDEXED_ENVIRONMENT_VARIABLE = "REMOTE_SESSION_SUMMARY_INDEXED"
 APPROVED_PLAN_PREFIX = "[Dex] The user approved plan revision"
 # A 1x1 PNG.
 PNG_BYTES = base64.b64decode(
@@ -127,10 +130,13 @@ def build_flow(
         built_in_tools=frozenset({BuiltInTool.ASK_USER, BuiltInTool.WRITE_TODOS}),
         plan_mode_enabled=True,
     )
+    options = builtin_agent_session_options(definition)
+    if os.environ.get(SUMMARY_INDEXED_ENVIRONMENT_VARIABLE) == "1":
+        options = dataclasses.replace(options, summary_attributes_indexed=True)
     return AgentSessionFlow(
         BuiltinLoopAgentRunner(definition, media_store=media_store),
         flow_type=flow_type,
-        options=builtin_agent_session_options(definition),
+        options=options,
     )
 
 

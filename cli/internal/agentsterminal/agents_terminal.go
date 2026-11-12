@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 // Package agentsterminal runs the hidden `dexcli agents-tui` command: the
-// chat terminal UI of agents CLI commands, under terminal UI contract 1.
+// terminal UI of agents CLI commands, under terminal UI contract 1. It runs
+// the chat, sessions, and connectors modes.
 package agentsterminal
 
 import (
@@ -68,7 +69,7 @@ func Execute(ctx context.Context, args []string, stdin *os.File, stdout *os.File
 	case *isDescribe:
 		return printDescribe(stdout, dexcliVersion)
 	case *channelFD >= 0:
-		return runChannelChat(ctx, *channelFD, stdin, stdout)
+		return runChannelHandoff(ctx, *channelFD, stdin, stdout)
 	case !*isDemo:
 		return errors.New("agents-tui: pass --channel-fd, --describe, or --demo")
 	}

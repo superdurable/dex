@@ -6,6 +6,8 @@ on:
     types: [opened, synchronize, reopened, labeled]
     paths:
       - "server-zd/**"
+      - "sdk-rust/Cargo.toml"
+      - "sdk-rust/crates/dex-blob-cache/**"
       - "s3local/**"
       - "protos/**"
       - ".github/workflows/server-zd-ci.yml"

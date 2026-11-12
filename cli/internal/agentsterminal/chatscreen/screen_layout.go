@@ -497,6 +497,9 @@ func (screen *ChatScreen) renderPendingBar(width int) []string {
 		question := " Started session " + screen.pendingSwitchSessionID + ". Switch to it?"
 		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Accent.Render(symbols.AwaitingUser)+question, width, symbols.Ellipsis))
 	}
+	if screen.pendingImageDrop != nil {
+		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Warning.Render(symbols.Warning)+screen.imageDropQuestion(), width, symbols.Ellipsis))
+	}
 	if screen.pendingPastedImage != nil {
 		question := " Attach " + filepath.Base(screen.pendingPastedImage.path) + "?"
 		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Accent.Render(symbols.AwaitingUser)+question, width, symbols.Ellipsis))
@@ -737,6 +740,8 @@ func (screen *ChatScreen) inputHints() []string {
 		return []string{"Enter attach", "Esc keep text"}
 	case screen.pendingDelete != nil:
 		return []string{"y delete", "n keep"}
+	case screen.pendingImageDrop != nil:
+		return []string{"y drop", "n stay"}
 	case screen.pendingSwitchSessionID != "" && screen.input.IsEmpty():
 		return []string{"y switch", "n stay"}
 	case screen.isSessionStartWaiting && !screen.isCompletionVisible():

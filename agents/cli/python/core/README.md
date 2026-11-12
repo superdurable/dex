@@ -214,13 +214,10 @@ event loop or a blocking system call does not.
 
 The shell tool runs each command in its own process group, which the Worker
 host's group kill does not reach. So the shell tool registers the group right
-after the spawn. When the shell exits, it waits without reaping it
-(`waitid` with `WNOWAIT`, or kqueue on macOS before Python 3.13), so the
-group ID stays reserved; it sends SIGTERM to what the shell left in the
-group, SIGKILL 0.5 s later, and only then reaps the shell and unregisters
-the group, under the registry lock that every signal takes too. So in the
-Worker host a shell command's background processes end with the command,
-and, while the Worker host runs, it signals a group only while it holds the
+after the spawn. It stops what the shell left in its group as in the plain
+chat (see Local tools), and then reaps the shell and unregisters the group
+under the registry lock that every signal takes too. So, while the Worker
+host runs, it signals a group only while it holds the
 unreaped leader. A failed registration kills and reaps the shell at once.
 The Worker host
 mirrors the registry in its run record,
@@ -480,8 +477,33 @@ These checks have limits:
 
 - A shell command runs with `/bin/sh -c` in the workspace, in its own process
   group, so Ctrl-C never reaches it. It times out after 120 seconds by default
-  and 600 at most. It is a single-attempt write: a Worker that dies during it
-  records `outcome_unknown` and never runs it again.
+  and 600 at most; a timeout kills the whole group and is a result,
+  `killed: timed out after N seconds`. When the shell exits, what it left
+  running in its group (`sleep 30 &`) gets SIGTERM, then SIGKILL unless it
+  is gone within 0.5 s, even when the pipes already ended. `pgrep -g` checks
+  the group every 25 ms, leaving out the unreaped shell; a command that left
+  nothing gets no signal and no wait, and when `pgrep` fails the full grace
+  applies.
+  The shell is reaped only after that, without a reap in between (`waitid`
+  with `WNOWAIT`, or kqueue on macOS before Python 3.13), so its group ID is
+  never reused while it is signaled; a cancelled call finishes this cleanup
+  before the cancellation propagates. One thread per call owns the shell: it
+  alone waits for it, signals its group, reads the pipes, and reaps it, so a
+  cancelled call, a closing event loop, or an exiting interpreter (an `atexit`
+  hook kills and waits for each, 3 s at most) never leaves a reaped leader's
+  group signaled. It reads with `selectors`, so pipe descriptors above 1024
+  work; a failed read only ends reading, and the stop sequence still runs. An
+  owner thread that cannot start kills and reaps the shell before the error
+  propagates, and a forked child forgets its parent's owners. Once the group
+  is cleaned, the output may still arrive for
+  1 s, each stream cut at 64 KiB with a `[cut at 65536 bytes]` line; a
+  process that left the group (`setsid`) and still holds the pipes is not
+  stopped and no longer delays the result. A shell that cannot start fails
+  with `the shell could not start: <reason>`, the operating system's text. The result
+  has the TypeScript CLI core's form: `exit code N` (the shell's status, 128
+  plus the signal for a signal), then `--- stdout ---` and `--- stderr ---`.
+  It is a single-attempt write: a Worker that dies during it records
+  `outcome_unknown` and never runs it again.
 - The browser is headless: Playwright's own Chromium when it is installed,
   else the system Chrome, else Chromium that Playwright downloads the first
   time a browser tool runs. `browser_navigate` opens only `http` and `https`
