@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -160,6 +161,13 @@ func (model *sessionModel) emitOpened() {
 	}
 	if launch.Display.Model != nil {
 		model.opened.Model = *launch.Display.Model
+	}
+	model.opened.Models = slices.Clone(launch.Display.Models)
+	if len(model.opened.Models) == 0 && model.opened.Model != "" {
+		model.opened.Models = []string{model.opened.Model}
+	}
+	if launch.Capabilities.ReasoningEffort != nil {
+		model.opened.ReasoningEffortValues = slices.Clone(launch.Capabilities.ReasoningEffort.Values)
 	}
 	model.emit(model.opened)
 }
@@ -788,9 +796,11 @@ func (model *sessionModel) applyOpened(snapshot dexagents.AgentSnapshot) {
 	opened.TurnCount = int(snapshot.State.TurnCount)
 	opened.AcceptsTurnControl = model.feed.launch.Capabilities.HasTurnControl && snapshot.State.AcceptsTurnControl
 	opened.IsNewSession = snapshot.State.TurnCount == 0 && snapshot.State.ActiveTurnID == nil && len(snapshot.Messages) == 0
-	if configured, isString := snapshot.SessionSettings["model"].(string); isString && configured != "" {
+	if configured, isString := snapshot.SessionSettings[modelSettingKey].(string); isString && configured != "" {
 		opened.Model = configured
 	}
+	// An absent key means the model's default, so it clears the footer.
+	opened.ReasoningEffort, _ = snapshot.SessionSettings[reasoningEffortSettingKey].(string)
 	if reflect.DeepEqual(opened, model.opened) {
 		return
 	}

@@ -23,6 +23,15 @@ type SessionOpened struct {
 	Command string
 	// Model is the session's model ID; empty when not known yet.
 	Model string
+	// Models are the model IDs /model offers, the configured model first;
+	// nil when none is known.
+	Models []string
+	// ReasoningEffort is the session's reasoning effort setting; empty when
+	// the model's own default applies.
+	ReasoningEffort string
+	// ReasoningEffortValues are the reasoning efforts the command accepts,
+	// from least to most effort; nil when it has no such setting.
+	ReasoningEffortValues []string
 	// SessionID is the session Flow ID.
 	SessionID string
 	// IsNewSession reports a session with no turns yet.

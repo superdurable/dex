@@ -17,6 +17,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -32,12 +34,22 @@ import (
 // The slash commands the feed runs.
 const (
 	modelCommandName      = "model"
+	effortCommandName     = "effort"
 	imageCommandName      = "image"
 	newCommandName        = "new"
 	webCommandName        = "web"
 	connectorsCommandName = "connectors"
 	sessionsCommandName   = "sessions"
 )
+
+// The session settings keys /model and /effort write.
+const (
+	modelSettingKey           = "model"
+	reasoningEffortSettingKey = "reasoning_effort"
+)
+
+// defaultReasoningEffort is the /effort choice that removes the setting.
+const defaultReasoningEffort = "default"
 
 // maxLockRetryDelay caps the pause between lock conflict retries.
 const maxLockRetryDelay = time.Second
@@ -346,6 +358,14 @@ func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sess
 			return nil
 		}
 		return feed.changeModel(ctx, sessionID, command.Argument)
+	case effortCommandName:
+		sessionID, endAction, isCurrent := feed.beginSessionAction(ctx)
+		defer endAction()
+		if !isCurrent {
+			feed.refuseSwitchedAction(command)
+			return nil
+		}
+		return feed.changeReasoningEffort(ctx, sessionID, command.Argument)
 	case imageCommandName:
 		feed.actionMutex.Lock()
 		defer feed.actionMutex.Unlock()
@@ -380,18 +400,16 @@ func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sess
 }
 
 func (feed *RemoteSessionFeed) changeModel(ctx context.Context, sessionID string, model string) error {
-	if strings.ContainsFunc(model, unicode.IsSpace) {
-		feed.notice(sessionfeed.NoticeSeverityError, "A model ID has no spaces; the model did not change.")
+	if strings.ContainsFunc(model, isSpaceOrControl) {
+		feed.notice(sessionfeed.NoticeSeverityError, "A model ID has no spaces or control characters; the model did not change.")
 		return nil
 	}
-	snapshotContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
-	snapshot, err := feed.sessions.GetAgentSnapshot(snapshotContext, sessionID)
-	cancel()
-	if err != nil {
-		return errors.New(describeError(err))
-	}
 	if model == "" {
-		current, _ := snapshot.SessionSettings["model"].(string)
+		settings, err := feed.readSessionSettings(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		current, _ := settings[modelSettingKey].(string)
 		switch {
 		case current != "":
 		case feed.launch.Display.Model != nil && *feed.launch.Display.Model != "":
@@ -402,16 +420,9 @@ func (feed *RemoteSessionFeed) changeModel(ctx context.Context, sessionID string
 		feed.notice(sessionfeed.NoticeSeverityInfo, "The model is "+current+". Type a model ID after /model to change it.")
 		return nil
 	}
-	settings := maps.Clone(snapshot.SessionSettings)
-	if settings == nil {
-		settings = map[string]any{}
-	}
-	settings["model"] = model
-	isStored, err := feed.callWithLockRetries(ctx, func(callContext context.Context) (bool, error) {
-		return feed.sessions.UpdateSessionSettings(callContext, sessionID, settings)
-	})
+	isStored, err := feed.writeSessionSetting(ctx, sessionID, modelSettingKey, &model)
 	if err != nil {
-		return errors.New(describeError(err))
+		return err
 	}
 	if !isStored {
 		feed.notice(sessionfeed.NoticeSeverityWarning, "The session did not take the model yet; try again after it loads.")
@@ -419,6 +430,95 @@ func (feed *RemoteSessionFeed) changeModel(ctx context.Context, sessionID string
 	}
 	feed.notice(sessionfeed.NoticeSeverityInfo, "The next turn uses "+model+".")
 	return feed.postInput(ctx, refreshRequested{})
+}
+
+func isSpaceOrControl(character rune) bool {
+	return unicode.IsSpace(character) || unicode.IsControl(character)
+}
+
+// changeReasoningEffort sets reasoning_effort to one of the launch
+// document's values, or removes it for "default".
+func (feed *RemoteSessionFeed) changeReasoningEffort(ctx context.Context, sessionID string, effort string) error {
+	var values []string
+	if feed.launch.Capabilities.ReasoningEffort != nil {
+		values = feed.launch.Capabilities.ReasoningEffort.Values
+	}
+	if len(values) == 0 {
+		feed.notice(sessionfeed.NoticeSeverityInfo, "This agent has no reasoning effort setting.")
+		return nil
+	}
+	choices := strings.Join(append(slices.Clone(values), defaultReasoningEffort), ", ")
+	if effort == "" {
+		settings, err := feed.readSessionSettings(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		current, _ := settings[reasoningEffortSettingKey].(string)
+		if current == "" {
+			current = "the model's default"
+		}
+		feed.notice(sessionfeed.NoticeSeverityInfo, "The reasoning effort is "+current+". Choices: "+choices+".")
+		return nil
+	}
+	if effort != defaultReasoningEffort && !slices.Contains(values, effort) {
+		feed.notice(sessionfeed.NoticeSeverityError, "Unknown reasoning effort "+strconv.Quote(effort)+"; choose one of "+choices+".")
+		return nil
+	}
+	var value *string
+	if effort != defaultReasoningEffort {
+		value = &effort
+	}
+	isStored, err := feed.writeSessionSetting(ctx, sessionID, reasoningEffortSettingKey, value)
+	if err != nil {
+		return err
+	}
+	if !isStored {
+		feed.notice(sessionfeed.NoticeSeverityWarning, "The session did not take the reasoning effort yet; try again after it loads.")
+		return nil
+	}
+	if value == nil {
+		feed.notice(sessionfeed.NoticeSeverityInfo, "The next turn uses the model's default reasoning effort.")
+	} else {
+		feed.notice(sessionfeed.NoticeSeverityInfo, "The next turn uses "+effort+" reasoning effort.")
+	}
+	return feed.postInput(ctx, refreshRequested{})
+}
+
+// readSessionSettings returns the session settings of a fresh snapshot.
+func (feed *RemoteSessionFeed) readSessionSettings(ctx context.Context, sessionID string) (map[string]any, error) {
+	snapshotContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
+	defer cancel()
+	snapshot, err := feed.sessions.GetAgentSnapshot(snapshotContext, sessionID)
+	if err != nil {
+		return nil, errors.New(describeError(err))
+	}
+	return snapshot.SessionSettings, nil
+}
+
+// writeSessionSetting writes the whole settings object with key set to
+// value, or without key when value is nil. It returns whether the session
+// stored the settings.
+func (feed *RemoteSessionFeed) writeSessionSetting(ctx context.Context, sessionID string, key string, value *string) (bool, error) {
+	current, err := feed.readSessionSettings(ctx, sessionID)
+	if err != nil {
+		return false, err
+	}
+	settings := maps.Clone(current)
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	if value == nil {
+		delete(settings, key)
+	} else {
+		settings[key] = *value
+	}
+	isStored, err := feed.callWithLockRetries(ctx, func(callContext context.Context) (bool, error) {
+		return feed.sessions.UpdateSessionSettings(callContext, sessionID, settings)
+	})
+	if err != nil {
+		return false, errors.New(describeError(err))
+	}
+	return isStored, nil
 }
 
 // attachImage checks the file locally, then stores it through put_image.

@@ -169,7 +169,10 @@ func TestModelCommandShowsTheModelAndRejectsSpaces(t *testing.T) {
 	require.Equal(t, []string{"The model is gpt-5.2 (the command's default). Type a model ID after /model to change it."},
 		noticeTexts(commandNotices(t, feed, sessionfeed.RunSlashCommand{Name: modelCommandName})))
 	notices := commandNotices(t, feed, sessionfeed.RunSlashCommand{Name: modelCommandName, Argument: "gpt 5"})
-	require.Equal(t, []sessionfeed.NoticeRaised{{Severity: sessionfeed.NoticeSeverityError, Text: "A model ID has no spaces; the model did not change."}}, notices)
+	require.Equal(t, []sessionfeed.NoticeRaised{{Severity: sessionfeed.NoticeSeverityError, Text: "A model ID has no spaces or control characters; the model did not change."}}, notices)
+	notices = commandNotices(t, feed, sessionfeed.RunSlashCommand{Name: modelCommandName, Argument: "gpt\x075"})
+	require.Equal(t, sessionfeed.NoticeSeverityError, notices[0].Severity, "a control character is refused too")
+	require.Empty(t, feed.sessions.(*fakeSessions).recordedSettings())
 	commands, err := json.Marshal(feed.SlashCommands())
 	require.NoError(t, err)
 	require.Contains(t, string(commands), `"Name":"model","ArgumentHint":"ID","IsArgumentOptional":true`)
