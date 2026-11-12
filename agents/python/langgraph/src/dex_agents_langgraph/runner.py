@@ -67,6 +67,7 @@ from langchain_core.messages import (
 )
 from langchain_core.outputs import LLMResult
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import var_child_runnable_config
 from langchain_core.tools import BaseTool, ToolException
 from langgraph._internal._constants import CONFIG_KEY_READ, CONFIG_KEY_SEND
 from langgraph.channels.delta import DeltaChannel
@@ -196,6 +197,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     whose ``update`` holds its ``ToolMessage`` and other state keys: the tool
     Step records the update after the output text, and the next ``RunModel``
     applies it with the recorded ``ToolMessage``.
+
+    With ``should_defer_tool_calls_before_middleware``, each attempt of a
+    tool Step runs the call through its tool node's middleware tool
+    wrappers, such as Deep Agents' large result eviction. A retried attempt
+    runs them again, so their side effects follow the tool's retry policy.
+    The next ``RunModel`` replays the recorded result without running them.
 
     Tool sources, such as ``ConnectorToolSource``, add tools that the runner
     lists in every ``RunModel``. ``DurableToolCallMiddleware`` adds them to
@@ -333,12 +340,24 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 where ``create_deep_agent`` places your middleware after its
                 own. The runner applies it to its own copy of the graph, so
                 the graph you pass and other runners that share it keep
-                their order. Middleware tool wrappers then never run in a
-                session: ``RunModel`` replays recorded results before them,
-                and a tool Step calls the tool alone. Defaults to ``False``,
-                which keeps the middleware order.
+                their order. Each tool call's tool Step then runs the
+                middleware tool wrappers of its root graph tool node, such as
+                ``FilesystemMiddleware``'s large result eviction, around the
+                tool, in each attempt of that Step; a retried attempt runs
+                them again. Each wrapper sees the graph state at the call's
+                deferral without the message list, and may write state as a
+                tool does. ``RunModel`` replays the recorded result before
+                the wrappers, so they never run there. Defaults to
+                ``False``, which keeps the middleware order: middleware
+                listed before ``DurableToolCallMiddleware`` wrap the deferral
+                and the replay in ``RunModel``, and a tool Step calls the tool
+                alone, without any wrapper.
 
                 .. versionadded:: 0.5.0
+
+                .. versionchanged:: 0.5.1
+                    A tool Step runs the tool node's middleware tool wrappers.
+                    Before, it called the tool alone, so no wrapper ever ran.
 
         Raises:
             TypeError: If ``graph`` is neither a compiled graph nor callable,
@@ -653,12 +672,21 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
         A tool with a ``ToolRuntime`` or ``InjectedState`` parameter receives
         the graph state that ``RunModel`` stored with the call, without the
-        message list. Its runtime has no store and no context, and it reads
+        message list. Its runtime has the compiled graph's ``store``, which
+        is ``None`` unless the graph was compiled with one, and no
+        ``context``, as the runner runs graphs without a run context.
+        ``get_store()`` and ``get_runtime()`` do not work there. It reads
         and writes state as in a graph task, which Deep Agents'
         ``StateBackend`` does. A tool may also return a ``Command`` whose
         ``update`` mapping holds its ``ToolMessage``. Its state writes go in the
         result's ``runner_tool_state``, apart from the output, and the next
         ``RunModel`` replays them as the graph task's writes.
+
+        With ``should_defer_tool_calls_before_middleware``, a tool of a root
+        graph tool node runs through that node's middleware tool wrappers and
+        its tool error handling, as in the graph. The wrappers receive the
+        same state and runtime, and their state writes are recorded as the
+        tool's. A tool of ``tools=`` that no tool node has runs alone.
 
         Args:
             call: The approved record and its idempotency key.
@@ -692,6 +720,11 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
         .. versionchanged:: 0.5.0
             A tool may read and write graph state and return a ``Command``.
+
+        .. versionchanged:: 0.5.1
+            The tool runtime has the compiled graph's store. A tool of a root
+            graph tool node runs through its middleware tool wrappers when
+            the runner defers tool calls before middleware.
         """
         record = call.tool_call
         if self._tool_sources.is_source_tool_call(record):
@@ -708,22 +741,46 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             "configurable": {TOOL_CALL_IDEMPOTENCY_KEY_CONFIGURABLE: call.idempotency_key}
         }
         state_writes: list[StateWrite] = []
-        if record.tool_name in loaded_graph.state_tool_names:
-            state = decode_tool_state_reference(
-                record.tool_source_reference, self._state_serializer
+        state: dict[str, Any] = {}
+        is_state_tool = record.tool_name in loaded_graph.state_tool_names
+        if is_state_tool:
+            state = (
+                decode_tool_state_reference(record.tool_source_reference, self._state_serializer)
+                or {}
             )
             config["configurable"][CONFIG_KEY_READ] = build_graph_state_reader(
-                loaded_graph.graph.channels, state or {}, state_writes
+                loaded_graph.graph.channels, state, state_writes
             )
             config["configurable"][CONFIG_KEY_SEND] = state_writes.extend
-            tool_call = self._with_injected_tool_arguments(
-                loaded_graph, tool, tool_call, state or {}, config
-            )
+        tool_runtime = ToolRuntime(
+            state=state,
+            context=None,
+            config=config,
+            stream_writer=_discard_stream_write,
+            tool_call_id=record.tool_call_id,
+            store=loaded_graph.graph.store,
+            tools=list(loaded_graph.tools_by_name.values()),
+        )
+        wrapping_tool_node = loaded_graph.wrapping_tool_nodes.get(record.tool_name)
         with _bind_tool_step():
             try:
-                result = await tool.ainvoke(tool_call, config)
+                if wrapping_tool_node is not None:
+                    result = await _run_through_tool_node_wrappers(
+                        wrapping_tool_node, tool_call, tool_runtime
+                    )
+                elif is_state_tool:
+                    result = await tool.ainvoke(
+                        self._with_injected_tool_arguments(tool, tool_call, tool_runtime), config
+                    )
+                else:
+                    result = await tool.ainvoke(tool_call, config)
             except ToolException as error:
                 raise ToolExecutionError(str(error)) from error
+        if isinstance(result, list):
+            raise TypeError(
+                f"tool {record.tool_name} returned a list; a tool of an agent session must "
+                "return content or a Command"
+            )
         if isinstance(result, Command):
             command_result = split_tool_command(result, record.tool_call_id, self._messages_key)
             state_writes.extend(command_result.state_writes)
@@ -822,8 +879,11 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         tools_by_name.update(self._explicit_tools)
         for excluded_tool_name in self._excluded_tool_names:
             tools_by_name.pop(excluded_tool_name, None)
+        wrapping_tool_nodes: dict[str, ToolNode] = {}
         if self._should_defer_tool_calls_before_middleware:
+            _require_tool_node_call_path()
             graph = _with_tool_calls_deferred_first(graph)
+            wrapping_tool_nodes = _tool_nodes_with_wrappers_by_tool_name(graph, tools_by_name)
         return _LoadedGraph(
             graph=graph,
             tools_by_name=tools_by_name,
@@ -831,8 +891,11 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             state_tool_names=frozenset(
                 tool_name
                 for tool_name, tool in tools_by_name.items()
-                if _reads_graph_state(_get_all_injected_args(tool))
+                # A wrapper may read or write state for any tool, as Deep Agents' eviction does.
+                if tool_name in wrapping_tool_nodes
+                or _reads_graph_state(_get_all_injected_args(tool))
             ),
+            wrapping_tool_nodes=wrapping_tool_nodes,
         )
 
     def _resume_values(
@@ -868,21 +931,10 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
     def _with_injected_tool_arguments(
         self,
-        loaded_graph: _LoadedGraph,
         tool: BaseTool,
         tool_call: ToolCall,
-        state: dict[str, Any],
-        config: RunnableConfig,
+        tool_runtime: ToolRuntime,
     ) -> ToolCall:
-        tool_runtime = ToolRuntime(
-            state=state,
-            context=None,
-            config=config,
-            stream_writer=_discard_stream_write,
-            tool_call_id=tool_call["id"],
-            store=None,
-            tools=list(loaded_graph.tools_by_name.values()),
-        )
         # LangGraph's own injection, so ToolRuntime and InjectedState work as in a ToolNode.
         injector = ToolNode([tool], messages_key=self._messages_key)
         return injector._inject_tool_args(tool_call, tool_runtime, tool)
@@ -979,6 +1031,8 @@ class _LoadedGraph:
     # The root channels with each DeltaChannel replaced, or None when the graph has none.
     turn_channels: Mapping[str, Any] | None
     state_tool_names: frozenset[str]
+    # The tool node whose wrappers run each tool in its tool Step, by tool name.
+    wrapping_tool_nodes: Mapping[str, ToolNode]
 
 
 @dataclass(frozen=True)
@@ -1095,6 +1149,43 @@ def _with_tool_calls_deferred_first(graph: CompiledGraph) -> CompiledGraph:
         for name, node in graph.nodes.items()
     }
     return graph.copy(update={"nodes": nodes})
+
+
+def _tool_nodes_with_wrappers_by_tool_name(
+    graph: CompiledGraph, tools_by_name: Mapping[str, BaseTool]
+) -> dict[str, ToolNode]:
+    # Only root graph nodes defer first, so only their wrappers all sit inside the deferral.
+    nodes: dict[str, ToolNode] = {}
+    for node in graph.nodes.values():
+        bound = node.bound
+        if not isinstance(bound, ToolNode) or isinstance(bound, DurableToolNode):
+            continue
+        for tool_name, tool in bound.tools_by_name.items():
+            if tools_by_name.get(tool_name) is tool:
+                nodes.setdefault(tool_name, bound)
+    return nodes
+
+
+def _require_tool_node_call_path() -> None:
+    # A private LangGraph method; the dependency range pins the versions that have it.
+    if not callable(getattr(ToolNode, "_arun_one", None)):
+        raise RuntimeError(
+            "should_defer_tool_calls_before_middleware needs a langgraph-prebuilt release "
+            "whose ToolNode has _arun_one; install the version range dex-agents-langgraph "
+            "declares"
+        )
+
+
+async def _run_through_tool_node_wrappers(
+    tool_node: ToolNode, tool_call: ToolCall, tool_runtime: ToolRuntime
+) -> ToolMessage | Command[Any] | list[ToolMessage | Command[Any]]:
+    # Wrappers run outside the tool's own runnable, so get_config needs the config set here.
+    token = var_child_runnable_config.set(tool_runtime.config)
+    try:
+        # The node's own path: wrappers, argument injection, and tool error handling.
+        return await tool_node._arun_one(tool_call, "dict", tool_runtime)
+    finally:
+        var_child_runnable_config.reset(token)
 
 
 def _graph_and_subgraphs(graph: CompiledGraph) -> list[CompiledGraph]:

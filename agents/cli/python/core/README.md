@@ -42,7 +42,8 @@ JSON Pointer, such as `schema at "/local_tools/shell/allow" (schema keyword type
 The exit code is 0 on success; 1 for a failure at run time, such as a Dex
 server that does not start, an explicit `connectors.mcp` URL that does not
 answer, or a turn or session that failed during the chat; and 2 for a
-usage or configuration error.
+usage or configuration error. Ctrl-C at an `init` question exits with 130, and
+Ctrl-D there exits with 1; neither writes a file.
 
 ### Sessions and Flow types
 

@@ -77,6 +77,69 @@ async def test_yes_writes_the_default_config_without_questions(cli_home: CliHome
     assert written["model"] == "scripted-model"
 
 
+async def test_a_message_typed_with_the_last_answer_reaches_the_chat(cli_home: CliHome) -> None:
+    child = cli_home.spawn()
+    for question in (
+        "Model",
+        "System prompt",
+        "Connectors to enable",
+        "Workspace",
+        "Allow file tools",
+        "Allow shell commands",
+        "Commands that run without approval",
+        "Allow web fetching",
+    ):
+        await expect(child, question)
+        child.sendline("")
+    await expect(child, "Allow a local browser")
+    child.send("\nhello\n")
+    await expect(child, f"Wrote {cli_home.config_path}.")
+    await expect(child, "echo: hello")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
+async def test_ctrl_c_at_the_first_init_question_exits_with_130_and_writes_no_file(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn("init")
+    await expect(child, "Model")
+    child.sendcontrol("c")
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 130
+    assert "Traceback" not in (child.before or "")
+    assert not cli_home.config_path.exists()
+
+
+async def test_ctrl_c_at_a_later_question_of_the_first_run_setup_exits_with_130(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn()
+    await expect(child, "Model")
+    child.sendline("")
+    await expect(child, "System prompt")
+    child.sendline("You answer in haiku.")
+    await expect(child, "Connectors to enable")
+    child.sendcontrol("c")
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 130
+    assert "Traceback" not in (child.before or "")
+    assert not cli_home.config_path.exists()
+
+
+async def test_ctrl_d_at_an_init_question_exits_with_1_and_writes_no_file(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn("init")
+    await expect(child, "Model")
+    child.sendline("")
+    await expect(child, "System prompt")
+    child.sendeof()
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 1
+    assert not cli_home.config_path.exists()
+
+
 async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_home: CliHome) -> None:
     completed = cli_home.run(stdin="hello there\n")
     assert completed.returncode == 0, completed.stderr

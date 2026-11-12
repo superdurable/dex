@@ -20,36 +20,72 @@ import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before any
 import sys
 
 from dex_agents_cli_core import ConfigError, command_name, run_agent_cli
+from dex_agents_deepagents_cli.connector_tool_names import (
+    COLLIDING_CONNECTOR_TOOL_PREFIX,
+    PrefixedConnectorToolSource,
+)
 from dex_agents_deepagents_cli.harness import (
+    DEEP_AGENTS_TOOL_RULES,
     DEEPAGENTS_CLI_FLOW_TYPE,
     DEFAULT_DEEPAGENTS_MODEL,
     DEFAULT_INSTRUCTIONS,
+    EXECUTE_TOOL_NAME,
     TASK_TOOL_NAME,
     WRITE_TODOS_TOOL_NAME,
+    DeepAgentsAgentRunner,
     DeepAgentsHarness,
+    DeepAgentsToolRule,
+    LocalToolSwitchesMiddleware,
     TurnChatModelSelector,
     TurnInstructionsMiddleware,
     build_deep_agent,
     deep_agents_chat_model,
+    deep_agents_tool_sources,
     validate_deepagents_section,
-    write_todos_tool,
+)
+from dex_agents_deepagents_cli.workspace_backend import (
+    DEEP_AGENTS_ARTIFACT_PREFIXES,
+    SESSION_ARTIFACTS_RETENTION,
+    SessionArtifactsBackend,
+    WorkspaceShellBackend,
+    bind_artifacts_session,
+    build_workspace_backend,
+    default_artifacts_directory,
+    ensure_artifacts_directory,
+    remove_stale_session_artifacts,
 )
 
 __all__ = [
+    "COLLIDING_CONNECTOR_TOOL_PREFIX",
     "DEEPAGENTS_CLI_FLOW_TYPE",
+    "DEEP_AGENTS_ARTIFACT_PREFIXES",
+    "DEEP_AGENTS_TOOL_RULES",
     "DEFAULT_DEEPAGENTS_MODEL",
     "DEFAULT_INSTRUCTIONS",
+    "EXECUTE_TOOL_NAME",
+    "SESSION_ARTIFACTS_RETENTION",
     "TASK_TOOL_NAME",
     "WRITE_TODOS_TOOL_NAME",
+    "DeepAgentsAgentRunner",
     "DeepAgentsHarness",
+    "DeepAgentsToolRule",
+    "LocalToolSwitchesMiddleware",
+    "PrefixedConnectorToolSource",
+    "SessionArtifactsBackend",
     "TurnChatModelSelector",
     "TurnInstructionsMiddleware",
+    "WorkspaceShellBackend",
+    "bind_artifacts_session",
     "build_deep_agent",
+    "build_workspace_backend",
     "deep_agents_chat_model",
+    "deep_agents_tool_sources",
+    "default_artifacts_directory",
+    "ensure_artifacts_directory",
     "main",
+    "remove_stale_session_artifacts",
     "run",
     "validate_deepagents_section",
-    "write_todos_tool",
 ]
 
 
