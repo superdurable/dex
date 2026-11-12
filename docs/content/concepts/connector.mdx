@@ -143,9 +143,6 @@ connections and Trigger bindings for a Go application. It does this only in
    your Flow definitions use. Authorize each one.
 3. Start your application with the connection file that Dex Web shows.
 
-The [local Connector setup reference](/reference/web/local-connector-setup)
-says which connections it can configure.
-
 Dex Web configures only the exact official Connector release. A Connector's UI
 runs in a sandboxed iframe, and stored credentials never enter it.
 
@@ -153,7 +150,8 @@ The connection file holds plaintext secrets for local use only. Do not commit
 it or use it in production.
 
 [Local Connector setup](/reference/web/local-connector-setup) describes each step
-and its settings.
+and its settings. Dex Web can also add a connection that no Flow definition
+names.
 
 ## Next
 

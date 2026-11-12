@@ -507,8 +507,9 @@ What to expect:
   write and logs a warning. Dex does not replay old values or fill a newly
   configured store. [Dex and Your Database](/components/your-database) shows
   how to detect a dropped write and repair the row.
-- When a Flow completes or fails on its own, it stays running until its
-  pending writes are written or dropped. StopFlow does not wait.
+- When a Flow completes or fails on its own, it stays running while pending
+  writes finish. StopFlow does not wait. See
+  [Completion requests](/reference/server/step-and-flow-close#completion-requests).
 - Deleting an Attribute writes NULL to its column. Dex does not delete the row
   when the Flow closes.
 - A store can split the Flow ID into several key columns, and can write each

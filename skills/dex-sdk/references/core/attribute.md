@@ -134,7 +134,7 @@ Attribute Store sync projects selected Attribute writes into PostgreSQL tables t
 
 ### Flow close
 
-A naturally closing Flow stays running until its pending synced writes are written or dropped, and until transactional or locking RPCs admitted earlier finish. WaitForFlow keeps waiting meanwhile. A dropped write still needs reconciliation, so completion does not prove the table is current.
+A naturally closing Flow stays running while pending writes finish. See [Completion requests](https://docs.superdurable.io/reference/server/step-and-flow-close#completion-requests). A dropped write still needs reconciliation, so completion does not prove the table is current.
 
 StopFlow closes the run at once; remaining writes keep syncing after the close.
 

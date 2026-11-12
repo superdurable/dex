@@ -96,7 +96,7 @@ Start options are immutable after the start. Flow configuration can change while
 - Default and Disallow reject a start while a run exists, running or closed.
 - Allow if not running rejects only while a run is active.
 - Allow if previous failed starts a new run only after a failed, canceled, or terminated run.
-- Terminate if running replaces an active run.
+- Terminate if running replaces an active run, and also starts a new run after a closed one.
 - The exact outcome of each policy for each run state is in the [ID reuse policy reference](https://docs.superdurable.io/reference/python/start-flow-options#flow-id-request-id-and-already-started).
 
 Choose "allow if not running" explicitly when a Flow ID must start again after closure. For replay of one logical start, use a stable Request ID, a rejecting policy, and ignore-already-started together, with the same input and options on every retry.

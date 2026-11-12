@@ -39,7 +39,9 @@ ChannelMap, and it counts the branches and keys each round for you. See
 - A canceled `Execute` may already have seen a returned message. So a message
   can reach `Execute` twice. Make message processing idempotent.
 - When a Step is canceled because the Flow closes, Dex drops the messages
-  instead. The exact cases are in
+  instead. Do not publish work in the same result that force-closes the Flow, with
+  `ForceComplete`, `ForceFail`, or a closing `ForceCompleteIfChannelsEmpty`, if
+  the work must survive. The exact cases are in
   [Canceled Steps return consumed messages](/reference/server/runtime-data#canceled-step-messages).
 - A Step that waits for several messages can wait forever while other Steps
   keep taking messages one at a time. On one Channel, do not mix Steps that wait

@@ -19,8 +19,10 @@ force: a later branch that ends with **DeadEnd** does not withdraw it.
 
 Until no Step is active, other Steps and RPCs can still start new Steps, and
 those Steps delay completion too. Once Dex begins to complete the Flow, it
-starts no new Step. Pending Attribute Store writes and transactional RPCs that
-already started can keep the Flow **RUNNING** until Dex records the close. See
+starts no new Step. A naturally closing Flow stays **RUNNING** until its pending Attribute Store
+writes finish or are discarded, until transactional or locking RPCs admitted
+earlier finish, and until Dex records the close. **WaitForFlow** keeps waiting
+meanwhile. See
 [Requests during Flow close](/reference/server/runtime-client#requests-during-flow-close).
 
 Without a pending **GracefulComplete**, a Flow with no active Step keeps

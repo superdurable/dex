@@ -21,7 +21,7 @@ Dex Server 根据父 Flow ID、Step execution 和 condition 序号计算 SubFlow
 
 启动 SubFlow 的 Step，Step 类型里不要有短横线。Dex 会让这样的 WaitFor 尝试直接失败，不再重试。见[启动 SubFlow 的 Step 类型](/reference/server/runtime-data#subflow-step-types)。
 
-用同一个父 Flow ID 再启动一次时，新的 run 可能算出和之前的 run 相同的 SubFlow ID。这时 Dex 按 reuse policy 处理。两个子 Flow 都要继续运行时，换一个父 Flow ID。见[之后的父 run](/reference/server/runtime-data#subflow-parent-lifecycle)。
+用同一个父 Flow ID 再启动一次时，新的 run 可能算出和之前的 run 相同的 SubFlow ID。这时 Dex 按 reuse policy 处理。使用默认 policy 时，新的 run 会复用之前 run 的子 Flow。两个子 Flow 都要继续运行时，换一个父 Flow ID。见[之后的父 run](/reference/server/runtime-data#subflow-parent-lifecycle)。
 
 父 Flow 关闭时，子 Flow 会继续运行。你需要自己停止它，或者给子 Flow 设置 Flow timeout，让它到时自行结束。
 

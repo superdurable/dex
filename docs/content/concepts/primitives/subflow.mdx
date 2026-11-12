@@ -33,7 +33,8 @@ a WaitFor attempt without retry. See
 [Step types that start SubFlows](/reference/server/runtime-data#subflow-step-types).
 
 When you start the parent Flow ID again, the new run can compute the same
-SubFlow IDs as the earlier run. Dex then applies the reuse policy. When both
+SubFlow IDs as the earlier run. Dex then applies the reuse policy. With the
+default policy, the new run reuses the earlier run's child. When both
 children must keep running, use a different parent Flow ID. See
 [Later parent runs](/reference/server/runtime-data#subflow-parent-lifecycle).
 

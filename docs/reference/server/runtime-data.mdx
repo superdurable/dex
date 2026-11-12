@@ -1411,7 +1411,8 @@ the join Step one round token: the round key and the branch count. See
 [Join parallel branches](/reference/go/waits#join) for the API of each language.
 
 - A fork takes its round key from the forking Step execution. A Step method can
-  fork one Join once. A fork with an explicit round key can run several times in
+  fork one Join once. For a second independent join, define a second Join or use
+  an explicit round key. A fork with an explicit round key can run several times in
   one method. Give each round a key that no other round of that Join in the Flow
   run uses. An RPC has no Step execution, so an RPC forks with an explicit
   round key.
@@ -1437,7 +1438,8 @@ the join Step one round token: the round key and the branch count. See
   instead.
 - **ForRemainingBranches** resets a round whose other branches keep running. Its
   count equals the count the join consumed: n, or 1 after **ForFirstBranch**.
-  Enablement messages for the next round stay queued until the reset finishes.
+  The next round's branches start only after the reset completes, so enablement
+  messages for the next round stay queued until then.
   Without a reset, late results stay pending until the Flow closes.
 - A cancelling join's round is never reset, because its canceled branches never
   report and the reset would wait forever. The next round forks a new round

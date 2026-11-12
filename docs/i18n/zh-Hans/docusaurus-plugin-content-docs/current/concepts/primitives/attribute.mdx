@@ -440,7 +440,7 @@ Attribute Store sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表
 - Flow 仍是数据的权威来源。表里的一行保存最新值，不是历史记录。不要根据这张表做 Flow 决策。
 - Dex 在后台写入。写入不会拖慢 Step、RPC 或 SetAttributes 调用。同一个 Flow ID 的写入保持顺序。
 - 写入失败时，Dex 会在一段有限的时间内重试，之后丢弃这次写入并记录一条警告日志。Dex 不会重放旧值，也不会为新配置的 store 补写数据。[Dex 和你的数据库](/components/your-database) 介绍了怎样发现被丢弃的写入并修复这一行。
-- Flow 自己完成或失败时，会保持运行，直到待写入的数据写完或被丢弃。StopFlow 不等待。
+- Flow 自己完成或失败时，会在待写入的数据完成期间保持运行。StopFlow 不等待。见[完成请求](/reference/server/step-and-flow-close#completion-requests)。
 - 删除 Attribute 会把它的列写成 NULL。Flow 关闭时，Dex 不会删除这一行。
 - 一个 store 可以把 Flow ID 拆成多个主键列，也可以把每个 AttributeMap instance 写成单独一张表里的一行。
 
