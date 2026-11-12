@@ -56,7 +56,7 @@ active 节点崩溃后，standby 在 lease 到期再过 1 秒后接管。lease �
 
 ## ASYNC Step 的开始记录或结果丢失 {#an-async-steps-start-or-result-is-lost}
 
-如果节点在保存 ASYNC Step 的开始记录或结果之前失败，这个 Step 会在新的状态快照上再运行一次，直到第一个 SYNC Step 为止的后续工作也会再运行。[SYNC 和 ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async) 解释了重复为什么停在那里。
+如果节点在保存 ASYNC Step 的开始记录或结果之前失败，这个 Step 会在新的状态快照上再运行一次，直到第一个 SYNC Step 为止的后续工作也会再运行。[SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async) 解释了重复为什么停在那里。
 
 ## 你运行 Time Travel {#you-run-time-travel}
 

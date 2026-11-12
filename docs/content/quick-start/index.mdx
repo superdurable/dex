@@ -6,6 +6,8 @@ slug: /quick-start
 description: Run a Flow that charges an order, waits on a Timer, and ships it. Stop its Worker during the wait and watch Dex finish the Flow without charging again.
 ---
 
+import quickStartOrderFlow from '@site/src/data/flow-definitions/quick-start/order.json';
+
 # Quick Start
 
 Run your first Flow, stop its Worker in the middle of a wait, and watch Dex continue the Flow after a restart. It takes about 10 minutes.
@@ -29,6 +31,7 @@ installing anything else.
 </CodingAgentBox>
 
 <a id="before-you-start"></a>
+<a id="optional-build-it-with-a-coding-agent"></a>
 
 ## 1. Install Dex and get the code
 
@@ -137,7 +140,7 @@ The example is an order Flow with two Steps:
 
 The mock API prints each call, so the Worker's output shows which Steps ran. You start a Flow, stop the Worker while Ship waits, and start the Worker again. Ship runs when the Timer fires, and Charge runs only once.
 
-<CrashTimeline variant="quick-start" />
+<DocsFlowDefinitionGraph graph={quickStartOrderFlow} />
 
 This step and the next one walk through the code in the folder you downloaded.
 
@@ -489,7 +492,7 @@ Both programs build the same Flow and register it in a `Registry`, the list of F
 
 :::note Details
 
-Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async) explains the other choice.
+Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/correctness-and-expressiveness/step-guarantees#sync-and-async) explains the other choice.
 
 The Client uses the registered Flow to name its type and encode the input, so its copy of the mock API is never called. In your own API service, pass stand-ins the same way; see [Start Flows from an API service](/concepts/client#start-from-an-api-service). The SDK Clients have no call that starts a Flow by its type name alone; **dexcli flow start -flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache), which keeps copies of large values.
 
@@ -955,26 +958,21 @@ Charge for order-5e6f7a8b already done (key charge-order-5e6f7a8b); not charged 
 
 When the Ship Timer fires, 60 seconds after Charge finishes by default, the Worker ships the order.
 
-<a id="optional-build-it-with-a-coding-agent"></a>
+## 7. See the run in Dex Web {#7-see-the-run-in-dex-web}
 
-## Optional: build it with a coding agent
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802) and select your Flow. Dex Web shows the run's history, and the Worker stop sits between two of its events:
 
-If you use a coding agent with [Dex Skills](/build-with-ai/dex-developer-skill), it can do these steps for you. Copy this prompt into it:
+<CrashTimeline variant="quick-start" />
 
-```text
-Build the Dex Quick Start app in this folder.
+To check from a terminal instead, ask `dexcli` for the Flow's summary. Use the Flow ID that the start command printed:
 
-1. Read https://docs.superdurable.io/quick-start.md and treat it as the source
-   of truth for package names, commands, and code.
-2. Install Dex Skills.
-3. Ask which language I want: Python, Go, Java, TypeScript, or Rust.
-4. Start dexcli dev, run the Worker, and start one Flow.
-5. Stop the Worker while the Flow waits on its Timer, restart it, and show me
-   that the Flow completed.
-
-Rules: stay inside this Quick Start. Do not invent APIs. Ask me before
-installing anything else.
+```bash
+dexcli flow summary -output table order-1a2b3c4d
 ```
+
+The `flowStatus` row reads `FLOW_STATUS_COMPLETED`.
+
+You have run your first durable Flow. Its Worker stopped in the middle of a wait, and the Flow finished without running Charge again.
 
 ## Next
 

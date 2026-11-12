@@ -1,7 +1,7 @@
 ---
 title: Advanced Step Guarantees
 sidebar_label: Advanced Step Guarantees
-slug: /concepts/step/advanced-guarantees
+slug: /correctness-and-expressiveness/step-guarantees
 description: What Dex saves for each Step method, when a method runs again or ends with an unknown outcome, how SYNC and ASYNC durability differ, and how cancellation, completion, and Step order work.
 ---
 
@@ -118,6 +118,7 @@ Use a Channel or an Attribute lock when the order matters.
 
 ## Next
 
+- [Failure transparency proof](/correctness-and-expressiveness/failure-transparency-proof) proves that failures add only repeated external effects.
 - [Attribute locks](/concepts/primitives/attribute#locking) keep parallel writers from overwriting each other.
 - [Failure Handling](/design-patterns/failure-handling) routes a failed Step to a recovery Step.
 - [Performance](/intro/performance) gives measured latency for SYNC and ASYNC Steps.

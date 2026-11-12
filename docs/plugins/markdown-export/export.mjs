@@ -23,7 +23,7 @@ export const sdkOrder = ['python', 'go', 'java', 'typescript', 'rust'];
 const sdkLabels = {python: 'Python', go: 'Go', java: 'Java', typescript: 'TypeScript', rust: 'Rust'};
 const diagrams = new Set(['DexSystemDiagram', 'ExecutionApproachDiagram', 'StepWaitExecuteDiagram',
   'StepDecisionMovementsDiagram', 'RpcRequestDiagram', 'ChannelScopeDiagram', 'ArchitectureComparison',
-  'RequirementChangeComparison', 'FlowModelDiagram', 'AgentDeploymentDiagram', 'AgentStackDiagram', 'SessionTurnDiagram', 'FunctionToFlowDiagram']);
+  'RequirementChangeComparison', 'FlowModelDiagram', 'AgentDeploymentDiagram', 'AgentStackDiagram', 'SessionTurnDiagram', 'FunctionToFlowDiagram', 'RecoveryModelDiagram']);
 // Docusaurus default admonition keywords.
 const admonitionKeywords = ['note', 'tip', 'info', 'warning', 'danger', 'caution', 'important', 'secondary', 'success'];
 const localeCopies = {
@@ -553,7 +553,8 @@ async function expandCrashTimeline(node, context) {
   const separator = localeCopy(context.locale).separator;
   const eventText = event => {
     const actor = copy.actors[event.actor];
-    return event.text.startsWith(actor) ? event.text : `${actor}${separator}${event.text}`;
+    // The opening event is the reader's own action, so it names no actor.
+    return event.kind === 'flow' || event.text.startsWith(actor) ? event.text : `${actor}${separator}${event.text}`;
   };
   return [orderedList(copy.events.map(event => [text(eventText(event))])),
     paragraph(copy.summary)];

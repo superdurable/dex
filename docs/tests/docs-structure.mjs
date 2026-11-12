@@ -281,6 +281,27 @@ for (const id of sequenceDocs) {
   }
 }
 
+// Docusaurus hides the left nav on a page no sidebar lists. Every docs page is in the sidebar or names one with displayed_sidebar.
+{
+  const listed = new Set(sequenceDocs);
+  const addLinks = (items) => {
+    for (const item of items) {
+      if (item?.link?.type === 'doc') listed.add(item.link.id);
+      if (item?.type === 'category') addLinks(item.items ?? []);
+    }
+  };
+  addLinks(sidebars.docs);
+  for (const [key, doc] of docFiles) {
+    if (!key.startsWith('content:')) continue;
+    const id = key.slice('content:'.length);
+    if (id.startsWith('reference/') || routerDocs.has(id) || listed.has(id)) continue;
+    const frontMatter = doc.source.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+    if (!/^displayed_sidebar:/m.test(frontMatter)) {
+      failures.push(`${relative(docsRoot, doc.file)}: no sidebar lists this page, so it shows no left nav. Add it to sidebars.ts, or add "displayed_sidebar: docs" to its front matter.`);
+    }
+  }
+}
+
 // The compatibility matrix is generated in every locale; a release that leaves one behind fails here.
 {
   const versions = JSON.parse(readFileSync(join(docsRoot, 'reference/versions.json'), 'utf8'));

@@ -54,6 +54,7 @@ export function FlowDesignCanvas({
   wholeMaxZoom,
   onPreferredHeight,
   opensWholeFlow = false,
+  zoomsOnGesture = true,
 }: {
   graph: FlowDefinitionGraph;
   /** Identifies the definition; a new key redraws and refits the canvas. */
@@ -66,6 +67,8 @@ export function FlowDesignCanvas({
   onPreferredHeight?: (heightPx: number) => void;
   /** Opens on, fits, and zooms out to the whole Flow, however small. */
   opensWholeFlow?: boolean;
+  /** False keeps the zoom fixed under the wheel and pinch, so a page scrolls past the drawing. */
+  zoomsOnGesture?: boolean;
 }) {
   const [direction, setDirection] = useState<Direction>('lr');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -197,6 +200,7 @@ export function FlowDesignCanvas({
           showsZoomControls={false}
           wholeMaxZoom={wholeMaxZoom}
           opensWholeDrawing={opensWholeFlow}
+          zoomsOnGesture={zoomsOnGesture}
           insetTopPx={overlayInsetTopPx}
         />
         <p className="sr-only" aria-live="polite">{stages.cue?.message}</p>

@@ -3554,5 +3554,13 @@
   {
     "from": "/zh-Hans/reference/server/0.1.23/workers/",
     "to": "/zh-Hans/reference/server/workers/"
+  },
+  {
+    "from": "/concepts/step/advanced-guarantees",
+    "to": "/correctness-and-expressiveness/step-guarantees"
+  },
+  {
+    "from": "/zh-Hans/concepts/step/advanced-guarantees",
+    "to": "/zh-Hans/correctness-and-expressiveness/step-guarantees"
   }
 ]

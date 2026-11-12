@@ -161,7 +161,7 @@ Worker 上的 handler，供外部读写一条正在运行的 Flow。
 
 持久化控制流的基本单元，包含可选的 WaitFor 和一个 Execute。
 
-#### [Step durability](/concepts/step/advanced-guarantees#sync-and-async)（Step 持久性） {#step-durability}
+#### [Step durability](/correctness-and-expressiveness/step-guarantees#sync-and-async)（Step 持久性） {#step-durability}
 
 Dex 保存 Step 进度的时机。默认的 **SYNC** 在 Flow 继续之前保存每次尝试的开始和结果。**ASYNC** 先让 Flow 继续，所以服务器故障时这次尝试可能会再运行一次。
 

@@ -228,7 +228,7 @@ Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Exec
 - **Timeout** 限制方法的一次尝试。
 - **Retry policy** 在尝试失败后再次运行同一个方法。
 - <a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="step-failed-事件与-last-failure-info"></a>**Failure policy** 决定重试用完之后怎么办。默认让 Flow 失败。`Execute` 可以改为进入一个 recovery Step，`WaitFor` 可以继续执行 `Execute`。见 [WaitFor failure policy](/reference/python/failure-and-retries#waitfor-failure-policy)、[Execute failure policy](/reference/python/failure-and-retries#execute-failure-policy) 和 [Last failure info](/reference/python/failure-and-retries#last-failure-info)。
-- **Durability** 决定 Dex 什么时候存储结果。默认的 **SYNC** 在下一步工作开始前存储。**ASYNC** 更快，但 server 故障可能让方法再运行一次。见 [SYNC 和 ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async)。
+- **Durability** 决定 Dex 什么时候存储结果。默认的 **SYNC** 在下一步工作开始前存储。**ASYNC** 更快，但 server 故障可能让方法再运行一次。见 [SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)。
 - **Heartbeat** 让长时间运行的方法报告进度并保存 checkpoint。
 - **State loading** 和 **Attribute locks** 决定方法加载哪些状态、锁住哪些 Attribute。
 
@@ -268,10 +268,7 @@ SDK 参考中的 [Timeouts and total duration](/reference/go/step-options#timeou
 
 尝试编号、时间和随机值每次重试都会变，所以不要放进键里。其他页面都链接到这里，而不是重复这条规则。
 
-## 进阶保证 {#advanced-guarantees}
-
-方法成功时，Dex 把它的 Attribute 写入和 Channel 消息与结果一起保存。方法结果不确定时，Dex 会再运行一次，或者报告结果未知。[Step 的进阶保证](/concepts/step/advanced-guarantees) 给出具体规则：[Dex 保存什么](/concepts/step/advanced-guarantees#what-dex-saves)、[失败和重新投递](/concepts/step/advanced-guarantees#failure-and-redelivery-summary)、[SYNC 和 ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async)，以及[取消、完成和顺序](/concepts/step/advanced-guarantees#cancellation-completion-order)。
-
+<a id="advanced-guarantees"></a>
 <a id="what-dex-saves"></a>
 <a id="failure-and-redelivery"></a>
 <a id="failure-and-redelivery-summary"></a>
@@ -297,4 +294,6 @@ SDK 参考包含：
 
 ## 下一步
 
-[Step 的进阶保证](/concepts/step/advanced-guarantees)：Dex 为每个 Step 方法保存什么，方法什么时候会重新运行或结果未知，SYNC 和 ASYNC 的区别，以及取消、完成和 Step 顺序。
+[原语](/concepts/primitives)：Attribute、RPC、Channel、Stream、Timer 和 SubFlow，Step 读写和等待的基本构件。
+
+这些保证背后的具体规则，见 [Step 的进阶保证](/correctness-and-expressiveness/step-guarantees)。

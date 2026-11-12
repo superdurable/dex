@@ -29,11 +29,11 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Build with AI',
       customProps: {section: 'agent-skills'},
-      // Dex Connector Contributor is linked from the overview, not listed here.
       link: {type: 'doc', id: 'build-with-ai/dex-developer-skill'},
       items: [
         'build-with-ai/dex-developer-skill/dex-app-builder',
         'build-with-ai/dex-developer-skill/dex-sdk',
+        'build-with-ai/dex-developer-skill/dex-connector-contributor',
       ],
     },
     {
@@ -62,7 +62,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'concepts/flow/index',
         'concepts/step/index',
-        'concepts/step/advanced-guarantees',
         {
           type: 'category',
           label: 'Primitives',
@@ -223,6 +222,7 @@ const sidebars: SidebarsConfig = {
           label: 'Correctness and Expressiveness',
           link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
           items: [
+            'correctness-and-expressiveness/step-guarantees',
             'correctness-and-expressiveness/expressiveness-proof',
             'correctness-and-expressiveness/failure-transparency-proof',
             'correctness-and-expressiveness/workflow-patterns',

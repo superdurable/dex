@@ -8,16 +8,20 @@
 
 import React, {type ReactNode, useEffect, useRef, useState} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import {CircleCheck, CirclePlay, CircleStop, Hourglass, Play, RotateCcw, Zap} from 'lucide-react';
+import {CircleCheck, CirclePlay, CircleStop, Flag, FlagOff, Hourglass, Play, RotateCcw, Zap} from 'lucide-react';
 
 import timelines from '@site/src/data/crash-timeline.json';
 import styles from './CrashTimeline.module.css';
 
 type ActorKey = 'first' | 'server' | 'second';
-type EventKind = 'step' | 'wait' | 'stop' | 'start' | 'fire' | 'done';
-type TimelineEvent = {actor: ActorKey; kind: EventKind; text: string};
+type EventKind = 'flow' | 'step' | 'wait' | 'stop' | 'start' | 'fire' | 'done';
+/** History events are the ones Dex Web numbers; Worker stops and starts are drawn between them. */
+type TimelineEvent = {actor: ActorKey; kind: EventKind; title: string; status?: string; history: boolean; text: string};
 type TimelineCopy = {
   label: string;
+  run: string;
+  running: string;
+  completed: string;
   actors: Record<ActorKey, string>;
   events: TimelineEvent[];
   summary: string;
@@ -25,9 +29,9 @@ type TimelineCopy = {
 };
 export type CrashTimelineVariant = keyof typeof timelines;
 
-const STEP_MS = 1400;
-const kindIcons = {step: Play, wait: Hourglass, stop: CircleStop, start: CirclePlay, fire: Zap, done: CircleCheck};
-const actorOrder: ActorKey[] = ['first', 'server', 'second'];
+const STEP_MS = 1200;
+const kindIcons = {flow: Flag, step: Play, wait: Hourglass, stop: CircleStop, start: CirclePlay, fire: Zap, done: FlagOff};
+const workerOrder: ActorKey[] = ['first', 'second'];
 
 function usePrefersReducedMotion(): boolean {
   const [isReduced, setIsReduced] = useState(false);
@@ -41,7 +45,7 @@ function usePrefersReducedMotion(): boolean {
   return isReduced;
 }
 
-/** Index of the last shown event; it advances once the figure scrolls into view. */
+/** Index of the last shown event; it advances once the figure scrolls into view, and only once. */
 function useRevealedCount(total: number, isReduced: boolean, runId: number): [number, React.RefObject<HTMLElement>] {
   const ref = useRef<HTMLElement>(null);
   const [revealed, setRevealed] = useState(total);
@@ -71,15 +75,15 @@ function useRevealedCount(total: number, isReduced: boolean, runId: number): [nu
   return [revealed, ref];
 }
 
-function actorState(actor: ActorKey, events: TimelineEvent[], revealed: number): 'idle' | 'on' | 'off' {
+function workerState(actor: ActorKey, events: TimelineEvent[], revealed: number): 'idle' | 'on' | 'off' {
   const shown = events.slice(0, revealed).filter((event) => event.actor === actor);
-  if (actor === 'server') return 'on';
   if (shown.some((event) => event.kind === 'stop')) return 'off';
   return shown.length > 0 ? 'on' : 'idle';
 }
 
 /**
- * Animates what happens when a Worker stops in the middle of a Flow or an agent session.
+ * A Flow run drawn the way Dex Web shows one: a run header with its status, then the numbered history,
+ * with the Worker stopping and starting between events. It plays once when it scrolls into view.
  * The Markdown export writes the same events as a numbered list.
  */
 export default function CrashTimeline({variant}: {variant: CrashTimelineVariant}): ReactNode {
@@ -90,11 +94,23 @@ export default function CrashTimeline({variant}: {variant: CrashTimelineVariant}
   const [runId, setRunId] = useState(0);
   const [revealed, ref] = useRevealedCount(copy.events.length, isReduced, runId);
   const isDone = revealed >= copy.events.length;
+  let historyNumber = 0;
   return (
-    <figure ref={ref} className={styles.timeline} aria-label={copy.label}>
-      <div className={styles.actors} aria-hidden="true">
-        {actorOrder.map((actor) => (
-          <span key={actor} className={`${styles.actor} ${styles[`actor_${actorState(actor, copy.events, revealed)}`]}`}>
+    <figure ref={ref} className={styles.run} aria-label={copy.label}>
+      <div className={styles.header}>
+        <span className={styles.runId}>{copy.run}</span>
+        <span className={`${styles.status}${isDone ? ` ${styles.statusDone}` : ''}`}>
+          {isDone ? <CircleCheck className={styles.icon} aria-hidden="true" /> : <span className={styles.pulse} />}
+          {isDone ? copy.completed : copy.running}
+        </span>
+      </div>
+      <div className={styles.workers} aria-hidden="true">
+        <span className={`${styles.chip} ${styles.chipServer}`}>
+          <span className={styles.dot} />
+          {copy.actors.server}
+        </span>
+        {workerOrder.map((actor) => (
+          <span key={actor} className={`${styles.chip} ${styles[`chip_${workerState(actor, copy.events, revealed)}`]}`}>
             <span className={styles.dot} />
             {copy.actors[actor]}
           </span>
@@ -104,15 +120,18 @@ export default function CrashTimeline({variant}: {variant: CrashTimelineVariant}
         {copy.events.map((event, index) => {
           const Icon = kindIcons[event.kind];
           const isShown = index < revealed;
+          if (event.history) historyNumber += 1;
           return (
             <li
-              key={event.text}
-              className={`${styles.event} ${styles[`kind_${event.kind}`]} ${styles[`lane_${event.actor}`]}${isShown ? ` ${styles.shown}` : ''}`}>
-              <span className={styles.lane}>{copy.actors[event.actor]}</span>
-              <span className={styles.body}>
-                <Icon className={styles.icon} aria-hidden="true" />
-                <span>{event.text}</span>
-              </span>
+              key={`${event.kind}-${event.title}`}
+              title={event.text}
+              className={`${styles.event} ${styles[`kind_${event.kind}`]} ${event.history ? styles.history : styles.between}${isShown ? ` ${styles.shown}` : ''}`}>
+              <span className={styles.number}>{event.history ? `#${historyNumber}` : ''}</span>
+              <Icon className={styles.icon} aria-hidden="true" />
+              <span className={styles.title}>{event.title}</span>
+              {event.status ? <span className={styles.badge}>{event.status}</span> : <span />}
+              <span className={styles.actor}>{copy.actors[event.actor]}</span>
+              <span className={styles.srOnly}>{event.text}</span>
             </li>
           );
         })}

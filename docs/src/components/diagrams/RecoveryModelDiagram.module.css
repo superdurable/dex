@@ -1,0 +1,93 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Narrow: the two lanes stack. Wide: side by side. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+@media (min-width: 620px) {
+  .layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.crash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+  color: var(--cd-wait);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.lane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.8rem 0.75rem;
+  border-radius: 16px;
+}
+
+.external {
+  background: var(--cd-external-tint);
+}
+
+.dex {
+  background: var(--cd-accent-tint);
+}
+
+.box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: var(--cd-tile);
+  box-shadow: var(--cd-raise);
+  color: var(--cd-ink);
+}
+
+.external .box {
+  color: var(--cd-external);
+}
+
+.dex .box {
+  color: var(--cd-accent);
+}
+
+.box span {
+  display: flex;
+  flex-direction: column;
+}
+
+.box b {
+  color: var(--cd-ink);
+  font-size: 0.85rem;
+}
+
+.box small {
+  color: var(--cd-subtle);
+  font-size: 0.74rem;
+}
+
+.rule {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--cd-text);
+  font-size: 0.74rem;
+  font-weight: 600;
+}

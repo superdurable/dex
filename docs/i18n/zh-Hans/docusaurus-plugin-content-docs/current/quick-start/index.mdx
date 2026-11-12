@@ -6,6 +6,8 @@ slug: /quick-start
 description: 运行一个 Flow：它为订单扣款，在 Timer 上等待，然后发货。在等待期间停掉它的 Worker，看 Dex 完成这个 Flow，并且不再重复扣款。
 ---
 
+import quickStartOrderFlow from '@site/src/data/flow-definitions/quick-start/order.json';
+
 # 快速开始
 
 运行你的第一个 Flow，在它等待的中途停掉 Worker，然后看 Dex 在重启后继续这个 Flow。整个过程大约 10 分钟。
@@ -26,6 +28,7 @@ description: 运行一个 Flow：它为订单扣款，在 Timer 上等待，然�
 </CodingAgentBox>
 
 <a id="before-you-start"></a>
+<a id="optional-build-it-with-a-coding-agent"></a>
 
 ## 1. 安装 Dex 并获取代码 {#1-install-dex-and-get-the-code}
 
@@ -134,7 +137,7 @@ cd quick-start
 
 mock API 会打印每一次调用，所以从 Worker 的输出就能看出哪些 Step 运行过。你启动一个 Flow，在 Ship 等待时停掉 Worker，再重新启动 Worker。Timer 触发时 Ship 运行，而 Charge 只运行一次。
 
-<CrashTimeline variant="quick-start" />
+<DocsFlowDefinitionGraph graph={quickStartOrderFlow} />
 
 这一步和下一步讲解你下载的文件夹里的代码。
 
@@ -486,7 +489,7 @@ Worker 运行 Step。它主动连接 Dex 来领取工作，所以不需要开放
 
 :::note 细节
 
-两个 Step 都是默认的 SYNC：Dex 先保存每个结果，Flow 才继续往下走。[SYNC 和 ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async)介绍另一种选择。
+两个 Step 都是默认的 SYNC：Dex 先保存每个结果，Flow 才继续往下走。[SYNC 和 ASYNC Step](/correctness-and-expressiveness/step-guarantees#sync-and-async)介绍另一种选择。
 
 Client 用注册的 Flow 来确定 Flow type 并编码输入，所以它持有的那份 mock API 永远不会被调用。在你自己的 API 服务中，也用同样的方式传入替身；见[从 API 服务启动 Flow](/concepts/client#start-from-an-api-service)。要只凭 type 名称启动 Flow，可以在终端里用 **dexcli flow start -flow-type**，SDK 的 Client 没有这样的调用。每个程序还会打开一个本地 [blob cache](/components/application#blob-cache)，用来保存大值的副本。
 
@@ -954,13 +957,9 @@ Ship 的 Timer 触发时（默认在 Charge 完成 60 秒后），Worker 为订�
 
 ## 7. 在 Dex Web 中查看这次 run {#7-see-the-run-in-dex-web}
 
-打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，选择你的 Flow。Execution graph 显示运行过的每个 Step：
+打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，选择你的 Flow。Dex Web 显示这次 run 的历史，Worker 的停止落在其中两个事件之间：
 
-![Dex Web 的 Execution graph](/img/quick-start/step-graph.png)
-
-Timeline 标签页从左到右显示同一次 run 的事件：
-
-![Dex Web 的 Timeline](/img/quick-start/timeline.png)
+<CrashTimeline variant="quick-start" />
 
 想在终端里查看的话，可以让 `dexcli` 输出这个 Flow 的摘要。使用启动命令打印的 Flow ID：
 
@@ -971,8 +970,6 @@ dexcli flow summary -output table order-1a2b3c4d
 `flowStatus` 一行的值是 `FLOW_STATUS_COMPLETED`。
 
 你已经运行了第一个持久化 Flow。它的 Worker 在等待中途停止，Flow 依然完成，而且没有再次运行 Charge。
-
-<a id="optional-build-it-with-a-coding-agent"></a>
 
 ## 下一步 {#next}
 
