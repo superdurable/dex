@@ -15,10 +15,11 @@ harness package's ``tests/conftest.py``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,7 @@ import pytest
 
 from dex_agents.testing import InvocationLog, PrivateDexEngine, find_free_ports
 from dex_agents_cli_testing.fake_connectors_mcp import (
+    COLLIDING_TOOLS_ENVIRONMENT_VARIABLE,
     INVOCATION_LOG_NAME,
     READY_LINE,
     STATE_DIR_ENVIRONMENT_VARIABLE,
@@ -93,6 +95,21 @@ class FakeConnectorsMcp:
 @pytest.fixture
 async def fake_mcp(tmp_path: Path) -> AsyncIterator[FakeConnectorsMcp]:
     """Start the fake connectors MCP server on a free port."""
+    async with _running_fake_mcp(tmp_path, {}) as server:
+        yield server
+
+
+@pytest.fixture
+async def fake_mcp_with_colliding_tools(tmp_path: Path) -> AsyncIterator[FakeConnectorsMcp]:
+    """Start the fake connectors MCP server that also serves a ``read_file`` connector read."""
+    async with _running_fake_mcp(tmp_path, {COLLIDING_TOOLS_ENVIRONMENT_VARIABLE: "1"}) as server:
+        yield server
+
+
+@contextlib.asynccontextmanager
+async def _running_fake_mcp(
+    tmp_path: Path, environment: Mapping[str, str]
+) -> AsyncIterator[FakeConnectorsMcp]:
     (port,) = find_free_ports(1)
     state_dir = tmp_path / "fake-mcp"
     state_dir.mkdir()
@@ -107,6 +124,7 @@ async def fake_mcp(tmp_path: Path) -> AsyncIterator[FakeConnectorsMcp]:
                     if name in ("PATH", "LANG", "LC_ALL", "TMPDIR")
                 },
                 STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir),
+                **environment,
             },
             stdout=log,
             stderr=subprocess.STDOUT,
