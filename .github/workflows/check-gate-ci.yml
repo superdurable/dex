@@ -12,9 +12,10 @@ permissions:
   contents: read
   pull-requests: read
 
+# Only a new commit cancels a gate run; a cancelled run of the same commit fails the required check.
 concurrency:
-  group: check-gate-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: check-gate-${{ github.workflow }}-${{ github.ref }}-${{ github.event.action == 'synchronize' && 'commits' || github.run_id }}
+  cancel-in-progress: ${{ github.event.action == 'synchronize' }}
 
 jobs:
   check-gate:
