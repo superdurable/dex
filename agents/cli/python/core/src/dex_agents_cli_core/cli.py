@@ -20,7 +20,7 @@ import sys
 import webbrowser
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx2
@@ -620,7 +620,7 @@ async def _open_session(
                 f"session {resume_session_id} is {info.status.value}, so it cannot continue"
             )
         return resume_session_id
-    session_id = f"{harness.name}-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
+    session_id = f"{harness.name}-{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
     await sessions.start_session(session_id, start_environment=session_start_environment(identity))
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SESSION_START_TIMEOUT_SECONDS

@@ -165,14 +165,14 @@ export function listAgentGraphToolNames(startingAgent: AnyAgent): ReadonlySet<st
 }
 
 /**
- * Returns the name the model sees for a function tool created with `name`. The SDK replaces every character
- * other than a letter or digit with `_`, so `fake-ledger_get_balance` becomes `fake_ledger_get_balance`.
+ * Returns the name the model sees for a tool source's tool. A function name may hold letters, digits, `_`, and
+ * `-`, so `fake-ledger_get_balance` stays as it is, and every other character becomes `_`.
  *
- * @param name - The name passed to `tool()`.
- * @returns The SDK's function tool name.
+ * @param name - The tool's name in its source.
+ * @returns The function tool name.
  */
 export function readFunctionToolName(name: string): string {
-  return createSourceFunctionTool({ name, description: "", inputSchema: {} }).name;
+  return name.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 
 /**
@@ -286,7 +286,7 @@ export function describeReplayOnlyToolRefusal(sourceToolName: string): string {
 
 
 function createSourceFunctionTool(definition: SourceToolDefinition): AnyFunctionTool {
-  return tool({
+  const functionTool = tool({
     name: definition.name,
     description: definition.description,
     // A source's schema need not meet strict mode, such as a connector input with optional fields.
@@ -297,6 +297,8 @@ function createSourceFunctionTool(definition: SourceToolDefinition): AnyFunction
       throw new Error(`tool ${definition.name} of a tool source ran inside the model call`);
     },
   });
+  // tool() also turns `-` into `_`, which would hide the source's name from the model.
+  return cloneFunctionTool(functionTool, { name: readFunctionToolName(definition.name) });
 }
 
 /** `toolName` is the name the call's record holds: the qualified function tool name, or the source's name. */

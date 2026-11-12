@@ -17,13 +17,16 @@ request must carry its whole input, as the Dex harnesses send it.
 from __future__ import annotations
 
 import json
+import threading
 import time
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from dex_agents_cli_testing.model_api import ModelApiRequest, ModelApiResponse, ModelApiStub
 from dex_agents_cli_testing.scripted_model import (
+    ReplySource,
     ScriptedConversation,
     ScriptedReply,
     ScriptedToolResult,
@@ -40,7 +43,27 @@ _USAGE = {
 
 
 class ResponsesApiStub(ModelApiStub):
-    """Serve the scripted model as the Responses API."""
+    """Serve the scripted model as the Responses API.
+
+    It keeps every output item it sent, so an ``item_reference`` input resolves;
+    with ``sent_items_path`` the items survive a restart. The scripted step never
+    depends on that: an unresolved reference still counts as model output.
+    """
+
+    def __init__(
+        self, reply_source: ReplySource = scripted_reply, sent_items_path: Path | None = None
+    ) -> None:
+        """Create the stub; ``reply_source`` picks each reply, ``sent_items_path`` keeps items."""
+        super().__init__()
+        self._reply_source = reply_source
+        self._sent_items: dict[str, Mapping[str, Any]] = {}
+        self._sent_items_path = sent_items_path
+        self._sent_items_lock = threading.Lock()
+        if sent_items_path is not None and sent_items_path.exists():
+            with sent_items_path.open(encoding="utf-8") as sent_items:
+                for line in sent_items:
+                    item = json.loads(line)
+                    self._sent_items[str(item["id"])] = item
 
     def is_model_request(self, request: ModelApiRequest) -> bool:
         """Report whether a request is ``POST .../responses``."""
@@ -50,11 +73,31 @@ class ResponsesApiStub(ModelApiStub):
         """Answer a Responses API request with the scripted reply."""
         if not self.is_model_request(request):
             return ModelApiResponse(404, body={"error": {"message": "not found"}})
-        conversation = read_responses_conversation(request.body)
-        response = _response_object(request.body, scripted_reply(conversation))
+        body = {**request.body, "input": self._resolve_item_references(request.body.get("input"))}
+        conversation = read_responses_conversation(body)
+        response = _response_object(body, self._reply_source(conversation))
+        self._remember_sent_items(response["output"])
         if request.body.get("stream"):
             return ModelApiResponse(events=_stream_events(response))
         return ModelApiResponse(body=response)
+
+    def _remember_sent_items(self, items: Sequence[Mapping[str, Any]]) -> None:
+        with self._sent_items_lock:
+            for item in items:
+                self._sent_items[str(item["id"])] = item
+            if self._sent_items_path is not None:
+                with self._sent_items_path.open("a", encoding="utf-8") as sent_items:
+                    sent_items.writelines(json.dumps(item) + "\n" for item in items)
+
+    def _resolve_item_references(self, raw_input: object) -> object:
+        if not isinstance(raw_input, list):
+            return raw_input
+        return [
+            self._sent_items.get(str(item.get("id")), item)
+            if isinstance(item, Mapping) and item.get("type") == "item_reference"
+            else item
+            for item in raw_input
+        ]
 
 
 def read_responses_conversation(body: Mapping[str, Any]) -> ScriptedConversation:
@@ -98,7 +141,23 @@ def read_responses_conversation(body: Mapping[str, Any]) -> ScriptedConversation
         prompts=prompts,
         tool_results=results,
         tool_names=tool_names,
+        reply_count=_count_replies(items[last_prompt_index + 1 :]),
     )
+
+
+def _count_replies(items: Sequence[Mapping[str, Any]]) -> int:
+    """Count runs of model output items; tool outputs separate one reply from the next."""
+    reply_count = 0
+    is_in_reply = False
+    for item in items:
+        # An item_reference that did not resolve names an earlier output item.
+        is_model_item = item.get("type") in ("function_call", "reasoning", "item_reference") or (
+            item.get("role") == "assistant"
+        )
+        if is_model_item and not is_in_reply:
+            reply_count += 1
+        is_in_reply = is_model_item
+    return reply_count
 
 
 def _response_object(body: Mapping[str, Any], reply: ScriptedReply) -> dict[str, Any]:

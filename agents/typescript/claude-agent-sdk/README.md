@@ -358,8 +358,10 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
    the pending `hook_deferred_tool` entry, runs PreToolUse for that call again, and the hook answers
    from the final record: a custom tool is `allow`, and the wrapped MCP handler returns the recorded
    output, failure, rejection, or unknown outcome without running the tool; an approved CLI tool is
-   `allow`, and the CLI runs it; a rejected or unfinished CLI tool is `deny` with the outcome text. The
-   CLI then adds a hidden "Continue from where you left off." message and makes the next model call.
+   `allow`, and the CLI runs it. Its tool Step returned `isFinishedByResumedTurn`, so the CLI's tool result
+   writes the call's one `tool_call_finished`, `failed` when the run fails, and a segment that ends without that
+   result writes `outcome_unknown`. A rejected or unfinished CLI tool is `ask`, and `canUseTool` denies it with "The user rejected this <tool> call: <reason>", or the
+   record's failure or unknown outcome text. The CLI then adds a hidden "Continue from where you left off." message and makes the next model call.
    The runner closes the CLI's input when the segment's result arrives.
 6. When the CLI produces the final answer, the runner returns `TurnCompleted`. Each assistant API
    message and each tool result becomes one stored message. Its `frameworkItem` is
@@ -435,7 +437,8 @@ behavior:
 - **Tool use IDs reach MCP servers.** Every `tools/call` carries `_meta["claudecode/toolUseId"]`.
 - **A hook denial reaches the model with a prefix,** `PreToolUse:<tool> hook error: <reason>`. A
   rejected custom tool call is therefore allowed and the adapter's MCP server returns the rejection,
-  so the model sees exactly the rejection text. A rejected CLI tool keeps the prefix.
+  so the model sees exactly the rejection text. A rejected CLI tool is `ask`, which sends it to
+  `canUseTool`, whose denial message reaches the model without a prefix.
 - **The in-process MCP server must be declared at startup.** The TypeScript SDK declares in-process
   servers only in its initialize request, and the resumed call starts before that request is applied:
   the CLI then reports `terminal_reason: "tool_deferred_unavailable"`. The adapter therefore declares
