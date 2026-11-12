@@ -14,7 +14,8 @@
     "test": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/workflow/**/*.test.js'",
     "test:integ": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/integ/*.test.js'",
     "smoke": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/e2e/flow-smoke.test.js'",
-    "build:ai-agent-ui": "esbuild src/products/ai-agent/ui/chat-app.tsx src/products/ai-agent/ui/index.html --bundle --format=esm --minify --loader:.html=copy --outdir=dist/src/products/ai-agent/ui --log-level=warning"
+    "build:ai-agent-ui": "esbuild src/products/ai-agent/ui/chat-app.tsx src/products/ai-agent/ui/index.html --bundle --format=esm --minify --loader:.html=copy --outdir=dist/src/products/ai-agent/ui --log-level=warning",
+    "agent-quick-start": "npm run build && node dist/src/products/agent-harnesses/quick-start/quick-start-main.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.106",
