@@ -121,6 +121,15 @@ func lastBytes(text string, count int) string {
 	return text[max(len(text)-count, 0):]
 }
 
+// waitForRetake waits until dexcli entered the alternate screen again after
+// offset, which it does once raw mode is back.
+func (suspend *suspendHost) waitForRetake(offset int) {
+	suspend.t.Helper()
+	require.Eventually(suspend.t, func() bool { return strings.Contains(suspend.screen()[offset:], "\x1b[?1049h") }, 20*time.Second, 20*time.Millisecond,
+		"dexcli retook the terminal")
+	suspend.waitForFrame("Ctrl-D exit")
+}
+
 func (suspend *suspendHost) waitForReady() {
 	suspend.t.Helper()
 	require.Eventually(suspend.t, func() bool { return countLines(suspend.recordPath) >= 3 }, 20*time.Second, 20*time.Millisecond)
@@ -178,14 +187,12 @@ func TestSuspendUnderAJobControlShell(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return strings.Contains(processState(t, dexcliPID), "T") && strings.Contains(processState(t, launcherPID), "T")
 		}, 20*time.Second, 20*time.Millisecond, "round %d: the job is stopped", round)
-		// The prompt may land on the alternate screen; the log shows the release.
-		require.Eventually(t, func() bool {
-			return strings.Contains(suspend.screen()[before:], "\x1b[?1049l\x1b[?2004l\x1b[?1002l")
-		}, 20*time.Second, 20*time.Millisecond, "round %d: dexcli released the terminal", round)
 		suspend.typeKeys("fg\r")
-		suspend.waitForFrame("Ctrl-D exit")
+		suspend.waitForRetake(before)
 		suspend.checkTypingWorks(fmt.Sprintf("round%d", round))
-		require.Equal(t, 1, strings.Count(suspend.screen()[before:], "\x1b[?1049l"), "round %d: one stop releases the terminal once", round)
+		// dexcli releases before the stop when it still owns the terminal, and
+		// retakes it after fg otherwise: one switch each way either way.
+		require.Equal(t, 1, strings.Count(suspend.screen()[before:], "\x1b[?1049l"), "round %d: the terminal is released once", round)
 		require.Equal(t, 1, strings.Count(suspend.screen()[before:], "\x1b[?1049h"), "round %d: fg retakes it once", round)
 	}
 	suspend.typeKeys("\x04")
@@ -209,6 +216,40 @@ func TestSuspendInAnOrphanedProcessGroupKeepsRunning(t *testing.T) {
 	require.NotContains(t, processState(t, dexcliPID), "T")
 	require.Equal(t, 1, strings.Count(suspend.screen()[before:], "\x1b[?1049l"), "one SIGTSTP releases the terminal once")
 	suspend.typeKeys("\x04")
+	suspend.waitForExit()
+}
+
+// When the launcher stops first and the shell already owns the terminal,
+// dexcli stops without writing to it or changing its mode.
+func TestSuspendAfterTheShellTookTheTerminal(t *testing.T) {
+	bashPath, err := exec.LookPath("bash")
+	require.NoError(t, err)
+	suspend := startSuspendHost(t,
+		[]string{"DEXCLI=" + buildDexcli(t), "PS1=job-shell$ ", "BASH_SILENCE_DEPRECATION_WARNING=1"},
+		bashPath, "--norc", "--noprofile", "-i", "-s", "job-shell")
+	suspend.waitForFrame("job-shell$")
+	// tostop makes a background write stop the writer, which SIGTTOU would show.
+	suspend.typeKeys("stty tostop; sh -c '\"$DEXCLI\" agents-tui \"$1\" \"$2\"; :' launcher \"$2\" \"$3\"\r")
+	suspend.waitForReady()
+	launcherPID := childProcessID(t, childProcessID(t, suspend.host.Process.Pid))
+	dexcliPID := childProcessID(t, launcherPID)
+	before := len(suspend.screen())
+	require.NoError(t, syscall.Kill(launcherPID, syscall.SIGTSTP))
+	require.Eventually(t, func() bool {
+		after := suspend.screen()[before:]
+		return strings.Contains(after, "Stopped") && strings.HasSuffix(after, "job-shell$ ")
+	}, 20*time.Second, 20*time.Millisecond, "the shell took the terminal back")
+	shellOwned := len(suspend.screen())
+	require.NoError(t, syscall.Kill(dexcliPID, syscall.SIGTSTP))
+	require.Eventually(t, func() bool { return strings.Contains(processState(t, dexcliPID), "T") }, 20*time.Second, 20*time.Millisecond,
+		"dexcli is stopped")
+	require.NotContains(t, suspend.screen()[shellOwned:], "\x1b", "dexcli wrote nothing to the shell's terminal")
+	suspend.typeKeys("fg\r")
+	suspend.waitForRetake(shellOwned)
+	suspend.checkTypingWorks("back-again")
+	suspend.typeKeys("\x04")
+	suspend.waitForFrame("job-shell$")
+	suspend.typeKeys("exit\r")
 	suspend.waitForExit()
 }
 

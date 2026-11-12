@@ -186,6 +186,20 @@ func TestContinueBeforeTheStopCancelsIt(t *testing.T) {
 	require.Zero(t, sentStops.Load())
 }
 
+// A SIGCONT during a slow process-group check cancels the stop too.
+func TestContinueDuringTheGroupCheckCancelsTheStop(t *testing.T) {
+	var sentStops atomic.Int32
+	handler, program := newStoppingSignals(t, true, &sentStops)
+	handler.canStopProcessGroup = func() bool {
+		handler.signals <- syscall.SIGCONT
+		require.Eventually(t, func() bool { return handler.continueCount.Load() == 1 }, time.Second, 5*time.Millisecond)
+		return true
+	}
+	handler.signals <- syscall.SIGTSTP
+	require.NoError(t, suspendCommandOf(t, program).Run())
+	require.Zero(t, sentStops.Load())
+}
+
 // Without a job-control parent the chat keeps running instead of freezing.
 func TestOrphanedProcessGroupDoesNotStop(t *testing.T) {
 	var sentStops atomic.Int32

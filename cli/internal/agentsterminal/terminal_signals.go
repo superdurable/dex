@@ -264,6 +264,22 @@ func (command *suspendCommand) SetStdout(io.Writer) {}
 // SetStderr is unused: the command writes nothing.
 func (command *suspendCommand) SetStderr(io.Writer) {}
 
+// terminalRetakeCommand does nothing; running it through tea.Exec releases
+// and retakes the terminal, restoring the chat's modes and screen.
+type terminalRetakeCommand struct{}
+
+// Run returns at once.
+func (terminalRetakeCommand) Run() error { return nil }
+
+// SetStdin is unused: the command reads nothing.
+func (terminalRetakeCommand) SetStdin(io.Reader) {}
+
+// SetStdout is unused: the command writes nothing.
+func (terminalRetakeCommand) SetStdout(io.Writer) {}
+
+// SetStderr is unused: the command writes nothing.
+func (terminalRetakeCommand) SetStderr(io.Writer) {}
+
 // stopUnlessContinued stops with uncatchable SIGSTOP and returns after
 // SIGCONT, unless SIGCONT already came or no job-control parent exists.
 func (handler *terminalSignals) stopUnlessContinued(continuedBefore uint64) {
@@ -271,7 +287,11 @@ func (handler *terminalSignals) stopUnlessContinued(continuedBefore uint64) {
 	if handler.continueCount.Load() != continuedBefore || !handler.canStopProcessGroup() {
 		return
 	}
-	// A SIGCONT between this check and the kill goes unseen; the window is tiny.
+	// The group check may take a while; a SIGCONT meanwhile cancels the stop.
+	if handler.continueCount.Load() != continuedBefore {
+		return
+	}
+	// A SIGCONT between this load and the kill goes unseen; the window is tiny.
 	if err := handler.sendStop(); err != nil {
 		debugLog("stop this process", err)
 		return
