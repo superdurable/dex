@@ -177,6 +177,28 @@ class ComponentChangelogsIntegrationTest(unittest.TestCase):
         self.assertEqual(changelog.count("Since 1.45.1."), 4)
         self.assertTrue(changelog.endswith(GO_RELEASED_1_44))
 
+    def test_prepare_marks_the_parent_text_of_patch_bullets_with_sub_bullets_or_fences(self) -> None:
+        self.run_script("prepare", "go", "--version", "1.45.0", "--date", "2026-11-12")
+        self.commit("1.45.0")
+        self.write(
+            "changelog.d/go/nested-000001.md",
+            "---\nsection: Changed\n---\n- A parent change\n  over two lines:\n  - child one.\n  - child two.\n",
+        )
+        self.write(
+            "changelog.d/go/fence-000002.md",
+            "---\nsection: Changed\n---\n- Use this:\n  ```go\n  x := 1\n  ```\n",
+        )
+        self.run_script("prepare", "go", "--version", "1.45.1", "--date", "2026-11-13")
+
+        changelog = self.read(GO_CHANGELOG)
+        self.assertIn(
+            "### Changed\n\n"
+            "- Use this: Since 1.45.1.\n  ```go\n  x := 1\n  ```\n"
+            "- A parent change\n  over two lines: Since 1.45.1.\n  - child one.\n  - child two.\n\n",
+            changelog,
+        )
+        self.assertEqual(changelog.count("Since 1.45.1."), 2)
+
     def test_prepare_writes_a_new_entry_and_needs_allow_empty_without_changes(self) -> None:
         java = "docs/reference/java/changelog.mdx"
         before = self.read(java)

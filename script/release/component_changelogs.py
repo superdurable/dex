@@ -294,15 +294,32 @@ def release_url(tag: str) -> str:
 
 
 def with_since(item: PendingItem, version: str) -> PendingItem:
-    """Returns item with "Since version." after the last line of each bullet, so wrapped bullets end with it."""
+    """Returns item with "Since version." after the last prose line of each bullet's own text.
+
+    Sub-bullets and code fence lines never carry the marker: it covers the whole parent bullet,
+    and a closing fence cannot hold text.
+    """
     lines = list(item.lines)
-    last_bullet_lines: list[int] = []
+    last_prose_lines: list[int] = []
+    is_in_fence = False
+    is_in_sub_bullet = False
     for index, line in enumerate(lines):
         if line.startswith("- "):
-            last_bullet_lines.append(index)
-        elif line.strip() and last_bullet_lines:
-            last_bullet_lines[-1] = index
-    for index in last_bullet_lines:
+            last_prose_lines.append(index)
+            is_in_fence = is_in_sub_bullet = False
+            continue
+        stripped = line.lstrip()
+        if not last_prose_lines or not stripped or is_in_sub_bullet:
+            continue
+        if stripped.startswith("```"):
+            is_in_fence = not is_in_fence
+        elif is_in_fence:
+            continue
+        elif line.startswith("  ") and stripped.startswith("- "):
+            is_in_sub_bullet = True
+        else:
+            last_prose_lines[-1] = index
+    for index in last_prose_lines:
         lines[index] = f"{lines[index].rstrip()} Since {version}."
     return PendingItem(item.section, tuple(lines))
 
