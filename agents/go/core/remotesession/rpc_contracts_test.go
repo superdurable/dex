@@ -45,8 +45,7 @@ var conformanceGoTypes = map[string]reflect.Type{
 	"bool":                         reflect.TypeFor[bool](),
 }
 
-// A fast precheck: the RPC table matches names.json, the contract the Python core records and the
-// TypeScript core checks. The cross-language integration tests in ../integ are the real proof.
+// A fast precheck against names.json; the cross-language tests in ../integ are the real proof.
 func TestSessionRPCContractsMatchTheConformanceSuite(t *testing.T) {
 	text, err := os.ReadFile(filepath.Join(conformanceDir, "names.json"))
 	require.NoError(t, err)

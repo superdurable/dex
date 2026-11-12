@@ -64,8 +64,7 @@ type remoteSessionHarness struct {
 	starter  *dexagents.AgentSessionClient
 }
 
-// A Go Client with only remotesession calls every session RPC of real Python and TypeScript Workers
-// with the names, locks, state loads, and wire values of their Flows, and reads their AgentEvents.
+// A remotesession Client calls every session RPC of real Python and TypeScript Workers and reads their AgentEvents.
 func TestRemoteSessionClientDrivesPythonAndTypeScriptWorkers(t *testing.T) {
 	t.Parallel()
 	for _, language := range remoteSessionWorkerLanguages() {
@@ -359,12 +358,25 @@ func (harness *remoteSessionHarness) testQueueSteerAndDelete(t *testing.T) {
 	snapshot = harness.snapshot(t, sessionID)
 	require.Empty(t, snapshot.QueuedMessages)
 	require.Len(t, snapshot.SteeredMessages, 1)
+	isSteered, err = harness.sessions.SteerUserMessage(callContext(t), sessionID,
+		dexagents.SteerUserMessageRequest{Text: ptr("say steered text")})
+	require.NoError(t, err)
+	require.True(t, isSteered, "new text steers the running turn")
+	snapshot = harness.snapshot(t, sessionID)
+	require.Len(t, snapshot.SteeredMessages, 2)
+	require.Equal(t, "say steered text", snapshot.SteeredMessages[1].Message.Text)
 
 	harness.releaseGate(t, "steer-gate")
+	// The next turn takes both steered messages in order; the model answers the last one.
 	snapshot = harness.waitForSnapshot(t, sessionID, "the steered turn's reply", func(snapshot dexagents.AgentSnapshot) bool {
-		return isIdle(snapshot) && messageText(snapshot.Messages[len(snapshot.Messages)-1]) == "said: steered"
+		return isIdle(snapshot) && messageText(snapshot.Messages[len(snapshot.Messages)-1]) == "said: steered text"
 	})
 	require.Empty(t, snapshot.SteeredMessages)
+	steeredIndex := slices.IndexFunc(snapshot.Messages, func(message dexagents.AgentMessage) bool {
+		return messageText(message) == "say steered"
+	})
+	require.GreaterOrEqual(t, steeredIndex, 0, "the steered queued message reached the next turn")
+	require.Equal(t, "say steered text", messageText(snapshot.Messages[steeredIndex+1]))
 	require.False(t, slices.ContainsFunc(snapshot.Messages, func(message dexagents.AgentMessage) bool {
 		return messageText(message) == "said: deleted"
 	}), "the deleted message never ran")
@@ -417,9 +429,7 @@ func (harness *remoteSessionHarness) testCancelTurn(t *testing.T) {
 	})
 }
 
-// A Worker frozen with SIGSTOP holds each RPC's locks, so a second RPC with a shared lock must
-// fail with RPCLockConflictError: resolve_interrupt, answer_question, and cancel_turn share
-// PendingInterrupts, and execute_plan locks PendingPlanExecution.
+// A Worker frozen with SIGSTOP holds each RPC's locks, so a second RPC sharing a lock conflicts.
 func (harness *remoteSessionHarness) testLockConflicts(t *testing.T) {
 	sessionID := harness.startSession(t, "locks")
 	interrupt := harness.sendAndWaitForInterrupt(t, sessionID, "publish locked note")
