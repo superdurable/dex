@@ -15,4 +15,5 @@ section: Fixed
   of reporting that the session has not loaded.
 - A suspend (SIGTSTP) stops the chat once, and **fg** brings it back. Before,
   the stop could come back as a second suspend, and keys typed then were
-  lost.
+  lost. Without a job-control shell, as in a command started in its own
+  session, the chat keeps running instead of stopping.
