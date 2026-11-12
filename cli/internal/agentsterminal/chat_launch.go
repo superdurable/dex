@@ -269,7 +269,6 @@ func runChat(
 	}
 	withPicker := newChatSessionPicker(chatContext, screen, chatSessionPickerConfig{
 		Sessions:         sessionlisting.NewSessionLister(connection.client, launch.Session.FlowType),
-		Source:           feed,
 		CurrentSessionID: feed.SessionID,
 		Theme:            theme,
 		Heading:          sessionsHeading(launch, theme),

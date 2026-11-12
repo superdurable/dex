@@ -120,6 +120,8 @@ func (picker *SessionPicker) statusLine(shownCount int) string {
 	case picker.hasLoaded && picker.loadFailure != "":
 		return " " + theme.Error.Render(theme.Symbols.Failed) + " " +
 			terminaltheme.TruncateToWidth("Could not load more sessions: "+picker.loadFailure, picker.width-4, theme.Symbols.Ellipsis)
+	case picker.isTitleSearch && !picker.isTyping && !picker.hasLoaded && picker.loadFailure == "":
+		return " " + theme.Secondary.Render("searching titles in Dex…")
 	case picker.isTitleSearch && !picker.isTyping:
 		return " " + theme.Secondary.Render(fmt.Sprintf("%d sessions whose titles match", shownCount))
 	case picker.isTyping || picker.committedQuery != "":

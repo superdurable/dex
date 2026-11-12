@@ -42,8 +42,26 @@ const maxLockRetryDelay = time.Second
 
 func (feed *RemoteSessionFeed) runAction(ctx context.Context, action sessionfeed.UserAction) error {
 	switch typed := action.(type) {
+	case sessionfeed.RunSlashCommand:
+		return feed.runSlashCommand(ctx, typed)
+	case sessionfeed.MoveSessionStartToBackground:
+		// The screen already decided; the request goes on, and no cancel is sent.
+		feed.notice(sessionfeed.NoticeSeverityInfo, "The new session keeps starting; this chat goes on meanwhile.")
+		return nil
+	case sessionfeed.SwitchSession:
+		return feed.switchSession(ctx, typed)
+	}
+	sessionID, endAction := feed.beginSessionAction()
+	defer endAction()
+	return feed.runSessionAction(ctx, sessionID, action)
+}
+
+// runSessionAction writes one action to sessionID, the session the chat
+// showed when the action began.
+func (feed *RemoteSessionFeed) runSessionAction(ctx context.Context, sessionID string, action sessionfeed.UserAction) error {
+	switch typed := action.(type) {
 	case sessionfeed.SendUserMessage:
-		return feed.sendUserMessage(ctx, typed)
+		return feed.sendUserMessage(ctx, sessionID, typed)
 	case sessionfeed.ResolveApproval:
 		var reason *string
 		if !typed.IsApproved && strings.TrimSpace(typed.Reason) != "" {
@@ -53,41 +71,63 @@ func (feed *RemoteSessionFeed) runAction(ctx context.Context, action sessionfeed
 		if !typed.IsApproved {
 			resolution = sessionfeed.InterruptRejected
 		}
-		return feed.resolveInterrupt(ctx, typed.InterruptID, resolution, func(callContext context.Context, sessionID string) (bool, error) {
+		return feed.resolveInterrupt(ctx, sessionID, typed.InterruptID, resolution, func(callContext context.Context) (bool, error) {
 			return feed.sessions.ResolveInterrupt(callContext, sessionID, typed.InterruptID, typed.IsApproved, reason)
 		})
 	case sessionfeed.AnswerQuestion:
-		return feed.resolveInterrupt(ctx, typed.InterruptID, sessionfeed.InterruptAnswered, func(callContext context.Context, sessionID string) (bool, error) {
+		return feed.resolveInterrupt(ctx, sessionID, typed.InterruptID, sessionfeed.InterruptAnswered, func(callContext context.Context) (bool, error) {
 			return feed.sessions.AnswerQuestion(callContext, sessionID, typed.InterruptID, typed.Answer)
 		})
 	case sessionfeed.DeclineQuestion:
-		return feed.resolveInterrupt(ctx, typed.InterruptID, sessionfeed.InterruptDeclined, func(callContext context.Context, sessionID string) (bool, error) {
+		return feed.resolveInterrupt(ctx, sessionID, typed.InterruptID, sessionfeed.InterruptDeclined, func(callContext context.Context) (bool, error) {
 			return feed.sessions.ResolveInterrupt(callContext, sessionID, typed.InterruptID, false, nil)
 		})
 	case sessionfeed.CancelTurn:
-		feed.cancelTurn(ctx, typed.TurnID)
+		feed.cancelTurn(ctx, sessionID, typed.TurnID)
 		return nil
 	case sessionfeed.SteerQueuedMessage:
-		return feed.changeQueuedMessage(ctx, "steer", func(callContext context.Context, sessionID string) (bool, error) {
+		return feed.changeQueuedMessage(ctx, "steer", func(callContext context.Context) (bool, error) {
 			messageID := typed.MessageID
 			return feed.sessions.SteerUserMessage(callContext, sessionID, dexagents.SteerUserMessageRequest{MessageID: &messageID})
 		})
 	case sessionfeed.DeleteQueuedMessage:
-		return feed.changeQueuedMessage(ctx, "delete", func(callContext context.Context, sessionID string) (bool, error) {
+		return feed.changeQueuedMessage(ctx, "delete", func(callContext context.Context) (bool, error) {
 			return feed.sessions.DeleteQueuedMessage(callContext, sessionID, typed.MessageID)
 		})
 	case sessionfeed.ExecutePlan:
-		return feed.executePlan(ctx, typed.Revision)
-	case sessionfeed.RunSlashCommand:
-		return feed.runSlashCommand(ctx, typed)
-	case sessionfeed.MoveSessionStartToBackground:
-		// The screen already decided; the request goes on, and no cancel is sent.
-		feed.notice(sessionfeed.NoticeSeverityInfo, "The new session keeps starting; this chat goes on meanwhile.")
-		return nil
-	case sessionfeed.SwitchSession:
-		return feed.postInput(ctx, sessionSwitchRequested{sessionID: typed.SessionID, isResumed: typed.IsResumed})
+		return feed.executePlan(ctx, sessionID, typed.Revision)
 	}
 	return fmt.Errorf("remotesessionfeed: unknown action %T", action)
+}
+
+// beginSessionAction pins the session an action writes to. A switch waits
+// until the returned end runs.
+func (feed *RemoteSessionFeed) beginSessionAction() (string, func()) {
+	feed.switchGate.RLock()
+	feed.sessionActionCount.Add(1)
+	return feed.SessionID(), func() {
+		feed.sessionActionCount.Add(-1)
+		feed.switchGate.RUnlock()
+	}
+}
+
+// switchSession cancels the old session's image requests and waits for its
+// other actions.
+func (feed *RemoteSessionFeed) switchSession(ctx context.Context, request sessionfeed.SwitchSession) error {
+	feed.stateMutex.Lock()
+	feed.cancelImageRequests()
+	feed.stateMutex.Unlock()
+	if feed.sessionActionCount.Load() > 0 {
+		feed.notice(sessionfeed.NoticeSeverityInfo, "switching once this session's requests finish…")
+	}
+	feed.switchGate.Lock()
+	defer feed.switchGate.Unlock()
+	feed.stateMutex.Lock()
+	feed.sessionID = request.SessionID
+	feed.attachedImages = 0
+	feed.imageRequests, feed.cancelImageRequests = context.WithCancel(context.Background())
+	feed.stateMutex.Unlock()
+	return feed.postInput(ctx, sessionSwitchRequested{sessionID: request.SessionID, isResumed: request.IsResumed})
 }
 
 // postInput hands an input to the session loop.
@@ -103,12 +143,13 @@ func (feed *RemoteSessionFeed) postInput(ctx context.Context, input loopInput) e
 // callWithLockRetries retries call while a Step or another RPC holds one of
 // its locks, for at most LockConflictBudget. Interrupts often meet a lock at
 // first, while the turn's Step still runs.
-func (feed *RemoteSessionFeed) callWithLockRetries(ctx context.Context, call func(context.Context, string) (bool, error)) (bool, error) {
+// call writes to the session its action pinned, on every retry.
+func (feed *RemoteSessionFeed) callWithLockRetries(ctx context.Context, call func(context.Context) (bool, error)) (bool, error) {
 	deadline := time.Now().Add(feed.timings.LockConflictBudget)
 	delay := 50 * time.Millisecond
 	for {
 		callContext, cancel := context.WithTimeout(ctx, feed.timings.RPCTimeout)
-		isAccepted, err := call(callContext, feed.SessionID())
+		isAccepted, err := call(callContext)
 		cancel()
 		var lockConflict *dex.RPCLockConflictError
 		if !errors.As(err, &lockConflict) {
@@ -124,7 +165,7 @@ func (feed *RemoteSessionFeed) callWithLockRetries(ctx context.Context, call fun
 	}
 }
 
-func (feed *RemoteSessionFeed) sendUserMessage(ctx context.Context, message sessionfeed.SendUserMessage) error {
+func (feed *RemoteSessionFeed) sendUserMessage(ctx context.Context, sessionID string, message sessionfeed.SendUserMessage) error {
 	reply := make(chan struct{})
 	if err := feed.postInput(ctx, localSendStarted{text: message.Text, reply: reply}); err != nil {
 		return err
@@ -145,7 +186,7 @@ func (feed *RemoteSessionFeed) sendUserMessage(ctx context.Context, message sess
 		}
 		userMessage.Images = append(userMessage.Images, image)
 	}
-	isQueued, err := feed.callWithLockRetries(ctx, func(callContext context.Context, sessionID string) (bool, error) {
+	isQueued, err := feed.callWithLockRetries(ctx, func(callContext context.Context) (bool, error) {
 		return feed.sessions.SendUserMessage(callContext, sessionID, userMessage)
 	})
 	if err != nil || !isQueued {
@@ -175,9 +216,10 @@ func rejectedMessageReason(message sessionfeed.SendUserMessage) string {
 
 func (feed *RemoteSessionFeed) resolveInterrupt(
 	ctx context.Context,
+	sessionID string,
 	interruptID string,
 	resolution sessionfeed.InterruptResolution,
-	call func(context.Context, string) (bool, error),
+	call func(context.Context) (bool, error),
 ) error {
 	if err := feed.postInput(ctx, interruptResolving{interruptID: interruptID, resolution: resolution}); err != nil {
 		return err
@@ -200,9 +242,9 @@ func (feed *RemoteSessionFeed) resolveInterrupt(
 
 // cancelTurn reports the answer only from the RPC result and the snapshot:
 // false means no matching turn runs, or the turn refuses turn control.
-func (feed *RemoteSessionFeed) cancelTurn(ctx context.Context, turnID string) {
+func (feed *RemoteSessionFeed) cancelTurn(ctx context.Context, sessionID string, turnID string) {
 	answer := sessionfeed.CancelRequestAnswered{TurnID: turnID}
-	isAccepted, err := feed.callWithLockRetries(ctx, func(callContext context.Context, sessionID string) (bool, error) {
+	isAccepted, err := feed.callWithLockRetries(ctx, func(callContext context.Context) (bool, error) {
 		return feed.sessions.CancelTurn(callContext, sessionID, &turnID)
 	})
 	switch {
@@ -215,15 +257,15 @@ func (feed *RemoteSessionFeed) cancelTurn(ctx context.Context, turnID string) {
 			return
 		}
 	default:
-		answer.Outcome = feed.refusedCancelOutcome(ctx, turnID)
+		answer.Outcome = feed.refusedCancelOutcome(ctx, sessionID, turnID)
 	}
 	feed.emit(answer)
 }
 
-func (feed *RemoteSessionFeed) refusedCancelOutcome(ctx context.Context, turnID string) sessionfeed.CancelOutcome {
+func (feed *RemoteSessionFeed) refusedCancelOutcome(ctx context.Context, sessionID string, turnID string) sessionfeed.CancelOutcome {
 	snapshotContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
 	defer cancel()
-	snapshot, err := feed.sessions.GetAgentSnapshot(snapshotContext, feed.SessionID())
+	snapshot, err := feed.sessions.GetAgentSnapshot(snapshotContext, sessionID)
 	if err != nil || snapshot.State == nil {
 		return sessionfeed.CancelOutcomeRefused
 	}
@@ -233,7 +275,7 @@ func (feed *RemoteSessionFeed) refusedCancelOutcome(ctx context.Context, turnID 
 	return sessionfeed.CancelOutcomeRefused
 }
 
-func (feed *RemoteSessionFeed) changeQueuedMessage(ctx context.Context, verb string, call func(context.Context, string) (bool, error)) error {
+func (feed *RemoteSessionFeed) changeQueuedMessage(ctx context.Context, verb string, call func(context.Context) (bool, error)) error {
 	isChanged, err := feed.callWithLockRetries(ctx, call)
 	var notFound *dex.ChannelMessageNotFoundError
 	switch {
@@ -249,8 +291,8 @@ func (feed *RemoteSessionFeed) changeQueuedMessage(ctx context.Context, verb str
 	return feed.postInput(ctx, refreshRequested{})
 }
 
-func (feed *RemoteSessionFeed) executePlan(ctx context.Context, revision int64) error {
-	isAccepted, err := feed.callWithLockRetries(ctx, func(callContext context.Context, sessionID string) (bool, error) {
+func (feed *RemoteSessionFeed) executePlan(ctx context.Context, sessionID string, revision int64) error {
+	isAccepted, err := feed.callWithLockRetries(ctx, func(callContext context.Context) (bool, error) {
 		return feed.sessions.ExecutePlan(callContext, sessionID, revision)
 	})
 	if err != nil {
@@ -265,10 +307,15 @@ func (feed *RemoteSessionFeed) executePlan(ctx context.Context, revision int64) 
 func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sessionfeed.RunSlashCommand) error {
 	switch command.Name {
 	case modelCommandName:
-		return feed.changeModel(ctx, command.Argument)
+		sessionID, endAction := feed.beginSessionAction()
+		defer endAction()
+		return feed.changeModel(ctx, sessionID, command.Argument)
 	case imageCommandName:
 		feed.actionMutex.Lock()
 		defer feed.actionMutex.Unlock()
+		// The chip belongs to the session shown now, so a switch waits for it.
+		_, endAction := feed.beginSessionAction()
+		defer endAction()
 		feed.attachImage(ctx, command.Argument)
 		return nil
 	case newCommandName:
@@ -292,9 +339,9 @@ func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sess
 	return fmt.Errorf("/%s is not a command of this session", command.Name)
 }
 
-func (feed *RemoteSessionFeed) changeModel(ctx context.Context, model string) error {
+func (feed *RemoteSessionFeed) changeModel(ctx context.Context, sessionID string, model string) error {
 	snapshotContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
-	snapshot, err := feed.sessions.GetAgentSnapshot(snapshotContext, feed.SessionID())
+	snapshot, err := feed.sessions.GetAgentSnapshot(snapshotContext, sessionID)
 	cancel()
 	if err != nil {
 		return errors.New(describeError(err))
@@ -312,7 +359,7 @@ func (feed *RemoteSessionFeed) changeModel(ctx context.Context, model string) er
 		settings = map[string]any{}
 	}
 	settings["model"] = model
-	isStored, err := feed.callWithLockRetries(ctx, func(callContext context.Context, sessionID string) (bool, error) {
+	isStored, err := feed.callWithLockRetries(ctx, func(callContext context.Context) (bool, error) {
 		return feed.sessions.UpdateSessionSettings(callContext, sessionID, settings)
 	})
 	if err != nil {
@@ -370,7 +417,13 @@ func (feed *RemoteSessionFeed) attachImage(ctx context.Context, argument string)
 		feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
 		return
 	}
-	outcome := feed.requests.CallWithRecoveryKey(ctx, launchcontract.MethodPutImage, key, map[string]any{"path": path}, nil)
+	requestContext, stopRequest := feed.imageRequestContext(ctx)
+	defer stopRequest()
+	outcome := feed.requests.CallWithRecoveryKey(requestContext, launchcontract.MethodPutImage, key, map[string]any{"path": path}, nil)
+	if requestContext.Err() != nil && ctx.Err() == nil {
+		feed.notice(sessionfeed.NoticeSeverityInfo, "Image not attached: the chat switched sessions.")
+		return
+	}
 	attachment, isAttached := feed.imageAttachment(outcome, name)
 	if !isAttached {
 		return
@@ -379,6 +432,19 @@ func (feed *RemoteSessionFeed) attachImage(ctx context.Context, argument string)
 	feed.attachedImages++
 	feed.stateMutex.Unlock()
 	feed.emit(sessionfeed.ImageAttached{Attachment: attachment})
+}
+
+// imageRequestContext ends with ctx or when the chat switches sessions.
+func (feed *RemoteSessionFeed) imageRequestContext(ctx context.Context) (context.Context, func()) {
+	feed.stateMutex.Lock()
+	sessionRequests := feed.imageRequests
+	feed.stateMutex.Unlock()
+	requestContext, cancel := context.WithCancel(ctx)
+	stopAfter := context.AfterFunc(sessionRequests, cancel)
+	return requestContext, func() {
+		stopAfter()
+		cancel()
+	}
 }
 
 func (feed *RemoteSessionFeed) imageAttachment(outcome launcherchannel.RequestOutcome, name string) (sessionfeed.ImageAttachment, bool) {

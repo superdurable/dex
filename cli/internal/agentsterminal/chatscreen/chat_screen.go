@@ -98,6 +98,7 @@ type ChatScreen struct {
 	pendingDelete             *sessionfeed.QueuedMessage
 	isSessionStartWaiting     bool
 	pendingSwitchSessionID    string
+	pendingImageDrop          *sessionfeed.SwitchSession
 	cancelState               cancelState
 	isExitArmed               bool
 	cancelRequestedTurnID     string
@@ -248,6 +249,8 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		commands = append(commands, screen.handleKey(typed))
 	case tea.PasteMsg:
 		screen.handlePaste(typed.Content)
+	case SwitchSessionRequestMsg:
+		commands = append(commands, screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: typed.SessionID, IsResumed: typed.IsResumed}))
 	case sessionUpdateMsg:
 		screen.isWaitingForSessionUpdate = false
 		commands = append(commands, screen.applySessionUpdate(typed.update))
@@ -363,6 +366,9 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 			screen.helpScrollFromTop += popupScrollStep
 		}
 		return nil
+	}
+	if screen.pendingImageDrop != nil {
+		return screen.handleImageDropKey(keyName)
 	}
 	if screen.pendingSwitchSessionID != "" && screen.input.IsEmpty() && !screen.isPopupOpen {
 		if command, isHandled := screen.handleSwitchKey(keyName); isHandled {
@@ -823,7 +829,7 @@ func (screen *ChatScreen) handleSwitchKey(keyName string) (tea.Cmd, bool) {
 	switch keyName {
 	case "y":
 		screen.pendingSwitchSessionID = ""
-		return screen.submitAction(sessionfeed.SwitchSession{SessionID: sessionID}), true
+		return screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: sessionID}), true
 	case "n", "esc":
 		screen.pendingSwitchSessionID = ""
 		screen.printNotice(sessionfeed.NoticeSeverityInfo, "staying in this session; resume "+sessionID+" later with /sessions")
@@ -888,6 +894,8 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			screen.flushReplies()
 			screen.printedSequences = map[int64]bool{}
 			screen.replies = newReplyStream()
+			// Images of the old session never reach the new one.
+			screen.attachments, screen.pendingImageDrop = nil, nil
 		}
 		screen.session = typed
 		if !screen.isSessionKnown {
@@ -917,7 +925,7 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			// The user still waits for /new: switch now.
 			screen.isSessionStartWaiting = false
 			screen.printNotice(sessionfeed.NoticeSeverityInfo, "Started session "+typed.SessionID+"; switching to it.")
-			command = screen.submitAction(sessionfeed.SwitchSession{SessionID: typed.SessionID})
+			command = screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: typed.SessionID})
 		} else {
 			screen.pendingSwitchSessionID = typed.SessionID
 		}

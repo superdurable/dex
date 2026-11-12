@@ -128,12 +128,19 @@ type RemoteSessionFeed struct {
 
 	isStartingSession atomic.Bool
 
-	stateMutex     sync.Mutex
-	sessionID      string
-	isChannelEnded bool
-	hasFailure     bool
-	attachedImages int
-	isRunning      bool
+	// switchGate lets session actions run together and a switch alone.
+	switchGate         sync.RWMutex
+	sessionActionCount atomic.Int64
+
+	stateMutex sync.Mutex
+	// imageRequests ends when the chat leaves the session.
+	imageRequests       context.Context
+	cancelImageRequests context.CancelFunc
+	sessionID           string
+	isChannelEnded      bool
+	hasFailure          bool
+	attachedImages      int
+	isRunning           bool
 }
 
 // NewRemoteSessionFeed creates the feed. Call Run to start it.
@@ -150,6 +157,7 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 	if debugf == nil {
 		debugf = func(string, error) {}
 	}
+	imageRequests, cancelImageRequests := context.WithCancel(context.Background())
 	return &RemoteSessionFeed{
 		sessions: config.Sessions,
 		requests: config.Requests,
@@ -165,7 +173,9 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 		updates: newUpdateQueue(),
 		inputs:  make(chan loopInput, 256),
 
-		sessionID: config.Launch.Session.SessionID,
+		sessionID:           config.Launch.Session.SessionID,
+		imageRequests:       imageRequests,
+		cancelImageRequests: cancelImageRequests,
 	}
 }
 

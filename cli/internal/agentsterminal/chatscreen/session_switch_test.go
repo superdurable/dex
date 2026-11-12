@@ -11,6 +11,7 @@ package chatscreen
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
@@ -32,4 +33,63 @@ func TestSwitchedSessionHistoryPrints(t *testing.T) {
 	scrollback := harness.scrollbackText()
 	require.Contains(t, scrollback, "second session question")
 	require.Contains(t, scrollback, "second session answer")
+}
+
+var testImage = sessionfeed.ImageAttachment{Name: "screenshot.png", MimeType: "image/png", SizeBytes: 12, Reference: []byte(`{}`)}
+
+func (harness *screenHarness) requestSwitch(request SwitchSessionRequestMsg) {
+	_, command := harness.screen.Update(request)
+	harness.runCommand(command)
+}
+
+// A switch with attached images asks first: n stays and keeps them, y drops
+// them and switches.
+func TestSwitchWithAttachedImagesAsksFirst(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100})
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-1"}, sessionfeed.SessionLoaded{},
+		sessionfeed.ImageAttached{Attachment: testImage})
+	request := SwitchSessionRequestMsg{SessionID: "openai-sdk-2", IsResumed: true}
+	harness.requestSwitch(request)
+	require.Empty(t, harness.source.recordedActions(), "nothing switches before the answer")
+	frame := harness.plainFrame()
+	require.Contains(t, frame, "Drop 1 attached image to switch to openai-sdk-2?")
+	require.Contains(t, frame, "y drop")
+	harness.press(textKey('n'))
+	require.Empty(t, harness.source.recordedActions())
+	require.Contains(t, harness.scrollbackText(), "staying in this session")
+	require.Len(t, harness.screen.attachments, 1, "n keeps the image")
+
+	harness.requestSwitch(request)
+	harness.press(textKey('y'))
+	require.Equal(t, sessionfeed.SwitchSession{SessionID: "openai-sdk-2", IsResumed: true}, harness.lastAction())
+	require.Empty(t, harness.screen.attachments)
+}
+
+// Without images a switch goes at once; /new asks the same question.
+func TestSwitchWithoutImagesAndNewSessionSwitch(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100})
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-1"}, sessionfeed.SessionLoaded{})
+	harness.requestSwitch(SwitchSessionRequestMsg{SessionID: "openai-sdk-2"})
+	require.Equal(t, sessionfeed.SwitchSession{SessionID: "openai-sdk-2"}, harness.lastAction())
+
+	harness = newScreenHarness(t, harnessOptions{width: 100})
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-1"}, sessionfeed.SessionLoaded{},
+		sessionfeed.ImageAttached{Attachment: testImage}, sessionfeed.ImageAttached{Attachment: testImage},
+		sessionfeed.SessionStartChanged{IsWaiting: true}, sessionfeed.SessionStartFinished{SessionID: "openai-sdk-3"})
+	require.Empty(t, harness.source.recordedActions())
+	require.Contains(t, harness.plainFrame(), "Drop 2 attached images to switch to openai-sdk-3?")
+	harness.press(textKey('y'))
+	require.Equal(t, sessionfeed.SwitchSession{SessionID: "openai-sdk-3"}, harness.lastAction())
+}
+
+// An image of the old session that lands late never reaches the new one.
+func TestLateImageDoesNotReachTheNewSession(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100})
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-1"}, sessionfeed.SessionLoaded{})
+	harness.requestSwitch(SwitchSessionRequestMsg{SessionID: "openai-sdk-2", IsResumed: true})
+	harness.feed(sessionfeed.ImageAttached{Attachment: testImage},
+		sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-2"}, sessionfeed.SessionLoaded{})
+	harness.typeText("hello")
+	harness.press(key(tea.KeyEnter))
+	require.Equal(t, sessionfeed.SendUserMessage{Text: "hello"}, harness.lastAction())
 }

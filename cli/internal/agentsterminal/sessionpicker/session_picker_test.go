@@ -329,6 +329,27 @@ func TestPickerCloses(t *testing.T) {
 	require.Equal(t, []tea.Msg{PickerClosedMsg{IsExitRequested: true}}, harness.outcome)
 }
 
+// A closed picker's late page never reaches a new picker, and closing
+// cancels the closed picker's requests.
+func TestPickerIgnoresAnotherPickersPage(t *testing.T) {
+	stale := &fakeSessions{pages: map[listCall]sessionlisting.SessionPage{
+		{}: {Sessions: []sessionlisting.SessionSummary{session("openai-sdk-20261101-000000-stale0", dex.FlowRunning)}},
+	}}
+	closedPicker := NewSessionPicker(context.Background(), SessionPickerConfig{Sessions: stale, Theme: terminaltheme.NewTheme(colorprofile.ASCII, true)})
+	stalePage := closedPicker.Init()
+	closedPicker.Update(keyMessage("esc"))
+	require.ErrorIs(t, closedPicker.ctx.Err(), context.Canceled, "closing cancels the picker's requests")
+
+	fresh := &fakeSessions{pages: map[listCall]sessionlisting.SessionPage{
+		{}: {Sessions: []sessionlisting.SessionSummary{session("openai-sdk-20261111-000000-fresh0", dex.FlowRunning)}},
+	}}
+	harness := newPickerHarness(t, fresh, 100, nil)
+	harness.run(harness.picker.Update(stalePage()))
+	screen := harness.screen()
+	require.Contains(t, screen, "fresh0")
+	require.NotContains(t, screen, "stale0")
+}
+
 // The current chat's session is marked, and Enter on it just closes.
 func TestPickerMarksTheCurrentSession(t *testing.T) {
 	source := &fakeSessions{pages: map[listCall]sessionlisting.SessionPage{

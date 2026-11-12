@@ -35,6 +35,8 @@ import (
 )
 
 const (
+	chatTerminalWidth  = 110
+	chatTerminalHeight = 32
 	realWorkerFlowType = "TerminalUIRemoteSessionAgent"
 	realWorkerTimeout  = 2 * time.Minute
 	screenWait         = 30 * time.Second
@@ -447,7 +449,7 @@ func (stack *realWorkerStack) openChatWithLaunch(t *testing.T, sessionID string,
 	recordPath := filepath.Join(directory, "record.jsonl")
 	chat := &chatRun{t: t, racePrefix: filepath.Join(directory, "race"), screenPath: filepath.Join(directory, "screen.log"), hostDone: make(chan error, 1), hostStderr: &bytes.Buffer{}}
 	host := exec.Command(stack.pythonPath, contractHostScript, "launcher",
-		"--transcript", transcriptPath, "--pty", "110x32", "--screen-log", chat.screenPath, "--record", recordPath,
+		"--transcript", transcriptPath, "--pty", fmt.Sprintf("%dx%d", chatTerminalWidth, chatTerminalHeight), "--screen-log", chat.screenPath, "--record", recordPath,
 		"--step-timeout", "180", "--pty-input-from-stdin", raceEnvironmentArgument(chat.racePrefix), "--", stack.dexcli, "agents-tui")
 	debugLog := os.Getenv("DEX_AGENTS_TUI_DEBUG")
 	if options.isDebugLogOn {
@@ -497,6 +499,23 @@ func (chat *chatRun) screenSince(mark string) string {
 		return text[index+len(mark):]
 	}
 	return text
+}
+
+// frame returns the screen as the terminal shows it now.
+func (chat *chatRun) frame() string {
+	data, err := os.ReadFile(chat.screenPath)
+	if err != nil {
+		return ""
+	}
+	return strings.Join(terminalFrame(string(data), chatTerminalWidth, chatTerminalHeight), "\n")
+}
+
+// waitForFrame waits until the current frame shows text. Unlike the log,
+// it holds a line redrawn from its middle.
+func (chat *chatRun) waitForFrame(text string) {
+	chat.t.Helper()
+	require.Eventually(chat.t, func() bool { return strings.Contains(chat.frame(), text) },
+		screenWait, 50*time.Millisecond, "the frame shows %q", text)
 }
 
 func (chat *chatRun) waitForScreen(text string) {

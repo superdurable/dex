@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -70,8 +71,11 @@ type PickerClosedMsg struct {
 // SessionPicker is the picker model. Its host forwards messages and sets
 // its size.
 type SessionPicker struct {
-	ctx    context.Context
-	config SessionPickerConfig
+	// instanceID tells this picker's messages from a closed picker's.
+	instanceID     uint64
+	ctx            context.Context
+	cancelRequests context.CancelFunc
+	config         SessionPickerConfig
 
 	width  int
 	height int
@@ -110,6 +114,7 @@ const (
 
 // pageLoadedMsg carries one page, or why it failed.
 type pageLoadedMsg struct {
+	instanceID uint64
 	generation int
 	page       sessionlisting.SessionPage
 	err        error
@@ -117,10 +122,11 @@ type pageLoadedMsg struct {
 
 // resumeCheckedMsg carries the DescribeFlow check of one session.
 type resumeCheckedMsg struct {
-	sessionID string
-	check     sessionlisting.ResumeCheck
-	status    dex.FlowStatus
-	err       error
+	instanceID uint64
+	sessionID  string
+	check      sessionlisting.ResumeCheck
+	status     dex.FlowStatus
+	err        error
 }
 
 // NewSessionPicker returns a picker that loads its first page in Init.
@@ -134,8 +140,15 @@ func NewSessionPicker(ctx context.Context, config SessionPickerConfig) *SessionP
 	if config.CloseKeyName == "" {
 		config.CloseKeyName = "back"
 	}
-	return &SessionPicker{ctx: ctx, config: config, width: 80, height: 24}
+	requestContext, cancelRequests := context.WithCancel(ctx)
+	return &SessionPicker{
+		instanceID: nextInstanceID.Add(1), ctx: requestContext, cancelRequests: cancelRequests,
+		config: config, width: 80, height: 24,
+	}
 }
+
+// nextInstanceID numbers the pickers of one process.
+var nextInstanceID atomic.Uint64
 
 // Init loads the first page.
 func (picker *SessionPicker) Init() tea.Cmd {
@@ -157,8 +170,14 @@ func (picker *SessionPicker) Update(message tea.Msg) tea.Cmd {
 	case tea.WindowSizeMsg:
 		picker.SetSize(typed.Width, typed.Height)
 	case pageLoadedMsg:
+		if typed.instanceID != picker.instanceID {
+			return nil
+		}
 		return picker.handlePage(typed)
 	case resumeCheckedMsg:
+		if typed.instanceID != picker.instanceID {
+			return nil
+		}
 		return picker.handleResumeCheck(typed)
 	case tea.PasteMsg:
 		if picker.isTyping {
@@ -300,12 +319,12 @@ func (picker *SessionPicker) loadPage(pageToken string) tea.Cmd {
 	if picker.isTitleSearch {
 		search = picker.committedQuery
 	}
-	sessions, ctx := picker.config.Sessions, picker.ctx
+	sessions, ctx, instanceID := picker.config.Sessions, picker.ctx, picker.instanceID
 	return func() tea.Msg {
 		callContext, cancel := context.WithTimeout(ctx, dexCallTimeout)
 		defer cancel()
 		page, err := sessions.ListSessions(callContext, pageToken, search)
-		return pageLoadedMsg{generation: generation, page: page, err: err}
+		return pageLoadedMsg{instanceID: instanceID, generation: generation, page: page, err: err}
 	}
 }
 
@@ -370,12 +389,12 @@ func (picker *SessionPicker) choose() tea.Cmd {
 	}
 	picker.checkingSessionID = session.SessionID
 	picker.setStatus(statusInfo, "checking "+session.SessionID+"…")
-	sessions, ctx, sessionID := picker.config.Sessions, picker.ctx, session.SessionID
+	sessions, ctx, sessionID, instanceID := picker.config.Sessions, picker.ctx, session.SessionID, picker.instanceID
 	return func() tea.Msg {
 		callContext, cancel := context.WithTimeout(ctx, dexCallTimeout)
 		defer cancel()
 		check, status, err := sessions.CheckResume(callContext, sessionID)
-		return resumeCheckedMsg{sessionID: sessionID, check: check, status: status, err: err}
+		return resumeCheckedMsg{instanceID: instanceID, sessionID: sessionID, check: check, status: status, err: err}
 	}
 }
 
@@ -397,6 +416,7 @@ func (picker *SessionPicker) handleResumeCheck(message resumeCheckedMsg) tea.Cmd
 		return nil
 	}
 	picker.isClosed = true
+	picker.cancelRequests()
 	sessionID := message.sessionID
 	return func() tea.Msg { return SessionChosenMsg{SessionID: sessionID} }
 }
@@ -421,6 +441,7 @@ func (picker *SessionPicker) notRunningText(status dex.FlowStatus) string {
 
 func (picker *SessionPicker) close(isExitRequested bool) tea.Cmd {
 	picker.isClosed = true
+	picker.cancelRequests()
 	return func() tea.Msg { return PickerClosedMsg{IsExitRequested: isExitRequested} }
 }
 

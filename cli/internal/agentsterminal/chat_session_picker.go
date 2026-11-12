@@ -13,7 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
+	"github.com/superdurable/dex/cli/internal/agentsterminal/chatscreen"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionpicker"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 )
@@ -27,15 +27,10 @@ const minOverlayHeight = 8
 // openSessionPickerMsg opens the picker; /sessions asks for it.
 type openSessionPickerMsg struct{}
 
-// sessionSwitchSubmittedMsg reports that SubmitUserAction returned.
-type sessionSwitchSubmittedMsg struct{}
-
 // chatSessionPickerConfig configures newChatSessionPicker.
 type chatSessionPickerConfig struct {
 	// Sessions lists the sessions and checks the chosen one. Required.
 	Sessions sessionpicker.SessionSource
-	// Source receives the SwitchSession action. Required.
-	Source sessionfeed.ChatSessionSource
 	// CurrentSessionID returns the session the chat shows. Required.
 	CurrentSessionID func() string
 	// Theme holds the styles and symbols.
@@ -60,8 +55,8 @@ type chatSessionPicker struct {
 }
 
 func newChatSessionPicker(ctx context.Context, chat tea.Model, config chatSessionPickerConfig) *chatSessionPicker {
-	if config.Sessions == nil || config.Source == nil || config.CurrentSessionID == nil || config.PickerRequests == nil {
-		panic("agentsterminal: chatSessionPickerConfig needs Sessions, Source, CurrentSessionID, and PickerRequests")
+	if config.Sessions == nil || config.CurrentSessionID == nil || config.PickerRequests == nil {
+		panic("agentsterminal: chatSessionPickerConfig needs Sessions, CurrentSessionID, and PickerRequests")
 	}
 	return &chatSessionPicker{ctx: ctx, chat: chat, config: config, width: 80, height: 24}
 }
@@ -89,12 +84,11 @@ func (overlay *chatSessionPicker) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case openSessionPickerMsg:
 		return overlay, tea.Batch(overlay.openPicker(), overlay.waitForPickerRequest())
 	case sessionpicker.SessionChosenMsg:
+		// The chat screen asks about attached images before it switches.
 		overlay.picker = nil
-		return overlay, overlay.switchSession(typed.SessionID)
+		message = chatscreen.SwitchSessionRequestMsg{SessionID: typed.SessionID, IsResumed: true}
 	case sessionpicker.PickerClosedMsg:
 		overlay.picker = nil
-		return overlay, nil
-	case sessionSwitchSubmittedMsg:
 		return overlay, nil
 	case tea.KeyPressMsg, tea.PasteMsg:
 		if overlay.picker != nil {
@@ -132,18 +126,6 @@ func (overlay *chatSessionPicker) openPicker() tea.Cmd {
 	})
 	overlay.picker.SetSize(overlay.width, overlay.pickerHeight())
 	return overlay.picker.Init()
-}
-
-// switchSession hands the checked session to the chat source, which loads
-// its history; the draft stays in the input.
-func (overlay *chatSessionPicker) switchSession(sessionID string) tea.Cmd {
-	source, ctx := overlay.config.Source, overlay.ctx
-	return func() tea.Msg {
-		if err := source.SubmitUserAction(ctx, sessionfeed.SwitchSession{SessionID: sessionID, IsResumed: true}); err != nil {
-			debugLog("switch the session", err)
-		}
-		return sessionSwitchSubmittedMsg{}
-	}
 }
 
 func (overlay *chatSessionPicker) pickerHeight() int {

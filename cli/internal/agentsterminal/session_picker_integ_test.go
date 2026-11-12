@@ -12,6 +12,7 @@ package agentsterminal
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,9 +48,9 @@ func TestSessionsModeWithoutSessionSummaries(t *testing.T) {
 	require.NotContains(t, picker.screen(), "TURNS", "no summary columns without summaries")
 	require.NotContains(t, picker.screen(), "UPDATED")
 	picker.typeText("/cccccc\r")
-	picker.waitForScreen("Title search is off here; filtering 3 loaded sessions by ID.")
+	picker.waitForFrame("Title search is off here; filtering 3 loaded sessions by ID.")
 	picker.typeText("\r")
-	picker.waitForScreen("This session is terminated; run dex-agents-test to start a new one.")
+	picker.waitForFrame("This session is terminated; run dex-agents-test to start a new one.")
 	// A pause after Esc keeps the next key from reading as Alt.
 	picker.typeText("\x1b")
 	time.Sleep(300 * time.Millisecond)
@@ -77,13 +78,12 @@ func TestSessionPickersWithSessionSummaries(t *testing.T) {
 	}
 	t.Run("SessionsModeSearchesTitles", func(t *testing.T) {
 		picker := stack.openChatWithLaunch(t, "", false, chatLaunch{methods: []string{}, resumeSessionID: flakySession})
-		picker.waitForScreen(`"say fix the flaky retry test"`)
-		picker.waitForScreen("TURNS")
-		picker.waitForScreen("UPDATED")
+		picker.waitForFrame(`"say fix the flaky retry test"`)
+		picker.waitForFrame("UPDATED  TURNS")
 		// The summary values decode: a last activity time and one turn, not dashes.
-		require.Regexp(t, flakySession+`\s*● running\s*\d\d-\d\d \d\d:\d\d\s*(now|\d+[mhd] ago)\s*1\b`, picker.screen())
+		require.Regexp(t, flakySession+`\s+● running\s+\d\d-\d\d \d\d:\d\d\s+(now|\d+[mhd] ago)\s+1\b`, picker.frame())
 		picker.typeText("/flaky\r")
-		picker.waitForScreen("1 sessions whose titles match")
+		picker.waitForFrame("1 sessions whose titles match")
 		picker.typeText("\r")
 		picker.waitForHostExit()
 	})
@@ -91,13 +91,56 @@ func TestSessionPickersWithSessionSummaries(t *testing.T) {
 		chat := stack.openChat(t, otherSession, true)
 		chat.waitForScreen("said: hello there")
 		chat.typeText("/sessions\r")
-		chat.waitForScreen(`"say fix the flaky retry test"`)
-		chat.waitForScreen("(this chat)")
+		chat.waitForFrame(`"say fix the flaky retry test"`)
+		chat.waitForFrame("(this chat)")
 		chat.typeText("/flaky\r")
-		chat.waitForScreen("1 sessions whose titles match")
+		chat.waitForFrame("1 sessions whose titles match")
 		chat.typeText("\r")
 		chat.waitForScreen("── session " + flakySession + " ──")
 		chat.waitForScreen("said: fix the flaky retry test")
 		chat.exit()
 	})
+	t.Run("SwitchDropsAttachedImagesAfterAsking", func(t *testing.T) {
+		imagePath := filepath.Join(t.TempDir(), "dot.png")
+		require.NoError(t, os.WriteFile(imagePath, []byte("\x89PNG stand-in; the launcher side stores images"), 0o600))
+		chat := stack.openChatWithLaunch(t, otherSession, true, imageLaunch(t, stack))
+		chat.waitForScreen("said: hello there")
+		chat.typeText("/image " + imagePath + "\r")
+		chat.waitForFrame("dot.png")
+		chat.typeText("/sessions\r")
+		chat.waitForFrame("(this chat)")
+		chat.typeText("/flaky\r")
+		chat.waitForFrame("1 sessions whose titles match")
+		chat.typeText("\r")
+		chat.waitForFrame("Drop 1 attached image to switch to " + flakySession + "?")
+		chat.typeText("y")
+		chat.waitForScreen("── session " + flakySession + " ──")
+		time.Sleep(500 * time.Millisecond)
+		chat.typeText("describe\r")
+		finished := stack.waitForSnapshot(t, flakySession, isIdleAfterTurns(2))
+		require.Equal(t, "saw 0 images", lastAssistantText(finished), "the dropped image never reaches the new session")
+		chat.exit()
+	})
+}
+
+// imageLaunch lets the chat attach one image: the launcher answers one
+// put_image with the Worker's stored image.
+func imageLaunch(t *testing.T, stack *realWorkerStack) chatLaunch {
+	referenceText, err := os.ReadFile(filepath.Join(stack.coordination, "image-reference.json"))
+	require.NoError(t, err)
+	var reference map[string]any
+	require.NoError(t, json.Unmarshal(referenceText, &reference))
+	return chatLaunch{
+		methods:   []string{"put_image"},
+		hasImages: true,
+		launcherSteps: []any{
+			map[string]any{"from": "tui", "message": map[string]any{
+				"type": "request", "id": 1, "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+				"method": "put_image", "params": map[string]any{"path": "/home/user/dot.png"},
+			}, "ignore": []string{"idempotency_key", "params.path"}},
+			map[string]any{"from": "launcher", "message": map[string]any{
+				"type": "response", "id": 1, "result": map[string]any{"image": reference, "name": "dot.png"},
+			}},
+		},
+	}
 }

@@ -10,4 +10,6 @@ section: Added
   **connectors** mode lists the connections of the connector tools, refreshes
   them with **r**, and opens the Dex Web Connectors page with **a**.
 - In the agents chat, **/sessions** opens the same session list and switches
-  the chat to the picked session with its history.
+  the chat to the picked session with its history. Before **/sessions** or
+  **/new** switches, the chat asks whether to drop attached images, and it
+  waits for the current session's requests to finish.
