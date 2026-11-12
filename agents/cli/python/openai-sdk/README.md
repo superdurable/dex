@@ -35,7 +35,11 @@ every model call and tool call in the session.
 The model defaults to `gpt-5.2`; set `model` in the file or pass `--model` to
 change it. It is an OpenAI Responses API model name. A session's settings may
 change the model and the instructions; each model call uses the values of its
-turn. `system_prompt` replaces the default instructions. The `openai` section
+turn. The session setting `reasoning_effort` may be `low`, `medium`, or
+`high`; each model call sends it as the SDK's `ModelSettings.reasoning.effort`.
+Without it, the model's default applies. In the terminal UI, `/effort` sets
+it, and `/model` also offers `gpt-5.2`, `gpt-5-mini`, and `gpt-5-nano`.
+`system_prompt` replaces the default instructions. The `openai` section
 has no options yet, and any key in it is a configuration error.
 
 ## Tools
@@ -83,7 +87,8 @@ connectors MCP server serves a connector read and write. The tests cover a
 chat turn and `--resume`, `read_file` without approval and `write_file` after
 approval, a connector read and an approved connector write that runs once,
 session settings that change the model, and a key in the `openai` section.
-They also cover a `system_prompt` set in the session settings, which reaches
+A `reasoning_effort` in the session settings reaches the next Responses API
+request, and an undeclared one fails the turn. They also cover a `system_prompt` set in the session settings, which reaches
 the next model request, and a rejected file write and connector write, which
 never run.
 The OpenAI Agents SDK command also warns to restart when the connectors MCP

@@ -55,6 +55,17 @@ async def test_session_settings_change_the_model(command_home: CommandHome, tmp_
     )
 
 
+async def test_a_reasoning_effort_fails_the_turn_because_the_command_declares_none(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    flow_type = session_flow_type(
+        GOOGLE_ADK_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    await scenarios.session_settings_reject_an_undeclared_reasoning_effort(
+        command_home, DEFAULTS, flow_type, tmp_path / "cache", "low"
+    )
+
+
 def test_a_key_in_the_google_adk_section_is_a_configuration_error(
     command_home: CommandHome,
 ) -> None:

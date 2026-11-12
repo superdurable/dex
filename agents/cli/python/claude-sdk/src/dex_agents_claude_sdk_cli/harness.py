@@ -18,13 +18,13 @@ from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
 
 # isort: split
 
-from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk import ClaudeAgentOptions, EffortLevel
 
 from dex_agents import (
     AgentSessionFlow,
@@ -116,6 +116,15 @@ class ClaudeSdkHarness:
     Bash wait for approval, and a Bash command whose whole text is in the
     shell allow list runs at once. File tools refuse paths outside the
     workspace.
+
+    The ``reasoning_effort`` session setting accepts ``low``, ``medium``,
+    ``high``, ``xhigh``, and ``max``. Each turn segment passes it to Claude
+    Code as ``ClaudeAgentOptions.effort``. Without it, Claude Code's default
+    applies. ``suggested_models`` lists Claude models for the terminal UI's
+    ``/model``.
+
+    .. versionchanged:: 0.7.0
+       The ``reasoning_effort`` session setting and the suggested models.
     """
 
     name = "claude-sdk"
@@ -124,6 +133,13 @@ class ClaudeSdkHarness:
     default_model: str | None = DEFAULT_CLAUDE_MODEL
     replaced_local_tools = frozenset(
         {LocalToolGroup.FILES, LocalToolGroup.SHELL, LocalToolGroup.WEB_FETCH}
+    )
+    supported_reasoning_efforts = ("low", "medium", "high", "xhigh", "max")
+    suggested_models = (
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+        "claude-fable-5-2",
     )
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
@@ -194,11 +210,15 @@ class ClaudeCodeLocalTools:
            The options load no MCP servers or claude.ai connectors from the
            user's Claude Code configuration or login.
 
+        .. versionchanged:: 0.7.0
+           The options carry the turn's ``reasoning_effort`` as ``effort``.
+
         Args:
             options_context: The segment's Flow ID, turn ID, and attempt.
 
         Returns:
-            Options with the Claude Code tools the turn switches on and the
+            Options with the turn's reasoning effort as ``effort``, ``None``
+            without one, the Claude Code tools the turn switches on and the
             tools of calls the turn already recorded, the workspace as
             ``cwd``, no settings files, and no MCP servers or claude.ai
             connectors from the user's Claude Code configuration. The environment
@@ -217,6 +237,7 @@ class ClaudeCodeLocalTools:
         recorded_tool_names = {record.tool_name for record in turn_context.tool_calls.values()}
         return ClaudeAgentOptions(
             model=turn.model,
+            effort=cast(EffortLevel | None, turn.reasoning_effort),
             system_prompt=turn.instructions or DEFAULT_INSTRUCTIONS,
             tools=[
                 tool_name

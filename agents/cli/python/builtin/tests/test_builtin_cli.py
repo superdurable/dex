@@ -16,6 +16,7 @@ import hashlib
 import json
 import struct
 import zlib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,33 @@ async def test_session_settings_change_the_model(command_home: CommandHome, tmp_
     await scenarios.session_settings_change_the_model(
         command_home, DEFAULTS, flow_type, "openai/gpt-5-mini", "gpt-5-mini", tmp_path / "cache"
     )
+
+
+async def test_session_settings_set_the_reasoning_effort(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    flow_type = session_flow_type(
+        BUILTIN_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    await scenarios.session_settings_set_the_reasoning_effort(
+        command_home, DEFAULTS, flow_type, tmp_path / "cache", "high", responses_effort
+    )
+
+
+async def test_an_undeclared_reasoning_effort_fails_the_turn(
+    command_home: CommandHome, tmp_path: Path
+) -> None:
+    flow_type = session_flow_type(
+        BUILTIN_CLI_FLOW_TYPE, command_home.config_path, command_home.workspace
+    )
+    await scenarios.session_settings_reject_an_undeclared_reasoning_effort(
+        command_home, DEFAULTS, flow_type, tmp_path / "cache", "max"
+    )
+
+
+def responses_effort(body: Mapping[str, Any]) -> object:
+    """Return the reasoning effort of a Responses API request body, or ``None``."""
+    return (body.get("reasoning") or {}).get("effort")
 
 
 def test_a_key_in_the_builtin_section_is_a_configuration_error(command_home: CommandHome) -> None:
