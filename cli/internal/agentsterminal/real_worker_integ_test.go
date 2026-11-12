@@ -71,6 +71,9 @@ func TestChatWithARealPythonWorker(t *testing.T) {
 	t.Run("ApprovalRoundTrip", stack.testApprovalRoundTrip)
 	t.Run("ResumeShowsHistory", stack.testResumeShowsHistory)
 	t.Run("CtrlCCancelsTheTurn", stack.testCtrlCCancelsTheTurn)
+	t.Run("EscCancelsTheTurn", stack.testEscCancelsTheTurn)
+	t.Run("IdleCtrlCExitsOnTheSecondPress", stack.testIdleCtrlCExitsOnTheSecondPress)
+	t.Run("ResumeKeepsAWaitingApprovalClosed", stack.testResumeKeepsAWaitingApprovalClosed)
 	t.Run("QuestionAnswer", stack.testQuestionAnswer)
 	t.Run("QueueAndSteer", stack.testQueueAndSteer)
 	t.Run("PlanAndRun", stack.testPlanAndRun)
@@ -241,7 +244,7 @@ func (stack *realWorkerStack) testCtrlOShowsTheToolOutput(t *testing.T) {
 	chat.waitForScreen("Arguments")
 	require.Contains(t, chat.screenSince("Tool output"), "published pager note", "the pager shows the stored output")
 	chat.typeText("q")
-	chat.waitForScreen("Ctrl-D exit")
+	chat.waitForFrame("Ctrl-D exit")
 	chat.exit()
 }
 
@@ -268,7 +271,9 @@ func (stack *realWorkerStack) testHistoryReadsEarlierMessages(t *testing.T) {
 	require.NotContains(t, chat.screen(), "oldest-entry", "the first turn is above the newest page")
 	chat.typeText("/history\r")
 	chat.waitForScreen("Earlier messages")
-	chat.waitForScreen("said: oldest-entry")
+	// The pager redraws only changed cells, so the log may never hold the
+	// whole reply line; the frame does.
+	chat.waitForFrame("oldest-entry")
 	chat.waitForScreen("start of the session")
 	chat.typeText("q")
 	chat.exit()
@@ -300,12 +305,12 @@ func (stack *realWorkerStack) testQueueAndSteer(t *testing.T) {
 	stack.startSession(t, sessionID)
 	chat := stack.openChat(t, sessionID, false)
 	chat.typeText("stall steer-gate\r")
-	chat.waitForScreen("Ctrl-C cancel turn")
+	chat.waitForFrame("Esc interrupt")
 	chat.typeText("say steered\r")
 	stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
 		return len(snapshot.QueuedMessages) == 1
 	})
-	chat.waitForScreen("Tab acts on it")
+	chat.waitForFrame("Tab acts on it")
 	chat.typeText("\t")
 	time.Sleep(300 * time.Millisecond)
 	chat.typeText("s")
@@ -446,9 +451,9 @@ func (stack *realWorkerStack) testResumeShowsHistory(t *testing.T) {
 	chat.typeText("say again\r")
 	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(2))
 	require.Equal(t, "said: again", lastAssistantText(finished))
-	chat.waitForScreen("said: again")
-	require.Equal(t, 1, strings.Count(chat.screenSince("publish_note: published hello"), "say again"),
-		"the message this terminal sent shows once")
+	chat.waitForFrame("said: again")
+	// The raw log may hold a redrawn line twice; the frame shows what the user sees.
+	require.Equal(t, 1, strings.Count(chat.frame(), "say again"), "the message this terminal sent shows once")
 	chat.exit()
 }
 
@@ -466,13 +471,70 @@ func (stack *realWorkerStack) testCtrlCCancelsTheTurn(t *testing.T) {
 	})
 	require.True(t, running.State.AcceptsTurnControl)
 	// Ctrl-C cancels only once the chat shows the running turn.
-	chat.waitForScreen("Ctrl-C cancel turn")
+	chat.waitForFrame("Esc interrupt")
 	chat.typeText("\x03")
-	chat.waitForScreen("cancelling")
+	chat.waitForFrame("cancelling")
 	require.NoError(t, os.WriteFile(filepath.Join(stack.coordination, "cancel-gate.released"), nil, 0o600))
 	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
 	chat.waitForScreen("turn cancelled")
 	chat.exit()
+}
+
+// Esc on the empty input cancels the running turn, as Ctrl-C does.
+func (stack *realWorkerStack) testEscCancelsTheTurn(t *testing.T) {
+	sessionID := "terminal-ui-esc-cancel"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("stall esc-gate\r")
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(filepath.Join(stack.coordination, "esc-gate.reached"))
+		return err == nil
+	}, realWorkerTimeout, 50*time.Millisecond, "the model Step waits at the gate")
+	chat.waitForFrame("Esc interrupt")
+	chat.typeText("\x1b")
+	chat.waitForFrame("cancelling")
+	require.NoError(t, os.WriteFile(filepath.Join(stack.coordination, "esc-gate.released"), nil, 0o600))
+	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	chat.waitForScreen("turn cancelled")
+	chat.exit()
+}
+
+// An idle Ctrl-C asks for a second press, which exits.
+func (stack *realWorkerStack) testIdleCtrlCExitsOnTheSecondPress(t *testing.T) {
+	sessionID := "terminal-ui-idle-ctrl-c"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.waitForFrame("Ctrl-D exit")
+	chat.typeText("\x03")
+	chat.waitForFrame("Press Ctrl-C again to exit")
+	chat.typeText("\x03")
+	chat.waitForHostExit()
+}
+
+// A resumed chat leaves a waiting approval closed until Tab opens it.
+func (stack *realWorkerStack) testResumeKeepsAWaitingApprovalClosed(t *testing.T) {
+	sessionID := "terminal-ui-resume-approval"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("publish later\r")
+	chat.waitForScreen("Approve publish_note?")
+	chat.typeText("\x1b")
+	chat.waitForFrame("1 approval waiting")
+	chat.exit()
+	resumed := stack.openChat(t, sessionID, true)
+	resumed.waitForFrame("1 approval waiting")
+	resumed.waitForFrame("Tab opens approvals")
+	// The deferred popup would open after a second; this one never does.
+	time.Sleep(1500 * time.Millisecond)
+	require.NotContains(t, resumed.screen(), "Approve publish_note?")
+	resumed.typeText("\t")
+	time.Sleep(300 * time.Millisecond)
+	resumed.typeText("\r")
+	resumed.waitForScreen("Approve publish_note?")
+	resumed.typeText("y")
+	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	resumed.waitForScreen("publish_note: published later")
+	resumed.exit()
 }
 
 // chatRun is one dexcli agents-tui on a PTY, with the contract host as a

@@ -51,7 +51,7 @@
 ␛[2m────────────────────────────────────────────────────────────␛[m
  ␛[34m›␛[m ␛[2mtype to queue a message␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m
- ␛[36m⠙␛[m running tools 9s         ␛[2mEnter queue · Ctrl-C cancel turn␛[m
+ ␛[36m⠙␛[m running tools 9s      ␛[2mEnter queue · Esc interrupt · /help␛[m
 ~~~~ cursor 3,21 ~~~~
 
 ==== ansi width 80 ====
@@ -79,7 +79,7 @@
 ␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
  ␛[34m›␛[m ␛[2mtype to queue a message␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                  ␛[2mturn 1 · 1.2k tok␛[m
- ␛[36m⠙␛[m running tools 9s                     ␛[2mEnter queue · Ctrl-C cancel turn · /help␛[m
+ ␛[36m⠙␛[m running tools 9s                          ␛[2mEnter queue · Esc interrupt · /help␛[m
 ~~~~ cursor 3,21 ~~~~
 
 ==== ansi width 140 ====
@@ -107,7 +107,7 @@
 ␛[2m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────␛[m
  ␛[34m›␛[m ␛[2mtype to queue a message␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                                      ␛[2mturn 1 · 1.2k tok␛[m
- ␛[36m⠙␛[m running tools 9s                                         ␛[2mEnter queue · Ctrl-C cancel turn · /help␛[m
+ ␛[36m⠙␛[m running tools 9s                                              ␛[2mEnter queue · Esc interrupt · /help␛[m
 ~~~~ cursor 3,21 ~~~~
 
 ==== no_color width 80 ====
@@ -135,5 +135,5 @@
 ␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
  ␛[m›␛[m ␛[2mtype to queue a message␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                  ␛[2mturn 1 · 1.2k tok␛[m
- ␛[m⠙␛[m running tools 9s                     ␛[2mEnter queue · Ctrl-C cancel turn · /help␛[m
+ ␛[m⠙␛[m running tools 9s                          ␛[2mEnter queue · Esc interrupt · /help␛[m
 ~~~~ cursor 3,21 ~~~~

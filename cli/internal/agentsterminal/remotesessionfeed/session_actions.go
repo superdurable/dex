@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launchcontract"
@@ -379,6 +380,10 @@ func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sess
 }
 
 func (feed *RemoteSessionFeed) changeModel(ctx context.Context, sessionID string, model string) error {
+	if strings.ContainsFunc(model, unicode.IsSpace) {
+		feed.notice(sessionfeed.NoticeSeverityError, "A model ID has no spaces; the model did not change.")
+		return nil
+	}
 	snapshotContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
 	snapshot, err := feed.sessions.GetAgentSnapshot(snapshotContext, sessionID)
 	cancel()
@@ -387,10 +392,14 @@ func (feed *RemoteSessionFeed) changeModel(ctx context.Context, sessionID string
 	}
 	if model == "" {
 		current, _ := snapshot.SessionSettings["model"].(string)
-		if current == "" {
+		switch {
+		case current != "":
+		case feed.launch.Display.Model != nil && *feed.launch.Display.Model != "":
+			current = *feed.launch.Display.Model + " (the command's default)"
+		default:
 			current = "the command's default"
 		}
-		feed.notice(sessionfeed.NoticeSeverityInfo, "The model is "+current+". Change it with /model ID.")
+		feed.notice(sessionfeed.NoticeSeverityInfo, "The model is "+current+". Type a model ID after /model to change it.")
 		return nil
 	}
 	settings := maps.Clone(snapshot.SessionSettings)
@@ -425,7 +434,7 @@ func (feed *RemoteSessionFeed) attachImage(ctx context.Context, argument string)
 	}
 	path, err := feed.imagePath(argument)
 	if err != nil {
-		feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
+		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
 		return
 	}
 	name := filepath.Base(path)
@@ -439,13 +448,13 @@ func (feed *RemoteSessionFeed) attachImage(ctx context.Context, argument string)
 	info, err := os.Stat(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: "+path+" does not exist.")
+		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+path+" does not exist.")
 		return
 	case err != nil:
-		feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
+		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
 		return
 	case !info.Mode().IsRegular():
-		feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: "+path+" is not a regular file.")
+		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+path+" is not a regular file.")
 		return
 	case info.Size() > limits.MaxBytes:
 		feed.notice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Image not attached: %s is %s; the limit is %s.", name, formatSize(info.Size()), formatSize(limits.MaxBytes)))
@@ -453,7 +462,7 @@ func (feed *RemoteSessionFeed) attachImage(ctx context.Context, argument string)
 	}
 	key, err := launchcontract.NewIdempotencyKey()
 	if err != nil {
-		feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
+		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+err.Error()+".")
 		return
 	}
 	requestContext, stopRequest := feed.imageRequestContext(ctx)
@@ -495,12 +504,12 @@ func (feed *RemoteSessionFeed) imageAttachment(outcome launcherchannel.RequestOu
 		}
 		if launchcontract.CheckMethodResultJSON(launchcontract.MethodPutImage, outcome.Result) != nil ||
 			json.Unmarshal(outcome.Result, &result) != nil {
-			feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: the command returned an invalid image reference.")
+			feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: the command returned an invalid image reference.")
 			return sessionfeed.ImageAttachment{}, false
 		}
 		var image dexagents.AgentImageReference
 		if err := json.Unmarshal(result.Image, &image); err != nil {
-			feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: the command returned an invalid image reference.")
+			feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: the command returned an invalid image reference.")
 			return sessionfeed.ImageAttachment{}, false
 		}
 		return sessionfeed.ImageAttachment{Name: result.Name, MimeType: image.MimeType, SizeBytes: image.SizeBytes, Reference: result.Image}, true
@@ -508,7 +517,7 @@ func (feed *RemoteSessionFeed) imageAttachment(outcome launcherchannel.RequestOu
 		if feed.isUnknownMethod(outcome, launchcontract.MethodPutImage, "/image") {
 			return sessionfeed.ImageAttachment{}, false
 		}
-		feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: "+outcome.Error.Message)
+		feed.pathNotice(sessionfeed.NoticeSeverityError, "Image not attached: "+outcome.Error.Message)
 		return sessionfeed.ImageAttachment{}, false
 	}
 	feed.notice(sessionfeed.NoticeSeverityWarning, "Could not attach "+name+"; try again.")
@@ -533,6 +542,12 @@ func (feed *RemoteSessionFeed) imagePath(argument string) (string, error) {
 		return "", errors.New("usage: /image PATH")
 	}
 	return path, err
+}
+
+// pathNotice shows a notice that may name local paths, writing the home
+// directory as ~.
+func (feed *RemoteSessionFeed) pathNotice(severity sessionfeed.NoticeSeverity, text string) {
+	feed.notice(severity, typedpaths.NewPathResolver(feed.home, feed.workDir).ShortenHomePaths(text))
 }
 
 // detachImage forgets the newest attached image, so the per-message limit
@@ -622,7 +637,12 @@ func (feed *RemoteSessionFeed) openSessionInDexWeb(ctx context.Context) {
 	case launcherchannel.OutcomeDone:
 		feed.notice(sessionfeed.NoticeSeverityInfo, "opened "+target)
 	case launcherchannel.OutcomeFailed:
-		if !feed.isUnknownMethod(outcome, launchcontract.MethodOpenURL, "/web") {
+		switch {
+		case feed.isUnknownMethod(outcome, launchcontract.MethodOpenURL, "/web"):
+		case outcome.Error.Code == launchcontract.ErrorCodeBrowserOff:
+			// The user switched the browser off, so the link is the answer.
+			feed.notice(sessionfeed.NoticeSeverityInfo, "Dex Web: "+target)
+		default:
 			feed.notice(sessionfeed.NoticeSeverityError, "Dex Web did not open: "+outcome.Error.Message+" Open "+target+" yourself.")
 		}
 	default:

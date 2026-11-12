@@ -467,6 +467,13 @@ func (reporter *readyReporter) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		reporter.mutex.Unlock()
 		return reporter, tea.Quit
 	case suspendRequestedMsg:
+		if suspend, isSuspend := typed.command.(*suspendCommand); isSuspend && !suspend.handler.isForeground() {
+			// The shell owns the terminal: stop without writing to it, then retake it.
+			if err := typed.command.Run(); err != nil {
+				debugLog("suspend in the background", err)
+			}
+			return reporter, tea.Exec(terminalRetakeCommand{}, func(error) tea.Msg { return resumedMsg{} })
+		}
 		return reporter, tea.Exec(typed.command, func(error) tea.Msg { return resumedMsg{} })
 	case resumedMsg:
 		reporter.refresher.RequestRefresh()

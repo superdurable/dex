@@ -23,7 +23,7 @@
 ␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
  ␛[34m›␛[m ␛[2mtype to queue a message␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                             ␛[2mturn 1␛[m
- ␛[36m⠏␛[m running model                           ␛[2mj/k choose · Enter answer · Esc later␛[m
+ ␛[36m⠏␛[m running model   ␛[2mUp/Down choose · Enter answer · or type an answer · Esc later␛[m
 
 ==== no_color, second choice focused ====
 ~~~~ 80x24 ~~~~
@@ -50,4 +50,4 @@
 ␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
  ␛[m›␛[m ␛[2mtype to queue a message␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                             ␛[2mturn 1␛[m
- ␛[m⠏␛[m running model                           ␛[2mj/k choose · Enter answer · Esc later␛[m
+ ␛[m⠏␛[m running model   ␛[2mUp/Down choose · Enter answer · or type an answer · Esc later␛[m

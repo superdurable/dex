@@ -12,6 +12,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
@@ -118,9 +119,11 @@ func TestQuestionPopupKeys(t *testing.T) {
 		expected sessionfeed.UserAction
 	}{
 		{name: "Enter answers the first choice", keys: []tea.KeyPressMsg{key(tea.KeyEnter)}, expected: sessionfeed.AnswerQuestion{InterruptID: "question-1", Answer: "main"}},
-		{name: "j moves to the second choice", keys: []tea.KeyPressMsg{textKey('j'), key(tea.KeyEnter)}, expected: sessionfeed.AnswerQuestion{InterruptID: "question-1", Answer: "release-0.6"}},
+		{name: "Down moves to the second choice", keys: []tea.KeyPressMsg{key(tea.KeyDown), key(tea.KeyEnter)}, expected: sessionfeed.AnswerQuestion{InterruptID: "question-1", Answer: "release-0.6"}},
 		{name: "free text answers", keys: []tea.KeyPressMsg{key(tea.KeyDown), key(tea.KeyDown), key(tea.KeyEnter)}, text: "feature/retry", expected: sessionfeed.AnswerQuestion{InterruptID: "question-1", Answer: "feature/retry"}},
-		{name: "Decline declines", keys: []tea.KeyPressMsg{textKey('j'), textKey('j'), textKey('j'), key(tea.KeyEnter)}, expected: sessionfeed.DeclineQuestion{InterruptID: "question-1"}},
+		{name: "Decline declines", keys: []tea.KeyPressMsg{key(tea.KeyDown), key(tea.KeyDown), key(tea.KeyDown), key(tea.KeyEnter)}, expected: sessionfeed.DeclineQuestion{InterruptID: "question-1"}},
+		{name: "typing switches to a free-text answer", text: "green", expected: sessionfeed.AnswerQuestion{InterruptID: "question-1", Answer: "green"}},
+		{name: "typing after a move still answers in free text", keys: []tea.KeyPressMsg{key(tea.KeyDown)}, text: "just main", expected: sessionfeed.AnswerQuestion{InterruptID: "question-1", Answer: "just main"}},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -216,6 +219,26 @@ func TestCtrlCWhileIdle(t *testing.T) {
 	harness.press(ctrlKey('c'))
 	require.True(t, harness.screen.input.IsEmpty(), "the first Ctrl-C clears the draft")
 	require.False(t, harness.screen.isExiting)
+	harness.press(ctrlKey('c'))
+	require.False(t, harness.screen.isExiting, "an idle Ctrl-C asks for a second press")
+	require.Contains(t, harness.plainFrame(), "Press Ctrl-C again to exit")
+	harness.advance(time.Second)
+	harness.press(ctrlKey('c'))
+	require.True(t, harness.screen.isExiting, "a second Ctrl-C within two seconds exits")
+}
+
+func TestIdleCtrlCExpiresAfterTwoSeconds(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{})
+	harness.press(ctrlKey('c'))
+	require.Len(t, harness.delayed, 1, "the hint clears itself")
+	harness.advance(2 * time.Second)
+	harness.deliverDelayed()
+	require.NotContains(t, harness.plainFrame(), "Press Ctrl-C again")
+	harness.press(ctrlKey('c'))
+	require.False(t, harness.screen.isExiting, "a late second press arms again")
+	harness.typeText("x")
+	harness.press(key(tea.KeyBackspace), ctrlKey('c'))
+	require.False(t, harness.screen.isExiting, "another key in between disarms the exit")
 	harness.press(ctrlKey('c'))
 	require.True(t, harness.screen.isExiting)
 }
