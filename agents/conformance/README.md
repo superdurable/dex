@@ -16,7 +16,8 @@ TypeScript core, except `connector_tools.json`, `mcp_dex_conventions.json`,
 and `images.json`, which are hand-written and read by both cores' connector
 tool, MCP tool, and image tests, and `cli_config.json` and
 `cli_session_flow_types.json`, which are hand-written for the CLI cores in
-[`../cli`](../cli). A core passes when it passes all four parts below.
+[`../cli`](../cli), and `terminal_ui/`, which is hand-written for the CLI
+cores and `dexcli agents-tui`. A core passes when it passes all four parts below.
 
 | Path | What it fixes |
 | --- | --- |
@@ -31,6 +32,7 @@ tool, MCP tool, and image tests, and `cli_config.json` and
 | [`cli_config.json`](cli_config.json) | CLI configuration: YAML parsing, schema errors, URL checks, file defaults, the media store, session settings narrowing, operation names, and the shell allow list. Hand-written for the CLI cores; see [`../cli/README.md`](../cli/README.md) |
 | [`cli_session_flow_types.json`](cli_session_flow_types.json) | CLI session Flow types: the 6-character base36 suffix each CLI core derives from the host name, user, configuration identity, and workspace, with ASCII, Windows, Unicode, and left-padded cases. Hand-written for the CLI cores |
 | [`images.json`](images.json) | Image references: structural byte checks and the size limit, type checks on read, reference validation and its error texts (URI length in UTF-8 bytes), list limits, how S3, local directory, and in-memory stores name objects, and the local directory store's root rules and error texts. Hand-written, not generated |
+| [`terminal_ui/`](terminal_ui) | The terminal UI contract between a CLI command and `dexcli agents-tui`: launch documents and their checks, `--describe` and contract choice, channel messages, session IDs derived from idempotency keys, the key table, `open_url` rules, notice display, the environment allow-list, and channel transcripts. Hand-written; see [`../cli/TERMINAL_UI_CONTRACT.md`](../cli/TERMINAL_UI_CONTRACT.md) |
 | [`generate.py`](generate.py) | Writes all of the above from the Python core |
 | [`session_graph.py`](session_graph.py) | Derives the session graph from the Python core's registered Flow and source |
 
