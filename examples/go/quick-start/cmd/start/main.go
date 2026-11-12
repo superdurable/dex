@@ -65,7 +65,7 @@ func run() (err error) {
 	if _, err := client.StartFlow(context.Background(), orderFlow, orderID, orderID, dex.StartFlowOptions{}); err != nil {
 		return err
 	}
-	fmt.Printf("Started Flow %s. Ship runs in 30 seconds.\n", orderID)
+	fmt.Printf("Started Flow %s. Ship runs in 60 seconds.\n", orderID)
 	return nil
 }
 

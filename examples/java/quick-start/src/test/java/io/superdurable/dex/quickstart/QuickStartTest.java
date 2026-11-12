@@ -164,7 +164,7 @@ class QuickStartTest {
         fail(message);
     }
 
-    /** Skips the 30-second Timer once Ship waits on it. */
+    /** Skips the 60-second Timer once Ship waits on it. */
     private static void skipShipDelay(final Client client, final String orderId)
             throws InterruptedException {
         final long deadline = System.nanoTime() + WAIT_TIMEOUT.toNanos();

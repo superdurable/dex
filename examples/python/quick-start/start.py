@@ -35,7 +35,7 @@ def main() -> None:
     client = Client(registry, cache, ClientOptions(server_address=SERVER_ADDRESS))
     try:
         client.start_flow(order_flow, order_id, order_id)
-        print(f"Started Flow {order_id}. Ship runs in 30 seconds.", flush=True)
+        print(f"Started Flow {order_id}. Ship runs in 60 seconds.", flush=True)
     finally:
         client.close()
         cache.close()

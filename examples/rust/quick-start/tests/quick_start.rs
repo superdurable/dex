@@ -260,7 +260,7 @@ fn calls_for(order_id: &str, calls: Vec<String>) -> Vec<String> {
     calls.into_iter().filter(|call| call == order_id).collect()
 }
 
-/// Skips the 30-second Timer once Ship waits on it.
+/// Skips the 60-second Timer once Ship waits on it.
 fn skip_ship_delay(client: &Client, order_flow: &OrderFlow, order_id: &str) {
     let deadline = Instant::now() + WAIT_TIMEOUT;
     loop {

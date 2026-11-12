@@ -50,16 +50,16 @@ func HTTPPort() string {
 	return "8080"
 }
 
-// ShipDelay returns how long Ship waits, from QUICK_START_SHIP_DELAY_SECONDS; 30 seconds by default.
+// ShipDelay returns how long Ship waits, from QUICK_START_SHIP_DELAY_SECONDS; 60 seconds by default.
 func ShipDelay() time.Duration {
 	value := os.Getenv("QUICK_START_SHIP_DELAY_SECONDS")
 	if value == "" {
-		return 30 * time.Second
+		return 60 * time.Second
 	}
 	seconds, err := strconv.Atoi(value)
 	if err != nil {
-		log.Printf("QUICK_START_SHIP_DELAY_SECONDS=%q is not a whole number; using 30: %v", value, err)
-		return 30 * time.Second
+		log.Printf("QUICK_START_SHIP_DELAY_SECONDS=%q is not a whole number; using 60: %v", value, err)
+		return 60 * time.Second
 	}
 	return time.Duration(seconds) * time.Second
 }

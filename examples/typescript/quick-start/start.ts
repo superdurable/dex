@@ -31,7 +31,7 @@ const cache = openCache(".dex-blob-cache/client");
 const client = new Client(registry, cache, { serverAddress: SERVER_ADDRESS });
 try {
   await client.startFlow(orderFlow, orderId, orderId);
-  console.log(`Started Flow ${orderId}. Ship runs in 30 seconds.`);
+  console.log(`Started Flow ${orderId}. Ship runs in 60 seconds.`);
 } finally {
   await client.close();
   cache.close();

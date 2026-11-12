@@ -28,7 +28,7 @@ SERVER_ADDRESS = os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
 HTTP_PORT = int(os.environ.get("QUICK_START_HTTP_PORT", "8080"))
 CHARGE_DELAY_SECONDS = float(os.environ.get("QUICK_START_CHARGE_DELAY_SECONDS", "0"))
 SHOP_API_KEYS_PATH = Path(".shop-api-keys")
-SHIP_DELAY = timedelta(seconds=int(os.environ.get("QUICK_START_SHIP_DELAY_SECONDS", "30")))
+SHIP_DELAY = timedelta(seconds=int(os.environ.get("QUICK_START_SHIP_DELAY_SECONDS", "60")))
 
 
 def new_shop_api() -> ShopApi:

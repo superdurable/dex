@@ -25,7 +25,7 @@ import "github.com/superdurable/dex/sdk-go/dex"
 // ShipDelayTimer is the condition ID of the Timer that Ship waits on.
 const ShipDelayTimer = "ship-delay"
 
-// OrderFlow charges an order, waits 30 seconds, and then ships it.
+// OrderFlow charges an order, waits 60 seconds, and then ships it.
 type OrderFlow struct {
 	dex.FlowDefaults
 	shop *ShopAPI
@@ -63,7 +63,7 @@ func (step Charge) Execute(_ dex.Context, orderID string) (*dex.StepDecision, er
 	return dex.GoTo(Ship{}, orderID), nil
 }
 
-// Ship waits on a Timer, 30 seconds by default, then ships the order.
+// Ship waits on a Timer, 60 seconds by default, then ships the order.
 type Ship struct {
 	dex.StepDefaults
 	shop *ShopAPI

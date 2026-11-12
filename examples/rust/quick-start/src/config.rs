@@ -57,12 +57,12 @@ impl QuickStartConfig {
     }
 }
 
-/// How long Ship waits, from `QUICK_START_SHIP_DELAY_SECONDS`; 30 seconds by default.
+/// How long Ship waits, from `QUICK_START_SHIP_DELAY_SECONDS`; 60 seconds by default.
 pub fn ship_delay_from_environment() -> Duration {
     let seconds = std::env::var("QUICK_START_SHIP_DELAY_SECONDS")
         .ok()
         .and_then(|seconds| seconds.parse().ok())
-        .unwrap_or(30);
+        .unwrap_or(60);
     Duration::from_secs(seconds)
 }
 

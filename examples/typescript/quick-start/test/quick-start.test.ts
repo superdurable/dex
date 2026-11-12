@@ -200,7 +200,7 @@ async function isServerReady(client: Client): Promise<boolean> {
   return false;
 }
 
-/** Skips the 30-second Timer once Ship waits on it. */
+/** Skips the 60-second Timer once Ship waits on it. */
 async function skipShipDelay(client: Client, orderId: string): Promise<void> {
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
   for (;;) {

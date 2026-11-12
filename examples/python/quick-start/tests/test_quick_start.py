@@ -127,7 +127,7 @@ def _is_server_ready(client: Client) -> bool:
 
 
 def _skip_ship_delay(client: Client, order_id: str) -> None:
-    """Skips the 30-second Timer once Ship waits on it."""
+    """Skips the 60-second Timer once Ship waits on it."""
     deadline = time.monotonic() + WAIT_TIMEOUT.total_seconds()
     while True:
         try:

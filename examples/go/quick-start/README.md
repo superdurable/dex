@@ -1,7 +1,7 @@
 # Quick Start (Go)
 
 The code for the [Dex Quick Start](https://docs.superdurable.io/quick-start).
-`OrderFlow` charges an order, waits 30 seconds on a Timer, and then ships it.
+`OrderFlow` charges an order, waits 60 seconds on a Timer, and then ships it.
 A mock payment and shipping API prints each call, so the Worker's output shows
 which Steps ran.
 
@@ -33,7 +33,7 @@ Start a Flow in a third terminal:
 go run ./cmd/start
 ```
 
-The Worker prints `Charged order-...`. Within 30 seconds, stop the Worker
+The Worker prints `Charged order-...`. Within 60 seconds, stop the Worker
 with Ctrl+C and start it again. When the Timer fires, the new Worker prints
 `Shipped order-...`, and `Charged` does not appear again. Dex Web, at the
 address `dexcli dev` printed, shows the run.

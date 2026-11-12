@@ -24,8 +24,8 @@ import { ShopApi } from "./shop-api.ts";
 
 export const SERVER_ADDRESS = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
 export const HTTP_PORT = Number(process.env.QUICK_START_HTTP_PORT ?? "8080");
-/** How long Ship waits, from QUICK_START_SHIP_DELAY_SECONDS; 30 seconds by default. */
-export const SHIP_DELAY_MS = Number(process.env.QUICK_START_SHIP_DELAY_SECONDS ?? "30") * 1000;
+/** How long Ship waits, from QUICK_START_SHIP_DELAY_SECONDS; 60 seconds by default. */
+export const SHIP_DELAY_MS = Number(process.env.QUICK_START_SHIP_DELAY_SECONDS ?? "60") * 1000;
 const CHARGE_DELAY_SECONDS = Number(process.env.QUICK_START_CHARGE_DELAY_SECONDS ?? "0");
 
 /** Returns the mock API that the Worker calls, with its keys in a local file. */

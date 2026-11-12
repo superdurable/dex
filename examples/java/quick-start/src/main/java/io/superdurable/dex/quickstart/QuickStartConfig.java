@@ -30,9 +30,9 @@ public final class QuickStartConfig {
             .getOrDefault("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801");
     public static final int HTTP_PORT = Integer.parseInt(System.getenv()
             .getOrDefault("QUICK_START_HTTP_PORT", "8080"));
-    /** How long Ship waits, from QUICK_START_SHIP_DELAY_SECONDS; 30 seconds by default. */
+    /** How long Ship waits, from QUICK_START_SHIP_DELAY_SECONDS; 60 seconds by default. */
     public static final Duration SHIP_DELAY = Duration.ofSeconds(Long.parseLong(System.getenv()
-            .getOrDefault("QUICK_START_SHIP_DELAY_SECONDS", "30")));
+            .getOrDefault("QUICK_START_SHIP_DELAY_SECONDS", "60")));
     private static final double CHARGE_DELAY_SECONDS = Double.parseDouble(System.getenv()
             .getOrDefault("QUICK_START_CHARGE_DELAY_SECONDS", "0"));
 

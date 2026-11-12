@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The Dex Quick Start in Rust: an order Flow that charges, waits on a 30-second Timer, and ships.
+//! The Dex Quick Start in Rust: an order Flow that charges, waits on a 60-second Timer, and ships.
 //!
 //! Starts one OrderFlow. Pass an order ID, or let the command make one.
 
@@ -34,6 +34,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let options = ClientOptions::new().server_address(config.server_address);
     let client = Client::try_new(registry, cache, options)?;
     client.start_flow(&order_flow, &order_id, order_id.clone())?;
-    println!("Started Flow {order_id}. Ship runs in 30 seconds.");
+    println!("Started Flow {order_id}. Ship runs in 60 seconds.");
     Ok(())
 }

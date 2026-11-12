@@ -220,7 +220,7 @@ func isServerReady(client *dex.Client) bool {
 	return false
 }
 
-// skipShipDelay skips the 30-second Timer once Ship waits on it.
+// skipShipDelay skips the 60-second Timer once Ship waits on it.
 func skipShipDelay(t *testing.T, client *dex.Client, orderID string) {
 	t.Helper()
 	deadline := time.Now().Add(waitTimeout)
