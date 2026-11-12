@@ -581,6 +581,8 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       assert.ok(lines[0]?.startsWith(`${oldest}\t`), listed.stdout.all);
       assert.ok(lines.slice(1).every((line) => /\t0\t—$/.test(line)), listed.stdout.all);
       assert.doesNotMatch(listed.stdout.all, /More sessions exist/);
+      // The last line shows that the command wrote all of its output before it exited.
+      assert.match(listed.stdout.all, /Resume one with: dex-agents-\S+ --resume <session>\n$/);
 
       for (let index = 0; index < 200; index += 1) {
         await sessions.startSession(`extra-${String(index).padStart(3, "0")}`);
@@ -594,6 +596,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
         capped.stdout.all,
       );
       assert.match(capped.stdout.all, /More sessions exist; this list sorts the first 250 that Dex returns/);
+      assert.match(capped.stdout.all, /Resume one with: dex-agents-\S+ --resume <session>\n$/);
     } finally {
       await sessionClients.close();
     }

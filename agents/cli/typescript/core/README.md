@@ -96,8 +96,8 @@ list, are not part of the suffix, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.
-`sessions` loads up to five pages of 50 sessions, sorts them by last activity,
-and says when more sessions exist. It prints one per line with tab-separated
+`sessions` loads up to 250 sessions, sorts them by last activity, and says
+when more sessions exist. It prints one per line with tab-separated
 columns: the ID, the status, the start time, the time of the latest turn, the
 turn count, and the title, the first 80 Unicode code points of the first
 message. `sessions.summary` in the configuration file decides whether the
