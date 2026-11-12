@@ -30,11 +30,12 @@ const outputDrainMs = 1_000;
  * The process group leader of every command: it runs the command with `/bin/sh -c`, closes its own output, reports
  * the exit status on fd 3, and then waits on fd 4, so it stays unreaped until the CLI core has cleaned the group.
  * If the CLI core goes away, fd 4 ends and the leader kills its own group. Its own diagnostics, such as the line a
- * shell prints when a signal ended its child, go to `/dev/null`; the command's stderr reaches it through fd 5.
+ * shell prints when a signal ended its child, go to `/dev/null`. The command gets its stderr from fd 5 in a subshell,
+ * because dash applies a command's redirections in the waiting shell itself, where that line would reach them.
  */
 const gatekeeperScript = [
   "exec 5>&2 2>/dev/null",
-  '/bin/sh -c "$1" </dev/null 2>&5 3>&- 4<&- 5>&-',
+  '(exec 2>&5 5>&- 3>&- 4<&- </dev/null; exec /bin/sh -c "$1")',
   "status=$?",
   "exec 1>&- 5>&-",
   "trap '' TERM",
