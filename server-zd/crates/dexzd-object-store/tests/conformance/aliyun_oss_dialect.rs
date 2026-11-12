@@ -641,6 +641,10 @@ async fn aliyun_oss_duplicate_create_is_one_unretried_rejection_on_every_path() 
         if is_upload_part {
             parts += 1;
             assert!(header_value(request, "content-md5").is_some(), "{request}");
+            assert!(
+                header_value(request, "x-amz-checksum-crc32").is_none(),
+                "{request}"
+            );
         } else if is_create_upload {
             assert!(
                 header_value(request, "x-amz-checksum-algorithm").is_none(),
@@ -838,6 +842,28 @@ async fn aliyun_oss_rejects_parts_that_fail_their_md5() {
         .expect_err("a part corrupted in transit is rejected");
     assert_eq!(error.kind, ObjectStoreErrorKind::Permanent, "{error}");
     assert!(error.detail.contains("code=BadDigest"), "{error}");
+    // The rejected part carried Content-MD5 and no other checksum, so only the MD5 check failed it.
+    let part_requests =
+        proxy.request_headers(&[format!("PUT /{BUCKET}/{KEY_PREFIX}/corrupt/transit?").as_bytes()]);
+    assert_eq!(part_requests.len(), 1, "{part_requests:?}");
+    let part_header_names: Vec<String> = part_requests[0]
+        .lines()
+        .skip(1)
+        .filter_map(|line| line.split_once(':'))
+        .map(|(name, _)| name.trim().to_ascii_lowercase())
+        .collect();
+    assert!(
+        part_header_names.iter().any(|name| name == "content-md5"),
+        "{}",
+        part_requests[0]
+    );
+    assert!(
+        part_header_names
+            .iter()
+            .all(|name| !name.starts_with("x-amz-checksum-") && name != "x-amz-trailer"),
+        "{}",
+        part_requests[0]
+    );
     assert!(
         store
             .head("corrupt/transit")
@@ -1001,4 +1027,138 @@ async fn aliyun_oss_conflicts_and_ambiguous_writes() {
     );
     assert_eq!(emulator.unfinished_upload_count(), 0);
     emulator.shutdown().await;
+}
+
+/// Answers every request with HTTP 409 `FileAlreadyExists` and counts the requests.
+async fn start_file_already_exists_server() -> (
+    SocketAddr,
+    Arc<std::sync::atomic::AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("the fake server binds");
+    let address = listener
+        .local_addr()
+        .expect("the fake server has an address");
+    let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted_requests = Arc::clone(&requests);
+    let accept_task = tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.expect("the fake server accepts");
+            let mut received = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            let body_start = loop {
+                let count = stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("the request is readable");
+                assert!(count > 0, "the client closed before sending headers");
+                received.extend_from_slice(&buffer[..count]);
+                if let Some(end) = received.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break end + 4;
+                }
+            };
+            let headers = String::from_utf8_lossy(&received[..body_start]).to_ascii_lowercase();
+            let content_length: usize = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .map_or(0, |value| {
+                    value.trim().parse().expect("the length is numeric")
+                });
+            while received.len() < body_start + content_length {
+                let count = stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("the body is readable");
+                assert!(count > 0, "the client closed before sending the body");
+                received.extend_from_slice(&buffer[..count]);
+            }
+            counted_requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Error><Code>FileAlreadyExists</Code><Message>The object you specified already exists and can not be overwritten.</Message><RequestId>fake</RequestId></Error>";
+            let response = format!(
+                "HTTP/1.1 409 Conflict\r\ncontent-type: application/xml\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("the response is written");
+            stream.shutdown().await.expect("the connection closes");
+        }
+    });
+    (address, requests, accept_task)
+}
+
+#[tokio::test]
+async fn file_already_exists_maps_by_dialect() {
+    use std::sync::atomic::Ordering;
+    let (address, requests, accept_task) = start_file_already_exists_server().await;
+    let store_for = |api_dialect| async move {
+        let mut config = S3ObjectStoreConfig::new("us-east-1", BUCKET);
+        config.endpoint = Some(format!("http://{address}"));
+        config.force_path_style = true;
+        config.credentials = S3Credentials::Static {
+            access_key_id: "s3local".to_owned(),
+            secret_access_key: "s3local".to_owned(),
+            session_token: None,
+        };
+        config.api_dialect = api_dialect;
+        S3ObjectStore::new(config)
+            .await
+            .expect("the store is configured")
+    };
+
+    // Amazon S3 never sends this code; any 409 stays a retried conflict, as before the dialect.
+    let amazon_s3 = store_for(dexzd_object_store::S3ApiDialect::AmazonS3).await;
+    let conflict = amazon_s3
+        .put(
+            "key",
+            Bytes::from_static(b"body"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect_err("a 409 is a conflict under Amazon S3");
+    assert_eq!(conflict.kind, ObjectStoreErrorKind::Transient, "{conflict}");
+    assert!(
+        conflict
+            .detail
+            .starts_with("HTTP 409 ConditionalRequestConflict:"),
+        "{conflict}"
+    );
+    assert_eq!(requests.swap(0, Ordering::SeqCst), 3);
+
+    let aliyun_oss = store_for(dexzd_object_store::S3ApiDialect::AliyunOss).await;
+    assert_eq!(
+        aliyun_oss
+            .put(
+                "key",
+                Bytes::from_static(b"body"),
+                WriteCondition::CreateOnly
+            )
+            .await
+            .expect("a forbid-overwrite rejection is a failed condition"),
+        WriteOutcome::PreconditionFailed
+    );
+    assert_eq!(requests.swap(0, Ordering::SeqCst), 1);
+    let unexpected = aliyun_oss
+        .put(
+            "key",
+            Bytes::from_static(b"body"),
+            WriteCondition::Unconditional,
+        )
+        .await
+        .expect_err("an unexpected FileAlreadyExists fails");
+    assert_eq!(
+        unexpected.kind,
+        ObjectStoreErrorKind::Permanent,
+        "{unexpected}"
+    );
+    assert!(
+        unexpected.detail.starts_with("HTTP 409 FileAlreadyExists:"),
+        "{unexpected}"
+    );
+    assert_eq!(requests.swap(0, Ordering::SeqCst), 1);
+    accept_task.abort();
 }

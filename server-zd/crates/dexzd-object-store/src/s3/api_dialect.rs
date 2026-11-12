@@ -6,13 +6,16 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use aws_sdk_s3::config::http::HttpRequest;
+use aws_sdk_s3::config::RequestChecksumCalculation;
+use aws_sdk_s3::config::http::{HttpRequest, HttpResponse};
 use aws_sdk_s3::error::{ProvideErrorMetadata, SdkError};
+use aws_sdk_s3::operation::upload_part::builders::UploadPartFluentBuilder;
+use aws_sdk_s3::operation::upload_part::{UploadPartError, UploadPartOutput};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use md5::{Digest, Md5};
 
-use crate::s3_error::is_precondition_error;
+use crate::s3_error::{is_precondition_error, map_sdk_error};
 use crate::{ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, WriteCondition};
 
 /// Header that makes an Aliyun OSS write fail when the key already exists.
@@ -46,6 +49,23 @@ impl S3ApiDialect {
             (Self::AliyunOss, WriteCondition::CreateOnly) => is_file_already_exists(error),
             (Self::AliyunOss, WriteCondition::ReplaceIfEtagMatches { .. }) => false,
         }
+    }
+
+    /// Maps a failed PutObject or CompleteMultipartUpload that was not a failed condition.
+    pub(super) fn map_write_error<E>(self, key: &str, error: SdkError<E>) -> ObjectStoreError
+    where
+        E: ProvideErrorMetadata + std::fmt::Display,
+    {
+        // An unexpected Aliyun OSS forbid-overwrite rejection must never retry as a conflict.
+        if self == Self::AliyunOss && is_file_already_exists(&error) {
+            return ObjectStoreError::new(
+                ObjectStoreOperation::Put,
+                key,
+                ObjectStoreErrorKind::Permanent,
+                format!("HTTP 409 FileAlreadyExists: {error}"),
+            );
+        }
+        map_sdk_error(ObjectStoreOperation::Put, key, true, error)
     }
 }
 
@@ -111,6 +131,22 @@ impl BodyMd5 {
             format!("part {part_number} ETag {part_etag} differs from its Content-MD5 {expected}"),
         ))
     }
+}
+
+/// Uploads a part with `Content-MD5` as its only checksum, so the MD5 check alone guards it.
+pub(super) async fn send_upload_part_with_content_md5(
+    request: UploadPartFluentBuilder,
+    part_md5: &BodyMd5,
+) -> Result<UploadPartOutput, SdkError<UploadPartError, HttpResponse>> {
+    request
+        .content_md5(part_md5.content_md5())
+        .customize()
+        .config_override(
+            aws_sdk_s3::config::Builder::default()
+                .request_checksum_calculation(RequestChecksumCalculation::WhenRequired),
+        )
+        .send()
+        .await
 }
 
 /// Marks a create-only write; runs before signing, so the header is signed.

@@ -36,7 +36,7 @@ mod optional_read;
 pub use api_dialect::S3ApiDialect;
 use api_dialect::{
     BodyMd5, atomic_replacement_unsupported, insert_body_content_md5,
-    insert_forbid_overwrite_header,
+    insert_forbid_overwrite_header, send_upload_part_with_content_md5,
 };
 use file_read::read_single_put_file;
 use optional_read::OptionalReadError;
@@ -329,7 +329,7 @@ impl S3ObjectStore {
             Err(error) if self.api_dialect.is_precondition_failure(&error, &condition) => {
                 return Ok(WriteOutcome::PreconditionFailed);
             }
-            Err(error) => return Err(map_sdk_error(ObjectStoreOperation::Put, key, true, error)),
+            Err(error) => return Err(self.api_dialect.map_write_error(key, error)),
         };
         Ok(WriteOutcome::Written {
             etag: required(response.e_tag(), ObjectStoreOperation::Put, key, "ETag")?.to_owned(),
@@ -395,18 +395,19 @@ impl S3ObjectStore {
                 )
             })?;
             let part_md5 = self.part_md5(chunk);
-            let response = self
+            let request = self
                 .client
                 .upload_part()
                 .bucket(&self.bucket)
                 .key(full_key)
                 .upload_id(upload_id)
                 .part_number(part_number)
-                .body(ByteStream::from(Bytes::copy_from_slice(chunk)))
-                .set_content_md5(part_md5.as_ref().map(BodyMd5::content_md5))
-                .send()
-                .await
-                .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
+                .body(ByteStream::from(Bytes::copy_from_slice(chunk)));
+            let response = match &part_md5 {
+                None => request.send().await,
+                Some(part_md5) => send_upload_part_with_content_md5(request, part_md5).await,
+            }
+            .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
             let etag = required(
                 response.e_tag(),
                 ObjectStoreOperation::Put,
@@ -524,14 +525,16 @@ impl S3ObjectStore {
                 .upload_id(upload_id)
                 .part_number(part_number)
                 .body(ByteStream::from(buffer));
-            let request = match &part_md5 {
-                None => request.checksum_algorithm(ChecksumAlgorithm::Crc32),
-                Some(part_md5) => request.content_md5(part_md5.content_md5()),
-            };
-            let response = request
-                .send()
-                .await
-                .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
+            let response = match &part_md5 {
+                None => {
+                    request
+                        .checksum_algorithm(ChecksumAlgorithm::Crc32)
+                        .send()
+                        .await
+                }
+                Some(part_md5) => send_upload_part_with_content_md5(request, part_md5).await,
+            }
+            .map_err(|error| map_sdk_error(ObjectStoreOperation::Put, key, false, error))?;
             let etag = required(
                 response.e_tag(),
                 ObjectStoreOperation::Put,
@@ -605,7 +608,7 @@ impl S3ObjectStore {
             Err(error) if self.api_dialect.is_precondition_failure(&error, &condition) => {
                 return Ok(WriteOutcome::PreconditionFailed);
             }
-            Err(error) => return Err(map_sdk_error(ObjectStoreOperation::Put, key, true, error)),
+            Err(error) => return Err(self.api_dialect.map_write_error(key, error)),
         };
         Ok(WriteOutcome::Written {
             etag: required(response.e_tag(), ObjectStoreOperation::Put, key, "ETag")?.to_owned(),

@@ -65,15 +65,6 @@ where
         .as_service_error()
         .and_then(ProvideErrorMetadata::code)
         .unwrap_or("");
-    // Aliyun OSS forbid-overwrite rejection: never a retryable conflict.
-    if status == Some(409) && code == "FileAlreadyExists" {
-        return ObjectStoreError::new(
-            operation,
-            key,
-            ObjectStoreErrorKind::Permanent,
-            format!("HTTP 409 FileAlreadyExists: {error}"),
-        );
-    }
     if status == Some(409) {
         return ObjectStoreError::new(
             operation,
