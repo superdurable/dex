@@ -12,6 +12,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -61,18 +64,18 @@ type SupportedModes map[int][]string
 // the caller.
 func CheckLaunchLine(line []byte, supported SupportedModes, lookupEnv func(string) (string, bool)) (LaunchDocument, *LaunchRejection) {
 	if len(line) > MaxLineBytes {
-		return LaunchDocument{}, invalidLaunch("The launch line is longer than 1 MiB.", nil)
+		return LaunchDocument{}, invalidLaunch("The launch document is longer than 1 MiB.", nil)
 	}
 	if !utf8.Valid(line) {
-		return LaunchDocument{}, invalidLaunch("The launch line is not UTF-8.", nil)
+		return LaunchDocument{}, invalidLaunch("The launch document is not UTF-8.", nil)
 	}
 	value, err := decodeJSONValue(line)
 	if err != nil {
-		return LaunchDocument{}, invalidLaunch("The launch line is not JSON.", nil)
+		return LaunchDocument{}, invalidLaunch("The launch document is not a JSON object.", nil)
 	}
 	object, isObject := value.(map[string]any)
 	if !isObject {
-		return LaunchDocument{}, invalidLaunch("The launch line is not a JSON object.", nil)
+		return LaunchDocument{}, invalidLaunch("The launch document is not a JSON object.", nil)
 	}
 	if messageType, _ := object["type"].(string); messageType != "launch" {
 		return LaunchDocument{}, invalidLaunch("The first channel message is not a launch document.", nil)
@@ -82,7 +85,7 @@ func CheckLaunchLine(line []byte, supported SupportedModes, lookupEnv func(strin
 	if !isInteger || !isSupported {
 		return LaunchDocument{}, &LaunchRejection{
 			Code:     RejectionContractUnsupported,
-			Message:  "This dexcli does not support the launch document's contract.",
+			Message:  contractUnsupportedMessage(supported, object["contract"], isInteger),
 			ExitCode: 3,
 		}
 	}
@@ -109,6 +112,19 @@ func CheckLaunchLine(line []byte, supported SupportedModes, lookupEnv func(strin
 		}
 	}
 	return document, nil
+}
+
+func contractUnsupportedMessage(supported SupportedModes, contract any, isInteger bool) string {
+	versions := make([]string, 0, len(supported))
+	for version := range supported {
+		versions = append(versions, strconv.Itoa(version))
+	}
+	sort.Strings(versions)
+	supportedText := "terminal UI contract " + strings.Join(versions, ", ")
+	if !isInteger {
+		return "This dexcli supports " + supportedText + "; the launch document names no integer contract."
+	}
+	return fmt.Sprintf("This dexcli supports %s, not %v.", supportedText, contract)
 }
 
 // TerminalFailed returns the rejection for a terminal that could not be set up.

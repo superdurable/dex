@@ -890,6 +890,8 @@ def _spawned_terminal_ui(
     screen_path = Path(arguments.screen_log) if arguments.screen_log else None
     drain = threading.Thread(target=_drain_terminal, args=(master_fd, screen_path), daemon=True)
     drain.start()
+    if arguments.pty_input_from_stdin:
+        threading.Thread(target=_forward_stdin, args=(master_fd,), daemon=True).start()
     try:
         yield process
     finally:
@@ -920,6 +922,21 @@ def _drain_terminal(master_fd: int, screen_path: Path | None) -> None:
     finally:
         if screen_file is not None:
             screen_file.close()
+
+
+def _forward_stdin(master_fd: int) -> None:
+    """Copy the host's stdin to the PTY until either side ends."""
+    while True:
+        try:
+            chunk = os.read(sys.stdin.fileno(), 4096)
+        except OSError:
+            return
+        if not chunk:
+            return
+        try:
+            os.write(master_fd, chunk)
+        except OSError:
+            return
 
 
 def _stop_process(process: subprocess.Popen[bytes]) -> None:
@@ -1054,6 +1071,11 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     launcher.add_argument("--record", help="JSON Lines file of what the host saw")
     launcher.add_argument("--pty", metavar="COLUMNSxROWS", help="run the terminal UI on a PTY")
     launcher.add_argument("--screen-log", help="file that receives the PTY output")
+    launcher.add_argument(
+        "--pty-input-from-stdin",
+        action="store_true",
+        help="copy the host's stdin to the PTY, so a test can type keys",
+    )
     launcher.add_argument("--step-timeout", type=float, default=10.0)
     launcher.add_argument(
         "--extra-env",

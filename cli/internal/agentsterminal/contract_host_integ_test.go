@@ -1,0 +1,237 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+//go:build integration
+
+package agentsterminal
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+var (
+	repositoryRoot        = filepath.Join("..", "..", "..")
+	contractHostScript    = filepath.Join(repositoryRoot, "agents", "cli", "tests", "terminal_ui_contract_host.py")
+	transcriptsDirectory  = filepath.Join(repositoryRoot, "agents", "conformance", "terminal_ui", "transcripts")
+	buildDexcliOnce       sync.Once
+	builtDexcliPath       string
+	errBuildDexcli        error
+	contractHostStepLimit = "45"
+)
+
+// keystrokes types text once the host recorded afterRecordLines lines.
+type keystrokes struct {
+	afterStep int
+	text      string
+}
+
+// transcriptKeys are the keys each tui transcript needs: the user actions
+// that make dexcli send its requests, then the exit. imageA and imageB stand
+// for two image files.
+var transcriptKeys = map[string][]keystrokes{
+	"chat_ready_then_exit":                          {{1, "\x04"}},
+	"chat_put_image":                                {{1, "/image {imageA}\r"}, {3, "/image {imageB}\r"}, {5, "\x04"}},
+	"chat_put_image_cancelled_then_recovered":       {{1, "/image {imageA}\r"}, {-1, "\x04"}},
+	"chat_put_image_without_get_request_result":     {{1, "/image {imageA}\r"}, {-1, "\x04"}},
+	"chat_get_request_result_running_then_done":     {{1, "/new\r"}, {-1, "\x04"}},
+	"chat_get_request_result_timed_out_then_resent": {{1, "/new\r"}, {-1, "\x04"}},
+	"chat_start_session_conflict":                   {{1, "/new\r"}, {-1, "\x04"}},
+	"chat_start_session_long_id":                    {{1, "/new\r"}, {-1, "\x04"}},
+	"chat_start_session_unknown_then_resent":        {{1, "/new\r"}, {-1, "\x04"}},
+	"chat_host_stopped":                             {{1, "/image {imageA}\r/new\r"}, {-1, "x"}},
+	"chat_notices_and_worker_states":                {{-1, "\x04"}},
+	"chat_unknown_message_type_ignored":             {{3, "/connectors\r"}, {-1, "\x04"}},
+	"chat_launcher_closed":                          nil,
+	"launch_auth_missing":                           nil,
+	"launch_contract_unsupported":                   nil,
+	"launch_not_json":                               nil,
+	"launch_too_large":                              nil,
+	"chat_cancel_races_completion":                  {{1, "/image {imageA}\r"}, {-1, "\x04"}},
+}
+
+// transcriptsOfLaterModes need the sessions and connectors pickers, which
+// this dexcli does not run yet.
+var transcriptsOfLaterModes = []string{"sessions_resume_result", "connectors_refresh"}
+
+// Every transcript a real dexcli can play passes against the contract host
+// as launcher, with dexcli on a pseudo-terminal and keys typed into it.
+func TestTranscriptsAgainstTheContractHost(t *testing.T) {
+	pythonPath, err := exec.LookPath("python3")
+	require.NoError(t, err, "the contract host needs python3")
+	dexcli := buildDexcli(t)
+	paths, err := filepath.Glob(filepath.Join(transcriptsDirectory, "*.json"))
+	require.NoError(t, err)
+	for _, path := range paths {
+		var transcript struct {
+			Name      string   `json:"name"`
+			RealRoles []string `json:"real_roles"`
+		}
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(data, &transcript))
+		if !slices.Contains(transcript.RealRoles, "tui") {
+			continue
+		}
+		t.Run(transcript.Name, func(t *testing.T) {
+			if slices.Contains(transcriptsOfLaterModes, transcript.Name) {
+				t.Skip("this dexcli runs only chat; the sessions and connectors pickers come with their own pull request")
+			}
+			keys, isKnown := transcriptKeys[transcript.Name]
+			require.True(t, isKnown, "add the keys of a new transcript to transcriptKeys")
+			t.Parallel()
+			playTranscript(t, pythonPath, dexcli, data, keys)
+		})
+	}
+}
+
+func buildDexcli(t *testing.T) string {
+	t.Helper()
+	buildDexcliOnce.Do(func() {
+		directory, err := os.MkdirTemp("", "dexcli-agents-tui-test-")
+		if err != nil {
+			errBuildDexcli = err
+			return
+		}
+		builtDexcliPath = filepath.Join(directory, "dexcli")
+		command := exec.Command("go", "build", "-o", builtDexcliPath, "../../cmd/dexcli")
+		command.Env = append(os.Environ(), "GOWORK=off")
+		if output, err := command.CombinedOutput(); err != nil {
+			errBuildDexcli = fmt.Errorf("build dexcli: %w\n%s", err, output)
+		}
+	})
+	require.NoError(t, errBuildDexcli)
+	return builtDexcliPath
+}
+
+// playTranscript runs the host as launcher against dexcli with the
+// transcript's Dex addresses moved to ports where nothing listens.
+func playTranscript(t *testing.T, pythonPath string, dexcli string, data []byte, keys []keystrokes) {
+	stateDirectory := t.TempDir()
+	home := filepath.Join(stateDirectory, "home")
+	require.NoError(t, os.MkdirAll(home, 0o700))
+	rewritten := strings.ReplaceAll(string(data), "127.0.0.1:8801", "127.0.0.1:"+closedPort(t))
+	rewritten = strings.ReplaceAll(rewritten, "127.0.0.1:8802", "127.0.0.1:"+closedPort(t))
+	require.NotContains(t, rewritten, ":8801")
+	require.NotContains(t, rewritten, ":8802")
+	transcriptPath := filepath.Join(stateDirectory, "transcript.json")
+	require.NoError(t, os.WriteFile(transcriptPath, []byte(rewritten), 0o600))
+	images := map[string]string{"{imageA}": filepath.Join(stateDirectory, "a.png"), "{imageB}": filepath.Join(stateDirectory, "b.txt")}
+	for _, path := range images {
+		require.NoError(t, os.WriteFile(path, []byte("\x89PNG test bytes"), 0o600))
+	}
+	var transcript struct {
+		Steps []map[string]any `json:"steps"`
+	}
+	require.NoError(t, json.Unmarshal(data, &transcript))
+	recordPath := filepath.Join(stateDirectory, "record.jsonl")
+	screenPath := filepath.Join(stateDirectory, "screen.log")
+	command := exec.Command(pythonPath, contractHostScript, "launcher",
+		"--transcript", transcriptPath, "--pty", "100x30", "--screen-log", screenPath, "--record", recordPath,
+		"--step-timeout", contractHostStepLimit, "--pty-input-from-stdin", "--", dexcli, "agents-tui")
+	command.Env = []string{"HOME=" + home, "TERM=xterm-256color", "LANG=en_US.UTF-8", "PATH=" + os.Getenv("PATH")}
+	stdin, err := command.StdinPipe()
+	require.NoError(t, err)
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	require.NoError(t, command.Start())
+	typed := make(chan error, 1)
+	go func() {
+		typed <- typeKeys(stdin, recordPath, transcript.Steps, keys, images)
+	}()
+	waitErr := command.Wait()
+	if closeErr := stdin.Close(); closeErr != nil && !strings.Contains(closeErr.Error(), "already closed") {
+		t.Logf("close the host stdin: %v", closeErr)
+	}
+	if waitErr != nil {
+		record, _ := os.ReadFile(recordPath)
+		screen, _ := os.ReadFile(screenPath)
+		t.Fatalf("the contract host failed: %v\nstderr: %s\nrecord:\n%s\nscreen (last 3000 bytes):\n%q",
+			waitErr, stderr.String(), record, tail(string(screen), 3000))
+	}
+	select {
+	case err := <-typed:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the keys were not all typed")
+	}
+}
+
+// typeKeys writes each keystroke once the host's record shows the step it
+// follows. Step -1 is the last step.
+func typeKeys(stdin io.Writer, recordPath string, steps []map[string]any, keys []keystrokes, images map[string]string) error {
+	for _, keystroke := range keys {
+		step := keystroke.afterStep
+		if step < 0 {
+			step = len(steps) - 1
+		}
+		wantedLines := 1
+		for index := 0; index <= step; index++ {
+			if _, isMessage := steps[index]["message"]; isMessage {
+				wantedLines++
+			} else if _, isRaw := steps[index]["raw_line"]; isRaw {
+				wantedLines++
+			}
+		}
+		deadline := time.Now().Add(2 * time.Minute)
+		for countLines(recordPath) < wantedLines {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("step %d never happened", step)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		// The screen handles the message of the step before the keys arrive.
+		time.Sleep(150 * time.Millisecond)
+		text := keystroke.text
+		for placeholder, path := range images {
+			text = strings.ReplaceAll(text, placeholder, path)
+		}
+		if _, err := io.WriteString(stdin, text); err != nil {
+			return fmt.Errorf("type %q: %w", keystroke.text, err)
+		}
+	}
+	return nil
+}
+
+func countLines(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return bytes.Count(data, []byte("\n"))
+}
+
+// closedPort returns a port that nothing listens on.
+func closedPort(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+	return fmt.Sprint(port)
+}
+
+func tail(text string, size int) string {
+	if len(text) <= size {
+		return text
+	}
+	return text[len(text)-size:]
+}
