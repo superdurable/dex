@@ -157,16 +157,14 @@ func TestStartupLogoSkipsSmallTerminals(t *testing.T) {
 	}
 }
 
-func TestStartupLogoUsesTheBrandColorsOfTheBackground(t *testing.T) {
+func TestStartupLogoUsesTheBrandGreenOfTheBackground(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{showsLogo: true, profile: colorprofile.TrueColor})
 	dark := harness.screen.View().Content
-	require.Contains(t, dark, "38;2;246;248;244m▐█▌", "a dark background draws the bar in #f6f8f4")
-	require.Contains(t, dark, "38;2;112;238;169m", "a dark background draws the chevron in #70eea9")
+	require.Contains(t, dark, "  ▐█▌\x1b[38;2;112;238;169m", "the bar takes the default foreground; a dark background gets #70eea9")
 
 	harness.screen.Update(tea.BackgroundColorMsg{Color: color.White})
 	light := harness.screen.View().Content
-	require.Contains(t, light, "38;2;0;50;27m▐█▌", "a light background draws the bar in #00321b")
-	require.Contains(t, light, "38;2;0;134;80m", "a light background draws the chevron in #008650")
+	require.Contains(t, light, "  ▐█▌\x1b[38;2;0;134;80m", "a light background gets #008650")
 	require.NotContains(t, light, "38;2;112;238;169m")
 }
 
@@ -176,6 +174,15 @@ func TestDexWebURLsAreLinks(t *testing.T) {
 	welcome := harness.screen.View().Content
 	require.Contains(t, welcome, "\x1b]8;;"+webURL+"\x1b\\", "the welcome Dex Web URL is a link")
 	require.Contains(t, welcome, "4;34", "the link is underlined in the accent color")
+	isWebRowShown := false
+	for _, line := range harness.screen.welcome().Render(25, harness.screen.theme) {
+		if strings.Contains(line, "Dex Web:") {
+			isWebRowShown = true
+			require.LessOrEqual(t, displayWidthForTest(line), 25)
+			require.True(t, strings.HasSuffix(line, "\x1b]8;;\x1b\\"), "a truncated link still closes: %q", line)
+		}
+	}
+	require.True(t, isWebRowShown)
 
 	sessionURL := webURL + "/agents/sessions/s-a1b2c3"
 	harness.feed(sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: "Dex Web: " + sessionURL})

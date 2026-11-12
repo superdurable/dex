@@ -147,9 +147,8 @@ func renderNoticeLine(severity sessionfeed.NoticeSeverity, text string, width in
 // links, without trailing punctuation.
 var noticeURLPattern = regexp.MustCompile(`https?://[!-~]*[A-Za-z0-9/#=&%_~+-]`)
 
-// renderLinkedLines styles the wrapped lines of text with style, drawing each
-// URL piece as a link to its whole URL. Wrapping first keeps every link
-// sequence inside one line.
+// renderLinkedLines returns the wrapped lines of text in style, with each URL
+// piece linked to its whole URL. Each line closes its own link.
 func renderLinkedLines(text string, wrapped []string, style lipgloss.Style, theme terminaltheme.Theme) []string {
 	urlSpans := noticeURLPattern.FindAllStringIndex(text, -1)
 	lines := make([]string, 0, len(wrapped))

@@ -11,6 +11,8 @@ package chatscreen
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 )
@@ -54,7 +56,7 @@ type welcomeBlock struct {
 func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string {
 	var lines []string
 	if block.isLogoShown {
-		lines = append(lines, renderStartupLogo(block.brandColors(theme), theme)...)
+		lines = append(lines, renderStartupLogo(block.brandStyle(theme), theme)...)
 		lines = append(lines, "")
 	}
 	session := block.session
@@ -90,23 +92,23 @@ func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string 
 	return lines
 }
 
-func (block welcomeBlock) brandColors(theme terminaltheme.Theme) terminaltheme.BrandColors {
+func (block welcomeBlock) brandStyle(theme terminaltheme.Theme) lipgloss.Style {
 	if block.hasLightBackground {
 		return theme.BrandOnLight
 	}
 	return theme.BrandOnDark
 }
 
-// renderStartupLogo draws the brand mark. Its bar and green chevron use the
-// only non-status colors.
-func renderStartupLogo(brand terminaltheme.BrandColors, theme terminaltheme.Theme) []string {
+// renderStartupLogo draws the brand mark. Its green chevron is the one
+// non-status color; the bar takes the default foreground, as the brand's does.
+func renderStartupLogo(brand lipgloss.Style, theme terminaltheme.Theme) []string {
 	rows := asciiLogoRows
 	if theme.IsUnicode {
 		rows = unicodeLogoRows
 	}
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
-		line := contentIndent + brand.Track.Render(row.bar) + brand.Head.Render(row.chevron)
+		line := contentIndent + row.bar + brand.Render(row.chevron)
 		if row.text != "" {
 			gap := strings.Repeat(" ", 7-terminaltheme.DisplayWidth(row.chevron))
 			text := theme.Secondary.Render(row.text)

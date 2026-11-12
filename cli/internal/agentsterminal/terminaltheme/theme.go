@@ -30,22 +30,11 @@ const (
 	infoColor         = lipgloss.Cyan
 )
 
-// The logo is the exception: it uses the Dex brand colors of Dex Web and the
-// docs site, one pair per background.
+// The logo chevron uses the Dex brand green, one shade per background.
 const (
-	brandTrackOnLightColor = "#00321b"
-	brandHeadOnLightColor  = "#008650"
-	brandTrackOnDarkColor  = "#f6f8f4"
-	brandHeadOnDarkColor   = "#70eea9"
+	brandHeadOnLightColor = "#008650"
+	brandHeadOnDarkColor  = "#70eea9"
 )
-
-// BrandColors styles the two parts of the Dex logo.
-type BrandColors struct {
-	// Track styles the logo's bar.
-	Track lipgloss.Style
-	// Head styles the logo's chevron.
-	Head lipgloss.Style
-}
 
 // Theme is the set of styles and symbols one agents terminal screen draws
 // with. Build it once with NewTheme.
@@ -81,11 +70,10 @@ type Theme struct {
 	// Link styles a URL: the accent color, underlined. It is an ansi.Style
 	// because lipgloss underlines each character separately.
 	Link ansi.Style
-	// BrandOnDark and BrandOnLight style the startup logo in the brand
-	// colors, the only colors that are not statuses, for a dark or a light
-	// terminal background.
-	BrandOnDark  BrandColors
-	BrandOnLight BrandColors
+	// BrandOnDark and BrandOnLight style the logo's chevron, the one
+	// non-status color, per terminal background.
+	BrandOnDark  lipgloss.Style
+	BrandOnLight lipgloss.Style
 }
 
 // NewTheme returns the theme for profile. isUnicode selects Unicode symbols.
@@ -106,16 +94,10 @@ func NewTheme(profile colorprofile.Profile, isUnicode bool) Theme {
 		Warning:   base.Foreground(warningColor),
 		Info:      base.Foreground(infoColor),
 		Link:      ansi.NewStyle().Underline(true).ForegroundColor(accentColor),
-		BrandOnDark: BrandColors{
-			Track: base.Foreground(lipgloss.Color(brandTrackOnDarkColor)),
-			Head:  base.Foreground(lipgloss.Color(brandHeadOnDarkColor)),
-		},
-		BrandOnLight: BrandColors{
-			Track: base.Foreground(lipgloss.Color(brandTrackOnLightColor)),
-			Head:  base.Foreground(lipgloss.Color(brandHeadOnLightColor)),
-		},
 		IsUnicode: isUnicode,
 	}
+	theme.BrandOnDark = base.Foreground(lipgloss.Color(brandHeadOnDarkColor))
+	theme.BrandOnLight = base.Foreground(lipgloss.Color(brandHeadOnLightColor))
 	if isUnicode {
 		theme.Symbols = unicodeSymbols
 	}
@@ -125,9 +107,9 @@ func NewTheme(profile colorprofile.Profile, isUnicode bool) Theme {
 	return theme
 }
 
-// RenderLink draws text as an underlined OSC 8 hyperlink to url, which
-// terminals open on a click or a Cmd/Ctrl-click. A url with spaces or control
-// characters is styled but not linked.
+// RenderLink returns text underlined in the accent color, inside an OSC 8
+// hyperlink to url that terminals open on a click. A url with spaces or
+// control characters returns the styled text without a link.
 func (theme Theme) RenderLink(url string, text string) string {
 	if url == "" || strings.ContainsFunc(url, isOutsideLinkCharacters) {
 		return theme.Link.Styled(text)
