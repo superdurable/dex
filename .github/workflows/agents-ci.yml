@@ -29,11 +29,33 @@ jobs:
     outputs:
       packages: ${{ steps.discover.outputs.packages }}
     steps:
+      # Depth 2 includes the merge commit's first parent, the pull request base.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Test the package selection
+        run: python3 agents/script/select_ci_packages_test.py
+      # A pull request tests the packages it changes and their dependents; other runs test every package.
+      - name: Select the packages this change can affect
+        id: select
+        env:
+          IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          if [[ "$IS_PULL_REQUEST" == "true" ]]; then
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed-files.txt"
+            selected="$(python3 agents/script/select_ci_packages.py --changed-files "$RUNNER_TEMP/changed-files.txt")"
+          else
+            selected="$(python3 agents/script/select_ci_packages.py)"
+          fi
+          echo "selected=$selected" >> "$GITHUB_OUTPUT"
+          jq . <<<"$selected"
       # Every package with an executable agents/<language>/<package>/ci.sh or
-      # agents/cli/<language>/<package>/ci.sh gets a matrix job.
+      # agents/cli/<language>/<package>/ci.sh gets a matrix job when selected.
       - name: List packages with an executable ci.sh
         id: discover
+        env:
+          SELECTED_PACKAGES: ${{ steps.select.outputs.selected }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -49,9 +71,10 @@ jobs:
             echo "::error::found no agents/<language>/<package>/ci.sh"
             exit 1
           fi
-          packages="$(printf '%s\n' "${package_paths[@]}" | jq -R -s -c '
+          packages="$(printf '%s\n' "${package_paths[@]}" | jq -R -s -c --argjson selected "$SELECTED_PACKAGES" '
             split("\n")
             | map(select(length > 0))
+            | map(select(. as $path | $selected | index($path)))
             | map(if (split("/") | length) == 4
                   then {path: ., language: (split("/")[2]), name: ("cli-" + split("/")[3])}
                   else {path: ., language: (split("/")[1]), name: (split("/")[2])}
@@ -62,6 +85,11 @@ jobs:
                     else $package + {node: "22"}
                     end)
             | map(. + {label: (if .node == "22" then .path else (.path + " (node " + .node + ")") end)})
+            | map(. as $package
+                  | ({"agents/python/core": 3}[.path] // 1) as $count
+                  | range(1; $count + 1) as $index
+                  | $package + {shard: "\($index)/\($count)", shard_name: "\($index)-of-\($count)"}
+                  | if $count == 1 then . else .label += " (shard \(.shard))" end)
           ')"
           echo "packages=$packages" >> "$GITHUB_OUTPUT"
           jq . <<<"$packages"
@@ -69,6 +97,8 @@ jobs:
   package:
     name: ${{ matrix.package.label }}
     needs: discover
+    # A change that no package reads, such as agents/CHANGELOG.md, selects no package.
+    if: needs.discover.outputs.packages != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -130,12 +160,14 @@ jobs:
           echo "DEXCLI=$DEXCLI_DIR/dexcli" >> "$GITHUB_ENV"
       - name: Run ci.sh
         working-directory: ${{ matrix.package.path }}
+        env:
+          DEX_AGENTS_CI_SHARD: ${{ matrix.package.shard }}
         run: ./ci.sh
       - name: Upload test logs
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: agents-${{ matrix.package.language }}-${{ matrix.package.name }}-node${{ matrix.package.node }}-logs
+          name: agents-${{ matrix.package.language }}-${{ matrix.package.name }}-node${{ matrix.package.node }}-shard${{ matrix.package.shard_name }}-logs
           path: /tmp/pytest-of-*/pytest-*/**/*.log
           if-no-files-found: ignore
 
