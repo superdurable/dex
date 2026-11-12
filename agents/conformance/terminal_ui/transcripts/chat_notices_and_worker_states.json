@@ -1,0 +1,118 @@
+{
+  "name": "chat_notices_and_worker_states",
+  "description": "A launch notice, a notice message, and the Worker host reconnecting, recovering, and stopping; the user then exits.",
+  "real_roles": [
+    "launcher",
+    "tui"
+  ],
+  "terminal_ui_environment": {},
+  "steps": [
+    {
+      "from": "launcher",
+      "message": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml"
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true
+        },
+        "notices": [
+          {
+            "level": "warning",
+            "text": "Not authorized yet: hacker-news/default. Authorize it in Dex Web."
+          }
+        ],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "ignore": [
+        "command.name",
+        "command.harness",
+        "command.language",
+        "command.version",
+        "dex.server_address",
+        "dex.web_url",
+        "session.flow_type",
+        "session.session_id",
+        "display",
+        "log_path"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "ready"
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "notice",
+        "level": "info",
+        "text": "Connected to the connectors MCP server."
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "worker",
+        "state": "reconnecting"
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "worker",
+        "state": "ready"
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "worker",
+        "state": "stopped",
+        "exit_code": 137
+      }
+    }
+  ],
+  "tui_exit": 0
+}
