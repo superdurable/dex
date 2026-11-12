@@ -670,6 +670,18 @@ for (const localeRoot of ['', 'zh-Hans/']) {
     assert.equal(target.origin, siteOrigin);
     assert.ok(outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `llms.txt links to missing ${href}`);
   }
+  // Every llms-full file llms.txt names exists, and each page with framework files answers to its default
+  // framework's name too, so a reader can build any file name the index describes.
+  for (const [name] of index.matchAll(/llms-full(?:\.[a-z]+)?\.txt/g)) {
+    assert.ok(outputFilePaths.has(`${localeRoot}${name}`), `llms.txt names missing ${localeRoot}${name}`);
+  }
+  for (const [, href] of index.matchAll(/^- \[[^\n]*?\]\((https?:[^)]+\.md)\)[^\n]*(?:By framework: |按框架：)/gm)) {
+    const filePath = decodeURIComponent(new URL(href).pathname).slice(1);
+    const framework = (await readFile(join(root, filePath), 'utf8')).match(/^framework: "([^"]+)"$/m)?.[1];
+    assert.ok(framework, `${filePath} must name its framework`);
+    const alias = filePath.replace(/\.md$/, `.${framework}.md`);
+    assert.ok(outputFilePaths.has(alias), `${filePath} needs its default-framework alias ${alias}`);
+  }
   // Each entry's first link is the page; per-framework links after it point at that page's other files.
   for (const [, href] of index.matchAll(/^- \[[^\n]*?\]\((https?:[^)]+\.md)\)/gm)) {
     assert.equal(indexedMarkdown.has(href), false, `llms.txt duplicates ${href}`);
