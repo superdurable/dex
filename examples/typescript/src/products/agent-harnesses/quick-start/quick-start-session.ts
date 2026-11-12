@@ -20,12 +20,14 @@ import { Client, Registry, Worker, openBlobCache, type BlobCache } from "@superd
 import {
   readAgentSnapshot,
   sendAgentUserMessage,
+  sessionFlowDefinitionDocument,
   type AgentInterrupt,
   type AgentSessionFlow,
 } from "@superdurable/dex-agents";
 
 const pullRegistrationTimeoutMs = 30_000;
 const pollIntervalMs = 500;
+const actionPermission = "agent-quick-start.operate";
 
 /** Decides whether one tool call that waits for approval may run. */
 export type ApprovalDecider = (interrupt: AgentInterrupt) => Promise<boolean>;
@@ -42,7 +44,12 @@ export class QuickStartApp {
   public static async start(flow: AgentSessionFlow, serverAddress: string, blobCacheDir: string): Promise<QuickStartApp> {
     const registry = new Registry([flow]);
     const blobCache = openBlobCache({ directory: blobCacheDir, maxBytes: 1 << 30 });
-    const worker = new Worker(registry, blobCache, { serverAddress, pull: { maxConcurrentTasks: 16 } });
+    const worker = new Worker(registry, blobCache, {
+      serverAddress,
+      pull: { maxConcurrentTasks: 16 },
+      // Dex Web draws the session and offers Approve from this graph.
+      flowDefinitions: [sessionFlowDefinitionDocument({ flowType: flow.getFlowType(), actionPermission })],
+    });
     const client = new Client(registry, blobCache, { serverAddress });
     const app = new QuickStartApp(flow, client, worker, blobCache);
     try {
