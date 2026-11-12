@@ -133,6 +133,14 @@ export DEXCLI_PATH="$binary_dir/dexcli"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
   ./gradlew test --tests 'io.superdurable.dex.integ.*' --tests 'io.superdurable.dex.integ.smoke.*' --info --no-daemon ${test_args[@]+"${test_args[@]}"}
 
+# The Quick Start is a separate Gradle project; arguments for the main suite would not match it.
+if ((${#test_args[@]} == 0)); then
+  (
+    cd "$script_dir/quick-start"
+    DEX_FLOW_SERVICE_ADDRESS="$dex_address" ./gradlew test --no-daemon
+  )
+fi
+
 if $keep_running; then
   echo ""
   echo "Dex Web:  http://127.0.0.1:${web_port}"

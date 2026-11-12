@@ -138,6 +138,12 @@ DEX_BLOB_CACHE_DIR="$test_dir/blobs" \
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
   npm run smoke
 
+# The Quick Start is a separate npm package with its own dependencies.
+(
+  cd "$script_dir/quick-start"
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address" npm test
+)
+
 if $keep_running; then
   echo ""
   echo "Dex Web:  http://127.0.0.1:${web_port}"

@@ -83,6 +83,7 @@ after E2E tests for manual HTTP exploration.
 - [User onboarding process](./src/main/java/io/superdurable/dex/products/signup)
 - [Job posting](./src/main/java/io/superdurable/dex/products/jobpost)
 - [Deal DSL](./src/main/java/io/superdurable/dex/products/dealdsl)
+- [Quick Start](./quick-start/) (the code for the docs Quick Start: charge, wait on a Timer, then ship; a separate Gradle project)
 
 ## Patterns
 

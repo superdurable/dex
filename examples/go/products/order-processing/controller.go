@@ -74,7 +74,7 @@ func (controller *controller) start(request *gin.Context) {
 }
 
 func (controller *controller) approve(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	flowID, found := requiredFlowID(request)
 	if !found {
 		return
 	}
@@ -90,7 +90,7 @@ func (controller *controller) approve(request *gin.Context) {
 }
 
 func (controller *controller) describe(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	flowID, found := requiredFlowID(request)
 	if !found {
 		return
 	}
@@ -103,4 +103,12 @@ func (controller *controller) describe(request *gin.Context) {
 		&output,
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "status": output}, err)
+}
+
+// requiredFlowID reads the Flow ID from flowId, or from its alias workflowId.
+func requiredFlowID(request *gin.Context) (string, bool) {
+	if flowID := request.Query("workflowId"); flowID != "" {
+		return flowID, true
+	}
+	return httputil.RequiredQuery(request, "flowId")
 }

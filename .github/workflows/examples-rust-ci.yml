@@ -53,6 +53,22 @@ jobs:
         run: make clippy
       - name: Run catalog integration tests
         run: make test
+      - name: Verify Quick Start published SDK dependency
+        working-directory: examples/rust/quick-start
+        run: |
+          set -euo pipefail
+          cargo tree --locked -p dex-sdk | tee /tmp/dex-quick-start-rust-sdk-tree.txt
+          grep -qE '^dex-sdk v[0-9]' /tmp/dex-quick-start-rust-sdk-tree.txt
+          if grep -q '(/' /tmp/dex-quick-start-rust-sdk-tree.txt; then
+            echo "examples/rust/quick-start must depend on published dex-sdk, not a path dependency"
+            exit 1
+          fi
+      - name: Check Quick Start formatting
+        working-directory: examples/rust/quick-start
+        run: cargo fmt --all --check
+      - name: Run Quick Start Clippy
+        working-directory: examples/rust/quick-start
+        run: cargo clippy --all-targets --locked -- -D warnings
 
   integ:
     name: Integration tests with dexcli dev (pull, zd)

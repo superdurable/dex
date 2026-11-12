@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from dex_agents.connectors import ConnectorToolSource, connector_tool
-from dex_agents.stepwise import ToolSource
+from dex_agents.builtin_loop import ToolSource
 from dex_connectors import slack
 from dex_connectors.sdk.projectconfig import (
     LOCAL_CONNECTIONS_FILE_ENVIRONMENT,

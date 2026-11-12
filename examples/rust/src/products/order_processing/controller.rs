@@ -43,10 +43,23 @@ struct StartQuery {
 
 #[derive(Deserialize)]
 struct WorkflowQuery {
+    #[serde(default, rename = "flowId")]
+    flow_id: String,
+    /// An alias of flowId.
     #[serde(default, rename = "workflowId")]
     workflow_id: String,
     #[serde(default)]
     notes: String,
+}
+
+impl WorkflowQuery {
+    fn flow_id(&self) -> String {
+        if self.workflow_id.is_empty() {
+            self.flow_id.clone()
+        } else {
+            self.workflow_id.clone()
+        }
+    }
 }
 
 pub fn mount(client: SharedClient, flow: OrderProcessingFlow) -> Router {
@@ -88,7 +101,7 @@ async fn approve(
     State(state): State<OrderProcessingState>,
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
-    let flow_id = query.workflow_id;
+    let flow_id = query.flow_id();
     let notes = query.notes;
     match run_blocking(move || state.client.invoke_rpc(&flow_id, APPROVE_ORDER, notes)) {
         Ok(value) => ok_json(value),
@@ -100,7 +113,7 @@ async fn describe(
     State(state): State<OrderProcessingState>,
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
-    let flow_id = query.workflow_id;
+    let flow_id = query.flow_id();
     match run_blocking(move || {
         state
             .client

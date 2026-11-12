@@ -1,0 +1,35 @@
+[package]
+name = "dex-quick-start"
+version = "0.0.0"
+edition = "2024"
+publish = false
+rust-version = "1.97"
+
+[dependencies]
+dex-sdk = "=1.45.0"
+axum = "0.8"
+serde_json = "1.0"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "signal", "time"] }
+fastrand = "2.3"
+
+[dev-dependencies]
+tempfile = "3.23"
+
+[lints.rust]
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+unwrap_used = "warn"
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+let_underscore_must_use = "warn"
+let_underscore_future = "warn"
+unused_result_ok = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+print_stdout = "allow"
+print_stderr = "allow"
+match_wildcard_for_single_variants = "warn"

@@ -68,3 +68,42 @@ func TestRenderMarkdownStylesOnlyWhatItMarks(t *testing.T) {
 	require.True(t, strings.HasPrefix(lines[0], "plain "), "body text keeps the default color: %q", lines[0])
 	require.Contains(t, lines[0], "\x1b[2m", "inline code is dim")
 }
+
+func TestRenderMarkdownTables(t *testing.T) {
+	source := strings.Join([]string{
+		"| Test | Runs | Status |",
+		"| --- | --- | :-: |",
+		"| TestRetryBackoff | 12 | ~~flaky~~ |",
+		"| TestQueue | 3 | ok |",
+		"",
+		"- [x] read the logs",
+		"- [ ] fix the test",
+	}, "\n")
+	theme := terminaltheme.NewTheme(colorprofile.ANSI, true)
+	plain := func(width int) []string {
+		var lines []string
+		for _, line := range RenderMarkdown(source, width, theme) {
+			require.LessOrEqual(t, terminaltheme.DisplayWidth(line), width, "line %q is too wide", line)
+			lines = append(lines, terminaltheme.StripStyles(line))
+		}
+		return lines
+	}
+	require.Equal(t, []string{
+		"Test              Runs  Status",
+		"────────────────  ────  ──────",
+		"TestRetryBackoff    12  flaky",
+		"TestQueue            3  ok",
+		"",
+		"- [x] read the logs",
+		"- [ ] fix the test",
+	}, plain(40))
+	require.Equal(t, []string{
+		"Test   Runs  Status",
+		"─────  ────  ──────",
+		"Test…    12  flaky",
+		"Test…     3  ok",
+		"",
+		"- [x] read the logs",
+		"- [ ] fix the test",
+	}, plain(19))
+}
