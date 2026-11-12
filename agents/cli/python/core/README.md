@@ -189,7 +189,9 @@ The steps of a run:
    when the launcher itself got SIGTERM, which it forwards; 130 whenever the
    launcher got SIGINT. A malformed line from `dexcli` after `ready` fails the
    chat with 1 even when `dexcli` then exits 0; a closed channel followed by
-   `dexcli` exiting 0 is a normal end.
+   `dexcli` exiting by itself within 1 s is a normal end, with no "The chat
+   closed" line, and the command exits with `dexcli`'s code: 1 after a failed
+   turn, as in the plain chat.
 
 `start_session` derives `<name>-YYYYMMDD-HHMMSS-<6 hex digits>` from the
 request's key, and the same with 12 digits. Every StartFlow passes the key as

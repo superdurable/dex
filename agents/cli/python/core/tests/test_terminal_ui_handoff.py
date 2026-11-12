@@ -1015,6 +1015,34 @@ async def test_a_protocol_error_after_ready_fails_the_chat_even_when_dexcli_exit
     assert fake.mismatches() == []
 
 
+async def test_a_normal_exit_after_a_failed_turn_exits_1_without_a_chat_closed_line(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    # dexcli closes the channel and exits 1 by itself when the user exits after a failed turn.
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([], tui_exit=1))
+    child = start_chat(cli_home, fake, screen)
+    session_id = await read_session_id(child)
+    assert await wait_for_exit(child) == 1
+    assert "The chat closed" not in screen.getvalue()
+    assert_no_launcher_resume_line(screen, session_id)
+    assert_replayed(fake, screen)
+
+
+async def test_a_channel_closed_while_dexcli_keeps_running_fails_the_chat(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([{"close": "tui"}, pause(60_000)]))
+    child = start_chat(cli_home, fake, screen)
+    session_id = await read_session_id(child)
+    await fake.wait_for("sent", type="ready")
+    host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
+    await expect(child, "The chat closed: dexcli closed the channel.")
+    assert await wait_for_exit(child) == 1
+    assert "The chat closed unexpectedly" not in screen.getvalue()
+    assert_no_launcher_resume_line(screen, session_id)
+    await wait_until_gone([host_pid], timeout=15)
+
+
 @pytest.mark.parametrize("is_group_broadcast", [False, True], ids=["launcher-only", "group"])
 async def test_an_external_sigint_ends_the_chat_with_130(
     cli_home: CliHome, tmp_path: Path, screen: io.StringIO, is_group_broadcast: bool
