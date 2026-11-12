@@ -47,6 +47,8 @@ func (status ToolCallStatus) IsFinished() bool {
 type ToolCallChanged struct {
 	// ToolCallID identifies the call.
 	ToolCallID string
+	// TurnID identifies the turn that made the call; empty when unknown.
+	TurnID string
 	// ToolName is the tool name, such as "read_file".
 	ToolName string
 	// KeyArgument identifies the call: a workspace path, a shell command, or a
@@ -72,9 +74,17 @@ type ToolCallChanged struct {
 	// IsOutputTruncated reports that the session stored only part of the
 	// output.
 	IsOutputTruncated bool
+	// Arguments are the call's arguments in written order, for the pager.
+	Arguments []ApprovalArgument
+	// OutputText is the stored output, or the error of a failed call; the
+	// pager shows it in full.
+	OutputText string
+	// ImageCount is how many images the tool returned with its output.
+	ImageCount int
 }
 
-// ApprovalArgument is one tool argument shown in an approval popup.
+// ApprovalArgument is one tool argument shown in an approval popup or the
+// pager.
 type ApprovalArgument struct {
 	// Name is the argument name.
 	Name string

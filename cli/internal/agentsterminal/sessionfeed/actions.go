@@ -96,6 +96,20 @@ type SlashCommand struct {
 	Description string
 }
 
+// DetachImage removes the newest image attached for the next message, after
+// the user deleted its chip.
+type DetachImage struct{}
+
+// ReadEarlierMessages asks for the stored messages before a sequence, for
+// /history. The answer arrives as EarlierMessagesRead.
+type ReadEarlierMessages struct {
+	// SessionID is the session the screen shows; the answer carries it back.
+	SessionID string
+	// BeforeSequence is the stored sequence to read before, from
+	// HistoryWindowChanged or an earlier EarlierMessagesRead.
+	BeforeSequence int64
+}
+
 func (SendUserMessage) isUserAction()     {}
 func (ResolveApproval) isUserAction()     {}
 func (AnswerQuestion) isUserAction()      {}
@@ -105,3 +119,5 @@ func (SteerQueuedMessage) isUserAction()  {}
 func (DeleteQueuedMessage) isUserAction() {}
 func (RunSlashCommand) isUserAction()     {}
 func (ExecutePlan) isUserAction()         {}
+func (DetachImage) isUserAction()         {}
+func (ReadEarlierMessages) isUserAction() {}

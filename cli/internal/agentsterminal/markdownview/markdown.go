@@ -17,14 +17,20 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	extensionast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/text"
 )
+
+// replyExtensions add the GitHub tables, strikethrough, and task lists that
+// model replies often use.
+var replyExtensions = []goldmark.Extender{extension.Table, extension.Strikethrough, extension.TaskList}
 
 // RenderMarkdown returns styled lines of at most width cells. Prose wraps;
 // code lines are truncated.
 func RenderMarkdown(source string, width int, theme terminaltheme.Theme) []string {
 	sourceBytes := []byte(source)
-	document := goldmark.New().Parser().Parse(text.NewReader(sourceBytes))
+	document := goldmark.New(goldmark.WithExtensions(replyExtensions...)).Parser().Parse(text.NewReader(sourceBytes))
 	renderer := markdownRenderer{source: sourceBytes, theme: theme}
 	return renderer.renderBlocks(document, width)
 }
@@ -71,6 +77,8 @@ func (renderer markdownRenderer) renderBlock(node ast.Node, width int) []string 
 		return []string{renderer.theme.Secondary.Render(strings.Repeat(renderer.theme.Symbols.Rule, min(width, 24)))}
 	case *ast.HTMLBlock:
 		return renderer.renderRawLines(block.Lines(), width)
+	case *extensionast.Table:
+		return renderer.renderTable(block, width)
 	default:
 		return renderer.renderBlocks(node, width)
 	}
@@ -200,6 +208,13 @@ func (renderer markdownRenderer) renderInline(node ast.Node) string {
 		return string(inline.URL(renderer.source))
 	case *ast.Image:
 		return renderer.theme.Secondary.Render("[image: " + renderer.plainText(inline) + "]")
+	case *extensionast.Strikethrough:
+		return renderer.theme.Secondary.Render(renderer.renderInlines(inline))
+	case *extensionast.TaskCheckBox:
+		if inline.IsChecked {
+			return "[x] "
+		}
+		return "[ ] "
 	case *ast.RawHTML:
 		var builder strings.Builder
 		for index := 0; index < inline.Segments.Len(); index++ {
@@ -229,4 +244,105 @@ func (renderer markdownRenderer) plainText(parent ast.Node) string {
 
 func ansiStrippedEquals(styled string, plain string) bool {
 	return strings.TrimSpace(terminaltheme.StripStyles(styled)) == strings.TrimSpace(plain)
+}
+
+// minimumTableColumnWidth is the narrowest a column shrinks before the
+// table's lines are cut.
+const minimumTableColumnWidth = 3
+
+// renderTable aligns columns two cells apart. A column without an alignment
+// right-aligns when every body cell is a number.
+func (renderer markdownRenderer) renderTable(table *extensionast.Table, width int) []string {
+	var rows [][]string
+	for row := table.FirstChild(); row != nil; row = row.NextSibling() {
+		var cells []string
+		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
+			cells = append(cells, strings.ReplaceAll(renderer.renderInlines(cell), "\n", " "))
+		}
+		rows = append(rows, cells)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	columnCount := len(table.Alignments)
+	columnWidths := make([]int, columnCount)
+	for _, cells := range rows {
+		for column := 0; column < min(len(cells), columnCount); column++ {
+			columnWidths[column] = max(columnWidths[column], terminaltheme.DisplayWidth(cells[column]))
+		}
+	}
+	shrinkTableColumns(columnWidths, width)
+	isRightAligned := make([]bool, columnCount)
+	for column, alignment := range table.Alignments {
+		isRightAligned[column] = alignment == extensionast.AlignRight ||
+			(alignment == extensionast.AlignNone && isNumericColumn(rows[1:], column))
+	}
+	ellipsis := renderer.theme.Symbols.Ellipsis
+	lines := make([]string, 0, len(rows)+1)
+	for rowIndex, cells := range rows {
+		parts := make([]string, columnCount)
+		for column := range columnCount {
+			cell := ""
+			if column < len(cells) {
+				cell = terminaltheme.TruncateToWidth(cells[column], columnWidths[column], ellipsis)
+			}
+			if rowIndex == 0 {
+				cell = renderer.theme.Strong.Render(cell)
+			}
+			if isRightAligned[column] {
+				parts[column] = terminaltheme.PadLeft(cell, columnWidths[column])
+			} else {
+				parts[column] = terminaltheme.PadRight(cell, columnWidths[column])
+			}
+		}
+		lines = append(lines, terminaltheme.TruncateToWidth(strings.TrimRight(strings.Join(parts, "  "), " "), width, ellipsis))
+		if rowIndex == 0 {
+			rules := make([]string, columnCount)
+			for column, columnWidth := range columnWidths {
+				rules[column] = strings.Repeat(renderer.theme.Symbols.Rule, columnWidth)
+			}
+			lines = append(lines, renderer.theme.Secondary.Render(terminaltheme.TruncateToWidth(strings.Join(rules, "  "), width, ellipsis)))
+		}
+	}
+	return lines
+}
+
+// shrinkTableColumns narrows the widest column, one cell at a time, until
+// the columns and their gaps fit width or every column is at its minimum.
+func shrinkTableColumns(columnWidths []int, width int) {
+	total := 2 * (len(columnWidths) - 1)
+	for _, columnWidth := range columnWidths {
+		total += columnWidth
+	}
+	for total > width {
+		widest := 0
+		for column, columnWidth := range columnWidths {
+			if columnWidth > columnWidths[widest] {
+				widest = column
+			}
+		}
+		if columnWidths[widest] <= minimumTableColumnWidth {
+			return
+		}
+		columnWidths[widest]--
+		total--
+	}
+}
+
+func isNumericColumn(bodyRows [][]string, column int) bool {
+	hasNumber := false
+	for _, cells := range bodyRows {
+		if column >= len(cells) {
+			continue
+		}
+		cell := strings.TrimSpace(terminaltheme.StripStyles(cells[column]))
+		if cell == "" {
+			continue
+		}
+		if _, err := strconv.ParseFloat(strings.NewReplacer(",", "", "%", "").Replace(cell), 64); err != nil {
+			return false
+		}
+		hasNumber = true
+	}
+	return hasNumber
 }

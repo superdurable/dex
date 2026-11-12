@@ -198,7 +198,7 @@ func TestHistoryRecordsAndRetentionWindow(t *testing.T) {
 		sessionfeed.AssistantMessageRecorded{TurnID: "turn-9", StepExecutionID: "step-1", Text: "old answer", Sequence: 42},
 	)
 	scrollback := harness.scrollbackText()
-	requireInOrder(t, scrollback, "· messages before #12 were removed by the retention window", "· earlier messages are not shown", "› old question", "· read_file", "module example.com/app", "old answer")
+	requireInOrder(t, scrollback, "· messages before #12 were removed by the retention window", "· earlier messages: /history", "› old question", "· read_file", "module example.com/app", "old answer")
 	require.Equal(t, 1, strings.Count(scrollback, "old answer"))
 	require.NotContains(t, scrollback, "✓ read_file", "history tool rows show no status")
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launcherchannel"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/remotesessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
+	"github.com/superdurable/dex/cli/internal/agentsterminal/typedpaths"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -235,10 +236,12 @@ func runChat(
 	environment := os.Environ()
 	profile := terminaltheme.TerminalColorProfile(colorprofile.Detect(stdout, environment), os.LookupEnv)
 	theme := terminaltheme.NewTheme(profile, terminaltheme.IsUnicodeLocale(os.LookupEnv))
+	pathResolver := typedpaths.NewPathResolver(home, workingDirectory)
 	screen := chatscreen.NewChatScreen(chatContext, chatscreen.ChatScreenConfig{
 		Source:          feed,
 		Theme:           theme,
 		SessionCommands: feed.SlashCommands(),
+		PathResolver:    &pathResolver,
 	})
 	output := newFirstFrameWriter(stdout, func() {
 		if sendErr := channel.SendReady(); sendErr != nil {
