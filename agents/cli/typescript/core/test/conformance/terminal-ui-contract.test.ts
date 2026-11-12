@@ -386,7 +386,6 @@ describe("terminal UI contract 1: the launch document", () => {
 
 describe("terminal UI selection", () => {
   const selected = {
-    isTerminalUiEnabled: true,
     platform: "darwin",
     isPlainRequested: false,
     isInteractive: true,
@@ -394,15 +393,16 @@ describe("terminal UI selection", () => {
     harnessTerminalInterface: "dexcli",
   } as const;
 
-  test("only an enabled, interactive, non-Windows run without --plain or TERM=dumb of a dexcli harness hands off", () => {
+  test("only an interactive, non-Windows run without --plain, with a TERM other than dumb, of a dexcli harness hands off", () => {
     assert.equal(isTerminalUiSelected(selected), true);
     assert.equal(isTerminalUiSelected({ ...selected, platform: "linux" }), true);
     for (const refused of [
-      { ...selected, isTerminalUiEnabled: false },
       { ...selected, platform: "win32" as const },
       { ...selected, isPlainRequested: true },
       { ...selected, isInteractive: false },
       { ...selected, term: "dumb" },
+      { ...selected, term: undefined },
+      { ...selected, term: "" },
       { ...selected, harnessTerminalInterface: "plain" as const },
     ]) {
       assert.equal(isTerminalUiSelected(refused), false, JSON.stringify(refused));

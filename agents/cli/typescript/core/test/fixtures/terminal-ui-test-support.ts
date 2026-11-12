@@ -254,7 +254,7 @@ export class PseudoTerminalCli {
       "python3",
       ["-c", pseudoTerminalRelayScript, process.execPath, ...nodeArguments, entryPath, ...commandArguments],
       {
-        env: { ...home.environment(), TERM: "xterm-256color", LANG: "en_US.UTF-8", DEX_AGENTS_TERMINAL_UI: "1", ...environment },
+        env: { ...home.environment(), TERM: "xterm-256color", LANG: "en_US.UTF-8", ...environment },
         stdio: ["pipe", "pipe", "inherit"],
         detached: true,
       },

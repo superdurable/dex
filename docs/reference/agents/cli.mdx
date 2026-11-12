@@ -143,6 +143,7 @@ dex-agents-NAME [run|init|connectors|sessions] [options]
   -y, --yes             Write and use the defaults instead of asking.
   -r, --resume <id>     Continue a session.
   -m, --model <id>      Override the configured model.
+      --plain           Chat in plain text, without the terminal UI.
   -h, --help            Show this help.
 ```
 
@@ -218,7 +219,9 @@ earlier to **~/.dex/bin**, checked against its recorded SHA-256; the first
 pinned **dexcli** release for the platform from GitHub, checks it against the
 release's checksums, and extracts only **dexcli** and **dex-server-zd**. A
 downloaded copy that changed later stops the command; delete its directory to
-download it again.
+download it again. The same **dexcli** draws the [terminal UI](#terminal-ui),
+which needs **dexcli** 1.46.0 or later. A **DEXCLI** that points at an older
+**dexcli** keeps the plain chat.
 
 | Environment variable | Meaning |
 | --- | --- |
@@ -358,6 +361,81 @@ in them. See [Credentials](/reference/agents/credentials).
 
 ## The chat {#chat}
 
+At a terminal, the chat runs in the terminal UI that **dexcli** draws. With
+**--plain**, or when the terminal UI is not available, the chat is plain text
+lines. Both chat with the same session.
+
+Exiting never ends the session. The session stays in Dex, and the command
+prints the **--resume** line that continues it.
+
+### The terminal UI {#terminal-ui}
+
+Since 0.6.0. The terminal UI fills the terminal window. Messages, replies,
+and tool calls scroll above an input box. The bottom line shows the keys that
+work at the moment. The reply streams as it arrives, and Markdown, such as a
+table, is drawn as formatted text.
+
+| Key | Action |
+| --- | --- |
+| Enter | Send the message. While a turn runs, queue it for the next turn. |
+| Shift-Enter, Alt-Enter, Ctrl-J | Start a new line. |
+| Ctrl-C | Cancel the running turn, or clear the input. Press it again to exit. |
+| Esc | Cancel the running turn when the input is empty. |
+| Ctrl-D | Exit when the input is empty. |
+| Tab | Complete a slash command or an **/image** path. With an empty input, go to the waiting approvals and queued messages. |
+| Up, Down | Recall earlier messages. |
+| Ctrl-O | Open the last tool call's full output. |
+| Ctrl-P | Show the plan's steps. |
+| PgUp, PgDn | Scroll the messages. End follows new ones again. |
+| F1 | Show the keys and the commands. |
+
+A tool call that waits for approval opens a panel with the tool, its
+arguments, and for a file write, the change. Press **y** to approve, **n** to
+reject, or **r** to reject with a reason. **Esc** closes the panel; the call
+keeps waiting. A question from the agent opens a panel too: choose an answer,
+or type one.
+
+A message sent during a turn waits in the queue. **/steer** sends the last
+queued message into the running turn instead, and **/drop** deletes it.
+
+| Command | Action |
+| --- | --- |
+| **/help** | List the keys and the commands. |
+| **/exit** | Exit. |
+| **/approve** | Open the waiting approvals and questions. |
+| **/steer**, **/drop** | Steer the last queued message into the turn, or delete it. |
+| **/image PATH** | Attach an image to the next message. See [Images](#images). |
+| **/model** [ID] | Show the model, or change it from the next turn. |
+| **/new** | Start a new session and switch to it. |
+| **/sessions** | Switch to another session of this command. |
+| **/history** | Read earlier messages of this session. |
+| **/tools** | List the latest turn's tool calls and open one's output. |
+| **/copy** | Copy the last reply to the clipboard. |
+| **/connectors** | List the connector tools. |
+| **/web** | Open this session in Dex Web. |
+| **/plan**, **/run** | Plan mode, only in a harness that has it. See [Workspace and local tools](#local-tools). |
+
+The command uses the plain chat instead, without a message, when any of
+these holds:
+
+- **--plain** is given;
+- standard input or standard output is not a terminal;
+- **TERM** is not set, or is **dumb**;
+- the platform is Windows;
+- the command is **dex-agents-pi**.
+
+It also uses the plain chat, and prints one line that starts with
+**Plain chat:** and says why, when **dexcli** cannot be found or downloaded,
+when it has no terminal UI, such as **dexcli** before 1.46.0, or when the
+terminal UI fails to start. A failure after the session opened continues the
+same session in the plain chat.
+
+**NO_COLOR** removes the colors and keeps the bold and dim styles. The
+terminal UI never gets the provider keys: the command passes it only the
+terminal, locale, and Dex credential variables.
+
+### The plain chat {#plain-chat}
+
 Each line you type is a user message. The model's text streams as it arrives,
 and each tool call prints a line when it starts and when it ends.
 
@@ -369,13 +447,15 @@ and each tool call prints a line when it starts and when it ends.
 - The first Ctrl-C during a turn cancels the turn, and a second Ctrl-C exits.
 - **/exit** and Ctrl-D exit.
 
-Exiting never ends the session. The session stays in Dex, and the command
-prints the **--resume** line that continues it.
+The plain chat has no plan commands. It sends **/plan** and **/run** as
+ordinary messages.
 
 ## Resume a session {#resume}
 
 **sessions** lists the command's sessions, and **--resume** continues one. The
-command prints the **--resume** line when you exit:
+command prints the **--resume** line when you exit. In the terminal UI,
+**/sessions** switches to another session and **/new** starts one; the line
+printed at exit names the session you were in last.
 
 ```bash
 dex-agents-claude-sdk sessions
@@ -624,6 +704,9 @@ started the command in. The file must be a regular file of at most 3,750,000
 bytes, in PNG, JPEG, GIF, or WebP. The command copies a valid image into the
 media store and shows its name, type, and size. A message carries at most 20
 images. A file that fails a check is not attached, and the command says why.
+In the terminal UI, Tab completes the path, and each attached image shows as a
+chip with its name, type, and size above the input. The terminal UI does not
+draw the image itself.
 
 Session state keeps only a reference to each image. The bytes stay in the media
 store, one copy per distinct image, named by its SHA-256. Moving or deleting
@@ -671,6 +754,14 @@ See [Show sessions in Dex Web](/reference/agents/dex-web) for the session
 graph and its Actions.
 
 ## Known limitations {#limitations}
+
+- **No terminal UI on Windows or in dex-agents-pi.** There, the chat is always
+  the plain chat. See [The chat](#chat).
+- **A killed command leaves its Worker for a short time.** In the terminal UI,
+  the command's Worker runs in its own process. When the command gets SIGKILL,
+  that process stops within about 15 seconds. A shell command it started can
+  keep running until the next start of a command stops it. A process that
+  left the shell command's process group is never stopped.
 
 - **Sessions stay in their environment.** A session resumes only with the host,
   user, configuration file, and workspace that started it. Without a

@@ -43,7 +43,7 @@ export interface TerminalUiRun {
 }
 
 /**
- * Runs the bin with `DEX_AGENTS_TERMINAL_UI=1` at a pseudo-terminal until it exits.
+ * Runs the bin at a pseudo-terminal until it exits.
  * @param environment - The command's environment.
  * @param typeOnPrompt - Text to type once the plain chat prompts, for a command that keeps the plain chat.
  * @returns How it ended.
@@ -73,7 +73,7 @@ export async function runWithTerminalUi(environment: NodeJS.ProcessEnv, typeOnPr
   );
   chmodSync(dexcli, 0o755);
   const child = spawn("python3", ["-c", relayScript, process.execPath, binPath], {
-    env: { ...environment, TERM: "xterm-256color", DEX_AGENTS_TERMINAL_UI: "1", DEXCLI: dexcli },
+    env: { ...environment, TERM: "xterm-256color", DEXCLI: dexcli },
     stdio: ["pipe", "pipe", "inherit"],
     detached: true,
   });

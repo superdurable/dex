@@ -634,7 +634,7 @@ describe("the terminal UI launcher", () => {
     assert.doesNotMatch(terminal.terminal.all, /Plain chat:/);
   });
 
-  test("--plain, TERM=dumb, the switch off, no terminal, and a plain-only harness never probe dexcli", async () => {
+  test("--plain, TERM=dumb, no TERM, no terminal, and a plain-only harness never probe dexcli", async () => {
     const cases: readonly {
       readonly name: string;
       readonly home: TestHome;
@@ -644,7 +644,7 @@ describe("the terminal UI launcher", () => {
     }[] = [
       { name: "--plain", home: newHome(), arguments: ["--plain"] },
       { name: "TERM=dumb", home: newHome(), environment: { TERM: "dumb" } },
-      { name: "switch off", home: newHome(), environment: { DEX_AGENTS_TERMINAL_UI: "" } },
+      { name: "no TERM", home: newHome(), environment: { TERM: "" } },
       { name: "plain-only harness", home: newHome(quietConfig, new TestHome(enginePorts(engine), plainOnlyScriptedHarness)) },
     ];
     for (const testCase of cases) {
@@ -664,7 +664,7 @@ describe("the terminal UI launcher", () => {
     }
     const home = newHome();
     const fake = new FakeTerminalUi([readTranscript("chat_ready_then_exit")]);
-    const cli = CliProcess.start(home, [], { DEXCLI: fake.executable, DEX_AGENTS_TERMINAL_UI: "1" });
+    const cli = CliProcess.start(home, [], { DEXCLI: fake.executable });
     processes.push(cli);
     await cli.waitForSession();
     cli.writeLine("/exit");
@@ -788,7 +788,7 @@ describe("the terminal UI launcher", () => {
     assert.ok(isProcessGroupAlive(shellGroup), "the watchdog left the shell's group alone");
     assert.equal(runRecords(home).length, 1);
     await terminal.waitForExit();
-    const cli = CliProcess.start(home, ["sessions"], { DEX_AGENTS_TERMINAL_UI: "1" });
+    const cli = CliProcess.start(home, ["sessions"]);
     processes.push(cli);
     assert.equal(await cli.waitForExit(), 0, cli.stderr.all);
     assert.match(cli.stderr.all, /Stopped 1 tool process group that a leftover worker host left behind\./);
@@ -951,7 +951,7 @@ describe("the terminal UI launcher", () => {
         tool_groups: [{ ...tool, command_sha256: "0".repeat(64) }, { ...reused, start_time: "Thu Jan  1 00:00:00 2026" }],
       };
       writeFileSync(join(recordDirectory, `scripted-${host.pid}.json`), JSON.stringify(record));
-      const cli = CliProcess.start(home, ["sessions"], { DEX_AGENTS_TERMINAL_UI: "1" });
+      const cli = CliProcess.start(home, ["sessions"]);
       processes.push(cli);
       assert.equal(await cli.waitForExit(), 0, cli.stderr.all);
       assert.match(cli.stderr.all, new RegExp(`Stopped a leftover worker host \\(pid ${host.pid}\\) and 1 tool process group\\.`));

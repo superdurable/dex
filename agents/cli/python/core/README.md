@@ -74,7 +74,11 @@ and says to use the user, configuration file, and workspace that started it.
 
 ### The terminal chat
 
-Each line is a user message. Model text streams as it arrives, and each tool
+At a terminal, `run` hands the chat to the `dexcli` terminal UI; see
+[The terminal UI](#the-terminal-ui). `--plain`, a run without a terminal, and
+the fallbacks listed there use the plain chat that this section describes.
+
+In the plain chat, each line is a user message. Model text streams as it arrives, and each tool
 call prints a `[tool]` line when it starts and ends. A call that waits for
 approval prints `[approval] <tool> <arguments>`; answer `y`, or `n` with an
 optional reason. A question from the agent prints `[question]`; answer with the
@@ -126,13 +130,11 @@ and has no time or turn count until its next turn:
 builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  Find open issues about flaky tests
 ```
 
-### The terminal UI (off by default)
+### The terminal UI
 
-With `DEX_AGENTS_TERMINAL_UI=1`, `run` on a terminal hands the chat to the
-`dexcli agents-tui` terminal UI, following
-[contract 1](../../TERMINAL_UI_CONTRACT.md). Until the terminal UI ships, the
-variable is the only way to turn it on; without it, `run` is the plain chat
-above. `--plain`, a standard input or output that is not a terminal,
+`run` on a terminal hands the chat to the `dexcli agents-tui` terminal UI,
+following [contract 1](../../TERMINAL_UI_CONTRACT.md). `--plain`, a standard
+input or output that is not a terminal,
 `TERM=dumb` or no `TERM`, Windows, and a harness whose `terminal_interface` is
 `TerminalInterface.PLAIN` always use the plain chat, before any `dexcli` probe.
 

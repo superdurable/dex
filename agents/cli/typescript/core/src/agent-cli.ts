@@ -39,7 +39,7 @@ import {
   type EffectiveConfig,
   type MediaConfig,
 } from "./cli-config.js";
-import { isTerminalUiSwitchedOn, readCliEnvironment, type CliEnvironment } from "./cli-environment.js";
+import { readCliEnvironment, type CliEnvironment } from "./cli-environment.js";
 import {
   askInitQuestions,
   defaultConfigPath,
@@ -343,7 +343,7 @@ export class AgentCliCommand {
   }
 
   public async run(): Promise<number> {
-    if (isTerminalUiSwitchedOn(this.io.environment) && process.platform !== "win32") {
+    if (process.platform !== "win32") {
       await cleanUpLeftoverWorkerHosts(this.environment.agentsDirectory, this.log);
     }
     const configPath =
@@ -498,7 +498,6 @@ export class AgentCliCommand {
     server: DexServerConnection,
   ): Promise<TerminalUiChatOutcome | undefined> {
     const isSelected = isTerminalUiSelected({
-      isTerminalUiEnabled: isTerminalUiSwitchedOn(this.io.environment),
       platform: process.platform,
       isPlainRequested: this.parsed.isPlainRequested,
       isInteractive: this.io.isInteractive,

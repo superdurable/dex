@@ -43,7 +43,6 @@
         "DEX_TLS_CA_FILE": "/home/user/ca.pem",
         "DISPLAY": ":0",
         "BROWSER": "firefox",
-        "DEX_AGENTS_TERMINAL_UI": "1",
         "NO_COLOR": "1",
         "TZ": "UTC"
       },
@@ -81,7 +80,6 @@
         "DEX_TLS_CA_FILE": "/home/user/ca.pem",
         "DISPLAY": ":0",
         "BROWSER": "firefox",
-        "DEX_AGENTS_TERMINAL_UI": "1",
         "DEX_CREDENTIAL": "test-credential-not-a-secret",
         "DEX_API_KEY": "test-api-key-not-a-secret"
       },
@@ -118,7 +116,6 @@
         "DEX_TLS_CA_FILE": "/home/user/ca.pem",
         "DISPLAY": ":0",
         "BROWSER": "firefox",
-        "DEX_AGENTS_TERMINAL_UI": "1",
         "DEX_CREDENTIAL": "test-credential-not-a-secret",
         "DEX_CREDENTIAL_FILE": "/home/user/.dex/credential"
       },
@@ -156,7 +153,6 @@
         "DEX_TLS_CA_FILE": "/home/user/ca.pem",
         "DISPLAY": ":0",
         "BROWSER": "firefox",
-        "DEX_AGENTS_TERMINAL_UI": "1",
         "DEX_CREDENTIAL": "test-credential-not-a-secret",
         "DEX_CREDENTIAL_FILE": "/home/user/.dex/credential"
       },
@@ -195,7 +191,6 @@
         "DEX_TLS_CA_FILE": "/home/user/ca.pem",
         "DISPLAY": ":0",
         "BROWSER": "firefox",
-        "DEX_AGENTS_TERMINAL_UI": "1",
         "DEX_API_KEY": "test-api-key-not-a-secret",
         "DEX_AGENTS_TUI_DEBUG": "1"
       },
@@ -234,8 +229,7 @@
         "DEX_TLS": "true",
         "DEX_TLS_CA_FILE": "/home/user/ca.pem",
         "DISPLAY": ":0",
-        "BROWSER": "firefox",
-        "DEX_AGENTS_TERMINAL_UI": "1"
+        "BROWSER": "firefox"
       },
       "terminal_ui_environment": {
         "HOME": "/home/user",
@@ -270,7 +264,6 @@
         "DEX_TLS_CA_FILE": "/home/user/ca.pem",
         "DISPLAY": ":0",
         "BROWSER": "firefox",
-        "DEX_AGENTS_TERMINAL_UI": "1",
         "DEX_CREDENTIAL": ""
       },
       "terminal_ui_environment": {
