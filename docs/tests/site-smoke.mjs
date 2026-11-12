@@ -161,49 +161,41 @@ assert.doesNotMatch(home, /Toggle color theme/);
 assert.doesNotMatch(home, /github-star-link|github-star-stat|Book a call|Book a demo/);
 assert.doesNotMatch(home, /fonts\.googleapis\.com/);
 
-const siteLinks = [
-  ['Dex Cloud', 'https://superdurable.io/dex-cloud/'],
-  ['Dex Connectors', 'https://connectors.superdurable.io/'],
-  ['Dex Docs', 'https://docs.superdurable.io/'],
-  ['Blog', 'https://superdurable.io/blog/'],
-  ['About', 'https://superdurable.io/about/'],
-];
-const actionLinks = [
+// Row 1: the docs wordmark, search, and icon-only links. Row 2: four section tabs.
+const headerIconLinks = [
+  ['Discord', 'https://discord.gg/V9cMHXts98'],
   ['GitHub', 'https://github.com/superdurable/dex'],
-  ['Log in', 'https://dex.superdurable.io/login'],
-  ['Sign up Cloud', 'https://dex.superdurable.io/register'],
+  ['Dex Cloud', 'https://superdurable.io/dex-cloud/'],
+  ['Super Durable home', 'https://superdurable.io/'],
 ];
 const header = home.match(/<header class="[^"]*\bsd-header\b[\s\S]*?<\/header>/)?.[0] ?? '';
 assert.doesNotMatch(header, /target=|superdurable\.ai/);
-assert.match(header, /<a class="sd-wordmark" aria-label="Super Durable home" href="https:\/\/superdurable\.io\/">/);
-const desktopSites = header.match(/<nav class="sd-nav" aria-label="Primary navigation">[\s\S]*?<\/nav>/)?.[0] ?? '';
-assert.deepEqual(headerLinks(desktopSites), siteLinks);
-assert.equal((desktopSites.match(/aria-current="page"/g) ?? []).length, 1);
-assert.match(desktopSites, /aria-current="page">Dex Docs</);
+assert.doesNotMatch(header, /Dex Connectors|>Blog<|>About<|Log in|Sign up/);
+assert.match(header, /<a class="sd-wordmark" aria-label="Dex Docs home" href="\/">[\s\S]*?<span>Dex Docs<\/span><\/a>/);
+assert.match(header, /<div class="sd-header-search"><div class="navbar__search[^"]*"[^>]*>[\s\S]*?<input placeholder="Search…"/);
 const desktopActions = header.match(/<div class="sd-header-actions">[\s\S]*?<\/div><details class="sd-mobile-menu">/)?.[0] ?? '';
-assert.match(desktopActions, /^<div class="sd-header-actions"><details class="sd-locale">/);
-const githubPillPattern =
-  /<a class="sd-github-link" href="https:\/\/github\.com\/superdurable\/dex"><span class="sd-github-link-name"><svg aria-hidden="true" focusable="false" viewBox="0 0 16 16" width="16" height="16">[\s\S]*?<\/svg>GitHub<\/span><\/a>/;
-assert.match(desktopActions, /<\/details><a class="sd-github-link" href="https:\/\/github\.com\/superdurable\/dex">/);
-assert.match(desktopActions, githubPillPattern);
+assert.match(desktopActions, /^<div class="sd-header-actions"><a class="sd-icon-link"/);
+assert.doesNotMatch(desktopActions, /sd-locale/);
+assert.match(desktopActions, /<button type="button" class="clean-btn sd-icon-link sd-theme-toggle" aria-label="Switch between light and dark"/);
 assert.deepEqual(
-  headerLinks(desktopActions.replace(/<details class="sd-locale">[\s\S]*?<\/details>/, '').replace(githubPillPattern, '')),
-  actionLinks.filter(([label]) => label !== 'GitHub'),
+  [...desktopActions.matchAll(/<a class="sd-icon-link" href="([^"]*)" aria-label="([^"]*)" title="\2">/g)].map((match) => [match[2], match[1]]),
+  headerIconLinks,
 );
-assert.match(
-  desktopActions,
-  /<\/a><a class="sd-quiet-link" href="https:\/\/dex\.superdurable\.io\/login">Log in<\/a><a class="sd-button sd-button-primary sd-button-small" href="https:\/\/dex\.superdurable\.io\/register">Sign up Cloud<\/a><\/div>/,
-);
-assert.doesNotMatch(home, /Book a call/);
 const mobileMenu = header.match(/<details class="sd-mobile-menu">[\s\S]*?<\/details>/)?.[0] ?? '';
 assert.match(mobileMenu, /<summary>Menu<\/summary>/);
-assert.deepEqual(headerLinks(mobileMenu.replace(/<div class="sd-locale-row"[\s\S]*?<\/div>/, '')), [...siteLinks, ...actionLinks]);
-assert.match(mobileMenu, />About<\/a><div class="sd-locale-row" role="group" aria-label="Language">[\s\S]*?<\/div><a href="https:\/\/github\.com\/superdurable\/dex">GitHub</);
-assert.match(mobileMenu, /aria-current="page">Dex Docs</);
-assert.match(
-  mobileMenu,
-  /<a href="https:\/\/dex\.superdurable\.io\/login">Log in<\/a><a class="sd-button sd-button-primary" href="https:\/\/dex\.superdurable\.io\/register">Sign up Cloud<\/a><\/nav>/,
+assert.deepEqual(
+  [...mobileMenu.matchAll(/<a class="sd-mobile-icon-link" href="([^"]*)">(?:<svg[\s\S]*?<\/svg>)([^<]*)<\/a>/g)].map((match) => [match[2], match[1]]),
+  headerIconLinks,
 );
+assert.doesNotMatch(mobileMenu, /sd-locale/);
+const headerTabs = header.match(/<nav class="sd-tabs" aria-label="Docs sections">[\s\S]*?<\/details><\/div><\/nav>/)?.[0] ?? '';
+assert.deepEqual(
+  [...headerTabs.matchAll(/<a class="sd-tab[^"]*"[^>]*? href="([^"]*)"[^>]*>(?:<svg[\s\S]*?<\/svg>)([^<]*)<\/a>/g)].map((match) => [match[2], match[1]]),
+  [['Docs', '/'], ['Quickstart', '/quick-start/'], ['AI Agents', '/agent-frameworks/'], ['Examples', '/use-cases/']],
+);
+assert.match(headerTabs, /<a class="sd-tab sd-tab--active" aria-current="page" href="\/">/);
+// The language switch sits at the end of the tab row and names the current language.
+assert.match(headerTabs, /<\/div><details class="sd-locale"><summary class="sd-locale-summary" aria-label="Language: English">[\s\S]*?<span>English<\/span>/);
 
 const footer = home.match(/<footer class="theme-layout-footer footer[\s\S]*?<\/footer>/)?.[0] ?? '';
 assert.match(footer, /company-footer-brand[\s\S]*?>Super Durable</);
@@ -241,9 +233,11 @@ const sidebarGroupOrder = [
   'Developer Reference',
   'Glossary',
 ];
+// The header's tab row repeats some labels, so the search starts after the header.
+const homeAfterHeader = home.slice(home.indexOf('</header>'));
 let previousGroupPosition = -1;
 for (const label of sidebarGroupOrder) {
-  const position = home.indexOf(`>${label}<`);
+  const position = homeAfterHeader.indexOf(`>${label}<`);
   assert.ok(position > previousGroupPosition, `Sidebar group out of order or missing: ${label}`);
   previousGroupPosition = position;
 }
@@ -252,15 +246,14 @@ for (const retiredLabel of ['Agent Skills', 'Agent Frameworks', 'Product Example
 }
 
 const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
-// The browser fills in the star count, so static HTML must hold neither the count nor its label.
 for (const page of [home, zhHome, cron, zhCron]) {
-  assert.match(page, githubPillPattern);
-  assert.doesNotMatch(page, /sd-github-link-stars|<a class="sd-github-link"[^>]*aria-label/);
+  assert.match(page, /<a class="sd-icon-link" href="https:\/\/github\.com\/superdurable\/dex"/);
+  assert.match(page, /<nav class="sd-tabs"/);
 }
 assert.match(zhHome, /English/);
 assert.match(zhHome, /简体中文/);
 assert.doesNotMatch(zhHome, /superdurable\.ai/);
-for (const label of ['Dex 文档', '博客', '关于', '登录', '注册 Cloud', '菜单', '产品', '开发者', '公司', '快速开始', '引擎对比', '联系我们']) {
+for (const label of ['Dex 文档', '菜单', '文档', '快速开始', 'AI 智能体', '示例', '产品', '开发者', '公司', '引擎对比', '联系我们']) {
   assert.ok(zhHome.includes(label), `Missing Chinese shell label: ${label}`);
 }
 assert.match(zhHome, /href="\/zh-Hans\/quick-start\/"/);

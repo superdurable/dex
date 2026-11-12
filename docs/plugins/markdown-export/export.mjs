@@ -187,6 +187,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
         ? selectLanguage(tree.children, output.language, language => new URL(pagePath(language), siteConfig.url).href, copy)
         : tree.children;
       if (multi && output.language !== languages[0]) children = keepLanguageInLinks(children, output.language, languageFiles);
+      children = resolveSdkQueryLinks(children, languageFiles);
       if (multi) {
         const note = languageNote(output.language, languages, pagePath, siteConfig.url, copy);
         const at = children[0]?.type === 'heading' && children[0].depth === 1 ? 1 : 0;
@@ -371,6 +372,9 @@ async function expandJsx(node, context) {
     return node.type === 'mdxJsxTextElement' ? [image] : [{type: 'paragraph', children: [image]}];
   }
   if (name === 'br') return [{type: 'break'}];
+  if (name === 'div' && /\bdocs-home-sections\b/.test(String(attribute(node, 'className', context) ?? ''))) {
+    return expandDocsSectionGroup(node, context);
+  }
   if (['div', 'span', 'p', 'figure', 'figcaption'].includes(name)) return transformChildren(node.children, context);
   if (['strong', 'b', 'em', 'i'].includes(name)) return [{type: ['strong', 'b'].includes(name) ? 'strong' : 'emphasis',
     children: await transformChildren(node.children, context)}];
@@ -443,11 +447,20 @@ async function expandDocsSection(node, context) {
   if (typeof to !== 'string' || typeof title !== 'string') fail(context, node, 'DocsSection requires string to and title');
   const description = (await transformChildren(node.children, context))
     .flatMap(child => child.type === 'paragraph' ? child.children : [child]);
+  const meta = attribute(node, 'meta', context);
   return [{type: 'paragraph', children: [
     {type: 'link', url: rewriteLink(to, context, node), children: [{type: 'text', value: title}]},
+    ...(typeof meta === 'string' && meta ? [{type: 'text', value: ` (${meta})`}] : []),
     {type: 'text', value: ': '},
     ...description,
   ]}];
+}
+
+// A group of section cards exports as a bullet list, one card per item.
+async function expandDocsSectionGroup(node, context) {
+  const children = await transformChildren(node.children, context);
+  return [{type: 'list', ordered: false, spread: false, children: children.map(child => ({
+    type: 'listItem', spread: false, children: [child]}))}];
 }
 
 async function expandAnchorElement(node, context) {
@@ -586,6 +599,29 @@ function keepLanguageInLinks(nodes, language, languageFiles) {
     }
     if (!Array.isArray(node.children)) return node;
     return {...node, children: keepLanguageInLinks(node.children, language, languageFiles)};
+  });
+}
+
+/**
+ * Turns a link such as `/quick-start.md?sdk=go`, which picks a tab on the website, into that
+ * language's file, `/quick-start.go.md`. A page without that language keeps its default file.
+ *
+ * @returns {object[]} New child nodes with rewritten link URLs.
+ */
+function resolveSdkQueryLinks(nodes, languageFiles) {
+  return nodes.map(node => {
+    if (node.type === 'link' && typeof node.url === 'string' && node.url.includes('sdk=')) {
+      const url = new URL(node.url);
+      const language = url.searchParams.get('sdk');
+      url.searchParams.delete('sdk');
+      const [base, hash] = url.href.split('#');
+      const target = languageFiles.get(base);
+      const path = target && target.languages.includes(language) && target.languages[0] !== language
+        ? languageMarkdownPath(base, language) : base;
+      return {...node, url: path + (hash !== undefined ? `#${hash}` : '')};
+    }
+    if (!Array.isArray(node.children)) return node;
+    return {...node, children: resolveSdkQueryLinks(node.children, languageFiles)};
   });
 }
 

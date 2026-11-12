@@ -7,7 +7,7 @@ description: Pick a starting point by goal. Each path says how long it takes and
 
 # Get Started
 
-Pick a path by your goal. Each row says how long it takes and what you have at the end.
+Pick a path by your goal. Each card says how long it takes and what you have at the end.
 
 :::info What you run
 
@@ -17,15 +17,29 @@ You run Dex Server yourself, next to your own Workers. It stores every Flow in o
 
 ## Choose a path by goal
 
-| Your goal | Start here | Time | What you have at the end |
-| --- | --- | --- | --- |
-| Fix a process that breaks halfway | [Fix a broken process](#fix-a-process) | About 20 minutes for a first visit | A run you stopped and restarted, and a checklist for porting your own process. |
-| See Dex work | [Quick Start](/quick-start) | About 10 minutes | A Flow that survived a stopped Worker without charging twice, on your machine. |
-| Make an agent durable | [Agent Quick Start](/agent-frameworks/quick-start) | About 10 minutes | An agent session in your framework that waited for approval through a Worker restart. |
-| Add Dex to a service | [Your Application](/components/application) | About 15 minutes of reading | The Worker and Client setup and the rules for Flows in a real service. |
-| Let a coding agent write the code | [Build with AI](/build-with-ai/dex-developer-skill) | About 5 minutes to install | Dex Skills in your coding agent, so it writes correct Dex code. |
-| Learn the model first | [Concepts](/concepts) | About 20 minutes of reading | Flow, Step, and the six primitives, and the guarantees Dex gives. |
-| Decide whether Dex fits | [Evaluate Dex](#evaluate-dex) | About 30 minutes of reading | How Dex compares with what you run today, its measured numbers, and its license. |
+<div className="docs-home-sections">
+  <DocsSection section="intro" icon="wrench" to="#fix-a-process" title="Fix a process that breaks halfway" meta="20 min">
+    Why Dex, the Quick Start, then Port Your Process. You end with a run you stopped and restarted, and a porting checklist.
+  </DocsSection>
+  <DocsSection section="intro" icon="rocket" to="/quick-start" title="See Dex work" meta="10 min">
+    The Quick Start. A Flow survives a stopped Worker without charging twice, on your machine.
+  </DocsSection>
+  <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/quick-start" title="Make an agent durable" meta="10 min">
+    The Agent Quick Start. An agent session in your framework waits for approval through a Worker restart.
+  </DocsSection>
+  <DocsSection section="components" icon="plug" to="/components/application" title="Add Dex to a service" meta="15 min">
+    Your Application. The Worker and Client setup, and the rules for Flows in a real service.
+  </DocsSection>
+  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Let a coding agent write the code" meta="5 min">
+    Build with AI. Dex Skills in your coding agent, so it writes correct Dex code.
+  </DocsSection>
+  <DocsSection section="concepts" to="/concepts" title="Learn the model first" meta="20 min">
+    Concepts. Flow, Step, the six primitives, and the guarantees Dex gives.
+  </DocsSection>
+  <DocsSection section="intro" icon="scale" to="#evaluate-dex" title="Decide whether Dex fits" meta="30 min">
+    How Dex compares with what you run today, its measured numbers, and its license.
+  </DocsSection>
+</div>
 
 ## Evaluate Dex {#evaluate-dex}
 
@@ -37,7 +51,7 @@ You run Dex Server yourself, next to your own Workers. It stores every Flow in o
 
 ## Fix a process that breaks halfway {#fix-a-process}
 
-### First visit, about 20 minutes
+### First visit, 20 min
 
 1. [Why Dex?](/intro/what-is-dex) shows a charge that succeeds and a ship call that never runs.
 2. [Quick Start](/quick-start) runs a small version and stops its Worker in the middle.

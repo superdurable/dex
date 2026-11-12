@@ -18,21 +18,9 @@ import redirects from './redirects.json';
 
 const developerReferenceComponents = Object.keys(referenceVersions) as (keyof typeof referenceVersions)[];
 
-// src/theme/Navbar/Content renders left items as the site row and right items as the actions.
+// src/theme/Navbar/Content renders the header itself; only the locale switch comes from themeConfig.
 const companyHeaderNavigation = {
-  sites: [
-    {label: 'Dex Cloud', href: 'https://superdurable.io/dex-cloud/', position: 'left'},
-    {label: 'Dex Connectors', href: 'https://connectors.superdurable.io/', position: 'left'},
-    {label: 'Dex Docs', href: 'https://docs.superdurable.io/', position: 'left', 'aria-current': 'page'},
-    {label: 'Blog', href: 'https://superdurable.io/blog/', position: 'left'},
-    {label: 'About', href: 'https://superdurable.io/about/', position: 'left'},
-  ],
-  actions: [
-    {type: 'localeDropdown', position: 'right'},
-    {label: 'GitHub', href: 'https://github.com/superdurable/dex', position: 'right'},
-    {label: 'Log in', href: 'https://dex.superdurable.io/login', position: 'right'},
-    {label: 'Sign up Cloud', href: 'https://dex.superdurable.io/register', position: 'right', className: 'sd-button sd-button-primary'},
-  ],
+  actions: [{type: 'localeDropdown', position: 'right'}],
   footer: [
     {
       title: 'Products',
@@ -66,7 +54,7 @@ const companyHeaderNavigation = {
       ],
     },
   ],
-} satisfies {sites: NonNullable<Preset.ThemeConfig['navbar']>['items']; actions: NonNullable<Preset.ThemeConfig['navbar']>['items']; footer: NonNullable<Preset.ThemeConfig['footer']>['links']};
+} satisfies {actions: NonNullable<Preset.ThemeConfig['navbar']>['items']; footer: NonNullable<Preset.ThemeConfig['footer']>['links']};
 
 const config: Config = {
   title: 'Super Durable Docs',
@@ -169,6 +157,28 @@ const config: Config = {
     ],
   ],
 
+  clientModules: ['./src/clientModules/sdkFromQuery.ts'],
+
+  themes: [
+    [
+      '@easyops-cn/docusaurus-search-local',
+      {
+        hashed: true,
+        language: ['en', 'zh'],
+        indexDocs: true,
+        indexBlog: false,
+        indexPages: false,
+        docsRouteBasePath: '/',
+        // Older reference snapshots are excluded; the latest reference and every guide are indexed.
+        ignoreFiles: [/^reference\/[^/]+\/\d+\.\d+\.\d+\//],
+        searchBarShortcutHint: true,
+        searchBarPosition: 'left',
+        highlightSearchTermsOnTargetPage: false,
+        explicitSearchResultPath: true,
+      },
+    ],
+  ],
+
   plugins: [
     // Each Developer reference component is its own docs instance, so it can be versioned on its own.
     ...developerReferenceComponents.map((component) => [
@@ -254,6 +264,7 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
+      // The footer brand reads this title; the header wordmark has its own text.
       title: 'Super Durable',
       logo: {
         alt: 'Super Durable',
@@ -261,7 +272,7 @@ const config: Config = {
         href: 'https://superdurable.io/',
         target: '_self',
       },
-      items: [...companyHeaderNavigation.sites, ...companyHeaderNavigation.actions],
+      items: companyHeaderNavigation.actions,
     },
     footer: {
       style: 'light',

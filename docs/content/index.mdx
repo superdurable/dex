@@ -10,16 +10,101 @@ Dex is a **Durable Execution** platform. A database stores your data; Dex also s
 
 You write the process as a **Flow** of **Steps**, and a **Worker** in your service runs the Steps.
 
-**Start here:** the [Quick Start](/quick-start). It takes about 10 minutes.
+<div className="docs-home-actions">
 
-## Pick a path
+[Quick Start · 10 min](/quick-start) [Why Dex?](/intro/what-is-dex)
 
-- **Fix a process that breaks halfway:** [the 20-minute path](/get-started#fix-a-process) through [Why Dex](/intro/what-is-dex), the [Quick Start](/quick-start), and [Port Your Process](/intro/port-your-process).
-- **Evaluate Dex:** [Compared to Database](/intro/compared-to-database), [Compared to Existing Durable Execution](/intro/compared-to-durable-execution), [Limits and Sharp Edges](/intro/limits-and-sharp-edges), [Performance and Maturity](/intro/performance-and-maturity), and [Dex and Your Database](/components/your-database).
-- **Build a durable agent:** [Durable Agents](/agent-frameworks) and the [Agent Quick Start](/agent-frameworks/quick-start).
+</div>
 
-To add Dex to a service you already run, see [Your Application: add Dex to a service](/components/application#add-to-a-service). To have a coding agent write Dex code, see [Build with AI](/build-with-ai/dex-developer-skill). [Get Started](/get-started) lists every path with the time it takes.
+<div className="docs-home-sdks">
+
+Quick Start in [Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [TypeScript](/quick-start?sdk=typescript) [Java](/quick-start?sdk=java) [Rust](/quick-start?sdk=rust)
+
+</div>
+
+## First time here?
+
+<div className="docs-home-sections">
+  <DocsSection section="intro" icon="rocket" to="/quick-start" title="Quick Start" meta="10 min">
+    Run a Flow, stop its Worker, and watch Dex continue it.
+  </DocsSection>
+  <DocsSection section="concepts" to="/concepts" title="Concepts">
+    Flow, Step, and the six primitives.
+  </DocsSection>
+  <DocsSection section="components" icon="plug" to="/components/application#add-to-a-service" title="Add Dex to your app">
+    Run a Worker and a Client in a service you already have.
+  </DocsSection>
+  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Build with AI">
+    Install the Dex Skills so a coding agent writes correct Dex code.
+  </DocsSection>
+</div>
+
+## What are you building?
+
+<div className="docs-home-sections">
+  <DocsSection section="intro" icon="wrench" to="/get-started#fix-a-process" title="Fix a process that breaks halfway" meta="20 min">
+    Why Dex, the Quick Start, then Port Your Process.
+  </DocsSection>
+  <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks" title="Durable agents">
+    Keep your agent framework. Each tool call runs in its own Step, and approvals can wait for days.
+  </DocsSection>
+  <DocsSection section="product-examples" to="/use-cases" title="Business processes">
+    Orders, subscriptions, user onboarding, and money transfer.
+  </DocsSection>
+  <DocsSection section="design-patterns" to="/design-patterns" title="Design patterns">
+    Reusable Flow shapes for parallel work, timers, failures, and messages.
+  </DocsSection>
+</div>
+
+## Evaluating Dex?
+
+<div className="docs-home-sections">
+  <DocsSection section="intro" icon="compare" to="/intro/compared-to-durable-execution" title="Compared to existing durable execution">
+    How Dex differs from replay-based engines, and when another tool fits better.
+  </DocsSection>
+  <DocsSection section="intro" icon="scale" to="/intro/compared-to-database" title="Compared to a database">
+    The same order process on a database and queues, then as a Flow.
+  </DocsSection>
+  <DocsSection section="intro" icon="warning" to="/intro/limits-and-sharp-edges" title="Limits and Sharp Edges">
+    What Dex does not do yet, and the defaults to know before production.
+  </DocsSection>
+  <DocsSection section="intro" icon="gauge" to="/intro/performance-and-maturity" title="Performance and Maturity">
+    Measured throughput and latency, release status, and the license.
+  </DocsSection>
+  <DocsSection section="components" to="/components/your-database" title="Dex and Your Database">
+    How a Step writes to the database you already have, and when to copy Flow data to PostgreSQL.
+  </DocsSection>
+</div>
+
+## Run Dex
+
+<div className="docs-home-sections">
+  <DocsSection section="components" icon="server" to="/components/production" title="Run Dex in Production">
+    The smallest real deployment: one server node, an optional standby, and object storage.
+  </DocsSection>
+  <DocsSection section="components" icon="refresh" to="/concepts/failover-and-deploys" title="Failover and Deploys">
+    What happens when the server or a Worker stops, and how to deploy new code.
+  </DocsSection>
+  <DocsSection section="components" icon="monitor" to="/components/web" title="Dex Web">
+    See Flow runs and act on them.
+  </DocsSection>
+  <DocsSection section="components" to="/components" title="Components">
+    Your application, Dex Server, dexcli, and Dex Web, and how they run together.
+  </DocsSection>
+</div>
 
 ## Reference
 
-[Concepts](/concepts) · [Developer Reference](/reference) · [Design Patterns](/design-patterns) · [Correctness and Expressiveness](/correctness-and-expressiveness) · [Glossary](/glossary)
+<div className="docs-home-sections">
+  <DocsSection section="reference" to="/reference" title="Developer Reference">
+    Versioned details for every SDK, the server, the CLI, Web, and the agents package.
+  </DocsSection>
+  <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
+    A machine-checked proof of what a crash can and cannot change, and what Dex can express.
+  </DocsSection>
+  <DocsSection section="glossary" to="/glossary" title="Glossary">
+    Every Dex term in one place.
+  </DocsSection>
+</div>
+
+To bring your own code over, [Port Your Process](/intro/port-your-process) splits a function into Steps. To run an agent first, use the [Agent Quick Start](/agent-frameworks/quick-start). [Get Started](/get-started) lists every path with the time it takes.

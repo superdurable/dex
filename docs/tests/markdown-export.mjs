@@ -42,6 +42,17 @@ Every admonition keyword is supported.
 
 Jump to <a id="kept-anchor">the anchor text</a> here.
 
+<div className="docs-home-sections">
+  <DocsSection section="intro" icon="rocket" to="/translated" title="Card one" meta="10 min">
+    First card.
+  </DocsSection>
+  <DocsSection section="concepts" to="/translated#stable" title="Card two">
+    Second card.
+  </DocsSection>
+</div>
+
+Pick [Go](/?sdk=go) or [Rust](/?sdk=rust#stable).
+
 <SdkTabs examples={{go: 'examples/go/sample.go'}}>
 <SdkSnippet lang="rust">
 
@@ -191,6 +202,10 @@ try {
   assert.match(home, /https:\/\/docs.example.test\/zh-Hans\/reference\/go\/1.32.md/);
   assert.match(home, /!\[Example\]\(https:\/\/docs.example.test\/img\/example.png\)/);
   assert.match(home, /Jump to <a id="kept-anchor"><\/a>the anchor text here./);
+  // A card group exports as a list: title link, optional meta, then the description.
+  assert.match(home, /\n- \[Card one\]\(https:\/\/docs\.example\.test\/zh-Hans\/translated\.md\) \(10 min\): First card\.\n- \[Card two\]\(https:\/\/docs\.example\.test\/zh-Hans\/translated\.md#stable\): Second card\.\n/);
+  // A ?sdk= link points at that language's file.
+  assert.match(home, /Pick \[Go\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.go\.md\) or \[Rust\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.rust\.md#stable\)\./);
 
   // A page with code in several SDKs gets one Markdown file per language. The default file shows the first
   // language in tab order and has no file of its own; a group without the file's language becomes a one-line note.

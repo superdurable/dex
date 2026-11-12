@@ -62,7 +62,7 @@
   --ifm-background-color: var(--ink);
   --ifm-background-surface-color: var(--surface-solid);
   --ifm-navbar-background-color: var(--header-surface);
-  --ifm-navbar-height: calc(4rem + 1px);
+  --ifm-navbar-height: calc(6.25rem + 2px);
   --ifm-footer-background-color: transparent;
   --ifm-font-family-base: 'Geist', 'Helvetica Neue', Arial, sans-serif;
   --ifm-font-family-monospace: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;

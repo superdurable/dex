@@ -51,9 +51,9 @@
   --sd-on-accent: #070a08;
 }
 
-/* Anchors and focused elements scroll clear of the sticky header (64 px plus its 1 px rule). */
+/* Anchors and focused elements scroll clear of the sticky header: a 3.5 rem row, a 2.75 rem tab row and their rules. */
 html {
-  scroll-padding-top: calc(4rem + 1px);
+  scroll-padding-top: calc(6.25rem + 2px);
 }
 
 /* Docusaurus headings add the navbar height again; keep only its small extra gap. */
@@ -109,11 +109,12 @@ html .anchor {
 }
 
 .sd-header-inner {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, 34rem) minmax(max-content, 1fr);
   align-items: center;
-  gap: 2.5rem;
+  gap: 1.5rem;
   width: min(var(--sd-width), 100% - 2 * var(--sd-gutter));
-  height: 4rem;
+  height: 3.5rem;
   margin-inline: auto;
 }
 
@@ -122,6 +123,7 @@ html .anchor {
   flex-shrink: 0;
   align-items: center;
   gap: 0.55rem;
+  justify-self: start;
   color: var(--sd-text);
   font-size: 1rem;
   font-weight: 600;
@@ -134,40 +136,105 @@ html .anchor {
   height: 28px;
 }
 
-.sd-nav {
+/* Search: one wide box in the middle of the row, styled like the rest of the header. */
+.sd-header-search {
   display: flex;
-  gap: 1.5rem;
+  justify-content: center;
+  min-width: 0;
+}
+
+.sd-header-search .navbar__search {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Search wraps the input in an inline span once the index loads; keep it full width. */
+.sd-header-search .navbar__search > span {
+  display: block !important;
+  width: 100%;
+}
+
+.sd-header-search .navbar__search-input {
+  width: 100%;
+  height: 2.4rem;
+  padding: 0 4.5rem 0 2.4rem;
+  border: 1px solid var(--sd-rule-strong);
+  border-radius: 10px;
+  background: var(--sd-bg);
+  color: var(--sd-text);
+  font: inherit;
   font-size: 0.925rem;
+  cursor: text;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.sd-nav a,
-.sd-quiet-link {
+.sd-header-search .navbar__search-input::placeholder {
+  color: var(--sd-faint);
+}
+
+.sd-header-search .navbar__search-input:hover {
+  border-color: var(--sd-faint);
+}
+
+.sd-header-search .navbar__search svg[class*='searchIcon'] {
+  position: absolute;
+  top: 50%;
+  left: 0.85rem;
+  width: 15px;
+  height: 15px;
   color: var(--sd-muted);
-  white-space: nowrap;
-  transition: color 120ms ease;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
-.sd-nav a:hover,
-.sd-quiet-link:hover {
-  color: var(--sd-text);
+.sd-header-search [class*='searchHintContainer'] {
+  right: 0.7rem;
 }
 
-.sd-nav a[aria-current='page'] {
-  color: var(--sd-text);
-  font-weight: 500;
+.sd-header-search kbd[class*='searchHint'] {
+  border: 1px solid var(--sd-rule-strong);
+  border-radius: 5px;
+  background: var(--sd-bg-alt);
+  box-shadow: none;
+  color: var(--sd-muted);
+  font-family: inherit;
+  font-size: 0.75rem;
 }
 
 .sd-header-actions {
   display: flex;
   align-items: center;
-  gap: 1.25rem;
-  margin-left: auto;
-  font-size: 0.925rem;
+  justify-self: end;
+  gap: 0.25rem;
+}
+
+/* Icon-only header links and the locale switch share one 36 px square. */
+.sd-icon-link {
+  display: inline-grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--sd-muted);
+  cursor: pointer;
+  list-style: none;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.sd-icon-link::-webkit-details-marker {
+  display: none;
+}
+
+.sd-icon-link:hover,
+.sd-locale[open] > .sd-icon-link {
+  background: var(--sd-bg-alt);
+  color: var(--sd-text);
 }
 
 .sd-mobile-menu {
   display: none;
-  margin-left: auto;
+  justify-self: end;
 }
 
 .sd-mobile-menu summary {
@@ -183,19 +250,137 @@ html .anchor {
 
 .sd-mobile-menu nav {
   position: absolute;
-  top: 4rem;
+  top: 3.5rem;
   right: 0;
   left: 0;
+  z-index: 2;
   display: grid;
   gap: 1rem;
-  max-height: calc(100dvh - 4rem);
+  max-height: calc(100dvh - 3.5rem);
   overflow-y: auto;
   padding: 1.25rem var(--sd-gutter) 1.5rem;
   border-bottom: 1px solid var(--sd-rule);
   background: var(--sd-bg);
 }
 
-.sd-mobile-menu nav a[aria-current='page'] {
+.sd-mobile-icon-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--sd-text);
+}
+
+.sd-mobile-icon-link svg {
+  color: var(--sd-muted);
+}
+
+/* Row 2: section tabs with an underline on the active one. */
+.sd-tabs {
+  border-top: 1px solid var(--sd-rule);
+}
+
+.sd-tabs-inner {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  width: min(var(--sd-width), 100% - 2 * var(--sd-gutter));
+  height: 2.75rem;
+  margin-inline: auto;
+}
+
+/* Tabs scroll on their own on narrow screens; the language switch stays at the right. */
+.sd-tabs-scroll {
+  position: relative;
+  display: flex;
+  flex: 1;
+  gap: 1.75rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sd-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.sd-tabs-inner > .sd-locale {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.sd-locale-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--sd-rule-strong);
+  border-radius: 8px;
+  color: var(--sd-text);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.sd-locale-summary:hover,
+.sd-locale[open] > .sd-locale-summary {
+  border-color: var(--sd-faint);
+  background: var(--sd-bg-alt);
+}
+
+.sd-locale-summary svg {
+  color: var(--sd-muted);
+}
+
+.sd-tabs-inner .sd-locale-menu {
+  top: calc(100% - 0.2rem);
+  z-index: 3;
+}
+
+/* The theme switch shows the icon for the theme it switches to. */
+.sd-theme-toggle .sd-theme-icon-sun,
+.sd-mobile-icon-link .sd-theme-icon-sun {
+  display: none;
+}
+
+[data-theme='dark'] .sd-theme-toggle .sd-theme-icon-sun,
+[data-theme='dark'] .sd-mobile-icon-link .sd-theme-icon-sun {
+  display: block;
+}
+
+[data-theme='dark'] .sd-theme-toggle .sd-theme-icon-moon,
+[data-theme='dark'] .sd-mobile-icon-link .sd-theme-icon-moon {
+  display: none;
+}
+
+button.sd-mobile-icon-link {
+  font: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.sd-tab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.45rem;
+  border-bottom: 2px solid transparent;
+  color: var(--sd-muted);
+  font-size: 0.925rem;
+  white-space: nowrap;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.sd-tab:hover {
+  color: var(--sd-text);
+}
+
+.sd-tab--active {
+  border-bottom-color: var(--sd-accent);
+  color: var(--sd-text);
+  font-weight: 500;
+}
+
+.sd-tab--active svg {
   color: var(--sd-accent);
 }
 
@@ -233,15 +418,62 @@ html .anchor {
   color: #e3b341;
 }
 
-/* superdurable.io and connectors collapse at 1120 px; the docs locale switch needs about 80 px more. */
-@media (max-width: 1200px) {
-  .sd-nav,
+/* Narrow screens: wordmark, a search box that grows when focused, and the menu. */
+@media (max-width: 996px) {
+  .sd-header-inner {
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    gap: 0.75rem;
+  }
+
   .sd-header-actions {
     display: none;
   }
 
   .sd-mobile-menu {
     display: block;
+  }
+
+  .sd-header-search {
+    justify-content: flex-end;
+  }
+
+  .sd-header-search [class*='searchHintContainer'] {
+    display: none;
+  }
+
+  .sd-header-search .navbar__search-input {
+    padding-right: 0.75rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .sd-header-search .navbar__search,
+  .sd-header-search .navbar__search > span {
+    width: auto;
+  }
+
+  .sd-header-search .navbar__search-input:not(:focus) {
+    width: 2.4rem;
+    padding: 0;
+    color: transparent;
+  }
+
+  .sd-header-search .navbar__search-input:not(:focus)::placeholder {
+    color: transparent;
+  }
+
+  .sd-header-search .navbar__search-input:focus {
+    width: min(70vw, 18rem);
+  }
+
+  .sd-tabs-scroll {
+    gap: 1.25rem;
+    /* Fades the last tab so it reads as scrollable. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  }
+
+  .sd-tabs-inner {
+    gap: 0.5rem;
   }
 }
 

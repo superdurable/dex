@@ -224,7 +224,7 @@ html[data-theme='dark'] {
   color: var(--docs-heading);
 }
 
-.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry) {
+.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry, .docs-home-actions a, .docs-home-sdks a) {
   color: var(--docs-heading);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--section-accent) 55%, transparent);
@@ -233,7 +233,7 @@ html[data-theme='dark'] {
   transition: color 120ms ease, text-decoration-color 120ms ease;
 }
 
-.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry):hover {
+.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry, .docs-home-actions a, .docs-home-sdks a):hover {
   color: var(--section-accent);
   text-decoration-color: var(--section-accent);
 }
@@ -476,7 +476,7 @@ html[data-theme='dark'] {
 
 /* ---------- Docs home ---------- */
 
-.theme-doc-markdown:has(.docs-home-sections) h1 {
+.theme-doc-markdown:has(.docs-home-actions) h1 {
   background: linear-gradient(100deg, var(--docs-heading) 30%, var(--accent-concepts) 62%, var(--accent-components) 100%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -489,7 +489,74 @@ html[data-theme='dark'] {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
   gap: 0.5rem 1.5rem;
-  margin: 2.25rem 0 1rem;
+  margin: 1rem 0 1.5rem;
+}
+
+/* The home page's two calls to action and the SDK shortcuts under them. */
+.docs-home-actions p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 1.5rem 0 0;
+}
+
+.markdown .docs-home-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.6rem;
+  padding: 0 1.1rem;
+  border: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
+  border-radius: 999px;
+  color: var(--docs-heading);
+  font-weight: 600;
+  text-decoration: none !important;
+}
+
+.markdown .docs-home-actions a:first-child {
+  border-color: var(--sd-accent);
+  background: var(--sd-accent);
+  color: var(--sd-on-accent);
+}
+
+.markdown .docs-home-actions a:hover {
+  text-decoration: none;
+  border-color: var(--sd-accent);
+}
+
+.markdown .docs-home-actions a:first-child:hover {
+  background: var(--sd-accent-hover);
+}
+
+.docs-home-sdks p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.5rem;
+  margin: 1rem 0 0.5rem;
+  color: var(--docs-subtle);
+  font-size: 0.88rem;
+}
+
+.markdown .docs-home-sdks a {
+  padding: 0.2rem 0.65rem;
+  border: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
+  border-radius: 8px;
+  color: var(--docs-text);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.8rem;
+  text-decoration: none !important;
+}
+
+.markdown .docs-home-sdks a:hover {
+  border-color: var(--sd-accent);
+  color: var(--sd-accent);
+  text-decoration: none;
+}
+
+.docs-section-entry__meta {
+  color: var(--section-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .docs-section-entry {
