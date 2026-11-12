@@ -10,6 +10,11 @@ on:
         description: TypeScript SDK release version
         required: true
         type: string
+      run_tests:
+        description: Run the TypeScript SDK test workflow before publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -20,12 +25,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Publishing waits for the TypeScript SDK suite on this exact release commit.
+  # Tests are optional; run_tests=true runs the TypeScript SDK suite on this commit before publishing.
   tests:
     name: TypeScript SDK tests
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.release.tag_name, 'sdk-typescript/v')
+    if: inputs.run_tests
     permissions:
       contents: read
       id-token: write
@@ -83,9 +86,11 @@ jobs:
   publish:
     name: Publish @superdurable/dex
     needs: [native, tests]
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.release.tag_name, 'sdk-typescript/v')
+    if: >-
+      !cancelled() && needs.native.result == 'success'
+      && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
+      && (github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'sdk-typescript/v'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

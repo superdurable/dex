@@ -9,6 +9,11 @@ on:
         description: Server ZD semantic version without the v prefix
         required: true
         type: string
+      run_tests:
+        description: Run the server-zd test workflows before publishing
+        required: false
+        default: false
+        type: boolean
   pull_request:
     paths:
       - .github/workflows/server-zd-binary-release.yml
@@ -22,6 +27,11 @@ on:
         type: boolean
         required: true
         default: true
+      run_tests:
+        description: Run the server-zd test workflows before publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -402,22 +412,26 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  # Publishing waits for the server-zd suites on this exact release commit.
+  # Tests are optional; run_tests=true runs the server-zd suites on this commit before publishing.
   test-server-zd:
     name: Server ZD tests
     needs: metadata
-    if: needs.metadata.outputs.publish == 'true'
+    if: inputs.run_tests && needs.metadata.outputs.publish == 'true'
     uses: ./.github/workflows/server-zd-ci.yml
   test-server-zd-integ:
     name: Server integration tests
     needs: metadata
-    if: needs.metadata.outputs.publish == 'true'
+    if: inputs.run_tests && needs.metadata.outputs.publish == 'true'
     uses: ./.github/workflows/server-zd-integ-ci.yml
 
   publish:
     name: Publish Release assets
-    if: needs.metadata.outputs.publish == 'true'
     needs: [metadata, checksums, test-server-zd, test-server-zd-integ]
+    if: >-
+      !cancelled() && needs.metadata.result == 'success' && needs.checksums.result == 'success'
+      && (needs.test-server-zd.result == 'success' || needs.test-server-zd.result == 'skipped')
+      && (needs.test-server-zd-integ.result == 'success' || needs.test-server-zd-integ.result == 'skipped')
+      && needs.metadata.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -436,7 +450,8 @@ jobs:
   snapshot-reference:
     name: Push released server reference snapshot
     needs: [metadata, publish]
-    if: needs.metadata.outputs.publish == 'true'
+    # Skipped optional tests would otherwise skip this job too.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.metadata.outputs.publish == 'true' }}
     # A snapshot failure must never fail the release run.
     continue-on-error: true
     runs-on: ubuntu-24.04

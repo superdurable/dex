@@ -15,9 +15,9 @@ on:
         default: true
         type: boolean
       run_tests:
-        description: Run the Python SDK suite first; false only when the caller already ran it on this commit
+        description: Run the Python SDK test workflow before publishing
         required: false
-        default: true
+        default: false
         type: boolean
   pull_request:
     paths:
@@ -40,6 +40,11 @@ on:
         required: true
         default: false
         type: boolean
+      run_tests:
+        description: Run the Python SDK test workflow before publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -49,15 +54,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Publishing waits for the Python SDK suite on this exact release commit.
+  # Tests are optional; run_tests=true runs the Python SDK suite on this commit before publishing.
   # Pull requests run that suite in its own workflow.
   tests:
     name: Python SDK tests
-    if: >
-      toJSON(inputs.run_tests) != 'false' && (
-      github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.release.tag_name, 'sdk-python/v'))
+    if: inputs.run_tests
     permissions:
       contents: read
       id-token: write
@@ -227,7 +228,7 @@ jobs:
     if: >-
       !cancelled()
       && needs.prepare.result == 'success' && needs.wheels.result == 'success' && needs.sdist.result == 'success'
-      && (needs.tests.result == 'success' || toJSON(inputs.run_tests) == 'false')
+      && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
       && (github.event_name == 'release' || inputs.publish == true)
     runs-on: ubuntu-latest
     timeout-minutes: 10

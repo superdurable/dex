@@ -14,6 +14,11 @@ on:
         required: true
         default: false
         type: boolean
+      run_tests:
+        description: Run the agents test workflow before publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -27,9 +32,10 @@ env:
   DEXCLI_ARCHIVE: dexcli_v1.46.0_linux_amd64.tar.gz
 
 jobs:
-  # Publishing waits for the agents suite on this exact release commit.
+  # Tests are optional; run_tests=true runs the agents suite on this commit before publishing.
   tests:
     name: Agents tests
+    if: inputs.run_tests
     uses: ./.github/workflows/agents-ci.yml
 
   prepare:
@@ -128,8 +134,11 @@ jobs:
 
   publish:
     name: Publish agents TypeScript packages
-    if: needs.prepare.outputs.publish == 'true'
     needs: [prepare, build, tests]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' && needs.build.result == 'success'
+      && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
+      && needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

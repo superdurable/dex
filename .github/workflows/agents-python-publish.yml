@@ -21,6 +21,11 @@ on:
         required: false
         default: ""
         type: string
+      run_tests:
+        description: Run the agents test workflow before publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -39,9 +44,10 @@ env:
     dex-agents-pydantic-ai-cli dex-agents-deepagents-cli dex-agents-google-adk-cli dex-agents-builtin-cli
 
 jobs:
-  # Publishing waits for the agents suite on this exact release commit.
+  # Tests are optional; run_tests=true runs the agents suite on this commit before publishing.
   tests:
     name: Agents tests
+    if: inputs.run_tests
     uses: ./.github/workflows/agents-ci.yml
 
   prepare:
@@ -143,8 +149,11 @@ jobs:
 
   publish:
     name: Publish agents Python packages
-    if: needs.prepare.outputs.publish == 'true'
     needs: [prepare, build, tests]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' && needs.build.result == 'success'
+      && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
+      && needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
