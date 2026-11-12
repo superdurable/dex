@@ -795,26 +795,25 @@ html[data-theme='dark'] .exec-node {
   }
 }
 
-/* ---------- Coding agent box: one row at the top of every task guide; opens to install and prompt ---------- */
+/* ---------- Coding agent box: a short card at the top of task guides; it opens to install and the full prompt ---------- */
 .coding-agent-box {
+  display: grid;
+  gap: 0.5rem;
   margin: 1rem 0 1.5rem;
+  padding: 0.6rem 0.75rem 0.35rem;
   border: 1px solid color-mix(in srgb, var(--sd-accent) 35%, var(--docs-hairline));
   border-radius: 12px;
   background: color-mix(in srgb, var(--sd-accent) 6%, var(--docs-tint));
 }
 
-.coding-agent-box__summary {
-  display: flex;
+.coding-agent-box > * {
   min-width: 0;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.55rem 0.7rem;
-  cursor: pointer;
-  list-style: none;
 }
 
-.coding-agent-box__summary::-webkit-details-marker {
-  display: none;
+.coding-agent-box__header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .coding-agent-box__icon {
@@ -829,19 +828,10 @@ html[data-theme='dark'] .exec-node {
 }
 
 .coding-agent-box__title {
-  flex: none;
+  min-width: 0;
   color: var(--docs-heading);
   font-size: 0.95rem;
   font-weight: 700;
-}
-
-.coding-agent-box__hint {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--docs-subtle);
-  font-size: 0.85rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .coding-agent-box__copy {
@@ -867,26 +857,6 @@ html[data-theme='dark'] .exec-node {
   color: var(--sd-on-accent);
 }
 
-.coding-agent-box__chevron {
-  flex: none;
-  color: var(--docs-subtle);
-  transition: transform 160ms ease;
-}
-
-.coding-agent-box[open] .coding-agent-box__chevron {
-  transform: rotate(180deg);
-}
-
-.coding-agent-box__body {
-  display: grid;
-  gap: 0.5rem;
-  padding: 0.2rem 0.9rem 0.3rem;
-}
-
-.coding-agent-box__body > * {
-  min-width: 0;
-}
-
 .coding-agent-box__label {
   margin: 0;
   color: var(--docs-subtle);
@@ -898,13 +868,42 @@ html[data-theme='dark'] .exec-node {
 }
 
 .coding-agent-box .theme-code-block {
-  margin-bottom: 0.6rem;
+  margin-bottom: 0;
 }
 
-@media (max-width: 600px) {
-  .coding-agent-box__hint {
-    display: none;
-  }
+/* Closed: the prompt shows its first lines and fades out. */
+.coding-agent-box:not(.coding-agent-box--open) .coding-agent-box__prompt {
+  max-height: 7.8rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+
+.coding-agent-box:not(.coding-agent-box--open) .coding-agent-box__prompt button {
+  display: none;
+}
+
+.coding-agent-box__toggle {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.1rem;
+  border: 0;
+  background: none;
+  color: var(--sd-accent);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.coding-agent-box__chevron {
+  transition: transform 160ms ease;
+}
+
+.coding-agent-box--open .coding-agent-box__chevron {
+  transform: rotate(180deg);
 }
 
 @media (prefers-reduced-motion: reduce) {

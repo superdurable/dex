@@ -24,18 +24,20 @@ const codingAgentHosts = hostData.hosts;
 const copy = {
   en: {
     title: 'Do it with a coding agent',
-    hint: 'Install Dex Skills, then paste a prompt.',
     copy: 'Copy prompt',
     copied: 'Copied',
+    more: 'Show full prompt and setup',
+    less: 'Show less',
     install: 'Install Dex Skills once:',
     other: 'Other hosts',
     prompt: 'Then paste this prompt:',
   },
   'zh-Hans': {
     title: '用编程 Agent 来做',
-    hint: '安装 Dex Skills，然后粘贴提示词。',
     copy: '复制提示词',
     copied: '已复制',
+    more: '显示完整提示词和安装步骤',
+    less: '收起',
     install: '先安装一次 Dex Skills：',
     other: '其他 host',
     prompt: '然后粘贴这段提示词：',
@@ -43,55 +45,60 @@ const copy = {
 };
 
 /**
- * The copy-and-paste box for a coding agent. It stays one row tall: the row copies the page's prompt, and
- * opening it shows the Dex Skills install commands and the prompt.
+ * The copy-and-paste box for a coding agent. Closed, it shows the start of the page's prompt and a copy button;
+ * open, it adds the Dex Skills install commands and the full prompt.
  */
 export default function CodingAgentBox({children}: {children: ReactNode}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const text = i18n.currentLocale === 'zh-Hans' ? copy['zh-Hans'] : copy.en;
-  const bodyRef = useRef<HTMLDivElement>(null);
+  const promptRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
-  const copyPrompt = (event: React.MouseEvent) => {
-    event.preventDefault();
-    const blocks = bodyRef.current?.querySelectorAll('pre');
-    const lastBlock = blocks?.[blocks.length - 1];
+  const copyPrompt = () => {
+    const block = promptRef.current?.querySelector('pre');
     // A highlighted code block renders one span per line, so join them to keep the line breaks.
-    const lines = lastBlock ? Array.from(lastBlock.querySelectorAll('.token-line'), (line) => line.textContent ?? '') : [];
-    const prompt = lines.length > 0 ? lines.join('\n') : (lastBlock?.textContent ?? '');
+    const lines = block ? Array.from(block.querySelectorAll('.token-line'), (line) => line.textContent ?? '') : [];
+    const prompt = lines.length > 0 ? lines.join('\n') : (block?.textContent ?? '');
     navigator.clipboard?.writeText(prompt).then(() => {
       setIsCopied(true);
       window.setTimeout(() => setIsCopied(false), 1600);
     }, () => undefined);
   };
   return (
-    <details className="coding-agent-box">
-      <summary className="coding-agent-box__summary">
+    <aside className={isOpen ? 'coding-agent-box coding-agent-box--open' : 'coding-agent-box'} aria-label={text.title}>
+      <div className="coding-agent-box__header">
         <span className="coding-agent-box__icon" aria-hidden="true">
           <Sparkles size={15} strokeWidth={2.25} />
         </span>
         <span className="coding-agent-box__title">{text.title}</span>
-        <span className="coding-agent-box__hint">{text.hint}</span>
         <button type="button" className="coding-agent-box__copy" onClick={copyPrompt}>
           {isCopied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
           {isCopied ? text.copied : text.copy}
         </button>
-        <ChevronDown className="coding-agent-box__chevron" size={16} aria-hidden="true" />
-      </summary>
-      <div className="coding-agent-box__body" ref={bodyRef}>
-        <p className="coding-agent-box__label">
-          {text.install}{' '}
-          <Link to="/build-with-ai/dex-developer-skill#install-and-use-dex-skills">{text.other}</Link>
-        </p>
-        <Tabs groupId="coding-agent-host" className="coding-agent-box__tabs">
-          {codingAgentHosts.map((host) => (
-            <TabItem key={host.id} value={host.id} label={host.label}>
-              <CodeBlock language="bash">{host.install}</CodeBlock>
-            </TabItem>
-          ))}
-        </Tabs>
-        <p className="coding-agent-box__label">{text.prompt}</p>
+      </div>
+      {isOpen ? (
+        <>
+          <p className="coding-agent-box__label">
+            {text.install}{' '}
+            <Link to="/build-with-ai/dex-developer-skill#install-and-use-dex-skills">{text.other}</Link>
+          </p>
+          <Tabs groupId="coding-agent-host" className="coding-agent-box__tabs">
+            {codingAgentHosts.map((host) => (
+              <TabItem key={host.id} value={host.id} label={host.label}>
+                <CodeBlock language="bash">{host.install}</CodeBlock>
+              </TabItem>
+            ))}
+          </Tabs>
+          <p className="coding-agent-box__label">{text.prompt}</p>
+        </>
+      ) : null}
+      <div className="coding-agent-box__prompt" ref={promptRef}>
         {children}
       </div>
-    </details>
+      <button type="button" className="coding-agent-box__toggle" aria-expanded={isOpen} onClick={() => setIsOpen(!isOpen)}>
+        {isOpen ? text.less : text.more}
+        <ChevronDown className="coding-agent-box__chevron" size={15} aria-hidden="true" />
+      </button>
+    </aside>
   );
 }
