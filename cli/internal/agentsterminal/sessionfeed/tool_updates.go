@@ -84,8 +84,8 @@ type ToolCallChanged struct {
 	OutputText string
 	// ImageCount is how many images the tool returned with its output.
 	ImageCount int
-	// PlanItems are the steps a write_todos call wrote, shown as a checklist
-	// under its row; nil for every other tool.
+	// PlanItems are the steps a write_todos call wrote; nil for other
+	// tools.
 	PlanItems []PlanItem
 }
 

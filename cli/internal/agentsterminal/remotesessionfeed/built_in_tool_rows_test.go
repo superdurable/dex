@@ -17,8 +17,8 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 )
 
-// An ask_user row never shows its JSON result. Live, the answer notice
-// shows the answer; a history row has no notice, so it carries the answer.
+// An ask_user row hides its JSON; only a history row names the
+// answer.
 func TestAskUserRowsHideTheJSONResult(t *testing.T) {
 	output := `{"status":"answered","answer":"green"}`
 	live := liveToolRow(dexagents.AgentToolCall{

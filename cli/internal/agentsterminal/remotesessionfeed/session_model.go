@@ -55,10 +55,10 @@ type sessionModel struct {
 	finishedTurns    map[string]bool
 	turnEndDeadlines map[string]time.Time
 
-	localSends          []localSend
-	// queuedBeforeChat are the texts queued before this chat loaded the
-	// session; they may be this user's, so they carry no origin.
-	queuedBeforeChat []string
+	localSends []localSend
+	// queuedBeforeChat are texts queued before this chat loaded; they
+	// carry no origin.
+	queuedBeforeChat    []string
 	pendingInterrupts   map[string]dexagents.AgentInterrupt
 	ownResolutions      map[string]sessionfeed.InterruptResolution
 	resolvedByEvent     map[string]interruptResolvedPayload

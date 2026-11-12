@@ -589,7 +589,7 @@ func (screen *ChatScreen) contextStatus(now time.Time, spinnerFrame int) (string
 	}
 	text := activityText(screen.turn.activity)
 	if screen.turn.activity == sessionfeed.TurnActivityRunningModel && screen.isWritingReply {
-		text = "writing reply"
+		text = "writing reply…"
 	}
 	if elapsed := now.Sub(screen.turn.startedAt); elapsed >= elapsedTimeDelay {
 		text += " " + formatElapsedSeconds(elapsed)

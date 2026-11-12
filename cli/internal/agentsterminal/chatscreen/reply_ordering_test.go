@@ -30,8 +30,8 @@ func finishedShell(harness *screenHarness) sessionfeed.ToolCallChanged {
 	return call
 }
 
-// The next Step's text streams before the session reports the tool row that
-// it follows as finished; the reply still prints below the row, whole.
+// Text streamed before the finished tool row still prints below it,
+// whole.
 func TestReplyStreamedBeforeTheFinishedToolRowPrintsBelowIt(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{width: 100})
 	startTurn(harness, "Run it.")
@@ -80,6 +80,22 @@ func TestReplyBeforeAToolCallIsNotHeld(t *testing.T) {
 	requireInOrder(t, harness.scrollbackText(), "I'll run", "run_shell_command")
 }
 
+// Late text of the earlier Step prints; text after the tool still
+// waits.
+func TestEarlierStepTextDoesNotReleaseTheHeldReply(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100})
+	startTurn(harness, "Run it.")
+	harness.feed(
+		sessionfeed.AssistantTextDelta{TurnID: "turn-1", StepExecutionID: "step-1", Attempt: 1, Text: "I'll run "},
+		runningShell(harness),
+		sessionfeed.AssistantTextDelta{TurnID: "turn-1", StepExecutionID: "step-2", Attempt: 1, Text: replyAfterTool},
+		sessionfeed.AssistantMessageRecorded{TurnID: "turn-1", StepExecutionID: "step-1", Text: "I'll run it now."},
+	)
+	require.NotContains(t, harness.scrollbackText(), "result: exit 0", "the step-2 reply still waits for the row")
+	harness.feed(finishedShell(harness), sessionfeed.TurnEnded{TurnID: "turn-1"})
+	requireInOrder(t, harness.scrollbackText(), "I'll run", "it now.", "run_shell_command", "result: exit 0")
+}
+
 // A streamed reply and its finished render show the same lines, so nothing
 // jumps when the turn ends.
 func TestSingleNewlinesStayLineBreaksWhenTheReplyFinishes(t *testing.T) {
@@ -118,8 +134,7 @@ func TestStatusSaysWritingReplyWhileTextStreams(t *testing.T) {
 	require.NotContains(t, harness.plainFrame(), "writing reply", "a tool call ends the writing")
 }
 
-// The first reply in a session /new started shows, although the new
-// session's turn IDs repeat the old ones; its turn count starts over.
+// A switched session shows its first reply and counts turns again.
 func TestSwitchedSessionShowsItsFirstReplyAndCountsAgain(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{width: 100})
 	startTurnNumbered(harness, "Third.", "turn-3", 3)
@@ -158,11 +173,13 @@ func TestSwitchedSessionKeepsTheOriginalWelcome(t *testing.T) {
 // The input and the status rows agree that the chat cannot continue.
 func TestStoppedWorkerDisablesTheInput(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{})
-	harness.typeText("draft")
 	harness.feed(sessionfeed.WorkerStateChanged{State: sessionfeed.WorkerStateStopped, ExitCode: 137})
 	frame := harness.plainFrame()
 	require.Contains(t, frame, "Worker stopped")
 	require.Contains(t, frame, "Press any key to exit")
+	require.Contains(t, frame, "› this chat cannot continue", "the input says it is off")
+	dimPrompt := harness.screen.theme.Secondary.Render(harness.screen.theme.Symbols.UserPrompt)
+	require.Contains(t, harness.screen.View().Content, " "+dimPrompt+" ", "the prompt is dim, not the accent color")
 	require.Nil(t, harness.screen.View().Cursor, "the disabled input shows no cursor")
 	harness.press(key(tea.KeyEnter))
 	require.True(t, harness.screen.isExiting)

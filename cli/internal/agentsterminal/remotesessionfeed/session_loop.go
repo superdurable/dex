@@ -276,8 +276,7 @@ func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	loop.scheduleRefresh(delay)
 }
 
-// applyFetchFailure says once per outage that the Dex server is unreachable;
-// other load failures say the session has not loaded yet.
+// applyFetchFailure names an unreachable server once per outage.
 func (loop *sessionLoop) applyFetchFailure(err error) {
 	model := loop.model
 	isServerDown := isUnavailable(err)
@@ -306,8 +305,8 @@ const (
 	historyEventPageCount = 3
 )
 
-// readCancelledTurns returns the turns that the newest retained events show
-// as cancelled, or nil when the events cannot be read.
+// readCancelledTurns returns the turns the newest events show as
+// cancelled, up to the first read error.
 func readCancelledTurns(ctx context.Context, feed *RemoteSessionFeed, sessionID string) map[string]bool {
 	cancelled := map[string]bool{}
 	pageToken := ""

@@ -24,8 +24,7 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-// A message queued before a resumed chat loaded the session may be this
-// user's own, so it never shows as another client's.
+// A message queued before a resumed chat loaded carries no origin.
 func TestMessageQueuedBeforeTheChatCarriesNoOrigin(t *testing.T) {
 	harness := newModelHarness(t)
 	harness.model = newSessionModel(harness.feed, "session-1", 1, true)

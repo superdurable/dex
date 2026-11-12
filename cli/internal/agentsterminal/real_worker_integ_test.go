@@ -303,12 +303,12 @@ func (stack *realWorkerStack) testQueueAndSteer(t *testing.T) {
 	stack.startSession(t, sessionID)
 	chat := stack.openChat(t, sessionID, false)
 	chat.typeText("stall steer-gate\r")
-	chat.waitForScreen("Esc interrupt")
+	chat.waitForFrame("Esc interrupt")
 	chat.typeText("say steered\r")
 	stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
 		return len(snapshot.QueuedMessages) == 1
 	})
-	chat.waitForScreen("Tab acts on it")
+	chat.waitForFrame("Tab acts on it")
 	chat.typeText("\t")
 	time.Sleep(300 * time.Millisecond)
 	chat.typeText("s")
@@ -460,9 +460,9 @@ func (stack *realWorkerStack) testCtrlCCancelsTheTurn(t *testing.T) {
 	})
 	require.True(t, running.State.AcceptsTurnControl)
 	// Ctrl-C cancels only once the chat shows the running turn.
-	chat.waitForScreen("Esc interrupt")
+	chat.waitForFrame("Esc interrupt")
 	chat.typeText("\x03")
-	chat.waitForScreen("cancelling")
+	chat.waitForFrame("cancelling")
 	require.NoError(t, os.WriteFile(filepath.Join(stack.coordination, "cancel-gate.released"), nil, 0o600))
 	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
 	chat.waitForScreen("turn cancelled")
@@ -479,9 +479,9 @@ func (stack *realWorkerStack) testEscCancelsTheTurn(t *testing.T) {
 		_, err := os.Stat(filepath.Join(stack.coordination, "esc-gate.reached"))
 		return err == nil
 	}, realWorkerTimeout, 50*time.Millisecond, "the model Step waits at the gate")
-	chat.waitForScreen("Esc interrupt")
+	chat.waitForFrame("Esc interrupt")
 	chat.typeText("\x1b")
-	chat.waitForScreen("cancelling")
+	chat.waitForFrame("cancelling")
 	require.NoError(t, os.WriteFile(filepath.Join(stack.coordination, "esc-gate.released"), nil, 0o600))
 	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
 	chat.waitForScreen("turn cancelled")
@@ -500,8 +500,7 @@ func (stack *realWorkerStack) testIdleCtrlCExitsOnTheSecondPress(t *testing.T) {
 	chat.waitForHostExit()
 }
 
-// A resumed chat leaves a waiting approval in the pending bar, so the user
-// reads the history before Tab opens it.
+// A resumed chat leaves a waiting approval closed until Tab opens it.
 func (stack *realWorkerStack) testResumeKeepsAWaitingApprovalClosed(t *testing.T) {
 	sessionID := "terminal-ui-resume-approval"
 	stack.startSession(t, sessionID)

@@ -1177,8 +1177,8 @@ func (screen *ChatScreen) handleSwitchKey(keyName string) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// handlePendingBarKey runs the focused pending row's keys. Any other
-// printable key goes back to the input and is typed there.
+// handlePendingBarKey runs the focused row's keys; other printable keys
+// are typed into the input.
 func (screen *ChatScreen) handlePendingBarKey(key tea.KeyPressMsg) tea.Cmd {
 	keyName := key.String()
 	if screen.pendingDelete != nil {
@@ -1581,8 +1581,7 @@ func (screen *ChatScreen) addInterrupt(interrupt pendingInterrupt) {
 	screen.interrupts = append(screen.interrupts, interrupt)
 	switch {
 	case !screen.isSessionLoaded:
-		// It waited before this chat loaded the session: the pending bar
-		// shows it, and the user opens it after reading the history.
+		// It predates loading: the pending bar shows it until Tab opens it.
 	case !screen.isPopupOpen && screen.pendingFocus == pendingFocusNone && !screen.isOtherViewOpen() && screen.input.IsEmpty():
 		screen.openPopup(len(screen.interrupts) - 1)
 	case !screen.isPopupOpen && !screen.input.IsEmpty():
@@ -1660,7 +1659,9 @@ func (screen *ChatScreen) printReplyOutputs(outputs []replyOutput) {
 			screen.heldReplies = append(screen.heldReplies, output)
 			continue
 		}
-		screen.releaseHeldReplies()
+		if !screen.hasRunningToolRow() {
+			screen.releaseHeldReplies()
+		}
 		screen.printReplyOutput(output)
 	}
 }

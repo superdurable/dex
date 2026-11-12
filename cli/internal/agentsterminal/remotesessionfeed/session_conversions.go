@@ -68,8 +68,8 @@ const (
 	writeTodosToolName = "write_todos"
 )
 
-// describeBuiltInToolRow replaces the JSON of ask_user and write_todos rows.
-// A live answer shows in its own notice, so only a history row carries it.
+// describeBuiltInToolRow replaces the JSON of ask_user and write_todos
+// rows; live answers show in a notice.
 func describeBuiltInToolRow(row *sessionfeed.ToolCallChanged, arguments string, isHistory bool) {
 	switch row.ToolName {
 	case askUserToolName:

@@ -10,8 +10,8 @@ package chatscreen
 
 import "github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 
-// noteReplyGroup marks a reply group that starts while a tool row runs.
-// The session often reports the finished row after the next Step's text.
+// noteReplyGroup marks a reply group that starts while a tool row runs;
+// the finished row often comes later.
 func (screen *ChatScreen) noteReplyGroup(key replyGroupKey) {
 	if !screen.replies.HasGroup(key) && screen.hasRunningToolRow() {
 		screen.repliesAfterTools[key] = true
@@ -59,8 +59,8 @@ func (screen *ChatScreen) flushAllReplies() {
 	}
 }
 
-// forgetSessionTurns resets what counts turns, usage, and replies for the
-// session the chat leaves; turn IDs and sequences repeat across sessions.
+// forgetSessionTurns resets turns, usage, and replies on a switch; turn
+// IDs repeat across sessions.
 func (screen *ChatScreen) forgetSessionTurns() {
 	screen.flushAllReplies()
 	screen.replies = newReplyStream()

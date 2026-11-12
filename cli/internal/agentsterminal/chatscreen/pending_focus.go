@@ -52,8 +52,8 @@ func (screen *ChatScreen) focusPendingRow(row pendingRow) {
 	}
 }
 
-// selectedQueuedMessage returns the queued message s and x act on: the
-// selected one, else the last. The queue must not be empty.
+// selectedQueuedMessage returns the message s and x act on: the selected
+// one, else the last.
 func (screen *ChatScreen) selectedQueuedMessage() sessionfeed.QueuedMessage {
 	for _, message := range screen.queuedMessages {
 		if message.MessageID == screen.selectedQueuedMessageID {
@@ -71,8 +71,8 @@ func isPrintableKey(key tea.KeyPressMsg) bool {
 	return key.Text != "" && key.Mod&(tea.ModCtrl|tea.ModAlt) == 0
 }
 
-// scheduleDeferredPopup starts the wait for an interrupt deferred by typing
-// once the input is empty; typing again cancels the wait.
+// scheduleDeferredPopup waits for an empty input to open a deferred
+// interrupt; typing cancels the wait.
 func (screen *ChatScreen) scheduleDeferredPopup() tea.Cmd {
 	if !screen.isPopupDeferredByTyping {
 		return nil

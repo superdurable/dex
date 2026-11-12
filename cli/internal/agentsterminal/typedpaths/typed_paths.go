@@ -74,9 +74,8 @@ func (resolver PathResolver) ResolveTypedPath(text string) (string, error) {
 	return resolver.absolutePath(path)
 }
 
-// ShortenHomePaths writes each path under the home directory in text as ~,
-// the way the rest of the screen shows paths. Only a whole home directory
-// shortens: home /Users/q leaves /Users/qx alone.
+// ShortenHomePaths writes the home directory in text as ~. It shortens
+// only at a path boundary.
 func (resolver PathResolver) ShortenHomePaths(text string) string {
 	home := strings.TrimRight(resolver.homeDirectory, string(filepath.Separator))
 	if home == "" {

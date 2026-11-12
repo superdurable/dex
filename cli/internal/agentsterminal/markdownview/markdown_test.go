@@ -108,8 +108,7 @@ func TestRenderMarkdownTables(t *testing.T) {
 	}, plain(19))
 }
 
-// The streamed reply shows each source line on its own row, so the finished
-// render keeps single newlines instead of joining them.
+// The finished render keeps single newlines, as streaming shows them.
 func TestRenderMarkdownKeepsSingleNewlines(t *testing.T) {
 	theme := terminaltheme.NewTheme(colorprofile.ANSI, true)
 	var plain []string

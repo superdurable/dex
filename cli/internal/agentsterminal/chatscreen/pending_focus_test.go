@@ -41,8 +41,8 @@ func TestPendingBarSelectsTheQueuedMessage(t *testing.T) {
 	require.Equal(t, sessionfeed.DeleteQueuedMessage{MessageID: "message-2"}, harness.lastAction())
 }
 
-// Esc from the delete question gives the input its focus back, so the next
-// letters are text, never steer or delete.
+// Esc from the delete question returns focus to the input, so letters
+// type text.
 func TestEscFromTheDeleteQuestionReturnsToTheInput(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{})
 	queueTwoMessages(harness)
@@ -93,8 +93,7 @@ func TestDeferredApprovalOpensWhenTheInputStaysEmpty(t *testing.T) {
 	require.Empty(t, harness.delayed, "after Esc later the approval stays in the pending bar")
 }
 
-// Interrupts that waited before the chat loaded the session stay in the
-// pending bar, so the user reads the history first.
+// Interrupts pending when the session loads stay in the pending bar.
 func TestInterruptsPendingAtLoadDoNotOpen(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{skipIntro: true})
 	harness.feed(
