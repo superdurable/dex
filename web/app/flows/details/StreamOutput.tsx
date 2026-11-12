@@ -275,6 +275,18 @@ function restoreStreamScrollAnchor(output: HTMLElement, anchor: StreamScrollAnch
   return true;
 }
 
+/** Scrolls the page to the newest messages: the top of the entries, or the end of a transcript. */
+function scrollToLatest(output: HTMLElement, isNewestFirst: boolean) {
+  output.scrollIntoView({ block: isNewestFirst ? 'start' : 'end' });
+}
+
+/** Scrolls the page to the newest messages only when they are out of view, as after a view switch. */
+function showLatestInWindow(output: HTMLElement, isNewestFirst: boolean) {
+  const bounds = streamOutputBoundsOf(output);
+  const isLatestInView = isNewestFirst ? isScrolledToNewestEntry(bounds) : isScrolledToLatest(bounds);
+  if (!isLatestInView) scrollToLatest(output, isNewestFirst);
+}
+
 /** A short relative time such as "just now", "12s ago", or "3m ago". */
 export function formatRelativeTime(createdTime: string | null, nowMilliseconds: number): string {
   if (!createdTime) return '';
@@ -344,22 +356,29 @@ export function StreamOutput({
   const [seenSequenceNumber, setSeenSequenceNumber] = useState(0);
   const newestFirstRecords = useMemo(() => [...records].reverse(), [records]);
 
+  // Refs keep the window listeners registered once per mount and never read a stale render.
+  const isNewestFirstRef = useRef(isNewestFirst);
+  const latestSequenceNumberRef = useRef(latestSequenceNumber);
+  const shownViewRef = useRef(view);
+
   // The page scrolls, not the output, so the reader's place is read from the window.
   const followScrollPosition = useCallback(() => {
     const output = outputRef.current;
     if (!output) return;
     const bounds = streamOutputBoundsOf(output);
     let isAtLatest: boolean;
-    if (isNewestFirst) {
+    if (isNewestFirstRef.current) {
       isAtLatest = isScrolledToNewestEntry(bounds);
       scrollAnchorRef.current = isAtLatest ? null : streamScrollAnchorOf(output);
     } else {
       isAtLatest = isScrolledToLatest(bounds);
-      isFollowingTranscriptEndRef.current = isFollowingTranscriptEnd(bounds);
+      // Scrolling down to the end starts following; following then lasts while the end stays in view.
+      isFollowingTranscriptEndRef.current = isAtLatest
+        && (isFollowingTranscriptEndRef.current || isFollowingTranscriptEnd(bounds));
     }
     setIsFollowingLatest(isAtLatest);
-    if (isAtLatest) setSeenSequenceNumber(latestSequenceNumber);
-  }, [isNewestFirst, latestSequenceNumber]);
+    if (isAtLatest) setSeenSequenceNumber(latestSequenceNumberRef.current);
+  }, []);
 
   useEffect(() => {
     window.addEventListener('scroll', followScrollPosition, { passive: true });
@@ -371,9 +390,16 @@ export function StreamOutput({
   }, [followScrollPosition]);
 
   useLayoutEffect(() => {
+    isNewestFirstRef.current = isNewestFirst;
+    latestSequenceNumberRef.current = latestSequenceNumber;
     const output = outputRef.current;
     if (!output) return;
-    if (isNewestFirst) {
+    if (shownViewRef.current !== view) {
+      shownViewRef.current = view;
+      showLatestInWindow(output, isNewestFirst);
+      scrollAnchorRef.current = null;
+      isFollowingTranscriptEndRef.current = !isNewestFirst;
+    } else if (isNewestFirst) {
       const anchor = scrollAnchorRef.current;
       if (anchor) restoreStreamScrollAnchor(output, anchor);
     } else if (isFollowingTranscriptEndRef.current) {
@@ -381,16 +407,14 @@ export function StreamOutput({
       if (bounds.bottom > bounds.visibleBottom) window.scrollBy(0, bounds.bottom - bounds.visibleBottom);
     }
     followScrollPosition();
-  }, [followScrollPosition, isNewestFirst, records]);
+  }, [followScrollPosition, isNewestFirst, latestSequenceNumber, records, view]);
 
   const pickView = (option: StreamOutputView) => {
     setPickedView(option);
-    scrollAnchorRef.current = null;
-    isFollowingTranscriptEndRef.current = false;
   };
 
   const backToLatest = () => {
-    outputRef.current?.scrollIntoView({ block: isNewestFirst ? 'start' : 'end' });
+    if (outputRef.current) scrollToLatest(outputRef.current, isNewestFirst);
     scrollAnchorRef.current = null;
     isFollowingTranscriptEndRef.current = !isNewestFirst;
     setIsFollowingLatest(true);
