@@ -57,7 +57,7 @@ var transcriptKeys = map[string][]keystrokes{
 	"chat_start_session_conflict":                   {{1, "/new\r"}, {-1, "\x04"}},
 	"chat_start_session_long_id":                    {{1, "/new\r"}, {-1, "\x04"}},
 	"chat_start_session_unknown_then_resent":        {{1, "/new\r"}, {-1, "\x04"}},
-	"chat_host_stopped":                             {{1, "/image {imageA}\r/new\r"}, {-1, "x"}},
+	"chat_host_stopped":                             {{1, "/image {imageA}\r"}, {2, "/new\r"}, {-1, "x"}},
 	"chat_notices_and_worker_states":                {{-1, "\x04"}},
 	"chat_unknown_message_type_ignored":             {{3, "/connectors\r"}, {-1, "\x04"}},
 	"chat_launcher_closed":                          nil,
@@ -67,6 +67,17 @@ var transcriptKeys = map[string][]keystrokes{
 	"launch_too_large":                              nil,
 	"chat_cancel_races_completion":                  {{1, "/image {imageA}\r"}, {-1, "\x04"}},
 	"chat_terminated":                               nil,
+}
+
+// launcherPauses hold the launcher after a step of the test's copy of a
+// transcript, so keys typed then reach dexcli before the next step.
+// chat_host_stopped needs /new submitted before the Worker stops, because a
+// stopped Worker disables the input.
+var launcherPauses = map[string]struct {
+	afterStep    int
+	milliseconds int
+}{
+	"chat_host_stopped": {afterStep: 2, milliseconds: 1500},
 }
 
 // transcriptsOfLaterModes need the sessions and connectors pickers, which
@@ -115,7 +126,8 @@ func buildDexcli(t *testing.T) string {
 			return
 		}
 		builtDexcliPath = filepath.Join(directory, "dexcli")
-		command := exec.Command("go", "build", "-o", builtDexcliPath, "../../cmd/dexcli")
+		// The race detector reports to a file, because dexcli sends stderr away.
+		command := exec.Command("go", "build", "-race", "-o", builtDexcliPath, "../../cmd/dexcli")
 		command.Env = append(os.Environ(), "GOWORK=off")
 		if output, err := command.CombinedOutput(); err != nil {
 			errBuildDexcli = fmt.Errorf("build dexcli: %w\n%s", err, output)
@@ -142,15 +154,31 @@ func playTranscript(t *testing.T, pythonPath string, dexcli string, data []byte,
 		require.NoError(t, os.WriteFile(path, []byte("\x89PNG test bytes"), 0o600))
 	}
 	var transcript struct {
+		Name  string           `json:"name"`
 		Steps []map[string]any `json:"steps"`
 	}
 	require.NoError(t, json.Unmarshal(data, &transcript))
+	if pause, hasPause := launcherPauses[transcript.Name]; hasPause {
+		var document map[string]any
+		require.NoError(t, json.Unmarshal([]byte(rewritten), &document))
+		steps := document["steps"].([]any)
+		pauseStep := map[string]any{"pause_ms": pause.milliseconds, "role": "launcher"}
+		document["steps"] = append(append(append([]any{}, steps[:pause.afterStep+1]...), pauseStep), steps[pause.afterStep+1:]...)
+		encoded, err := json.Marshal(document)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(transcriptPath, encoded, 0o600))
+		// Decode into fresh maps: json reuses the old step maps and keeps their keys.
+		transcript.Steps = nil
+		require.NoError(t, json.Unmarshal(encoded, &transcript))
+	}
 	recordPath := filepath.Join(stateDirectory, "record.jsonl")
 	screenPath := filepath.Join(stateDirectory, "screen.log")
+	racePrefix := filepath.Join(stateDirectory, "race")
 	command := exec.Command(pythonPath, contractHostScript, "launcher",
 		"--transcript", transcriptPath, "--pty", "100x30", "--screen-log", screenPath, "--record", recordPath,
-		"--step-timeout", contractHostStepLimit, "--pty-input-from-stdin", "--", dexcli, "agents-tui")
-	command.Env = []string{"HOME=" + home, "TERM=xterm-256color", "LANG=en_US.UTF-8", "PATH=" + os.Getenv("PATH")}
+		"--step-timeout", contractHostStepLimit, "--pty-input-from-stdin", raceEnvironmentArgument(racePrefix), "--", dexcli, "agents-tui")
+	command.Env = []string{"HOME=" + home, "TERM=xterm-256color", "LANG=en_US.UTF-8", "PATH=" + os.Getenv("PATH"),
+		"DEX_AGENTS_TUI_DEBUG=" + os.Getenv("DEX_AGENTS_TUI_DEBUG")}
 	stdin, err := command.StdinPipe()
 	require.NoError(t, err)
 	var stderr bytes.Buffer
@@ -170,6 +198,7 @@ func playTranscript(t *testing.T, pythonPath string, dexcli string, data []byte,
 		t.Fatalf("the contract host failed: %v\nstderr: %s\nrecord:\n%s\nscreen (last 3000 bytes):\n%q",
 			waitErr, stderr.String(), record, tail(string(screen), 3000))
 	}
+	requireNoRaceReports(t, racePrefix)
 	select {
 	case err := <-typed:
 		require.NoError(t, err)
@@ -212,6 +241,22 @@ func typeKeys(stdin io.Writer, recordPath string, steps []map[string]any, keys [
 		}
 	}
 	return nil
+}
+
+// raceEnvironmentArgument gives dexcli the race detector's log path prefix.
+func raceEnvironmentArgument(racePrefix string) string {
+	return "--extra-env=GORACE=log_path=" + racePrefix
+}
+
+// requireNoRaceReports fails the test when a race-built dexcli reported a race.
+func requireNoRaceReports(t *testing.T, racePrefix string) {
+	t.Helper()
+	reports, err := filepath.Glob(racePrefix + "*")
+	require.NoError(t, err)
+	for _, report := range reports {
+		text, _ := os.ReadFile(report)
+		t.Errorf("dexcli reported a data race:\n%s", text)
+	}
 }
 
 func countLines(path string) int {

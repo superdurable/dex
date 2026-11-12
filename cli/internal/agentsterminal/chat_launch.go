@@ -196,7 +196,7 @@ func runChat(
 		if sendErr := channel.SendReady(); sendErr != nil {
 			debugf("send ready: %v", sendErr)
 		}
-	})
+	}, feed)
 	program := tea.NewProgram(
 		frames,
 		tea.WithContext(chatContext),
@@ -206,7 +206,7 @@ func runChat(
 		tea.WithColorProfile(profile),
 		tea.WithoutSignalHandler(),
 	)
-	signals := newTerminalSignals(program, stdin, frames, feed)
+	signals := newTerminalSignals(program, stdin)
 	signals.Start()
 	_, runErr := program.Run()
 	signals.Stop()
@@ -347,23 +347,30 @@ func silenceStderr() (func(), error) {
 	}, nil
 }
 
+// sessionRefresher reads the session again after the chat resumes.
+type sessionRefresher interface {
+	RequestRefresh()
+}
+
 // readyReporter wraps the chat screen. It sends ready once the first frame
-// with a window size is drawn, and quits on an external signal.
+// with a window size is drawn, quits on an external signal, and suspends on
+// the event loop for SIGTSTP.
 type readyReporter struct {
-	screen   tea.Model
-	onReady  func()
-	hasSize  bool
-	once     sync.Once
-	mutex    sync.Mutex
-	exitCode int
+	screen    tea.Model
+	onReady   func()
+	refresher sessionRefresher
+	hasSize   bool
+	once      sync.Once
+	mutex     sync.Mutex
+	exitCode  int
 }
 
 type externalSignalMsg struct {
 	exitCode int
 }
 
-func newReadyReporter(screen tea.Model, onReady func()) *readyReporter {
-	return &readyReporter{screen: screen, onReady: onReady}
+func newReadyReporter(screen tea.Model, onReady func(), refresher sessionRefresher) *readyReporter {
+	return &readyReporter{screen: screen, onReady: onReady, refresher: refresher}
 }
 
 // Init starts the chat screen.
@@ -381,6 +388,11 @@ func (reporter *readyReporter) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		reporter.exitCode = typed.exitCode
 		reporter.mutex.Unlock()
 		return reporter, tea.Quit
+	case suspendRequestedMsg:
+		return reporter, tea.Exec(typed.command, func(error) tea.Msg { return resumedMsg{} })
+	case resumedMsg:
+		reporter.refresher.RequestRefresh()
+		return reporter, nil
 	}
 	screen, command := reporter.screen.Update(message)
 	reporter.screen = screen

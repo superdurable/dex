@@ -301,7 +301,20 @@ func checkRequest(rules *jsonRules, object map[string]any) {
 	}
 }
 
+// CheckMethodResultJSON decodes a response result, keeping numbers exact,
+// and checks it like CheckMethodResult. Text that is not a JSON object fails
+// with a type violation at the root.
+func CheckMethodResultJSON(method string, result []byte) *SchemaViolation {
+	value, err := decodeJSONValue(result)
+	object, isObject := value.(map[string]any)
+	if err != nil || !isObject {
+		return &SchemaViolation{Keyword: "type"}
+	}
+	return CheckMethodResult(method, object)
+}
+
 // CheckMethodResult checks a response result against #/$defs/<method>_result.
+// Numbers must be json.Number values, as decodeJSONValue makes them.
 // A method that contract 1 does not define passes.
 func CheckMethodResult(method string, result map[string]any) *SchemaViolation {
 	rules := &jsonRules{}

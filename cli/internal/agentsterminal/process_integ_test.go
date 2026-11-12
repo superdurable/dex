@@ -66,7 +66,7 @@ func TestSuspendReleasesAndRetakesTheTerminal(t *testing.T) {
 	screenPath := filepath.Join(stateDirectory, "screen.log")
 	host := exec.Command(pythonPath, contractHostScript, "launcher",
 		"--transcript", transcriptPath, "--pty", "100x30", "--screen-log", screenPath, "--record", recordPath,
-		"--step-timeout", "60", "--pty-input-from-stdin", "--", dexcli, "agents-tui")
+		"--step-timeout", "60", "--pty-input-from-stdin", raceEnvironmentArgument(filepath.Join(stateDirectory, "race")), "--", dexcli, "agents-tui")
 	host.Env = []string{"HOME=" + stateDirectory, "TERM=xterm-256color", "LANG=en_US.UTF-8", "PATH=" + os.Getenv("PATH")}
 	keys, err := host.StdinPipe()
 	require.NoError(t, err)
@@ -102,6 +102,7 @@ func TestSuspendReleasesAndRetakesTheTerminal(t *testing.T) {
 	select {
 	case err := <-hostDone:
 		require.NoError(t, err, "host stderr: %s", hostStderr.String())
+		requireNoRaceReports(t, filepath.Join(stateDirectory, "race"))
 	case <-time.After(20 * time.Second):
 		require.NoError(t, host.Process.Kill())
 		t.Fatal("dexcli did not exit")

@@ -23,14 +23,7 @@ import (
 
 type recordingProgram struct {
 	mutex    sync.Mutex
-	events   []string
 	messages []tea.Msg
-}
-
-func (program *recordingProgram) record(event string) {
-	program.mutex.Lock()
-	defer program.mutex.Unlock()
-	program.events = append(program.events, event)
 }
 
 func (program *recordingProgram) Send(message tea.Msg) {
@@ -39,99 +32,103 @@ func (program *recordingProgram) Send(message tea.Msg) {
 	program.messages = append(program.messages, message)
 }
 
-func (program *recordingProgram) ReleaseTerminal() error {
-	program.record("release")
-	return nil
-}
-
-func (program *recordingProgram) RestoreTerminal() error {
-	program.record("restore")
-	return nil
-}
-
-func (program *recordingProgram) snapshot() ([]string, []tea.Msg) {
+func (program *recordingProgram) sent() []tea.Msg {
 	program.mutex.Lock()
 	defer program.mutex.Unlock()
-	return append([]string(nil), program.events...), append([]tea.Msg(nil), program.messages...)
-}
-
-type countingRefresher struct {
-	count atomic.Int32
-}
-
-func (refresher *countingRefresher) RequestRefresh() {
-	refresher.count.Add(1)
+	return append([]tea.Msg(nil), program.messages...)
 }
 
 // newTestSignals runs the handler on a channel the test feeds, with a fake
 // stop and foreground probe.
-func newTestSignals(t *testing.T, isForeground *atomic.Bool, stops *atomic.Int32) (*terminalSignals, *recordingProgram, *countingRefresher) {
+func newTestSignals(t *testing.T, isForeground *atomic.Bool, stops *atomic.Int32) (*terminalSignals, *recordingProgram) {
 	t.Helper()
 	program := &recordingProgram{}
-	refresher := &countingRefresher{}
-	handler := newTerminalSignals(program, os.Stdin, nil, refresher)
+	handler := newTerminalSignals(program, os.Stdin)
 	handler.isForeground = isForeground.Load
 	handler.stopProcess = func() { stops.Add(1) }
 	handler.wait.Add(1)
 	go handler.run()
 	t.Cleanup(func() {
-		// suspend registers SIGTSTP again; leave no handler behind.
+		// The suspend command registers SIGTSTP again; leave no handler behind.
 		signal.Stop(handler.signals)
 		close(handler.done)
 		handler.wait.Wait()
 	})
-	return handler, program, refresher
+	return handler, program
 }
 
-// SIGTSTP in the foreground: release, stop only this process, then take the
-// terminal back and read the session again.
-func TestSuspendInTheForegroundRestoresAfterContinue(t *testing.T) {
+// suspendCommandOf waits for the program to get the suspend request.
+func suspendCommandOf(t *testing.T, program *recordingProgram) tea.ExecCommand {
+	t.Helper()
+	var command tea.ExecCommand
+	require.Eventually(t, func() bool {
+		for _, message := range program.sent() {
+			if request, isRequest := message.(suspendRequestedMsg); isRequest {
+				command = request.command
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond)
+	return command
+}
+
+// SIGTSTP asks the program to run the suspend command on its event loop; the
+// command stops only this process and returns in the foreground.
+func TestSuspendInTheForegroundReturnsAfterTheStop(t *testing.T) {
 	var isForeground atomic.Bool
 	var stops atomic.Int32
 	isForeground.Store(true)
-	handler, program, refresher := newTestSignals(t, &isForeground, &stops)
+	handler, program := newTestSignals(t, &isForeground, &stops)
 	handler.signals <- syscall.SIGTSTP
-	require.Eventually(t, func() bool { return refresher.count.Load() == 1 }, time.Second, 10*time.Millisecond)
-	events, _ := program.snapshot()
-	require.Equal(t, []string{"release", "restore"}, events)
+	command := suspendCommandOf(t, program)
+	require.NoError(t, command.Run())
 	require.Equal(t, int32(1), stops.Load())
+	handler.signals <- syscall.SIGTSTP
+	require.Eventually(t, func() bool { return len(program.sent()) == 2 }, time.Second, 10*time.Millisecond,
+		"a later SIGTSTP suspends again")
 }
 
-// Continued in the background (bg): the terminal stays untouched until the
-// process is in the foreground again.
-func TestContinueInTheBackgroundLeavesTheTerminalAlone(t *testing.T) {
+// Continued in the background (bg): the command keeps the terminal released
+// until the process is in the foreground again.
+func TestContinueInTheBackgroundWaitsForTheForeground(t *testing.T) {
 	var isForeground atomic.Bool
 	var stops atomic.Int32
-	handler, program, refresher := newTestSignals(t, &isForeground, &stops)
+	handler, program := newTestSignals(t, &isForeground, &stops)
 	handler.signals <- syscall.SIGTSTP
+	command := suspendCommandOf(t, program)
+	returned := make(chan error, 1)
+	go func() { returned <- command.Run() }()
 	handler.signals <- syscall.SIGCONT
-	time.Sleep(3 * foregroundPollInterval / 2)
-	events, _ := program.snapshot()
-	require.Equal(t, []string{"release"}, events, "no raw mode, drawing, or reading in the background")
-	require.Zero(t, refresher.count.Load())
+	handler.signals <- syscall.SIGTSTP
+	select {
+	case <-returned:
+		t.Fatal("the command returned in the background")
+	case <-time.After(3 * foregroundPollInterval / 2):
+	}
+	require.Len(t, program.sent(), 1, "no second suspend while suspended")
 	isForeground.Store(true)
-	require.Eventually(t, func() bool { return refresher.count.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
-	events, _ = program.snapshot()
-	require.Equal(t, []string{"release", "restore"}, events)
+	select {
+	case err := <-returned:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the command did not return in the foreground")
+	}
 }
 
 // External SIGINT, SIGTERM, and SIGHUP become orderly exits with their codes.
 func TestExternalSignalsExitWithTheirCodes(t *testing.T) {
 	var isForeground atomic.Bool
 	var stops atomic.Int32
-	handler, program, _ := newTestSignals(t, &isForeground, &stops)
-	handler.signals <- syscall.SIGINT
-	handler.signals <- syscall.SIGTERM
-	handler.signals <- syscall.SIGHUP
-	require.Eventually(t, func() bool {
-		_, messages := program.snapshot()
-		return len(messages) == 3
-	}, time.Second, 10*time.Millisecond)
-	_, messages := program.snapshot()
-	require.Equal(t, []tea.Msg{
+	handler, program := newTestSignals(t, &isForeground, &stops)
+	for _, received := range []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
+		handler.signals <- received
+	}
+	require.Eventually(t, func() bool { return len(program.sent()) == 3 }, time.Second, 10*time.Millisecond)
+	require.ElementsMatch(t, []tea.Msg{
 		externalSignalMsg{exitCode: exitCodeInterrupted},
 		externalSignalMsg{exitCode: exitCodeTerminated},
 		externalSignalMsg{exitCode: exitCodeHangUp},
-	}, messages)
+	}, program.sent())
 	require.Zero(t, stops.Load())
 }

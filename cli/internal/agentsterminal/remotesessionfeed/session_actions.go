@@ -378,8 +378,7 @@ func (feed *RemoteSessionFeed) imageAttachment(outcome launcherchannel.RequestOu
 			Image json.RawMessage `json:"image"`
 			Name  string          `json:"name"`
 		}
-		var object map[string]any
-		if json.Unmarshal(outcome.Result, &object) != nil || launchcontract.CheckMethodResult(launchcontract.MethodPutImage, object) != nil ||
+		if launchcontract.CheckMethodResultJSON(launchcontract.MethodPutImage, outcome.Result) != nil ||
 			json.Unmarshal(outcome.Result, &result) != nil {
 			feed.notice(sessionfeed.NoticeSeverityError, "Image not attached: the command returned an invalid image reference.")
 			return sessionfeed.ImageAttachment{}, false
@@ -531,8 +530,7 @@ func (feed *RemoteSessionFeed) showConnectors(result json.RawMessage) {
 			IsEnabled bool   `json:"is_enabled"`
 		} `json:"tools"`
 	}
-	var object map[string]any
-	if json.Unmarshal(result, &object) != nil || launchcontract.CheckMethodResult(launchcontract.MethodListConnectors, object) != nil ||
+	if launchcontract.CheckMethodResultJSON(launchcontract.MethodListConnectors, result) != nil ||
 		json.Unmarshal(result, &list) != nil {
 		feed.notice(sessionfeed.NoticeSeverityError, "Connectors not listed: the command returned an invalid list.")
 		return

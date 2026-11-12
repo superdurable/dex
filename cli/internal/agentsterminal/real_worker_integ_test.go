@@ -36,6 +36,7 @@ const (
 	realWorkerFlowType = "TerminalUIRemoteSessionAgent"
 	realWorkerTimeout  = 2 * time.Minute
 	screenWait         = 30 * time.Second
+	approvedPlanReply  = "executed plan"
 )
 
 var (
@@ -68,6 +69,67 @@ func TestChatWithARealPythonWorker(t *testing.T) {
 	t.Run("CtrlCCancelsTheTurn", stack.testCtrlCCancelsTheTurn)
 	t.Run("QuestionAnswer", stack.testQuestionAnswer)
 	t.Run("QueueAndSteer", stack.testQueueAndSteer)
+	t.Run("PlanAndRun", stack.testPlanAndRun)
+	t.Run("ImageThroughPutImage", stack.testImageThroughPutImage)
+}
+
+// /plan asks for a planning turn; /run approves the draft through execute_plan.
+func (stack *realWorkerStack) testPlanAndRun(t *testing.T) {
+	sessionID := "terminal-ui-plan"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("/plan\r")
+	chat.waitForScreen("the next message asks for a plan")
+	chat.typeText("plan write tests | ship it\r")
+	drafted := stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
+		return isIdleAfterTurns(1)(snapshot) && snapshot.Plan != nil && snapshot.Plan.Status == dexagents.PlanStatusDraft
+	})
+	require.Len(t, drafted.Plan.Tasks, 2)
+	require.Equal(t, "drafted 2 tasks", lastAssistantText(drafted))
+	chat.waitForScreen("drafted 2 tasks")
+	// /run needs the plan state, which the next snapshot brings.
+	time.Sleep(time.Second)
+	chat.typeText("/run\r")
+	executed := stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
+		return isIdleAfterTurns(2)(snapshot) && lastAssistantText(snapshot) == approvedPlanReply
+	})
+	require.NotNil(t, executed.Plan)
+	chat.waitForScreen(approvedPlanReply)
+	chat.exit()
+}
+
+// /image stores the file through the launcher's put_image, and the next
+// message carries the returned reference to the Worker unchanged.
+func (stack *realWorkerStack) testImageThroughPutImage(t *testing.T) {
+	sessionID := "terminal-ui-image"
+	stack.startSession(t, sessionID)
+	referenceText, err := os.ReadFile(filepath.Join(stack.coordination, "image-reference.json"))
+	require.NoError(t, err)
+	var reference map[string]any
+	require.NoError(t, json.Unmarshal(referenceText, &reference))
+	imagePath := filepath.Join(t.TempDir(), "dot.png")
+	require.NoError(t, os.WriteFile(imagePath, []byte("\x89PNG stand-in; the launcher side stores images"), 0o600))
+	chat := stack.openChatWithLaunch(t, sessionID, false, chatLaunch{
+		methods:   []string{"put_image"},
+		hasImages: true,
+		launcherSteps: []any{
+			map[string]any{"from": "tui", "message": map[string]any{
+				"type": "request", "id": 1, "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+				"method": "put_image", "params": map[string]any{"path": "/home/user/dot.png"},
+			}, "ignore": []string{"idempotency_key", "params.path"}},
+			map[string]any{"from": "launcher", "message": map[string]any{
+				"type": "response", "id": 1, "result": map[string]any{"image": reference, "name": "dot.png"},
+			}},
+		},
+	})
+	chat.typeText("/image " + imagePath + "\r")
+	chat.waitForScreen("dot.png")
+	time.Sleep(300 * time.Millisecond)
+	chat.typeText("describe\r")
+	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	require.Equal(t, "saw 1 images", lastAssistantText(finished))
+	chat.waitForScreen("saw 1 images")
+	chat.exit()
 }
 
 func (stack *realWorkerStack) testQuestionAnswer(t *testing.T) {
@@ -262,14 +324,31 @@ func (stack *realWorkerStack) testCtrlCCancelsTheTurn(t *testing.T) {
 // launcher that keeps the channel open until dexcli exits.
 type chatRun struct {
 	t          *testing.T
+	racePrefix string
 	keys       io.WriteCloser
 	screenPath string
 	hostDone   chan error
 	hostStderr *bytes.Buffer
 }
 
+// chatLaunch adds launcher methods and the steps the launcher plays after
+// ready to a chat run.
+type chatLaunch struct {
+	methods       []string
+	hasImages     bool
+	launcherSteps []any
+}
+
 func (stack *realWorkerStack) openChat(t *testing.T, sessionID string, isResumed bool) *chatRun {
+	return stack.openChatWithLaunch(t, sessionID, isResumed, chatLaunch{methods: []string{}})
+}
+
+func (stack *realWorkerStack) openChatWithLaunch(t *testing.T, sessionID string, isResumed bool, options chatLaunch) *chatRun {
 	directory := t.TempDir()
+	capabilities := map[string]any{"plan_mode": true, "turn_control": true}
+	if options.hasImages {
+		capabilities["images"] = map[string]any{"max_per_message": 20, "max_bytes": 3750000}
+	}
 	launch := map[string]any{
 		"type": "launch", "contract": 1, "mode": "chat",
 		"command": map[string]any{"name": "dex-agents-test", "harness": "test", "language": "python", "version": "0.0.0"},
@@ -281,19 +360,18 @@ func (stack *realWorkerStack) openChat(t *testing.T, sessionID string, isResumed
 		},
 		"session":      map[string]any{"flow_type": realWorkerFlowType, "session_id": sessionID, "is_resumed": isResumed},
 		"display":      map[string]any{"workspace": "~/workspace"},
-		"methods":      []string{},
-		"capabilities": map[string]any{"plan_mode": true, "turn_control": true},
+		"methods":      options.methods,
+		"capabilities": capabilities,
 		"notices":      []any{},
 		"log_path":     "~/.dex/agents/test.log",
 	}
 	transcript := map[string]any{
 		"name": "real_worker_chat", "description": "Hold the channel open while the test types into dexcli.",
 		"real_roles": []string{"tui"}, "terminal_ui_environment": map[string]any{},
-		"steps": []any{
+		"steps": append(append([]any{
 			map[string]any{"from": "launcher", "message": launch},
 			map[string]any{"from": "tui", "message": map[string]any{"type": "ready"}},
-			map[string]any{"close": "tui"},
-		},
+		}, options.launcherSteps...), map[string]any{"close": "tui"}),
 		"tui_exit": 0,
 	}
 	transcriptPath := filepath.Join(directory, "transcript.json")
@@ -301,10 +379,10 @@ func (stack *realWorkerStack) openChat(t *testing.T, sessionID string, isResumed
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(transcriptPath, encoded, 0o600))
 	recordPath := filepath.Join(directory, "record.jsonl")
-	chat := &chatRun{t: t, screenPath: filepath.Join(directory, "screen.log"), hostDone: make(chan error, 1), hostStderr: &bytes.Buffer{}}
+	chat := &chatRun{t: t, racePrefix: filepath.Join(directory, "race"), screenPath: filepath.Join(directory, "screen.log"), hostDone: make(chan error, 1), hostStderr: &bytes.Buffer{}}
 	host := exec.Command(stack.pythonPath, contractHostScript, "launcher",
 		"--transcript", transcriptPath, "--pty", "110x32", "--screen-log", chat.screenPath, "--record", recordPath,
-		"--step-timeout", "180", "--pty-input-from-stdin", "--", stack.dexcli, "agents-tui")
+		"--step-timeout", "180", "--pty-input-from-stdin", raceEnvironmentArgument(chat.racePrefix), "--", stack.dexcli, "agents-tui")
 	host.Env = []string{"HOME=" + stack.home, "TERM=xterm-256color", "LANG=en_US.UTF-8", "PATH=" + os.Getenv("PATH"),
 		"DEX_AGENTS_TUI_DEBUG=" + os.Getenv("DEX_AGENTS_TUI_DEBUG")}
 	chat.keys, err = host.StdinPipe()
@@ -363,6 +441,7 @@ func (chat *chatRun) exit() {
 	select {
 	case err := <-chat.hostDone:
 		require.NoError(chat.t, err, "the host saw the expected exit")
+		requireNoRaceReports(chat.t, chat.racePrefix)
 	case <-time.After(30 * time.Second):
 		chat.t.Fatal("dexcli did not exit")
 	}

@@ -9,9 +9,11 @@
 package agentsterminal
 
 import (
+	"io"
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,44 +34,43 @@ const (
 // terminalProgram is the part of tea.Program the signal handling uses.
 type terminalProgram interface {
 	Send(message tea.Msg)
-	ReleaseTerminal() error
-	RestoreTerminal() error
 }
 
-// sessionRefresher reads the session again after the chat resumes.
-type sessionRefresher interface {
-	RequestRefresh()
+// suspendRequestedMsg asks the program to release the terminal and run the
+// suspend command on its event loop, as tea.Exec does.
+type suspendRequestedMsg struct {
+	command tea.ExecCommand
 }
+
+// resumedMsg reports that the suspend command returned in the foreground and
+// the program took the terminal back.
+type resumedMsg struct{}
 
 // terminalSignals handles SIGINT, SIGTERM, SIGHUP, SIGTSTP, and SIGCONT for
-// the chat. SIGTSTP releases the terminal and stops only this process;
-// SIGCONT touches the terminal again only in the foreground process group.
+// the chat. SIGTSTP releases the terminal and stops only this process; the
+// terminal is touched again only in the foreground process group.
 type terminalSignals struct {
-	program   terminalProgram
-	terminal  *os.File
-	reporter  *readyReporter
-	refresher sessionRefresher
+	program terminalProgram
 
 	isForeground func() bool
 	stopProcess  func()
 
-	signals chan os.Signal
-	done    chan struct{}
-	wait    sync.WaitGroup
+	signals      chan os.Signal
+	continued    chan struct{}
+	isSuspending atomic.Bool
+	done         chan struct{}
+	wait         sync.WaitGroup
 }
 
-func newTerminalSignals(program terminalProgram, terminal *os.File, reporter *readyReporter, refresher sessionRefresher) *terminalSignals {
-	handler := &terminalSignals{
-		program:   program,
-		terminal:  terminal,
-		reporter:  reporter,
-		refresher: refresher,
-		signals:   make(chan os.Signal, 8),
-		done:      make(chan struct{}),
+func newTerminalSignals(program terminalProgram, terminal *os.File) *terminalSignals {
+	return &terminalSignals{
+		program:      program,
+		isForeground: func() bool { return isForegroundProcessGroup(terminal) },
+		stopProcess:  stopThisProcess,
+		signals:      make(chan os.Signal, 8),
+		continued:    make(chan struct{}, 1),
+		done:         make(chan struct{}),
 	}
-	handler.isForeground = func() bool { return isForegroundProcessGroup(terminal) }
-	handler.stopProcess = stopThisProcess
-	return handler
 }
 
 // Start begins handling the signals.
@@ -88,8 +89,6 @@ func (handler *terminalSignals) Stop() {
 
 func (handler *terminalSignals) run() {
 	defer handler.wait.Done()
-	isReleased := false
-	var foregroundPoll <-chan time.Time
 	for {
 		select {
 		case <-handler.done:
@@ -97,56 +96,61 @@ func (handler *terminalSignals) run() {
 		case received := <-handler.signals:
 			switch received {
 			case syscall.SIGINT:
-				handler.program.Send(externalSignalMsg{exitCode: exitCodeInterrupted})
+				go handler.program.Send(externalSignalMsg{exitCode: exitCodeInterrupted})
 			case syscall.SIGTERM:
-				handler.program.Send(externalSignalMsg{exitCode: exitCodeTerminated})
+				go handler.program.Send(externalSignalMsg{exitCode: exitCodeTerminated})
 			case syscall.SIGHUP:
-				handler.program.Send(externalSignalMsg{exitCode: exitCodeHangUp})
+				go handler.program.Send(externalSignalMsg{exitCode: exitCodeHangUp})
 			case syscall.SIGTSTP:
-				if !isReleased {
-					if err := handler.program.ReleaseTerminal(); err != nil {
-						debugf("release the terminal: %v", err)
-					}
-					isReleased = true
+				if handler.isSuspending.CompareAndSwap(false, true) {
+					go handler.program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler}})
 				}
-				handler.suspend()
-				isReleased = !handler.resumeInForeground()
 			case syscall.SIGCONT:
-				if isReleased {
-					isReleased = !handler.resumeInForeground()
+				select {
+				case handler.continued <- struct{}{}:
+				default:
 				}
 			}
-		case <-foregroundPoll:
-			isReleased = !handler.resumeInForeground()
-		}
-		foregroundPoll = nil
-		if isReleased {
-			foregroundPoll = time.After(foregroundPollInterval)
 		}
 	}
 }
 
-// suspend stops this process with the default SIGTSTP action and returns
-// after SIGCONT. It signals only its own pid, never the process group.
-func (handler *terminalSignals) suspend() {
+// suspendCommand runs on the program's event loop with the terminal
+// released. It stops this process and returns once the process is in the
+// foreground again, so the program never draws or reads in the background.
+type suspendCommand struct {
+	handler *terminalSignals
+}
+
+// Run stops this process with the default SIGTSTP action, signalling only
+// its own pid, then waits for the foreground.
+func (command *suspendCommand) Run() error {
+	handler := command.handler
+	defer handler.isSuspending.Store(false)
 	signal.Reset(syscall.SIGTSTP)
 	handler.stopProcess()
 	signal.Notify(handler.signals, syscall.SIGTSTP)
+	ticker := time.NewTicker(foregroundPollInterval)
+	defer ticker.Stop()
+	for !handler.isForeground() {
+		select {
+		case <-handler.continued:
+		case <-ticker.C:
+		case <-handler.done:
+			return nil
+		}
+	}
+	return nil
 }
 
-// resumeInForeground takes the terminal back when this process is in the
-// foreground process group, and reports whether it did.
-func (handler *terminalSignals) resumeInForeground() bool {
-	if !handler.isForeground() {
-		return false
-	}
-	if err := handler.program.RestoreTerminal(); err != nil {
-		debugf("restore the terminal: %v", err)
-		return false
-	}
-	handler.refresher.RequestRefresh()
-	return true
-}
+// SetStdin is unused: the command reads nothing.
+func (command *suspendCommand) SetStdin(io.Reader) {}
+
+// SetStdout is unused: the command writes nothing.
+func (command *suspendCommand) SetStdout(io.Writer) {}
+
+// SetStderr is unused: the command writes nothing.
+func (command *suspendCommand) SetStderr(io.Writer) {}
 
 func stopThisProcess() {
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTSTP); err != nil {
