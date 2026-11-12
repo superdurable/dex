@@ -80,6 +80,13 @@ auth:
 
 Replace `BUCKET` and `PREFIX` with your bucket and key prefix. The token file lists SHA-256 hashes of the bearer tokens that Workers and Clients send; [Authentication](/reference/server/authentication) shows its format and the JWT option. `cluster.nodeId`, `objectStore.bucket`, and `localStorage.directory` are required, and the node ID and partition count cannot change after the first start. The 60-second lease suits a single node; with hot standbys, keep the 10-second default. [Install and configure server-zd](/reference/server/configuration#minimal-production-configuration) explains every key.
 
+Give each Worker and Client its token through the SDK's `credential` option;
+a file credential rereads the token file, so you can rotate tokens without a
+restart. [Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials)
+lists the option in each SDK. The API port serves plaintext gRPC: put TLS in
+front of it, or keep it on a private network. [TLS](/reference/server/authentication#tls)
+lists the matching SDK option.
+
 ## When something goes wrong
 
 - A Flow that does not advance or that failed:

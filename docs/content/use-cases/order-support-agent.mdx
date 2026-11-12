@@ -480,7 +480,7 @@ export function createVercelAiOrderSupportFlow(
 
 ## Worker {#register-the-worker}
 
-[Wire the session into your app](/agent-frameworks/quick-start#wire-it-into-your-app) lists the pieces your own app needs, with one line on each. The blob cache in this code is a local cache for large Flow values; [Registry and blob cache](/components/application#blob-cache) explains it.
+[Wire the session into your app](/agent-frameworks/in-your-app#wire-it-into-your-app) lists the pieces your own app needs, with one line on each. The blob cache in this code is a local cache for large Flow values; [Registry and blob cache](/components/application#blob-cache) explains it.
 
 One Worker serves the session Flows of every harness in the example. In Python, agent session Steps are async, so the Registry allows async handlers. Build the same session Flow in every process that starts sessions or calls their RPCs. The Registry, Worker, and Client setup is the same for every framework; each tab shows only how that framework's session Flow is built and registered.
 

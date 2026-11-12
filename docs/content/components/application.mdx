@@ -441,6 +441,9 @@ A Worker and a Client fit a stateless container:
 - **Network.** A Worker only opens outbound connections to Dex Server, so its
   container needs no inbound port or load balancer for Dex. Set the server
   address in each process's configuration, such as an environment variable.
+- **Credentials.** When the server requires authentication, mount the token
+  as a file and pass a file credential through the `credential` option. See
+  [Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials).
 - **Blob cache.** The [blob cache](#blob-cache) is a local cache of copies.
   An ephemeral directory, such as the container's scratch disk, is enough.
   Give each process its own directory. A new container starts with an empty

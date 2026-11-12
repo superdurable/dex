@@ -615,12 +615,13 @@ for (const [canonical, {html, route}] of canonicalPages) {
   };
   // Prop-only SdkTabs have no SdkSnippet children here, so the exporter's own test covers them.
   const pageLanguages = sdkOrder.filter(language => groups.some(group => group.has(language)));
-  // A group without the file's language shows its own first language in tab order.
-  const blocksFor = language => groups.flatMap(group => group.get(language) ?? group.get(sdkOrder.find(item => group.has(item))) ?? []);
+  // A group without the file's language becomes a one-line note instead of code.
+  const blocksFor = language => groups.flatMap(group => group.get(language) ?? []);
   if (pageLanguages.length > 1) {
     assert.match(markdown, new RegExp(`^language: "${pageLanguages[0]}"$`, 'm'), `${pathname} must show its first SDK language`);
     assertBlocksInOrder(pathname, codeBlocks, blocksFor(pageLanguages[0]));
-    for (const language of pageLanguages) {
+    // The first language is the page's own .md file; every other language gets page.<language>.md.
+    for (const language of pageLanguages.slice(1)) {
       const languagePath = languageMarkdownPath(pathname, language);
       const languageMarkdown = await readFile(join(root, languagePath.slice(1)), 'utf8');
       assert.match(languageMarkdown, new RegExp(`^language: "${language}"$`, 'm'), `${languagePath} must name its language`);

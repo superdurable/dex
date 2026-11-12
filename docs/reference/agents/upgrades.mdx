@@ -41,10 +41,8 @@ stops every server process, interrupts the calls that are running:
 - A server stop fails every attempt that a Worker had received. A
   single-attempt tool among them records `outcome_unknown`. See
   [Agent tools and server upgrades](/concepts/failover-and-deploys).
-- While no Worker runs, `send_user_message`, `resolve_interrupt`, and the other
-  session RPCs fail with **Unavailable** after 10 seconds. Retry them as
-  [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy)
-  describes.
+- While no Worker runs, session RPCs such as `send_user_message` fail; see
+  [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy).
 
 To keep these to a minimum, stop the Workers gracefully before the upgrade,
 with a drain timeout above your usual tool call time, and check the sessions

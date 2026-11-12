@@ -21,6 +21,8 @@ A small order support agent. It has two tools on an in-memory order desk:
 
 You wrap a plain agent with Dex and ask it to cancel an order. Then you stop the program while the cancellation waits for approval, and again in the middle of a tool call, and check what Dex ran.
 
+The steps run inside a clone of the Dex repository. To start in an empty folder with published packages only, use [the one-file starter](#start-in-an-empty-folder).
+
 <CrashTimeline variant="agent" />
 
 ## Before you start {#before-you-start}
@@ -1023,6 +1025,8 @@ You have run your first durable agent. Its Worker went away in the middle of a c
 
 The steps above run inside a clone of the Dex repository. To start in your own folder instead, use the one-file starter. It is the OpenAI Agents SDK agent from step 2 with its host in the same file, and it imports only published packages. It calls a real model, so it needs `OPENAI_API_KEY`.
 
+Keep `dexcli dev` running in another terminal, then run:
+
 ```bash
 mkdir order-agent && cd order-agent
 python3 -m venv .venv && source .venv/bin/activate
@@ -1032,7 +1036,7 @@ export OPENAI_API_KEY=...
 python agent.py "Cancel order 1002, it was a mistake"
 ```
 
-Keep `dexcli dev` running in another terminal. The program asks **Approve cancel_order? [y/N]** before the write runs. This is the whole file:
+The program asks **Approve cancel_order? [y/N]** before the write runs. This is the whole file:
 
 <SdkTabs
   examples={{
@@ -1202,15 +1206,10 @@ if __name__ == "__main__":
 
 ## Use it in your own agent {#use-it-in-your-own-agent}
 
-[Agents in Your App](/agent-frameworks/in-your-app) has the install line for each framework, the complete files, and how to wire a session into a web app.
+<a id="complete-files"></a>
+<a id="wire-it-into-your-app"></a>
 
-### The complete files {#complete-files}
-
-See [The complete files](/agent-frameworks/in-your-app#complete-files).
-
-### Wire the session into your app {#wire-it-into-your-app}
-
-See [Wire the session into your app](/agent-frameworks/in-your-app#wire-it-into-your-app).
+[Agents in Your App](/agent-frameworks/in-your-app) has the install line for each framework, [the complete files](/agent-frameworks/in-your-app#complete-files), and [how to wire a session into a web app](/agent-frameworks/in-your-app#wire-it-into-your-app).
 
 <a id="web-handler"></a>
 

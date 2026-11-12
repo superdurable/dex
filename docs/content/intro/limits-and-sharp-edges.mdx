@@ -49,11 +49,9 @@ links to the page that covers it.
   records `cluster.partitionCount`, 1024 by default for **serve**, and a
   later start with a different count fails. A partition is one of the fixed
   slices that the server splits its Flows and task queues into; on a one-node
-  cluster the node owns all of them, and the count mainly sets how much each
-  built-in search scans. Most clusters keep the default.
-  Fewer partitions make each SearchFlows call with the built-in search scan
-  less, so choose the count before the first production start if search
-  speed matters. See
+  cluster the node owns all of them. Most clusters keep the default; fewer
+  partitions make each built-in SearchFlows call scan less, so choose the
+  count before the first production start if search speed matters. See
   [Partition count](/reference/server/configuration#single-node-partition-count).
 - **Some upgrades stop the cluster.** Some server releases need every server
   process stopped, standbys included, before the new version starts. Upgrades

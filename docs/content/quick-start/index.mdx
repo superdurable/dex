@@ -25,7 +25,7 @@ The mock API prints each call, so the Worker's output shows which Steps ran. You
 
 - macOS or Linux. `dexcli` does not run on Windows; see [Install dexcli](/components/run-locally#install-dexcli) for WSL 2.
 - `dexcli`: install it with **brew install superdurable/tap/dexcli**, or see [Run Locally](/components/run-locally) to install it without Homebrew.
-- The toolchain for your language: Python 3.11 or later with uv, Go 1.24 or later, JDK 17 or later, Node.js 22.18 or later, or Rust 1.97 or later.
+- The toolchain for your language; [step 1](#1-install-dex-and-get-the-code) names the version.
 - Git, to get the example code.
 - Three terminals: one for `dexcli dev`, one for the Worker, and one to start Flows.
 
@@ -67,6 +67,8 @@ In a second terminal, get the example code:
   }}>
 <SdkSnippet lang="python">
 
+You need Python 3.11 or later, with uv (or pip, as below).
+
 ```bash
 git clone https://github.com/superdurable/dex.git
 cd dex/examples/python/quick-start
@@ -83,6 +85,8 @@ python3 -m venv .venv
 </SdkSnippet>
 <SdkSnippet lang="go">
 
+You need Go 1.24 or later.
+
 ```bash
 git clone https://github.com/superdurable/dex.git
 cd dex/examples/go/quick-start
@@ -90,6 +94,8 @@ cd dex/examples/go/quick-start
 
 </SdkSnippet>
 <SdkSnippet lang="java">
+
+You need JDK 17 or later.
 
 ```bash
 git clone https://github.com/superdurable/dex.git
@@ -100,6 +106,8 @@ cd dex/examples/java/quick-start
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
+You need Node.js 22.18 or later.
+
 ```bash
 git clone https://github.com/superdurable/dex.git
 cd dex/examples/typescript/quick-start
@@ -108,6 +116,8 @@ npm ci
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
+
+You need Rust 1.97 or later.
 
 ```bash
 git clone https://github.com/superdurable/dex.git
@@ -167,6 +177,8 @@ class OrderFlow(Flow[str]):
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.charge).other_steps(self.ship)
 ```
+
+A decision names the next Step by its class: `go_to(Ship, input)`.
 
 </SdkSnippet>
 <SdkSnippet lang="go">
@@ -229,6 +241,8 @@ func (step Ship) Execute(_ dex.Context, orderID string) (*dex.StepDecision, erro
 	return dex.GracefulComplete("shipped " + orderID), nil
 }
 ```
+
+A decision names the next Step by its type: `dex.GoTo` takes an empty `Ship` struct value.
 
 </SdkSnippet>
 <SdkSnippet lang="java">
@@ -295,6 +309,8 @@ public final class OrderFlow implements Flow<String> {
 }
 ```
 
+A decision names the next Step by its class: `StepDecision.goTo(Ship.class, orderId)`.
+
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
@@ -357,6 +373,8 @@ export class OrderFlow implements Flow<string> {
   }
 }
 ```
+
+A decision names the next Step by its class. TypeScript types do not exist at run time, so a Step returns its Step type from `getStepType()`, and a Step whose input is not a JSON object names its codec, such as `stringCodec` for the order ID.
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
@@ -428,14 +446,14 @@ impl Flow for OrderFlow {
 }
 ```
 
+A decision names the next Step with a `Ship` value.
+
 </SdkSnippet>
 </SdkTabs>
 
 The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker. Its `condition_id`, **ship-delay**, names the Timer, so a test or an operator can end the wait early with **skip-timer** instead of waiting it out.
 
 `graceful_complete` (`GracefulComplete` in the other SDKs) ends the Flow successfully once no other Step is running, and returns the Flow's result.
-
-A decision names the next Step by its type. Python, Java, and TypeScript pass the class. Go passes an empty **Ship** struct value, and Rust passes a **Ship** value. TypeScript types do not exist at run time, so a TypeScript Step returns its Step type from `getStepType()`, and a Step whose input is not a JSON object names its codec, such as `stringCodec` for the order ID.
 
 ## 3. Add a Worker and a Client
 
@@ -446,8 +464,6 @@ Both programs build the same Flow and register it in a `Registry`, the list of F
 :::note Details
 
 Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains the other choice.
-
-In Python, Steps can also be **async def** methods. Run them with `AsyncWorker` and a Registry created with `allow_async_handlers=True`; [Python Workers](/reference/python/workers) shows the setup.
 
 The Client uses the registered Flow to name its type and encode the input, so its copy of the mock API is never called. In your own API service, pass stand-ins the same way; see [Start Flows from an API service](/concepts/client#start-from-an-api-service). The SDK Clients have no call that starts a Flow by its type name alone; **dexcli flow start -flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache), which keeps copies of large values.
 
@@ -500,6 +516,8 @@ def main() -> None:
         client.close()
         cache.close()
 ```
+
+Python Steps can also be `async def` methods. Run them with `AsyncWorker` and a Registry created with `allow_async_handlers=True`; [Python Workers](/reference/python/workers) shows the setup.
 
 </SdkSnippet>
 <SdkSnippet lang="go">

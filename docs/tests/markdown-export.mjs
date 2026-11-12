@@ -171,16 +171,17 @@ try {
   assert.match(home, /Jump to <a id="kept-anchor"><\/a>the anchor text here./);
 
   // A page with code in several SDKs gets one Markdown file per language. The default file shows the first
-  // language in tab order, and a group without that language shows its own first language.
+  // language in tab order and has no file of its own; a group without the file's language becomes a one-line note.
   assert.match(home, /\n本页代码为 Python。其他语言：\[Go\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.go\.md\) · \[Java\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.java\.md\) · \[Rust\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.rust\.md\)\n/);
   assert.match(home, /language: "python"/);
   assert.match(home, /```python\nsample = 1\n```/);
   assert.doesNotMatch(home, /```rust\nlet sample = 1;\n```/);
-  assert.match(home, /\*\*Go\*\*\n\n```go\nconst fromChild = 1\n```/);
+  assert.doesNotMatch(home, /const fromChild = 1/);
+  assert.match(home, /这部分没有 Python 版本；见 \[Go 页面\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.go\.md\)。/);
   assert.doesNotMatch(home, /var fromProp/);
   const homeGo = await readFile(join(outDir, 'index.go.md'), 'utf8');
   assert.match(homeGo, /language: "go"/);
-  assert.match(homeGo, /本页代码为 Go。其他语言：\[Python\]/);
+  assert.match(homeGo, /本页代码为 Go。其他语言：\[Python\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.md\)/);
   assert.match(homeGo, /```bash\ngo run .\/sample\n```/);
   assert.match(homeGo, /```go\nconst sample = 1\n```/);
   assert.match(homeGo, /https:\/\/github.com\/superdurable\/dex\/tree\/main\/examples\/go\/sample.go/);
@@ -191,7 +192,7 @@ try {
   assert.match(homeJava, /\*\*Java\*\*\n\n```java\nvar fromProp = 1;\n```\n\n例子: \[examples\/java\/Sample.java\]/);
   const homeRust = await readFile(join(outDir, 'index.rust.md'), 'utf8');
   assert.match(homeRust, /```rust\nlet sample = 1;\n```/);
-  assert.match(await readFile(join(outDir, 'index.python.md'), 'utf8'), /```python\nsample = 1\n```/);
+  await assert.rejects(readFile(join(outDir, 'index.python.md'), 'utf8'), {code: 'ENOENT'});
   for (const file of [home, homeGo, homeJava, homeRust]) assert.doesNotMatch(file, /overridden/);
 
   // Flow graphs read as a numbered list of Steps, start Step first: each Step is one paragraph of plain sentences,

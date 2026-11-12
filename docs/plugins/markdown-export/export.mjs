@@ -58,6 +58,9 @@ const localeCopies = {
     languageNote: 'Pages with code have per-language Markdown: replace .md with .go.md, .java.md, .typescript.md, or .rust.md.',
     codeLanguage: label => `Code on this page is in ${label}. Other languages: `,
     languageSeparator: ' · ',
+    missingLanguage: label => `This part has no ${label} version; see the `,
+    missingLanguagePage: label => `${label} page`,
+    missingLanguageEnd: '.',
     otherPages: 'Other pages',
     admonitions: {note: 'Note', tip: 'Tip', info: 'Info', warning: 'Warning', danger: 'Danger', caution: 'Caution',
       important: 'Important', secondary: 'Secondary', success: 'Success'},
@@ -91,6 +94,9 @@ const localeCopies = {
     languageNote: '含代码的页面有按语言划分的 Markdown：把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。',
     codeLanguage: label => `本页代码为 ${label}。其他语言：`,
     languageSeparator: ' · ',
+    missingLanguage: label => `这部分没有 ${label} 版本；见 `,
+    missingLanguagePage: label => `${label} 页面`,
+    missingLanguageEnd: '。',
     otherPages: '其他页面',
     admonitions: {note: '备注', tip: '提示', info: '信息', warning: '注意', danger: '危险', caution: '警告',
       important: '重要', secondary: '补充', success: '成功'},
@@ -141,6 +147,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
   const entries = new Map();
   const writtenPaths = new Set();
   const movedPages = new Set();
+  const exported = [];
   for (const page of pages) {
     const sourcePath = resolveSiteSource(siteDir, page.source);
     const source = await readFile(sourcePath, 'utf8');
@@ -164,20 +171,28 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
       source: relative(resolve(siteDir, '..'), sourcePath).split('\\').join('/'),
       locale};
     const pathname = markdownPath(page.permalink, baseUrl);
-    // A page with code in several SDKs gets one file per language; the default file shows the first language.
-    const languages = sdkLanguages(tree.children);
-    const outputs = languages.length > 1
-      ? [{path: pathname, language: languages[0]},
-        ...languages.map(language => ({path: languageMarkdownPath(pathname, language), language}))]
-      : [{path: pathname, language: languages[0]}];
+    exported.push({page, tree, leadText, description, frontMatter, pathname, languages: sdkLanguages(tree.children)});
+  }
+  // Pages with code in several SDKs: the default file shows the first language, and each other
+  // language gets its own file. Links in a language file keep the reader's language where they can.
+  const languageFiles = new Map(exported.filter(item => item.languages.length > 1)
+    .map(item => [new URL(item.pathname, siteConfig.url).href, item]));
+  for (const {page, tree, leadText, description, frontMatter, pathname, languages} of exported) {
+    const multi = languages.length > 1;
+    const outputs = [{path: pathname, language: languages[0]},
+      ...(multi ? languages.slice(1).map(language => ({path: languageMarkdownPath(pathname, language), language})) : [])];
     for (const output of outputs) {
-      const children = output.language ? selectLanguage(tree.children, output.language) : tree.children;
-      if (languages.length > 1) {
-        const note = languageNote(output.language, languages, pathname, siteConfig.url, copy);
+      const pagePath = language => language === languages[0] ? pathname : languageMarkdownPath(pathname, language);
+      let children = output.language
+        ? selectLanguage(tree.children, output.language, language => new URL(pagePath(language), siteConfig.url).href, copy)
+        : tree.children;
+      if (multi && output.language !== languages[0]) children = keepLanguageInLinks(children, output.language, languageFiles);
+      if (multi) {
+        const note = languageNote(output.language, languages, pagePath, siteConfig.url, copy);
         const at = children[0]?.type === 'heading' && children[0].depth === 1 ? 1 : 0;
         children.splice(at, 0, note);
       }
-      const fields = languages.length > 1 ? {...frontMatter, language: output.language} : frontMatter;
+      const fields = multi ? {...frontMatter, language: output.language} : frontMatter;
       const yaml = Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
       const hasTitle = children.some(node => node.type === 'heading' && node.depth === 1);
       const markdown = `---\n${yaml}\n---\n\n${hasTitle ? '' : `# ${page.title}\n\n`}${writer.stringify({...tree, children})}`;
@@ -499,13 +514,39 @@ function sdkLanguages(nodes) {
 /**
  * Replaces each SdkTabs group with the snippet for one language.
  *
- * @returns {object[]} New child nodes. A group without that language shows its first language in tab order.
+ * @returns {object[]} New child nodes. A group without that language becomes a one-line note that links its
+ *   first language's file.
  */
-function selectLanguage(nodes, language) {
+function selectLanguage(nodes, language, pageUrl, copy) {
   return nodes.flatMap(node => {
-    if (node.type === sdkGroupType) return node.variants[language] ?? Object.values(node.variants)[0];
+    if (node.type === sdkGroupType) {
+      if (node.variants[language]) return node.variants[language];
+      const other = Object.keys(node.variants)[0];
+      return [{type: 'paragraph', children: [text(copy.missingLanguage(sdkLabels[language])),
+        {type: 'link', url: pageUrl(other), children: [text(copy.missingLanguagePage(sdkLabels[other]))]}, text(copy.missingLanguageEnd)]}];
+    }
     if (!Array.isArray(node.children)) return [node];
-    return [{...node, children: selectLanguage(node.children, language)}];
+    return [{...node, children: selectLanguage(node.children, language, pageUrl, copy)}];
+  });
+}
+
+/**
+ * Points links at another page's file for the same SDK language, when that page has one.
+ *
+ * @returns {object[]} New child nodes with rewritten link URLs.
+ */
+function keepLanguageInLinks(nodes, language, languageFiles) {
+  return nodes.map(node => {
+    if (node.type === 'link' && typeof node.url === 'string') {
+      const [base, hash] = node.url.split('#');
+      const target = languageFiles.get(base);
+      if (target && target.languages.includes(language) && target.languages[0] !== language) {
+        const url = languageMarkdownPath(base, language) + (hash !== undefined ? `#${hash}` : '');
+        return {...node, url, children: keepLanguageInLinks(node.children ?? [], language, languageFiles)};
+      }
+    }
+    if (!Array.isArray(node.children)) return node;
+    return {...node, children: keepLanguageInLinks(node.children, language, languageFiles)};
   });
 }
 
@@ -514,10 +555,10 @@ export function languageMarkdownPath(pathname, language) {
   return pathname.replace(/\.md$/, `.${language}.md`);
 }
 
-function languageNote(language, languages, pathname, siteUrl, copy) {
+function languageNote(language, languages, pagePath, siteUrl, copy) {
   const links = languages.filter(item => item !== language).flatMap((item, index) => [
     ...(index ? [text(copy.languageSeparator)] : []),
-    {type: 'link', url: new URL(languageMarkdownPath(pathname, item), siteUrl).href, children: [text(sdkLabels[item])]},
+    {type: 'link', url: new URL(pagePath(item), siteUrl).href, children: [text(sdkLabels[item])]},
   ]);
   return {type: 'paragraph', children: [text(copy.codeLanguage(sdkLabels[language])), ...links]};
 }
