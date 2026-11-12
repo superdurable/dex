@@ -266,7 +266,7 @@ SDK 参考中的 [Timeouts and total duration](/reference/go/step-options#timeou
 - Flow 只调用一次时，用 Flow ID 加调用的名字，例如 **charge-order-1042**；
 - 同一个 Flow 里这个 Step 会运行多次时，用 Flow ID 加 `StepExecutionID`，例如 `order-1042/Charge-2`。
 
-只用重试时保持不变的值构造键。attempt 编号、时间和随机值都会变。其他页面都链接到这里，而不是重复这条规则。
+attempt 编号、时间和随机值每次重试都会变，所以不要放进键里。其他页面都链接到这里，而不是重复这条规则。
 
 ### 进阶保证 {#advanced-guarantees}
 
