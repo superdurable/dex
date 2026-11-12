@@ -10,6 +10,9 @@ export {
   buildConnectorToolApprovalDisplay,
   isCredentialLikeName,
   maxApprovalPreviewBytes,
+  maxApprovalSummaryBytes,
+  maxApprovalTargetBytes,
+  redactInlineCredentials,
   redactedArgumentValue,
   type ConnectorToolApprovalDisplayInput,
 } from "./agent-approval-display.js";

@@ -1306,9 +1306,13 @@ for (const interrupt of snapshot.pendingInterrupts) {
 - The CLI's local file writes name the workspace path and carry a unified diff against the file as it is when the
   model asks; its header lines say so. Its shell commands name the working directory and the full command.
 - A display never says how often the call runs or what it achieves, and never uses a tool's description as its
-  effect. A credential-like argument (`isCredentialLikeName`) shows `<redacted>`.
-- The session drops a preview over `maxApprovalPreviewBytes` (16 KiB). A tool without a display, and every
-  approval a Worker before 0.6.0 raised, has `display` `null`: show the concrete arguments, not a guessed effect.
+  effect. A credential-like argument (`isCredentialLikeName`) shows `<redacted>`, and `redactInlineCredentials`
+  replaces credentials written inline, such as `Bearer` values, URL passwords, and `TOKEN=…` assignments. It finds
+  common forms only; `agents/conformance/approval_display.json` lists the cases both cores share.
+- The session cuts a target over `maxApprovalTargetBytes` (1 KiB) and a summary over `maxApprovalSummaryBytes`
+  (2 KiB), ending them with `…`, and drops a preview over `maxApprovalPreviewBytes` (16 KiB). A tool without a
+  display, and every approval a Worker before 0.6.0 raised, has `display` `null`: show the concrete arguments, not a
+  guessed effect.
 
 ## Showing sessions in Dex Web
 

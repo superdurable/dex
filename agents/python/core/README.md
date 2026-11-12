@@ -1284,9 +1284,15 @@ for interrupt in snapshot.pending_interrupts:
   shell commands name the working directory and the full command.
 - A display never says how often the call runs or what it achieves, and never
   uses a tool's description as its effect. A credential-like argument
-  (`is_credential_like_name`) shows `<redacted>`.
-- The session drops a preview over `MAX_APPROVAL_PREVIEW_BYTES` (16 KiB). A
-  tool without a display, and every approval a Worker before 0.6.0 raised, has
+  (`is_credential_like_name`) shows `<redacted>`, and
+  `redact_inline_credentials` replaces credentials written inline, such as
+  `Bearer` values, URL passwords, and `TOKEN=…` assignments. It finds common
+  forms only; `agents/conformance/approval_display.json` lists the cases both
+  cores share.
+- The session cuts a target over `MAX_APPROVAL_TARGET_BYTES` (1 KiB) and a
+  summary over `MAX_APPROVAL_SUMMARY_BYTES` (2 KiB), ending them with `…`,
+  and drops a preview over `MAX_APPROVAL_PREVIEW_BYTES` (16 KiB). A tool
+  without a display, and every approval a Worker before 0.6.0 raised, has
   `display` `None`: show the concrete arguments, not a guessed effect.
 
 ## Showing sessions in Dex Web

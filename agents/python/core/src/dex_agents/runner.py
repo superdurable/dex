@@ -323,10 +323,12 @@ class DeferredToolCall:
             ``AgentInterrupt.display`` when it raises the approval; it ignores
             it for other calls. Build it from the call's concrete arguments:
             name the target and what the call does to it, show a
-            credential-like argument as ``"<redacted>"``, and never promise
-            how often the call runs or what it achieves. The session drops a
-            preview over
-            ``dex_agents.approval_display.MAX_APPROVAL_PREVIEW_BYTES``. The
+            credential-like argument as ``"<redacted>"`` and pass shown text
+            through ``redact_inline_credentials``, and never promise how often
+            the call runs or what it achieves. The session cuts a target over
+            ``MAX_APPROVAL_TARGET_BYTES`` and a summary over
+            ``MAX_APPROVAL_SUMMARY_BYTES`` and drops a preview over
+            ``MAX_APPROVAL_PREVIEW_BYTES``. The
             CLI's local tools, the CLI's connector tools, and
             ``ConnectorToolSource`` set it. For example,
             ``AgentInterruptDisplay(target="orders/42", summary="Cancels order 42.")``.

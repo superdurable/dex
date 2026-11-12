@@ -19,6 +19,8 @@ from dex_agents import (
     APPROVAL_DEADLINE_PASSED,
     FRAMEWORK_RUN_STATE,
     MAX_APPROVAL_PREVIEW_BYTES,
+    MAX_APPROVAL_SUMMARY_BYTES,
+    MAX_APPROVAL_TARGET_BYTES,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     PENDING_INTERRUPTS,
     TURN_FAILURE_NOTE_FOOTER,
@@ -124,6 +126,7 @@ async def test_an_approval_carries_its_sources_display_in_the_interrupt_record_a
         {"message": "shown", "display": {**display, "preview": "Subject: Order 7"}},
         {"message": "big", "display": {**display, "preview": MAX_APPROVAL_PREVIEW_BYTES + 1}},
         {"message": "plain"},
+        {"message": "huge", "display": {"target": 2_000, "summary": 100_000}},
     ]
     await harness.sessions.start_session(
         session_id, " && ".join(f"call publish {json.dumps(call)}" for call in calls)
@@ -131,10 +134,15 @@ async def test_an_approval_carries_its_sources_display_in_the_interrupt_record_a
     waiting = await wait_for_agent_snapshot(
         harness.sessions,
         session_id,
-        lambda snapshot: snapshot if len(snapshot.pending_interrupts) == 3 else None,
-        description="three approvals",
+        lambda snapshot: snapshot if len(snapshot.pending_interrupts) == 4 else None,
+        description="four approvals",
     )
-    shown, big, plain = waiting.pending_interrupts
+    shown, big, plain, huge = waiting.pending_interrupts
+    # The session cuts a long target and summary, so a display never grows the records by much.
+    assert huge.display == AgentInterruptDisplay(
+        target="x" * (MAX_APPROVAL_TARGET_BYTES - 3) + "…",
+        summary="x" * (MAX_APPROVAL_SUMMARY_BYTES - 3) + "…",
+    )
     expected = AgentInterruptDisplay(**display, preview="Subject: Order 7")
     assert shown.display == expected
     # The session keeps the target and summary but drops a preview over the bound.
@@ -150,6 +158,7 @@ async def test_an_approval_carries_its_sources_display_in_the_interrupt_record_a
         {**display, "preview": "Subject: Order 7"},
         {**display, "preview": None},
         None,
+        {"target": huge.display.target, "summary": huge.display.summary, "preview": None},
     ]
     for interrupt in waiting.pending_interrupts:
         assert await harness.sessions.resolve_interrupt(

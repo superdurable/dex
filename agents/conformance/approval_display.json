@@ -1,0 +1,362 @@
+{
+  "description": "Approval displays: which names hold credentials, inline credential redaction, connector summaries, and the CLI cores' credential files, file write previews, and shell summaries. Hand-written for the Python and TypeScript cores and CLI cores; '<redacted>' is the redaction text.",
+  "credential_names": {
+    "credential": [
+      "credentials",
+      "credential",
+      "creds",
+      "password",
+      "passwd",
+      "pass",
+      "pwd",
+      "passphrase",
+      "secret",
+      "secrets",
+      "client_secret",
+      "clientSecret",
+      "token",
+      "tokens",
+      "access_token",
+      "refreshToken",
+      "id_token",
+      "auth",
+      "authorization",
+      "Proxy-Authorization",
+      "api_key",
+      "apikey",
+      "apiKey",
+      "X-Api-Key",
+      "APIKey",
+      "key",
+      "private_key",
+      "privateKey",
+      "cookie",
+      "set-cookie",
+      "Cookies",
+      "session",
+      "sessionId",
+      "sessionid",
+      "signature",
+      "dsn",
+      "SENTRY_DSN",
+      "connection_string",
+      "DATABASE_CONNECTION_STRING",
+      "connStr",
+      "jwt",
+      "otp",
+      "bearer",
+      "db.password",
+      "GITHUB_TOKEN",
+      "PGPASSWORD",
+      "MYTOKEN",
+      "ciToken"
+    ],
+    "not_credential": [
+      "channel",
+      "text",
+      "monkey",
+      "keys",
+      "keyword",
+      "tokenizer",
+      "author",
+      "passenger",
+      "compass",
+      "bypass",
+      "thread",
+      "connection",
+      "string",
+      "sessions",
+      "signed",
+      "amount",
+      ""
+    ]
+  },
+  "inline_credentials": [
+    {
+      "text": "echo hello",
+      "redacted": "echo hello"
+    },
+    {
+      "text": "curl -H \"Authorization: Bearer abc123456\" https://api.example.com/v1",
+      "redacted": "curl -H \"Authorization: Bearer <redacted>\" https://api.example.com/v1"
+    },
+    {
+      "text": "curl -H 'X-Api-Key: k-123' https://api.example.com",
+      "redacted": "curl -H 'X-Api-Key: <redacted>' https://api.example.com"
+    },
+    {
+      "text": "curl -u alice:wonderland https://api.example.com",
+      "redacted": "curl -u alice:<redacted> https://api.example.com"
+    },
+    {
+      "text": "curl --user=alice:wonderland https://api.example.com",
+      "redacted": "curl --user=alice:<redacted> https://api.example.com"
+    },
+    {
+      "text": "psql postgres://admin:hunter2@db.example.com/app",
+      "redacted": "psql postgres://admin:<redacted>@db.example.com/app"
+    },
+    {
+      "text": "export API_KEY=abc123 && ./deploy",
+      "redacted": "export API_KEY=<redacted> && ./deploy"
+    },
+    {
+      "text": "DB_PASSWORD=\"two words\" ./run",
+      "redacted": "DB_PASSWORD=\"<redacted>\" ./run"
+    },
+    {
+      "text": "mysql -u root --password=topsecret app",
+      "redacted": "mysql -u root --password=<redacted> app"
+    },
+    {
+      "text": "gh auth login --token ghp_abcdefghijklmnopqrstuvwxyz0123",
+      "redacted": "gh auth login --token <redacted>"
+    },
+    {
+      "text": "tool --api-key abc --verbose",
+      "redacted": "tool --api-key <redacted> --verbose"
+    },
+    {
+      "text": "curl https://api.example.com/items?token=t1&page=2&key=k2",
+      "redacted": "curl https://api.example.com/items?token=<redacted>&page=2&key=<redacted>"
+    },
+    {
+      "text": "aws s3 ls # AKIAABCDEFGHIJKLMNOP",
+      "redacted": "aws s3 ls # <redacted>"
+    },
+    {
+      "text": "SLACK=xoxb-1234567890-abcdef node bot.js",
+      "redacted": "SLACK=<redacted> node bot.js"
+    },
+    {
+      "text": "{\"credentials\": \"topsecret\", \"name\": \"demo\"}",
+      "redacted": "{\"credentials\": \"<redacted>\", \"name\": \"demo\"}"
+    },
+    {
+      "text": "password: hunter2\nuser: demo\n",
+      "redacted": "password: <redacted>\nuser: demo\n"
+    },
+    {
+      "text": "if password == other: pass",
+      "redacted": "if password == other: pass"
+    },
+    {
+      "text": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----\n",
+      "redacted": "<redacted>\n"
+    },
+    {
+      "text": "export PATH=/usr/bin:$PATH",
+      "redacted": "export PATH=/usr/bin:$PATH"
+    },
+    {
+      "text": "git commit -m 'fix the tokenizer'",
+      "redacted": "git commit -m 'fix the tokenizer'"
+    }
+  ],
+  "connector_displays": [
+    {
+      "connector_id": "slack",
+      "connection_name": "support-slack",
+      "operation": "postChannelMessage",
+      "arguments": "{\"channel\": \"#eng\", \"text\": \"Deploy is done\"}",
+      "target": "slack/support-slack",
+      "summary": "Calls slack postChannelMessage with connection support-slack; channel: \"#eng\", text: \"Deploy is done\"."
+    },
+    {
+      "connector_id": "slack",
+      "connection_name": "support-slack",
+      "operation": "postChannelMessage",
+      "arguments": "{\"channel\": \"#eng\", \"credentials\": \"topsecret\", \"apiKey\": \"k-1\", \"isThreaded\": true, \"limit\": 5, \"later\": \"past the fifth\"}",
+      "target": "slack/support-slack",
+      "summary": "Calls slack postChannelMessage with connection support-slack; channel: \"#eng\", credentials: <redacted>, apiKey: <redacted>, isThreaded: true, limit: 5."
+    },
+    {
+      "connector_id": "github",
+      "connection_name": "work",
+      "operation": "createIssue",
+      "arguments": "{\"title\": \"use ghp_abcdefghijklmnopqrstuvwxyz0123 here\", \"labels\": [\"bug\"], \"body\": \"line one\\nline two\"}",
+      "target": "github/work",
+      "summary": "Calls github createIssue with connection work; title: \"use <redacted> here\"."
+    },
+    {
+      "connector_id": "a",
+      "connection_name": "b",
+      "operation": "c",
+      "arguments": "not json",
+      "target": "a/b",
+      "summary": "Calls a c with connection b."
+    }
+  ],
+  "cli": {
+    "credential_files": {
+      "credential": [
+        ".env",
+        ".env.local",
+        "config/prod.env",
+        ".netrc",
+        ".npmrc",
+        ".pypirc",
+        ".pgpass",
+        ".git-credentials",
+        "credentials",
+        "home/.aws/credentials",
+        "home/.aws/config",
+        ".kube/config",
+        "kubeconfig",
+        "staging.kubeconfig",
+        ".ssh/config",
+        ".ssh/known_hosts",
+        "id_ed25519",
+        "id_rsa.pub",
+        "certs/server.pem",
+        "server.key",
+        "store.p12",
+        "store.pfx",
+        "app.keystore",
+        "app.jks",
+        "secrets.yaml",
+        "secret.txt",
+        "credentials.json",
+        "client_secret.json",
+        "clientSecret.json",
+        "api_token.txt",
+        "private_key.txt",
+        "api-key.txt",
+        "passwords.csv",
+        "citoken.txt",
+        ".docker/config.json",
+        "gcloud/application_default_credentials.json"
+      ],
+      "not_credential": [
+        "README.md",
+        "src/auth.ts",
+        "src/session.py",
+        "src/keys.ts",
+        "notes/today.txt",
+        "docs/tokenizer.md",
+        "monkey.py",
+        "src/config.json",
+        "key_points.md",
+        "environment.ts"
+      ]
+    },
+    "file_previews": [
+      {
+        "path": "notes/today.txt",
+        "current": "one\ntwo\nthree\n",
+        "new": "one\nTWO\nthree\n",
+        "preview": "--- notes/today.txt (the file now)\n+++ notes/today.txt (after this write)\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n"
+      },
+      {
+        "path": "drafts/new.md",
+        "current": null,
+        "new": "# Title\n",
+        "preview": "--- /dev/null (no file now)\n+++ drafts/new.md (after this write)\n@@ -0,0 +1 @@\n+# Title\n"
+      },
+      {
+        "path": "notes/eol.txt",
+        "current": "a\n",
+        "new": "a",
+        "preview": "--- notes/eol.txt (the file now)\n+++ notes/eol.txt (after this write)\n@@ -1 +1 @@\n-a\n+a\n\\ No newline at end of file\n"
+      },
+      {
+        "path": "notes/eol.txt",
+        "current": "a",
+        "new": "a\n",
+        "preview": "--- notes/eol.txt (the file now)\n+++ notes/eol.txt (after this write)\n@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n"
+      },
+      {
+        "path": "notes/eol.txt",
+        "current": "a\nb",
+        "new": "a\nc",
+        "preview": "--- notes/eol.txt (the file now)\n+++ notes/eol.txt (after this write)\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n"
+      },
+      {
+        "path": "notes/same.txt",
+        "current": "same\n",
+        "new": "same\n",
+        "preview": "--- notes/same.txt (the file now)\n+++ notes/same.txt (after this write)\n"
+      },
+      {
+        "path": "notes/crlf.txt",
+        "current": "a\r\nb\r\n",
+        "new": "a\r\nB\r\n",
+        "preview": "--- notes/crlf.txt (the file now)\n+++ notes/crlf.txt (after this write)\n@@ -1,2 +1,2 @@\n a\r\n-b\r\n+B\r\n"
+      },
+      {
+        "path": "notes/far.txt",
+        "current": "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\n",
+        "new": "line 0\nLINE 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nLINE 18\nline 19\n",
+        "preview": "--- notes/far.txt (the file now)\n+++ notes/far.txt (after this write)\n@@ -1,5 +1,5 @@\n line 0\n-line 1\n+LINE 1\n line 2\n line 3\n line 4\n@@ -16,5 +16,5 @@\n line 15\n line 16\n line 17\n-line 18\n+LINE 18\n line 19\n"
+      },
+      {
+        "path": "bad\nname.txt",
+        "current": null,
+        "new": "x\n",
+        "preview": "--- /dev/null (no file now)\n+++ bad\\u000aname.txt (after this write)\n@@ -0,0 +1 @@\n+x\n"
+      },
+      {
+        "path": "bad\nname.txt",
+        "current": null,
+        "new": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+        "preview": "--- /dev/null (no file now)\n+++ bad\\u000aname.txt (after this write)\n@@ -0,0 +1,197 @@\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n"
+      },
+      {
+        "path": "bad\nname.txt",
+        "current": null,
+        "new": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+        "preview": null
+      },
+      {
+        "path": "notes/config.txt",
+        "current": "user: demo\n",
+        "new": "user: demo\npassword: hunter2\n",
+        "preview": null
+      },
+      {
+        "path": "notes/creds.txt",
+        "current": "token=topsecret\n",
+        "new": "token=other\n",
+        "preview": null
+      },
+      {
+        "path": "credentials.json",
+        "current": "{\"a\": 1}\n",
+        "new": "{\"a\": 2}\n",
+        "preview": null
+      }
+    ],
+    "shell_displays": [
+      {
+        "workspace": "/work/app",
+        "command": "npm test -- --watch=false",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: npm test -- --watch=false"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "curl -H \"Authorization: Bearer abc123456\" https://api.example.com",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: curl -H \"Authorization: Bearer <redacted>\" https://api.example.com"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "PGPASSWORD=hunter2 psql -h db",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: PGPASSWORD=<redacted> psql -h db"
+      },
+      {
+        "workspace": "/work/bad\npath",
+        "command": "ls",
+        "target": "/work/bad\\u000apath",
+        "summary": "Runs a shell command in /work/bad\\u000apath: ls"
+      }
+    ],
+    "escaped_paths": [
+      {
+        "text": "bad\nname\t.txt",
+        "escaped": "bad\\u000aname\\u0009\\u007f.txt"
+      }
+    ]
+  }
+}

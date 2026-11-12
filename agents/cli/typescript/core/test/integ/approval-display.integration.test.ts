@@ -11,7 +11,7 @@ import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import type { AgentInterrupt, AgentInterruptDisplay } from "@superdurable/dex-agents";
+import { maxApprovalSummaryBytes, type AgentInterrupt, type AgentInterruptDisplay } from "@superdurable/dex-agents";
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
@@ -135,6 +135,22 @@ describe("approval displays of local and connector tools", () => {
       summary: `Runs a shell command in ${workspace}: npm test -- --watch=false`,
       preview: null,
     });
+
+    // Inline credentials are redacted in the display; the arguments keep the full command.
+    const secretCommand = 'curl -H "Authorization: Bearer abc123456" https://ci:hunter2@api.example.com?token=t1';
+    const secretShell = await approvalOf(cli, home, sessionId, "run_shell_command", { command: secretCommand });
+    assert.equal(
+      displayOf(secretShell).summary,
+      `Runs a shell command in ${workspace}: curl -H "Authorization: Bearer <redacted>" https://ci:<redacted>@api.example.com?token=<redacted>`,
+    );
+    assert.equal(JSON.parse(secretShell.arguments).command, secretCommand);
+
+    // A long command is cut to maxApprovalSummaryBytes in the display.
+    const longCommand = `echo ${"x".repeat(20 * 1024)}`;
+    const longShell = await approvalOf(cli, home, sessionId, "run_shell_command", { command: longCommand });
+    assert.equal(Buffer.byteLength(displayOf(longShell).summary, "utf8"), maxApprovalSummaryBytes);
+    assert.ok(displayOf(longShell).summary.endsWith("…"));
+    assert.equal(JSON.parse(longShell.arguments).command, longCommand);
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
   });
@@ -162,8 +178,19 @@ describe("approval displays of local and connector tools", () => {
 
     const linked = displayOf(await approvalOf(cli, home, sessionId, "write_file", { path: "linked.txt", content: "x" }));
     assert.deepEqual(linked, { target: "linked.txt", summary: "Writes 1 byte to linked.txt.", preview: null });
+    const withSecret = displayOf(
+      await approvalOf(cli, home, sessionId, "write_file", {
+        path: "notes/settings.json",
+        content: '{"credentials": "topsecret"}\n',
+      }),
+    );
+    assert.equal(withSecret.preview, null);
+    const secretsFile = displayOf(
+      await approvalOf(cli, home, sessionId, "write_file", { path: "config/secrets.yaml", content: "a: 1\n" }),
+    );
+    assert.equal(secretsFile.preview, null);
     const pendingText = JSON.stringify(await (await sessionClients.of(home)).listAgentEvents(sessionId));
-    assert.doesNotMatch(pendingText, /outside secret|old-value/);
+    assert.doesNotMatch(pendingText, /outside secret|old-value|topsecret/);
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
   });

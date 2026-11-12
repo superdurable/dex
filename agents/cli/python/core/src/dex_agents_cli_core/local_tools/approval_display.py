@@ -10,29 +10,76 @@
 
 A file write's display names its workspace path and carries a unified diff
 against the file as it is when the model asks; a shell command's names the
-working directory and the full command. The TypeScript CLI core builds the
-same text.
+working directory and the command with its inline credentials redacted. The
+TypeScript CLI core builds the same text; the shared cases are in
+``agents/conformance/approval_display.json``.
 """
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 
-from dex_agents import MAX_APPROVAL_PREVIEW_BYTES, AgentInterruptDisplay, is_credential_like_name
+from dex_agents import (
+    MAX_APPROVAL_PREVIEW_BYTES,
+    AgentInterruptDisplay,
+    redact_inline_credentials,
+)
 from dex_agents_cli_core.local_tools.files import WorkspaceFiles
 
 #: Largest file, and largest new content, a file write preview diffs: 64 KiB.
 MAX_PREVIEW_INPUT_BYTES = 64 * 1024
-#: Most lines a file write preview has, its two header lines included.
+#: Most lines a file write preview has, its header and marker lines included.
 MAX_PREVIEW_LINES = 200
 _CONTEXT_LINES = 3
+_NO_NEWLINE_MARKER = "\\ No newline at end of file"
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
+_CREDENTIAL_DIRECTORIES = frozenset((".ssh", ".aws", ".kube", ".gnupg", ".docker", "gcloud"))
 _CREDENTIAL_FILE_NAMES = frozenset(
-    (".netrc", ".npmrc", ".pypirc", ".pgpass", "credentials", ".git-credentials")
+    (
+        ".netrc",
+        ".npmrc",
+        ".pypirc",
+        ".pgpass",
+        ".git-credentials",
+        ".htpasswd",
+        ".dockercfg",
+        "credentials",
+        "kubeconfig",
+    )
 )
-_CREDENTIAL_FILE_EXTENSIONS = frozenset((".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"))
-_LEADING_DOTS = re.compile(r"^\.+")
+_CREDENTIAL_FILE_EXTENSIONS = frozenset(
+    (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".kubeconfig", ".ppk", ".gpg", ".asc")
+)
+_CREDENTIAL_STEM_WORDS = frozenset(
+    (
+        "apikey",
+        "apikeys",
+        "cred",
+        "creds",
+        "credential",
+        "credentials",
+        "passwd",
+        "password",
+        "passwords",
+        "privatekey",
+        "secret",
+        "secrets",
+        "token",
+        "tokens",
+    )
+)
+_CREDENTIAL_STEM_ENDINGS = (
+    "apikey",
+    "credentials",
+    "password",
+    "passwd",
+    "secret",
+    "secrets",
+    "token",
+)
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_WORD_SEPARATOR = re.compile(r"[^a-z0-9]+")
 
 
 def build_write_file_display(
@@ -40,11 +87,11 @@ def build_write_file_display(
 ) -> AgentInterruptDisplay:
     """Return a ``write_file`` call's path, size, and diff against the file now."""
     source = files.read_text_for_preview(path, MAX_PREVIEW_INPUT_BYTES)
-    target = path if source is None else source[0]
+    target = escape_control_characters(path if source is None else source[0])
     return AgentInterruptDisplay(
         target=target,
         summary=f"Writes {_describe_bytes(content)} to {target}.",
-        preview=None if source is None else _file_preview(source[0], source[1], content),
+        preview=None if source is None else build_file_preview(source[0], source[1], content),
     )
 
 
@@ -53,11 +100,11 @@ def build_edit_file_display(
 ) -> AgentInterruptDisplay:
     """Return an ``edit_file`` call's path, sizes, and diff when ``old_text`` occurs once."""
     source = files.read_text_for_preview(path, MAX_PREVIEW_INPUT_BYTES)
-    target = path if source is None else source[0]
+    target = escape_control_characters(path if source is None else source[0])
     current = None if source is None else source[1]
     preview = None
     if source is not None and current is not None and old_text and current.count(old_text) == 1:
-        preview = _file_preview(source[0], current, current.replace(old_text, new_text, 1))
+        preview = build_file_preview(source[0], current, current.replace(old_text, new_text, 1))
     return AgentInterruptDisplay(
         target=target,
         summary=(
@@ -68,54 +115,117 @@ def build_edit_file_display(
 
 
 def build_shell_command_display(workspace: str, command: str) -> AgentInterruptDisplay:
-    """Return a ``run_shell_command`` call's working directory and full command."""
+    """Return a ``run_shell_command`` call's working directory and command.
+
+    The command's inline credentials are redacted; the full command stays in
+    the call's arguments. The session cuts a summary over
+    ``MAX_APPROVAL_SUMMARY_BYTES``.
+    """
+    directory = escape_control_characters(workspace)
     return AgentInterruptDisplay(
-        target=workspace, summary=f"Runs a shell command in {workspace}: {command}"
+        target=directory,
+        summary=f"Runs a shell command in {directory}: {redact_inline_credentials(command)}",
     )
+
+
+def escape_control_characters(text: str) -> str:
+    """Return the text with each control character written as ``\\u00XX``.
+
+    A path with a line break then stays on one line of the preview.
+    """
+    return _CONTROL_CHARACTER.sub(lambda match: f"\\u{ord(match.group(0)):04x}", text)
 
 
 def is_credential_file_name(path: str) -> bool:
-    """Report whether a file's name says it holds credentials, so a preview shows only its size.
+    """Report whether a file's path says it holds credentials, so a preview shows only its size.
 
-    Such names are ``.env``, ``.env.local``, ``id_ed25519``, ``server.pem``,
-    and ``api_key.txt``, for example.
+    Such paths are any file in ``.ssh``, ``.aws``, ``.kube``, ``.gnupg``,
+    ``.docker``, or ``gcloud``; ``.env``, ``.env.local``, and ``prod.env``;
+    ``.netrc``, ``.npmrc``, ``.pypirc``, ``.pgpass``, ``.git-credentials``,
+    ``.htpasswd``, ``.dockercfg``, ``credentials``, and ``kubeconfig``; names
+    that start with ``id_``; the extensions ``.pem``, ``.key``, ``.p12``,
+    ``.pfx``, ``.jks``, ``.keystore``, ``.kubeconfig``, ``.ppk``, ``.gpg``, and
+    ``.asc``; and names whose part before the first dot has a word such as
+    ``secret``, ``credentials``, ``token``, ``password``, or ``api key``, or
+    a word ending in one, such as ``secrets.yaml``, ``client_secret.json``,
+    or ``githubtoken.txt``.
     """
-    name = os.path.basename(path).lower()
-    stem, extension = os.path.splitext(name)
+    parts = [part for part in re.split(r"[/\\]", path) if part]
+    if not parts:
+        return False
+    if any(part.lower() in _CREDENTIAL_DIRECTORIES for part in parts[:-1]):
+        return True
+    name = parts[-1].lower()
+    extension = name[name.rfind(".") :] if name.rfind(".") > 0 else ""
+    stem = parts[-1].lstrip(".").split(".", 1)[0]
+    stem_words = [
+        word for word in _WORD_SEPARATOR.split(_CAMEL_CASE_BOUNDARY.sub("_", stem).lower()) if word
+    ]
     return (
         name == ".env"
         or name.startswith(".env.")
+        or name.endswith(".env")
         or name.startswith("id_")
         or name in _CREDENTIAL_FILE_NAMES
         or extension in _CREDENTIAL_FILE_EXTENSIONS
-        or is_credential_like_name(_LEADING_DOTS.sub("", stem))
+        or any(
+            word in _CREDENTIAL_STEM_WORDS or word.endswith(_CREDENTIAL_STEM_ENDINGS)
+            for word in stem_words
+        )
+        or _has_words(stem_words, ("private", "key"))
+        or _has_words(stem_words, ("api", "key"))
     )
 
 
+def build_file_preview(display_path: str, current_text: str | None, new_text: str) -> str | None:
+    """Return the labelled diff of a file write, or ``None`` when it must not be shown.
+
+    It is ``None`` for a credential file, new content over
+    ``MAX_PREVIEW_INPUT_BYTES``, either side with an inline credential (see
+    ``redact_inline_credentials``), and a diff over ``MAX_PREVIEW_LINES``
+    lines or ``MAX_APPROVAL_PREVIEW_BYTES`` bytes.
+    """
+    if (
+        is_credential_file_name(display_path)
+        or len(new_text.encode("utf-8", "surrogatepass")) > MAX_PREVIEW_INPUT_BYTES
+        or _has_inline_credential(new_text)
+        or (current_text is not None and _has_inline_credential(current_text))
+    ):
+        return None
+    diff = _unified_diff(escape_control_characters(display_path), current_text, new_text)
+    if diff is None or len(diff.encode("utf-8", "surrogatepass")) > MAX_APPROVAL_PREVIEW_BYTES:
+        return None
+    return diff
+
+
+def _has_inline_credential(text: str) -> bool:
+    return redact_inline_credentials(text) != text
+
+
+def _has_words(words: list[str], phrase: tuple[str, ...]) -> bool:
+    return any(tuple(words[index : index + len(phrase)]) == phrase for index in range(len(words)))
+
+
 def _describe_bytes(text: str) -> str:
-    size = len(text.encode("utf-8"))
+    size = len(text.encode("utf-8", "surrogatepass"))
     return "1 byte" if size == 1 else f"{size} bytes"
 
 
-def _file_preview(display_path: str, current_text: str | None, new_text: str) -> str | None:
-    if (
-        is_credential_file_name(display_path)
-        or len(new_text.encode("utf-8")) > MAX_PREVIEW_INPUT_BYTES
-    ):
-        return None
-    diff = _unified_diff(display_path, current_text, new_text)
-    if diff is None or len(diff.encode("utf-8")) > MAX_APPROVAL_PREVIEW_BYTES:
-        return None
-    return diff
+@dataclass(frozen=True)
+class _Line:
+    """One line of a file side; only a last line can lack its newline."""
+
+    text: str
+    is_missing_newline: bool
 
 
 @dataclass(frozen=True)
 class _DiffLine:
     kind: str
-    text: str
+    line: _Line
 
 
-def _unified_diff(display_path: str, current_text: str | None, new_text: str) -> str | None:
+def _unified_diff(header_path: str, current_text: str | None, new_text: str) -> str | None:
     """Return a diff with 3 lines of context, or ``None`` over ``MAX_PREVIEW_LINES`` lines."""
     old_lines = [] if current_text is None else _split_lines(current_text)
     new_lines = _split_lines(new_text)
@@ -125,28 +235,36 @@ def _unified_diff(display_path: str, current_text: str | None, new_text: str) ->
     output = [
         "--- /dev/null (no file now)"
         if current_text is None
-        else f"--- {display_path} (the file now)",
-        f"+++ {display_path} (after this write)",
+        else f"--- {header_path} (the file now)",
+        f"+++ {header_path} (after this write)",
     ]
     for header, lines in _group_hunks(edits):
         output.append(header)
-        output.extend(f"{line.kind}{line.text}" for line in lines)
+        for line in lines:
+            output.append(f"{line.kind}{line.line.text}")
+            if line.line.is_missing_newline:
+                output.append(_NO_NEWLINE_MARKER)
         if len(output) > MAX_PREVIEW_LINES:
             return None
-    return "\n".join(output) + "\n"
+    diff = "\n".join(output) + "\n"
+    return diff if diff.count("\n") <= MAX_PREVIEW_LINES else None
 
 
-def _split_lines(text: str) -> list[str]:
+def _split_lines(text: str) -> list[_Line]:
     if not text:
         return []
-    lines = text.split("\n")
-    if lines[-1] == "":
-        lines.pop()
-    return lines
+    parts = text.split("\n")
+    is_missing_newline = parts[-1] != ""
+    if not is_missing_newline:
+        parts.pop()
+    return [
+        _Line(part, is_missing_newline and index == len(parts) - 1)
+        for index, part in enumerate(parts)
+    ]
 
 
 def _diff_lines(
-    old_lines: list[str], new_lines: list[str], maximum_edits: int
+    old_lines: list[_Line], new_lines: list[_Line], maximum_edits: int
 ) -> list[_DiffLine] | None:
     """Return Myers' shortest edit script, or ``None`` past ``maximum_edits`` changes."""
     old_count = len(old_lines)
@@ -180,7 +298,7 @@ def _diff_lines(
 
 
 def _backtrack(
-    trace: list[list[int]], old_lines: list[str], new_lines: list[str], offset: int
+    trace: list[list[int]], old_lines: list[_Line], new_lines: list[_Line], offset: int
 ) -> list[_DiffLine]:
     lines: list[_DiffLine] = []
     old_index = len(old_lines)

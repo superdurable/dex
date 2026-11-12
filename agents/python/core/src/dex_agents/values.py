@@ -469,9 +469,15 @@ class AgentInterruptDisplay:
     The text describes the request, not its result: it never says how often
     the call runs or what it achieves, because a retried write may run again
     and a provider may refuse it. It never holds a credential: a source shows
-    the value of a credential-like argument, such as ``api_key`` or
-    ``clientSecret``, as ``"<redacted>"`` (see
-    ``dex_agents.approval_display.is_credential_like_name``).
+    the value of a credential-like argument, such as ``api_key``,
+    ``clientSecret``, or ``credentials``, as ``"<redacted>"`` (see
+    ``dex_agents.approval_display.is_credential_like_name``), and replaces
+    credentials written inline in text it shows (see
+    ``dex_agents.approval_display.redact_inline_credentials``). The session
+    cuts a target over ``MAX_APPROVAL_TARGET_BYTES`` and a summary over
+    ``MAX_APPROVAL_SUMMARY_BYTES``, ending them with ``…``, and drops a
+    preview over ``MAX_APPROVAL_PREVIEW_BYTES``, so a display adds little to
+    the records that hold it.
 
     .. versionadded:: 0.6.0
 
@@ -493,8 +499,6 @@ class AgentInterruptDisplay:
         preview: Longer text to show with the summary, or ``None``. A local
             file write sets a unified diff of the file as it was when the call
             was requested against the new content; its header lines say so.
-            The session drops a preview over
-            ``dex_agents.approval_display.MAX_APPROVAL_PREVIEW_BYTES``.
     """
 
     target: str

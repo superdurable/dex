@@ -438,10 +438,10 @@ def _with_scripted_approval_display(call: DeferredToolCall) -> DeferredToolCall:
     from dex_agents import AgentInterruptDisplay
 
     display = json.loads(call.arguments)["display"]
-    preview = display.get("preview")
-    if isinstance(preview, int):
-        preview = "x" * preview
-    approval_display = AgentInterruptDisplay(
-        target=display["target"], summary=display["summary"], preview=preview
+    # A count instead of a text stands for that many characters, for the size bounds.
+    target, summary, preview = (
+        "x" * value if isinstance(value, int) else value
+        for value in (display["target"], display["summary"], display.get("preview"))
     )
+    approval_display = AgentInterruptDisplay(target=target, summary=summary, preview=preview)
     return replace(call, approval_display=approval_display)

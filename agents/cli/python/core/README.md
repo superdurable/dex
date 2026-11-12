@@ -319,12 +319,20 @@ These checks have limits:
   write's target is its workspace path, and its preview is a unified diff of
   the file as it is when the model asks against the new content, with the
   header lines `--- <path> (the file now)` and `+++ <path> (after this write)`
-  (`--- /dev/null (no file now)` for a new file). The preview is left out for
-  a file or new content over 64 KiB, a diff over 200 lines, a path that leaves
-  the workspace, a file that is not UTF-8, an `edit_file` whose `old_text`
-  does not occur once, and a credential file such as `.env`, `id_ed25519`, or
-  `server.pem`. A shell command's target is the working directory, and its
-  summary holds the full command. Browser actions have no display.
+  (`--- /dev/null (no file now)` for a new file) and
+  `\ No newline at end of file` where a side lacks its last newline. A path's
+  control characters show as `\u00XX`. The preview reads the file with the
+  write's own checks, so it never follows a final link and gives no text when
+  the path changes during the read. It is left out for a file or new content
+  over 64 KiB, a diff over 200 lines, a path the write would refuse, a file
+  that is not UTF-8, an `edit_file` whose `old_text` does not occur once, a
+  side with an inline credential such as `password: …`, and a credential file
+  such as `.env`, `.aws/credentials`, `.kube/config`, `id_ed25519`,
+  `server.pem`, or `secrets.yaml`. A shell command's target is the working
+  directory, and its summary holds the command with its inline credentials
+  redacted, cut at 2 KiB; the call's arguments keep the full command. Browser
+  actions have no display. `agents/conformance/approval_display.json` lists
+  the cases both CLI cores share.
 - Each tool's effect and approval are a floor. An explicit `ToolPolicy` in
   the session options may make a tool more cautious, such as a `read` that
   must be approved, but never less: a write stays a write, and

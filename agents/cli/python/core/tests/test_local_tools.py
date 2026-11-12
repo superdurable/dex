@@ -27,6 +27,7 @@ from typing import Any
 import pytest
 
 from dex_agents import (
+    MAX_APPROVAL_SUMMARY_BYTES,
     AgentInterrupt,
     AgentInterruptDisplay,
     AgentSessionClient,
@@ -440,6 +441,36 @@ async def test_a_shell_command_approval_carries_the_full_command_and_its_directo
     )
 
 
+async def test_a_shell_command_approval_redacts_inline_credentials_and_cuts_a_long_command(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    sessions = local_tools_stack.sessions
+    workspace = str(local_tools_stack.workspace)
+    secret_command = (
+        'curl -H "Authorization: Bearer abc123456" https://ci:hunter2@api.example.com?token=t1'
+    )
+    session_id = await start_turn(
+        sessions, "call run_shell_command " + json.dumps({"command": secret_command})
+    )
+    interrupt = await wait_for_approval(sessions, session_id, "run_shell_command")
+    assert interrupt.display is not None
+    assert interrupt.display.summary == (
+        f"Runs a shell command in {workspace}: "
+        'curl -H "Authorization: Bearer <redacted>" '
+        "https://ci:<redacted>@api.example.com?token=<redacted>"
+    )
+    # The display redacts; the arguments keep the full command.
+    assert json.loads(interrupt.arguments)["command"] == secret_command
+    assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=False)
+    await wait_for_turn_end(sessions, session_id)
+
+    long_command = "echo " + "x" * (20 * 1024)
+    display = await approval_display_of(sessions, "run_shell_command", {"command": long_command})
+    assert display is not None
+    assert len(display.summary.encode("utf-8")) == MAX_APPROVAL_SUMMARY_BYTES
+    assert display.summary.endswith("…")
+
+
 async def test_a_write_preview_is_left_out_when_too_large_secret_or_outside(
     local_tools_stack: LocalToolsStack,
 ) -> None:
@@ -471,6 +502,18 @@ async def test_a_write_preview_is_left_out_when_too_large_secret_or_outside(
     assert linked == AgentInterruptDisplay(
         target="preview-link.txt", summary="Writes 1 byte to preview-link.txt."
     )
+    with_secret = await approval_display_of(
+        sessions,
+        "write_file",
+        {"path": "notes/settings.json", "content": '{"credentials": "topsecret"}\n'},
+    )
+    assert with_secret is not None
+    assert with_secret.preview is None
+    secrets_file = await approval_display_of(
+        sessions, "write_file", {"path": "config/secrets.yaml", "content": "a: 1\n"}
+    )
+    assert secrets_file is not None
+    assert secrets_file.preview is None
 
 
 async def test_a_shell_command_is_not_run_again_after_the_worker_dies_during_it(

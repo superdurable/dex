@@ -575,13 +575,18 @@ export function createScriptedAgentFlow(
   });
 }
 
-/** `displayed_send` carries an approval display; `oversized_display_send` one whose preview is over the bound. */
+/**
+ * `displayed_send` carries an approval display, `oversized_display_send` one whose preview is over the bound, and
+ * `huge_display_send` one whose target and summary are.
+ */
 function scriptedApprovalDisplay(toolName: string): AgentInterruptDisplay | undefined {
   switch (toolName) {
     case "displayed_send":
       return { target: "ops@example.com", summary: "Sends an email to ops@example.com.", preview: "Subject: Order 7" };
     case "oversized_display_send":
       return { target: "ops@example.com", summary: "Sends an email to ops@example.com.", preview: "x".repeat(maxApprovalPreviewBytes + 1) };
+    case "huge_display_send":
+      return { target: "t".repeat(2_000), summary: "s".repeat(100_000), preview: null };
     default:
       return undefined;
   }

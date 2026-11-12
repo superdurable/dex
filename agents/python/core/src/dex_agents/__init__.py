@@ -24,9 +24,12 @@ client on LiteLLM.
 
 from dex_agents.approval_display import (
     MAX_APPROVAL_PREVIEW_BYTES,
+    MAX_APPROVAL_SUMMARY_BYTES,
+    MAX_APPROVAL_TARGET_BYTES,
     REDACTED_ARGUMENT_VALUE,
     build_connector_tool_approval_display,
     is_credential_like_name,
+    redact_inline_credentials,
 )
 from dex_agents.built_in_tools import (
     BUILT_IN_TOOL_DEFINITIONS,
@@ -276,6 +279,8 @@ __all__ = [
     "INVALID_START_SESSION_SETTINGS_REASON",
     "INVALID_TOOL_TASK_POLL_INTERVAL",
     "MAX_APPROVAL_PREVIEW_BYTES",
+    "MAX_APPROVAL_SUMMARY_BYTES",
+    "MAX_APPROVAL_TARGET_BYTES",
     "MAX_IMAGES_PER_MESSAGE",
     "MAX_IMAGE_BYTES",
     "MAX_IMAGE_URI_LENGTH",
@@ -437,6 +442,7 @@ __all__ = [
     "plan_execution_key",
     "plan_status_after_write",
     "read_agent_snapshot",
+    "redact_inline_credentials",
     "render_session_flow_graph",
     "require_short_image_uris",
     "require_store_image_reference",

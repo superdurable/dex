@@ -610,8 +610,11 @@ export type AgentInterruptKind = "tool_approval" | "question";
  *
  * The text describes the request, not its result: it never says how often the call runs or what it achieves,
  * because a retried write may run again and a provider may refuse it. It never holds a credential: a source shows
- * the value of a credential-like argument, such as `api_key` or `clientSecret`, as `<redacted>` (see
- * {@link isCredentialLikeName}).
+ * the value of a credential-like argument, such as `api_key`, `clientSecret`, or `credentials`, as `<redacted>` (see
+ * {@link isCredentialLikeName}), and replaces credentials written inline in text it shows (see
+ * {@link redactInlineCredentials}). The session cuts a target over {@link maxApprovalTargetBytes} and a summary
+ * over {@link maxApprovalSummaryBytes}, ending them with `…`, and drops a preview over
+ * {@link maxApprovalPreviewBytes}, so a display adds little to the records that hold it.
  *
  * @example
  * ```ts
@@ -638,8 +641,8 @@ export interface AgentInterruptDisplay {
   readonly summary: string;
   /**
    * Longer text to show with the summary, or `null` for none. A local file write sets a unified diff of the file as
-   * it was when the call was requested against the new content; its header lines say so. The session drops a
-   * preview over {@link maxApprovalPreviewBytes}. Wire field: `preview`, `null` when there is none.
+   * it was when the call was requested against the new content; its header lines say so. Wire field: `preview`,
+   * `null` when there is none.
    */
   readonly preview?: string | null;
 }
