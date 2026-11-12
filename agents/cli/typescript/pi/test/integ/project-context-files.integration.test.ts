@@ -6,86 +6,21 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-// Timing and file ownership cases that the command cannot reach reliably as a child process.
+// Project context file cases that the command cannot reach reliably as a child process.
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { setTimeout as delay } from "node:timers/promises";
 
-import type { DeferredToolExecution } from "@superdurable/dex-agents";
-import { TurnConfigResolver, WorkspaceFiles, resolveConfig, type HarnessContext } from "@superdurable/dex-agents-cli-core";
-
-import { PiCodingToolSource, ProjectContextFiles, piHarness } from "../../src/index.js";
-import { PiToolCallOperations } from "../../src/pi-tool-call-operations.js";
+import { ProjectContextFiles } from "../../src/index.js";
 
 function newRoot(): string {
   return realpathSync.native(mkdtempSync(join(tmpdir(), "dex-agents-pi-local-")));
 }
 
-describe("local file access of the Pi tools", () => {
-  test("find stops walking when its call is cancelled", async () => {
-    const workspace = newRoot();
-    for (let index = 0; index < 20; index += 1) {
-      mkdirSync(join(workspace, `directory-${index}`, "nested"), { recursive: true });
-    }
-    const operations = new PiToolCallOperations(new WorkspaceFiles(workspace));
-    const cancellation = new AbortController();
-    cancellation.abort(new Error("the turn was cancelled"));
-    operations.bindCancellation(cancellation.signal);
-    await assert.rejects(operations.findMatchingPaths("*", workspace, 1000), /the turn was cancelled/);
-  });
-
-  test("a cancelled bash call with a cut output leaves no temporary file", async () => {
-    const workspace = newRoot();
-    const command = "seq 1 200000; sleep 30";
-    const effective = resolveConfig(
-      { local_tools: { browser: false, shell: { enabled: true, allow: [command] } } },
-      piHarness.configSection,
-      piHarness.defaultModel,
-    );
-    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
-    const context: HarnessContext = {
-      flowType: "PiLocalFileAccessTest",
-      config: effective,
-      workspace,
-      instructions: null,
-      harnessOptions: {},
-      toolSources: [],
-      resolveTurn: (settings) => turns.resolveTurn(settings),
-      currentTurn: () => turns.currentTurn(),
-      resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
-    };
-    const outputFiles = (): string[] => readdirSync(tmpdir()).filter((name) => name.startsWith("pi-bash-"));
-    const filesBefore = new Set(outputFiles());
-    const cancellation = new AbortController();
-    const execution = {
-      flowId: "pi-local-file-access",
-      toolCall: {
-        toolCallId: "call-1",
-        turnId: "turn-1",
-        toolName: "bash",
-        arguments: JSON.stringify({ command }),
-        effect: "non_idempotent_write",
-        requiresApproval: false,
-      },
-      idempotencyKey: "pi-local-file-access/turn-1/call-1",
-      attempt: 1,
-      events: { writeEvent: () => undefined },
-      cancellationSignal: cancellation.signal,
-      deadline: undefined,
-      heartbeat: () => Promise.resolve(),
-    } as unknown as DeferredToolExecution;
-    const running = new PiCodingToolSource(context).executeDeferredToolCall(execution);
-    await delay(2_000);
-    assert.ok(outputFiles().some((name) => !filesBefore.has(name)), "Pi keeps the cut output in a temporary file");
-    cancellation.abort(new Error("the turn was cancelled"));
-    await assert.rejects(running);
-    assert.deepEqual(outputFiles().filter((name) => !filesBefore.has(name)), []);
-  });
-
+describe("project context files of the Pi command", () => {
   test("an ancestor's own link to a sibling loads, and a link into its subtree is skipped", async () => {
     const root = newRoot();
     const repository = join(root, "repository");

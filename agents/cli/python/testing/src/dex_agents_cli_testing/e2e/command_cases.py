@@ -90,7 +90,14 @@ class ToolDialect:
 
 CLI_CORE_TOOLS = ToolDialect("read_file", "write_file", "run_shell_command", "path", False)
 CLAUDE_CODE_TOOLS = ToolDialect("Read", "Write", "Bash", "file_path", True)
-PI_TOOLS = ToolDialect("read", "write", "bash", "path", False)
+PI_TOOLS = ToolDialect(
+    "read",
+    "write",
+    "bash",
+    "path",
+    False,
+    are_local_writes_approved_by_default=False,
+)
 DEEP_AGENTS_TOOLS = ToolDialect(
     "read_file",
     "write_file",
