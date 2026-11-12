@@ -25,6 +25,7 @@ import {
   type ConnectorStudioFrameAppearance,
 } from './connectorStudioTheme';
 import { CONNECTORS_COPY } from './copy';
+import { ConnectionErrorBoundary } from './ConnectionErrorBoundary';
 import './connectors.css';
 import { webURL } from '@/lib/basePath';
 
@@ -138,7 +139,8 @@ interface ReleaseManifest {
     configuration: { fields: ManifestField[] };
     auth: {
       type?: string;
-      fields: ManifestField[];
+      /** Absent when the release declares no credential fields, such as an auth type of none. */
+      fields?: ManifestField[];
       guide?: { startURL: string; steps: string[] };
       oauth2?: {
         scopes?: ManifestOAuthScopes;
@@ -211,12 +213,15 @@ export function ConnectorsPage() {
   const shellRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const listPane = useCollapsibleColumn(LIST_WIDTH_KEY, LIST_WIDTH_DEFAULT);
+  // Each load remounts the connection error boundaries, so a transient render failure recovers.
+  const [loadGeneration, setLoadGeneration] = useState(0);
 
   // selectKey picks a connection, such as one just added or one an OAuth redirect names.
   const load = useCallback(async (signal?: AbortSignal, selectKey?: string) => {
     const response = await fetch(webURL('/api/v2/connector-connections'), { signal });
-    const next = await readResponseJSON<ConnectionsResponse>(response);
+    const next = connectionsResponseWithEmptyLists(await readResponseJSON<ConnectionsResponse>(response));
     setCatalog(next);
+    setLoadGeneration((generation) => generation + 1);
     setSelected((current) => selectedConnectionAfterLoad(next.connections, current, selectKey));
     setError('');
   }, []);
@@ -240,7 +245,7 @@ export function ConnectorsPage() {
       headers: connectorWriteHeaders(catalog),
       body: JSON.stringify({ connectorId: selected.connectorId, connectionName: selected.connectionName }),
     }).then((response) => readResponseJSON<UISessionResponse>(response))
-      .then((value) => setSession(value))
+      .then((value) => setSession(uiSessionWithEmptyLists(value)))
       .catch((sessionError: unknown) => {
         if (!controller.signal.aborted) setError(errorMessage(sessionError));
       }).finally(() => {
@@ -291,12 +296,14 @@ export function ConnectorsPage() {
     );
   }
   if (!catalog) return <div className="page-loading">{CONNECTORS_COPY.loading}</div>;
-  const setupTabs = selected && session ? connectorSetupTabs(selected, Boolean(session.entrypointUrl)) : [];
+  // The previous connection's session lingers for one render after the selection changes.
+  const selectedSession = selected && session && connectionKey(session) === connectionKey(selected) ? session : null;
+  const setupTabs = selected && selectedSession ? connectorSetupTabs(selected, Boolean(selectedSession.entrypointUrl)) : [];
   const requestedSetupTab = setupTabs.find((tab) => tab.key === selectedSetupTabKey);
   const activeSetupTab = selected && setupTabs.length > 0
     ? requestedSetupTab && (requestedSetupTab.kind === 'authorize' || selected.status === 'Ready')
       ? requestedSetupTab
-      : setupTabs.find((tab) => tab.key === initialConnectorSetupTabKey(selected, Boolean(session?.entrypointUrl))) ?? setupTabs[0]
+      : setupTabs.find((tab) => tab.key === initialConnectorSetupTabKey(selected, Boolean(selectedSession?.entrypointUrl))) ?? setupTabs[0]
     : null;
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
@@ -329,21 +336,23 @@ export function ConnectorsPage() {
                     {catalog.connections.map((connection) => {
                       const isSelected = !isAddingConnection && selected ? connectionKey(connection) === connectionKey(selected) : false;
                       return <li className="rsw-item" data-selected={isSelected ? 'true' : undefined} key={connectionKey(connection)}>
-                        <ConnectionRow
-                          connection={connection}
-                          isSelected={isSelected}
-                          onSelect={() => {
-                            setIsAddingConnection(false);
-                            setSelected(connection);
-                            setSelectedSetupTabKey('authorize');
-                          }}
-                        />
-                        {isSelected && activeSetupTab && <ConnectorSetupNavigation
-                          activeTab={activeSetupTab}
-                          connection={connection}
-                          onSelect={setSelectedSetupTabKey}
-                          tabs={setupTabs}
-                        />}
+                        <ConnectionErrorBoundary className="sq-state v2-error" key={`${loadGeneration}:${isSelected}`}>
+                          <ConnectionRow
+                            connection={connection}
+                            isSelected={isSelected}
+                            onSelect={() => {
+                              setIsAddingConnection(false);
+                              setSelected(connection);
+                              setSelectedSetupTabKey('authorize');
+                            }}
+                          />
+                          {isSelected && activeSetupTab && <ConnectorSetupNavigation
+                            activeTab={activeSetupTab}
+                            connection={connection}
+                            onSelect={setSelectedSetupTabKey}
+                            tabs={setupTabs}
+                          />}
+                        </ConnectionErrorBoundary>
                       </li>;
                     })}
                   </ul>
@@ -382,20 +391,23 @@ export function ConnectorsPage() {
               </div>
             ) : selected ? (
               <div className="v2-case sc">
-                <ConnectionHeader connection={selected} />
-                {selected.standalone && <p className="sc-why connector-standalone-note">{CONNECTORS_COPY.standaloneNote}</p>}
-                {error && <p className="v2-error" role="alert">{error}</p>}
-                {selected.status === 'Conflict' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.conflict}</p>}
-                {selected.status === 'Unsupported' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.unsupported}</p>}
-                {selected.credentialExpiresAt && <p className="sc-state">Token expires <time>{selected.credentialExpiresAt}</time></p>}
-                {busy && <p className="sc-state" role="status">{CONNECTORS_COPY.loadingRelease}</p>}
-                {session && activeSetupTab && <ConnectorSetupPanel
-                  activeTab={activeSetupTab} catalog={catalog} connection={selected} session={session}
-                  hasSavedSetup={savedSetupConnectionKey === connectionKey(selected)}
-                  onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey}
-                  onSetupSaved={async () => { await load(); setSavedSetupConnectionKey(connectionKey(selected)); }}
-                  setupTabs={setupTabs}
-                />}
+                {/* The footer stays outside, so a connection that cannot render can still be removed. */}
+                <ConnectionErrorBoundary key={`${loadGeneration}:${connectionKey(selected)}`}>
+                  <ConnectionHeader connection={selected} />
+                  {selected.standalone && <p className="sc-why connector-standalone-note">{CONNECTORS_COPY.standaloneNote}</p>}
+                  {error && <p className="v2-error" role="alert">{error}</p>}
+                  {selected.status === 'Conflict' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.conflict}</p>}
+                  {selected.status === 'Unsupported' && <p className="connector-notice" data-tone="attention">{CONNECTORS_COPY.unsupported}</p>}
+                  {selected.credentialExpiresAt && <p className="sc-state">Token expires <time>{selected.credentialExpiresAt}</time></p>}
+                  {busy && <p className="sc-state" role="status">{CONNECTORS_COPY.loadingRelease}</p>}
+                  {selectedSession && activeSetupTab && <ConnectorSetupPanel
+                    activeTab={activeSetupTab} catalog={catalog} connection={selected} session={selectedSession}
+                    hasSavedSetup={savedSetupConnectionKey === connectionKey(selected)}
+                    onConfigured={load} onError={setError} onSelect={setSelectedSetupTabKey}
+                    onSetupSaved={async () => { await load(); setSavedSetupConnectionKey(connectionKey(selected)); }}
+                    setupTabs={setupTabs}
+                  />}
+                </ConnectionErrorBoundary>
                 <div className="sc-block connector-connection-footer">
                   {isConnectionDeletable(selected) && (
                     <button className="rhd-stop" disabled={busy} onClick={() => void deleteCredentials()} type="button">
@@ -579,7 +591,7 @@ export function AddConnectionPanel({catalog, onAdded, onCancel}: {
     void fetch(webURL('/api/v2/connector-catalog'), {signal: controller.signal})
       .then((response) => readResponseJSON<ConnectorCatalogResponse>(response))
       .then((value) => {
-        setEntries(value.connectors);
+        setEntries(value.connectors ?? []);
         setIsPublicCatalogAvailable(value.publicCatalogAvailable);
       })
       .catch((loadError: unknown) => {
@@ -1060,7 +1072,7 @@ function AuthorizationGuide({guide, redirectURI}: {guide: {startURL: string; ste
   return <section aria-label="Authorization guide" className="connector-authorization-guide">
     <h4 className="rsw-zonehead">Authorization guide</h4>
     <p>Start at <a href={guide.startURL} rel="noreferrer" target="_blank">{guide.startURL}</a></p>
-    <ol>{guide.steps.map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
+    <ol>{(guide.steps ?? []).map((step, index) => <li key={`${index}:${step}`}>{linkifiedDescription(step)}</li>)}</ol>
     {redirectURI && <div className="connector-redirect-uri"><span className="rsq-label">Redirect URI</span><CopyValue label="Redirect URI" value={redirectURI} /></div>}
   </section>;
 }
@@ -1324,13 +1336,49 @@ function formFieldText(value: unknown): string {
 export function selectedManifestAuth(auth: ReleaseManifest['spec']['auth'], methodId: string): ManifestAuthMethod {
   if (!auth.methods?.length) {
     return {
-      id: '', displayName: '', description: '', type: auth.type ?? 'none', fields: auth.fields,
+      id: '', displayName: '', description: '', type: auth.type ?? 'none', fields: auth.fields ?? [],
       guide: auth.guide, oauth2: auth.oauth2,
     };
   }
   return auth.methods.find((method) => method.id === methodId)
     ?? auth.methods.find((method) => method.id === auth.defaultMethod)
     ?? auth.methods[0];
+}
+
+// The server omits or nulls empty lists; the page reads each one as an array.
+export function uiSessionWithEmptyLists(session: UISessionResponse): UISessionResponse {
+  const spec = session.manifest?.spec;
+  if (!spec) return session;
+  return {...session, manifest: {...session.manifest, spec: {
+    ...spec,
+    configuration: {...spec.configuration, fields: spec.configuration?.fields ?? []},
+    auth: spec.auth && {
+      ...spec.auth,
+      fields: spec.auth.fields ?? [],
+      methods: spec.auth.methods?.map((method) => ({...method, fields: method.fields ?? []})),
+    },
+    studio: spec.studio && {
+      ...spec.studio,
+      setup: {...spec.studio.setup, backendCapabilities: spec.studio.setup?.backendCapabilities ?? []},
+    },
+  }}};
+}
+
+// Go encodes an empty slice or map as null, such as the uses of a trigger-only connection.
+export function connectionsResponseWithEmptyLists(response: ConnectionsResponse): ConnectionsResponse {
+  return {...response, connections: (response.connections ?? []).map((connection) => ({
+    ...connection,
+    uses: (connection.uses ?? []).map((use) => ({
+      ...use, configuration: use.configuration ?? {}, configurationUI: configurationUIWithEmptyLists(use.configurationUI),
+    })),
+    triggerUses: connection.triggerUses?.map((use) => ({
+      ...use, configuration: use.configuration ?? {}, configurationUI: configurationUIWithEmptyLists(use.configurationUI),
+    })),
+  }))};
+}
+
+function configurationUIWithEmptyLists(configurationUI: ConnectorConfigurationUI | null | undefined): ConnectorConfigurationUI {
+  return {units: (configurationUI?.units ?? []).map((unit) => ({...unit, bindings: unit.bindings ?? []}))};
 }
 
 export function requestedOAuthScopesText(oauth2: ManifestAuthMethod['oauth2']): string {
