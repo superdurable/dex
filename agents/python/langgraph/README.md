@@ -223,7 +223,6 @@ def build_research_agent():
 research_agent = langchain_agent_session_flow(
     build_research_agent,
     flow_type="ResearchAgent",
-    should_defer_tool_calls_before_middleware=True,
     excluded_tool_names=["task"],
     tool_policies={
         "search_papers": ToolPolicy(ToolEffect.READ),
@@ -235,12 +234,19 @@ research_agent = langchain_agent_session_flow(
 )
 ```
 
-- `should_defer_tool_calls_before_middleware=True` makes the deferral the
-  outermost tool wrapper. `create_deep_agent` places the middleware you pass
-  after its own, so `DurableToolCallMiddleware` cannot be first there. Deep
-  Agents' own tool wrappers, such as the large-result eviction of its
-  `FilesystemMiddleware`, then never run in a session. The runner changes
-  only its own copy of the root graph, so the graph you pass is unchanged.
+- `create_deep_agent` places the middleware you pass after its own, so
+  `DurableToolCallMiddleware` cannot be first there. That needs no setting:
+  the deferral is the outermost tool wrapper by default. Each tool Step runs
+  the call through the tool node's middleware tool wrappers, such as the
+  large-result eviction of Deep Agents' `FilesystemMiddleware`; see
+  [Middleware order](#middleware-order).
+- A tool's `ToolRuntime` in its tool Step has the compiled graph's `store`.
+  It has no `context`: the session runs the graph without a run context, in
+  `RunModel` too. `get_store()` and `get_runtime()` do not work in a tool
+  Step, so give a `StoreBackend` its store and a fixed namespace, as in
+  `StoreBackend(store=store, namespace=...)`. A store such as `InMemoryStore`
+  lives in one Worker process, so use a shared store when Workers restart or
+  run on several machines.
 - `excluded_tool_names=["task"]` turns off subagents. The model is not
   offered `task`, and a tool Step never runs it. See the limits below.
 - Deep Agents keeps `messages` and `files` in `DeltaChannel` state channels.
@@ -286,7 +292,8 @@ Each limit has a workaround.
 | **No Dex built-in tools.** The adapter does not offer `write_todos`, `ask_user`, or `durable_wait` from `AgentSessionOptions.built_in_tools`. | Plan with LangChain's `TodoListMiddleware`, whose `write_todos` returns a `Command`, which works since 0.5.0, or with a read-only tool that returns the plan. Ask the user in the turn's answer, and continue with the next user message. Run long waits on the built-in agent loop. |
 | **Summarization is not a separate model call.** Deep Agents' `SummarizationMiddleware` calls its model inside a `RunModel` Step. The usage counts it, but it gets no model call record of its own, and a retry repeats it. It always uses the model the agent was built with, not `select_turn_chat_model`'s. Its offload of earlier messages goes to the per-turn `files`, and its rewrite of the history is not stored, because stored history is append-only. | Replace it with a middleware named `SummarizationMiddleware` that adds nothing, and use Dex [compaction](#compaction) instead. |
 | **Rebuilt system messages lose cache breakpoints.** A middleware that replaces the system message with plain text, such as one that adds instructions for each turn, drops the Anthropic `cache_control` breakpoints that middleware before it set on the message's content blocks. | Keep the existing content blocks and add yours before them, or set the instructions when you build the agent. |
-| **Large state in records.** A state-reading tool call stores the non-message graph state, such as every file in `files`, in its record, and a file write stores its writes in the record's `runner_tool_state`. The session fails when its run state outgrows the Dex limit. | Keep large or many files in a `FilesystemBackend` or a `StoreBackend`. |
+| **Large state in records.** A state-reading tool call stores the non-message graph state, such as every file in `files`, in its record, and a file write stores its writes in the record's `runner_tool_state`. Every call of a rewritten root tool node with a wrapper besides the bare deferral, as in every `create_agent` and Deep Agents agent, stores that state too, because its wrappers may read it, so one model response with N calls stores it N times. The session fails when its run state outgrows the Dex limit. | Keep large or many files in a `FilesystemBackend` or a `StoreBackend`. |
+| **A turn in flight across the 0.6.0 upgrade.** A turn whose tool calls were pending under a 0.5.x runner names no deferral order, so a 0.6.0 Worker finishes it in the middleware order. For a 0.5.x runner with `should_defer_tool_calls_before_middleware=True`, such as the 0.5.0 `dex-agents-deepagents`, a wrapper listed before the deferral then runs once in `RunModel` around the replay, where 0.5.x ran none. It never runs twice, and the turns that follow use the 0.6.0 order. | Upgrade Workers between turns, or accept one extra wrapper run for each turn in flight. |
 
 ## Tool sources and connector tools
 
@@ -480,13 +487,40 @@ that already ran.
 
 ## Middleware order
 
-Put `DurableToolCallMiddleware` first in `middleware`, so it is the outermost
-tool wrapper. Middleware listed before it see every tool call. Middleware
-listed after it never see a call inside a session, because the tool runs
-outside the graph. Model middleware, such as dynamic tool selection or
-summarization, keeps working; its model calls run inside `RunModel`. When
-the agent builder decides the order, as `create_deep_agent` does, set
-`should_defer_tool_calls_before_middleware=True` for the same effect.
+Inside a session the runner rewrites every root graph tool node that has an
+async tool wrapper, as every `create_agent` graph with
+`DurableToolCallMiddleware` has: the deferral becomes its outermost tool
+wrapper, whatever the middleware order. `RunModel` never runs the wrappers of
+a rewritten node: it defers each call and later replays the recorded result.
+A tool node in a subgraph keeps its middleware order, and a root node with
+only synchronous wrappers is not rewritten. Each attempt of the call's own tool Step runs every
+other middleware tool wrapper of that node around the tool, such as error
+handling, result eviction, or argument checks. A retried attempt runs them
+again, so their side effects follow the tool's retry policy: a
+`NON_IDEMPOTENT_WRITE` tool has one attempt. The wrappers see the state of
+the call's deferral without the message list, and their state writes are
+recorded with the tool's. So every call of a rewritten node with any wrapper
+besides the bare deferral stores that state with its record. A tool of
+`tools=` that no tool node has, and a tool of a subgraph's tool node, run
+alone. A tool name that root tool nodes with different wrappers share is
+refused when the runner loads the graph, because a tool Step could not tell whose
+wrappers to run. Any difference in the nodes' wrappers counts, such as a node
+with only the deferral and a node with more. Model middleware, such as dynamic
+tool selection or summarization, keeps working; its model calls run inside
+`RunModel`.
+
+This is the default since 0.6.0. Before, the runner kept the middleware
+order: middleware listed before `DurableToolCallMiddleware` saw every call
+in `RunModel`, when it was deferred and when its result replayed, and
+middleware listed after it never saw a call, because the tool Step called
+the tool alone. Pass `should_defer_tool_calls_before_middleware=False` to
+keep that behavior.
+
+Each turn keeps the order its first model call used. The stored run state of
+its pending tool calls and each call's record name that order, so a Worker
+with the other setting finishes the turn's calls in it, and no wrapper runs
+twice. A run state from before 0.6.0 names no order and keeps the middleware
+order. The setting decides only turns that start on the Worker.
 
 LangChain's `HumanInTheLoopMiddleware` raises its own interrupts, which the
 session cannot answer. Use `ToolPolicy(..., requires_approval=True)` and
@@ -521,9 +555,15 @@ session without the restart; a tool that returns a `Command` and a later tool
 that reads the state it set; `task` excluded from model requests and tool
 Steps; a tool source's `read_file` that replaces the excluded graph tool, and
 the refused collision without the exclusion; and session settings that pick
-the model of each turn. They also check that a middleware tool wrapper never
-runs when the deferral comes first, and that two runners sharing one graph
-keep their own middleware order. Further cases cover state writes that apply
+the model of each turn. They also check that a middleware tool wrapper runs
+once, in the tool Step, by default, also after a Worker restart; that tools
+in their tool Steps share the compiled graph's store; that a turn keeps its
+order on a Worker with the other setting, in both directions, with a tool
+Step committed and its replay pending; that a decorator around the deferral
+runs once in the tool Step; that a tool shared by root tool nodes with
+different wrappers is refused; that Deep Agents' `FilesystemMiddleware` evicts a large tool result
+to a file in its tool Step, which a later tool lists; and that two runners
+sharing one graph keep their own middleware order. Further cases cover state writes that apply
 once through a failed tool attempt and a `RunModel` rerun after a Worker
 restart, which sends the same model request; live records whose browser
 snapshot has no `runner_tool_state`; tool output that looks like recorded
@@ -632,9 +672,12 @@ await sessions.send_user_message("session-42", "What does this chart show?", ima
   [compaction](#compaction) bounds it to the summary and the kept turns.
 - Tools run outside the graph. Since 0.5.0 a tool with a `ToolRuntime` or
   `InjectedState` parameter receives the root graph's state at its deferral,
-  without the message list, and a runtime without a store or a `context`.
-  `InjectedStore` does not work. A tool may return a `Command` whose
-  `update` mapping holds its `ToolMessage`; `goto` and `graph` fail the tool
+  without the message list, and a runtime without a `context`. Since 0.5.1
+  the runtime's `store` is the compiled graph's store, so `runtime.store`
+  works for a graph compiled with one; before, it was `None`.
+  Since 0.6.0 an `InjectedStore` parameter receives that store too.
+  `get_store()` and `get_runtime()` do not work in a tool Step. A tool may return a `Command` whose `update` mapping holds its
+  `ToolMessage`; `goto` and `graph` fail the tool
   Step. `InjectedToolCallId` works. A response artifact
   (`content_and_artifact`) is dropped; the model sees the content.
 - A subgraph compiled with `checkpointer=False` restarts on resume, so the

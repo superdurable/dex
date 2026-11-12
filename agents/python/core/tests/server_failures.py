@@ -75,7 +75,9 @@ class _PausableProcess(KillableProcess):
 
     def send_signal(self, signal_number: int) -> None:
         assert self._process is not None
-        os.killpg(self._process.pid, signal_number)
+        # A reaped leader's group ID may belong to another process group by now.
+        if self._process.returncode is None:
+            os.killpg(self._process.pid, signal_number)
 
 
 class TcpRelay:

@@ -52,7 +52,7 @@ def langchain_agent_session_flow(
     media_store: MediaStore | None = None,
     excluded_tool_names: Collection[str] = (),
     select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
-    should_defer_tool_calls_before_middleware: bool = False,
+    should_defer_tool_calls_before_middleware: bool = True,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a ``create_agent`` agent.
 
@@ -72,9 +72,10 @@ def langchain_agent_session_flow(
     class, approval, timeout, and retry policy, as in an agent on the built-in loop.
 
     A Deep Agents agent from ``deepagents.create_deep_agent`` registers the
-    same way: pass ``DurableToolCallMiddleware()`` in its ``middleware`` and set
-    ``should_defer_tool_calls_before_middleware=True``, because
-    ``create_deep_agent`` places your middleware after its own. Its
+    same way: pass ``DurableToolCallMiddleware()`` in its ``middleware``. The
+    runner defers each tool call before Deep Agents' own middleware, which
+    ``create_deep_agent`` places before yours, and runs that middleware's
+    tool wrappers in each tool Step. Its
     ``DeltaChannel`` state, its file tools on the default ``StateBackend``,
     and tools that return a ``Command`` work in a session. Each turn starts
     from the stored messages, so its ``files`` last for one turn. Exclude
@@ -94,7 +95,6 @@ def langchain_agent_session_flow(
         >>> flow = langchain_agent_session_flow(
         ...     build_research_agent,
         ...     flow_type="ResearchAgent",
-        ...     should_defer_tool_calls_before_middleware=True,
         ...     excluded_tool_names=["task"],
         ...     tool_policies={"search_papers": ToolPolicy(ToolEffect.READ)},
         ... )
@@ -194,11 +194,18 @@ def langchain_agent_session_flow(
             .. versionadded:: 0.5.0
         should_defer_tool_calls_before_middleware: Whether to defer each tool
             call before any middleware tool wrapper runs, as if
-            ``DurableToolCallMiddleware`` came first in ``middleware``. Set it
-            for a Deep Agents agent. Defaults to ``False``. See
-            ``LangGraphAgentRunner``.
+            ``DurableToolCallMiddleware`` came first in ``middleware``, and to
+            run the wrappers in each attempt of the call's tool Step. Defaults
+            to ``True``; pass ``False`` to keep the middleware order and call
+            each tool alone in its tool Step. See ``LangGraphAgentRunner``.
 
             .. versionadded:: 0.5.0
+
+            .. versionchanged:: 0.5.1
+                The tool Step runs the middleware tool wrappers.
+
+            .. versionchanged:: 0.6.0
+                Defaults to ``True``. Before, it defaulted to ``False``.
 
     Returns:
         The session Flow.
@@ -264,7 +271,7 @@ def langgraph_agent_session_flow(
     media_store: MediaStore | None = None,
     excluded_tool_names: Collection[str] = (),
     select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
-    should_defer_tool_calls_before_middleware: bool = False,
+    should_defer_tool_calls_before_middleware: bool = True,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a custom LangGraph graph.
 
@@ -367,11 +374,18 @@ def langgraph_agent_session_flow(
             .. versionadded:: 0.5.0
         should_defer_tool_calls_before_middleware: Whether to defer each tool
             call before any middleware tool wrapper runs, as if
-            ``DurableToolCallMiddleware`` came first in ``middleware``. Set it
-            for a Deep Agents agent. Defaults to ``False``. See
-            ``LangGraphAgentRunner``.
+            ``DurableToolCallMiddleware`` came first in ``middleware``, and to
+            run the wrappers in each attempt of the call's tool Step. Defaults
+            to ``True``; pass ``False`` to keep the middleware order and call
+            each tool alone in its tool Step. See ``LangGraphAgentRunner``.
 
             .. versionadded:: 0.5.0
+
+            .. versionchanged:: 0.5.1
+                The tool Step runs the middleware tool wrappers.
+
+            .. versionchanged:: 0.6.0
+                Defaults to ``True``. Before, it defaulted to ``False``.
 
     Returns:
         The session Flow.

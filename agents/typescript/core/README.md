@@ -1286,6 +1286,77 @@ does not turn this on; pass `configOverride: { activeStepSearchMode: agentSessio
 `Client.updateFlowConfig` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
+## Showing what an approval acts on
+
+A tool approval can say what the call acts on and what it does. Its tool source returns an
+`AgentInterruptDisplay` `{ target, summary, preview? }` in `DeferredToolCall.approvalDisplay`, and the session
+stores it in `AgentInterrupt.display`, on the call's record as `approvalDisplay`, and in the `interrupt_raised`
+event. A queued ordered write raises its approval later with the display its source built when the model asked.
+
+```ts
+const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+for (const interrupt of snapshot.pendingInterrupts) {
+  console.log(interrupt.display?.summary ?? interrupt.arguments);
+}
+```
+
+- `ConnectorToolSource` and the CLI's connector tools build it with `buildConnectorToolApprovalDisplay`: the
+  target is `<connector>/<connection>`, and the summary names the operation, the connection, and up to five short
+  arguments, such as `Calls slack postChannelMessage with connection support-slack; channel: "#eng".`
+- The CLI's local file writes name the workspace path and carry a unified diff against the file as it is when the
+  model asks; its header lines say so. Its shell commands name the working directory and the command with its
+  inline credentials redacted and its control characters escaped, cut at 2 KiB; the full command is in the call's
+  arguments.
+- A display never says how often the call runs or what it achieves, and never uses a tool's description as its
+  effect.
+- Redaction in a display is best-effort hygiene, not a security boundary. The display's text comes from the call's
+  arguments, which the session stores in full as before, and an agent can read a workspace file with its own tools.
+  A credential-like argument (`isCredentialLikeName`) shows `<redacted>`, and `redactInlineCredentials` replaces
+  common credential shapes: the value after a credential-like name, read as a shell word, a triple-quoted string, or
+  a YAML block; `Authorization` and `Cookie` header values; URL passwords; `sshpass -p`; and common token shapes.
+  It reads `\uXXXX`, `\xXX`, and `%XX` escapes to find credentials but changes no other text: escapes stay as
+  written, and only the characters of each credential become `<redacted>`. It is conservative, so a generic
+  `key=value` is redacted too, and the CLI leaves out a file preview whose text it changes. It finds common forms
+  only, and Unicode lookalike letters are out of scope; `agents/conformance/approval_display.json` lists the cases
+  both cores share.
+- The session cuts a target over `maxApprovalTargetBytes` (1 KiB) and a summary over `maxApprovalSummaryBytes`
+  (2 KiB), ending them with `…`, and drops a preview over `maxApprovalPreviewBytes` (16 KiB). A tool without a
+  display, and every approval a Worker before 0.6.0 raised, has `display` `null`: show the concrete arguments, not a
+  guessed effect.
+
+## Listing sessions
+
+Since 0.6.0, a session can keep a summary that a session list needs: its title, the first 80 Unicode code points of
+the first user message; the time its latest turn started or ended; and its turn count. Turn it on with
+`summaryAttributesIndexed: true`; the adapter factories, such as `createBuiltinAgentSessionFlow`, take the same option.
+It is off by default, and `flow.options.summaryAttributesIndexed` tells whether a Flow keeps it. `listAgentSessions` reads one page of sessions in one `Client.searchFlows` call, without a snapshot
+per session and without a running Worker:
+
+```ts
+const flow = createAgentSessionFlow(runner, "SupportAgent", { summaryAttributesIndexed: true });
+const page = await listAgentSessions(client, flow.getFlowType(), { pageSize: 50, titleSearch: "refund" });
+for (const session of sortAgentSessionsByLastActivity(page.sessions)) {
+  console.log(session.sessionId, session.title ?? "—", session.lastActivityAt?.toISOString() ?? "—", session.turnCount);
+}
+```
+
+- Dex returns running sessions first, then the most recently closed and started ones. It cannot sort by last
+  activity, so `sortAgentSessionsByLastActivity` sorts the sessions you loaded.
+- `titleSearch` matches whole words of the title, without case: `flaky` finds "Fix the flaky test", `flak` does not.
+  Pass the same `titleSearch` with each `nextPageToken`.
+- A session without the option, or one that an earlier release started, lists without the summary, and a title search
+  never finds it. An earlier session gains the last activity time and the turn count at its next turn on a Worker with
+  the option. Show each missing value as a dash. Until a Worker with the option has started on the server, a title
+  search throws `SessionTitleSearchUnavailableError`.
+- A session that fails because its state would exceed the server's limit can keep the values of its last turn start.
+- Privacy: the title is the user's own text, and anyone who can search the namespace's Flows reads it. Turn the option
+  on only when the first message may be stored in the search index.
+- The three Attributes are indexed under `text1` (FULL_TEXT), `datetime1` (DATETIME), and `int1` (INT), the generic
+  keys that every Flow type of a namespace shares. A Worker with the option registers them when it starts. With
+  PostgreSQL search, a namespace has three keys of each of these types; the Worker fails to start with
+  `FAILED_PRECONDITION` when the namespace registered one of these keys with another type, or when all three keys of
+  the type are taken by other names. Search queries of other Flow types must filter on `FlowType`.
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
@@ -1418,6 +1489,9 @@ Do not repeat these tool calls unless the user asks again.
 | `PlanExecutions` | ChannelMap, key = `planExecutionKey(revision)` (decimal) | `PlanExecutionRequest { revision }` |
 | `PendingPlanExecution` | Attribute | `PlanExecutionRequest` that `execute_plan` accepted and `AwaitUserMessage` has not consumed |
 | `ContextSummary` | Attribute | `ContextSummary`, set once the session compacts |
+| `AgentSessionTitle` | Attribute, indexed FULL_TEXT `text1`; only with `summaryAttributesIndexed` | string, the first user message's title; set by the first turn only |
+| `AgentSessionLastActivityAt` | Attribute, indexed DATETIME `datetime1`; only with `summaryAttributesIndexed` | string, RFC 3339 time the latest turn started or ended |
+| `AgentSessionTurnCount` | Attribute, indexed INT `int1`; only with `summaryAttributesIndexed` | int64, `AgentState.turnCount` as of the latest turn start or end |
 | `AgentEvents` | Stream | `AgentEvent` |
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`,
@@ -1457,7 +1531,7 @@ IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 | `tool_call_deferred` | `{"tool_call_id","tool_name","effect","requires_approval"}`; the model asked for a call, which runs in its own Step |
 | `tool_call_started` | `{"tool_call_id","tool_name"}` |
 | `tool_call_finished` | `{"tool_call_id","tool_name","status"}`; the record became final, including a rejection |
-| `interrupt_raised` | `{"interrupt_id","kind","tool_call_id","tool_name","deadline","question","choices","allows_free_text"}` |
+| `interrupt_raised` | `{"interrupt_id","kind","tool_call_id","tool_name","deadline","question","choices","allows_free_text","display"}`; `display` is `{"target","summary","preview"}` or `null` |
 | `interrupt_resolved` | `{"interrupt_id","kind","approved","answered","rejection_message","cancellation_reason"}`; `answered` is `true` only for an answered question, and `cancellation_reason` is `"steered"` or `"turn_cancelled"` when steering or cancellation removed the interrupt |
 | `timer_started` | `{"tool_call_id","wait_until","reason"}` for a `durable_wait` call |
 | `plan_updated` | `{"revision","status","task_count"}` after `write_todos` replaced the plan, or when an approval marks a draft `active` |
@@ -1551,7 +1625,9 @@ server is listed again in the background while its earlier tools are
 returned. A server that cannot be listed is left out with a warning and is not
 tried again for `listingFailureBackoffMs` (30 seconds), then in the
 background, so one bad server never hides the others' tools or slows every
-model call. One listing per server runs at a time. `listTools({ refresh: true
+model call. The warnings go to `console.warn` unless `logWarning` sends them
+elsewhere, such as a log file; a `logWarning` that throws falls back to
+`console.warn`. One listing per server runs at a time. `listTools({ refresh: true
 })` lists every server again now. `deferredToolCall` stores the
 server, the tool's MCP name, and its task support on the call's record, so the
 tool Step calls that server directly, without a listing; `callTool` finds the

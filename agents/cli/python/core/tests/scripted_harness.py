@@ -18,6 +18,7 @@ The last user message picks the reply:
 * ``calls <json list of [tool, arguments]>``: calls several tools in one response.
 * ``ask``: asks the user a question with the ``ask_user`` built-in tool.
 * ``slow``: waits five minutes before answering, so the turn can be cancelled.
+* ``block``: blocks the Worker's event loop in a sleep for a minute.
 * ``fail``: raises, so the model call fails and, after its retries, the turn.
 * ``images``: lists the session's images that the model call loaded from the
   media store, as ``saw image <sha256> <bytes>`` joined by ``; ``, or
@@ -34,8 +35,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
+from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -43,6 +46,7 @@ from typing import Any
 from dex_agents import (
     AgentImageReference,
     AgentSessionFlow,
+    AgentSessionOptions,
     AgentTurnContext,
     AgentTurnOutcome,
     BuiltInTool,
@@ -79,7 +83,9 @@ DEFAULT_SCRIPTED_MODEL = "scripted-model"
 DEFAULT_INSTRUCTIONS = "You are the scripted test agent."
 #: Set to ``1`` to make ``tests.scripted_cli`` run a harness whose runner takes no images.
 WITHOUT_IMAGES_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TEST_WITHOUT_IMAGES"
+FORCED_SUMMARY_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TEST_FORCED_SUMMARY"
 _SLOW_REPLY_SECONDS = 300
+_BLOCKED_LOOP_SECONDS = 60
 _MAX_SHOWN_OUTPUT = 300
 # The image bytes the running model call loaded, by SHA-256, in load order.
 _LOADED_IMAGES: ContextVar[Mapping[str, bytes]] = ContextVar(
@@ -103,8 +109,13 @@ class ScriptedHarness:
         has_replacement_shell_tool: bool = False,
         is_tool_set_fixed_at_build: bool = False,
         supports_images: bool = True,
+        forced_summary_indexed: bool | None = None,
+        is_summary_misreported: bool = False,
     ) -> None:
         self._tool_policies = dict(tool_policies or {})
+        # A harness that ignores HarnessContext.is_session_summary_indexed, for the CLI's refusal.
+        self._forced_summary_indexed = forced_summary_indexed
+        self._is_summary_misreported = is_summary_misreported
         self._has_replacement_shell_tool = has_replacement_shell_tool
         self.is_tool_set_fixed_at_build = is_tool_set_fixed_at_build
         self._supports_images = supports_images
@@ -148,13 +159,43 @@ class ScriptedHarness:
             built_in_tools=frozenset({BuiltInTool.ASK_USER}),
             tool_policies=self._tool_policies,
         )
+        is_summary_indexed = (
+            context.is_session_summary_indexed
+            if self._forced_summary_indexed is None
+            else self._forced_summary_indexed
+        )
+        if self._is_summary_misreported:
+            return SummaryMisreportingFlow(
+                BuiltinLoopAgentRunner(definition),
+                flow_type=context.flow_type,
+                options=replace(
+                    builtin_agent_session_options(definition),
+                    summary_attributes_indexed=is_summary_indexed,
+                ),
+            )
         if not self._supports_images or context.media_store is None:
-            return builtin_agent_session_flow(definition, flow_type=context.flow_type)
+            return builtin_agent_session_flow(
+                definition,
+                flow_type=context.flow_type,
+                summary_attributes_indexed=is_summary_indexed,
+            )
         return AgentSessionFlow(
             ImageScriptedRunner(definition, context.media_store),
             flow_type=context.flow_type,
-            options=builtin_agent_session_options(definition),
+            options=replace(
+                builtin_agent_session_options(definition),
+                summary_attributes_indexed=is_summary_indexed,
+            ),
         )
+
+
+class SummaryMisreportingFlow(AgentSessionFlow):
+    """A session Flow whose options report the opposite of the summary its schema declares."""
+
+    @property
+    def options(self) -> AgentSessionOptions:
+        declared = super().options
+        return replace(declared, summary_attributes_indexed=not declared.summary_attributes_indexed)
 
 
 class ImageScriptedRunner(BuiltinLoopAgentRunner):
@@ -249,6 +290,10 @@ def _responder(model_name: str, cached_at_build: list[str]) -> Any:
             case "slow":
                 await asyncio.sleep(_SLOW_REPLY_SECONDS)
                 return ScriptedModelReply(text="slow reply")
+            case "block":
+                # A blocking call on purpose: it stalls the event loop, but releases the GIL.
+                time.sleep(_BLOCKED_LOOP_SECONDS)  # noqa: ASYNC251
+                return ScriptedModelReply(text="unblocked")
         return ScriptedModelReply(text=f"echo: {text}")
 
     return respond

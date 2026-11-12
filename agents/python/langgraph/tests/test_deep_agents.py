@@ -15,23 +15,39 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from deepagents import create_deep_agent
 from dex import FlowStatus
 from dex_agents import AgentSessionFlow, AgentSnapshot, MessageRole
-from dex_agents.testing import AgentTestStack, InvocationLog, wait_for_agent_snapshot
+from dex_agents.testing import AgentTestStack, FileGate, InvocationLog, wait_for_agent_snapshot
 from dex_agents.ui_stream import agent_snapshot_to_json
+from langchain_core.tools import tool
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt.tool_node import ToolCallRequest
 
-from dex_agents_langgraph import DurableToolCallMiddleware, LangGraphAgentRunner
+from dex_agents_langgraph import (
+    DurableToolCallMiddleware,
+    LangGraphAgentRunner,
+    awrap_durable_tool_call,
+)
 from tests.conftest import DEEP_AGENT_WORKER_MODULE, PACKAGE_DIR, ScriptedAgentHarness
 from tests.deep_agents import (
+    AUDIT_INVOCATION_PREFIX,
+    AUDITED_DEFERRAL_FLOW_TYPE,
     DEEP_AGENT_FLOW_TYPE,
+    EVICTING_DEEP_AGENT_FLOW_TYPE,
+    EVICTION_TOKEN_LIMIT,
+    MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE,
+    ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE,
     SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE,
     SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE,
     SOURCE_READ_FILE_DEEP_AGENT_FLOW_TYPE,
     SOURCE_READ_FILE_OUTPUT,
+    TOOL_STEP_WRAPPER_INVOCATION_PREFIX,
     TOOL_WRAPPER_INVOCATION_PREFIX,
     TURN_MODEL_NAME,
     WorkspaceReadFileSource,
@@ -75,6 +91,9 @@ async def test_a_file_written_in_a_turn_is_read_back_after_a_worker_restart(
     assert "buy milk" in answer.split("read_file: ", 1)[1]
     executed = await harness.executed_step_types(restarted_session_id)
     assert executed.count("CallSingleAttemptTool") == 1
+    # Each finished call ran the tool wrappers once, in its tool Step; the replay did not.
+    assert _tool_wrapper_invocations(harness).count("write_file") == 1
+    assert _tool_wrapper_invocations(harness).count("read_file") == 1
     # A session without the restart replays the same conversation.
     uninterrupted_session_id = harness.new_session_id()
     await harness.sessions.start_session(uninterrupted_session_id, FILES_SCRIPT)
@@ -102,12 +121,52 @@ async def test_a_tool_that_returns_a_command_updates_state_for_a_later_tool(
     ]
     assert tool_outputs == ["topic set to durability", "topic is durability"]
     assert harness.tool_invocations() == ["set_topic", "get_topic"]
-    # The deferral comes before the middleware's tool wrapper, which therefore never runs.
-    assert not [
-        name
-        for name in harness.invocations.names()
-        if name.startswith(TOOL_WRAPPER_INVOCATION_PREFIX)
+    # The deferral comes first, so the middleware's tool wrapper runs once, in the tool Step.
+    assert _tool_wrapper_invocations(harness) == ["set_topic", "get_topic"]
+
+
+@pytest.mark.parametrize("deep_agent_flow_type", [EVICTING_DEEP_AGENT_FLOW_TYPE])
+async def test_a_large_tool_result_is_evicted_to_a_file_once_in_its_tool_step(
+    deep_agent_harness: ScriptedAgentHarness,
+) -> None:
+    harness = deep_agent_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    long_text = "durable agents " * (EVICTION_TOKEN_LIMIT * 2)
+    evicted_path = "/large_tool_results/call-1-0-0"
+    await harness.sessions.start_session(
+        session_id,
+        f"call echo_text {json.dumps({'text': long_text})} "
+        f"then call ls {json.dumps({'path': '/large_tool_results'})}",
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    tool_outputs = [
+        message.tool_output or ""
+        for message in snapshot.messages
+        if message.role is MessageRole.TOOL
     ]
+    # FilesystemMiddleware's wrapper replaced the result and wrote it to the agent's files.
+    assert evicted_path in tool_outputs[0]
+    assert long_text not in tool_outputs[0]
+    assert evicted_path in tool_outputs[1]
+    assert harness.tool_invocations() == ["echo_text"]
+    # The listing sees the file, so the recorded state write reached the next model call.
+    assert _tool_wrapper_invocations(harness) == ["echo_text", "ls"]
+
+
+async def test_tools_in_their_tool_steps_share_the_compiled_graphs_store(
+    deep_agent_harness: ScriptedAgentHarness,
+) -> None:
+    harness = deep_agent_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call save_note {"note": "buy milk"} then call read_note {}'
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == "save_note: saved; read_note: buy milk"
 
 
 async def test_task_is_neither_offered_nor_run_when_excluded(
@@ -180,6 +239,14 @@ async def test_session_settings_pick_the_model_of_each_turn(
     assert snapshot.messages[-1].text == "get_topic: topic is unset; wait_at_gate: passed model"
     models = [request.model for request in read_recorded_model_requests(harness.state_dir)]
     assert models == [SCRIPTED_REQUEST_MODEL, TURN_MODEL_NAME, TURN_MODEL_NAME, TURN_MODEL_NAME]
+
+
+def _tool_wrapper_invocations(harness: ScriptedAgentHarness) -> list[str]:
+    return [
+        name.removeprefix(TOOL_WRAPPER_INVOCATION_PREFIX)
+        for name in harness.invocations.names()
+        if name.startswith(TOOL_WRAPPER_INVOCATION_PREFIX)
+    ]
 
 
 def _conversation(snapshot: AgentSnapshot) -> list[tuple[MessageRole, str | None]]:
@@ -273,14 +340,157 @@ async def test_two_runners_sharing_one_graph_keep_their_own_middleware_order(
             stack, flows[SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE], "call get_topic {}"
         )
         assert deferred_first.messages[-1].text == "get_topic: topic is unset"
-        assert invocations.count(wrapper_invocation) == 0
+        # The tool Step runs the wrapper once; the replay in RunModel does not.
+        assert invocations.count(wrapper_invocation) == 1
 
         middleware_order = await _run_one_turn(
             stack, flows[SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE], "call get_topic {}"
         )
         assert middleware_order.messages[-1].text == "get_topic: topic is unset"
         # The recorder wraps the deferral, so it sees the call when it defers and when it resumes.
-        assert invocations.count(wrapper_invocation) == 2
+        assert invocations.count(wrapper_invocation) == 1 + 2
+
+
+async def test_a_turn_started_with_the_deferral_first_keeps_it_on_a_middleware_order_worker(
+    tmp_path: Path,
+) -> None:
+    async with _deep_agent_stack(tmp_path) as (stack, flows, state_dir):
+        worker = await stack.start_worker()
+        invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+        sessions = stack.sessions(flows[ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE])
+        session_id = f"session-{uuid4().hex}"
+        # The tool Step commits; the next RunModel replays its result and then waits.
+        await sessions.start_session(session_id, "call get_topic {} then stall order")
+        gate = FileGate(state_dir, "order")
+        await gate.wait_until_reached()
+        assert _wrapper_counts(invocations, "get_topic") == (1, 1)
+
+        worker.kill()
+        gate.release()
+        await stack.start_worker({MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE: "1"})
+        first = await _wait_for_finished_turns(sessions, session_id, 1)
+        # The middleware-order Worker replayed the result without running the wrapper again.
+        assert first.messages[-1].text == "waiting; get_topic: topic is unset"
+        assert _wrapper_counts(invocations, "get_topic") == (1, 1)
+
+        # A new turn follows this Worker's option: the wrapper sees the deferral and the replay.
+        await sessions.send_user_message(session_id, "call get_topic {}")
+        await _wait_for_finished_turns(sessions, session_id, 2)
+        assert _wrapper_counts(invocations, "get_topic") == (3, 1)
+    assert invocations.count("get_topic") == 2
+
+
+async def test_a_turn_started_in_middleware_order_keeps_it_on_a_default_worker(
+    tmp_path: Path,
+) -> None:
+    async with _deep_agent_stack(tmp_path) as (stack, flows, state_dir):
+        worker = await stack.start_worker({MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE: "1"})
+        invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+        sessions = stack.sessions(flows[ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE])
+        session_id = f"session-{uuid4().hex}"
+        await sessions.start_session(session_id, 'call wait_at_gate {"gate": "order"}')
+        gate = FileGate(state_dir, "order")
+        await gate.wait_until_reached()
+        # The middleware order ran the wrapper around the deferral in RunModel.
+        assert _wrapper_counts(invocations, "wait_at_gate") == (1, 0)
+
+        worker.kill()
+        gate.release()
+        await stack.start_worker()
+        first = await _wait_for_finished_turns(sessions, session_id, 1)
+        # The tool Step ran the tool alone, and RunModel wrapped the replay, as the turn began.
+        assert first.messages[-1].text == "wait_at_gate: passed order"
+        assert _wrapper_counts(invocations, "wait_at_gate") == (2, 0)
+
+        await sessions.send_user_message(session_id, "call get_topic {}")
+        await _wait_for_finished_turns(sessions, session_id, 2)
+        assert _wrapper_counts(invocations, "get_topic") == (1, 1)
+
+
+@pytest.mark.parametrize("deep_agent_flow_type", [AUDITED_DEFERRAL_FLOW_TYPE])
+async def test_a_decorated_deferral_runs_its_decorator_once_in_the_tool_step(
+    deep_agent_harness: ScriptedAgentHarness,
+) -> None:
+    harness = deep_agent_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, 'call echo_text {"text": "hi"}')
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == "echo_text: hi"
+    assert harness.invocations.count(f"{AUDIT_INVOCATION_PREFIX}echo_text") == 1
+    assert harness.tool_invocations() == ["echo_text"]
+
+
+def test_a_tool_in_two_root_nodes_with_different_wrappers_is_refused() -> None:
+    @tool
+    def echo_text(text: str) -> str:
+        """Return the text unchanged."""
+        return text
+
+    async def first_wrapper(request: ToolCallRequest, handler: Any) -> Any:
+        return await handler(request)
+
+    async def second_wrapper(request: ToolCallRequest, handler: Any) -> Any:
+        return await handler(request)
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("first_tools", ToolNode([echo_text], awrap_tool_call=first_wrapper))
+    builder.add_node("second_tools", ToolNode([echo_text], awrap_tool_call=second_wrapper))
+    builder.add_edge(START, "first_tools")
+    builder.add_edge("first_tools", "second_tools")
+    builder.add_edge("second_tools", END)
+    graph = builder.compile()
+
+    with pytest.raises(ValueError, match="several root tool nodes"):
+        LangGraphAgentRunner(graph)
+    LangGraphAgentRunner(graph, should_defer_tool_calls_before_middleware=False)
+
+
+def test_a_tool_in_a_bare_deferral_node_and_a_wrapped_node_is_refused() -> None:
+    @tool
+    def echo_text(text: str) -> str:
+        """Return the text unchanged."""
+        return text
+
+    async def audit(request: ToolCallRequest, handler: Any) -> Any:
+        return await handler(request)
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("bare", ToolNode([echo_text], awrap_tool_call=awrap_durable_tool_call))
+    builder.add_node("audited", ToolNode([echo_text], awrap_tool_call=audit))
+    builder.add_edge(START, "bare")
+    builder.add_edge("bare", "audited")
+    builder.add_edge("audited", END)
+    graph = builder.compile()
+
+    # A call from the bare node must never run the audited node's wrapper.
+    with pytest.raises(ValueError, match="several root tool nodes"):
+        LangGraphAgentRunner(graph)
+    LangGraphAgentRunner(graph, should_defer_tool_calls_before_middleware=False)
+
+
+def _wrapper_counts(invocations: InvocationLog, tool_name: str) -> tuple[int, int]:
+    """Return how often the recorder's tool wrapper ran in all, and how often in a tool Step."""
+    return (
+        invocations.count(f"{TOOL_WRAPPER_INVOCATION_PREFIX}{tool_name}"),
+        invocations.count(f"{TOOL_STEP_WRAPPER_INVOCATION_PREFIX}{tool_name}"),
+    )
+
+
+async def _wait_for_finished_turns(
+    sessions: Any, session_id: str, turn_count: int
+) -> AgentSnapshot:
+    return await wait_for_agent_snapshot(
+        sessions,
+        session_id,
+        lambda current: current
+        if current.state is not None
+        and current.state.turn_count >= turn_count
+        and current.state.active_turn_id is None
+        else None,
+        description=f"{turn_count} finished turn(s)",
+    )
 
 
 async def test_state_writes_over_the_state_limit_fail_the_session(tmp_path: Path) -> None:

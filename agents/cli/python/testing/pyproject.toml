@@ -12,7 +12,12 @@ dependencies = [
     "pexpect>=4.9,<5",
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.26,<2",
+    "ruamel.yaml>=0.18,<0.19",
 ]
+
+[project.scripts]
+dex-agents-mock-model-api = "dex_agents_cli_testing.mock_model_api:main"
+dex-agents-cli-e2e = "dex_agents_cli_testing.e2e.__main__:main"
 
 [dependency-groups]
 dev = [
@@ -46,8 +51,11 @@ known-first-party = ["dex_agents", "dex_agents_cli_core", "dex_agents_cli_testin
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src"]
+files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
 module = ["pexpect", "pexpect.*"]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

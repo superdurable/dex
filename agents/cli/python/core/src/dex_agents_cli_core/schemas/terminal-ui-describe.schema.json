@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dexcli agents-tui --describe output",
+  "description": "The one JSON object dexcli agents-tui --describe prints on stdout. It lists, for every contract version this dexcli supports, the modes it runs, the local request methods each mode may call, and the capabilities it reads. A launcher picks a contract from it before the handoff. See TERMINAL_UI_CONTRACT.md.",
+  "$comment": "Patterns end with (?![\\s\\S]) rather than $, because Python's re lets $ match before a trailing newline and ECMAScript does not. Objects allow unknown properties, because a later dexcli may add fields.",
+  "type": "object",
+  "required": ["dexcli_version", "contracts"],
+  "properties": {
+    "dexcli_version": { "type": "string", "minLength": 1, "description": "The dexcli version, such as 1.46.0." },
+    "contracts": {
+      "type": "object",
+      "description": "Keyed by the contract version as a decimal string without leading zeros, such as \"1\".",
+      "propertyNames": { "pattern": "^[1-9][0-9]*(?![\\s\\S])" },
+      "additionalProperties": { "$ref": "#/$defs/contract" }
+    }
+  },
+  "$defs": {
+    "contract": {
+      "type": "object",
+      "required": ["modes", "capabilities"],
+      "properties": {
+        "modes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])" },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["uses_methods"],
+            "properties": {
+              "uses_methods": {
+                "type": "array",
+                "description": "The local request methods this mode may call when the launch document lists them.",
+                "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])" },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "description": "The launch document capabilities this dexcli reads; it ignores others.",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

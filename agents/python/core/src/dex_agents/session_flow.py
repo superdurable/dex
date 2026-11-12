@@ -70,6 +70,7 @@ from dex import (
 from dex.condition import Condition
 
 from dex_agents._session_tracing import AgentSessionTracer
+from dex_agents.approval_display import bound_approval_display
 from dex_agents.built_in_tools import (
     DEFAULT_MAX_DURABLE_WAIT,
     QUESTION_DEADLINE_PASSED,
@@ -98,6 +99,9 @@ from dex_agents.persistence import (
     AGENT_MESSAGE_INDEX,
     AGENT_MESSAGES,
     AGENT_PLAN,
+    AGENT_SESSION_LAST_ACTIVITY_AT,
+    AGENT_SESSION_TITLE,
+    AGENT_SESSION_TURN_COUNT,
     AGENT_STATE,
     AGENT_TOOL_CALLS,
     AGENT_TRACE_CONTEXT,
@@ -170,6 +174,7 @@ from dex_agents.runner import (
     build_turn_failure_note,
 )
 from dex_agents.session_settings import check_stored_session_settings
+from dex_agents.session_summary import build_session_title
 from dex_agents.spend_limit import (
     MODEL_CALL_REFUSED_ERROR_PREFIX,
     SPEND_LIMIT_CALL_TIMEOUT,
@@ -183,6 +188,7 @@ from dex_agents.values import (
     AgentEvent,
     AgentImageReference,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentInterruptResolution,
     AgentMessage,
     AgentMessageChunk,
@@ -438,6 +444,23 @@ class AgentSessionOptions:
         spend_limit: The application's ``ModelSpendLimit``, called before and
             after each model call of ``RunModel`` and ``CompactContext``.
             ``None``, the default, makes no checks.
+        summary_attributes_indexed: Whether the session keeps the indexed
+            ``AGENT_SESSION_TITLE``, ``AGENT_SESSION_LAST_ACTIVITY_AT``, and
+            ``AGENT_SESSION_TURN_COUNT`` Attributes that ``list_agent_sessions``
+            reads. Defaults to ``False``: the Flow does not declare them and
+            never writes them. Check two things before you enable it. The
+            title is the first 80 Unicode code points of the session's first
+            user message, and anyone who can search the namespace's Flows reads
+            it, so enable it only when that message may be stored in the search
+            index. The Worker registers the index keys ``text1`` (FULL_TEXT),
+            ``datetime1`` (DATETIME), and ``int1`` (INT) when it starts; with
+            PostgreSQL search, startup fails with ``FAILED_PRECONDITION`` when
+            the namespace already registered one of these keys with another
+            type, or when all three keys of the type are taken by other names.
+            Turning the option off later stops new writes; the values written
+            before stay in the index.
+
+            .. versionadded:: 0.6.0
 
     Raises:
         ValueError: If ``event_stream_capacity_bytes`` or ``interrupt_deadline``
@@ -466,6 +489,7 @@ class AgentSessionOptions:
     retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT
     run_model_limit: RunModelLimit = field(default_factory=RunModelLimit)
     spend_limit: ModelSpendLimit | None = None
+    summary_attributes_indexed: bool = False
 
     def __post_init__(self) -> None:
         if self.message_chunk_size <= 0:
@@ -742,6 +766,11 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             CONTEXT_SUMMARY,
             SESSION_SETTINGS,
             TURN_SESSION_SETTINGS,
+            *(
+                (AGENT_SESSION_TITLE, AGENT_SESSION_LAST_ACTIVITY_AT, AGENT_SESSION_TURN_COUNT)
+                if self._options.summary_attributes_indexed
+                else ()
+            ),
             self.agent_events,
         )
 
@@ -1249,6 +1278,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     accepts_turn_control=True,
                 ),
             )
+            self._record_session_activity(context, state.turn_count)
+            if state.turn_count == 0 and messages:
+                self._record_session_title(context, messages[0].text)
             events = self._event_writer(context, turn_id)
             events.write_event(AgentEventType.TURN_STARTED, {"sequence": sequence})
             if executed_plan is not None:
@@ -1258,6 +1290,23 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 if was_plan_draft:
                     _write_plan_updated(events, executed_plan)
         return self._go_to_message_step(context, self._run_model)
+
+    def _record_session_activity(self, context: Context, turn_count: int) -> None:
+        """Write the session's last activity time and turn count."""
+        if not self._options.summary_attributes_indexed:
+            return
+        # The first attempt's start time comes from Dex and stays the same across retries.
+        AGENT_SESSION_LAST_ACTIVITY_AT.set(context, _rfc3339(context.first_attempt_at))
+        # An unset int Attribute reads as 0, so the count is written even when it looks unchanged.
+        AGENT_SESSION_TURN_COUNT.set(context, turn_count)
+
+    def _record_session_title(self, context: Context, first_message_text: str) -> None:
+        """Write the session's title from its first user message, unless it already has one."""
+        if not self._options.summary_attributes_indexed:
+            return
+        title = build_session_title(first_message_text)
+        if title is not None and AGENT_SESSION_TITLE.get(context) is None:
+            AGENT_SESSION_TITLE.set(context, title)
 
     def _build_stored_user_message(self, message: AgentUserMessage) -> FrameworkMessage:
         """Build the stored item of one user message; the session sets its images itself."""
@@ -1668,6 +1717,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 last_turn_error=turn_error,
             ),
         )
+        self._record_session_activity(context, state.turn_count + 1)
         if turn_error is not None:
             events.write_event(AgentEventType.TURN_FAILED, {"error": turn_error})
             return go_to(self._await_user_message, None)
@@ -1759,6 +1809,11 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 tool_source_reference=requested.tool_source_reference,
                 trace_context=trace_context,
                 ordered_write=is_ordered_write,
+                approval_display=(
+                    bound_approval_display(requested.approval_display)
+                    if requires_approval
+                    else None
+                ),
             )
             events.write_event(
                 AgentEventType.TOOL_CALL_DEFERRED,
@@ -1831,6 +1886,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             arguments=tool_call.arguments,
             created_at=_rfc3339(now),
             deadline=self._interrupt_deadline(now),
+            display=tool_call.approval_display,
         )
         interrupts.append(interrupt)
         _write_interrupt_raised(events, interrupt)
@@ -2392,6 +2448,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 runner_tool_state=result.runner_tool_state,
             )
             tool_call_span.record_finished(succeeded)
+            if result.is_finished_by_resumed_turn:
+                # The resumed turn runs the call and writes its tool_call_finished.
+                _record_final_tool_call(context, succeeded, None)
+                return dead_end()
             return _finish_tool_call(context, succeeded, events)
 
     def _wait_for_tool_task_poll(self, context: Context, tool_call_id: str) -> Wait:
@@ -2724,6 +2784,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 last_turn_error=None,
             ),
         )
+        self._record_session_activity(context, state.turn_count + 1)
         message_count = stored_message_count + len(messages)
         if is_cancelled:
             events.write_event(AgentEventType.TURN_CANCELLED, {"message_count": message_count})
@@ -2758,17 +2819,19 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             FRAMEWORK_RUN_STATE.delete(context)
         if _pending_interrupts(context):
             PENDING_INTERRUPTS.set(context, [])
+        turn_count = state.turn_count + (0 if state.active_turn_id is None else 1)
         AGENT_STATE.set(
             context,
             replace(
                 state,
                 status=AgentSessionStatus.FAILED,
-                turn_count=state.turn_count + (0 if state.active_turn_id is None else 1),
+                turn_count=turn_count,
                 active_turn_id=None,
                 accepts_turn_control=False,
                 last_turn_error=error,
             ),
         )
+        self._record_session_activity(context, turn_count)
         events = self._event_writer(context, state.active_turn_id)
         events.write_event(AgentEventType.TURN_FAILED, {"error": error})
         return force_fail(error)
@@ -2808,6 +2871,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 last_turn_error=error,
             ),
         )
+        self._record_session_activity(context, state.turn_count + 1)
         events.write_event(AgentEventType.TURN_FAILED, {"error": error})
         return go_to(self._await_user_message, None)
 
@@ -3017,6 +3081,7 @@ class StartAgentSession(Step[AgentSessionStartInput]):
             if input.session_settings:
                 SESSION_SETTINGS.set(context, input.session_settings)
         AGENT_STATE.set(context, AgentState(status=AgentSessionStatus.WAITING_FOR_USER_MESSAGE))
+        self._session._record_session_activity(context, 0)
         AGENT_USAGE.set(context, AgentUsage())
         PENDING_INTERRUPTS.set(context, [])
         if input.initial_message is None or not input.initial_message.strip():
@@ -3505,11 +3570,13 @@ def _finish_tool_call(
 def _record_final_tool_call(
     context: AsyncContext,
     finished: AgentToolCall,
-    events: AgentEventWriter,
+    events: AgentEventWriter | None,
 ) -> None:
+    """Record a final call and publish its result; ``events`` ``None`` writes no event."""
     AGENT_TOOL_CALLS.set(context, finished.tool_call_id, finished)
     TOOL_CALL_RESULTS.publish(context, ToolCallCompleted(tool_call_id=finished.tool_call_id))
-    events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
+    if events is not None:
+        events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
 
 
 def _write_plan_updated(events: AgentEventWriter, plan: AgentPlan) -> None:
@@ -3531,8 +3598,15 @@ def _write_interrupt_raised(events: AgentEventWriter, interrupt: AgentInterrupt)
             "question": interrupt.question,
             "choices": list(interrupt.choices),
             "allows_free_text": interrupt.allows_free_text,
+            "display": _display_payload(interrupt.display),
         },
     )
+
+
+def _display_payload(display: AgentInterruptDisplay | None) -> dict[str, str | None] | None:
+    if display is None:
+        return None
+    return {"target": display.target, "summary": display.summary, "preview": display.preview}
 
 
 def _write_interrupt_resolved(

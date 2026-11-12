@@ -96,6 +96,20 @@ list, are not part of the suffix, so changing them keeps `--resume` working.
 Changing the workspace, the file, or the user starts a new type: `--resume`
 of an older session then exits with 2 and says to resume it in its original
 environment, and `sessions` lists only the current environment's sessions.
+`sessions` loads up to five pages of 50 sessions, sorts them by last activity,
+and says when more sessions exist. It prints one per line with tab-separated
+columns: the ID, the status, the start time, the time of the latest turn, the
+turn count, and the title, the first 80 Unicode code points of the first
+message. `sessions.summary` in the configuration file decides whether the
+session Flow keeps that summary: `auto`, the default, keeps it only with
+`dex.server: auto`, because a Dex server URL may be shared; `on` keeps it with
+any server; `off` never. The CLI core passes the result to the harness as
+`HarnessContext.isSessionSummaryIndexed`, and the harness builds its Flow with
+`summaryAttributesIndexed` set to it. The command refuses to start when the
+Flow's persistence schema, or its `options.summaryAttributesIndexed`, differs,
+so a custom harness must honor the field. The check verifies what the Flow
+declares; it does not sandbox harness code. A session that a release before 0.6.0 started shows `—` for the
+title, and for the time and the turn count until its next turn.
 Two processes in the same environment share their sessions' Steps. Because
 tool settings may differ between them, the Worker that runs a tool Step
 checks the call again right before it acts, with its own file and the
@@ -146,6 +160,7 @@ interface AgentHarness {
   readonly flowType: string;
   readonly defaultModel: string | null;
   readonly replacedLocalTools?: readonly LocalToolGroup[];
+  readonly defaultWorkspaceLocation?: "dex_agent_workspace" | "launch_directory"; // TypeScript only
   createSessionFlow(context: HarnessContext): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
 }
 
@@ -179,6 +194,10 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   `approval.always`. A harness reads only the model and the instructions,
   with `resolveTurn` in each model call. Rejected settings throw there, so
   the turn fails with the error code and JSON Pointer.
+- `defaultWorkspaceLocation: "launch_directory"` makes the directory the
+  command starts in the workspace when the file sets none, as Pi does, and
+  `init` then writes no `workspace`. The default is `~/dex-agent-workspace`.
+  The Python CLI core has no such option.
 - `replacedLocalTools` lists the groups the harness serves with its own
   tools. The CLI core leaves them out of `context.toolSources`. The harness
   gives its own tools the same rules, with these exports:
@@ -288,6 +307,31 @@ Each call is one Dex tool Step, recorded in the session.
   downloads Chromium on first use. Each session has one page in the Worker's
   memory.
 - `approval.always` adds approval to any tool by name.
+- An approval says what the call acts on in `AgentInterrupt.display`. A file
+  write's target is its workspace path, and its preview is a unified diff of
+  the file as it is when the model asks against the new content, with the
+  header lines `--- <path> (the file now)` and `+++ <path> (after this write)`
+  (`--- /dev/null (no file now)` for a new file) and
+  `\ No newline at end of file` where a side lacks its last newline. A path's
+  control characters show as `\u00XX`. The preview reads the file with the
+  write's own checks, so it never follows a final link and gives no text when
+  the path changes during the read. It is left out for a file or new content
+  over 64 KiB, a diff over 200 lines, a path the write would refuse, a file
+  that is not UTF-8, an `edit_file` whose `old_text` does not occur once, a
+  side the best-effort credential redaction changes, such as one with
+  `password: …`, `key=value`, or an escaped name such as `pass\u0077ord`,
+  and a credential file
+  such as `.env`, `.aws/credentials`, `.kube/config`, `id_ed25519`,
+  `server.pem`, or `secrets.yaml`. A shell command's target is the working
+  directory, and its summary holds the command with common credential shapes
+  redacted and its control characters written as `\u00XX`, cut at 2 KiB;
+  nothing in it is decoded or rewritten otherwise, and the call's
+  arguments keep the full command. Paths, the working directory, and
+  connection names in a display get the same redaction. Browser actions have
+  no display. The redaction is best-effort hygiene, not a security boundary:
+  the session stores the call's full arguments, and the agent can read the
+  file with its own tools. `agents/conformance/approval_display.json` lists
+  the cases both CLI cores share.
 - A local tool's effect and approval are floors. An explicit `ToolPolicy` for
   it may raise the effect, ranked as in `McpToolSource.mergeToolPolicies`.
   The call waits for approval when the tool asks for it, when the policy sets
@@ -302,17 +346,31 @@ serves at `<Dex Web URL>/mcp`. When the CLI core starts `dexcli dev`, it takes
 the URL from the `Connectors MCP:` line of its output. When an `auto` server is
 not available, such as one answering 503 while it starts, or an older
 `dexcli` without `/mcp`, the command warns and continues; each model call
-lists the server again, so its tools appear once it is ready. An explicit
-`connectors.mcp` URL that is not available stops the command.
+lists the server again, so its tools appear once it is ready. The terminal
+shows one short line when connector tools become unavailable, naming the log
+file `~/.dex/agents/<harness>.log` and the Dex Web Connectors page, and one
+line when they are available again. Each failed listing and its error go to
+the log file only. A server that answers HTTP 401 or 403 gets a line saying it
+denied access, so check its access settings and `connectors.mcp`. For an
+explicit `connectors.mcp` URL, only a failed `initialize` probe stops the
+command. A server that answers `initialize` but cannot be listed only warns,
+whichever URL names it.
 
 A harness whose runner fixes its tools when the Flow is built declares
 `isToolSetFixedAtBuild: true`. The CLI core then lists the connector tools the
 file enables before it builds the Flow, so the connector source's
 `cachedTools()` holds them. When the server does not answer at startup, or
-that listing fails, the warning says the run has no connector tools and to
+that listing fails, one warning says the run has no connector tools and to
 restart the command once the server answers. Every TypeScript adapter lists
 its tool sources in each model call, so none of the TypeScript commands sets
 it; the Python CLI core's `is_tool_set_fixed_at_build` is the same switch.
+
+A connector call that waits for approval carries the display of
+`buildConnectorToolApprovalDisplay` in `AgentInterrupt.display`: the target
+`<connector>/<connection>` and a summary with the operation, the connection,
+and up to five short arguments, credential-like ones as `<redacted>`, read
+from the tool's `_meta`. A tool whose `_meta` names no connector and
+connection has no display.
 
 The agent sees each connector tool by its MCP name, such as
 `slack_post_thread_reply`. `connectors.enabled` matches only these `_meta`
@@ -365,8 +423,45 @@ names the port. This check also runs for a server that a command started.
 These are protocol checks, not authentication: a local process of another
 user that binds the ports first and imitates both answers is trusted. Without
 any server, it starts `dexcli dev` in the background on those ports. Its output goes to `~/.dex/agents/dexcli-dev.log`,
-and its pid and ports to `~/.dex/agents/dexcli-dev.json`. It keeps running
-after the command exits, so later commands and Dex Web reuse it.
+and its pid and ports to `~/.dex/agents/dexcli-dev.json`.
+
+A `dexcli dev` that the command started stops when the command exits: on
+`/exit`, the end of input, the Ctrl-C that exits, a failure, SIGTERM, or
+SIGHUP. The command owns it from its spawn on. It removes
+`~/.dex/agents/dexcli-dev.json` when the record still names that process; it
+renames the record aside first, so a record another command writes meanwhile
+stays. It then sends SIGTERM to the process group, which includes
+`dex-server-zd`, and SIGKILL after 20 seconds, and prints "Stopped the dexcli
+dev this command started." On SIGTERM or SIGHUP it then exits the process with
+128 plus the signal number. Its signal handlers stay installed during the
+stop: another SIGTERM, SIGHUP, or SIGINT sends SIGKILL at once and exits. The
+command signals the group only until Node reports the exit of `dexcli dev`,
+because Node has reaped it by then and the group ID may be reused. If group
+members seem to outlive `dexcli dev`, it says that processes may still run and
+prints a `kill` hint instead of signalling the group. On Windows, which has no
+process groups, it runs `taskkill /PID <pid> /T` and, after 20 seconds,
+`taskkill /PID <pid> /T /F`, which also end `dex-server-zd`; Node's own
+`kill` would end `dexcli dev` alone.
+
+A command killed with SIGKILL, or one that crashes, cannot stop the
+`dexcli dev` it started: it keeps running and its record stays. Later commands
+reuse it and never stop it. Stop it with `kill` and the pid in the record.
+
+The `dexcli dev` state
+stays in `~/.dex/zd/<dex port>`, so a later command that starts it again can
+`--resume` a session. `resolveDexServer` itself leaves a started `dexcli dev`
+running; only `runAgentCli` stops it.
+
+A `dexcli dev` that the command reused is never stopped: one the user started,
+or one that another command started and still records. Only the process this
+command spawned is stopped, never a pid read from the record. To share one
+server across sessions, run `dexcli dev` first. When a reused `dexcli dev`
+stops during the command, the command exits with code 1 and one line that
+names the stopped `dexcli dev`. During the chat, every `console.warn` and
+`console.error` of the Dex SDK and other libraries goes to
+`~/.dex/agents/<harness>.log`. The terminal shows the first line of each,
+except the Worker's task stream reconnect messages, which print stack traces.
+Issue #1657 tracks a logger option of the SDK that replaces this match.
 
 The CLI core finds `dexcli` in this order: `DEXCLI`; an earlier download in
 `~/.dex/bin/dexcli-<version>`, whose `dexcli` and `dex-server-zd` must still
@@ -384,6 +479,7 @@ entry is refused.
 | `DEXCLI` | The `dexcli` executable to use. |
 | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `auto` reuses or starts. |
 | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. It must be `https`, or `http` on 127.0.0.1, localhost, or [::1]. |
+| `DEX_AGENTS_OPEN_BROWSER` | `0` or `false` keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. |
 
 ## Development
 

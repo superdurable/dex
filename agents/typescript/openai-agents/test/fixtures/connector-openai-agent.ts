@@ -10,7 +10,7 @@
 // The scripted model reads `calls <json>` from the last user text, a JSON list of [toolName, arguments] pairs, and
 // calls them in one response with IDs call-0, call-1, and so on. Once results arrive it answers one
 // `<toolName>: <output>` line per result. A `hold:<gate>` word before `calls` makes that answer wait at a FileGate,
-// so a test can read the turn's records before the turn ends.
+// so a test can read the turn's records before the turn ends. The text `tools` answers the request's tool names.
 
 import {
   Agent,
@@ -68,8 +68,8 @@ export function retriedNoteManifest(): ConnectorPackageManifest {
 }
 
 /**
- * The ledger tools: a Query under a chosen and its default name, a payout without and with approval, a fenced note,
- * and that note retried.
+ * The ledger tools: a Query under a chosen name, its default name, and that name with `_` for `-`, a payout without
+ * and with approval, a fenced note, and that note retried.
  */
 export function createLedgerToolSource(stateDirectory: string, sourceName?: string): ConnectorToolSource {
   const provider = new FakeLedgerProvider(stateDirectory);
@@ -83,10 +83,15 @@ export function createLedgerToolSource(stateDirectory: string, sourceName?: stri
         inputValidator: GetBalanceInputSchema,
         name: "get_balance",
       }),
-      // The default name, fake-ledger_get_balance, which the OpenAI Agents SDK renames for the model.
+      // The default name, fake-ledger_get_balance, which the OpenAI Agents SDK's tool() would turn into the next one.
       connectorTool(new GetBalanceOperation(provider), fakeLedgerConnection, {
         manifest,
         inputValidator: GetBalanceInputSchema,
+      }),
+      connectorTool(new GetBalanceOperation(provider), fakeLedgerConnection, {
+        manifest,
+        inputValidator: GetBalanceInputSchema,
+        name: "fake_ledger_get_balance",
       }),
       connectorTool(payouts, fakeLedgerConnection, {
         manifest,
@@ -127,7 +132,7 @@ export function createConnectorStartingAgent(stateDirectory: string): Agent {
 /** Creates the connector agent Flow; tests and the Worker child build it identically. */
 export function createConnectorOpenAIAgentFlow(stateDirectory: string): AgentSessionFlow {
   return createOpenAIAgentsSessionFlow(createConnectorStartingAgent(stateDirectory), connectorOpenAIAgentFlowType, {
-    toolPolicies: { echo_text: { effect: "read" } },
+    toolPolicies: { echo_text: { effect: "read" }, "fake-ledger_get_balance": { effect: "read", requiresApproval: true } },
     toolSources: [createLedgerToolSource(stateDirectory)],
   });
 }
@@ -180,6 +185,9 @@ class ConnectorScriptedModel implements Model {
         await gate.waitForRelease(request.signal);
       }
       return [answerItem(results.join("\n"))];
+    }
+    if (command === "tools") {
+      return [answerItem(request.tools.map((requestTool) => requestTool.name).join("\n"))];
     }
     if (!command.startsWith("calls ")) {
       return [answerItem(`said: ${command}`)];

@@ -1259,6 +1259,96 @@ does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
+## Showing what an approval acts on
+
+A tool approval can say what the call acts on and what it does. Its tool
+source returns an `AgentInterruptDisplay(target, summary, preview)` in
+`DeferredToolCall.approval_display`, and the session stores it in
+`AgentInterrupt.display`, on the call's record as `approval_display`, and in
+the `interrupt_raised` event. A queued ordered write raises its approval later
+with the display its source built when the model asked.
+
+```python
+snapshot = await sessions.get_agent_snapshot(session_id)
+for interrupt in snapshot.pending_interrupts:
+    print(interrupt.display.summary if interrupt.display else interrupt.arguments)
+```
+
+- `ConnectorToolSource` and the CLI's connector tools build it with
+  `build_connector_tool_approval_display`: the target is
+  `<connector>/<connection>`, and the summary names the operation, the
+  connection, and up to five short arguments, such as
+  `Calls slack postChannelMessage with connection support-slack; channel: "#eng".`
+- The CLI's local file writes name the workspace path and carry a unified diff
+  against the file as it is when the model asks; its header lines say so. Its
+  shell commands name the working directory and the command with its inline
+  credentials redacted and its control characters escaped, cut at 2 KiB; the
+  full command is in the call's arguments.
+- A display never says how often the call runs or what it achieves, and never
+  uses a tool's description as its effect.
+- Redaction in a display is best-effort hygiene, not a security boundary.
+  The display's text comes from the call's arguments, which the session
+  stores in full as before, and an agent can read a workspace file with its
+  own tools. A credential-like argument (`is_credential_like_name`) shows
+  `<redacted>`, and `redact_inline_credentials` replaces common credential
+  shapes: the value after a credential-like name, read as a shell word, a
+  triple-quoted string, or a YAML block; `Authorization` and `Cookie` header
+  values; URL passwords; `sshpass -p`; and common token shapes. It reads
+  `\uXXXX`, `\xXX`, and `%XX` escapes to find credentials but changes no
+  other text: escapes stay as written, and only the characters of each
+  credential become `<redacted>`. It is conservative, so a generic
+  `key=value` is redacted too, and the CLI leaves out a file preview whose
+  text it changes. It finds common forms only, and Unicode lookalike letters
+  are out of scope; `agents/conformance/approval_display.json` lists the
+  cases both cores share.
+- The session cuts a target over `MAX_APPROVAL_TARGET_BYTES` (1 KiB) and a
+  summary over `MAX_APPROVAL_SUMMARY_BYTES` (2 KiB), ending them with `…`,
+  and drops a preview over `MAX_APPROVAL_PREVIEW_BYTES` (16 KiB). A tool
+  without a display, and every approval a Worker before 0.6.0 raised, has
+  `display` `None`: show the concrete arguments, not a guessed effect.
+
+## Listing sessions
+
+Since 0.6.0, a session can keep a summary that a session list needs: its
+title, the first 80 Unicode code points of the first user message; the time its
+latest turn started or ended; and its turn count. Turn it on with
+`AgentSessionOptions(summary_attributes_indexed=True)`; it is off by default.
+`list_agent_sessions` reads one page of sessions in one
+`AsyncClient.search_flows` call, without a snapshot per session and without a
+running Worker:
+
+```python
+page = await list_agent_sessions(client, flow.get_flow_type(), title_search="refund")
+for session in sort_agent_sessions_by_last_activity(page.sessions):
+    print(session.session_id, session.title or "—", session.last_activity_at, session.turn_count)
+```
+
+- Dex returns running sessions first, then the most recently closed and
+  started ones. It cannot sort by last activity, so
+  `sort_agent_sessions_by_last_activity` sorts the sessions you loaded.
+- `title_search` matches whole words of the title, without case: `flaky`
+  finds "Fix the flaky test", `flak` does not. Pass the same `title_search`
+  with each `next_page_token`.
+- A session without the option, or one that an earlier release started,
+  lists without the summary, and a title search never finds it. An earlier
+  session gains the last activity time and the turn count at its next turn on
+  a Worker with the option. Show each missing value as a dash. Until a Worker
+  with the option has started on the server, a title search raises
+  `SessionTitleSearchUnavailableError`.
+- A session that fails because its state would exceed the server's limit can
+  keep the values of its last turn start.
+- Privacy: the title is the user's own text, and anyone who can search the
+  namespace's Flows reads it. Turn the option on only when the first message
+  may be stored in the search index.
+- The three Attributes are indexed under `text1` (FULL_TEXT), `datetime1`
+  (DATETIME), and `int1` (INT), the generic keys that every Flow type of a
+  namespace shares. A Worker with the option registers them when it starts.
+  With PostgreSQL search, a namespace has three keys of each of these types;
+  the Worker fails to start with `FAILED_PRECONDITION` when the namespace
+  registered one of these keys with another type, or when all three keys of
+  the type are taken by other names. Search queries of other Flow types must
+  filter on `FlowType`.
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
@@ -1375,6 +1465,9 @@ Persistence, shared by every agent Flow type and exported from `dex_agents`:
 | `PlanExecutions` | ChannelMap `PLAN_EXECUTIONS`, key `plan_execution_key(revision)` (decimal) | `PlanExecutionRequest` |
 | `PendingPlanExecution` | Attribute `PENDING_PLAN_EXECUTION` | `PlanExecutionRequest` that `execute_plan` accepted and `AwaitUserMessage` has not consumed |
 | `ContextSummary` | Attribute `CONTEXT_SUMMARY` | `ContextSummary`, set once the session compacts |
+| `AgentSessionTitle` | Attribute `AGENT_SESSION_TITLE`, indexed FULL_TEXT `text1`; only with `summary_attributes_indexed` | `str`, the first user message's title; set by the first turn only |
+| `AgentSessionLastActivityAt` | Attribute `AGENT_SESSION_LAST_ACTIVITY_AT`, indexed DATETIME `datetime1`; only with `summary_attributes_indexed` | `str`, RFC 3339 time the latest turn started or ended |
+| `AgentSessionTurnCount` | Attribute `AGENT_SESSION_TURN_COUNT`, indexed INT `int1`; only with `summary_attributes_indexed` | `int`, `AgentState.turn_count` as of the latest turn start or end |
 | `AgentEvents` | Stream `flow.agent_events`, one per Flow type | `AgentEvent` |
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`,
@@ -1407,7 +1500,8 @@ and `reasoning_delta` `{"text"}`, `tool_call_started` `{"tool_call_id",
 (once per tool call, including rejections), `tool_call_deferred`
 `{"tool_call_id", "tool_name", "effect", "requires_approval"}`,
 `interrupt_raised` `{"interrupt_id", "tool_call_id", "tool_name", "deadline",
-"kind", "question", "choices", "allows_free_text"}`, `interrupt_resolved`
+"kind", "question", "choices", "allows_free_text", "display"}` (`display` is
+`{"target", "summary", "preview"}` or `null`), `interrupt_resolved`
 `{"interrupt_id", "approved", "rejection_message", "kind", "answered",
 "cancellation_reason"}` (`steered` or `turn_cancelled` when steering or
 cancellation removed the interrupt), `timer_started` `{"tool_call_id",

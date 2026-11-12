@@ -7,8 +7,8 @@ description: "This reference covers the Dex Agents packages in production: insta
 # Agents reference
 
 This reference covers the Dex Agents packages in production: install, streaming, tracing, sizing,
-limits, timeouts, approvals, Connector tools, upgrades, credentials, and Dex
-Web. [Agent Frameworks](/agent-frameworks) explains how an agent session works
+limits, timeouts, approvals, Connector tools, upgrades, credentials, Dex
+Web, and the CLI commands. [Agent Frameworks](/agent-frameworks) explains how an agent session works
 and the rules for tool calls. Server limits on these pages are server-zd
 defaults. See the [Server reference](/reference/server/) and
 [Application](/components/application) for the rest of the setup.
@@ -26,7 +26,8 @@ defaults. See the [Server reference](/reference/server/) and
 - [Limits for long sessions](/reference/agents/session-limits): the server
   limits a session grows into, what happens at the limit, and compaction.
 - [Approval deadlines and waiting sessions](/reference/agents/approvals): approval
-  deadlines, RPC locks, and how to find sessions that wait for a person.
+  deadlines, RPC locks, how to find sessions that wait for a person, and how
+  to list sessions with their titles.
 - [Connector tools](/reference/agents/connector-tools): packages, tool names,
   result size, and Connector connections.
 - [Crashes and tool call outcomes](/reference/agents/failures): what each
@@ -40,6 +41,9 @@ defaults. See the [Server reference](/reference/server/) and
   credentials live.
 - [Dex Web](/reference/agents/dex-web): render the session graph and show
   sessions in Dex Web.
+- [CLI commands](/reference/agents/cli): run an agent in your terminal with
+  one command per harness, its configuration file, local tools, Connectors,
+  and images.
 - [Change log](/reference/agents/changelog): user-visible changes in each
   release.
 

@@ -10,7 +10,9 @@
 
 It serves a Hacker News read and a Slack write with the connector ``_meta``
 keys the CLI core filters by, and logs every tool run to
-``$FAKE_MCP_STATE_DIR/mcp-invocations.log``.
+``$FAKE_MCP_STATE_DIR/mcp-invocations.log``. With ``$FAKE_MCP_COLLIDING_TOOLS``
+set, it also serves a read named ``read_file``, as a harness's own tool is,
+and one named ``connector_read_file``, as a harness's prefixed name is.
 """
 
 from __future__ import annotations
@@ -28,6 +30,9 @@ from dex_agents.testing import InvocationLog
 from dex_agents_cli_core import canonical_operation_name
 
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_MCP_STATE_DIR"
+COLLIDING_TOOLS_ENVIRONMENT_VARIABLE = "FAKE_MCP_COLLIDING_TOOLS"
+COLLIDING_READ_FILE_OUTPUT = "read through the files connector"
+PREFIXED_READ_FILE_OUTPUT = "read through the archive connector"
 INVOCATION_LOG_NAME = "mcp-invocations.log"
 READY_LINE = "Uvicorn running on"
 
@@ -58,6 +63,29 @@ def slack_post_thread_reply(thread: str, text: str, context: Context) -> str:
     """Reply in a Slack thread."""
     _record("slack_post_thread_reply")
     return f"posted {text} in {thread}"
+
+
+def read_file(file_path: str, context: Context) -> str:
+    """Read a file through the files connector."""
+    _record("read_file")
+    return f"{COLLIDING_READ_FILE_OUTPUT}: {file_path}"
+
+
+def connector_read_file(file_path: str, context: Context) -> str:
+    """Read a file through the archive connector."""
+    _record("connector_read_file")
+    return f"{PREFIXED_READ_FILE_OUTPUT}: {file_path}"
+
+
+if os.environ.get(COLLIDING_TOOLS_ENVIRONMENT_VARIABLE):
+    server.tool(
+        annotations=ToolAnnotations(read_only_hint=True),
+        meta=_meta("files", "default", "readFile"),
+    )(read_file)
+    server.tool(
+        annotations=ToolAnnotations(read_only_hint=True),
+        meta=_meta("archive", "default", "connectorReadFile"),
+    )(connector_read_file)
 
 
 def _record(tool_name: str) -> None:

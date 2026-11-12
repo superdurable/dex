@@ -19,6 +19,7 @@ import {
   jsonCodec,
   stringCodec,
   voidCodec,
+  type AttributeIndex,
   type Codec,
   type Flow,
   type RPCOptions,
@@ -73,6 +74,7 @@ import {
   snapshotMessageLimit,
 } from "../../src/agent-session-flow.js";
 import { defaultAgentEventsCapacityBytes, messageSequenceKey, planExecutionKey } from "../../src/agent-session-persistence.js";
+import { buildSessionTitle, sessionTitleMaxCodePoints } from "../../src/agent-session-summary.js";
 import {
   MAX_SESSION_SETTINGS_BYTES,
   SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
@@ -163,13 +165,21 @@ interface NamesManifest {
     readonly load_attribute_maps: readonly string[];
     readonly load_channels: readonly string[];
   })[];
-  readonly persistence: readonly (NamedType & { readonly kind: string; readonly value_type: string })[];
+  readonly persistence: readonly (NamedType & {
+    readonly kind: string;
+    readonly value_type: string;
+    readonly index?: { readonly type: string; readonly key: string };
+  })[];
   readonly agent_events_default_capacity_bytes: number;
   readonly event_types: readonly string[];
   readonly enums: Readonly<Record<string, readonly string[]>>;
   readonly final_tool_call_statuses: readonly string[];
   readonly limits: Readonly<Record<string, number>>;
   readonly mcp_resource_and_prompt_tool_names: readonly string[];
+  readonly session_titles: {
+    readonly max_code_points: number;
+    readonly examples: readonly { readonly name: string; readonly message: string; readonly title: string | null }[];
+  };
   readonly session_settings_sizes: {
     readonly examples: readonly {
       readonly name: string;
@@ -232,13 +242,17 @@ const { registeredRPCs } = (await import(
   new URL("../../../node_modules/@superdurable/dex/dist/src/rpc.js", import.meta.url).href
 )) as { registeredRPCs: (flow: Flow<unknown>) => readonly RegisteredRPC[] };
 
+// names.json spells index types as the Python core does.
+const pythonIndexTypeNames: Readonly<Record<string, string>> = { fullText: "full_text", datetime: "datetime", int: "int" };
 const names = readConformanceJson<NamesManifest>("names.json");
 const texts = readConformanceJson<TextTable>("texts.json");
 const documents = new Map(readGoldenValueDocuments().map((document) => [document.type, document]));
 
+// The manifest lists the opt-in session summary too.
 const flow = createBuiltinAgentSessionFlow(
   { name: "conformance-manifest", instructions: "Describe the session Flow.", model: new ScriptedModelClient(() => ({ text: "ok" })) },
   "ConformanceAgent",
+  { summaryAttributesIndexed: true },
 );
 const steps = [...flow.getSteps()];
 const schema = flow.getPersistenceSchema?.() ?? {};
@@ -364,9 +378,16 @@ describe("the conformance suite's golden values", () => {
     ];
     assert.deepEqual([...persistence.keys()].sort(), names.persistence.map((entry) => entry.name).sort());
     for (const entry of names.persistence) {
-      const definition = persistence.get(entry.name) as { codec: Codec<unknown> };
+      const definition = persistence.get(entry.name) as { codec: Codec<unknown>; index?: AttributeIndex };
       assert.equal(kinds.find(([, definitionClass]) => definition instanceof definitionClass)?.[0], entry.kind, entry.name);
       assertCodecConforms(entry.value_type, definition.codec, entry.name);
+      assert.deepEqual(
+        definition.index === undefined
+          ? undefined
+          : { type: pythonIndexTypeNames[definition.index.type], key: definition.index.indexKey },
+        entry.index,
+        `${entry.name} index`,
+      );
     }
     assert.equal(defaultAgentEventsCapacityBytes, names.agent_events_default_capacity_bytes);
   });
@@ -465,6 +486,13 @@ describe("the conformance suite's names manifest", () => {
       builtInToolDefinitions.map((definition) => definition.name),
       names.enums["BuiltInTool"],
     );
+  });
+
+  test("session titles match the TypeScript core", () => {
+    assert.equal(sessionTitleMaxCodePoints, names.session_titles.max_code_points);
+    for (const example of names.session_titles.examples) {
+      assert.equal(buildSessionTitle(example.message), example.title, example.name);
+    }
   });
 
   test("session settings sizes and the limit match the TypeScript core", () => {

@@ -122,7 +122,7 @@ export class CliProcess {
    * @returns A Promise that resolves after it exited.
    */
   public async kill(): Promise<void> {
-    if (this.child.exitCode === null && this.child.pid !== undefined) {
+    if (this.child.exitCode === null && this.child.signalCode === null && this.child.pid !== undefined) {
       try {
         process.kill(-this.child.pid, "SIGKILL");
       } catch {
@@ -253,6 +253,10 @@ export class TestHome {
     return {
       PATH: process.env.PATH ?? "",
       HOME: this.directory,
+      // A dexcli dev the command starts runs no published Connectors MCP release.
+      DEX_CONNECTORS_MCP_BINARY: join(this.directory, "dex-connectors-mcp-not-installed"),
+      // Tests never open the user's web browser.
+      DEX_AGENTS_OPEN_BROWSER: "0",
       DEXCLI: dexcli,
       ...(process.env.DEX_SERVER_ZD_BINARY === undefined ? {} : { DEX_SERVER_ZD_BINARY: process.env.DEX_SERVER_ZD_BINARY }),
       DEX_AGENTS_DEX_PORT: String(this.ports.dexPort),

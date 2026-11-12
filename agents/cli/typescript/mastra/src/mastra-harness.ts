@@ -80,6 +80,7 @@ export function createMastraCliSessionFlow(context: HarnessContext): ReturnType<
   return createMastraAgentSessionFlow(agent, context.flowType, {
     toolSources: context.toolSources,
     ...(context.mediaStore === undefined ? {} : { mediaStore: context.mediaStore }),
+    summaryAttributesIndexed: context.isSessionSummaryIndexed === true,
   });
 }
 

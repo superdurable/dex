@@ -1,0 +1,682 @@
+---
+title: Agents CLI commands
+sidebar_label: CLI commands
+---
+
+# Agents CLI commands {#agents-cli}
+
+Since 0.5.0. The Dex Agents CLI commands run an agent in your terminal as a
+durable Dex agent session. Each command runs one harness: the built-in agent
+loop or one agent framework. You chat with the agent, approve its tool calls,
+and resume the session later. You write no application code.
+
+Every command shares one CLI core. The CLI core reads the configuration file,
+reuses or starts a local **dexcli dev**, connects Connector tools through the
+Connectors MCP server, offers local tools, and runs the Worker in the
+command's process. All commands read the same configuration format, so one
+file gives the same agent in Python or TypeScript.
+[Agent Frameworks](/agent-frameworks) explains how a session runs its turns
+and tool calls.
+
+## Commands {#commands}
+
+Python commands need Python 3.11 or later. Each package installs one command.
+
+| Command | Package | Harness | Default model | Model ID |
+| --- | --- | --- | --- | --- |
+| **dex-agents-builtin** | **dex-agents-builtin-cli** | Built-in agent loop, model calls through LiteLLM | **openai/gpt-5.2** | LiteLLM name, **provider/model**, such as **anthropic/claude-opus-5-5** |
+| **dex-agents-claude-sdk** | **dex-agents-claude-sdk-cli** | Claude Agent SDK | **claude-opus-5-5** | Claude model name |
+| **dex-agents-openai-sdk** | **dex-agents-openai-sdk-cli** | OpenAI Agents SDK | **gpt-5.2** | OpenAI Responses API model name |
+| **dex-agents-pydantic-ai** | **dex-agents-pydantic-ai-cli** | Pydantic AI | **openai:gpt-5.2** | Pydantic AI name, **provider:model**, such as **anthropic:claude-opus-5-5** |
+| **dex-agents-deepagents** | **dex-agents-deepagents-cli** | Deep Agents on the LangGraph adapter | **openai:gpt-5.2** | LangChain **provider:model**, such as **google_genai:gemini-2.5-flash** |
+| **dex-agents-google-adk** | **dex-agents-google-adk-cli** | Google ADK | **gemini-2.5-flash** | Gemini model name |
+
+TypeScript commands need Node.js 22 or 24. **dex-agents-pi** needs Node.js
+22.19 or later on the 22 line.
+
+| Command | Package | Harness | Default model | Model ID |
+| --- | --- | --- | --- | --- |
+| **dex-agents-builtin** | **@superdurable/dex-agents-builtin-cli** | Built-in agent loop, model calls through the AI SDK | **openai/gpt-5.2** | **openai/model** or **anthropic/model** only |
+| **dex-agents-claude-sdk** | **@superdurable/dex-agents-claude-sdk-cli** | Claude Agent SDK | **claude-opus-5-5** | Claude model name |
+| **dex-agents-openai-sdk** | **@superdurable/dex-agents-openai-sdk-cli** | OpenAI Agents SDK | **gpt-5.2** | OpenAI model name; an **openai/** prefix is dropped |
+| **dex-agents-vercel-ai** | **@superdurable/dex-agents-vercel-ai-cli** | Vercel AI SDK | **openai/gpt-5.2** | **openai/model** or **anthropic/model** only |
+| **dex-agents-mastra** | **@superdurable/dex-agents-mastra-cli** | Mastra | **openai/gpt-5.2** | Any **provider/model** that Mastra's model router knows |
+| **dex-agents-pi** | **@superdurable/dex-agents-pi-cli** | Pi coding agent on the built-in agent loop | **anthropic/claude-opus-5-5** | pi-ai name, **provider/model**, such as **openrouter/anthropic/claude-sonnet-5** |
+
+The Python and TypeScript commands share the configuration format, the chat,
+and the session rules. This page notes the differences where they apply.
+**--model** overrides the configured model for one run.
+
+## Install and run {#install}
+
+Set the API key of the model's provider, then run the command. **uvx** and
+**npx** download the package and run it without a global install:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+uvx --from dex-agents-claude-sdk-cli dex-agents-claude-sdk
+npx -p @superdurable/dex-agents-claude-sdk-cli dex-agents-claude-sdk
+```
+
+To keep the command on your PATH, install the package:
+
+```bash
+pip install dex-agents-claude-sdk-cli
+npm install -g @superdurable/dex-agents-claude-sdk-cli
+```
+
+Other commands work the same way: package **dex-agents-NAME-cli** or
+**@superdurable/dex-agents-NAME-cli** installs command **dex-agents-NAME**.
+
+Deep Agents needs a LangChain integration package for providers other than
+OpenAI, Anthropic, and Google:
+
+```bash
+uvx --from dex-agents-deepagents-cli --with langchain-mistralai dex-agents-deepagents
+```
+
+## Provider keys {#provider-keys}
+
+Each command reads the provider's API key from its standard environment
+variable. Keys never go in the configuration file. The commands never print or
+store a key.
+**dex-agents-claude-sdk** uses an Anthropic API key, as Anthropic's terms
+require for products built on the Claude Agent SDK. See the
+[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview).
+
+| Command | Environment variables |
+| --- | --- |
+| **dex-agents-claude-sdk** | **ANTHROPIC_API_KEY** |
+| **dex-agents-openai-sdk** | **OPENAI_API_KEY** |
+| **dex-agents-google-adk** | **GOOGLE_API_KEY** or **GEMINI_API_KEY** |
+| **dex-agents-builtin** (Python) | LiteLLM reads each provider's standard variables, such as **OPENAI_API_KEY** for **openai/** models and **ANTHROPIC_API_KEY** for **anthropic/** models |
+| **dex-agents-pydantic-ai** | **OPENAI_API_KEY** for **openai:**, **ANTHROPIC_API_KEY** for **anthropic:**, **GOOGLE_API_KEY** for **google-gla:** |
+| **dex-agents-deepagents** | **OPENAI_API_KEY** for **openai:**, **ANTHROPIC_API_KEY** for **anthropic:**, **GOOGLE_API_KEY** for **google_genai:** |
+| **dex-agents-builtin** (TypeScript), **dex-agents-vercel-ai** | **OPENAI_API_KEY** for **openai/**, **ANTHROPIC_API_KEY** for **anthropic/** |
+| **dex-agents-mastra** | The provider's standard variable, such as **OPENAI_API_KEY** or **ANTHROPIC_API_KEY** |
+| **dex-agents-pi** | The key that pi-ai names for the provider, such as **ANTHROPIC_API_KEY**, **OPENAI_API_KEY**, or **GEMINI_API_KEY** |
+
+To send model calls to another endpoint, such as a proxy, set
+**OPENAI_BASE_URL** for OpenAI models. **ANTHROPIC_BASE_URL** does the same for
+Anthropic models in **dex-agents-pydantic-ai**, **dex-agents-vercel-ai**, and
+the TypeScript **dex-agents-builtin**. **dex-agents-pi** reads neither; it
+takes provider URLs from **pi.provider_base_urls**. See
+[Harness options](#harness-options).
+
+**dex-agents-pi** stops before the chat when the configured model's key is
+missing, and names the variable. A turn whose session settings pick a model
+without a key fails with the same message. An **ANTHROPIC_API_KEY** that
+starts with **sk-ant-oat** is not treated as an API key; use a real API key.
+
+The OpenAI Agents SDK commands turn off the SDK's trace upload. Dex records
+every model call and tool call in the session.
+
+## First run {#first-run}
+
+Without a configuration file, the command asks the **init** questions and
+writes **~/.dex/agents/HARNESS.yaml**, such as
+**~/.dex/agents/claude-sdk.yaml**:
+
+- the model, with the command's default;
+- the system prompt, empty for the harness's default instructions;
+- the connectors to enable, comma-separated, empty for every authorized
+  connection;
+- the workspace, **~/dex-agent-workspace** by default, or for
+  **dex-agents-pi** the directory the command starts in;
+- whether to allow the file tools, shell commands, web fetching, and the
+  browser;
+- when shell commands are allowed, the commands that run without approval.
+
+**--yes** writes and uses the defaults without asking. Without a terminal, the
+command runs on the defaults, writes nothing, and says to run **init**. Run
+**init** again at any time to replace the file.
+
+```text
+dex-agents-NAME [run|init|connectors|sessions] [options]
+
+  run          Chat with the agent in this terminal (the default).
+  init         Create or replace the configuration file.
+  connectors   List the connector tools and the Dex Web connections.
+  sessions     List this command's sessions.
+
+  -c, --config <file>   Configuration file (default ~/.dex/agents/NAME.yaml).
+  -y, --yes             Write and use the defaults instead of asking.
+  -r, --resume <id>     Continue a session.
+  -m, --model <id>      Override the configured model.
+  -h, --help            Show this help.
+```
+
+The exit code is 0 on success. It is 1 for a failure at run time, such as a
+Dex server that does not start, an explicit **connectors.mcp** URL that does
+not answer, or a turn or session that failed during the chat. It is 2 for a
+usage or configuration error. After SIGTERM or SIGHUP, it is 128 plus the
+signal number.
+
+Ctrl-C at an **init** question, or at a first-run question, stops the command
+with exit code 130. Ctrl-D there stops it with exit code 1. Either way the
+command prints **Cancelled; no configuration written.** and writes no file.
+
+### The local Dex server {#dex-server}
+
+With **dex.server: auto**, the default, the command uses a **dexcli dev** on
+this machine. It looks at 127.0.0.1:8801 for Dex and 127.0.0.1:8802 for Dex
+Web:
+
+- When nothing answers on the Dex Web port, the command starts **dexcli dev**
+  in the background on those ports. Its output goes to
+  **~/.dex/agents/dexcli-dev.log**, and its process and ports to
+  **~/.dex/agents/dexcli-dev.json**.
+- When a **dexcli dev** answers, the command reuses it. It checks the Dex Web
+  readiness answer and the Dex port first. While Dex Web reports that Dex is
+  starting, it waits up to a minute.
+- When anything else answers, the command stops with exit code 1.
+
+Changed in 0.6.0: a **dexcli dev** that the command started stops when the
+command exits, and Dex Web stops with it. This happens on **/exit**, at the end
+of input, on the Ctrl-C that exits, on a failure, and on SIGTERM or SIGHUP. The
+command stops the whole process group of **dexcli dev**, which includes
+**dex-server-zd**. It removes **~/.dex/agents/dexcli-dev.json**, sends
+SIGTERM, and sends SIGKILL after 20 seconds. Another SIGTERM, SIGHUP, or
+Ctrl-C during those 20 seconds sends SIGKILL at once. The command then prints
+"Stopped the dexcli dev this command started." It signals the group only
+while **dexcli dev** itself still runs. If **dexcli dev** exits but its process
+group seems to have members left, the command says that processes may still
+run and how to stop them. On Windows, the TypeScript commands stop the process
+tree with **taskkill /T**, and add **/F** after 20 seconds. The Python commands
+first send **dexcli dev** CTRL_BREAK_EVENT, and then use **taskkill /T /F**.
+Before 0.6.0, the started **dexcli dev** kept running after the command
+exited.
+
+A **dexcli dev** that the command reused keeps running. This includes one you
+started yourself and one that another command started. Sessions and their
+state stay in **~/.dex/zd/&lt;Dex port&gt;**, so a later command that starts
+**dexcli dev** again can **--resume** them.
+
+To share one Dex server across commands, run **dexcli dev** yourself before
+you start them, or set **dex.server** to a URL. Two commands that both use
+**auto** share the **dexcli dev** that the first one started. It stops when
+the first command exits. The second command then fails with exit code 1 and a
+short error that names the stopped **dexcli dev**. In the TypeScript commands,
+the Worker's reconnect messages, such as for a lost Dex server, go only to the
+log file **~/.dex/agents/HARNESS.log**. Other library warnings show their first
+line on the terminal and their full text in that file.
+
+A command killed with SIGKILL, or one that crashes, cannot stop the
+**dexcli dev** it started. That **dexcli dev** keeps running, and its record in
+**~/.dex/agents/dexcli-dev.json** stays. A later command reuses it like any
+other running **dexcli dev** and never stops it. Stop it with **kill** and the
+pid in the record.
+
+These checks tell a **dexcli dev** from an unrelated service. They do not
+authenticate it: another local user's process that binds the ports first and
+answers the same way is trusted. Run on a machine you do not share, or set
+**dex.server** and **connectors.mcp** to URLs you trust.
+
+The command finds **dexcli** in this order: **DEXCLI**; the copy it downloaded
+earlier to **~/.dex/bin**, checked against its recorded SHA-256; the first
+**dexcli** on PATH of at least the pinned version. Otherwise it downloads the
+pinned **dexcli** release for the platform from GitHub, checks it against the
+release's checksums, and extracts only **dexcli** and **dex-server-zd**. A
+downloaded copy that changed later stops the command; delete its directory to
+download it again.
+
+| Environment variable | Meaning |
+| --- | --- |
+| **DEXCLI** | The **dexcli** executable to run. |
+| **DEX_AGENTS_DEX_PORT**, **DEX_AGENTS_WEB_PORT** | The ports of the **dexcli dev** that **auto** reuses or starts. |
+| **DEX_AGENTS_DEXCLI_DOWNLOAD_URL** | The base URL of **dexcli** release downloads, such as a mirror. It must be https, or http on 127.0.0.1, localhost, or [::1]. |
+| **DEX_AGENTS_OPEN_BROWSER** | **0** or **false** keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. Since 0.6.0. |
+
+Any other **dex.server** value is the URL of a Dex server. The command
+connects to it and starts nothing. See [dexcli dev](/reference/cli/#start-locally)
+for the local server itself.
+
+## The configuration file {#configuration}
+
+The command reads **~/.dex/agents/HARNESS.yaml** unless **--config** names
+another file. The file is YAML 1.2. Only **true** and **false** are booleans,
+so **yes** and **off** are strings and fail the schema. A key repeated in one
+mapping is an error. An empty file means every default.
+
+```yaml
+model: claude-opus-5-5
+system_prompt: |
+  You are my personal assistant. Ask before posting anything.
+dex:
+  server: auto
+connectors:
+  mcp: auto
+  enabled:
+    - slack/support-slack
+    - hackernews
+    - gmail/personal:
+        tools: [get_message, send_message]
+approval:
+  always: [slack_post_channel_message]
+workspace: ~/dex-agent-workspace
+local_tools:
+  files: true
+  shell: {enabled: true, allow: ["git status", "ls"]}
+  web_fetch: true
+  browser: true
+media:
+  store: auto
+sessions:
+  summary: auto
+claude: {}
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| **model** | The command's default model | A non-empty model ID in the harness's format. See [Commands](#commands). |
+| **system_prompt** | The harness's instructions | The agent's instructions. |
+| **system_prompt_file** | None | A UTF-8 file whose text is the instructions. Set either this or **system_prompt**, not both. |
+| **dex.server** | **auto** | **auto** reuses or starts the local **dexcli dev**. Otherwise an http or https URL of a Dex server. See [The local Dex server](#dex-server). |
+| **connectors.mcp** | **auto** | The Connectors MCP server. **auto** uses the one **dexcli dev** serves. Otherwise an http or https URL on 127.0.0.1, localhost, or [::1]. |
+| **connectors.enabled** | Every authorized connection | The connections, and their operations, that the agent may call. See [Connectors](#connectors). |
+| **approval.always** | Empty | Tool names, as the agent sees them, whose every call waits for approval. They add to the approvals the tools already require. |
+| **workspace** | **~/dex-agent-workspace**; for **dex-agents-pi**, the directory the command starts in | The only directory the file tools use, and the working directory of shell commands. **dex-agents-pi** uses it only as the working directory; see [Harnesses with their own tools](#harness-tools). |
+| **local_tools.files** | **true** | Read, write, list, and search files in the workspace. |
+| **local_tools.shell.enabled** | **true** | Run shell commands in the workspace. |
+| **local_tools.shell.allow** | Empty | Commands that run without approval. A command matches only when its whole text equals an entry. |
+| **local_tools.web_fetch** | **true** | Fetch web pages. |
+| **local_tools.browser** | **true** | Drive a local headless browser. |
+| **media.store** | **auto** | Where the session's images are stored. **auto** is **~/.dex/agents/media** on this machine. **s3://BUCKET** or **s3://BUCKET/PREFIX** is an S3 bucket. See [Images](#images). |
+| **media.endpoint** | None, which means AWS S3 | The http or https URL of an S3-compatible service, such as **http://127.0.0.1:9000**. Valid only with an **s3://** store. |
+| **sessions.summary** | **auto** | Since 0.6.0. Whether each session keeps the indexed title, last activity time, and turn count that **sessions** shows. **auto** keeps it with **dex.server: auto** only, and leaves a Dex server URL alone, because that server may be shared. **on** keeps it with any server, and **off** never. The command refuses to start when its harness builds a session Flow whose declared persistence schema does not follow this setting. The check verifies what the Flow declares; it does not sandbox harness code. See [List sessions](/reference/agents/approvals#list-sessions) for what it stores and the index keys it registers. |
+| **claude**, **openai**, **pydantic_ai**, **deepagents**, **google_adk**, **vercel_ai**, **mastra**, **pi**, **builtin** | Empty | The options of one harness. Each command reads only its own section. |
+
+Other keys are errors, and **null** is never valid: omit a field to take its
+default. In **system_prompt_file** and **workspace**, a leading **~** is the
+home directory, and a relative path is relative to the file's directory.
+
+A URL takes no user info, such as **user:pass@**. The command rejects a URL
+with **invalid_url** when an IPv4 part is over 255 or has a leading zero, the
+IPv6 address is invalid, a DNS label starts with **xn--**, or the port is over
+65535.
+
+The [configuration schema](https://github.com/superdurable/dex/blob/main/agents/cli/config.schema.json)
+defines every field. A file that fails it stops the command with the error code
+and the JSON Pointer of the problem, such as
+**schema at "/local_tools/shell/allow"**.
+
+### Harness options {#harness-options}
+
+Only the Pi command has options. Every other harness section must be empty;
+any key in it is a configuration error.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| **pi.load_project_context** | **true** | Each model call adds the project context files after the instructions, as Pi does: the **AGENTS.md** in Pi's global directory, **~/.pi/agent**, and the one in the workspace and in each directory above it, outermost first. In each directory, the first of **AGENTS.override.md**, **AGENTS.md**, **AGENTS.MD**, **CLAUDE.md**, and **CLAUDE.MD** counts. |
+| **pi.bash_timeout_seconds** | **120** | Seconds a **bash** command runs when the model passes no timeout. A whole number from 1 to 600. Pi has no default timeout, but cancelling a turn waits for a running tool call, so the command keeps one. |
+| **pi.provider_base_urls** | Empty | An http or https URL per provider that replaces the URL in pi-ai's catalog, such as a proxy. |
+
+The Pi command reads the context files in every model call, so an edited file
+applies from the next model call. Each file is at most 1 MiB. A file that is a
+link to another directory, has more than one hard link, or, above the
+workspace, belongs to another user, is skipped with a warning.
+
+## Session settings {#session-settings}
+
+Each session has a settings JSON object of at most 16 KiB. It is set when the
+session starts and changed with **update_session_settings**, such as from the
+**Agent session** tab in Dex Web. The command reads the settings at the start
+of every turn. They can change the model and the instructions. They can only
+narrow the rest of the file, because anyone who can edit the session in Dex
+Web can edit its settings.
+
+| Field | Rule |
+| --- | --- |
+| **model** | Replaces the file's model. |
+| **system_prompt** | Replaces the file's **system_prompt** or **system_prompt_file**. |
+| **connectors.enabled** | Replaces the file's list. Each entry must fall inside one of the file's entries: the same connector, the same connection unless the file's entry names none, and a subset of its operations unless it lists none. When the file has no list, any list narrows it. |
+| **approval.always** | Adds tools to the file's list. |
+| **local_tools.files**, **web_fetch**, **browser**, **shell.enabled** | **false** switches the tool group off. **true** is allowed only where the file has **true**. |
+| **local_tools.shell.allow** | Replaces the file's allow list with a subset of it. |
+
+Other top-level keys are ignored, so other readers can keep their own keys in
+the settings. This includes **dex**, **workspace**, **system_prompt_file**,
+**media**, **sessions**, and the harness sections, which belong to the file
+only. The
+command prints each ignored key as a warning, and the turn still runs. Inside
+a known field, an unknown key is an error, so **connectors.mcp** fails.
+
+Settings that fail the schema or widen the file are rejected as a whole. The
+turn fails with the error code and the JSON Pointer of the first problem. The
+session keeps its settings until someone fixes them. The
+[session settings schema](https://github.com/superdurable/dex/blob/main/agents/cli/session-settings.schema.json)
+defines every field. Settings are stored in the session, so never put a secret
+in them. See [Credentials](/reference/agents/credentials).
+
+## The chat {#chat}
+
+Each line you type is a user message. The model's text streams as it arrives,
+and each tool call prints a line when it starts and when it ends.
+
+- A call that waits for approval shows the tool and its arguments. Answer
+  **y**, or **n** with an optional reason.
+- A question from the agent asks for an answer. Answer with text or a choice
+  number. In the Python commands, an empty line declines.
+- **/image PATH** attaches an image to the next message. See [Images](#images).
+- The first Ctrl-C during a turn cancels the turn, and a second Ctrl-C exits.
+- **/exit** and Ctrl-D exit.
+
+Exiting never ends the session. The session stays in Dex, and the command
+prints the **--resume** line that continues it.
+
+## Resume a session {#resume}
+
+**sessions** lists the command's sessions, and **--resume** continues one. The
+command prints the **--resume** line when you exit:
+
+```bash
+dex-agents-claude-sdk sessions
+dex-agents-claude-sdk --resume SESSION_ID
+```
+
+**sessions** loads up to five pages of 50 sessions and sorts them by last
+activity. When more sessions exist, it says so. Each line has the session ID,
+the status, and the start time. Since 0.6.0 it also has the time of the latest
+turn, the turn count, and the title, the first 80 Unicode code points of the
+first message, when **sessions.summary** keeps the session summary: by
+default with **dex.server: auto** only. See
+[List sessions](/reference/agents/approvals#list-sessions). A session without
+the summary, such as one that an earlier release started, lists without these
+parts. An earlier session gains the time and the turn count at its next turn,
+and a title only if that turn is its first. The Python commands leave out a missing part,
+and the TypeScript commands print tab-separated columns with a dash for it:
+
+```text
+builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  Find open issues about flaky tests
+```
+
+A session belongs to the environment that started it. The command registers
+its sessions under a Flow type made from the harness's Flow type and a
+six-character suffix. The suffix is a hash of the host name, the user, the
+configuration file's real path, and the workspace's real path. Each new
+session records these values in its start input, so its run in Dex Web shows
+where it started.
+
+- **sessions** lists, and **--resume** continues, only sessions of the current
+  environment. Resuming another environment's session exits with code 2 and
+  says to use the user, configuration file, and workspace that started it.
+- Changing the workspace, the configuration file, or the user starts a new
+  Flow type. Changing a tool setting, such as the shell allow list, does not.
+- A Worker takes only the Steps of its own Flow type. So an approved write
+  runs only with the workspace and configuration file it was approved under.
+
+Two commands in the same environment share their sessions' Steps. A tool Step
+may run in another process than the one that built the call. So the Worker
+that runs a tool Step checks the call again with its own configuration file,
+narrowed by the session settings of the call's turn. A call whose tool group,
+connection, or operation is off there, or that now needs an approval it did
+not get, records **failed** and does not run.
+
+## Workspace and local tools {#local-tools}
+
+The local tools work in the workspace. Each call is its own Dex tool Step,
+recorded in the session.
+
+| Group | Tools | Approval |
+| --- | --- | --- |
+| **files** | **read_file**, **list_directory**, **search_files** | None |
+| **files** | **write_file**, **edit_file** | Every call |
+| **shell** | **run_shell_command** | Every call, unless **local_tools.shell.allow** has the whole command text |
+| **web_fetch** | **fetch_web_page** | None |
+| **browser** | **browser_navigate**, **browser_snapshot** | None |
+| **browser** | **browser_click**, **browser_fill**, **browser_submit_form** | Every call |
+
+- File paths are relative to the workspace, or absolute inside it. A path that
+  leaves the workspace through **..**, an absolute path, or a symbolic link
+  fails the call. A file with more than one hard link is refused.
+  **edit_file** changes files of at most 4 MiB, and fails with a conflict when
+  the file changed after it read it.
+- The allow list matches whole commands: **ls -la** does not match **ls**.
+- A shell command runs with the system shell in the workspace, in its own
+  process group, so Ctrl-C never reaches it. It times out after 120 seconds by
+  default and 600 seconds at most. A command whose Worker died while it ran
+  records **outcome_unknown** and never runs again.
+- The browser is headless Chromium: Playwright's own when installed, else the
+  system Chrome, else a Chromium that Playwright downloads the first time a
+  browser tool runs. It opens only http and https URLs. Each session has one
+  page in the Worker process, and every tool returns the page's URL, title,
+  and accessibility snapshot as text. The browser tools take no screenshots.
+  After a Worker restart, a session has no page until the agent navigates
+  again.
+- **approval.always** adds approval to any tool by the name the agent sees.
+
+The workspace checks are not a sandbox. An approved shell command runs with
+your permissions and can change anything, inside the workspace or outside it.
+A concurrent process that swaps a directory for a link during an approved
+write can make the write land outside; the call then reports an error. Only
+OS-level isolation, such as a container, closes that gap.
+
+### Harnesses with their own tools {#harness-tools}
+
+Three commands replace some local tools with their framework's own tools. Use
+these names in **approval.always**. The other groups keep the CLI core's tools.
+Each Deep Agents tool runs only while the turn switches its group on.
+
+| Command | Group | Tools | Approval |
+| --- | --- | --- | --- |
+| **dex-agents-claude-sdk** | **files** | **Read**, **Grep**, **Glob** | None |
+| **dex-agents-claude-sdk** | **files** | **Write**, **Edit** | Every call |
+| **dex-agents-claude-sdk** | **shell** | **Bash** | Unless the allow list has the whole command text. A background command always waits. |
+| **dex-agents-claude-sdk** | **web_fetch** | **WebFetch** | None |
+| **dex-agents-pi** | **files** | **read**, **grep**, **find**, **ls** | None |
+| **dex-agents-pi** | **files** | **write**, **edit** | None, unless **approval.always** names the tool |
+| **dex-agents-pi** | **shell** | **bash** | None, unless **approval.always** names it. **local_tools.shell.allow** has no effect. |
+| **dex-agents-deepagents** | **files** | **ls**, **read_file**, **glob**, **grep** | None |
+| **dex-agents-deepagents** | **files** | **write_file**, **edit_file**, **delete** | None, unless **approval.always** names the tool |
+| **dex-agents-deepagents** | **shell** | **execute** | None, unless **approval.always** names it. **local_tools.shell.allow** has no effect. |
+| **dex-agents-deepagents** | **files** and **shell** | **task** | None, unless **approval.always** names any Deep Agents tool |
+| **dex-agents-deepagents** | None | **write_todos** | None |
+
+- **Claude Agent SDK.** Claude Code runs in the workspace. Its file tools
+  refuse a path outside the workspace and any path with **..**. **Bash** is
+  not confined. Claude Code reads no settings files, so their allow rules
+  cannot skip an approval, and its other tools, such as subagents, are not
+  offered. The command uses only these Claude Code tools, the browser tools,
+  and the Connector tools. It loads no MCP servers and no claude.ai connectors
+  from your Claude Code configuration or login, so external tools come only
+  from Connectors that Dex approves and records. Changed in 0.6.0. These tools run inside the Claude Code CLI, not in their own Steps,
+  so a Worker that dies during a turn segment can run one of them twice. The
+  browser and Connector tools still run in their own Steps.
+- **Pi.** The agent keeps Pi's own tools and behavior and adds the Connector,
+  web fetch, browser, and **ask_user** tools. As in Pi, no tool call waits for
+  approval unless **approval.always** names the tool. Connector writes always
+  wait for approval.
+- Each Pi tool call is its own tool Step. Reads retry. A **write**, **edit**,
+  or **bash** call never runs twice: a Worker that dies during one records
+  **outcome_unknown**. A **bash** command that exits with a non-zero code, or
+  that its timeout killed, records **failed** with its output.
+- Pi's tools have no workspace boundary. The workspace is their working
+  directory, so a relative path resolves against it. An absolute path or
+  **~** reaches any file you can reach, and **bash** runs any command with
+  your permissions. This is neither a guardrail nor a sandbox. Use OS-level
+  isolation, such as a container, when the agent must not reach other files.
+- **grep** and **find** run **rg** and **fd**, so **grep** respects
+  **.gitignore**. When one is missing, Pi downloads it to
+  **~/.pi/agent/bin** on first use. With **PI_OFFLINE=1** it downloads
+  nothing, and the call fails until you install the tool.
+- A **bash** command's output so far reaches the session as
+  **pi.tool_progress** events. When the output is cut, the result names the
+  file with the full output. That file exists only on the machine that ran
+  the command.
+- A Connector tool whose name a Pi tool has gets the prefix **connector_**,
+  such as **connector_read**. **approval.always** names it that way:
+  **read** there makes only Pi's **read** wait. If that name is taken too, the
+  prefix repeats until the name is free.
+- **Deep Agents.** The agent keeps Deep Agents' own tools and adds the
+  Connector, web fetch, and browser tools. As in Deep Agents without
+  **interrupt_on**, its file tools, **execute**, and **task** run without
+  approval. Name a tool in **approval.always** to make it wait, as
+  **interrupt_on** does. Connector writes always wait for approval.
+- The file tools take absolute paths and work on the real files of the
+  workspace. They refuse a path that resolves outside the workspace, and
+  **ls**, **glob**, and **grep** leave out entries that do. This is a
+  guardrail against mistaken paths, not a sandbox: **execute** runs
+  **/bin/sh** in the workspace with your permissions and can reach any path.
+- Large tool results and long user messages go to a private directory of the
+  session under **~/.dex/agents/deepagents-artifacts**. The command checks
+  that you own each of its directories and that none is a link. When it
+  starts, it deletes the directories of sessions whose files changed more
+  than 30 days ago.
+- Each call is its own tool Step, whose attempts also run Deep Agents' tool
+  middleware, such as the eviction of a large result to a file. An
+  **edit_file**, **execute**, or **task** call never runs twice.
+- **write_todos** updates the agent's todo list. The list lasts for one turn.
+- **task** runs a subagent inside the tool Step of its call. The subagent's
+  model and tool calls have no Steps or approvals of their own, use the
+  configuration file's model, and do not count in the session's usage. A
+  Worker that dies during the call runs none of it again: the call records
+  **outcome_unknown**.
+- A Connector tool whose name a Deep Agents tool has gets the prefix
+  **connector_**, such as **connector_read_file**. **approval.always** names it
+  that way. If that name is taken too, the prefix repeats until the name is
+  free.
+
+## Connectors {#connectors}
+
+The agent calls Connector operations as tools through the Connectors MCP
+server. With **connectors.mcp: auto**, the command uses the server that
+**dexcli dev** serves at the **/mcp** path of the Dex Web port. See
+[Connectors MCP server](/reference/cli/#connectors-mcp). With an explicit
+**dex.server**, **auto** has no server, so Connector tools are off with a hint
+to set the URL.
+
+Authorize connections on the Dex Web Connectors page, at **/v1/connectors** on
+the Dex Web URL. Credentials stay in those connections, never in the
+configuration file. When an entry of **connectors.enabled** has no tool on the
+server, the command prints a hint with the Connectors page, and opens it in an
+interactive terminal. **connectors** lists the authorized connections and the
+configured ones.
+
+Each **connectors.enabled** entry is one of:
+
+- a connector, such as **hackernews**, for every connection of that
+  connector;
+- a connector and a connection, such as **slack/support-slack**;
+- a map with one such key and a **tools** list, which limits the operations.
+
+A **tools** list names each operation by its snake-case name, such as
+**get_message**, or by its operationId, such as **getMessage**. An acronym
+stays one word, so **listStoryIDs** is **list_story_ids**. Two entries must not
+cover the same connection, so **slack** and **slack/work** cannot appear
+together. A **tools** list names at least one operation. An empty
+**connectors.enabled** list gives the agent no Connector tools.
+
+The agent sees each Connector tool by its MCP name, such as
+**slack_post_thread_reply**. **approval.always** names it the same way. Each
+call is a Dex tool Step with the effect class, approval, and idempotency key
+that the server gives the tool. Before it sends a call, the command checks that
+the tool name still belongs to the connection and operation the call was made
+for. Otherwise the call records **failed** and nothing is sent.
+
+When an **auto** server does not answer at startup, such as while it starts,
+the command warns and runs without Connector tools. It lists the server again
+in every model call, so the tools appear once the server is ready. An explicit
+**connectors.mcp** URL that does not answer stops the command with exit code 1.
+
+The Python **dex-agents-openai-sdk** fixes its tools when it starts. It offers
+only the Connector tools that the server listed at startup. Restart it when
+the server did not answer at startup, or after you authorize a connection while
+it runs. The TypeScript commands list the tools in every model call and need no
+restart.
+
+## Images {#images}
+
+**/image PATH** attaches an image file to the next message. A leading **~** is
+the home directory, and a relative path is relative to the directory you
+started the command in. The file must be a regular file of at most 3,750,000
+bytes, in PNG, JPEG, GIF, or WebP. The command copies a valid image into the
+media store and shows its name, type, and size. A message carries at most 20
+images. A file that fails a check is not attached, and the command says why.
+
+Session state keeps only a reference to each image. The bytes stay in the media
+store, one copy per distinct image, named by its SHA-256. Moving or deleting
+the original file changes nothing. Images that Connector tools return go to
+the same store.
+
+- **media.store: auto** keeps images in **~/.dex/agents/media**. Only Workers on
+  this machine can read them.
+- **media.store: s3://BUCKET/PREFIX** keeps them in an S3 bucket, for Workers on
+  other machines. Credentials come from the environment or the standard AWS
+  credential chain, never from the file. With **media.endpoint**, the command
+  addresses the bucket in the URL path, as most S3-compatible services need.
+  The S3 store needs the agents library's S3 support in the command's
+  environment: **dex-agents[s3]** in Python, the **@aws-sdk/client-s3** package
+  in TypeScript. Without it the command stops with exit code 2.
+
+Session settings cannot change the store. Keep every image for as long as its
+sessions may replay it: a missing image fails the turn.
+
+Every command shows the images to its model. In **dex-agents-pi**, an image
+that **read** returns reaches the model too, after the result's text.
+
+## Sessions in Dex Web {#dex-web}
+
+When it starts, the command uploads the session graph of its session Flow
+type to the Dex Server. Dex Web then shows each session's Steps and its
+**Agent session** tab, with no **--flow-rendering-dir**. Open Dex Web at
+**http://127.0.0.1:8802** for the local **dexcli dev**. Dex Web stops with a
+**dexcli dev** that the command started; see
+[The local Dex server](#dex-server).
+
+- The **Agent session** tab shows the conversation and its tool calls, an
+  approval card for each pending call, and a message box with **Steer** and
+  **Stop turn**. It can also edit the session's settings. See
+  [Agent session view](/reference/web/dex-web#agent-session-view).
+- The session Actions require the permission **dex-agents-cli.operate**.
+  Choose it in **Working as** to answer a session's approvals and questions in
+  Dex Web.
+- The upload needs server-zd 0.1.26 or later, which the **dexcli dev** that the
+  command downloads runs. The outcome, and a failure such as on an older
+  server, go to the log file **~/.dex/agents/HARNESS.log**, not the terminal.
+  The command still starts.
+
+See [Show sessions in Dex Web](/reference/agents/dex-web) for the session
+graph and its Actions.
+
+## Known limitations {#limitations}
+
+- **Sessions stay in their environment.** A session resumes only with the host,
+  user, configuration file, and workspace that started it. Without a
+  **workspace** in the file, **dex-agents-pi** resumes a session only from the
+  directory it started in. See [Resume a session](#resume).
+- **The local tools are not a sandbox.** An approved shell command runs with
+  your permissions. See [Workspace and local tools](#local-tools).
+- **Pi's tools reach every file you can.** In **dex-agents-pi**, the file
+  tools and **bash** have no workspace boundary, and they run without approval
+  unless **approval.always** names them. See
+  [Harnesses with their own tools](#harness-tools).
+- **Deep Agents file tools are a guardrail, not a sandbox.** In
+  **dex-agents-deepagents**, **execute** runs any command with your
+  permissions, without approval unless **approval.always** names it. The file
+  tools' workspace check does not detect a link that changes during a call or
+  a hard link in the workspace to a file elsewhere. See
+  [Harnesses with their own tools](#harness-tools).
+- **Claude Code tools can run twice.** In **dex-agents-claude-sdk**, a Worker
+  that dies during a turn segment runs the segment again, with its tool calls.
+- **Gemini sees no tool images in the Python built-in loop.**
+  **dex-agents-builtin** in Python sends a Gemini model, a **gemini/**,
+  **vertex_ai/**, or **vertex_ai_beta/** model, the images of user messages
+  but not the images that a tool returns. The tool result then says that the
+  model does not receive images from tool results. To show such a model a
+  tool's image, send it in a user message. **dex-agents-google-adk** shows tool
+  images to Gemini.
+- **TypeScript built-in and Vercel AI SDK models.** These commands accept only
+  **openai/** and **anthropic/** model IDs. Any other model stops the command,
+  or fails the turn when session settings set it.
+- **Deep Agents does not compact or summarize.** Deep Agents' summarization is
+  off, because it would make an extra model call inside a model call's Step.
+  A long **dex-agents-deepagents** session ends when its input no longer fits
+  the model's context window. Start a new session then. See
+  [Compaction](/reference/agents/session-limits#compaction).
+- **A killed command leaves its dexcli dev running.** When the command gets
+  SIGKILL or crashes, the **dexcli dev** it started keeps running. Later
+  commands reuse it and do not stop it; stop it with **kill**. See
+  [The local Dex server](#dex-server).
+- **The local server check does not authenticate.** On a shared machine, set
+  **dex.server** and **connectors.mcp** to URLs you trust. See
+  [The local Dex server](#dex-server).

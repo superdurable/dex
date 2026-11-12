@@ -12,6 +12,12 @@ on:
       - "sdk-go/**"
       - "protos/**"
       - "go.work"
+      - "agents/go/core/**"
+      - "agents/cli/tests/terminal_ui_contract_host.py"
+      - "agents/cli/TERMINAL_UI_CONTRACT.md"
+      - "agents/cli/terminal-ui-*.schema.json"
+      - "agents/conformance/terminal_ui/**"
+      - "agents/python/core/**"
       - ".github/workflows/cli-ci.yml"
   pull_request:
     paths:
@@ -23,6 +29,12 @@ on:
       - "sdk-go/**"
       - "protos/**"
       - "go.work"
+      - "agents/go/core/**"
+      - "agents/cli/tests/terminal_ui_contract_host.py"
+      - "agents/cli/TERMINAL_UI_CONTRACT.md"
+      - "agents/cli/terminal-ui-*.schema.json"
+      - "agents/conformance/terminal_ui/**"
+      - "agents/python/core/**"
       - ".github/workflows/cli-ci.yml"
   workflow_dispatch:
 
@@ -54,6 +66,11 @@ jobs:
             sdk-go/go.sum
       - uses: actions/setup-python@v6
         with:
+          python-version: "3.11"
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
           python-version: "3.11"
       - name: Install bundled server-zd
         env:
@@ -101,6 +118,13 @@ jobs:
         env:
           GOWORK: "off"
         run: go test -tags=integration ./internal/dev -count=1 -v
+      - name: Test the agents terminal UI with the contract host and a real Worker
+        working-directory: cli
+        env:
+          GOWORK: "off"
+        run: |
+          (cd ../agents/python/core && uv sync --locked --all-extras)
+          go test -tags=integration ./internal/agentsterminal -count=1 -v
       - name: Build release binary
         working-directory: cli
         env:

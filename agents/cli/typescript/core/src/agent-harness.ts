@@ -38,6 +38,17 @@ export type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
 export const localToolGroups: readonly LocalToolGroup[] = Object.freeze(["files", "shell", "web_fetch", "browser"]);
 
 /**
+ * Where a command's workspace is when its configuration file sets no `workspace`.
+ *
+ * - `dex_agent_workspace`: `~/dex-agent-workspace`, the CLI core's `defaultWorkspace`.
+ * - `launch_directory`: the directory the command starts in, as Pi uses it. Each directory then has its own
+ *   sessions, because the session Flow type hashes the workspace.
+ *
+ * @since 0.6.0
+ */
+export type HarnessDefaultWorkspaceLocation = "dex_agent_workspace" | "launch_directory";
+
+/**
  * One agent harness that a Dex Agents CLI command runs, such as the Claude Agent SDK or a built-in loop agent.
  *
  * A harness package implements this interface and calls {@link runAgentCli} from its bin. The CLI core owns
@@ -107,6 +118,15 @@ export interface AgentHarness {
    */
   readonly replacedLocalTools?: readonly LocalToolGroup[];
   /**
+   * Where the workspace is when the configuration file sets none. Defaults to `dex_agent_workspace`.
+   *
+   * With `launch_directory`, `init` writes no `workspace`, so the command keeps working in the directory it
+   * starts in. A `workspace` in the file still overrides it. The Python CLI core has no such option.
+   *
+   * @since 0.6.0
+   */
+  readonly defaultWorkspaceLocation?: HarnessDefaultWorkspaceLocation;
+  /**
    * Whether the harness's runner fixes its tools when the Flow is built, instead of listing the tool sources in
    * every model call. Defaults to `false`; every TypeScript adapter lists them per model call.
    *
@@ -120,6 +140,12 @@ export interface AgentHarness {
   readonly isToolSetFixedAtBuild?: boolean;
   /**
    * Builds the session Flow. The CLI core calls it once at startup and registers the Flow in its Worker and Client.
+   *
+   * Build the Flow with `summaryAttributesIndexed` equal to {@link HarnessContext.isSessionSummaryIndexed}, such as
+   * through an adapter factory's `summaryAttributesIndexed` option. The CLI core checks the Flow's persistence schema,
+   * which decides the index keys the Worker registers, and its `options`. It refuses to start when the Flow declares
+   * the indexed session summary while the file's `sessions.summary` leaves it off, or the other way around. The check
+   * verifies what the Flow declares; it does not sandbox harness code.
    *
    * @param context - The configuration, the instructions, the tool sources, and the per-turn resolver.
    * @returns The session Flow, of type {@link HarnessContext.flowType}.
@@ -170,6 +196,17 @@ export interface HarnessContext {
    * @since 0.5.0
    */
   readonly mediaStore?: MediaStore;
+  /**
+   * Whether the session Flow must keep the indexed session summary, from the file's `sessions.summary` and
+   * `dex.server`. Pass it as the Flow's `summaryAttributesIndexed`, such as
+   * `summaryAttributesIndexed: context.isSessionSummaryIndexed === true`.
+   *
+   * The CLI core always sets it. It is optional only so that harness tests can build a context without it; absent
+   * means `false`.
+   *
+   * @since 0.6.0
+   */
+  readonly isSessionSummaryIndexed?: boolean;
   /**
    * Returns one turn's configuration and instructions from the session settings the turn started with.
    *

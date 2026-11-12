@@ -36,6 +36,12 @@ export const defaultWorkspace = "~/dex-agent-workspace";
  * @since 0.5.0
  */
 export const defaultMediaStore = "auto";
+/**
+ * `sessions.summary` when the file omits it: the session summary on for the local `dexcli dev` only.
+ *
+ * @since 0.6.0
+ */
+export const defaultSessionSummary = "auto";
 
 const maximumPort = 65535;
 const urlParts = /^https?:\/\/(?<host>\[[^\]]*\]|[^:/]+)(?::(?<port>[0-9]+))?(?:\/.*)?$/s;
@@ -88,6 +94,19 @@ export interface MediaConfig {
 }
 
 /**
+ * The `sessions` section: how the command keeps its sessions. Session settings never change it.
+ *
+ * @since 0.6.0
+ */
+export interface SessionsConfig {
+  /**
+   * `auto`, `on`, or `off`: whether each session keeps the indexed title, last activity time, and turn count that the
+   * `sessions` subcommand shows. See {@link isSessionSummaryIndexed}.
+   */
+  readonly summary: "auto" | "on" | "off";
+}
+
+/**
  * The effective configuration of a configuration file: every default filled in, connector entries parsed, and
  * the command's own harness section copied to `harness_options`.
  *
@@ -121,6 +140,14 @@ export interface EffectiveConfig {
   readonly local_tools: LocalToolsConfig;
   /** The media store of the images. A turn's configuration always has the file's. */
   readonly media: MediaConfig;
+  /**
+   * How the command keeps its sessions. A turn's configuration always has the file's. {@link resolveConfig} always
+   * sets it; it is optional so that code that builds an `EffectiveConfig` itself keeps compiling, and absent means
+   * `summary: "auto"`.
+   *
+   * @since 0.6.0
+   */
+  readonly sessions?: SessionsConfig;
   /** The command's own harness section, or `{}`. */
   readonly harness_options: Readonly<Record<string, unknown>>;
 }
@@ -224,6 +251,8 @@ export function parseConfigYaml(text: string): unknown {
  * @param config - The parsed file; `null` or `undefined` is `{}`.
  * @param harnessSection - The command's harness section, such as `claude`.
  * @param harnessDefaultModel - The command's default model, or `null` when it has none.
+ * @param harnessDefaultWorkspace - The workspace when the file sets none; defaults to {@link defaultWorkspace}.
+ * Since 0.6.0.
  * @returns The effective configuration.
  * @throws {ConfigError} `schema`, `invalid_url`, `duplicate_tool`, `duplicate_connection`, or `model_required`.
  * @since 0.5.0
@@ -232,6 +261,7 @@ export function resolveConfig(
   config: unknown,
   harnessSection: string,
   harnessDefaultModel: string | null,
+  harnessDefaultWorkspace: string = defaultWorkspace,
 ): EffectiveConfig {
   const value = config ?? {};
   throwFirstSchemaError(validators().config, value);
@@ -259,7 +289,7 @@ export function resolveConfig(
     dex: { server: dexServer },
     connectors: { mcp: connectorsMcp, enabled: entries },
     approval: { always: [...(file.approval?.always ?? [])] },
-    workspace: file.workspace ?? defaultWorkspace,
+    workspace: file.workspace ?? harnessDefaultWorkspace,
     local_tools: {
       files: file.local_tools?.files ?? true,
       shell: { enabled: shell?.enabled ?? true, allow: [...(shell?.allow ?? [])] },
@@ -267,8 +297,25 @@ export function resolveConfig(
       browser: file.local_tools?.browser ?? true,
     },
     media: { store: file.media?.store ?? defaultMediaStore, endpoint: mediaEndpoint },
+    sessions: { summary: file.sessions?.summary ?? defaultSessionSummary },
     harness_options: harnessOptions === undefined ? {} : structuredClone(harnessOptions as Record<string, unknown>),
   };
+}
+
+/**
+ * Returns whether the command's sessions keep the indexed session summary.
+ *
+ * `sessions.summary: auto` keeps it only with `dex.server: auto`, the `dexcli dev` of this machine that the command
+ * reuses or starts. A Dex server URL may be shared, so its search index and index keys stay untouched unless
+ * `sessions.summary` is `on`.
+ *
+ * @param config - The file's effective configuration.
+ * @returns `true` to build the session Flow with `summaryAttributesIndexed`.
+ * @since 0.6.0
+ */
+export function isSessionSummaryIndexed(config: EffectiveConfig): boolean {
+  const summary = config.sessions?.summary ?? defaultSessionSummary;
+  return summary === "on" || (summary === "auto" && config.dex.server === defaultDexServer);
 }
 
 /**
@@ -425,6 +472,7 @@ interface FileConfig {
   readonly workspace?: string;
   readonly local_tools?: SessionLocalTools;
   readonly media?: { readonly store?: string; readonly endpoint?: string };
+  readonly sessions?: { readonly summary?: "auto" | "on" | "off" };
 }
 
 /** Session settings after the schema accepted them. */

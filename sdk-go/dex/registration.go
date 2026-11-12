@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,6 +45,7 @@ type registeredFlow struct {
 	attributes     map[string]registeredAttribute
 	channels       map[string]registeredChannel
 	streams        map[string]registeredStream
+	isClientOnly   bool
 }
 
 type registeredStep struct {
@@ -84,6 +86,11 @@ type registeredStream struct {
 // validates starting Steps, Step options, RPC signatures, persistence definitions,
 // and cross-Flow Attribute index compatibility. It returns FlowDefinitionError for an invalid Flow and publishes no
 // partially assembled Registry.
+//
+// NewRegistry records which Flows embed ClientOnlyFlow. A client-only Flow
+// that declares any Step is invalid. A Registry that holds a client-only Flow
+// serves Clients only: NewWorker rejects it with ClientOnlyFlowError.
+// Changed in 1.46.0: NewRegistry rejects a client-only Flow that declares Steps.
 //
 //	registry, err := dex.NewRegistry([]dex.Flow{OrderFlow{}, RefundFlow{}})
 //	if err != nil {
@@ -161,6 +168,7 @@ func (registry *Registry) registerFlow(
 		attributes:     make(map[string]registeredAttribute),
 		channels:       make(map[string]registeredChannel),
 		streams:        make(map[string]registeredStream),
+		isClientOnly:   IsClientOnlyFlow(flow),
 	}
 	if err := registered.registerPersistence(
 		flow.GetPersistenceSchema(),
@@ -168,7 +176,15 @@ func (registry *Registry) registerFlow(
 	); err != nil {
 		return nil, fmt.Errorf("dex: flow %q: %w", flowType, err)
 	}
-	if err := registered.registerSteps(flow.GetSteps()); err != nil {
+	steps := flow.GetSteps()
+	if registered.isClientOnly && len(steps) > 0 {
+		return nil, fmt.Errorf(
+			"dex: flow %q is client-only and declares %d Steps; a client-only Flow declares no Steps",
+			flowType,
+			len(steps),
+		)
+	}
+	if err := registered.registerSteps(steps); err != nil {
 		return nil, fmt.Errorf("dex: flow %q: %w", flowType, err)
 	}
 	if err := registered.registerRPCs(flow.GetRPCs()); err != nil {
@@ -736,6 +752,20 @@ func (flow *registeredFlow) resolveChannels(
 		resolved = append(resolved, channel)
 	}
 	return resolved, nil
+}
+
+// firstClientOnlyFlowType returns the lexically first client-only Flow type, or false when there is none.
+func (registry *Registry) firstClientOnlyFlowType() (string, bool) {
+	clientOnlyFlowTypes := make([]string, 0, len(registry.flows))
+	for flowType, flow := range registry.flows {
+		if flow.isClientOnly {
+			clientOnlyFlowTypes = append(clientOnlyFlowTypes, flowType)
+		}
+	}
+	if len(clientOnlyFlowTypes) == 0 {
+		return "", false
+	}
+	return slices.Min(clientOnlyFlowTypes), true
 }
 
 func (registry *Registry) lookupFlow(

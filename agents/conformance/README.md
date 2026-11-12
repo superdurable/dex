@@ -13,15 +13,16 @@ with the M2 additions in
 
 The files are generated from the Python core and checked against the
 TypeScript core, except `connector_tools.json`, `mcp_dex_conventions.json`,
-and `images.json`, which are hand-written and read by both cores' connector
-tool, MCP tool, and image tests, and `cli_config.json` and
+`images.json`, and `approval_display.json`, which are hand-written and read by
+both cores' connector tool, MCP tool, image, and approval display tests, and `cli_config.json` and
 `cli_session_flow_types.json`, which are hand-written for the CLI cores in
-[`../cli`](../cli). A core passes when it passes all four parts below.
+[`../cli`](../cli), and `terminal_ui/`, which is hand-written for the CLI
+cores and `dexcli agents-tui`. A core passes when it passes all four parts below.
 
 | Path | What it fixes |
 | --- | --- |
 | [`values/`](values) | Golden wire values, one file per value type |
-| [`names.json`](names.json) | Step types, RPCs, persistence names, event types, enums, map keys, ID and timestamp formats |
+| [`names.json`](names.json) | Step types, RPCs, persistence names and their index keys, event types, enums, map keys, ID and timestamp formats, and the session title rule |
 | [`texts.json`](texts.json) | Every model-visible text the session writes |
 | [`transcripts/`](transcripts) | Scripted-turn scenarios and the transcript each core must reproduce |
 | [`session_graph.json`](session_graph.json) | The session Flow Definition Graph that Dex Web loads, with placeholders for the Flow type and the Action permission |
@@ -30,7 +31,9 @@ tool, MCP tool, and image tests, and `cli_config.json` and
 | [`mcp_dex_conventions.json`](mcp_dex_conventions.json) | Dex MCP conventions: the `_meta` keys, how a tool definition's keys pick its effect, approval, and order, and how a result's or a JSON-RPC error's outcome key is recorded, with the exact text. Hand-written, not generated |
 | [`cli_config.json`](cli_config.json) | CLI configuration: YAML parsing, schema errors, URL checks, file defaults, the media store, session settings narrowing, operation names, and the shell allow list. Hand-written for the CLI cores; see [`../cli/README.md`](../cli/README.md) |
 | [`cli_session_flow_types.json`](cli_session_flow_types.json) | CLI session Flow types: the 6-character base36 suffix each CLI core derives from the host name, user, configuration identity, and workspace, with ASCII, Windows, Unicode, and left-padded cases. Hand-written for the CLI cores |
+| [`approval_display.json`](approval_display.json) | Approval displays: which names hold credentials, how the best-effort redaction of common credential shapes works (hygiene for displayed text only, not a security boundary: the session still stores the call's full arguments), connector summaries, and, for the CLI cores, credential files, file write previews, shell summaries, and escaped paths. Hand-written, not generated |
 | [`images.json`](images.json) | Image references: structural byte checks and the size limit, type checks on read, reference validation and its error texts (URI length in UTF-8 bytes), list limits, how S3, local directory, and in-memory stores name objects, and the local directory store's root rules and error texts. Hand-written, not generated |
+| [`terminal_ui/`](terminal_ui) | The terminal UI contract between a CLI command and `dexcli agents-tui`: launch documents and their checks, `--describe` and contract choice, channel messages, session IDs derived from idempotency keys, the key table, `open_url` rules, notice display, the environment allow-list, and channel transcripts. Hand-written; see [`../cli/TERMINAL_UI_CONTRACT.md`](../cli/TERMINAL_UI_CONTRACT.md) |
 | [`generate.py`](generate.py) | Writes all of the above from the Python core |
 | [`session_graph.py`](session_graph.py) | Derives the session graph from the Python core's registered Flow and source |
 

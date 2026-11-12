@@ -19,6 +19,7 @@ export {
   localToolGroups,
   type AgentHarness,
   type HarnessContext,
+  type HarnessDefaultWorkspaceLocation,
   type LocalToolGroup,
   type ResolvedTurn,
 } from "./agent-harness.js";
@@ -37,8 +38,10 @@ export {
   defaultConnectorsMcp,
   defaultDexServer,
   defaultMediaStore,
+  defaultSessionSummary,
   defaultWorkspace,
   isCoveredByConnectorEntry,
+  isSessionSummaryIndexed,
   isShellCommandAllowed,
   parseConfigYaml,
   readSchema,
@@ -49,6 +52,7 @@ export {
   type EffectiveConfig,
   type LocalToolsConfig,
   type MediaConfig,
+  type SessionsConfig,
   type TurnConfig,
 } from "./cli-config.js";
 export {
@@ -68,6 +72,8 @@ export {
   probeConnectorsMcp,
   type ConnectorToolIdentity,
   type ConnectorsMcpAvailability,
+  type ConnectorsMcpToolSourceOptions,
+  type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
 export { pinnedDexcliVersion, resolveDexcliExecutable } from "./dexcli-binary.js";
 export {

@@ -31,6 +31,7 @@ import {
   connectorConfigurationEffectText,
   connectorHostReadyMessage,
   connectorSetupTabs,
+  connectionsResponseWithEmptyLists,
   connectorWriteHeaders,
   connectionWriteRequestBody,
   initialConnectionAuthMethodIds,
@@ -224,6 +225,23 @@ describe('Connections contract', () => {
     expect(optionalOnlyMarkup).toContain('<legend class="sc-blockhead">Optional settings (1)</legend>');
   });
 
+  it('labels the save button Save connection when the connection needs no credentials', () => {
+    const noAuthManifest = (auth: Record<string, unknown>) => ({
+      metadata: {displayName: 'Hacker News', description: 'Daily stories'},
+      spec: {provider: 'hackernews', configuration: {fields: []}, auth},
+    });
+
+    for (const markup of [
+      renderConnectorForm(noAuthManifest({type: 'none', fields: []})),
+      renderConnectorForm(noAuthManifest({fields: []})),
+    ]) {
+      expect(markup).toMatch(/<button class="v2-primary" type="submit">Save connection<\/button>/);
+      expect(markup).not.toContain('Save local credentials');
+    }
+    expect(renderConnectorForm(noAuthManifest({type: 'apiKey', fields: []})))
+      .toMatch(/<button class="v2-primary" type="submit">Save local credentials<\/button>/);
+  });
+
   it('turns provider guidance URLs into explicit links', () => {
     expect(descriptionParts('Start at https://example.com/settings/keys and copy the value.')).toEqual([
       {text: 'Start at '},
@@ -397,6 +415,30 @@ describe('Connections contract', () => {
       ['trigger', 'threadReplyCreated', true],
     ]);
     expect(initialConnectorSetupTabKey(connection)).toBe('operation:PostCompletion:post');
+  });
+
+  it('reads the null lists Go sends, such as the uses of a trigger-only connection, as empty', () => {
+    const response = connectionsResponseWithEmptyLists(JSON.parse(`{
+      "enabled": true, "definitionRevision": "r1", "csrfToken": "csrf",
+      "connections": [{
+        "connectorId": "slack", "connectionName": "workspace", "status": "Ready", "uses": null,
+        "triggerUses": [{
+          "flowName": "Approval", "triggerName": "threadReplyCreated", "bindingName": "reply", "configured": false,
+          "configuration": null,
+          "configurationUI": {"units": [{"id": "channel", "unitId": "channelPicker", "label": "Channel", "required": true, "bindings": null}]}
+        }]
+      }]
+    }`));
+    const connection = response.connections[0];
+    expect(connection.uses).toEqual([]);
+    expect(connection.triggerUses?.[0].configuration).toEqual({});
+    expect(connection.triggerUses?.[0].configurationUI.units[0].bindings).toEqual([]);
+    expect(connectionsResponseWithEmptyLists(JSON.parse('{"connections": null}')).connections).toEqual([]);
+    expect(connectorSetupTabs(connection).map((tab) => [tab.kind, tab.label])).toEqual([
+      ['authorize', 'Authorize'],
+      ['trigger', 'threadReplyCreated'],
+    ]);
+    expect(initialConnectorSetupTabKey(connection)).toBe('trigger:Approval:reply');
   });
 
   it('keeps configuration tabs behind authorization and opens the first tab when all are configured', () => {

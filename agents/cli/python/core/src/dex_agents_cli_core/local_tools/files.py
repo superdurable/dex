@@ -131,6 +131,51 @@ class WorkspaceFiles:
         self._replace(path, parts, text.replace(old_text, new_text, 1), read_identity)
         return f"edited {'/'.join(parts)}: replaced 1 occurrence"
 
+    def read_text_for_preview(self, path: str, limit: int) -> tuple[str, str | None] | None:
+        """Read a file's text for an approval preview, with the checks of ``write_file``.
+
+        The path must stay inside the workspace through every link and name a
+        regular file with one link, or no file yet. The model call runs it, so
+        it never raises.
+
+        Args:
+            path: Path relative to the workspace.
+            limit: The largest file to read, in bytes.
+
+        Returns:
+            The path relative to the workspace and the file's text, the text
+            ``None`` when no file has the path yet, or ``None`` when the path
+            leaves the workspace, names something else, is larger than
+            ``limit``, is not UTF-8, or cannot be read.
+        """
+        display_path: str | None = None
+        try:
+            parts = self._parts(path, is_file=True, is_final_link_followed=False)
+            display_path = "/".join(parts)
+            with self._open_directory(path, parts[:-1]) as directory_fd:
+                try:
+                    file_fd = os.open(parts[-1], _READ_FLAGS, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    return display_path, None
+            try:
+                self._check_opened_file(path, file_fd)
+                data = _read_descriptor(file_fd, limit + 1)
+            finally:
+                os.close(file_fd)
+        except ToolExecutionError as error:
+            # A directory that does not exist yet means a new file, which write_file creates.
+            if display_path is not None and isinstance(error.__cause__, FileNotFoundError):
+                return display_path, None
+            return None
+        except OSError:
+            return None
+        if len(data) > limit:
+            return None
+        try:
+            return display_path, data.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
     def list_directory(self, path: str = ".") -> str:
         """List a directory's entries, one per line; directories end in ``/``, links in ``@``.
 

@@ -61,6 +61,7 @@ async def test_tty_without_a_config_asks_the_init_questions_then_chats(cli_home:
             "browser": False,
         },
         "media": {"store": "auto"},
+        "sessions": {"summary": "auto"},
     }
 
 
@@ -77,6 +78,69 @@ async def test_yes_writes_the_default_config_without_questions(cli_home: CliHome
     assert written["model"] == "scripted-model"
 
 
+async def test_a_message_typed_with_the_last_answer_reaches_the_chat(cli_home: CliHome) -> None:
+    child = cli_home.spawn()
+    for question in (
+        "Model",
+        "System prompt",
+        "Connectors to enable",
+        "Workspace",
+        "Allow file tools",
+        "Allow shell commands",
+        "Commands that run without approval",
+        "Allow web fetching",
+    ):
+        await expect(child, question)
+        child.sendline("")
+    await expect(child, "Allow a local browser")
+    child.send("\nhello\n")
+    await expect(child, f"Wrote {cli_home.config_path}.")
+    await expect(child, "echo: hello")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
+async def test_ctrl_c_at_the_first_init_question_exits_with_130_and_writes_no_file(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn("init")
+    await expect(child, "Model")
+    child.sendcontrol("c")
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 130
+    assert "Traceback" not in (child.before or "")
+    assert not cli_home.config_path.exists()
+
+
+async def test_ctrl_c_at_a_later_question_of_the_first_run_setup_exits_with_130(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn()
+    await expect(child, "Model")
+    child.sendline("")
+    await expect(child, "System prompt")
+    child.sendline("You answer in haiku.")
+    await expect(child, "Connectors to enable")
+    child.sendcontrol("c")
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 130
+    assert "Traceback" not in (child.before or "")
+    assert not cli_home.config_path.exists()
+
+
+async def test_ctrl_d_at_an_init_question_exits_with_1_and_writes_no_file(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn("init")
+    await expect(child, "Model")
+    child.sendline("")
+    await expect(child, "System prompt")
+    child.sendeof()
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 1
+    assert not cli_home.config_path.exists()
+
+
 async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_home: CliHome) -> None:
     completed = cli_home.run(stdin="hello there\n")
     assert completed.returncode == 0, completed.stderr
@@ -85,7 +149,7 @@ async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_hom
     assert f"Using the running dexcli dev at {cli_home.address}" in completed.stdout
     assert "echo: hello there" in completed.stdout
     # This dexcli dev serves no connectors MCP server, so connectors.mcp: auto only warns.
-    assert "The connectors MCP server is unavailable" in completed.stdout
+    assert "Connector tools are unavailable for now; each turn tries again." in completed.stdout
     assert not cli_home.config_path.exists()
     # The default workspace is a dedicated directory under the home, not the home itself.
     assert (cli_home.home / "dex-agent-workspace").is_dir()
@@ -102,7 +166,7 @@ async def test_a_fixed_tool_set_harness_is_told_to_restart_for_connector_tools(
         "dex-agents-scripted fixes its tools when it starts, so this run has no connector "
         "tools. Restart it once the connectors MCP server answers."
     ) in completed.stdout
-    assert "Continuing without connector tools until it answers" not in completed.stdout
+    assert "each turn tries again" not in completed.stdout
 
 
 async def test_an_invalid_config_names_the_error_code_and_pointer(cli_home: CliHome) -> None:
@@ -112,7 +176,7 @@ async def test_an_invalid_config_names_the_error_code_and_pointer(cli_home: CliH
     assert 'schema at "/local_tools/shell/allow" (schema keyword type)' in completed.stderr
 
 
-async def test_auto_starts_dexcli_dev_when_none_runs_and_later_commands_reuse_it(
+async def test_auto_starts_dexcli_dev_when_none_runs_and_stops_it_when_input_ends(
     tmp_path: Path,
 ) -> None:
     dex_port, web_port = find_free_ports(2)
@@ -120,16 +184,15 @@ async def test_auto_starts_dexcli_dev_when_none_runs_and_later_commands_reuse_it
     home.home.mkdir()
     home.write_config(config_yaml({"connectors": {"enabled": []}}))
     try:
-        first = home.run(stdin="first\n")
-        assert first.returncode == 0, first.stdout + first.stderr
-        assert "Starting dexcli dev in the background" in first.stdout
-        assert "dexcli dev is ready (pid" in first.stdout
-        assert "echo: first" in first.stdout
-        assert (home.home / ".dex" / "agents" / "dexcli-dev.json").exists()
-        second = home.run(stdin="second\n")
-        assert second.returncode == 0, second.stdout + second.stderr
-        assert f"Using the running dexcli dev at 127.0.0.1:{dex_port}" in second.stdout
-        assert "echo: second" in second.stdout
+        for message in ("first", "second"):
+            completed = home.run(stdin=f"{message}\n")
+            assert completed.returncode == 0, completed.stdout + completed.stderr
+            assert "Starting dexcli dev in the background" in completed.stdout
+            assert "dexcli dev is ready (pid" in completed.stdout
+            assert "it stops when this command exits" in completed.stdout
+            assert f"echo: {message}" in completed.stdout
+            assert "Stopped the dexcli dev this command started." in completed.stdout
+            assert not (home.home / ".dex" / "agents" / "dexcli-dev.json").exists()
     finally:
         home.close()
 
@@ -148,8 +211,9 @@ async def test_auto_reuse_tolerates_a_recorded_connectors_url_that_is_not_a_url(
     home.write_config(config_yaml({"connectors": {"mcp": "auto"}}))
     state_path = home.home / ".dex" / "agents" / "dexcli-dev.json"
     try:
-        first = await asyncio.to_thread(home.run, stdin="tools\n")
-        assert first.returncode == 0, first.stdout + first.stderr
+        # The first session keeps the dexcli dev it started, and its record, while the second runs.
+        first = home.spawn()
+        await expect(first, "> ", timeout=120)
         recorded = json.loads(state_path.read_text())
         # A dexcli without the Connectors MCP proxy prints no such ready line.
         assert recorded["connectors_mcp_url"] in (f"http://127.0.0.1:{web_port}/mcp", None)
@@ -159,6 +223,10 @@ async def test_auto_reuse_tolerates_a_recorded_connectors_url_that_is_not_a_url(
         assert second.returncode == 0, second.stdout + second.stderr
         assert f"Using the running dexcli dev at 127.0.0.1:{dex_port}" in second.stdout
         assert "tools: ask_user" in second.stdout
+        assert "Stopped the dexcli dev" not in second.stdout
+        first.sendline("/exit")
+        await expect(first, "Stopped the dexcli dev this command started.")
+        assert await wait_for_exit(first) == 0
     finally:
         home.close()
 

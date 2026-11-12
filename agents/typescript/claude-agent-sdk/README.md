@@ -40,17 +40,19 @@ recognizes `ToolExecutionError` only from its own copy of the core. `zod` 4 is a
 dependency, the same one `tool()` schemas use. Requirements: Node
 `^22.0.0 || ^24.0.0` and `@superdurable/dex` 1.45.0. The Worker needs Claude
 Code credentials, such as `ANTHROPIC_API_KEY`, exactly as a plain Claude Agent
-SDK program does. Connector tools also need `@superdurable/connectors-sdk`
+SDK program does. Per Anthropic's terms, products built on the Claude Agent SDK
+authenticate with an API key (`ANTHROPIC_API_KEY`); see the
+[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview). Connector tools also need `@superdurable/connectors-sdk`
 0.9.0, the optional peer of `@superdurable/dex-agents/connectors`, and each
 Connector package the agent uses.
 
 Every segment after the first resumes the Claude session from a temporary config directory that the
-Claude Agent SDK prepares. The SDK copies the credentials file of the Worker's config directory
-there. It copies a Claude Code login kept in the macOS Keychain only when `CLAUDE_CONFIG_DIR` is
-unset and no credential, such as `ANTHROPIC_API_KEY`, is set in the environment or in the options'
-`env`. A macOS Worker that sets `CLAUDE_CONFIG_DIR` and uses a Keychain login therefore runs its
-first segment and fails every resumed segment with "Not logged in". Give such a Worker environment
-credentials, such as `ANTHROPIC_API_KEY`, or leave `CLAUDE_CONFIG_DIR` unset.
+Claude Agent SDK prepares. A login that Claude Code stored, such as one in the macOS Keychain,
+keeps working across turns. Claude Code finds that login by `CLAUDE_SECURESTORAGE_CONFIG_DIR`, so the
+adapter sets it in the CLI environment to the effective `CLAUDE_CONFIG_DIR`, or to `""` when none is
+set. A resumed segment then uses the login of the first one. The CLI environment is the options'
+`env`, or a copy of `process.env` without one. To choose another login, set
+`CLAUDE_SECURESTORAGE_CONFIG_DIR` in that environment; the adapter keeps your value.
 
 Develop the package inside this repository with `./ci.sh`. There
 `@superdurable/dex-agents` is a `file:../core` devDependency, and the
@@ -358,8 +360,10 @@ await sendAgentUserMessage(client, flow, "session-42", { text: "What does this c
    the pending `hook_deferred_tool` entry, runs PreToolUse for that call again, and the hook answers
    from the final record: a custom tool is `allow`, and the wrapped MCP handler returns the recorded
    output, failure, rejection, or unknown outcome without running the tool; an approved CLI tool is
-   `allow`, and the CLI runs it; a rejected or unfinished CLI tool is `deny` with the outcome text. The
-   CLI then adds a hidden "Continue from where you left off." message and makes the next model call.
+   `allow`, and the CLI runs it. Its tool Step returned `isFinishedByResumedTurn`, so the CLI's tool result
+   writes the call's one `tool_call_finished`, `failed` when the run fails, and a segment that ends without that
+   result writes `outcome_unknown`. A rejected or unfinished CLI tool is `ask`, and `canUseTool` denies it with "The user rejected this <tool> call: <reason>", or the
+   record's failure or unknown outcome text. The CLI then adds a hidden "Continue from where you left off." message and makes the next model call.
    The runner closes the CLI's input when the segment's result arrives.
 6. When the CLI produces the final answer, the runner returns `TurnCompleted`. Each assistant API
    message and each tool result becomes one stored message. Its `frameworkItem` is
@@ -435,7 +439,8 @@ behavior:
 - **Tool use IDs reach MCP servers.** Every `tools/call` carries `_meta["claudecode/toolUseId"]`.
 - **A hook denial reaches the model with a prefix,** `PreToolUse:<tool> hook error: <reason>`. A
   rejected custom tool call is therefore allowed and the adapter's MCP server returns the rejection,
-  so the model sees exactly the rejection text. A rejected CLI tool keeps the prefix.
+  so the model sees exactly the rejection text. A rejected CLI tool is `ask`, which sends it to
+  `canUseTool`, whose denial message reaches the model without a prefix.
 - **The in-process MCP server must be declared at startup.** The TypeScript SDK declares in-process
   servers only in its initialize request, and the resumed call starts before that request is applied:
   the CLI then reports `terminal_reason: "tool_deferred_unavailable"`. The adapter therefore declares
@@ -512,9 +517,8 @@ session and sends the failed prompt, the note, and its own prompt as three text 
   later PreToolUse for the same ID is denied and never replaces that decision.
 - On the first turn of a session Claude Code also writes its usual local transcript under
   `CLAUDE_CONFIG_DIR` (`~/.claude` by default). The adapter never reads it; set `CLAUDE_CONFIG_DIR`
-  in `env` to choose where it goes. With a macOS Keychain login, a custom `CLAUDE_CONFIG_DIR` breaks
-  resume; see [Installation](#installation). Later segments run in a temporary directory that the SDK
-  removes, unless the Worker dies first.
+  in `env` to choose where it goes. Later segments run in a temporary directory that the SDK removes,
+  unless the Worker dies first.
 - Dex compaction is not available. Claude Code keeps its own transcript and compacts it inside the CLI,
   so the adapter has no summary to put in the model input, and `createAgentSessionFlow` throws for a
   `compaction` policy. The stored transcript keeps every entry, Claude Code's compaction entries included,
@@ -548,7 +552,7 @@ observed behavior and speaks this subset of the SDK's stream-json protocol, take
 
 | Direction | Message |
 | --- | --- |
-| SDK to CLI | Arguments `--output-format stream-json --input-format stream-json`, `--resume=<id>`, `--permission-prompt-tool=stdio`, `--permission-mode=<mode>`, `--session-mirror`, `--include-partial-messages`, `--await-initialize`, and every `--mcp-config` (merged); `CLAUDE_CONFIG_DIR` in the environment, a temporary directory holding `projects/<key>/<id>.jsonl` on resume |
+| SDK to CLI | Arguments `--output-format stream-json --input-format stream-json`, `--resume=<id>`, `--permission-prompt-tool=stdio`, `--permission-mode=<mode>`, `--session-mirror`, `--include-partial-messages`, `--await-initialize`, and every `--mcp-config` (merged); `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR` in the environment, `CLAUDE_CONFIG_DIR` a temporary directory holding `projects/<key>/<id>.jsonl` on resume |
 | SDK to CLI | `control_request` `initialize` with `hooks.PreToolUse[].hookCallbackIds`, `sdkMcpServers`, and `sdkMcpServerManifests` (tool lists); the CLI answers `control_response` `success`. Other control requests get an empty `success` |
 | SDK to CLI | `user` messages with a prompt string or text blocks for a new segment; none for a resumed segment. Stdin closes after the segment's result |
 | CLI to SDK | `control_request` `mcp_message` with JSON-RPC `tools/call` carrying `_meta["claudecode/toolUseId"]` (and `initialize`, `notifications/initialized`, `tools/list` when no manifest came); the SDK answers `{"mcp_response": ...}`. HTTP MCP servers from `--mcp-config` get the same JSON-RPC over POST |

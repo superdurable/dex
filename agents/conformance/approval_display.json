@@ -1,0 +1,667 @@
+{
+  "description": "Approval displays: which names hold credentials, inline credential redaction, connector summaries, and the CLI cores' credential files, file write previews, and shell summaries. Hand-written for the Python and TypeScript cores and CLI cores; '<redacted>' is the redaction text.",
+  "credential_names": {
+    "credential": [
+      "credentials",
+      "credential",
+      "creds",
+      "password",
+      "passwd",
+      "pass",
+      "pwd",
+      "passphrase",
+      "secret",
+      "secrets",
+      "client_secret",
+      "clientSecret",
+      "token",
+      "tokens",
+      "access_token",
+      "refreshToken",
+      "id_token",
+      "auth",
+      "authorization",
+      "Proxy-Authorization",
+      "api_key",
+      "apikey",
+      "apiKey",
+      "X-Api-Key",
+      "APIKey",
+      "key",
+      "private_key",
+      "privateKey",
+      "cookie",
+      "set-cookie",
+      "Cookies",
+      "session",
+      "sessionId",
+      "sessionid",
+      "signature",
+      "dsn",
+      "SENTRY_DSN",
+      "connection_string",
+      "DATABASE_CONNECTION_STRING",
+      "connStr",
+      "jwt",
+      "otp",
+      "bearer",
+      "db.password",
+      "GITHUB_TOKEN",
+      "PGPASSWORD",
+      "MYTOKEN",
+      "ciToken",
+      "pAsSwOrD",
+      "PassWord",
+      "APIKEY"
+    ],
+    "not_credential": [
+      "channel",
+      "text",
+      "monkey",
+      "keys",
+      "keyword",
+      "tokenizer",
+      "author",
+      "passenger",
+      "compass",
+      "bypass",
+      "thread",
+      "connection",
+      "string",
+      "sessions",
+      "signed",
+      "amount",
+      ""
+    ]
+  },
+  "inline_credentials": [
+    {
+      "text": "echo hello",
+      "redacted": "echo hello"
+    },
+    {
+      "text": "curl -H \"Authorization: Bearer abc123456\" https://api.example.com/v1",
+      "redacted": "curl -H \"Authorization: Bearer <redacted>\" https://api.example.com/v1"
+    },
+    {
+      "text": "curl -H 'X-Api-Key: k-123' https://api.example.com",
+      "redacted": "curl -H 'X-Api-Key: <redacted>' https://api.example.com"
+    },
+    {
+      "text": "curl -u alice:wonderland https://api.example.com",
+      "redacted": "curl -u alice:<redacted> https://api.example.com"
+    },
+    {
+      "text": "curl --user=alice:wonderland https://api.example.com",
+      "redacted": "curl --user=alice:<redacted> https://api.example.com"
+    },
+    {
+      "text": "psql postgres://admin:hunter2@db.example.com/app",
+      "redacted": "psql postgres://admin:<redacted>@db.example.com/app"
+    },
+    {
+      "text": "export API_KEY=abc123 && ./deploy",
+      "redacted": "export API_KEY=<redacted> && ./deploy"
+    },
+    {
+      "text": "DB_PASSWORD=\"two words\" ./run",
+      "redacted": "DB_PASSWORD=\"<redacted>\" ./run"
+    },
+    {
+      "text": "mysql -u root --password=topsecret app",
+      "redacted": "mysql -u root --password=<redacted> app"
+    },
+    {
+      "text": "gh auth login --token ghp_abcdefghijklmnopqrstuvwxyz0123",
+      "redacted": "gh auth login --token <redacted>"
+    },
+    {
+      "text": "tool --api-key abc --verbose",
+      "redacted": "tool --api-key <redacted> --verbose"
+    },
+    {
+      "text": "curl https://api.example.com/items?token=t1&page=2&key=k2",
+      "redacted": "curl https://api.example.com/items?token=<redacted>&page=2&key=<redacted>"
+    },
+    {
+      "text": "aws s3 ls # AKIAABCDEFGHIJKLMNOP",
+      "redacted": "aws s3 ls # <redacted>"
+    },
+    {
+      "text": "SLACK=xoxb-1234567890-abcdef node bot.js",
+      "redacted": "SLACK=<redacted> node bot.js"
+    },
+    {
+      "text": "{\"credentials\": \"topsecret\", \"name\": \"demo\"}",
+      "redacted": "{\"credentials\": \"<redacted>\", \"name\": \"demo\"}"
+    },
+    {
+      "text": "password: hunter2\nuser: demo\n",
+      "redacted": "password: <redacted>\nuser: demo\n"
+    },
+    {
+      "text": "if password == other: pass",
+      "redacted": "if password == other: pass"
+    },
+    {
+      "text": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----\n",
+      "redacted": "<redacted>\n"
+    },
+    {
+      "text": "export PATH=/usr/bin:$PATH",
+      "redacted": "export PATH=/usr/bin:$PATH"
+    },
+    {
+      "text": "git commit -m 'fix the tokenizer'",
+      "redacted": "git commit -m 'fix the tokenizer'"
+    },
+    {
+      "text": "Authorization: Bearer t1",
+      "redacted": "Authorization: Bearer <redacted>"
+    },
+    {
+      "text": "Authorization: Basic eDo=",
+      "redacted": "Authorization: Basic <redacted>"
+    },
+    {
+      "text": "curl -H \"Authorization: Bearer t1\" https://api.example.com",
+      "redacted": "curl -H \"Authorization: Bearer <redacted>\" https://api.example.com"
+    },
+    {
+      "text": "Cookie: session=s1; theme=dark",
+      "redacted": "Cookie: <redacted>"
+    },
+    {
+      "text": "password=abc<redacted>def",
+      "redacted": "password=<redacted>"
+    },
+    {
+      "text": "password=<redacted>",
+      "redacted": "password=<redacted>"
+    },
+    {
+      "text": "{\"pass\\u0077ord\":\"topsecret\"}",
+      "redacted": "{\"pass\\u0077ord\":\"<redacted>\"}"
+    },
+    {
+      "text": "token=\\x41\\x42",
+      "redacted": "token=<redacted>"
+    },
+    {
+      "text": "{\"password\":\"abc\\\"def\"}",
+      "redacted": "{\"password\":\"<redacted>\"}"
+    },
+    {
+      "text": "echo '{\"password\":\"abc\\\"def\"}' | jq .",
+      "redacted": "echo '{\"password\":\"<redacted>\"}' | jq ."
+    },
+    {
+      "text": "password='unterminated value",
+      "redacted": "password=<redacted>"
+    },
+    {
+      "text": "password=a\"b more",
+      "redacted": "password=<redacted>"
+    },
+    {
+      "text": "-H 'Authorization: Bearer t1' x",
+      "redacted": "-H 'Authorization: Bearer <redacted>' x"
+    },
+    {
+      "text": "Basic examples of accounting.",
+      "redacted": "Basic examples of accounting."
+    },
+    {
+      "text": "Bearer of bad news.",
+      "redacted": "Bearer of bad news."
+    },
+    {
+      "text": "The token expired yesterday.",
+      "redacted": "The token expired yesterday."
+    },
+    {
+      "text": "key points: none",
+      "redacted": "key points: none"
+    },
+    {
+      "text": "monkey=banana",
+      "redacted": "monkey=banana"
+    },
+    {
+      "text": "key=value",
+      "redacted": "key=<redacted>"
+    },
+    {
+      "text": "printf '\\x1b[31mred'",
+      "redacted": "printf '\\x1b[31mred'"
+    },
+    {
+      "text": "printf '\\x41'",
+      "redacted": "printf '\\x41'"
+    },
+    {
+      "text": "echo \"A\"",
+      "redacted": "echo \"A\""
+    },
+    {
+      "text": "{\\u0022password\\u0022:\\u0022topsecret\\u0022}",
+      "redacted": "{\\u0022password\\u0022:\\u0022<redacted>\\u0022}"
+    },
+    {
+      "text": "pass\\u0077ord=hunter2 ./run",
+      "redacted": "pass\\u0077ord=<redacted> ./run"
+    },
+    {
+      "text": "PASSWORD=alpha\\ beta ./run",
+      "redacted": "PASSWORD=<redacted> ./run"
+    },
+    {
+      "text": "echo password='alpha'\\''beta' && ls",
+      "redacted": "echo password='<redacted>' && ls"
+    },
+    {
+      "text": "password=alpha\\\nbeta && ls",
+      "redacted": "password=<redacted> && ls"
+    },
+    {
+      "text": "Authorization: Bearer alpha\r\n beta\r\nHost: example.org",
+      "redacted": "Authorization: Bearer <redacted>\r\nHost: example.org"
+    },
+    {
+      "text": "pAsSwOrD=alpha",
+      "redacted": "pAsSwOrD=<redacted>"
+    },
+    {
+      "text": "curl 'https://example.org/?%70assword=alpha'",
+      "redacted": "curl 'https://example.org/?%70assword=<redacted>"
+    },
+    {
+      "text": "password = \"\"\"alpha\nbeta\"\"\"\nuser = \"demo\"",
+      "redacted": "password = \"\"\"<redacted>\"\"\"\nuser = \"demo\""
+    },
+    {
+      "text": "password = '''alpha",
+      "redacted": "password = '''<redacted>"
+    },
+    {
+      "text": "password: |\n  alpha\n  beta\nuser: demo\n",
+      "redacted": "password: |\n<redacted>\nuser: demo\n"
+    },
+    {
+      "text": "password: >-\n  alpha\n\n  beta\n",
+      "redacted": "password: >-\n<redacted>\n"
+    },
+    {
+      "text": "sshpass -p alpha ssh host",
+      "redacted": "sshpass -p <redacted> ssh host"
+    },
+    {
+      "text": "sshpass -palpha ssh host",
+      "redacted": "sshpass -p<redacted> ssh host"
+    },
+    {
+      "text": "ls -p alpha",
+      "redacted": "ls -p alpha"
+    },
+    {
+      "text": "/work/password=alpha",
+      "redacted": "/work/password=<redacted>"
+    },
+    {
+      "text": "100%25 done",
+      "redacted": "100%25 done"
+    }
+  ],
+  "connector_displays": [
+    {
+      "connector_id": "slack",
+      "connection_name": "support-slack",
+      "operation": "postChannelMessage",
+      "arguments": "{\"channel\": \"#eng\", \"text\": \"Deploy is done\"}",
+      "target": "slack/support-slack",
+      "summary": "Calls slack postChannelMessage with connection support-slack; channel: \"#eng\", text: \"Deploy is done\"."
+    },
+    {
+      "connector_id": "slack",
+      "connection_name": "support-slack",
+      "operation": "postChannelMessage",
+      "arguments": "{\"channel\": \"#eng\", \"credentials\": \"topsecret\", \"apiKey\": \"k-1\", \"isThreaded\": true, \"limit\": 5, \"later\": \"past the fifth\"}",
+      "target": "slack/support-slack",
+      "summary": "Calls slack postChannelMessage with connection support-slack; channel: \"#eng\", credentials: <redacted>, apiKey: <redacted>, isThreaded: true, limit: 5."
+    },
+    {
+      "connector_id": "github",
+      "connection_name": "work",
+      "operation": "createIssue",
+      "arguments": "{\"title\": \"use ghp_abcdefghijklmnopqrstuvwxyz0123 here\", \"labels\": [\"bug\"], \"body\": \"line one\\nline two\"}",
+      "target": "github/work",
+      "summary": "Calls github createIssue with connection work; title: \"use <redacted> here\"."
+    },
+    {
+      "connector_id": "a",
+      "connection_name": "b",
+      "operation": "c",
+      "arguments": "not json",
+      "target": "a/b",
+      "summary": "Calls a c with connection b."
+    },
+    {
+      "connector_id": "slack",
+      "connection_name": "password=alpha",
+      "operation": "postMessage",
+      "arguments": "{\"pAsSwOrD\": \"alpha\", \"channel\": \"#eng\"}",
+      "target": "slack/password=<redacted>",
+      "summary": "Calls slack postMessage with connection password=<redacted>; pAsSwOrD: <redacted>, channel: \"#eng\"."
+    }
+  ],
+  "cli": {
+    "credential_files": {
+      "credential": [
+        ".env",
+        ".env.local",
+        "config/prod.env",
+        ".netrc",
+        ".npmrc",
+        ".pypirc",
+        ".pgpass",
+        ".git-credentials",
+        "credentials",
+        "home/.aws/credentials",
+        "home/.aws/config",
+        ".kube/config",
+        "kubeconfig",
+        "staging.kubeconfig",
+        ".ssh/config",
+        ".ssh/known_hosts",
+        "id_ed25519",
+        "id_rsa.pub",
+        "certs/server.pem",
+        "server.key",
+        "store.p12",
+        "store.pfx",
+        "app.keystore",
+        "app.jks",
+        "secrets.yaml",
+        "secret.txt",
+        "credentials.json",
+        "client_secret.json",
+        "clientSecret.json",
+        "api_token.txt",
+        "private_key.txt",
+        "api-key.txt",
+        "passwords.csv",
+        "citoken.txt",
+        ".docker/config.json",
+        "gcloud/application_default_credentials.json"
+      ],
+      "not_credential": [
+        "README.md",
+        "src/auth.ts",
+        "src/session.py",
+        "src/keys.ts",
+        "notes/today.txt",
+        "docs/tokenizer.md",
+        "monkey.py",
+        "src/config.json",
+        "key_points.md",
+        "environment.ts"
+      ]
+    },
+    "file_previews": [
+      {
+        "path": "notes/auth.txt",
+        "current": null,
+        "new": "Authorization: Bearer t1\n",
+        "preview": null
+      },
+      {
+        "path": "notes/basic.txt",
+        "current": null,
+        "new": "Authorization: Basic eDo=\n",
+        "preview": null
+      },
+      {
+        "path": "notes/marker.txt",
+        "current": null,
+        "new": "password=abc<redacted>def\n",
+        "preview": null
+      },
+      {
+        "path": "notes/escaped.json",
+        "current": null,
+        "new": "{\"pass\\u0077ord\":\"topsecret\"}\n",
+        "preview": null
+      },
+      {
+        "path": "notes/quote.json",
+        "current": null,
+        "new": "{\"password\":\"abc\\\"def\"}\n",
+        "preview": null
+      },
+      {
+        "path": "notes/prose.txt",
+        "current": null,
+        "new": "Basic examples of accounting.\n",
+        "preview": "--- /dev/null (no file now)\n+++ notes/prose.txt (after this write)\n@@ -0,0 +1 @@\n+Basic examples of accounting.\n"
+      },
+      {
+        "path": "notes/plain.txt",
+        "current": null,
+        "new": "The token expired yesterday.\n",
+        "preview": "--- /dev/null (no file now)\n+++ notes/plain.txt (after this write)\n@@ -0,0 +1 @@\n+The token expired yesterday.\n"
+      },
+      {
+        "path": "notes/generic.ini",
+        "current": null,
+        "new": "key=value\n",
+        "preview": null
+      },
+      {
+        "path": "notes/mixed.txt",
+        "current": null,
+        "new": "pAsSwOrD=alpha\n",
+        "preview": null
+      },
+      {
+        "path": "notes/settings.toml",
+        "current": null,
+        "new": "password = \"\"\"alpha\nbeta\"\"\"\n",
+        "preview": null
+      },
+      {
+        "path": "notes/settings.yaml",
+        "current": null,
+        "new": "password: |\n  alpha\n",
+        "preview": null
+      },
+      {
+        "path": "notes/token=alpha/readme.md",
+        "current": null,
+        "new": "hello\n",
+        "preview": "--- /dev/null (no file now)\n+++ notes/token=<redacted>/readme.md (after this write)\n@@ -0,0 +1 @@\n+hello\n"
+      },
+      {
+        "path": "notes/today.txt",
+        "current": "one\ntwo\nthree\n",
+        "new": "one\nTWO\nthree\n",
+        "preview": "--- notes/today.txt (the file now)\n+++ notes/today.txt (after this write)\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n"
+      },
+      {
+        "path": "drafts/new.md",
+        "current": null,
+        "new": "# Title\n",
+        "preview": "--- /dev/null (no file now)\n+++ drafts/new.md (after this write)\n@@ -0,0 +1 @@\n+# Title\n"
+      },
+      {
+        "path": "notes/eol.txt",
+        "current": "a\n",
+        "new": "a",
+        "preview": "--- notes/eol.txt (the file now)\n+++ notes/eol.txt (after this write)\n@@ -1 +1 @@\n-a\n+a\n\\ No newline at end of file\n"
+      },
+      {
+        "path": "notes/eol.txt",
+        "current": "a",
+        "new": "a\n",
+        "preview": "--- notes/eol.txt (the file now)\n+++ notes/eol.txt (after this write)\n@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n"
+      },
+      {
+        "path": "notes/eol.txt",
+        "current": "a\nb",
+        "new": "a\nc",
+        "preview": "--- notes/eol.txt (the file now)\n+++ notes/eol.txt (after this write)\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n"
+      },
+      {
+        "path": "notes/same.txt",
+        "current": "same\n",
+        "new": "same\n",
+        "preview": "--- notes/same.txt (the file now)\n+++ notes/same.txt (after this write)\n"
+      },
+      {
+        "path": "notes/crlf.txt",
+        "current": "a\r\nb\r\n",
+        "new": "a\r\nB\r\n",
+        "preview": "--- notes/crlf.txt (the file now)\n+++ notes/crlf.txt (after this write)\n@@ -1,2 +1,2 @@\n a\r\n-b\r\n+B\r\n"
+      },
+      {
+        "path": "notes/far.txt",
+        "current": "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\n",
+        "new": "line 0\nLINE 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nLINE 18\nline 19\n",
+        "preview": "--- notes/far.txt (the file now)\n+++ notes/far.txt (after this write)\n@@ -1,5 +1,5 @@\n line 0\n-line 1\n+LINE 1\n line 2\n line 3\n line 4\n@@ -16,5 +16,5 @@\n line 15\n line 16\n line 17\n-line 18\n+LINE 18\n line 19\n"
+      },
+      {
+        "path": "bad\nname.txt",
+        "current": null,
+        "new": "x\n",
+        "preview": "--- /dev/null (no file now)\n+++ bad\\u000aname.txt (after this write)\n@@ -0,0 +1 @@\n+x\n"
+      },
+      {
+        "path": "bad\nname.txt",
+        "current": null,
+        "new": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+        "preview": "--- /dev/null (no file now)\n+++ bad\\u000aname.txt (after this write)\n@@ -0,0 +1,197 @@\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n+\n"
+      },
+      {
+        "path": "bad\nname.txt",
+        "current": null,
+        "new": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+        "preview": null
+      },
+      {
+        "path": "notes/config.txt",
+        "current": "user: demo\n",
+        "new": "user: demo\npassword: hunter2\n",
+        "preview": null
+      },
+      {
+        "path": "notes/creds.txt",
+        "current": "token=topsecret\n",
+        "new": "token=other\n",
+        "preview": null
+      },
+      {
+        "path": "credentials.json",
+        "current": "{\"a\": 1}\n",
+        "new": "{\"a\": 2}\n",
+        "preview": null
+      }
+    ],
+    "shell_displays": [
+      {
+        "workspace": "/work/app",
+        "command": "npm test -- --watch=false",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: npm test -- --watch=false"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "curl -H \"Authorization: Bearer abc123456\" https://api.example.com",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: curl -H \"Authorization: Bearer <redacted>\" https://api.example.com"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "PGPASSWORD=hunter2 psql -h db",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: PGPASSWORD=<redacted> psql -h db"
+      },
+      {
+        "workspace": "/work/bad\npath",
+        "command": "ls",
+        "target": "/work/bad\\u000apath",
+        "summary": "Runs a shell command in /work/bad\\u000apath: ls"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "echo a\nb",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: echo a\\u000ab"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "printf 'x\ty\r\n'",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: printf 'x\\u0009y\\u000d\\u000a'"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "curl -H 'Authorization: Basic eDo=' https://api.example.com",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: curl -H 'Authorization: Basic <redacted>' https://api.example.com"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "echo '{\"password\":\"abc\\\"def\"}' | jq .",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: echo '{\"password\":\"<redacted>\"}' | jq ."
+      },
+      {
+        "workspace": "/work/app",
+        "command": "PASSWORD=abc<redacted>def ./run",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: PASSWORD=<redacted> ./run"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "printf '\\x41'",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: printf '\\x41'"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "echo \"A\"",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: echo \"A\""
+      },
+      {
+        "workspace": "/work/app",
+        "command": "pass\\u0077ord=hunter2 ./run",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: pass\\u0077ord=<redacted> ./run"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "PASSWORD=alpha\\ beta ./run",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: PASSWORD=<redacted> ./run"
+      },
+      {
+        "workspace": "/work/app",
+        "command": "sshpass -p alpha ssh host",
+        "target": "/work/app",
+        "summary": "Runs a shell command in /work/app: sshpass -p <redacted> ssh host"
+      },
+      {
+        "workspace": "/work/password=alpha",
+        "command": "ls",
+        "target": "/work/password=<redacted>",
+        "summary": "Runs a shell command in /work/password=<redacted>: ls"
+      }
+    ],
+    "escaped_paths": [
+      {
+        "text": "bad\nname\t.txt",
+        "escaped": "bad\\u000aname\\u0009\\u007f.txt"
+      }
+    ]
+  }
+}

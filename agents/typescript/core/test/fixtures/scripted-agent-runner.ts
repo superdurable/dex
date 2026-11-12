@@ -16,6 +16,8 @@ import {
   createAgentSessionFlow,
   describeToolCallOutcome,
   isFinalToolCallStatus,
+  maxApprovalPreviewBytes,
+  type AgentInterruptDisplay,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type AgentTracingOptions,
@@ -189,7 +191,14 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
           ? JSON.stringify({ todos: [{ content: "Ship it", status: "pending" }] })
           : JSON.stringify({ requested_by: userText });
       turnItems.push({ kind: "tool_call", toolCallId, toolName, arguments: toolArguments });
-      return { toolCallId, toolName, arguments: toolArguments, policy: turn.resolveToolPolicy(toolName) };
+      const approvalDisplay = scriptedApprovalDisplay(toolName);
+      return {
+        toolCallId,
+        toolName,
+        arguments: toolArguments,
+        policy: turn.resolveToolPolicy(toolName),
+        ...(approvalDisplay === undefined ? {} : { approvalDisplay }),
+      };
     });
     const runState: ScriptedRunState = {
       turnItems,
@@ -238,6 +247,8 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       }
       case "send_email":
         return { output: `email sent for ${call.idempotencyKey}` };
+      case "approve_framework_write":
+        return { output: "approved for the resumed turn", isFinishedByResumedTurn: true };
       case "charge_card": {
         const gate = new FileGate(this.markerDirectory, "charge_card");
         gate.markReached();
@@ -518,6 +529,7 @@ export function createScriptedAgentFlow(
     readonly builtInTools?: readonly BuiltInTool[];
     readonly unfinishedTurnMessages?: "throw" | "malformed";
     readonly spendLimit?: ModelSpendLimit;
+    readonly summaryAttributesIndexed?: boolean;
   } = {},
 ): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> {
   const runner =
@@ -529,6 +541,9 @@ export function createScriptedAgentFlow(
       : { interruptDeadlineMs: flowOptions.interruptDeadlineMs }),
     ...(flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing }),
     ...(flowOptions.spendLimit === undefined ? {} : { spendLimit: flowOptions.spendLimit }),
+    ...(flowOptions.summaryAttributesIndexed === undefined
+      ? {}
+      : { summaryAttributesIndexed: flowOptions.summaryAttributesIndexed }),
     toolPolicies: {
       get_weather: { effect: "read" },
       lookup_a: { effect: "read" },
@@ -562,6 +577,23 @@ export function createScriptedAgentFlow(
       stubborn_report_task: { effect: "read" },
     },
   });
+}
+
+/**
+ * `displayed_send` carries an approval display, `oversized_display_send` one whose preview is over the bound, and
+ * `huge_display_send` one whose target and summary are.
+ */
+function scriptedApprovalDisplay(toolName: string): AgentInterruptDisplay | undefined {
+  switch (toolName) {
+    case "displayed_send":
+      return { target: "ops@example.com", summary: "Sends an email to ops@example.com.", preview: "Subject: Order 7" };
+    case "oversized_display_send":
+      return { target: "ops@example.com", summary: "Sends an email to ops@example.com.", preview: "x".repeat(maxApprovalPreviewBytes + 1) };
+    case "huge_display_send":
+      return { target: "t".repeat(2_000), summary: "s".repeat(100_000), preview: null };
+    default:
+      return undefined;
+  }
 }
 
 function decideScriptedModelAction(

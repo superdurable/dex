@@ -7,6 +7,16 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 export {
+  buildConnectorToolApprovalDisplay,
+  isCredentialLikeName,
+  maxApprovalPreviewBytes,
+  maxApprovalSummaryBytes,
+  maxApprovalTargetBytes,
+  redactInlineCredentials,
+  redactedArgumentValue,
+  type ConnectorToolApprovalDisplayInput,
+} from "./agent-approval-display.js";
+export {
   builtInToolDefinitions,
   writeTodosCalledMoreThanOnce,
   type BuiltInTool,
@@ -126,6 +136,7 @@ export {
   type AgentEventType,
   type AgentImageReference,
   type AgentInterrupt,
+  type AgentInterruptDisplay,
   type AgentInterruptKind,
   type AgentInterruptResolution,
   type AgentMessage,
@@ -198,6 +209,17 @@ export {
   type SessionFlowGraphOptions,
 } from "./agent-session-flow-graph.js";
 export { agentSessionActiveStepSearchMode, startAgentSession } from "./agent-session-start.js";
+export {
+  buildSessionTitle,
+  defaultSessionListPageSize,
+  listAgentSessions,
+  sessionTitleMaxCodePoints,
+  sortAgentSessionsByLastActivity,
+  SessionTitleSearchUnavailableError,
+  type AgentSessionSummary,
+  type AgentSessionSummaryPage,
+  type ListAgentSessionsOptions,
+} from "./agent-session-summary.js";
 export { invalidStartSessionSettingsReason } from "./agent-session-steps.js";
 export {
   genAISemanticConventionsSchemaUrls,

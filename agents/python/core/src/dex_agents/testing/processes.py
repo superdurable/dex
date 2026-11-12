@@ -122,6 +122,7 @@ def resolve_server_zd_path(dexcli: Path) -> Path:
 _ENGINE_START_ATTEMPTS = 3
 # A config file also works with dexcli releases that predate --durability.
 _PROCESS_CRASH_SAFE_SERVER_ZD_CONFIG = "dev:\n  durabilityMode: processCrashSafe\n"
+_CONNECTORS_MCP_BINARY_ENVIRONMENT_VARIABLE = "DEX_CONNECTORS_MCP_BINARY"
 
 
 class KillableProcess:
@@ -224,14 +225,16 @@ class KillableProcess:
         """
         if self._process is None:
             return
-        try:
-            os.killpg(self._process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            # macOS refuses killpg once the group's leader has exited; that is not a failure.
-            if self._process.poll() is None:
-                raise
+        # Once Popen has reaped the leader, its group ID may be reused, so it is not signalled.
+        if self._process.returncode is None:
+            try:
+                os.killpg(self._process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                # macOS refuses killpg once the group's leader has exited; that is not a failure.
+                if self._process.poll() is None:
+                    raise
         self._process.wait()
         self._process = None
 
@@ -243,10 +246,9 @@ class KillableProcess:
         """
         if self._process is None:
             return
-        try:
-            os.killpg(self._process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+        if self._process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(self._process.pid, signal.SIGTERM)
         process = self._process
         try:
             await asyncio.wait_for(asyncio.to_thread(process.wait), timeout.total_seconds())
@@ -274,6 +276,17 @@ class PrivateDexEngine:
     Every test that needs a clean server, or kills the server, gets its own
     engine. State lives under ``state_dir``, so a killed engine started again
     resumes every Flow. Use it as an async context manager to kill it on exit.
+
+    The engine runs ``dexcli dev`` with ``HOME`` set to ``state_dir / "home"``,
+    so it never reads or writes the user's ``~/.dex``. It also sets
+    ``DEX_CONNECTORS_MCP_BINARY`` to a file that does not exist, so the
+    engine never downloads a published Connectors MCP release and has no
+    working ``/mcp``. Start a fake MCP server when a test needs connector
+    tools.
+
+    .. versionchanged:: 0.6.0
+       The engine no longer downloads or runs a Connectors MCP server, and no
+       longer uses the user's ``HOME``.
 
     Example:
         >>> async with PrivateDexEngine(tmp_path / "engine") as engine:
@@ -348,6 +361,17 @@ class PrivateDexEngine:
             config_path = self._state_dir / "zd-overrides.yaml"
             config_path.write_text(_PROCESS_CRASH_SAFE_SERVER_ZD_CONFIG)
         config_arguments = ["-zd-config", str(config_path)]
+        # A private HOME keeps dexcli dev out of the user's ~/.dex.
+        home = self._state_dir / "home"
+        home.mkdir(exist_ok=True)
+        environment = {
+            **os.environ,
+            "HOME": str(home),
+            # A missing binary makes dexcli skip the published release; older dexcli ignores it.
+            _CONNECTORS_MCP_BINARY_ENVIRONMENT_VARIABLE: str(
+                self._state_dir / "dex-connectors-mcp-not-installed"
+            ),
+        }
         for attempt in range(1, _ENGINE_START_ATTEMPTS + 1):
             # A failed attempt may leave state behind, so each retry gets its own data directory.
             data_dir = self._state_dir / ("zd" if attempt == 1 else f"zd-{attempt}")
@@ -374,6 +398,7 @@ class PrivateDexEngine:
                         *config_arguments,
                     ],
                     ENGINE_READY_LINE,
+                    env=environment,
                     ready_timeout=ready_timeout,
                 )
                 return

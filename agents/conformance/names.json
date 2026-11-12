@@ -229,6 +229,33 @@
       "value_type": "AgentPlan"
     },
     {
+      "name": "AgentSessionLastActivityAt",
+      "kind": "attribute",
+      "value_type": "string",
+      "index": {
+        "type": "datetime",
+        "key": "datetime1"
+      }
+    },
+    {
+      "name": "AgentSessionTitle",
+      "kind": "attribute",
+      "value_type": "string",
+      "index": {
+        "type": "full_text",
+        "key": "text1"
+      }
+    },
+    {
+      "name": "AgentSessionTurnCount",
+      "kind": "attribute",
+      "value_type": "int64",
+      "index": {
+        "type": "int",
+        "key": "int1"
+      }
+    },
+    {
       "name": "AgentState",
       "kind": "attribute",
       "value_type": "AgentState"
@@ -483,7 +510,49 @@
       "AgentToolCall.wait_until",
       "AgentPlan.updated_at",
       "ContextSummary.created_at",
-      "TurnCancellationRequest.requested_at"
+      "TurnCancellationRequest.requested_at",
+      "AgentSessionLastActivityAt"
+    ]
+  },
+  "session_titles": {
+    "format": "the first user message with each run of ASCII spaces, tabs, and line breaks (U+0009 to U+000D and U+0020) made one space, leading and trailing spaces removed, then cut to max_code_points Unicode code points without a trailing space; null when nothing is left",
+    "max_code_points": 80,
+    "examples": [
+      {
+        "name": "plain",
+        "message": "Find open issues about flaky tests",
+        "title": "Find open issues about flaky tests"
+      },
+      {
+        "name": "whitespace-runs",
+        "message": "  Fix the\n\tflaky\r\n retry  test\f\u000b ",
+        "title": "Fix the flaky retry test"
+      },
+      {
+        "name": "long",
+        "message": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+        "title": "word word word word word word word word word word word word word word word word"
+      },
+      {
+        "name": "cut-at-space",
+        "message": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa tail",
+        "title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "name": "astral",
+        "message": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      {
+        "name": "non-ascii-space-kept",
+        "message": " café　menu ",
+        "title": " café　menu "
+      },
+      {
+        "name": "only-whitespace",
+        "message": " \t\n ",
+        "title": null
+      }
     ]
   },
   "mcp_resource_and_prompt_tool_names": [

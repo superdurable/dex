@@ -511,6 +511,14 @@ export interface AgentToolCall {
    * @since 0.5.0
    */
   readonly runnerToolState?: string | null;
+  /**
+   * What the call acts on and does, from {@link DeferredToolCall.approvalDisplay}, for a call that needs approval;
+   * otherwise absent. The session copies it into the call's {@link AgentInterrupt.display} when it raises the
+   * approval, which for a queued ordered write happens later. Wire field: `approval_display`, `null` when there is
+   * none; a decoded record omits it then. A Worker before 0.6.0 ignores it, and drops it when it rewrites the record.
+   * @since 0.6.0
+   */
+  readonly approvalDisplay?: AgentInterruptDisplay | null;
 }
 
 /**
@@ -591,6 +599,55 @@ export interface AgentToolCallRecord
  */
 export type AgentInterruptKind = "tool_approval" | "question";
 
+/**
+ * What one tool approval acts on and what the call does, for the person who decides.
+ *
+ * The tool's source builds it from the call's concrete arguments and returns it in
+ * {@link DeferredToolCall.approvalDisplay}; the session stores it in {@link AgentInterrupt.display}. An approval UI
+ * shows {@link target} and {@link summary} above the arguments, and {@link preview} when it is set. When an
+ * interrupt has no display, show the concrete arguments only and do not guess the call's effect from its name or
+ * description.
+ *
+ * The text describes the request, not its result: it never says how often the call runs or what it achieves,
+ * because a retried write may run again and a provider may refuse it. Its text comes from the call's arguments, which
+ * the session stores in full as before. As best-effort hygiene, a source shows the value of a credential-like
+ * argument, such as `api_key`, `clientSecret`, or `credentials`, as `<redacted>` (see {@link isCredentialLikeName}),
+ * and replaces common credential shapes in text it shows (see {@link redactInlineCredentials}). This is not a
+ * security boundary: a credential in another form can still appear. The session cuts a target over {@link maxApprovalTargetBytes} and a summary
+ * over {@link maxApprovalSummaryBytes}, ending them with `…`, and drops a preview over
+ * {@link maxApprovalPreviewBytes}, so a display adds little to the records that hold it.
+ *
+ * @example
+ * ```ts
+ * const display: AgentInterruptDisplay = {
+ *   target: "docs/notes.md",
+ *   summary: "Writes 12 bytes to docs/notes.md.",
+ *   preview: "--- docs/notes.md (the file now)\n+++ docs/notes.md (after this write)\n@@ -1 +1 @@\n-old\n+new\n",
+ * };
+ * const interrupt = snapshot.pendingInterrupts.find((pending) => pending.display != null);
+ * console.log(interrupt?.display?.summary);
+ * ```
+ * @since 0.6.0
+ */
+export interface AgentInterruptDisplay {
+  /**
+   * What the call acts on, such as a workspace path, a shell command's working directory, or a connector and its
+   * connection (`slack/support-slack`). Wire field: `target`.
+   */
+  readonly target: string;
+  /**
+   * One sentence that says what the call does to {@link target}, built from the call's concrete arguments, such as
+   * `Runs a shell command in /work/app: npm test`. Wire field: `summary`.
+   */
+  readonly summary: string;
+  /**
+   * Longer text to show with the summary, or `null` for none. A local file write sets a unified diff of the file as
+   * it was when the call was requested against the new content; its header lines say so. Wire field: `preview`,
+   * `null` when there is none.
+   */
+  readonly preview?: string | null;
+}
+
 /** One pending approval or question, stored in the `PendingInterrupts` Attribute. */
 export interface AgentInterrupt {
   /**
@@ -629,6 +686,13 @@ export interface AgentInterrupt {
    * `choices` is empty and for a tool approval. Wire field: `allows_free_text`.
    */
   readonly allowsFreeText?: boolean;
+  /**
+   * What a `tool_approval` call acts on and does, from its tool's source, or `null` when the source gave none and
+   * for a `question`. Wire field: `display`, `null` when there is none; a decoded interrupt omits it then. A Worker
+   * before 0.6.0 writes none, and drops it when it rewrites `PendingInterrupts`, so treat it as optional.
+   * @since 0.6.0
+   */
+  readonly display?: AgentInterruptDisplay | null;
 }
 
 /** Resolution of one interrupt, published to the `InterruptResolutions` ChannelMap. */
@@ -826,7 +890,8 @@ export interface ToolCallCancellation {
  * - `text_delta` and `reasoning_delta`: `{"text"}`.
  * - `tool_call_started`: `{"tool_call_id","tool_name"}`.
  * - `tool_call_finished`: `{"tool_call_id","tool_name","status"}`, when a record becomes final,
- *   including a rejection.
+ *   including a rejection. For a call whose tool Step returned `isFinishedByResumedTurn`, the runner
+ *   writes it from the resumed turn's `RunModel` instead, when the call really ran.
  * - `tool_call_deferred`: `{"tool_call_id","tool_name","effect","requires_approval"}`, when the model
  *   asks for a call, which then runs in its own Step or, for a built-in tool, waits in the session.
  * - `interrupt_raised`: `{"interrupt_id","kind","tool_call_id","tool_name","deadline","question",

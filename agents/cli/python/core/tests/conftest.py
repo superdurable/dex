@@ -17,6 +17,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,6 +45,8 @@ from tests.scripted_harness import build_session_flow_without_tools
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
 CLI_TIMEOUT_SECONDS = 90
 _PROCESS_READY_SECONDS = 30.0
+# Longer than the CLI's 20-second dexcli dev stop grace period plus its 5-second kill wait.
+_TERMINATE_WAIT_SECONDS = 40.0
 
 
 def playwright_browsers_path() -> str:
@@ -105,6 +108,10 @@ class CliHome:
         }
         environment.update(
             HOME=str(self.home),
+            # A dexcli dev the command starts runs no published Connectors MCP release.
+            DEX_CONNECTORS_MCP_BINARY=str(self.home / "dex-connectors-mcp-not-installed"),
+            # Tests never open the user's web browser.
+            DEX_AGENTS_OPEN_BROWSER="0",
             DEX_AGENTS_DEX_PORT=str(self.dex_port),
             DEX_AGENTS_WEB_PORT=str(self.web_port),
             BROWSER=str(PACKAGE_DIR / "tests" / "record_browser_url.sh"),
@@ -116,11 +123,11 @@ class CliHome:
         environment.update(self.extra_environment)
         return environment
 
-    def spawn(self, *arguments: str) -> pexpect.spawn:
-        """Start the scripted command in a pseudo-terminal."""
+    def spawn(self, *arguments: str, command_module: str = "tests.scripted_cli") -> pexpect.spawn:
+        """Start the scripted command, or another test command, in a pseudo-terminal."""
         child = pexpect.spawn(
             sys.executable,
-            ["-m", "tests.scripted_cli", *arguments],
+            ["-m", command_module, *arguments],
             cwd=str(PACKAGE_DIR),
             env=self.environment(),
             encoding="utf-8",
@@ -145,20 +152,35 @@ class CliHome:
             check=False,
         )
 
-    def stop_started_dev_server(self) -> None:
-        """Kill the dexcli dev that a CLI process started, if any."""
+    def close(self) -> None:
+        """End every CLI process with SIGTERM, so each stops the dexcli dev it started.
+
+        Raises:
+            AssertionError: If a recorded dexcli dev still runs afterwards. It
+                is not signalled: the test does not own it, and its pid may
+                belong to another process by now.
+        """
+        for child in self.children:
+            terminate_cli(child)
         state_path = self.home / ".dex" / "agents" / "dexcli-dev.json"
         if not state_path.exists():
             return
         pid = json.loads(state_path.read_text())["pid"]
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(pid, signal.SIGKILL)
+        try:
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            return
+        raise AssertionError(f"the dexcli dev in {state_path} (pid {pid}) may still run")
 
-    def close(self) -> None:
-        """Kill every CLI process and a dexcli dev they started."""
-        for child in self.children:
-            child.close(force=True)
-        self.stop_started_dev_server()
+
+def terminate_cli(child: pexpect.spawn) -> None:
+    """Send a CLI process SIGTERM and wait out its dexcli dev stop; kill it only after that."""
+    if child.isalive():
+        child.kill(signal.SIGTERM)
+        deadline = time.monotonic() + _TERMINATE_WAIT_SECONDS
+        while child.isalive() and time.monotonic() < deadline:
+            time.sleep(0.1)
+    child.close(force=True)
 
 
 async def expect(child: pexpect.spawn, pattern: str | list[str], timeout: float = 60) -> int:

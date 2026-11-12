@@ -35,6 +35,7 @@ from dex_agents import (
 from tests.scripted_agent import (
     MODEL_CALL_USAGE,
     STATE_DIR_ENVIRONMENT_VARIABLE,
+    SUMMARY_INDEXED_ENVIRONMENT_VARIABLE,
     TOOL_POLICIES,
     ScriptedRunner,
     _assistant_text,
@@ -67,13 +68,21 @@ class StateLimitRunner(ScriptedRunner):
         return ToolExecutionResult(output="b" * characters)
 
 
-def build_state_limit_agent_flow(state_dir: Path) -> AgentSessionFlow:
+def build_state_limit_agent_flow(
+    state_dir: Path, *, summary_attributes_indexed: bool = False
+) -> AgentSessionFlow:
     return AgentSessionFlow(
         StateLimitRunner(state_dir),
         flow_type=STATE_LIMIT_AGENT_FLOW_TYPE,
-        options=AgentSessionOptions(tool_policies={**TOOL_POLICIES, **BULK_TOOL_POLICIES}),
+        options=AgentSessionOptions(
+            tool_policies={**TOOL_POLICIES, **BULK_TOOL_POLICIES},
+            summary_attributes_indexed=summary_attributes_indexed,
+        ),
     )
 
 
 def build_state_limit_agent_flow_from_environment() -> AgentSessionFlow:
-    return build_state_limit_agent_flow(Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]))
+    return build_state_limit_agent_flow(
+        Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
+        summary_attributes_indexed=bool(os.environ.get(SUMMARY_INDEXED_ENVIRONMENT_VARIABLE)),
+    )

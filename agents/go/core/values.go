@@ -9,6 +9,7 @@
 package dexagents
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -735,6 +736,10 @@ type AgentToolCall struct {
 	// the runner reads, or nil. The session never shows it to the model or in trace attributes. A record
 	// written before 0.5.0 has none, and a Worker before 0.5.0 ignores it. Since 0.5.0.
 	RunnerToolState *string `json:"runner_tool_state"`
+	// ApprovalDisplay is what a call that needs approval acts on and does, from its tool's source, or
+	// nil. The Go core never sets it; it keeps the field so a record written by another core
+	// round-trips. Since 0.6.0.
+	ApprovalDisplay *AgentInterruptDisplay `json:"approval_display"`
 }
 
 // MarshalJSON encodes the wire object, writing empty lists as [] rather than null.
@@ -766,6 +771,41 @@ func (toolCall *AgentToolCall) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// AgentInterruptDisplay says what one tool approval acts on and what the call does.
+//
+// A tool's source builds it from the call's concrete arguments. An approval UI shows Target and
+// Summary above the arguments, and Preview when it is set. Without one, show the concrete arguments
+// only. The text never promises how often the call runs or what it achieves, and never holds a
+// credential. Since 0.6.0.
+//
+//	if interrupt.Display != nil {
+//		fmt.Println(interrupt.Display.Summary)
+//	}
+type AgentInterruptDisplay struct {
+	// Target is what the call acts on, such as a workspace path, a shell command's working
+	// directory, or a connector and its connection ("slack/support-slack").
+	Target string `json:"target"`
+	// Summary is one sentence that says what the call does to Target, built from the call's
+	// concrete arguments.
+	Summary string `json:"summary"`
+	// Preview is longer text to show with the summary, such as a unified diff of a local file
+	// write against the file as it was when the call was requested, or nil.
+	Preview *string `json:"preview"`
+}
+
+// UnmarshalJSON decodes the wire object, requiring target and summary.
+//
+// It returns an error for a missing required field or a wrong JSON type.
+func (display *AgentInterruptDisplay) UnmarshalJSON(data []byte) error {
+	type wireAgentInterruptDisplay AgentInterruptDisplay
+	var decoded wireAgentInterruptDisplay
+	if err := decodeWireObject(data, &decoded, "AgentInterruptDisplay", "target", "summary"); err != nil {
+		return err
+	}
+	*display = AgentInterruptDisplay(decoded)
+	return nil
+}
+
 // AgentInterrupt describes one decision the session waits for a person to make.
 //
 // The PendingInterrupts Attribute holds the unresolved interrupts. Answer a
@@ -793,6 +833,10 @@ type AgentInterrupt struct {
 	Choices []string `json:"choices"`
 	// AllowsFreeText reports whether an answer may be outside Choices. It defaults to true.
 	AllowsFreeText bool `json:"allows_free_text"`
+	// Display is what a tool approval acts on and does, from its tool's source, or nil when the
+	// source gave none and for a question. The Go core never sets it; it keeps the field so an
+	// interrupt written by another core round-trips. Since 0.6.0.
+	Display *AgentInterruptDisplay `json:"display"`
 }
 
 // MarshalJSON encodes the wire object, writing an empty Choices as [].
@@ -988,6 +1032,126 @@ func (plan *AgentPlan) UnmarshalJSON(data []byte) error {
 type PlanExecutionRequest struct {
 	// Revision is the approved AgentPlan.Revision.
 	Revision int64 `json:"revision"`
+}
+
+// ExecutePlanRequest approves one plan revision through the execute_plan RPC.
+//
+// This Go core does not serve execute_plan; Workers of a core with plan mode do.
+// Since 0.6.0.
+type ExecutePlanRequest struct {
+	// Revision is the AgentPlan.Revision that the user reviewed.
+	Revision int64 `json:"revision"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing or null revision field, or a wrong JSON type.
+func (request *ExecutePlanRequest) UnmarshalJSON(data []byte) error {
+	type wireExecutePlanRequest ExecutePlanRequest
+	var decoded wireExecutePlanRequest
+	if err := decodeNonNullWireObject(data, &decoded, "ExecutePlanRequest", "revision"); err != nil {
+		return err
+	}
+	*request = ExecutePlanRequest(decoded)
+	return nil
+}
+
+// SteerUserMessageRequest steers the running turn through the steer_user_message RPC.
+//
+// Set exactly one field: MessageID moves a queued message, and Text steers
+// with new text. The RPC returns false when both or neither are set. This Go
+// core does not serve steer_user_message; Workers of a core with steering do.
+// Since 0.6.0.
+type SteerUserMessageRequest struct {
+	// MessageID is PendingUserMessage.MessageID of a queued message, or nil.
+	MessageID *string `json:"message_id"`
+	// Text is the new message text, or nil.
+	Text *string `json:"text"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing message_id or text field, or a wrong JSON type. Either
+// field may be null.
+func (request *SteerUserMessageRequest) UnmarshalJSON(data []byte) error {
+	type wireSteerUserMessageRequest SteerUserMessageRequest
+	var decoded wireSteerUserMessageRequest
+	if err := decodeWireObject(data, &decoded, "SteerUserMessageRequest", "message_id", "text"); err != nil {
+		return err
+	}
+	*request = SteerUserMessageRequest(decoded)
+	return nil
+}
+
+// DeleteQueuedMessageRequest deletes one queued user message through the delete_queued_message RPC.
+//
+// This Go core does not serve delete_queued_message; Workers of a core with
+// steering do. Since 0.6.0.
+type DeleteQueuedMessageRequest struct {
+	// MessageID is PendingUserMessage.MessageID from get_agent_snapshot.
+	MessageID string `json:"message_id"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing or null message_id field, or a wrong JSON type.
+func (request *DeleteQueuedMessageRequest) UnmarshalJSON(data []byte) error {
+	type wireDeleteQueuedMessageRequest DeleteQueuedMessageRequest
+	var decoded wireDeleteQueuedMessageRequest
+	if err := decodeNonNullWireObject(data, &decoded, "DeleteQueuedMessageRequest", "message_id"); err != nil {
+		return err
+	}
+	*request = DeleteQueuedMessageRequest(decoded)
+	return nil
+}
+
+// CancelTurnRequest stops the running turn through the cancel_turn RPC.
+//
+// This Go core does not serve cancel_turn; Workers of a core with turn
+// control do. Since 0.6.0.
+type CancelTurnRequest struct {
+	// TurnID is the turn to stop, or nil for the active turn. The RPC returns false when it names
+	// another turn.
+	TurnID *string `json:"turn_id"`
+}
+
+// UnmarshalJSON decodes the wire object; a missing turn_id decodes as nil.
+//
+// It returns an error for a wrong JSON type.
+func (request *CancelTurnRequest) UnmarshalJSON(data []byte) error {
+	type wireCancelTurnRequest CancelTurnRequest
+	var decoded wireCancelTurnRequest
+	if err := decodeWireObject(data, &decoded, "CancelTurnRequest"); err != nil {
+		return err
+	}
+	*request = CancelTurnRequest(decoded)
+	return nil
+}
+
+// AnswerQuestionRequest answers one pending question interrupt through the answer_question RPC.
+//
+// Decline a question with resolve_interrupt and Approved false instead. This
+// Go core does not serve answer_question; Workers of a core with questions
+// do. Since 0.6.0.
+type AnswerQuestionRequest struct {
+	// InterruptID is AgentInterrupt.InterruptID of a pending question interrupt.
+	InterruptID string `json:"interrupt_id"`
+	// Answer is the answer text. The RPC returns false for blank text, and for text outside
+	// AgentInterrupt.Choices when AgentInterrupt.AllowsFreeText is false.
+	Answer string `json:"answer"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing or null interrupt_id or answer field, or a wrong JSON type.
+func (request *AnswerQuestionRequest) UnmarshalJSON(data []byte) error {
+	type wireAnswerQuestionRequest AnswerQuestionRequest
+	var decoded wireAnswerQuestionRequest
+	if err := decodeNonNullWireObject(data, &decoded, "AnswerQuestionRequest", "interrupt_id", "answer"); err != nil {
+		return err
+	}
+	*request = AnswerQuestionRequest(decoded)
+	return nil
 }
 
 // ToolCallCompleted reports that one tool call of the active turn has a final record.
@@ -1228,6 +1392,20 @@ func decodeWireObject(data []byte, target any, typeName string, requiredKeys ...
 		return fmt.Errorf("decode %s: %w", typeName, err)
 	}
 	return nil
+}
+
+// decodeNonNullWireObject is decodeWireObject whose required fields must also not be JSON null.
+func decodeNonNullWireObject(data []byte, target any, typeName string, requiredKeys ...string) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return fmt.Errorf("%s must be a JSON object: %w", typeName, err)
+	}
+	for _, key := range requiredKeys {
+		if value, isPresent := keys[key]; isPresent && string(bytes.TrimSpace(value)) == "null" {
+			return fmt.Errorf("%s field %q must not be null", typeName, key)
+		}
+	}
+	return decodeWireObject(data, target, typeName, requiredKeys...)
 }
 
 func decodeWireEnum[Enum ~string](text []byte, target *Enum, typeName string, allowed ...Enum) error {

@@ -39,6 +39,7 @@ DEFAULT_DEX_SERVER = "auto"
 DEFAULT_CONNECTORS_MCP = "auto"
 DEFAULT_WORKSPACE = "~/dex-agent-workspace"
 DEFAULT_MEDIA_STORE = "auto"
+DEFAULT_SESSION_SUMMARY = "auto"
 MAX_PORT = 65535
 URL_PARTS = re.compile(r"https?://(?P<host>\[[^\]]*\]|[^:/]+)(?::(?P<port>[0-9]+))?(?:/.*)?", re.S)
 
@@ -115,6 +116,7 @@ def resolve_config(
             "browser": local_tools.get("browser", True),
         },
         "media": {"store": media.get("store", DEFAULT_MEDIA_STORE), "endpoint": endpoint},
+        "sessions": {"summary": config.get("sessions", {}).get("summary", DEFAULT_SESSION_SUMMARY)},
         "harness_options": copy.deepcopy(config.get(harness_section, {})),
     }
 

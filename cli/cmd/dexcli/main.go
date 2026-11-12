@@ -12,12 +12,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/superdurable/dex/cli/internal/agentsterminal"
 	"github.com/superdurable/dex/cli/internal/command"
 	"github.com/superdurable/dex/cli/internal/dev"
 	"github.com/superdurable/dex/cli/internal/update"
@@ -33,6 +35,11 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 	if err := run(ctx, os.Args[1:]); err != nil {
+		var terminalExit *agentsterminal.ExitError
+		if errors.As(err, &terminalExit) {
+			cancel()
+			os.Exit(terminalExit.Code)
+		}
 		command.WriteError(os.Stderr, err)
 		os.Exit(command.ExitCode(err))
 	}
@@ -50,6 +57,8 @@ func runWithUpdateNotice(ctx context.Context, args []string, printUpdateNotice f
 	switch args[0] {
 	case "dev":
 		return dev.Execute(ctx, args[1:], os.Stdout, os.Stderr, version)
+	case "agents-tui":
+		return agentsterminal.Execute(ctx, args[1:], os.Stdin, os.Stdout, os.Stderr, version)
 	case "codec-server":
 		return fmt.Errorf("dexcli codec-server was removed with the Temporal-based Go Server; use cli-v1.26.1 to inspect payloads in legacy Temporal histories")
 	case "version":

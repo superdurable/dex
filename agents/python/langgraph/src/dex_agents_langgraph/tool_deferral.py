@@ -72,9 +72,12 @@ class DurableToolCallMiddleware(AgentMiddleware):
     ``ToolPolicy`` requires it. When the next ``RunModel`` resumes the graph,
     the middleware returns each call's recorded result as its ``ToolMessage``.
 
-    Put it first in ``middleware`` so it is the outermost tool wrapper.
-    Middleware listed before it see every tool call. Middleware listed after it
-    never see a call inside a session, because the tool runs outside the graph.
+    Inside a session the deferral is the outermost tool wrapper whatever the
+    middleware order, and each tool Step runs the other middleware tool
+    wrappers around the tool, in each attempt. A session Flow built with
+    ``should_defer_tool_calls_before_middleware=False`` keeps the middleware
+    order instead: middleware listed before this one see every call in
+    ``RunModel``, and middleware listed after it never see a call.
 
     Inside a session it also adds the tools of the session's tool sources,
     such as ``ConnectorToolSource``, to every model request, after the
@@ -86,9 +89,12 @@ class DurableToolCallMiddleware(AgentMiddleware):
     the turn.
 
     ``create_deep_agent`` places the middleware you pass after its own, so
-    this middleware cannot be first in a Deep Agents agent. Set the session
-    Flow's ``should_defer_tool_calls_before_middleware`` to make the deferral
-    the outermost tool wrapper anyway.
+    this middleware cannot be first in a Deep Agents agent. That needs no
+    setting: the deferral comes first by default.
+
+    .. versionchanged:: 0.6.0
+        The deferral is the outermost tool wrapper by default, whatever the
+        middleware order.
 
     With a runner ``media_store``, it also replaces each image reference in
     the request's messages with the image's bytes, as a base64 image block,

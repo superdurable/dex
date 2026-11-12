@@ -59,6 +59,9 @@ CLI_VERSION = "2.1.316"
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_STATE_DIR"
 RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_RESUME_SKIPS_HOOKS"
 INVOCATION_LOG_NAME = "invocations.log"
+# One JSON line per CLI start: its kind and the config variables it was started with.
+CLI_ENVIRONMENT_LOG_NAME = "cli-environments.jsonl"
+RECORDED_ENVIRONMENT_VARIABLES = ("CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR")
 MODEL_NAME = "claude-scripted"
 # Like the Messages API, replies name a dated model; the CLI keys usage by the requested one.
 RESPONSE_MODEL_NAME = "claude-scripted-20261101"
@@ -483,6 +486,7 @@ class FakeClaudeCli:
         answering = asyncio.create_task(self._answer_later_control_requests())
         is_resume = self._arguments.resume_session_id is not None
         self._invocations.record("cli:resume" if is_resume else "cli:new")
+        self._record_environment("resume" if is_resume else "new")
         self._transcript = FakeTranscript.open(self._arguments, self._channel)
         sdk_servers = [
             name
@@ -509,6 +513,13 @@ class FakeClaudeCli:
         await self._wait_for_input_close()
         answering.cancel()
         return exit_code
+
+    def _record_environment(self, kind: str) -> None:
+        record = {"kind": kind} | {
+            name: os.environ.get(name) for name in RECORDED_ENVIRONMENT_VARIABLES
+        }
+        with (self._state_dir / CLI_ENVIRONMENT_LOG_NAME).open("a") as log:
+            log.write(json.dumps(record) + "\n")
 
     async def _wait_for_input_close(self) -> None:
         closing = asyncio.create_task(self._channel.input_closed.wait())

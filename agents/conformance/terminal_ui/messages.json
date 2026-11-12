@@ -1,0 +1,932 @@
+{
+  "description": "Channel messages after the launch document, checked against terminal-ui-channel.schema.json: direction launcher uses #/$defs/from_launcher and direction tui uses #/$defs/from_tui. result_cases check a response's result against #/$defs/<method>_result. Each invalid case has exactly one violation; an implementation passes it when the expected instance location and keyword are among its validator's errors, nested ones included. Hand-written; see agents/cli/TERMINAL_UI_CONTRACT.md.",
+  "cases": [
+    {
+      "name": "ready",
+      "direction": "tui",
+      "message": {
+        "type": "ready"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "ready-unknown-field",
+      "direction": "tui",
+      "message": {
+        "type": "ready",
+        "frame_ms": 41
+      },
+      "is_valid": true
+    },
+    {
+      "name": "launch-rejected",
+      "direction": "tui",
+      "message": {
+        "type": "launch_rejected",
+        "code": "auth_missing",
+        "message": "DEX_API_KEY is not set; dex.auth mode api_key needs it."
+      },
+      "is_valid": true
+    },
+    {
+      "name": "launch-rejected-dex-setup-failed",
+      "direction": "tui",
+      "message": {
+        "type": "launch_rejected",
+        "code": "dex_setup_failed",
+        "message": "The credential that DEX_CREDENTIAL_FILE names is not usable for dex.auth mode bearer."
+      },
+      "is_valid": true
+    },
+    {
+      "name": "request-put-image",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+        "method": "put_image",
+        "params": {
+          "path": "/home/user/pictures/screenshot.png"
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "request-start-session",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 2,
+        "idempotency_key": "01a1caff-8b67-73d6-94c7-2e5f708192a3",
+        "method": "start_session",
+        "params": {}
+      },
+      "is_valid": true
+    },
+    {
+      "name": "request-get-request-result",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 3,
+        "method": "get_request_result",
+        "params": {
+          "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081"
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "request-unknown-method",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 4,
+        "idempotency_key": "01a1caff-786a-72e5-83b8-1d4e6f708192",
+        "method": "export_transcript",
+        "params": {
+          "format": "markdown"
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "request-largest-id",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 9007199254740991,
+        "idempotency_key": "01a1caff-786a-72e5-83b8-1d4e6f708192",
+        "method": "list_connectors",
+        "params": {}
+      },
+      "is_valid": true
+    },
+    {
+      "name": "cancel",
+      "direction": "tui",
+      "message": {
+        "type": "cancel",
+        "id": 1
+      },
+      "is_valid": true
+    },
+    {
+      "name": "result",
+      "direction": "tui",
+      "message": {
+        "type": "result",
+        "resume_session_id": "openai-sdk-20261110-091500-0f1e2d"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "response-result",
+      "direction": "launcher",
+      "message": {
+        "type": "response",
+        "id": 1,
+        "result": {
+          "image": {
+            "type": "image",
+            "uri": "file:///home/user/.dex/agents/media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+            "mime_type": "image/png",
+            "size_bytes": 48213,
+            "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+          },
+          "name": "screenshot.png"
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "response-error",
+      "direction": "launcher",
+      "message": {
+        "type": "response",
+        "id": 1,
+        "error": {
+          "code": "not_found",
+          "message": "/home/user/pictures/missing.png does not exist."
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "notice",
+      "direction": "launcher",
+      "message": {
+        "type": "notice",
+        "level": "warning",
+        "text": "Lost the Dex server; retrying."
+      },
+      "is_valid": true
+    },
+    {
+      "name": "worker-ready",
+      "direction": "launcher",
+      "message": {
+        "type": "worker",
+        "state": "ready"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "worker-stopped",
+      "direction": "launcher",
+      "message": {
+        "type": "worker",
+        "state": "stopped",
+        "exit_code": 143
+      },
+      "is_valid": true
+    },
+    {
+      "name": "request-without-key",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "method": "put_image",
+        "params": {
+          "path": "/home/user/pictures/screenshot.png"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "get-request-result-with-envelope-key",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+        "method": "get_request_result",
+        "params": {
+          "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "request-id-zero",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 0,
+        "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+        "method": "put_image",
+        "params": {
+          "path": "/home/user/pictures/screenshot.png"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/id",
+        "keyword": "minimum"
+      }
+    },
+    {
+      "name": "request-id-over-2-53",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 9007199254740992,
+        "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+        "method": "put_image",
+        "params": {
+          "path": "/home/user/pictures/screenshot.png"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/id",
+        "keyword": "maximum"
+      }
+    },
+    {
+      "name": "request-id-fraction",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1.5,
+        "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+        "method": "put_image",
+        "params": {
+          "path": "/home/user/pictures/screenshot.png"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/id",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "request-key-uppercase",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01A1CAFF-6ED8-71F4-B2A9-0C3D5E6F7081",
+        "method": "put_image",
+        "params": {
+          "path": "/home/user/pictures/screenshot.png"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/idempotency_key",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "request-key-version-4",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-6ed8-41f4-b2a9-0c3d5e6f7081",
+        "method": "put_image",
+        "params": {
+          "path": "/home/user/pictures/screenshot.png"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/idempotency_key",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "request-without-params",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-8b67-73d6-94c7-2e5f708192a3",
+        "method": "start_session"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "put-image-relative-path",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+        "method": "put_image",
+        "params": {
+          "path": "pictures/screenshot.png"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/params/path",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "open-url-without-url",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-9db8-76a9-a7f4-5a8192a3b4c5",
+        "method": "open_url",
+        "params": {}
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/params",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "get-request-result-bad-key",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "method": "get_request_result",
+        "params": {
+          "idempotency_key": "not-a-key"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/params/idempotency_key",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "result-without-session",
+      "direction": "tui",
+      "message": {
+        "type": "result"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "response-result-and-error",
+      "direction": "launcher",
+      "message": {
+        "type": "response",
+        "id": 1,
+        "result": {},
+        "error": {
+          "code": "busy",
+          "message": "Busy."
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "response-neither",
+      "direction": "launcher",
+      "message": {
+        "type": "response",
+        "id": 1
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "response-error-without-message",
+      "direction": "launcher",
+      "message": {
+        "type": "response",
+        "id": 1,
+        "error": {
+          "code": "busy"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/error",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "response-error-code-uppercase",
+      "direction": "launcher",
+      "message": {
+        "type": "response",
+        "id": 1,
+        "error": {
+          "code": "Busy",
+          "message": "Busy."
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/error/code",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "notice-level-unknown",
+      "direction": "launcher",
+      "message": {
+        "type": "notice",
+        "level": "debug",
+        "text": "x"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/level",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "worker-ready-with-exit-code",
+      "direction": "launcher",
+      "message": {
+        "type": "worker",
+        "state": "ready",
+        "exit_code": 0
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "not"
+      }
+    },
+    {
+      "name": "worker-stopped-without-exit-code",
+      "direction": "launcher",
+      "message": {
+        "type": "worker",
+        "state": "stopped"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "worker-state-unknown",
+      "direction": "launcher",
+      "message": {
+        "type": "worker",
+        "state": "paused"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/state",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "later-type-from-launcher",
+      "direction": "launcher",
+      "message": {
+        "type": "worker_progress",
+        "percent": 40
+      },
+      "is_valid": true
+    },
+    {
+      "name": "later-type-from-tui",
+      "direction": "tui",
+      "message": {
+        "type": "frame_rendered",
+        "frame_ms": 12
+      },
+      "is_valid": true
+    },
+    {
+      "name": "later-field-on-a-known-type",
+      "direction": "launcher",
+      "message": {
+        "type": "notice",
+        "level": "info",
+        "text": "ok",
+        "source": "connectors"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "later-method",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-786a-72e5-83b8-1d4e6f708192",
+        "method": "export_transcript",
+        "params": {
+          "format": "markdown"
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "type-not-a-string",
+      "direction": "launcher",
+      "message": {
+        "type": 5
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/type",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "type-uppercase",
+      "direction": "tui",
+      "message": {
+        "type": "Ready"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/type",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "known-type-malformed-is-not-skipped",
+      "direction": "launcher",
+      "message": {
+        "type": "notice",
+        "level": "info"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "known-type-from-the-other-side",
+      "direction": "launcher",
+      "message": {
+        "type": "ready"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/type",
+        "keyword": "not"
+      }
+    }
+  ],
+  "result_cases": [
+    {
+      "name": "put-image",
+      "method": "put_image",
+      "result": {
+        "image": {
+          "type": "image",
+          "uri": "file:///home/user/.dex/agents/media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+          "mime_type": "image/png",
+          "size_bytes": 48213,
+          "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+        },
+        "name": "screenshot.png"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "put-image-without-type",
+      "method": "put_image",
+      "result": {
+        "image": {
+          "uri": "file:///home/user/.dex/agents/media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+          "mime_type": "image/png",
+          "size_bytes": 48213,
+          "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+        },
+        "name": "screenshot.png"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "put-image-empty",
+      "method": "put_image",
+      "result": {
+        "image": {
+          "type": "image",
+          "uri": "file:///home/user/.dex/agents/media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+          "mime_type": "image/png",
+          "size_bytes": 0,
+          "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+        },
+        "name": "screenshot.png"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/image/size_bytes",
+        "keyword": "minimum"
+      }
+    },
+    {
+      "name": "put-image-over-limit",
+      "method": "put_image",
+      "result": {
+        "image": {
+          "type": "image",
+          "uri": "file:///home/user/.dex/agents/media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+          "mime_type": "image/png",
+          "size_bytes": 3750001,
+          "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+        },
+        "name": "screenshot.png"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/image/size_bytes",
+        "keyword": "maximum"
+      }
+    },
+    {
+      "name": "put-image-bmp",
+      "method": "put_image",
+      "result": {
+        "image": {
+          "type": "image",
+          "uri": "file:///home/user/.dex/agents/media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+          "mime_type": "image/bmp",
+          "size_bytes": 48213,
+          "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+        },
+        "name": "screenshot.bmp"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/image/mime_type",
+        "keyword": "enum"
+      }
+    },
+    {
+      "name": "put-image-without-name",
+      "method": "put_image",
+      "result": {
+        "image": {
+          "type": "image",
+          "uri": "file:///home/user/.dex/agents/media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+          "mime_type": "image/png",
+          "size_bytes": 48213,
+          "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+        }
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "start-session",
+      "method": "start_session",
+      "result": {
+        "session_id": "openai-sdk-20261111-142507-d3fbbe"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "start-session-random-suffix-shape",
+      "method": "start_session",
+      "result": {
+        "session_id": "openai-sdk-20261111-142233-a1b2c"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/session_id",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "list-connectors",
+      "method": "list_connectors",
+      "result": {
+        "mcp_url": "http://127.0.0.1:8803/mcp",
+        "tools": [
+          {
+            "name": "hacker_news_list_story_ids",
+            "connector": "hacker-news",
+            "connection": "default",
+            "operation": "list_story_ids",
+            "is_enabled": true
+          },
+          {
+            "name": "slack_post_message",
+            "connector": "slack",
+            "connection": "support-slack",
+            "operation": "post_message",
+            "is_enabled": false
+          },
+          {
+            "name": "lookup",
+            "connector": null,
+            "connection": null,
+            "operation": null,
+            "is_enabled": true
+          }
+        ],
+        "connections": [
+          {
+            "connector": "hacker-news",
+            "connection": "default",
+            "status": "authorized"
+          },
+          {
+            "connector": "slack",
+            "connection": "support-slack",
+            "status": "pending"
+          }
+        ]
+      },
+      "is_valid": true
+    },
+    {
+      "name": "list-connectors-without-connections",
+      "method": "list_connectors",
+      "result": {
+        "mcp_url": "http://127.0.0.1:8803/mcp",
+        "tools": [
+          {
+            "name": "hacker_news_list_story_ids",
+            "connector": "hacker-news",
+            "connection": "default",
+            "operation": "list_story_ids",
+            "is_enabled": true
+          },
+          {
+            "name": "slack_post_message",
+            "connector": "slack",
+            "connection": "support-slack",
+            "operation": "post_message",
+            "is_enabled": false
+          },
+          {
+            "name": "lookup",
+            "connector": null,
+            "connection": null,
+            "operation": null,
+            "is_enabled": true
+          }
+        ]
+      },
+      "is_valid": true
+    },
+    {
+      "name": "list-connectors-without-tools",
+      "method": "list_connectors",
+      "result": {
+        "mcp_url": "http://127.0.0.1:8803/mcp",
+        "connections": [
+          {
+            "connector": "hacker-news",
+            "connection": "default",
+            "status": "authorized"
+          },
+          {
+            "connector": "slack",
+            "connection": "support-slack",
+            "status": "pending"
+          }
+        ]
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "list-connectors-tool-without-operation",
+      "method": "list_connectors",
+      "result": {
+        "mcp_url": "http://127.0.0.1:8803/mcp",
+        "tools": [
+          {
+            "name": "hacker_news_list_story_ids",
+            "connector": "hacker-news",
+            "connection": "default",
+            "is_enabled": true
+          }
+        ],
+        "connections": [
+          {
+            "connector": "hacker-news",
+            "connection": "default",
+            "status": "authorized"
+          },
+          {
+            "connector": "slack",
+            "connection": "support-slack",
+            "status": "pending"
+          }
+        ]
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/tools/0",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "open-url",
+      "method": "open_url",
+      "result": {},
+      "is_valid": true
+    },
+    {
+      "name": "get-request-result-done",
+      "method": "get_request_result",
+      "result": {
+        "state": "done",
+        "result": {
+          "image": {
+            "type": "image",
+            "uri": "file:///home/user/.dex/agents/media/sha256/b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b",
+            "mime_type": "image/png",
+            "size_bytes": 48213,
+            "sha256": "b71939897603461a8a315677af1a80ff9c7c507e4c2e8ce42eefc6de6b09d54b"
+          },
+          "name": "screenshot.png"
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "get-request-result-done-error",
+      "method": "get_request_result",
+      "result": {
+        "state": "done",
+        "error": {
+          "code": "not_found",
+          "message": "Gone."
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "get-request-result-running",
+      "method": "get_request_result",
+      "result": {
+        "state": "running"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "get-request-result-unknown",
+      "method": "get_request_result",
+      "result": {
+        "state": "unknown"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "get-request-result-done-empty",
+      "method": "get_request_result",
+      "result": {
+        "state": "done"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "oneOf"
+      }
+    },
+    {
+      "name": "get-request-result-running-with-result",
+      "method": "get_request_result",
+      "result": {
+        "state": "running",
+        "result": {}
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "not"
+      }
+    }
+  ]
+}

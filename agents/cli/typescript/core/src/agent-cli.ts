@@ -12,13 +12,16 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "no
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { parseArgs } from "node:util";
+import { format, parseArgs } from "node:util";
 
 import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
   LocalDirectoryMediaStore,
+  listAgentSessions,
   sessionFlowDefinitionDocument,
+  sortAgentSessionsByLastActivity,
   startAgentSession,
+  type AgentSessionSummary,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type DeferredToolOutcome,
@@ -33,6 +36,7 @@ import {
   ConfigError,
   canonicalOperationName,
   isCoveredByConnectorEntry,
+  isSessionSummaryIndexed,
   type EffectiveConfig,
   type MediaConfig,
 } from "./cli-config.js";
@@ -48,15 +52,25 @@ import {
   readConfigFile,
   readFileInstructions,
   writeConfigFile,
+  type InitAnswers,
   type LoadedConfig,
 } from "./config-file.js";
 import {
   ConnectorsMcpToolSource,
   DisabledConnectorsToolSource,
+  connectorsAccessDeniedSentence,
+  connectorsUnavailableLine,
+  isConnectorsMcpAccessDenied,
   probeConnectorsMcp,
   type ConnectorToolIdentity,
+  type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
-import { resolveDexServer, type DexServerConnection } from "./dex-server.js";
+import {
+  StartedDexcliDevProcess,
+  describeLostDexcliDev,
+  resolveDexServerForCommand,
+  type DexServerConnection,
+} from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
 import { TerminalChat } from "./terminal-chat.js";
 import { TerminalInput, lineWaitAborted } from "./terminal-input.js";
@@ -64,8 +78,9 @@ import { TurnConfigResolver } from "./turn-config-resolver.js";
 
 const subcommands = ["run", "init", "connectors", "sessions"] as const;
 type Subcommand = (typeof subcommands)[number];
-const sessionsPageSize = 50;
 const blobCacheBytes = 256 * 1024 * 1024;
+/** Most pages of 50 sessions that the `sessions` subcommand loads before it sorts them. */
+const sessionListMaxPages = 5;
 
 /**
  * The process a command runs in: its arguments, streams, environment, and whether a person is at a terminal.
@@ -106,6 +121,33 @@ export function processAgentCliIo(): AgentCliIo {
   };
 }
 
+const sessionSummaryAttributeNames: ReadonlySet<string> = new Set([
+  "AgentSessionTitle",
+  "AgentSessionLastActivityAt",
+  "AgentSessionTurnCount",
+]);
+
+/** Refuses a harness Flow whose declared indexed session summary differs from the file's `sessions.summary`. */
+function requireSessionSummarySetting(
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
+  isExpected: boolean,
+): void {
+  // The persistence schema decides what the Worker registers; the option must agree with it.
+  const declaredCount = (flow.getPersistenceSchema?.()?.attributes ?? []).filter(
+    (definition) => sessionSummaryAttributeNames.has(definition.name) && definition.index !== undefined,
+  ).length;
+  const isOptionOn = flow.options.summaryAttributesIndexed === true;
+  if (declaredCount === (isExpected ? sessionSummaryAttributeNames.size : 0) && isOptionOn === isExpected) {
+    return;
+  }
+  throw new Error(
+    `sessions.summary says the session Flow must ${isExpected ? "keep" : "leave out"} the indexed session summary, ` +
+      `but the harness built it declaring ${declaredCount} of its ${sessionSummaryAttributeNames.size} indexed ` +
+      `Attributes with summaryAttributesIndexed ${String(isOptionOn)}; the harness must pass ` +
+      "HarnessContext.isSessionSummaryIndexed",
+  );
+}
+
 /**
  * Runs one Dex Agents CLI command for a harness: `run` (the default), `init`, `connectors`, or `sessions`.
  *
@@ -113,6 +155,14 @@ export function processAgentCliIo(): AgentCliIo {
  * terminal and writes the file, writes the defaults with `--yes`, and otherwise runs on the defaults without a
  * file. It then reuses or starts the Dex server, connects the connectors MCP server, starts a Worker in this
  * process, and chats in the terminal with a new session or the `--resume` one. Exiting keeps the session.
+ *
+ * A `dexcli dev` that the command started for `dex.server: auto` stops when the command exits: on `/exit`, the end
+ * of input, the Ctrl-C that exits, a failure, SIGTERM, or SIGHUP. On a signal, the command stops it and exits the
+ * process with 128 plus the signal number. A `dexcli dev` the command reused keeps running. To share one across
+ * sessions, run `dexcli dev` yourself first. When a reused `dexcli dev` stops during the command, the command fails
+ * with a short error that says so.
+ *
+ * Changed in 0.6.0: a started `dexcli dev` stops when the command exits instead of running on.
  *
  * A harness command's bin calls it and exits with its result, because open connections can keep Node running:
  *
@@ -126,7 +176,9 @@ export function processAgentCliIo(): AgentCliIo {
  * ```
  * @param harness - The command's harness.
  * @param io - The process; defaults to {@link processAgentCliIo}.
- * @returns The exit code: 0 on success, 1 for a failure, 2 for invalid arguments or configuration.
+ * @returns The exit code: 0 on success, 1 for a failure or for input that ended during the `init` questions, 2 for
+ * invalid arguments or configuration, and 130 for Ctrl-C during the `init` questions. A cancelled `init` writes no
+ * file.
  * @since 0.5.0
  */
 export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = processAgentCliIo()): Promise<number> {
@@ -145,10 +197,15 @@ export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = proces
     return 0;
   }
   const command = new AgentCliCommand(harness, io, parsed, log);
+  ignoreWriteErrorsOfClosedTerminal(io.stdout);
+  ignoreWriteErrorsOfClosedTerminal(io.stderr);
   try {
     return await command.run();
   } catch (error: unknown) {
-    log(`dex-agents-${harness.name}: ${describe(error)}`);
+    if (error instanceof InitCancelledError) {
+      return error.exitCode;
+    }
+    log(`dex-agents-${harness.name}: ${(await command.describeLostDexServer()) ?? describe(error)}`);
     return error instanceof ConfigError || error instanceof UsageError ? 2 : 1;
   } finally {
     await command.close();
@@ -166,10 +223,22 @@ interface ParsedArguments {
 
 class UsageError extends Error {}
 
+/** Ctrl-C or the end of input during the `init` questions, after which nothing was written. */
+class InitCancelledError extends Error {
+  public constructor(public readonly exitCode: number) {
+    super("the init questions were cancelled");
+  }
+}
+
+/** The shell's exit code for a command that Ctrl-C ended. */
+const interruptedExitCode = 130;
+
 /** One command run, owning everything it opened. */
 class AgentCliCommand {
   private readonly environment: CliEnvironment;
   private input: TerminalInput | undefined;
+  private isInitInterrupted = false;
+  private linesTypedAhead: readonly string[] = [];
   private worker: Worker | undefined;
   private client: Client | undefined;
   private blobCache: BlobCache | undefined;
@@ -177,6 +246,9 @@ class AgentCliCommand {
   private localTools: LocalToolSource | undefined;
   private mediaStore: ClosableMediaStore | undefined;
   private sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> | undefined;
+  private readonly startedDexcliDev: StartedDexcliDevProcess;
+  private server: DexServerConnection | undefined;
+  private libraryConsole: LibraryConsoleRedirection | undefined;
 
   public constructor(
     private readonly harness: AgentHarness,
@@ -185,6 +257,7 @@ class AgentCliCommand {
     private readonly log: (line: string) => void,
   ) {
     this.environment = readCliEnvironment(io.environment);
+    this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log);
   }
 
   public async run(): Promise<number> {
@@ -194,18 +267,16 @@ class AgentCliCommand {
         : // A relative --config is relative to the working directory, so expand it as if a file there named it.
           expandConfigPath(this.parsed.configPath, join(process.cwd(), "--config"), this.environment.homeDirectory);
     if (this.parsed.subcommand === "init") {
-      const loaded = await this.initConfig(configPath);
-      return loaded === undefined ? 1 : 0;
+      await this.initConfig(configPath);
+      return 0;
     }
     const loaded = await this.loadConfig(configPath);
-    if (loaded === undefined) {
-      return 1;
-    }
     const effective = this.applyOverrides(loaded.effective);
     if (this.parsed.subcommand === "run") {
       this.mediaStore = await createMediaStore(effective.media, this.environment.agentsDirectory);
     }
-    const server = await resolveDexServer(effective.dex.server, this.environment, this.log);
+    const server = await resolveDexServerForCommand(effective.dex.server, this.environment, this.log, this.startedDexcliDev);
+    this.server = server;
     if (server.webUrl !== null) {
       this.log(`Dex Web: ${server.webUrl}`);
     }
@@ -229,22 +300,34 @@ class AgentCliCommand {
     if (this.blobCacheDirectory !== undefined) {
       rmSync(this.blobCacheDirectory, { recursive: true, force: true });
     }
+    this.libraryConsole?.restore();
+    await this.startedDexcliDev.stop();
   }
 
-  private async initConfig(configPath: string): Promise<LoadedConfig | undefined> {
+  /** Returns the short error for a reused `dexcli dev` that stopped, or `undefined` when that did not happen. */
+  public async describeLostDexServer(): Promise<string | undefined> {
+    const server = this.server;
+    if (server?.origin !== "reused" || server.webUrl === null) {
+      return undefined;
+    }
+    return describeLostDexcliDev(server.webUrl);
+  }
+
+  private async initConfig(configPath: string): Promise<LoadedConfig> {
     const answers = this.parsed.isYes || !this.io.isInteractive
       ? defaultInitAnswers(this.harness)
-      : await askInitQuestions(this.harness, (question) => this.ask(question), this.log);
+      : await this.askInitQuestionsAtTerminal();
     if (answers === null) {
-      this.log("Input ended before the configuration was complete; nothing was written.");
-      return undefined;
+      this.io.stdout.write("\n");
+      this.log("Cancelled; no configuration written.");
+      throw new InitCancelledError(this.isInitInterrupted ? interruptedExitCode : 1);
     }
     const loaded = writeConfigFile(configPath, answers, this.harness);
     this.log(`Wrote ${configPath}`);
     return loaded;
   }
 
-  private async loadConfig(configPath: string): Promise<LoadedConfig | undefined> {
+  private async loadConfig(configPath: string): Promise<LoadedConfig> {
     if (isConfigPresent(configPath)) {
       try {
         return readConfigFile(configPath, this.harness);
@@ -299,11 +382,13 @@ class AgentCliCommand {
       harnessOptions: effective.harness_options,
       toolSources,
       mediaStore,
+      isSessionSummaryIndexed: isSessionSummaryIndexed(effective),
       resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
       currentTurn: () => turns.currentTurn(),
       resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
     };
     const flow = this.harness.createSessionFlow(context);
+    requireSessionSummarySetting(flow, context.isSessionSummaryIndexed === true);
     if (flow.getFlowType() !== flowType) {
       throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
     }
@@ -322,6 +407,8 @@ class AgentCliCommand {
       ...connection,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
     });
+    mkdirSync(this.environment.agentsDirectory, { recursive: true });
+    this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath(), this.log);
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
     await this.uploadSessionFlowDefinition(this.client, flowType);
@@ -329,6 +416,7 @@ class AgentCliCommand {
     this.io.stdout.write(
       `Session ${sessionId}. Type a message; /image <path> attaches an image to the next one; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
     );
+    this.startedDexcliDev.releaseInterrupt();
     const chat = new TerminalChat(this.client, flow, sessionId, this.terminalInput(), this.io.stdout, {
       mediaStore,
       homeDirectory: this.environment.homeDirectory,
@@ -362,6 +450,11 @@ class AgentCliCommand {
     } finally {
       clearTimeout(timer);
     }
+    this.writeLogLine(line);
+  }
+
+  /** Appends one timestamped line to the log file. */
+  private writeLogLine(line: string): void {
     try {
       mkdirSync(this.environment.agentsDirectory, { recursive: true });
       appendFileSync(this.logFilePath(), `${new Date().toISOString()} ${line}\n`);
@@ -453,34 +546,48 @@ class AgentCliCommand {
     if (!availability.isAvailable && !isAuto) {
       throw new Error(`the connectors MCP server is unavailable: ${availability.reason}`);
     }
-    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore);
+    const hint = this.connectorsUnavailableHint(server);
     const isToolSetFixed = this.harness.isToolSetFixedAtBuild === true;
+    const describeUnavailable = (unavailability: ConnectorsMcpUnavailability): string => {
+      if (!isToolSetFixed) {
+        return connectorsUnavailableLine(unavailability, hint);
+      }
+      const lead = isConnectorsMcpAccessDenied(unavailability)
+        ? connectorsAccessDeniedSentence(unavailability.httpStatus ?? 0)
+        : "The connectors MCP server is unavailable.";
+      return `${lead} ${hint} ${this.restartForConnectorTools()}`;
+    };
+    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore, {
+      startupAvailability: availability,
+      writeLogLine: (line) => this.writeLogLine(line),
+      describeUnavailable,
+    });
     if (!availability.isAvailable) {
-      this.log(
-        isToolSetFixed
-          ? `The connectors MCP server is unavailable: ${availability.reason}. ${this.restartForConnectorTools()}`
-          : `Connector tools are unavailable for now; each turn tries again: ${availability.reason}`,
-      );
-      return source;
-    }
-    if (!isToolSetFixed) {
-      await this.reportUnauthorizedConnectors(effective, await source.readIdentities(), server, isOpeningConnectorsPage);
+      this.writeLogLine(`connectors MCP server ${url} is unavailable: ${availability.reason}`);
+      this.log(describeUnavailable(availability));
       return source;
     }
     let identities: ReadonlyMap<string, ConnectorToolIdentity>;
     try {
       identities = await source.readIdentities();
     } catch (error: unknown) {
-      this.log(`The connectors MCP server could not be listed: ${describe(error)}. ${this.restartForConnectorTools()}`);
+      this.writeLogLine(`connectors MCP server ${url} could not be listed: ${describe(error)}`);
+      // The source prints the one unavailability line and stays quiet while the next turns fail the same way.
+      await source.listTools();
       return source;
     }
     await this.reportUnauthorizedConnectors(effective, identities, server, isOpeningConnectorsPage);
-    // Outside a model call the listing uses the file's configuration.
-    await source.listTools();
-    if (!source.isAvailable) {
-      this.log(`The connectors MCP server could not be listed. ${this.restartForConnectorTools()}`);
+    if (isToolSetFixed) {
+      // Outside a model call the listing uses the file's configuration; a failure prints its one line.
+      await source.listTools();
     }
     return source;
+  }
+
+  /** Says where the error and the connections are, for a terminal line about an unavailable server. */
+  private connectorsUnavailableHint(server: DexServerConnection): string {
+    const page = server.webUrl === null ? "the Dex Web Connectors page" : `${server.webUrl}/v1/connectors`;
+    return `See ${this.logFilePath()} for the error and ${page} for connections.`;
   }
 
   private restartForConnectorTools(): string {
@@ -509,7 +616,12 @@ class AgentCliCommand {
     }
     const page = server.webUrl === null ? "the Dex Web Connectors page" : `${server.webUrl}/v1/connectors`;
     this.log(`Not authorized yet: ${missing.join(", ")}. Add them with "+ Add" on ${page}.`);
-    if (isOpeningConnectorsPage && this.io.isInteractive && server.webUrl !== null) {
+    if (
+      isOpeningConnectorsPage &&
+      this.environment.isBrowserOpeningEnabled !== false &&
+      this.io.isInteractive &&
+      server.webUrl !== null
+    ) {
       openInBrowser(`${server.webUrl}/v1/connectors`);
     }
     return missing;
@@ -574,13 +686,37 @@ class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     });
-    const page = await this.client.searchFlows(`FlowType = "${flowType}"`, sessionsPageSize);
-    if (page.flows.length === 0) {
+    const loadedSessions: AgentSessionSummary[] = [];
+    let nextPageToken = "";
+    for (let pageNumber = 0; pageNumber < sessionListMaxPages; pageNumber += 1) {
+      const page = await listAgentSessions(this.client, flowType, { nextPageToken });
+      loadedSessions.push(...page.sessions);
+      nextPageToken = page.nextPageToken;
+      if (nextPageToken === "") {
+        break;
+      }
+    }
+    if (loadedSessions.length === 0) {
       this.io.stdout.write(`No ${flowType} sessions.\n`);
       return 0;
     }
-    for (const flow of page.flows) {
-      this.io.stdout.write(`${flow.flowId}\t${flow.status}\t${flow.startedAt.toISOString()}\n`);
+    // A session an earlier release started has no summary fields; "—" stands for each one.
+    for (const session of sortAgentSessionsByLastActivity(loadedSessions)) {
+      const columns = [
+        session.sessionId,
+        session.status,
+        session.startedAt.toISOString(),
+        session.lastActivityAt?.toISOString() ?? "—",
+        session.turnCount === null ? "—" : String(session.turnCount),
+        session.title ?? "—",
+      ];
+      this.io.stdout.write(`${columns.join("\t")}\n`);
+    }
+    if (nextPageToken !== "") {
+      this.io.stdout.write(
+        `More sessions exist; this list sorts the first ${loadedSessions.length} that Dex returns: ` +
+          "running sessions first, then the most recently closed and started.\n",
+      );
     }
     this.io.stdout.write(`Resume one with: dex-agents-${this.harness.name} --resume <session>\n`);
     return 0;
@@ -603,14 +739,32 @@ class AgentCliCommand {
   }
 
   private terminalInput(): TerminalInput {
-    this.input ??= new TerminalInput(this.io.stdin, this.io.stdout);
+    this.input ??= new TerminalInput(this.io.stdin, this.io.stdout, this.linesTypedAhead);
     return this.input;
   }
 
+  private async askInitQuestionsAtTerminal(): Promise<InitAnswers | null> {
+    try {
+      return await askInitQuestions(this.harness, (question) => this.ask(question), this.log);
+    } finally {
+      // Closing leaves raw mode, so Ctrl-C during startup ends the process until the chat reads again.
+      this.linesTypedAhead = this.input?.close() ?? [];
+      this.input = undefined;
+    }
+  }
+
+  /** Returns the answer, or `null` after Ctrl-C or the end of input. */
   private async ask(question: string): Promise<string | null> {
     this.io.stdout.write(question);
-    const line = await this.terminalInput().nextLine();
-    return line === lineWaitAborted ? null : line;
+    const input = this.terminalInput();
+    const interrupt = new AbortController();
+    input.onInterrupt(() => interrupt.abort());
+    const line = await input.nextLine(interrupt.signal);
+    if (line === lineWaitAborted) {
+      this.isInitInterrupted = true;
+      return null;
+    }
+    return line;
   }
 }
 
@@ -622,6 +776,41 @@ const mediaDirectoryName = "media";
 
 /** A media store that may hold connections, which `close` releases. */
 type ClosableMediaStore = MediaStore & { close?(): void };
+
+/** The SDK Worker's task-stream reconnect messages; issue #1657 tracks a logger option to replace this. */
+const workerReconnectMessage =
+  /^(Worker task stream disconnected|Worker task stream did not register|Worker task registration failed|send Worker (task|keepalive) Pong)\b/;
+
+/** Logs library `console.warn` and `console.error` calls, and shows their first line unless it is reconnect noise. */
+class LibraryConsoleRedirection {
+  private readonly originalWarn = console.warn;
+  private readonly originalError = console.error;
+
+  public constructor(
+    private readonly logFilePath: string,
+    private readonly showLine: (line: string) => void,
+  ) {
+    console.warn = (...values: unknown[]) => this.handle("WARN", values);
+    console.error = (...values: unknown[]) => this.handle("ERROR", values);
+  }
+
+  public restore(): void {
+    console.warn = this.originalWarn;
+    console.error = this.originalError;
+  }
+
+  private handle(level: string, values: readonly unknown[]): void {
+    const text = format(...values);
+    try {
+      appendFileSync(this.logFilePath, `${new Date().toISOString()} ${level} ${text}\n`);
+    } catch {
+      // An unwritable log file loses only this diagnostic line.
+    }
+    if (!workerReconnectMessage.test(text)) {
+      this.showLine(`${text.split("\n", 1)[0] ?? ""} (details in ${this.logFilePath})`);
+    }
+  }
+}
 
 /**
  * Builds the store of `media.store`: the local directory `~/.dex/agents/media` for `auto`, else the S3 bucket.
@@ -803,6 +992,18 @@ function openInBrowser(url: string): void {
   const child = spawn(command, [url], { stdio: "ignore", detached: true });
   child.once("error", () => undefined);
   child.unref();
+}
+
+/** A closed terminal fails writes with EIO; the command must still stop the dexcli dev it started. */
+function ignoreWriteErrorsOfClosedTerminal(stream: Writable): void {
+  if ((stream as { isTTY?: boolean }).isTTY !== true) {
+    return;
+  }
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EIO") {
+      throw error;
+    }
+  });
 }
 
 function describe(error: unknown): string {

@@ -1,0 +1,155 @@
+{
+  "name": "connectors_refresh",
+  "description": "The connectors list refreshes once; the rows are whatever the launcher finds.",
+  "real_roles": [
+    "launcher",
+    "tui"
+  ],
+  "terminal_ui_environment": {},
+  "steps": [
+    {
+      "from": "launcher",
+      "message": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "connectors",
+        "command": {
+          "name": "dex-agents-claude-sdk",
+          "harness": "claude-sdk",
+          "language": "typescript",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "methods": [
+          "list_connectors",
+          "open_url"
+        ],
+        "capabilities": {},
+        "notices": [],
+        "log_path": "~/.dex/agents/claude-sdk.log",
+        "connectors": {
+          "mcp_url": "http://127.0.0.1:8803/mcp",
+          "tools": [
+            {
+              "name": "hacker_news_list_story_ids",
+              "connector": "hacker-news",
+              "connection": "default",
+              "operation": "list_story_ids",
+              "is_enabled": true
+            },
+            {
+              "name": "slack_post_message",
+              "connector": "slack",
+              "connection": "support-slack",
+              "operation": "post_message",
+              "is_enabled": false
+            },
+            {
+              "name": "lookup",
+              "connector": null,
+              "connection": null,
+              "operation": null,
+              "is_enabled": true
+            }
+          ],
+          "connections": [
+            {
+              "connector": "hacker-news",
+              "connection": "default",
+              "status": "authorized"
+            },
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "status": "pending"
+            }
+          ]
+        }
+      },
+      "ignore": [
+        "command.name",
+        "command.harness",
+        "command.language",
+        "command.version",
+        "dex.server_address",
+        "dex.web_url",
+        "session.flow_type",
+        "session.session_id",
+        "display",
+        "capabilities",
+        "log_path",
+        "connectors"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "ready"
+      }
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-a970-788a-89b2-7ca3b4c5d6e7",
+        "method": "list_connectors",
+        "params": {}
+      },
+      "ignore": [
+        "idempotency_key"
+      ]
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "response",
+        "id": 1,
+        "result": {
+          "mcp_url": "http://127.0.0.1:8803/mcp",
+          "tools": [
+            {
+              "name": "hacker_news_list_story_ids",
+              "connector": "hacker-news",
+              "connection": "default",
+              "operation": "list_story_ids",
+              "is_enabled": true
+            },
+            {
+              "name": "slack_post_message",
+              "connector": "slack",
+              "connection": "support-slack",
+              "operation": "post_message",
+              "is_enabled": false
+            },
+            {
+              "name": "lookup",
+              "connector": null,
+              "connection": null,
+              "operation": null,
+              "is_enabled": true
+            }
+          ],
+          "connections": null
+        }
+      },
+      "ignore": [
+        "result.mcp_url",
+        "result.tools",
+        "result.connections"
+      ]
+    }
+  ],
+  "tui_exit": 0
+}

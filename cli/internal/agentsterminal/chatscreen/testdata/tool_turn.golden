@@ -1,0 +1,139 @@
+==== ansi width 40 ====
+~~~~ 40x24 ~~~~
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233…␛[2m␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists␛[m
+  ␛[2mcommands. Shift-drag selects text;␛[m
+  ␛[2m/copy copies the last reply.␛[m
+
+␛[2m›␛[m Find open issues about flaky tests and
+  post a summary to #eng.
+
+  I'll search the issue tracker first.
+
+  ␛[32m✓␛[m search_files  ␛[2m"flaky" in te…    0.4s␛[m
+  ␛[32m✓␛[m read_file     ␛[2mtests/integ/r…    0.1s␛[m
+
+  ␛[36m⠙␛[m run_shell_co…  ␛[2mgo test ./in…   15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
+␛[2m────────────────────────────────────────␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-wor…␛[m
+ ␛[36m⠙␛[m running tools 9s          ␛[2mEnter queue␛[m
+~~~~ cursor 3,21 ~~~~
+
+==== ansi width 60 ====
+~~~~ 60x24 ~~~~
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag␛[m
+  ␛[2mselects text; /copy copies the last reply.␛[m
+
+␛[2m›␛[m Find open issues about flaky tests and post a summary to
+  #eng.
+
+  I'll search the issue tracker first.
+
+  ␛[32m✓␛[m search_files      ␛[2m"flaky" in te…      12 matches    0.4s␛[m
+  ␛[32m✓␛[m read_file         ␛[2mtests/integ/r…       210 lines    0.1s␛[m
+
+  ␛[36m⠙␛[m run_shell_command  ␛[2mgo test ./in…                   15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
+␛[2m────────────────────────────────────────────────────────────␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m
+ ␛[36m⠙␛[m running tools 9s         ␛[2mEnter queue · Ctrl-C cancel turn␛[m
+~~~~ cursor 3,21 ~~~~
+
+==== ansi width 80 ====
+~~~~ 80x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
+  ␛[2mcopies the last reply.␛[m
+
+␛[2m›␛[m Find open issues about flaky tests and post a summary to #eng.
+
+  I'll search the issue tracker first.
+
+  ␛[32m✓␛[m search_files      ␛[2m"flaky" in tests/                       12 matches    0.4s␛[m
+  ␛[32m✓␛[m read_file         ␛[2mtests/integ/retry_test.go                210 lines    0.1s␛[m
+
+  ␛[36m⠙␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                      15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                  ␛[2mturn 1 · 1.2k tok␛[m
+ ␛[36m⠙␛[m running tools 9s                     ␛[2mEnter queue · Ctrl-C cancel turn · /help␛[m
+~~~~ cursor 3,21 ~~~~
+
+==== ansi width 140 ====
+~~~~ 140x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy copies the last␛[m
+  ␛[2mreply.␛[m
+
+␛[2m›␛[m Find open issues about flaky tests and post a summary to #eng.
+
+  I'll search the issue tracker first.
+
+  ␛[32m✓␛[m search_files      ␛[2m"flaky" in tests/                             12 matches    0.4s␛[m
+  ␛[32m✓␛[m read_file         ␛[2mtests/integ/retry_test.go                      210 lines    0.1s␛[m
+
+  ␛[36m⠙␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                             15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
+␛[2m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                                      ␛[2mturn 1 · 1.2k tok␛[m
+ ␛[36m⠙␛[m running tools 9s                                         ␛[2mEnter queue · Ctrl-C cancel turn · /help␛[m
+~~~~ cursor 3,21 ~~~~
+
+==== no_color width 80 ====
+~~~~ 80x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
+  ␛[2mcopies the last reply.␛[m
+
+␛[2m›␛[m Find open issues about flaky tests and post a summary to #eng.
+
+  I'll search the issue tracker first.
+
+  ␛[m✓␛[m search_files      ␛[2m"flaky" in tests/                       12 matches    0.4s␛[m
+  ␛[m✓␛[m read_file         ␛[2mtests/integ/retry_test.go                210 lines    0.1s␛[m
+
+  ␛[m⠙␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                      15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[m›␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                  ␛[2mturn 1 · 1.2k tok␛[m
+ ␛[m⠙␛[m running tools 9s                     ␛[2mEnter queue · Ctrl-C cancel turn · /help␛[m
+~~~~ cursor 3,21 ~~~~

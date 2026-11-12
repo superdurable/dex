@@ -1,0 +1,77 @@
+{
+  "name": "sessions_resume_result",
+  "description": "The user picks a session; dexcli sends one result and exits 0.",
+  "real_roles": [
+    "launcher",
+    "tui"
+  ],
+  "terminal_ui_environment": {},
+  "steps": [
+    {
+      "from": "launcher",
+      "message": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "sessions",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd"
+        },
+        "display": {
+          "workspace": "~/dex-agent-workspace"
+        },
+        "methods": [
+          "open_url"
+        ],
+        "capabilities": {},
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "ignore": [
+        "command.name",
+        "command.harness",
+        "command.language",
+        "command.version",
+        "dex.server_address",
+        "dex.web_url",
+        "session.flow_type",
+        "session.session_id",
+        "display",
+        "capabilities",
+        "log_path",
+        "connectors"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "ready"
+      }
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "result",
+        "resume_session_id": "openai-sdk-20261110-091500-0f1e2d"
+      }
+    }
+  ],
+  "tui_exit": 0
+}

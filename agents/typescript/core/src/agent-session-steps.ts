@@ -30,6 +30,7 @@ import {
   type StepOptions,
 } from "@superdurable/dex";
 
+import { boundApprovalDisplay } from "./agent-approval-display.js";
 import {
   buildPlanClearedOutput,
   buildPlanUpdatedOutput,
@@ -106,6 +107,7 @@ import {
   toolCallSkippedAfterWriteDetail,
   toolTaskAbandonedError,
   type AgentInterrupt,
+  type AgentInterruptDisplay,
   type AgentPlan,
   type AgentInterruptKind,
   type AgentSessionStartInput,
@@ -170,6 +172,7 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
       }
     }
     this.transitions.writeAgentState(context, state);
+    this.transitions.recordSessionActivity(context, 0);
     persistence.agentUsage.set(context, emptyAgentUsage());
     persistence.pendingInterrupts.set(context, []);
     const initialMessage = input.initialMessage;
@@ -504,6 +507,7 @@ export class RunModelStep implements Step<void> {
       lastTurnError: turnError,
       acceptsTurnControl: false,
     });
+    transitions.recordSessionActivity(context, state.turnCount + 1);
     if (turnError !== null) {
       events.writeEvent("turn_failed", { error: turnError });
       return transitions.goToAwaitUserMessage();
@@ -1141,6 +1145,12 @@ export class ToolCallStep implements Step<string> {
           ...toolResultImages(outcome.images),
         };
         toolCallSpan.recordFinished(succeeded);
+        if (outcome.isFinishedByResumedTurn === true) {
+          // The resumed turn runs the call and writes its tool_call_finished.
+          transitions.writeToolCall(context, succeeded);
+          transitions.publishToolCallResult(context, succeeded.toolCallId);
+          return deadEnd();
+        }
         transitions.finishToolCall(context, succeeded, events);
         return deadEnd();
       });
@@ -1514,14 +1524,16 @@ function recordFailedSession(
   if (transitions.readPendingInterrupts(context).length > 0) {
     persistence.pendingInterrupts.set(context, []);
   }
+  const turnCount = state.turnCount + (state.activeTurnId === null ? 0 : 1);
   transitions.writeAgentState(context, {
     ...state,
     status: "failed",
-    turnCount: state.turnCount + (state.activeTurnId === null ? 0 : 1),
+    turnCount,
     activeTurnId: null,
     lastTurnError: error,
     acceptsTurnControl: false,
   });
+  transitions.recordSessionActivity(context, turnCount);
   transitions.writeEvents(context, state.activeTurnId, (events) => events.writeEvent("turn_failed", { error }));
   return forceFail(error);
 }
@@ -1566,6 +1578,7 @@ function recordFailedTurn(
     lastTurnError: turnError,
     acceptsTurnControl: false,
   });
+  transitions.recordSessionActivity(context, state.turnCount + 1);
   transitions.writeEvents(context, turnId, (events) => events.writeEvent("turn_failed", { error: turnError }));
   return transitions.goToAwaitUserMessage();
 }
@@ -1773,6 +1786,9 @@ function toolApprovalInterrupt(
     question: null,
     choices: [],
     allowsFreeText: true,
+    ...(toolCall.approvalDisplay === undefined || toolCall.approvalDisplay === null
+      ? {}
+      : { display: toolCall.approvalDisplay }),
   };
 }
 
@@ -1915,7 +1931,16 @@ function createToolCallRecord(
     skipped: false,
     truncatedOutputBytes: null,
     runnerToolState: null,
+    ...approvalDisplayOf(requestedToolCall, requiresApproval),
   };
+}
+
+function approvalDisplayOf(
+  requestedToolCall: DeferredToolCall,
+  requiresApproval: boolean,
+): { readonly approvalDisplay?: AgentInterruptDisplay } {
+  const approvalDisplay = requiresApproval ? boundApprovalDisplay(requestedToolCall.approvalDisplay) : null;
+  return approvalDisplay === null ? {} : { approvalDisplay };
 }
 
 function writeToolCallDeferred(events: StreamAgentEventWriter, record: AgentToolCallRecord): void {

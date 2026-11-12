@@ -226,6 +226,11 @@ Pass `toolSources: [refunds]` to `createOpenAIAgentsSessionFlow`.
 - Every `RunModel` lists each source and wraps the agent graph again, so every
   agent of the graph offers the listed tools after its own tools, as
   non-strict function tools with the source's description and JSON Schema.
+- The model sees each source tool by its name in the source, such as
+  `fake-ledger_get_balance`, so `fake-ledger_get_balance` and
+  `fake_ledger_get_balance` are two tools. A character other than a letter,
+  digit, `_`, or `-` reaches the model as `_`, because the OpenAI API accepts
+  no other. `toolPolicies`, records, and events always use the source's name.
 - A call of a source tool never runs inside the model call. The source
   builds the call, so its effect, its approval, and whether it is an ordered
   write come from the source; a tool's `needsApproval`, input guardrails, and `createContext` do not apply. A
@@ -251,8 +256,8 @@ Pass `toolSources: [refunds]` to `createOpenAIAgentsSessionFlow`.
   instead, also inside the turn. A resumed call replays only a record of the
   same tool name, once.
 - Definition fails with `TypeError` when a name a source declares repeats a
-  tool or handoff of the graph or another source's tool. A listing that
-  repeats one fails its `RunModel` attempt.
+  tool or handoff of the graph or another source's tool, also after that `_`
+  replacement. A listing that repeats one fails its `RunModel` attempt.
 
 ## Tracing
 

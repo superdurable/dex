@@ -40,6 +40,16 @@ export class FakeConnectorsMcpServer {
   public unavailableReason: string | undefined;
   /** When set, `initialize` still answers but every other request answers 503 with this reason. */
   public listingFailureReason: string | undefined;
+  /** How many `tools/list` requests still answer while `listingFailureReason` is set. */
+  public listingsBeforeFailure = 0;
+  /** When set, every request answers this HTTP status, such as 401 for an endpoint that needs credentials. */
+  public accessDeniedStatus: number | undefined;
+  /** When set, `initialize` answers but every `tools/list` answers this HTTP status. */
+  public listingAccessDeniedStatus: number | undefined;
+  /** When `true`, the identity listing's `initialize` (client version 0.5.0) never answers. */
+  public isIdentityListingHanging = false;
+  /** How many hanging identity listing requests the client closed. */
+  public closedHangingRequests = 0;
   /** The connection that `slack_post_thread_reply` names; tests rebind it. */
   public slackConnection = "support-slack";
   /** The connection that the `reports_long_report` task tool names; tests rebind it. */
@@ -55,12 +65,28 @@ export class FakeConnectorsMcpServer {
   public async start(): Promise<string> {
     this.server = createServer((request, response) => {
       void (async () => {
+        if (this.accessDeniedStatus !== undefined) {
+          response.writeHead(this.accessDeniedStatus, { "content-type": "text/plain" }).end("access denied");
+          return;
+        }
         if (this.unavailableReason !== undefined) {
           response.writeHead(503, { "content-type": "text/plain" }).end(this.unavailableReason);
           return;
         }
         const body = await readJsonBody(request);
-        if (this.listingFailureReason !== undefined && !isInitializeRequest(body)) {
+        if (this.isIdentityListingHanging && isIdentityListingInitialize(body)) {
+          response.on("close", () => {
+            this.closedHangingRequests += 1;
+          });
+          return;
+        }
+        if (this.listingAccessDeniedStatus !== undefined && isToolsListRequest(body)) {
+          response.writeHead(this.listingAccessDeniedStatus, { "content-type": "text/plain" }).end("access denied");
+          return;
+        }
+        if (this.listingFailureReason !== undefined && isToolsListRequest(body) && this.listingsBeforeFailure > 0) {
+          this.listingsBeforeFailure -= 1;
+        } else if (this.listingFailureReason !== undefined && !isInitializeRequest(body)) {
           response.writeHead(503, { "content-type": "text/plain" }).end(this.listingFailureReason);
           return;
         }
@@ -195,7 +221,12 @@ export class FakeConnectorsMcpServer {
       "slack_post_thread_reply",
       {
         description: "Reply in a Slack thread.",
-        inputSchema: { text: z.string() },
+        inputSchema: {
+          text: z.string(),
+          channel: z.string().optional(),
+          token: z.string().optional(),
+          body: z.string().optional(),
+        },
         _meta: identityMeta("slack", this.slackConnection, "postThreadReply"),
       },
       (toolArguments, extra) => {
@@ -215,6 +246,19 @@ function identityMeta(connector: string, connection: string, operation: string):
     [connectorToolMetaKeys.operationName]: canonicalOperationName(operation),
     [connectorToolMetaKeys.connectorVersion]: "1.0.0",
   };
+}
+
+/** The CLI core's identity listing introduces itself as version 0.5.0; the wrapped McpToolSource does not. */
+function isIdentityListingInitialize(body: unknown): boolean {
+  if (!isInitializeRequest(body)) {
+    return false;
+  }
+  const clientInfo = (body as { params?: { clientInfo?: { version?: unknown } } }).params?.clientInfo;
+  return clientInfo?.version === "0.5.0";
+}
+
+function isToolsListRequest(body: unknown): boolean {
+  return typeof body === "object" && body !== null && (body as { method?: unknown }).method === "tools/list";
 }
 
 function isInitializeRequest(body: unknown): boolean {

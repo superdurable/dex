@@ -1,0 +1,54 @@
+==== help ====
+~~~~ 80x24 ~~~~
+
+  ␛[1;94mKeys␛[m
+  Enter        send, or queue while a turn runs
+  Shift-Enter  new line (also Alt-Enter, Ctrl-J)
+  Ctrl-C       cancel the turn; again to exit
+  Ctrl-D       exit (empty input)
+  Tab          complete a /command; on empty input, focus waiting approvals and
+               queued messages
+  Up/Down      recall earlier messages
+  F1           show this help
+
+  ␛[1;94mCommands␛[m
+  /approve     open the waiting approvals and questions
+  /copy        copy the last reply to the clipboard
+  /drop        delete the last queued message
+  /exit        exit; the session stays in Dex
+  /help        list keys and commands
+  /image PATH  attach an image to the next message
+  /model ID    change the model
+  /steer       steer the last queued message into the turn
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[34m›␛[m ␛[2mType a message. /image attaches a picture, /help lists commands.␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m
+ ␛[2mready␛[m                                              ␛[2mPgUp/PgDn scroll · Esc close␛[m
+
+==== completion /m ====
+~~~~ 80x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+  ␛[2mType a message to start. /help lists commands. Shift-drag selects text; /copy␛[m
+  ␛[2mcopies the last reply.␛[m
+
+
+
+
+
+
+
+
+
+
+
+ ␛[34m▸␛[m ␛[1;34m/model ID␛[m  ␛[2mchange the model␛[m
+␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
+ ␛[34m›␛[m /m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m
+ ␛[2mready␛[m                                      ␛[2mTab complete · Enter run · Esc close␛[m
+~~~~ cursor 5,21 ~~~~

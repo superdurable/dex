@@ -136,8 +136,8 @@ DEX_CONNECTOR_CONFIG_FILE=$HOME/.dex/connectors/connections.json ANTHROPIC_API_K
 The Claude Agent SDK example authenticates only with `ANTHROPIC_API_KEY`:
 
 - The Claude Code CLI gets its own environment, built by `buildClaudeCliEnvironment`. It holds
-  `ANTHROPIC_API_KEY` and only the variables the CLI needs to run: `PATH`, `HOME`, `TMPDIR`, and
-  the proxy variables when they are set. Other Claude credentials or provider settings in the
+  `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` when it is set, and only the variables the CLI needs
+  to run: `PATH`, `HOME`, `TMPDIR`, and the proxy variables when they are set. Other Claude credentials or provider settings in the
   Worker's environment never reach the CLI.
 - Without `ANTHROPIC_API_KEY`, the process logs one line and does not register the Claude Flow or
   its routes.

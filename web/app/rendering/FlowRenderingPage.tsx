@@ -102,7 +102,7 @@ export function FlowRenderingPage() {
         </div>
         {catalog?.configured && catalog.definitions.length > 0 && (
           <div className="flow-rendering-summary">
-            <b>{catalog.definitions.length} definitions</b>
+            <b>{catalog.definitions.length} {catalog.definitions.length === 1 ? 'definition' : 'definitions'}</b>
             {catalog.directory && <code title={catalog.directory}>{catalog.directory}</code>}
           </div>
         )}
