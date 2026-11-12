@@ -1,9 +1,9 @@
 ---
-title: Entity Flow with SQL Projection
-sidebar_label: Entity Flow with SQL Projection
+title: 带 SQL 投影的实体 Flow
+sidebar_label: 带 SQL 投影的实体 Flow
 ---
 
-# Entity Flow with SQL Projection
+# 带 SQL 投影的实体 Flow
 
 每个实体（例如一个用户）对应一个 Flow。Dex 把这个 Flow 中选定的 Attribute 投影（复制）到你的应用自己的 SQL 表中。权威状态保存在 Flow 里，所有写入都经过 Flow。Dex 异步更新 SQL 表，表中只保存最新的值，用于读取和查询。
 
@@ -11,7 +11,7 @@ sidebar_label: Entity Flow with SQL Projection
 
 ## 适用场景
 
-当一个实体需要 durable 状态或通过 RPC 更新，而你的应用还要在数据库中查询它的最新状态时，使用这个模式。不要根据 SQL 表做 Flow 决策，应读取 Flow 状态。
+当一个实体需要持久化状态或通过 RPC 更新，而你的应用还要在数据库中查询它的最新状态时，使用这个模式。不要根据 SQL 表做 Flow 决策，应读取 Flow 状态。
 
 ## 工作方式
 

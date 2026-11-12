@@ -1,11 +1,11 @@
 ---
-title: Deferred Choice
-sidebar_label: Deferred Choice
+title: 延迟选择
+sidebar_label: 延迟选择
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/deferred-choice.json';
 
-# Deferred Choice
+# 延迟选择
 
 当 Flow 等待多个事件中的一个，并由最先发生的事件决定下一步时，使用 Deferred Choice。这些事件来自 Flow 外部，Flow 无法提前选定分支。
 
@@ -43,8 +43,8 @@ AwaitOfferResponse.execute
 
 ## 相关形状
 
-- [Reminder](/design-patterns/durable-timer/reminder)、[Inactivity tracker](/design-patterns/durable-timer/inactiveness-tracker-timer) 和 [Inbound Event Loop](/design-patterns/inbound-event-loop) 也等待 Timer 和 Channel 的 `AnyOf`。它们会回到同一个 Step 循环。Deferred Choice 只决定一次，然后继续往下走。
-- [First-Win Parallel Steps](/design-patterns/parallel/first-win) 让 Flow 自己启动的工作互相竞争。Deferred Choice 让外部事件互相竞争。
+- [提醒](/design-patterns/durable-timer/reminder)、[Inactivity tracker](/design-patterns/durable-timer/inactiveness-tracker-timer) 和 [入站事件循环](/design-patterns/inbound-event-loop) 也等待 Timer 和 Channel 的 `AnyOf`。它们会回到同一个 Step 循环。Deferred Choice 只决定一次，然后继续往下走。
+- [首个获胜的并行 Step](/design-patterns/parallel/first-win) 让 Flow 自己启动的工作互相竞争。Deferred Choice 让外部事件互相竞争。
 
 ## 示例
 
@@ -252,5 +252,5 @@ impl Step for AwaitOfferResponse {
 
 - [Timer](/concepts/primitives/timer)
 - [Channel](/concepts/primitives/channel)
-- [Durable Timer](/design-patterns/durable-timer)
+- [持久化定时器](/design-patterns/durable-timer)
 - [Workflow Patterns 评估：WCP-16 Deferred Choice](/correctness-and-expressiveness/workflow-patterns#wcp-16)

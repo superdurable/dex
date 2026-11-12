@@ -3,6 +3,7 @@ id: compared-to-database
 title: Dex vs. 数据库
 sidebar_label: Dex vs. 数据库
 slug: /intro/compared-to-database
+description: 同一个订单流程，先建在数据库上，再加上队列和 transactional outbox，最后写成 Dex Flow，并列出每种设计需要的部件和仍由你负责的事。
 ---
 
 import ArchitectureComparison from '@site/src/components/intro/ArchitectureComparison';
@@ -12,11 +13,21 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 
 # Dex vs. 数据库
 
-大多数后端把状态存在数据库里，再围绕数据库搭建业务流程。下面先用这种方式一步步搭一个订单流程，再用 Dex Flow 实现同一个流程。
+大多数后端把状态存在数据库里，再围绕数据库搭建每个流程。下面先用这种方式一种设计一种设计地搭一个订单流程，再用 Dex Flow 实现同一个流程。
 
-完整的订单流程先向买家扣款，再发货。发货前，它要等卖家审批，等待期间提醒卖家。发货失败持续一小时后，它给买家退款。两种设计为此需要的部件如下：
+**用惯了队列和数据库？** 按这个顺序阅读：本页、[Dex 和你的数据库](/components/your-database)、[Step 保证](/concepts/step#guarantees)、[故障转移和部署](/concepts/failover-and-deploys)，以及[限制](/intro/limits)。
 
-<ArchitectureComparison markdownDescription="数据库、队列加 outbox，你要搭建和运行的部分。表：带 status 列的订单表、审批表和 outbox 表。队列：charge-requests、ship-requests、refund-requests、retry topic 或 visibility timeout，以及死信队列（DLQ）。服务和任务：扣款、发货、退款消费者，outbox relay，提醒 cron job，审批接口，状态轮询接口，以及 DLQ 查看和修复工具。它们运行在数据库和队列 broker 上。Dex，你要编写和运行的部分：一个 Flow，包含 Charge Step、Ship Step、Refund Step 和 approve RPC，以及运行这个 Flow 的 Worker。它们运行在 Dex Server 上，Dex Server 提供每个 Step 自己的 retry、durable Timer、等待 Channel、Client 等待 API，以及 Step 历史和重新执行。" />
+这就是[为什么是 Dex？](/intro/what-is-dex)里的订单流程：扣款，等卖家审批并在等待期间提醒卖家，发货，发货一直失败就退款。每种设计为此需要的部件如下：
+
+<ArchitectureComparison markdownTable={{
+  header: ['部件', '数据库、队列和 outbox', 'Dex'],
+  rows: [
+    ['表', '带 status 列的订单表、审批表和 outbox 表', '流程不需要表。Flow 状态保存在 Dex 里。'],
+    ['队列', 'charge-requests、ship-requests、refund-requests，retry topic 或 visibility timeout，以及死信队列（DLQ）', '不需要'],
+    ['你要写的代码', '扣款、发货和退款消费者，outbox relay，提醒 cron job，审批接口，状态轮询接口，以及 DLQ 修复工具', '一个 Flow，包含 Charge、Ship 和 Refund 三个 Step 和一个 approve RPC，以及运行它的 Worker'],
+    ['基础设施', '一个数据库和一个队列 broker', 'Dex Server，它提供每个 Step 自己的重试、持久化 Timer、等待 Channel、Client 等待 API，以及可重新运行的 Step 历史'],
+  ],
+}} />
 
 ## 数据库把哪些事留给你的代码 {#what-a-database-does-not-do}
 
@@ -29,15 +40,15 @@ PostgreSQL、MySQL、S3 这类数据库和存储服务，负责保存数据，�
 - 串行或并行地调用多个 API。
 - 安排之后要做的事，比如提醒和业务超时。
 - 等待其他系统，比如人工审批或外部事件。
-- 处理失败：retry、回滚，以及用于人工修复的死信队列（DLQ）。每一步的策略可能都不一样。
+- 处理失败：重试、回滚，以及用于人工修复的死信队列（DLQ）。每一步的策略可能都不一样。
 - 能看到每一步的输入、错误，以及还没做完的工作。
 - 流量增长时，依然可用、够快、成本可控。
 
 这些数据库都不提供。每个服务都要把这些代码重新写一遍。
 
-## 例子：分两步处理订单
+## 起点：连续两次 API 调用 {#start-two-api-calls-in-a-row}
 
-订单流程只有两步，每一步是一次 API 调用：
+最简单的版本只做两次 API 调用：
 
 * **向买家扣款。**
 * **发货。**
@@ -98,35 +109,36 @@ fn process_order(order: &Order) -> Result<(), ApiError> {
 </SdkSnippet>
 </SdkTabs>
 
-只要不出错，这样就能用。但如果扣款成功后进程崩溃，或者发货调用超时，买家已经付了钱，货却永远不会发出。
+只要不出错，这样就能用。如果扣款成功后进程崩溃，或者发货调用超时，买家已经付了钱，货却永远不会发出。
 
 <ExecutionApproachDiagram approach="naive" markdownDescription="直接请求按顺序运行多个操作，但不持久化进度。进程崩溃可能导致前面的操作已完成，而后续操作没有运行。" />
 
-### 方案 1：数据库行加轮询 worker
+### 设计 1：数据库行加轮询 worker {#design-1-a-database-row-and-polling-workers}
 
-下一个想法是：插入一行 **status = pending** 的订单，立即返回给客户端，再让后台 worker 去取这一行来处理。
+下一个想法是：插入一行 **status = pending** 的订单，返回给客户端，再让后台 worker 去取这一行来处理。
 
-<ExecutionApproachDiagram approach="table-poll" markdownDescription="前端 API 插入一行 status = pending 的订单，并返回 request id。Worker A 用 SELECT … FOR UPDATE 抢占行，Worker B 扫描同一张表，两个 Worker 争抢同一张订单表中的行。" />
+<ExecutionApproachDiagram approach="table-poll" markdownDescription="前端 API 插入一行 status 为 pending 的订单，并返回 request id。Worker A 用 SELECT … FOR UPDATE 抢占行，Worker B 扫描同一张表，两个 Worker 争抢同一张订单表中的行。" />
 
 订单保存下来了，但新问题也来了：
 
 * 多个 worker 怎么取行，才不会抢到同一行？
 * worker 取到一行之后、处理完之前崩溃了，怎么办？
 
-### 方案 2：步骤之间用消息队列
+### 设计 2：步骤之间用消息队列 {#design-2-a-message-queue-between-steps}
 
 有经验的团队通常会改用消息队列，每一步一个队列：**charge-requests** 和 **ship-requests**。订单先作为一条消息进入 **charge-requests**。扣款消费者处理完这条消息，再往 **ship-requests** 发一条消息。
 
 <ExecutionApproachDiagram approach="message-queue" markdownDescription="消息队列在执行连续操作的消费者之间传递任务。每个消费者必须协调操作与消息确认，以处理失败。" />
 
-队列解决了方案 1 的问题，但带来了更难的问题：
+队列解决了设计 1 的问题，但带来了更难的问题：
 
-- 大多数队列把「扣款完成」和「发出发货消息」分开提交。如果发货消息已经发出，但扣款消息的确认超时了，队列会再投递一次扣款消息。于是同一笔订单在发货的同时，又在重复扣款。
+- 大多数队列把“扣款完成”和“发出发货消息”分开提交。如果发货消息已经发出，但扣款消息的确认超时了，队列会再投递一次扣款消息。于是同一笔订单在发货的同时，扣款步骤又运行了一次。
   - 团队通常再加一行数据库记录作为唯一可信来源，用来去重。
-- 带退避的 retry 和 DLQ 往往要自己补。
-  - 比如 Kafka 要额外建 retry topic，SQS 要靠 visibility timeout 绕过去。
+  - 标准的解决办法是 **transactional outbox**。消费者在一次数据库事务里写入“扣款完成”和一行 outbox 记录。一个 relay 进程读取 outbox，发出发货消息。relay 可能把一条消息发两次，所以每个消费者仍要按订单 ID 去重。
+- 带退避的重试和 DLQ 往往要自己补。
+  - 比如 Kafka 要额外建重试 topic，SQS 要靠 visibility timeout 绕过去。
   - 查看和恢复 DLQ 里消息的工具，也得自己做。
-- 前端可能要在扣款成功后马上返回（「已付款，订单处理中」）。这时它只能轮询数据库，既别扭又浪费。
+- 前端可能要在扣款成功后马上返回（“已付款，订单处理中”）。这时它只能轮询数据库，既别扭又浪费。
 
 业务还会不断变化。订单流程常常还要：
 
@@ -134,41 +146,49 @@ fn process_order(order: &Order) -> Result<(), ApiError> {
 - 发货前等卖家审批，或者让卖家手动填写运单号。
 - 提醒卖家去审批或填写运单号。
 
-在队列方案里，每一项都要加队列、消费者、表或 cron job。
+在队列设计里，每一项都要加队列、消费者、表或 cron job。
 
-## 用 Dex Flow 实现同一个流程
+这种设计能用，很多团队也把它运行得很好。它的代价是业务逻辑周围的代码：outbox relay、去重检查、重试 topic、DLQ 工具和提醒任务。每个需要同样保证的服务都要再搭一遍。
 
-在 Dex 里，你只写业务逻辑。retry、timer、等待、崩溃后恢复，以及每个 Step 的记录，都由 Dex 提供。
+## 用 Dex Flow 实现同一个流程 {#the-same-process-as-a-dex-flow}
 
-<ExecutionApproachDiagram approach="dex" markdownDescription="前端 API 启动 Flow，再用 Client API 等 Charge Step 完成。Dex Server 把每个 Step 的结果和到下一个 Step 的推进一起记录。它提供每个 Step 自己的 retry、durable Timer、等待 Channel，以及 Step 历史和重新执行。它把每个 Step 任务派给你的某一个 Worker，Step 再调用扣款、发货和退款 API。" />
+在 Dex 里，你把业务逻辑写成 Step。重试、Timer、等待、崩溃后恢复，以及每个 Step 的记录，都由 Dex 提供。有一项职责仍由你负责：每次外部调用都要传入一个[幂等键](/concepts/step#idempotency-keys)。
 
-扣款、审批、发货的流程写成：
+<ExecutionApproachDiagram approach="dex" markdownDescription="前端 API 通过 Client 启动 Flow。Dex Server 把每个 Step 任务派给你的某一个 Worker，Step 再调用扣款、发货和退款 API。" />
 
-1. **Charge Step**：向买家扣款，有自己的 retry 策略。扣款成功后，Dex 把订单推进到 Ship Step。Dex 把结果和这次推进一起记录下来，所以崩溃不会让订单卡在两个 Step 之间。
-2. **Ship Step**：
-    1. 等待卖家审批，**或者**等一个 durable timer。
-    2. timer 先到，就发提醒并继续等；审批到了，就发货。
-    3. 发货调用会 retry。retry 用尽后，进入 Refund Step。
-3. **Refund Step**：给买家退款。
-4. 前端调用一个内置的 Client API，等 Charge Step 完成后显示「已付款」。
+这个 Flow 有一个 Charge Step、一个等待审批并在等待期间发提醒的 Ship Step，以及一个 Refund Step。前端调用一个 Client API，等 Charge Step 完成后显示“已付款”。
 
-<DocsFlowDefinitionGraph graph={orderProcessingFlow} />
+<DocsFlowDefinitionGraph graph={orderProcessingFlow} markdownReference="/intro/what-is-dex#example-order-processing" markdownReferenceLabel="为什么是 Dex？" />
 
-Dex 记录每个 Step 的输入、输出和错误。运维人员可以查看每一笔订单，并在修复后从之前的某个 Step 重新执行（time travel）。
+Dex 记录每个 Step 的输入、输出和错误。运维人员可以查看每一笔订单，并在修复后从之前的某个 Step 重新运行（Time Travel）。
 
-| 问题 | 数据库加队列 | Dex Flow |
+| 问题 | 数据库和队列 | Dex Flow |
 | --- | --- | --- |
-| 两步之间崩溃 | 买家可能已扣款，货却没发 | Dex 把每个 Step 的结果和到下一个 Step 的推进一起记录 |
-| 多个 worker | 自己实现抢行，或依赖队列投递 | Dex 把每个任务派给你的某个 Worker |
+| 两步之间崩溃 | 用 outbox 和 relay 把两步绑在一起。没有它们，买家可能已扣款，货却一直没发。 | Dex 把每个 Step 的结果和到下一个 Step 的推进一起记录。 |
+| 扣款调用中途崩溃 | 消费者会再运行一次，所以支付调用需要幂等键。 | Charge Step 会再运行一次，所以支付调用需要同样的键。 |
+| 多个 worker | 自己实现抢行，或依赖队列投递加去重检查。 | Dex 把每个任务派给你的某一个 Worker。 |
+| 单步延迟 | 本地数据库事务提交 outbox 行，通常只要几毫秒。 | SYNC Step 要等对象存储的两次提交，一次记录开始、一次记录结果：在[基准测试](/intro/performance)中，半峰值负载下 p50 约 105 ms。ASYNC Step 不用等。 |
+| 你要运行的东西 | 一个数据库和一个队列 broker，加上 relay 和消费者。 | Dex Server、一个对象存储 bucket 和一个可选的备用节点，加上你的 Worker。带索引的搜索不需要另一个数据库；搜索量大时可以选用 PostgreSQL 搜索后端。你的数据库继续保存你自己的表。[Dex Server](/components/server#dependencies) 列出了所有依赖。 |
 
-### 需求变化时
+### 你自己的表 {#your-own-tables}
 
-每个新需求都会给队列方案加部件。在 Dex 里，它最多加一个 Step 或 RPC，再改一下 Ship Step。
+系统其他部分要读的表，你继续保留，比如供报表和客服工具使用的订单表。Dex 保存流程状态：哪个 Step 运行过，订单正在等什么。Step 像其他调用一样写你的表，用以订单 ID 为键的 upsert，所以重新运行时写入的还是同一行。[Dex 和你的数据库](/components/your-database) 介绍了这种模式，也说明了什么时候改让 Dex 把 Attribute 复制到你的数据库。
 
-<RequirementChangeComparison markdownDescription="发货失败一小时后给买家退款：数据库方案要加 refund-requests 队列和退款消费者，发货消费者还要记下第一次失败的时间，一小时后放弃。Dex 加一个 Refund Step，Ship Step retry 一小时后进入 Refund Step。发货前等卖家审批：数据库方案要加审批表和审批接口，并改由审批接口写入 ship-requests，扣款消费者不再写。Dex 加一个 approve RPC，Ship Step 等待卖家 Channel 上的消息。提醒卖家：数据库方案要加一个提醒 cron job，扫描审批表，找出还在等的订单。在 Dex 里，Ship Step 同时等一个 Timer，Timer 到了就发提醒，然后继续等。" />
+### 需求变化时 {#when-requirements-change}
 
-[为什么是 Dex？](/intro/what-is-dex) 给出这条 Flow 的 Dex 代码，[Quick Start](/quick-start) 会把它跑起来。
+每个新需求都会改动两种设计：
 
-## 下一步
+<RequirementChangeComparison markdownTable={{
+  header: ['新需求', '数据库、队列和 outbox', 'Dex'],
+  rows: [
+    ['发货失败一小时后给买家退款', '一个 refund-requests 队列和退款消费者。发货消费者记下第一次失败，一小时后放弃。', '一个 Refund Step。Ship Step 重试一小时，然后进入 Refund Step。'],
+    ['发货前等卖家审批', '一张审批表和一个审批接口。由审批接口写入 ship-requests，扣款消费者不再写。', '一个 approve RPC。Ship Step 等待卖家 Channel 上的消息。'],
+    ['提醒卖家', '一个提醒 cron job，扫描审批表，找出还在等的订单。', '不加新部件。Ship Step 同时等一个 Timer，Timer 到了就发提醒，然后继续等。'],
+  ],
+}} />
 
-[Dex vs. Other Engines](/intro/compared-to-durable-execution)：How Dex relates to replay-based workflow engines, journal-based durable function runtimes, database-backed workflow libraries, step function services, and agent framework checkpoints, and when another tool fits better.
+Ship Step 一小时的重试窗口和进入 Refund 的路径都在它的选项里设置；[把失败转到恢复 Step](/intro/add-to-existing-code#route-a-failure-to-a-recovery-step) 解释了这些选项。[订单处理](/use-cases/order-processing) 用每种 SDK 给出了这个 Flow 的可运行代码。[快速开始](/quick-start) 运行一个更小的版本，只有 Charge Step 和 Ship Step。
+
+## 下一步 {#next}
+
+- [Dex vs. 其他引擎](/intro/compared-to-durable-execution)：Dex 和其他持久化执行工具有什么不同。

@@ -4,7 +4,7 @@ title: 等待 Step 完成
 
 # 等待 Step 完成
 
-当 Flow 在后台工作结束前，会先到达一个客户端已经可以使用的 durable 节点时，使用 `WaitForStepCompletion`。调用方启动 Flow、等待该 Step，然后读取需要的结果。调用方拿到响应后，后续 Step 继续运行。
+当 Flow 在后台工作结束前，会先到达一个客户端已经可以使用的持久化节点时，使用 `WaitForStepCompletion`。调用方启动 Flow、等待该 Step，然后读取需要的结果。调用方拿到响应后，后续 Step 继续运行。
 
 `WaitForStepCompletionFlow` 示例会在 `PersistData` 中持久化记录，再启动 `BackgroundWork`。它的 controller 在查询已持久化记录前等待 `PersistData`。要等待的 Step 必须在保存好响应所需的状态之后才完成。
 

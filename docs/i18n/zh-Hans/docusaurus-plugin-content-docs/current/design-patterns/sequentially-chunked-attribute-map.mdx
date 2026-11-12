@@ -5,7 +5,7 @@ slug: /design-patterns/sequentially-chunked-attribute-map
 
 # 顺序分块 AttributeMap
 
-这个模式适合需要保留写入顺序的 append-only 数据，例如 agent messages、subscriber history 或 audit events。
+这个模式适合需要保留写入顺序的 append-only 数据，例如 Agent messages、subscriber history 或 audit events。
 
 如果把这些数据放在单个 Attribute 里，它的 value 会越来越大，每次 append 都要读取并重写整个 value。顺序分块的 **AttributeMap** 把数据拆成多个 chunk，每次 append 只重写一个大小有上限的 chunk。示例的每个 instance 最多保存 100 个 subscriber。
 
@@ -116,7 +116,7 @@ client.invoke_rpc_with_options(
 
 Flow 启动后，**current** token 始终有效。空的 **current** 返回空页。Archive token 必须是 20 位十进制数字，并且指向 chunk 边界。格式错误的 token，或格式正确但没有对应 chunk 的 token，都会返回明确错误。
 
-Archive chunk 不会再改变，所以同一页再读一次（例如 retry 时）得到的记录相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
+Archive chunk 不会再改变，所以同一页再读一次（例如重试时）得到的记录相同。如果需要更新旧记录，请换用其他模式或增加独立索引。
 
 ## HTTP API
 

@@ -39,8 +39,8 @@ Connector 的结果包含操作输出、回执、选中的分支，以及（如�
 | Effect class | 操作 | 重复调用的效果 |
 | --- | --- | --- |
 | Read | 所有 Query | 不改变任何东西。 |
-| Idempotent write | Connector 标记为可以安全重复的 Mutation | 不会产生第二次效果。Connector 作者已经确认，服务商会忽略带同一个幂等 key 的重复调用。 |
-| Non-idempotent write | 其他所有 Mutation | 可能产生第二次效果。 |
+| 幂等写操作 | Connector 标记为可以安全重复的 Mutation | 不会产生第二次效果。Connector 作者已经确认，服务商会忽略带同一个幂等 key 的重复调用。 |
+| 非幂等写操作 | 其他所有 Mutation | 可能产生第二次效果。 |
 
 Dex 每次重试 Mutation 所在的 Step，Mutation 都发送同一个幂等 key。
 
@@ -75,7 +75,7 @@ Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称�
 
 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 包含 manifest、生成的 API、服务商实现、界面单元和可运行示例。
 
-应用使用已发布的 Connector 时，用 [Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、操作、Trigger 或界面单元时，用 [Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。
+应用使用已发布的 Connector 时，用 [Dex SDK Skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、操作、Trigger 或界面单元时，用 [Dex Connector Contributor Skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。
 
 ## 在本地配置 Connector
 
@@ -85,7 +85,7 @@ Go 包就是每个 Connector 的 Go module。Python 包发布在 PyPI，名称�
 2. 在 Dex Web 中打开 **Connectors** 页面。它列出 Flow 定义用到的连接名称。逐个授权。
 3. 用 Dex Web 显示的连接文件启动你的应用。
 
-要使用 Flow 定义之外的连接，例如 agent 工具使用的连接，在同一个页面上按名称添加它，然后像其他连接一样授权。
+要使用 Flow 定义之外的连接，例如 Agent 工具使用的连接，在同一个页面上按名称添加它，然后像其他连接一样授权。
 
 Dex Web 只配置确切的官方 Connector 版本。Connector 的界面运行在沙箱 iframe 中，已保存的凭证永远不会进入其中。
 

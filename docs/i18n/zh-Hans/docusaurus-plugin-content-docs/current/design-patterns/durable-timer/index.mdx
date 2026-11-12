@@ -1,13 +1,13 @@
 ---
-title: Durable Timer
-sidebar_label: Durable Timer
+title: 持久化定时器
+sidebar_label: 持久化定时器
 slug: /design-patterns/durable-timer
 ---
 
-# Durable Timer
+# 持久化定时器
 
 Worker 重启后，Timer 仍按原计划触发。这些模式适合定期执行的工作、提醒，或在活动停止一段时间后才执行的动作。
 
-- [Cron schedule](/design-patterns/durable-timer/cron)：在一个 Flow 中按固定间隔执行工作。
-- [Reminder](/design-patterns/durable-timer/reminder)：定期发送提醒，直到接收者退订。
-- [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer)：每次有新活动时，重新开始计算不活跃时长。
+- [Cron 定时调度](/design-patterns/durable-timer/cron)：在一个 Flow 中按固定间隔执行工作。
+- [提醒](/design-patterns/durable-timer/reminder)：定期发送提醒，直到接收者退订。
+- [不活跃追踪定时器](/design-patterns/durable-timer/inactiveness-tracker-timer)：每次有新活动时，重新开始计算不活跃时长。

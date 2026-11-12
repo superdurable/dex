@@ -1,6 +1,6 @@
 ---
 title: 等待并行 Step
-sidebar_label: Await Parallel Steps
+sidebar_label: 等待并行 Step
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-await.json';
@@ -334,7 +334,7 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 
 ## 只等待部分分支
 
-汇合 Step 也可以只等待第一个分支，或者等待 n 个分支。它可以用一个取消 sibling Step 的 decision 取消其余分支。fork 把分支和汇合一起启动，所以这些 sibling 正好是本轮的分支。如果 RPC 用显式 round key fork 一轮，这些分支是该 RPC 名称启动过的所有 Step 的 sibling，所以要按 Step type 显式取消。带取消的汇合，它的那一轮永远不复位：被取消的分支不会上报。在循环中，下一轮直接 fork 新的一轮。
+汇合 Step 也可以只等待第一个分支，或者等待 n 个分支。它可以用一个取消 sibling Step 的 decision 取消其余分支。fork 把分支和汇合一起启动，所以这些 sibling 正好是本轮的分支。如果 RPC 用显式 round key fork 一轮，这些分支是该 RPC 名称启动过的所有 Step 的 sibling，所以要按 Step 类型显式取消。带取消的汇合，它的那一轮永远不复位：被取消的分支不会上报。在循环中，下一轮直接 fork 新的一轮。
 
 如果其余分支不取消、继续运行，它们的结果会晚到。在循环中，下一轮的拆分 Step 先复位上一轮：它的 `WaitFor` 等待上一轮剩下的结果，它的 `Execute` 可以读取这些结果。然后它 fork 下一轮。如果不复位，晚到的结果会一直待处理，直到 Flow 关闭。[Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns#wcp-30)链接了这两种写法的可运行示例。
 

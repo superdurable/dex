@@ -738,7 +738,7 @@
       ]
     },
     "zh-Hans": {
-      "introduction": "选择你使用的 host，再选择一种安装方式：Plugin 或 standalone Skills。",
+      "introduction": "选择你使用的 host，再选择一种安装方式：Plugin 或独立 Skill。",
       "hosts": [
         {
           "id": "codex-desktop",
@@ -768,13 +768,13 @@
                 {
                   "type": "li",
                   "children": [
-                    "打开 plugin browser，选择添加菜单，然后点击 Add a marketplace。"
+                    "打开插件浏览器，选择添加菜单，然后点击 Add a marketplace。"
                   ]
                 },
                 {
                   "type": "li",
                   "children": [
-                    "Source 使用下面的 repository，Git ref 使用 main，Sparse paths 保持为空。"
+                    "Source 使用下面的仓库，Git ref 使用 main，Sparse paths 保持为空。"
                   ]
                 }
               ]
@@ -799,7 +799,7 @@
                 {
                   "type": "li",
                   "children": [
-                    "打开 repository 或空 project，然后创建新 task。"
+                    "打开一个仓库或空项目，然后创建新任务。"
                   ]
                 }
               ]
@@ -813,7 +813,7 @@
             {
               "type": "p",
               "children": [
-                "输入 @，从 picker 中选择 Dex，再输入请求。只输入普通 @Dex 文本不会创建 Plugin binding。"
+                "输入 @，从选择器中选择 Dex，再输入请求。只输入普通的 @Dex 文本不会创建 Plugin 绑定。"
               ]
             },
             {
@@ -829,19 +829,19 @@
             {
               "type": "p",
               "children": [
-                "在 plugin browser 的 marketplace 管理页面找到 Super Durable，点击 Upgrade。完成后重启 Desktop app，并创建新 task。"
+                "在插件浏览器的 marketplace 管理页面找到 Super Durable，点击 Upgrade。完成后重启 Desktop 应用，并创建新任务。"
               ]
             },
             {
               "type": "h3",
               "children": [
-                "Standalone Skills"
+                "独立 Skill（Standalone）"
               ]
             },
             {
               "type": "p",
               "children": [
-                "这种方式会一起安装三个 Skills。"
+                "这种方式会一起安装三个 Skill。"
               ]
             },
             {
@@ -926,7 +926,7 @@
             {
               "type": "p",
               "children": [
-                "启动新的 interactive Codex session，输入 @，并从 picker 中选择 Dex。初始 codex prompt 或 codex exec 中的普通 @Dex 文本不是结构化 Plugin binding。"
+                "启动新的 Codex 交互式会话，输入 @，并从选择器中选择 Dex。初始 codex prompt 或 codex exec 中的普通 @Dex 文本不是结构化的 Plugin 绑定。"
               ]
             },
             {
@@ -949,19 +949,19 @@
             {
               "type": "p",
               "children": [
-                "在新 session 中打开 /plugins，确认 Dex 已启用。"
+                "在新会话中打开 /plugins，确认 Dex 已启用。"
               ]
             },
             {
               "type": "h3",
               "children": [
-                "Standalone Skills"
+                "独立 Skill（Standalone）"
               ]
             },
             {
               "type": "p",
               "children": [
-                "这种方式会一起安装三个 Skills。"
+                "这种方式会一起安装三个 Skill。"
               ]
             },
             {
@@ -1009,7 +1009,7 @@
             {
               "type": "p",
               "children": [
-                "需要确定性非交互调用时，请使用 standalone Skill 路径。"
+                "需要确定性的非交互调用时，请使用独立 Skill 方式。"
               ]
             }
           ]
@@ -1036,7 +1036,7 @@
                 {
                   "type": "li",
                   "children": [
-                    "打开 Customize，进入 Plugins tab。"
+                    "打开 Customize，进入 Plugins 标签页。"
                   ]
                 },
                 {
@@ -1048,7 +1048,7 @@
                 {
                   "type": "li",
                   "children": [
-                    "输入下面的 repository，然后打开 Super Durable marketplace 并安装 Dex。"
+                    "输入下面的仓库，然后打开 Super Durable marketplace 并安装 Dex。"
                   ]
                 }
               ]
@@ -1069,7 +1069,7 @@
             {
               "type": "p",
               "children": [
-                "使用自然语言请求或 / picker。"
+                "使用自然语言请求或 / 选择器。"
               ]
             },
             {
@@ -1085,19 +1085,19 @@
             {
               "type": "p",
               "children": [
-                "organization-managed marketplace 由 owner 在 Organization settings → Plugins & skills → Marketplaces → Update 中更新。Claude 没有公开的 per-user upgrade command。"
+                "由组织管理的 marketplace 由管理员在 Organization settings → Plugins & skills → Marketplaces → Update 中更新。Claude 没有公开的按用户升级的命令。"
               ]
             },
             {
               "type": "h3",
               "children": [
-                "Standalone Skills"
+                "独立 Skill（Standalone）"
               ]
             },
             {
               "type": "p",
               "children": [
-                "Claude Web 和 Desktop 通过 Plugin 安装 Dex，没有 standalone ZIP Skills。"
+                "Claude Web 和 Desktop 通过 Plugin 安装 Dex，没有独立的 ZIP Skill。"
               ]
             }
           ]
@@ -1121,7 +1121,7 @@
             {
               "type": "p",
               "children": [
-                "在 shell 中运行以下命令。也可以在 interactive Claude Code session 中使用相同命令的 /plugin 版本。"
+                "在 shell 中运行以下命令。也可以在 Claude Code 交互式会话中使用相同命令的 /plugin 版本。"
               ]
             },
             {
@@ -1134,7 +1134,7 @@
             {
               "type": "p",
               "children": [
-                "安装后启动新的 Claude Code session。Claude Code 2.1.273 或更高版本也可以同步同一账号的 Desktop Plugin。"
+                "安装后启动新的 Claude Code 会话。Claude Code 2.1.273 或更高版本也可以同步同一账号的 Desktop Plugin。"
               ]
             },
             {
@@ -1163,19 +1163,19 @@
             {
               "type": "p",
               "children": [
-                "也可以在 interactive session 中使用 /plugin marketplace update superdurable。更新后启动新 session。"
+                "也可以在交互式会话中使用 /plugin marketplace update superdurable。更新后启动新会话。"
               ]
             },
             {
               "type": "h3",
               "children": [
-                "Standalone Skills"
+                "独立 Skill（Standalone）"
               ]
             },
             {
               "type": "p",
               "children": [
-                "这种方式会一起安装三个 Skills。"
+                "这种方式会一起安装三个 Skill。"
               ]
             },
             {
@@ -1244,13 +1244,13 @@
                 {
                   "type": "li",
                   "children": [
-                    "在 Cursor Desktop 中打开 project，然后打开侧栏中的 Customize。"
+                    "在 Cursor Desktop 中打开项目，然后打开侧栏中的 Customize。"
                   ]
                 },
                 {
                   "type": "li",
                   "children": [
-                    "选择 Plugins → Add → From GitHub Repository，并输入下面的 repository。"
+                    "选择 Plugins → Add → From GitHub Repository，并输入下面的仓库。"
                   ]
                 }
               ]
@@ -1269,7 +1269,7 @@
                 {
                   "type": "li",
                   "children": [
-                    "打开 Dex，点击 Install，然后选择 user 或 project scope。"
+                    "打开 Dex，点击 Install，然后选择用户级或项目级。"
                   ]
                 }
               ]
@@ -1277,7 +1277,7 @@
             {
               "type": "p",
               "children": [
-                "user-scope Desktop 安装也可用于 Cursor CLI。或者启动 cursor-agent，输入 /plugin，在 Marketplace tab 中安装 Dex。"
+                "用户级的 Desktop 安装也可用于 Cursor CLI。或者启动 cursor-agent，输入 /plugin，在 Marketplace 标签页中安装 Dex。"
               ]
             },
             {
@@ -1299,19 +1299,19 @@
             {
               "type": "p",
               "children": [
-                "对于 GitHub-imported team marketplace，管理员点击 Refresh 或启用 Auto Refresh，然后用户 reload Cursor window。"
+                "对于从 GitHub 导入的团队 marketplace，管理员点击 Refresh 或启用 Auto Refresh，然后用户重新加载 Cursor 窗口。"
               ]
             },
             {
               "type": "h3",
               "children": [
-                "Standalone Skills"
+                "独立 Skill（Standalone）"
               ]
             },
             {
               "type": "p",
               "children": [
-                "这种方式会一起安装三个 Skills。"
+                "这种方式会一起安装三个 Skill。"
               ]
             },
             {
@@ -1359,7 +1359,7 @@
             {
               "type": "p",
               "children": [
-                "Cursor 的 Plugin 和 standalone 安装使用相同短 slash command，只有安装来源不同。"
+                "Cursor 的 Plugin 和独立 Skill 安装使用相同的短斜杠命令，只有安装来源不同。"
               ]
             }
           ]
@@ -1383,13 +1383,13 @@
             {
               "type": "h3",
               "children": [
-                "Standalone Skills"
+                "独立 Skill（Standalone）"
               ]
             },
             {
               "type": "p",
               "children": [
-                "未单列的 Agent Skills client 使用 standalone 路径。"
+                "未单列的 Agent Skills 客户端使用独立 Skill 方式。"
               ]
             },
             {
@@ -1401,7 +1401,7 @@
             {
               "type": "p",
               "children": [
-                "交互选择检测到的兼容 agent，或者显式传入该 host 的 agent id。"
+                "交互选择检测到的兼容 Agent，或者显式传入该 host 的 Agent ID。"
               ]
             },
             {
@@ -1420,7 +1420,7 @@
             {
               "type": "p",
               "children": [
-                "使用 host 的 Skill picker、调用 prefix 或匹配的自然语言请求。"
+                "使用 host 的 Skill 选择器、调用前缀或匹配的自然语言请求。"
               ]
             },
             {

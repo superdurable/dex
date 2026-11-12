@@ -9,6 +9,14 @@ slug: /glossary
 
 Short definitions of Dex terms. Dex grew out of iWF, which called a Flow a Workflow and a Step a State. These docs use only the Dex names.
 
+#### [Activation](/reference/agents/tracing)
+
+The burst of agent session Steps between two durable waits. It starts when the session takes a user message or an approval answer, and ends when the session waits again. Tracing emits one trace per activation.
+
+#### [Agent session](/agent-frameworks/sessions)
+
+One conversation with a durable agent. It is one Flow run, and the session ID is its Flow ID. It keeps the conversation and tool calls in Attributes.
+
 #### [Agent Step names](/agent-frameworks/sessions)
 
 The Steps of a durable agent session, such as `RunModel`, `CallTool`, `AwaitToolApproval`, and `ResumeTurn`. Sessions explains each one.
@@ -93,6 +101,10 @@ A Client API that reads committed Attribute values from outside a Flow. It does 
 
 An Attribute for a short-lived secret. Deleting it erases the stored value permanently. Dex reads it again on every attempt instead of from the attempt's snapshot.
 
+#### [Harness](/agent-frameworks#choose-a-harness)
+
+The code that runs an agent loop on Dex: the built-in agent loop of Dex Agents, or an adapter for an agent framework.
+
 #### [Idempotency key](/concepts/step#idempotency-keys)
 
 A value you send with a call to another system so that system can recognize a repeat and skip it. Build it from values that stay the same on every attempt, such as the Flow ID and a name for the call.
@@ -100,6 +112,10 @@ A value you send with a call to another system so that system can recognize a re
 #### [Index slot](/concepts/primitives/attribute#read-and-search-attributes)
 
 A numbered search key, such as `keyword1` or `int2`, that an indexed Attribute uses. Slots are typed, shared by every Flow type in a namespace, and limited in number.
+
+#### [Interrupt](/agent-frameworks/approvals)
+
+A point where an agent turn waits for a person. An approval is an interrupt: the session snapshot lists it under `pending_interrupts`, and `resolve_interrupt` answers it. A question to the user is the other kind.
 
 #### [InvokeRPC](/concepts/primitives/rpc)
 
@@ -180,6 +196,10 @@ A durable sleep condition. When it fires, the waiting Step resumes.
 #### [Transactional RPC](/concepts/primitives/rpc#transactional-reads-and-writes)
 
 An RPC whose changes Dex saves only if every Channel message it deletes is still pending. An RPC that holds a lock is always transactional.
+
+#### [Turn segment](/agent-frameworks/sessions#how-each-framework-runs-a-turn)
+
+In the Claude Agent SDK harness, the part of a turn that one CLI run handles, in one `RunModel` Step. A write tool call ends a segment.
 
 #### [Versioning](/concepts/change-flow-code#versioning-flow-code)
 

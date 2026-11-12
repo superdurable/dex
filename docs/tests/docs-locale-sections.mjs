@@ -61,10 +61,34 @@ if (process.argv.includes('--list')) {
   console.log(`${mismatches.length} pages differ`);
   process.exit(0);
 }
+// Code is the same in both locales. Text fences are diagrams and prompts, which may be translated.
+function codeBlocks(file) {
+  const source = readFileSync(file, 'utf8');
+  const blocks = [...source.matchAll(/^( *)(`{3,}|~{3,})([^\n]*)\n[\s\S]*?\n\1\2[ \t]*$/gm)]
+    .filter((match) => !/^text\b/.test(match[3].trim()))
+    .map((match) => match[0].trim());
+  const props = [...source.matchAll(/examples=\{\{[\s\S]*?\}\}/g)].map((match) => match[0]);
+  return [...blocks, ...props];
+}
+const codeDrift = [];
+for (const chinese of mdxFiles(chineseRoot)) {
+  const rel = relative(chineseRoot, chinese);
+  const english = join(englishRoot, rel);
+  if (!existsSync(english)) continue;
+  const chineseBlocks = new Set(codeBlocks(chinese));
+  const missing = codeBlocks(english).filter((block) => !chineseBlocks.has(block));
+  if (missing.length > 0) codeDrift.push(`${rel}: ${missing.length} code block(s) differ from English. First: ${missing[0].split('\n').slice(0, 2).join(' ').slice(0, 120)}`);
+}
+if (codeDrift.length > 0) {
+  console.error(codeDrift.join('\n'));
+  console.error('Copy code blocks and SDK snippet props from the English page unchanged.');
+  process.exit(1);
+}
+
 const failures = mismatches.filter(({allowed}) => !allowed);
 if (failures.length > 0) {
   console.error(failures.map(({rel, en, zh}) => `${rel}: English has ${en} H2 sections, Chinese has ${zh}.\n  → Translate the missing sections, or allowlist the page with a reason in tests/docs-locale-sections.mjs.`).join('\n'));
   console.error(`${failures.length} Chinese pages have fallen behind their English page.`);
   process.exit(1);
 }
-console.log('Locale section check passed: every Chinese page has as many H2 sections as its English page.');
+console.log('Locale section check passed: every Chinese page has as many H2 sections as its English page, and the same code.');

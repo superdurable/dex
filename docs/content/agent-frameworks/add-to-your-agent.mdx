@@ -9,6 +9,15 @@ description: Install the adapter for your framework, copy the complete agent and
 
 The [Agent Quick Start](/agent-frameworks/quick-start) runs an example. This page moves the same agent into your own code: install your framework's adapter, copy the complete files, and serve the session from a web app.
 
+## What changes in your app {#what-changes-in-your-app}
+
+- **Your agent definition stays.** You wrap it and give each tool a policy.
+- **Your request handler changes shape.** It sends the user's message to the session and returns. The reply arrives on the session's event stream, or in its snapshot.
+- **You run two more things.** A Worker process runs the session Steps, and Dex Server stores them. Dex Server runs in Dex Cloud or on your own infrastructure; [Choose How to Run Dex](/components/choose-how-to-run) compares the two. Dex is in Beta, Dex Server is at version 0.1, and one active node serves a cluster.
+- **Each turn waits on Dex commits.** A turn with three parallel tool calls adds about 0.4 seconds; see [Latency and cost](/agent-frameworks/sessions#latency-and-cost).
+
+[Agents in Production](/agent-frameworks/production) lists what to set up. [Performance](/intro/performance) gives the numbers, and [Limits](/intro/limits#license) gives the license.
+
 ## Use it in your own agent {#use-it-in-your-own-agent}
 
 Install the adapter with its framework. Each adapter brings in the Dex Agents core. Then copy [the complete files](#complete-files) below.

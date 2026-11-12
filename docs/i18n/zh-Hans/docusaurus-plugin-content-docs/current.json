@@ -1,0 +1,110 @@
+{
+  "sidebar.docs.category.Get Started": {
+    "message": "开始使用",
+    "description": "The label for category Get Started in sidebar docs"
+  },
+  "sidebar.docs.category.Build with AI": {
+    "message": "使用 AI 构建",
+    "description": "The label for category Build with AI in sidebar docs"
+  },
+  "sidebar.docs.category.Durable Agents": {
+    "message": "持久化 Agent",
+    "description": "The label for category Durable Agents in sidebar docs"
+  },
+  "sidebar.docs.category.Concepts": {
+    "message": "概念",
+    "description": "The label for category Concepts in sidebar docs"
+  },
+  "sidebar.docs.category.Primitives": {
+    "message": "原语",
+    "description": "The label for category Primitives in sidebar docs"
+  },
+  "sidebar.docs.category.Design Patterns": {
+    "message": "设计模式",
+    "description": "The label for category Design Patterns in sidebar docs"
+  },
+  "sidebar.docs.category.Parallel Steps": {
+    "message": "并行 Step",
+    "description": "The label for category Parallel Steps in sidebar docs"
+  },
+  "sidebar.docs.category.Parallel SubFlows": {
+    "message": "并行 SubFlow",
+    "description": "The label for category Parallel SubFlows in sidebar docs"
+  },
+  "sidebar.docs.category.Durable Timer": {
+    "message": "持久化定时器",
+    "description": "The label for category Durable Timer in sidebar docs"
+  },
+  "sidebar.docs.category.Failure Handling": {
+    "message": "失败处理",
+    "description": "The label for category Failure Handling in sidebar docs"
+  },
+  "sidebar.docs.category.Drain Channels": {
+    "message": "排空 Channel",
+    "description": "The label for category Drain Channels in sidebar docs"
+  },
+  "sidebar.docs.category.Responsive Update": {
+    "message": "响应式更新",
+    "description": "The label for category Responsive Update in sidebar docs"
+  },
+  "sidebar.docs.category.AttributeMap Partitioning": {
+    "message": "AttributeMap 分区",
+    "description": "The label for category AttributeMap Partitioning in sidebar docs"
+  },
+  "sidebar.docs.category.Examples": {
+    "message": "示例",
+    "description": "The label for category Examples in sidebar docs"
+  },
+  "sidebar.docs.category.Run Dex": {
+    "message": "运行 Dex",
+    "description": "The label for category Run Dex in sidebar docs"
+  },
+  "sidebar.docs.category.Evaluate Dex": {
+    "message": "评估 Dex",
+    "description": "The label for category Evaluate Dex in sidebar docs"
+  },
+  "sidebar.docs.category.Correctness and Expressiveness": {
+    "message": "正确性与表达能力",
+    "description": "The label for category Correctness and Expressiveness in sidebar docs"
+  },
+  "sidebar.docs.category.Developer Reference": {
+    "message": "开发者参考",
+    "description": "The label for category Developer Reference in sidebar docs"
+  },
+  "sidebar.docs.link.Server (server-zd)": {
+    "message": "Server（server-zd）",
+    "description": "The label for link Server (server-zd) in sidebar docs, linking to /reference/server/"
+  },
+  "sidebar.docs.link.CLI (dexcli)": {
+    "message": "CLI（dexcli）",
+    "description": "The label for link CLI (dexcli) in sidebar docs, linking to /reference/cli/"
+  },
+  "sidebar.docs.link.Web (Dex Web)": {
+    "message": "Web（Dex Web）",
+    "description": "The label for link Web (Dex Web) in sidebar docs, linking to /reference/web/"
+  },
+  "sidebar.docs.link.Go SDK": {
+    "message": "Go SDK",
+    "description": "The label for link Go SDK in sidebar docs, linking to /reference/go/"
+  },
+  "sidebar.docs.link.Python SDK": {
+    "message": "Python SDK",
+    "description": "The label for link Python SDK in sidebar docs, linking to /reference/python/"
+  },
+  "sidebar.docs.link.Java SDK": {
+    "message": "Java SDK",
+    "description": "The label for link Java SDK in sidebar docs, linking to /reference/java/"
+  },
+  "sidebar.docs.link.TypeScript SDK": {
+    "message": "TypeScript SDK",
+    "description": "The label for link TypeScript SDK in sidebar docs, linking to /reference/typescript/"
+  },
+  "sidebar.docs.link.Rust SDK": {
+    "message": "Rust SDK",
+    "description": "The label for link Rust SDK in sidebar docs, linking to /reference/rust/"
+  },
+  "sidebar.docs.link.Agents packages": {
+    "message": "Agents 包",
+    "description": "The label for link Agents packages in sidebar docs, linking to /reference/agents/"
+  }
+}

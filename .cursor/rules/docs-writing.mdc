@@ -78,6 +78,16 @@ These rules come from the docs revisit plan,
   a link.
 - At a 390px width, the first screen says what the page is about and where to
   go next.
+- Headings are statements, not questions. Write "Start here" or "Common
+  tasks", not "First time here?" or "What do you want to do?". A section on
+  why to use something lists what it provides, feature by feature, not the
+  scenarios a reader might be in.
+- A group overview page is a wayfinder. It says what the group covers and
+  links to each child page and its key sections. It does not repeat what a
+  child page owns: per-item caveats, limits, API and option names, numbers,
+  steps, or term definitions. A table on an overview has only columns that
+  help a reader choose and go, such as name, language, and link. Terms go in
+  the Glossary, and the overview links to them.
 
 ### Page skeletons
 

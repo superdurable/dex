@@ -2,7 +2,7 @@
 title: Step
 sidebar_label: Step
 slug: /concepts/step
-description: "Step 是 Flow 里的一个后台工作单元。它可以先 durable 地等待某件事发生，再执行工作，然后选择下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。"
+description: "Step 是 Flow 里的一个后台工作单元。它可以先持久地等待某件事发生，再执行工作，然后选择下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。"
 ---
 
 import StepWaitExecuteDiagram from '@site/src/components/primitives/step/StepWaitExecuteDiagram';
@@ -10,19 +10,19 @@ import StepDecisionMovementsDiagram from '@site/src/components/primitives/step/S
 
 # Step
 
-**Step** 是 [Flow](/concepts/flow) 里的一个后台工作单元。它可以先 durable 地等待某件事发生，再执行工作，然后决定下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。
+**Step** 是 [Flow](/concepts/flow) 里的一个后台工作单元。它可以先持久地等待某件事发生，再执行工作，然后决定下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。
 
-Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。同一个 Step type 在一个 Flow 里可以运行多次，甚至并行运行。每次运行是一个 `StepExecution`，用 `StepExecutionID` 标识，比如 **Charge-2**。
+Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。同一个 Step 类型在一个 Flow 里可以运行多次，甚至并行运行。每次运行是一个 `StepExecution`，用 `StepExecutionID` 标识，比如 **Charge-2**。
 
 ## Step input {#step-input}
 
-每次 Step execution 都有自己带类型的输入，Dex 把它和这次 execution 一起保存。输入用来区分同一个 Step type 的不同 execution。起始 Step 的输入就是 Flow 的启动输入。
+每次 Step execution 都有自己带类型的输入，Dex 把它和这次 execution 一起保存。输入用来区分同一个 Step 类型的不同 execution。起始 Step 的输入就是 Flow 的启动输入。
 
 ## WaitFor 和 Execute {#waitfor-and-execute}
 
 一个 Step 有一个或两个方法。
 
-- `WaitFor` 可选。它返回一个 durable 的 **Wait**。Dex 保存这个 wait，替你检查条件，条件满足后调用 `Execute`。
+- `WaitFor` 可选。它返回一个持久化的 **Wait**。Dex 保存这个 wait，替你检查条件，条件满足后调用 `Execute`。
 - `Execute` 必需。它执行工作，并返回一个 `StepDecision`。
 
 Step 没有 `WaitFor` 时，`Execute` 立即运行。
@@ -206,7 +206,7 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 ## StepDecision {#stepdecision-movements}
 
-`Execute` 返回一个 `StepDecision`。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。`GoTo` 用 Step type 指定下一个 Step，并传入它的输入。由 Flow 注册的该 Step type 实例来运行它。
+`Execute` 返回一个 `StepDecision`。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。`GoTo` 用 Step 类型指定下一个 Step，并传入它的输入。由 Flow 注册的该 Step 类型实例来运行它。
 
 <StepDecisionMovementsDiagram markdownDescription="GoTo：ExampleStep 返回 GoTo(Complete Flow)，完成 Flow。GoToMany：ExampleStep 启动 StepA 和 StepB，两者并行运行。循环：ExampleStep 转到 ProcessStep，ProcessStep 再回到 ExampleStep。" />
 
@@ -219,14 +219,14 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。多个完成类的决定都返回 output 时，result 会保留每一个。只有最终完成的 Flow 才保留这些 output。如果 Flow 没有完成（失败、被取消、被终止或超时），它的 result 不含任何 output。
 
-决定还可以取消其他 active Step。见 [Parallel Steps](/design-patterns/parallel) 和 [Parallel SubFlows](/design-patterns/parallel-subflows) 模式。
+决定还可以取消其他 active Step。见 [并行 Step](/design-patterns/parallel) 和 [并行 SubFlow](/design-patterns/parallel-subflows) 模式。
 
 ## StepOptions {#stepoptions}
 
 Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Execute` 各有自己的设置。
 
-- **Timeout** 限制方法的一次 attempt。
-- **Retry policy** 在 attempt 失败后再次运行同一个方法。
+- **Timeout** 限制方法的一次尝试。
+- **Retry policy** 在尝试失败后再次运行同一个方法。
 - <a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="step-failed-事件与-last-failure-info"></a>**Failure policy** 决定重试用完之后怎么办。默认让 Flow 失败。`Execute` 可以改为进入一个 recovery Step，`WaitFor` 可以继续执行 `Execute`。见 [WaitFor failure policy](/reference/python/failure-and-retries#waitfor-failure-policy)、[Execute failure policy](/reference/python/failure-and-retries#execute-failure-policy) 和 [Last failure info](/reference/python/failure-and-retries#last-failure-info)。
 - **Durability** 决定 Dex 什么时候存储结果。默认的 **SYNC** 在下一步工作开始前存储。**ASYNC** 更快，但 server 故障可能让方法再运行一次。见 [SYNC 和 ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async)。
 - **Heartbeat** 让长时间运行的方法报告进度并保存 checkpoint。
@@ -238,7 +238,7 @@ Step 返回 `StepOptions`，控制它的方法如何运行。`WaitFor` 和 `Exec
 
 | 设置 | 默认值 |
 | --- | --- |
-| 方法超时（单次 attempt） | 2 小时 |
+| 方法超时（单次尝试） | 2 小时 |
 | Heartbeat 超时 | 1 分钟 |
 | 重试次数 | 在总时长内不限次数 |
 | 重试总时长 | 从第一次交给 Worker 起 4 小时 |
@@ -256,17 +256,17 @@ SDK 参考中的 [Timeouts and total duration](/reference/go/step-options#timeou
 
 - **已经完成的 Step 不会再运行。** Dex 把它的结果和转到下一个 Step 的动作一起保存。
 - **被中断的 Step 可能再运行一次。** 崩溃、超时或重试，可能让一个已经调用过外部系统的方法再运行一次。所以 Step 至少运行一次，而不是恰好一次。下一节说明怎样让这件事安全。
-- **重试看到的是第一次 attempt 的状态。** `Execute` 的重试复用第一次 attempt 的状态快照，看不到之后写入的 Attribute。要等待这样的写入，让写入方发布一条 Channel 消息，并在下一个 Step 的 `WaitFor` 里等待它。hard-delete Attribute 是例外：Dex 在每次 attempt 时都会重新读取它们。见 [短期 secret](/concepts/primitives/attribute#hard-delete-attributes)。
+- **重试看到的是第一次尝试的状态。** `Execute` 的重试复用第一次尝试的状态快照，看不到之后写入的 Attribute。要等待这样的写入，让写入方发布一条 Channel 消息，并在下一个 Step 的 `WaitFor` 里等待它。hard-delete Attribute 是例外：Dex 在每次尝试时都会重新读取它们。见 [短期 secret](/concepts/primitives/attribute#hard-delete-attributes)。
 - **并行写入可能互相覆盖。** 两个先读后写同一个 Attribute 的 Step 或 RPC 需要在它上面加 lock。细节见下文。
 
 ### 幂等键 {#idempotency-keys}
 
-每个会改变外部状态的调用（例如付款或发邮件）都要带上幂等键。执行这个效果的服务用这个键丢弃重复请求。用每次 attempt 都不变的值来构造键：
+每个会改变外部状态的调用（例如付款或发邮件）都要带上幂等键。执行这个效果的服务用这个键丢弃重复请求。用每次尝试都不变的值来构造键：
 
 - Flow 只调用一次时，用 Flow ID 加调用的名字，例如 **charge-order-1042**；
 - 同一个 Flow 里这个 Step 会运行多次时，用 Flow ID 加 `StepExecutionID`，例如 `order-1042/Charge-2`。
 
-attempt 编号、时间和随机值每次重试都会变，所以不要放进键里。其他页面都链接到这里，而不是重复这条规则。
+尝试编号、时间和随机值每次重试都会变，所以不要放进键里。其他页面都链接到这里，而不是重复这条规则。
 
 ## 进阶保证 {#advanced-guarantees}
 

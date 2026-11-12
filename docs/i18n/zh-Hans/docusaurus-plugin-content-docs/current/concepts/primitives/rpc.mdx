@@ -196,7 +196,7 @@ Java、Kotlin 和 TypeScript 还有额外的 RPC 规则，见 [RPC stubs and Kot
 <a id="cancel-race"></a>
 <a id="cancel-honour"></a>
 
-RPC 的结果可以按 Step type 取消所在 Flow 中的活跃 Step。外部请求让进行中的工作失去意义时用它，例如报告或模型调用运行时用户按下 Stop。Dex 在保存这个 RPC 的结果时执行取消。Step 代码必须检查取消并停下。示例见 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps)，与先完成的 Step 的竞争见 [Resolve the race from committed state](/reference/server/runtime-data#cancel-race)，各 SDK 如何传递取消见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)。
+RPC 的结果可以按 Step 类型取消所在 Flow 中的活跃 Step。外部请求让进行中的工作失去意义时用它，例如报告或模型调用运行时用户按下 Stop。Dex 在保存这个 RPC 的结果时执行取消。Step 代码必须检查取消并停下。示例见 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps)，与先完成的 Step 的竞争见 [Resolve the race from committed state](/reference/server/runtime-data#cancel-race)，各 SDK 如何传递取消见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)。
 
 ## Lock 和 transactional RPC {#transactional-reads-and-writes}
 
@@ -221,4 +221,4 @@ RPC 会收到普通 Attribute 和 Channel 大小。只有声明之后，它才�
 
 ## 下一步
 
-[Channel](/concepts/primitives/channel)：A Channel is a durable first-in, first-out (FIFO) queue inside one Flow run.
+[Channel](/concepts/primitives/channel)：Channel 是一个 Flow run 内的持久化先进先出（FIFO）队列。

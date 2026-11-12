@@ -1,0 +1,773 @@
+---
+title: Agent 快速开始
+sidebar_label: Agent 快速开始
+slug: /agent-frameworks/quick-start
+description: 从下载的示例把你所用框架的 Agent 作为持久化 Dex Session 运行，批准一次写操作，然后在它等待时和 tool 运行时停止程序，看 Session 继续运行。
+---
+
+# Agent 快速开始
+
+把你所用框架的 Agent 作为持久化 Dex Session 运行，然后在对话中途停止它，看它继续运行。整个过程大约 10 分钟。
+
+<a id="before-you-start"></a>
+<a id="what-you-will-build"></a>
+<a id="run-it"></a>
+<a id="start-in-an-empty-folder"></a>
+
+## 1. 获取示例并运行 {#get-the-example}
+
+在一个终端中运行 `dexcli dev`（[安装 `dexcli`](/components/run-locally)）。在第二个终端中下载示例，并向 Agent 询问一个订单：
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start claude-agent-sdk "Look up order 1001"
+```
+
+需要 Python 3.11 或更高版本以及 uv。它会调用 Claude，所以先设置 `ANTHROPIC_API_KEY`。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session claude-agent-sdk-quick-start-<8 hex digits>
+Agent: <the model's reply about order 1001>
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- claude-agent-sdk "Look up order 1001"
+```
+
+需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session claude-agent-sdk-quick-start-<8 hex digits>
+Agent: <the model's reply about order 1001>
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start google-adk "Look up order 1001"
+```
+
+需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session google-adk-quick-start-6dd3466c
+Skipping missing token usage metadata for agent order_support and model mock/order-support
+Skipping missing token usage metadata for agent order_support and model mock/order-support
+Agent: Local demo response: Order 1001: 2 notebooks, shipped.
+```
+
+以 `Skipping` 开头的两行是 Google ADK 关于 demo 模型 token 计数的日志，可以忽略。
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start langchain "Look up order 1001"
+```
+
+需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session langchain-quick-start-5fdf8e3b
+Agent: Local demo response: Order 1001: 2 notebooks, shipped.
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- mastra "Look up order 1001"
+```
+
+需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session mastra-quick-start-<8 hex digits>
+Agent: <the model's reply about order 1001>
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start openai-agents "Look up order 1001"
+```
+
+需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session openai-agents-quick-start-3980a512
+Agent: Local demo response: Order 1001: 2 notebooks, shipped.
+OPENAI_API_KEY is not set, skipping trace export
+```
+
+最后一行是 OpenAI Agents SDK 提示它只有在设置了 key 时才导出 trace，可以忽略。
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- openai-agents "Look up order 1001"
+```
+
+需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session openai-agents-quick-start-<8 hex digits>
+Agent: <the model's reply about order 1001>
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-starter/agent.py',
+  }}>
+<SdkSnippet lang="python">
+
+如果想从单个文件开始，并且只使用已发布的 package，可以用单文件 starter：同一个 Agent，连同它的 Worker 和 Client 都在一个 Python 文件中。它会调用真实模型，所以要设置 `OPENAI_API_KEY`。在 `dexcli dev` 运行时执行：
+
+```bash
+mkdir order-agent && cd order-agent
+python3 -m venv .venv && source .venv/bin/activate
+pip install dex-agents-openai-agents==0.5.0 dex-python-sdk==1.45.0
+curl -fsSLO https://raw.githubusercontent.com/superdurable/dex/main/examples/python/agent-starter/agent.py
+python agent.py "Cancel order 1002, it was a mistake"
+```
+
+写操作运行前，程序会询问 **Approve cancel_order? [y/N]**。[agent.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-starter/agent.py) 就是整个程序。
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start pydantic-ai "Look up order 1001"
+```
+
+需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session pydantic-ai-quick-start-9b54d0be
+Agent: Local demo response: Order 1001: 2 notebooks, shipped.
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- vercel-ai "Look up order 1001"
+```
+
+需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
+
+
+它会打印 Session ID 和 Agent 的回复：
+
+```text
+Session vercel-ai-quick-start-<8 hex digits>
+Agent: <the model's reply about order 1001>
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
+这个 Agent 是一个小型订单客服 Agent，有两个 tool。`look_up_order` 读取订单，因此 Dex 可以重试它。`cancel_order` 取消尚未发货的订单；它是写操作，所以最多运行一次，并且要等人批准后才运行。
+
+## 2. 批准一次写操作 {#approve-a-write}
+
+用消息 **Cancel order 1002** 运行同一条命令。程序会停下来询问：
+
+```text
+cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
+```
+
+Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订单并回复。[审批](/agent-frameworks/approvals) 介绍应用如何读取并答复正在等待的调用，以及人如何在 Dex Web 中批准它。
+
+## 3. 在 Agent 等待时停止程序 {#stop-the-worker}
+
+再次要求取消订单 1002；每次不带 `--session-id` 运行都会启动一个新 Session。程序请你批准时，按 Ctrl+C。程序、它的 Worker 和 Client 都会停止，而 Session 仍在 Dex 中等待。
+
+在同一个文件夹中再次运行第 1 步的命令，用 `--session-id SESSION_ID` 替换消息。新的 Worker 启动，程序会询问同一个 `cancel_order` 调用。输入 **y**。订单只取消一次，重启之前的模型调用仍然是已完成状态。
+
+<CrashTimeline variant="agent" />
+
+## 4. 在 tool 运行时停止 {#stop-while-a-tool-runs}
+
+在 Tool Call 中途崩溃是更难处理的情况。示例可以放慢每次 Tool Call，让你有时间停止它。
+
+1. 在第 1 步的命令前加上 `DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20`，询问订单 1001。
+2. 在 20 秒内像崩溃那样杀掉程序。崩溃相当于 kill 信号；Ctrl+C 会先让正在运行的调用完成。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pkill -9 -f agent_harness_examples.quick_start
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+pkill -9 -f quick-start-main.js
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+3. 带上 `--session-id`、不带消息，再次运行程序。Agent 会回复订单信息。
+4. 查看这次 Tool Call 是如何运行的：
+
+```bash
+dexcli flow history --all SESSION_ID | jq '.events[]
+  | select(.payload.context.stepType == "CallTool")
+  | .payload.context | {finalAttempt, failure: .lastFailureInfo.details.detail}'
+```
+
+`finalAttempt` 是 **2**。第一次尝试在 Worker 断开时失败；因为 `look_up_order` 是读操作，Dex 在新的 Worker 上再次运行了它。它之前的模型调用只运行了一次。
+
+现在对写操作做同样的事：设置延迟后要求取消订单 1002，批准它，在 20 秒内杀掉程序，再带上 `--session-id` 运行。Dex 把 `cancel_order` 记录为 `outcome_unknown`，并且不会再运行第二次，因为它是非幂等写操作。Agent 会告诉用户结果未知，由你的应用在任何人重试之前先检查订单系统。[核对 outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) 介绍具体做法。
+
+
+## 是什么让它变得持久 {#make-it-durable}
+
+示例先按框架本身的写法写出 Agent，再把它包进 Dex Agent Session，并为每个 tool 指定 policy。对这两个 function tool 来说，改动只有这些：
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_plain_agent(order_desk: OrderDesk, model: str) -> ClaudeAgentOptions:
+    """Returns the agent's options as the Claude Agent SDK alone writes them."""
+    orders = create_sdk_mcp_server("orders", tools=build_order_tools(order_desk))
+    return ClaudeAgentOptions(
+        model=model,
+        system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+        mcp_servers={"orders": orders},
+        allowed_tools=["mcp__orders__look_up_order", "mcp__orders__cancel_order"],
+    )
+
+
+def build_durable_agent(order_desk: OrderDesk, model: str) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+
+    # Dex passes the tools to the CLI itself and decides when each one runs.
+    def build_options(context: ClaudeAgentOptionsContext) -> ClaudeAgentOptions:
+        return ClaudeAgentOptions(
+            model=model,
+            env=build_claude_cli_environment(os.environ),
+            system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+            tools=[],
+            setting_sources=[],
+        )
+
+    return claude_agent_session_flow(
+        build_options,
+        build_order_tools(order_desk),
+        flow_type="ClaudeAgentSDKQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the agent's options as the Claude Agent SDK alone writes them. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: string): Options {
+  const orders = createSdkMcpServer({ name: "orders", tools: buildOrderTools(orderDesk) });
+  return {
+    model,
+    systemPrompt: orderSupportInstructions,
+    mcpServers: { orders },
+    allowedTools: ["mcp__orders__look_up_order", "mcp__orders__cancel_order"],
+  };
+}
+
+/** Returns the same agent as a durable Dex agent session. Dex passes the tools to the CLI itself. */
+export function buildDurableAgent(
+  orderDesk: OrderDesk,
+  model: string,
+  cliEnvironment: Readonly<Record<string, string>>,
+): AgentSessionFlow {
+  return createClaudeAgentSessionFlow(
+    {
+      options: { model, systemPrompt: orderSupportInstructions, tools: [], settingSources: [], env: { ...cliEnvironment } },
+      customTools: buildOrderTools(orderDesk),
+      toolPolicies: {
+        look_up_order: { effect: "read" },
+        cancel_order: { effect: "non_idempotent_write" },
+      },
+    },
+    "ClaudeAgentSdkQuickStart",
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Claude Agent SDK 在 options 旁边以列表形式接收 tool，因此由 Dex 自己运行每个 tool。
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_plain_agent(order_desk: OrderDesk, model: str | BaseLlm) -> LlmAgent:
+    """Returns the agent as Google ADK alone writes it."""
+
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return LlmAgent(
+        name="order_support",
+        model=model,
+        instruction=ORDER_SUPPORT_INSTRUCTIONS,
+        tools=[look_up_order, cancel_order],
+    )
+
+
+def build_durable_agent(order_desk: OrderDesk, model: str | BaseLlm) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+    return adk_agent_session_flow(
+        build_plain_agent(order_desk, model),
+        flow_type="GoogleADKQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_plain_agent(
+    order_desk: OrderDesk,
+    model: str | BaseChatModel,
+    middleware: Sequence[AgentMiddleware[Any, Any]] = (),
+) -> Pregel[Any, Any, Any, Any]:
+    """Returns the agent as LangChain alone writes it."""
+
+    @tool
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @tool
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return create_agent(
+        model,
+        tools=[look_up_order, cancel_order],
+        system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+        middleware=middleware,
+    )
+
+
+def build_durable_agent(order_desk: OrderDesk, model: str | BaseChatModel) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+    return langchain_agent_session_flow(
+        # Dex builds the agent on the Worker, with middleware that runs each tool call as a Step.
+        lambda: build_plain_agent(order_desk, model, [DurableToolCallMiddleware()]),
+        flow_type="LangChainQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+`DurableToolCallMiddleware` 让每次 Tool Call 作为独立的 Step 运行。
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the agent as Mastra alone writes it. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: MastraModelConfig): Agent {
+  const lookUpOrder = createTool({
+    id: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    inputSchema: z.object({ order_id: z.string() }),
+    execute: async ({ order_id }) => orderDesk.describeOrder(order_id),
+  });
+  const cancelOrder = createTool({
+    id: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
+    execute: async ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+  });
+  return new Agent({
+    id: "order-support",
+    name: "OrderSupport",
+    instructions: orderSupportInstructions,
+    model,
+    tools: { look_up_order: lookUpOrder, cancel_order: cancelOrder },
+  });
+}
+
+/** Returns the same agent as a durable Dex agent session. */
+export function buildDurableAgent(orderDesk: OrderDesk, model: MastraModelConfig): AgentSessionFlow {
+  return createMastraAgentSessionFlow(buildPlainAgent(orderDesk, model), "MastraQuickStart", {
+    toolPolicies: {
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
+    },
+  });
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_plain_agent(order_desk: OrderDesk, model: str | Model) -> Agent:
+    """Returns the agent as the OpenAI Agents SDK alone writes it."""
+
+    @function_tool
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @function_tool
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return Agent(
+        name="OrderSupport",
+        instructions=ORDER_SUPPORT_INSTRUCTIONS,
+        model=model,
+        tools=[look_up_order, cancel_order],
+    )
+
+
+def build_durable_agent(order_desk: OrderDesk, model: str | Model) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+    return openai_agents_session_flow(
+        build_plain_agent(order_desk, model),
+        flow_type="OpenAIAgentsQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the agent as the OpenAI Agents SDK alone writes it. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: string | Model): Agent {
+  const lookUpOrder = tool({
+    name: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: z.object({ order_id: z.string() }),
+    errorFunction: null,
+    execute: ({ order_id }) => orderDesk.describeOrder(order_id),
+  });
+  const cancelOrder = tool({
+    name: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    parameters: z.object({ order_id: z.string(), reason: z.string() }),
+    errorFunction: null,
+    execute: ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+  });
+  return new Agent({
+    name: "OrderSupport",
+    instructions: orderSupportInstructions,
+    model,
+    tools: [lookUpOrder, cancelOrder],
+  });
+}
+
+/** Returns the same agent as a durable Dex agent session. */
+export function buildDurableAgent(orderDesk: OrderDesk, model: string | Model): AgentSessionFlow {
+  return createOpenAIAgentsSessionFlow(buildPlainAgent(orderDesk, model), "OpenAIAgentsQuickStart", {
+    toolPolicies: {
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
+    },
+  });
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_plain_agent(order_desk: OrderDesk, model: str | Model) -> Agent[None, str]:
+    """Returns the agent as Pydantic AI alone writes it."""
+    # The model is resolved at the first run, so a Client process needs no provider key.
+    agent = Agent(model, instructions=ORDER_SUPPORT_INSTRUCTIONS, defer_model_check=True)
+
+    @agent.tool_plain
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @agent.tool_plain
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return agent
+
+
+def build_durable_agent(order_desk: OrderDesk, model: str | Model) -> AgentSessionFlow:
+    """Returns the same agent as a durable Dex agent session."""
+    return pydantic_ai_session_flow(
+        build_plain_agent(order_desk, model),
+        flow_type="PydanticAIQuickStart",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```ts
+/** Returns the agent as the Vercel AI SDK alone writes it. */
+export function buildPlainAgent(orderDesk: OrderDesk, model: LanguageModel) {
+  return new ToolLoopAgent({ model, instructions: orderSupportInstructions, tools: buildOrderTools(orderDesk) });
+}
+
+/** Returns the same agent as a durable Dex agent session: the same settings, plus tool policies. */
+export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): AgentSessionFlow {
+  return createVercelAiAgentSessionFlow(
+    {
+      model,
+      instructions: orderSupportInstructions,
+      tools: buildOrderTools(orderDesk),
+      toolPolicies: {
+        look_up_order: { effect: "read" },
+        cancel_order: { effect: "non_idempotent_write" },
+      },
+    },
+    "VercelAiQuickStart",
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
+由框架自己运行的 tool，例如 MCP server 和 hosted tool，需要按你所用框架的 [限制](/agent-frameworks/sessions#limits) 做相应修改。Session 在 Worker 中运行，由 Client 驱动；[把 Dex 加入你的 Agent](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) 展示了这部分宿主代码。
+
+<a id="use-it-in-your-own-agent"></a>
+<a id="complete-files"></a>
+<a id="wire-it-into-your-app"></a>
+<a id="web-handler"></a>
+
+## 下一步 {#next}
+
+- [把 Dex 加入你的 Agent](/agent-frameworks/add-to-your-agent) 把这个 Agent 移到你自己的应用中，提供完整文件和一个 web app。
+- [Session](/agent-frameworks/sessions) 解释哪些内容在重启后保留了下来，以及你所用框架的 turn 如何对应到 Step。
+- [Tool Call](/agent-frameworks/tool-calls) 解释为什么 `cancel_order` 最多运行一次，以及写操作可能运行两次的那一种少见情况。
+- [内置 Agent Loop](/agent-frameworks/built-in-agent-loop) 不用框架构建 Agent。
+- [订单客服 Agent](/use-cases/order-support-agent) 是完整的示例，包含它的 HTTP route。

@@ -1,0 +1,375 @@
+---
+id: add-to-existing-code
+title: 把 Dex 加入现有代码
+sidebar_label: 把 Dex 加入现有代码
+slug: /intro/add-to-existing-code
+description: 把你已经在运行的代码改成 Dex Flow，比如一个函数、一个队列消费者、一个 cron 或后台任务、一个 webhook handler、一串服务调用或一个脚本。把它拆成 Step，把等待移到 WaitFor，把状态放进 Attribute，并安排好幂等键和数据库写入。最后附一份检查清单。
+---
+
+# 把 Dex 加入现有代码
+
+本页把你已经在运行的代码改成一个 Flow，让它在崩溃、重启或长时间等待之后继续运行。同样的步骤也适用于：
+
+- 依次调用多个服务的函数；
+- 队列消费者或事件 handler；
+- cron 任务或后台任务；
+- 做不止一件事的 webhook handler；
+- 跨服务的一串调用，比如 saga；
+- 停下后要人手动重跑的脚本。
+
+下面的例子是一个订单函数。[订单处理](/use-cases/order-processing)给出它在每种 SDK 里的完整代码。
+
+## 开始之前：安装 SDK {#install}
+
+在运行这段代码的服务里加入 SDK 和一个 Worker。[把 Dex 加入现有服务](/components/application#add-to-a-service)给出每种语言的安装命令，以及 Worker 和 Client 放在哪里。
+
+## 从现有代码出发 {#start-from-what-you-have}
+
+假设订单流程现在是一个函数：
+
+```text
+handle_order(order):
+    charge the buyer through the payment API
+    save status "charged" in the orders table
+    wait until the seller approves (poll the approvals table, remind after 24 hours)
+    ship the item through the shipping API
+    save status "shipped"
+    if shipping keeps failing: refund the buyer, save status "refunded"
+```
+
+在任意两行之间崩溃，订单都会停在半路。重启后，要么重复扣款，要么把这笔订单忘掉。
+
+## 拆成 Step {#split-it-into-steps}
+
+每个会改变其他系统的调用，都放进自己的 Step。Step 是 Dex 保存进度的单位，所以崩溃最多让正在运行的那个 Step 重新运行。
+
+| 在你的函数里 | 在 Flow 里 |
+| --- | --- |
+| 向买家扣款 | 一个 **Charge** Step，它的 `Execute` 调用支付 API，然后转到 **Ship** |
+| 等待审批，24 小时后提醒 | **Ship** 的 `WaitFor`：等待 **Channel** 上的一条消息，或者一个 24 小时的 **Timer**，先到者为准 |
+| 发送提醒 | Timer 触发时 **Ship** 的 `Execute`：发送提醒，然后再次转到 **Ship** |
+| 发货 | 审批到达时 **Ship** 的 `Execute` |
+| 多次失败后退款 | 从 **Ship** 到 **Refund** Step 的失败路由，在 Ship 的重试用尽时使用 |
+| status 列 | 一个 **Attribute**，比如 **order-status** |
+| 审批接口 | 一个 **RPC**，把审批发布到 Channel |
+| 轮询循环和提醒任务 | 都去掉。Dex 负责等待，并触发 Timer。 |
+
+### Ship 怎么知道哪个等待结束了 {#how-ship-knows-which-wait-ended}
+
+**Ship** 的 `WaitFor` 返回这两个条件，第一个条件满足时 Dex 唤醒这个 Step。然后 `Execute` 向 context 询问 Timer 是否已触发。如果触发了，Ship 发送提醒并转到自己，重新开始等待。否则就是审批到了，Ship 发货并完成 Flow。[订单处理](/use-cases/order-processing#2-flow-steps-and-rpcs)给出完整的 Step，包括它的重试和失败路由。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+    rust: 'examples/rust/src/products/order_processing',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def wait_for(self, context: Context, input: OrderRequest) -> Wait:
+    return Wait.any_of(
+        seller_ok.for_one(),
+        Timer.by_duration(timedelta(hours=24)),
+    )
+
+def execute(self, context: Context, input: OrderRequest) -> StepDecision:
+    if context.has_timer_fired():
+        self.service.send_email(
+            input.email,
+            "Reminder: approve shipment",
+            "Please approve or provide a tracking number.",
+        )
+        return go_to(Ship, input)
+    self.service.ship_item(
+        input.order_id,
+        input.test_fail_at_shipping,
+        idempotency_key=f"ship-{input.order_id}",
+    )
+    order_status.set(context, "shipped")
+    return graceful_complete(f"shipped:{input.order_id}")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (shipStep) WaitFor(
+	dex.Context,
+	OrderRequest,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		SellerOK.ForOne(),
+		dex.Timer(24*time.Hour),
+	), nil
+}
+
+func (step shipStep) Execute(
+	ctx dex.Context,
+	order OrderRequest,
+) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		step.service.SendEmail(
+			order.Email,
+			"Reminder: approve shipment",
+			"Please approve or provide a tracking number.",
+		)
+		return dex.GoTo(shipStep{}, order), nil
+	}
+	if err := step.service.ShipItemWithIdempotencyKey(order.OrderID, order.TestFailAtShipping, "ship-"+order.OrderID); err != nil {
+		return nil, err
+	}
+	if err := OrderStatus.Set(ctx, "shipped"); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("shipped:" + order.OrderID), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public Wait waitFor(final Context context, final OrderRequest order) {
+    return Wait.anyOf(
+            sellerOk.forOne(),
+            Timer.byDuration(Duration.ofHours(24)));
+}
+
+@Override
+public StepDecision execute(final Context context, final OrderRequest order) {
+    if (context.hasTimerFired()) {
+        service.sendEmail(
+                order.email,
+                "Reminder: approve shipment",
+                "Please approve or provide a tracking number.");
+        return StepDecision.goTo(Ship.class, order);
+    }
+    service.shipItem(order.orderId, order.testFailAtShipping, "ship-" + order.orderId);
+    orderStatus.set(context, "shipped");
+    return StepDecision.gracefulComplete("shipped:" + order.orderId);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public waitFor(_context: Context, _input: OrderRequest): Wait {
+  return Wait.anyOf(sellerOk.forOne(), Timer.byDuration(DAY_MS));
+}
+
+public execute(context: Context, input: OrderRequest): StepDecision {
+  if (context.hasTimerFired()) {
+    this.service.sendEmail(
+      input.email,
+      "Reminder: approve shipment",
+      "Please approve or provide a tracking number.",
+    );
+    return goTo(Ship, input);
+  }
+  this.service.shipItem(input.orderId, input.testFailAtShipping, `ship-${input.orderId}`);
+  orderStatus.set(context, "shipped");
+  return gracefulComplete(`shipped:${input.orderId}`);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    Ok(Wait::any_of([
+        SELLER_OK.for_one(),
+        Timer::by_duration(Duration::from_secs(24 * 60 * 60)),
+    ]))
+}
+
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    if context.has_any_timer_fired() {
+        self.service.send_email(
+            &input.email,
+            "Reminder: approve shipment",
+            "Please approve or provide a tracking number.",
+        );
+        context.record_event("shipment-reminder", input.order_id.clone())?;
+        return Ok(StepDecision::go_to(&Ship::default(), input));
+    }
+    self.service.ship_item_with_idempotency_key(
+        &input.order_id,
+        input.test_fail_at_shipping,
+        &format!("ship-{}", input.order_id),
+    )?;
+    context.record_event("ship", input.order_id.clone())?;
+    ORDER_STATUS.set(context, "shipped".to_string())?;
+    Ok(StepDecision::graceful_complete(format!(
+        "shipped:{}",
+        input.order_id
+    )))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+提醒邮件不带幂等键，因为多发一次提醒没有坏处。Ship 的发货调用则带了幂等键。
+
+只有当两个调用一起成功或一起失败时，才把它们放在同一个 Step 里。一个 Step 里有两个外部调用，重新运行时两个都会重复。
+
+### 把失败路由到恢复 Step {#route-a-failure-to-a-recovery-step}
+
+一个 Step 的重试用尽时，它的失败路由可以把 Flow 转到一个恢复 Step，而不是让 Flow 失败。在订单处理中，**Ship** 先重试，然后 Flow 转到 **Refund**：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+    rust: 'examples/rust/src/products/order_processing',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(
+            # One hour in production; 3 seconds keeps the demo short.
+            total_duration=timedelta(seconds=3),
+        )
+    ).on_execute_failure_proceed_to(
+        Refund,
+        StepOptions(
+            execute_retry=RetryPolicy(
+                # One hour in production; 3 seconds keeps the demo short.
+                total_duration=timedelta(seconds=3),
+            )
+        ),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (step shipStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			// One hour in production; 3 seconds keeps the demo short.
+			TotalDuration: 3 * time.Second,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(
+			refundStep{},
+			&dex.StepOptions{
+				ExecuteRetry: &dex.RetryPolicy{
+					// One hour in production; 3 seconds keeps the demo short.
+					TotalDuration: 3 * time.Second,
+				},
+			},
+		),
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    // One hour in production; 3 seconds keeps the demo short.
+                    .totalDuration(Duration.ofSeconds(3))
+                    .build())
+            .onExecuteFailureProceedTo(
+                    Refund.class,
+                    StepOptions.newBuilder()
+                            .executeRetry(RetryPolicy.newBuilder()
+                                    // One hour in production; 3 seconds keeps the demo short.
+                                    .totalDuration(Duration.ofSeconds(3))
+                                    .build())
+                            .build())
+            .build();
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+public getStepOptions() {
+  return {
+    executeRetry: {
+      // One hour in production; 3 seconds keeps the demo short.
+      totalDurationMs: 3_000,
+    },
+    executeFailure: ExecuteFailure.proceedTo(Refund, {
+      executeRetry: {
+        // One hour in production; 3 seconds keeps the demo short.
+        totalDurationMs: 3_000,
+      },
+    }),
+  };
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_retry(
+            RetryPolicy::new()
+                // One hour in production; 3 seconds keeps the demo short.
+                .total_duration(Duration::from_secs(3)),
+        )
+        .on_execute_failure_proceed_to(&Refund::default())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+默认的重试策略会把一个 Step 重试 4 小时，然后让 Flow 失败；失败路由会接住这个失败。要让人来决定，就把失败路由到一个等待人工处理的 Step，见 [人工恢复](/design-patterns/failure-handling/manual-recovery)。[Execute 失败恢复](/design-patterns/failure-handling/execute-failure-recovery) 给出自动处理的路由。修复一次失败 run 的原因之后，[Time Travel](/concepts/change-flow-code#time-travel) 可以让它从更早的某个点重新运行。
+
+## 安排幂等键 {#place-the-idempotency-keys}
+
+每个外部调用都带一个[幂等键](/concepts/step#idempotency-keys)。这里订单 ID 就是 Flow ID，所以 Charge 调用可以用 **charge-** 加订单 ID。
+
+<a id="when-an-api-takes-no-idempotency-key"></a>
+
+## 安全地调用无幂等键的 API {#when-an-api-has-no-idempotency-key}
+
+对于不接受幂等键的 API，重复调用会产生第二次效果。下面两种做法可以把这个窗口缩小：
+
+- **先检查。** 调用时带上你自己的引用，比如把订单 ID 填进发货单的 reference 字段。在 Step 开始时，用这个引用查一下效果是否已经发生。已经存在就跳过这次调用。
+- **记录这次尝试。** 如果 API 没有查询接口，就在同一个 Step 里、紧挨着调用之前，往你自己的数据库写一行，key 的构造方式和幂等键一样，比如 **ship-order-1042**。重新运行时，如果这一行已经存在，说明调用可能已经发生过。这时停下来人工核对，或者转到一个恢复 Step，而不是再调用一次。
+
+如果在调用之后、Dex 保存这个 Step 之前崩溃，仍然有一种情况你无法判断调用是否发生过。这两种做法都能把悄无声息的重复变成一种你看得到、也能处理的情况。
+
+## 保留你的数据库写入 {#keep-your-database-writes}
+
+客服和报表读取的订单表可以继续保留。在一个 Step 里用以订单 ID 为 key 的 upsert 写入它，这样即使重复执行，写入的也是同一行。在创建订单的 handler 里启动 Flow，用订单 ID 作为 Flow ID。[Dex 与你的数据库](/components/your-database)讲了这两点，也讲了两次写入中有一次失败时会怎样。
+
+## 检查清单 {#checklist}
+
+- 每个会改变其他系统的调用都在自己的 Step 里，或者只和一起成功、一起失败的调用共用一个 Step。
+- 每个这样的调用都带一个由 Flow ID 构造的幂等键，而不是用时间、随机值或尝试序号。
+- 每个等待都是一个在 Channel、Timer 或两者上的 `WaitFor`，而不是一个轮询循环。
+- 每个来自外部的命令，比如审批，都是一个 RPC。
+- 其他代码要读的状态是一个 Attribute，或者是写入你自己表里的 upsert。
+- 每个 Step 的重试策略都按这个调用来设置，而不是沿用[默认值](/concepts/step#stepoptions)。
+- 每个需要业务处理的失败，比如退款，都有一条到恢复 Step 的[失败路由](#route-a-failure-to-a-recovery-step)。
+- 只有当两个 Step，或者一个 Step 和一个 RPC，可能同时运行，并且先读后写同一个 Attribute 时，它们才在这个 Attribute 上声明[锁](/concepts/primitives/attribute#locking)。顺序执行的 Flow 用不到锁。
+- handler 用稳定的 Flow ID 和 request ID 启动 Flow，这样重试的请求不会启动第二个 Flow。[一个最小的服务](/components/application#minimal-service)给出这个 handler。
+
+## 下一步 {#next}
+
+- [在生产环境运行 Dex](/components/production)：Flow 在生产环境运行之前要准备什么。
+- [订单处理](/use-cases/order-processing)：这个流程在每种 SDK 里的可运行代码。
+- [概念](/concepts)：每个构建块的详细说明。
+- [修改 Flow 代码](/concepts/change-flow-code)：在 Flow 仍有未结束的 run 时，怎样修改它的代码。

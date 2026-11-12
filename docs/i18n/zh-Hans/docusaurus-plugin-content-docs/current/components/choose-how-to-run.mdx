@@ -1,6 +1,6 @@
 ---
 title: 选择 Dex 的运行方式
-sidebar_label: Choose How to Run Dex
+sidebar_label: 选择 Dex 的运行方式
 slug: /components/choose-how-to-run
 description: Dex Cloud 替你运行 Dex Server；自托管则在你自己的基础设施上运行它。两种方式下，Worker 都在你部署的地方运行你的代码。
 ---
@@ -18,7 +18,7 @@ Dex Server 可以运行在两个地方：Dex Cloud（由 Super Durable 替你运
 | 升级 | Super Durable 升级 server | 由你升级，升级只能向前。见 [Upgrades and compatibility](/reference/server/upgrades)（英文） |
 | 你需要准备什么 | 在 Dex Cloud 创建一个 server，它有自己的 endpoint 和 API key | [最小的真实部署](/components/production#smallest-deployment)：一个 server 节点、对象存储、认证和 TLS |
 | 价格、区域和 SLA | [联系 Super Durable](https://superdurable.io/about/#contact) | 由你决定：你的云、你的区域和你自己的可用性目标 |
-| 从哪里开始 | [注册 Dex Cloud](https://dex.superdurable.io/register) | [Run Dex in Production](/components/production)（英文） |
+| 从哪里开始 | [注册 Dex Cloud](https://dex.superdurable.io/register) | [在生产环境运行 Dex](/components/production) |
 
 ## Dex Cloud {#dex-cloud}
 
@@ -35,12 +35,22 @@ Super Durable 为你的应用运行 Dex Server。你在 Dex Cloud 创建的每�
 
 ## 自托管 {#self-hosted}
 
-你在 Worker 旁边运行 **dex-server-zd**。它把每个 Flow 保存在对象存储里，比如 Amazon S3；活动节点停止时，热备节点可以接管。认证、TLS、保留期和监控由你自己配置。[Run Dex in Production](/components/production)（英文）逐项列出。
+你在 Worker 旁边运行 **dex-server-zd**。它把每个 Flow 保存在对象存储里，比如 Amazon S3；活动节点停止时，热备节点可以接管。认证、TLS、保留期和监控由你自己配置。[在生产环境运行 Dex](/components/production)逐项列出。
 
 [Sustainable Use License](/intro/limits#license) 允许你为自己的业务运行 Dex。
 
+## 本地和生产环境 {#local-and-production}
+
+| 组件 | 本地开发 | 生产环境 |
+| --- | --- | --- |
+| Server | **dexcli dev** 启动 server-zd | 使用对象存储运行 **dex-server-zd serve**，或使用 Dex Cloud |
+| Web | **dexcli dev** 启动 Dex Web | 单独的 **dex-web** 进程，或 **dexcli web** |
+| 应用 | 你的 Worker 进程 | 你的 Worker 服务，像其他服务一样扩缩容 |
+
+[本地运行](/components/run-locally)介绍本地这一侧，[在生产环境运行 Dex](/components/production)介绍生产环境这一侧。
+
 ## 下一步
 
-- [Quick Start](/quick-start) 针对本地 server 运行一个 Flow。
+- [快速开始](/quick-start) 针对本地 server 运行一个 Flow。
 - [你的应用](/components/application) 配置连接任一种 server 的 Worker 和 Client。
-- [Run Dex in Production](/components/production)（英文）介绍自托管部署。
+- [在生产环境运行 Dex](/components/production)介绍自托管部署。

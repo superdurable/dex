@@ -171,6 +171,17 @@ Each tool call runs the tool's original **execute** in its own Step. The next `R
 </FrameworkTab>
 </FrameworkTabs>
 
+## Features by harness {#features-by-harness}
+
+Some session features depend on the harness:
+
+| Feature | Framework adapters | Built-in agent loop |
+| --- | --- | --- |
+| Queued messages, **Steer**, and `cancel_turn` | Yes | Yes |
+| Dex compaction of old messages | Yes, except the Claude Agent SDK | Yes |
+| Questions to the user (`ask_user`) | No | Yes |
+| Plans (plan mode and `execute_plan`) | No | Yes |
+
 ## Limits {#limits}
 
 Each tab lists the limits of one adapter that change how you write an agent, with what to do instead. [Limits for long sessions](/reference/agents/session-limits) has the server limits.

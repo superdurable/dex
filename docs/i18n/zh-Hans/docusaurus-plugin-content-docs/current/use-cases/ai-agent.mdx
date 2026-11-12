@@ -5,26 +5,26 @@ sidebar_label: AI Agent
 
 # AI Agent
 
-AI Agent 与用户对话、调用 tool，并操作其他系统。真实的 agent session 可能持续几小时甚至几天。它会等待用户、等待有人批准写操作，或等待某个 deadline。Dex 把每个 session 作为 durable Flow 运行，因此 session 能经受崩溃、部署和长时间等待。
+AI Agent 与用户对话、调用 tool，并操作其他系统。真实的 Agent Session 可能持续几小时甚至几天。它会等待用户、等待有人批准写操作，或等待某个 deadline。Dex 把每个 Session 作为持久化 Flow 运行，因此 Session 能经受崩溃、部署和长时间等待。
 
 ## Dex 为 Agent 带来什么 {#what-dex-adds-to-an-agent}
 
-- **对话是 durable 的。** Dex 把每条 message 保存在 Attribute 中。Worker 重启不会丢失任何内容。
-- **崩溃只重复很少的工作。** 模型调用和 tool call 都在 Step 中运行。崩溃只会重复当时正在运行的那个 Step，不会重放整个循环。
+- **对话是持久的。** Dex 把每条 message 保存在 Attribute 中。Worker 重启不会丢失任何内容。
+- **崩溃只重复很少的工作。** 模型调用和 Tool Call 都在 Step 中运行。崩溃只会重复当时正在运行的那个 Step，不会重放整个循环。
 - **写操作只运行一次。** Tool policy 把每个 tool 标记为读操作或写操作。不能重复的写操作只尝试一次。
-- **审批可以等待。** 需要审批的 tool call 在自己的 Step 中等待，等多久都可以。等待期间不占用 Worker。
-- **人可以查看并操作。** Dex Web 把每个 session 显示为一段对话。运维人员可以在那里批准或拒绝 tool call。
+- **审批可以等待。** 需要审批的 Tool Call 在自己的 Step 中等待，等多久都可以。等待期间不占用 Worker。
+- **人可以查看并操作。** Dex Web 把每个 Session 显示为一段对话。运维人员可以在那里批准或拒绝 Tool Call。
 
 ## 典型的 Agent {#typical-agents}
 
 - 客服 Agent：读取订单，在取消订单或退款前先请求审批。
 - 运维 Agent：读取 dashboard，在修改系统前先请求审批。
-- 研究 Agent：运行几个小时，在 durable Timer 上等待，然后汇报结果。
+- 研究 Agent：运行几个小时，在持久化 Timer 上等待，然后汇报结果。
 - 内部助手：先起草计划，等待审阅，然后执行。
 
 ## 构建一个 Agent {#build-one}
 
-选择一个 harness：内置 agent loop，或你已经在用的 agent framework。[Agent Framework](/agent-frameworks#choose-a-harness) 对它们做了比较。
+选择一个 harness：内置 Agent Loop，或你已经在用的 Agent 框架。[Agent 框架](/agent-frameworks#choose-a-harness) 对它们做了比较。
 
 - [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk)
 - [Google ADK](/agent-frameworks/quick-start/?framework=google-adk)
@@ -33,17 +33,17 @@ AI Agent 与用户对话、调用 tool，并操作其他系统。真实的 agent
 - [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk)
 - [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai)
 - [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk)
-- [内置 Agent Loop](/agent-frameworks/built-in-agent-loop)：不需要 framework，由 Dex 管理模型输入。
+- [内置 Agent Loop](/agent-frameworks/built-in-agent-loop)：不需要框架，由 Dex 管理模型输入。
 
-## AI Agent example {#the-ai-agent-example}
+## AI Agent 示例 {#the-ai-agent-example}
 
-AI Agent example 是一个长期运行的通用 Agent，有 Python 与 TypeScript 两个版本。它使用内置 agent loop。它与用户聊天并调用受信任的 MCP tool。有 Slack connection 时，它还可以通过 [Connector tool](/agent-frameworks/built-in-agent-loop#connect-connectors) 在 Slack thread 中回复。它在修改外部系统前等待审批。它会向用户提问、通过 durable Timer 暂停，并在执行前先制定计划供用户审阅。本地 demo model 让你无需 provider key 就能体验所有功能。
+AI Agent 示例是一个长期运行的通用 Agent，有 Python 与 TypeScript 两个版本。它使用内置 Agent Loop。它与用户聊天并调用受信任的 MCP tool。有 Slack connection 时，它还可以通过 [Connector tool](/agent-frameworks/built-in-agent-loop#connect-connectors) 在 Slack thread 中回复。它在修改外部系统前等待审批。它会向用户提问、通过持久化 Timer 暂停，并在执行前先制定计划供用户审阅。本地 demo model 让你无需 provider key 就能体验所有功能。
 
 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop) 讲解了它的代码以及如何运行。代码位于 [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent) 和 [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent)。
 
 ## 下一步
 
-- [Agent Framework](/agent-frameworks)
+- [Agent 框架](/agent-frameworks)
 - [Agents reference](/reference/agents/)
 - [Step](/concepts/step)
 - [Timer](/concepts/primitives/timer)

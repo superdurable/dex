@@ -286,7 +286,7 @@ try {
   // index.python.md serves the same Markdown as index.md, so a reader can name any language.
   assert.equal(await readFile(join(outDir, 'index.python.md'), 'utf8'), home);
   // Every Markdown file points AI readers at llms.txt.
-  assert.match(home, /^---\n[\s\S]*?\n---\n\n> 供 AI 智能体使用的全部页面索引：https:\/\/docs\.example\.test\/zh-Hans\/llms\.txt\n/);
+  assert.match(home, /^---\n[\s\S]*?\n---\n\n> 供 AI Agent 使用的全部页面索引：https:\/\/docs\.example\.test\/zh-Hans\/llms\.txt\n/);
   for (const file of [home, homeGo, homeJava, homeRust]) assert.doesNotMatch(file, /overridden/);
 
   // Flow graphs read as a numbered list of Steps, start Step first: each Step is one paragraph of plain sentences,

@@ -1,0 +1,14 @@
+{
+  "sidebar.reference.category.Step methods": {
+    "message": "Step 方法",
+    "description": "The label for category Step methods in sidebar reference"
+  },
+  "sidebar.reference.category.Primitives": {
+    "message": "原语",
+    "description": "The label for category Primitives in sidebar reference"
+  },
+  "sidebar.reference.link.← Developer Reference": {
+    "message": "← 开发者参考",
+    "description": "The label for link ← Developer Reference in sidebar reference, linking to /reference/"
+  }
+}

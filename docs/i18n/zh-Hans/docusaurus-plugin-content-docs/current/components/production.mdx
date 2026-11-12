@@ -1,0 +1,95 @@
+---
+title: 在生产环境运行 Dex
+sidebar_label: 在生产环境运行 Dex
+slug: /components/production
+description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容量到备份、升级和监控，每一项都链接到详细说明的页面。
+---
+
+# 在生产环境运行 Dex
+
+**dexcli dev** 在一台机器上运行所有组件，用于开发。这一页介绍自托管的生产 server，它和你自己的 Worker 一起运行。页面列出上线前要决定和配置的事项，每一项都链接到有详细说明的页面。在 [Dex Cloud](/components/choose-how-to-run#dex-cloud) 中，Super Durable 替你运行 server。
+
+## 最小的真实部署 {#smallest-deployment}
+
+- 一个 Dex Server 节点。需要快速故障转移时，再加一个 hot standby。
+- 集群使用一个对象存储 bucket 和 prefix。
+- 在 API 可以被访问之前开启身份验证。
+- 在 API 端口前加 TLS，或者使用私有网络。见 [TLS](/reference/server/authentication#tls)（英文）。
+- [保留期](#retention)足够覆盖 Client 的重试。
+- 提供 metrics，并针对节点和它的 lease 设置告警。
+
+下面的[最小配置](#minimal-configuration)搭建的就是这种部署。
+
+## 上线之前 {#before-you-launch}
+
+| 事项 | 要知道什么 | 详细说明 |
+| --- | --- | --- |
+| 拓扑 | 一个 active 节点服务整个集群。hot standby 可以接管。 | [Dex Server](/components/server)，[Lease, hot standby, and step down](/reference/server/high-availability)（英文）|
+| 容量和成本 | 瓶颈是 CPU。从小规模开始，见 [容量规划](#sizing)。 | [性能](/intro/performance)，[超出一个节点](/intro/limits#grow-past-one-node) |
+| 存储 | 对象存储保存 server 的全部状态。可以用 db9 代替它（db9 是一个独立的、兼容 PostgreSQL 的数据库产品；普通 PostgreSQL 不受支持）。 | [Object storage and backup](/reference/server/object-storage)（英文），[Dex Server 的依赖](/components/server#dependencies) |
+| 搜索后端 | 内置搜索不需要数据库。大量搜索可以用 PostgreSQL 或 ParadeDB。 | [Search backends](/reference/server/search)（英文）|
+| 配置 | `serve` 读取一个 YAML 文件。从[最小配置](#minimal-configuration)开始。 | [Install and configure server-zd](/reference/server/configuration)（英文）|
+| 保留期 | 按 Client 重试来设定，见 [保留期](#retention)的说明。默认值见 [需要修改的默认值](#defaults-to-change-before-production)。 | [Retention 参考](/reference/server/configuration#retention)（英文）|
+| 备份和恢复 | bucket prefix 是唯一的数据来源。为它开启版本控制或复制，并演练一次恢复。 | [Backup and restore](/reference/server/object-storage#backup-and-restore)（英文）|
+| Kubernetes | 把 server 作为 StatefulSet 运行，并配置优雅关闭。 | [Kubernetes deployment](/reference/server/kubernetes)（英文）|
+| 身份验证 | 默认关闭。在开放 API 之前，要求使用 bearer 凭证。 | [Authentication](/reference/server/authentication)（英文）|
+| 监控 | 在单独的监听端口上提供 metrics。节点停止服务和 lease 续约失败时告警。 | [Metrics and alerts](/reference/server/metrics)（英文）|
+| Worker | Worker 主动建立出站连接。设定它们的任务槽数量，部署时优雅地停止它们。 | [Workers and the task queue](/reference/server/workers)（英文）|
+| 升级 | 升级只向前滚动。先读每个版本的发布说明，有些升级需要停止所有进程。 | [Upgrades and compatibility](/reference/server/upgrades)（英文），[Agent release notes](/reference/agents/upgrades#release-notes)（英文）|
+| 你的数据库 | Step 里的写入必须可以安全地重复。 | [Dex 和你的数据库](/components/your-database) |
+| 代码变更 | 保留旧的 Step 类型和 RPC，直到使用它们的 Flow 关闭。 | [修改 Flow 代码](/concepts/change-flow-code) |
+
+### 需要修改的默认值 {#defaults-to-change-before-production}
+
+| 默认值 | 怎么改 |
+| --- | --- |
+| 已关闭的 run 和它的 Step 历史会在 7 天后删除。删除的 run 会释放它的 Flow ID。 | 设置更长的[保留期](#retention)，并把必须保留的数据复制到[你自己的数据库](/components/your-database)。 |
+| 公共 API 的身份验证是关闭的，所以任何能连到 server 的 Client 都能调用它。 | 在开放端口之前配置一个 authenticator，就像[最小配置](#minimal-configuration)那样。见 [Authentication](/reference/server/authentication)（英文）。 |
+| Step 重试在 4 小时后停止，然后 Flow 失败。 | 在 [StepOptions](/concepts/step#stepoptions) 中设置重试策略或失败路由。 |
+
+### 容量规划 {#sizing}
+
+作为从 benchmark 得出的起点：2 vCPU 的节点峰值接近每秒 1,800 个 SYNC Step，16 vCPU 的节点接近 8,400 个。从小规模开始，观察 CPU。超出一个节点后，运行多个独立的集群。
+
+### 保留期 {#retention}
+
+把 `retention.closedFlowDuration` 设得足够覆盖最长的 Client 重试窗口，因为删除的 run 会释放它的 Flow ID。需要保留更久的数据，用 [Attribute Store sync](/components/your-database) 复制到你自己的表里。
+
+## 最小配置 {#minimal-configuration}
+
+这份配置在 Amazon S3 上运行一个 Dex Server 节点，并开启身份验证：
+
+~~~yaml
+cluster:
+  nodeId: dex-zd
+objectStore:
+  region: us-east-1
+  bucket: BUCKET
+  prefix: PREFIX
+localStorage:
+  directory: /var/lib/dex-server-zd/store
+lease:
+  duration: 60s
+retention:
+  closedFlowDuration: 7days
+metrics:
+  listen: 0.0.0.0:9090
+auth:
+  authenticators:
+    - kind: staticTokens
+      file: /etc/dex-server-zd/tokens.yaml
+~~~
+
+把 `BUCKET` 和 `PREFIX` 换成你的 bucket 和 key prefix。token 文件列出 Worker 和 Client 发送的 bearer token 的 SHA-256 哈希；[Authentication](/reference/server/authentication)（英文）给出它的格式和 JWT 选项。`cluster.nodeId`、`objectStore.bucket` 和 `localStorage.directory` 是必填项，节点 ID 和分区数在首次启动后就不能再改。60 秒的 lease 适合单节点；有 hot standby 时，保留 10 秒的默认值。[Install and configure server-zd](/reference/server/configuration#minimal-production-configuration)（英文）解释每个 key。
+
+通过 SDK 的 `credential` 选项把 token 交给每个 Worker 和 Client；文件凭证会重新读取 token 文件，所以轮换 token 时不用重启。[Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials)（英文）列出每个 SDK 中的这个选项。API 端口提供明文 gRPC：在它前面加 TLS，或者把它留在私有网络里。[TLS](/reference/server/authentication#tls)（英文）列出对应的 SDK 选项。
+
+## 出问题时 {#when-something-goes-wrong}
+
+- Flow 停住不动或已经失败：[Troubleshoot a Flow run](/reference/web/debugging)（英文）。
+- 修复之后，从更早的 Step 重新运行来恢复 Flow：[Time Travel](/concepts/change-flow-code#time-travel)。
+- 生产环境中的 Agent Session：[Agents reference](/reference/agents)（英文）。
+
+## 下一步 {#next}
+
+[故障转移和部署](/concepts/failover-and-deploys)：Worker 崩溃、Dex Server 节点故障转移或部署新代码时，哪些会重新运行，以及你需要怎么做。

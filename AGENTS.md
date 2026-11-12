@@ -50,7 +50,10 @@ only when a section genuinely doesn't apply.
   links to the docs. Link an example's folder, not its README. Clicking a sidebar
   group header opens that group's overview page, which is not listed again
   under it, and that page's title is the group's name; items keep their own
-  titles, never "Overview". Every page in the reading sequence (not a group
+  titles, never "Overview". A group overview is a wayfinder: it links to
+  child pages and sections and does not repeat their caveats, limits, API
+  names, or term definitions; terms go in the Glossary. Headings are
+  statements, not questions. Every page in the reading sequence (not a group
   overview, the home page, Get Started, or the Glossary) ends with one last
   section named Next (下一步 in Chinese); following its first link gives a
   linear reading order. The home page and Get
@@ -337,6 +340,11 @@ These rules add to `.cursor/rules/docs-writing.mdc`,
   Simplified Chinese (`zh-Hans`). This includes Intro, Quick start,
   Concepts, Components, Design patterns, and Use cases. Keep both locales in
   sync.
+- Chinese pages translate their title, sidebar label, and headings. Each
+  Chinese heading keeps the English anchor as an explicit `{#anchor}`. Sidebar
+  group labels are translated in the zh-Hans `current.json`, and each group's
+  Chinese overview page uses that label as its title. `npm run lint:structure`
+  checks the group labels.
 - The Developer reference is English only. It means the versioned
   `reference-*` docs instances and the generated API references. When a page
   moves into the Developer reference, it drops its Chinese copy. Redirect the

@@ -3,29 +3,24 @@ id: dex-connector-contributor
 title: Dex Connector Contributor
 sidebar_label: Dex Connector Contributor
 slug: /build-with-ai/dex-developer-skill/dex-connector-contributor
-description: "Dex Connector Contributor 是一个专用 sub-skill。它为官方 Dex Connectors Library 添加一项能力，完成测试，再以一个便于 review 的 pull request 提交到上游。"
+description: "Dex Connector Contributor 是一个专用子 Skill。它为官方 Dex Connectors Library 添加一项能力，完成测试，再以一个便于 review 的 pull request 提交到上游。"
 ---
 
 # Dex Connector Contributor
 
-Dex Connector Contributor 是一个专用 sub-skill。它为官方
-[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-添加一项能力，完成测试，再以一个便于 review 的 pull request 提交到上游。
+Dex Connector Contributor 是一个专用子 Skill。它为官方 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 添加一项能力，完成测试，再以一个便于 review 的 pull request 提交到上游。
 
 :::note 语言要求
 
-每个新的官方 Connector 都必须有 Go 实现。Go 实现是经过测试的参考实现。Python 和
-TypeScript package 是可选的，可以只实现部分能力，但必须通过从 Go 实现录制的
-conformance 场景。
+每个新的官方 Connector 都必须有 Go 实现。Go 实现是经过测试的参考实现。Python 和 TypeScript package 是可选的，可以只实现部分能力，但必须通过从 Go 实现录制的 conformance 场景。
 
-应用可以在 Go、Python 和 TypeScript 中使用已发布的 Connector。详细规则见该库的 [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) 和
-[docs/](https://github.com/superdurable/dex-connectors-library/tree/main/docs)。
+应用可以在 Go、Python 和 TypeScript 中使用已发布的 Connector。详细规则见该库的 [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) 和 [docs/](https://github.com/superdurable/dex-connectors-library/tree/main/docs)。
 
 :::
 
-## 安装与使用
+## 安装与使用 {#install-and-use}
 
-先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程智能体中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
+先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程 Agent中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
 
 ```text
 $dex-connector-contributor Add <XYZ> to Dex official connector library
@@ -34,73 +29,53 @@ $dex-connector-contributor Add <XYZ> to Dex official connector library
 
 [安装和使用 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) 列出了每个 host 的调用方式。
 
-如果你的应用只是使用已发布的 Connector，请改用 [Dex App Builder](./dex-app-builder.mdx)
-或 [Dex SDK](./dex-sdk.mdx)。
+如果你的应用只是使用已发布的 Connector，请改用 [Dex App Builder](./dex-app-builder.mdx) 或 [Dex SDK](./dex-sdk.mdx)。
 
-## 范围与来源要求
+## 范围与来源要求 {#scope-and-source-requirements}
 
-这个 skill 只在官方 Connector 库中工作。它以 provider 公开文档中的 API 或官方 SDK 为
-起点，检查 provider 的认证 scope、限流、幂等支持、分页、事件确认和失败行为。
+这个 Skill 只在官方 Connector 库中工作。它以 provider 公开文档中的 API 或官方 SDK 为起点，检查 provider 的认证 scope、限流、幂等支持、分页、事件确认和失败行为。
 
 它只使用 provider 公开文档中的能力：不抓取私有接口、不复制浏览器凭据，也不逆向分析内部协议。
 
-## Repository 与 Fork 工作流
+## Repository 与 Fork 工作流 {#repository-and-fork-workflow}
 
-skill 会先查找并检查你的 `superdurable/dex-connectors-library` GitHub fork。如果你
-还没有 fork，它会征求你的同意，然后打开 GitHub 的 fork 页面。你点击 **Create fork**
-之后，agent 才会 clone 这个 fork 并开始工作。
+Skill 会先查找并检查你的 `superdurable/dex-connectors-library` GitHub fork。如果你还没有 fork，它会征求你的同意，然后打开 GitHub 的 fork 页面。你点击 **Create fork** 之后，Agent 才会 clone 这个 fork 并开始工作。
 
-在本地 clone 中，你的 fork 是 **origin**，官方 repository 是 **upstream**。agent 在
-自己的 `codex/` branch 上工作，这个 branch 基于最新的 `upstream/main` 创建。与本次
-工作无关的本地改动会保持原样。
+在本地 clone 中，你的 fork 是 **origin**，官方 repository 是 **upstream**。Agent 在自己的 `codex/` branch 上工作，这个 branch 基于最新的 `upstream/main` 创建。与本次工作无关的本地改动会保持原样。
 
-## 贡献工作流
+## 贡献工作流 {#contribution-workflow}
 
-skill 按以下顺序工作：
+Skill 按以下顺序工作：
 
 1. 确认 provider 的能力和它公开的 contract。
 2. 先更新 `connector.yaml`，再写 provider 代码。
-3. 运行代码生成。Config、Credentials、definition、branch、operation factory、UI 常量
-   和默认值都由 manifest 生成，不手写。
-4. 实现 provider adapter，以及调用 provider 的测试。
-5. 需要时加入 Trigger 和 configuration UI 的行为。
+3. 运行代码生成。Config、Credentials、definition、branch、operation factory、UI 常量和默认值都由 manifest 生成，不手写。
+4. 实现 provider 适配器，以及调用 provider 的测试。
+5. 需要时加入 Trigger 和配置界面的行为。
 6. 在 Connector module 内新增或扩展一个可运行示例。
 7. 运行所有必需的检查，并确认 registry 和 catalog 与代码一致。
-8. 提交一个只涉及本 module 的干净改动，推送到你的 fork，向上游打开一个可直接 review 的
-   pull request，并跟踪必需的 CI。
+8. 提交一个只涉及本 module 的干净改动，推送到你的 fork，向上游打开一个可直接 review 的 pull request，并跟踪必需的 CI。
 
-## Durability 与 Security 边界
+## Durability 与 Security 边界 {#durability-and-security-boundaries}
 
 - provider 调用只在 Connector Step 的 `Execute` 方法中执行。
 - RPC 只负责转发请求或修改 Dex 状态，从不调用 provider。
-- 会修改 provider 数据的调用都是幂等的。如果这类调用的结果未知，Connector 会先向
-  provider 查询实际发生了什么。
-- 凭据和原始 secret 绝不会进入 Flow 输入、Attribute、Result、receipt、Stream、日志、
-  测试 fixture、生成的值或 release 产物。
-- 每个 module 都固定依赖一个确切发布的 Dex Go SDK 版本，绝不提交 branch、SHA、
-  pseudo-version 或本地替换。
-- 每个 pull request 只发布一个 Connector module。唯一的例外是必须改动整个 repository
-  的机械性修改。
+- 会修改 provider 数据的调用都是幂等的。如果这类调用的结果未知，Connector 会先向 provider 查询实际发生了什么。
+- 凭据和原始 secret 绝不会进入 Flow 输入、Attribute、Result、receipt、Stream、日志、测试 fixture、生成的值或发布版本产物。
+- 每个 module 都固定依赖一个确切发布的 Dex Go SDK 版本，绝不提交 branch、SHA、pseudo-version 或本地替换。
+- 每个 pull request 只发布一个 Connector module。唯一的例外是必须改动整个 repository 的机械性修改。
 
-Connector 可能需要 Dex SDK 尚未提供的功能。这时可以在本地同时测试 SDK 改动和 Connector，
-但 SDK 改动必须先发布，Connector 的 pull request 才能使用它。
+Connector 可能需要 Dex SDK 尚未提供的功能。这时可以在本地同时测试 SDK 改动和 Connector，但 SDK 改动必须先发布，Connector 的 pull request 才能使用它。
 
-## 示例与验证 Gate
+## 示例与验证 Gate {#example-and-verification-gates}
 
-新的 Connector 或重要能力通常要附带一个可在本地运行的示例。如果 Connector 有 Trigger，
-示例要展示真实的 provider 事件启动 typed Flow 或调用 RPC，并展示重复事件和重启都能正确
-处理。没有 Trigger 时，示例要生成有效的 FDG 2.0 图，并能通过 Dex Web 的
-**Start Flow** 按钮运行。
+新的 Connector 或重要能力通常要附带一个可在本地运行的示例。如果 Connector 有 Trigger，示例要展示真实的 provider 事件启动 typed Flow 或调用 RPC，并展示重复事件和重启都能正确处理。没有 Trigger 时，示例要生成有效的 FDG 2.0 图，并能通过 Dex Web 的 **Start Flow** 按钮运行。
 
-只有以下检查全部通过，贡献才算完成：单独针对该 module 的 race test 和 vet、生成代码
-检查、catalog 检查、与真实 Dex server 的集成、与当前版本的兼容性、相关的 UI 测试和
-构建，以及 repository 检查。有凭据时，还会针对真实 provider 运行安全的测试；否则 pull
+只有以下检查全部通过，贡献才算完成：单独针对该 module 的 race test 和 vet、生成代码检查、catalog 检查、与真实 Dex server 的集成、与当前版本的兼容性、相关的 UI 测试和构建，以及 repository 检查。有凭据时，还会针对真实 provider 运行安全的测试；否则 pull
 request 必须写明哪些真实行为没有测试。
 
-## 与 App Builder 的关系
+## 与 App Builder 的关系 {#relationship-to-app-builder}
 
-只有确认应用需要的官方 Connector 能力缺失或有问题后，App Builder 才会把工作交给这个
-skill。贡献还在 review 时，应用可以使用一个不提交的本地覆盖。在 Connector 以确切版本
-发布之前，应用不能进入生产。
+只有确认应用需要的官方 Connector 能力缺失或有问题后，App Builder 才会把工作交给这个 Skill。贡献还在 review 时，应用可以使用一个不提交的本地覆盖。在 Connector 以确切版本发布之前，应用不能进入生产。
 
 返回 [Dex Skills 总览与安装](../dex-developer-skill.mdx)。

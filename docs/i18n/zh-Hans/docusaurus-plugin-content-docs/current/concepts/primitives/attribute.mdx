@@ -2,15 +2,18 @@
 title: Attribute
 sidebar_label: Attribute
 slug: /concepts/primitives/attribute
+description: "Attribute 是属于一个 Flow run 的持久化数据。Step 和 RPC 读写它。Dex 把它和 Flow 存在一起，所以中间状态不需要另外的数据库。"
 ---
 
 # Attribute
 
-**Attribute** 是属于一个 Flow run 的 durable 数据。Step 和 RPC 读写它。Dex 把它和 Flow 存在一起，所以中间状态不需要另外的 database。
+**Attribute** 是属于一个 Flow run 的持久化数据。Step 和 RPC 读写它。Dex 把它和 Flow 存在一起，所以中间状态不需要另外的 database。
 
-Attribute 的生命周期和它的 Flow 相同。Flow 关闭后过了 retention period，Dex 删除 Flow，也一并删除 Attribute。要更长时间保留数据，见[在 Flow 之后保留数据](#attribute-store-projection)。
+Attribute 的生命周期和它的 Flow 相同。Flow 关闭后过了[保留期](/components/production#defaults-to-change-before-production)，Dex 删除 Flow，也一并删除 Attribute。要更长时间保留数据，见[在 Flow 之后保留数据](#attribute-store-projection)。
 
-## 什么时候用 Attribute
+<a id="什么时候用-attribute"></a>
+
+## 什么时候用 Attribute {#when-to-use-an-attribute}
 
 Attribute 适合存放 Flow 据以做决定的状态：订单状态、计数器、客户资料，或者前一个 Step 的结果。Step 要等待并消费的消息，用 [Channel](/concepts/primitives/channel)。可以丢失的实时进度，用 [Stream](/concepts/primitives/stream)。
 
@@ -246,6 +249,8 @@ impl Step for AttributeStep {
 </SdkSnippet>
 </SdkTabs>
 
+这段节选只展示了 status Attribute。示例 Flow 还声明了下面各节用到的 AttributeMap 和其他 Attribute，并把它们都列在 persistence schema 里。
+
 ## AttributeMap {#attributemap}
 
 **AttributeMap** 是一组 key 在运行时才确定的 Attribute。它适合随数据增长的值，例如订单里每笔 payment 的状态。Dex 分别存储每个 key，所以一次写入不会重写整个集合。
@@ -254,9 +259,14 @@ impl Step for AttributeStep {
 <SdkSnippet lang="python">
 
 ```python
-progress = AttributeMap("primitive-attribute-progress", str)
+class AttributeFlow(Flow[str]):
+    progress = AttributeMap(
+        "primitive-attribute-progress",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD, "keyword2"),
+    )
 
-progress.set(context, "payment", "authorized")
+self.flow.progress.set(context, "payment", "authorized")
 ```
 
 </SdkSnippet>
@@ -310,15 +320,25 @@ self.progress
 
 <a id="读取和搜索-attribute"></a>
 
-Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时候改用 RPC，见[什么时候读取需要 RPC](/concepts/client#related-primitives)。另见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)。在 Flow 启动时设置初始值，见 [Initial values](/reference/server/runtime-data#initial-attribute-values)。
+Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时候改用 RPC，见[什么时候读取需要 RPC](/concepts/client#related-primitives)。另见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)（英文）。在 Flow 启动时设置初始值，见 [Initial values](/reference/server/runtime-data#initial-attribute-values)（英文）。
 
-带 index 的 Attribute 可以用在 `SearchFlows` 查询里，查找 Flow run。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
+带 index 的 Attribute 可以用在 `SearchFlows` 查询里，查找 Flow run。上面的例子给 status Attribute 建了 index。它的 index key `keyword1` 是一个搜索槽位的名字，不是业务字段。槽位按类型编号，由一个 namespace 里的所有 Flow type 共用，所以两个 Flow type 可以各自在 `keyword1` 里放不同的字段。同一个 Flow 里的两个 index 字段要用不同的槽位，跨 Flow type 共用的槽位必须保持同一种 index 类型。
+
+槽位数量有限。使用 PostgreSQL 搜索后端时，每个 tenant 有 10 个 Keyword 槽位，其他每种 index 类型各 3 个，槽位一旦占用就无法释放。请记录每个 Flow type 用了哪个槽位。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)（英文），限制见 [PostgreSQL search](/reference/server/search#postgresql-search)（英文）。
 
 ## Lock {#locking}
 
 两个 Step 或 RPC 可能同时写同一个 Attribute。没有 lock 时，两个先读后写这个 Attribute 的 Step 或 RPC 可能互相覆盖对方的更新，见 [Step 的保证](/concepts/step#guarantees)。用 **Attribute lock** 让它们依次执行。Dex 在 Step method 或 RPC 开始前获取 lock，结束后释放。Step 会等待它的 lock。RPC 拿不到 lock 就失败，由你重试。
 
+两个并行 Step，或者一个 Step 和一个 RPC，如果都会先读后写同一个 Attribute，就给它加 lock。Dex 目前对没有加锁的先读后写没有 lint 或警告。要发现漏加的 lock，写一个测试，同时运行这些 Step 或 RPC，再检查最终的值。
+
 lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute。Step 按开始等待 lock 的顺序拿到它。RPC 不排队。即使有 Step 在等一个空闲的 lock，RPC 也会直接拿走它。所以持续不断的加锁 RPC 可能推迟这些 Step。让加锁的 RPC 尽量短。
+
+声明了多个 lock 的方法会一次拿到所有 lock。只有每个 lock 都空闲、而且它在每个 lock 的队列里都排在第一位时，它才会开始。它从不在持有一个 lock 的同时等待另一个，所以两个加锁的方法不会循环阻塞对方。
+
+Step 在整个方法期间持有它的 lock，包括它发出的外部调用。重试在队列里等待时仍然持有 lock，没有 Worker 能运行的尝试会一直持有 lock，直到 Flow 超时或被停止。要释放这样的 lock，启动一个带有这个 Step 类型的 Worker，或者停止 Flow。Dex 没有单独释放某个 lock 的命令。方法的 timeout 和重试策略决定了运行中的 Step 最多持有 lock 多久。所以加锁的方法要短，慢的外部调用放在不持有 lock 的 Step 里。
+
+加锁的 Step 反复失败时，影响会累积。它的重试一直持有 lock，默认的重试策略最多会重试 4 小时。在这整段时间里，声明了同一个 lock 的其他 Step 和 RPC 都在等待或失败。在加锁方法的 `StepOptions` 重试策略里设置较短的总时长，例如几分钟，或者不要在里面做外部调用。[StepOptions 默认值](/concepts/step#stepoptions)列出了重试窗口。
 
 这个 Step 在 `Execute` 运行期间锁住一个 singleton Attribute 和一个 AttributeMap instance：
 
@@ -393,11 +413,11 @@ StepOptions::new()
 <a id="lock-an-rpc"></a>
 <a id="rpc-lock-conflicts"></a>
 
-lock 的获取时机，以及 `WaitFor`、`Execute` 和 RPC 的 lock，见 [Locks](/reference/server/runtime-data#attribute-locks)。lock conflict 见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)，锁住整张 AttributeMap 见 [whole-map coordination](/reference/server/runtime-data#whole-map-coordination)。
+lock 的获取时机，以及 `WaitFor`、`Execute` 和 RPC 的 lock，见 [Locks](/reference/server/runtime-data#attribute-locks)（英文）。lock conflict 见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)（英文），锁住整张 AttributeMap 见 [whole-map coordination](/reference/server/runtime-data#whole-map-coordination)（英文）。
 
 ## 短期 secret {#hard-delete-attributes}
 
-**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 Dex 保存 handler 的结果之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)。
+**hard-delete Attribute** 用来保存短期 secret，例如 Flow 用几次就丢弃的 API key。删除它会永久清除存储的值。Dex API 和 Flow history 都无法恢复。和其他写入不同，hard-delete 写入在 Dex 保存 handler 的结果之前就生效。要求和后果见 [Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)（英文）。
 
 <a id="与其他组件的关系"></a>
 <a id="配置"></a>
@@ -419,19 +439,23 @@ Attribute Store sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表
 
 - Flow 仍是数据的权威来源。表里的一行保存最新值，不是历史记录。不要根据这张表做 Flow 决策。
 - Dex 在后台写入。写入不会拖慢 Step、RPC 或 SetAttributes 调用。同一个 Flow ID 的写入保持顺序。
-- 写入失败时，Dex 会在一段有限的时间内重试，之后丢弃这次写入并记录错误日志。Dex 不会重放旧值，也不会为新配置的 store 补写数据。
+- 写入失败时，Dex 会在一段有限的时间内重试，之后丢弃这次写入并记录一条警告日志。Dex 不会重放旧值，也不会为新配置的 store 补写数据。[Dex 和你的数据库](/components/your-database) 介绍了怎样发现被丢弃的写入并修复这一行。
 - Flow 自己完成或失败时，会保持运行，直到待写入的数据写完或被丢弃。StopFlow 不等待。
 - 删除 Attribute 会把它的列写成 NULL。Flow 关闭时，Dex 不会删除这一行。
 - 一个 store 可以把 Flow ID 拆成多个主键列，也可以把每个 AttributeMap instance 写成单独一张表里的一行。
 
-配置、表的要求、row key、AttributeMap 表、重试、指标和本地开发，见英文的 [Attribute Store sync](/reference/server/attribute-store-sync) 参考页。完整示例见 [Entity Store](/design-patterns/entity-store) 模式。
+配置、表的要求、row key、AttributeMap 表、重试、指标和本地开发，见 [Attribute Store sync](/reference/server/attribute-store-sync) 参考页（英文）。完整示例见 [Entity Store](/design-patterns/entity-store) 模式。
 
-## 参考
+<a id="参考"></a>
+
+## 参考 {#reference}
+
+下面的链接打开英文的 Python 参考。[Go](/reference/go)、[Java](/reference/java)、[TypeScript](/reference/typescript) 和 [Rust](/reference/rust) 参考里有同名页面。
 
 每个 SDK 参考的 [Attribute](/reference/python/attribute) 页列出该语言的 API 名称。
 
-[Data primitive semantics](/reference/server/runtime-data#attributes) 详细说明初始值、Client 读取、index、hard-delete Attribute 和 lock。
+[Data primitive semantics](/reference/server/runtime-data#attributes)（英文）详细说明初始值、Client 读取、index、hard-delete Attribute 和 lock。
 
-## 下一步
+## 下一步 {#next}
 
-[RPC](/concepts/primitives/rpc)：An RPC (Remote Procedure Call) lets code outside a Flow interact with a running Flow.
+[RPC](/concepts/primitives/rpc)：RPC（远程过程调用）让 Flow 之外的代码与运行中的 Flow 交互。

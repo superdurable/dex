@@ -25,8 +25,13 @@ When you add or change a bilingual page under `docs/content/`:
 3. Keep Dex terms untranslated: Flow, Step, Attribute, Channel, RPC, Timer.
 4. Keep code samples identical across locales.
 5. Do not ship a new English page without its Chinese counterpart.
-6. Do not translate sidebar labels. Every Chinese page must set `sidebar_label`
-   to the exact English label from its matching page. Use that page's English
-   title when it has no `sidebar_label`.
+6. Translate the left navigation. Each Chinese page sets `title` and
+   `sidebar_label` in Chinese; Dex terms and product names stay in English.
+   Sidebar group labels live in
+   `docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current.json` (run
+   `npx docusaurus write-translations --locale zh-Hans` after adding a group),
+   and each group's Chinese overview page carries that same label as its title.
+7. Give each Chinese heading an explicit `{#anchor}` equal to the English
+   heading's anchor, so links to a section work in both locales.
 
 Do not remove the locale switcher or the stored preference.

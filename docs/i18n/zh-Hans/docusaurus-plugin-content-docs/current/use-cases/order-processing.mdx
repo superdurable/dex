@@ -1,10 +1,10 @@
 ---
-title: Order Processing
-sidebar_label: Order Processing
+title: 订单处理
+sidebar_label: 订单处理
 slug: /use-cases/order-processing
 ---
 
-# Order Processing
+# 订单处理
 
 运行 [为什么是 Dex？](/intro/what-is-dex) 里介绍的订单 Flow。你会启动 Dex，运行示例应用，通过 HTTP 下一个订单，批准发货，再在 Dex Web 里查看这次运行。
 
@@ -828,7 +828,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 ## 3. Worker 和 Client
 
-创建连接到 `dexcli`（**127.0.0.1:8801**）的 Registry、Worker 和 Client。用 mock API service 构造 Flow，再注册它。示例应用把所有示例 Flow 注册在同一个 Registry 里，所以下面的代码片段尽量只展示这条 Flow 相关的行。Python 示例应用运行在异步 Web 框架上，所以使用 `AsyncWorker` 和 `AsyncClient`。[Quick Start](/quick-start) 用的是同步的 **Worker** 和 **Client**，两者的工作方式相同。
+创建连接到 `dexcli`（**127.0.0.1:8801**）的 Registry、Worker 和 Client。用 mock API service 构造 Flow，再注册它。示例应用把所有示例 Flow 注册在同一个 Registry 里，所以下面的代码片段尽量只展示这条 Flow 相关的行。Python 示例应用运行在异步 Web 框架上，所以使用 `AsyncWorker` 和 `AsyncClient`。[快速开始](/quick-start) 用的是同步的 **Worker** 和 **Client**，两者的工作方式相同。
 
 Worker 主动连到 `dexcli` 接收任务，所以不需要开放入站端口。容量、就绪状态和生产环境配置见英文的 [Workers and the task queue](/reference/server/workers)。
 
@@ -1405,7 +1405,7 @@ curl -s "http://127.0.0.1:8080/products/order-processing/describe?flowId=FLOW_ID
 
 ![approve 之后的 Dex Web Execution graph](/img/order-processing/step-graph.png)
 
-Timeline tab 从左到右显示同一次 run 的事件。选中一个事件，就能在 Timeline 下方读取它的输入和输出：
+Timeline 标签页从左到右显示同一次 run 的事件。选中一个事件，就能在 Timeline 下方读取它的输入和输出：
 
 ![approve 之后的 Dex Web Timeline](/img/order-processing/timeline.png)
 
@@ -1414,4 +1414,4 @@ Timeline tab 从左到右显示同一次 run 的事件。选中一个事件，�
 - [概念](/concepts)：这个示例用到的 Flow、Step、Channel、Timer 等基本组成部分。
 - [你的应用](/components/application)：怎样在你自己的服务里加入 Worker 和 Client。
 - [Dex vs. 数据库](/intro/compared-to-database)：用数据库和队列实现的同一个订单流程。
-- [产品示例](/use-cases)：更多完整示例，包括两个 AI agent。
+- [产品示例](/use-cases)：更多完整示例，包括两个 AI Agent。

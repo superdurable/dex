@@ -1,7 +1,7 @@
 ---
 id: index
 title: 设计模式
-sidebar_label: Design Patterns
+sidebar_label: 设计模式
 slug: /design-patterns
 ---
 
@@ -11,28 +11,28 @@ slug: /design-patterns
 
 ## Flow 控制
 
-- [Parallel Steps](/design-patterns/parallel)：并发运行 Step：数量固定或动态，等全部完成或只等第一个。
-- [Parallel SubFlows](/design-patterns/parallel-subflows)：把工作分给多个 SubFlow，限制一个父 Flow 同时运行的数量，分散到多个父 Flow，并加上 durable 背压。
+- [并行 Step](/design-patterns/parallel)：并发运行 Step：数量固定或动态，等全部完成或只等第一个。
+- [并行 SubFlow](/design-patterns/parallel-subflows)：把工作分给多个 SubFlow，限制一个父 Flow 同时运行的数量，分散到多个父 Flow，并加上持久化背压。
 - [可中断执行](/design-patterns/interruptible)：用户要求时，干净地停止长时间运行的工作。
-- [Durable Timer](/design-patterns/durable-timer)：按计划运行工作、发送提醒，或在一段时间没有活动后执行动作。
-- [Deferred Choice](/design-patterns/deferred-choice)：同时等待多个事件，按最先发生的那个决定分支。
-- [Critical Section](/design-patterns/critical-section)：通过 Channel 传递一个 token，让并行分支轮流执行一段跨多个 Step 的流程。
+- [持久化定时器](/design-patterns/durable-timer)：按计划运行工作、发送提醒，或在一段时间没有活动后执行动作。
+- [延迟选择](/design-patterns/deferred-choice)：同时等待多个事件，按最先发生的那个决定分支。
+- [临界区](/design-patterns/critical-section)：通过 Channel 传递一个 token，让并行分支轮流执行一段跨多个 Step 的流程。
 - [连同子 Flow 一起取消](/design-patterns/cancel-case)：Flow 被取消时，停止它启动的子 Flow。
 
 ## 可靠性
 
-- [Failure Handling](/design-patterns/failure-handling)：从 `Execute` 或 `WaitFor` 失败中恢复、交给操作人员处理，或强制执行业务截止时间。
-- [Polling](/design-patterns/polling)：在一个长时间运行的 Step 中等待外部系统。
+- [失败处理](/design-patterns/failure-handling)：从 `Execute` 或 `WaitFor` 失败中恢复、交给操作人员处理，或强制执行业务截止时间。
+- [轮询](/design-patterns/polling)：在一个长时间运行的 Step 中等待外部系统。
 
 ## 消息
 
-- [Drain Channels](/design-patterns/drain-channels)：Channel 消息都处理完之后才结束 Flow。
+- [排空 Channel](/design-patterns/drain-channels)：Channel 消息都处理完之后才结束 Flow。
 - [响应式更新](/design-patterns/responsive-update)：让调用方等待某个 Step、某个 Attribute 值或一串更新，而不是等整个 Flow 结束。
-- [Inbound Event Loop](/design-patterns/inbound-event-loop)：持续接收外部消息，直到收到结论或对话长时间没有动静。
+- [入站事件循环](/design-patterns/inbound-event-loop)：持续接收外部消息，直到收到结论或对话长时间没有动静。
 
 ## 数据
 
 - [AttributeMap 分区](/design-patterns/attribute-map-partitioning)：把不断增长的集合拆成有上限的 chunk 或 hash partition。
-- [Entity Flow with SQL Projection](/design-patterns/entity-store)：每个实体一个 Flow，并把它的 Attribute 复制到你自己的 SQL 表中供查询。
+- [带 SQL 投影的实体 Flow](/design-patterns/entity-store)：每个实体一个 Flow，并把它的 Attribute 复制到你自己的 SQL 表中供查询。
 
 完整示例位于 `examples/` 下。可在 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 中试用 HTTP 示例。
