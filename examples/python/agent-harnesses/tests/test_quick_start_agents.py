@@ -32,10 +32,9 @@ from dex_agents import AgentInterrupt, AgentSessionClient
 from agent_harness_examples.config import AgentHarnessExamplesConfig
 from agent_harness_examples.demo_model_script import DEMO_REPLY_PREFIX
 from agent_harness_examples.order_desk import OrderDesk
+from agent_harness_examples.quick_start.frameworks import FRAMEWORKS, build_quick_start_agent
 from agent_harness_examples.quick_start.session import (
-    FRAMEWORKS,
     QuickStartApp,
-    build_quick_start_agent,
     run_turn,
 )
 from tests.conftest import wait_until
@@ -111,7 +110,11 @@ async def _started_app(framework: str, order_desk: OrderDesk, cache_dir: Path) -
         http_address="127.0.0.1:0",
         blob_cache_dir=cache_dir,
     )
-    app = QuickStartApp(build_quick_start_agent(framework, order_desk, config), config)
+    app = QuickStartApp(
+        build_quick_start_agent(framework, order_desk, config),
+        config.server_address,
+        config.blob_cache_dir,
+    )
     if not await _is_server_ready(app):
         await app.close()
         message = f"no Dex server at {config.server_address}; set DEX_FLOW_SERVICE_ADDRESS"

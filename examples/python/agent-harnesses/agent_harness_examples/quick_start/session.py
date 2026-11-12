@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from dex import (
     AsyncClient,
@@ -42,20 +43,6 @@ from dex_agents import (
     MessageRole,
 )
 
-from agent_harness_examples.config import AgentHarnessExamplesConfig
-from agent_harness_examples.demo_model_script import is_demo_model
-from agent_harness_examples.google_adk_demo_model import GoogleADKDemoModel
-from agent_harness_examples.langchain_demo_model import LangChainDemoChatModel
-from agent_harness_examples.openai_agents_demo_model import OpenAIAgentsDemoModel
-from agent_harness_examples.order_desk import OrderDesk
-from agent_harness_examples.pydantic_ai_demo_model import build_pydantic_ai_demo_model
-from agent_harness_examples.quick_start import (
-    claude_agent_sdk_quick_start,
-    google_adk_quick_start,
-    langchain_quick_start,
-    openai_agents_quick_start,
-    pydantic_ai_quick_start,
-)
 
 PULL_REGISTRATION_TIMEOUT_SECONDS = 30.0
 # Tool calls run as parallel Steps, so the Worker needs a slot for each one.
@@ -65,58 +52,26 @@ POLL_INTERVAL_SECONDS = 0.5
 ApprovalDecider = Callable[[AgentInterrupt], Awaitable[bool]]
 
 
-def build_quick_start_agent(
-    framework: str, order_desk: OrderDesk, config: AgentHarnessExamplesConfig
-) -> AgentSessionFlow:
-    """Returns the durable agent of one framework, on the local demo model unless one is set."""
-    if framework == "claude-agent-sdk":
-        return claude_agent_sdk_quick_start.build_durable_agent(
-            order_desk, config.claude_agent_sdk_model
-        )
-    if framework == "google-adk":
-        model = config.google_adk_model
-        return google_adk_quick_start.build_durable_agent(
-            order_desk, GoogleADKDemoModel() if is_demo_model(model) else model
-        )
-    if framework == "langchain":
-        model = config.langchain_model
-        return langchain_quick_start.build_durable_agent(
-            order_desk, LangChainDemoChatModel() if is_demo_model(model) else model
-        )
-    if framework == "openai-agents":
-        model = config.openai_agents_model
-        return openai_agents_quick_start.build_durable_agent(
-            order_desk, OpenAIAgentsDemoModel() if is_demo_model(model) else model
-        )
-    if framework == "pydantic-ai":
-        model = config.pydantic_ai_model
-        return pydantic_ai_quick_start.build_durable_agent(
-            order_desk, build_pydantic_ai_demo_model() if is_demo_model(model) else model
-        )
-    raise ValueError(f"unknown framework {framework!r}; use one of {', '.join(FRAMEWORKS)}")
-
-
-FRAMEWORKS = ("claude-agent-sdk", "google-adk", "langchain", "openai-agents", "pydantic-ai")
-
-
 class QuickStartApp:
     """One Registry, Worker, and Client for one durable agent."""
 
-    def __init__(self, session_flow: AgentSessionFlow, config: AgentHarnessExamplesConfig) -> None:
+    def __init__(
+        self, session_flow: AgentSessionFlow, server_address: str, blob_cache_dir: Path
+    ) -> None:
         # Agent session Steps are async, so the Registry allows async handlers.
         self.registry = Registry((session_flow,), allow_async_handlers=True)
-        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
-        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
+        blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(BlobCacheConfig(str(blob_cache_dir), 1 << 30))
         self.worker = AsyncWorker(
             self.registry,
             self.blob_cache,
             WorkerOptions(
-                server_address=config.server_address,
+                server_address=server_address,
                 pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
             ),
         )
         self.client = AsyncClient(
-            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
+            self.registry, self.blob_cache, ClientOptions(server_address=server_address)
         )
         self.sessions = AgentSessionClient(self.client, session_flow)
         self._worker_task: asyncio.Task[None] | None = None

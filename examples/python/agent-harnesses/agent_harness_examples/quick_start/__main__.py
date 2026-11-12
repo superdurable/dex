@@ -31,12 +31,8 @@ from dex_agents import AgentInterrupt
 
 from agent_harness_examples.config import AgentHarnessExamplesConfig
 from agent_harness_examples.order_desk import OrderDesk
-from agent_harness_examples.quick_start.session import (
-    FRAMEWORKS,
-    QuickStartApp,
-    build_quick_start_agent,
-    run_turn,
-)
+from agent_harness_examples.quick_start.frameworks import FRAMEWORKS, build_quick_start_agent
+from agent_harness_examples.quick_start.session import QuickStartApp, run_turn
 
 
 async def ask_for_approval(interrupt: AgentInterrupt) -> bool:
@@ -56,7 +52,8 @@ async def main() -> None:
 
     config = AgentHarnessExamplesConfig.from_env()
     order_desk = OrderDesk(config.order_desk_tool_delay_seconds)
-    app = QuickStartApp(build_quick_start_agent(arguments.framework, order_desk, config), config)
+    session_flow = build_quick_start_agent(arguments.framework, order_desk, config)
+    app = QuickStartApp(session_flow, config.server_address, config.blob_cache_dir)
     try:
         await app.start_worker()
         session_id = arguments.session_id
