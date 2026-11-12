@@ -463,6 +463,11 @@ html[data-theme='dark'] {
   margin: 1rem 0 1.5rem;
 }
 
+/* Agent framework cards: a denser grid of logo, name, and languages. */
+.docs-home-sections.docs-harness-cards {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+}
+
 /* The home page's two calls to action and the SDK shortcuts under them. */
 .docs-home-actions p {
   display: flex;

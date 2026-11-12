@@ -13,6 +13,7 @@ import Link from '@docusaurus/Link';
 import type {LucideIcon} from 'lucide-react';
 import {ArrowRight, Bot, Cloud, Code2, Gauge, GitCompare, Layers, Monitor, Plug, RefreshCw, Rocket, Scale, Server, TriangleAlert, Wrench} from 'lucide-react';
 import {docsSectionIcons, type DocsSectionKey} from './docsSections';
+import {frameworkLogoMarkup, type FrameworkLogoKey} from './frameworkLogos';
 
 // Icons a card can use instead of its section's icon; the colour still comes from the section.
 const cardIcons = {
@@ -35,6 +36,8 @@ const cardIcons = {
 export type DocsSectionProps = {
   section: DocsSectionKey;
   icon?: keyof typeof cardIcons;
+  /** An agent framework's logo, shown instead of an icon. */
+  logo?: FrameworkLogoKey;
   /** A short note under the title, such as how long the path takes. */
   meta?: string;
   to: string;
@@ -43,12 +46,17 @@ export type DocsSectionProps = {
 };
 
 /** One entry of the docs home page: a section icon, its name, and what readers find there. */
-export default function DocsSection({section, icon, meta, to, title, children}: DocsSectionProps): ReactNode {
+export default function DocsSection({section, icon, logo, meta, to, title, children}: DocsSectionProps): ReactNode {
   const Icon = icon ? cardIcons[icon] : docsSectionIcons[section];
   return (
     <Link className="docs-section-entry" data-docs-section={section} to={to}>
-      <span className="docs-section-entry__icon" aria-hidden="true">
-        <Icon size={22} strokeWidth={2} />
+      <span className={logo ? 'docs-section-entry__icon docs-section-entry__icon--logo' : 'docs-section-entry__icon'} aria-hidden="true">
+        {logo ? (
+          <svg viewBox="0 0 24 24" width={22} height={22} fill="currentColor" fillRule="evenodd"
+            dangerouslySetInnerHTML={{__html: frameworkLogoMarkup[logo]}} />
+        ) : (
+          <Icon size={22} strokeWidth={2} />
+        )}
       </span>
       <span className="docs-section-entry__text">
         <strong>

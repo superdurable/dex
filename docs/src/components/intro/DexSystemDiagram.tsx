@@ -10,7 +10,7 @@ import React, {type ReactNode} from 'react';
 import clsx from 'clsx';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import type {LucideIcon} from 'lucide-react';
-import {AppWindow, Cpu, Database, Laptop, Package, Server} from 'lucide-react';
+import {AppWindow, Cpu, Database, Laptop, Monitor, Package, Server, SquareTerminal, Wrench} from 'lucide-react';
 
 import {
   Arrow,
@@ -31,6 +31,9 @@ type Copy = {
   toServer: string;
   fromServer: string;
   persist: string;
+  operate: string;
+  cli: string;
+  web: string;
 };
 
 const EN: Copy = {
@@ -40,6 +43,9 @@ const EN: Copy = {
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
   persist: 'Persists Flow instances and execution.',
+  operate: 'OPERATE · CONNECTS TO DEX SERVER',
+  cli: 'Runs Dex locally and operates Flows from a shell.',
+  web: 'Inspect and act on Flows in the browser.',
 };
 
 const ZH: Copy = {
@@ -49,6 +55,9 @@ const ZH: Copy = {
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
   persist: '持久化 Flow 实例及其执行。',
+  operate: '运维 · 连接 Dex Server',
+  cli: '在本机运行 Dex，并在终端中操作 Flow。',
+  web: '在浏览器中查看和操作 Flow。',
 };
 
 function RoleNode({
@@ -91,12 +100,19 @@ function SystemArrow({
   );
 }
 
-export default function DexSystemDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
+/** Shows the application and Dex Server; withOperatorTools adds dexcli and Dex Web. */
+export default function DexSystemDiagram({
+  markdownDescription,
+  withOperatorTools = false,
+}: {
+  markdownDescription: string;
+  withOperatorTools?: boolean;
+}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = i18n.currentLocale === 'zh-Hans' ? ZH : EN;
   return (
     <ConceptDiagramFrame label={markdownDescription}>
-      <div className={styles.layout}>
+      <div className={clsx(styles.layout, withOperatorTools && styles.withTools)}>
         <span className={styles.appBackground} />
         <span className={styles.appLabel}>
           <Eyebrow icon={AppWindow}>{copy.app}</Eyebrow>
@@ -120,6 +136,15 @@ export default function DexSystemDiagram({markdownDescription}: {markdownDescrip
             <Detail>{copy.persist}</Detail>
           </span>
         </Tile>
+        {withOperatorTools ? (
+          <div className={styles.tools}>
+            <span className={styles.toolsLabel}>
+              <Eyebrow icon={Wrench}>{copy.operate}</Eyebrow>
+            </span>
+            <RoleNode icon={SquareTerminal} title="dexcli" detail={copy.cli} className={styles.tool} />
+            <RoleNode icon={Monitor} title="Dex Web" detail={copy.web} className={styles.tool} />
+          </div>
+        ) : null}
       </div>
     </ConceptDiagramFrame>
   );

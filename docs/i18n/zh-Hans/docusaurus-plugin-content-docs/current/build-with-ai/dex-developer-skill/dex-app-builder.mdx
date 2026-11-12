@@ -11,9 +11,9 @@ description: "Dex App Builder 是创建 Dex 应用或流程产品的主要 skill
 Dex App Builder 是创建 Dex 应用或流程产品的**主要 skill**。它覆盖完整的过程：梳理业务
 流程、选择 UI、构建 Go 后端、在本地测试，最后交付结果。
 
-## 安装与使用
+## 安装与使用 {#install-and-use}
 
-先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程智能体中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
+先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程 Agent中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
 
 ```text
 $dex-app-builder Design and build an event-registration application.
@@ -22,7 +22,7 @@ $dex-app-builder Design and build an event-registration application.
 
 [安装和使用 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) 列出了每个 host 的调用方式。
 
-## 何时使用
+## 何时使用 {#when-to-use-it}
 
 需求包含以下任意一项时，使用 App Builder：
 
@@ -37,7 +37,7 @@ $dex-app-builder Design and build an event-registration application.
 [Dex SDK](./dex-sdk.mdx) 或
 [Dex Connector Contributor](./dex-connector-contributor.mdx)。
 
-## 开始实现前
+## 开始实现前 {#before-implementation}
 
 App Builder 会先确认 coding-agent host 能让它写入 repository 或项目目录、编辑文件、
 执行命令。
@@ -45,9 +45,9 @@ App Builder 会先确认 coding-agent host 能让它写入 repository 或项目�
 如果不具备这些条件，App Builder 仍然可以梳理流程、设计架构、写出实现方案，但不能创建
 文件、运行测试、构建产物或部署应用。
 
-## 工作流程
+## 工作流程 {#workflow}
 
-### 1. 确认业务流程
+### 1. 确认业务流程 {#1-confirm-the-business-process}
 
 这个 skill 先和你讨论，而不是马上写代码。它会弄清楚：
 
@@ -60,7 +60,7 @@ App Builder 会先确认 coding-agent host 能让它写入 repository 或项目�
 这一步的产出是：一张角色、操作与权限的对照表，一份生命周期方案，一个 UI 决定，以及一张
 所需 Connector 能力的清单。所有重要的疑问都会在写代码之前和你确认清楚。
 
-### 2. 选择应用界面
+### 2. 选择应用界面 {#2-choose-the-application-surface}
 
 App Builder 在两种管理流程的方式中选一种：
 
@@ -72,7 +72,7 @@ App Builder 在两种管理流程的方式中选一种：
 默认使用 Dex Web。模板里留下的 Hello World 页面或生成的 API client，本身不能成为构建
 自定义 UI 的理由。
 
-### 3. 设计并实现 Flow
+### 3. 设计并实现 Flow {#3-design-and-implement-the-flow}
 
 后端使用受支持的应用模板和 Dex Go SDK。App Builder 会加载 [Dex SDK](./dex-sdk.mdx)
 获取通用的 SDK 规则，再加上自己更严格的规则：
@@ -88,7 +88,7 @@ App Builder 在两种管理流程的方式中选一种：
 写代码之前，skill 会先说明 Flow 的标识、typed 输入和输出、Step、状态转换、Attribute、
 Channel、RPC、Timer、重试、恢复，以及 Connector 的边界。
 
-### 4. 验证并交付
+### 4. 验证并交付 {#4-verify-and-hand-off}
 
 开发过程中，skill 会运行与每次改动相关的测试。最后运行模板的完整检查，覆盖所选的 UI
 模式、生成的代码、生产构建、在真实 Dex Server 上的行为、恢复路径和 FDG 2.0 分析。
@@ -96,7 +96,7 @@ Channel、RPC、Timer、重试、恢复，以及 Connector 的边界。
 交付内容包括：你确认过的产品决定、已实现的功能、确切的测试结果、Connector 发布或贡献的
 状态，以及已知的限制。工作以一个干净的 Git commit 结束。
 
-## 如何处理 Connector 缺口
+## 如何处理 Connector 缺口 {#how-connector-gaps-are-handled}
 
 写集成代码之前，App Builder 会先查看已发布的 Connector 能做什么。如果缺少某个官方
 Connector，或者应用需要的 operation、Trigger、configuration UI unit 缺失或有问题，
@@ -106,7 +106,7 @@ Connector，或者应用需要的 operation、Trigger、configuration UI unit �
 版本发布之前，应用不能进入生产。skill 绝不会把 branch、commit SHA、pseudo-version 或
 本地替换作为生产依赖提交。
 
-## 预期结果
+## 预期结果 {#expected-result}
 
 App Builder 完成后，你会得到：
 
@@ -119,6 +119,6 @@ App Builder 完成后，你会得到：
 
 返回 [Dex Skills 总览与安装](../dex-developer-skill.mdx)。
 
-## 下一步
+## 下一步 {#next}
 
 [Dex SDK](/build-with-ai/dex-developer-skill/dex-sdk)：Dex SDK 是一个专用 sub-skill。它帮助 agent 用公开的 Dex SDK 构建、调试、测试和运行应用，支持 Python、Go、Java、TypeScript 和 Rust。

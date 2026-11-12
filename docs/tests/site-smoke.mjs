@@ -254,7 +254,7 @@ for (const page of [home, zhHome, cron, zhCron]) {
 assert.match(zhHome, /English/);
 assert.match(zhHome, /简体中文/);
 assert.doesNotMatch(zhHome, /superdurable\.ai/);
-for (const label of ['Dex 文档', '菜单', '文档', '快速开始', 'AI 智能体', '示例', '产品', '开发者', '公司', '引擎对比', '联系我们']) {
+for (const label of ['Dex 文档', '菜单', '文档', '快速开始', 'AI Agents', '示例', '产品', '开发者', '公司', '引擎对比', '联系我们']) {
   assert.ok(zhHome.includes(label), `Missing Chinese shell label: ${label}`);
 }
 assert.match(zhHome, /href="\/zh-Hans\/quick-start\/"/);
@@ -317,8 +317,8 @@ assert.match(dexSkills, /dex-sdk/);
 assert.match(dexSkills, /dex-app-builder/);
 assert.match(dexSkills, /dex-connector-contributor/);
 assert.match(dexSkills, /primary skill/i);
-assert.match(dexSkills, /Requires a coding workspace/);
-assert.match(dexSkills, /writable repository or project, file-editing tools, and command execution/);
+assert.match(dexSkills, /dex-app-builder\/#before-implementation/);
+assert.match(dexAppBuilder, /writable\s+repository or project, file-editing tools, and command execution/);
 assert.match(dexSkills, /https:\/\/github\.com\/superdurable\/dex-skills/);
 
 // The full install lives once, on the Build with AI overview. Each skill page links to it and shows its own invocation.
@@ -388,8 +388,8 @@ assert.match(dexConnectorContributor, /needs a Go implementation/);
 assert.match(dexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/blob\/main\/AGENTS\.md/);
 assert.match(zhDexSkills, /使用 AI 构建/);
 assert.match(zhDexSkills, /主要 skill/);
-assert.match(zhDexSkills, /需要代码工作区/);
-assert.match(zhDexSkills, /写入 repository 或项目目录/);
+assert.match(zhDexSkills, /开始实现之前/);
+assert.match(zhDexAppBuilder, /写入 repository 或项目目录/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));
 assert.match(zhDexAppBuilder, /主要 skill/);
 assert.match(zhDexAppBuilder, /选择应用界面/);

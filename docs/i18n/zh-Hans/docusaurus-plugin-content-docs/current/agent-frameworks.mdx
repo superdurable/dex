@@ -20,6 +20,39 @@ Dex 把 AI Agent 作为持久化的 Agent Session 运行。你可以用 Dex Agen
 
 想亲手试一试，可以运行 [Agent 快速开始](/agent-frameworks/quick-start)。[Dex vs. 其他引擎](/intro/compared-to-durable-execution#agent-frameworks-on-a-durable-execution-engine)把 Dex 与框架的 checkpointer 和其他引擎做了对比，[术语表](/glossary)解释了这些页面用到的术语。
 
+## 选择 harness {#choose-a-harness}
+
+<a id="coming-from-a-framework"></a>
+
+Harness 负责运行 agent loop：内置 loop 或某个框架。选择你的框架，打开它的 Agent 快速开始；每个框架的限制在 [Session](/agent-frameworks/sessions#limits) 页面。
+
+<div className="docs-home-sections docs-harness-cards">
+  <DocsSection section="agent-frameworks" logo="claude-agent-sdk" to="/agent-frameworks/quick-start/?framework=claude-agent-sdk" title="Claude Agent SDK">
+    Python、TypeScript
+  </DocsSection>
+  <DocsSection section="agent-frameworks" logo="google-adk" to="/agent-frameworks/quick-start/?framework=google-adk" title="Google ADK">
+    Python
+  </DocsSection>
+  <DocsSection section="agent-frameworks" logo="langchain-langgraph" to="/agent-frameworks/quick-start/?framework=langchain-langgraph" title="LangChain and LangGraph">
+    Python
+  </DocsSection>
+  <DocsSection section="agent-frameworks" logo="mastra" to="/agent-frameworks/quick-start/?framework=mastra" title="Mastra">
+    TypeScript
+  </DocsSection>
+  <DocsSection section="agent-frameworks" logo="openai-agents-sdk" to="/agent-frameworks/quick-start/?framework=openai-agents-sdk" title="OpenAI Agents SDK">
+    Python、TypeScript
+  </DocsSection>
+  <DocsSection section="agent-frameworks" logo="pydantic-ai" to="/agent-frameworks/quick-start/?framework=pydantic-ai" title="Pydantic AI">
+    Python
+  </DocsSection>
+  <DocsSection section="agent-frameworks" logo="vercel-ai-sdk" to="/agent-frameworks/quick-start/?framework=vercel-ai-sdk" title="Vercel AI SDK">
+    TypeScript
+  </DocsSection>
+  <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/built-in-agent-loop" title="内置 Agent Loop">
+    Python、TypeScript，不用框架
+  </DocsSection>
+</div>
+
 ## 本节页面 {#pages}
 
 - [Agent 快速开始](/agent-frameworks/quick-start)：在 Dex 上运行你的 Agent，停掉它的 Worker，看 Session 继续运行。
@@ -33,23 +66,6 @@ Dex 把 AI Agent 作为持久化的 Agent Session 运行。你可以用 Dex Agen
 - 示例：基于内置 loop 的 [AI Agent](/use-cases/ai-agent)，以及在每个框架上实现的[订单客服 Agent](/use-cases/order-support-agent)。
 
 [Agents 参考](/reference/agents/)（英文）中的页面：[Tracing](/reference/agents/tracing)、[Upgrades](/reference/agents/upgrades)、[Session limits](/reference/agents/session-limits)、[Spend limits](/reference/agents/spend-limits) 和 [CLI commands](/reference/agents/cli)。
-
-## 选择 harness {#choose-a-harness}
-
-<a id="coming-from-a-framework"></a>
-
-Harness 负责运行 agent loop：内置 loop 或某个框架。点击名称会打开 Agent 快速开始中对应的标签页。
-
-| Harness | 语言 | 限制 |
-| --- | --- | --- |
-| [Claude Agent SDK](/agent-frameworks/quick-start/?framework=claude-agent-sdk) | Python、TypeScript | [限制](/agent-frameworks/sessions/?framework=claude-agent-sdk#limits) |
-| [Google ADK](/agent-frameworks/quick-start/?framework=google-adk) | Python | [限制](/agent-frameworks/sessions/?framework=google-adk#limits) |
-| [LangChain and LangGraph](/agent-frameworks/quick-start/?framework=langchain-langgraph) | Python | [限制](/agent-frameworks/sessions/?framework=langchain-langgraph#limits) |
-| [Mastra](/agent-frameworks/quick-start/?framework=mastra) | TypeScript | [限制](/agent-frameworks/sessions/?framework=mastra#limits) |
-| [OpenAI Agents SDK](/agent-frameworks/quick-start/?framework=openai-agents-sdk) | Python、TypeScript | [限制](/agent-frameworks/sessions/?framework=openai-agents-sdk#limits) |
-| [Pydantic AI](/agent-frameworks/quick-start/?framework=pydantic-ai) | Python | [限制](/agent-frameworks/sessions/?framework=pydantic-ai#limits) |
-| [Vercel AI SDK](/agent-frameworks/quick-start/?framework=vercel-ai-sdk) | TypeScript | [限制](/agent-frameworks/sessions/?framework=vercel-ai-sdk#limits) |
-| [内置 agent loop](/agent-frameworks/built-in-agent-loop) | Python、TypeScript | 无 |
 
 ## 下一步 {#next}
 

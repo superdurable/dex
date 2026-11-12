@@ -68,7 +68,7 @@
     "description": "The header tab for the Quick Start"
   },
   "shell.tabs.agents": {
-    "message": "AI 智能体",
+    "message": "AI Agents",
     "description": "The header tab for Durable Agents"
   },
   "shell.tabs.examples": {

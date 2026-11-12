@@ -23,9 +23,9 @@ conformance 场景。
 
 :::
 
-## 安装与使用
+## 安装与使用 {#install-and-use}
 
-先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程智能体中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
+先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程 Agent中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
 
 ```text
 $dex-connector-contributor Add <XYZ> to Dex official connector library
@@ -37,14 +37,14 @@ $dex-connector-contributor Add <XYZ> to Dex official connector library
 如果你的应用只是使用已发布的 Connector，请改用 [Dex App Builder](./dex-app-builder.mdx)
 或 [Dex SDK](./dex-sdk.mdx)。
 
-## 范围与来源要求
+## 范围与来源要求 {#scope-and-source-requirements}
 
 这个 skill 只在官方 Connector 库中工作。它以 provider 公开文档中的 API 或官方 SDK 为
 起点，检查 provider 的认证 scope、限流、幂等支持、分页、事件确认和失败行为。
 
 它只使用 provider 公开文档中的能力：不抓取私有接口、不复制浏览器凭据，也不逆向分析内部协议。
 
-## Repository 与 Fork 工作流
+## Repository 与 Fork 工作流 {#repository-and-fork-workflow}
 
 skill 会先查找并检查你的 `superdurable/dex-connectors-library` GitHub fork。如果你
 还没有 fork，它会征求你的同意，然后打开 GitHub 的 fork 页面。你点击 **Create fork**
@@ -54,7 +54,7 @@ skill 会先查找并检查你的 `superdurable/dex-connectors-library` GitHub f
 自己的 `codex/` branch 上工作，这个 branch 基于最新的 `upstream/main` 创建。与本次
 工作无关的本地改动会保持原样。
 
-## 贡献工作流
+## 贡献工作流 {#contribution-workflow}
 
 skill 按以下顺序工作：
 
@@ -69,7 +69,7 @@ skill 按以下顺序工作：
 8. 提交一个只涉及本 module 的干净改动，推送到你的 fork，向上游打开一个可直接 review 的
    pull request，并跟踪必需的 CI。
 
-## Durability 与 Security 边界
+## Durability 与 Security 边界 {#durability-and-security-boundaries}
 
 - provider 调用只在 Connector Step 的 `Execute` 方法中执行。
 - RPC 只负责转发请求或修改 Dex 状态，从不调用 provider。
@@ -85,7 +85,7 @@ skill 按以下顺序工作：
 Connector 可能需要 Dex SDK 尚未提供的功能。这时可以在本地同时测试 SDK 改动和 Connector，
 但 SDK 改动必须先发布，Connector 的 pull request 才能使用它。
 
-## 示例与验证 Gate
+## 示例与验证 Gate {#example-and-verification-gates}
 
 新的 Connector 或重要能力通常要附带一个可在本地运行的示例。如果 Connector 有 Trigger，
 示例要展示真实的 provider 事件启动 typed Flow 或调用 RPC，并展示重复事件和重启都能正确
@@ -97,7 +97,7 @@ Connector 可能需要 Dex SDK 尚未提供的功能。这时可以在本地同�
 构建，以及 repository 检查。有凭据时，还会针对真实 provider 运行安全的测试；否则 pull
 request 必须写明哪些真实行为没有测试。
 
-## 与 App Builder 的关系
+## 与 App Builder 的关系 {#relationship-to-app-builder}
 
 只有确认应用需要的官方 Connector 能力缺失或有问题后，App Builder 才会把工作交给这个
 skill。贡献还在 review 时，应用可以使用一个不提交的本地覆盖。在 Connector 以确切版本

@@ -11,11 +11,16 @@ description: "Dex Skills is the official guidance that teaches a coding agent, s
 Dex Skills teaches a coding agent, such as Codex, Claude Code, or Cursor, to
 design and build Dex applications, use the Dex SDK, and contribute official
 [Connectors](/concepts/connector). The Skills are guidance for the agent and
-hold no runtime code.
+hold no runtime code. To build, the agent needs a coding workspace; see
+[Before implementation](./dex-developer-skill/dex-app-builder.mdx#before-implementation).
 
 ## Install and use Dex Skills
 
 <DexSkillHostTabs skill="all" />
+
+Install all three Skills with one path per host: the Plugin (recommended) or
+standalone Skills. The source and releases are in
+[superdurable/dex-skills](https://github.com/superdurable/dex-skills).
 
 :::tip Start with Dex App Builder
 
@@ -25,17 +30,6 @@ other skills when the job needs SDK or Connector work.
 
 :::
 
-## Requires a coding workspace
-
-To create or change an application, run Dex Skills in Codex or another
-coding-agent host that gives the agent
-a writable repository or project, file-editing tools, and command execution.
-The repository can be an existing one or a new, empty one.
-
-In a plain chat, the skills help you work out the business process, design
-the architecture, and write a plan for implementation. Move the agreed plan
-into a coding workspace with a repository to build it.
-
 ## Choose a skill
 
 | Skill | Role | Use it for |
@@ -44,33 +38,8 @@ into a coding workspace with a repository to build it.
 | [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | Specialist sub-skill | Build, debug, test, and run Dex applications in Python, Go, Java, TypeScript, or Rust. |
 | [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | Specialist sub-skill | Create, test, and contribute official Connector operations, Triggers, and configuration UI units. |
 
-Use **dex-sdk** directly only for a standalone SDK task. Use
-**dex-connector-contributor** directly only for standalone work in the official
-Dex Connectors Library.
-
-## How the skills work together
-
-Dex App Builder is the main skill. It loads Dex SDK when it starts to design
-and build the backend. It uses released Connectors directly. When it confirms
-that an official Connector lacks something the application needs, it hands
-that work to Dex Connector Contributor. Connector Contributor also loads Dex
-SDK when it needs the rules for Flows and Steps.
-
-Install all three Skills together, so that the agent can move between them.
-The source and releases are in
-[superdurable/dex-skills](https://github.com/superdurable/dex-skills).
-
-## Choose one installation path
-
-Pick one path per host:
-
-1. **Plugin (recommended)** installs all three Skills. You install, update,
-   and remove them through the host's plugin marketplace.
-2. **Standalone Skills** installs all three Skills directly with the Agent
-   Skills CLI.
-
-One path per host keeps a single copy of each Skill, so you always know which
-version the agent uses and how to invoke it.
+Each skill page explains when to call it directly and how it works with the
+others.
 
 ## Trust and permissions
 

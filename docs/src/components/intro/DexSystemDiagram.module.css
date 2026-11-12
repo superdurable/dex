@@ -104,6 +104,38 @@ div.layout .server {
   color: var(--cd-accent);
 }
 
+/* Operator tools sit in a band under everything. */
+.layout.withTools {
+  grid-template-areas:
+    'label label'
+    'client client'
+    'worker worker'
+    'sdk sdk'
+    'to from'
+    'server server'
+    'tools tools';
+}
+
+.tools {
+  grid-area: tools;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+  padding: 0.75rem 0.65rem 0.65rem;
+  border-radius: 16px;
+  background: var(--cd-group);
+}
+
+.toolsLabel {
+  padding: 0 0.15rem 0.1rem;
+}
+
+div.layout .tool {
+  gap: 0.35rem;
+  margin: 0;
+}
+
 @container (min-width: 34rem) {
   .layout {
     grid-template-columns: minmax(0, 1fr) minmax(0, 6.5rem) minmax(0, 7.5rem) minmax(0, 0.9fr);
@@ -146,5 +178,21 @@ div.layout .server {
 
   .layout .call > .callWide {
     display: flex;
+  }
+
+  .layout.withTools {
+    grid-template-areas:
+      'label label . server'
+      'client sdk to server'
+      'worker sdk from server'
+      'tools tools tools tools';
+  }
+
+  .tools {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .toolsLabel {
+    grid-column: 1 / -1;
   }
 }
