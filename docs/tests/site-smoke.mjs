@@ -481,6 +481,13 @@ for (const filePath of htmlIndexFiles) {
     const [, component, version] = referenceMatch;
     const sidebarHtml = html.match(/<nav aria-label="[^"]*" class="menu thin-scrollbar[\s\S]*?<\/nav>/)?.[0] ?? '';
     assert.match(sidebarHtml, />Design Patterns</, `${route} must show the main docs sidebar`);
+    // The component header opens its overview, so no item under it opens that page again.
+    const componentRoot = `/${route.startsWith('/zh-Hans/') ? 'zh-Hans/' : ''}reference/${component}/${version ? `${version}/` : ''}`;
+    const rootLinks = [...sidebarHtml.matchAll(/<a\b[^>]*>/g)].map(([tag]) => tag)
+      .filter((tag) => attributeValue(tag, 'href') === componentRoot);
+    assert.equal(rootLinks.length, 1, `${route}: the sidebar must open ${componentRoot} once, from the component header`);
+    assert.match(attributeValue(rootLinks[0], 'class') ?? '', /menu__link--sublist/,
+      `${route}: ${componentRoot} must be the component header's link, not an item under it`);
     assert.match(sidebarHtml, /menu__link--active[^>]*aria-current="page"|aria-current="page"[^>]*menu__link--active/,
       `${route} must highlight its page in the sidebar`);
     const select = html.match(/<select\b[^>]*>[\s\S]*?<\/select>/)?.[0];

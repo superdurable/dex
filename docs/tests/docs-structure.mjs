@@ -15,8 +15,8 @@
 // 4. The home page and Get Started link straight to the page that does each job: no ordered reading lists.
 // 5. A group's overview page has the group's name as its title, so the header and the page agree.
 // 6. Every sidebar page that is not a group overview, the home page, Get Started, or the Glossary ends with Next.
-// 7. Rules 2 and 5 also hold in each Developer reference component's sidebar, and that sidebar does not list the
-//    component's index page, which the Developer Reference header already opens.
+// 7. Rules 2 and 5 also hold in each Developer reference component's sidebar. Its index page comes first, and the
+//    shared sidebar hides it because the Developer Reference header already opens it.
 
 import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
@@ -213,9 +213,11 @@ for (const name of readdirSync(join(docsRoot, 'reference/sidebars')).filter((fil
     }
   };
   for (const [sidebarName, items] of Object.entries(componentSidebars)) {
-    // The Developer Reference header for this component opens its index page, so the sidebar must not list it.
-    if (items.some((item) => docId(item) === 'index')) {
-      failures.push(`${where}: lists index, the page its Developer Reference header already opens. Remove it.`);
+    // The component's index page stays first so it keeps a sidebar; the shared sidebar hides it, because the
+    // Developer Reference header already opens it (site-smoke checks the rendered sidebar).
+    const indexAt = items.findIndex((item) => docId(item) === 'index');
+    if (indexAt > 1 || (indexAt === 1 && !(items[0]?.type === 'link'))) {
+      failures.push(`${where}: index must be the first page, right after the back link, so the shared sidebar can hide it.`);
     }
     check(items, [component, sidebarName]);
   }
