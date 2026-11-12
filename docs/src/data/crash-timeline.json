@@ -40,10 +40,10 @@
       "events": [
         {"actor": "first", "kind": "step", "text": "RunModel calls the model. The model asks to call cancel_order."},
         {"actor": "server", "kind": "wait", "text": "cancel_order waits in AwaitToolApproval. Dex Server holds the wait."},
-        {"actor": "first", "kind": "stop", "text": "The Worker stops."},
+        {"actor": "first", "kind": "stop", "text": "You stop the program, and its Worker stops."},
         {"actor": "server", "kind": "wait", "text": "The approval keeps waiting on Dex Server. No Worker is needed."},
-        {"actor": "second", "kind": "start", "text": "The Worker starts again and connects to Dex."},
-        {"actor": "server", "kind": "fire", "text": "You approve cancel_order in Dex Web."},
+        {"actor": "second", "kind": "start", "text": "You start the program again. Its Worker connects to Dex."},
+        {"actor": "server", "kind": "fire", "text": "You approve cancel_order at the program's prompt. Dex Server records the answer."},
         {"actor": "second", "kind": "step", "text": "cancel_order runs once. The model writes the reply."},
         {"actor": "server", "kind": "done", "text": "The turn completes."}
       ],
@@ -59,7 +59,7 @@
         {"actor": "first", "kind": "stop", "text": "Worker 停止。"},
         {"actor": "server", "kind": "wait", "text": "审批继续在 Dex Server 上等待，不需要 Worker。"},
         {"actor": "second", "kind": "start", "text": "Worker 重新启动并连接 Dex。"},
-        {"actor": "server", "kind": "fire", "text": "你在 Dex Web 里批准 cancel_order。"},
+        {"actor": "server", "kind": "fire", "text": "你在程序的提示符处批准 cancel_order，Dex Server 记录这个答复。"},
         {"actor": "second", "kind": "step", "text": "cancel_order 只运行一次。模型写出回复。"},
         {"actor": "server", "kind": "done", "text": "这一轮完成。"}
       ],

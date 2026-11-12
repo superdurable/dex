@@ -8,27 +8,36 @@ description: "Dex Server stores every Flow's state and hands Steps and RPCs to W
 
 Dex Server stores every Flow's state and hands Steps and RPCs to Workers. It
 stores that state in object storage, such as Amazon S3 or an S3-compatible
-store, and needs no other database. A PostgreSQL-compatible db9 database can
-take the place of object storage; see
-[db9 provider](/reference/server/object-storage#db9). Dex Server ships as one binary, **dex-server-zd**. Its
-releases and reference pages call it **server-zd**.
+store, and needs no other database. Dex Server ships as one binary,
+**dex-server-zd**. Its releases and reference pages call it **server-zd**.
+
+Instead of object storage, Dex Server can keep the same data in db9, a
+PostgreSQL-compatible database. It talks to db9 over the PostgreSQL wire
+protocol, and its storage tests also run against PostgreSQL 16. The database
+must give durable transactions, row locks, and strongly consistent reads, so a
+read replica does not qualify. See
+[db9 provider](/reference/server/object-storage#db9).
 
 ## How it works
 
-Dex Server commits every write to object storage before it acknowledges the
-write. It keeps a local store as a cache. After a restart, a node rebuilds that
-cache from object storage.
+Object storage is the record. Dex Server keeps a local store only as a cache,
+and a node rebuilds that cache from object storage after a restart.
+
+When Dex reports that something happened, such as a started Flow or a SYNC
+Step result, Dex has already written it to object storage.
+An ASYNC Step is the exception: Dex moves the Flow on first and writes the
+result in a batch about 20 milliseconds later. See
+[SYNC and ASYNC Steps](/concepts/step#sync-and-async).
 
 One active process serves a cluster. It holds a lease in object storage, so a
 second process cannot write at the same time. You can run standby processes
 that take over when the active process stops.
 
-The cluster splits its Flows into partitions, and today the one active node
-owns every partition. So one node's capacity is the ceiling of a cluster. To
-grow past it, use a larger node, or run separate clusters, each with its own
-Flows and Workers. [Performance and
-Maturity](/intro/performance-and-maturity) gives measured throughput and
-latency for one node.
+Today the one active node serves every Flow in a cluster, so its capacity is
+the cluster's ceiling. [Limits and Sharp Edges](/intro/limits-and-sharp-edges)
+covers this and other limits, and
+[Performance and Maturity](/intro/performance-and-maturity) gives measured
+throughput and latency for one node.
 
 ## How it fits with the other components
 

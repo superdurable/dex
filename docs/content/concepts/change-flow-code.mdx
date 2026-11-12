@@ -1,0 +1,112 @@
+---
+id: change-flow-code
+title: Change Flow Code
+sidebar_label: Change Flow Code
+slug: /concepts/change-flow-code
+description: How to deploy changed Flow code while Flows are still open, with a worked example, and how to recover a Flow with Time Travel after a fix.
+---
+
+# Change Flow Code
+
+Flows can stay open for days or months, so new code often meets Flows that
+started under old code. This page shows how to change code safely and how to
+rerun a Flow after a fix. [Failover and Deploys](/concepts/failover-and-deploys)
+lists what runs again during a deploy.
+
+## Versioning Flow code {#versioning-flow-code}
+
+Dex does not re-run your earlier Step code to decide what a Flow does next.
+So deploying changed code never causes a replay error. You still have to keep
+open Flows working across a deployment. They can meet changed business rules,
+missing Step implementations, renamed RPCs, or incompatible data.
+
+### Lock business behavior at Flow start
+
+Persist a business version value when a Flow starts, such as an Attribute or a
+field in the start state. Branch on that stored value, not on the Worker build
+currently serving the call. Existing Flows keep their old behavior; new Flows
+can use the new behavior after deployment.
+
+Use this when a change alters a decision, payment rule, retry policy, deadline,
+or other customer-visible meaning. Deploying new code alone is not enough,
+because a long-running Flow can call a newly deployed Worker later.
+
+### Evolve data and contracts additively
+
+Add optional fields. Code that reads a payload must handle fields that older
+runs did not set, and ignore unknown fields that newer components send. Supply a safe default for an
+absent field, and keep the previous meaning of existing field values. For an
+incompatible payload or output contract, introduce a new Step type or RPC name
+instead of silently changing the old one.
+
+### Keep old definitions until old Flows finish
+
+Do not delete or rename a Flow type, Step type, or RPC implementation while an
+open Flow can still call it. Deploy the new definition alongside the old one,
+route only new-version Flows to it, and keep the old implementation available
+through retries and any approved Time Travel recovery.
+
+During a rolling deployment, a Worker that lacks a requested Step or RPC can
+hand the call to another Worker that has it. This does not use up a Step
+attempt.
+See [Routing and availability](/reference/server/workers#routing-and-availability).
+
+Before removing the old definition, search for the legacy Flow type and confirm
+that no running, waiting, retrying, or recoverable terminal Flow needs it. Keep
+the search result with the change record. The exact query depends on your
+search fields. Start with a search by Flow type:
+
+~~~bash
+dexcli flow search --query 'FlowType = "OldFlowType"'
+~~~
+
+Only remove the old code after the result is empty or every remaining Flow has
+an explicitly approved retirement plan.
+
+### Example: add a fee to Charge {#versioning-example}
+
+The order Flow from [Order Processing](/use-cases/order-processing) charges the
+order amount. A new rule adds a handling fee. Orders that are already open must
+keep the old price.
+
+1. **Record the version at start.** The new start handler sets an Attribute,
+   such as **pricing-version**, to 2 when it starts a Flow. Flows that started
+   earlier have no value, which means version 1.
+2. **Branch on the stored value.** **Charge** reads **pricing-version**. It
+   charges the amount alone for version 1 and the amount plus the fee for
+   version 2. A Flow that waits in **Ship** today never runs **Charge** again,
+   so it is not affected.
+3. **Add a Step type for a changed contract.** Suppose the refund now needs a
+   new input field that old Flows never stored. Add a new Step type, such as
+   **RefundWithFee**, and go to it only from version 2. Keep **Refund** for
+   version 1 Flows.
+4. **Deploy both.** One Worker build contains **Charge** with the branch,
+   **Refund**, and **RefundWithFee**. During a rolling deployment, an older
+   Worker that lacks **RefundWithFee** hands that call to a newer one.
+5. **Retire the old path.** When no open Flow has version 1, remove the
+   version 1 branch and **Refund**. Search for such Flows first. If
+   **pricing-version** is an indexed Attribute, the search can filter on it
+   as well as on the Flow type.
+
+No step of this needs a version marker in Step code. The stored Attribute
+decides which path a Flow takes, whatever Worker build serves it.
+
+## Recover a Flow with Time Travel {#time-travel}
+
+Time Travel moves a Flow run back to an earlier point in its history and runs
+it again from there. Use it after you deploy a fix for a Step that failed. The
+run keeps its Run ID and starts a new attempt.
+
+Steps after that point run again. So do their external calls. Each external call needs an
+[idempotency key](/concepts/step#idempotency-keys) so a repeat has no effect.
+
+The target point must be inside the Flow's recent history window. Time Travel
+to the beginning of the run is always available. Start it from Dex Web,
+**dexcli**, or a Client. [Time travel](/reference/server/runtime-client#time-travel)
+in the server reference covers the request options and limits.
+
+## Related
+
+- [Failover and Deploys](/concepts/failover-and-deploys)
+- [Step guarantees](/concepts/step#guarantees)
+- [Application (Worker and Client)](/components/application)

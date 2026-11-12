@@ -71,15 +71,23 @@ Check who may approve before you call the RPC. The example routes accept only a 
 
 ## Approve in Dex Web {#approve-in-dex-web}
 
-You can also approve a call in Dex Web:
+You can also approve a call in Dex Web. Dex Web shows the **Agent session** tab only for a Flow type whose session graph it has. The [Agent Quick Start](/agent-frameworks/quick-start) program does not give Dex Web that graph, so render it first. In the example folder, render the graph for your framework's Flow type, such as **OpenAIAgentsQuickStart**, and restart **dexcli dev** with it:
+
+```bash
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type OpenAIAgentsQuickStart \
+  --permission agent-quick-start.operate --out definitions/openai-agents-quick-start.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+Then approve the call:
 
 1. Open the session's run. Its Flow ID is the session ID.
 2. Select the **Agent session** tab.
-3. Set **Working as** to **order-support.operate**, the permission you rendered into the session graph.
+3. Set **Working as** to **agent-quick-start.operate**, the permission you rendered into the graph.
 4. Select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you.
 
-Dex Web shows this tab only when it started with the session graph. The [Agent Quick Start](/agent-frameworks/quick-start#run-it) renders the graph before it starts Dex. For production, see [Show sessions in Dex Web](/reference/agents/dex-web).
-
+The TypeScript packages install the same **dex-agents-session-graph** command. For production, and for the newer path where the Worker uploads the graph itself, see [Show sessions in Dex Web](/reference/agents/dex-web).
 
 ## Related
 

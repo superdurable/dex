@@ -173,6 +173,8 @@ Each tool call runs the tool's original **execute** in its own Step. The next **
 
 ## Limits {#limits}
 
+Each tab lists the limits of one adapter that change how you write an agent, with what to do instead. The adapter README lists every limit, and [Limits for long sessions](/reference/agents/session-limits) has the server limits.
+
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
@@ -182,8 +184,6 @@ Each tool call runs the tool's original **execute** in its own Step. The next **
 - Dex compaction is not available. Claude Code compacts its own transcript. A long session ends at the state limit, not the context window.
 - A recorded tool result keeps text only.
 - A write call inside a subagent is denied. The model is asked to call it from the main conversation.
-
-The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -196,42 +196,37 @@ The adapter README lists every limit. See [Limits for long sessions](/reference/
 - Code executors other than **BuiltInCodeExecutor** are refused. Run such code from a tool instead.
 - **app:** and **user:** state keys live in the Dex session, not across sessions.
 
-The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
-
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
 - A graph whose nodes make several model calls before a tool node makes them all in one **RunModel**. Summarization middleware and a planner node are examples. A retry repeats them all.
 - Provider-run tools repeat when **RunModel** reruns.
 - History is append-only. A graph that edits or removes earlier messages does not change the stored history.
-- Only the message list survives between turns. Other state keys start from their defaults on every turn.
+- Only the message list survives between turns. Other state keys start from their defaults on every turn; within one turn they survive. Keep a value that must last across turns in a store you own, read through a tool.
 - Tools run outside the graph. They cannot use **ToolRuntime**, **InjectedState**, or **InjectedStore**, and cannot return a graph **Command**. **InjectedToolCallId** works.
 - The graph may raise no interrupts of its own.
-
-The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
 - Tools Mastra runs itself, such as sub-agents, workflows, and Memory tools, cannot run in a Step. The adapter offers one only when **toolPolicies** names it as a read without approval. It then runs inside **RunModel** and repeats when that Step reruns.
-- Mastra Memory is not used. Do not select a Memory thread in the agent's defaults or scopes.
+- Mastra Memory is not used. Do not select a Memory thread in the agent's defaults or scopes. The session stores every message and gives the agent the history. For memory across sessions, give the agent a tool over a store you own, as [What a session remembers](#what-a-session-remembers) describes.
 - **beforeToolCall** and **afterToolCall** hooks run only for tools Mastra runs itself.
 - A tool result reaches the model as text. **toModelOutput** is not applied.
 - A tool that calls **suspend()** fails. Use the session's approval instead.
 - Tool names must be at most 63 characters of letters, digits, **_**, and **-**, and must not start with a digit or **-**.
 
-The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
-
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
 - Only function tools get their own Steps. Hosted tools, such as web search, run at the provider during the model call. They repeat when **RunModel** reruns.
-- Tools the SDK runs itself, such as MCP server tools and local shell tools, cannot wait for approval. The adapter refuses them by default. Wrap a write in a function tool to give it its own Step.
+- Tools the SDK runs itself, such as tools of **Agent.mcp_servers** and local shell tools, cannot wait for approval. The adapter refuses them by default.
+  - For an MCP server, pass it through **McpToolSource** in **tool_sources** instead of **mcp_servers**. Each of its tools then runs in its own Step with a policy, and a tool marked **readOnlyHint** is a read. See [MCP tools](/agent-frameworks/built-in-agent-loop#mcp-tools-and-approvals).
+  - Or set **allow_at_least_once_tools=True**. Those tools then run inside **RunModel** and repeat when it retries, so use this only for reads.
+  - Wrap a write in a function tool to give it its own Step.
 - Function tool names must be unique across the agent graph. The graph is copied when the Flow is built, so later changes to it do not reach the Flow.
-- The session is the history. Do not use server-managed conversation state or SDK sessions.
+- The session is the history. Do not use server-managed conversation state or SDK sessions. Send each new message with **send_user_message**, and the session gives the agent the earlier turns.
 - An agent used as a tool runs its nested run inside one tool Step in Python. TypeScript rejects it; hand off instead.
-
-The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
@@ -243,8 +238,6 @@ The adapter README lists every limit. See [Limits for long sessions](/reference/
 - A tool that asks for approval only while it runs needs a **ToolPolicy** with **requires_approval=True**.
 - **UsageLimits** and tool retry budgets apply per Step, not per turn.
 
-The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
-
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
 
@@ -254,8 +247,6 @@ The adapter README lists every limit. See [Limits for long sessions](/reference/
 - Every tool runs in Dex, so a tool without **execute**, such as a browser-side tool, is rejected.
 - Tool inputs and outputs must survive JSON.
 - **prepareStep**, **activeTools**, **output**, and stream transforms are not exposed.
-
-The adapter README lists every limit. See [Limits for long sessions](/reference/agents/session-limits) for the server limits.
 
 </FrameworkTab>
 </FrameworkTabs>

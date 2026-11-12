@@ -72,6 +72,7 @@ const sidebars: SidebarsConfig = {
         'concepts/client',
         'concepts/connector',
         'concepts/failover-and-deploys',
+        'concepts/change-flow-code',
       ],
     },
     {

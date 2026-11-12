@@ -230,7 +230,9 @@ condition: it waits on a ChannelMap that the branches report to. See
 **Execute** returns a **StepDecision**. It can go to one next Step or to
 several Steps at once. This is how you build branching, loops, and parallel
 work. **GoTo** names the next Step by its Step type and passes its input. The
-Flow's registered instance of that Step type runs it.
+Flow's registered instance of that Step type runs it. Some examples also pass
+the next Step to a Step's constructor. The decision does not use that object:
+it names the type, and Dex runs the registered instance.
 
 <StepDecisionMovementsDiagram markdownDescription="GoTo: ExampleStep returns GoTo(Complete Flow), which completes the Flow. GoToMany: ExampleStep starts StepA and StepB, which run in parallel. Loop: ExampleStep goes to ProcessStep, and ProcessStep goes back to ExampleStep." />
 
@@ -274,7 +276,25 @@ A Step returns **StepOptions** to control how its methods run. **WaitFor** and
 
 A **StepDecision** can override the options for one Step execution.
 
+Without StepOptions, each method uses the server defaults. They are the same
+for every SDK:
+
+| Setting | Default |
+| --- | --- |
+| Method timeout, for one attempt | 2 hours |
+| Heartbeat timeout | 1 minute |
+| Retry attempts | No limit within the total duration |
+| Retry total duration | 4 hours from the first hand-out to a Worker |
+| Retry backoff | 1 second, doubling up to 100 seconds |
+| Durability | SYNC |
+| Failure policy | Fail the Flow |
+
+[Timeouts and total duration](/reference/go/step-options#timeouts-and-total-duration)
+in the SDK reference explains how these limits interact.
+
 ## Guarantees {#guarantees}
+
+In short: finished work is saved, unfinished work can repeat.
 
 Four rules matter most:
 
@@ -309,6 +329,9 @@ change on a retry. Other pages link here instead of repeating this rule.
 
 ### What Dex saves {#what-dex-saves}
 
+In short: a method's writes are saved together, but they are not isolated from
+other Steps and RPCs.
+
 Dex saves each **WaitFor** or **Execute** call on its own. It saves the call's
 Attribute writes and Channel publications together with its result, and only
 when the method succeeds. Calls to external systems are not part of this save.
@@ -329,6 +352,9 @@ See [Attribute locks](/concepts/primitives/attribute#locking).
 <a id="design-for-redelivery"></a>
 
 ### Failure and redelivery {#failure-and-redelivery-summary}
+
+In short: when Dex cannot tell whether a method finished, it runs the method
+again or tells you the outcome is unknown.
 
 These cases repeat a method or leave its outcome unknown. They hold for every
 SDK:

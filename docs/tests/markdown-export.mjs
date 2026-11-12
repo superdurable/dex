@@ -183,7 +183,8 @@ try {
 
   // Flow graphs read as a numbered list of Steps, start Step first: each Step is one paragraph of plain sentences,
   // and code expressions appear only in parentheses.
-  assert.match(home, /\*\*Flow：SampleFlow\*\*\n\n\*\*Step 列表\*\*\n\n1\. `Begin`（起始 Step）：Starts the sample\. 写入 `status`。 转到 `Wait`（条件 `needs_wait`）；完成 Flow（Timer 未触发：`not \(context.has_timer_fired\(\)\)`）。\n/);
+  // A Step with an explanation reads as prose: the explanation, then where it goes next in words.
+  assert.match(home, /\*\*Flow 图：SampleFlow\*\*\n\n\*\*Step 列表\*\*\n\n1\. `Begin`（起始 Step）：Starts the sample\. 下一步：`Wait`，或 Flow 完成。 写入 `status`。\n/);
   assert.match(home, /\n2\. `Wait`：不等待（条件 `is_ready\(\)`）；等待以下任一条件 Timer `one_day`、Channel `approval`（1 条消息）（条件 `not is_ready\(\)`）。 让 Flow 失败；Channel 为空时完成 Flow；Execute 失败时转到 `Begin`。\n/);
   assert.match(home, /\*\*RPC 列表\*\*\n\n- `describe`：读取 `status`。\n/);
   assert.doesNotMatch(home, /`rpcResult`/);

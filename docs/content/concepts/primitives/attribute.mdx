@@ -367,12 +367,18 @@ not declare it can still write the Attribute. Steps get a lock in the order they
 not queue. It takes a free lock even when Steps are waiting for it. So a steady
 stream of locked RPCs can delay those Steps. Keep locked RPCs short.
 
+A method that declares several locks takes them all at once. It starts only
+when every lock is free and it is first in line for each one. It never holds
+one lock while it waits for another, so two locked methods cannot block each
+other in a cycle.
+
 A Step holds its lock for the whole method, including the external calls it
 makes. A retry keeps the lock while it waits in the queue, and an attempt that
-no Worker can run holds it until the Flow times out or stops. The method timeout
-and the retry policy bound how long a running Step holds a lock. So keep locked
-methods short, and make slow external calls in a Step that
-holds no lock.
+no Worker can run holds it until the Flow times out or stops. To release such a
+lock, start a Worker that has that Step type, or stop the Flow. Dex has no
+command that releases a single lock. The method timeout and the retry policy
+bound how long a running Step holds a lock. So keep locked methods short, and
+make slow external calls in a Step that holds no lock.
 
 This Step locks a singleton Attribute and one AttributeMap instance while
 **Execute** runs:

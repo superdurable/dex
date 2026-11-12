@@ -56,16 +56,25 @@ The Channel wake throughput includes untimed setup before each publish. Only its
 - **S3 requests follow batches, not Steps.** Dex Server groups writes into log batches. A busy node made 23 to 98 log PUTs per second, whatever its size. At USD 0.005 per 1,000 PUTs, that is at most about USD 1.8 per busy hour per node. An idle node renews its lease with about 0.3 PUTs per second.
 - **CPU is the limit.** The 2-vCPU node used 93 to 99% of its CPU at every peak. The 16-vCPU node used 68 to 87% at most peaks. Reads of large Attributes on the 16-vCPU node were limited by its 15 Gbps network instead.
 - **Reads need no Worker.** An RPC runs on a Worker. A direct Attribute read goes only to Dex Server.
+- **These peaks are the ceiling of one cluster.** One active node serves a cluster. [Limits and Sharp Edges](/intro/limits-and-sharp-edges#capacity-and-availability) covers that ceiling, failover, and upgrades.
+
+## What it costs to run
+
+Dex Server needs one instance, an optional standby instance, and object storage. Price the instances and the stored bytes at your provider's rates. The S3 requests follow from the numbers above, at USD 0.005 per 1,000 PUTs:
+
+| Setup | PUTs per second | PUTs per 30-day month | PUT cost per month |
+| --- | ---: | ---: | ---: |
+| Idle node, lease renewals only | about 0.3 | about 0.78 million | about USD 4 |
+| Busy node, low end of the measured range | 23 | about 60 million | about USD 300 |
+| Busy node at the highest measured rate, all month | 98 | about 254 million | about USD 1,270 |
+
+Most deployments sit between the first two rows, because a node is busy only part of the time. The benchmark did not measure stored bytes per Flow. A closed Flow run is deleted after the retention period, 7 days by default, so storage follows the number of runs in that window.
 
 To repeat a point on your own AWS account, run **benchmark/aws/reproduce.sh**. [Reproduce a result](https://github.com/superdurable/dex/blob/main/benchmark/README.md#reproduce-a-result) lists its inputs.
 
 ## Release status
 
-- **Dex is in Beta.** Releases keep published APIs, configuration files, wire formats, and stored data compatible. A breaking change needs an explicit decision and comes with a migration path.
-- **Dex Server is at 0.1.x.** The SDKs are at 1.x. The two numbers do not decide compatibility. Each release declares a range of protocol versions, and a Worker or Client works with any server whose range overlaps. [Upgrades and compatibility](/reference/server/upgrades) lists the supported pairs.
-- **Upgrades roll forward.** Some server releases, listed in [Upgrades and compatibility](/reference/server/upgrades), need every server process stopped, standbys included, before the new version starts, so the cluster is down for that restart. After a new version writes to storage, an older version must not run on it again.
-- **One active node serves a cluster.** One active process holds a lease in object storage. Standby processes take over when it stops. After a crash, a standby starts recovery within the lease duration plus 1 second. The lease is 10 seconds by default. [Lease, hot standby, and step down](/reference/server/high-availability) covers failover.
-- **One node sets the ceiling.** A cluster splits its Flows into partitions, 1,024 by default for **serve**, and one node owns every partition. So the peaks above are the ceiling of one cluster on that instance type. Today you grow past them with a larger node, or with separate Dex clusters, each with its own Flows and Workers.
+- **Dex is in Beta.** Releases keep published APIs, configuration files, wire formats, and stored data compatible. A breaking change needs an explicit decision and comes with a migration path. [Limits and Sharp Edges](/intro/limits-and-sharp-edges) covers the server version, upgrades, and failover.
 - **Some options are not supported yet.** A Flow start delay and a Flow-level retry policy are rejected. An Attribute Store, the optional database that receives copies of chosen Attributes, can only be PostgreSQL. Flow state itself always stays in Dex Server. [Unsupported features](/reference/server#unsupported-features) links each open issue.
 - **Five SDKs.** Go, Python, Java, TypeScript, and Rust have the same Flow model.
 - **dexcli dev runs a pinned server.** Each dexcli release archive includes the **dex-server-zd** release it was tested with, and **dexcli dev** runs that one. [Run Locally](/components/run-locally) shows how to install and update it.

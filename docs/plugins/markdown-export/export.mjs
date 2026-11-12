@@ -36,7 +36,11 @@ const localeCopies = {
     diagram: 'Diagram',
     graph: {
       conditionOpen: ' when its condition holds (', timerOpen: words => ` when ${words} (`, isCaseLowered: true, sentenceEnd: '.', clauseJoiner: '; ', groupJoiner: ' ',
-      flowGraphOf: 'Flow graph of', listsItsSteps: 'lists its Steps.',
+      flowGraphOf: 'Flow graph of', listsItsSteps: 'lists its Steps.', flowGraph: 'Flow graph',
+      next: 'Next: ', again: ' again', ifFailing: ' if it keeps failing', nextJoiner: ', ', nextLastJoiner: ', or ',
+      nextDecisions: {gracefulComplete: 'the Flow completes', forceComplete: 'the Flow completes at once',
+        forceCompleteIfChannelsEmpty: 'the Flow completes if its Channels are empty', forceFail: 'the Flow fails',
+        deadEnd: 'this branch ends'},
       rpcs: 'RPCs', startMarker: ' (start Step)', timeoutMarker: ' (timeout handler)', listJoiner: ', ',
       goesTo: 'Goes to', cancels: 'cancels', cancelsJoiner: ' and ', startsSubFlow: 'Starts SubFlow',
       onFailure: label => (label?.endsWith(' failure') ? `If ${label.slice(0, -' failure'.length)} fails, goes to` : 'On failure, goes to'),
@@ -64,7 +68,10 @@ const localeCopies = {
     diagram: '图示',
     graph: {
       conditionOpen: '（条件 ', timerOpen: words => `（${words}：`, isCaseLowered: false, sentenceEnd: '。', clauseJoiner: '；', groupJoiner: ' ',
-      flowGraphOf: 'Flow 图：', listsItsSteps: '列出了它的 Step。',
+      flowGraphOf: 'Flow 图：', listsItsSteps: '列出了它的 Step。', flowGraph: 'Flow 图',
+      next: '下一步：', again: '（再次）', ifFailing: '（持续失败时）', nextJoiner: '、', nextLastJoiner: '，或 ',
+      nextDecisions: {gracefulComplete: 'Flow 完成', forceComplete: 'Flow 立即完成',
+        forceCompleteIfChannelsEmpty: 'Channel 为空时 Flow 完成', forceFail: 'Flow 失败', deadEnd: '这个分支结束'},
       rpcs: 'RPC 列表', startMarker: '（起始 Step）', timeoutMarker: '（超时处理）', listJoiner: '、',
       goesTo: '转到', cancels: '取消', cancelsJoiner: '，并', startsSubFlow: '启动 SubFlow',
       onFailure: label => (label?.endsWith(' failure') ? `${label.slice(0, -' failure'.length)} 失败时转到` : '失败时转到'),
@@ -497,7 +504,7 @@ async function expandGraph(node, context) {
   const ordered = start ? [start, ...handlers.filter(item => item !== start)] : handlers;
   const steps = ordered.map(item => graphHandlerItem(item, graph, graphState));
   const rpcs = graph.nodes.filter(item => item.kind === 'rpc').map(item => graphHandlerItem(item, graph, graphState));
-  return [paragraph(`${copy.flow}${copy.separator}${graph.flow.name}`, true),
+  return [paragraph(`${copy.graph.flowGraph}${copy.separator}${graph.flow.name}`, true),
     paragraph(copy.steps, true), orderedList(steps),
     ...(rpcs.length ? [paragraph(copy.graph.rpcs, true), list(rpcs)] : []),
     ...(graph.source?.path ? [exampleParagraph(graph.source.path, context)] : [])];
@@ -543,14 +550,56 @@ function graphHandlerItem(handler, graph, graphState) {
   for (const edge of graph.edges.filter(item => item.kind === 'subflow' && ownerOf(item.from) === handler)) {
     moves.push([text(`${words.startsSubFlow} `), inlineCode(nodes.get(edge.to).name)]);
   }
-  const sentences = [waits, resources, moves].filter(group => group.length).map(group => sentence(group, words));
   const explanation = handler.metadata?.explanation;
+  // With an explanation, the Step reads as prose: what it does, then where it goes next in words.
+  if (explanation) {
+    const lead = [inlineCode(handler.name),
+      ...(handler === nodes.get(graph.flow.startStepId) ? [text(words.startMarker)] : []),
+      ...(handler.kind === 'timeout_handler' ? [text(words.timeoutMarker)] : []),
+      text(`${copy.separator}${explanation}`)];
+    const next = nextPhrases(handler, graph, graphState);
+    const nextSentence = next.length ? [text(`${words.groupJoiner}${words.next}`),
+      ...next.flatMap((item, index) => [...(index ? [text(index === next.length - 1 ? words.nextLastJoiner : words.nextJoiner)] : []), ...item]),
+      text(words.sentenceEnd)] : [];
+    const resourceSentence = resources.length ? [text(words.groupJoiner), ...sentence(resources, words)] : [];
+    return [...lead, ...nextSentence, ...resourceSentence];
+  }
+  const sentences = [waits, resources, moves].filter(group => group.length).map(group => sentence(group, words));
   const lead = [inlineCode(handler.name),
     ...(handler === nodes.get(graph.flow.startStepId) ? [text(words.startMarker)] : []),
     ...(handler.kind === 'timeout_handler' ? [text(words.timeoutMarker)] : []),
     ...(explanation ? [text(`${copy.separator}${explanation}`)] : sentences.length ? [text(copy.separator)] : [])];
   const body = sentences.flatMap((item, index) => [...(index || explanation ? [text(words.groupJoiner)] : []), ...item]);
   return [...lead, ...body];
+}
+
+// Where a Step goes next, in words: each target once, the failure route last, completions as phrases.
+function nextPhrases(handler, graph, graphState) {
+  const {copy, nodes} = graphState;
+  const words = copy.graph;
+  const phrases = [];
+  const seen = new Set();
+  const add = (key, phrase) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    phrases.push(phrase);
+  };
+  for (const decision of graph.nodes.filter(item => item.kind === 'decision' && item.parentId === handler.id)) {
+    const type = decision.decision?.type ?? decision.name;
+    if (type === 'rpcResult') continue;
+    const targets = graph.edges.filter(edge => edge.from === decision.id && edge.kind === 'transition').map(edge => nodes.get(edge.to));
+    for (const target of targets) {
+      add(`step:${target.id}`, [inlineCode(target.name), ...(target === handler ? [text(words.again)] : [])]);
+    }
+    if (!targets.length) add(`decision:${type}`, [text(words.nextDecisions[type] ?? type)]);
+  }
+  for (const edge of graph.edges.filter(item => item.kind === 'subflow' && item.from === handler.id)) {
+    add(`subflow:${edge.to}`, [text(`${words.startsSubFlow} `), inlineCode(nodes.get(edge.to).name)]);
+  }
+  for (const edge of graph.edges.filter(item => item.from === handler.id && item.kind === 'failure_transition')) {
+    add(`failure:${edge.to}`, [inlineCode(nodes.get(edge.to).name), text(words.ifFailing)]);
+  }
+  return phrases;
 }
 
 // Joins clauses into one sentence; later English clauses start in lower case.

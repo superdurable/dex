@@ -15,7 +15,7 @@ was in progress. This page lists each event and what runs again.
 | --- | --- | --- |
 | A Worker crashes or stops | The Step attempts it was running | Key external calls with an [idempotency key](/concepts/step#idempotency-keys). |
 | A Dex Server node fails over | Every attempt that a Worker had received | The same. Each attempt also consumes a retry. |
-| You deploy new Step code | Nothing that already finished | Keep open Flows working. See [Versioning Flow code](/components/application#versioning-flow-code). |
+| You deploy new Step code | Nothing that already finished | Keep open Flows working. See [Versioning Flow code](/concepts/change-flow-code#versioning-flow-code). |
 | You change **WaitFor** code | Nothing that already waits | Expect old conditions on Steps that already wait. |
 | An ASYNC Step's start is lost | That attempt, on a new snapshot | Use SYNC when the Step must see one snapshot. |
 | You run Time Travel | Every Step after the chosen point | Key external calls so a repeat has no effect. |
@@ -45,6 +45,18 @@ There is one exception. An ASYNC attempt whose start the node had not yet
 saved runs again with the same attempt number and consumes no retry. See
 [Lease, hot standby, and step down](/reference/server/high-availability#lease).
 
+If the original Worker finishes after recovery failed its attempt, Dex ignores
+that late result. It discards the result's Attribute writes, Channel
+publications, and decision. The external calls the method made have already
+happened, so the rerun must use the same
+[idempotency keys](/concepts/step#idempotency-keys).
+
+A long Step does not have to start over. Send a heartbeat with a checkpoint
+value as the work progresses, such as the last batch it finished. The next
+attempt receives the latest stored checkpoint and resumes from it. A checkpoint
+can be lost, so the work after it must be safe to repeat. See
+[Heartbeat](/reference/go/step-options#heartbeat) in the SDK reference.
+
 A graceful step down releases the lease, so a standby takes over at once.
 
 ## You deploy new code
@@ -59,7 +71,7 @@ Dex hands the call to another Worker, and the Step attempt is not used up. See
 
 Keep a Step type or RPC until no open Flow can call it. A stored version
 Attribute decides which path a Flow takes. See
-[Versioning Flow code](/components/application#versioning-flow-code).
+[Versioning Flow code](/concepts/change-flow-code#versioning-flow-code).
 
 ## You change WaitFor code
 
@@ -78,7 +90,7 @@ Attribute values. See [SYNC and ASYNC Steps](/concepts/step#sync-and-async).
 
 Time Travel moves a Flow run back to an earlier point and runs it again from
 there. Every Step after that point runs again, with its external calls. See
-[Recover a Flow with Time Travel](/components/application#time-travel).
+[Recover a Flow with Time Travel](/concepts/change-flow-code#time-travel).
 
 ## Related
 

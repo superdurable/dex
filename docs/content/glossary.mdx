@@ -33,6 +33,10 @@ A local, size-limited disk cache of large Dex values. Dex sends a large value as
 
 A durable message pipe. It carries messages from outside a Flow, or between parts of one Flow.
 
+#### [ChannelMap](/concepts/primitives/channel#channelmap)
+
+A family of Channels under one name, with one FIFO queue per instance key, such as one queue per order or per job.
+
 #### [Client](/concepts/client)
 
 The part of your application that talks to Dex from outside a Worker. It starts Flows, calls RPCs, reads Attributes, and waits for Steps. It does not run Flow code.
@@ -93,6 +97,10 @@ A numbered search key, such as **keyword1** or **int2**, that an indexed Attribu
 
 A Client API that calls a Flow's RPC handler on the Worker.
 
+#### [Join](/design-patterns/parallel/await)
+
+A helper that waits for parallel branches. Each branch reports to a ChannelMap, and the waiting Step waits on that ChannelMap until every branch, or the number it needs, has reported.
+
 #### [Locking](/concepts/primitives/attribute#locking)
 
 Making Steps and RPCs that access the same Attributes run one at a time.
@@ -145,7 +153,7 @@ A best-effort, ordered feed of messages from a Flow to a reader, such as live pr
 
 A Flow run that a parent Flow starts from one of its Steps. The parent can wait for it like any other Condition.
 
-#### [Time Travel](/components/application#time-travel)
+#### [Time Travel](/concepts/change-flow-code#time-travel)
 
 Running a Flow run again from an earlier point in its history, usually after a fix. The run keeps its Run ID. Steps after that point run again, with their external calls.
 
@@ -157,7 +165,7 @@ A durable sleep condition. When it fires, the waiting Step resumes.
 
 An RPC whose changes Dex saves only if every Channel message it deletes is still pending. An RPC that holds a lock is always transactional.
 
-#### [Versioning](/components/application#versioning-flow-code)
+#### [Versioning](/concepts/change-flow-code#versioning-flow-code)
 
 Changing Flow code while Flows are still open. Dex does not replay code, so a deploy causes no replay error. Keep old Step types and RPCs until the Flows that use them finish.
 
