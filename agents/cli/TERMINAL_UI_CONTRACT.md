@@ -241,6 +241,37 @@ retries, and a slow server never causes a fallback.
 - A failure after `ready` never falls back. The launcher restores the
   terminal, prints how to resume, and exits.
 
+### When the channel ends
+
+When the launcher reads EOF on the channel, finds a protocol error in
+[Framing](#framing), or receives `launch_rejected`, it waits for `dexcli`:
+
+1. It gives `dexcli` 1 s to exit by itself.
+2. Then it sends SIGTERM, and SIGKILL 2 s later if `dexcli` still runs.
+
+What follows depends on when it happened:
+
+- Before `ready`, this is a failed handoff (see [Ready](#ready)). The launcher
+  continues in the plain text chat on the same session.
+- After `ready`, the launcher restores the terminal mode it saved, stops the
+  Worker host, prints one line that says why the chat closed, and exits 1. A
+  `dexcli` that exited 0 after closing the channel is a normal end instead;
+  see [Exit codes](#exit-codes-of-dexcli-agents-tui).
+
+### SIGINT that reaches only the launcher
+
+A SIGINT sent to the whole foreground process group reaches `dexcli` too, and
+`dexcli` exits by itself (130). A SIGINT sent only to the launcher, such as
+`kill -INT <launcher pid>`, does not. So the launcher:
+
+1. waits 1 s for `dexcli` to exit by itself;
+2. then forwards SIGINT to `dexcli`;
+3. sends SIGTERM 2 s after that if `dexcli` still runs;
+4. restores the terminal, stops the Worker host, prints how to resume, and
+   exits 130.
+
+This never falls back to the plain chat, even before `ready`.
+
 ### Exit codes of `dexcli agents-tui`
 
 | Exit | When |
@@ -530,9 +561,10 @@ next is up to Dex Web.
 
 A URL that passes these checks is opened, and the result is `{}`. When the
 command's browser opening is turned off (`DEX_AGENTS_OPEN_BROWSER=0`), the
-launcher opens nothing and answers `browser_off`. When it tried and no
-browser opened, for example because the system has no opener, it answers
-`open_failed`. `refused` is checked first, so a URL outside `web_url` is
+launcher opens nothing and answers `browser_off`. It answers `open_failed`
+when the system's opener (such as `open` or `xdg-open`) fails to start, or
+exits non-zero within 4 s. An opener still running after 4 s counts as
+opened. `refused` is checked first, so a URL outside `web_url` is
 `refused` even while browser opening is off. Running it twice is harmless.
 
 **`get_request_result`** reads the outcome remembered for a key. `done` holds
