@@ -247,7 +247,7 @@ func (model *sessionModel) emitStoredMessage(message dexagents.AgentMessage, isH
 	switch message.Role {
 	case dexagents.MessageRoleUser:
 		if message.Origin != nil {
-			model.emitSessionWrittenMessage(*message.Origin, text)
+			model.emitSessionWrittenMessage(*message.Origin, text, message.Sequence)
 			return
 		}
 		recorded := sessionfeed.UserMessageRecorded{Text: text, TurnID: message.TurnID, Sequence: model.screenSequence(message.Sequence), Images: storedImages(message.Images)}
@@ -286,7 +286,7 @@ var planExecutionRevisionPattern = regexp.MustCompile(`^\[Dex\] The user approve
 // emitSessionWrittenMessage shows a user message the session wrote itself.
 // A plan execution becomes one notice line. Notes for the model and origins
 // this release does not know show nothing: the turn's outcome already shows.
-func (model *sessionModel) emitSessionWrittenMessage(origin dexagents.AgentMessageOrigin, text string) {
+func (model *sessionModel) emitSessionWrittenMessage(origin dexagents.AgentMessageOrigin, text string, sequence int64) {
 	if origin != dexagents.AgentMessageOriginPlanExecution {
 		return
 	}
@@ -294,7 +294,8 @@ func (model *sessionModel) emitSessionWrittenMessage(origin dexagents.AgentMessa
 	if match := planExecutionRevisionPattern.FindStringSubmatch(text); match != nil {
 		notice = "Running plan revision " + match[1]
 	}
-	model.emit(sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: notice})
+	// The sequence keeps a repeated execution of one revision from being hidden as a repeat.
+	model.emit(sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: notice, Sequence: model.screenSequence(sequence)})
 }
 
 // matchStream returns the streamed Step whose text the final message

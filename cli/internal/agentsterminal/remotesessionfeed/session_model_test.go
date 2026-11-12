@@ -377,7 +377,7 @@ func TestSessionWrittenMessages(t *testing.T) {
 	require.Empty(t, updatesOfType[sessionfeed.UserMessageRecorded](updates))
 	notices := updatesOfType[sessionfeed.NoticeRaised](updates)
 	require.Len(t, notices, 1)
-	require.Equal(t, sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 3"}, notices[0])
+	require.Equal(t, sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 3", Sequence: 1}, notices[0])
 	require.Len(t, updatesOfType[sessionfeed.TurnStarted](updates), 1)
 
 	harness.model.applyEvent(endEvent("turn-1", "turn_failed", `{"error":"model unavailable"}`))
@@ -389,10 +389,20 @@ func TestSessionWrittenMessages(t *testing.T) {
 	require.Empty(t, updatesOfType[sessionfeed.UserMessageRecorded](updates))
 	require.Empty(t, updatesOfType[sessionfeed.NoticeRaised](updates))
 	require.Len(t, updatesOfType[sessionfeed.TurnEnded](updates), 1)
+
+	// Running the same revision again is a new execution with its own notice.
+	harness.applySnapshot(snapshotOf(runningState("turn-2", 1),
+		originMessage(message(1, "turn-1", dexagents.MessageRoleUser, planText), dexagents.AgentMessageOriginPlanExecution),
+		originMessage(message(4, "turn-2", dexagents.MessageRoleUser, planText), dexagents.AgentMessageOriginPlanExecution)))
+	notices = updatesOfType[sessionfeed.NoticeRaised](harness.drain())
+	require.Equal(t, []sessionfeed.NoticeRaised{
+		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 3", Sequence: 4},
+	}, notices)
 }
 
-// History shows a plan execution as the same notice, and one whose text does
-// not name a revision without the number.
+// History shows a plan execution as the same notice, each execution of one
+// revision with its own sequence, and one whose text does not name a
+// revision without the number.
 func TestSessionWrittenMessagesInHistory(t *testing.T) {
 	harness := newModelHarness(t)
 	harness.model.emitHistory(dexagents.AgentMessagesPage{Messages: []dexagents.AgentMessage{
@@ -400,6 +410,7 @@ func TestSessionWrittenMessagesInHistory(t *testing.T) {
 		message(2, "turn-1", dexagents.MessageRoleAssistant, "here is the plan"),
 		originMessage(message(3, "turn-2", dexagents.MessageRoleUser, "[Dex] The user approved plan revision 12. Execute it."), dexagents.AgentMessageOriginPlanExecution),
 		originMessage(message(4, "turn-3", dexagents.MessageRoleUser, "[Dex] Run it."), dexagents.AgentMessageOriginPlanExecution),
+		originMessage(message(5, "turn-4", dexagents.MessageRoleUser, "[Dex] The user approved plan revision 12. Execute it."), dexagents.AgentMessageOriginPlanExecution),
 	}}, nil)
 	updates := harness.drain()
 	recorded := updatesOfType[sessionfeed.UserMessageRecorded](updates)
@@ -408,8 +419,9 @@ func TestSessionWrittenMessagesInHistory(t *testing.T) {
 	require.Empty(t, recorded[0].Origin)
 	notices := updatesOfType[sessionfeed.NoticeRaised](updates)
 	require.Equal(t, []sessionfeed.NoticeRaised{
-		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 12"},
-		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running the approved plan"},
+		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 12", Sequence: 3},
+		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running the approved plan", Sequence: 4},
+		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 12", Sequence: 5},
 	}, notices)
 }
 
