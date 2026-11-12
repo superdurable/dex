@@ -101,6 +101,7 @@ async fn run_cloud_conformance(provider: AzureGcsProvider) {
     let checks = async {
         check_store(&store).await;
         check_etags_match_across_operations(&store).await;
+        check_single_key_pages_walk_every_key(&store).await;
         check_staged_create_of_a_large_file(&store).await;
         let deleted = store
             .delete_abandoned_staging_objects()
@@ -184,6 +185,33 @@ async fn check_etags_match_across_operations(store: &AzureGcsObjectStore) {
             .await
             .expect("a stale replacement is an outcome"),
         WriteOutcome::PreconditionFailed
+    );
+}
+
+async fn check_single_key_pages_walk_every_key(store: &AzureGcsObjectStore) {
+    let keys: Vec<String> = (0..5).map(|index| format!("pages/key-{index}")).collect();
+    for key in &keys {
+        store
+            .put(key, Bytes::from_static(b"page"), WriteCondition::CreateOnly)
+            .await
+            .expect("the page key is written");
+    }
+    let mut walked = Vec::new();
+    let mut start_after: Option<String> = None;
+    loop {
+        let listing = store
+            .list("pages/", start_after.as_deref(), 1)
+            .await
+            .expect("the single-key page lists");
+        walked.extend(listing.objects.into_iter().map(|object| object.key));
+        match listing.next_start_after {
+            Some(next) => start_after = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(
+        walked, keys,
+        "single-key pages return every key once, in order"
     );
 }
 
