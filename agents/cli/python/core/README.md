@@ -180,8 +180,12 @@ identity (start time and command line from `ps`). It signals a group only
 while the group's leader is its unreaped child. A later `run` with the
 terminal UI on stops what a record names when the record's launcher is gone:
 before each signal (SIGTERM, then SIGKILL 2 s later) it checks that the
-process still has the recorded start time, command line, and group, and leads
-the group; otherwise it only deletes the record. It prints, for example,
+process still has the recorded start time and group and leads the group, and
+that a Worker host still has its recorded command line (a shell may replace
+itself with its command, so a tool group's command line may change);
+otherwise it only deletes the record. On Linux, where the kernel kills the
+Worker host with the launcher, this cleanup is what stops its shell groups.
+It prints, for example,
 `Stopped a leftover worker host (pid 4242) and 1 tool process group.`
 Processes that a harness starts outside these groups, such as the ones Claude
 Code's own tools start, are not covered.
