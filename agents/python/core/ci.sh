@@ -36,10 +36,20 @@ fi
 shard_index="${BASH_REMATCH[1]}"
 shard_count="${BASH_REMATCH[2]}"
 
+shard_test_files="$(find tests -name 'test_*.py' | LC_ALL=C sort)"
+
 if (( shard_index == 1 )); then
   uv run --frozen ruff check . ../../conformance
   uv run --frozen ruff format --check . ../../conformance
   uv run --frozen mypy
+  # Every file pytest collects must be in the list the shards split.
+  collected_test_files="$(uv run --frozen pytest -p no:cacheprovider --collect-only -q | sed -n 's/::.*//p' | LC_ALL=C sort -u)"
+  unsharded_test_files="$(comm -13 <(printf '%s\n' "$shard_test_files") <(printf '%s\n' "$collected_test_files"))"
+  if [[ -n "$unsharded_test_files" ]]; then
+    echo "pytest collects test files that no shard runs:" >&2
+    echo "$unsharded_test_files" >&2
+    exit 1
+  fi
 fi
 
 test_files=()
@@ -49,7 +59,7 @@ while IFS= read -r test_file; do
     test_files+=("$test_file")
   fi
   position=$((position + 1))
-done < <(find tests -maxdepth 1 -name 'test_*.py' | LC_ALL=C sort)
+done <<<"$shard_test_files"
 if (( ${#test_files[@]} == 0 )); then
   echo "shard $shard has no test files" >&2
   exit 1
