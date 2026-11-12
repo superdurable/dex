@@ -66,6 +66,53 @@ func TestChatWithARealPythonWorker(t *testing.T) {
 	t.Run("ApprovalRoundTrip", stack.testApprovalRoundTrip)
 	t.Run("ResumeShowsHistory", stack.testResumeShowsHistory)
 	t.Run("CtrlCCancelsTheTurn", stack.testCtrlCCancelsTheTurn)
+	t.Run("QuestionAnswer", stack.testQuestionAnswer)
+	t.Run("QueueAndSteer", stack.testQueueAndSteer)
+}
+
+func (stack *realWorkerStack) testQuestionAnswer(t *testing.T) {
+	sessionID := "terminal-ui-question"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("ask Which color? | red | blue\r")
+	stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
+		return len(snapshot.PendingInterrupts) == 1 && snapshot.PendingInterrupts[0].Kind == dexagents.InterruptKindQuestion
+	})
+	chat.waitForScreen("Which color?")
+	chat.typeText("\r")
+	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	require.Equal(t, `ask_user: {"status":"answered","answer":"red"}`, lastAssistantText(finished))
+	chat.waitForScreen("answered: red")
+	chat.exit()
+}
+
+// A message typed during a turn is queued; steering it ends the turn at its
+// next safe boundary and starts a turn with it. The session is briefly idle
+// between the two turns, which is not the steer being done.
+func (stack *realWorkerStack) testQueueAndSteer(t *testing.T) {
+	sessionID := "terminal-ui-steer"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("stall steer-gate\r")
+	chat.waitForScreen("Ctrl-C cancel turn")
+	chat.typeText("say steered\r")
+	stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
+		return len(snapshot.QueuedMessages) == 1
+	})
+	chat.waitForScreen("Tab acts on it")
+	chat.typeText("\t")
+	time.Sleep(300 * time.Millisecond)
+	chat.typeText("s")
+	stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
+		return len(snapshot.SteeredMessages) == 1 && len(snapshot.QueuedMessages) == 0
+	})
+	require.NoError(t, os.WriteFile(filepath.Join(stack.coordination, "steer-gate.released"), nil, 0o600))
+	finished := stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
+		return isIdleAfterTurns(2)(snapshot) && lastAssistantText(snapshot) == "said: steered"
+	})
+	require.Empty(t, finished.SteeredMessages)
+	chat.waitForScreen("said: steered")
+	chat.exit()
 }
 
 func newRealWorkerStack(t *testing.T) *realWorkerStack {

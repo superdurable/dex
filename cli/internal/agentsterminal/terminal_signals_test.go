@@ -10,6 +10,7 @@ package agentsterminal
 
 import (
 	"os"
+	"os/signal"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -74,6 +75,8 @@ func newTestSignals(t *testing.T, isForeground *atomic.Bool, stops *atomic.Int32
 	handler.wait.Add(1)
 	go handler.run()
 	t.Cleanup(func() {
+		// suspend registers SIGTSTP again; leave no handler behind.
+		signal.Stop(handler.signals)
 		close(handler.done)
 		handler.wait.Wait()
 	})
