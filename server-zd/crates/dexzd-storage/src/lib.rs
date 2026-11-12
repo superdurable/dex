@@ -40,4 +40,6 @@ mod directory_lock_tests;
 #[cfg(test)]
 mod snapshot_crash_tests;
 #[cfg(test)]
+mod snapshot_upload_options_tests;
+#[cfg(test)]
 mod tests;

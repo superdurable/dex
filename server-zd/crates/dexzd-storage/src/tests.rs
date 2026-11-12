@@ -37,15 +37,8 @@ async fn create_snapshot<S: SnapshotSource>(
     identity: &SnapshotIdentity,
     number: u64,
 ) -> StorageResult<(String, SnapshotManifest)> {
-    crate::create_snapshot(
-        store,
-        objects,
-        identity,
-        number,
-        &Mutex::new(()),
-        crate::SnapshotUploadOptions::default(),
-    )
-    .await
+    let options = crate::SnapshotUploadOptions::default();
+    crate::create_snapshot(store, objects, identity, number, &Mutex::new(()), options).await
 }
 
 #[derive(Default)]
@@ -598,93 +591,6 @@ async fn rocksdb_snapshot_restores_all_column_families_and_changes_lineage() {
             .lineage_id,
         original_lineage
     );
-}
-
-/// Returns the zero-byte write-ahead log files that `manifest` lists.
-fn empty_write_ahead_log_files(manifest: &SnapshotManifest) -> Vec<String> {
-    manifest
-        .files
-        .iter()
-        .filter(|file| file.relative_path.ends_with(".log") && file.size_bytes == 0)
-        .map(|file| file.relative_path.clone())
-        .collect()
-}
-
-#[tokio::test]
-async fn rocksdb_snapshot_lists_its_empty_write_ahead_log_unless_told_to_skip_it() {
-    for should_skip_empty_write_ahead_log_files in [false, true] {
-        let directory = tempfile::tempdir().expect("temporary directory exists");
-        let store =
-            RocksDbLocalStore::open(directory.path().join("db"), RocksDbStoreOptions::default())
-                .expect("RocksDB opens");
-        let object_store = TestObjectStore::default();
-        let mut batch = WriteBatch::new();
-        batch.put(ColumnFamily::Flow, b"sample".to_vec(), b"data".to_vec());
-        store.write(batch).expect("sample row writes");
-        set_partition_meta(&store);
-        let options = crate::SnapshotUploadOptions {
-            should_skip_empty_write_ahead_log_files,
-        };
-        let (manifest_key, manifest) = crate::create_snapshot(
-            &store,
-            &object_store,
-            &identity(10),
-            1,
-            &Mutex::new(()),
-            options,
-        )
-        .await
-        .expect("snapshot uploads");
-        let empty_logs = empty_write_ahead_log_files(&manifest);
-        assert_eq!(
-            empty_logs.is_empty(),
-            should_skip_empty_write_ahead_log_files,
-            "{empty_logs:?}"
-        );
-        let uploaded_keys = object_store
-            .objects
-            .lock()
-            .expect("objects lock")
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        for file in &manifest.files {
-            assert!(
-                uploaded_keys.contains(&file.object_key),
-                "{}",
-                file.object_key
-            );
-        }
-        assert!(
-            manifest
-                .files
-                .iter()
-                .any(|file| file.relative_path.ends_with(".sst")),
-            "the flushed row is in a table file"
-        );
-        let restored = restore_snapshot(
-            &object_store,
-            &manifest_key,
-            &directory.path().join("restored"),
-            RocksDbStoreOptions::default(),
-        )
-        .await
-        .expect("snapshot restores");
-        assert_eq!(
-            restored
-                .get(ColumnFamily::Flow, b"sample")
-                .expect("restored row reads"),
-            Some(b"data".to_vec())
-        );
-        assert_eq!(
-            restored
-                .partition_meta(PartitionId(4))
-                .expect("partition metadata reads"),
-            store
-                .partition_meta(PartitionId(4))
-                .expect("partition metadata reads")
-        );
-    }
 }
 
 #[tokio::test]
