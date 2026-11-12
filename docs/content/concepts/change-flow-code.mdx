@@ -100,6 +100,14 @@ run keeps its Run ID and starts a new attempt.
 Steps after that point run again. So do their external calls. Each external call needs an
 [idempotency key](/concepts/step#idempotency-keys) so a repeat has no effect.
 
+Time Travel restores the run's state as it was at that point: its Attributes,
+its Channel messages, and the Steps that were waiting or ready. Input that came
+from outside the run after that point is then applied again by default: RPC
+calls, Channel publications, and Attribute writes. This is **write reapply**.
+Turn it off with **skip_writes_reapply** (**dexcli**: **-skip-writes-reapply**)
+when that input should not count again. The FlowService call is named
+**ResetFlow**; these docs call it Time Travel.
+
 The target point must be inside the Flow's recent history window. Time Travel
 to the beginning of the run is always available. Start it from Dex Web,
 **dexcli**, or a Client. [Time travel](/reference/server/runtime-client#time-travel)

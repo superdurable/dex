@@ -50,9 +50,6 @@ class StepSecond(Step[int]):
 
 
 class Example(Step[int]):
-    def __init__(self, second: StepSecond) -> None:
-        self.second = second
-
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.until(approval.for_one())
 
@@ -129,8 +126,6 @@ const approval = new Channel("Approval", stringCodec);
 
 class Example implements Step<number> {
   public readonly inputCodec = doubleCodec;
-
-  public constructor(private readonly flow: StepFlow) {}
 
   public getStepType(): string {
     return "Example";

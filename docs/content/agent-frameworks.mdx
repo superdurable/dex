@@ -36,13 +36,10 @@ To see it, run the [Agent Quick Start](/agent-frameworks/quick-start), or read t
 | **Worker** | Your process that runs the Steps. It connects out to Dex, so it needs no open port. |
 | **Client** | The part of your app that starts sessions and calls them. |
 | **Attribute** | A named value that a Flow keeps. A session keeps its conversation and tool calls in Attributes. |
-| **RunModel** | The Step that makes a model call. |
-| **CallTool** | The Step that runs a read or an idempotent write. Dex may retry it. |
-| **CallSingleAttemptTool** | The Step that runs any other write. Dex runs it at most once. |
-| **AwaitToolApproval** | The Step that waits for a person to approve a tool call. It holds no Worker. |
-| **ResumeTurn** | The Step that waits for every tool result of a model response, then calls the model again. |
+| **Interrupt** | A point where a turn waits for a person. An approval is an interrupt: the snapshot lists it under **pending_interrupts**, and **resolve_interrupt** answers it. A question to the user is the other kind. |
+| **Turn segment** | In the Claude Agent SDK, the part of a turn that one CLI run handles, in one **RunModel** Step. A write tool call ends a segment. |
 
-[Concepts](/concepts) explains Flows, Steps, and the other Dex building blocks.
+The Steps of one turn, such as **RunModel** and **CallSingleAttemptTool**, are listed in [Sessions](/agent-frameworks/sessions#a-durable-agent-session). [Concepts](/concepts) explains Flows, Steps, and the other Dex building blocks.
 
 ## Pages in this section {#pages}
 

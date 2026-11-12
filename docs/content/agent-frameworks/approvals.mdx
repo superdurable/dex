@@ -67,22 +67,13 @@ The example apps expose this RPC as an HTTP route:
 </SdkSnippet>
 </SdkTabs>
 
-Check who may approve before you call the RPC. The example routes accept only a caller that holds the session's signed token.
+Check who may approve before you call the RPC. The example routes accept only a caller that holds the session's signed token. **resolve_interrupt** is safe to retry: a second call for the same interrupt returns **False** and changes nothing. During a deploy it can fail with **Unavailable** until a Worker is back; see [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy).
 
 ## Approve in Dex Web {#approve-in-dex-web}
 
 You can also approve a call in Dex Web. Dex Web shows the **Agent session** tab for a Flow type whose session graph the server holds.
 
-The Python [Agent Quick Start](/agent-frameworks/quick-start) program uploads that graph itself: its Worker passes the graph in **WorkerOptions.flow_definitions** when it starts. So with plain **dexcli dev**, Dex Web already shows the tab. The upload needs recent Dex Agents and Dex Server releases; [Upload the session graph from the Worker](/reference/agents/dex-web#upload-the-graph) has the details.
-
-The TypeScript quick start program does not upload the graph, so render it to a file and restart **dexcli dev** with it. Stop **dexcli dev** in the first terminal, then run these commands from **examples/typescript**, with your framework's Flow type, such as **OpenAIAgentsQuickStart**:
-
-```bash
-mkdir -p definitions
-npx dex-agents-session-graph --flow-type OpenAIAgentsQuickStart \
-  --permission agent-quick-start.operate --out definitions/openai-agents-quick-start.json
-dexcli dev --flow-rendering-dir ./definitions
-```
+The [Agent Quick Start](/agent-frameworks/quick-start) program uploads that graph itself, in Python and in TypeScript: its Worker passes the graph in its Worker options (**flow_definitions** in Python, **flowDefinitions** in TypeScript) when it starts. So with plain **dexcli dev**, Dex Web already shows the tab. The upload needs recent Dex Agents and Dex Server releases; [Upload the session graph from the Worker](/reference/agents/dex-web#upload-the-graph) has the details.
 
 Then approve the call:
 

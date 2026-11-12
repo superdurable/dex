@@ -31,8 +31,9 @@ links to the page that covers it.
 
 ## Capacity and availability
 
-- **One active node is the ceiling of a cluster.** One node owns every
-  partition, so a larger load needs a larger node or a separate cluster. See
+- **One active node is the ceiling of a cluster.** Dex divides a cluster's
+  Flows and task queues into partitions, and today one node owns every
+  partition. So a larger load needs a larger node or a separate cluster. See
   [Grow past one node](#grow-past-one-node) and
   [Performance and Maturity](/intro/performance-and-maturity).
 - **Failover takes up to the lease duration plus 1 second.** The lease is 10
@@ -42,9 +43,19 @@ links to the page that covers it.
 - **Failover reruns in-flight Steps.** Recovery fails every attempt that a
   Worker had received, and each one consumes a retry. See
   [Failover and Deploys](/concepts/failover-and-deploys).
+- **The partition count is fixed at the first start.** The first start
+  records **cluster.partitionCount**, 1024 by default for **serve**, and a
+  later start with a different count fails. Choose it before the first
+  production start. See
+  [Partition count](/reference/server/configuration#single-node-partition-count).
 - **Some upgrades stop the cluster.** Some server releases need every server
   process stopped, standbys included, before the new version starts. Upgrades
-  roll forward only. See [Upgrades and compatibility](/reference/server/upgrades).
+  roll forward only. The upgrades page names each such release, so read it
+  before you upgrade. See [Upgrades and compatibility](/reference/server/upgrades).
+- **Beta compatibility has no fixed support window.** Published APIs,
+  configuration, wire formats, and stored data stay compatible, and a breaking
+  change comes with a migration path. No support period for older releases is
+  promised. See [Performance and Maturity](/intro/performance-and-maturity#release-status).
 - **Version numbers do not decide compatibility.** Dex Server is at 0.1.x and
   the SDKs are at 1.x. A Worker or Client works with a server when their
   protocol ranges overlap. See
@@ -94,6 +105,11 @@ to. See [Install and configure server-zd](/reference/server/configuration).
 - **A canceled method keeps running.** Dex does not stop the code. The method
   should check for cancellation and return. See
   [Step](/concepts/step#guarantees).
+- **Parallel writers overwrite each other unless they lock.** Steps and RPCs
+  that run at the same time share the Flow's Attributes. Dex does not check
+  that a value a method read is still current when it writes, so two
+  read-then-write updates can lose one of them. Declare a lock on such an
+  Attribute. See [What Dex saves](/concepts/step#what-dex-saves).
 - **Locks are opt-in.** A lock binds only the Steps and RPCs that declare it. A
   locked method holds the lock while it runs, including its external calls. A
   retry keeps its locks while it waits. See

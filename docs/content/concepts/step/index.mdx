@@ -60,9 +60,6 @@ class StepSecond(Step[int]):
 
 
 class Example(Step[int]):
-    def __init__(self, second: StepSecond) -> None:
-        self.second = second
-
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.until(approval.for_one())
 
@@ -139,8 +136,6 @@ const approval = new Channel("Approval", stringCodec);
 
 class Example implements Step<number> {
   public readonly inputCodec = doubleCodec;
-
-  public constructor(private readonly flow: StepFlow) {}
 
   public getStepType(): string {
     return "Example";
@@ -222,7 +217,7 @@ satisfied it, such as the Channel messages it consumed. See
 [Waits](/reference/python/waits).
 
 To wait for parallel branches, use a **Join**. It is not another kind of
-condition: it waits on a ChannelMap that the branches report to. See
+condition: it waits on a [ChannelMap](/concepts/primitives/channel#channelmap) that the branches report to. See
 [Await Parallel Steps](/design-patterns/parallel/await).
 
 ## StepDecision {#stepdecision-movements}
@@ -230,9 +225,7 @@ condition: it waits on a ChannelMap that the branches report to. See
 **Execute** returns a **StepDecision**. It can go to one next Step or to
 several Steps at once. This is how you build branching, loops, and parallel
 work. **GoTo** names the next Step by its Step type and passes its input. The
-Flow's registered instance of that Step type runs it. Some examples also pass
-the next Step to a Step's constructor. The decision does not use that object:
-it names the type, and Dex runs the registered instance.
+Flow's registered instance of that Step type runs it.
 
 <StepDecisionMovementsDiagram markdownDescription="GoTo: ExampleStep returns GoTo(Complete Flow), which completes the Flow. GoToMany: ExampleStep starts StepA and StepB, which run in parallel. Loop: ExampleStep goes to ProcessStep, and ProcessStep goes back to ExampleStep." />
 

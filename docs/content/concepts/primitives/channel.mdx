@@ -310,9 +310,9 @@ Dex Server also accepts a **PublishToChannel** request on its FlowService API,
 for example through **dexcli api**. The server stores that message with no
 Worker online. The SDK Clients do not expose this request.
 
-Neither path drops a repeated publish yet. A request sent again after a lost
-response publishes the message twice. Publishing once through request IDs is
-planned in [issue 1519](https://github.com/superdurable/dex/issues/1519). Make
+Neither path drops a repeated publish yet: a request sent again after a lost
+response publishes the message twice. See
+[Requests that can repeat](/intro/limits-and-sharp-edges#requests-that-can-repeat). Make
 the consuming Step safe for a duplicate message. For example, put a business
 key, such as an approval ID, in the message and skip a key the Flow has already
 handled.

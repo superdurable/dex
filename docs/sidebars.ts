@@ -20,7 +20,7 @@ const sidebars: SidebarsConfig = {
       label: 'Get Started',
       customProps: {section: 'intro'},
       link: {type: 'doc', id: 'intro/get-started'},
-      items: ['quick-start/index'],
+      items: ['quick-start/index', 'intro/port-your-process'],
     },
     {
       type: 'category',
@@ -192,6 +192,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'components/run-locally',
         'components/application',
+        'components/testing',
         'components/your-database',
         'components/server',
         'components/production',

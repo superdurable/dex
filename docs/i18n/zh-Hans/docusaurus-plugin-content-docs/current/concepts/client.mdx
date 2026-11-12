@@ -19,6 +19,16 @@ slug: /concepts/client
 - **搜索**：按 Flow type、状态或已索引的 Attribute 查找 Flow。
 - <a id="停止-flow"></a>**运维** Flow：查看、停止、跳过 Timer、更新配置或 time travel。停止 Flow 见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)。
 
+## 从 API 服务启动 Flow {#start-from-an-api-service}
+
+Client 按已注册的定义启动 Flow。它用这份注册来确定 Flow type，并编码启动输入和 RPC 参数。所以启动 Flow 的服务也要构建 Flow 对象。Client 从不运行 Step，这些对象也就从不调用它们的服务，用替身即可。[Quick Start](/quick-start) 就是这样做的：它的启动程序用一个从不会被调用的 mock API 构建 Flow。每个 Client 进程还会打开自己的 [blob cache](/components/application#blob-cache)。
+
+## 没有 Worker 时投递事件 {#deliver-without-a-worker}
+
+SDK 发送命令的方式是 RPC。RPC 在 Worker 上运行。如果 10 秒内没有该 Flow type 的 Worker 接手，调用方会收到 **Unavailable** 错误，而且什么都不会保存。
+
+FlowService 请求 **PublishToChannel** 在没有 Worker 连接时也会把 Channel 消息保存在 server 上。Worker 再次运行时，等待中的 Step 会被唤醒。SDK Client 没有提供这个请求。可以通过 gRPC 或 **dexcli api call PublishToChannel** 调用。目前重复发布不会被丢弃，见 [Limits and Sharp Edges](/intro/limits-and-sharp-edges)。
+
 ## 和其他 Primitive 的关系 {#related-primitives}
 
 - [Flow](/concepts/flow)：**StartFlow** 用你选择的 **Flow ID** 创建 Flow run。Flow ID 是业务身份，例如订单号。Dex 创建 Run ID。之后的调用都用 Flow ID 指定 Flow。

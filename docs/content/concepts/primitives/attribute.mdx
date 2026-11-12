@@ -380,6 +380,12 @@ command that releases a single lock. The method timeout and the retry policy
 bound how long a running Step holds a lock. So keep locked methods short, and
 make slow external calls in a Step that holds no lock.
 
+This adds up when a locked Step keeps failing. Its retries keep the lock, and
+the default retry policy keeps retrying for up to 4 hours. For that whole time,
+every other Step and RPC that declares the same lock waits or fails. Give a
+locked method a short retry window, or keep external calls out of it. The
+[StepOptions defaults](/concepts/step#stepoptions) list the retry window.
+
 This Step locks a singleton Attribute and one AttributeMap instance while
 **Execute** runs:
 

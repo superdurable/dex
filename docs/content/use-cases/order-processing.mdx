@@ -30,6 +30,8 @@ Each Step passes an idempotency key built from the order ID, which is also the F
 
 The **order-status** Attribute is indexed, so you can search Flows by status. Its index key, **keyword1**, names a search slot. Each indexed Attribute takes one slot, so the limit on slots matters only when you index many Attributes. [Read and search Attributes](/concepts/primitives/attribute#read-and-search-attributes) explains slots.
 
+Ship's options route its failure to Refund once its retries run out. The second **StepOptions** in that route apply to the Refund Step it moves to, here a short retry.
+
 The **dex:group** and **dex:explanation** comments label each Step in the Flow graph that Dex Web and these docs draw. They do not change what the code does.
 
 <SdkTabs
@@ -42,7 +44,7 @@ The **dex:group** and **dex:explanation** comments label each Step in the Flow g
   }}>
 <SdkSnippet lang="python">
 
-```python fold="17-22,43-56"
+```python fold="16-21,41-54"
 order_status = Attribute(
     "order-status",
     str,
@@ -54,9 +56,8 @@ seller_ok = Channel[str]("seller-ok", str)
 # dex:group group-id:payment group-label:"Payment"
 # dex:explanation text:"Charge the customer for the order."
 class Charge(Step[OrderRequest]):
-    def __init__(self, service: MyDependencyService, ship: Ship) -> None:
+    def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.ship = ship
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -80,9 +81,8 @@ class Charge(Step[OrderRequest]):
 # dex:group group-id:shipping group-label:"Shipping"
 # dex:explanation text:"Wait for seller approval, remind after 24 hours, then ship the order."
 class Ship(Step[OrderRequest]):
-    def __init__(self, service: MyDependencyService, refund: Refund) -> None:
+    def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.refund = refund
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -141,8 +141,8 @@ class OrderProcessingFlow(Flow[OrderRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
         self.refund = Refund(service)
-        self.ship = Ship(service, self.refund)
-        self.charge = Charge(service, self.ship)
+        self.ship = Ship(service)
+        self.charge = Charge(service)
 
     def get_steps(self) -> StepList[OrderRequest]:
         return StepList.start_step(self.charge).other_steps(self.ship, self.refund)
@@ -335,7 +335,7 @@ var (
 </SdkSnippet>
   <SdkSnippet lang="java">
 
-```java fold="62-67,99-112"
+```java fold="60-65,95-108"
 public class OrderProcessingFlow implements Flow<OrderRequest> {
     public static final Attribute<String> orderStatus = Attribute.define(
             "order-status",
@@ -351,8 +351,8 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     public OrderProcessingFlow(final MyDependencyService service) {
         this.service = service;
         this.refund = new Refund(service);
-        this.ship = new Ship(service, this.refund);
-        this.charge = new Charge(service, this.ship);
+        this.ship = new Ship(service);
+        this.charge = new Charge(service);
     }
 
     @Override
@@ -378,11 +378,9 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     static final class Charge implements Step<OrderRequest> {
         private final MyDependencyService service;
-        private final Ship ship;
 
-        Charge(final MyDependencyService service, final Ship ship) {
+        Charge(final MyDependencyService service) {
             this.service = service;
-            this.ship = ship;
         }
 
         @Override
@@ -415,11 +413,9 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     static final class Ship implements Step<OrderRequest> {
         private final MyDependencyService service;
-        private final Refund refund;
 
-        Ship(final MyDependencyService service, final Refund refund) {
+        Ship(final MyDependencyService service) {
             this.service = service;
-            this.refund = refund;
         }
 
         @Override
@@ -502,7 +498,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
-```typescript fold="58-63,86-97"
+```typescript fold="55-60,80-91"
 const orderStatus = new Attribute("order-status", stringCodec, {
   type: IndexType.KEYWORD,
   indexKey: "keyword1",
@@ -516,8 +512,8 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 
   public constructor(public readonly service: MyDependencyService) {
     this.refund = new Refund(service);
-    this.ship = new Ship(service, this.refund);
-    this.charge = new Charge(service, this.ship);
+    this.ship = new Ship(service);
+    this.charge = new Charge(service);
   }
 
   public getFlowType(): string {
@@ -550,10 +546,7 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 class Charge implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(
-    private readonly service: MyDependencyService,
-    private readonly ship: Ship,
-  ) {}
+  public constructor(private readonly service: MyDependencyService) {}
 
   public getStepType(): string {
     return "Charge";
@@ -578,10 +571,7 @@ class Charge implements Step<OrderRequest> {
 class Ship implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(
-    private readonly service: MyDependencyService,
-    private readonly refund: Refund,
-  ) {}
+  public constructor(private readonly service: MyDependencyService) {}
 
   public getStepType(): string {
     return "Ship";

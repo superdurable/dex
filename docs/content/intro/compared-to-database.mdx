@@ -50,9 +50,9 @@ A typical backend API also:
 A database provides none of this.
 Teams write that code again for every service.
 
-## The example: process an order in two steps
+## Start: two API calls in a row
 
-The order process has two steps, and each step is one API call:
+The simplest version makes two API calls:
 
 * **Charge the buyer.**
 * **Ship the item.**
@@ -165,15 +165,7 @@ One duty stays with you: each external call passes an [idempotency key](/concept
 
 <ExecutionApproachDiagram approach="dex" markdownDescription="The frontend API starts the Flow through the Client. Dex Server sends each Step task to one of your Workers, and the Steps call the charge, ship, and refund APIs." />
 
-The charge, approve, and ship process becomes:
-
-1. **Charge Step**: charge the buyer, with its own retry policy. When the charge succeeds, Dex moves the order to the Ship Step. Dex records the result and the move together, so a crash cannot leave the order between the two Steps.
-2. **Ship Step**:
-    1. Wait for the seller's approval **or** a durable timer.
-    2. When the timer fires, send a reminder and keep waiting. When the approval arrives, ship the item.
-    3. Retry the ship call. When the retries run out, move to the Refund Step.
-3. **Refund Step**: refund the buyer.
-4. The frontend calls a built-in Client API that waits until the Charge Step completes, then shows "payment received".
+The Flow has a Charge Step, a Ship Step that waits for approval with reminders, and a Refund Step. [Why Dex?](/intro/what-is-dex#example-order-processing) walks through each Step. Dex records each Step result and the move to the next Step together, so a crash cannot leave the order between two Steps. The frontend calls a Client API that waits until the Charge Step completes, then shows "payment received".
 
 <DocsFlowDefinitionGraph graph={orderProcessingFlow} markdownReference="/intro/what-is-dex#example-order-processing" markdownReferenceLabel="Why Dex?" />
 
@@ -185,6 +177,8 @@ Operators can inspect each order and, after a fix, rerun it from an earlier Step
 | Crash between two steps | An outbox and a relay keep the two steps together. Without them, the buyer can be charged while the item never ships. | Dex records each Step result and the move to the next Step together. |
 | Crash during the charge call | The consumer runs again, so the payment call needs an idempotency key. | The Charge Step runs again, so the payment call needs the same key. |
 | Several workers | You build row claiming, or rely on queue delivery and duplicate checks. | Dex sends each task to one of your Workers. |
+| Latency of one step | A local database transaction commits the outbox row, usually in milliseconds. | A SYNC Step waits for a commit to object storage: about 105 ms at p50 at half of peak load in the [benchmark](/intro/performance-and-maturity). An ASYNC Step does not wait. |
+| What you run | A database and a queue broker, plus the relay and consumers. | Dex Server, an object storage bucket, and an optional standby, plus your Workers. You keep your database for your own tables. |
 
 ### Your own tables
 

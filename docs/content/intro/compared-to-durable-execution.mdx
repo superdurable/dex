@@ -21,12 +21,16 @@ Dex does not replay your code. A Flow is a set of Steps. Each Step returns a dec
 
 This choice has two sides:
 
-- **What you gain.** Step code is ordinary code. It may read the clock, use random numbers, and call any library. A code change never causes a replay or nondeterminism error in a running Flow. State lives in Attributes, not in an event history.
+- **What you gain.** Step code is ordinary code. It may read the clock, use random numbers, and call any library, with one rule for the effects it sends, below. A code change never causes a replay or nondeterminism error in a running Flow. State lives in Attributes, not in an event history.
 - **What it costs.** You model control flow as Steps and decisions. A loop is a Step that moves to itself. A branch is a decision with two targets. A long sequence of small calls becomes several Steps, or one Step that does them all.
 
-### Determinism moved; it did not vanish
+### Determinism moved; it did not vanish {#determinism-moved-it-did-not-vanish}
 
-Dex drops the replay rule, but one rule takes its place. A Step can run more than once, so each external effect must depend only on what Dex passes the Step, not on which attempt is running. In practice, that means an [idempotency key](/concepts/step#idempotency-keys) that stays the same on every attempt. Every other tool on this page leaves the same duty to you. The [failure proof](/correctness-and-expressiveness/failure-transparency-proof) makes the same assumption. Reading the clock or a random value inside a Step is fine. Using one inside an idempotency key is not.
+Dex drops the replay rule, but one rule takes its place. A Step can run more than once, so each external effect must depend only on what Dex passes the Step, not on which attempt is running. In practice, that means an [idempotency key](/concepts/step#idempotency-keys) that stays the same on every attempt. Every other tool on this page leaves the same duty to you. The [failure proof](/correctness-and-expressiveness/failure-transparency-proof) makes the same assumption. Reading the clock or a random value inside a Step is fine for the Step's own decisions and for the data Dex saves. It is not fine inside an idempotency key. When an effect must be identical on a rerun, such as the body of an email, build it only from what Dex passes the Step.
+
+### Concurrency defaults
+
+Dex runs the Steps of one Flow in parallel, on different Workers, and an RPC can run alongside them. They share the Flow's Attributes. Dex does not isolate them unless they declare an [Attribute lock](/concepts/primitives/attribute#locking), so two of them that read and then write the same Attribute can lose an update. A Temporal workflow runs its code on one thread, and a Restate virtual object allows one exclusive handler per key at a time. Both give one writer by default. In Dex you choose which Attributes need a lock.
 
 ### The same process in both models
 
@@ -229,7 +233,7 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 | Update | RPC that writes Attributes or publishes to a Channel. Both need a Worker to accept the call. An RPC has no update-ID deduplication, and with no Worker free for 10 seconds the caller gets **Unavailable**. |
 | Timer or sleep | Timer condition in a Step's **WaitFor** |
 | Child workflow | SubFlow |
-| Task queue and sticky queue | Flow type queue with sticky routing |
+| Task queue and sticky queue | Flow type queue with sticky routing. Dex routes by Flow type, not by Step type: any Worker that registers a Flow type can receive any of its Steps. To send some work to a separate pool of Workers, give it its own Flow type, for example a SubFlow that only that pool registers. |
 | Search attributes | Indexed Attributes |
 | Reset | Time Travel. It keeps the same Run ID, while a Temporal reset starts a new run. |
 
@@ -237,7 +241,7 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 
 **Different.**
 
-- Dex has no event history to replay. A Worker does not rebuild state, so it needs no history cache.
+- Dex has no event history to replay. A Worker does not rebuild state, so it needs no history cache. Sticky routing still exists: Dex first offers a Flow's next task to the Worker that served that Flow before, for up to 5 seconds, then to any Worker of the Flow type. It is best effort, and correctness never depends on it. See [Routing and availability](/reference/server/workers#routing-and-availability).
 - Versioning works by keeping old Step types and making additive changes. Dex has no patch or version markers in code. Temporal offers patch markers and Worker Versioning, which pins a workflow to the Worker deployment that started it or moves it to a new one. [Change Flow Code](/concepts/change-flow-code#versioning-flow-code) explains the Dex rules.
 - Steps that run in parallel in one Flow share its Attributes. Two of them can overwrite each other's update unless they declare an [Attribute lock](/concepts/primitives/attribute#locking). A Temporal workflow runs on one thread, so only one piece of its code runs at a time. Its signal and update handlers can still interleave at await points, and Temporal offers a workflow mutex for that case. The difference is smaller than "one writer" suggests, but it is real: Dex Steps run in parallel on different Workers.
 - A retry of a Step method reuses the state snapshot of its first attempt. An activity retry reads whatever it fetches on that attempt.
@@ -263,7 +267,7 @@ Restate is an example. A handler is a function. Each side effect runs through th
 
 **Different.**
 
-- The handler code between journaled calls must still be deterministic, because it runs again. Dex Step code runs once per attempt and needs no such rule.
+- The handler code between journaled calls must still be deterministic, because it runs again. Dex does not replay Step code, so a code change cannot break a running Flow. The effects a Step sends still follow the rule in [Determinism moved](#determinism-moved-it-did-not-vanish).
 - A virtual object allows one writer per key at a time. In Dex, Steps and RPCs of one Flow can run at the same time. Locks are opt-in per Attribute.
 - A Restate shared handler runs alongside others and cannot write the object's state. It can still call other services. A Dex RPC may write Attributes, and an RPC without a lock can run alongside Steps.
 - Restate deduplicates an invocation that carries the same idempotency key. Dex deduplicates a Flow start by Flow ID and request ID, but not yet a repeated Channel publish or RPC. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
@@ -281,7 +285,7 @@ DBOS is an example. It is a library inside your application. Workflows and steps
 | Send and receive | Channel |
 | Events (set and get) | Attributes, read by RPC or by the Client |
 | Durable sleep | Timer |
-| Queue | Flow type queue |
+| Queue | Flow type queue. It has no per-queue concurrency or rate limit. Each Worker's task slots bound how many tasks it runs at once. |
 
 **The same.** The process is ordinary application code with recorded steps. Workflow IDs make starts idempotent.
 

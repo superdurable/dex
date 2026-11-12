@@ -103,7 +103,7 @@ A Client API that calls a Flow's RPC handler on the Worker.
 
 #### [Join](/design-patterns/parallel/await)
 
-A helper that waits for parallel branches. Each branch reports to a ChannelMap, and the waiting Step waits on that ChannelMap until every branch, or the number it needs, has reported.
+A helper that waits for parallel branches. Each branch reports to a [ChannelMap](/concepts/primitives/channel#channelmap), and the waiting Step waits on that ChannelMap until every branch, or the number it needs, has reported.
 
 #### [Locking](/concepts/primitives/attribute#locking)
 
@@ -159,7 +159,7 @@ A Flow run that a parent Flow starts from one of its Steps. The parent can wait 
 
 #### [Time Travel](/concepts/change-flow-code#time-travel)
 
-Running a Flow run again from an earlier point in its history, usually after a fix. The run keeps its Run ID. Steps after that point run again, with their external calls.
+Running a Flow run again from an earlier point in its history, usually after a fix. The run keeps its Run ID. Its state goes back to that point, Steps after it run again with their external calls, and outside input after it is applied again unless you skip write reapply. The FlowService call is **ResetFlow**.
 
 #### [Timer](/concepts/primitives/timer)
 

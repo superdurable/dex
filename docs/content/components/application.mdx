@@ -55,7 +55,7 @@ The Worker can run in two places:
 Either way, the Worker only makes outbound connections, so it needs no load
 balancer or inbound port. Your handlers create a Client to start Flows and call
 RPCs. [Dex and your database](/components/your-database) explains how Steps
-write to the database your service already has.
+write to the database your service already has. [Test Your Flows](/components/testing) shows how to test them against a real Dex Server.
 
 ## Start a Worker {#enable-pull-mode}
 
@@ -200,7 +200,7 @@ Three start options make a retried request safe:
 - The **request ID** is **start-** plus the order ID. It is the same on every retry of this request.
 - The **already-started option** returns the existing run when its request ID matches. It is **ignore_already_started** in Python and Rust, **ignoreAlreadyStarted** in Java and TypeScript, and **AlreadyStarted.IgnoreError** in Go. A different request ID for the same order still gets an already-started error, which the service answers with 409.
 
-So when a client sends the request twice, the order is charged once. [Start options and configuration](/concepts/flow#start-options) lists the options, and [Dex and your database](/components/your-database#write-your-row-and-start-the-flow) shows the handler that also writes your own table. Run the service from the example folder, then send an order:
+So when a client sends the request twice, the order is charged once. This holds while the run exists: after Dex deletes a closed run, 7 days by default, the same Flow ID starts a new Flow. [How long these protections last](/components/your-database#how-long-protections-last) gives the details. [Start options and configuration](/concepts/flow#start-options) lists the options, and [Dex and your database](/components/your-database#write-your-row-and-start-the-flow) shows the handler that also writes your own table. Run the service from the example folder, then send an order:
 
 ```bash
 curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
@@ -221,6 +221,26 @@ Stop Workers gracefully during a deployment, so running tasks can finish.
 
 [Workers and the task queue](/reference/server/workers) describes readiness,
 routing, capacity, shutdown, and network settings.
+
+## Run in containers {#run-in-containers}
+
+A Worker and a Client fit a stateless container:
+
+- **Network.** A Worker only opens outbound connections to Dex Server, so its
+  container needs no inbound port or load balancer for Dex. Set the server
+  address in each process's configuration, such as an environment variable.
+- **Blob cache.** The [blob cache](#blob-cache) is a local cache of copies.
+  An ephemeral directory, such as the container's scratch disk, is enough.
+  Give each process its own directory. A new container starts with an empty
+  cache and loads values again as it needs them.
+- **Same Flow definitions.** Build every Worker and Client image from code
+  that registers the same Flows, so the Client encodes inputs the way the
+  Worker decodes them. During a rolling deployment, an older Worker that lacks
+  a Step type hands that call to a newer one. See
+  [Failover and Deploys](/concepts/failover-and-deploys).
+- **Graceful stop.** Send the stop signal and give the process time to finish
+  running tasks before the container is killed. See
+  [Capacity and shutdown](#capacity-and-shutdown).
 
 ## Operate it in production
 

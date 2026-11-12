@@ -37,13 +37,10 @@ Make the write safe to repeat:
   updates it.
 
 A Step that reads from your database reads whatever is there when the attempt
-runs. A retry of an Execute call reuses the Dex state snapshot of its first
-attempt, but your database can have changed in between. When a decision must
-not change across attempts, store the value in an Attribute in an earlier Step,
-then read the Attribute.
-
-The [Step guarantees](/concepts/step#guarantees) list every case in which a
-Step runs again.
+runs, so a retry can see different rows. When a decision must not change
+across attempts, store the value in an Attribute in an earlier Step, then read
+the Attribute. The [Step guarantees](/concepts/step#guarantees) say which
+state a retry sees and when a Step runs again.
 
 ## Write your row and start the Flow {#write-your-row-and-start-the-flow}
 
@@ -78,6 +75,29 @@ the row instead: the handler only starts the Flow, and the first Step upserts
 the row by Flow ID, as [A Step writes to your database](#step-writes)
 describes. The Flow then owns both the process and the row, and a crash at any
 point leaves a Flow that retries its Step.
+
+### How long these protections last {#how-long-protections-last}
+
+Both protections depend on the Flow run still existing:
+
+- **One Flow per ID** holds while any run of that Flow ID exists. With the
+  default ID reuse policy, a second start of the same ID is rejected, or
+  returns the existing run with the already-started option.
+- **A repeated start request** returns the run it started for as long as that
+  run exists.
+
+Dex deletes a closed run after its retention, 7 days by default. The Flow ID
+is then free, so a start with the same ID creates a new Flow, and that Flow
+charges again unless the payment service still drops the repeated key. Keep
+retention longer than the longest time a client can retry, or record the order
+state in your own table and check it before you start. See
+[Retention](/reference/server/configuration#retention).
+
+Requests on a running Flow, such as RPC calls, are deduplicated by request ID
+too, within a window: a run keeps its newest 1,000 request IDs, and a retry
+with an older one runs as a new request
+(**limits.maxRequestIdsPerRun** in the
+[Limits](/reference/server/configuration#limits) table).
 
 ## Dex copies Attributes to your database {#attribute-store-sync}
 

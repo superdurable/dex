@@ -12,7 +12,14 @@ You write the process as a **Flow**: a set of **Steps** in your own language, ea
 
 ## New to Dex
 
-Start with the [Quick Start](/quick-start). If a process of yours breaks halfway today, follow [Fix a process that breaks halfway](/get-started#fix-a-process). [Get Started](/get-started) suggests a path for each goal, with the time each one takes.
+**Start here:** the [Quick Start](/quick-start). It takes about 10 minutes.
+
+Other ways in:
+
+- A process of yours breaks halfway today: [Fix a process that breaks halfway](/get-started#fix-a-process).
+- Building an AI agent: [Durable Agents](/agent-frameworks).
+- Adding Dex to a service you already run: [Add Dex to an existing service](/components/application#add-to-a-service).
+- Every path, with the time each takes: [Get Started](/get-started).
 
 <div className="docs-home-sections">
   <DocsSection section="intro" to="/quick-start" title="Quick Start">
@@ -50,7 +57,7 @@ Start with the [Quick Start](/quick-start). If a process of yours breaks halfway
 
 <div className="docs-home-sections">
   <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable agents">
-    Keep your agent framework. Each tool call runs in its own Step. Tools that are not safe to repeat run at most once, and approvals can wait for days.
+    Keep your agent framework. Each tool call runs in its own Step, and a tool that is not safe to repeat is not retried. Approvals can wait for days.
   </DocsSection>
   <DocsSection section="product-examples" to="/use-cases" title="Business processes">
     Orders, subscriptions, onboarding, and money transfer.
@@ -62,8 +69,6 @@ Start with the [Quick Start](/quick-start). If a process of yours breaks halfway
     Retries, compensation, and parallel calls across services.
   </DocsSection>
 </div>
-
-In a durable agent, a tool that is not safe to repeat runs at most once, with [one exception](/agent-frameworks/tool-calls#tool-runs-twice).
 
 ## Optional: build with your coding agent
 
@@ -101,7 +106,7 @@ https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
     Reusable Flow shapes for parallel work, timers, failures, and messaging.
   </DocsSection>
   <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
-    A machine-checked proof of what a crash can and cannot change, with its limits stated, and a proof of what Dex can express.
+    A machine-checked proof of what a crash can and cannot change, for one Flow with Channel messages and SYNC Steps, plus a proof of what Dex can express. Simulation tests cover RPCs, SubFlows, and locks.
   </DocsSection>
   <DocsSection section="glossary" to="/glossary" title="Glossary">
     Every Dex term in one place.

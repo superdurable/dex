@@ -426,17 +426,17 @@ impl Flow for OrderFlow {
 
 The Timer is durable. Dex keeps the wait on the server, so the wait does not depend on a running Worker. Its **condition_id**, **ship-delay**, names the Timer so that a test or an operator can skip it.
 
-Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains the other choice.
-
 A decision names the next Step by its type. Python, Java, and TypeScript pass the class. Go passes an empty **Ship** struct value, and Rust passes a **Ship** value.
 
 ## 3. Add a Worker and a Client
 
 The Worker runs the Steps. It connects out to Dex for work, so it needs no open port. The Client starts Flows.
 
-Both programs build the same Flow and register it.
+Both programs build the same Flow and register it. So a web service that starts Flows needs the Flow's code too: it registers the Flow definition, but never runs its Steps. [Start Flows from an API service](/concepts/client#start-from-an-api-service) shows the pattern.
 
 :::note Details
+
+Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains the other choice.
 
 The Client uses the registered Flow to name its type and encode the input, so its copy of the mock API is never called. The SDK Clients have no call that starts a Flow by its type name alone; **dexcli flow start -flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache), which keeps copies of large values.
 

@@ -221,7 +221,28 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 
 - Only function tools get their own Steps. Hosted tools, such as web search, run at the provider during the model call. They repeat when **RunModel** reruns.
 - Tools the SDK runs itself, such as tools of **Agent.mcp_servers** and local shell tools, cannot wait for approval. The adapter refuses them by default.
-  - For an MCP server, pass it through **McpToolSource** in **tool_sources** instead of **mcp_servers**. Each of its tools then runs in its own Step with a policy, and a tool marked **readOnlyHint** is a read. See [MCP tools](/agent-frameworks/built-in-agent-loop#mcp-tools-and-approvals).
+  - For an MCP server, pass it through **McpToolSource** in **tool_sources** instead of **mcp_servers**. Each of its tools then runs in its own Step with a policy, and a tool marked **readOnlyHint** is a read. This function from the quick start example adds an MCP server to the Python quick start agent; [openai_agents_mcp.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_mcp.py) has the imports:
+
+    ```python
+    def build_durable_agent_with_mcp(
+        order_desk: OrderDesk, model: str | Model, mcp_servers: Sequence[McpServerConfig]
+    ) -> AgentSessionFlow:
+        """Returns the quick start agent with MCP tools, each call in its own Step.
+
+        The servers go through tool_sources, not Agent.mcp_servers, which the
+        adapter refuses. A tool marked readOnlyHint is a read.
+        """
+        return openai_agents_session_flow(
+            build_plain_agent(order_desk, model),
+            flow_type="OpenAIAgentsMcpQuickStart",
+            tool_policies={
+                "look_up_order": ToolPolicy(ToolEffect.READ),
+                "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+            },
+            tool_sources=[McpToolSource(mcp_servers)],
+        )
+    ```
+
   - Or set **allow_at_least_once_tools=True**. Those tools then run inside **RunModel** and repeat when it retries, so use this only for reads.
   - Wrap a write in a function tool to give it its own Step.
 - Function tool names must be unique across the agent graph. The graph is copied when the Flow is built, so later changes to it do not reach the Flow.
@@ -254,4 +275,5 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 ## Related
 
 - [Tool Calls](/agent-frameworks/tool-calls)
+- [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy): what **send_user_message** does while no Worker runs
 - [Agents reference](/reference/agents/)

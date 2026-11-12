@@ -14,6 +14,8 @@ Dex is a Durable Execution (D-Ex) platform.
 Dex records each Step of your process as it runs.
 After a crash or a restart, the process continues from the last recorded Step. It does not start over or stop halfway.
 
+A Step that was cut off in the middle can run again, so each call to another system passes an idempotency key: a value that lets that system recognize a repeat and skip it. [Idempotency keys](/concepts/step#idempotency-keys) shows how to build one.
+
 ## The problem
 
 An online store charges the buyer and then ships the item. Between the two calls, the server can crash, a deploy can restart it, or the ship API can time out. The buyer is then charged, and the item never ships.
@@ -43,13 +45,13 @@ The Flow charges the buyer and then waits for the seller's approval, with remind
 
 <DocsFlowDefinitionGraph graph={orderProcessingFlow} />
 
-The graph shows each Step and where it goes next. Three parts sit outside it:
+The graph shows each Step and where it goes next. **Ship** can go back to itself: when the reminder Timer fires before the approval, it sends a reminder and waits again. Three parts sit outside it:
 
 - **RPC approve** publishes the seller's approval to the seller Channel.
 - The storefront's start handler starts the Flow and waits for the Charge Step with the Client's wait-for-Step-completion API. It then tells the buyer "payment received". It does not poll a status of its own.
 - **Attribute order-status** is indexed, so support staff can search for stuck orders.
 
-A real payment call passes an [idempotency key](/concepts/step#idempotency-keys), because a Step can run more than once. The example's mock payment service skips it.
+Each Step passes an idempotency key built from the order ID.
 
 The [Order Processing](/use-cases/order-processing) example has the full code of this Flow and its handlers in every SDK.
 

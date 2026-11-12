@@ -33,7 +33,11 @@ and clients. It injects slow and lost storage responses, 5xx errors, crashes
 with writes still in flight, takeovers by a new process while the old one still
 writes, and Workers that hang, fail, or disconnect. It then checks that every
 acknowledged write survives and that no read sees uncommitted or stale state. It
-covers RPCs, locks, and hard-delete Attributes too. CI runs it nightly. The
+also covers most of what the failure proof leaves out: RPCs, including
+transactional RPCs, Attribute locks, child Flows started as SubFlows, StopFlow,
+and hard-delete Attributes. Failure policies and recovery Steps run in its
+apply-level stage. ASYNC durability is not part of its workload. CI runs it
+nightly. The
 [server integration tests](https://github.com/superdurable/dex/tree/main/server-zd/integ)
 run real Workers against a real server.
 

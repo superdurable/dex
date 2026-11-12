@@ -64,7 +64,9 @@ Which record a failed call gets depends on whether its tool may have run:
 
 A single-attempt tool runs in **CallSingleAttemptTool**. Dex hands each attempt to one Worker and never hands the same attempt to another. If the Worker dies or loses its connection to Dex while the tool runs, the call records **outcome_unknown**, and the session does not run the tool again.
 
-One narrow case can still run a single-attempt tool twice. Dex cannot force a running attempt to stop. When Dex cancels an attempt, the interrupted run may keep going while Dex records the failure and the turn moves on. To make a second run harmless, pass the call's idempotency key to the service that the tool writes to. See [Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
+One narrow case can still run a single-attempt tool twice. It starts when Dex cancels an attempt that is still running, for example when the attempt times out. Cancellation is cooperative: Dex records the failure, but it cannot stop the tool code, so the old Worker may keep running the call. The turn then moves on with that failure. If the model asks for the same tool again, the new call can run while the first one is still finishing. So two runs of the same write can happen, one from each call.
+
+To make that harmless, pass the call's idempotency key to the service that the tool writes to. See [Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
 
 ### Reconcile outcome_unknown {#reconcile-outcome-unknown}
 
@@ -73,7 +75,7 @@ One narrow case can still run a single-attempt tool twice. Dex cannot force a ru
 1. **Find the call.** While the turn runs, **get_agent_snapshot** lists it under **tool_calls**, with the status **outcome_unknown** and the failure in **error**. The **AgentEvents** Stream has a **tool_call_finished** event with the same status. After the turn, its tool result in the message history says that the outcome is unknown.
 2. **Rebuild its idempotency key** from the record: the session ID, the record's **turn_id**, and its **tool_call_id**, joined by slashes, such as **session-42/turn-3/call-7**. It is the key every attempt of the call passed to the service.
 3. **Ask the service** whether it holds an operation with that key, or look the effect up by your own business key, such as the order ID. If the Flow's history shows that the tool Step's attempt never reached a Worker, the tool did not run. This can happen for a call that started before a server upgrade.
-4. **Tell the session the real outcome** with **send_user_message**, such as "The cancellation of order 1002 went through." The next turn's model works from it, and does not ask for the call again when it already happened.
+4. **Tell the session the real outcome** with **send_user_message**. The session has no separate channel for this: the report joins the conversation as a user message, and the model reads it as the user's words, and your UI shows it in the transcript unless you filter it. So word it as a note from your application, such as "Note from the order system: the cancellation of order 1002 went through." The next turn's model works from it, and does not ask for the call again when it already happened.
 
 Run these steps from a support tool or a small job that your app starts when it sees the status. No search finds these calls for you, because no Step waits on them.
 
