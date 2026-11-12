@@ -148,6 +148,61 @@ export interface AgentHarness {
    */
   readonly terminalInterface?: "dexcli" | "plain";
   /**
+   * The values of the `reasoning_effort` session setting that the harness maps to its SDK, from least to most
+   * effort, such as `["low", "medium", "high"]`. Defaults to none.
+   *
+   * Declare a value only when the harness passes it to every model call of a turn whose settings carry it: read
+   * the turn's {@link ResolvedTurn.reasoningEffort} from {@link HarnessContext.resolveTurn} or
+   * {@link HarnessContext.currentTurn} in each model call, and pass nothing when it is absent, so the model's own
+   * default applies. The CLI core rejects any other value, and then the turn fails with
+   * `unsupported_reasoning_effort` at `/reasoning_effort`. A harness that declares none rejects every
+   * `reasoning_effort`. The terminal UI's `/effort` offers these values, through the launch document's
+   * `capabilities.reasoning_effort`, only when the list is not empty.
+   *
+   * Each value matches `^[a-z][a-z0-9_-]{0,31}$`, and no value repeats; otherwise {@link runAgentCli} throws at
+   * startup. The Python CLI core calls it `supported_reasoning_efforts`.
+   *
+   * @example
+   * ```ts
+   * const harness: AgentHarness = {
+   *   name: "builtin",
+   *   configSection: "builtin",
+   *   flowType: "DexAgentsBuiltinCliSession",
+   *   defaultModel: "openai/gpt-5.2",
+   *   supportedReasoningEfforts: ["low", "medium", "high"],
+   *   suggestedModels: ["openai/gpt-5-mini", "anthropic/claude-opus-5-5"],
+   *   createSessionFlow: (context) =>
+   *     createBuiltinAgentSessionFlow(
+   *       {
+   *         name: "assistant",
+   *         instructions: "Help the user.",
+   *         model: modelFor(context.config.model, undefined),
+   *         // modelFor returns a client that sets ModelRequest.settings.reasoningEffort when the effort is set.
+   *         resolveModel: (settings) => {
+   *           const turn = context.resolveTurn(settings);
+   *           return modelFor(turn.model, turn.reasoningEffort);
+   *         },
+   *         toolSources: context.toolSources,
+   *       },
+   *       context.flowType,
+   *     ),
+   * };
+   * ```
+   * @since 0.7.0
+   */
+  readonly supportedReasoningEfforts?: readonly string[];
+  /**
+   * Model IDs that the terminal UI's `/model` offers after the configured model and {@link defaultModel}, in
+   * order, in the same form as the configuration's `model`. Defaults to none.
+   *
+   * They are suggestions only: `/model` takes any other ID too, and the turn that uses an unknown ID fails in its
+   * model call. Each ID is a non-empty string, and no ID repeats; otherwise {@link runAgentCli} throws at startup.
+   * The Python CLI core calls it `suggested_models`.
+   *
+   * @since 0.7.0
+   */
+  readonly suggestedModels?: readonly string[];
+  /**
    * Builds the session Flow. The CLI core calls it once at startup and registers the Flow in its Worker and Client.
    *
    * Build the Flow with `summaryAttributesIndexed` equal to {@link HarnessContext.isSessionSummaryIndexed}, such as
@@ -223,8 +278,10 @@ export interface HarnessContext {
    * model call and then the turn, with the error code and JSON Pointer in `lastTurnError`.
    *
    * @param sessionSettings - The turn's `sessionSettings`, or `{}`.
-   * @returns The turn's configuration and its instructions, `null` for the harness default.
-   * @throws {ConfigError} When the settings fail the schema or widen the file.
+   * @returns The turn's configuration and its instructions, `null` for the harness default. Since 0.7.0, also the
+   * turn's `reasoningEffort`, when its settings set one.
+   * @throws {ConfigError} When the settings fail the schema or widen the file, or, since 0.7.0, set a
+   * `reasoning_effort` that {@link AgentHarness.supportedReasoningEfforts} does not list.
    */
   resolveTurn(sessionSettings: SessionSettings): ResolvedTurn;
   /**
@@ -268,6 +325,50 @@ export interface HarnessContext {
 export interface ResolvedTurn extends TurnConfig {
   /** The turn's instructions: its `system_prompt`, the file's prompt file text, or `null`. */
   readonly instructions: string | null;
+  /**
+   * The turn's reasoning effort: its session settings' `reasoning_effort`, one of
+   * {@link AgentHarness.supportedReasoningEfforts}. Absent when the settings set none, and always absent outside a
+   * model call's turn, because the configuration file has no reasoning effort. When it is absent, pass no reasoning
+   * effort to the SDK, so the model's own default applies.
+   *
+   * @example
+   * ```ts
+   * const turn = context.currentTurn();
+   * const modelSettings = turn.reasoningEffort === undefined ? {} : { reasoning: { effort: turn.reasoningEffort } };
+   * ```
+   * @since 0.7.0
+   */
+  readonly reasoningEffort?: string;
+}
+
+const reasoningEffortPattern = /^[a-z][a-z0-9_-]{0,31}$/;
+
+/**
+ * Throws when a harness declares a malformed or repeated reasoning effort or suggested model.
+ * @param harness - The command's harness.
+ * @throws {Error} Naming the harness and the bad declaration.
+ */
+export function requireValidHarnessDeclarations(harness: AgentHarness): void {
+  const efforts = harness.supportedReasoningEfforts ?? [];
+  for (const effort of efforts) {
+    if (typeof effort !== "string" || !reasoningEffortPattern.test(effort)) {
+      throw new Error(
+        `the ${harness.name} harness declares the reasoning effort ${JSON.stringify(effort)}, which is not a name matching ${reasoningEffortPattern.source}`,
+      );
+    }
+  }
+  if (new Set(efforts).size !== efforts.length) {
+    throw new Error(`the ${harness.name} harness declares a reasoning effort twice`);
+  }
+  const models = harness.suggestedModels ?? [];
+  for (const model of models) {
+    if (typeof model !== "string" || model === "") {
+      throw new Error(`the ${harness.name} harness suggests the model ${JSON.stringify(model)}, which is not a non-empty string`);
+    }
+  }
+  if (new Set(models).size !== models.length) {
+    throw new Error(`the ${harness.name} harness suggests a model twice`);
+  }
 }
 
 /**

@@ -339,6 +339,27 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.match(cli.stderr.all, /is invalid: schema at \/local_tools\/files \(type\)/);
   });
 
+  test("a harness declaring a malformed or repeated reasoning effort or suggested model stops at startup", async () => {
+    const io = {
+      argv: ["--help"],
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      isInteractive: false,
+      environment: new TestHome(enginePorts(engine)).environment(),
+    };
+    const declarations = [
+      [{ supportedReasoningEfforts: ["High"] }, /reasoning effort "High", which is not a name/],
+      [{ supportedReasoningEfforts: ["low", "low"] }, /declares a reasoning effort twice/],
+      [{ suggestedModels: [""] }, /suggests the model "", which is not a non-empty string/],
+      [{ suggestedModels: ["scripted/other", "scripted/other"] }, /suggests a model twice/],
+    ] as const;
+    for (const [declaration, message] of declarations) {
+      await assert.rejects(runAgentCli({ ...scriptedHarness, ...declaration }, io), message);
+    }
+    assert.equal(await runAgentCli(scriptedHarness, io), 0);
+  });
+
   test("an unreachable Dex server stops the command with one line that says how to fix it", async () => {
     const [closedPort] = await findFreeLoopbackPorts(1);
     const home = new TestHome(enginePorts(engine));

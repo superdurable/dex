@@ -22,7 +22,11 @@ import { terminalUiTerminalVariables } from "../../src/terminal-ui/terminal-ui-e
 import { readProcessIdentity } from "../../src/worker-host/process-identity.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
-import { plainOnlyScriptedHarness } from "../fixtures/scripted-harness.js";
+import {
+  plainOnlyScriptedHarness,
+  scriptedHarness,
+  scriptedHarnessWithoutReasoningEffort,
+} from "../fixtures/scripted-harness.js";
 import {
   FakeTerminalUi,
   PseudoTerminalCli,
@@ -645,6 +649,28 @@ describe("the terminal UI launcher", () => {
     }
   });
 
+  test("the launch document offers the harness's models and reasoning efforts, and no efforts for a harness without any", async () => {
+    const cases = [
+      {
+        harness: scriptedHarness,
+        models: ["scripted/default", "scripted/other", "scripted/large"],
+        reasoningEffort: { values: ["low", "medium", "high"] },
+      },
+      { harness: scriptedHarnessWithoutReasoningEffort, models: ["scripted/default"], reasoningEffort: undefined },
+    ];
+    for (const testCase of cases) {
+      const home = newHome(quietConfig, new TestHome(enginePorts(engine), testCase.harness));
+      const fake = new FakeTerminalUi([comparingModelsAndReasoningEffort(testCase.models, testCase.reasoningEffort)]);
+      const terminal = startOnTerminal(home, fake);
+      assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
+      assert.deepEqual(
+        fake.record().filter((event) => event.event === "mismatch"),
+        [],
+        testCase.harness === scriptedHarness ? "scripted" : "without reasoning effort",
+      );
+    }
+  });
+
   test("on Windows the command never probes dexcli or starts a Worker host", async () => {
     const home = newHome();
     const fake = new FakeTerminalUi([readTranscript("chat_ready_then_exit")]);
@@ -1125,4 +1151,41 @@ async function waitUntilAsync(condition: () => Promise<boolean>, description: st
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+}
+
+/**
+ * Returns `chat_ready_then_exit` with a launch step that compares `display.models` and
+ * `capabilities.reasoning_effort`, which it expects absent when `reasoningEffort` is `undefined`.
+ */
+function comparingModelsAndReasoningEffort(
+  models: readonly string[],
+  reasoningEffort: { readonly values: readonly string[] } | undefined,
+): Transcript {
+  const base = readTranscript("chat_ready_then_exit");
+  const [launch, ...rest] = base.steps;
+  const message = launch?.message as { display: object; capabilities: object };
+  const ignore = ((launch?.ignore as readonly string[] | undefined) ?? []).filter(
+    (path) => path !== "display" && path !== "capabilities",
+  );
+  const comparedLaunch: TranscriptStep = {
+    ...launch,
+    message: {
+      ...message,
+      display: { ...message.display, models },
+      capabilities: {
+        ...message.capabilities,
+        ...(reasoningEffort === undefined ? {} : { reasoning_effort: reasoningEffort }),
+      },
+    },
+    ignore: [
+      ...ignore,
+      "display.model",
+      "display.workspace",
+      "display.config_path",
+      "capabilities.images",
+      "capabilities.plan_mode",
+      "capabilities.turn_control",
+    ],
+  };
+  return { ...base, steps: [comparedLaunch, ...rest] };
 }
