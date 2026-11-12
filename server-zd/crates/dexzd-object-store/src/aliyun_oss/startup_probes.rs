@@ -6,24 +6,30 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Physical removal of startup probe keys.
-//!
-//! A probe key embeds its process ID and start time, so only the process that created it ever
-//! writes it or holds its ETag. Removing every version of a probe key therefore cannot let a
-//! stale writer win a replacement, which is why probe keys need no tombstone.
+//! Physical removal of startup probe keys, which only their creating process uses.
 
 use std::time::Duration;
+
+use bytes::Bytes;
 
 use crate::aliyun_oss::version_keys::{version_prefix, versioned_logical_key};
 use crate::aliyun_oss::version_reads::inner_error;
 use crate::{
-    ObjectMetadata, ObjectStore, ObjectStoreOperation, ObjectStoreResult,
-    STARTUP_PROBE_OBJECT_KEY_PREFIX,
+    ObjectMetadata, ObjectStore, ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation,
+    ObjectStoreResult, STARTUP_PROBE_MAXIMUM_LIFETIME, STARTUP_PROBE_OBJECT_KEY_PREFIX,
+    WriteCondition, WriteOutcome,
 };
 
-/// Age after which [`crate::AliyunOssObjectStore::remove_stale_startup_probes`] removes a probe
-/// key; a startup self check finishes long before it.
+/// Age, by store time, after which
+/// [`crate::AliyunOssObjectStore::remove_stale_startup_probes`] removes a probe key.
+///
+/// A [`crate::startup_self_check`] holds its probe for at most
+/// [`STARTUP_PROBE_MAXIMUM_LIFETIME`], far less than this age.
 pub const STALE_STARTUP_PROBE_AGE: Duration = Duration::from_secs(60 * 60);
+
+// The margin also covers clock rate differences between the host and the store.
+const _: () =
+    assert!(STALE_STARTUP_PROBE_AGE.as_secs() >= 10 * STARTUP_PROBE_MAXIMUM_LIFETIME.as_secs());
 
 /// Keys listed and deleted per request, the limit of [`ObjectStore::delete_many`].
 const PROBE_PAGE_KEYS: u32 = 1000;
@@ -59,9 +65,39 @@ pub(super) async fn purge_startup_probe(
     }
 }
 
-/// Deletes every probe key whose newest object was written before `cutoff_unix_micros`.
-///
-/// Returns the number of probe keys removed. Objects without a last-write time are kept.
+/// Returns the store's time: the last-write time of a new `clock_key` object, deleted again.
+pub(super) async fn read_store_time(
+    store: &dyn ObjectStore,
+    clock_key: &str,
+) -> ObjectStoreResult<i64> {
+    let operation = ObjectStoreOperation::Put;
+    let created = store
+        .put(clock_key, Bytes::new(), WriteCondition::CreateOnly)
+        .await?;
+    if created == WriteOutcome::PreconditionFailed {
+        return Err(ObjectStoreError::new(
+            operation,
+            clock_key,
+            ObjectStoreErrorKind::Transient,
+            "the store clock key already exists",
+        ));
+    }
+    let written_at = store
+        .head(clock_key)
+        .await?
+        .and_then(|metadata| metadata.last_modified_unix_micros);
+    store.delete(clock_key).await?;
+    written_at.ok_or_else(|| {
+        ObjectStoreError::new(
+            operation,
+            clock_key,
+            ObjectStoreErrorKind::Permanent,
+            "the store reports no last-write time, so probe ages are unknown",
+        )
+    })
+}
+
+/// Deletes probe keys whose newest object predates `cutoff_unix_micros`; returns their count.
 pub(super) async fn remove_startup_probes_written_before(
     inner: &dyn ObjectStore,
     cutoff_unix_micros: i64,
@@ -107,10 +143,7 @@ pub(super) async fn remove_startup_probes_written_before(
     Ok(removed_probes)
 }
 
-/// Splits a listing in key order into the objects of each probe key.
-///
-/// The versions of one key are adjacent because no logical key contains `.`. An object that
-/// is not a version forms its own group.
+/// Groups a key-ordered listing by probe key; non-version objects form their own groups.
 fn group_by_probe_key(objects: Vec<ObjectMetadata>) -> Vec<Vec<ObjectMetadata>> {
     let mut groups: Vec<(String, Vec<ObjectMetadata>)> = Vec::new();
     for object in objects {

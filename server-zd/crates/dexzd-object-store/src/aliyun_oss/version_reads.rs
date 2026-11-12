@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Reads of mutable object keys: list the newest version, then read it.
+//! Reads of mutable object keys: list the newest version, then read that same object.
 
 use bytes::Bytes;
 
@@ -58,10 +58,7 @@ impl NewestVersion {
     }
 }
 
-/// Reads the newest version of `logical_key`, or returns `None` when it has no version.
-///
-/// A version that disappears between the listing and the read is no longer the newest, so the
-/// lookup lists again.
+/// Reads the newest version, or `None`; a read that finds another object lists again.
 pub(super) async fn read_newest_version(
     inner: &dyn ObjectStore,
     operation: ObjectStoreOperation,
@@ -86,7 +83,8 @@ pub(super) async fn read_newest_version(
             VersionReadExtent::WholeBody => inner.get(&newest.key).await,
         }
         .map_err(|error| inner_error(operation, logical_key, &error))?;
-        let Some(content) = content else {
+        // A resurrected object can replace the listed one, but it is never the newest.
+        let Some(content) = content.filter(|content| is_listed_object(&newest, content)) else {
             continue;
         };
         let header = decode_header(operation, logical_key, &newest.key, &content)?;
@@ -126,8 +124,26 @@ pub(super) async fn read_version_header(
     .await
 }
 
+/// Reads the header of the listed object `listed`, or `None` when it is gone or replaced.
+pub(super) async fn read_listed_header(
+    inner: &dyn ObjectStore,
+    operation: ObjectStoreOperation,
+    logical_key: &str,
+    listed: &ObjectMetadata,
+) -> ObjectStoreResult<Option<VersionHeader>> {
+    let Some(content) = inner
+        .get_range(&listed.key, VERSION_HEADER_RANGE)
+        .await
+        .map_err(|error| inner_error(operation, logical_key, &error))?
+        .filter(|content| is_listed_object(listed, content))
+    else {
+        return Ok(None);
+    };
+    decode_header(operation, logical_key, &listed.key, &content).map(Some)
+}
+
 /// Reads the header of the version object at `physical_key`, or `None` when it is absent.
-pub(super) async fn read_header_at(
+async fn read_header_at(
     inner: &dyn ObjectStore,
     operation: ObjectStoreOperation,
     logical_key: &str,
@@ -236,6 +252,15 @@ pub(super) fn inner_error(
         error.kind,
         format!("version object {:?}: {}", error.key, error.detail),
     )
+}
+
+/// Returns whether `content` came from `listed`; unique version bodies make physical ETags unique.
+fn is_listed_object(listed: &ObjectMetadata, content: &ObjectContent) -> bool {
+    listed.size == content.object_size
+        && listed
+            .etag
+            .trim_matches('"')
+            .eq_ignore_ascii_case(content.etag.trim_matches('"'))
 }
 
 fn decode_header(

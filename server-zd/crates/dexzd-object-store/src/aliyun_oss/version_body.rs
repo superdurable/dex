@@ -6,19 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Header that starts every version object body, and the ETag of a version.
-//!
-//! Header format 1 is 38 bytes, a persistent format:
-//!
-//! | Bytes | Field |
-//! | --- | --- |
-//! | 0-3 | Magic `DXZV` |
-//! | 4 | Format, 1 |
-//! | 5 | Flags: bit 0 tombstone, bit 1 predecessor present; other bits zero |
-//! | 6-21 | Version ID, a random 128-bit big-endian integer |
-//! | 22-37 | Predecessor version ID, big-endian; zero without a predecessor |
-//!
-//! The caller's payload follows the header. A tombstone has no payload.
+//! Version body header, format 1 of 38 bytes, and version ETags; the crate README gives the layout.
 
 use std::fmt;
 
@@ -103,9 +91,7 @@ impl VersionHeader {
         body.freeze()
     }
 
-    /// Decodes the header at the start of `bytes`, the whole body or its first bytes.
-    ///
-    /// `object_size` is the size of the whole body; a tombstone must have no payload.
+    /// Decodes the header at the start of `bytes`; `object_size` is the whole body's size.
     pub(super) fn decode(bytes: &[u8], object_size: u64) -> Result<Self, VersionHeaderError> {
         let Some(header) = bytes.get(..VERSION_HEADER_LENGTH) else {
             return Err(VersionHeaderError::Truncated {
@@ -145,9 +131,7 @@ impl VersionHeader {
     }
 }
 
-/// The ETag the adapter returns for a version: `"g<generation>-<version ID in hex>"`.
-///
-/// Writes and later reads of one version return byte-identical ETags.
+/// ETag of a version, `"g<generation>-<version ID in hex>"`, identical for its write and reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct VersionEtag {
     /// Generation of the version.

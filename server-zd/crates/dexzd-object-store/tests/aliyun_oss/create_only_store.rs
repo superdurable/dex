@@ -29,9 +29,14 @@ pub(crate) struct TokioWallClock {
 
 impl TokioWallClock {
     pub(crate) fn new() -> Self {
+        Self::starting_at(1_800_000_000_000_000)
+    }
+
+    /// Returns a clock that reads `origin_unix_micros` now.
+    pub(crate) fn starting_at(origin_unix_micros: i64) -> Self {
         Self {
             origin: Instant::now(),
-            origin_unix_micros: 1_800_000_000_000_000,
+            origin_unix_micros,
         }
     }
 }
@@ -208,11 +213,16 @@ pub(crate) struct CreateOnlyStore {
 impl CreateOnlyStore {
     /// Creates an empty store that rejects ReplaceIfEtagMatches and stamps writes with Tokio time.
     pub(crate) fn new() -> Self {
+        Self::with_store_clock(TokioWallClock::new())
+    }
+
+    /// Creates an empty store like [`Self::new`] whose write timestamps come from `clock`.
+    pub(crate) fn with_store_clock(clock: TokioWallClock) -> Self {
         let faults = Arc::new(TestFaults::new());
         let store = Arc::new(InMemoryObjectStore::with_options(
             InMemoryObjectStoreOptions {
                 injector: Some(Arc::clone(&faults) as Arc<dyn FaultInjector>),
-                clock: Some(Arc::new(TokioWallClock::new())),
+                clock: Some(Arc::new(clock)),
                 rejects_replace_if_etag_matches: true,
             },
         ));
@@ -274,6 +284,27 @@ impl CreateOnlyStore {
 /// Returns the physical key of `generation` of `logical_key`.
 pub(crate) fn version_key(logical_key: &str, generation: u64) -> String {
     format!("{logical_key}.v/{:020}", u64::MAX - generation)
+}
+
+/// Returns the ETag of the object stored at `generation` of `logical_key`, read physically.
+pub(crate) async fn physical_version_etag(
+    physical: &CreateOnlyStore,
+    logical_key: &str,
+    generation: u64,
+) -> String {
+    let body = physical
+        .store
+        .get(&version_key(logical_key, generation))
+        .await
+        .expect("get")
+        .expect("the version exists")
+        .bytes;
+    let version_id = u128::from_be_bytes(
+        body[6..22]
+            .try_into()
+            .expect("a version header holds a 16-byte version ID"),
+    );
+    format!("\"g{generation}-{version_id:032x}\"")
 }
 
 /// Returns the generation of an ETag the adapter returned.
