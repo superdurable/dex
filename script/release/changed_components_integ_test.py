@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -308,6 +309,26 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn('gh workflow run "${PUBLISHER_WORKFLOW}"', coordinated_workflow)
         self.assertIn('-f "publish=true"', coordinated_workflow)
 
+    def test_agents_publishers_never_run_on_release_events(self) -> None:
+        for workflow in ("agents-python-publish.yml", "agents-typescript-publish.yml"):
+            publisher = (CHANGED_COMPONENTS_WORKFLOW.parent / workflow).read_text(encoding="utf-8")
+            self.assertEqual(workflow_trigger_events(publisher), ["workflow_dispatch"], workflow)
+            self.assertNotIn("github.event.release", publisher, workflow)
+
+    def test_workflow_trigger_events_reads_every_on_spelling(self) -> None:
+        cases = {
+            "on: release\n": ["release"],
+            "'on': [release, workflow_dispatch]\n": ["release", "workflow_dispatch"],
+            'on: {release: {types: [published]}, push: {}}\n': ["release", "push"],
+            "on:\n  - release\n  - push\n": ["release", "push"],
+            '"on":\n  release:\n    types: [published]\n  # note\n  workflow_dispatch:\njobs: {}\n': [
+                "release",
+                "workflow_dispatch",
+            ],
+        }
+        for text, events in cases.items():
+            self.assertEqual(workflow_trigger_events(text), events, text)
+
     def test_docker_web_release_uses_web_path_tag(self) -> None:
         workflow = WEB_RELEASE_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("startsWith(github.event.release.tag_name, 'web/v')", workflow)
@@ -325,6 +346,60 @@ class ChangedComponentsIntegrationTest(unittest.TestCase):
         self.assertIn("Maintain Breaking Changes section", cli_workflow)
         self.assertIn("grep -qx '## Breaking Changes'", cli_workflow)
         self.assertIn("## Breaking Changes\\n\\nNone.", cli_workflow)
+
+
+# The release tooling uses only the standard library, which has no YAML parser.
+def workflow_trigger_events(workflow_text: str) -> list[str]:
+    """Returns the event names under the top-level on key, in order, for every YAML spelling."""
+    lines = workflow_text.splitlines()
+    on_key = re.compile(r"""^(?:on|'on'|"on")\s*:(.*)$""")
+    start = next((index for index, line in enumerate(lines) if on_key.match(line)), None)
+    if start is None:
+        raise AssertionError("workflow has no top-level on key")
+    inline_value = on_key.match(lines[start]).group(1).split(" #")[0].strip()
+    if inline_value:
+        if inline_value[0] in "[{":
+            return [flow_item_name(item) for item in split_flow_items(inline_value[1:-1])]
+        return [inline_value.strip("'\"")]
+    events: list[str] = []
+    child_indent: int | None = None
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            break
+        child_indent = indent if child_indent is None else child_indent
+        if indent == child_indent:
+            item = stripped[2:] if stripped.startswith("- ") else stripped
+            events.append(item.split(":")[0].strip().strip("'\""))
+    return events
+
+
+def split_flow_items(flow_text: str) -> list[str]:
+    """Returns the top-level comma-separated items of a YAML flow collection body."""
+    items: list[str] = []
+    depth = 0
+    current = ""
+    for character in flow_text:
+        if character in "[{":
+            depth += 1
+        elif character in "]}":
+            depth -= 1
+        if character == "," and depth == 0:
+            items.append(current)
+            current = ""
+        else:
+            current += character
+    if current.strip():
+        items.append(current)
+    return items
+
+
+def flow_item_name(item: str) -> str:
+    """Returns the event name of one flow item: a bare name or a key before its colon."""
+    return item.split(":")[0].strip().strip("'\"")
 
 
 if __name__ == "__main__":

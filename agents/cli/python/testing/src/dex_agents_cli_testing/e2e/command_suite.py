@@ -13,7 +13,9 @@ refused another, runs an allowed shell command and one that asks, calls a
 Hacker News connector tool when a connection is authorized, then exits and
 resumes the session for one more turn. Every step checks the terminal, the
 workspace, and the mock's request log; the session is then read back from
-the Dex server.
+the Dex server. A harness whose local writes need no approval by default,
+such as Deep Agents, gets its write tool in ``approval.always``, and its
+unlisted shell command runs at once.
 """
 
 from __future__ import annotations
@@ -224,6 +226,8 @@ class CommandRun:
             },
             **self.case.provider.config_section(base_url),
         }
+        if not self.case.tools.are_local_writes_approved_by_default:
+            config["approval"] = {"always": [self.case.tools.write_tool]}
         # JSON is valid YAML 1.2.
         self.config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
         (self.workspace / "notes.txt").write_text(NOTES_TEXT + "\n", encoding="utf-8")
@@ -337,12 +341,14 @@ class CommandRun:
 
     def _step_shell_asks(self, chat: TerminalChat) -> None:
         target = self.workspace / "shell.txt"
-        outcome = self._turn(chat, "d-shell-asks", "y")
-        problems = self._turn_problems(outcome, "d-shell-asks", expects_approval=True)
+        is_approved = self.case.tools.are_local_writes_approved_by_default
+        outcome = self._turn(chat, "d-shell-asks", "y" if is_approved else None)
+        problems = self._turn_problems(outcome, "d-shell-asks", expects_approval=is_approved)
         content = target.read_text(encoding="utf-8").strip() if target.exists() else None
         if content != "off-list":
             problems.append(f"shell.txt holds {content!r}")
-        self._record_turn("d-shell-asks", problems, "asked, then ran after approval")
+        detail = "asked, then ran after approval" if is_approved else "ran without approval"
+        self._record_turn("d-shell-asks", problems, detail)
 
     def _step_connector(self, chat: TerminalChat) -> None:
         if self.hacker_news is None:
