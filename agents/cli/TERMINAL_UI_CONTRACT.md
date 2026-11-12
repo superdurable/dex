@@ -241,6 +241,37 @@ retries, and a slow server never causes a fallback.
 - A failure after `ready` never falls back. The launcher restores the
   terminal, prints how to resume, and exits.
 
+### When the channel ends
+
+When the launcher reads EOF on the channel, finds a protocol error in
+[Framing](#framing), or receives `launch_rejected`, it waits for `dexcli`:
+
+1. It gives `dexcli` 1 s to exit by itself.
+2. Then it sends SIGTERM, and SIGKILL 2 s later if `dexcli` still runs.
+
+What follows depends on when it happened:
+
+- Before `ready`, this is a failed handoff (see [Ready](#ready)). The launcher
+  continues in the plain text chat on the same session.
+- After `ready`, the launcher restores the terminal mode it saved, stops the
+  Worker host, prints one line that says why the chat closed, and exits 1. A
+  `dexcli` that exited 0 after closing the channel is a normal end instead;
+  see [Exit codes](#exit-codes-of-dexcli-agents-tui).
+
+### SIGINT that reaches only the launcher
+
+A SIGINT sent to the whole foreground process group reaches `dexcli` too, and
+`dexcli` exits by itself (130). A SIGINT sent only to the launcher, such as
+`kill -INT <launcher pid>`, does not. So the launcher:
+
+1. waits 1 s for `dexcli` to exit by itself;
+2. then forwards SIGINT to `dexcli`;
+3. sends SIGTERM 2 s after that if `dexcli` still runs;
+4. restores the terminal, stops the Worker host, prints how to resume, and
+   exits 130.
+
+This never falls back to the plain chat, even before `ready`.
+
 ### Exit codes of `dexcli agents-tui`
 
 | Exit | When |
@@ -268,7 +299,9 @@ retries, and a slow server never causes a fallback.
   protocol error, and the channel stays open. A malformed `request` whose
   `id` is an integer from 1 to 2^53−1 gets an `invalid_params` response with
   that `id`, and that `id` counts as used. Any other malformed message,
-  including a `request` without such an `id`, is dropped without an answer.
+  including a `request` without such an `id` (missing, a string, a
+  fraction, or out of range), is dropped without an answer; the receiver
+  keeps reading the channel.
 - A sender whose peer already closed sees `EPIPE`; that is the end of the
   contract, not a crash.
 
@@ -530,9 +563,10 @@ next is up to Dex Web.
 
 A URL that passes these checks is opened, and the result is `{}`. When the
 command's browser opening is turned off (`DEX_AGENTS_OPEN_BROWSER=0`), the
-launcher opens nothing and answers `browser_off`. When it tried and no
-browser opened, for example because the system has no opener, it answers
-`open_failed`. `refused` is checked first, so a URL outside `web_url` is
+launcher opens nothing and answers `browser_off`. It answers `open_failed`
+when the system's opener (such as `open` or `xdg-open`) fails to start, or
+exits non-zero within 4 s. An opener still running after 4 s counts as
+opened. `refused` is checked first, so a URL outside `web_url` is
 `refused` even while browser opening is off. Running it twice is harmless.
 
 **`get_request_result`** reads the outcome remembered for a key. `done` holds
@@ -646,11 +680,24 @@ Values that differ between machines are matched like this:
   real launcher's session ID and `web_url`, without fixing them.
 - `--alias FIXTURE=ACTUAL` binds a value before the replay starts, such as a
   transcript path to a file the test made.
+- Neither a binding nor an alias ever applies to a protocol constant: the
+  value of a `type`, `method`, `methods`, `code` (also `error.code`), `mode`,
+  `state`, `level`, `contract`, or `language` field, at any depth. They
+  always compare as written.
 - A bound value of 8 or more characters is also replaced inside longer
   strings, longest first and in one pass, so a URL under `web_url` or a path
   that holds a session ID follows the binding.
 - Free text is never compared: an error's `message` and `launch_rejected`'s
   `message`.
+- Before comparing, the host checks every message it receives against the
+  schemas, whole, ignored paths included: the launch document against
+  `terminal-ui-launch.schema.json`, other messages against their direction in
+  `terminal-ui-channel.schema.json`, and a response's `result` against its
+  method's `<method>_result`. A violation fails the replay. Only a step
+  marked `malformed`, and a launch document the transcript rejects, skip
+  this. The host checks with its own standard-library validator of the
+  schema keywords these files use, and the tests check that it agrees with
+  `jsonschema` on every case.
 - Launch steps ignore what depends on the command and the machine:
   `command`, `dex.server_address`, `dex.web_url`, the session's `flow_type`
   and `session_id`, `display`, `capabilities`, `log_path`, and `connectors`.
@@ -740,24 +787,35 @@ way.
 
 ### Bounds after the launcher dies
 
-1. A watchdog outside the Worker host's event loop (a worker thread in Node,
-   a daemon thread in Python) checks every 1 s whether the parent is still
-   the launcher. When it is not, it starts an orderly shutdown. A shutdown
-   that starts for another reason (EOF on the control channel, `shutdown`
-   from the launcher, SIGTERM) arms the same bound.
-2. 15 s after the watchdog armed, if the Worker host still runs, the
-   watchdog sends SIGTERM to every registered tool process group, waits up
-   to 2 s for them, and sends SIGKILL to those left.
-3. It then sends SIGKILL to the Worker host's own process group.
+The watchdog runs outside the Worker host's event loop: a worker thread in
+Node, a daemon thread in Python.
 
-So the Worker host and its registered tool groups are gone at most
-1 + 15 + 2 = 18 s after the launcher died, or 15 + 2 = 17 s after a shutdown
-began, plus scheduling delay. The bound holds only while the watchdog can
-run. It does not hold when the Worker host is stopped (SIGSTOP) or stuck in
-the kernel, or, in Python, while the main thread holds the GIL in native
-code. On Linux, Python also sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel
-ends the Worker host when the launcher dies; its tool groups are then left
-for the leftover cleanup.
+1. Every 1 s it checks whether the parent is still the launcher. When it is
+   not, it starts an orderly shutdown and arms the hard bound at once.
+2. A shutdown that starts for another reason (EOF on the control channel,
+   `shutdown` from the launcher, SIGTERM) also arms the bound. Node arms it at
+   once. Python arms it at the watchdog's next check, up to 1 s later.
+3. 15 s after the bound is armed, if the Worker host still runs, the watchdog
+   sends SIGTERM to every registered tool process group, waits up to 2 s for
+   them, and sends SIGKILL to those left.
+4. It then sends SIGKILL to the Worker host's own process group.
+
+Each number below adds scheduling delay, and holds only while the watchdog
+can run:
+
+| Platform and core | Launcher died | A shutdown began |
+| --- | --- | --- |
+| Node (TypeScript), macOS and Linux | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
+| Python, macOS | about 1 + 15 + 2 = 18 s | about 1 + 15 + 2 = 18 s |
+| Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 1 + 15 + 2 = 18 s |
+
+The bounds do not hold:
+
+- while the Worker host is stopped (SIGSTOP) or stuck in the kernel;
+- in Python, while the main thread holds the GIL in native code;
+- for tool groups on Python and Linux after the launcher died, as above;
+- for processes a harness starts outside the Worker host's group and never
+  registers, such as the tool processes of an agent framework's own CLI.
 
 ### Process identity for leftover cleanup
 
@@ -769,12 +827,12 @@ nothing.
 
 | Record | Identity that must still match |
 | --- | --- |
-| Worker host | pid, process group ID, being that group's leader (pid equals pgid), start time, and command line |
+| Worker host | pid, process group ID, being that group's leader (pid equals pgid), start time, and the SHA-256 of its command line |
 | Tool process group leader | pid, process group ID, being that group's leader, and start time |
 
 A tool group leader is a shell that may `exec` its command, which changes its
 command line but not its pid, group, or start time. So the command line is
 not part of a tool group's identity. The start time is what the system
-reports, such as `ps -o lstart` in the C locale. A record should hold a
-SHA-256 of the Worker host's command line rather than its text, because a
-command line can carry a secret.
+reports, such as `ps -o lstart` in the C locale. A record holds the SHA-256
+of the Worker host's command line (UTF-8, as `ps -ww -o command=` prints it),
+never its text, because a command line can carry a secret.
