@@ -1,0 +1,34 @@
+==== ansi width 40 ====
+~~~~ live area ~~~~
+ New session
+ › Type a message. /help lists commands.
+ Enter send · /help
+~~~~ cursor 3,1 ~~~~
+
+==== ansi width 60 ====
+~~~~ live area ~~~~
+ New session · openai-sdk · gpt-5.2
+ › Type a message. /help lists commands.
+ Enter send · /help · Ctrl-D exit
+~~~~ cursor 3,1 ~~~~
+
+==== ansi width 80 ====
+~~~~ live area ~~~~
+ New session · openai-sdk · gpt-5.2
+ › Type a message. /help lists commands.
+ Enter send · /help · Ctrl-D exit
+~~~~ cursor 3,1 ~~~~
+
+==== ansi width 120 ====
+~~~~ live area ~~~~
+ New session · openai-sdk · gpt-5.2
+ › Type a message. /help lists commands.
+ Enter send · /help · Ctrl-D exit
+~~~~ cursor 3,1 ~~~~
+
+==== no_color width 80 ====
+~~~~ live area ~~~~
+ ␛[1mNew session␛[m␛[2m · ␛[mopenai-sdk␛[2m · ␛[mgpt-5.2
+ ␛[m›␛[m ␛[2mType a message. /help lists commands.␛[m
+␛[2m Enter send · /help · Ctrl-D exit␛[m
+~~~~ cursor 3,1 ~~~~

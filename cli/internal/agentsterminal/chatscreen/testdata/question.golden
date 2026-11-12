@@ -1,0 +1,48 @@
+==== choices and free text ====
+› Compare the branches.
+~~~~ live area ~~~~
+ ╭─ The agent asks ───────────────────────────────────────────────────────────╮
+ │ Which branch should I compare against?                                     │
+ │                                                                            │
+ │ ▸ main                                                                     │
+ │   release-0.6                                                              │
+ │   Type an answer…                                                          │
+ │   Decline                                                                  │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ j/k choose · Enter answer · Esc later
+
+==== no choices ====
+› Compare the branches.
+~~~~ live area ~~~~
+ ╭─ The agent asks ───────────────────────────────────────────────────────────╮
+ │ What should the release be called?                                         │
+ │                                                                            │
+ │ ▸ Answer ›                                                                 │
+ │   Decline                                                                  │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ Enter answer · Esc back
+
+==== choices only ====
+› Compare the branches.
+~~~~ live area ~~~~
+ ╭─ The agent asks ───────────────────────────────────────────────────────────╮
+ │ Deploy now?                                                                │
+ │                                                                            │
+ │ ▸ yes                                                                      │
+ │   no                                                                       │
+ │   Decline                                                                  │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ j/k choose · Enter answer · Esc later
+
+==== no_color, second choice focused ====
+␛[2m›␛[m Compare the branches.
+~~~~ live area ~~~~
+ ␛[m╭─ ␛[m␛[1mThe agent asks␛[m ␛[m───────────────────────────────────────────────────────────╮␛[m
+ ␛[m│␛[m Which branch should I compare against?                                     ␛[m│␛[m
+ ␛[m│␛[m                                                                            ␛[m│␛[m
+ ␛[m│␛[m   main                                                                     ␛[m│␛[m
+ ␛[m│␛[m ␛[m▸␛[m ␛[1;7mrelease-0.6␛[m                                                              ␛[m│␛[m
+ ␛[m│␛[m   Type an answer…                                                          ␛[m│␛[m
+ ␛[m│␛[m   Decline                                                                  ␛[m│␛[m
+ ␛[m╰────────────────────────────────────────────────────────────────────────────╯␛[m
+␛[2m j/k choose · Enter answer · Esc later␛[m

@@ -1,0 +1,95 @@
+==== ansi width 40 ====
+› Post the summary to #eng.
+~~~~ live area ~~~~
+ ╭─ Approve slack_post_channel_messa… ╮
+ │ connector · slack/support-slack ·… │
+ │                                    │
+ │ channel  #eng                      │
+ │ text     Found 3 open issues about │
+ │          flaky tests: #812…        │
+ │          (202 chars · e shows all) │
+ │                                    │
+ │ Posts to #eng with connection      │
+ │ support-slack.                     │
+ │                                    │
+ │ ▸ Approve                        y │
+ │   Reject                         n │
+ │   Reject with a reason           r │
+ ╰────────────────────────────────────╯
+ y approve · n reject
+
+==== ansi width 60 ====
+› Post the summary to #eng.
+~~~~ live area ~~~~
+ ╭─ Approve slack_post_channel_message? ──────────────────╮
+ │ connector · slack/support-slack · write                │
+ │                                                        │
+ │ channel  #eng                                          │
+ │ text     Found 3 open issues about flaky tests: #812   │
+ │          TestRetryBackoff times out on arm64; #844…    │
+ │          (202 chars · e shows all)                     │
+ │                                                        │
+ │ Posts to #eng with connection support-slack.           │
+ │                                                        │
+ │ ▸ Approve                                            y │
+ │   Reject                                             n │
+ │   Reject with a reason                               r │
+ ╰────────────────────────────────────────────────────────╯
+ y approve · n reject · r reason · Esc later
+
+==== ansi width 80 ====
+› Post the summary to #eng.
+~~~~ live area ~~~~
+ ╭─ Approve slack_post_channel_message? ──────────────────────────────────────╮
+ │ connector · slack/support-slack · write                                    │
+ │                                                                            │
+ │ channel  #eng                                                              │
+ │ text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      │
+ │          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1… │
+ │          (202 chars · e shows all)                                         │
+ │                                                                            │
+ │ Posts to #eng with connection support-slack.                               │
+ │                                                                            │
+ │ ▸ Approve                                                                y │
+ │   Reject                                                                 n │
+ │   Reject with a reason                                                   r │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ y approve · n reject · r reason · Esc later
+
+==== ansi width 120 ====
+› Post the summary to #eng.
+~~~~ live area ~~~~
+ ╭─ Approve slack_post_channel_message? ────────────────────────────────────────────────────────────╮
+ │ connector · slack/support-slack · write                                                          │
+ │                                                                                                  │
+ │ channel  #eng                                                                                    │
+ │ text     Found 3 open issues about flaky tests: #812 TestRetryBackoff times out on arm64; #844   │
+ │          TestRetryJitter fails when GOMAXPROCS=1; #851 the nightly job retries the whole suite…  │
+ │          (202 chars · e shows all)                                                               │
+ │                                                                                                  │
+ │ Posts to #eng with connection support-slack.                                                     │
+ │                                                                                                  │
+ │ ▸ Approve                                                                                      y │
+ │   Reject                                                                                       n │
+ │   Reject with a reason                                                                         r │
+ ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ y approve · n reject · r reason · Esc later
+
+==== no_color width 80 ====
+␛[2m›␛[m Post the summary to #eng.
+~~~~ live area ~~~~
+ ␛[m╭─ ␛[m␛[1mApprove slack_post_channel_message?␛[m ␛[m──────────────────────────────────────╮␛[m
+ ␛[m│␛[m ␛[2mconnector · slack/support-slack · write␛[m                                    ␛[m│␛[m
+ ␛[m│␛[m                                                                            ␛[m│␛[m
+ ␛[m│␛[m channel  #eng                                                              ␛[m│␛[m
+ ␛[m│␛[m text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      ␛[m│␛[m
+ ␛[m│␛[m          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1… ␛[m│␛[m
+ ␛[m│␛[m          ␛[2m(202 chars · e shows all)␛[m                                         ␛[m│␛[m
+ ␛[m│␛[m                                                                            ␛[m│␛[m
+ ␛[m│␛[m Posts to #eng with connection support-slack.                               ␛[m│␛[m
+ ␛[m│␛[m                                                                            ␛[m│␛[m
+ ␛[m│␛[m ␛[m▸␛[m ␛[1;7mApprove␛[m                                                                ␛[2my␛[m ␛[m│␛[m
+ ␛[m│␛[m   Reject                                                                 ␛[2mn␛[m ␛[m│␛[m
+ ␛[m│␛[m   Reject with a reason                                                   ␛[2mr␛[m ␛[m│␛[m
+ ␛[m╰────────────────────────────────────────────────────────────────────────────╯␛[m
+␛[2m y approve · n reject · r reason · Esc later␛[m

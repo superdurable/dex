@@ -1,0 +1,43 @@
+==== ansi width 80 ====
+› Fix the backoff and tell #eng.
+~~~~ live area ~~~~
+ ╭─ Approve edit_file? ────────────────────────────────────────────── 2 of 2 ─╮
+ │ local file · workspace · write                                             │
+ │                                                                            │
+ │ path  src/retry.go                                                         │
+ │                                                                            │
+ │ src/retry.go  +1 -1                                                        │
+ │ diff against the file now                                                  │
+ │    11    func nextBackoff(attempt int) time.Duration {                     │
+ │    12  -     backoff := time.Second                                        │
+ │    12  +     backoff := 2 * time.Second                                    │
+ │                                                                            │
+ │ Changes src/retry.go in the workspace.                                     │
+ │                                                                            │
+ │ ▸ Approve                                                                y │
+ │   Reject                                                                 n │
+ │   Reject with a reason                                                   r │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ y approve · n reject · r reason · Tab next · Esc later
+
+==== no_color width 80 ====
+␛[2m›␛[m Fix the backoff and tell #eng.
+~~~~ live area ~~~~
+ ␛[m╭─ ␛[m␛[1mApprove edit_file?␛[m ␛[m────────────────────────────────────────────── 2 of 2 ─╮␛[m
+ ␛[m│␛[m ␛[2mlocal file · workspace · write␛[m                                             ␛[m│␛[m
+ ␛[m│␛[m                                                                            ␛[m│␛[m
+ ␛[m│␛[m path  src/retry.go                                                         ␛[m│␛[m
+ ␛[m│␛[m                                                                            ␛[m│␛[m
+ ␛[m│␛[m src/retry.go  ␛[2m+1 -1␛[m                                                        ␛[m│␛[m
+ ␛[m│␛[m ␛[2mdiff against the file now␛[m                                                  ␛[m│␛[m
+ ␛[m│␛[m ␛[2m   11␛[m    func nextBackoff(attempt int) time.Duration {                     ␛[m│␛[m
+ ␛[m│␛[m ␛[2m   12␛[m  ␛[m-␛[m     backoff := time.Second                                        ␛[m│␛[m
+ ␛[m│␛[m ␛[2m   12␛[m  ␛[m+␛[m     backoff := 2 * time.Second                                    ␛[m│␛[m
+ ␛[m│␛[m                                                                            ␛[m│␛[m
+ ␛[m│␛[m Changes src/retry.go in the workspace.                                     ␛[m│␛[m
+ ␛[m│␛[m                                                                            ␛[m│␛[m
+ ␛[m│␛[m ␛[m▸␛[m ␛[1;7mApprove␛[m                                                                ␛[2my␛[m ␛[m│␛[m
+ ␛[m│␛[m   Reject                                                                 ␛[2mn␛[m ␛[m│␛[m
+ ␛[m│␛[m   Reject with a reason                                                   ␛[2mr␛[m ␛[m│␛[m
+ ␛[m╰────────────────────────────────────────────────────────────────────────────╯␛[m
+␛[2m y approve · n reject · r reason · Tab next · Esc later␛[m

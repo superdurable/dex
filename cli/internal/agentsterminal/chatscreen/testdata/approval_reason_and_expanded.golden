@@ -1,0 +1,36 @@
+==== arguments expanded, effect not described ====
+› Post the summary.
+~~~~ live area ~~~~
+ ╭─ Approve slack_post_channel_message? ──────────────────────────────────────╮
+ │ connector · slack/support-slack · write                                    │
+ │                                                                            │
+ │ channel  #eng                                                              │
+ │ text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      │
+ │          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1; │
+ │          #851 the nightly job retries the whole suite instead of the       │
+ │          failed package.                                                   │
+ │                                                                            │
+ │ The tool does not describe its effect.                                     │
+ │                                                                            │
+ │ ▸ Approve                                                                y │
+ │   Reject                                                                 n │
+ │   Reject with a reason                                                   r │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ y approve · n reject · r reason · Esc later
+
+==== reason input ====
+› Post the summary.
+~~~~ live area ~~~~
+ ╭─ Approve slack_post_channel_message? ──────────────────────────────────────╮
+ │ connector · slack/support-slack · write                                    │
+ │                                                                            │
+ │ channel  #eng                                                              │
+ │ text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      │
+ │          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1… │
+ │          (202 chars · e shows all)                                         │
+ │                                                                            │
+ │ The tool does not describe its effect.                                     │
+ │                                                                            │
+ │ ▸ Reason › too long for the channel                                        │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ Enter reject · Esc back

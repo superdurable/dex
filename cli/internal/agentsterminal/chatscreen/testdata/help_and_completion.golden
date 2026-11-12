@@ -1,0 +1,46 @@
+==== help ====
+~~~~ live area ~~~~
+  Keys
+  Enter        send, or queue while a turn runs
+  Shift-Enter  new line (also Alt-Enter, Ctrl-J)
+  Ctrl-C       cancel the turn; again to exit
+  Ctrl-D       exit (empty input)
+  Tab          complete a /command; on empty input, focus waiting approvals and
+               queued messages
+  Up/Down      recall earlier messages
+  F1           show this help
+
+  Commands
+  /exit        exit; the session stays in Dex
+  /help        list keys and commands
+  /image PATH  attach an image to the next message
+  /model ID    change the model
+
+ Esc close
+
+==== completion /m ====
+~~~~ live area ~~~~
+ New session · openai-sdk · gpt-5.2
+ ▸ /model ID  change the model
+ › /m
+ Tab complete · Enter run · Esc close
+~~~~ cursor 5,2 ~~~~
+
+==== completed /model ====
+~~~~ live area ~~~~
+ New session · openai-sdk · gpt-5.2
+ › /model 
+ Enter send · /help · Ctrl-D exit
+~~~~ cursor 10,1 ~~~~
+
+==== help capped at 60 percent of 12 rows ====
+~~~~ live area ~~~~
+  Keys
+  Enter        send, or queue while a turn runs
+  Shift-Enter  new line (also Alt-Enter, Ctrl-J)
+  Ctrl-C       cancel the turn; again to exit
+  Ctrl-D       exit (empty input)
+  Tab          complete a /command; on empty input, focus waiting approvals and
+  … 9 more lines
+
+ Esc close

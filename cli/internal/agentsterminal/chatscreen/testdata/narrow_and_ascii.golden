@@ -1,0 +1,43 @@
+==== width 30 ====
+› Find open issues about flaky
+  tests and post a summary to
+  #eng.
+
+  I'll search the issue
+  tracker first.
+
+  ✓ search_fi…  "flaky" in te…
+  ✓ read_file  tests/integ/re…
+~~~~ live area ~~~~
+ ⠙ Resize to 40 columns for t…
+ › type to queue a message
+~~~~ cursor 3,1 ~~~~
+
+==== ASCII symbols ====
+> Find open issues about flaky tests and post a summary to #eng.
+
+  I'll search the issue tracker first.
+
+  + search_files      "flaky" in tests/                                     0.4s
+  + read_file         tests/integ/retry_test.go                             0.1s
+~~~~ live area ~~~~
+  \ run_shell_command  go test ./integ/... -run Retry                      15.2s
+    | === RUN   TestRetryBackoff
+    | --- PASS: TestRetryBackoff (0.31s)
+    | ~ 18 more lines
+
+ +- Approve slack_post_channel_message? --------------------------------------+
+ | connector - slack/support-slack - write                                    |
+ |                                                                            |
+ | channel  #eng                                                              |
+ | text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      |
+ |          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1~ |
+ |          (202 chars - e shows all)                                         |
+ |                                                                            |
+ | Posts to #eng with connection support-slack.                               |
+ |                                                                            |
+ | > Approve                                                                y |
+ |   Reject                                                                 n |
+ |   Reject with a reason                                                   r |
+ +----------------------------------------------------------------------------+
+ y approve - n reject - r reason - Esc later
