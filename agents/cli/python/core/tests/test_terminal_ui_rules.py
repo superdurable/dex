@@ -15,7 +15,6 @@ import json
 import os
 import sys
 from collections.abc import Mapping
-from dataclasses import replace
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -447,17 +446,6 @@ async def test_an_outcome_that_is_not_remembered_leaves_the_key_unknown() -> Non
     await server.handle_message(request(3, "put_image", OTHER_KEY, {"path": "/a.png"}))
     await asyncio.sleep(0.01)
     assert sent[2]["error"]["code"] == "host_stopped"
-
-
-def test_the_terminal_ui_switch_is_off_unless_set() -> None:
-    assert not CommandEnvironment.from_environment({"HOME": "/home/user"}).is_terminal_ui_enabled
-    for value in ("1", "true", "TRUE"):
-        environment = CommandEnvironment.from_environment(
-            {"HOME": "/home/user", "DEX_AGENTS_TERMINAL_UI": value}
-        )
-        assert environment.is_terminal_ui_enabled
-    off = CommandEnvironment.from_environment({"HOME": "/home/user", "DEX_AGENTS_TERMINAL_UI": "0"})
-    assert replace(off, is_terminal_ui_enabled=False) == off
 
 
 def method_result_validator(method: str) -> Draft202012Validator:

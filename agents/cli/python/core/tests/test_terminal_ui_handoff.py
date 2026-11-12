@@ -486,10 +486,10 @@ async def test_a_dexcli_variable_that_names_no_executable_stops_the_terminal_ui_
     ("arguments", "environment"),
     [
         (["--plain"], {}),
-        ([], {"DEX_AGENTS_TERMINAL_UI": "0"}),
         ([], {"TERM": "dumb"}),
+        ([], {"TERM": ""}),
     ],
-    ids=["plain-flag", "switch-off", "dumb-terminal"],
+    ids=["plain-flag", "dumb-terminal", "no-term"],
 )
 async def test_plain_choices_never_run_dexcli(
     cli_home: CliHome,
@@ -537,7 +537,7 @@ def test_the_terminal_ui_is_chosen_before_any_probe(
 ) -> None:
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setattr(cli, "_is_interactive", lambda: True)
-    variables = {"HOME": "/home/user", "DEX_AGENTS_TERMINAL_UI": "1"}
+    variables = {"HOME": "/home/user"}
     if terminal_type is not None:
         variables["TERM"] = terminal_type
     environment = CommandEnvironment.from_environment(variables)

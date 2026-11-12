@@ -172,10 +172,9 @@ class FakeTerminalUi:
         self.dexcli.chmod(0o755)
 
     def environment(self) -> dict[str, str]:
-        """Return the CLI variables that turn the terminal UI on with this fake ``dexcli``."""
+        """Return the CLI variables that select the terminal UI with this fake ``dexcli``."""
         return {
             "DEXCLI": str(self.dexcli),
-            "DEX_AGENTS_TERMINAL_UI": "1",
             "TERM": "xterm-256color",
         }
 

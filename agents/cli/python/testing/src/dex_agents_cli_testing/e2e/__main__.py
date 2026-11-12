@@ -18,6 +18,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from dex_agents_cli_core.environment import DEXCLI_VERSION
 from dex_agents_cli_testing.e2e.command_cases import COMMAND_CASES
 from dex_agents_cli_testing.e2e.command_suite import COMMAND_STEPS, run_command_suite
 from dex_agents_cli_testing.e2e.dex_server import DexServer, HackerNewsConnectionSeed
@@ -114,7 +115,7 @@ def _parser() -> argparse.ArgumentParser:
         default=Path(tempfile.gettempdir()) / "dex-agents-cli-e2e",
         help="builds, homes, transcripts, request logs, and the report",
     )
-    parser.add_argument("--dexcli", type=Path, help="dexcli 1.45.0 or later")
+    parser.add_argument("--dexcli", type=Path, help=f"dexcli {DEXCLI_VERSION} or later")
     parser.add_argument(
         "--reuse-server",
         metavar="DEX_WEB_URL",
@@ -149,7 +150,7 @@ def _parser() -> argparse.ArgumentParser:
 def _find_dexcli(explicit: Path | None) -> Path:
     if explicit is not None:
         return explicit.resolve()
-    downloaded = Path.home() / ".dex" / "bin" / "dexcli-1.45.0" / "dexcli"
+    downloaded = Path.home() / ".dex" / "bin" / f"dexcli-{DEXCLI_VERSION}" / "dexcli"
     if downloaded.exists():
         return downloaded
     found = shutil.which("dexcli")

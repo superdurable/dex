@@ -129,7 +129,8 @@ async def test_plan_mode_drafts_a_plan_that_execute_plan_runs(
         assert planning_requests
         assert all(tool_names(request.body) == {"write_todos"} for request in planning_requests)
         before_running = len(command_home.model_api.model_requests())
-        assert await sessions.execute_plan(session_id, draft.revision)
+        # The draft is stored before its planning turn ends; execute_plan waits for that end.
+        assert await execute_plan_when_turn_ends(sessions, session_id, draft.revision)
         await wait_for_plan(sessions, session_id, PlanStatus.ACTIVE)
     running_request = command_home.model_api.model_requests()[before_running]
     assert {"write_todos", "read_file"} <= tool_names(running_request.body)
@@ -197,3 +198,16 @@ def png_bytes() -> bytes:
         + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00", 9))
         + chunk(b"IEND", b"")
     )
+
+
+async def execute_plan_when_turn_ends(
+    sessions: AgentSessionClient, session_id: str, revision: int, timeout: float = 30.0
+) -> bool:
+    """Returns whether execute_plan accepted the revision before the timeout."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        if await sessions.execute_plan(session_id, revision):
+            return True
+        if asyncio.get_running_loop().time() >= deadline:
+            return False
+        await asyncio.sleep(0.1)

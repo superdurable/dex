@@ -153,7 +153,7 @@ type when it starts, so Dex Web shows each session's Steps and its
 **Agent session** tab without `--flow-rendering-dir`. The session Actions
 require the permission `dex-agents-cli.operate` in every CLI core: choose it
 in **Working as** to answer a session's approvals and questions in Dex Web.
-Uploading needs server-zd 0.1.26 or later, which `dexcli dev` 1.45.0 runs. The
+Uploading needs server-zd 0.1.26 or later, which `dexcli dev` 1.46.0 runs. The
 outcome, and a failure such as on an older server, go to the log file
 `~/.dex/agents/<harness>.log`, not the terminal, and the command still starts.
 
@@ -266,9 +266,8 @@ go to `--work-dir`. The exit code is 1 when a step failed.
 
 ## Terminal UI end-to-end check
 
-[`python/terminal-ui-e2e/`](python/terminal-ui-e2e) runs a command with
-`DEX_AGENTS_TERMINAL_UI=1` on a pseudo-terminal and checks what the terminal
-shows. It uses a `dexcli` with `agents-tui`, a private `dexcli dev`, and the
+[`python/terminal-ui-e2e/`](python/terminal-ui-e2e) runs a command on a
+pseudo-terminal and checks what the terminal shows. It uses a `dexcli` with `agents-tui`, a private `dexcli dev`, and the
 mock model API, so no provider key is needed.
 
 ```bash

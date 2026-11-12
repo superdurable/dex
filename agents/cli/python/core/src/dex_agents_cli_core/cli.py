@@ -623,8 +623,7 @@ def _is_terminal_ui_wanted(
 ) -> bool:
     """Report whether ``run`` tries the terminal UI; Windows is ruled out before any probe."""
     return (
-        environment.is_terminal_ui_enabled
-        and sys.platform != "win32"
+        sys.platform != "win32"
         and not arguments.is_plain
         and _is_interactive()
         and environment.terminal_type not in (None, "dumb")

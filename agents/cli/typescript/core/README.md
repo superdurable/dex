@@ -36,7 +36,11 @@ and writes the file. With `--yes` it writes the defaults without asking.
 Without a terminal it runs on the defaults, writes nothing, and says to run
 `init`.
 
-In the chat, each line is a user message. The reply and tool calls stream as
+At a terminal, `run` hands the chat to the `dexcli` terminal UI; see
+[The terminal UI](#the-terminal-ui). `--plain`, a run without a terminal, and
+the fallbacks listed there use the plain chat that follows.
+
+In the plain chat, each line is a user message. The reply and tool calls stream as
 they happen. A tool call that needs approval shows its name and arguments and
 asks `[y/n, or n <reason>]`. A question from the agent asks for an answer, or
 a choice number. Ctrl-C cancels the running turn, and a second Ctrl-C exits.
@@ -482,21 +486,19 @@ entry is refused.
 | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `auto` reuses or starts. |
 | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. It must be `https`, or `http` on 127.0.0.1, localhost, or [::1]. |
 | `DEX_AGENTS_OPEN_BROWSER` | `0` or `false` keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. |
-| `DEX_AGENTS_TERMINAL_UI` | Internal: `1` makes the chat try the `dexcli` terminal UI. See [The terminal UI](#the-terminal-ui-internal). |
 
-## The terminal UI (internal)
+## The terminal UI
 
-The chat can run in `dexcli agents-tui`, a terminal UI that `dexcli` draws.
-It is off until it ships: only `DEX_AGENTS_TERMINAL_UI=1` turns it on, and
-without it every command behaves as described above. `--plain` keeps the text
-chat even then. The handoff follows
+At a terminal the chat runs in `dexcli agents-tui`, a terminal UI that
+`dexcli` draws. `--plain` keeps the text chat described above. The handoff
+follows
 [terminal UI contract 1](../../TERMINAL_UI_CONTRACT.md); this section covers
 the launcher side that this core implements. Only the chat (`run`) hands off
 for now; `sessions` and `connectors` stay text.
 
 A run tries the terminal UI only when all of these hold, checked in this
-order before anything else: the switch is on, the platform is not Windows,
-`--plain` is absent, stdin and stdout are terminals, `TERM` is not `dumb`, and
+order before anything else: the platform is not Windows, `--plain` is
+absent, stdin and stdout are terminals, `TERM` is set and is not `dumb`, and
 the harness does not declare `terminalInterface: "plain"` (Pi does). The
 command then resolves `dexcli` as for `dexcli dev` and runs
 `dexcli agents-tui --describe` with an empty environment and a 5 s limit. When
@@ -628,8 +630,8 @@ command start stops them from the run record.
 Each Worker host keeps a run record, `~/.dex/agents/run/<harness>-<pid>.json`,
 with the `ps` identity (pid, process group, start time, and the SHA-256 of the
 command line) of
-its launcher, itself, and each registered tool group. With the switch on,
-every command start scans these records. For a record whose launcher no
+its launcher, itself, and each registered tool group. Every command start
+except on Windows scans these records. For a record whose launcher no
 longer runs, it sends SIGTERM to the Worker host's group and each tool group,
 then SIGKILL 2 s later. It checks each group right before each of its signals:
 the process still has the recorded start time, leads the recorded group, and,
