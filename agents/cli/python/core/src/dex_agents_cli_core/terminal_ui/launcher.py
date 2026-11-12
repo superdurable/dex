@@ -361,15 +361,32 @@ class WorkerHostProcess:
             self._calls.pop(call_id, None)
 
     async def stop(self) -> None:
-        """Stop it in order, then with SIGTERM, then SIGKILL; then clean what it left."""
+        """Stop it in order, then with SIGTERM, then SIGKILL; then clean what it left.
+
+        A cancelled stop, as when SIGTERM ends the command meanwhile, skips the
+        orderly wait: it still sends SIGTERM, then SIGKILL, before it re-raises.
+        """
         self._is_stopping = True
-        if not self.is_stopped:
-            await self._channel.send({"type": "shutdown"})
-            if not await self._wait_stopped(WORKER_HOST_STOP_SECONDS):
-                self._process.signal_group(signal.SIGTERM)
-                if not await self._wait_stopped(TERMINATE_GRACE_SECONDS):
-                    self._process.signal_group(signal.SIGKILL)
-                    await self._wait_stopped(None)
+        try:
+            if not self.is_stopped:
+                await self._channel.send({"type": "shutdown"})
+                if not await self._wait_stopped(WORKER_HOST_STOP_SECONDS):
+                    await self._terminate()
+        except asyncio.CancelledError:
+            await self._terminate()
+            raise
+        finally:
+            await self._close_after_stop()
+
+    async def _terminate(self) -> None:
+        if self.is_stopped:
+            return
+        self._process.signal_group(signal.SIGTERM)
+        if not await self._wait_stopped(TERMINATE_GRACE_SECONDS):
+            self._process.signal_group(signal.SIGKILL)
+            await self._wait_stopped(None)
+
+    async def _close_after_stop(self) -> None:
         await self._channel.close()
         self._reader.cancel()
         with contextlib.suppress(asyncio.CancelledError):

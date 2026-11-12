@@ -85,6 +85,11 @@ from tests.noisy_cli import (
     OPEN_DESCRIPTOR,
 )
 from tests.scripted_harness import SCRIPTED_FLOW_TYPE, ScriptedHarness
+from tests.slow_worker_host_exit_cli import (
+    DEXCLI_DEV_STOPPED_MARKER,
+    MARKER_DIRECTORY_VARIABLE,
+    WORKER_HOST_CLOSING_MARKER,
+)
 from tests.test_cli_chat import read_start_flow_input
 from tests.test_cli_images import png_bytes
 
@@ -1042,6 +1047,58 @@ def test_the_package_imports_without_posix_terminal_modules() -> None:
         [sys.executable, "-c", script], capture_output=True, text=True, check=False
     )
     assert completed.stdout.strip() == "imported", completed.stderr
+
+
+@pytest.mark.parametrize("signal_number", [signal.SIGTERM, signal.SIGHUP], ids=["term", "hup"])
+@pytest.mark.parametrize("is_fallback", [False, True], ids=["finished", "fallback"])
+async def test_the_command_handles_sigterm_and_sighup_again_after_the_handoff(
+    cli_home: CliHome,
+    tmp_path: Path,
+    screen: io.StringIO,
+    signal_number: int,
+    is_fallback: bool,
+) -> None:
+    markers = tmp_path / "markers"
+    markers.mkdir()
+    launch_step = chat_transcript([])["steps"][0]
+    rejected = {
+        "from": "tui",
+        "message": {
+            "type": "launch_rejected",
+            "code": "auth_missing",
+            "message": "DEX_API_KEY is not set; dex.auth mode api_key needs it.",
+        },
+    }
+    transcript = (
+        {**chat_transcript([]), "steps": [launch_step, rejected], "tui_exit": 2}
+        if is_fallback
+        else chat_transcript([])
+    )
+    fake = FakeTerminalUi(tmp_path / "tui", transcript)
+    child = start_chat(
+        cli_home,
+        fake,
+        screen,
+        command_module="tests.slow_worker_host_exit_cli",
+        environment={MARKER_DIRECTORY_VARIABLE: str(markers)},
+    )
+    await read_session_id(child)
+    host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
+    # The handoff ended, and the launcher now waits for a Worker host that takes 30 s to stop.
+    await wait_for_file(markers / WORKER_HOST_CLOSING_MARKER)
+    os.kill(child.pid, signal_number)
+    assert await wait_for_exit(child) == 128 + signal_number
+    assert (markers / DEXCLI_DEV_STOPPED_MARKER).exists()
+    await wait_until_gone([host_pid], timeout=10)
+
+
+async def wait_for_file(path: Path, timeout: float = 60.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not path.exists():
+        if loop.time() > deadline:
+            raise AssertionError(f"{path} never appeared")
+        await asyncio.sleep(0.05)
 
 
 def test_launch_ignore_matches_the_conformance_launch_steps() -> None:
