@@ -87,46 +87,18 @@ const maxDisplayedArguments = 5;
 const maxDisplayedArgumentCharacters = 80;
 
 // Explicit ASCII classes keep the patterns identical to the Python core's, which compiles them with re.ASCII.
-const space = "[ \\t\\n\\r\\f\\v]";
-const quotedOrBareValue = `("[^"]*"|'[^']*'|[^ \\t\\n\\r\\f\\v"'&;,=][^ \\t\\n\\r\\f\\v"'&;,]*)`;
-const inlineCredentialRules: readonly {
-  readonly pattern: RegExp;
-  readonly replace: (match: string, ...groups: string[]) => string;
-}[] = [
-  {
-    pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g,
-    replace: () => redactedArgumentValue,
-  },
-  {
-    pattern: /([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^ \t\n\r\f\v/:@'"]+):([^ \t\n\r\f\v/@'"]+)@/g,
-    replace: (_match, scheme, user) => `${scheme}${user}:${redactedArgumentValue}@`,
-  },
-  {
-    pattern: new RegExp(`\\b(bearer|basic|digest)(${space}+)([A-Za-z0-9._~+/=-]{6,})`, "gi"),
-    replace: (_match, scheme, gap) => `${scheme}${gap}${redactedArgumentValue}`,
-  },
-  {
-    pattern: new RegExp(`(^|${space})(-u|--user|--proxy-user)(${space}+|=)(["']?)([^ \\t\\n\\r\\f\\v:"']+):([^ \\t\\n\\r\\f\\v"']+)`, "g"),
-    replace: (_match, start, flag, gap, quote, user) => `${start}${flag}${gap}${quote}${user}:${redactedArgumentValue}`,
-  },
-  {
-    pattern: new RegExp(`([A-Za-z_][A-Za-z0-9_.-]*)(${space}*=${space}*)${quotedOrBareValue}`, "g"),
-    replace: (match, name, separator, value) => redactNamedValue(match, name, `${name}${separator}`, value),
-  },
-  {
-    pattern: new RegExp(`(["']?)([A-Za-z][A-Za-z0-9_.-]*)(["']?${space}*:${space}*)${quotedOrBareValue}`, "g"),
-    replace: (match, quote, name, separator, value) => redactNamedValue(match, name, `${quote}${name}${separator}`, value),
-  },
-  {
-    pattern: new RegExp(`(--?)([A-Za-z][A-Za-z0-9_-]*)(${space}+)("[^"]*"|'[^']*'|[^ \\t\\n\\r\\f\\v"'-][^ \\t\\n\\r\\f\\v"']*)`, "g"),
-    replace: (match, dashes, name, gap, value) => redactNamedValue(match, name, `${dashes}${name}${gap}`, value),
-  },
-  {
-    pattern:
-      /\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/g,
-    replace: () => redactedArgumentValue,
-  },
-];
+const escapeSequencePattern = /\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})/g;
+const privateKeyBlockPattern = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g;
+const urlUserInfoPattern = /([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^ \t\n\r\f\v/:@'"]+):([^ \t\n\r\f\v/@'"]+)@/g;
+const userFlagPattern = /(^|[ \t\n\r\f\v])(-u|--user|--proxy-user)([ \t]+|=)/g;
+const namedValuePattern = /(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)([ \t]*)([:=])([ \t]*)/g;
+const flagValuePattern = /(^|[ \t\n\r\f\v])(--?)([A-Za-z][A-Za-z0-9_-]*)([ \t]+)/g;
+const standaloneSchemePattern = /\b(bearer|basic|digest)([ \t]+)([A-Za-z0-9._~+/-]+=*)/gi;
+const tokenShapedPattern = /[0-9+/=._~-]/;
+const authorizationSchemePattern = /^(bearer|basic|digest|token|negotiate)[ \t]+/i;
+const tokenShapesPattern =
+  /\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})/g;
+const bareValueStops = new Set([" ", "\t", "\n", "\r", "\f", "\v", "&", ";", ",", "}", "]", ")"]);
 
 /**
  * Whether an argument, header, field, or variable name looks like it holds a credential, so a display shows its
@@ -170,36 +142,152 @@ export function isCredentialLikeName(name: string): boolean {
  * Replaces the credentials written inline in a text, such as a shell command or a file, with
  * {@link redactedArgumentValue}.
  *
- * It replaces private key blocks; the password of a URL such as `https://user:pass@host`; the value after `Bearer`,
- * `Basic`, or `Digest`; the password of `-u user:pass`, `--user`, and `--proxy-user`; the value of a `name=value`
- * assignment, a `name: value` header or field, and a `--name value` flag whose name {@link isCredentialLikeName}
- * matches, which covers query parameters such as `?token=…`; and common token shapes, such as AWS access key IDs and
- * GitHub, Slack, GitLab, and OpenAI-style keys and JWTs. A quoted value is replaced whole. It cannot find every
- * credential: a value in an unusual form stays as it is. The Python core applies the same rules; the shared cases
- * are in `agents/conformance/approval_display.json`.
+ * It first decodes `\uXXXX` and `\xXX` escapes, so an escaped name such as `pass\u0077ord` is found; the returned
+ * text keeps them decoded. It then replaces private key blocks; the password of a URL such as
+ * `https://user:pass@host`; the password of `-u user:pass`, `--user`, and `--proxy-user`; and the whole value after
+ * a name that {@link isCredentialLikeName} matches, in a `name=value` assignment, a `name: value` header or field, a
+ * JSON member, or a `--name value` flag, which covers query parameters such as `?token=…`. A value ends at its
+ * closing quote, escaped quotes included, or at whitespace, `&`, `;`, `,`, `}`, `]`, or `)`; the value of an
+ * `Authorization` or `Cookie` header runs to the end of its line, and its scheme, such as `Bearer`, stays. A value
+ * that is exactly {@link redactedArgumentValue} stays. Outside a header, a token-shaped word after `Bearer`, `Basic`,
+ * or `Digest` is replaced, and so are common token shapes, such as AWS access key IDs and GitHub, Slack, GitLab, and
+ * OpenAI-style keys and JWTs. The rules are conservative: a generic `key=value` is replaced too. They cannot find
+ * every credential: a value in an unusual form stays as it is. The Python core applies the same rules; the shared
+ * cases are in `agents/conformance/approval_display.json`.
  *
  * @example
  * ```ts
- * redactInlineCredentials('curl -H "Authorization: Bearer abc123456" https://api.example.com?token=t1');
+ * redactInlineCredentials('curl -H "Authorization: Bearer t1" https://api.example.com?token=t1');
  * // 'curl -H "Authorization: Bearer <redacted>" https://api.example.com?token=<redacted>'
  * ```
  * @param text - The text.
- * @returns The text with each credential found replaced.
+ * @returns The text with escapes decoded and each credential found replaced.
  * @since 0.6.0
  */
 export function redactInlineCredentials(text: string): string {
-  return inlineCredentialRules.reduce(
-    (redacted, rule) => redacted.replace(rule.pattern, (match: string, ...groups: unknown[]) => rule.replace(match, ...(groups as string[]))),
-    text,
+  let redacted = text.replace(escapeSequencePattern, decodeEscapeSequence);
+  redacted = redacted.replace(privateKeyBlockPattern, () => redactedArgumentValue);
+  redacted = redacted.replace(
+    urlUserInfoPattern,
+    (_match, scheme: string, user: string) => `${scheme}${user}:${redactedArgumentValue}@`,
   );
+  redacted = redactValuesAfter(redacted, userFlagPattern, () => "user");
+  redacted = redactValuesAfter(redacted, namedValuePattern, (match, valueStart, scanned) => {
+    const isComparison = match[5] === "=" && scanned[valueStart] === "=";
+    if (isComparison || !isCredentialLikeName(match[2]!)) {
+      return null;
+    }
+    return isHeaderName(match[2]!) ? "header" : "value";
+  });
+  redacted = redactValuesAfter(redacted, flagValuePattern, (match, valueStart, scanned) =>
+    isCredentialLikeName(match[3]!) && scanned[valueStart] !== "-" ? "value" : null,
+  );
+  redacted = redacted.replace(standaloneSchemePattern, (match: string, scheme: string, gap: string, value: string) =>
+    tokenShapedPattern.test(value) ? `${scheme}${gap}${redactedArgumentValue}` : match,
+  );
+  return redacted.replace(tokenShapesPattern, () => redactedArgumentValue);
 }
 
-function redactNamedValue(match: string, name: string, prefix: string, value: string): string {
-  if (!isCredentialLikeName(name) || value.includes(redactedArgumentValue) || /^(bearer|basic|digest)$/i.test(value)) {
-    return match;
+type ValueKind = "value" | "header" | "user";
+
+/** Replaces the value after each match the kind function accepts, scanning left to right. */
+function redactValuesAfter(
+  text: string,
+  pattern: RegExp,
+  kindOf: (match: RegExpExecArray, valueStart: number, scanned: string) => ValueKind | null,
+): string {
+  let output = "";
+  let position = 0;
+  for (;;) {
+    pattern.lastIndex = position;
+    const match = pattern.exec(text);
+    if (match === null) {
+      break;
+    }
+    const valueStart = match.index + match[0].length;
+    const kind = kindOf(match, valueStart, text);
+    if (kind === null) {
+      output += text.slice(position, valueStart);
+      position = valueStart;
+      continue;
+    }
+    // A quote right before a name, with none after it, is the quote the value ends at.
+    const hasOuterQuote = pattern === namedValuePattern && match[1] !== "" && match[3] === "";
+    const valueEnd = findValueEnd(text, valueStart, kind === "header", hasOuterQuote ? match[1]! : "\u0000");
+    output += text.slice(position, valueStart) + redactValue(text.slice(valueStart, valueEnd), kind);
+    position = valueEnd;
   }
-  const quote = value.startsWith('"') || value.startsWith("'") ? value[0]! : "";
-  return `${prefix}${quote}${redactedArgumentValue}${quote}`;
+  return output + text.slice(position);
+}
+
+/**
+ * Where a value starting at `start` ends: its closing quote, a stop character, or, for a header, the line end. An
+ * `outerQuote` opened before the name also ends it; another quote continues it, skipping a quoted part that closes.
+ */
+function findValueEnd(text: string, start: number, isHeader: boolean, outerQuote: string): number {
+  if (isQuote(text[start])) {
+    return findQuotedEnd(text, start);
+  }
+  let index = start;
+  while (index < text.length && text[index] !== outerQuote) {
+    const character = text[index]!;
+    if (isHeader ? character === "\n" || character === "\r" : bareValueStops.has(character)) {
+      break;
+    }
+    const quotedEnd = isQuote(character) ? findQuotedEnd(text, index) : index + 1;
+    index = quotedEnd - 1 > index && text[quotedEnd - 1] === character ? quotedEnd : index + 1;
+  }
+  return index;
+}
+
+/** The index after the quote that closes the one at `start`, skipping escaped double quotes, or the line end. */
+function findQuotedEnd(text: string, start: number): number {
+  const quote = text[start];
+  let index = start + 1;
+  while (index < text.length && text[index] !== quote && text[index] !== "\n") {
+    index += quote === '"' && text[index] === "\\" ? 2 : 1;
+  }
+  return Math.min(index < text.length && text[index] === quote ? index + 1 : index, text.length);
+}
+
+function redactValue(value: string, kind: ValueKind): string {
+  if (value === "") {
+    return value;
+  }
+  const quote = isQuote(value[0]) ? value[0]! : "";
+  const isClosed = quote !== "" && value.length >= 2 && value.endsWith(quote);
+  const inner = quote === "" ? value : value.slice(1, isClosed ? -1 : undefined);
+  const closing = isClosed ? quote : "";
+  if (kind === "user") {
+    const separator = inner.indexOf(":");
+    if (separator < 0 || inner.slice(separator + 1) === redactedArgumentValue) {
+      return value;
+    }
+    return `${quote}${inner.slice(0, separator)}:${redactedArgumentValue}${closing}`;
+  }
+  if (inner === redactedArgumentValue) {
+    return value;
+  }
+  const scheme = kind === "header" && quote === "" ? authorizationSchemePattern.exec(inner) : null;
+  if (scheme !== null) {
+    return inner.slice(scheme[0].length) === redactedArgumentValue ? value : `${scheme[0]}${redactedArgumentValue}`;
+  }
+  return `${quote}${redactedArgumentValue}${closing}`;
+}
+
+function isHeaderName(name: string): boolean {
+  const words = name.toLowerCase().split(/[^a-z0-9]+/);
+  return words.includes("authorization") || words.includes("cookie") || words.includes("cookies");
+}
+
+function isQuote(character: string | undefined): boolean {
+  return character === '"' || character === "'";
+}
+
+function decodeEscapeSequence(match: string, unicode: string | undefined, byte: string | undefined): string {
+  const code = Number.parseInt(unicode ?? byte ?? "", 16);
+  // A lone surrogate stays escaped, so the text stays valid Unicode.
+  return code >= 0xd800 && code <= 0xdfff ? match : String.fromCharCode(code);
 }
 
 /**

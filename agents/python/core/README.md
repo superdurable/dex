@@ -1281,14 +1281,19 @@ for interrupt in snapshot.pending_interrupts:
   `Calls slack postChannelMessage with connection support-slack; channel: "#eng".`
 - The CLI's local file writes name the workspace path and carry a unified diff
   against the file as it is when the model asks; its header lines say so. Its
-  shell commands name the working directory and the full command.
+  shell commands name the working directory and the command with its inline
+  credentials redacted and its control characters escaped, cut at 2 KiB; the
+  full command is in the call's arguments.
 - A display never says how often the call runs or what it achieves, and never
   uses a tool's description as its effect. A credential-like argument
   (`is_credential_like_name`) shows `<redacted>`, and
-  `redact_inline_credentials` replaces credentials written inline, such as
-  `Bearer` values, URL passwords, and `TOKEN=…` assignments. It finds common
-  forms only; `agents/conformance/approval_display.json` lists the cases both
-  cores share.
+  `redact_inline_credentials` replaces credentials written inline: the whole
+  value after a credential-like name, `Authorization` and `Cookie` header
+  values, URL passwords, and common token shapes. It decodes `\uXXXX` and
+  `\xXX` escapes first. It is conservative, so a generic `key=value` is
+  redacted too, and the CLI leaves out a file preview whose text it changes.
+  It finds common forms only; `agents/conformance/approval_display.json`
+  lists the cases both cores share.
 - The session cuts a target over `MAX_APPROVAL_TARGET_BYTES` (1 KiB) and a
   summary over `MAX_APPROVAL_SUMMARY_BYTES` (2 KiB), ending them with `…`,
   and drops a preview over `MAX_APPROVAL_PREVIEW_BYTES` (16 KiB). A tool

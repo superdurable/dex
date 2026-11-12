@@ -304,11 +304,13 @@ Each call is one Dex tool Step, recorded in the session.
   the path changes during the read. It is left out for a file or new content
   over 64 KiB, a diff over 200 lines, a path the write would refuse, a file
   that is not UTF-8, an `edit_file` whose `old_text` does not occur once, a
-  side with an inline credential such as `password: …`, and a credential file
+  side the inline credential redaction changes, such as one with
+  `password: …`, `key=value`, or an escape sequence, and a credential file
   such as `.env`, `.aws/credentials`, `.kube/config`, `id_ed25519`,
   `server.pem`, or `secrets.yaml`. A shell command's target is the working
   directory, and its summary holds the command with its inline credentials
-  redacted, cut at 2 KiB; the call's arguments keep the full command. Browser
+  redacted and its control characters escaped, cut at 2 KiB; the call's
+  arguments keep the full command. Browser
   actions have no display. `agents/conformance/approval_display.json` lists
   the cases both CLI cores share.
 - A local tool's effect and approval are floors. An explicit `ToolPolicy` for

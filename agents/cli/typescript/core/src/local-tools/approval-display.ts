@@ -98,8 +98,8 @@ export function buildEditFileDisplay(
 
 /**
  * The display of a `run_shell_command` call: the working directory and the command with its inline credentials
- * redacted. The full command stays in the call's arguments, and the session cuts a summary over
- * `maxApprovalSummaryBytes`.
+ * redacted and its control characters escaped. The full command stays in the call's arguments, and the session
+ * cuts a summary over `maxApprovalSummaryBytes`.
  * @param workspace - The workspace, the command's working directory.
  * @param command - The `command` argument.
  * @returns The display.
@@ -108,7 +108,7 @@ export function buildShellCommandDisplay(workspace: string, command: string): Ag
   const directory = escapeControlCharacters(workspace);
   return {
     target: directory,
-    summary: `Runs a shell command in ${directory}: ${redactInlineCredentials(command)}`,
+    summary: `Runs a shell command in ${directory}: ${escapeControlCharacters(redactInlineCredentials(command))}`,
     preview: null,
   };
 }

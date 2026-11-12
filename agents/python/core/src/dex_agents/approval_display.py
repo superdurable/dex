@@ -124,9 +124,34 @@ _MAX_DISPLAYED_ARGUMENTS = 5
 _MAX_DISPLAYED_ARGUMENT_CHARACTERS = 80
 
 # Explicit ASCII classes keep the patterns identical to the TypeScript core's.
-_SPACE = r"[ \t\n\r\f\v]"
-_QUOTED_OR_BARE_VALUE = r"(\"[^\"]*\"|'[^']*'|[^ \t\n\r\f\v\"'&;,=][^ \t\n\r\f\v\"'&;,]*)"
-_SCHEME_VALUE = re.compile(r"^(bearer|basic|digest)$", re.IGNORECASE)
+_ESCAPE_SEQUENCE = re.compile(r"\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
+_PRIVATE_KEY_BLOCK = re.compile(
+    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)",
+    re.ASCII,
+)
+_URL_USER_INFO = re.compile(
+    r"([A-Za-z][A-Za-z0-9+.-]*://)([^ \t\n\r\f\v/:@'\"]+):([^ \t\n\r\f\v/@'\"]+)@", re.ASCII
+)
+_USER_FLAG = re.compile(r"(^|[ \t\n\r\f\v])(-u|--user|--proxy-user)([ \t]+|=)", re.ASCII)
+_NAMED_VALUE = re.compile(
+    r"([\"']?)([A-Za-z_][A-Za-z0-9_.-]*)([\"']?)([ \t]*)([:=])([ \t]*)", re.ASCII
+)
+_FLAG_VALUE = re.compile(r"(^|[ \t\n\r\f\v])(--?)([A-Za-z][A-Za-z0-9_-]*)([ \t]+)", re.ASCII)
+_STANDALONE_SCHEME = re.compile(
+    r"\b(bearer|basic|digest)([ \t]+)([A-Za-z0-9._~+/-]+=*)", re.ASCII | re.IGNORECASE
+)
+_TOKEN_SHAPED = re.compile(r"[0-9+/=._~-]")
+_AUTHORIZATION_SCHEME = re.compile(
+    r"^(bearer|basic|digest|token|negotiate)[ \t]+", re.ASCII | re.IGNORECASE
+)
+_TOKEN_SHAPES = re.compile(
+    r"\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}"
+    r"|sk-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}"
+    r"|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})",
+    re.ASCII,
+)
+_BARE_VALUE_STOPS = frozenset(" \t\n\r\f\v&;,}])")
+_QUOTES = frozenset("\"'")
 
 
 def is_credential_like_name(name: str) -> bool:
@@ -176,124 +201,158 @@ def is_credential_like_name(name: str) -> bool:
 
 
 def redact_inline_credentials(text: str) -> str:
-    """Replace the credentials written inline in a text with ``REDACTED_ARGUMENT_VALUE``.
+    r"""Replace the credentials written inline in a text with ``REDACTED_ARGUMENT_VALUE``.
 
-    The text may be a shell command or a file. It replaces private key
-    blocks; the password of a URL such as ``https://user:pass@host``; the value
-    after ``Bearer``, ``Basic``, or ``Digest``; the password of
-    ``-u user:pass``, ``--user``, and ``--proxy-user``; the value of a
-    ``name=value`` assignment, a ``name: value`` header or field, and a
-    ``--name value`` flag whose name ``is_credential_like_name`` matches,
-    which covers query parameters such as ``?token=…``; and common token
-    shapes, such as AWS access key IDs and GitHub, Slack, GitLab, and
-    OpenAI-style keys and JWTs. A quoted value is replaced whole. It cannot
-    find every credential: a value in an unusual form stays as it is.
+    The text may be a shell command or a file. It first decodes ``\uXXXX`` and
+    ``\xXX`` escapes, so an escaped name such as ``password`` is found;
+    the returned text keeps them decoded. It then replaces private key
+    blocks; the password of a URL such as ``https://user:pass@host``; the
+    password of ``-u user:pass``, ``--user``, and ``--proxy-user``; and the
+    whole value after a name that ``is_credential_like_name`` matches, in a
+    ``name=value`` assignment, a ``name: value`` header or field, a JSON
+    member, or a ``--name value`` flag, which covers query parameters such as
+    ``?token=…``. A value ends at its closing quote, escaped quotes included,
+    or at whitespace, ``&``, ``;``, ``,``, ``}``, ``]``, or ``)``; the value
+    of an ``Authorization`` or ``Cookie`` header runs to the end of its line,
+    and its scheme, such as ``Bearer``, stays. A value that is exactly
+    ``REDACTED_ARGUMENT_VALUE`` stays. Outside a header, a token-shaped word
+    after ``Bearer``, ``Basic``, or ``Digest`` is replaced, and so are common
+    token shapes, such as AWS access key IDs and GitHub, Slack, GitLab, and
+    OpenAI-style keys and JWTs. The rules are conservative: a generic
+    ``key=value`` is replaced too. They cannot find every credential: a value
+    in an unusual form stays as it is.
 
     .. versionadded:: 0.6.0
 
     Example:
-        >>> redact_inline_credentials("curl -H 'Authorization: Bearer abc123456'")
+        >>> redact_inline_credentials("curl -H 'Authorization: Bearer t1'")
         "curl -H 'Authorization: Bearer <redacted>'"
 
     Args:
         text: The text.
 
     Returns:
-        The text with each credential found replaced.
+        The text with escapes decoded and each credential found replaced.
     """
-    for pattern, replace in _INLINE_CREDENTIAL_RULES:
-        text = pattern.sub(replace, text)
-    return text
+    redacted = _ESCAPE_SEQUENCE.sub(_decode_escape_sequence, text)
+    redacted = _PRIVATE_KEY_BLOCK.sub(lambda match: REDACTED_ARGUMENT_VALUE, redacted)
+    redacted = _URL_USER_INFO.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}:{REDACTED_ARGUMENT_VALUE}@", redacted
+    )
+    redacted = _redact_values_after(redacted, _USER_FLAG, lambda match, start, text: "user")
+    redacted = _redact_values_after(redacted, _NAMED_VALUE, _named_value_kind)
+    redacted = _redact_values_after(redacted, _FLAG_VALUE, _flag_value_kind)
+    redacted = _STANDALONE_SCHEME.sub(_redact_standalone_scheme, redacted)
+    return _TOKEN_SHAPES.sub(lambda match: REDACTED_ARGUMENT_VALUE, redacted)
 
 
-def _redact_named_value(match: re.Match[str], name: str, prefix: str, value: str) -> str:
-    if (
-        not is_credential_like_name(name)
-        or REDACTED_ARGUMENT_VALUE in value
-        or _SCHEME_VALUE.match(value)
-    ):
-        return match.group(0)
-    quote = value[0] if value[:1] in ('"', "'") else ""
-    return f"{prefix}{quote}{REDACTED_ARGUMENT_VALUE}{quote}"
+def _named_value_kind(match: re.Match[str], value_start: int, text: str) -> str | None:
+    is_comparison = match.group(5) == "=" and text[value_start : value_start + 1] == "="
+    if is_comparison or not is_credential_like_name(match.group(2)):
+        return None
+    return "header" if _is_header_name(match.group(2)) else "value"
 
 
-_INLINE_CREDENTIAL_RULES: tuple[tuple[re.Pattern[str], Callable[[re.Match[str]], str]], ...] = (
-    (
-        re.compile(
-            r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?"
-            r"(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)",
-            re.ASCII,
-        ),
-        lambda match: REDACTED_ARGUMENT_VALUE,
-    ),
-    (
-        re.compile(
-            r"([A-Za-z][A-Za-z0-9+.-]*://)([^ \t\n\r\f\v/:@'\"]+):([^ \t\n\r\f\v/@'\"]+)@",
-            re.ASCII,
-        ),
-        lambda match: f"{match.group(1)}{match.group(2)}:{REDACTED_ARGUMENT_VALUE}@",
-    ),
-    (
-        re.compile(
-            rf"\b(bearer|basic|digest)({_SPACE}+)([A-Za-z0-9._~+/=-]{{6,}})",
-            re.ASCII | re.IGNORECASE,
-        ),
-        lambda match: f"{match.group(1)}{match.group(2)}{REDACTED_ARGUMENT_VALUE}",
-    ),
-    (
-        re.compile(
-            rf"(^|{_SPACE})(-u|--user|--proxy-user)({_SPACE}+|=)([\"']?)"
-            r"([^ \t\n\r\f\v:\"']+):([^ \t\n\r\f\v\"']+)",
-            re.ASCII,
-        ),
-        lambda match: (
-            f"{match.group(1)}{match.group(2)}{match.group(3)}{match.group(4)}"
-            f"{match.group(5)}:{REDACTED_ARGUMENT_VALUE}"
-        ),
-    ),
-    (
-        re.compile(
-            rf"([A-Za-z_][A-Za-z0-9_.-]*)({_SPACE}*={_SPACE}*){_QUOTED_OR_BARE_VALUE}", re.ASCII
-        ),
-        lambda match: _redact_named_value(
-            match, match.group(1), match.group(1) + match.group(2), match.group(3)
-        ),
-    ),
-    (
-        re.compile(
-            rf"([\"']?)([A-Za-z][A-Za-z0-9_.-]*)([\"']?{_SPACE}*:{_SPACE}*){_QUOTED_OR_BARE_VALUE}",
-            re.ASCII,
-        ),
-        lambda match: _redact_named_value(
-            match,
-            match.group(2),
-            match.group(1) + match.group(2) + match.group(3),
-            match.group(4),
-        ),
-    ),
-    (
-        re.compile(
-            rf"(--?)([A-Za-z][A-Za-z0-9_-]*)({_SPACE}+)"
-            r"(\"[^\"]*\"|'[^']*'|[^ \t\n\r\f\v\"'-][^ \t\n\r\f\v\"']*)",
-            re.ASCII,
-        ),
-        lambda match: _redact_named_value(
-            match,
-            match.group(2),
-            match.group(1) + match.group(2) + match.group(3),
-            match.group(4),
-        ),
-    ),
-    (
-        re.compile(
-            r"\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}"
-            r"|sk-[A-Za-z0-9_-]{20,}|glpat-[A-Za-z0-9_-]{20,}"
-            r"|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})",
-            re.ASCII,
-        ),
-        lambda match: REDACTED_ARGUMENT_VALUE,
-    ),
-)
+def _flag_value_kind(match: re.Match[str], value_start: int, text: str) -> str | None:
+    if is_credential_like_name(match.group(3)) and text[value_start : value_start + 1] != "-":
+        return "value"
+    return None
+
+
+def _redact_standalone_scheme(match: re.Match[str]) -> str:
+    if _TOKEN_SHAPED.search(match.group(3)):
+        return f"{match.group(1)}{match.group(2)}{REDACTED_ARGUMENT_VALUE}"
+    return match.group(0)
+
+
+def _redact_values_after(
+    text: str,
+    pattern: re.Pattern[str],
+    kind_of: Callable[[re.Match[str], int, str], str | None],
+) -> str:
+    """Replace the value after each match ``kind_of`` accepts, scanning left to right."""
+    output: list[str] = []
+    position = 0
+    while (match := pattern.search(text, position)) is not None:
+        value_start = match.end()
+        kind = kind_of(match, value_start, text)
+        if kind is None:
+            output.append(text[position:value_start])
+            position = value_start
+            continue
+        # A quote right before a name, with none after it, is the quote the value ends at.
+        has_outer_quote = pattern is _NAMED_VALUE and match.group(1) and not match.group(3)
+        outer_quote = match.group(1) if has_outer_quote else "\x00"
+        value_end = _find_value_end(text, value_start, kind == "header", outer_quote)
+        output.append(text[position:value_start])
+        output.append(_redact_value(text[value_start:value_end], kind))
+        position = value_end
+    output.append(text[position:])
+    return "".join(output)
+
+
+def _find_value_end(text: str, start: int, is_header: bool, outer_quote: str) -> int:
+    """Return where a value ends.
+
+    That is its closing quote, a stop character, or, for a header, the line
+    end. An ``outer_quote`` opened before the name also ends it; another quote
+    continues it, skipping a quoted part that closes.
+    """
+    if start < len(text) and text[start] in _QUOTES:
+        return _find_quoted_end(text, start)
+    index = start
+    while index < len(text) and text[index] != outer_quote:
+        character = text[index]
+        if character in ("\n\r" if is_header else _BARE_VALUE_STOPS):
+            break
+        quoted_end = _find_quoted_end(text, index) if character in _QUOTES else index + 1
+        is_closed = quoted_end - 1 > index and text[quoted_end - 1] == character
+        index = quoted_end if is_closed else index + 1
+    return index
+
+
+def _find_quoted_end(text: str, start: int) -> int:
+    """Return the index after the quote closing the one at ``start``, or the line end."""
+    quote = text[start]
+    index = start + 1
+    while index < len(text) and text[index] != quote and text[index] != "\n":
+        index += 2 if quote == '"' and text[index] == "\\" else 1
+    if index < len(text) and text[index] == quote:
+        index += 1
+    return min(index, len(text))
+
+
+def _redact_value(value: str, kind: str) -> str:
+    if not value:
+        return value
+    quote = value[0] if value[0] in _QUOTES else ""
+    is_closed = bool(quote) and len(value) >= 2 and value.endswith(quote)
+    inner = value if not quote else value[1:-1] if is_closed else value[1:]
+    closing = quote if is_closed else ""
+    if kind == "user":
+        user, separator, password = inner.partition(":")
+        if not separator or password == REDACTED_ARGUMENT_VALUE:
+            return value
+        return f"{quote}{user}:{REDACTED_ARGUMENT_VALUE}{closing}"
+    if inner == REDACTED_ARGUMENT_VALUE:
+        return value
+    scheme = _AUTHORIZATION_SCHEME.match(inner) if kind == "header" and not quote else None
+    if scheme is not None:
+        if inner[scheme.end() :] == REDACTED_ARGUMENT_VALUE:
+            return value
+        return f"{scheme.group(0)}{REDACTED_ARGUMENT_VALUE}"
+    return f"{quote}{REDACTED_ARGUMENT_VALUE}{closing}"
+
+
+def _is_header_name(name: str) -> bool:
+    words = re.split(r"[^a-z0-9]+", name.lower())
+    return "authorization" in words or "cookie" in words or "cookies" in words
+
+
+def _decode_escape_sequence(match: re.Match[str]) -> str:
+    code = int(match.group(1) or match.group(2), 16)
+    # A lone surrogate stays escaped, so the text stays valid Unicode.
+    return match.group(0) if 0xD800 <= code <= 0xDFFF else chr(code)
 
 
 def build_connector_tool_approval_display(

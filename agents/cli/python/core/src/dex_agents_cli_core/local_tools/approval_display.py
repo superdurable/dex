@@ -117,14 +117,17 @@ def build_edit_file_display(
 def build_shell_command_display(workspace: str, command: str) -> AgentInterruptDisplay:
     """Return a ``run_shell_command`` call's working directory and command.
 
-    The command's inline credentials are redacted; the full command stays in
-    the call's arguments. The session cuts a summary over
+    The command's inline credentials are redacted and its control characters
+    escaped; the full command stays in the call's arguments. The session cuts a summary over
     ``MAX_APPROVAL_SUMMARY_BYTES``.
     """
     directory = escape_control_characters(workspace)
     return AgentInterruptDisplay(
         target=directory,
-        summary=f"Runs a shell command in {directory}: {redact_inline_credentials(command)}",
+        summary=(
+            f"Runs a shell command in {directory}: "
+            f"{escape_control_characters(redact_inline_credentials(command))}"
+        ),
     )
 
 
