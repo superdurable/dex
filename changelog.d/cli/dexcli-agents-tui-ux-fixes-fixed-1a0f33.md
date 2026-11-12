@@ -13,3 +13,5 @@ section: Fixed
   was shown.
 - When the Dex server becomes unreachable, the chat says so once, instead
   of reporting that the session has not loaded.
+- **Ctrl-Z** suspends the chat once. Before, the stop signal could come back
+  and release the terminal a second time, and keys typed then were lost.
