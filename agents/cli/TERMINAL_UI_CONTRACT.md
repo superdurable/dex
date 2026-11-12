@@ -299,7 +299,9 @@ This never falls back to the plain chat, even before `ready`.
   protocol error, and the channel stays open. A malformed `request` whose
   `id` is an integer from 1 to 2^53−1 gets an `invalid_params` response with
   that `id`, and that `id` counts as used. Any other malformed message,
-  including a `request` without such an `id`, is dropped without an answer.
+  including a `request` without such an `id` (missing, a string, a
+  fraction, or out of range), is dropped without an answer; the receiver
+  keeps reading the channel.
 - A sender whose peer already closed sees `EPIPE`; that is the end of the
   contract, not a crash.
 
@@ -678,11 +680,24 @@ Values that differ between machines are matched like this:
   real launcher's session ID and `web_url`, without fixing them.
 - `--alias FIXTURE=ACTUAL` binds a value before the replay starts, such as a
   transcript path to a file the test made.
+- Neither a binding nor an alias ever applies to a protocol constant: the
+  value of a `type`, `method`, `methods`, `code` (also `error.code`), `mode`,
+  `state`, `level`, `contract`, or `language` field, at any depth. They
+  always compare as written.
 - A bound value of 8 or more characters is also replaced inside longer
   strings, longest first and in one pass, so a URL under `web_url` or a path
   that holds a session ID follows the binding.
 - Free text is never compared: an error's `message` and `launch_rejected`'s
   `message`.
+- Before comparing, the host checks every message it receives against the
+  schemas, whole, ignored paths included: the launch document against
+  `terminal-ui-launch.schema.json`, other messages against their direction in
+  `terminal-ui-channel.schema.json`, and a response's `result` against its
+  method's `<method>_result`. A violation fails the replay. Only a step
+  marked `malformed`, and a launch document the transcript rejects, skip
+  this. The host checks with its own standard-library validator of the
+  schema keywords these files use, and the tests check that it agrees with
+  `jsonschema` on every case.
 - Launch steps ignore what depends on the command and the machine:
   `command`, `dex.server_address`, `dex.web_url`, the session's `flow_type`
   and `session_id`, `display`, `capabilities`, `log_path`, and `connectors`.
@@ -772,24 +787,35 @@ way.
 
 ### Bounds after the launcher dies
 
-1. A watchdog outside the Worker host's event loop (a worker thread in Node,
-   a daemon thread in Python) checks every 1 s whether the parent is still
-   the launcher. When it is not, it starts an orderly shutdown. A shutdown
-   that starts for another reason (EOF on the control channel, `shutdown`
-   from the launcher, SIGTERM) arms the same bound.
-2. 15 s after the watchdog armed, if the Worker host still runs, the
-   watchdog sends SIGTERM to every registered tool process group, waits up
-   to 2 s for them, and sends SIGKILL to those left.
-3. It then sends SIGKILL to the Worker host's own process group.
+The watchdog runs outside the Worker host's event loop: a worker thread in
+Node, a daemon thread in Python.
 
-So the Worker host and its registered tool groups are gone at most
-1 + 15 + 2 = 18 s after the launcher died, or 15 + 2 = 17 s after a shutdown
-began, plus scheduling delay. The bound holds only while the watchdog can
-run. It does not hold when the Worker host is stopped (SIGSTOP) or stuck in
-the kernel, or, in Python, while the main thread holds the GIL in native
-code. On Linux, Python also sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel
-ends the Worker host when the launcher dies; its tool groups are then left
-for the leftover cleanup.
+1. Every 1 s it checks whether the parent is still the launcher. When it is
+   not, it starts an orderly shutdown and arms the hard bound at once.
+2. A shutdown that starts for another reason (EOF on the control channel,
+   `shutdown` from the launcher, SIGTERM) also arms the bound. Node arms it at
+   once. Python arms it at the watchdog's next check, up to 1 s later.
+3. 15 s after the bound is armed, if the Worker host still runs, the watchdog
+   sends SIGTERM to every registered tool process group, waits up to 2 s for
+   them, and sends SIGKILL to those left.
+4. It then sends SIGKILL to the Worker host's own process group.
+
+Each number below adds scheduling delay, and holds only while the watchdog
+can run:
+
+| Platform and core | Launcher died | A shutdown began |
+| --- | --- | --- |
+| Node (TypeScript), macOS and Linux | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
+| Python, macOS | about 1 + 15 + 2 = 18 s | about 1 + 15 + 2 = 18 s |
+| Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 1 + 15 + 2 = 18 s |
+
+The bounds do not hold:
+
+- while the Worker host is stopped (SIGSTOP) or stuck in the kernel;
+- in Python, while the main thread holds the GIL in native code;
+- for tool groups on Python and Linux after the launcher died, as above;
+- for processes a harness starts outside the Worker host's group and never
+  registers, such as the tool processes of an agent framework's own CLI.
 
 ### Process identity for leftover cleanup
 
@@ -801,12 +827,12 @@ nothing.
 
 | Record | Identity that must still match |
 | --- | --- |
-| Worker host | pid, process group ID, being that group's leader (pid equals pgid), start time, and command line |
+| Worker host | pid, process group ID, being that group's leader (pid equals pgid), start time, and the SHA-256 of its command line |
 | Tool process group leader | pid, process group ID, being that group's leader, and start time |
 
 A tool group leader is a shell that may `exec` its command, which changes its
 command line but not its pid, group, or start time. So the command line is
 not part of a tool group's identity. The start time is what the system
-reports, such as `ps -o lstart` in the C locale. A record should hold a
-SHA-256 of the Worker host's command line rather than its text, because a
-command line can carry a secret.
+reports, such as `ps -o lstart` in the C locale. A record holds the SHA-256
+of the Worker host's command line (UTF-8, as `ps -ww -o command=` prints it),
+never its text, because a command line can carry a secret.

@@ -439,6 +439,184 @@ def parse_channel_line(line: bytes) -> dict[str, Any]:
     return message
 
 
+# A JSON Schema 2020-12 subset: exactly the keywords the three terminal UI schemas use.
+
+
+class ContractSchemas:
+    """The terminal UI schemas, checked without third-party libraries."""
+
+    def __init__(self, schema_directory: Path) -> None:
+        launch = self._load(schema_directory / "terminal-ui-launch.schema.json")
+        channel = self._load(schema_directory / "terminal-ui-channel.schema.json")
+        self._roots: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
+            "launch": (launch, launch),
+        }
+        for name in channel["$defs"]:
+            self._roots[name] = (channel, {"$ref": f"#/$defs/{name}"})
+
+    @staticmethod
+    def _load(path: Path) -> dict[str, Any]:
+        schema: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return schema
+
+    def has_result_definition(self, method: str) -> bool:
+        """Return whether the channel schema defines ``<method>_result``."""
+        return f"{method}_result" in self._roots
+
+    def violations(self, definition: str, instance: object) -> list[str]:
+        """Return the JSON Pointers where instance breaks a definition; empty when valid.
+
+        ``definition`` is ``launch`` or a ``$defs`` name of the channel schema.
+        """
+        root, schema = self._roots[definition]
+        found: list[str] = []
+        _check_schema(root, schema, instance, "", found)
+        return found
+
+
+def _check_schema(
+    root: Mapping[str, Any], schema: object, instance: object, pointer: str, found: list[str]
+) -> None:
+    if schema is True:
+        return
+    if schema is False or not isinstance(schema, dict):
+        found.append(pointer)
+        return
+    if "$ref" in schema:
+        _check_schema(root, _resolve_reference(root, schema["$ref"]), instance, pointer, found)
+    _check_type_and_values(schema, instance, pointer, found)
+    _check_combinators(root, schema, instance, pointer, found)
+    if isinstance(instance, dict):
+        _check_object(root, schema, instance, pointer, found)
+    if isinstance(instance, list):
+        _check_array(root, schema, instance, pointer, found)
+
+
+def _resolve_reference(root: Mapping[str, Any], reference: str) -> object:
+    if not reference.startswith("#/"):
+        raise ValueError(f"unsupported $ref {reference}")
+    node: object = root
+    for part in reference[2:].split("/"):
+        if not isinstance(node, dict):
+            raise ValueError(f"bad $ref {reference}")
+        node = node[part]
+    return node
+
+
+_JSON_TYPES: Final = {
+    "object": lambda value: isinstance(value, dict),
+    "array": lambda value: isinstance(value, list),
+    "string": lambda value: isinstance(value, str),
+    "boolean": lambda value: isinstance(value, bool),
+    "null": lambda value: value is None,
+    "integer": lambda value: (isinstance(value, int) and not isinstance(value, bool))
+    or (isinstance(value, float) and value.is_integer()),
+    "number": lambda value: isinstance(value, int | float) and not isinstance(value, bool),
+}
+
+
+def _check_type_and_values(
+    schema: Mapping[str, Any], instance: object, pointer: str, found: list[str]
+) -> None:
+    if "type" in schema:
+        names = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
+        if not any(_JSON_TYPES[name](instance) for name in names):
+            found.append(pointer)
+            return
+    if "const" in schema and not _json_equal(instance, schema["const"]):
+        found.append(pointer)
+    if "enum" in schema and not any(_json_equal(instance, item) for item in schema["enum"]):
+        found.append(pointer)
+    if isinstance(instance, str):
+        if "pattern" in schema and re.search(schema["pattern"], instance) is None:
+            found.append(pointer)
+        if len(instance) < schema.get("minLength", 0):
+            found.append(pointer)
+        if "maxLength" in schema and len(instance) > schema["maxLength"]:
+            found.append(pointer)
+    if isinstance(instance, int | float) and not isinstance(instance, bool):
+        if "minimum" in schema and instance < schema["minimum"]:
+            found.append(pointer)
+        if "maximum" in schema and instance > schema["maximum"]:
+            found.append(pointer)
+
+
+def _check_combinators(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    instance: object,
+    pointer: str,
+    found: list[str],
+) -> None:
+    def is_valid(subschema: object) -> bool:
+        nested: list[str] = []
+        _check_schema(root, subschema, instance, pointer, nested)
+        return not nested
+
+    for subschema in schema.get("allOf", []):
+        _check_schema(root, subschema, instance, pointer, found)
+    if "anyOf" in schema and not any(is_valid(subschema) for subschema in schema["anyOf"]):
+        found.append(pointer)
+    if "oneOf" in schema and sum(is_valid(subschema) for subschema in schema["oneOf"]) != 1:
+        found.append(pointer)
+    if "not" in schema and is_valid(schema["not"]):
+        found.append(pointer)
+    if "if" in schema:
+        branch = schema.get("then") if is_valid(schema["if"]) else schema.get("else")
+        if branch is not None:
+            _check_schema(root, branch, instance, pointer, found)
+
+
+def _check_object(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    instance: dict[str, Any],
+    pointer: str,
+    found: list[str],
+) -> None:
+    for name in schema.get("required", []):
+        if name not in instance:
+            found.append(pointer)
+    properties: Mapping[str, Any] = schema.get("properties", {})
+    for name, value in instance.items():
+        child = f"{pointer}/{_escape_pointer(name)}"
+        if name in properties:
+            _check_schema(root, properties[name], value, child, found)
+        elif "additionalProperties" in schema:
+            _check_schema(root, schema["additionalProperties"], value, child, found)
+        if "propertyNames" in schema:
+            _check_schema(root, schema["propertyNames"], name, pointer, found)
+
+
+def _check_array(
+    root: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    instance: list[Any],
+    pointer: str,
+    found: list[str],
+) -> None:
+    if "items" in schema:
+        for index, item in enumerate(instance):
+            _check_schema(root, schema["items"], item, f"{pointer}/{index}", found)
+    if schema.get("uniqueItems"):
+        canonical = [json.dumps(item, sort_keys=True) for item in instance]
+        if len(set(canonical)) != len(canonical):
+            found.append(pointer)
+
+
+def _json_equal(left: object, right: object) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    return left == right
+
+
+def _escape_pointer(name: str) -> str:
+    return name.replace("~", "~0").replace("/", "~1")
+
+
+CONTRACT_SCHEMAS: Final = ContractSchemas(Path(__file__).resolve().parents[1])
+
+
 # Transcript replay.
 
 
@@ -479,7 +657,16 @@ class TranscriptReplay:
         self._recorder = recorder
         self._step_timeout_seconds = step_timeout_seconds
         self._started_at = started_at
-        self._aliases: dict[str, str] = dict(initial_aliases)
+        self._aliases: dict[str, str] = {
+            fixture: actual
+            for fixture, actual in initial_aliases.items()
+            if fixture not in PROTOCOL_CONSTANT_VALUES
+        }
+        self._request_methods: dict[object, str] = {}
+        # A launch the transcript rejects may break the schema on purpose.
+        self._is_launch_rejected = any(
+            step.get("message", {}).get("type") == "launch_rejected" for step in transcript["steps"]
+        )
         self._fixture_harness = _launch_harness(transcript)
         self._actual_harness = self._fixture_harness
         self._is_channel_closed = False
@@ -539,6 +726,8 @@ class TranscriptReplay:
             self._recorder.record("sent_raw_line", bytes=len(line))
             return
         message = substitute_aliases(step["message"], self._aliases)
+        if message.get("type") == "request" and isinstance(message.get("method"), str):
+            self._request_methods[message.get("id")] = message["method"]
         self._channel.send_message(message)
         self._recorder.record("sent", message=summarize_message(message))
 
@@ -560,7 +749,31 @@ class TranscriptReplay:
         if received is None:
             raise ReplayMismatchError(f"expected {expected_summary} but the channel ended")
         self._recorder.record("received", message=summarize_message(received))
+        if not step.get("malformed"):
+            self._check_received_schema(received)
         self._compare(step["message"], received, step.get("ignore", []))
+
+    def _check_received_schema(self, received: Mapping[str, Any]) -> None:
+        if received.get("type") == "launch":
+            if self._is_launch_rejected:
+                return
+            violations = CONTRACT_SCHEMAS.violations("launch", received)
+        else:
+            direction = "from_tui" if self._role == "launcher" else "from_launcher"
+            violations = CONTRACT_SCHEMAS.violations(direction, received)
+        method = self._request_methods.get(received.get("id"))
+        if not violations and received.get("type") == "response" and "result" in received:
+            if method is not None and CONTRACT_SCHEMAS.has_result_definition(method):
+                violations = CONTRACT_SCHEMAS.violations(f"{method}_result", received["result"])
+                violations = [f"result{path}" if path else "result" for path in violations]
+        if violations:
+            summary = json.dumps(summarize_message(received), sort_keys=True)
+            raise ReplayMismatchError(
+                f"received {summary}, which breaks the contract schema at "
+                f"{', '.join(sorted(set(violations)))}"
+            )
+        if received.get("type") == "request" and isinstance(received.get("method"), str):
+            self._request_methods[received.get("id")] = received["method"]
 
     def _receive_raw_step(self, step: Mapping[str, Any], timeout_seconds: float) -> None:
         expected = step["raw_line"].encode("utf-8")
@@ -623,6 +836,8 @@ class TranscriptReplay:
 
     def _bind_alias(self, path: str, fixture_value: object, received_value: object) -> None:
         if not isinstance(fixture_value, str) or not isinstance(received_value, str):
+            return
+        if PROTOCOL_CONSTANT_FIELDS & set(path.split(".")):
             return
         self._aliases[fixture_value] = received_value
         if path.endswith("idempotency_key"):
@@ -795,7 +1010,10 @@ def _launch_harness(transcript: Mapping[str, Any]) -> str:
 
 
 def substitute_aliases(value: Any, aliases: Mapping[str, str]) -> Any:
-    """Return value with each bound transcript value replaced by the one received."""
+    """Return value with each bound transcript value replaced by the one received.
+
+    Values under PROTOCOL_CONSTANT_FIELDS, at any depth, are never replaced.
+    """
     if isinstance(value, str):
         if value in aliases:
             return aliases[value]
@@ -803,8 +1021,43 @@ def substitute_aliases(value: Any, aliases: Mapping[str, str]) -> Any:
     if isinstance(value, list):
         return [substitute_aliases(item, aliases) for item in value]
     if isinstance(value, dict):
-        return {key: substitute_aliases(item, aliases) for key, item in value.items()}
+        return {
+            key: item if key in PROTOCOL_CONSTANT_FIELDS else substitute_aliases(item, aliases)
+            for key, item in value.items()
+        }
     return value
+
+
+# Fields whose values the contract fixes; an alias never rewrites or binds them.
+PROTOCOL_CONSTANT_FIELDS: Final = frozenset(
+    {"type", "method", "methods", "code", "mode", "state", "level", "contract", "language"}
+)
+# Values --alias may not rebind, because they spell protocol constants.
+PROTOCOL_CONSTANT_VALUES: Final = frozenset(
+    {
+        "launch",
+        "response",
+        "notice",
+        "worker",
+        "ready",
+        "launch_rejected",
+        "request",
+        "cancel",
+        "result",
+        "chat",
+        "sessions",
+        "connectors",
+        "info",
+        "warning",
+        "error",
+        "reconnecting",
+        "stopping",
+        "stopped",
+        "done",
+        "running",
+        "unknown",
+    }
+)
 
 
 def _substitute_substrings(text: str, aliases: Mapping[str, str]) -> str:
@@ -1076,7 +1329,7 @@ def _describe_terminal() -> dict[str, Any] | None:
 
 
 def parse_aliases(assignments: Sequence[str]) -> dict[str, str]:
-    """Parse --alias FIXTURE=ACTUAL options."""
+    """Parse --alias FIXTURE=ACTUAL options; they never apply to protocol constants."""
     aliases: dict[str, str] = {}
     for assignment in assignments:
         fixture, separator, actual = assignment.partition("=")

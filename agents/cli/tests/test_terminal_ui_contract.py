@@ -503,6 +503,7 @@ class TranscriptChecker:
         self.pending[request["id"]] = request
 
     def _check_response(self, response: dict[str, Any]) -> None:
+        assert response["id"] in self.pending, "a response answers a waiting request"
         request = self.pending.pop(response["id"])
         method = request["method"]
         error = response.get("error")
@@ -629,6 +630,98 @@ def test_aliases_replace_inside_longer_strings_longest_first() -> None:
         "url": "http://127.0.0.1:41999/v2/flows/t-20261111-142233-000002000002",
         "ids": ["t-20261111-142233-000001", "never", "a short word"],
     }
+
+
+def test_aliases_never_rewrite_protocol_constants() -> None:
+    aliases = {"store_failed": "made_up_code", "put_image": "export", "chat": "other"}
+    message = {
+        "type": "response",
+        "id": 1,
+        "error": {"code": "store_failed", "message": "store_failed"},
+        "method": "put_image",
+        "mode": "chat",
+    }
+    substituted = host.substitute_aliases(message, aliases)
+    assert substituted["error"]["code"] == "store_failed"
+    assert (substituted["method"], substituted["mode"]) == ("put_image", "chat")
+    assert substituted["error"]["message"] == "made_up_code"
+
+
+def test_alias_options_cannot_rebind_protocol_values(tmp_path: Path) -> None:
+    transcript = CONFORMANCE_DIR / "transcripts" / "chat_ready_then_exit.json"
+    completed = run_host_pair(tmp_path, transcript, launcher_options=["--alias", "ready=other"])
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("case", load_fixture("messages.json")["cases"], ids=case_name)
+def test_host_validator_agrees_on_message_cases(case: dict[str, Any]) -> None:
+    definition = "from_launcher" if case["direction"] == "launcher" else "from_tui"
+    violations = host.CONTRACT_SCHEMAS.violations(definition, case["message"])
+    assert (not violations) == case["is_valid"], violations
+
+
+@pytest.mark.parametrize("case", load_fixture("messages.json")["result_cases"], ids=case_name)
+def test_host_validator_agrees_on_result_cases(case: dict[str, Any]) -> None:
+    violations = host.CONTRACT_SCHEMAS.violations(f"{case['method']}_result", case["result"])
+    assert (not violations) == case["is_valid"], violations
+
+
+@pytest.mark.parametrize("case", load_fixture("launch.json")["cases"], ids=case_name)
+def test_host_validator_agrees_on_launch_cases(case: dict[str, Any]) -> None:
+    if "launch" not in case:
+        return
+    expected = not schema_errors(LAUNCH_VALIDATOR, case["launch"])
+    assert (not host.CONTRACT_SCHEMAS.violations("launch", case["launch"])) == expected
+
+
+def test_an_ignored_path_cannot_hide_a_schema_violation(tmp_path: Path) -> None:
+    original = CONFORMANCE_DIR / "transcripts" / "chat_put_image.json"
+    transcript = host.load_transcript(original)
+    del transcript["steps"][0]["message"]["capabilities"]
+    del transcript["steps"][0]["message"]["log_path"]
+    changed = tmp_path / "changed.json"
+    changed.write_text(json.dumps(transcript), encoding="utf-8")
+    completed = run_host_pair(tmp_path, changed, original)
+    assert completed.returncode == 1
+    detail = read_record(tmp_path / "tui.jsonl")[-1]["detail"]
+    assert "breaks the contract schema" in detail
+
+
+def test_an_ignored_result_field_cannot_hide_a_result_violation(tmp_path: Path) -> None:
+    original = CONFORMANCE_DIR / "transcripts" / "connectors_refresh.json"
+    transcript = host.load_transcript(original)
+    del transcript["steps"][3]["message"]["result"]["tools"]
+    changed = tmp_path / "changed.json"
+    changed.write_text(json.dumps(transcript), encoding="utf-8")
+    completed = run_host_pair(tmp_path, changed, original)
+    assert completed.returncode == 1
+    detail = read_record(tmp_path / "tui.jsonl")[-1]["detail"]
+    assert "breaks the contract schema at result" in detail
+
+
+def test_checker_requires_a_dropped_malformed_request_to_stay_unanswered() -> None:
+    transcript = host.load_transcript(
+        CONFORMANCE_DIR / "transcripts" / "chat_malformed_request.json"
+    )
+    TranscriptChecker(transcript).check()
+    answered = json.loads(json.dumps(transcript))
+    answered["steps"].insert(
+        5,
+        {
+            "from": "launcher",
+            "message": {
+                "type": "response",
+                "id": 2,
+                "error": {"code": "invalid_params", "message": "x"},
+            },
+        },
+    )
+    with pytest.raises(AssertionError):
+        TranscriptChecker(answered).check()
+    closed = json.loads(json.dumps(transcript))
+    closed["steps"][5:] = [{"close": "launcher"}]
+    with pytest.raises(AssertionError):
+        TranscriptChecker(closed).check()
 
 
 def test_free_text_messages_are_not_compared(tmp_path: Path) -> None:
