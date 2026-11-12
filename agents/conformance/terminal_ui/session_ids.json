@@ -1,6 +1,6 @@
 {
-  "description": "start_session derives the new session ID from the request's idempotency key, so resending the same key can never start a second session. Every implementation (TypeScript and Python launchers, the Go terminal UI and its tests) must turn each idempotency_key and harness into session_id, and must reject every invalid key. Hand-written; see agents/cli/TERMINAL_UI_CONTRACT.md.",
-  "rule": "The key must be a lowercase, hyphenated UUIDv7 (RFC 9562): 8-4-4-4-12 hex digits, version digit 7, variant digit 8, 9, a, or b. Its first 48 bits are Unix milliseconds, which must lie from 2000-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z. session_id is <harness>-<YYYYMMDD>-<HHMMSS>-<hex6>: the UTC date and time of the milliseconds floored to the second, then the first 6 lowercase hex digits of the SHA-256 of the key's 36 ASCII bytes. long_session_id is the same with the first 12 hex digits; start_session falls back to it when another request started session_id. Each start_session_cases entry lists the Flows that exist, each with the StartFlow request ID that started it, and the ID start_session ends with: the first candidate, session_id then long_session_id, that is free or that this key started; otherwise id_conflict.",
+  "description": "start_session derives the new session ID from the request's idempotency key, so resending the same key does not start a second session while the server retains the runs that key may have started. Every implementation (TypeScript and Python launchers, the Go terminal UI and its tests) must turn each idempotency_key and harness into session_id, and must reject every invalid key. Hand-written; see agents/cli/TERMINAL_UI_CONTRACT.md.",
+  "rule": "The key must be a lowercase, hyphenated UUIDv7 (RFC 9562): 8-4-4-4-12 hex digits, version digit 7, variant digit 8, 9, a, or b. Its first 48 bits are Unix milliseconds, which must lie from 2000-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z. session_id is <harness>-<YYYYMMDD>-<HHMMSS>-<hex6>: the UTC date and time of the milliseconds floored to the second, then the first 6 lowercase hex digits of the SHA-256 of the key's 36 ASCII bytes. long_session_id is the same with the first 12 hex digits; start_session falls back to it when another request started session_id. Each start_session_cases entry lists the Flows the server retains, each with the StartFlow request ID that started it, and the ID start_session ends with: long_session_id when this key started it; otherwise session_id when it is free or this key started it; otherwise long_session_id when it is free; otherwise id_conflict. start_session_sequences apply starts and server purges in order; starts_new_run says whether a start creates a run. The guarantee that a resend never starts a second session holds only while the server retains the runs the key may have started.",
   "vectors": [
     {
       "description": "A whole second.",
@@ -181,6 +181,102 @@
       "expected": {
         "error": "id_conflict"
       }
+    },
+    {
+      "name": "long-first-after-purge",
+      "description": "The short ID is free again (purged), but this key holds the long ID: the long ID, nothing new.",
+      "harness": "openai-sdk",
+      "idempotency_key": "01a1cafd-3028-7ddd-8d54-d4476636edc2",
+      "started_request_ids": {
+        "openai-sdk-20261111-142233-752bca81f1dd": "01a1cafd-3028-7ddd-8d54-d4476636edc2"
+      },
+      "expected": {
+        "session_id": "openai-sdk-20261111-142233-752bca81f1dd"
+      }
+    }
+  ],
+  "start_session_sequences": [
+    {
+      "name": "resend-after-the-other-run-is-purged",
+      "description": "A holds the short ID and B falls back to the long ID. The server purges A's run, then B resends: B gets its long-ID run again, and nothing new starts.",
+      "harness": "openai-sdk",
+      "steps": [
+        {
+          "op": "start",
+          "idempotency_key": "01a1cafd-3028-798a-afa6-3a4c36b9aff1",
+          "expected": {
+            "session_id": "openai-sdk-20261111-142233-752bca"
+          },
+          "starts_new_run": true
+        },
+        {
+          "op": "start",
+          "idempotency_key": "01a1cafd-3028-7ddd-8d54-d4476636edc2",
+          "expected": {
+            "session_id": "openai-sdk-20261111-142233-752bca81f1dd"
+          },
+          "starts_new_run": true
+        },
+        {
+          "op": "start",
+          "idempotency_key": "01a1cafd-3028-7ddd-8d54-d4476636edc2",
+          "expected": {
+            "session_id": "openai-sdk-20261111-142233-752bca81f1dd"
+          },
+          "starts_new_run": false
+        },
+        {
+          "op": "purge",
+          "session_id": "openai-sdk-20261111-142233-752bca"
+        },
+        {
+          "op": "start",
+          "idempotency_key": "01a1cafd-3028-7ddd-8d54-d4476636edc2",
+          "expected": {
+            "session_id": "openai-sdk-20261111-142233-752bca81f1dd"
+          },
+          "starts_new_run": false
+        }
+      ]
+    },
+    {
+      "name": "resend-after-its-own-run-is-purged",
+      "description": "Outside the guarantee: after the server purged B's own run, a resend of B's key starts a new session on the free short ID.",
+      "harness": "openai-sdk",
+      "steps": [
+        {
+          "op": "start",
+          "idempotency_key": "01a1cafd-3028-798a-afa6-3a4c36b9aff1",
+          "expected": {
+            "session_id": "openai-sdk-20261111-142233-752bca"
+          },
+          "starts_new_run": true
+        },
+        {
+          "op": "start",
+          "idempotency_key": "01a1cafd-3028-7ddd-8d54-d4476636edc2",
+          "expected": {
+            "session_id": "openai-sdk-20261111-142233-752bca81f1dd"
+          },
+          "starts_new_run": true
+        },
+        {
+          "op": "purge",
+          "session_id": "openai-sdk-20261111-142233-752bca"
+        },
+        {
+          "op": "purge",
+          "session_id": "openai-sdk-20261111-142233-752bca81f1dd"
+        },
+        {
+          "op": "start",
+          "idempotency_key": "01a1cafd-3028-7ddd-8d54-d4476636edc2",
+          "expected": {
+            "session_id": "openai-sdk-20261111-142233-752bca"
+          },
+          "starts_new_run": true
+        }
+      ]
     }
   ]
 }

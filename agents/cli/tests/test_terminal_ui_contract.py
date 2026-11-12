@@ -282,11 +282,49 @@ def test_colliding_keys_share_the_short_id_but_not_the_long_one() -> None:
 )
 def test_start_session_cases(case: dict[str, Any]) -> None:
     outcome = host.start_session_outcome(
-        case["harness"], case["idempotency_key"], case["started_request_ids"]
+        case["harness"], case["idempotency_key"], dict(case["started_request_ids"])
     )
     expected = case["expected"]
     assert outcome == expected.get("session_id")
     assert (outcome is None) == (expected.get("error") == "id_conflict")
+
+
+@pytest.mark.parametrize(
+    "case", load_fixture("session_ids.json")["start_session_sequences"], ids=case_name
+)
+def test_start_session_sequences(case: dict[str, Any]) -> None:
+    started_request_ids: dict[str, str] = {}
+    for step in case["steps"]:
+        if step["op"] == "purge":
+            del started_request_ids[step["session_id"]]
+            continue
+        before = dict(started_request_ids)
+        outcome = host.start_session_outcome(
+            case["harness"], step["idempotency_key"], started_request_ids
+        )
+        assert outcome == step["expected"].get("session_id"), step
+        assert (started_request_ids != before) == step["starts_new_run"], step
+
+
+def schema_property_names(node: object) -> set[str]:
+    if isinstance(node, list):
+        return {name for item in node for name in schema_property_names(item)}
+    if not isinstance(node, dict):
+        return set()
+    names = set(node.get("properties", {}))
+    for value in node.values():
+        names |= schema_property_names(value)
+    return names
+
+
+def test_host_knows_every_schema_field_name() -> None:
+    names = set().union(
+        *(
+            schema_property_names(schema)
+            for schema in (LAUNCH_SCHEMA, CHANNEL_SCHEMA, DESCRIBE_SCHEMA)
+        )
+    )
+    assert names == set(host.CHANNEL_FIELD_NAMES)
 
 
 @pytest.mark.parametrize("case", load_fixture("idempotency_table.json")["cases"], ids=case_name)
@@ -645,6 +683,25 @@ def test_records_and_errors_hold_no_secrets_or_display_text(tmp_path: Path) -> N
         (tmp_path / "launcher.jsonl").read_text(encoding="utf-8"),
     ):
         assert SENTINEL not in text
+
+
+def test_errors_never_name_an_unknown_field(tmp_path: Path) -> None:
+    original = CONFORMANCE_DIR / "transcripts" / "chat_notices_and_worker_states.json"
+    transcript = host.load_transcript(original)
+    transcript["steps"][2]["message"]["sentinel_secret_7f3a9c"] = 1
+    transcript["steps"][2]["message"]["text"] = "Changed."
+    changed = tmp_path / "changed.json"
+    changed.write_text(json.dumps(transcript), encoding="utf-8")
+    completed = run_host_pair(tmp_path, changed, original)
+    assert completed.returncode == 1
+    detail = read_record(tmp_path / "tui.jsonl")[-1]["detail"]
+    assert "text" in detail and "1 field(s) contract 1 does not define" in detail
+    for text in (
+        completed.stderr,
+        (tmp_path / "tui.jsonl").read_text(encoding="utf-8"),
+        (tmp_path / "launcher.jsonl").read_text(encoding="utf-8"),
+    ):
+        assert "sentinel_secret_7f3a9c" not in text
 
 
 def test_terminal_ui_role_answers_describe() -> None:
