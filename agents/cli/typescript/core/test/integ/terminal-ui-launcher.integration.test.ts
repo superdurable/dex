@@ -791,6 +791,33 @@ describe("the terminal UI launcher", () => {
     }
   });
 
+  test("a signal while the Worker host stops after a pre-ready failure prints no Plain chat line", async () => {
+    const home = newHome();
+    const pauseFile = join(home.directory, "pause");
+    const [launch] = readTranscript("chat_ready_then_exit").steps;
+    const rejected: Transcript = {
+      ...readTranscript("chat_ready_then_exit"),
+      steps: [
+        launch ?? {},
+        tuiPause(2_000),
+        { from: "tui", message: { type: "launch_rejected", code: "auth_missing", message: "DEX_API_KEY is not set." } },
+      ],
+      tui_exit: 2,
+    };
+    const fake = new FakeTerminalUi([rejected]);
+    const terminal = startOnTerminal(home, fake, [], { DEX_AGENTS_CLI_TEST_PAUSE_FILE: pauseFile });
+    await fake.waitForRecord((event) => event.event === "start");
+    const record = await waitForRunRecord(home);
+    // The rejection arrives with the Worker host's main loop blocked, so its stop takes the full bound.
+    writeFileSync(pauseFile, "");
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    process.kill(record.launcher.pid, "SIGTERM");
+    assert.equal(await terminal.waitForExit(), 143, terminal.terminal.all);
+    assert.doesNotMatch(terminal.terminal.all, /Plain chat:/);
+    assert.ok(!isProcessAlive(record.hostPid));
+    rmSync(pauseFile, { force: true });
+  });
+
   test("SIGTERM to the Worker host reports it stopping and stopped, and the chat then exits 1", async () => {
     const home = newHome();
     const fake = new FakeTerminalUi([

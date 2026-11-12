@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { dirname } from "node:path";
 import { constants } from "node:os";
@@ -24,10 +24,24 @@ import {
   type WorkerHostToLauncherMessage,
 } from "./worker-host-protocol.js";
 
-/** How long an orderly Worker host shutdown may take before SIGTERM. */
-const shutdownWaitMs = 10_000;
-/** How long the Worker host's group gets between SIGTERM and SIGKILL. */
-const terminateGraceMs = 2_000;
+/** How long each step of a Worker host shutdown waits for the host to exit. */
+export interface WorkerHostStopBounds {
+  /** After asking it to shut down, before SIGTERM. */
+  readonly shutdownWaitMs: number;
+  /** After SIGTERM to its group, before SIGKILL. */
+  readonly terminateGraceMs: number;
+  /** After SIGKILL, before giving up on it. */
+  readonly killWaitMs: number;
+}
+
+const defaultStopBounds: WorkerHostStopBounds = { shutdownWaitMs: 10_000, terminateGraceMs: 2_000, killWaitMs: 2_000 };
+
+/** Starts the Worker host process; tests pass a simulated one. */
+export type WorkerHostSpawner = (
+  command: string,
+  commandArguments: readonly string[],
+  options: SpawnOptions,
+) => ChildProcess;
 
 /** How the Worker host's startup ended. */
 export type WorkerHostStartup = WorkerHostReady | WorkerHostStartupFailed | { readonly type: "exited"; readonly exitCode: number };
@@ -62,11 +76,15 @@ export class WorkerHostProcess {
    * @param logFilePath - `~/.dex/agents/<harness>.log`.
    * @param environment - The Worker host's environment.
    * @param onStartupLog - Receives log lines before startup ends.
+   * @param spawnHost - Starts the process; the default is `child_process.spawn`.
+   * @param stopBounds - How long each shutdown step waits.
    */
   public constructor(
     logFilePath: string,
     environment: NodeJS.ProcessEnv,
     private readonly onStartupLog: (text: string) => void,
+    spawnHost: WorkerHostSpawner = spawn,
+    private readonly stopBounds: WorkerHostStopBounds = defaultStopBounds,
   ) {
     const entryScript = process.argv[1];
     if (entryScript === undefined) {
@@ -75,7 +93,7 @@ export class WorkerHostProcess {
     mkdirSync(dirname(logFilePath), { recursive: true });
     const logFile = openSync(logFilePath, "a");
     try {
-      this.child = spawn(process.execPath, [...process.execArgv, entryScript, workerHostSubcommand], {
+      this.child = spawnHost(process.execPath, [...process.execArgv, entryScript, workerHostSubcommand], {
         detached: true,
         stdio: ["ignore", logFile, logFile, "ipc"],
         env: environment,
@@ -168,25 +186,26 @@ export class WorkerHostProcess {
 
   /**
    * Stops the Worker host: asks it to shut down, waits up to 10 s, then sends SIGTERM to its process group and, 2 s
-   * later, SIGKILL.
-   * @returns Its exit status.
+   * later, SIGKILL, and waits 2 s more.
+   * @returns Its exit status, or `undefined` when it still did not exit, such as a process stuck in the kernel.
    */
-  public async shutdown(): Promise<number> {
+  public async shutdown(): Promise<number | undefined> {
     if (this.exitCode !== undefined) {
       return this.exitCode;
     }
     this.send({ type: "shutdown" });
-    if (await this.waitForExit(shutdownWaitMs)) {
-      return this.exited;
+    if (await this.waitForExit(this.stopBounds.shutdownWaitMs)) {
+      return this.exitCode;
     }
     const pgid = this.child.pid;
     if (pgid !== undefined) {
       signalProcessGroup(pgid, "SIGTERM");
-      if (!(await this.waitForExit(terminateGraceMs))) {
-        signalProcessGroup(pgid, "SIGKILL");
+      if (await this.waitForExit(this.stopBounds.terminateGraceMs)) {
+        return this.exitCode;
       }
+      signalProcessGroup(pgid, "SIGKILL");
     }
-    return this.exited;
+    return (await this.waitForExit(this.stopBounds.killWaitMs)) ? this.exitCode : undefined;
   }
 
   private async waitForExit(timeoutMs: number): Promise<boolean> {

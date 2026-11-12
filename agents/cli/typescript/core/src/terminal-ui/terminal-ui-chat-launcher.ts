@@ -155,12 +155,10 @@ export class TerminalUiChatLauncher {
     const hasHostStoppedDuringChat = handoff.hostExitCode !== undefined;
     const sessionId = ready.sessionId;
     const isFallback = !handoff.isReady && handoff.failure !== undefined;
-    if (isFallback && !this.isStoppedByUser(handoff, signals)) {
-      this.writeLine(`Plain chat: ${handoff.failure}.`);
-    }
     await this.stopHost();
     // A signal may also arrive while the Worker host stops; it decides the outcome then.
     if (isFallback && !this.isStoppedByUser(handoff, signals)) {
+      this.writeLine(`Plain chat: ${handoff.failure}.`);
       return { kind: "plain", resumeSessionId: sessionId };
     }
     if (signals.isHangUp) {
@@ -199,7 +197,12 @@ export class TerminalUiChatLauncher {
       return;
     }
     const pid = host.pid;
-    await host.shutdown();
+    const exitCode = await host.shutdown();
+    if (exitCode === undefined) {
+      // Its run record stays, so the next start's leftover cleanup stops it.
+      this.writeLine(`The Worker host (pid ${pid ?? "unknown"}) did not stop; the next start of this command stops it.`);
+      return;
+    }
     if (pid !== undefined) {
       await cleanUpWorkerHostRecord(this.launch.agentsDirectory, this.launch.harnessName, pid);
     }

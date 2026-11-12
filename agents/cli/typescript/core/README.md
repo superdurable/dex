@@ -497,9 +497,10 @@ Otherwise the command becomes a thin **launcher** with two children:
   `ready` within 5 s of its spawn. Before `ready`, any failure (`dexcli`
   exits or cannot start, `launch_rejected`, the channel ends or breaks, or the
   timeout) stops `dexcli` if it still runs (1 s to exit on its own, then
-  SIGTERM, then SIGKILL 2 s later), restores the terminal, prints
-  `Plain chat: <reason>.`, stops the Worker host, and continues in the text
-  chat with `--resume` of the same session.
+  SIGTERM, then SIGKILL 2 s later), restores the terminal, stops the Worker
+  host, prints `Plain chat: <reason>.`, and continues in the text chat with
+  `--resume` of the same session. A signal that arrives meanwhile ends the
+  command instead, without that line.
 - After `ready` the launcher relays `put_image`, `start_session`, and
   `list_connectors` to the Worker host and serves `open_url` itself.
   `src/terminal-ui/local-request-relay.ts` checks each request against the
@@ -521,7 +522,10 @@ Otherwise the command becomes a thin **launcher** with two children:
   `The chat closed unexpectedly (dexcli exit N).` A channel that ends or
   breaks after `ready` also ends the chat: `dexcli` gets 1 s to exit, then
   SIGTERM, and the line names the cause. The launcher stops the Worker host:
-  `shutdown`, up to 10 s, then SIGTERM to its group and SIGKILL 2 s later.
+  `shutdown`, up to 10 s, then SIGTERM to its group and SIGKILL 2 s later. A
+  Worker host that still has not exited 2 s after SIGKILL, such as one stuck in
+  the kernel, is left with its run record; the launcher says so, finishes, and
+  the next start's leftover cleanup stops it.
   After `ready` it prints no `--resume` line of its own: `dexcli`'s exit
   summary names the session, because `/new` may have switched to another one.
   It prints one only when `dexcli` never sent `ready`, and the plain chat it
