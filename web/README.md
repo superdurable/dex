@@ -132,9 +132,10 @@ docker run --rm -p 8802:8802 \
 
 The image binds HTTP to `0.0.0.0:8802`, runs as UID/GID 65532, and includes the
 system CA bundle. Mount definition directories and token files read-only with
-permissions that allow that UID to read them. Main publishes
-`superdurable/dex-web:latest`; `web/vX.Y.Z` releases publish
-`superdurable/dex-web:vX.Y.Z`. Changed-component releases select Web when its
+permissions that allow that UID to read them. `web/vX.Y.Z` releases publish
+`superdurable/dex-web:vX.Y.Z`. Pushes to main no longer publish
+`superdurable/dex-web:latest`; a manual run of **Push Docker images (main)**
+still does. Changed-component releases select Web when its
 source, shared renderer, or protobuf dependency changes. `--version` reports the
 build version.
 

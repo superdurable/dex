@@ -218,10 +218,11 @@ jobs:
     name: Push released reference snapshots
     needs: [plan, create-releases]
     if: >-
+      !cancelled() && needs.create-releases.result == 'success' && (
       needs.plan.outputs.go == 'true' || needs.plan.outputs.python == 'true' ||
       needs.plan.outputs.java == 'true' || needs.plan.outputs.typescript == 'true' ||
       needs.plan.outputs.rust == 'true' || needs.plan.outputs.web == 'true' ||
-      needs.plan.outputs.cli == 'true' || needs.plan.outputs.agents == 'true'
+      needs.plan.outputs.cli == 'true' || needs.plan.outputs.agents == 'true')
     # A snapshot failure must never fail the release run.
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -304,10 +305,11 @@ jobs:
             echo "The release is unaffected. Run the snapshot from docs/README.md by hand and open its pull request."
           } >> "${GITHUB_STEP_SUMMARY}"
 
+  # Skipped test-* jobs of unselected components would otherwise skip every job after create-releases.
   publish-java:
     name: Publish Java SDK
     needs: [plan, create-releases]
-    if: needs.plan.outputs.java == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.java == 'true' }}
     uses: ./.github/workflows/sdk-java-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
@@ -318,7 +320,7 @@ jobs:
   publish-python:
     name: Publish Python SDK
     needs: [plan, create-releases]
-    if: needs.plan.outputs.python == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.python == 'true' }}
     uses: ./.github/workflows/sdk-python-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
@@ -330,7 +332,7 @@ jobs:
   publish-rust:
     name: Publish Rust SDK
     needs: [plan, create-releases]
-    if: needs.plan.outputs.rust == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.rust == 'true' }}
     uses: ./.github/workflows/sdk-rust-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
@@ -342,7 +344,7 @@ jobs:
   publish-typescript:
     name: Publish TypeScript SDK
     needs: [plan, create-releases]
-    if: needs.plan.outputs.typescript == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.typescript == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -389,7 +391,7 @@ jobs:
   publish-agents:
     name: Publish ${{ matrix.publisher.name }}
     needs: [plan, create-releases]
-    if: needs.plan.outputs.agents == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.agents == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -456,7 +458,7 @@ jobs:
   publish-web:
     name: Publish Dex Web
     needs: [plan, create-releases]
-    if: needs.plan.outputs.web == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.web == 'true' }}
     uses: ./.github/workflows/docker-image-web-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
@@ -468,7 +470,7 @@ jobs:
   publish-web-embedded:
     name: Publish embedded Dex Web Go module
     needs: [plan, create-releases]
-    if: needs.plan.outputs.web == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.web == 'true' }}
     uses: ./.github/workflows/web-embedded-module-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
@@ -479,7 +481,7 @@ jobs:
   publish-cli:
     name: Publish CLI
     needs: [plan, create-releases]
-    if: needs.plan.outputs.cli == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.cli == 'true' }}
     uses: ./.github/workflows/cli-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
