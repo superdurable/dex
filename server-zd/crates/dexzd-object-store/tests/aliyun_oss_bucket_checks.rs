@@ -28,9 +28,9 @@ impl FaultInjector for ProbeFaults {
     fn action(&self, operation: ObjectStoreOperation, _key: &str) -> FaultAction {
         match operation {
             ObjectStoreOperation::Put if self.puts.fetch_add(1, Ordering::SeqCst) == 1 => {
-                self.second_put.clone()
+                self.second_put
             }
-            ObjectStoreOperation::Delete => self.delete.clone(),
+            ObjectStoreOperation::Delete => self.delete,
             _ => FaultAction::Proceed,
         }
     }
