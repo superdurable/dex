@@ -174,6 +174,12 @@ so each call is a Dex tool Step with the server's effect class, approval,
 idempotency key, and tasks. The agent sees each tool by its MCP name, such as
 `slack_post_thread_reply`, without a server prefix, and `approval.always`
 names it the same way.
+A call that waits for approval carries the display of
+`build_connector_tool_approval_display` in `AgentInterrupt.display`: the
+target `<connector>/<connection>` and a summary with the operation, the
+connection, and up to five short arguments, credential-like ones as
+`<redacted>`, read from the tool's `_meta`. A tool whose `_meta` names no
+connector and connection has no display.
 
 `connectors.enabled` filters by connector, connection, and operation. The
 CLI core reads them from the top-level `_meta` keys of each tool, which
@@ -300,6 +306,16 @@ These checks have limits:
   the browser tools take no screenshots. After a Worker restart a
   session has no page until the agent navigates again.
 - `approval.always` adds approval to any tool by name.
+- An approval says what the call acts on in `AgentInterrupt.display`. A file
+  write's target is its workspace path, and its preview is a unified diff of
+  the file as it is when the model asks against the new content, with the
+  header lines `--- <path> (the file now)` and `+++ <path> (after this write)`
+  (`--- /dev/null (no file now)` for a new file). The preview is left out for
+  a file or new content over 64 KiB, a diff over 200 lines, a path that leaves
+  the workspace, a file that is not UTF-8, an `edit_file` whose `old_text`
+  does not occur once, and a credential file such as `.env`, `id_ed25519`, or
+  `server.pem`. A shell command's target is the working directory, and its
+  summary holds the full command. Browser actions have no display.
 - Each tool's effect and approval are a floor. An explicit `ToolPolicy` in
   the session options may make a tool more cautious, such as a `read` that
   must be approved, but never less: a write stays a write, and

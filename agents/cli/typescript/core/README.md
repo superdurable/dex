@@ -288,6 +288,16 @@ Each call is one Dex tool Step, recorded in the session.
   downloads Chromium on first use. Each session has one page in the Worker's
   memory.
 - `approval.always` adds approval to any tool by name.
+- An approval says what the call acts on in `AgentInterrupt.display`. A file
+  write's target is its workspace path, and its preview is a unified diff of
+  the file as it is when the model asks against the new content, with the
+  header lines `--- <path> (the file now)` and `+++ <path> (after this write)`
+  (`--- /dev/null (no file now)` for a new file). The preview is left out for
+  a file or new content over 64 KiB, a diff over 200 lines, a path that leaves
+  the workspace, a file that is not UTF-8, an `edit_file` whose `old_text`
+  does not occur once, and a credential file such as `.env`, `id_ed25519`, or
+  `server.pem`. A shell command's target is the working directory, and its
+  summary holds the full command. Browser actions have no display.
 - A local tool's effect and approval are floors. An explicit `ToolPolicy` for
   it may raise the effect, ranked as in `McpToolSource.mergeToolPolicies`.
   The call waits for approval when the tool asks for it, when the policy sets
@@ -313,6 +323,13 @@ that listing fails, the warning says the run has no connector tools and to
 restart the command once the server answers. Every TypeScript adapter lists
 its tool sources in each model call, so none of the TypeScript commands sets
 it; the Python CLI core's `is_tool_set_fixed_at_build` is the same switch.
+
+A connector call that waits for approval carries the display of
+`buildConnectorToolApprovalDisplay` in `AgentInterrupt.display`: the target
+`<connector>/<connection>` and a summary with the operation, the connection,
+and up to five short arguments, credential-like ones as `<redacted>`, read
+from the tool's `_meta`. A tool whose `_meta` names no connector and
+connection has no display.
 
 The agent sees each connector tool by its MCP name, such as
 `slack_post_thread_reply`. `connectors.enabled` matches only these `_meta`

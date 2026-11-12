@@ -47,7 +47,7 @@ import json
 import os
 import time
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -205,11 +205,13 @@ class ScriptedRunner(AgentFrameworkRunner):
                 {"command": command, "model_calls": 1, "calls": [asdict(call) for call in calls]}
             ),
             tool_calls=[
-                DeferredToolCall(
-                    tool_call_id=call.tool_call_id,
-                    tool_name=call.tool_name,
-                    arguments=call.arguments,
-                    policy=turn.resolve_tool_policy(call.tool_name),
+                _with_scripted_approval_display(
+                    DeferredToolCall(
+                        tool_call_id=call.tool_call_id,
+                        tool_name=call.tool_name,
+                        arguments=call.arguments,
+                        policy=turn.resolve_tool_policy(call.tool_name),
+                    )
                 )
                 for call in calls
             ],
@@ -423,3 +425,23 @@ def _assistant_text(command: str, text: str) -> FrameworkMessage:
 
 def _framework_item(item_type: str, tool_call_id: str, content: Any) -> str:
     return json.dumps({"type": item_type, "tool_call_id": tool_call_id, "content": content})
+
+
+def _with_scripted_approval_display(call: DeferredToolCall) -> DeferredToolCall:
+    """Add the display a call's ``display`` argument describes, as a tool source would.
+
+    Only calls that name a display touch the new field, so the released Worker,
+    which runs this agent too and has no such field, never sees it.
+    """
+    if '"display"' not in call.arguments:
+        return call
+    from dex_agents import AgentInterruptDisplay
+
+    display = json.loads(call.arguments)["display"]
+    preview = display.get("preview")
+    if isinstance(preview, int):
+        preview = "x" * preview
+    approval_display = AgentInterruptDisplay(
+        target=display["target"], summary=display["summary"], preview=preview
+    )
+    return replace(call, approval_display=approval_display)

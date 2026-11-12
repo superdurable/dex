@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from dex_agents import AgentInterruptDisplay
 from dex_agents.testing import find_free_ports
 from dex_agents_cli_core import session_flow_type
 from tests.conftest import (
@@ -67,6 +69,41 @@ async def test_a_connector_read_runs_at_once_and_an_approved_write_runs_once(
     assert sent["io.superdurable.connectors/expectedConnector"] == "slack"
     assert sent["io.superdurable.connectors/expectedConnection"] == "support-slack"
     assert sent["io.superdurable.connectors/expectedOperation"] == "postThreadReply"
+
+
+async def test_a_connector_write_approval_names_the_operation_connection_and_arguments(
+    cli_home: CliHome, fake_mcp: FakeConnectorsMcp, tmp_path: Path
+) -> None:
+    cli_home.write_config(
+        config_yaml({"connectors": {"mcp": fake_mcp.url}, "local_tools": NO_LOCAL_TOOLS})
+    )
+    child = cli_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    arguments = {
+        "thread": "T1",
+        "channel": "#eng",
+        "text": "Found 3 open issues",
+        "token": "xoxb-secret",
+        "body": "line one\nline two",
+    }
+    child.sendline("call slack_post_thread_reply " + json.dumps(arguments))
+    await expect(child, "[approval] slack_post_thread_reply")
+    workspace = cli_home.home / "dex-agent-workspace"
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
+        snapshot = await sessions.get_agent_snapshot(session_id)
+    (interrupt,) = snapshot.pending_interrupts
+    assert interrupt.display == AgentInterruptDisplay(
+        target="slack/support-slack",
+        summary="Calls slack postThreadReply with connection support-slack; "
+        'thread: "T1", channel: "#eng", text: "Found 3 open issues", token: <redacted>.',
+    )
+    child.sendline("n")
+    await expect(child, "[rejected]")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert fake_mcp.runs("slack_post_thread_reply") == 0
 
 
 async def test_the_file_enabled_tools_are_cached_before_the_flow_is_built(

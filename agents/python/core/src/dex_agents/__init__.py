@@ -22,6 +22,12 @@ client on LiteLLM.
 ``CompactionPolicy`` its optional context compaction.
 """
 
+from dex_agents.approval_display import (
+    MAX_APPROVAL_PREVIEW_BYTES,
+    REDACTED_ARGUMENT_VALUE,
+    build_connector_tool_approval_display,
+    is_credential_like_name,
+)
 from dex_agents.built_in_tools import (
     BUILT_IN_TOOL_DEFINITIONS,
     DEFAULT_MAX_DURABLE_WAIT,
@@ -192,6 +198,7 @@ from dex_agents.values import (
     AgentEvent,
     AgentImageReference,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentInterruptResolution,
     AgentMessage,
     AgentMessageChunk,
@@ -268,6 +275,7 @@ __all__ = [
     "INTERRUPT_RESOLUTIONS",
     "INVALID_START_SESSION_SETTINGS_REASON",
     "INVALID_TOOL_TASK_POLL_INTERVAL",
+    "MAX_APPROVAL_PREVIEW_BYTES",
     "MAX_IMAGES_PER_MESSAGE",
     "MAX_IMAGE_BYTES",
     "MAX_IMAGE_URI_LENGTH",
@@ -286,6 +294,7 @@ __all__ = [
     "QUESTION_DEADLINE_PASSED",
     "QUESTION_DECLINED_TOOL_RESULT",
     "QUEUED_USER_MESSAGES",
+    "REDACTED_ARGUMENT_VALUE",
     "SESSION_SETTINGS",
     "SESSION_SETTINGS_SIZE_TOLERANCE_BYTES",
     "SPEND_LIMIT_CALL_TIMEOUT",
@@ -313,6 +322,7 @@ __all__ = [
     "AgentFrameworkRunner",
     "AgentImageReference",
     "AgentInterrupt",
+    "AgentInterruptDisplay",
     "AgentInterruptResolution",
     "AgentMessage",
     "AgentMessageChunk",
@@ -406,6 +416,7 @@ __all__ = [
     "TurnSessionSettings",
     "UnfinishedTurnMessageBuilder",
     "UpdateSessionSettingsRequest",
+    "build_connector_tool_approval_display",
     "build_context_summary_note",
     "build_context_summary_omission_note",
     "build_context_summary_prompt",
@@ -420,6 +431,7 @@ __all__ = [
     "estimate_stored_input_tokens",
     "estimate_text_tokens",
     "image_uri",
+    "is_credential_like_name",
     "load_images",
     "message_sequence_key",
     "plan_execution_key",

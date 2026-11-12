@@ -83,6 +83,7 @@ from dex_agents import (
     AgentEventWriter,
     AgentImageReference,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentInterruptResolution,
     AgentMessage,
     AgentMessageChunk,
@@ -442,6 +443,11 @@ def full_tool_call(**changes: Any) -> AgentToolCall:
         task_answer_pending=True,
         images=[CHART_IMAGE],
         runner_tool_state='{"format":"runner.v1","state":"opaque"}',
+        approval_display=AgentInterruptDisplay(
+            target="bank/checking",
+            summary='Calls bank transfer with connection checking; amount: 5, memo: "Grüße".',
+            preview=TRICKY_TEXT,
+        ),
     )
     return replace(record, **changes)
 
@@ -467,6 +473,17 @@ def approval_interrupt() -> AgentInterrupt:
         tool_name="send_email",
         arguments='{"to": "ops@example.com"}',
         created_at=CREATED_AT,
+    )
+
+
+def displayed_approval_interrupt() -> AgentInterrupt:
+    return replace(
+        approval_interrupt(),
+        display=AgentInterruptDisplay(
+            target="docs/notes.md",
+            summary="Writes 3 bytes to docs/notes.md.",
+            preview=TRICKY_TEXT,
+        ),
     )
 
 
@@ -838,6 +855,28 @@ def build_value_documents() -> list[dict[str, Any]]:
 
     interrupts = ValueCases("AgentInterrupt", "One AgentInterrupt, as in PendingInterrupts.")
     interrupts.value("tool-approval", "A tool approval with defaults.", approval_interrupt())
+    interrupts.value(
+        "tool-approval-display",
+        "A tool approval with the display its tool's source built.",
+        displayed_approval_interrupt(),
+    )
+    interrupts.wire(
+        "tool-approval-display-without-preview",
+        "A display whose preview is absent.",
+        {
+            "interrupt_id": "call-2",
+            "kind": "tool_approval",
+            "tool_call_id": "call-2",
+            "tool_name": "run_shell_command",
+            "arguments": '{"command": "npm test"}',
+            "created_at": CREATED_AT,
+            "deadline": None,
+            "display": {
+                "target": "/work/app",
+                "summary": "Runs a shell command in /work/app: npm test",
+            },
+        },
+    )
     interrupts.value("question", "A question with every field set.", question_interrupt())
     interrupts.wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", RELEASED_INTERRUPT)
     documents.append(interrupts)

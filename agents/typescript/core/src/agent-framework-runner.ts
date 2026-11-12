@@ -12,6 +12,7 @@ import type { BuiltInTool } from "./agent-built-in-tools.js";
 import type { ContextSummaryRequest, ContextSummaryResult } from "./agent-context-compaction.js";
 import type {
   AgentImageReference,
+  AgentInterruptDisplay,
   AgentMessage,
   AgentPlan,
   AgentToolCall,
@@ -298,6 +299,26 @@ export interface DeferredToolCall {
    * @since 0.4.0
    */
   readonly ordered?: boolean;
+  /**
+   * What the call acts on and does, for the person who approves it, or omitted for none. The session stores it
+   * with a call whose policy requires approval and shows it as {@link AgentInterrupt.display} when it raises the
+   * approval; it ignores it for other calls. Build it from the call's concrete arguments: name the target and
+   * what the call does to it, show a credential-like argument as `<redacted>`, and never promise how often the
+   * call runs or what it achieves. The session drops a preview over {@link maxApprovalPreviewBytes}. The CLI's
+   * local tools, the CLI's connector tools, and `ConnectorToolSource` set it.
+   * @example
+   * ```ts
+   * return {
+   *   toolCallId: call.toolCallId,
+   *   toolName: call.toolName,
+   *   arguments: call.arguments,
+   *   policy: { effect: "non_idempotent_write", requiresApproval: true },
+   *   approvalDisplay: { target: "orders/42", summary: "Cancels order 42." },
+   * };
+   * ```
+   * @since 0.6.0
+   */
+  readonly approvalDisplay?: AgentInterruptDisplay;
 }
 
 /**

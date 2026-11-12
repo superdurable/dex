@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from dex_agents import (
+    AgentInterruptDisplay,
     AgentTurnContext,
     DeferredToolCall,
     DeferredToolExecution,
@@ -29,6 +30,11 @@ from dex_agents import (
 from dex_agents.builtin_loop import SourceToolDefinition
 from dex_agents_cli_core.config import EffectiveConfig
 from dex_agents_cli_core.harness import LocalToolGroup
+from dex_agents_cli_core.local_tools.approval_display import (
+    build_edit_file_display,
+    build_shell_command_display,
+    build_write_file_display,
+)
 from dex_agents_cli_core.local_tools.browser import BrowserSessions
 from dex_agents_cli_core.local_tools.files import WorkspaceFiles
 from dex_agents_cli_core.local_tools.shell import (
@@ -232,7 +238,10 @@ class LocalToolSource:
     has its exact text; it is always a single-attempt write, so a Worker that
     dies during it never runs it again. The tools a turn offers follow its
     ``local_tools`` switches, and tools outside a model call's turn are never
-    offered.
+    offered. A file write's approval carries its workspace path and a unified
+    diff against the file as it is when the model asks, and a shell command's
+    carries the working directory and the full command (see
+    ``AgentInterrupt.display``).
     """
 
     def __init__(
@@ -324,14 +333,54 @@ class LocalToolSource:
             requires_approval = command is None or is_shell_command_approval_required(
                 turn_config, command
             )
+        policy = resolve_turn_tool_policy(
+            turn, tool_name, definition.effect, requires_approval, turn_config
+        )
         return DeferredToolCall(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             arguments=arguments,
-            policy=resolve_turn_tool_policy(
-                turn, tool_name, definition.effect, requires_approval, turn_config
+            policy=policy,
+            approval_display=(
+                self._approval_display(tool_name, arguments)
+                if policy.is_approval_required
+                else None
             ),
         )
+
+    def _approval_display(self, tool_name: str, arguments: str) -> AgentInterruptDisplay | None:
+        """Return what a file write or shell command acts on, for its approval.
+
+        A file write names its workspace path with a diff against the file
+        now, and a shell command its working directory and full command.
+        Browser actions and calls with invalid arguments have none.
+        """
+        try:
+            parsed = json.loads(arguments or "{}")
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        path = parsed.get("path")
+        match tool_name:
+            case "write_file":
+                content = parsed.get("content")
+                if isinstance(path, str) and isinstance(content, str):
+                    return build_write_file_display(self._files, path, content)
+            case "edit_file":
+                old_text = parsed.get("old_text")
+                new_text = parsed.get("new_text")
+                if (
+                    isinstance(path, str)
+                    and isinstance(old_text, str)
+                    and isinstance(new_text, str)
+                ):
+                    return build_edit_file_display(self._files, path, old_text, new_text)
+            case "run_shell_command":
+                command = parsed.get("command")
+                if isinstance(command, str):
+                    return build_shell_command_display(str(self._workspace), command)
+        return None
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
         """Run one approved local tool call, after authorizing it again on this Worker.

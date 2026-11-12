@@ -1951,7 +1951,15 @@ func writeInterruptRaised(events *AgentEventWriter, interrupt AgentInterrupt) er
 		"question":         interrupt.Question,
 		"choices":          nonNilSlice(interrupt.Choices),
 		"allows_free_text": interrupt.AllowsFreeText,
+		"display":          interruptDisplayPayload(interrupt.Display),
 	})
+}
+
+func interruptDisplayPayload(display *AgentInterruptDisplay) any {
+	if display == nil {
+		return nil
+	}
+	return map[string]any{"target": display.Target, "summary": display.Summary, "preview": display.Preview}
 }
 
 func deleteTurnRecords(ctx dex.Context, toolCalls []AgentToolCall) error {

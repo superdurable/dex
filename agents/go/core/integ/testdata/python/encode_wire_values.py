@@ -32,6 +32,7 @@ from dex_agents.builtin_loop.transcript import encode_builtin_loop_message
 from dex_agents.values import (
     AgentEvent,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentInterruptResolution,
     AgentMessage,
     AgentMessageChunk,
@@ -126,6 +127,9 @@ TOOL_CALLS = [
         task_id="task-1",
         task_poll_interval_seconds=5,
         task_answer_pending=True,
+        approval_display=AgentInterruptDisplay(
+            target="orders/7", summary="Refunds order 7 \u00fc <now>.", preview="--- a\n+++ b\n"
+        ),
     ),
     AgentToolCall(
         tool_call_id="call-3",
@@ -158,6 +162,7 @@ INTERRUPT = AgentInterrupt(
     arguments="{}",
     created_at="2026-11-01T12:00:00.123Z",
     deadline="2026-11-02T12:00:00.123Z",
+    display=AgentInterruptDisplay(target="orders/7", summary="Refunds order 7."),
 )
 USAGE = AgentUsage(
     model_calls=2, input_tokens=20, output_tokens=10, cached_input_tokens=3, reasoning_tokens=4
@@ -282,7 +287,8 @@ def event_payloads() -> list[dict[str, object]]:
         "interrupt_raised",
         {"interrupt_id": "call-2", "tool_call_id": "call-2", "tool_name": "refund_order",
          "deadline": None, "kind": "tool_approval", "question": None, "choices": [],
-         "allows_free_text": True},
+         "allows_free_text": True,
+         "display": {"target": "orders/7", "summary": "Refunds order 7.", "preview": None}},
     )
     writer.write_event(
         "interrupt_resolved",

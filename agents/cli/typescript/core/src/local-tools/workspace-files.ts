@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { createHash } from "node:crypto";
-import { constants, type Dirent, type Stats } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, realpathSync, type Dirent, type Stats } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, type FileHandle } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -24,6 +24,14 @@ const noFollowFlag = constants.O_NOFOLLOW ?? 0;
 // Opening a FIFO or device for reading must not block before its type is checked; Windows has no such flag.
 const nonBlockingOpenFlag = process.platform === "win32" ? 0 : (constants.O_NONBLOCK ?? 0);
 const readChunkBytes = 64 * 1024;
+
+/** A file's workspace path and its current text, for an approval preview; `text` is `null` for a new file. */
+export interface WorkspaceFilePreviewSource {
+  /** The path relative to the workspace, as the tool results show it. */
+  readonly displayPath: string;
+  /** The file's UTF-8 text now, or `null` when no file has the path yet. */
+  readonly text: string | null;
+}
 
 /**
  * A file operation that {@link WorkspaceFiles} refused before it changed anything: a path outside the workspace or
@@ -194,6 +202,75 @@ export class WorkspaceFiles {
     }
     const target = await this.replaceFile(path, text.replace(oldText, () => newText), false, readVersion);
     return `edited ${this.displayPath(target)}: replaced 1 occurrence`;
+  }
+
+  /**
+   * Reads a file's text for an approval preview without waiting, with the same workspace checks as the tools: the
+   * path must stay inside the workspace through every link and name a regular file with one link, or no file yet.
+   * The model call runs it, so it never throws.
+   * @param path - The file.
+   * @param maximumBytes - The largest file to read.
+   * @returns The workspace path and the text, `text` `null` for a new file, or `undefined` when the path leaves the
+   * workspace, names something else, is larger than `maximumBytes`, is not UTF-8, or cannot be read.
+   */
+  public readTextForPreview(path: string, maximumBytes: number): WorkspaceFilePreviewSource | undefined {
+    if (typeof path !== "string" || path === "" || path.includes("\0")) {
+      return undefined;
+    }
+    const candidate = resolve(this.workspace, path);
+    let real: string;
+    try {
+      real = realpathSync.native(candidate);
+    } catch {
+      return this.newFilePreviewSource(candidate);
+    }
+    if (!this.isInside(real)) {
+      return undefined;
+    }
+    let descriptor: number;
+    try {
+      descriptor = openSync(real, constants.O_RDONLY | noFollowFlag | nonBlockingOpenFlag);
+    } catch {
+      return undefined;
+    }
+    try {
+      const stats = fstatSync(descriptor);
+      if (!stats.isFile() || stats.nlink > 1 || stats.size > maximumBytes || realpathSync.native(real) !== real) {
+        return undefined;
+      }
+      const buffer = Buffer.alloc(maximumBytes + 1);
+      const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0);
+      if (bytesRead > maximumBytes) {
+        return undefined;
+      }
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
+      return { displayPath: this.displayPath(real), text };
+    } catch {
+      return undefined;
+    } finally {
+      closeSync(descriptor);
+    }
+  }
+
+  /** The preview source of a path that names no file yet, or `undefined` when its existing part leaves. */
+  private newFilePreviewSource(candidate: string): WorkspaceFilePreviewSource | undefined {
+    let ancestor = dirname(candidate);
+    let realAncestor: string | undefined;
+    for (;;) {
+      try {
+        realAncestor = realpathSync.native(ancestor);
+        break;
+      } catch {
+        if (ancestor === dirname(ancestor)) {
+          return undefined;
+        }
+        ancestor = dirname(ancestor);
+      }
+    }
+    const resolved = join(realAncestor, relative(ancestor, candidate));
+    return this.isInside(realAncestor) && this.isInside(resolved)
+      ? { displayPath: this.displayPath(resolved), text: null }
+      : undefined;
   }
 
   /**

@@ -16,6 +16,8 @@ import {
   createAgentSessionFlow,
   describeToolCallOutcome,
   isFinalToolCallStatus,
+  maxApprovalPreviewBytes,
+  type AgentInterruptDisplay,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type AgentTracingOptions,
@@ -189,7 +191,14 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
           ? JSON.stringify({ todos: [{ content: "Ship it", status: "pending" }] })
           : JSON.stringify({ requested_by: userText });
       turnItems.push({ kind: "tool_call", toolCallId, toolName, arguments: toolArguments });
-      return { toolCallId, toolName, arguments: toolArguments, policy: turn.resolveToolPolicy(toolName) };
+      const approvalDisplay = scriptedApprovalDisplay(toolName);
+      return {
+        toolCallId,
+        toolName,
+        arguments: toolArguments,
+        policy: turn.resolveToolPolicy(toolName),
+        ...(approvalDisplay === undefined ? {} : { approvalDisplay }),
+      };
     });
     const runState: ScriptedRunState = {
       turnItems,
@@ -564,6 +573,18 @@ export function createScriptedAgentFlow(
       stubborn_report_task: { effect: "read" },
     },
   });
+}
+
+/** `displayed_send` carries an approval display; `oversized_display_send` one whose preview is over the bound. */
+function scriptedApprovalDisplay(toolName: string): AgentInterruptDisplay | undefined {
+  switch (toolName) {
+    case "displayed_send":
+      return { target: "ops@example.com", summary: "Sends an email to ops@example.com.", preview: "Subject: Order 7" };
+    case "oversized_display_send":
+      return { target: "ops@example.com", summary: "Sends an email to ops@example.com.", preview: "x".repeat(maxApprovalPreviewBytes + 1) };
+    default:
+      return undefined;
+  }
 }
 
 function decideScriptedModelAction(

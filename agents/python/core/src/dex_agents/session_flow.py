@@ -70,6 +70,7 @@ from dex import (
 from dex.condition import Condition
 
 from dex_agents._session_tracing import AgentSessionTracer
+from dex_agents.approval_display import bound_approval_display
 from dex_agents.built_in_tools import (
     DEFAULT_MAX_DURABLE_WAIT,
     QUESTION_DEADLINE_PASSED,
@@ -183,6 +184,7 @@ from dex_agents.values import (
     AgentEvent,
     AgentImageReference,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentInterruptResolution,
     AgentMessage,
     AgentMessageChunk,
@@ -1759,6 +1761,11 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 tool_source_reference=requested.tool_source_reference,
                 trace_context=trace_context,
                 ordered_write=is_ordered_write,
+                approval_display=(
+                    bound_approval_display(requested.approval_display)
+                    if requires_approval
+                    else None
+                ),
             )
             events.write_event(
                 AgentEventType.TOOL_CALL_DEFERRED,
@@ -1831,6 +1838,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             arguments=tool_call.arguments,
             created_at=_rfc3339(now),
             deadline=self._interrupt_deadline(now),
+            display=tool_call.approval_display,
         )
         interrupts.append(interrupt)
         _write_interrupt_raised(events, interrupt)
@@ -3537,8 +3545,15 @@ def _write_interrupt_raised(events: AgentEventWriter, interrupt: AgentInterrupt)
             "question": interrupt.question,
             "choices": list(interrupt.choices),
             "allows_free_text": interrupt.allows_free_text,
+            "display": _display_payload(interrupt.display),
         },
     )
+
+
+def _display_payload(display: AgentInterruptDisplay | None) -> dict[str, str | None] | None:
+    if display is None:
+        return None
+    return {"target": display.target, "summary": display.summary, "preview": display.preview}
 
 
 def _write_interrupt_resolved(

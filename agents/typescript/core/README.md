@@ -1286,6 +1286,30 @@ does not turn this on; pass `configOverride: { activeStepSearchMode: agentSessio
 `Client.updateFlowConfig` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
+## Showing what an approval acts on
+
+A tool approval can say what the call acts on and what it does. Its tool source returns an
+`AgentInterruptDisplay` `{ target, summary, preview? }` in `DeferredToolCall.approvalDisplay`, and the session
+stores it in `AgentInterrupt.display`, on the call's record as `approvalDisplay`, and in the `interrupt_raised`
+event. A queued ordered write raises its approval later with the display its source built when the model asked.
+
+```ts
+const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+for (const interrupt of snapshot.pendingInterrupts) {
+  console.log(interrupt.display?.summary ?? interrupt.arguments);
+}
+```
+
+- `ConnectorToolSource` and the CLI's connector tools build it with `buildConnectorToolApprovalDisplay`: the
+  target is `<connector>/<connection>`, and the summary names the operation, the connection, and up to five short
+  arguments, such as `Calls slack postChannelMessage with connection support-slack; channel: "#eng".`
+- The CLI's local file writes name the workspace path and carry a unified diff against the file as it is when the
+  model asks; its header lines say so. Its shell commands name the working directory and the full command.
+- A display never says how often the call runs or what it achieves, and never uses a tool's description as its
+  effect. A credential-like argument (`isCredentialLikeName`) shows `<redacted>`.
+- The session drops a preview over `maxApprovalPreviewBytes` (16 KiB). A tool without a display, and every
+  approval a Worker before 0.6.0 raised, has `display` `null`: show the concrete arguments, not a guessed effect.
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
@@ -1457,7 +1481,7 @@ IDs are `turn-<n>`, where `n` is `turn_count + 1` when the turn starts.
 | `tool_call_deferred` | `{"tool_call_id","tool_name","effect","requires_approval"}`; the model asked for a call, which runs in its own Step |
 | `tool_call_started` | `{"tool_call_id","tool_name"}` |
 | `tool_call_finished` | `{"tool_call_id","tool_name","status"}`; the record became final, including a rejection |
-| `interrupt_raised` | `{"interrupt_id","kind","tool_call_id","tool_name","deadline","question","choices","allows_free_text"}` |
+| `interrupt_raised` | `{"interrupt_id","kind","tool_call_id","tool_name","deadline","question","choices","allows_free_text","display"}`; `display` is `{"target","summary","preview"}` or `null` |
 | `interrupt_resolved` | `{"interrupt_id","kind","approved","answered","rejection_message","cancellation_reason"}`; `answered` is `true` only for an answered question, and `cancellation_reason` is `"steered"` or `"turn_cancelled"` when steering or cancellation removed the interrupt |
 | `timer_started` | `{"tool_call_id","wait_until","reason"}` for a `durable_wait` call |
 | `plan_updated` | `{"revision","status","task_count"}` after `write_todos` replaced the plan, or when an approval marks a draft `active` |

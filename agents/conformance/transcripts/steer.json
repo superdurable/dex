@@ -168,7 +168,7 @@
         "turn_id": "turn-1",
         "attempt": 1,
         "step_execution_id": "RunModel-1",
-        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"interrupt_id\":\"RunModel-1-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\"}"
+        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"display\":null,\"interrupt_id\":\"RunModel-1-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\"}"
       },
       {
         "type": "usage_recorded",

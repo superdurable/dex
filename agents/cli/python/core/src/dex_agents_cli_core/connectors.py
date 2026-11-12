@@ -31,6 +31,7 @@ from dex_agents import (
     ToolTaskPoll,
     ToolTaskPollOutcome,
     ToolTaskStarted,
+    build_connector_tool_approval_display,
 )
 from dex_agents.builtin_loop import SourceToolDefinition
 from dex_agents.mcp import (
@@ -349,7 +350,10 @@ class ConnectorsMcpToolSource:
         """Build the MCP call under the agent's tool name, adding ``approval.always``.
 
         A tool whose connection or operation the turn does not enable becomes
-        a call that its tool Step refuses.
+        a call that its tool Step refuses. A call that needs approval and whose
+        tool's ``_meta`` names its connector and connection carries their
+        names, the operation, and the short arguments as its approval display
+        (see ``build_connector_tool_approval_display``).
         """
         if not isinstance(listed_tool, ConnectorToolDefinition):
             raise LookupError(f"{tool_name} was not listed by the connectors MCP server")
@@ -372,8 +376,22 @@ class ConnectorsMcpToolSource:
             _MCP_REFERENCE_KEY: built.tool_source_reference,
             _IDENTITY_REFERENCE_KEY: None if identity is None else asdict(identity),
         }
+        approval_display = (
+            build_connector_tool_approval_display(
+                connector_id=identity.connector,
+                connection_name=identity.connection,
+                operation=identity.operation or identity.operation_name or tool_name,
+                arguments=arguments,
+            )
+            if policy.is_approval_required and identity is not None
+            else None
+        )
         return replace(
-            built, tool_name=tool_name, policy=policy, tool_source_reference=json.dumps(reference)
+            built,
+            tool_name=tool_name,
+            policy=policy,
+            tool_source_reference=json.dumps(reference),
+            approval_display=approval_display,
         )
 
     async def execute_deferred_tool_call(

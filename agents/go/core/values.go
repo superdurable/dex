@@ -735,6 +735,10 @@ type AgentToolCall struct {
 	// the runner reads, or nil. The session never shows it to the model or in trace attributes. A record
 	// written before 0.5.0 has none, and a Worker before 0.5.0 ignores it. Since 0.5.0.
 	RunnerToolState *string `json:"runner_tool_state"`
+	// ApprovalDisplay is what a call that needs approval acts on and does, from its tool's source, or
+	// nil. The Go core never sets it; it keeps the field so a record written by another core
+	// round-trips. Since 0.6.0.
+	ApprovalDisplay *AgentInterruptDisplay `json:"approval_display"`
 }
 
 // MarshalJSON encodes the wire object, writing empty lists as [] rather than null.
@@ -766,6 +770,41 @@ func (toolCall *AgentToolCall) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// AgentInterruptDisplay says what one tool approval acts on and what the call does.
+//
+// A tool's source builds it from the call's concrete arguments. An approval UI shows Target and
+// Summary above the arguments, and Preview when it is set. Without one, show the concrete arguments
+// only. The text never promises how often the call runs or what it achieves, and never holds a
+// credential. Since 0.6.0.
+//
+//	if interrupt.Display != nil {
+//		fmt.Println(interrupt.Display.Summary)
+//	}
+type AgentInterruptDisplay struct {
+	// Target is what the call acts on, such as a workspace path, a shell command's working
+	// directory, or a connector and its connection ("slack/support-slack").
+	Target string `json:"target"`
+	// Summary is one sentence that says what the call does to Target, built from the call's
+	// concrete arguments.
+	Summary string `json:"summary"`
+	// Preview is longer text to show with the summary, such as a unified diff of a local file
+	// write against the file as it was when the call was requested, or nil.
+	Preview *string `json:"preview"`
+}
+
+// UnmarshalJSON decodes the wire object, requiring target and summary.
+//
+// It returns an error for a missing required field or a wrong JSON type.
+func (display *AgentInterruptDisplay) UnmarshalJSON(data []byte) error {
+	type wireAgentInterruptDisplay AgentInterruptDisplay
+	var decoded wireAgentInterruptDisplay
+	if err := decodeWireObject(data, &decoded, "AgentInterruptDisplay", "target", "summary"); err != nil {
+		return err
+	}
+	*display = AgentInterruptDisplay(decoded)
+	return nil
+}
+
 // AgentInterrupt describes one decision the session waits for a person to make.
 //
 // The PendingInterrupts Attribute holds the unresolved interrupts. Answer a
@@ -793,6 +832,10 @@ type AgentInterrupt struct {
 	Choices []string `json:"choices"`
 	// AllowsFreeText reports whether an answer may be outside Choices. It defaults to true.
 	AllowsFreeText bool `json:"allows_free_text"`
+	// Display is what a tool approval acts on and does, from its tool's source, or nil when the
+	// source gave none and for a question. The Go core never sets it; it keeps the field so an
+	// interrupt written by another core round-trips. Since 0.6.0.
+	Display *AgentInterruptDisplay `json:"display"`
 }
 
 // MarshalJSON encodes the wire object, writing an empty Choices as [].

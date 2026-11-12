@@ -1259,6 +1259,36 @@ does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
+## Showing what an approval acts on
+
+A tool approval can say what the call acts on and what it does. Its tool
+source returns an `AgentInterruptDisplay(target, summary, preview)` in
+`DeferredToolCall.approval_display`, and the session stores it in
+`AgentInterrupt.display`, on the call's record as `approval_display`, and in
+the `interrupt_raised` event. A queued ordered write raises its approval later
+with the display its source built when the model asked.
+
+```python
+snapshot = await sessions.get_agent_snapshot(session_id)
+for interrupt in snapshot.pending_interrupts:
+    print(interrupt.display.summary if interrupt.display else interrupt.arguments)
+```
+
+- `ConnectorToolSource` and the CLI's connector tools build it with
+  `build_connector_tool_approval_display`: the target is
+  `<connector>/<connection>`, and the summary names the operation, the
+  connection, and up to five short arguments, such as
+  `Calls slack postChannelMessage with connection support-slack; channel: "#eng".`
+- The CLI's local file writes name the workspace path and carry a unified diff
+  against the file as it is when the model asks; its header lines say so. Its
+  shell commands name the working directory and the full command.
+- A display never says how often the call runs or what it achieves, and never
+  uses a tool's description as its effect. A credential-like argument
+  (`is_credential_like_name`) shows `<redacted>`.
+- The session drops a preview over `MAX_APPROVAL_PREVIEW_BYTES` (16 KiB). A
+  tool without a display, and every approval a Worker before 0.6.0 raised, has
+  `display` `None`: show the concrete arguments, not a guessed effect.
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
@@ -1407,7 +1437,8 @@ and `reasoning_delta` `{"text"}`, `tool_call_started` `{"tool_call_id",
 (once per tool call, including rejections), `tool_call_deferred`
 `{"tool_call_id", "tool_name", "effect", "requires_approval"}`,
 `interrupt_raised` `{"interrupt_id", "tool_call_id", "tool_name", "deadline",
-"kind", "question", "choices", "allows_free_text"}`, `interrupt_resolved`
+"kind", "question", "choices", "allows_free_text", "display"}` (`display` is
+`{"target", "summary", "preview"}` or `null`), `interrupt_resolved`
 `{"interrupt_id", "approved", "rejection_message", "kind", "answered",
 "cancellation_reason"}` (`steered` or `turn_cancelled` when steering or
 cancellation removed the interrupt), `timer_started` `{"tool_call_id",
