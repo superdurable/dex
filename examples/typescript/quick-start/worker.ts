@@ -20,11 +20,10 @@ import { once } from "node:events";
 
 import { Registry, Worker } from "@superdurable/dex";
 
-import { SERVER_ADDRESS, openCache } from "./config.ts";
+import { SERVER_ADDRESS, newShopApi, openCache } from "./config.ts";
 import { OrderFlow } from "./order-flow.ts";
-import { ShopApi } from "./shop-api.ts";
 
-const orderFlow = new OrderFlow(new ShopApi());
+const orderFlow = new OrderFlow(newShopApi());
 const registry = new Registry([orderFlow]);
 const cache = openCache(".dex-blob-cache/worker");
 const worker = new Worker(registry, cache, { serverAddress: SERVER_ADDRESS });
@@ -32,7 +31,7 @@ const stopRequested = once(process, "SIGINT");
 try {
   await worker.start();
   await worker.waitPullRegistered({ timeoutMs: 30_000 });
-  console.log("Worker is ready. Press Ctrl+C to stop it.");
+  console.log(`Worker is ready (process ${process.pid}). Press Ctrl+C to stop it.`);
   await stopRequested;
   console.log("Stopping the Worker.");
 } finally {

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Settings shared by the Worker, the start command, and the tests."""
+"""Settings shared by the Worker, the start command, the service, and the tests."""
 
 from __future__ import annotations
 
@@ -21,7 +21,17 @@ from pathlib import Path
 
 from dex import BlobCache, BlobCacheConfig, open_blob_cache
 
+from quick_start.shop_api import ShopApi
+
 SERVER_ADDRESS = os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
+HTTP_PORT = int(os.environ.get("QUICK_START_HTTP_PORT", "8080"))
+CHARGE_DELAY_SECONDS = float(os.environ.get("QUICK_START_CHARGE_DELAY_SECONDS", "0"))
+SHOP_API_KEYS_PATH = Path(".shop-api-keys")
+
+
+def new_shop_api() -> ShopApi:
+    """Returns the mock API that the Worker calls, with its keys in a local file."""
+    return ShopApi(SHOP_API_KEYS_PATH, CHARGE_DELAY_SECONDS)
 
 
 def open_cache(directory: Path) -> BlobCache:

@@ -16,18 +16,18 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
 from dex import Registry, Worker, WorkerOptions
 
-from quick_start.config import SERVER_ADDRESS, open_cache
+from quick_start.config import SERVER_ADDRESS, new_shop_api, open_cache
 from quick_start.order_flow import OrderFlow
-from quick_start.shop_api import ShopApi
 
 
 def main() -> None:
-    order_flow = OrderFlow(ShopApi())
+    order_flow = OrderFlow(new_shop_api())
     registry = Registry((order_flow,))
     cache = open_cache(Path(".dex-blob-cache/worker"))
     worker = Worker(registry, cache, WorkerOptions(server_address=SERVER_ADDRESS))
@@ -35,7 +35,7 @@ def main() -> None:
     try:
         thread.start()
         worker.wait_pull_registered(timeout=30)
-        print("Worker is ready. Press Ctrl+C to stop it.", flush=True)
+        print(f"Worker is ready (process {os.getpid()}). Press Ctrl+C to stop it.", flush=True)
         thread.join()
     except KeyboardInterrupt:
         print("Stopping the Worker.", flush=True)

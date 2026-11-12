@@ -26,10 +26,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,8 +61,8 @@ func TestRestartedWorkerShipsWithoutChargingAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	stopFirstWorker()
-	assertOrders(t, "first Worker charged", firstShop.Charged(), orderID)
-	assertOrders(t, "first Worker shipped", firstShop.Shipped())
+	assertOrders(t, "first Worker charged", callsFor(orderID, firstShop.Charged()), orderID)
+	assertOrders(t, "first Worker shipped", callsFor(orderID, firstShop.Shipped()))
 
 	stopSecondWorker := startWorker(t, quickstart.NewOrderFlow(secondShop))
 	defer stopSecondWorker()
@@ -72,8 +76,58 @@ func TestRestartedWorkerShipsWithoutChargingAgain(t *testing.T) {
 	if result.Status != dex.FlowCompleted {
 		t.Fatalf("Flow status = %v, want completed", result.Status)
 	}
-	assertOrders(t, "second Worker charged", secondShop.Charged())
-	assertOrders(t, "second Worker shipped", secondShop.Shipped(), orderID)
+	assertOrders(t, "second Worker charged", callsFor(orderID, secondShop.Charged()))
+	assertOrders(t, "second Worker shipped", callsFor(orderID, secondShop.Shipped()), orderID)
+}
+
+func TestShopAPIDropsARepeatedKeyAcrossProcesses(t *testing.T) {
+	keysPath := filepath.Join(t.TempDir(), "keys")
+	firstProcess := quickstart.NewFileShopAPI(keysPath, 0)
+	secondProcess := quickstart.NewFileShopAPI(keysPath, 0)
+
+	if err := firstProcess.Charge("order-1", "charge-order-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := secondProcess.Charge("order-1", "charge-order-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	assertOrders(t, "first process charged", firstProcess.Charged(), "order-1")
+	assertOrders(t, "second process charged", secondProcess.Charged())
+	assertOrders(t, "second process repeated keys", secondProcess.RepeatedKeys(), "charge-order-1")
+}
+
+func TestServiceStartsOneFlowForARepeatedRequest(t *testing.T) {
+	orderID := "order-" + randomHex(t)
+	shop := &quickstart.ShopAPI{}
+	clientFlow := quickstart.NewOrderFlow(&quickstart.ShopAPI{})
+	client := connectClient(t, clientFlow)
+	startWorker(t, quickstart.NewOrderFlow(shop))
+	server := httptest.NewServer(quickstart.NewOrderHandler(client, clientFlow))
+	defer server.Close()
+
+	for range 2 {
+		response, err := http.Post(server.URL+"/orders", "application/json",
+			strings.NewReader(`{"orderId": "`+orderID+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reply map[string]any
+		decodeErr := json.NewDecoder(response.Body).Decode(&reply)
+		if err := errors.Join(decodeErr, response.Body.Close()); err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK || reply["flowId"] != orderID {
+			t.Fatalf("reply %d %v, want 200 with flowId %s", response.StatusCode, reply, orderID)
+		}
+	}
+	skipShipDelay(t, client, orderID)
+	waitCtx, cancel := context.WithTimeout(context.Background(), waitTimeout)
+	defer cancel()
+	if _, err := client.WaitForFlow(waitCtx, orderID, dex.WaitForFlowOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	assertOrders(t, "charged", callsFor(orderID, shop.Charged()), orderID)
 }
 
 func connectClient(t *testing.T, flow *quickstart.OrderFlow) *dex.Client {
@@ -181,6 +235,17 @@ func skipShipDelay(t *testing.T, client *dex.Client, orderID string) {
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
+}
+
+// callsFor keeps this test's order; a Flow left open by an earlier run can also reach a Worker.
+func callsFor(orderID string, calls []string) []string {
+	var kept []string
+	for _, call := range calls {
+		if call == orderID {
+			kept = append(kept, call)
+		}
+	}
+	return kept
 }
 
 func assertOrders(t *testing.T, what string, got []string, want ...string) {

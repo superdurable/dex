@@ -43,8 +43,8 @@ class Charge implements Step<string> {
     return "Charge";
   }
 
-  public execute(_context: Context, orderId: string): StepDecision {
-    this.shop.charge(orderId, `charge-${orderId}`);
+  public async execute(_context: Context, orderId: string): Promise<StepDecision> {
+    await this.shop.charge(orderId, `charge-${orderId}`);
     return goTo(Ship, orderId);
   }
 }

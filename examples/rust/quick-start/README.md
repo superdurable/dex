@@ -44,6 +44,41 @@ address `dexcli dev` printed, shows the run.
 
 Set `DEX_FLOW_SERVICE_ADDRESS` when Dex is not at `127.0.0.1:8801`.
 
+## Stop the Worker inside a Step
+
+The mock API remembers each idempotency key in `.shop-api-keys`, so it can
+report a repeated call. Start the Worker with a pause after the payment call:
+
+```bash
+QUICK_START_CHARGE_DELAY_SECONDS=20 cargo run --locked --bin worker
+```
+
+Start a Flow. When the Worker prints `Charged order-...`, stop it at once with
+`kill -9` and the process number that the Worker printed when it was ready.
+Ctrl+C would let the Step finish first. Start the Worker again:
+
+```bash
+cargo run --locked --bin worker
+```
+
+Dex runs Charge again, because it never recorded the first attempt. The mock
+API prints `Charge for order-... already done (key charge-order-...); not
+charged again`.
+
+## Run it as a service
+
+[`src/bin/service.rs`](src/bin/service.rs) and [`src/order_service.rs`](src/order_service.rs) serve `POST /orders` and run the Worker in the same process:
+
+```bash
+cargo run --locked --bin service
+curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
+```
+
+The handler starts the Flow with the order ID as the Flow ID and the request ID
+`start-<order ID>`, and asks Dex to return the existing run when that request
+was already accepted. Sending the same request again starts nothing new. Set
+`QUICK_START_HTTP_PORT` to use another port.
+
 ## Test it
 
 ```bash

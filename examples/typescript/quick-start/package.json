@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "worker": "node worker.ts",
     "start-flow": "node start.ts",
+    "service": "node service.ts",
     "test": "node --test --test-force-exit test/quick-start.test.ts"
   },
   "dependencies": {

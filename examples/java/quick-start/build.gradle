@@ -22,8 +22,9 @@ tasks.withType(JavaCompile).configureEach {
 // The SDK's disk cache loads a native library; this keeps newer JDKs from warning about it.
 def quietJvmArgs = ["--enable-native-access=ALL-UNNAMED"]
 
-// ./gradlew installDist writes two commands to build/install/quick-start/bin:
-// worker runs the Worker until Ctrl+C, and start starts one OrderFlow.
+// ./gradlew installDist writes three commands to build/install/quick-start/bin:
+// worker runs the Worker until Ctrl+C, start starts one OrderFlow, and service
+// serves POST /orders with the Worker in the same process.
 // They run outside Gradle so that Ctrl+C reaches the Worker.
 application {
     mainClass = "io.superdurable.dex.quickstart.WorkerMain"
@@ -42,8 +43,19 @@ def startCommandScripts = tasks.register("startCommandScripts", CreateStartScrip
     outputDir = layout.buildDirectory.dir("start-command-scripts").get().asFile
 }
 
+def serviceCommandScripts = tasks.register("serviceCommandScripts", CreateStartScripts) {
+    applicationName = "service"
+    mainClass = "io.superdurable.dex.quickstart.ServiceMain"
+    defaultJvmOpts = quietJvmArgs
+    classpath = tasks.named("startScripts", CreateStartScripts).get().classpath
+    outputDir = layout.buildDirectory.dir("service-command-scripts").get().asFile
+}
+
 distributions.main.contents {
     from(startCommandScripts) {
+        into "bin"
+    }
+    from(serviceCommandScripts) {
         into "bin"
     }
 }

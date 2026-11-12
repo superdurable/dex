@@ -61,7 +61,9 @@ type Charge struct {
 
 // Execute charges the order.
 func (step Charge) Execute(_ dex.Context, orderID string) (*dex.StepDecision, error) {
-	step.shop.Charge(orderID, "charge-"+orderID)
+	if err := step.shop.Charge(orderID, "charge-"+orderID); err != nil {
+		return nil, err
+	}
 	return dex.GoTo(Ship{}, orderID), nil
 }
 
@@ -78,6 +80,8 @@ func (Ship) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
 
 // Execute ships the order and completes the Flow.
 func (step Ship) Execute(_ dex.Context, orderID string) (*dex.StepDecision, error) {
-	step.shop.Ship(orderID, "ship-"+orderID)
+	if err := step.shop.Ship(orderID, "ship-"+orderID); err != nil {
+		return nil, err
+	}
 	return dex.GracefulComplete("shipped " + orderID), nil
 }

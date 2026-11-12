@@ -23,12 +23,11 @@ use std::time::Duration;
 
 use dex_quick_start::config::{QuickStartConfig, open_blob_cache};
 use dex_quick_start::order_flow::OrderFlow;
-use dex_quick_start::shop_api::ShopApi;
 use dex_sdk::{Registry, Worker, WorkerOptions};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let config = QuickStartConfig::from_environment();
-    let registry = Registry::new().register(OrderFlow::new(ShopApi::default()))?;
+    let registry = Registry::new().register(OrderFlow::new(config.new_shop_api()))?;
     let cache = open_blob_cache(".dex-blob-cache/worker")?;
     let options = WorkerOptions::new().server_address(config.server_address);
     let worker = Arc::new(Worker::try_new(registry, cache, options)?);
@@ -40,7 +39,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build()?;
     let outcome = runtime.block_on(async {
         tokio::time::timeout(Duration::from_secs(30), worker.wait_pull_registered()).await??;
-        println!("Worker is ready. Press Ctrl+C to stop it.");
+        println!(
+            "Worker is ready (process {}). Press Ctrl+C to stop it.",
+            std::process::id()
+        );
         tokio::signal::ctrl_c().await?;
         println!("Stopping the Worker.");
         Ok::<(), Box<dyn Error>>(())

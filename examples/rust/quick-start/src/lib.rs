@@ -14,8 +14,10 @@
 
 //! The Dex Quick Start in Rust: an order Flow that charges, waits on a 30-second Timer, and ships.
 //!
-//! The `worker` binary runs the Steps; the `start` binary starts one Flow.
+//! The `worker` binary runs the Steps; the `start` binary starts one Flow; the `service`
+//! binary serves POST /orders with the Worker in the same process.
 
 pub mod config;
 pub mod order_flow;
+pub mod order_service;
 pub mod shop_api;

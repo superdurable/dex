@@ -12,24 +12,48 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Settings shared by the Worker, the start command, and the tests.
+//! Settings shared by the Worker, the start command, the service, and the tests.
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use dex_sdk::{BlobCache, BlobCacheConfig};
 
-/// Where the Worker and the Client reach Dex.
+use crate::shop_api::ShopApi;
+
+/// Where the Worker and the Client reach Dex, and how the demo behaves.
 pub struct QuickStartConfig {
     pub server_address: String,
+    /// The service's port, from `QUICK_START_HTTP_PORT`; 8080 by default.
+    pub http_port: u16,
+    /// The pause after a new charge, from `QUICK_START_CHARGE_DELAY_SECONDS`; none by default.
+    pub charge_delay: Duration,
 }
 
 impl QuickStartConfig {
-    /// Reads `DEX_FLOW_SERVICE_ADDRESS`, defaulting to the `dexcli dev` address.
+    /// Reads `DEX_FLOW_SERVICE_ADDRESS`, defaulting to the `dexcli dev` address, and the demo settings.
     pub fn from_environment() -> Self {
         let server_address = std::env::var("DEX_FLOW_SERVICE_ADDRESS")
             .unwrap_or_else(|_| "127.0.0.1:8801".to_string());
-        Self { server_address }
+        let http_port = std::env::var("QUICK_START_HTTP_PORT")
+            .ok()
+            .and_then(|port| port.parse().ok())
+            .unwrap_or(8080);
+        let charge_delay_seconds: f64 = std::env::var("QUICK_START_CHARGE_DELAY_SECONDS")
+            .ok()
+            .and_then(|seconds| seconds.parse().ok())
+            .unwrap_or(0.0);
+        Self {
+            server_address,
+            http_port,
+            charge_delay: Duration::from_secs_f64(charge_delay_seconds),
+        }
+    }
+
+    /// Returns the mock API that the Worker calls, with its keys in a local file.
+    pub fn new_shop_api(&self) -> ShopApi {
+        ShopApi::with_keys_file(".shop-api-keys", self.charge_delay)
     }
 }
 

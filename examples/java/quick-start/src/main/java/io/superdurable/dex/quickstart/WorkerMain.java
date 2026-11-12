@@ -31,7 +31,7 @@ public final class WorkerMain {
     }
 
     public static void main(final String[] args) throws Exception {
-        final OrderFlow orderFlow = new OrderFlow(new ShopApi());
+        final OrderFlow orderFlow = new OrderFlow(QuickStartConfig.newShopApi());
         final Registry registry = new Registry(List.of(orderFlow));
         final BlobCache cache = QuickStartConfig.openCache(Paths.get(".dex-blob-cache", "worker"));
         final Worker worker = new Worker(
@@ -47,7 +47,8 @@ public final class WorkerMain {
         }));
         workerThread.start();
         worker.waitPullRegistered(Duration.ofSeconds(30));
-        System.out.println("Worker is ready. Press Ctrl+C to stop it.");
+        System.out.println("Worker is ready (process " + ProcessHandle.current().pid()
+                + "). Press Ctrl+C to stop it.");
         workerThread.join();
     }
 }

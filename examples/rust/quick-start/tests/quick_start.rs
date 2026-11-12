@@ -17,13 +17,16 @@
 //! Point DEX_FLOW_SERVICE_ADDRESS at the server (default 127.0.0.1:8801). Without
 //! a server the test fails, unless DEX_EXAMPLES_ALLOW_SKIP=1 asks it to skip.
 
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use dex_quick_start::config::{QuickStartConfig, open_blob_cache};
 use dex_quick_start::order_flow::{OrderFlow, SHIP_DELAY_TIMER};
+use dex_quick_start::order_service::{OrderService, order_routes};
 use dex_quick_start::shop_api::ShopApi;
 use dex_sdk::{
     Client, ClientOptions, FlowStatus, Registry, SdkResult, StepExecutionId, TimerId,
@@ -31,6 +34,15 @@ use dex_sdk::{
 };
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Tests that run Workers share one Flow type, so they take turns.
+static WORKER_TESTS: Mutex<()> = Mutex::new(());
+
+fn one_worker_test_at_a_time() -> MutexGuard<'static, ()> {
+    WORKER_TESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 struct RunningWorker {
     worker: Arc<Worker>,
@@ -120,6 +132,7 @@ fn connected_client(order_flow: &OrderFlow, cache_dir: &Path) -> Option<Client> 
 
 #[test]
 fn restarted_worker_ships_without_charging_again() {
+    let _turn = one_worker_test_at_a_time();
     let directory = tempfile::tempdir().unwrap();
     let order_id = format!("order-{:016x}", fastrand::u64(..));
     let first_shop = ShopApi::default();
@@ -145,8 +158,11 @@ fn restarted_worker_ships_without_charging_again() {
             )
             .unwrap();
     }
-    assert_eq!(first_shop.charged(), std::slice::from_ref(&order_id));
-    assert!(first_shop.shipped().is_empty());
+    assert_eq!(
+        calls_for(&order_id, first_shop.charged()),
+        std::slice::from_ref(&order_id)
+    );
+    assert!(calls_for(&order_id, first_shop.shipped()).is_empty());
 
     let result = {
         let _worker = RunningWorker::start(
@@ -160,8 +176,88 @@ fn restarted_worker_ships_without_charging_again() {
     };
 
     assert_eq!(result.status(), FlowStatus::Completed);
-    assert!(second_shop.charged().is_empty());
-    assert_eq!(second_shop.shipped(), [order_id]);
+    assert!(calls_for(&order_id, second_shop.charged()).is_empty());
+    assert_eq!(calls_for(&order_id, second_shop.shipped()), [order_id]);
+}
+
+#[test]
+fn shop_api_drops_a_repeated_key_across_processes() {
+    let directory = tempfile::tempdir().unwrap();
+    let keys_path = directory.path().join("keys");
+    let first_process = ShopApi::with_keys_file(&keys_path, Duration::ZERO);
+    let second_process = ShopApi::with_keys_file(&keys_path, Duration::ZERO);
+
+    first_process.charge("order-1", "charge-order-1").unwrap();
+    second_process.charge("order-1", "charge-order-1").unwrap();
+
+    assert_eq!(first_process.charged(), ["order-1"]);
+    assert!(second_process.charged().is_empty());
+    assert_eq!(second_process.repeated_keys(), ["charge-order-1"]);
+}
+
+#[test]
+fn service_starts_one_flow_for_a_repeated_request() {
+    let _turn = one_worker_test_at_a_time();
+    let directory = tempfile::tempdir().unwrap();
+    let order_id = format!("order-{:016x}", fastrand::u64(..));
+    let shop = ShopApi::default();
+    let client_flow = OrderFlow::new(ShopApi::default());
+    let Some(client) = connected_client(&client_flow, &directory.path().join("client")) else {
+        return;
+    };
+    let client = Arc::new(client);
+    let _worker = RunningWorker::start(
+        OrderFlow::new(shop.clone()),
+        &directory.path().join("worker"),
+    );
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let listener = runtime
+        .block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0)))
+        .unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let routes = order_routes(OrderService {
+        client: Arc::clone(&client),
+        order_flow: client_flow.clone(),
+    });
+    let server = runtime.spawn(async move { axum::serve(listener, routes).await });
+
+    for _ in 0..2 {
+        let reply = post_order(port, &order_id);
+        assert!(reply.starts_with("HTTP/1.1 200"), "reply: {reply}");
+        assert!(
+            reply.ends_with(&format!(r#"{{"charged":true,"flowId":"{order_id}"}}"#)),
+            "reply: {reply}"
+        );
+    }
+    server.abort();
+    skip_ship_delay(&client, &client_flow, &order_id);
+    client
+        .wait_for_flow_with_timeout(&order_id, WAIT_TIMEOUT)
+        .unwrap();
+    assert_eq!(calls_for(&order_id, shop.charged()), [order_id]);
+}
+
+/// Sends POST /orders over a plain connection and returns the whole reply.
+fn post_order(port: u16, order_id: &str) -> String {
+    let body = format!(r#"{{"orderId": "{order_id}"}}"#);
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect to the service");
+    write!(
+        stream,
+        "POST /orders HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .expect("send the request");
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).expect("read the reply");
+    reply
+}
+
+/// Keeps this test's order; a Flow left open by an earlier run can also reach a Worker.
+fn calls_for(order_id: &str, calls: Vec<String>) -> Vec<String> {
+    calls.into_iter().filter(|call| call == order_id).collect()
 }
 
 /// Skips the 30-second Timer once Ship waits on it.

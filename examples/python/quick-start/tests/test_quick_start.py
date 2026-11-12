@@ -20,8 +20,11 @@ a server the test fails, unless DEX_EXAMPLES_ALLOW_SKIP=1 asks it to skip.
 
 from __future__ import annotations
 
+import json
 import os
 import threading
+import urllib.request
+from http.server import ThreadingHTTPServer
 import time
 import uuid
 from collections.abc import Iterator
@@ -46,6 +49,7 @@ from dex import (
 from quick_start.config import SERVER_ADDRESS, open_cache
 from quick_start.order_flow import SHIP_DELAY_TIMER, OrderFlow
 from quick_start.shop_api import ShopApi
+from service import new_handler
 
 WAIT_TIMEOUT = timedelta(seconds=60)
 
@@ -98,16 +102,16 @@ def test_restarted_worker_ships_without_charging_again(tmp_path: Path) -> None:
                 StepExecutionId("Charge"),
                 WaitForStepCompletionOptions(request_timeout=WAIT_TIMEOUT),
             )
-        assert first_shop.charged == [order_id]
-        assert first_shop.shipped == []
+        assert _calls_for(order_id, first_shop.charged) == [order_id]
+        assert _calls_for(order_id, first_shop.shipped) == []
 
         with running_worker(OrderFlow(second_shop), tmp_path / "worker-2"):
             _skip_ship_delay(client, order_id)
             result = client.wait_for_flow(order_id, WAIT_TIMEOUT)
 
     assert result.status == FlowStatus.COMPLETED
-    assert second_shop.charged == []
-    assert second_shop.shipped == [order_id]
+    assert _calls_for(order_id, second_shop.charged) == []
+    assert _calls_for(order_id, second_shop.shipped) == [order_id]
 
 
 def _is_server_ready(client: Client) -> bool:
@@ -137,3 +141,55 @@ def _skip_ship_delay(client: Client, order_id: str) -> None:
             if time.monotonic() >= deadline:
                 raise
             time.sleep(0.25)
+
+
+def test_shop_api_drops_a_repeated_key_across_processes(tmp_path: Path) -> None:
+    keys_path = tmp_path / "keys"
+    first_process = ShopApi(keys_path)
+    second_process = ShopApi(keys_path)
+
+    first_process.charge("order-1", "charge-order-1")
+    second_process.charge("order-1", "charge-order-1")
+
+    assert first_process.charged == ["order-1"]
+    assert second_process.charged == []
+    assert second_process.repeated_keys == ["charge-order-1"]
+
+
+def test_service_starts_one_flow_for_a_repeated_request(tmp_path: Path) -> None:
+    order_id = f"order-{uuid.uuid4().hex}"
+    shop = ShopApi()
+    client_flow = OrderFlow(ShopApi())
+    with connected_client(client_flow, tmp_path / "client") as client:
+        with running_worker(OrderFlow(shop), tmp_path / "worker"):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), new_handler(client, client_flow))
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_address[1]}/orders"
+                replies = [_post_order(url, order_id) for _ in range(2)]
+            finally:
+                server.shutdown()
+                server.server_close()
+            _skip_ship_delay(client, order_id)
+            client.wait_for_flow(order_id, WAIT_TIMEOUT)
+
+    assert replies == [{"flowId": order_id, "charged": True}] * 2
+    assert _calls_for(order_id, shop.charged) == [order_id]
+
+
+def _post_order(url: str, order_id: str) -> dict[str, object]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps({"orderId": order_id}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        reply: dict[str, object] = json.loads(response.read())
+        return reply
+
+
+def _calls_for(order_id: str, calls: list[str]) -> list[str]:
+    """Keeps this test's order; a Flow left open by an earlier run can also reach a Worker."""
+    return [call for call in calls if call == order_id]

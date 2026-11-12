@@ -42,7 +42,11 @@ func main() {
 }
 
 func run() (err error) {
-	registry, err := dex.NewRegistry([]dex.Flow{quickstart.NewOrderFlow(&quickstart.ShopAPI{})})
+	shop, err := quickstart.NewShopAPIFromEnvironment()
+	if err != nil {
+		return err
+	}
+	registry, err := dex.NewRegistry([]dex.Flow{quickstart.NewOrderFlow(shop)})
 	if err != nil {
 		return err
 	}
@@ -67,7 +71,7 @@ func run() (err error) {
 	if err := worker.WaitPullRegistered(startupCtx); err != nil {
 		return errors.Join(err, worker.Stop(context.Background()), <-workerResult)
 	}
-	fmt.Println("Worker is ready. Press Ctrl+C to stop it.")
+	fmt.Printf("Worker is ready (process %d). Press Ctrl+C to stop it.\n", os.Getpid())
 
 	select {
 	case err := <-workerResult:

@@ -22,6 +22,8 @@ package quickstart
 
 import (
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 )
@@ -37,4 +39,26 @@ func ServerAddress() string {
 // OpenCache opens a local cache for large Flow values, up to 1 GiB.
 func OpenCache(directory string) (*blobcache.Cache, error) {
 	return blobcache.New(&blobcache.Config{Dir: directory, MaxBytes: 1 << 30})
+}
+
+// HTTPPort is the port of the service, from QUICK_START_HTTP_PORT.
+func HTTPPort() string {
+	if port := os.Getenv("QUICK_START_HTTP_PORT"); port != "" {
+		return port
+	}
+	return "8080"
+}
+
+// NewShopAPIFromEnvironment returns the mock API that the Worker calls, with its keys
+// in .shop-api-keys and the charge delay from QUICK_START_CHARGE_DELAY_SECONDS.
+func NewShopAPIFromEnvironment() (*ShopAPI, error) {
+	delaySeconds := 0.0
+	if value := os.Getenv("QUICK_START_CHARGE_DELAY_SECONDS"); value != "" {
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, err
+		}
+		delaySeconds = parsed
+	}
+	return NewFileShopAPI(".shop-api-keys", time.Duration(delaySeconds*float64(time.Second))), nil
 }

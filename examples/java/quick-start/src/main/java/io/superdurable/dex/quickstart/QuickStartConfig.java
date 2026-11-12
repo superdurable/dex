@@ -22,13 +22,24 @@ import io.superdurable.dex.BlobCacheConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 
-/** Settings shared by the Worker, the start command, and the test. */
+/** Settings shared by the Worker, the start command, the service, and the test. */
 public final class QuickStartConfig {
     public static final String SERVER_ADDRESS = System.getenv()
             .getOrDefault("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801");
+    public static final int HTTP_PORT = Integer.parseInt(System.getenv()
+            .getOrDefault("QUICK_START_HTTP_PORT", "8080"));
+    private static final double CHARGE_DELAY_SECONDS = Double.parseDouble(System.getenv()
+            .getOrDefault("QUICK_START_CHARGE_DELAY_SECONDS", "0"));
 
     private QuickStartConfig() {
+    }
+
+    /** Returns the mock API that the Worker calls, with its keys in a local file. */
+    public static ShopApi newShopApi() {
+        return new ShopApi(Path.of(".shop-api-keys"),
+                Duration.ofMillis(Math.round(CHARGE_DELAY_SECONDS * 1000)));
     }
 
     /** Opens a local cache for large Flow values, up to 1 GiB. */

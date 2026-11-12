@@ -14,7 +14,9 @@
 
 use std::time::Duration;
 
-use dex_sdk::{Context, Flow, HandlerResult, Step, StepDecision, StepList, Timer, Wait};
+use dex_sdk::{
+    Context, Flow, HandlerError, HandlerResult, Step, StepDecision, StepList, Timer, Wait,
+};
 
 use crate::shop_api::ShopApi;
 
@@ -29,7 +31,9 @@ impl Step for Charge {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, order_id: String) -> HandlerResult<StepDecision> {
-        self.shop.charge(&order_id, &format!("charge-{order_id}"));
+        self.shop
+            .charge(&order_id, &format!("charge-{order_id}"))
+            .map_err(HandlerError::from_error)?;
         let ship = Ship {
             shop: self.shop.clone(),
         };
@@ -51,7 +55,9 @@ impl Step for Ship {
     }
 
     fn execute(&self, _context: &mut Context, order_id: String) -> HandlerResult<StepDecision> {
-        self.shop.ship(&order_id, &format!("ship-{order_id}"));
+        self.shop
+            .ship(&order_id, &format!("ship-{order_id}"))
+            .map_err(HandlerError::from_error)?;
         Ok(StepDecision::graceful_complete(format!(
             "shipped {order_id}"
         )))
