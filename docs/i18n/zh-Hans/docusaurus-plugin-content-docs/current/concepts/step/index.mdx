@@ -12,11 +12,11 @@ import StepDecisionMovementsDiagram from '@site/src/components/primitives/step/S
 
 **Step** 是 [Flow](/concepts/flow) 里的一个后台工作单元。它可以先持久地等待某件事发生，再执行工作，然后决定下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。
 
-Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。同一个 Step type 在一个 Flow 里可以运行多次，甚至并行运行。每次运行是一个 `StepExecution`，用 `StepExecutionID` 标识，比如 **Charge-2**。
+Step 由一个原生 struct 或 class 实现，它的类型就是 `StepType`。同一个 Step 类型在一个 Flow 里可以运行多次，甚至并行运行。每次运行是一个 `StepExecution`，用 `StepExecutionID` 标识，比如 **Charge-2**。
 
 ## Step input {#step-input}
 
-每次 Step execution 都有自己带类型的输入，Dex 把它和这次 execution 一起保存。输入用来区分同一个 Step type 的不同 execution。起始 Step 的输入就是 Flow 的启动输入。
+每次 Step execution 都有自己带类型的输入，Dex 把它和这次 execution 一起保存。输入用来区分同一个 Step 类型的不同 execution。起始 Step 的输入就是 Flow 的启动输入。
 
 ## WaitFor 和 Execute {#waitfor-and-execute}
 
@@ -206,7 +206,7 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 
 ## StepDecision {#stepdecision-movements}
 
-`Execute` 返回一个 `StepDecision`。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。`GoTo` 用 Step type 指定下一个 Step，并传入它的输入。由 Flow 注册的该 Step type 实例来运行它。
+`Execute` 返回一个 `StepDecision`。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。`GoTo` 用 Step 类型指定下一个 Step，并传入它的输入。由 Flow 注册的该 Step 类型实例来运行它。
 
 <StepDecisionMovementsDiagram markdownDescription="GoTo：ExampleStep 返回 GoTo(Complete Flow)，完成 Flow。GoToMany：ExampleStep 启动 StepA 和 StepB，两者并行运行。循环：ExampleStep 转到 ProcessStep，ProcessStep 再回到 ExampleStep。" />
 

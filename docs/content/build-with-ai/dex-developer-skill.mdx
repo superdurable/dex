@@ -18,10 +18,6 @@ hold no runtime code. To build, the agent needs a coding workspace; see
 
 <DexSkillHostTabs skill="all" />
 
-Install all three Skills with one path per host: the Plugin (recommended) or
-standalone Skills. The source and releases are in
-[superdurable/dex-skills](https://github.com/superdurable/dex-skills).
-
 :::tip Start with Dex App Builder
 
 For a product, application, or business-process request, start with
@@ -32,18 +28,19 @@ other skills when the job needs SDK or Connector work.
 
 ## Choose a skill
 
-| Skill | Role | Use it for |
-| --- | --- | --- |
-| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | **Primary skill** | Work out a process, prototype it, then build and test it locally as a complete application with a Go backend. |
-| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | Specialist sub-skill | Build, debug, test, and run Dex applications in Python, Go, Java, TypeScript, or Rust. |
-| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | Specialist sub-skill | Create, test, and contribute official Connector operations, Triggers, and configuration UI units. |
+| Skill | Use it for |
+| --- | --- |
+| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | The primary skill. Work out a process, prototype it, then build and test it locally as a complete application with a Go backend. |
+| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | Build, debug, test, and run Dex applications in Python, Go, Java, TypeScript, or Rust. |
+| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | Create, test, and contribute official Connector operations, Triggers, and configuration UI units. |
 
 Each skill page explains when to call it directly and how it works with the
 others.
 
 ## Trust and permissions
 
-Install agent extensions only from sources you trust. Dex Skills adds no MCP
+Install agent extensions only from sources you trust. The source and releases of Dex Skills are in
+[superdurable/dex-skills](https://github.com/superdurable/dex-skills). Dex Skills adds no MCP
 server, asks for no credentials, and contains no application runtime code. Its
 optional hook reads the installed version and the public GitHub release
 metadata. If a newer release exists, the hook tells you, but it does not

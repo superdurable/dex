@@ -22,7 +22,7 @@ slug: /design-patterns/attribute-map-partitioning
 |---|---|---|
 | 分组方式 | 按递增 sequence，每 100 条形成一个 chunk | Canonical key 的 FNV-1a hash modulo 1,000 |
 | 主要目标 | 高效 append 和按顺序分页 | 按稳定业务 key 直接 lookup 和 upsert |
-| 典型数据 | Subscriber history、agent messages、audit events | Customer profiles、account metadata、配置目录 |
+| 典型数据 | Subscriber history、Agent messages、audit events | Customer profiles、account metadata、配置目录 |
 | 单次读取 | 一个顺序 chunk | 一个 hash bucket |
 | 单次写入 | 重写活动 chunk；rollover 时额外写 archive | 重写目标 bucket |
 | 顺序 | 天然保留写入顺序 | 没有自然全局顺序 |

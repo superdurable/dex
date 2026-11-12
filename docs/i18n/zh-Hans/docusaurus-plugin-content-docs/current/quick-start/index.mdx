@@ -378,7 +378,7 @@ export class OrderFlow implements Flow<string> {
 }
 ```
 
-Step 返回的决定（decision）用类来指定下一个 Step。TypeScript 的类型在运行时并不存在，所以 Step 通过 `getStepType()` 返回自己的 Step type；输入不是 JSON 对象的 Step 还要指定它的 codec，比如订单 ID 用的 `stringCodec`。
+Step 返回的决定（decision）用类来指定下一个 Step。TypeScript 的类型在运行时并不存在，所以 Step 通过 `getStepType()` 返回自己的 Step 类型；输入不是 JSON 对象的 Step 还要指定它的 codec，比如订单 ID 用的 `stringCodec`。
 
 `Timer.byDuration` 的第二个参数 **ship-delay** 为这个 Timer 命名。这样测试或运维人员可以用 **skip-timer** 提前结束等待，不必等到时间结束。
 
@@ -984,4 +984,4 @@ installing anything else.
 - [概念](/concepts)：Flow、Step、等待，以及其他基本构件。
 - [一个最小的服务](/components/application#minimal-service)：从 HTTP handler 启动同一个 Flow，Worker 运行在同一个进程中。
 - [订单处理](/use-cases/order-processing)：一个完整的产品示例，包含审批、重试和退款。
-- [Agent 快速开始](/agent-frameworks/quick-start)：把 AI agent 作为持久化 session 运行。
+- [Agent 快速开始](/agent-frameworks/quick-start)：把 AI Agent 作为持久化 Session 运行。

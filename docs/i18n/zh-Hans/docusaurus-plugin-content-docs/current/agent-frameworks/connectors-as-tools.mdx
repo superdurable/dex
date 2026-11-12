@@ -12,7 +12,7 @@ Agent 可以把官方 [Connector](/concepts/connector) 的 operation 当作 tool
 
 `ConnectorToolSource` 提供你指定的 operation，Agent 把它作为 tool source 接收（Python 中是 `tool_sources`，TypeScript 中是 `toolSources`）。每次调用都在自己的 tool Step 中运行一个 operation，因此 Call ID、幂等键和 credential 的行为与在 Connector Step 中相同。每次尝试的 Call ID 都保持不变。
 
-“连接 Connector”一节展示了每个框架的接法；[内置 agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) 展示了不用框架的接法。[Connector tools reference](/reference/agents/connector-tools)（英文）介绍 package、tool 名称、结果大小和 connection。
+“连接 Connector”一节展示了每个框架的接法；[内置 Agent Loop](/agent-frameworks/built-in-agent-loop#connect-connectors) 展示了不用框架的接法。[Connector tools reference](/reference/agents/connector-tools)（英文）介绍 package、tool 名称、结果大小和 connection。
 
 ### 提供哪些 operation {#connector-tools-offered}
 
@@ -40,7 +40,7 @@ Session 对 Connector tool 设置的 tool policy 只改变它的审批方式。E
 
 ### 结果 {#connector-tools-outcomes}
 
-Operation 以它的某个分支结束，由分支决定 tool call 的记录：**succeeded**、**failed**，或者在写操作可能已经生效时记录为 `outcome_unknown`。[Outcomes](/reference/agents/connector-tools#outcomes)（英文）列出了每个分支及其记录。
+Operation 以它的某个分支结束，由分支决定 Tool Call 的记录：**succeeded**、**failed**，或者在写操作可能已经生效时记录为 `outcome_unknown`。[Outcomes](/reference/agents/connector-tools#outcomes)（英文）列出了每个分支及其记录。
 
 `outcome_unknown` 的核对方式与其他 tool 相同；参见 [核对 outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown)。
 
@@ -60,7 +60,7 @@ Connector 写操作期间 Worker 崩溃，这个写操作最多只发送一次�
 
 ### 示例中的 Slack tool {#slack-connector-tool}
 
-配置好 Slack connection **support-slack** 后，每个示例 agent 都会得到 `slack_post_thread_reply`，也就是 Slack operation `postThreadReply`。Worker 在本地从 `DEX_CONNECTOR_CONFIG_FILE` 打开这个 connection，部署后则从 **DEX_PROJECT_\*** 设置中打开；[Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）介绍这两种方式，[the Slack tool in the examples](/reference/agents/connector-tools#slack-example)（英文）介绍 Slack app。
+配置好 Slack connection **support-slack** 后，每个示例 Agent 都会得到 `slack_post_thread_reply`，也就是 Slack operation `postThreadReply`。Worker 在本地从 `DEX_CONNECTOR_CONFIG_FILE` 打开这个 connection，部署后则从 **DEX_PROJECT_\*** 设置中打开；[Connections](/reference/agents/connector-tools#connector-tools-connection)（英文）介绍这两种方式，[the Slack tool in the examples](/reference/agents/connector-tools#slack-example)（英文）介绍 Slack app。
 
 `postThreadReply` 是单次尝试 Mutation，所以每次发帖只在 `CallSingleAttemptTool` 中运行一次，Worker 崩溃也不会让它发送两次。示例还设置了 `requires_approval=True`（TypeScript 中是 **requiresApproval: true**），所以每次发帖都会在 `AwaitToolApproval` 中等待人审批。
 
@@ -367,39 +367,39 @@ Agent 把这个 tool source 和它自己的 tool 一起传入：
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
-在 Claude Agent SDK 中，Connector tool call 一律不在 CLI 内部运行，读操作也一样。每次调用都会结束当前 segment，并在自己的 tool Step 中运行，因为 Connector 需要这个 Step 来提供 Call ID。之后恢复运行的 CLI 会拿到记录下来的结果。CLI 看到的 tool 名称是 `mcp__tools__slack_post_thread_reply`；tool policy、审批和记录使用 `slack_post_thread_reply`。
+在 Claude Agent SDK 中，Connector Tool Call 一律不在 CLI 内部运行，读操作也一样。每次调用都会结束当前 segment，并在自己的 tool Step 中运行，因为 Connector 需要这个 Step 来提供 Call ID。之后恢复运行的 CLI 会拿到记录下来的结果。CLI 看到的 tool 名称是 `mcp__tools__slack_post_thread_reply`；tool policy、审批和记录使用 `slack_post_thread_reply`。
 
-同一个模型响应中的调用，每次只有一个离开 turn，到它的 tool Step 中运行。Adapter 会在 turn 内拒绝该响应中后面的写操作，因此它不会运行，也不留下记录；模型读取前一个写操作的结果后，再决定是否重新调用后面的写操作。不要把 Connector tool 放进 `allowed_tools`（`allowedTools`）：它们的调用必须离开 CLI，所以这样的条目会让 `RunModel` 这次尝试失败。
+同一个模型响应中的调用，每次只有一个离开 turn，到它的 tool Step 中运行。适配器会在 turn 内拒绝该响应中后面的写操作，因此它不会运行，也不留下记录；模型读取前一个写操作的结果后，再决定是否重新调用后面的写操作。不要把 Connector tool 放进 `allowed_tools`（`allowedTools`）：它们的调用必须离开 CLI，所以这样的条目会让 `RunModel` 这次尝试失败。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-Adapter 会给 agent tree 中每个 `LlmAgent` 的 tool 加上一个 `SourceToolset`。它只在 runner 的 `RunModel` 中提供 Connector tool。在其他地方，这些 agent 照常运行。Agent 的 `before_tool_callback` 链仍然会最先看到每次调用。
+适配器会给 Agent tree 中每个 `LlmAgent` 的 tool 加上一个 `SourceToolset`。它只在 runner 的 `RunModel` 中提供 Connector tool。在其他地方，这些 Agent 照常运行。Agent 的 `before_tool_callback` 链仍然会最先看到每次调用。
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-`DurableToolCallMiddleware` 把 Connector tool 加到 `create_agent` agent 的每次模型请求中，放在 agent 自己的 tool 之后。自定义 graph 在它的 model node 中把 `get_current_tool_source_tools()` 和自己的 tool 一起绑定，`durable_tool_node` 像对待其他调用一样推迟这些调用。Tool 的函数体永远不会在 graph 内部运行。
+`DurableToolCallMiddleware` 把 Connector tool 加到 `create_agent` Agent 的每次模型请求中，放在 Agent 自己的 tool 之后。自定义 graph 在它的 model node 中把 `get_current_tool_source_tools()` 和自己的 tool 一起绑定，`durable_tool_node` 像对待其他调用一样推迟这些调用。Tool 的函数体永远不会在 graph 内部运行。
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-Adapter 把 Connector tool 作为没有 **execute** 的 client tool 交给 Mastra。调用永远不会在模型调用内部运行。Mastra 的审批设置对它无效；审批由 source 决定。使用 tool source 时，`toolPolicies` 条目永远不会让某个 tool 变成由 Mastra 自己运行的 tool；只有 `mastraRunToolNames` 才能做到。
+适配器把 Connector tool 作为没有 **execute** 的 client tool 交给 Mastra。调用永远不会在模型调用内部运行。Mastra 的审批设置对它无效；审批由 source 决定。使用 tool source 时，`toolPolicies` 条目永远不会让某个 tool 变成由 Mastra 自己运行的 tool；只有 `mastraRunToolNames` 才能做到。
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-Graph 中的每个 agent 都在自己的 tool 之后提供 Connector tool。在 Python 中，adapter 为 source 缓存列表（即它的 `cached_tools()`）中的每个 tool 构建一个 function tool；`ConnectorToolSource` 会缓存它的完整列表。在 TypeScript 中，它们是 non-strict function tool，tool 的 `needsApproval` 和 input guardrail 对它们无效。调用永远不会在 SDK 内部运行；审批由 source 决定。
+Graph 中的每个 Agent 都在自己的 tool 之后提供 Connector tool。在 Python 中，适配器为 source 缓存列表（即它的 `cached_tools()`）中的每个 tool 构建一个 function tool；`ConnectorToolSource` 会缓存它的完整列表。在 TypeScript 中，它们是 non-strict function tool，tool 的 `needsApproval` 和 input guardrail 对它们无效。调用永远不会在 SDK 内部运行；审批由 source 决定。
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-Adapter 把 Connector tool 作为 `ExternalToolset` 传给每次 run。Pydantic AI 从不运行 external tool，所以 Connector tool call 会结束这次 run，调用在它的 tool Step 中运行。
+适配器把 Connector tool 作为 `ExternalToolset` 传给每次 run。Pydantic AI 从不运行 external tool，所以 Connector Tool Call 会结束这次 run，调用在它的 tool Step 中运行。
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
 
-Adapter 在 agent 的 tool 之后提供 Connector tool，形式是没有 **execute** 的 AI SDK tool。调用永远不会在模型调用内部运行。AI SDK 的 `needsApproval` 对它无效；审批由 source 决定。
+适配器在 Agent 的 tool 之后提供 Connector tool，形式是没有 **execute** 的 AI SDK tool。调用永远不会在模型调用内部运行。AI SDK 的 `needsApproval` 对它无效；审批由 source 决定。
 
 </FrameworkTab>
 </FrameworkTabs>

@@ -17,7 +17,7 @@ Dex 应用就是你部署的代码。它包含两部分：
 
 ## 与其他组件的关系 {#how-it-fits-with-the-other-components}
 
-Worker 和 Client 连接 Dex Server。每个 Worker 都是拉取模式 Worker：它主动向 server 建立出站任务 stream，从不监听调用。因此 Worker 不需要开放入站端口，可以运行在 NAT 或防火墙后面。
+Worker 和 Client 连接 Dex Server。每个 Worker 都是拉取模式 Worker：它主动向 server 建立出站任务流，从不监听调用。因此 Worker 不需要开放入站端口，可以运行在 NAT 或防火墙后面。
 
 Dex 把所有 Flow、SubFlow、Step 和 RPC 调用都发给你的 Worker，不需要配置 Worker 地址。[Dex Web](/components/web) 或 `dexcli` 启动的 Flow 也在你的 Worker 上运行。
 
@@ -208,7 +208,7 @@ Dex 用引用来传递大的值，例如很大的 Attribute。blob cache 是本�
 
 ## 把服务传给 Flow {#pass-services-to-the-flow}
 
-Flow 要调用的每个服务，比如支付 API，都通过 Flow 的 constructor 传入。这样从 Worker 注册 Flow 的那一刻起，每个 Step 就有了它的服务，测试也可以用同样的方式传入假服务。用 setter 或全局变量会留下一段空档，Step 可能在没有服务的情况下运行。
+Flow 要调用的每个服务，比如支付 API，都通过 Flow 的构造函数传入。这样从 Worker 注册 Flow 的那一刻起，每个 Step 就有了它的服务，测试也可以用同样的方式传入假服务。用 setter 或全局变量会留下一段空档，Step 可能在没有服务的情况下运行。
 
 ## 在 handler 里启动 Flow {#start-a-flow-from-a-handler}
 
@@ -377,7 +377,7 @@ curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
 
 ## 通过 RPC 发命令、读状态 {#send-commands-through-rpcs}
 
-要改变 Flow 的 handler 调用一个 RPC，比如 **approve**。RPC 需要有正在运行的 Worker（[RPC 保证](/concepts/primitives/rpc#guarantees)）。要在没有 Worker 运行时保存一条消息，见[没有 Worker 运行时投递事件](/concepts/client#deliver-without-a-worker)。RPC 把消息发到 Channel，正在等待的 Step 就会醒来。要读取 Flow 的 handler 调用读 RPC，比如 **describe**。RPC 在 Worker 上基于 Flow 的当前状态运行，所以 handler 读写的状态和 Step 用的是同一份。handler 从 constructor 或 factory 参数拿到 Client 和 Flow。
+要改变 Flow 的 handler 调用一个 RPC，比如 **approve**。RPC 需要有正在运行的 Worker（[RPC 保证](/concepts/primitives/rpc#guarantees)）。要在没有 Worker 运行时保存一条消息，见[没有 Worker 运行时投递事件](/concepts/client#deliver-without-a-worker)。RPC 把消息发到 Channel，正在等待的 Step 就会醒来。要读取 Flow 的 handler 调用读 RPC，比如 **describe**。RPC 在 Worker 上基于 Flow 的当前状态运行，所以 handler 读写的状态和 Step 用的是同一份。handler 从构造函数或工厂函数参数拿到 Client 和 Flow。
 
 [订单处理](/use-cases/order-processing) 示例用完整代码展示了这三种模式。
 

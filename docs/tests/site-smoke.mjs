@@ -387,14 +387,14 @@ assert.match(dexConnectorContributor, /not ready for production until the Connec
 assert.match(dexConnectorContributor, /needs a Go implementation/);
 assert.match(dexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/blob\/main\/AGENTS\.md/);
 assert.match(zhDexSkills, /使用 AI 构建/);
-assert.match(zhDexSkills, /主要 skill/);
-assert.match(zhDexSkills, /开始实现之前/);
+assert.match(zhDexSkills, /主要 Skill/);
+assert.match(zhDexSkills, /开始实现前/);
 assert.match(zhDexAppBuilder, /写入 repository 或项目目录/);
 assert.ok(zhDexSkills.indexOf('dex-app-builder') < zhDexSkills.indexOf('dex-sdk'));
-assert.match(zhDexAppBuilder, /主要 skill/);
+assert.match(zhDexAppBuilder, /主要 Skill/);
 assert.match(zhDexAppBuilder, /选择应用界面/);
 assert.match(zhDexSdk, /版本与来源/);
-assert.match(zhDexSdk, /skill 默认只读/);
+assert.match(zhDexSdk, /Skill 默认只读/);
 assert.match(zhDexConnectorContributor, /Repository 与 Fork 工作流/);
 assert.match(zhDexConnectorContributor, /在 Connector 以确切版本\s*发布之前，应用不能进入生产/);
 assert.match(zhDexConnectorContributor, /必须有 Go 实现/);
@@ -756,7 +756,7 @@ function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
   assert.match(text, /npx skills add superdurable\/dex-skills --skill '\*' --agent <agent-id> --global/);
   assert.match(text, /npx skills update dex-app-builder dex-sdk dex-connector-contributor --global/);
   assert.match(text, isChinese ? /Plugin（推荐）/ : /Plugin \(recommended\)/);
-  assert.match(text, /Standalone Skills/);
+  assert.match(text, isChinese ? /独立 Skill（Standalone）/ : /Standalone Skills/);
   assert.match(text, isChinese ? /安装.*使用.*更新/s : /Install.*Use.*Update/s);
 }
 

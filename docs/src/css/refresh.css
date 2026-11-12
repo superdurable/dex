@@ -471,7 +471,7 @@ html[data-theme='dark'] {
 
 .docs-harness-cards .docs-section-entry {
   margin: 0;
-  align-items: center;
+  align-items: flex-start;
   border: 1px solid var(--docs-hairline);
 }
 

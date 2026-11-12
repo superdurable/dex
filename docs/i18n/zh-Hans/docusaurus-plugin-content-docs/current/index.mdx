@@ -7,7 +7,7 @@ slug: /
 
 # Dex 文档
 
-Dex 是一个 **Durable Execution** 平台。数据库保存你的数据，Dex 还保存流程的进度：哪些 Step 已经运行，返回了什么，流程正在等什么。进程崩溃、重启或者等了很久之后，流程会从停下的地方继续。
+Dex 是一个 **持久化执行（Durable Execution）** 平台。数据库保存你的数据，Dex 还保存流程的进度：哪些 Step 已经运行，返回了什么，流程正在等什么。进程崩溃、重启或者等了很久之后，流程会从停下的地方继续。
 
 你用自己的语言把流程写成一个 **Flow**：一组 **Step**，每个 Step 说明下一步运行哪个 Step。你服务里的 **Worker** 负责运行这些 Step。
 
@@ -19,7 +19,7 @@ Dex 是一个 **Durable Execution** 平台。数据库保存你的数据，Dex �
 
 <div className="docs-home-sdks">
 
-快速开始语言：[Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [TypeScript](/quick-start?sdk=typescript) [Java](/quick-start?sdk=java) [Rust](/quick-start?sdk=rust)
+按语言快速开始：[Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [TypeScript](/quick-start?sdk=typescript) [Java](/quick-start?sdk=java) [Rust](/quick-start?sdk=rust)
 
 </div>
 
@@ -30,13 +30,13 @@ Dex 是一个 **Durable Execution** 平台。数据库保存你的数据，Dex �
     运行一个 Flow，停掉它的 Worker，看 Dex 让它继续。
   </DocsSection>
   <DocsSection section="concepts" to="/concepts" title="概念">
-    Flow、Step 和六个 Primitive。
+    Flow、Step 和六个原语。
   </DocsSection>
   <DocsSection section="product-examples" to="/use-cases" title="示例">
-    完整的流程：AI agent、订单、订阅和转账。
+    完整的流程：AI Agent、订单、订阅和转账。
   </DocsSection>
   <DocsSection section="components" icon="cloud" to="/components/choose-how-to-run" title="选择 Dex 的运行方式">
-    Dex Cloud 替你运行 server，或者你在自己的基础设施上运行它。
+    Dex Cloud 替你运行 Dex Server，或者你在自己的基础设施上运行它。
   </DocsSection>
 </div>
 
@@ -47,7 +47,7 @@ Dex 是一个 **Durable Execution** 平台。数据库保存你的数据，Dex �
     把你已有的函数、任务或队列消费者改写成 Flow。
   </DocsSection>
   <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/quick-start" title="构建持久化 Agent">
-    保留你的 agent 框架。每次工具调用在自己的 Step 里运行，审批可以等上好几天。
+    保留你的 Agent 框架。每次 Tool Call 在自己的 Step 里运行，审批可以等上好几天。
   </DocsSection>
   <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="让 coding agent 来写">
     安装 Dex Skills，让 coding agent 写出正确的 Dex 代码。

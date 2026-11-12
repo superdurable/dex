@@ -10,9 +10,7 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 
 # 为什么是 Dex？
 
-Dex 是一个 Durable Execution（D-Ex）平台。
-Dex 会在流程运行时记录它的每个 Step。
-进程崩溃或重启后，流程从最后记录的 Step 继续，不会从头再来，也不会停在半路。
+Dex 是一个 Durable Execution（D-Ex）平台。Dex 会在流程运行时记录它的每个 Step。进程崩溃或重启后，流程从最后记录的 Step 继续，不会从头再来，也不会停在半路。
 
 一个在中途被打断的 Step 可能再运行一次，所以每次调用其他系统都要带上幂等键：这个值让对方系统认出重复的请求并跳过它。[幂等键](/concepts/step#idempotency-keys)说明怎样构造它。
 

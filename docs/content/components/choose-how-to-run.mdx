@@ -52,6 +52,16 @@ yourself. [Run Dex in Production](/components/production) lists each item.
 The [Sustainable Use License](/intro/limits#license) lets you run Dex for your
 own business.
 
+## Local and production {#local-and-production}
+
+| Component | Local development | Production |
+| --- | --- | --- |
+| Server | **dexcli dev** starts server-zd | **dex-server-zd serve** with object storage, or Dex Cloud |
+| Web | **dexcli dev** starts Dex Web | A separate **dex-web** process, or **dexcli web** |
+| Application | Your Worker process | Your Worker service, scaled like any service |
+
+[Run Locally](/components/run-locally) covers the local side, and [Run Dex in Production](/components/production) the production side.
+
 ## Next
 
 - [Quick Start](/quick-start) runs a Flow against a local server.

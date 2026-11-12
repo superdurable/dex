@@ -3,12 +3,12 @@ id: index
 title: 概念
 sidebar_label: 概念
 slug: /concepts
-description: "Dex 的编程模型很小。Flow 是一个持久化程序，Step 推动它前进，Primitive 保存它的状态并把它和外部世界连起来。你的应用通过 Client 驱动 Flow。"
+description: "Dex 的编程模型很小。Flow 是一个持久化程序，Step 推动它前进，原语保存它的状态并把它和外部世界连起来。你的应用通过 Client 驱动 Flow。"
 ---
 
 # 概念
 
-Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进。Primitive 保存它的状态，并把它和外部世界连起来。你的应用通过 Client 驱动 Flow。
+Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进。原语（Primitive）保存它的状态，并把它和外部世界连起来。你的应用通过 Client 驱动 Flow。
 
 ## Flow 和 Step {#flow-and-step}
 
@@ -17,11 +17,11 @@ Dex 的编程模型很小。Flow 是一个持久化程序。Step 推动它前进
 | [Flow](/concepts/flow) | 一个带业务 ID 的持久化程序。它拥有自己的 Step、状态和消息。 | 建模一个业务流程或一个实体。 |
 | [Step](/concepts/step) | Flow 里的一个工作单元。它等待、执行，并决定接下来运行什么。 | 做工作，推动流程前进。 |
 
-## Primitive {#the-primitives}
+## 原语 {#the-primitives}
 
-Primitive 是 Flow 使用的构件。每个 Primitive 都属于一个 Flow。
+原语是 Flow 使用的构件。每个原语都属于一个 Flow。
 
-| Primitive | 它是什么 | 用它来 |
+| 原语 | 它是什么 | 用它来 |
 | --- | --- | --- |
 | [Attribute](/concepts/primitives/attribute) | 属于一个 Flow 的持久化状态。 | 在 Step 之间保存数据，从外部读取它，并按它搜索。 |
 | [RPC](/concepts/primitives/rpc) | 对一个 Flow 的同步调用。 | 从你的应用发送命令、读取视图。 |
@@ -87,7 +87,7 @@ Dex 把每个 Step 的结果和转到下一个 Step 的动作一起保存。已�
 
 ## 下一步 {#next}
 
-- 先读 [Flow](/concepts/flow) 和 [Step](/concepts/step)。Primitive 都建立在它们之上。
+- 先读 [Flow](/concepts/flow) 和 [Step](/concepts/step)。原语都建立在它们之上。
 - [设计模式](/design-patterns)说明怎样组合这些概念来解决常见问题。
 - [正确性与表达能力](/correctness-and-expressiveness)说明 Dex 能表达什么，以及它怎样保持正确。
 - [开发者参考](/reference)收录参数、默认值、限制和版本细节。

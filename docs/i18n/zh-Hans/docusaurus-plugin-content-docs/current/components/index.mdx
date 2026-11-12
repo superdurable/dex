@@ -15,15 +15,25 @@ import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
 
 <DexSystemDiagram withOperatorTools markdownDescription="你的应用包含 Client 和 Worker，两者都用 Dex SDK 构建。Client 通过 startFlow 和 invokeRPC 调用 Dex Server；Dex Server 调用 Worker 运行 Step 和 RPC，并持久化每个 Flow。dexcli 和 Dex Web 也连接 Dex Server，用来在本机运行 Dex，以及查看和操作 Flow。" />
 
+Dex Server 把 Flow 状态保存在对象存储中，也可以把选定的 Attribute 复制到 PostgreSQL，见 [Dex Server](/components/server) 和 [Dex 和你的数据库](/components/your-database)。
+
 <a id="本地和生产环境"></a>
 
 ## 本节页面 {#pages}
 
-- [选择 Dex 的运行方式](/components/choose-how-to-run)：Dex Cloud 或你自己的基础设施。
+**准备**
+
+- [选择 Dex 的运行方式](/components/choose-how-to-run)：Dex Cloud 或你自己的基础设施，以及[本地和生产环境](/components/choose-how-to-run#local-and-production)的区别。
 - [本地运行](/components/run-locally)：安装 dexcli，在本机启动 Dex。
+
+**构建和测试**
+
 - [你的应用](/components/application)：把 Dex 加入服务、启动 Worker、从 handler 启动 Flow。
 - [测试你的 Flow](/components/testing)：用真实的 Dex Server 测试。
 - [Dex 和你的数据库](/components/your-database)：在 Step 中写入你自己的数据库，或把 Attribute 复制到 PostgreSQL。
+
+**运维**
+
 - [Dex Server](/components/server)：server 保存什么，以及怎样运行它。
 - [在生产环境运行 Dex](/components/production)：从拓扑到备份、升级和监控的检查清单。
 - [故障转移和部署](/concepts/failover-and-deploys)：节点或 Worker 离开时，运行中的 Flow 会怎样。

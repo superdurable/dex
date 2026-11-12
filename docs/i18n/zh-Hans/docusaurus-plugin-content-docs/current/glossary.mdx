@@ -9,17 +9,17 @@ slug: /glossary
 
 Dex 术语的简短定义。Dex 源自 iWF，iWF 把 Flow 叫作 Workflow，把 Step 叫作 State。本文档只使用 Dex 的叫法。
 
-#### [Activation](/reference/agents/tracing)
+#### [Activation](/reference/agents/tracing)（激活） {#activation}
 
-agent session 在两次持久化等待之间连续运行的一组 Step。session 收到一条用户消息或一个审批答复时开始，session 再次进入等待时结束。Tracing 为每个 activation 生成一条 trace。
+Agent Session 在两次持久化等待之间连续运行的一组 Step。Session 收到一条用户消息或一个审批答复时开始，Session 再次进入等待时结束。Tracing 为每个 activation 生成一条 trace。
 
-#### [Agent session](/agent-frameworks/sessions)
+#### [Agent session](/agent-frameworks/sessions)（Agent Session） {#agent-session}
 
-与一个持久化 agent 的一次对话。它是一次 Flow run，session ID 就是它的 Flow ID。对话内容和工具调用都保存在 Attribute 里。
+与一个持久化 Agent 的一次对话。它是一次 Flow run，Session ID 就是它的 Flow ID。对话内容和 Tool Call 都保存在 Attribute 里。
 
-#### [Agent Step names](/agent-frameworks/sessions)
+#### [Agent 的 Step 名称](/agent-frameworks/sessions) {#agent-step-names}
 
-持久化 agent session 中的各个 Step，例如 `RunModel`、`CallTool`、`AwaitToolApproval` 和 `ResumeTurn`。Sessions 页面逐一介绍了它们。
+持久化 Agent Session 中的各个 Step，例如 `RunModel`、`CallTool`、`AwaitToolApproval` 和 `ResumeTurn`。Session 页面逐一介绍了它们。
 
 #### [App Worker ID](/reference/server/workers#routing-and-availability)
 
@@ -33,7 +33,7 @@ Flow 上一个持久化、有类型的变量。可以为它建索引，用于搜
 
 一组由你自己管理的 PostgreSQL 表，Dex Server 会把选定的 Attribute 复制进去。复制是单向的，Flow 始终是数据的权威来源。
 
-#### [Blob cache](/components/application#blob-cache)
+#### [Blob cache](/components/application#blob-cache)（Blob 缓存） {#blob-cache}
 
 本地磁盘上一个有容量上限的缓存，用来存放较大的 Dex 值。Dex 用引用来传递大值，缓存保留这些值，Worker 或 Client 就不用重复下载。每个 Worker 和 Client 进程各自打开一个缓存目录。缓存丢失也不会丢数据。
 
@@ -69,7 +69,7 @@ Step 要等待的东西，由 WaitFor 返回：一个 Timer、一条 Channel 消
 
 Dex 的 CLI。它在本机运行 Dex Server 和 Dex Web，也用来查看和操作 Flow。
 
-#### [Durable Execution](/intro/what-is-dex)
+#### [持久化执行（Durable Execution）](/intro/what-is-dex) {#durable-execution}
 
 让一个流程在崩溃、重启和长时间等待之后依然能继续运行的执行方式。引擎记录流程的进度，失败之后流程从中断处继续，而不是从头开始。
 
@@ -79,7 +79,7 @@ Step 的一个方法。WaitFor 的条件满足后运行；Step 没有 WaitFor �
 
 #### [故障转移](/concepts/failover-and-deploys) {#failover}
 
-当前活跃的 Dex Server 进程停止后，由备用进程接管。Worker 已经收到的每次 attempt 都会重新运行。
+当前活跃的 Dex Server 进程停止后，由备用进程接管。Worker 已经收到的每次尝试都会重新运行。
 
 #### [Flow](/concepts/flow)
 
@@ -99,45 +99,45 @@ Step 的一个方法。WaitFor 的条件满足后运行；Step 没有 WaitFor �
 
 #### [Hard-delete Attribute](/concepts/primitives/attribute#hard-delete-attributes)
 
-用于短期密钥的 Attribute。删除它会永久抹掉存储的值。Dex 每次 attempt 都重新读取它，而不是从该 attempt 的快照中读取。
+用于短期密钥的 Attribute。删除它会永久抹掉存储的值。Dex 每次尝试都重新读取它，而不是从该尝试的快照中读取。
 
-#### [Harness](/agent-frameworks#choose-a-harness)
+#### [Harness](/agent-frameworks#choose-a-harness)（运行框架） {#harness}
 
-在 Dex 上运行 agent 循环的代码：可以是 Dex Agents 内置的 agent 循环，也可以是某个 agent 框架的适配器。
+在 Dex 上运行 Agent Loop 的代码：可以是 Dex Agents 的内置 Agent Loop，也可以是某个 Agent 框架的适配器。
 
 #### [幂等键](/concepts/step#idempotency-keys) {#idempotency-key}
 
-调用其他系统时附带的一个值，让对方能识别重复请求并跳过。用每次 attempt 都保持不变的值来构造它，例如 Flow ID 加上这次调用的名字。
+调用其他系统时附带的一个值，让对方能识别重复请求并跳过。用每次尝试都保持不变的值来构造它，例如 Flow ID 加上这次调用的名字。
 
 #### [索引槽位](/concepts/primitives/attribute#read-and-search-attributes) {#index-slot}
 
 带编号的搜索键，例如 `keyword1` 或 `int2`，供建了索引的 Attribute 使用。槽位有类型，由一个 namespace 中的所有 Flow type 共用，数量有限。
 
-#### [Interrupt](/agent-frameworks/approvals)
+#### [Interrupt](/agent-frameworks/approvals)（中断） {#interrupt}
 
-agent turn 中等待人来处理的点。审批就是一种 interrupt：session 快照把它列在 `pending_interrupts` 下，由 `resolve_interrupt` 来答复。另一种是向用户提问。
+Agent turn 中等待人来处理的点。审批就是一种 interrupt：Session 快照把它列在 `pending_interrupts` 下，由 `resolve_interrupt` 来答复。另一种是向用户提问。
 
 #### [InvokeRPC](/concepts/primitives/rpc)
 
 一个 Client API，调用 Worker 上某个 Flow 的 RPC handler。
 
-#### [Join](/design-patterns/parallel/await)
+#### [Join](/design-patterns/parallel/await)（汇合） {#join}
 
 等待多个并行分支的辅助工具。每个分支向一个 [ChannelMap](/concepts/primitives/channel#channelmap) 报告，等待的 Step 在这个 ChannelMap 上等待，直到所有分支或所需数量的分支都已报告。
 
-#### [Locking](/concepts/primitives/attribute#locking)
+#### [Locking](/concepts/primitives/attribute#locking)（加锁） {#locking}
 
 让访问同一组 Attribute 的 Step 和 RPC 逐个运行。
 
-#### [Movement](/concepts/step#stepdecision-movements)
+#### [Movement](/concepts/step#stepdecision-movements)（流转） {#movement}
 
 转到另一个 Step，或者让 Flow 完成或失败的决定。
 
-#### [Persistence schema](/concepts/flow#implement-a-flow)
+#### [Persistence schema](/concepts/flow#implement-a-flow)（持久化 schema） {#persistence-schema}
 
 Flow 声明的 Attribute 和 Channel 列表。Worker 会拒绝 schema 中未列出的 Attribute。
 
-#### [Registry](/components/application#registry)
+#### [Registry](/components/application#registry)（注册表） {#registry}
 
 Worker 或 Client 注册的一组 Flow。Worker 运行这些 Flow 的 Step 和 RPC，Client 用同样的定义来编码输入、解码结果。
 
@@ -155,19 +155,19 @@ Worker 上的 handler，供外部读写一条正在运行的 Flow。
 
 #### [状态快照](/concepts/step#guarantees) {#state-snapshot}
 
-一次 Step 方法 attempt 读取到的 Flow 状态，即 Dex 把这次 attempt 交给 Worker 时的 Attribute 值。`Execute` 重试时沿用第一次 attempt 的快照。Hard-delete Attribute 是例外，Dex 每次 attempt 都重新读取它们。
+一次 Step 方法尝试读取到的 Flow 状态，即 Dex 把这次尝试交给 Worker 时的 Attribute 值。`Execute` 重试时沿用第一次尝试的快照。Hard-delete Attribute 是例外，Dex 每次尝试都重新读取它们。
 
 #### [Step](/concepts/step)
 
 持久化控制流的基本单元，包含可选的 WaitFor 和一个 Execute。
 
-#### [Step durability](/concepts/step/advanced-guarantees#sync-and-async)
+#### [Step durability](/concepts/step/advanced-guarantees#sync-and-async)（Step 持久性） {#step-durability}
 
-Dex 保存 Step 进度的时机。默认的 **SYNC** 在 Flow 继续之前保存每次 attempt 的开始和结果。**ASYNC** 先让 Flow 继续，所以服务器故障时这次 attempt 可能会再运行一次。
+Dex 保存 Step 进度的时机。默认的 **SYNC** 在 Flow 继续之前保存每次尝试的开始和结果。**ASYNC** 先让 Flow 继续，所以服务器故障时这次尝试可能会再运行一次。
 
-#### [Step execution](/reference/server/runtime-client#wait-for-a-step)
+#### [Step execution](/reference/server/runtime-client#wait-for-a-step)（Step 执行） {#step-execution}
 
-某个 Step type 的一次运行，用 `step_type` 加一个序号标识。
+某个 Step 类型的一次运行，用 `step_type` 加一个序号标识。
 
 #### [StepDecision](/concepts/step#stepdecision-movements)
 
@@ -197,13 +197,13 @@ Dex 把一条 Flow 的下一个 Step 或 RPC 优先发给之前服务过这条 F
 
 一种 RPC，只有当它要删除的每条 Channel 消息仍处于待处理状态时，Dex 才保存它的修改。持有锁的 RPC 总是 transactional 的。
 
-#### [Turn segment](/agent-frameworks/sessions#how-each-framework-runs-a-turn)
+#### [Turn segment](/agent-frameworks/sessions#how-each-framework-runs-a-turn)（Turn 分段） {#turn-segment}
 
-在 Claude Agent SDK harness 中，一次 turn 里由一次 CLI 运行处理的部分，对应一个 `RunModel` Step。写入类工具调用会结束一个 segment。
+在 Claude Agent SDK harness 中，一次 turn 里由一次 CLI 运行处理的部分，对应一个 `RunModel` Step。写入类 Tool Call 会结束一个 segment。
 
-#### [Versioning](/concepts/change-flow-code#versioning-flow-code)
+#### [Versioning](/concepts/change-flow-code#versioning-flow-code)（版本管理） {#versioning}
 
-在 Flow 仍未结束时修改 Flow 代码。Dex 不重放代码，所以部署不会引发重放错误。保留旧的 Step type 和 RPC，直到使用它们的 Flow 结束。
+在 Flow 仍未结束时修改 Flow 代码。Dex 不重放代码，所以部署不会引发重放错误。保留旧的 Step 类型和 RPC，直到使用它们的 Flow 结束。
 
 #### [WaitFor](/concepts/step#waitfor-and-execute)
 

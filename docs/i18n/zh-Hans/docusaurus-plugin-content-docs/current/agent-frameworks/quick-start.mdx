@@ -2,12 +2,12 @@
 title: Agent 快速开始
 sidebar_label: Agent 快速开始
 slug: /agent-frameworks/quick-start
-description: 从下载的示例把你所用框架的 Agent 作为持久化 Dex session 运行，批准一次写操作，然后在它等待时和 tool 运行时停止程序，看 session 继续运行。
+description: 从下载的示例把你所用框架的 Agent 作为持久化 Dex Session 运行，批准一次写操作，然后在它等待时和 tool 运行时停止程序，看 Session 继续运行。
 ---
 
 # Agent 快速开始
 
-把你所用框架的 Agent 作为持久化 Dex session 运行，然后在对话中途停止它，看它继续运行。整个过程大约 10 分钟。
+把你所用框架的 Agent 作为持久化 Dex Session 运行，然后在对话中途停止它，看它继续运行。整个过程大约 10 分钟。
 
 <a id="before-you-start"></a>
 <a id="what-you-will-build"></a>
@@ -38,7 +38,7 @@ uv run --frozen python -m agent_harness_examples.quick_start claude-agent-sdk "L
 需要 Python 3.11 或更高版本以及 uv。它会调用 Claude，所以先设置 `ANTHROPIC_API_KEY`。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session claude-agent-sdk-quick-start-<8 hex digits>
@@ -58,7 +58,7 @@ npm run agent-quick-start -- claude-agent-sdk "Look up order 1001"
 需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session claude-agent-sdk-quick-start-<8 hex digits>
@@ -87,7 +87,7 @@ uv run --frozen python -m agent_harness_examples.quick_start google-adk "Look up
 需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session google-adk-quick-start-6dd3466c
@@ -120,7 +120,7 @@ uv run --frozen python -m agent_harness_examples.quick_start langchain "Look up 
 需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session langchain-quick-start-5fdf8e3b
@@ -149,7 +149,7 @@ npm run agent-quick-start -- mastra "Look up order 1001"
 需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session mastra-quick-start-<8 hex digits>
@@ -179,7 +179,7 @@ uv run --frozen python -m agent_harness_examples.quick_start openai-agents "Look
 需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session openai-agents-quick-start-3980a512
@@ -202,7 +202,7 @@ npm run agent-quick-start -- openai-agents "Look up order 1001"
 需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session openai-agents-quick-start-<8 hex digits>
@@ -252,7 +252,7 @@ uv run --frozen python -m agent_harness_examples.quick_start pydantic-ai "Look u
 需要 Python 3.11 或更高版本以及 uv。它使用本地 demo 模型运行，因此不需要 API key。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session pydantic-ai-quick-start-9b54d0be
@@ -281,7 +281,7 @@ npm run agent-quick-start -- vercel-ai "Look up order 1001"
 需要 Node.js 22 或更高版本。它会调用真实模型，所以先设置你的 provider key，例如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`。
 
 
-它会打印 session ID 和 Agent 的回复：
+它会打印 Session ID 和 Agent 的回复：
 
 ```text
 Session vercel-ai-quick-start-<8 hex digits>
@@ -308,7 +308,7 @@ Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订
 
 ## 3. 在 Agent 等待时停止程序 {#stop-the-worker}
 
-再次要求取消订单 1002；每次不带 `--session-id` 运行都会启动一个新 session。程序请你批准时，按 Ctrl+C。程序、它的 Worker 和 Client 都会停止，而 session 仍在 Dex 中等待。
+再次要求取消订单 1002；每次不带 `--session-id` 运行都会启动一个新 Session。程序请你批准时，按 Ctrl+C。程序、它的 Worker 和 Client 都会停止，而 Session 仍在 Dex 中等待。
 
 在同一个文件夹中再次运行第 1 步的命令，用 `--session-id SESSION_ID` 替换消息。新的 Worker 启动，程序会询问同一个 `cancel_order` 调用。输入 **y**。订单只取消一次，重启之前的模型调用仍然是已完成状态。
 
@@ -316,7 +316,7 @@ Session 在 `AwaitToolApproval` 中等待。输入 **y**，Agent 就会取消订
 
 ## 4. 在 tool 运行时停止 {#stop-while-a-tool-runs}
 
-在 tool call 中途崩溃是更难处理的情况。示例可以放慢每次 tool call，让你有时间停止它。
+在 Tool Call 中途崩溃是更难处理的情况。示例可以放慢每次 Tool Call，让你有时间停止它。
 
 1. 在第 1 步的命令前加上 `DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20`，询问订单 1001。
 2. 在 20 秒内像崩溃那样杀掉程序。崩溃相当于 kill 信号；Ctrl+C 会先让正在运行的调用完成。
@@ -343,7 +343,7 @@ pkill -9 -f quick-start-main.js
 </SdkTabs>
 
 3. 带上 `--session-id`、不带消息，再次运行程序。Agent 会回复订单信息。
-4. 查看这次 tool call 是如何运行的：
+4. 查看这次 Tool Call 是如何运行的：
 
 ```bash
 dexcli flow history --all SESSION_ID | jq '.events[]
@@ -358,7 +358,7 @@ dexcli flow history --all SESSION_ID | jq '.events[]
 
 ## 是什么让它变得持久 {#make-it-durable}
 
-示例先按框架本身的写法写出 Agent，再把它包进 Dex agent session，并为每个 tool 指定 policy。对这两个 function tool 来说，改动只有这些：
+示例先按框架本身的写法写出 Agent，再把它包进 Dex Agent Session，并为每个 tool 指定 policy。对这两个 function tool 来说，改动只有这些：
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -541,7 +541,7 @@ def build_durable_agent(order_desk: OrderDesk, model: str | BaseChatModel) -> Ag
 </SdkSnippet>
 </SdkTabs>
 
-`DurableToolCallMiddleware` 让每次 tool call 作为独立的 Step 运行。
+`DurableToolCallMiddleware` 让每次 Tool Call 作为独立的 Step 运行。
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">

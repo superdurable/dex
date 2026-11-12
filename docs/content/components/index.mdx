@@ -15,15 +15,25 @@ A Dex application runs on four components: your application, Dex Server, dexcli,
 
 <DexSystemDiagram withOperatorTools markdownDescription="Your application holds a Client and a Worker, both built with the Dex SDK. The Client calls Dex Server with startFlow and invokeRPC; Dex Server calls the Worker to run Steps and RPCs and persists every Flow. dexcli and Dex Web also connect to Dex Server, to run Dex locally and to inspect and operate Flows." />
 
+Dex Server keeps Flow state in object storage and can copy selected Attributes to PostgreSQL; see [Dex Server](/components/server) and [Dex and Your Database](/components/your-database).
+
 <a id="local-and-production"></a>
 
 ## Pages in this section {#pages}
 
-- [Choose How to Run Dex](/components/choose-how-to-run): Dex Cloud or your own infrastructure.
+**Set up**
+
+- [Choose How to Run Dex](/components/choose-how-to-run): Dex Cloud or your own infrastructure, and [local or production](/components/choose-how-to-run#local-and-production).
 - [Run Locally](/components/run-locally): install dexcli and start Dex on your machine.
+
+**Build and test**
+
 - [Your Application](/components/application): add Dex to a service, start a Worker, and start Flows from a handler.
 - [Test Your Flows](/components/testing): test against a real Dex Server.
 - [Dex and Your Database](/components/your-database): write to your own database from a Step, or copy Attributes to PostgreSQL.
+
+**Operate**
+
 - [Dex Server](/components/server): what the server stores and how to run it.
 - [Run Dex in Production](/components/production): the checklist from topology to backup, upgrades, and monitoring.
 - [Failover and Deploys](/concepts/failover-and-deploys): what happens to running Flows when a node or a Worker goes away.

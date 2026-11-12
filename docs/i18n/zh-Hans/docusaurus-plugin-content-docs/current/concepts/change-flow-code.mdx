@@ -22,15 +22,15 @@ Dex 根据记录下来的状态决定 Flow 下一步做什么，而不会重新�
 
 ### 以增量方式演进数据和契约 {#evolve-data-and-contracts-additively}
 
-添加可选字段。读取 payload 的代码必须能处理旧 run 没有设置的字段，并忽略更新的组件发送的未知字段。为缺失的字段提供安全的默认值，并保持已有字段值原来的含义。对于不兼容的 payload 或输出契约，引入新的 Step type 或 RPC 名称，而不是悄悄修改旧的。
+添加可选字段。读取 payload 的代码必须能处理旧 run 没有设置的字段，并忽略更新的组件发送的未知字段。为缺失的字段提供安全的默认值，并保持已有字段值原来的含义。对于不兼容的 payload 或输出契约，引入新的 Step 类型或 RPC 名称，而不是悄悄修改旧的。
 
 如果较新的 Worker 无法解码保存的输入或 Attribute，这次尝试会因解码错误失败，和 Step 方法抛出的任何错误一样。每次重试都会以同样的方式失败，所以重试窗口结束时（默认 4 小时）Step 失败，并应用它的失败策略。默认情况下，Flow 随后失败。Dex Web 在尝试上显示错误类型和信息。修复代码，然后用 [Time Travel](#time-travel) 重新运行这个 Step。
 
-要在重试窗口结束前发现这种情况，每次部署后观察 Dex Server 的 `dexzd_step_attempt_failures_total` 指标，过滤 `failure_kind="worker_error"`。解码错误和其他 Step 错误一样计入这里。这个指标没有 Step type 标签，所以要在 Dex Web 中打开失败的尝试，查看是哪个 Step、哪个错误。见 [Metrics](/reference/server/metrics)（英文）。
+要在重试窗口结束前发现这种情况，每次部署后观察 Dex Server 的 `dexzd_step_attempt_failures_total` 指标，过滤 `failure_kind="worker_error"`。解码错误和其他 Step 错误一样计入这里。这个指标没有 Step 类型标签，所以要在 Dex Web 中打开失败的尝试，查看是哪个 Step、哪个错误。见 [Metrics](/reference/server/metrics)（英文）。
 
 ### 保留旧定义，直到旧 Flow 结束 {#keep-old-definitions-until-old-flows-finish}
 
-只要还有未结束的 Flow 可能调用某个 Flow type、Step type 或 RPC 实现，就保持它以原来的名字注册。把新定义和旧定义一起部署。新的 Flow 通过两种方式之一到达新定义：根据启动时保存的版本分支的决定转到新的 Step type，或者新代码启动一个新的 Flow type。在重试和任何经过批准的 Time Travel 恢复期间，都要让旧实现保持可用。
+只要还有未结束的 Flow 可能调用某个 Flow type、Step 类型或 RPC 实现，就保持它以原来的名字注册。把新定义和旧定义一起部署。新的 Flow 通过两种方式之一到达新定义：根据启动时保存的版本分支的决定转到新的 Step 类型，或者新代码启动一个新的 Flow type。在重试和任何经过批准的 Time Travel 恢复期间，都要让旧实现保持可用。
 
 在滚动部署期间，缺少所请求的 Step 或 RPC 的 Worker 可以把调用交给拥有它的另一个 Worker。这不会消耗 Step 尝试。见 [Routing and availability](/reference/server/workers#routing-and-availability)（英文）。
 
@@ -46,14 +46,14 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 
 要用未结束的 Flow 测试新的 Worker 构建，运行下面这些检查。Dex 目前还没有一个命令完成这些检查：
 
-1. **列出这个类型的未结束的 Flow。** 搜索正在运行的 Flow，以及它们正在等待的 Step type。`ActiveStepTypes` 是一个内置的搜索字段。
+1. **列出这个类型的未结束的 Flow。** 搜索正在运行的 Flow，以及它们正在等待的 Step 类型。`ActiveStepTypes` 是一个内置的搜索字段。
 
    ~~~bash
    dexcli flow search --query 'FlowType = "OrderFlow" AND ExecutionStatus = "Running"'
    dexcli flow search --query 'FlowType = "OrderFlow" AND ActiveStepTypes = "Ship"'
    ~~~
 
-2. **确认新构建注册了这些 Flow 可能到达的每个 Step type 和 RPC。** 缺少某一个的 Worker 会把调用交给另一个 Worker。如果所有 Worker 都没有，Step 会在队列中等待，RPC 会失败。
+2. **确认新构建注册了这些 Flow 可能到达的每个 Step 类型和 RPC。** 缺少某一个的 Worker 会把调用交给另一个 Worker。如果所有 Worker 都没有，Step 会在队列中等待，RPC 会失败。
 3. **用旧构建启动的 Flow 运行新构建的集成测试。** [测试你的 Flow](/components/testing) 介绍测试环境的搭建。快速开始的重启测试是可以照搬的模板：它在 Flow 中途停止一个 Worker，再用另一个 Worker 完成这个 Flow。做版本检查时：
    1. 检出旧构建。用它启动一个 Worker，启动 Flow，等每个 Flow 到达你关心的 Step，可以用 `wait_for_step_completion` 或搜索 `ActiveStepTypes`。
    2. 优雅地停止这个 Worker。
@@ -66,7 +66,7 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 
 1. **在启动时记录版本。** 新的启动 handler 在启动 Flow 时把一个 Attribute（例如 **pricing-version**）设为 2。更早启动的 Flow 没有这个值，表示版本 1。
 2. **根据保存的值分支。** **Charge** 读取 **pricing-version**。版本 1 只扣订单金额，版本 2 扣订单金额加手续费。当前正在 **Ship** 中等待的 Flow 永远不会再运行 **Charge**，所以它不受影响。
-3. **为改变的契约添加 Step type。** 假设退款现在需要一个旧 Flow 从未保存过的新输入字段。添加一个新的 Step type，例如 `RefundWithFee`，并且只从版本 2 转到它。为版本 1 的 Flow 保留 **Refund**。
+3. **为改变的契约添加 Step 类型。** 假设退款现在需要一个旧 Flow 从未保存过的新输入字段。添加一个新的 Step 类型，例如 `RefundWithFee`，并且只从版本 2 转到它。为版本 1 的 Flow 保留 **Refund**。
 4. **两者一起部署。** 一个 Worker 构建同时包含带分支的 **Charge**、**Refund** 和 `RefundWithFee`。在滚动部署期间，缺少 `RefundWithFee` 的旧 Worker 会把这个调用交给新 Worker。
 5. **退役旧路径。** 当没有未结束的 Flow 处于版本 1 时，删除版本 1 的分支和 **Refund**。先搜索这样的 Flow。如果 **pricing-version** 是建了索引的 Attribute，搜索时除了 Flow type，还可以按它过滤。
 
@@ -80,7 +80,7 @@ Time Travel 把一个 Flow run 移回它历史中更早的某个点，从那里�
 
 Time Travel 把 run 的状态恢复成那个点时的样子：它的 Attribute、它的 Channel 消息，以及当时正在等待或已就绪的 Step。在那个点之后从 run 外部进来的输入，默认会再应用一次：RPC 调用、Channel 发布和 Attribute 写入。这叫做 **write reapply**。如果这些输入不应该再算一次，用 `skip_writes_reapply`（`dexcli`：`-skip-writes-reapply`）关闭它。FlowService 中这个调用叫 `ResetFlow`；这些文档称它为 Time Travel。
 
-目标点必须在 Flow 最近的历史窗口内。默认情况下，窗口在 **serve** 上保留每个 run 最新的大约 50,000 个历史事件，在 **dev** 上保留 5,000 个。server 的配置键是 `history.windowEvents`，Flow 也可以在自己的 Flow 配置中设置窗口大小。Time Travel 到 run 的开头始终可用。可以从 Dex Web、`dexcli` 或 Client 发起 Time Travel。server 参考中的 [Time travel](/reference/server/runtime-client#time-travel)（英文）介绍请求选项和限制。
+目标点必须在 Flow 最近的历史窗口内。默认情况下，窗口在 **serve** 上保留每个 run 最新的大约 50,000 个历史事件，在 **dev** 上保留 5,000 个。server 的配置键是 `history.windowEvents`，Flow 也可以在自己的 Flow 配置中设置窗口大小。Time Travel 到 run 的开头始终可用。可以从 Dex Web、`dexcli` 或 Client 发起 Time Travel。server 参考中的 [Time Travel](/reference/server/runtime-client#time-travel)（英文）介绍请求选项和限制。
 
 ## 下一步 {#next}
 

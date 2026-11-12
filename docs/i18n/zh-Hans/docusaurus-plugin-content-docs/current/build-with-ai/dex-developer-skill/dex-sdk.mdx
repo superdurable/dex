@@ -3,13 +3,12 @@ id: dex-sdk
 title: Dex SDK
 sidebar_label: Dex SDK
 slug: /build-with-ai/dex-developer-skill/dex-sdk
-description: "Dex SDK 是一个专用 sub-skill。它帮助 agent 用公开的 Dex SDK 构建、调试、测试和运行应用，支持 Python、Go、Java、TypeScript 和 Rust。"
+description: "Dex SDK 是一个专用子 Skill。它帮助 Agent 用公开的 Dex SDK 构建、调试、测试和运行应用，支持 Python、Go、Java、TypeScript 和 Rust。"
 ---
 
 # Dex SDK
 
-Dex SDK 是一个专用 sub-skill。它帮助 agent 用公开的 Dex SDK 构建、调试、测试和运行
-应用，支持 Python、Go、Java、TypeScript 和 Rust。
+Dex SDK 是一个专用子 Skill。它帮助 Agent 用公开的 Dex SDK 构建、调试、测试和运行应用，支持 Python、Go、Java、TypeScript 和 Rust。
 
 ## 安装与使用 {#install-and-use}
 
@@ -22,8 +21,7 @@ $dex-sdk Diagnose why this Flow retries after the payment Step completes.
 
 [安装和使用 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) 列出了每个 host 的调用方式。
 
-完整的产品或业务流程需求，请从 [Dex App Builder](./dex-app-builder.mdx) 开始。
-App Builder 开始做后端时会加载 Dex SDK。
+完整的产品或业务流程需求，请从 [Dex App Builder](./dex-app-builder.mdx) 开始。App Builder 开始做后端时会加载 Dex SDK。
 
 ## 何时使用 {#when-to-use-it}
 
@@ -36,23 +34,19 @@ App Builder 开始做后端时会加载 Dex SDK。
 - SDK 版本兼容、测试、排错或运维；
 - Dex Web、`dexcli`、Flow 可视化和应用可观测性。
 
-这个 skill 处理的是你的应用，不是 Dex 本身。除非你明确要求它开发 Dex，否则它不会为了
-解决应用问题去修改 Dex Server。
+这个 Skill 处理的是你的应用，不是 Dex 本身。除非你明确要求它开发 Dex，否则它不会为了解决应用问题去修改 Dex Server。
 
 ## 版本与来源 {#version-and-source-authority}
 
-写代码之前，skill 会先弄清应用的语言、包管理器、已安装的 Dex SDK 版本、Worker 和
-Client 如何启动，以及 repository 的测试命令。
+写代码之前，Skill 会先弄清应用的语言、包管理器、已安装的 Dex SDK 版本、Worker 和 Client 如何启动，以及 repository 的测试命令。
 
-skill 以 repository 源码、lockfile、已安装的 SDK 和对应版本的官方示例为准。除非你要求
-升级，否则它保留当前安装的版本。如果找不到与该版本完全对应的源码，它只做到与版本无关的
-Flow 模型设计为止，不会编造 API。
+Skill 以 repository 源码、lockfile、已安装的 SDK 和对应版本的官方示例为准。除非你要求升级，否则它保留当前安装的版本。如果找不到与该版本完全对应的源码，它只做到与版本无关的 Flow 模型设计为止，不会编造 API。
 
 它只加载你所用语言的 handbook 和任务需要的参考资料，不会把五种语言都加载进来。
 
 ## 实现前先建模 {#model-before-implementation}
 
-对于不简单的改动，skill 会在修改代码前先写出模型：
+对于不简单的改动，Skill 会在修改代码前先写出模型：
 
 - Flow 的标识、typed 启动输入和完成输出；
 - Step、状态转换，以及工作在哪些点保存；
@@ -65,32 +59,22 @@ Flow 模型设计为止，不会编造 API。
 
 ## 实现与验证 {#implementation-and-verification}
 
-完整的应用改动包括：typed 输入、输出和失败；Flow 和 Step 定义；持久化 schema 条目；
-注入的依赖；registry 注册；需要时的 Worker 和 Client 配置；应用的入口（例如 HTTP
-接口）；以及针对真实 Dex Server 的集成测试。
+完整的应用改动包括：typed 输入、输出和失败；Flow 和 Step 定义；持久化 schema 条目；注入的依赖；registry 注册；需要时的 Worker 和 Client 配置；应用的入口（例如 HTTP 接口）；以及针对真实 Dex Server 的集成测试。
 
-交付之前，skill 会检查：构建或类型检查、集成场景、重试和超时后的恢复、重复请求、Flow
-结束后的行为、每个 primitive 是否都已注册、heartbeat、Stream 行为，以及 Worker 和
-Client 的配置是否兼容。
+交付之前，Skill 会检查：构建或类型检查、集成场景、重试和超时后的恢复、重复请求、Flow 结束后的行为、每个原语是否都已注册、heartbeat、Stream 行为，以及 Worker 和 Client 的配置是否兼容。
 
-正在运行的 Flow 会限制哪些名称和 schema 可以修改。除非你有明确的迁移方案，否则 skill
-会保留现有的 Flow、Step、Attribute、Channel、Stream 和 RPC 名称。
+正在运行的 Flow 会限制哪些名称和 schema 可以修改。除非你有明确的迁移方案，否则 Skill 会保留现有的 Flow、Step、Attribute、Channel、Stream 和 RPC 名称。
 
 ## 诊断与运维 {#diagnostics-and-operations}
 
-诊断问题时，skill 默认只读。它可以查看 Dex Web、`dexcli`、SDK 错误和应用日志。未经
-你授权，它不会 stop、time travel、publish、invoke、删除、编辑或以其他方式修改 Flow。
+诊断问题时，Skill 默认只读。它可以查看 Dex Web、`dexcli`、SDK 错误和应用日志。未经你授权，它不会 stop、Time Travel、publish、invoke、删除、编辑或以其他方式修改 Flow。
 
-skill 会保留 typed Dex 错误的原样，直到你的业务逻辑能区分以下几种情况：业务拒绝、与正在
-关闭的 Flow 发生竞争、可以重试的服务故障，以及本地 bug。它只把保留的 Stream 用于尽力而为
-的观察，从不把它们当作业务状态的权威来源。
+Skill 会保留 typed Dex 错误的原样，直到你的业务逻辑能区分以下几种情况：业务拒绝、与正在关闭的 Flow 发生竞争、可以重试的服务故障，以及本地 bug。它只把保留的 Stream 用于尽力而为的观察，从不把它们当作业务状态的权威来源。
 
 ## 与其他 Skill 的关系 {#relationship-to-the-other-skills}
 
-- [Dex App Builder](./dex-app-builder.mdx) 在做后端时加载 Dex SDK 的核心内容和 Go
-  指导，然后加上它自己更严格的规则。
-- [Dex Connector Contributor](./dex-connector-contributor.mdx) 在实现官方 Connector
-  时加载共享的 Dex 规则和 Go 指导。
+- [Dex App Builder](./dex-app-builder.mdx) 在做后端时加载 Dex SDK 的核心内容和 Go 指导，然后加上它自己更严格的规则。
+- [Dex Connector Contributor](./dex-connector-contributor.mdx) 在实现官方 Connector 时加载共享的 Dex 规则和 Go 指导。
 - 直接调用 Dex SDK 时，任务保持为范围明确的技术工作，不会扩展成完整的产品流程。
 
 返回 [Dex Skills 总览与安装](../dex-developer-skill.mdx)。

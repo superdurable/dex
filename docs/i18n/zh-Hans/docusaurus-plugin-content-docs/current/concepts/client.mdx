@@ -17,7 +17,7 @@ slug: /concepts/client
 - <a id="read-attributes"></a>**读取 Attribute**：只需要已存储的值时。见 [Read Attributes](/reference/server/runtime-client#read-attributes)。
 - **等待**：等 Flow 结束、Step 完成，或 Attribute 达到某个值。
 - **搜索**：按 Flow type、状态或已索引的 Attribute 查找 Flow。
-- <a id="停止-flow"></a>**运维** Flow：查看、停止、跳过 Timer、更新配置或 time travel。停止 Flow 见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)。
+- <a id="停止-flow"></a>**运维** Flow：查看、停止、跳过 Timer、更新配置或 Time Travel。停止 Flow 见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)。
 
 ## 从 API 服务启动 Flow {#start-from-an-api-service}
 
@@ -40,7 +40,7 @@ Dex 目前会再次执行重复的命令。调用方在响应丢失后重试的 
 
 在 Dex 丢弃重复之前，请在 Flow 里丢弃它们。让调用方为每个命令生成一个请求 ID，并随 RPC 参数或 Channel 消息一起发送。把 Flow 已经处理过的 ID 保存在一个 Attribute 或 AttributeMap 里。处理命令的 RPC 或 Step 先检查这份记录，对已经处理过的 ID 什么也不做。如果有多个 Step 或 RPC 可能同时处理命令，就给这份记录[加锁](/concepts/primitives/attribute#locking)。
 
-## 和其他 Primitive 的关系 {#related-primitives}
+## 和其他原语的关系 {#related-primitives}
 
 - [Flow](/concepts/flow)：`StartFlow` 用你选择的 **Flow ID** 创建 Flow run。Flow ID 是业务身份，例如订单号。Dex 创建 Run ID。之后的调用都用 Flow ID 指定 Flow。
 - [RPC](/concepts/primitives/rpc)：通过 RPC 修改运行中的 Flow。要修改 Attribute、AttributeMap、Channel 或 ChannelMap 状态，为每个命令定义一个 typed RPC，再用 `InvokeRPC` 调用。这样 validation、authorization、lock 和 transaction 都留在 Flow 内。

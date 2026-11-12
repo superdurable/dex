@@ -6,25 +6,25 @@ sidebar_label: 持久化 Agent
 
 # 持久化 Agent
 
-Dex 把 AI Agent 作为持久化的 Agent Session 运行。你可以用 Dex Agents 的内置 agent loop 构建 Agent，也可以保留已经用 Agent 框架写好的 Agent；两者运行在同一个 Session Flow 上。
+Dex 把 AI Agent 作为持久化的 Agent Session 运行。你可以用 Dex Agents 的内置 Agent Loop 构建 Agent，也可以保留已经用 Agent 框架写好的 Agent；两者运行在同一个 Session Flow 上。
 
 ## Dex 为你的 Agent 带来什么 {#what-dex-adds}
 
-你的 Agent 框架保持不变，Dex 让每个 Session 持久化：
+你的 Agent 代码保持不变，Dex 让每个 Session 持久化：
 
-- **[持久化的 Session](/agent-frameworks/sessions)。** 崩溃或部署之后，Session 从最后一次完成的模型调用或 Tool Call 继续。
-- **[按策略执行的 Tool Call](/agent-frameworks/tool-calls)。** 每次 Tool Call 都在自己的 Step 中运行：读操作会重试，非幂等写操作最多运行一次。
-- **[可以长时间等待的审批](/agent-frameworks/approvals)。** 需要人来审批的调用可以等几分钟或几天，重启和部署之后依然有效。
-- **[把 Connector 用作 tool](/agent-frameworks/connectors-as-tools)。** Agent 调用官方 Connector 的操作，遵循同样的 tool 策略。
-- **[可观测与可控](/agent-frameworks/production)。** Dex Web 展示每个 Session，tracing 覆盖每次模型调用和 Tool Call，花费上限检查模型花费。
+- **持久化的 Session。** 崩溃或部署之后，Session 从最后一次完成的模型调用或 Tool Call 继续。
+- **按策略执行的 Tool Call。** 每次 Tool Call 都在自己的 Step 中运行：读操作会重试，非幂等写操作最多运行一次。
+- **可以长时间等待的审批。** 需要人来审批的调用可以等几分钟或几天，重启和部署之后依然有效。
+- **把 Connector 用作 tool。** Agent 调用官方 Connector 的操作，遵循同样的 tool 策略。
+- **可观测与可控。** Dex Web 展示每个 Session，tracing 覆盖每次模型调用和 Tool Call，花费上限（spend limit）约束模型开销。
 
 想亲手试一试，可以运行 [Agent 快速开始](/agent-frameworks/quick-start)。[Dex vs. 其他引擎](/intro/compared-to-durable-execution#agent-frameworks-on-a-durable-execution-engine)把 Dex 与框架的 checkpointer 和其他引擎做了对比，[术语表](/glossary)解释了这些页面用到的术语。
 
-## 选择 harness {#choose-a-harness}
+## 选择 Harness {#choose-a-harness}
 
 <a id="coming-from-a-framework"></a>
 
-Harness 负责运行 agent loop：内置 loop 或某个框架。选择你的框架，打开它的 Agent 快速开始；每个框架的限制在 [Session](/agent-frameworks/sessions#limits) 页面。
+Harness（运行框架）负责运行 Agent Loop：内置 Agent Loop 或某个框架。选择你的框架，打开它的 Agent 快速开始；每个框架的限制在 [Session](/agent-frameworks/sessions#limits) 页面。
 
 <div className="docs-home-sections docs-harness-cards">
   <DocsSection section="agent-frameworks" logo="claude-agent-sdk" to="/agent-frameworks/quick-start/?framework=claude-agent-sdk" title="Claude Agent SDK">
@@ -33,7 +33,7 @@ Harness 负责运行 agent loop：内置 loop 或某个框架。选择你的框�
   <DocsSection section="agent-frameworks" logo="google-adk" to="/agent-frameworks/quick-start/?framework=google-adk" title="Google ADK">
     Python
   </DocsSection>
-  <DocsSection section="agent-frameworks" logo="langchain-langgraph" to="/agent-frameworks/quick-start/?framework=langchain-langgraph" title="LangChain and LangGraph">
+  <DocsSection section="agent-frameworks" logo="langchain-langgraph" to="/agent-frameworks/quick-start/?framework=langchain-langgraph" title="LangChain 和 LangGraph">
     Python
   </DocsSection>
   <DocsSection section="agent-frameworks" logo="mastra" to="/agent-frameworks/quick-start/?framework=mastra" title="Mastra">
@@ -63,7 +63,7 @@ Harness 负责运行 agent loop：内置 loop 或某个框架。选择你的框�
 - [把 Connector 用作 tool](/agent-frameworks/connectors-as-tools)：从 Agent 调用官方 Connector 的操作。
 - [生产环境中的 Agent](/agent-frameworks/production)：在生产环境运行 Session 之前的检查清单。
 - [内置 Agent Loop](/agent-frameworks/built-in-agent-loop)：不用框架构建新的 Agent。
-- 示例：基于内置 loop 的 [AI Agent](/use-cases/ai-agent)，以及在每个框架上实现的[订单客服 Agent](/use-cases/order-support-agent)。
+- 示例：基于内置 Agent Loop 的 [AI Agent](/use-cases/ai-agent)，以及在每个框架上实现的[订单客服 Agent](/use-cases/order-support-agent)。
 
 [Agents 参考](/reference/agents/)（英文）中的页面：[Tracing](/reference/agents/tracing)、[Upgrades](/reference/agents/upgrades)、[Session limits](/reference/agents/session-limits)、[Spend limits](/reference/agents/spend-limits) 和 [CLI commands](/reference/agents/cli)。
 
@@ -71,4 +71,4 @@ Harness 负责运行 agent loop：内置 loop 或某个框架。选择你的框�
 
 - [AI Agent](/use-cases/ai-agent)
 - [Step](/concepts/step)
-- [Agents reference](/reference/agents/)（英文）
+- [Agents 参考](/reference/agents/)（英文）

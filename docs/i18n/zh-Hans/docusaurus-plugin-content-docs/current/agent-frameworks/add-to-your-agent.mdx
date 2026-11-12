@@ -2,25 +2,25 @@
 title: 把 Dex 加入你的 Agent
 sidebar_label: 把 Dex 加入你的 Agent
 slug: /agent-frameworks/add-to-your-agent
-description: 安装你所用框架的 adapter，复制完整的 agent 文件与宿主文件，再把持久化的 Agent Session 接入一个流式返回回复的 web 应用。
+description: 安装你所用框架的适配器，复制完整的 Agent 文件与宿主文件，再把持久化的 Agent Session 接入一个流式返回回复的 Web 应用。
 ---
 
 # 把 Dex 加入你的 Agent
 
-[Agent 快速开始](/agent-frameworks/quick-start) 运行的是一个示例。本页把同一个 Agent 移到你自己的代码中：安装框架的 adapter，复制完整文件，再从 web 应用中提供 session。
+[Agent 快速开始](/agent-frameworks/quick-start) 运行的是一个示例。本页把同一个 Agent 移到你自己的代码中：安装框架的适配器，复制完整文件，再在 Web 应用中对外提供 Session。
 
 ## 你的应用会有哪些变化 {#what-changes-in-your-app}
 
-- **Agent 定义保持原样。** 你把它包装一层，并为每个 tool 指定一个 policy。
-- **Request handler 的形态会变。** 它把用户消息发给 session 后就返回。回复出现在 session 的 event stream 上，或者在它的 snapshot 中。
-- **你要多运行两样东西。** Worker 进程运行 session 的 Step，Dex Server 存储它们。Dex Server 可以运行在 Dex Cloud 上，也可以运行在你自己的基础设施上；[选择 Dex 的运行方式](/components/choose-how-to-run) 对比了两者。Dex 处于 Beta 阶段，Dex Server 的版本是 0.1，一个集群由一个活动节点提供服务。
-- **每个 turn 都要等待 Dex 提交。** 一个带三个并行 tool call 的 turn 大约多花 0.4 秒；参见 [延迟与成本](/agent-frameworks/sessions#latency-and-cost)。
+- **Agent 定义保持原样。** 你把它包装一层，并为每个 tool 指定一个策略。
+- **请求处理函数（handler）的形态会变。** 它把用户消息发给 Session 后就返回。回复出现在 Session 的事件流上，或者在它的快照中。
+- **你要多运行两样东西。** Worker 进程运行 Session 的 Step，Dex Server 存储它们。Dex Server 可以运行在 Dex Cloud 上，也可以运行在你自己的基础设施上；[选择 Dex 的运行方式](/components/choose-how-to-run) 对比了两者。Dex 处于 Beta 阶段，Dex Server 的版本是 0.1，一个集群由一个活动节点提供服务。
+- **每个 turn 都要等待 Dex 提交。** 一个带三个并行 Tool Call 的 turn 大约多花 0.4 秒；参见 [延迟与成本](/agent-frameworks/sessions#latency-and-cost)。
 
 [生产环境中的 Agent](/agent-frameworks/production) 列出了需要准备的事项。[性能](/intro/performance) 给出具体数字，[限制](/intro/limits#license) 给出许可证说明。
 
 ## 在你自己的 Agent 中使用 {#use-it-in-your-own-agent}
 
-把 adapter 和它对应的框架一起安装。每个 adapter 都会引入 Dex Agents core。然后复制下面的 [完整文件](#complete-files)。
+把适配器和它对应的框架一起安装。每个适配器都会引入 Dex Agents core。然后复制下面的 [完整文件](#complete-files)。
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -48,9 +48,9 @@ npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superd
 
 **认证**
 
-Worker 用 `ANTHROPIC_API_KEY` 为 Claude Code CLI 认证。把它设置在 Worker 的环境中。它永远不会进入 Flow state。
+Worker 用 `ANTHROPIC_API_KEY` 为 Claude Code CLI 认证。把它设置在 Worker 的环境中。它永远不会进入 Flow 状态。
 
-示例为 CLI 构建的环境中，`ANTHROPIC_API_KEY` 是唯一的 credential。缺少这个 key 时，示例不会注册 Claude agent，只提供其他 harness。
+示例为 CLI 构建的环境中，`ANTHROPIC_API_KEY` 是唯一的凭据。缺少这个 key 时，示例不会注册 Claude Agent，只提供其他 harness。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -165,13 +165,13 @@ Agent 快速开始程序每种语言有三个文件。除了示例自带的 orde
 
 | 文件 | Python | TypeScript |
 | --- | --- | --- |
-| 你的 agent 模块，包含普通版和持久化版，以及全部 import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
+| 你的 Agent 模块，包含普通版和持久化版，以及全部 import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
 | Runner：Registry、Worker、Client，以及一个带审批的 turn | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) |
 | 在命令行提示中请求审批的入口 | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) |
 
-### 把 session 接入你的应用 {#wire-it-into-your-app}
+### 把 Session 接入你的应用 {#wire-it-into-your-app}
 
-对 Agent 本身的改动很小：就是 [Agent 快速开始第 2 步](/agent-frameworks/quick-start#make-it-durable) 中的那层包装。其余是每个 Dex 应用都有的宿主代码：一个运行 Step 的 Worker，和一个调用它们的 Client。下面这个函数是最小的宿主。它在你的进程中运行一个 Worker 和一个 Client，启动一个 session，发送一条消息，并在 turn 结束后返回 session：
+对 Agent 本身的改动很小：就是 [Agent 快速开始第 2 步](/agent-frameworks/quick-start#make-it-durable) 中的那层包装。其余是每个 Dex 应用都有的宿主代码：一个运行 Step 的 Worker，和一个调用它们的 Client。下面这个函数是最小的宿主。它在你的进程中运行一个 Worker 和一个 Client，启动一个 Session，发送一条消息，并在 turn 结束后返回 Session：
 
 <SdkTabs
   examples={{
@@ -287,20 +287,20 @@ export async function askAgent(
 </SdkSnippet>
 </SdkTabs>
 
-它接收你的模块中 `build_durable_agent` 或 `buildDurableAgent` 返回的 session Flow。需要审批的 turn 会一直等待，直到你的应用处理它；做法参见 [在你的应用中审批](/agent-frameworks/approvals#approve-from-your-application)。
+它接收你的模块中 `build_durable_agent` 或 `buildDurableAgent` 返回的 Session Flow。需要审批的 turn 会一直等待，直到你的应用处理它；做法参见 [在你的应用中审批](/agent-frameworks/approvals#approve-from-your-application)。
 
-Web 应用把同样的部件分到各个 route 中：
+Web 应用把同样的部件分到各个路由中：
 
-1. 一个包含 session Flow 的 **Registry**、一个运行其 Step 的 **Worker**，以及一个调用它的 **Client**，和上面的函数一样。Worker 主动向外连接 Dex，所以不需要开放端口。两者都会打开一个 blob cache，即存放较大值的本地缓存；[Registry 与 blob cache](/components/application#blob-cache) 对它做了说明。
-2. 一个启动 session 的 route。Session ID 就是 Flow ID。
-3. 一个发送用户消息的 route，以及一个读取 session snapshot（其中包含 Agent 回复）的 route。要在回复生成的同时流式返回，请读取 AgentEvents Stream，如 [下一节](#web-handler) 所示。
-4. 一个批准或拒绝等待中 tool call 的 route。参见 [在你的应用中审批](/agent-frameworks/approvals#approve-from-your-application)。
+1. 一个包含 Session Flow 的 **Registry**、一个运行其 Step 的 **Worker**，以及一个调用它的 **Client**，和上面的函数一样。Worker 主动向外连接 Dex，所以不需要开放端口。两者都会打开一个 blob cache，即存放较大值的本地缓存；[Registry 与 blob cache](/components/application#blob-cache) 对它做了说明。
+2. 一个启动 Session 的路由。Session ID 就是 Flow ID。
+3. 一个发送用户消息的路由，以及一个读取 Session 快照（其中包含 Agent 回复）的路由。要在回复生成的同时流式返回，请读取 AgentEvents Stream，如 [下一节](#web-handler) 所示。
+4. 一个批准或拒绝等待中 Tool Call 的路由。参见 [在你的应用中审批](/agent-frameworks/approvals#approve-from-your-application)。
 
-[订单客服 Agent](/use-cases/order-support-agent) 示例为每个框架都提供了这些 HTTP route。
+[订单客服 Agent](/use-cases/order-support-agent) 示例为每个框架都提供了这些 HTTP 路由。
 
 #### Web handler 中由什么代替框架调用 {#web-handler}
 
-Handler 把消息排入 session 的队列，然后返回。
+Handler 把消息排入 Session 的队列，然后返回。
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -340,7 +340,7 @@ Handler 把消息排入 session 的队列，然后返回。
 </FrameworkTab>
 </FrameworkTabs>
 
-回复出现在 session 的 [AgentEvents Stream](/reference/agents/event-stream#read-the-stream)（英文）上，UI 以 server-sent events 的形式读取它。上面的函数轮询 session snapshot，适合脚本和测试。Chat UI 则读取这个 stream。
+回复出现在 Session 的 [AgentEvents Stream](/reference/agents/event-stream#read-the-stream)（英文）上，UI 以 server-sent events 的形式读取它。上面的函数轮询 Session 快照，适合脚本和测试。Chat UI 则读取这个 stream。
 
 <SdkTabs
   examples={{
@@ -349,7 +349,7 @@ Handler 把消息排入 session 的队列，然后返回。
   }}>
 <SdkSnippet lang="python">
 
-这个完整的应用托管 Worker 和 Client，并提供 chat UI 需要的所有 route：启动 session、发送消息、读取 session、流式读取它的 event，以及答复审批。完整模块 `quick_start/web.py`：
+这个完整的应用托管 Worker 和 Client，并提供 chat UI 需要的所有路由：启动 Session、发送消息、读取 Session、流式读取它的 event，以及答复审批。完整模块 `quick_start/web.py`：
 
 ```python
 """A complete web app for a durable agent: start, message, read, stream, approve.
@@ -438,7 +438,7 @@ def create_web_app(
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
-[AI Agent](/use-cases/ai-agent) 示例的 chat route 展示了同样的部件。一个 chat route 把消息或审批答复排入队列，并以 Vercel AI SDK UI message 格式流式返回回复。第二个 route 在重新连接后恢复 stream。下面是节选：`requireBody`、`authorizeSession`、`session` 以及其他辅助函数定义在 [完整的 routes 文件](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts) 中。
+[AI Agent](/use-cases/ai-agent) 示例的聊天路由展示了同样的部件。一个聊天路由把消息或审批答复排入队列，并以 Vercel AI SDK 的 UI message 格式流式返回回复。第二个路由在重新连接后恢复 stream。下面是节选：`requireBody`、`authorizeSession`、`session` 以及其他辅助函数定义在 [完整的路由文件](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts) 中。
 
 ```ts
   router.post("/api/chat", async (request, response) => {

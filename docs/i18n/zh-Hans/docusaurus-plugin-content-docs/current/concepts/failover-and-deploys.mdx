@@ -46,9 +46,9 @@ active 节点崩溃后，standby 在 lease 到期再过 1 秒后接管。lease �
 
 每次 Step 尝试运行的是领取它的 Worker 上的代码；Dex 不会 [replay](/concepts/change-flow-code#versioning-flow-code) 之前的 Step。当前正在某个 Step 中等待的 Flow，在条件满足时会运行新的 `Execute`。
 
-在滚动部署期间，缺少某个 Step type 或 RPC 的 Worker 会拒绝它。Dex 把调用交给另一个 Worker，Step 尝试不会被消耗。见 [Routing and availability](/reference/server/workers#routing-and-availability)（英文）。
+在滚动部署期间，缺少某个 Step 类型或 RPC 的 Worker 会拒绝它。Dex 把调用交给另一个 Worker，Step 尝试不会被消耗。见 [Routing and availability](/reference/server/workers#routing-and-availability)（英文）。
 
-保留 Step type 或 RPC，直到没有未结束的 Flow 会调用它。保存的版本 Attribute 决定 Flow 走哪条路径。见 [Flow 代码的版本管理](/concepts/change-flow-code#versioning-flow-code)。
+保留 Step 类型或 RPC，直到没有未结束的 Flow 会调用它。保存的版本 Attribute 决定 Flow 走哪条路径。见 [Flow 代码的版本管理](/concepts/change-flow-code#versioning-flow-code)。
 
 ## 你修改 WaitFor 代码 {#you-change-waitfor-code}
 

@@ -6,29 +6,29 @@ slug: /agent-frameworks/sessions
 
 # Session
 
-持久化 agent session 是承载一段对话的一次 Flow run。每次模型调用和每次 tool call 都在一个 Step 中运行。因此崩溃、部署或长时间等待都不会重复已经完成的工作。
+持久化 Agent Session 是承载一段对话的一次 Flow run。每次模型调用和每次 Tool Call 都在一个 Step 中运行。因此崩溃、部署或长时间等待都不会重复已经完成的工作。
 
-## 持久化 agent session {#a-durable-agent-session}
+## 持久化 Agent Session {#a-durable-agent-session}
 
-一次 Flow run 就是一个 agent session，Flow ID 就是 session ID。Session Flow 由 Dex Agents 构建：Python 中是 **dex-agents** package，TypeScript 中是 `@superdurable/dex-agents`。框架 adapter 在其上接入一个 Agent 框架。
+一次 Flow run 就是一个 Agent Session，Flow ID 就是 Session ID。Session Flow 由 Dex Agents 构建：Python 中是 **dex-agents** package，TypeScript 中是 `@superdurable/dex-agents`。框架适配器在其上接入一个 Agent 框架。
 
 Session 把对话保存在 Attribute 中。Session 等待下一条用户消息时不占用 Worker 的 task slot。
 
-模型调用在 `RunModel` Step 中运行。在大多数 harness 中，每个 `RunModel` Step 进行一次模型调用，每次 tool call 在自己的 Step 中运行。一个 turn 的 Step 如下：
+模型调用在 `RunModel` Step 中运行。在大多数 harness 中，每个 `RunModel` Step 进行一次模型调用，每次 Tool Call 在自己的 Step 中运行。一个 turn 的 Step 如下：
 
 | Step | 作用 |
 | --- | --- |
 | `RunModel` | 进行一次模型调用并记录响应。 |
 | `CallTool` | 运行一次读操作或幂等写操作调用。Dex 可以重试它。 |
 | `CallSingleAttemptTool` | 运行一次其他写操作调用。Dex 最多运行它一次。 |
-| `AwaitToolApproval` | 等待人批准或拒绝一次 tool call。见 [审批](/agent-frameworks/approvals)。 |
+| `AwaitToolApproval` | 等待人批准或拒绝一次 Tool Call。见 [审批](/agent-frameworks/approvals)。 |
 | `ResumeTurn` | 等待这次模型响应的所有 tool result，然后回到 `RunModel`。 |
 
-同一次模型响应中的 tool call 并行运行。全部完成后，`ResumeTurn` 把它们的结果发给模型。
+同一次模型响应中的 Tool Call 并行运行。全部完成后，`ResumeTurn` 把它们的结果发给模型。
 
 ### 延迟与成本 {#latency-and-cost}
 
-每个 session Step 都是 SYNC 的：Dex 在 Worker 拿到 Step 之前提交它的开始，在 session 继续之前提交它的结果，两者都写入对象存储。如果模型在一个 turn 中请求三个 tool 然后作答，这个 turn 需要六个 Step：两个 `RunModel`、三个 tool Step 和一个 `ResumeTurn`。[性能](/intro/performance#latency-below-the-peak) 测得，在一台 2 vCPU 的 server 上、负载为峰值一半时，一个 SYNC Step 的 p50 约为 105 ms。三个 tool Step 并行运行，所以这个 turn 依次等待四个 Step。按这个 p50 计算，它们在模型和 tool 本身的时间之外，给这个 turn 增加约 0.4 秒。
+每个 Session Step 都是 SYNC 的：Dex 在 Worker 拿到 Step 之前提交它的开始，在 Session 继续之前提交它的结果，两者都写入对象存储。如果模型在一个 turn 中请求三个 tool 然后作答，这个 turn 需要六个 Step：两个 `RunModel`、三个 tool Step 和一个 `ResumeTurn`。[性能](/intro/performance#latency-below-the-peak) 测得，在一台 2 vCPU 的 server 上、负载为峰值一半时，一个 SYNC Step 的 p50 约为 105 ms。三个 tool Step 并行运行，所以这个 turn 依次等待四个 Step。按这个 p50 计算，它们在模型和 tool 本身的时间之外，给这个 turn 增加约 0.4 秒。
 
 `RunModel` Step 在 30 分钟内最多尝试三次。每次重试都会把模型调用再发给 provider 一次，因此要再付一次 token 费用。对于昂贵的调用，可以用 Python 中的 `run_model_limit` 或 TypeScript 中的 `runModelLimit` 减少尝试次数。默认值见 [Step timeouts](/reference/agents/workers#timeouts)（英文）。
 
@@ -36,39 +36,39 @@ Session 把对话保存在 Attribute 中。Session 等待下一条用户消息�
 
 有两个 harness 会把更多工作放进一个 Step：
 
-- **Claude Agent SDK。** Claude Code CLI 在一个 `RunModel` Step 中运行 turn 的一个 segment。Segment 包含模型调用和读操作 tool call，失败的 segment 会整体重新运行。写操作一次一个地离开 segment，各自在自己的 Step 中运行，所以它们永远不会并行。
-- **LangChain 与 LangGraph。** 一个 `RunModel` Step 把 graph 运行到它的下一批 tool call。Graph 在途中可能进行多次模型调用，重试时会把它们一起重复。
+- **Claude Agent SDK。** Claude Code CLI 在一个 `RunModel` Step 中运行 turn 的一个 segment。Segment 包含模型调用和读操作 Tool Call，失败的 segment 会整体重新运行。写操作一次一个地离开 segment，各自在自己的 Step 中运行，所以它们永远不会并行。
+- **LangChain 与 LangGraph。** 一个 `RunModel` Step 把 graph 运行到它的下一批 Tool Call。Graph 在途中可能进行多次模型调用，重试时会把它们一起重复。
 
 ### Session 记住什么 {#what-a-session-remembers}
 
-一个 session 保存一段对话：它的 message、tool call 以及 tool call 的结果。新的 session 从空白开始。Dex Agents 没有在不同 session 之间共享的 memory。
+一个 Session 保存一段对话：它的 message、Tool Call 以及 Tool Call 的结果。新的 Session 从空白开始。Dex Agents 没有在不同 Session 之间共享的 memory。
 
 长期 memory，例如用户的偏好或过往订单，请保存在你自己掌控的存储中。它可以是你的数据库，也可以是你为每个用户保留的一个 Flow。给 Agent 一个读取它的 tool，以及一个使用合适 [policy](/agent-frameworks/tool-calls#tool-policies-and-approvals) 写入它的 tool。
 
-已停止的 session 在保留期内仍然可读，之后 Dex 会删除它。默认值见 [History and retention](/reference/agents/session-limits#history)（英文）。
+已停止的 Session 在保留期内仍然可读，之后 Dex 会删除它。默认值见 [History and retention](/reference/agents/session-limits#history)（英文）。
 
 ## 你的框架如何运行一个 turn {#how-each-framework-runs-a-turn}
 
-大多数 adapter 会在 tool 运行前让框架停下，因此每次 tool call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。需要审批的调用先在 `AwaitToolApproval` 中等待。下一个 `RunModel` 把记录下来的结果交给框架，因此没有 tool 会再次运行。一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。Claude Agent SDK 是例外：它在 `RunModel` 内部运行读操作。
+大多数适配器会在 tool 运行前让框架停下，因此每次 Tool Call 都在自己的 Step 中并行运行：读操作或幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。需要审批的调用先在 `AwaitToolApproval` 中等待。下一个 `RunModel` 把记录下来的结果交给框架，因此没有 tool 会再次运行。一个查询订单的 turn 依次运行 `RunModel`、`CallTool`、`ResumeTurn` 和 `RunModel`。Claude Agent SDK 是例外：它在 `RunModel` 内部运行读操作。
 
 下面的标签页展示每个框架如何被暂停和恢复，以及各框架的不同之处。
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
-Claude Agent SDK 把 Claude Code 作为 Agent 运行。它的 agent loop 在 Claude Code CLI 中运行，CLI 是 Worker 的一个子进程。Dex adapter 在持久化 session 内运行这个 loop。它支持 Python 和 TypeScript。
+Claude Agent SDK 把 Claude Code 作为 Agent 运行。它的 Agent Loop 在 Claude Code CLI 中运行，CLI 是 Worker 的一个子进程。Dex 适配器在持久化 Session 内运行这个 Agent Loop。它支持 Python 和 TypeScript。
 
 **何时使用**
 
-想要 Claude Code 的 agent loop、上下文管理和 tool 时，使用它。你的 Agent 已经在用 Claude Agent SDK 时，也使用它。
+想要 Claude Code 的 Agent Loop、上下文管理和 tool 时，使用它。你的 Agent 已经在用 Claude Agent SDK 时，也使用它。
 
-如果想要每个 Step 一次模型调用、并行的 tool Step 或 Dex compaction，请使用 [内置 agent loop](/agent-frameworks/built-in-agent-loop)。
+如果想要每个 Step 一次模型调用、并行的 tool Step 或 Dex compaction，请使用 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop)。
 
 **Session 如何运行**
 
-Claude Code 会运行整个 turn，所以 adapter 把一个 turn 拆成多个 segment。一个 `RunModel` Step 为一个 segment 运行 CLI。模型调用在 segment 内运行，读操作 tool 也是：延后执行的读操作会让 CLI 重启。Connector tool call 是例外：即使是读操作，它也总是离开 segment。见 [连接 Connector](/agent-frameworks/connectors-as-tools#connect-connectors)。
+Claude Code 会运行整个 turn，所以适配器把一个 turn 拆成多个 segment。一个 `RunModel` Step 为一个 segment 运行 CLI。模型调用在 segment 内运行，读操作 tool 也是：延后执行的读操作会让 CLI 重启。Connector Tool Call 是例外：即使是读操作，它也总是离开 segment。见 [连接 Connector](/agent-frameworks/connectors-as-tools#connect-connectors)。
 
-写操作 tool call 会结束 segment。需要审批时，它在 `AwaitToolApproval` 中等待。然后它在自己的 Step 中运行：幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。接着 `ResumeTurn` 回到 `RunModel`，后者恢复同一个 Claude session。CLI 拿到记录下来的结果，不会再次运行这个 tool。
+写操作 Tool Call 会结束 segment。需要审批时，它在 `AwaitToolApproval` 中等待。然后它在自己的 Step 中运行：幂等写操作用 `CallTool`，其他写操作用 `CallSingleAttemptTool`。接着 `ResumeTurn` 回到 `RunModel`，后者恢复同一个 Claude session。CLI 拿到记录下来的结果，不会再次运行这个 tool。
 
 失败的 segment 会重试，最多尝试三次，并且整体重新运行。其中的模型调用和读操作会再次运行。已经在自己的 Step 中运行过的写操作，在 segment 重试时不会再次运行。
 
@@ -77,30 +77,30 @@ Claude Code 会运行整个 turn，所以 adapter 把一个 turn 拆成多个 se
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-Google ADK（Agent Development Kit）为 Gemini 和其他模型构建 Agent 与 multi-agent tree。Dex adapter 在持久化 session 内运行 ADK Agent。它支持 Python。
+Google ADK（Agent Development Kit）为 Gemini 和其他模型构建 Agent 与 multi-agent tree。Dex 适配器在持久化 Session 内运行 ADK Agent。它支持 Python。
 
 **何时使用**
 
-你的 Agent 已经在用 Google ADK 时使用它，包括 sequential、loop 和 parallel agent。保留 agent tree 和它的 tool，由 Dex 负责 session。
+你的 Agent 已经在用 Google ADK 时使用它，包括 sequential、loop 和 parallel Agent。保留 Agent tree 和它的 tool，由 Dex 负责 Session。
 
 **Session 如何运行**
 
-Adapter 向 ADK App 添加一个 plugin。对每次 tool call，plugin 都会向 ADK 请求 confirmation，因此 ADK 会在 tool 运行前暂停。每个 `RunModel` Step 进行一次模型调用，并保存这个 turn 的 ADK event。
+适配器向 ADK App 添加一个 plugin。对每次 Tool Call，plugin 都会向 ADK 请求 confirmation，因此 ADK 会在 tool 运行前暂停。每个 `RunModel` Step 进行一次模型调用，并保存这个 turn 的 ADK event。
 
 Tool Step 运行一次 tool。下一个 `RunModel` 确认暂停的调用，plugin 返回记录下来的结果，而不是再次运行 tool。
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-LangChain `create_agent` 在 LangGraph 之上构建会调用 tool 的 Agent。Dex adapter 在持久化 session 内运行 `create_agent` Agent 或自定义的 LangGraph graph。它支持 Python。
+LangChain `create_agent` 在 LangGraph 之上构建会调用 tool 的 Agent。Dex 适配器在持久化 Session 内运行 `create_agent` Agent 或自定义的 LangGraph graph。它支持 Python。
 
 **何时使用**
 
-你的 Agent 已经在用 LangChain `create_agent` 或 LangGraph graph 时使用它。保留 graph、它的 middleware 和 tool，由 Dex 负责 session。
+你的 Agent 已经在用 LangChain `create_agent` 或 LangGraph graph 时使用它。保留 graph、它的 middleware 和 tool，由 Dex 负责 Session。
 
 **Session 如何运行**
 
-`DurableToolCallMiddleware` 用 LangGraph interrupt 拦下每次 tool call，因此 `RunModel` 内不会运行任何 tool。`RunModel` Step 把 graph 运行到它的下一批 tool call，通常只有一次模型调用，并保存 graph checkpoint。
+`DurableToolCallMiddleware` 用 LangGraph interrupt 拦下每次 Tool Call，因此 `RunModel` 内不会运行任何 tool。`RunModel` Step 把 graph 运行到它的下一批 Tool Call，通常只有一次模型调用，并保存 graph checkpoint。
 
 Tool Step 校验参数，并调用一次 tool。下一个 `RunModel` 恢复 checkpoint，用记录下来的结果恢复 graph 的运行。
 
@@ -109,43 +109,43 @@ Tool Step 校验参数，并调用一次 tool。下一个 `RunModel` 恢复 chec
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-Mastra 是一个用于 Agent、tool 和 workflow 的 TypeScript 框架。Dex adapter 在持久化 session 内运行 Mastra Agent。它支持 TypeScript。
+Mastra 是一个用于 Agent、tool 和 workflow 的 TypeScript 框架。Dex 适配器在持久化 Session 内运行 Mastra Agent。它支持 TypeScript。
 
 **何时使用**
 
-你的 Agent 已经在用 Mastra 时使用它。保留 Agent、它的 tool 和 model router，由 Dex 负责 session。
+你的 Agent 已经在用 Mastra 时使用它。保留 Agent、它的 tool 和 model router，由 Dex 负责 Session。
 
 **Session 如何运行**
 
-每个 Agent tool，包括读操作 tool，都以 client tool 的形式交给 Mastra。因此 Mastra 在模型调用后带着 tool call 停下。每个 `RunModel` Step 进行一次模型调用。
+每个 Agent tool，包括读操作 tool，都以 client tool 的形式交给 Mastra。因此 Mastra 在模型调用后带着 Tool Call 停下。每个 `RunModel` Step 进行一次模型调用。
 
-每次 tool call 在自己的 Step 中运行一次 Agent 原来的 tool。下一个 `RunModel` 加入记录下来的结果，再次调用模型。
+每次 Tool Call 在自己的 Step 中运行一次 Agent 原来的 tool。下一个 `RunModel` 加入记录下来的结果，再次调用模型。
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-OpenAI Agents SDK 用 instructions、function tool 和 handoff 定义 Agent。Dex adapter 在持久化 session 内运行 SDK 的 runner。它支持 Python 和 TypeScript。
+OpenAI Agents SDK 用 instructions、function tool 和 handoff 定义 Agent。Dex 适配器在持久化 Session 内运行 SDK 的 runner。它支持 Python 和 TypeScript。
 
 **何时使用**
 
-你的 Agent 已经在用 OpenAI Agents SDK 时使用它，无论是否使用 handoff。保留 SDK 的 agent 定义、tool 和 guardrail，由 Dex 负责 session。
+你的 Agent 已经在用 OpenAI Agents SDK 时使用它，无论是否使用 handoff。保留 SDK 的 Agent 定义、tool 和 guardrail，由 Dex 负责 Session。
 
 **Session 如何运行**
 
-Adapter 复制一次 agent graph，并拦截每个 function tool。因此 SDK 在每次模型调用后立即停下，返回模型请求的 tool call。每个 `RunModel` Step 进行一次模型调用。
+适配器复制一次 Agent graph，并拦截每个 function tool。因此 SDK 在每次模型调用后立即停下，返回模型请求的 Tool Call。每个 `RunModel` Step 进行一次模型调用。
 
-每次 function tool call 在自己的 Step 中运行。下一个 `RunModel` 恢复 SDK 的 run state，并把记录下来的结果交给它。Tool 不会再次运行。
+每次 function Tool Call 在自己的 Step 中运行。下一个 `RunModel` 恢复 SDK 的 run state，并把记录下来的结果交给它。Tool 不会再次运行。
 
 与 function tool 不同，handoff 在 `RunModel` 内运行，因此执行 handoff 的 Step 也会进行下一个 Agent 的模型调用。
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-Pydantic AI 用 tool、dependency 和 output type 定义有类型的 Agent。Dex adapter 在持久化 session 内运行 Pydantic AI Agent。它支持 Python。
+Pydantic AI 用 tool、dependency 和 output type 定义有类型的 Agent。Dex 适配器在持久化 Session 内运行 Pydantic AI Agent。它支持 Python。
 
 **何时使用**
 
-你的 Agent 已经在用 Pydantic AI 时使用它。保留 Agent、它的 tool 和 capability，由 Dex 负责 session。这个 adapter 取代 Pydantic AI 自带的 durable execution 集成。
+你的 Agent 已经在用 Pydantic AI 时使用它。保留 Agent、它的 tool 和 capability，由 Dex 负责 Session。这个适配器取代 Pydantic AI 自带的 durable execution 集成。
 
 **Session 如何运行**
 
@@ -156,26 +156,26 @@ Tool Step 通过 Agent 运行一次 tool，因此 Agent 的 tool hook 也在这�
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
 
-Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API，并支持有类型的 tool。Dex adapter 在持久化 session 内运行 AI SDK 的 agent 定义。它支持 TypeScript。
+Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API，并支持有类型的 tool。Dex 适配器在持久化 Session 内运行 AI SDK 的 Agent 定义。它支持 TypeScript。
 
 **何时使用**
 
-你的 TypeScript 应用已经在用 AI SDK 的模型和 tool 时使用它。保留模型、tool 和 `stopWhen`，由 Dex 负责 session。
+你的 TypeScript 应用已经在用 AI SDK 的模型和 tool 时使用它。保留模型、tool 和 `stopWhen`，由 Dex 负责 Session。
 
 **Session 如何运行**
 
-每个 tool 交给模型时都不带它的 **execute**，因此 AI SDK 返回 tool call 而不是运行它们。每个 `RunModel` Step 用 `streamText` 进行一次模型调用。
+每个 tool 交给模型时都不带它的 **execute**，因此 AI SDK 返回 Tool Call 而不是运行它们。每个 `RunModel` Step 用 `streamText` 进行一次模型调用。
 
-每次 tool call 在自己的 Step 中运行 tool 原来的 **execute**。下一个 `RunModel` 加入记录下来的结果，检查 `stopWhen`，再次调用模型。
+每次 Tool Call 在自己的 Step 中运行 tool 原来的 **execute**。下一个 `RunModel` 加入记录下来的结果，检查 `stopWhen`，再次调用模型。
 
 </FrameworkTab>
 </FrameworkTabs>
 
-### 各 harness 支持的功能 {#features-by-harness}
+## 各 Harness 支持的功能 {#features-by-harness}
 
-有些 session 功能取决于 harness：
+有些 Session 功能取决于 harness：
 
-| 功能 | 框架 adapter | 内置 agent loop |
+| 功能 | 框架适配器 | 内置 Agent Loop |
 | --- | --- | --- |
 | 排队消息、**Steer** 和 `cancel_turn` | 是 | 是 |
 | Dex 对旧 message 的 compaction | 是，Claude Agent SDK 除外 | 是 |
@@ -184,7 +184,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 
 ## 限制 {#limits}
 
-每个标签页列出一个 adapter 中会影响 Agent 写法的限制，以及替代做法。Server 的限制见 [Limits for long sessions](/reference/agents/session-limits)（英文）。
+每个标签页列出一个适配器中会影响 Agent 写法的限制，以及替代做法。Server 的限制见 [Limits for long sessions](/reference/agents/session-limits)（英文）。
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -192,7 +192,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 - 每个 segment 只有一次写操作调用离开 turn。包含两次写操作的回复要多花一个 segment 和一次模型调用。同一次回复中的写操作永远不会作为并行的 Step 运行。
 - 在 CLI 内部运行的 tool，例如 **Bash** 或 **Edit**，是 at least once 的。Segment 重新运行时它们也会再次运行。CLI 修改的文件不会被记录。
 - Segment 必须在 `RunModel` 的 method timeout 内完成，默认 15 分钟。可以用 Python 中的 `run_model_limit` 或 TypeScript 中的 `runModelLimit` 调高它。
-- Claude Code 自己压缩 transcript，Dex compaction 保持关闭。长 session 的终点是 state 上限，而不是 context window：即单个 session 的 active state，默认 64 MiB（[Session limits](/reference/agents/session-limits)（英文））。
+- Claude Code 自己压缩 transcript，Dex compaction 保持关闭。长 Session 的终点是 state 上限，而不是 context window：即单个 Session 的 active state，默认 64 MiB（[Session limits](/reference/agents/session-limits)（英文））。
 - 记录下来的 tool result 只保留文本。
 - Subagent 内的写操作调用会被拒绝。模型会被要求在主对话中调用它。
 
@@ -205,7 +205,7 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 - 继续运行且不调用 tool 的 Agent，会在同一个 `RunModel` 中进行它们的模型调用。
 - `before_tool_callback` 在请求这次调用的 `RunModel` 中运行，如果该 Step 重试，它会再次运行。
 - 除 `BuiltInCodeExecutor` 以外的 code executor 都会被拒绝。请改为从 tool 中运行这类代码。
-- **app:** 和 **user:** state key 保存在 Dex session 中，不跨 session 共享。
+- **app:** 和 **user:** state key 保存在 Dex Session 中，不跨 Session 共享。
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
@@ -220,18 +220,18 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-- 由 Mastra 自己运行的 tool，例如 sub-agent、workflow 和 Memory tool，不能在 Step 中运行。只有当 `toolPolicies` 把它指定为无需审批的读操作时，adapter 才会提供它。此时它在 `RunModel` 内运行，并在该 Step 重新运行时重复。
-- Session 保存每条 message，并把 history 交给 Agent，取代 Mastra Memory。在 Agent 的 defaults 和 scope 中不要设置 Memory thread。需要跨 session 的 memory 时，按 [Session 记住什么](#what-a-session-remembers) 的说明，给 Agent 一个访问你自己存储的 tool。
+- 由 Mastra 自己运行的 tool，例如 sub-agent、workflow 和 Memory tool，不能在 Step 中运行。只有当 `toolPolicies` 把它指定为无需审批的读操作时，适配器才会提供它。此时它在 `RunModel` 内运行，并在该 Step 重新运行时重复。
+- Session 保存每条 message，并把 history 交给 Agent，取代 Mastra Memory。在 Agent 的 defaults 和 scope 中不要设置 Memory thread。需要跨 Session 的 memory 时，按 [Session 记住什么](#what-a-session-remembers) 的说明，给 Agent 一个访问你自己存储的 tool。
 - `beforeToolCall` 和 `afterToolCall` hook 只对 Mastra 自己运行的 tool 生效。
 - Tool result 以文本形式交给模型。`toModelOutput` 不会生效。
-- 调用 `suspend()` 的 tool 会失败。请改用 session 的审批。
+- 调用 `suspend()` 的 tool 会失败。请改用 Session 的审批。
 - Tool 名称最多 63 个字符，只能包含字母、数字、**_** 和 **-**，并且不能以数字或 **-** 开头。
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
 - 只有 function tool 有自己的 Step。Hosted tool，例如 web search，在模型调用期间于 provider 端运行。`RunModel` 重新运行时它们会重复。
-- 由 SDK 自己运行的 tool，例如 `Agent.mcp_servers` 的 tool 和本地 shell tool，不能等待审批。Adapter 默认拒绝它们。
+- 由 SDK 自己运行的 tool，例如 `Agent.mcp_servers` 的 tool 和本地 shell tool，不能等待审批。适配器默认拒绝它们。
   - 对于 MCP server，请通过 `tool_sources` 中的 `McpToolSource` 传入，而不是 `mcp_servers`。这样它的每个 tool 都会带着 policy 在自己的 Step 中运行，标记了 `readOnlyHint` 的 tool 是读操作。下面这个来自 Agent 快速开始示例的函数为 Python 版 Agent 快速开始中的 Agent 加入一个 MCP server；import 语句见 [openai_agents_mcp.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_mcp.py)：
 
     ```python
@@ -256,8 +256,8 @@ Vercel AI SDK 为 TypeScript 提供一套适用于多个 model provider 的 API�
 
   - 或者设置 `allow_at_least_once_tools=True`。这些 tool 随后在 `RunModel` 内运行，并在它重试时重复，所以只对读操作这样做。
   - 把写操作包装成 function tool，让它有自己的 Step。
-- Function tool 的名称在整个 agent graph 中必须唯一。Graph 在构建 Flow 时被复制，因此之后对它的修改不会影响 Flow。
-- Session 本身就是 history。不要使用 server 管理的 conversation state 或 SDK session。用 `send_user_message` 发送每条新消息，session 会把之前的 turn 交给 Agent。
+- Function tool 的名称在整个 Agent graph 中必须唯一。Graph 在构建 Flow 时被复制，因此之后对它的修改不会影响 Flow。
+- Session 本身就是 history。不要使用 server 管理的 conversation state 或 SDK session。用 `send_user_message` 发送每条新消息，Session 会把之前的 turn 交给 Agent。
 - 在 Python 中，作为 tool 使用的 Agent 会在一个 tool Step 内运行它的嵌套 run。TypeScript 会拒绝这种用法；请改用 handoff。
 
 </FrameworkTab>

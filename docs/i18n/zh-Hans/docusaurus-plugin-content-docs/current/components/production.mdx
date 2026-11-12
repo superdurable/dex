@@ -37,7 +37,7 @@ description: 在生产环境运行 Dex 的检查清单，从 server 拓扑和容
 | Worker | Worker 主动建立出站连接。设定它们的任务槽数量，部署时优雅地停止它们。 | [Workers and the task queue](/reference/server/workers)（英文）|
 | 升级 | 升级只向前滚动。先读每个版本的发布说明，有些升级需要停止所有进程。 | [Upgrades and compatibility](/reference/server/upgrades)（英文），[Agent release notes](/reference/agents/upgrades#release-notes)（英文）|
 | 你的数据库 | Step 里的写入必须可以安全地重复。 | [Dex 和你的数据库](/components/your-database) |
-| 代码变更 | 保留旧的 Step type 和 RPC，直到使用它们的 Flow 关闭。 | [修改 Flow 代码](/concepts/change-flow-code) |
+| 代码变更 | 保留旧的 Step 类型和 RPC，直到使用它们的 Flow 关闭。 | [修改 Flow 代码](/concepts/change-flow-code) |
 
 ### 需要修改的默认值 {#defaults-to-change-before-production}
 
@@ -88,7 +88,7 @@ auth:
 
 - Flow 停住不动或已经失败：[Troubleshoot a Flow run](/reference/web/debugging)（英文）。
 - 修复之后，从更早的 Step 重新运行来恢复 Flow：[Time Travel](/concepts/change-flow-code#time-travel)。
-- 生产环境中的 agent session：[Agents reference](/reference/agents)（英文）。
+- 生产环境中的 Agent Session：[Agents reference](/reference/agents)（英文）。
 
 ## 下一步 {#next}
 

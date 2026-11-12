@@ -6,11 +6,11 @@ slug: /use-cases/order-support-agent
 
 # 订单客服 Agent
 
-一个带两个 tool 的订单客服 agent，为每个 Agent 框架各实现了一次。选择你的框架，下面每一节都会按这个选择显示。
+一个带两个 tool 的订单客服 Agent，为每个 Agent 框架各实现了一次。选择你的框架，下面每一节都会按这个选择显示。
 
 **SDK：** Python · TypeScript
 
-每个框架使用同一个订单客服 agent。它有两个 tool，作用于一个内存中的 order desk：
+每个框架使用同一个订单客服 Agent。它有两个 tool，作用于一个内存中的 order desk：
 
 | Tool | Policy | Dex 做什么 |
 | --- | --- | --- |
@@ -19,7 +19,7 @@ slug: /use-cases/order-support-agent
 
 `cancel_order` 只在订单仍处于处理中时才能取消它。
 
-Python agent 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。TypeScript agent 位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。
+Python Agent 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。TypeScript Agent 位于 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。
 
 ## Agent 和它的 tool {#define-the-agent}
 
@@ -135,7 +135,7 @@ export function createClaudeAgentSdkOrderSupportFlow(
 </SdkSnippet>
 </SdkTabs>
 
-这个示例关闭了 Claude Code 的所有内置 tool，所以 agent 只使用订单 tool。它也不加载任何 settings 文件，所以 settings 文件无法抢在 Dex 请求审批之前批准 tool。
+这个示例关闭了 Claude Code 的所有内置 tool，所以 Agent 只使用订单 tool。它也不加载任何 settings 文件，所以 settings 文件无法抢在 Dex 请求审批之前批准 tool。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -190,7 +190,7 @@ def build_google_adk_order_support_flow(
 
 Flow type 是 `LangChainOrderSupport`。完整示例位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。
 
-这些 tool 是 LangChain tool。一个工厂函数用 `DurableToolCallMiddleware` 构建 agent。只有 Worker 会调用这个工厂函数，所以 Client 进程不需要 provider key。tool policy 按名字指定每个 tool。
+这些 tool 是 LangChain tool。一个工厂函数用 `DurableToolCallMiddleware` 构建 Agent。只有 Worker 会调用这个工厂函数，所以 Client 进程不需要 provider key。tool policy 按名字指定每个 tool。
 
 <SdkTabs
   examples={{
@@ -296,7 +296,7 @@ export function createMastraOrderSupportFlow(
 
 Python 中的 Flow type 是 `OpenAIAgentsOrderSupport`，TypeScript 中是 `OpenAIAgentsOrderSupportAgent`。完整示例位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses) 和 [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses)。
 
-这些 tool 是该 SDK 的 function tool。agent 是一个普通的 SDK agent。tool policy 按名字指定每个 tool。
+这些 tool 是该 SDK 的 function tool。Agent 是一个普通的 SDK Agent。tool policy 按名字指定每个 tool。
 
 <SdkTabs
   examples={{
@@ -387,7 +387,7 @@ export function createOpenAIAgentsOrderSupportFlow(
 
 Flow type 是 `PydanticAIOrderSupport`。完整示例位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。
 
-这些 tool 是 agent 上的普通 Pydantic AI tool。tool policy 按名字指定每个 tool。agent 推迟了模型检查，所以 Client 进程不需要 provider key。
+这些 tool 是 Agent 上的普通 Pydantic AI tool。tool policy 按名字指定每个 tool。Agent 推迟了模型检查，所以 Client 进程不需要 provider key。
 
 <SdkTabs
   examples={{
@@ -482,9 +482,9 @@ export function createVercelAiOrderSupportFlow(
 
 ## Worker {#register-the-worker}
 
-[把 session 接入你的应用](/agent-frameworks/add-to-your-agent#wire-it-into-your-app)列出了你自己的应用需要的各个部分，每个部分一行说明。这段代码中的 blob cache 是存放大型 Flow 值的本地缓存；[Registry 和 blob cache](/components/application#blob-cache)介绍了它。
+[把 Session 接入你的应用](/agent-frameworks/add-to-your-agent#wire-it-into-your-app)列出了你自己的应用需要的各个部分，每个部分一行说明。这段代码中的 blob cache 是存放大型 Flow 值的本地缓存；[Registry 和 blob cache](/components/application#blob-cache)介绍了它。
 
-一个 Worker 为示例中所有 harness 的 session Flow 提供服务。在 Python 中，agent session 的 Step 是 async 的，所以 Registry 允许 async handler。每个启动 session 或调用其 RPC 的进程，都要构建同一个 session Flow。Registry、Worker 和 Client 的设置对每个框架都一样；每个标签页只展示该框架的 session Flow 如何构建和注册。
+一个 Worker 为示例中所有 harness 的 Session Flow 提供服务。在 Python 中，Agent Session 的 Step 是 async 的，所以 Registry 允许 async handler。每个启动 Session 或调用其 RPC 的进程，都要构建同一个 Session Flow。Registry、Worker 和 Client 的设置对每个框架都一样；每个标签页只展示该框架的 Session Flow 如何构建和注册。
 
 <SdkTabs
   examples={{
@@ -725,25 +725,25 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 
 ## Session 路由 {#session-routes}
 
-每个 harness 提供相同的 HTTP 路由，你可以把它们放在一起对比试用。每个路由对应 session Flow 上的一次调用：启动 session、发送消息，或处理一次审批。
+每个 harness 提供相同的 HTTP 路由，你可以把它们放在一起对比试用。每个路由对应 Session Flow 上的一次调用：启动 Session、发送消息，或处理一次审批。
 
 路由内部的调用是 Dex Agents API，在你的应用中也是同样的调用：
 
 | 路由做什么 | Python 中的 Dex Agents 调用 | TypeScript 中的 Dex Agents 调用 |
 | --- | --- | --- |
-| 启动 session | `AgentSessionClient.start_session` | `startAgentSession` |
+| 启动 Session | `AgentSessionClient.start_session` | `startAgentSession` |
 | 发送用户消息 | `AgentSessionClient.send_user_message` | `sendUserMessage` RPC，或 `sendAgentUserMessage` |
-| 读取 session | `read_agent_event_stream_snapshot` 或 `AgentSessionClient.get_agent_snapshot` | `getAgentSnapshot` RPC，或 `readAgentSnapshot` |
-| 批准或拒绝 tool call | `AgentSessionClient.resolve_interrupt` | `resolveInterrupt` RPC |
+| 读取 Session | `read_agent_event_stream_snapshot` 或 `AgentSessionClient.get_agent_snapshot` | `getAgentSnapshot` RPC，或 `readAgentSnapshot` |
+| 批准或拒绝 Tool Call | `AgentSessionClient.resolve_interrupt` | `resolveInterrupt` RPC |
 
-其余部分都属于示例本身：URL 路径、JSON 结构、session token 和错误码。Python 和 TypeScript 示例在这些地方的设计略有不同。请围绕上面的调用设计你自己的路由。
+其余部分都属于示例本身：URL 路径、JSON 结构、Session token 和错误码。Python 和 TypeScript 示例在这些地方的设计略有不同。请围绕上面的调用设计你自己的路由。
 
-启动 session 会返回一个 session token：用 `DEX_AGENT_SESSION_KEY` 对 session ID 计算的 HMAC。其他每个路由都会检查 **X-Agent-Session-Token** header 中的 token，缺少 token 时返回 403。`DEX_AGENT_SESSION_KEY` 未设置时，示例会随机选一个 key，所以重启后所有 token 都会失效。真实的应用应改用自己的登录机制。
+启动 Session 会返回一个 Session token：用 `DEX_AGENT_SESSION_KEY` 对 Session ID 计算的 HMAC。其他每个路由都会检查 **X-Agent-Session-Token** header 中的 token，缺少 token 时返回 403。`DEX_AGENT_SESSION_KEY` 未设置时，示例会随机选一个 key，所以重启后所有 token 都会失效。真实的应用应改用自己的登录机制。
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
-每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 session token。
+每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 Session token。
 
 <SdkTabs
   examples={{
@@ -828,7 +828,7 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 session token。
+每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 Session token。
 
 <SdkTabs
   examples={{
@@ -886,7 +886,7 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 session token。
+每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 Session token。
 
 <SdkTabs
   examples={{
@@ -944,7 +944,7 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 session token。
+每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 Session token。
 
 <SdkTabs
   examples={{
@@ -981,7 +981,7 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 session token。
+每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 Session token。
 
 <SdkTabs
   examples={{
@@ -1066,7 +1066,7 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 session token。
+每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 Session token。
 
 <SdkTabs
   examples={{
@@ -1124,7 +1124,7 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
 
-每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 session token。
+每个 harness 都提供这些相同的路由。[Session 路由](/use-cases/order-support-agent#session-routes)介绍了这些路由和 Session token。
 
 <SdkTabs
   examples={{
@@ -1166,7 +1166,7 @@ const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadV
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
-在第一个终端里渲染 session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 session 和它的审批控件。
+在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
 
 <SdkTabs
   examples={{
@@ -1230,12 +1230,12 @@ Python 应用监听 **127.0.0.1:8081**，TypeScript 应用监听 **127.0.0.1:808
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | 无；必填 | Worker 使用的 Anthropic API key。 |
 | `DEX_CLAUDE_AGENT_SDK_MODEL` | **claude-opus-5-5** | Claude 模型名称。 |
-| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 session token 的 key。使用随机 key 时，进程重启后所有 token 都会失效。 |
+| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。使用随机 key 时，进程重启后所有 token 都会失效。 |
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-在第一个终端里渲染 session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 session 和它的审批控件。
+在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
 
 <SdkTabs
   examples={{
@@ -1273,18 +1273,18 @@ uv run --frozen python -m agent_harness_examples
 
 应用监听 **127.0.0.1:8081**。Dex Web 位于 `http://127.0.0.1:8802`。
 
-`DEX_GOOGLE_ADK_MODEL` 未设置时，agent 使用 `mock/order-support`：一个本地 demo 模型，不需要 key。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。
+`DEX_GOOGLE_ADK_MODEL` 未设置时，Agent 使用 `mock/order-support`：一个本地 demo 模型，不需要 key。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `DEX_GOOGLE_ADK_MODEL` | `mock/order-support` | Gemini 模型名称，比如 `gemini-2.5-flash`。 |
 | `GOOGLE_API_KEY` | 无 | Gemini API key，使用真实模型时需要。 |
-| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 session token 的 key。 |
+| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。 |
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-在第一个终端里渲染 session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 session 和它的审批控件。
+在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
 
 <SdkTabs
   examples={{
@@ -1322,18 +1322,18 @@ uv run --frozen python -m agent_harness_examples
 
 应用监听 **127.0.0.1:8081**。Dex Web 位于 `http://127.0.0.1:8802`。
 
-`DEX_LANGCHAIN_MODEL` 未设置时，agent 使用 `mock/order-support`：一个本地 demo 模型，不需要 key。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。
+`DEX_LANGCHAIN_MODEL` 未设置时，Agent 使用 `mock/order-support`：一个本地 demo 模型，不需要 key。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `DEX_LANGCHAIN_MODEL` | `mock/order-support` | LangChain 模型名称，比如 `openai:gpt-5.2`。 |
 | `OPENAI_API_KEY` | 无 | provider key，使用 OpenAI 模型时需要。 |
-| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 session token 的 key。 |
+| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。 |
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-在第一个终端里渲染 session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 session 和它的审批控件。
+在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
 
 <SdkTabs
   examples={{
@@ -1378,12 +1378,12 @@ OPENAI_API_KEY=... MASTRA_TELEMETRY_DISABLED=1 npm start
 | `DEX_MASTRA_MODEL` | `openai/gpt-5-mini` | Mastra model router ID。 |
 | `OPENAI_API_KEY` | 无；使用默认值时必填 | router 使用的 provider key。 |
 | `MASTRA_TELEMETRY_DISABLED` | 未设置 | 设为 **1** 可关闭 Mastra 的 telemetry。 |
-| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 session token 的 key。 |
+| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。 |
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-在第一个终端里渲染 session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 session 和它的审批控件。
+在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
 
 <SdkTabs
   examples={{
@@ -1443,18 +1443,18 @@ OPENAI_API_KEY=... npm start
 
 Python 应用监听 **127.0.0.1:8081**，TypeScript 应用监听 **127.0.0.1:8080**。Dex Web 位于 `http://127.0.0.1:8802`。
 
-`DEX_OPENAI_AGENTS_MODEL` 未设置时，Python agent 使用 `mock/order-support`：一个本地 demo 模型，不需要 key。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。TypeScript 示例没有 demo 模型，所以需要 `OPENAI_API_KEY`。
+`DEX_OPENAI_AGENTS_MODEL` 未设置时，Python Agent 使用 `mock/order-support`：一个本地 demo 模型，不需要 key。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。TypeScript 示例没有 demo 模型，所以需要 `OPENAI_API_KEY`。
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `DEX_OPENAI_AGENTS_MODEL` | Python：`mock/order-support`。TypeScript：**gpt-5-mini**。 | OpenAI 模型名称，比如 `gpt-5.2`。 |
 | `OPENAI_API_KEY` | 无 | OpenAI API key，使用真实模型时需要。 |
-| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 session token 的 key。 |
+| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。 |
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-在第一个终端里渲染 session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 session 和它的审批控件。
+在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
 
 <SdkTabs
   examples={{
@@ -1492,18 +1492,18 @@ uv run --frozen python -m agent_harness_examples
 
 应用监听 **127.0.0.1:8081**。Dex Web 位于 `http://127.0.0.1:8802`。
 
-`DEX_PYDANTIC_AI_MODEL` 未设置时，agent 使用 `mock/order-support`：一个本地 demo 模型，不需要 key。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。
+`DEX_PYDANTIC_AI_MODEL` 未设置时，Agent 使用 `mock/order-support`：一个本地 demo 模型，不需要 key。收到 “look up order 1001” 时它调用 `look_up_order`，收到 “cancel order 1002” 时调用 `cancel_order`。
 
 | 变量 | 默认值 | 含义 |
 | --- | --- | --- |
 | `DEX_PYDANTIC_AI_MODEL` | `mock/order-support` | Pydantic AI 模型名称，比如 `openai:gpt-5.2`。 |
 | `OPENAI_API_KEY` | 无 | provider key，使用 OpenAI 模型时需要。 |
-| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 session token 的 key。 |
+| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。 |
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
 
-在第一个终端里渲染 session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 session 和它的审批控件。
+在第一个终端里渲染 Session 图，然后启动 Dex。Dex Web 在启动时读取这张图，用来显示 Session 和它的审批控件。
 
 <SdkTabs
   examples={{
@@ -1547,7 +1547,7 @@ OPENAI_API_KEY=... npm start
 | --- | --- | --- |
 | `DEX_VERCEL_AI_MODEL` | **gpt-5-mini** | OpenAI 模型名称。 |
 | `OPENAI_API_KEY` | 无；必填 | Worker 使用的 OpenAI API key。 |
-| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 session token 的 key。 |
+| `DEX_AGENT_SESSION_KEY` | 随机 key | 用于签名 Session token 的 key。 |
 
 </FrameworkTab>
 </FrameworkTabs>
@@ -1555,7 +1555,7 @@ OPENAI_API_KEY=... npm start
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
-启动一个 session，让 agent 取消订单 1002，然后批准这次调用：
+启动一个 Session，让 Agent 取消订单 1002，然后批准这次调用：
 
 <SdkTabs
   examples={{
@@ -1595,12 +1595,12 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 </SdkSnippet>
 </SdkTabs>
 
-循环会一直读取 snapshot，直到 agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 agent 的回答。
+循环会一直读取 snapshot，直到 Agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 Agent 的回答。
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-启动一个 session，让 agent 取消订单 1002，然后批准这次调用：
+启动一个 Session，让 Agent 取消订单 1002，然后批准这次调用：
 
 <SdkTabs
   examples={{
@@ -1625,12 +1625,12 @@ curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
 </SdkSnippet>
 </SdkTabs>
 
-循环会一直读取 snapshot，直到 agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 agent 的回答。
+循环会一直读取 snapshot，直到 Agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 Agent 的回答。
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-启动一个 session，让 agent 取消订单 1002，然后批准这次调用：
+启动一个 Session，让 Agent 取消订单 1002，然后批准这次调用：
 
 <SdkTabs
   examples={{
@@ -1655,12 +1655,12 @@ curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
 </SdkSnippet>
 </SdkTabs>
 
-循环会一直读取 snapshot，直到 agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 agent 的回答。
+循环会一直读取 snapshot，直到 Agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 Agent 的回答。
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-启动一个 session，让 agent 取消订单 1002，然后批准这次调用：
+启动一个 Session，让 Agent 取消订单 1002，然后批准这次调用：
 
 <SdkTabs
   examples={{
@@ -1682,12 +1682,12 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 </SdkSnippet>
 </SdkTabs>
 
-循环会一直读取 snapshot，直到 agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 agent 的回答。
+循环会一直读取 snapshot，直到 Agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 Agent 的回答。
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-启动一个 session，让 agent 取消订单 1002，然后批准这次调用：
+启动一个 Session，让 Agent 取消订单 1002，然后批准这次调用：
 
 <SdkTabs
   examples={{
@@ -1727,12 +1727,12 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 </SdkSnippet>
 </SdkTabs>
 
-循环会一直读取 snapshot，直到 agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 agent 的回答。
+循环会一直读取 snapshot，直到 Agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 Agent 的回答。
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-启动一个 session，让 agent 取消订单 1002，然后批准这次调用：
+启动一个 Session，让 Agent 取消订单 1002，然后批准这次调用：
 
 <SdkTabs
   examples={{
@@ -1757,12 +1757,12 @@ curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
 </SdkSnippet>
 </SdkTabs>
 
-循环会一直读取 snapshot，直到 agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 agent 的回答。
+循环会一直读取 snapshot，直到 Agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 Agent 的回答。
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
 
-启动一个 session，让 agent 取消订单 1002，然后批准这次调用：
+启动一个 Session，让 Agent 取消订单 1002，然后批准这次调用：
 
 <SdkTabs
   examples={{
@@ -1784,7 +1784,7 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 </SdkSnippet>
 </SdkTabs>
 
-循环会一直读取 snapshot，直到 agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 agent 的回答。
+循环会一直读取 snapshot，直到 Agent 请求运行 `cancel_order`。这次调用先等待审批，然后运行一次。再读一次 snapshot，就能看到 Agent 的回答。
 
 </FrameworkTab>
 </FrameworkTabs>

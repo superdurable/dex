@@ -132,13 +132,13 @@ fn process_order(order: &Order) -> Result<(), ApiError> {
 
 队列解决了设计 1 的问题，但带来了更难的问题：
 
-- 大多数队列把「扣款完成」和「发出发货消息」分开提交。如果发货消息已经发出，但扣款消息的确认超时了，队列会再投递一次扣款消息。于是同一笔订单在发货的同时，扣款步骤又运行了一次。
+- 大多数队列把“扣款完成”和“发出发货消息”分开提交。如果发货消息已经发出，但扣款消息的确认超时了，队列会再投递一次扣款消息。于是同一笔订单在发货的同时，扣款步骤又运行了一次。
   - 团队通常再加一行数据库记录作为唯一可信来源，用来去重。
-  - 标准的解决办法是 **transactional outbox**。消费者在一次数据库事务里写入「扣款完成」和一行 outbox 记录。一个 relay 进程读取 outbox，发出发货消息。relay 可能把一条消息发两次，所以每个消费者仍要按订单 ID 去重。
+  - 标准的解决办法是 **transactional outbox**。消费者在一次数据库事务里写入“扣款完成”和一行 outbox 记录。一个 relay 进程读取 outbox，发出发货消息。relay 可能把一条消息发两次，所以每个消费者仍要按订单 ID 去重。
 - 带退避的重试和 DLQ 往往要自己补。
   - 比如 Kafka 要额外建重试 topic，SQS 要靠 visibility timeout 绕过去。
   - 查看和恢复 DLQ 里消息的工具，也得自己做。
-- 前端可能要在扣款成功后马上返回（「已付款，订单处理中」）。这时它只能轮询数据库，既别扭又浪费。
+- 前端可能要在扣款成功后马上返回（“已付款，订单处理中”）。这时它只能轮询数据库，既别扭又浪费。
 
 业务还会不断变化。订单流程常常还要：
 
@@ -156,11 +156,11 @@ fn process_order(order: &Order) -> Result<(), ApiError> {
 
 <ExecutionApproachDiagram approach="dex" markdownDescription="前端 API 通过 Client 启动 Flow。Dex Server 把每个 Step 任务派给你的某一个 Worker，Step 再调用扣款、发货和退款 API。" />
 
-这个 Flow 有一个 Charge Step、一个等待审批并在等待期间发提醒的 Ship Step，以及一个 Refund Step。前端调用一个 Client API，等 Charge Step 完成后显示「已付款」。
+这个 Flow 有一个 Charge Step、一个等待审批并在等待期间发提醒的 Ship Step，以及一个 Refund Step。前端调用一个 Client API，等 Charge Step 完成后显示“已付款”。
 
 <DocsFlowDefinitionGraph graph={orderProcessingFlow} markdownReference="/intro/what-is-dex#example-order-processing" markdownReferenceLabel="为什么是 Dex？" />
 
-Dex 记录每个 Step 的输入、输出和错误。运维人员可以查看每一笔订单，并在修复后从之前的某个 Step 重新运行（time travel）。
+Dex 记录每个 Step 的输入、输出和错误。运维人员可以查看每一笔订单，并在修复后从之前的某个 Step 重新运行（Time Travel）。
 
 | 问题 | 数据库和队列 | Dex Flow |
 | --- | --- | --- |

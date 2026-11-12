@@ -39,6 +39,16 @@ Super Durable 为你的应用运行 Dex Server。你在 Dex Cloud 创建的每�
 
 [Sustainable Use License](/intro/limits#license) 允许你为自己的业务运行 Dex。
 
+## 本地和生产环境 {#local-and-production}
+
+| 组件 | 本地开发 | 生产环境 |
+| --- | --- | --- |
+| Server | **dexcli dev** 启动 server-zd | 使用对象存储运行 **dex-server-zd serve**，或使用 Dex Cloud |
+| Web | **dexcli dev** 启动 Dex Web | 单独的 **dex-web** 进程，或 **dexcli web** |
+| 应用 | 你的 Worker 进程 | 你的 Worker 服务，像其他服务一样扩缩容 |
+
+[本地运行](/components/run-locally)介绍本地这一侧，[在生产环境运行 Dex](/components/production)介绍生产环境这一侧。
+
 ## 下一步
 
 - [快速开始](/quick-start) 针对本地 server 运行一个 Flow。

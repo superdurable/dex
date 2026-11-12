@@ -10,13 +10,13 @@ Dex runs an AI agent as a durable agent session. Build the agent with the built-
 
 ## What Dex adds to your agent {#what-dex-adds}
 
-Dex keeps your agent framework and makes each session durable:
+Dex keeps your agent code and makes each session durable:
 
-- **[Durable sessions](/agent-frameworks/sessions).** A session continues after a crash or a deploy from its last finished model call or tool call.
-- **[Tool calls with a policy](/agent-frameworks/tool-calls).** Each tool call runs in its own Step: reads retry, and writes that are not idempotent run at most once.
-- **[Approvals that wait](/agent-frameworks/approvals).** A call that needs a person waits for minutes or days, across restarts and deploys.
-- **[Connectors as tools](/agent-frameworks/connectors-as-tools).** The agent calls official Connector operations under the same tool policies.
-- **[Observability and control](/agent-frameworks/production).** Dex Web shows each session, tracing covers each model call and tool call, and spend limits check model spend.
+- **Durable sessions.** A session continues after a crash or a deploy from its last finished model call or tool call.
+- **Tool calls with a policy.** Each tool call runs in its own Step: reads retry, and writes that are not idempotent run at most once.
+- **Approvals that wait.** A call that needs a person waits for minutes or days, across restarts and deploys.
+- **Connectors as tools.** The agent calls official Connector operations under the same tool policies.
+- **Observability and control.** Dex Web shows each session, tracing covers each model call and tool call, and spend limits check model spend.
 
 To see it, run the [Agent Quick Start](/agent-frameworks/quick-start). [Dex vs. Other Engines](/intro/compared-to-durable-execution#agent-frameworks-on-a-durable-execution-engine) compares Dex with framework checkpointers and other engines, and the [Glossary](/glossary) defines the terms these pages use.
 

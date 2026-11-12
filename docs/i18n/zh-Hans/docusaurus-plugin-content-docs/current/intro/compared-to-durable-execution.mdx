@@ -2,7 +2,7 @@
 title: Dex vs. 其他引擎
 sidebar_label: Dex vs. 其他引擎
 slug: /intro/compared-to-durable-execution
-description: Dex 与基于重放的 workflow 引擎、基于日志的 durable function 运行时、基于数据库的 workflow 库、step function 服务和 agent 框架 checkpoint 之间的对应关系，以及何时其他工具更合适。
+description: Dex 与基于重放的 workflow 引擎、基于日志的 durable function 运行时、基于数据库的 workflow 库、step function 服务和 Agent 框架 checkpoint 之间的对应关系，以及何时其他工具更合适。
 ---
 
 # Dex vs. 其他引擎
@@ -245,7 +245,7 @@ Temporal 和 Cadence 是最知名的例子。Worker 根据记录的事件历史�
 | Reset | Time Travel，保留同一个 Run ID |
 | Continue-As-New | 用不到。Dex 为每个 run 保留一个最新历史事件的窗口，并清理更早的事件；见 [History window](/reference/server/configuration#history-window)（英文）。 |
 | Local activity | 最接近的是 **ASYNC** Step，它在结果保存之前就继续往下走，如果 server 节点先出故障，它会重新运行。 |
-| Cancellation scope | RPC 按 Step type 取消正在运行的 Step，`StopFlow` 停止整个 Flow。取消是协作式的；见[取消正在运行的 Step](/concepts/primitives/rpc#cancel-running-steps)。 |
+| Cancellation scope | RPC 按 Step 类型取消正在运行的 Step，`StopFlow` 停止整个 Flow。取消是协作式的；见[取消正在运行的 Step](/concepts/primitives/rpc#cancel-running-steps)。 |
 | Schedule | 一个在 Timer 上循环的 Flow；见 [Cron 定时调度](/design-patterns/durable-timer/cron)。 |
 
 **相同之处。** 每个 Flow ID 只有一个活跃的 run，并有 ID 复用策略。两者都使用 pull 模式的 Worker；持久化 timer 和等待都不占用 Worker；每个工作单元有自己的重试策略。
@@ -253,8 +253,8 @@ Temporal 和 Cadence 是最知名的例子。Worker 根据记录的事件历史�
 **区别。**
 
 - Worker 读取保存的状态，而不是重放历史，所以它用不到历史缓存。见 [Routing and availability](/reference/server/workers#routing-and-availability)（英文）。
-- 版本管理靠保留旧的 Step type 并做增量修改，不需要 patch 标记。[修改 Flow 代码](/concepts/change-flow-code#versioning-flow-code)说明规则，[部署前检查](/concepts/change-flow-code#check-before-you-deploy)给出手动兼容性检查。
-- Dex 的 Step 在不同的 Worker 上并行运行。Temporal 的单线程仍然会在 await 点交错运行 handler，所以差距比「一个写入方」听起来要小，但差距确实存在。
+- 版本管理靠保留旧的 Step 类型并做增量修改，不需要 patch 标记。[修改 Flow 代码](/concepts/change-flow-code#versioning-flow-code)说明规则，[部署前检查](/concepts/change-flow-code#check-before-you-deploy)给出手动兼容性检查。
+- Dex 的 Step 在不同的 Worker 上并行运行。Temporal 的单线程仍然会在 await 点交错运行 handler，所以差距比“一个写入方”听起来要小，但差距确实存在。
 - Step 方法的重试复用第一次尝试的状态快照。activity 的重试会读取最新数据。
 - 重试的 RPC 或重复的 Channel 发布会再次运行；Temporal 会丢弃重复的 update，并尽力丢弃重复的 signal。见[限制](/intro/limits#requests-that-can-repeat)。
 - Client 根据在自己语言里注册的 Flow 定义来启动 Flow。其他语言的服务通过 gRPC 调用 FlowService `StartFlow`；见[从 API 服务启动 Flow](/concepts/client#start-from-an-api-service)。
@@ -317,19 +317,19 @@ LangGraph 是一个例子。checkpointer 在每一步之后按 thread ID 保存�
 | Agent 框架术语 | 最接近的 Dex 术语 |
 | --- | --- |
 | Thread ID | Session ID，也就是 Flow ID |
-| Checkpoint | 每次模型调用或 tool call 之后 session 的 Attribute |
-| 等待人工输入的 interrupt | 在 `AwaitToolApproval` 中等待的 tool call，或者一个提问 |
-| Node 或 tool call | 一个 Step |
+| Checkpoint | 每次模型调用或 Tool Call 之后 Session 的 Attribute |
+| 等待人工输入的 interrupt | 在 `AwaitToolApproval` 中等待的 Tool Call，或者一个提问 |
+| Node 或 Tool Call | 一个 Step |
 
-checkpointer 负责保存状态；重启崩溃的 run，或者用 timer 唤醒它，需要托管平台或你自己的代码。Dex Server 为每个 session 做这些事。使用 Dex Agents 时，你继续用自己的框架，由 adapter 把 agent 包装进一个 session Flow；见 [持久化 Agent](/agent-frameworks)。
+checkpointer 负责保存状态；重启崩溃的 run，或者用 timer 唤醒它，需要托管平台或你自己的代码。Dex Server 为每个 Session 做这些事。使用 Dex Agents 时，你继续用自己的框架，由适配器把 Agent 包装进一个 Session Flow；见 [持久化 Agent](/agent-frameworks)。
 
-### 运行在 durable execution 引擎上的 agent 框架 {#agent-frameworks-on-a-durable-execution-engine}
+### 运行在 durable execution 引擎上的 Agent 框架 {#agent-frameworks-on-a-durable-execution-engine}
 
-运行在 Temporal 上的 OpenAI Agents SDK、运行在 Temporal、DBOS 或 Prefect 上的 Pydantic AI，以及 LangGraph 平台，都把每次模型调用和包装过的 tool call 记录为引擎的一个单元，所以崩溃只会重复正在运行的那次调用。
+运行在 Temporal 上的 OpenAI Agents SDK、运行在 Temporal、DBOS 或 Prefect 上的 Pydantic AI，以及 LangGraph 平台，都把每次模型调用和包装过的 Tool Call 记录为引擎的一个单元，所以崩溃只会重复正在运行的那次调用。
 
 - 在 Dex 中，每个 tool 都有一个 effect class。读取可以再次运行。非幂等写操作默认只尝试一次，如果被中断，会为模型记录 `outcome_unknown`；见 [Tool Call](/agent-frameworks/tool-calls)。
 - effect class 也决定默认的审批方式。审批等待不占用 Worker，可以持续几分钟或几天；见 [审批](/agent-frameworks/approvals)。
-- 一个 adapter 模型和一个 session Flow 覆盖所有受支持的框架。
+- 一个适配器模型和一个 Session Flow 覆盖所有受支持的框架。
 - Dex Server 的版本是 0.1，可以运行在 [Dex Cloud](/components/choose-how-to-run#dex-cloud) 上，也可以运行在你自己的基础设施上。上面这些引擎有更长的生产使用记录。
 
 ## 何时其他工具更合适 {#when-another-tool-is-the-better-fit}

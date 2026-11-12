@@ -22,7 +22,7 @@ brew install superdurable/tap/dexcli
 brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 ```
 
-不用 Homebrew 时，从 [`dexcli` releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true) 下载适合你系统的归档包。每个 release 带有 **cli-v** 标签，每种系统一个归档包，例如 `dexcli_vVERSION_linux_amd64.tar.gz`。归档包里有 `dexcli` 和 **dex-server-zd**。把这两个文件放在 `PATH` 上的同一个目录里：
+不用 Homebrew 时，从 [`dexcli` 发布版本](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true) 下载适合你系统的归档包。每个发布版本带有 **cli-v** 标签，每种系统一个归档包，例如 `dexcli_vVERSION_linux_amd64.tar.gz`。归档包里有 `dexcli` 和 **dex-server-zd**。把这两个文件放在 `PATH` 上的同一个目录里：
 
 ```bash
 tar xzf dexcli_vVERSION_linux_amd64.tar.gz   # VERSION is the release you downloaded
@@ -30,7 +30,7 @@ sudo mv dexcli dex-server-zd /usr/local/bin/
 dexcli version
 ```
 
-release 里还有 `checksums.txt`，可以用来校验下载的文件。
+发布版本里还有 `checksums.txt`，可以用来校验下载的文件。
 
 ## 启动 Dex {#start-dex}
 
