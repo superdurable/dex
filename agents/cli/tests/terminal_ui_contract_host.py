@@ -48,12 +48,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO, Final
-from urllib.parse import SplitResult, urlsplit
+from urllib.parse import urlsplit
 
 SUPPORTED_CONTRACTS: Final = (1,)
 MAX_LINE_BYTES: Final = 1_048_576
 READY_TIMEOUT_SECONDS: Final = 5.0
 MAX_IN_FLIGHT_REQUESTS: Final = 4
+SESSION_ID_SUFFIX_LENGTHS: Final = (6, 12)
+IDEMPOTENCY_CAPACITY: Final = 256
+IDEMPOTENCY_RETENTION_MS: Final = 600_000
 NOTICE_MAX_CODE_POINTS: Final = 500
 NOTICE_REPEAT_WINDOW_MS: Final = 10_000
 TERMINAL_ENVIRONMENT_NAMES: Final = (
@@ -98,6 +101,10 @@ DEFAULT_DESCRIBE: Final[dict[str, Any]] = {
 HOST_FAILURE_EXIT_CODE: Final = 70
 _UUID_V7 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 _DEFAULT_PORTS: Final = {"http": 80, "https": 443}
+_AUTHORITY = re.compile(
+    r"(?P<host>\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)(?::(?P<port>[^:]*))?"
+)
+_PORT = re.compile(r"[1-9][0-9]{0,4}")
 
 
 # Reference rules of the contract.
@@ -121,17 +128,83 @@ def idempotency_key_time_ms(idempotency_key: str) -> int:
     return time_ms
 
 
-def derive_session_id(harness: str, idempotency_key: str) -> str:
-    """Return the session ID that start_session derives from a key.
+def derive_session_id(harness: str, idempotency_key: str, suffix_length: int = 6) -> str:
+    """Return a session ID that start_session derives from a key.
 
-    The result is ``<harness>-<YYYYMMDD>-<HHMMSS>-<hex6>``: the key's UTC time floored to
-    the second, then the first 6 lowercase hex digits of sha256 over the key's ASCII text.
-    Raises IdempotencyKeyError for an invalid key.
+    The result is ``<harness>-<YYYYMMDD>-<HHMMSS>-<suffix>``: the key's UTC time floored to
+    the second, then the first ``suffix_length`` lowercase hex digits of sha256 over the
+    key's ASCII text. Raises IdempotencyKeyError for an invalid key.
     """
     time_ms = idempotency_key_time_ms(idempotency_key)
     started = datetime.fromtimestamp(time_ms // 1000, tz=UTC)
     digest = hashlib.sha256(idempotency_key.encode("ascii")).hexdigest()
-    return f"{harness}-{started:%Y%m%d-%H%M%S}-{digest[:6]}"
+    return f"{harness}-{started:%Y%m%d-%H%M%S}-{digest[:suffix_length]}"
+
+
+def candidate_session_ids(harness: str, idempotency_key: str) -> tuple[str, ...]:
+    """Return the session IDs start_session tries for a key, in order."""
+    return tuple(
+        derive_session_id(harness, idempotency_key, length) for length in SESSION_ID_SUFFIX_LENGTHS
+    )
+
+
+def start_session_outcome(
+    harness: str, idempotency_key: str, started_request_ids: Mapping[str, str]
+) -> str | None:
+    """Return the session ID start_session ends with, or None for id_conflict.
+
+    ``started_request_ids`` maps each existing Flow ID to the StartFlow request ID that
+    started it. A candidate ID that is free, or that this key started, is the result.
+    """
+    for session_id in candidate_session_ids(harness, idempotency_key):
+        started_by = started_request_ids.get(session_id)
+        if started_by is None or started_by == idempotency_key:
+            return session_id
+    return None
+
+
+class IdempotencyTable:
+    """The launcher side's memory of keyed requests, as the contract bounds it.
+
+    A running entry is never dropped. A finished entry is dropped 10 minutes after it
+    finished, or earlier, oldest finished first, while more than 256 entries are kept.
+    """
+
+    def __init__(self) -> None:
+        self._finished_at_ms: dict[str, int | None] = {}
+
+    def arrive(self, at_ms: int, key: str) -> None:
+        """Record a request with a key that the table does not hold."""
+        self._drop_expired(at_ms)
+        self._finished_at_ms.setdefault(key, None)
+        self._drop_over_capacity()
+
+    def finish(self, at_ms: int, key: str) -> None:
+        """Record the outcome of a running key."""
+        self._finished_at_ms[key] = at_ms
+        self._drop_over_capacity()
+
+    def state(self, at_ms: int, key: str) -> str:
+        """Return what get_request_result answers: done, running, or unknown."""
+        self._drop_expired(at_ms)
+        if key not in self._finished_at_ms:
+            return "unknown"
+        return "running" if self._finished_at_ms[key] is None else "done"
+
+    def _drop_expired(self, at_ms: int) -> None:
+        for key, finished_at_ms in list(self._finished_at_ms.items()):
+            if finished_at_ms is not None and at_ms - finished_at_ms >= IDEMPOTENCY_RETENTION_MS:
+                del self._finished_at_ms[key]
+
+    def _drop_over_capacity(self) -> None:
+        finished = sorted(
+            (finished_at_ms, key)
+            for key, finished_at_ms in self._finished_at_ms.items()
+            if finished_at_ms is not None
+        )
+        excess = len(self._finished_at_ms) - IDEMPOTENCY_CAPACITY
+        for _, key in finished[: max(0, excess)]:
+            del self._finished_at_ms[key]
 
 
 @dataclass(frozen=True)
@@ -192,28 +265,40 @@ def missing_auth_variable(environment: Mapping[str, str], auth: Mapping[str, Any
 
 def is_open_url_allowed(web_url: str | None, url: str) -> bool:
     """Return whether open_url may open ``url`` for a launch doc whose web_url is ``web_url``."""
-    if web_url is None or any(ord(character) <= 0x20 or character in "\x7f\\" for character in url):
+    if web_url is None or not _has_only_plain_characters(url):
         return False
-    try:
-        base = urlsplit(web_url)
-        target = urlsplit(url)
-        base_origin = _url_origin(base)
-        target_origin = _url_origin(target)
-    except ValueError:
+    base_origin = _url_origin(web_url)
+    target_origin = _url_origin(url)
+    if base_origin is None or target_origin != base_origin:
         return False
-    if base_origin is None or target_origin != base_origin or "@" in target.netloc:
+    target_path = urlsplit(url).path
+    if any(_is_dot_segment(segment) for segment in target_path.split("/")):
         return False
-    if any(_is_dot_segment(segment) for segment in target.path.split("/")):
-        return False
-    base_path = base.path.rstrip("/")
-    return target.path == base_path or target.path.startswith(base_path + "/") or not base_path
+    base_path = urlsplit(web_url).path.rstrip("/")
+    return target_path == base_path or target_path.startswith(base_path + "/") or not base_path
 
 
-def _url_origin(parts: SplitResult) -> tuple[str, str, int] | None:
-    scheme = parts.scheme.lower()
-    if scheme not in _DEFAULT_PORTS or not parts.hostname:
+def _has_only_plain_characters(url: str) -> bool:
+    return all(0x20 < ord(character) < 0x7F and character != "\\" for character in url)
+
+
+def _url_origin(url: str) -> tuple[str, str, int] | None:
+    """Return (scheme, host, port) of an http or https URL, or None when open_url refuses it."""
+    if not _has_only_plain_characters(url):
         return None
-    return scheme, parts.hostname.lower(), parts.port or _DEFAULT_PORTS[scheme]
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    if scheme not in _DEFAULT_PORTS or "@" in parts.netloc or "%" in parts.netloc:
+        return None
+    match = _AUTHORITY.fullmatch(parts.netloc)
+    if match is None:
+        return None
+    host, port_text = match.group("host").lower(), match.group("port")
+    if port_text is None:
+        return scheme, host, _DEFAULT_PORTS[scheme]
+    if _PORT.fullmatch(port_text) is None or int(port_text) > 65535:
+        return None
+    return scheme, host, int(port_text)
 
 
 def _is_dot_segment(segment: str) -> bool:
@@ -443,7 +528,7 @@ class TranscriptReplay:
             return
         message = _substitute(step["message"], self._aliases)
         self._channel.send_message(message)
-        self._recorder.record("sent", message=message)
+        self._recorder.record("sent", message=summarize_message(message))
 
     def _receive_step(self, step: Mapping[str, Any]) -> None:
         timeout_seconds = self._step_timeout_seconds
@@ -453,15 +538,16 @@ class TranscriptReplay:
         if "raw_line" in step:
             self._receive_raw_step(step, timeout_seconds)
             return
+        expected_summary = json.dumps(summarize_message(step["message"]), sort_keys=True)
         try:
             received = self._channel.receive_message(timeout_seconds)
         except TimeoutError as error:
-            raise ReplayMismatchError(f"expected {step['message']} but nothing arrived") from error
+            raise ReplayMismatchError(f"expected {expected_summary} but nothing arrived") from error
         except ChannelProtocolError as error:
-            raise ReplayMismatchError(f"expected {step['message']}: {error}") from error
+            raise ReplayMismatchError(f"expected {expected_summary}: {error}") from error
         if received is None:
-            raise ReplayMismatchError(f"expected {step['message']} but the channel ended")
-        self._recorder.record("received", message=received)
+            raise ReplayMismatchError(f"expected {expected_summary} but the channel ended")
+        self._recorder.record("received", message=summarize_message(received))
         self._compare(step["message"], received, step.get("ignore", []))
 
     def _receive_raw_step(self, step: Mapping[str, Any], timeout_seconds: float) -> None:
@@ -477,7 +563,10 @@ class TranscriptReplay:
         except (TimeoutError, ChannelProtocolError) as error:
             raise ReplayMismatchError(f"expected a raw line: {error}") from error
         if is_oversize or line is None or line.rstrip(b" ") != expected:
-            raise ReplayMismatchError(f"expected the raw line {expected!r}, received {line!r}")
+            received_bytes = None if line is None else len(line)
+            raise ReplayMismatchError(
+                f"expected a raw line of {len(expected)} bytes, received {received_bytes} bytes"
+            )
         self._recorder.record("received_raw_line", bytes=len(line))
 
     def _expect_silence(self, silence_ms: int) -> None:
@@ -485,7 +574,9 @@ class TranscriptReplay:
             line = self._channel.receive_line(silence_ms / 1000)
         except TimeoutError:
             return
-        raise ReplayMismatchError(f"expected silence for {silence_ms} ms, received {line!r}")
+        raise ReplayMismatchError(
+            f"expected silence for {silence_ms} ms, received {_line_summary(line)}"
+        )
 
     def _expect_end_of_channel(self) -> None:
         try:
@@ -495,7 +586,9 @@ class TranscriptReplay:
         except ChannelProtocolError as error:
             raise ReplayMismatchError(f"expected the channel to end: {error}") from error
         if line is not None:
-            raise ReplayMismatchError(f"expected the channel to end, received {line!r}")
+            raise ReplayMismatchError(
+                f"expected the channel to end, received {_line_summary(line)}"
+            )
 
     def _compare(
         self, fixture: Mapping[str, Any], received: Mapping[str, Any], ignore: Any
@@ -505,10 +598,14 @@ class TranscriptReplay:
             self._actual_harness = str(_read_path(received, "command.harness"))
         for path in ignore:
             self._bind_alias(path, _read_path(fixture, path), _read_path(received, path))
-        if _without_paths(expected, ignore) != _without_paths(received, ignore):
+        differing = differing_paths(
+            _without_paths(expected, ignore), _without_paths(received, ignore)
+        )
+        if differing:
             raise ReplayMismatchError(
-                f"expected {json.dumps(expected, sort_keys=True)}, "
-                f"received {json.dumps(received, sort_keys=True)}"
+                f"expected {json.dumps(summarize_message(expected), sort_keys=True)}, "
+                f"received {json.dumps(summarize_message(received), sort_keys=True)}; "
+                f"they differ at {', '.join(differing)}"
             )
 
     def _bind_alias(self, path: str, fixture_value: object, received_value: object) -> None:
@@ -517,9 +614,54 @@ class TranscriptReplay:
         self._aliases[fixture_value] = received_value
         if path.endswith("idempotency_key"):
             with contextlib.suppress(IdempotencyKeyError):
-                fixture_session_id = derive_session_id(self._fixture_harness, fixture_value)
-                received_session_id = derive_session_id(self._actual_harness, received_value)
-                self._aliases[fixture_session_id] = received_session_id
+                fixture_ids = candidate_session_ids(self._fixture_harness, fixture_value)
+                received_ids = candidate_session_ids(self._actual_harness, received_value)
+                self._aliases.update(zip(fixture_ids, received_ids, strict=True))
+
+
+def summarize_message(message: Mapping[str, Any]) -> dict[str, Any]:
+    """Return what the host may write about a message: never texts, paths, or values.
+
+    The summary keeps type, id, method, contract, mode, state, level, the error code, and
+    whether a response holds a result.
+    """
+    summary = {
+        name: message[name]
+        for name in ("type", "id", "method", "contract", "mode", "state", "level", "code")
+        if isinstance(message.get(name), str | int) and not isinstance(message.get(name), bool)
+    }
+    error = message.get("error")
+    if isinstance(error, dict) and isinstance(error.get("code"), str):
+        summary["error_code"] = error["code"]
+    if "result" in message:
+        summary["has_result"] = True
+    return summary
+
+
+def differing_paths(expected: object, received: object, path: str = "") -> list[str]:
+    """Return the dotted paths where two JSON values differ, without their values."""
+    if isinstance(expected, dict) and isinstance(received, dict):
+        return [
+            difference
+            for name in sorted(set(expected) | set(received))
+            for difference in differing_paths(
+                expected.get(name, _MISSING), received.get(name, _MISSING), f"{path}.{name}"
+            )
+        ]
+    if expected == received:
+        return []
+    return [path.lstrip(".") or "(the message)"]
+
+
+_MISSING = object()
+
+
+def _line_summary(line: bytes | None) -> str:
+    if line is None:
+        return "the end of the channel"
+    with contextlib.suppress(ChannelProtocolError):
+        return json.dumps(summarize_message(parse_channel_line(line)), sort_keys=True)
+    return f"a {len(line)}-byte line that is not a message"
 
 
 def _launch_harness(transcript: Mapping[str, Any]) -> str:
@@ -737,9 +879,6 @@ def run_terminal_ui_role(arguments: argparse.Namespace) -> int:
         "start",
         argv=sys.argv[1:],
         environment_names=names,
-        allowed_environment={
-            name: os.environ[name] for name in names if name in ALLOWED_ENVIRONMENT_NAMES
-        },
         terminal=_describe_terminal(),
     )
     try:

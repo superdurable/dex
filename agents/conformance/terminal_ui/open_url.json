@@ -1,6 +1,6 @@
 {
   "description": "Which URLs open_url opens. Hand-written; see agents/cli/TERMINAL_UI_CONTRACT.md.",
-  "rule": "Refuse a URL that contains a character at or below U+0020, U+007F, or a backslash. Otherwise split both URLs (RFC 3986). Allow only when web_url is not null; both schemes are http or https and equal without case; the URL has no userinfo; the hosts are equal without case; the ports are equal, with 80 for http and 443 for https when absent; no path segment is . or .. (also when written with %2e); and the URL's path equals web_url's path without its trailing slashes, or starts with that path followed by /, or web_url's path is empty or /.",
+  "rule": "Refuse a URL that contains anything but printable ASCII (U+0021 to U+007E) or contains a backslash. Otherwise split both URLs (RFC 3986). Allow only when web_url is not null; both schemes are http or https and equal without case; the authority has no userinfo and no percent sign; the host is a bracketed IPv6 address or ASCII letters, digits, dots, and hyphens, and the hosts are equal without case (no IDNA conversion); the port is absent (80 for http, 443 for https) or a decimal from 1 to 65535 without a leading zero, and the ports are equal; no path segment is . or .. (also when written with %2e); and the URL's path equals web_url's path without its trailing slashes, or starts with that path followed by /, or web_url's path is empty or /.",
   "cases": [
     {
       "description": "The base URL itself.",
@@ -139,6 +139,108 @@
       "web_url": null,
       "url": "http://127.0.0.1:8802/",
       "is_allowed": false
+    },
+    {
+      "description": "A port over 65535.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:99999/",
+      "is_allowed": false
+    },
+    {
+      "description": "A port with a leading zero.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:08802/",
+      "is_allowed": false
+    },
+    {
+      "description": "An empty port.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:/",
+      "is_allowed": false
+    },
+    {
+      "description": "A port that is not a number.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:88o2/",
+      "is_allowed": false
+    },
+    {
+      "description": "An explicit default port.",
+      "web_url": "http://localhost",
+      "url": "http://localhost:80/",
+      "is_allowed": true
+    },
+    {
+      "description": "Port 0.",
+      "web_url": "http://localhost",
+      "url": "http://localhost:0/",
+      "is_allowed": false
+    },
+    {
+      "description": "An IPv6 host.",
+      "web_url": "http://[::1]:8802",
+      "url": "http://[::1]:8802/v2",
+      "is_allowed": true
+    },
+    {
+      "description": "Another IPv6 host.",
+      "web_url": "http://[::1]:8802",
+      "url": "http://[::2]:8802/v2",
+      "is_allowed": false
+    },
+    {
+      "description": "A Cyrillic letter in the host: only printable ASCII is allowed.",
+      "web_url": "https://dex.example.com",
+      "url": "https://dеx.example.com/",
+      "is_allowed": false
+    },
+    {
+      "description": "The Unicode form of the base's IDNA host is not converted, so it is refused.",
+      "web_url": "https://xn--bcher-kva.example",
+      "url": "https://bücher.example/",
+      "is_allowed": false
+    },
+    {
+      "description": "The IDNA host, compared without case.",
+      "web_url": "https://xn--bcher-kva.example",
+      "url": "https://XN--BCHER-KVA.example/v2",
+      "is_allowed": true
+    },
+    {
+      "description": "A percent sign in the authority.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1%3a8802/",
+      "is_allowed": false
+    },
+    {
+      "description": "A non-ASCII path: the terminal UI percent-encodes paths.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802/v2/日本",
+      "is_allowed": false
+    },
+    {
+      "description": "An encoded slash does not end the base path segment.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/web%2f..%2fadmin",
+      "is_allowed": false
+    },
+    {
+      "description": "A dot segment, half encoded.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/web/.%2E/admin",
+      "is_allowed": false
+    },
+    {
+      "description": "A doubly encoded dot segment is a plain name.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/web/%252e%252e/admin",
+      "is_allowed": true
+    },
+    {
+      "description": "A stray percent sign in the path passes through.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/web/%zz",
+      "is_allowed": true
     }
   ]
 }

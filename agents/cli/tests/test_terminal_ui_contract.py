@@ -75,6 +75,17 @@ def case_name(case: Mapping[str, Any]) -> str:
     return str(case.get("name") or case.get("description"))
 
 
+CONTRACT_1_TYPES = {
+    "launch",
+    "response",
+    "notice",
+    "worker",
+    "ready",
+    "launch_rejected",
+    "request",
+    "cancel",
+    "result",
+}
 REJECTION_EXIT_CODES: dict[str, int] = load_fixture("launch.json")["rejection_codes"]
 
 
@@ -243,6 +254,58 @@ def test_invalid_idempotency_keys(case: dict[str, Any]) -> None:
         host.derive_session_id("openai-sdk", case["idempotency_key"])
 
 
+@pytest.mark.parametrize("case", load_fixture("session_ids.json")["vectors"], ids=case_name)
+def test_long_session_id_vectors(case: dict[str, Any]) -> None:
+    assert host.candidate_session_ids(case["harness"], case["idempotency_key"]) == (
+        case["session_id"],
+        case["long_session_id"],
+    )
+    assert case["long_session_id"].startswith(case["session_id"])
+
+
+def test_colliding_keys_share_the_short_id_but_not_the_long_one() -> None:
+    for case in load_fixture("session_ids.json")["collisions"]:
+        first, second = case["idempotency_keys"]
+        assert first != second
+        for key, long_session_id in zip(
+            case["idempotency_keys"], case["long_session_ids"], strict=True
+        ):
+            assert host.candidate_session_ids(case["harness"], key) == (
+                case["session_id"],
+                long_session_id,
+            )
+        assert case["long_session_ids"][0] != case["long_session_ids"][1]
+
+
+@pytest.mark.parametrize(
+    "case", load_fixture("session_ids.json")["start_session_cases"], ids=case_name
+)
+def test_start_session_cases(case: dict[str, Any]) -> None:
+    outcome = host.start_session_outcome(
+        case["harness"], case["idempotency_key"], case["started_request_ids"]
+    )
+    expected = case["expected"]
+    assert outcome == expected.get("session_id")
+    assert (outcome is None) == (expected.get("error") == "id_conflict")
+
+
+@pytest.mark.parametrize("case", load_fixture("idempotency_table.json")["cases"], ids=case_name)
+def test_idempotency_table_cases(case: dict[str, Any]) -> None:
+    table = host.IdempotencyTable()
+    for event in case["events"]:
+        if event["op"] == "arrive":
+            table.arrive(event["at_ms"], event["key"])
+        elif event["op"] == "finish":
+            table.finish(event["at_ms"], event["key"])
+        elif event["op"] == "fill":
+            for index in range(event["count"]):
+                key = f"{event['prefix']}{index}"
+                table.arrive(event["at_ms"] + index, key)
+                table.finish(event["at_ms"] + index, key)
+        else:
+            assert table.state(event["at_ms"], event["key"]) == event["state"], event
+
+
 def test_one_session_id_vector_matches_a_hand_computation() -> None:
     # printf '%s' KEY | shasum -a 256; date -u -r $((0x01a1cafd3028/1000)) +%Y%m%d-%H%M%S
     key = "01a1cafd-3028-7a3c-9b21-4f6e8d0c2a1b"
@@ -355,7 +418,7 @@ class TranscriptChecker:
             assert self.launch["mode"] == "sessions" and self.transcript["tui_exit"] == 0
             self.has_result = True
         else:
-            raise AssertionError(f"{message['type']} after ready")
+            assert message["type"] not in CONTRACT_1_TYPES, f"{message['type']} after ready"
 
     def _check_request(self, request: dict[str, Any]) -> None:
         assert request["id"] == self.next_request_id
@@ -401,8 +464,8 @@ class TranscriptChecker:
             assert self.outcomes.setdefault(request["idempotency_key"], outcome) == outcome
         if method == "start_session" and error is None:
             harness = self.launch["command"]["harness"]
-            derived = host.derive_session_id(harness, request["idempotency_key"])
-            assert response["result"]["session_id"] == derived
+            candidates = host.candidate_session_ids(harness, request["idempotency_key"])
+            assert response["result"]["session_id"] in candidates
         if method == "open_url":
             is_allowed = host.is_open_url_allowed(
                 self.launch["dex"]["web_url"], request["params"]["url"]
@@ -507,7 +570,8 @@ def test_terminal_ui_role_reports_a_launcher_that_differs(tmp_path: Path) -> Non
     assert completed.returncode == 1
     events = read_record(tmp_path / "tui.jsonl")
     assert [event["event"] for event in events][-1] == "mismatch"
-    assert "other.png" in events[-1]["detail"]
+    assert "result.name" in events[-1]["detail"]
+    assert "other.png" not in events[-1]["detail"]
 
 
 def test_launcher_role_passes_only_the_allow_list(tmp_path: Path) -> None:
@@ -528,7 +592,7 @@ def test_launcher_role_passes_only_the_allow_list(tmp_path: Path) -> None:
     # macOS adds __CF_USER_TEXT_ENCODING to every process it starts.
     names = [name for name in start["environment_names"] if name != "__CF_USER_TEXT_ENCODING"]
     assert names == ["DEX_API_KEY", "LANG", "TERM"]
-    assert start["allowed_environment"]["DEX_API_KEY"] == "test-api-key-not-a-secret"
+    assert "allowed_environment" not in start
 
 
 def test_launcher_role_runs_the_terminal_ui_on_a_pty_with_a_high_channel_fd(tmp_path: Path) -> None:
@@ -543,6 +607,44 @@ def test_launcher_role_runs_the_terminal_ui_on_a_pty_with_a_high_channel_fd(tmp_
     assert start["terminal"] == {"columns": 100, "rows": 30, "is_foreground": True}
     channel_fd = int(start["argv"][start["argv"].index("--channel-fd") + 1])
     assert channel_fd >= 10
+
+
+SENTINEL = "sentinel-secret-7f3a9c"
+
+
+def test_records_and_errors_hold_no_secrets_or_display_text(tmp_path: Path) -> None:
+    original = CONFORMANCE_DIR / "transcripts" / "chat_notices_and_worker_states.json"
+    transcript = host.load_transcript(original)
+    launch = transcript["steps"][0]["message"]
+    launch["dex"]["auth"] = {"mode": "bearer", "source": "env"}
+    launch["display"]["workspace"] = f"~/{SENTINEL}/workspace"
+    launch["notices"][0]["text"] = f"Not authorized yet: {SENTINEL}."
+    transcript["steps"][2]["message"]["text"] = f"Connected to {SENTINEL}."
+    launcher_transcript = tmp_path / "launcher.json"
+    launcher_transcript.write_text(json.dumps(transcript), encoding="utf-8")
+    terminal_ui_transcript = tmp_path / "tui.json"
+    transcript["steps"][2]["message"]["text"] = f"Connected to {SENTINEL} and more."
+    terminal_ui_transcript.write_text(json.dumps(transcript), encoding="utf-8")
+    environment = {
+        "TERM": "xterm-256color",
+        "DEX_CREDENTIAL": SENTINEL,
+        "OPENAI_API_KEY": SENTINEL,
+    }
+    completed = run_host_pair(
+        tmp_path, launcher_transcript, terminal_ui_transcript, environment=environment
+    )
+    assert completed.returncode == 1
+    events = read_record(tmp_path / "tui.jsonl")
+    assert events[-1]["event"] == "mismatch"
+    assert "text" in events[-1]["detail"]
+    assert "DEX_CREDENTIAL" in events[0]["environment_names"]
+    for text in (
+        completed.stdout,
+        completed.stderr,
+        (tmp_path / "tui.jsonl").read_text(encoding="utf-8"),
+        (tmp_path / "launcher.jsonl").read_text(encoding="utf-8"),
+    ):
+        assert SENTINEL not in text
 
 
 def test_terminal_ui_role_answers_describe() -> None:

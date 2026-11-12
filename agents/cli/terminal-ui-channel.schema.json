@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Dex Agents terminal UI channel message, contract 1",
-  "description": "One line on the terminal UI channel after the launch document. #/$defs/from_launcher is what the launcher sends and #/$defs/from_tui is what dexcli agents-tui sends; the top level accepts either. Each request method's params are checked here; check a response's result against the method's <method>_result definition. See TERMINAL_UI_CONTRACT.md.",
+  "description": "One line on the terminal UI channel after the launch document. #/$defs/from_launcher is what the launcher sends and #/$defs/from_tui is what dexcli agents-tui sends; the top level accepts either. A message of a type contract 1 does not define is valid when its type is a lowercase name, so a receiver can skip what a later sender adds; a message of a defined type must match that type's definition. Each request method's params are checked here; check a response's result against the method's <method>_result definition. See TERMINAL_UI_CONTRACT.md.",
   "$comment": "Patterns end with (?![\\s\\S]) rather than $, because Python's re lets $ match before a trailing newline and ECMAScript does not. Objects allow unknown properties, because receivers ignore fields that a later addition to contract 1 brings. The not schemas repeat properties so that Ajv's strictRequired mode accepts them. $defs shared with terminal-ui-launch.schema.json must stay identical.",
   "anyOf": [
     {
@@ -22,6 +22,9 @@
         },
         {
           "$ref": "#/$defs/worker_message"
+        },
+        {
+          "$ref": "#/$defs/later_message"
         }
       ]
     },
@@ -41,6 +44,9 @@
         },
         {
           "$ref": "#/$defs/result_message"
+        },
+        {
+          "$ref": "#/$defs/later_message"
         }
       ]
     },
@@ -505,8 +511,8 @@
       "properties": {
         "session_id": {
           "type": "string",
-          "pattern": "^[a-z0-9][a-z0-9-]*-[0-9]{8}-[0-9]{6}-[0-9a-f]{6}(?![\\s\\S])",
-          "description": "The ID derived from the request's idempotency key."
+          "pattern": "^[a-z0-9][a-z0-9-]*-[0-9]{8}-[0-9]{6}-(?:[0-9a-f]{6}|[0-9a-f]{12})(?![\\s\\S])",
+          "description": "The ID derived from the request's idempotency key: the 6-digit suffix, or the 12-digit one when another request started the 6-digit ID."
         }
       }
     },
@@ -716,6 +722,32 @@
                 "type": "string"
               }
             }
+          }
+        }
+      }
+    },
+    "later_message": {
+      "type": "object",
+      "description": "A message type that a later addition to contract 1 brings. Receivers skip it.",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])",
+          "not": {
+            "enum": [
+              "launch",
+              "response",
+              "notice",
+              "worker",
+              "ready",
+              "launch_rejected",
+              "request",
+              "cancel",
+              "result"
+            ]
           }
         }
       }

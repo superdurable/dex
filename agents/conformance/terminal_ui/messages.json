@@ -492,6 +492,98 @@
         "path": "/state",
         "keyword": "enum"
       }
+    },
+    {
+      "name": "later-type-from-launcher",
+      "direction": "launcher",
+      "message": {
+        "type": "worker_progress",
+        "percent": 40
+      },
+      "is_valid": true
+    },
+    {
+      "name": "later-type-from-tui",
+      "direction": "tui",
+      "message": {
+        "type": "frame_rendered",
+        "frame_ms": 12
+      },
+      "is_valid": true
+    },
+    {
+      "name": "later-field-on-a-known-type",
+      "direction": "launcher",
+      "message": {
+        "type": "notice",
+        "level": "info",
+        "text": "ok",
+        "source": "connectors"
+      },
+      "is_valid": true
+    },
+    {
+      "name": "later-method",
+      "direction": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-786a-72e5-83b8-1d4e6f708192",
+        "method": "export_transcript",
+        "params": {
+          "format": "markdown"
+        }
+      },
+      "is_valid": true
+    },
+    {
+      "name": "type-not-a-string",
+      "direction": "launcher",
+      "message": {
+        "type": 5
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/type",
+        "keyword": "type"
+      }
+    },
+    {
+      "name": "type-uppercase",
+      "direction": "tui",
+      "message": {
+        "type": "Ready"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/type",
+        "keyword": "pattern"
+      }
+    },
+    {
+      "name": "known-type-malformed-is-not-skipped",
+      "direction": "launcher",
+      "message": {
+        "type": "notice",
+        "level": "info"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "",
+        "keyword": "required"
+      }
+    },
+    {
+      "name": "known-type-from-the-other-side",
+      "direction": "launcher",
+      "message": {
+        "type": "ready"
+      },
+      "is_valid": false,
+      "error": {
+        "path": "/type",
+        "keyword": "not"
+      }
     }
   ],
   "result_cases": [

@@ -93,6 +93,10 @@ terminal, `TERM=dumb`, and harnesses that declare plain text only.
   fields and unknown message types. An unknown method gets `unknown_method`.
   An unknown error code is shown as a failure of that operation with its
   message.
+- The channel schema accepts a message of any type contract 1 does not
+  define, as long as `type` is a lowercase name, so an older receiver
+  validates and skips what a newer sender adds. A message of a defined type
+  must still match that type's definition.
 - A new required item, or any change of meaning, needs a new version.
 - `dexcli` keeps supporting an old version while any supported agents release
   uses it. Dropping a version is a breaking change.
@@ -277,6 +281,10 @@ retries, and a slow server never causes a fallback.
 | terminal UI | `cancel` | `id` |
 | terminal UI | `result` | `resume_session_id`; sessions mode only. |
 
+Any other `type` is a later addition: the receiver skips the message,
+whatever its fields. A known `type` sent by the wrong side, such as `ready`
+from the launcher, is malformed.
+
 An `error` is `{"code":"…","message":"…"}`: a lowercase snake_case code and
 one English sentence that holds no secret and no environment value. All
 errors use this one shape.
@@ -314,15 +322,24 @@ Every request gets exactly one response.
   same action reuses the key; a new action gets a new key.
 - The launcher side answers a request with an invalid key with
   `invalid_params`.
-- The launcher side remembers each key's request and outcome: the first 256
-  keys, for 10 minutes each, for at least the life of the process that handled
-  them. A request whose key it remembers returns the first outcome, after
-  waiting for it when the first request still runs. A remembered key with a
-  different method or different `params` gets `invalid_params`.
+- The launcher side remembers each key's request and outcome, in the
+  process that handled it, and never longer than that process lives:
+  - A key that still runs is never forgotten. The in-flight limit bounds
+    how many run.
+  - A finished key is forgotten 10 minutes after it finished.
+  - When more than 256 keys are kept, finished keys are forgotten earlier,
+    the one that finished first first, until 256 remain. Capacity wins over
+    the 10 minutes.
+
+  A request whose key it remembers returns the first outcome, after waiting
+  for it when the first request still runs. A remembered key with a different
+  method or different `params` gets `invalid_params`. A forgotten key is
+  handled afresh, which is safe for every contract 1 method.
 - Rejections (`invalid_params`, `unknown_method`, `busy`) are not remembered,
   so a retry is handled afresh.
-- The table is a convenience. `start_session` stays safe without it, because
-  its session ID is derived from the key.
+- The table is a convenience. `put_image` and `start_session` stay safe
+  without it, because the image is content-addressed and the Dex server
+  remembers which key started each session (see `start_session`).
 
 ### In-flight limit
 
@@ -350,18 +367,35 @@ response.
 
 When the wait ends, `dexcli` sends `cancel` and treats the outcome as not
 known. The launcher side may also answer `timeout` itself when its relay
-gives up, which `dexcli` treats the same way. Then:
+gives up, which `dexcli` treats the same way. `list_connectors` and
+`open_url` then show the failure, and the user can retry with a new action.
+`put_image` and `start_session` recover like this:
 
-- `put_image` and `start_session`: `dexcli` calls `get_request_result` with the
-  same key. `done` gives the outcome. `running` keeps waiting and shows
-  `· still starting…`. `unknown` (forgotten, for example after a Worker host
-  restart) sends the request again, once, with the same key: `put_image`
-  is content-addressed and `start_session` derives its ID from the key, so a
-  second run creates nothing new. If that fails too, `start_session` shows
-  `! Could not confirm the new session; check /sessions.`
-- `list_connectors` and `open_url`: show the failure; the user can retry.
-- `host_stopped`, or a channel that ended: an image counts as not attached,
-  and `start_session` shows `! Could not confirm the new session; check /sessions.`
+1. When the launch document lists `get_request_result`, `dexcli` asks with
+   the same key.
+   - `done` gives the outcome.
+   - `running`: ask again 1 s after each answer. `start_session` shows
+     `· still starting…`. Stop asking 60 s after the original request was
+     sent; the outcome stays unknown, so go to step 3.
+   - `unknown` (the key was forgotten, for example after a Worker host
+     restart): go to step 2.
+   - No answer within 5 s (send `cancel`) or `timeout`: go to step 2.
+   - `unknown_method`: stop calling `get_request_result` for the rest of the
+     process and go to step 2.
+2. Without a usable `get_request_result`, `dexcli` sends the original
+   request again, once, with the same key. A second run creates nothing new:
+   `put_image` is content-addressed, and `start_session` finds the session
+   its key already started. When that request also ends without an outcome,
+   go to step 3.
+3. When the outcome is still unknown: `put_image` attaches nothing and shows
+   `! Could not attach <name>; try again.` `start_session` shows
+   `! Could not confirm the new session; check /sessions.`
+
+Losing the Worker host ends recovery. The launcher side answers every waiting
+and every later relayed request with `host_stopped`, and sends
+`{"type":"worker","state":"stopped",…}`. `dexcli` does not resend after
+`host_stopped`: the image counts as not attached, and `start_session` shows
+the message of step 3. A channel that ended has the same effect.
 
 A user who presses Esc while `start_session` waits only moves the wait to the
 background: no `cancel` is sent. When the result arrives, the terminal UI asks
@@ -398,24 +432,35 @@ harmless.
 **`start_session`** starts a new session of the launch document's Flow type
 and returns its ID once the session is ready, as the command does at startup.
 
-1. It derives the session ID from the key:
-   `<harness>-<YYYYMMDD>-<HHMMSS>-<hex6>`. The date and time are the key's
-   UUIDv7 milliseconds, floored to the second, in UTC; this is the format of
-   every CLI session ID. `hex6` is the first 6 lowercase hex digits of the
-   SHA-256 of the key's 36 ASCII bytes. `harness` is `command.harness`. The
-   vectors in
+1. It derives two candidate session IDs from the key:
+   `<harness>-<YYYYMMDD>-<HHMMSS>-<hex6>` and the same with `<hex12>`. The
+   date and time are the key's UUIDv7 milliseconds, floored to the second, in
+   UTC; this is the format of every CLI session ID. `hex6` and `hex12` are the
+   first 6 and 12 lowercase hex digits of the SHA-256 of the key's 36 ASCII
+   bytes. `harness` is `command.harness`. The vectors in
    [`../conformance/terminal_ui/session_ids.json`](../conformance/terminal_ui/session_ids.json)
    fix this.
-2. It calls `StartFlow` with that ID.
-3. When the Flow already exists, it reads it with `DescribeFlow`. If its Flow
-   type is the session Flow type and it started within 10 minutes of the
-   key's time, this is the same request again, and the result is that ID.
-   Otherwise it answers `id_conflict`, and the terminal UI shows
-   `! Session ID conflict; press /new again.` Two keys of the same second
-   share a suffix with a chance of about 1 in 16 million.
+2. It calls `StartFlow` for the first candidate with the key as the start
+   request's `request_id` and with "ignore already started" set
+   (`request_id` and `ignore_already_started` in the Dex SDKs' start options).
+   The Dex server stores the request ID with the run. When this key already
+   started that Flow ID, `StartFlow` returns that run, and the result is that
+   ID.
+3. When another request started that Flow ID, `StartFlow` fails with
+   `FlowAlreadyStarted`. The full key differs, so this is a collision of the
+   6-digit suffix (about 1 in 16 million for two keys of the same second), or
+   a session the plain chat started with a random suffix. It then tries the
+   12-digit candidate the same way.
+4. When another request started that one too, it answers `id_conflict`, and
+   the terminal UI shows `! Session ID conflict; press /new again.` The next
+   `/new` is a new action with a new key.
 
-So a resent key never starts a second session, even after the key table
-forgot it or the Worker host restarted.
+So a resent key never starts a second session and never takes another
+request's session, even after the key table forgot it or the Worker host
+restarted. `session_ids.json` has two keys that share a 6-digit ID and the
+outcome for each set of existing Flows. Neither the session start input nor
+any Flow Attribute changes: the key lives in the server's start request
+record.
 
 **`list_connectors`** returns what `connectors` shows: `mcp_url`, one `tools`
 row per connector tool (`name`, `connector`, `connection`, `operation`, each
@@ -426,16 +471,25 @@ or `null` or absent when the launcher did not read them.
 **`open_url`** opens a Dex Web page in the user's browser. It refuses, with
 `refused`, any URL that is not under `dex.web_url`:
 
-- a URL with a character at or below U+0020, U+007F, or a backslash;
+- a URL with anything but printable ASCII (U+0021 to U+007E), or with a
+  backslash. The terminal UI percent-encodes what it puts into a path.
 - a `web_url` of `null`;
 - a scheme other than `http` or `https`, or one that differs from `web_url`'s
   (compared without case);
-- any userinfo (`user@`);
-- another host (compared without case) or port (80 for `http` and 443 for
+- an authority with userinfo (`user@`) or a percent sign;
+- a host that is not a bracketed IPv6 address or ASCII letters, digits, dots,
+  and hyphens, or that differs from `web_url`'s without case. There is no IDNA
+  conversion: a Unicode host never equals its `xn--` form;
+- a port that is empty, has a leading zero, is not decimal, or is outside 1
+  to 65535, or that differs from `web_url`'s (80 for `http` and 443 for
   `https` when absent);
 - a `.` or `..` path segment, also written with `%2e`;
 - a path that is not `web_url`'s path without trailing slashes, or that path
-  followed by `/` and more. An empty base path allows every path.
+  followed by `/` and more. An empty base path allows every path. An encoded
+  slash (`%2F`) does not end a segment.
+
+The check covers the URL it is given. Where a Dex Web page sends the browser
+next is up to Dex Web.
 
 Running it twice is harmless.
 
@@ -475,6 +529,8 @@ The launcher should also cut texts at 500 code points before sending them.
 - A gRPC error shows its status, Dex sub-status, and message, never its
   metadata.
 - Error messages on the channel never hold a secret or an environment value.
+- The contract host writes only environment names and message summaries
+  (see [The contract host](#the-contract-host)).
 - Fixtures use placeholder paths under `/home/user`. The tests reject any other
   home directory, this machine's home directory, and strings shaped like JWTs,
   provider keys, cloud keys, or bearer tokens.
@@ -494,6 +550,7 @@ cases. The launchers (TypeScript and Python CLI cores) and the terminal UI
 | `open_url.json` | URLs `open_url` opens or refuses. |
 | `notices.json` | Shown notice texts, and which repeats are hidden. |
 | `environment.json` | The environment a launcher gives `dexcli`, for each `dex.auth`. |
+| `idempotency_table.json` | What the launcher side remembers of keys: retention and capacity. |
 | `transcripts/*.json` | Whole channel exchanges: handoff, each method, cancel and recovery, `busy`, notices and Worker states, rejections, the ready timeout, and the other modes. |
 
 ### Transcripts
@@ -533,9 +590,29 @@ one. Ignoring an `idempotency_key` also binds the session ID derived from it.
 So a transcript can expect a real `dexcli`'s random keys, or a real
 launcher's session ID, without fixing them.
 
-The tests check that every transcript follows this document: ID order, one
+### What the conformance tests prove
+
+`tests/test_terminal_ui_contract.py` proves that the fixtures, the schemas,
+and the Python reference functions in the contract host agree, and that each
+transcript is a sequence this document allows: request ID order, one
 response per request, keys, `busy`, `unknown_method`, method results and
-errors, derived session IDs, `open_url` decisions, and the launch checks.
+errors, derived session IDs, `open_url` decisions, and the launch checks. It
+also runs the two roles of the contract host against each other.
+
+It does not prove that any real implementation behaves this way. It never
+calls `StartFlow` or `DescribeFlow`, keeps no real key table, restarts no
+Worker host, loses no real response, and runs no TypeScript or Go code.
+Each pull request that implements a side of this contract must add, as a
+condition of merging:
+
+- tests that run that side's own code over every case file above, including
+  the session ID vectors, `open_url`, notices, and the key table;
+- integration tests of the real processes: the terminal UI against the
+  contract host as launcher, and each launcher against the contract host as
+  terminal UI and with its real Worker host and a Dex server;
+- fault injection: a lost response, cancel racing completion, a forgotten
+  key, a Worker host killed in the middle of a request, a `start_session`
+  resent after the Flow started, and a 6-digit ID collision.
 
 ### The contract host
 
@@ -571,9 +648,12 @@ exec /absolute/path/to/python3 /absolute/path/to/agents/cli/tests/terminal_ui_co
 
 It answers `--describe` (or prints `--describe-file`), replays the terminal UI
 side over `--channel-fd`, and exits with `tui_exit`, or 70 on a difference.
-Its record starts with the arguments, the environment's names, the values of
-allow-listed names only, and the terminal size and foreground state, then
-lists every message it sent and received.
+Its record starts with the arguments, the environment's names (never their
+values), and the terminal size and foreground state. It then lists a summary
+of every message it sent and received: type, ID, method, contract, mode,
+state, level, and error code. It never writes a message's texts, paths, or
+other values, in its record or on stderr. A difference names the fields
+that differ, not their values.
 
 Run the checks:
 

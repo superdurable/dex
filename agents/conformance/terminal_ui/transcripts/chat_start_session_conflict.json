@@ -98,7 +98,7 @@
         "id": 1,
         "error": {
           "code": "id_conflict",
-          "message": "Session openai-sdk-20261111-142509-764046 already exists and is not this request's."
+          "message": "Other requests already started both session IDs this key derives."
         }
       }
     }
