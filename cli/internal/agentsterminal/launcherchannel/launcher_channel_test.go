@@ -399,7 +399,8 @@ func TestNotificationsAndLaterMessageTypes(t *testing.T) {
 // A malformed known type ends the contract: dexcli closes the channel.
 func TestProtocolErrorClosesTheChannel(t *testing.T) {
 	channel, launcher := newChannelPair(t, allMethods)
-	launcher.send(map[string]any{"type": "notice", "level": "info"})
+	_, err := launcher.connection.Write([]byte("not json\n"))
+	require.NoError(t, err)
 	select {
 	case <-channel.Ended():
 	case <-time.After(testWait):
@@ -408,6 +409,26 @@ func TestProtocolErrorClosesTheChannel(t *testing.T) {
 	require.ErrorIs(t, channel.EndErr(), ErrProtocol)
 	_, isOpen := <-launcher.received
 	require.False(t, isOpen, "the launcher reads EOF")
+}
+
+// A malformed message of a known type is dropped and the channel stays open;
+// a malformed response leaves its request waiting for a valid one.
+func TestMalformedKnownTypeIsDropped(t *testing.T) {
+	channel, launcher := newChannelPair(t, allMethods)
+	outcome := callAsync(channel, launchcontract.MethodPutImage, newKey(t), map[string]any{"path": "/home/user/a.png"})
+	request := launcher.next()
+	launcher.send(map[string]any{"type": "notice", "level": "info"})
+	launcher.send(map[string]any{"type": "response", "id": request["id"]})
+	launcher.send(map[string]any{"type": "notice", "level": "info", "text": "still here"})
+	notification := <-channel.Notifications()
+	require.Equal(t, "still here", notification.Notice.Text)
+	launcher.respond(request, imageResult)
+	require.Equal(t, OutcomeDone, waitOutcome(t, outcome).Kind)
+	select {
+	case <-channel.Ended():
+		t.Fatal("the channel ended")
+	default:
+	}
 }
 
 // A launch line over 1 MiB comes back over the limit, so the checks reject it.

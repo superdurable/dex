@@ -154,7 +154,7 @@ func (command *suspendCommand) SetStderr(io.Writer) {}
 
 func stopThisProcess() {
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTSTP); err != nil {
-		debugf("stop this process: %v", err)
+		debugLog("stop this process", err)
 	}
 }
 

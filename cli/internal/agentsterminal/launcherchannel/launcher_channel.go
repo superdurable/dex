@@ -250,8 +250,9 @@ func (channel *LauncherChannel) readMessages() {
 		}
 		message, err := launchcontract.ParseLauncherMessage(object)
 		if err != nil {
-			channel.endWithProtocolError()
-			return
+			// A known type that fails its definition is malformed, not a
+			// protocol error: drop it and keep reading.
+			continue
 		}
 		switch {
 		case message.Response != nil:

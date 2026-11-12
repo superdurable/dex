@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
@@ -98,9 +99,9 @@ type RemoteSessionFeedConfig struct {
 	WorkingDirectory string
 	// Now returns the current time. Default: time.Now.
 	Now func() time.Time
-	// Debugf writes one debug log line of types, IDs, and error codes only;
-	// nil for none.
-	Debugf func(format string, arguments ...any)
+	// Debugf writes one debug log line: a constant event name and the kind of
+	// err, from ErrorKindForLog, never its text. nil for none.
+	Debugf func(event string, err error)
 }
 
 // RemoteSessionFeed is a sessionfeed.ChatSessionSource over one agent session.
@@ -112,13 +113,16 @@ type RemoteSessionFeed struct {
 	home     string
 	workDir  string
 	now      func() time.Time
-	debugf   func(format string, arguments ...any)
+	debugf   func(event string, err error)
 
 	updates *updateQueue
 	inputs  chan loopInput
 
 	// actionMutex keeps one local request action at a time, in order.
 	actionMutex sync.Mutex
+
+	isStartingSession      atomic.Bool
+	sessionStartBackground chan struct{}
 
 	stateMutex     sync.Mutex
 	sessionID      string
@@ -140,20 +144,22 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 	}
 	debugf := config.Debugf
 	if debugf == nil {
-		debugf = func(string, ...any) {}
+		debugf = func(string, error) {}
 	}
 	return &RemoteSessionFeed{
-		sessions:  config.Sessions,
-		requests:  config.Requests,
-		launch:    config.Launch,
-		timings:   timings,
-		home:      config.HomeDirectory,
-		workDir:   config.WorkingDirectory,
-		now:       now,
-		debugf:    debugf,
-		updates:   newUpdateQueue(),
-		inputs:    make(chan loopInput, 256),
-		sessionID: config.Launch.Session.SessionID,
+		sessions: config.Sessions,
+		requests: config.Requests,
+		launch:   config.Launch,
+		timings:  timings,
+		home:     config.HomeDirectory,
+		workDir:  config.WorkingDirectory,
+		now:      now,
+		debugf:   debugf,
+		updates:  newUpdateQueue(),
+		inputs:   make(chan loopInput, 256),
+
+		sessionStartBackground: make(chan struct{}, 1),
+		sessionID:              config.Launch.Session.SessionID,
 	}
 }
 

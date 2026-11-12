@@ -26,7 +26,21 @@ func TestExecuteRequiresAMode(t *testing.T) {
 func TestExecuteRejectsArguments(t *testing.T) {
 	var stderr bytes.Buffer
 	err := Execute(context.Background(), []string{"--demo", "extra"}, os.Stdin, os.Stdout, &stderr, "test")
-	require.EqualError(t, err, "agents-tui: unexpected arguments: [extra]")
+	var exitError *ExitError
+	require.ErrorAs(t, err, &exitError)
+	require.Equal(t, 2, exitError.Code)
+	require.Empty(t, stderr.String())
+}
+
+// A bad flag exits 2 and writes nothing, because a launcher's stderr may be
+// the terminal it hands over.
+func TestExecuteDropsFlagErrors(t *testing.T) {
+	var stderr bytes.Buffer
+	err := Execute(context.Background(), []string{"--channel-fd=bad"}, os.Stdin, os.Stdout, &stderr, "test")
+	var exitError *ExitError
+	require.ErrorAs(t, err, &exitError)
+	require.Equal(t, 2, exitError.Code)
+	require.Empty(t, stderr.String())
 }
 
 func TestExecuteDemoNeedsATerminal(t *testing.T) {

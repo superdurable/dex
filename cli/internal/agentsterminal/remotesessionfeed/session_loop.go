@@ -12,6 +12,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"syscall"
 	"time"
 
 	dexagents "github.com/superdurable/dex/agents/go/core"
@@ -234,7 +236,7 @@ func (loop *sessionLoop) startFetch() {
 func (loop *sessionLoop) applyFetch(fetched snapshotFetched) {
 	model := loop.model
 	if fetched.err != nil {
-		loop.feed.debugf("snapshot: %s", describeError(fetched.err))
+		loop.feed.debugf("read the snapshot", fetched.err)
 		loop.applyFetchFailure(fetched.err)
 		return
 	}
@@ -326,7 +328,7 @@ func followAgentEvents(ctx context.Context, feed *RemoteSessionFeed, sessionID s
 		var longPollTimeout *dex.LongPollTimeoutError
 		switch {
 		case err == nil:
-			feed.debugf("event %s turn=%v attempt=%d", event.Type, event.TurnID != nil, event.Attempt)
+			feed.debugf("event "+knownEventTypeForLog(event.Type), nil)
 			resumeToken = message.ResumeToken
 			if !send(eventReceived{epoch: epoch, event: event}) {
 				return
@@ -336,7 +338,7 @@ func followAgentEvents(ctx context.Context, feed *RemoteSessionFeed, sessionID s
 			send(eventsUnavailable{epoch: epoch, reason: describeError(err)})
 			return
 		default:
-			feed.debugf("read events: %s", describeError(err))
+			feed.debugf("read events", err)
 			if !sleepFor(ctx, time.Second) {
 				return
 			}
@@ -373,6 +375,42 @@ func isUnavailable(err error) bool {
 func isStreamStoreOff(err error) bool {
 	code, isService := serviceErrorCode(err)
 	return isService && code == codes.FailedPrecondition
+}
+
+// knownEventTypes are the AgentEvents types the debug log names; others,
+// such as adapter-prefixed types, show as "other".
+var knownEventTypes = map[string]bool{
+	"turn_started": true, "turn_completed": true, "turn_failed": true, "turn_steered": true, "turn_cancelled": true,
+	"text_delta": true, "reasoning_delta": true, "tool_call_started": true, "tool_call_finished": true,
+	"tool_call_deferred": true, "interrupt_raised": true, "interrupt_resolved": true, "usage_recorded": true,
+	"timer_started": true, "plan_updated": true, "plan_execution_started": true, "tool_task_started": true,
+	"compaction_started": true, "compaction_finished": true,
+}
+
+func knownEventTypeForLog(eventType string) string {
+	if knownEventTypes[eventType] {
+		return eventType
+	}
+	return "other"
+}
+
+// ErrorKindForLog names an error for the debug log without its text: the
+// gRPC code and Dex sub-status, or a fixed word.
+func ErrorKindForLog(err error) string {
+	var serviceError *dex.ServiceError
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.As(err, &serviceError):
+		return fmt.Sprintf("grpc %s, sub-status %d", serviceError.Code, uint8(serviceError.SubStatus))
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline exceeded"
+	case errors.Is(err, net.ErrClosed), errors.Is(err, syscall.EPIPE):
+		return "closed"
+	}
+	return "error"
 }
 
 // describeError shows a gRPC error as its status, Dex sub-status, and

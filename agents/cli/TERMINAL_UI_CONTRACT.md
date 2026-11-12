@@ -213,6 +213,10 @@ leaves the terminal mode as it found it, and exits.
 | The document passes the contract's schema | `invalid_launch` | 2 |
 | The variable `dex.auth` needs is set and not empty | `auth_missing` | 2 |
 | The terminal could be set up (raw mode, window size) | `terminal_failed` | 1 |
+| The Dex client could be set up: the credential that `dex.auth` names is usable, `dex.tls.ca_file` is readable | `dex_setup_failed` | 1 |
+
+The last row runs only after every check above it passed, so it never hides
+one of them. A launcher treats `dex_setup_failed` like any failed handoff.
 
 ```json
 {"type":"launch_rejected","code":"auth_missing","message":"DEX_API_KEY is not set; dex.auth mode api_key needs it."}
@@ -277,7 +281,7 @@ This never falls back to the plain chat, even before `ready`.
 | Exit | When |
 | --- | --- |
 | 0 | The user exited. |
-| 1 | A failure: the session or a turn failed, the channel ended or broke after `ready`, or `terminal_failed`. |
+| 1 | A failure: the session or a turn failed, the channel ended or broke after `ready`, `terminal_failed`, or `dex_setup_failed`. |
 | 2 | `invalid_launch`, `auth_missing`, or `--channel-fd` is not a socket. |
 | 3 | `contract_unsupported` or `mode_unsupported`. |
 | 130 | An external SIGINT, after an orderly exit. A Ctrl-C key press in raw mode is a key, not a signal. |

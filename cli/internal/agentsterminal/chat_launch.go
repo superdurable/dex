@@ -17,7 +17,6 @@ import (
 	"os"
 	"sync"
 	"syscall"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -41,11 +40,10 @@ var supportedModes = launchcontract.SupportedModes{1: {launchcontract.ModeChat}}
 
 // The exit codes of the contract.
 const (
-	exitCodeFailure      = 1
-	exitCodeInvalid      = 2
-	exitCodeTerminated   = 143
-	firstFrameFlushDelay = 50 * time.Millisecond
-	blobCacheBytes       = 64 << 20
+	exitCodeFailure    = 1
+	exitCodeInvalid    = 2
+	exitCodeTerminated = 143
+	blobCacheBytes     = 64 << 20
 )
 
 // runChannelChat runs the chat for the launcher on channelFD.
@@ -57,25 +55,30 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 	defer func() {
 		// The launcher reads EOF; a second close changes nothing.
 		if closeErr := channel.Close(); closeErr != nil {
-			debugf("close the channel: %v", closeErr)
+			debugLog("close the channel", closeErr)
 		}
 	}()
+	// A signal before the chat runs stops the wait for the launch line.
+	stopSignalWatch := context.AfterFunc(ctx, func() {
+		if closeErr := channel.Close(); closeErr != nil {
+			debugLog("close the channel after a signal", closeErr)
+		}
+	})
 	line, err := channel.ReadLaunchLine()
+	if !stopSignalWatch() {
+		return &ExitError{Code: exitCodeTerminated}
+	}
 	if err != nil {
 		return &ExitError{Code: exitCodeInvalid}
 	}
-	launch, rejection := launchcontract.CheckLaunchLine(line, supportedModes, os.LookupEnv)
-	var connection dexConnection
-	if rejection == nil {
-		connection, rejection = newDexConnection(launch)
-	}
+	launch, connection, rejection := runLaunchChecks(line, os.LookupEnv,
+		func() *launchcontract.LaunchRejection { return checkTerminal(stdin, stdout) }, newDexConnection)
 	if rejection == nil {
 		defer connection.close()
-		rejection = checkTerminal(stdin, stdout)
 	}
 	if rejection != nil {
 		if sendErr := channel.SendLaunchRejected(rejection); sendErr != nil {
-			debugf("send launch_rejected: %v", sendErr)
+			debugLog("send launch_rejected", sendErr)
 		}
 		return &ExitError{Code: rejection.ExitCode}
 	}
@@ -85,7 +88,9 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 	}
 	defer restoreStderr()
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(discardWriter{}, discardWriter{}, discardWriter{}))
-	return runChat(ctx, channel, launch, connection, stdin, stdout)
+	// The chat's own signal handling decides how SIGINT, SIGTERM, and SIGHUP
+	// end it; the caller's signal context would kill it without the exit code.
+	return runChat(context.WithoutCancel(ctx), channel, launch, connection, stdin, stdout)
 }
 
 // dexConnection is the Dex client of the chat and its blob cache.
@@ -97,7 +102,7 @@ type dexConnection struct {
 
 func (connection dexConnection) close() {
 	if closeErr := connection.client.Close(); closeErr != nil {
-		debugf("close the Dex client: %v", closeErr)
+		debugLog("close the Dex client", closeErr)
 	}
 	connection.removeCache()
 }
@@ -110,6 +115,26 @@ func newDexConnection(launch launchcontract.LaunchDocument) (dexConnection, *lau
 		return dexConnection{}, failure
 	}
 	return dexConnection{client: client, flow: flow, removeCache: removeCache}, nil
+}
+
+// runLaunchChecks runs the contract's launch checks in their order, the
+// terminal last, and only then sets up the Dex client, so a setup failure
+// never hides a check the contract orders first.
+func runLaunchChecks(
+	line []byte,
+	lookupEnv func(string) (string, bool),
+	checkTerminal func() *launchcontract.LaunchRejection,
+	setUpDex func(launchcontract.LaunchDocument) (dexConnection, *launchcontract.LaunchRejection),
+) (launchcontract.LaunchDocument, dexConnection, *launchcontract.LaunchRejection) {
+	launch, rejection := launchcontract.CheckLaunchLine(line, supportedModes, lookupEnv)
+	if rejection == nil {
+		rejection = checkTerminal()
+	}
+	if rejection != nil {
+		return launchcontract.LaunchDocument{}, dexConnection{}, rejection
+	}
+	connection, rejection := setUpDex(launch)
+	return launch, connection, rejection
 }
 
 // openLauncherChannel takes the inherited socket fd. It sets close-on-exec
@@ -175,13 +200,13 @@ func runChat(
 		Launch:           launch,
 		HomeDirectory:    home,
 		WorkingDirectory: workingDirectory,
-		Debugf:           debugf,
+		Debugf:           debugLog,
 	})
 	feedDone := make(chan struct{})
 	go func() {
 		defer close(feedDone)
 		if runErr := feed.Run(chatContext); runErr != nil && !errors.Is(runErr, context.Canceled) {
-			debugf("session feed: %v", runErr)
+			debugLog("session feed", runErr)
 		}
 	}()
 	environment := os.Environ()
@@ -192,16 +217,17 @@ func runChat(
 		Theme:           theme,
 		SessionCommands: feed.SlashCommands(),
 	})
-	frames := newReadyReporter(screen, func() {
+	output := newFirstFrameWriter(stdout, func() {
 		if sendErr := channel.SendReady(); sendErr != nil {
-			debugf("send ready: %v", sendErr)
+			debugLog("send ready", sendErr)
 		}
-	}, feed)
+	})
+	frames := newReadyReporter(screen, output, feed)
 	program := tea.NewProgram(
 		frames,
 		tea.WithContext(chatContext),
 		tea.WithInput(stdin),
-		tea.WithOutput(stdout),
+		tea.WithOutput(output),
 		tea.WithEnvironment(environment),
 		tea.WithColorProfile(profile),
 		tea.WithoutSignalHandler(),
@@ -214,7 +240,7 @@ func runChat(
 	<-feedDone
 	if summary := screen.ExitSummary(); summary != "" {
 		if _, writeErr := fmt.Fprintln(stdout, summary); writeErr != nil {
-			debugf("print the exit summary: %v", writeErr)
+			debugLog("print the exit summary", writeErr)
 		}
 	}
 	if code := frames.signalExitCode(); code != 0 {
@@ -230,12 +256,10 @@ func runChat(
 }
 
 // newDexClient connects with the launch document's address, TLS, and auth.
-// The blob cache lives in a private temporary directory removed at exit. A
-// credential failure is auth_missing and any other failure invalid_launch.
+// The blob cache lives in a private temporary directory removed at exit.
+// Every failure is dex_setup_failed.
 func newDexClient(launch launchcontract.LaunchDocument) (*dex.Client, *remotesession.RemoteSessionFlow, func(), *launchcontract.LaunchRejection) {
-	invalid := func(message string) *launchcontract.LaunchRejection {
-		return &launchcontract.LaunchRejection{Code: launchcontract.RejectionInvalidLaunch, Message: message, ExitCode: exitCodeInvalid}
-	}
+	invalid := launchcontract.DexSetupFailed
 	flow, err := remotesession.NewRemoteSessionFlow(launch.Session.FlowType)
 	if err != nil {
 		return nil, nil, nil, invalid("The session Flow type is not valid.")
@@ -247,11 +271,7 @@ func newDexClient(launch launchcontract.LaunchDocument) (*dex.Client, *remoteses
 	credential, err := launchCredential(launch.Dex.Auth)
 	if err != nil {
 		variable := launchcontract.RequiredAuthVariable(launch.Dex.Auth)
-		return nil, nil, nil, &launchcontract.LaunchRejection{
-			Code:     launchcontract.RejectionAuthMissing,
-			Message:  fmt.Sprintf("The credential that %s names is not usable for dex.auth mode %s.", variable, launch.Dex.Auth.Mode),
-			ExitCode: exitCodeInvalid,
-		}
+		return nil, nil, nil, invalid(fmt.Sprintf("The credential that %s names is not usable for dex.auth mode %s.", variable, launch.Dex.Auth.Mode))
 	}
 	options := dex.ClientOptions{FlowServiceAddress: launch.Dex.ServerAddress, Credential: credential}
 	if launch.Dex.TLS.IsEnabled {
@@ -273,7 +293,7 @@ func newDexClient(launch launchcontract.LaunchDocument) (*dex.Client, *remoteses
 	}
 	removeCache := func() {
 		if removeErr := os.RemoveAll(cacheDirectory); removeErr != nil {
-			debugf("remove the blob cache: %v", removeErr)
+			debugLog("remove the blob cache", removeErr)
 		}
 	}
 	silentLogger := slog.New(slog.DiscardHandler)
@@ -320,13 +340,11 @@ func (discardWriter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-// silenceStderr points fd 2 at the debug log or /dev/null while the chat owns
-// the terminal, so no library writes over the screen.
+// silenceStderr points fd 2 at /dev/null while the chat owns the terminal, so
+// no library writes over the screen. Library output never reaches the debug
+// log, because it may hold user text.
 func silenceStderr() (func(), error) {
 	target, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if path := debugLogPath(); path != "" {
-		target, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +360,7 @@ func silenceStderr() (func(), error) {
 		restoreErr := unix.Dup2(saved, 2)
 		closeErr := errors.Join(unix.Close(saved), target.Close())
 		if restoreErr != nil || closeErr != nil {
-			debugf("restore stderr: %v", errors.Join(restoreErr, closeErr))
+			debugLog("restore stderr", errors.Join(restoreErr, closeErr))
 		}
 	}, nil
 }
@@ -352,15 +370,14 @@ type sessionRefresher interface {
 	RequestRefresh()
 }
 
-// readyReporter wraps the chat screen. It sends ready once the first frame
-// with a window size is drawn, quits on an external signal, and suspends on
-// the event loop for SIGTSTP.
+// readyReporter wraps the chat screen. It marks the first frame with a
+// window size for the output, which sends ready once that frame is written,
+// quits on an external signal, and suspends on the event loop for SIGTSTP.
 type readyReporter struct {
 	screen    tea.Model
-	onReady   func()
+	output    *firstFrameWriter
 	refresher sessionRefresher
 	hasSize   bool
-	once      sync.Once
 	mutex     sync.Mutex
 	exitCode  int
 }
@@ -369,8 +386,8 @@ type externalSignalMsg struct {
 	exitCode int
 }
 
-func newReadyReporter(screen tea.Model, onReady func(), refresher sessionRefresher) *readyReporter {
-	return &readyReporter{screen: screen, onReady: onReady, refresher: refresher}
+func newReadyReporter(screen tea.Model, output *firstFrameWriter, refresher sessionRefresher) *readyReporter {
+	return &readyReporter{screen: screen, output: output, refresher: refresher}
 }
 
 // Init starts the chat screen.
@@ -399,14 +416,12 @@ func (reporter *readyReporter) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	return reporter, command
 }
 
-// View draws the chat screen and reports ready after the first sized frame.
+// View draws the chat screen. The renderer writes a sized frame after View
+// returns, and that write sends ready.
 func (reporter *readyReporter) View() tea.View {
 	view := reporter.screen.View()
 	if reporter.hasSize {
-		reporter.once.Do(func() {
-			// The renderer writes this frame right after View returns.
-			time.AfterFunc(firstFrameFlushDelay, reporter.onReady)
-		})
+		reporter.output.markFrameRendered()
 	}
 	return view
 }

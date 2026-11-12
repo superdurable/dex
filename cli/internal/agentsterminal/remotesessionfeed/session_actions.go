@@ -79,6 +79,11 @@ func (feed *RemoteSessionFeed) runAction(ctx context.Context, action sessionfeed
 		return feed.executePlan(ctx, typed.Revision)
 	case sessionfeed.RunSlashCommand:
 		return feed.runSlashCommand(ctx, typed)
+	case sessionfeed.MoveSessionStartToBackground:
+		feed.moveSessionStartToBackground()
+		return nil
+	case sessionfeed.SwitchSession:
+		return feed.postInput(ctx, sessionSwitchRequested{sessionID: typed.SessionID})
 	}
 	return fmt.Errorf("remotesessionfeed: unknown action %T", action)
 }
@@ -265,8 +270,6 @@ func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sess
 		feed.attachImage(ctx, command.Argument)
 		return nil
 	case newCommandName:
-		feed.actionMutex.Lock()
-		defer feed.actionMutex.Unlock()
 		return feed.startSession(ctx)
 	case webCommandName:
 		feed.actionMutex.Lock()
@@ -432,20 +435,68 @@ func (feed *RemoteSessionFeed) imagePath(argument string) (string, error) {
 	return filepath.Clean(path), nil
 }
 
-// startSession starts a session through the launcher and switches to it.
+// startSession starts a session through the launcher. While the user waits,
+// the result switches the chat to it; after Esc moved the wait to the
+// background, the screen asks first. No cancel is ever sent for it.
 func (feed *RemoteSessionFeed) startSession(ctx context.Context) error {
 	if !feed.requests.HasMethod(launchcontract.MethodStartSession) {
 		feed.notice(sessionfeed.NoticeSeverityWarning, "/new is not available with this command version.")
 		return nil
 	}
+	if !feed.isStartingSession.CompareAndSwap(false, true) {
+		feed.notice(sessionfeed.NoticeSeverityInfo, "A new session is already starting.")
+		return nil
+	}
 	key, err := launchcontract.NewIdempotencyKey()
 	if err != nil {
+		feed.isStartingSession.Store(false)
 		return err
 	}
-	feed.notice(sessionfeed.NoticeSeverityInfo, "starting a session…")
-	outcome := feed.requests.CallWithRecoveryKey(ctx, launchcontract.MethodStartSession, key, map[string]any{}, func() {
-		feed.notice(sessionfeed.NoticeSeverityInfo, "still starting…")
-	})
+	feed.drainSessionStartBackground()
+	feed.emit(sessionfeed.SessionStartChanged{IsWaiting: true})
+	feed.notice(sessionfeed.NoticeSeverityInfo, "starting a session… Esc keeps it starting in the background")
+	outcomes := make(chan launcherchannel.RequestOutcome, 1)
+	go func() {
+		outcomes <- feed.requests.CallWithRecoveryKey(ctx, launchcontract.MethodStartSession, key, map[string]any{}, func() {
+			feed.notice(sessionfeed.NoticeSeverityInfo, "still starting…")
+		})
+	}()
+	select {
+	case outcome := <-outcomes:
+		feed.emit(sessionfeed.SessionStartChanged{IsWaiting: false})
+		return feed.finishSessionStart(ctx, key, outcome, false)
+	case <-feed.sessionStartBackground:
+		feed.emit(sessionfeed.SessionStartChanged{IsWaiting: false})
+		feed.notice(sessionfeed.NoticeSeverityInfo, "The new session keeps starting; this chat goes on meanwhile.")
+		go func() {
+			if err := feed.finishSessionStart(ctx, key, <-outcomes, true); err != nil {
+				feed.debugf("finish a background session start", err)
+			}
+		}()
+		return nil
+	}
+}
+
+// moveSessionStartToBackground releases a /new that the user waits for.
+func (feed *RemoteSessionFeed) moveSessionStartToBackground() {
+	if !feed.isStartingSession.Load() {
+		return
+	}
+	select {
+	case feed.sessionStartBackground <- struct{}{}:
+	default:
+	}
+}
+
+func (feed *RemoteSessionFeed) drainSessionStartBackground() {
+	select {
+	case <-feed.sessionStartBackground:
+	default:
+	}
+}
+
+func (feed *RemoteSessionFeed) finishSessionStart(ctx context.Context, key string, outcome launcherchannel.RequestOutcome, isInBackground bool) error {
+	defer feed.isStartingSession.Store(false)
 	switch outcome.Kind {
 	case launcherchannel.OutcomeDone:
 		var result struct {
@@ -455,7 +506,11 @@ func (feed *RemoteSessionFeed) startSession(ctx context.Context) error {
 			feed.notice(sessionfeed.NoticeSeverityError, "Could not confirm the new session; check /sessions.")
 			return nil
 		}
-		feed.notice(sessionfeed.NoticeSeverityInfo, "Started session "+result.SessionID+".")
+		if isInBackground {
+			feed.emit(sessionfeed.SessionStartFinished{SessionID: result.SessionID})
+			return nil
+		}
+		feed.notice(sessionfeed.NoticeSeverityInfo, "Started session "+result.SessionID+"; switching to it.")
 		return feed.postInput(ctx, sessionSwitchRequested{sessionID: result.SessionID})
 	case launcherchannel.OutcomeFailed:
 		switch {

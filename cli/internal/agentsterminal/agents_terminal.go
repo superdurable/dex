@@ -29,6 +29,7 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal/chatscreen"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/demosession"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launchcontract"
+	"github.com/superdurable/dex/cli/internal/agentsterminal/remotesessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
 )
 
@@ -44,10 +45,13 @@ func (exitError *ExitError) Error() string {
 }
 
 // Execute runs `dexcli agents-tui` with args. stdin and stdout must be the
-// terminal. dexcliVersion is reported by --describe.
-func Execute(ctx context.Context, args []string, stdin *os.File, stdout *os.File, stderr io.Writer, dexcliVersion string) error {
+// terminal. Bad arguments exit 2 without writing to stderr, which a launcher
+// shares with the terminal. dexcliVersion is reported by --describe.
+func Execute(ctx context.Context, args []string, stdin *os.File, stdout *os.File, _ io.Writer, dexcliVersion string) error {
 	flags := flag.NewFlagSet("dexcli agents-tui", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	// A launcher shares stderr with the terminal it hands over, so parse
+	// errors are dropped: the exit code 2 says enough.
+	flags.SetOutput(io.Discard)
 	isDemo := flags.Bool("demo", false, "play a scripted demo session")
 	isDescribe := flags.Bool("describe", false, "print the supported terminal UI contracts as JSON")
 	channelFD := flags.Int("channel-fd", -1, "the launcher channel's socket fd")
@@ -58,7 +62,7 @@ func Execute(ctx context.Context, args []string, stdin *os.File, stdout *os.File
 		return &ExitError{Code: exitCodeInvalid}
 	}
 	if flags.NArg() != 0 {
-		return fmt.Errorf("agents-tui: unexpected arguments: %v", flags.Args())
+		return &ExitError{Code: exitCodeInvalid}
 	}
 	switch {
 	case *isDescribe:
@@ -102,8 +106,14 @@ func debugLogPath() string {
 
 var debugMutex sync.Mutex
 
-// debugf appends one line to the debug log. Callers pass only types,
-// methods, IDs, and error codes.
+// debugLog appends one line to the debug log: a constant event name and the
+// error's kind. It never writes error text, which may hold user content.
+func debugLog(event string, err error) {
+	debugf("%s: %s", event, remotesessionfeed.ErrorKindForLog(err))
+}
+
+// debugf writes one debug line. Callers pass only constant text, protocol
+// enums, IDs, and error kinds.
 func debugf(format string, arguments ...any) {
 	path := debugLogPath()
 	if path == "" {

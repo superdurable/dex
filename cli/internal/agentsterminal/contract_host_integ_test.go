@@ -38,35 +38,75 @@ var (
 	contractHostStepLimit = "45"
 )
 
-// keystrokes types text once the host recorded afterRecordLines lines.
+// keystrokes types text once the host's record shows afterStep and, when
+// set, the screen shows afterScreen.
 type keystrokes struct {
-	afterStep int
-	text      string
+	afterStep   int
+	text        string
+	afterScreen string
 }
 
 // transcriptKeys are the keys each tui transcript needs: the user actions
 // that make dexcli send its requests, then the exit. imageA and imageB stand
 // for two image files.
 var transcriptKeys = map[string][]keystrokes{
-	"chat_ready_then_exit":                          {{1, "\x04"}},
-	"chat_put_image":                                {{1, "/image {imageA}\r"}, {3, "/image {imageB}\r"}, {5, "\x04"}},
-	"chat_put_image_cancelled_then_recovered":       {{1, "/image {imageA}\r"}, {-1, "\x04"}},
-	"chat_put_image_without_get_request_result":     {{1, "/image {imageA}\r"}, {-1, "\x04"}},
-	"chat_get_request_result_running_then_done":     {{1, "/new\r"}, {-1, "\x04"}},
-	"chat_get_request_result_timed_out_then_resent": {{1, "/new\r"}, {-1, "\x04"}},
-	"chat_start_session_conflict":                   {{1, "/new\r"}, {-1, "\x04"}},
-	"chat_start_session_long_id":                    {{1, "/new\r"}, {-1, "\x04"}},
-	"chat_start_session_unknown_then_resent":        {{1, "/new\r"}, {-1, "\x04"}},
-	"chat_host_stopped":                             {{1, "/image {imageA}\r"}, {2, "/new\r"}, {-1, "x"}},
-	"chat_notices_and_worker_states":                {{-1, "\x04"}},
-	"chat_unknown_message_type_ignored":             {{3, "/connectors\r"}, {-1, "\x04"}},
+	"chat_ready_then_exit":                          {{afterStep: 1, text: "\x04"}},
+	"chat_put_image":                                {{afterStep: 1, text: "/image {imageA}\r"}, {afterStep: 3, text: "/image {imageB}\r"}, {afterStep: 5, text: "\x04"}},
+	"chat_put_image_cancelled_then_recovered":       {{afterStep: 1, text: "/image {imageA}\r"}, {afterStep: -1, text: "\x04"}},
+	"chat_put_image_without_get_request_result":     {{afterStep: 1, text: "/image {imageA}\r"}, {afterStep: -1, text: "\x04"}},
+	"chat_get_request_result_running_then_done":     {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
+	"chat_get_request_result_timed_out_then_resent": {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
+	"chat_start_session_conflict":                   {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
+	"chat_start_session_long_id":                    {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
+	"chat_start_session_unknown_then_resent":        {{afterStep: 1, text: "/new\r"}, {afterStep: -1, text: "\x04"}},
+	"chat_host_stopped":                             {{afterStep: 1, text: "/image {imageA}\r"}, {afterStep: 2, text: "/new\r"}, {afterStep: -1, text: "x"}},
+	"chat_notices_and_worker_states":                {{afterStep: -1, text: "\x04"}},
+	"chat_unknown_message_type_ignored":             {{afterStep: 3, text: "/connectors\r"}, {afterStep: -1, text: "\x04"}},
 	"chat_launcher_closed":                          nil,
 	"launch_auth_missing":                           nil,
 	"launch_contract_unsupported":                   nil,
 	"launch_not_json":                               nil,
 	"launch_too_large":                              nil,
-	"chat_cancel_races_completion":                  {{1, "/image {imageA}\r"}, {-1, "\x04"}},
+	"chat_cancel_races_completion":                  {{afterStep: 1, text: "/image {imageA}\r"}, {afterStep: -1, text: "\x04"}},
 	"chat_terminated":                               nil,
+	"chat_worker_stopped":                           {{afterStep: -1, text: "x"}},
+	// Esc moves /new to the background; the late result asks first.
+	"chat_start_session_background_switch": {
+		{afterStep: 1, text: "/new\r"}, {afterStep: 2, text: "\x1b"}, {afterStep: -1, afterScreen: "Switch to it?", text: "y"},
+		{afterStep: -1, afterScreen: "type a message; it is sent when the session loads", text: "\x04"},
+	},
+	"chat_start_session_background_stay": {
+		{afterStep: 1, text: "/new\r"}, {afterStep: 2, text: "\x1b"}, {afterStep: -1, afterScreen: "Switch to it?", text: "n"},
+		{afterStep: -1, afterScreen: "staying in this session", text: "\x04"},
+	},
+	"launch_terminal_failed_beats_dex_setup": nil,
+	"launch_dex_setup_failed":                nil,
+}
+
+// launchSessionID is the session of every launch document in the transcripts.
+const launchSessionID = "openai-sdk-20261111-142233-a1b2c3"
+
+// transcriptScreenChecks check what the screen showed, after the host passed.
+var transcriptScreenChecks = map[string]func(t *testing.T, screen string){
+	"chat_start_session_background_switch": func(t *testing.T, screen string) {
+		require.NotContains(t, screen, "Session "+launchSessionID+" stays in Dex", "the chat switched to the new session")
+		require.Regexp(t, `Session openai-sdk-\d{8}-\d{6}-[0-9a-f]{12} stays in Dex`, screen)
+	},
+	"chat_start_session_background_stay": func(t *testing.T, screen string) {
+		require.Contains(t, screen, "Session "+launchSessionID+" stays in Dex", "the chat stayed")
+	},
+}
+
+// hostOptions change how the host starts dexcli for a transcript.
+type hostOptions struct {
+	isWithoutTerminal bool
+	extraEnvironment  []string
+}
+
+var transcriptHostOptions = map[string]hostOptions{
+	// stdin is /dev/null, so the terminal check fails before the Dex setup.
+	"launch_terminal_failed_beats_dex_setup": {isWithoutTerminal: true, extraEnvironment: []string{"DEX_CREDENTIAL_FILE=/home/user/missing-token"}},
+	"launch_dex_setup_failed":                {extraEnvironment: []string{"DEX_CREDENTIAL_FILE=/home/user/missing-token"}},
 }
 
 // launcherPauses hold the launcher after a step of the test's copy of a
@@ -82,7 +122,7 @@ var launcherPauses = map[string]struct {
 
 // transcriptsOfLaterModes need the sessions and connectors pickers, which
 // this dexcli does not run yet.
-var transcriptsOfLaterModes = []string{"sessions_resume_result", "connectors_refresh"}
+var transcriptsOfLaterModes = []string{"sessions_resume_result", "connectors_refresh", "connectors_mcp_unavailable"}
 
 // Every transcript a real dexcli can play passes against the contract host
 // as launcher, with dexcli on a pseudo-terminal and keys typed into it.
@@ -92,8 +132,11 @@ func TestTranscriptsAgainstTheContractHost(t *testing.T) {
 	dexcli := buildDexcli(t)
 	paths, err := filepath.Glob(filepath.Join(transcriptsDirectory, "*.json"))
 	require.NoError(t, err)
-	// SIGTERM after ready: the host checks exit 143.
-	paths = append(paths, filepath.Join("testdata", "chat_terminated.json"))
+	// This dexcli's own transcripts: SIGTERM, /new in the background, and
+	// launch check precedence.
+	ownPaths, err := filepath.Glob(filepath.Join("testdata", "*.json"))
+	require.NoError(t, err)
+	paths = append(paths, ownPaths...)
 	for _, path := range paths {
 		var transcript struct {
 			Name      string   `json:"name"`
@@ -174,9 +217,16 @@ func playTranscript(t *testing.T, pythonPath string, dexcli string, data []byte,
 	recordPath := filepath.Join(stateDirectory, "record.jsonl")
 	screenPath := filepath.Join(stateDirectory, "screen.log")
 	racePrefix := filepath.Join(stateDirectory, "race")
-	command := exec.Command(pythonPath, contractHostScript, "launcher",
-		"--transcript", transcriptPath, "--pty", "100x30", "--screen-log", screenPath, "--record", recordPath,
-		"--step-timeout", contractHostStepLimit, "--pty-input-from-stdin", raceEnvironmentArgument(racePrefix), "--", dexcli, "agents-tui")
+	options := transcriptHostOptions[transcript.Name]
+	arguments := []string{contractHostScript, "launcher", "--transcript", transcriptPath, "--record", recordPath,
+		"--step-timeout", contractHostStepLimit, raceEnvironmentArgument(racePrefix)}
+	if !options.isWithoutTerminal {
+		arguments = append(arguments, "--pty", "100x30", "--screen-log", screenPath, "--pty-input-from-stdin")
+	}
+	for _, assignment := range options.extraEnvironment {
+		arguments = append(arguments, "--extra-env="+assignment)
+	}
+	command := exec.Command(pythonPath, append(arguments, "--", dexcli, "agents-tui")...)
 	command.Env = []string{"HOME=" + home, "TERM=xterm-256color", "LANG=en_US.UTF-8", "PATH=" + os.Getenv("PATH"),
 		"DEX_AGENTS_TUI_DEBUG=" + os.Getenv("DEX_AGENTS_TUI_DEBUG")}
 	stdin, err := command.StdinPipe()
@@ -186,13 +236,14 @@ func playTranscript(t *testing.T, pythonPath string, dexcli string, data []byte,
 	require.NoError(t, command.Start())
 	typed := make(chan error, 1)
 	go func() {
-		typed <- typeKeys(stdin, recordPath, transcript.Steps, keys, images)
+		typed <- typeKeys(stdin, recordPath, screenPath, transcript.Steps, keys, images)
 	}()
 	waitErr := command.Wait()
 	if closeErr := stdin.Close(); closeErr != nil && !strings.Contains(closeErr.Error(), "already closed") {
 		t.Logf("close the host stdin: %v", closeErr)
 	}
 	if waitErr != nil {
+		requireNoRaceReports(t, racePrefix)
 		record, _ := os.ReadFile(recordPath)
 		screen, _ := os.ReadFile(screenPath)
 		t.Fatalf("the contract host failed: %v\nstderr: %s\nrecord:\n%s\nscreen (last 3000 bytes):\n%q",
@@ -205,11 +256,14 @@ func playTranscript(t *testing.T, pythonPath string, dexcli string, data []byte,
 	case <-time.After(5 * time.Second):
 		t.Fatal("the keys were not all typed")
 	}
+	if check, hasCheck := transcriptScreenChecks[transcript.Name]; hasCheck {
+		check(t, screenText(screenPath))
+	}
 }
 
 // typeKeys writes each keystroke once the host's record shows the step it
 // follows. Step -1 is the last step.
-func typeKeys(stdin io.Writer, recordPath string, steps []map[string]any, keys []keystrokes, images map[string]string) error {
+func typeKeys(stdin io.Writer, recordPath string, screenPath string, steps []map[string]any, keys []keystrokes, images map[string]string) error {
 	for _, keystroke := range keys {
 		step := keystroke.afterStep
 		if step < 0 {
@@ -224,9 +278,9 @@ func typeKeys(stdin io.Writer, recordPath string, steps []map[string]any, keys [
 			}
 		}
 		deadline := time.Now().Add(2 * time.Minute)
-		for countLines(recordPath) < wantedLines {
+		for countLines(recordPath) < wantedLines || !strings.Contains(screenText(screenPath), keystroke.afterScreen) {
 			if time.Now().After(deadline) {
-				return fmt.Errorf("step %d never happened", step)
+				return fmt.Errorf("step %d or the screen text %q never happened", step, keystroke.afterScreen)
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
@@ -241,6 +295,15 @@ func typeKeys(stdin io.Writer, recordPath string, steps []map[string]any, keys [
 		}
 	}
 	return nil
+}
+
+// screenText returns the PTY output without terminal escape sequences.
+func screenText(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return terminalEscapes.ReplaceAllString(string(data), "")
 }
 
 // raceEnvironmentArgument gives dexcli the race detector's log path prefix.

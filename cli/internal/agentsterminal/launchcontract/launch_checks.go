@@ -33,6 +33,10 @@ const (
 	RejectionAuthMissing = "auth_missing"
 	// RejectionTerminalFailed is a terminal that could not be set up.
 	RejectionTerminalFailed = "terminal_failed"
+	// RejectionDexSetupFailed is a Dex client that could not be set up after
+	// every launch check passed: an unreadable credential or CA file, or an
+	// invalid Flow type or address.
+	RejectionDexSetupFailed = "dex_setup_failed"
 )
 
 // LaunchRejection is a failed launch check: the launch_rejected message and
@@ -125,6 +129,12 @@ func contractUnsupportedMessage(supported SupportedModes, contract any, isIntege
 		return "This dexcli supports " + supportedText + "; the launch document names no integer contract."
 	}
 	return fmt.Sprintf("This dexcli supports %s, not %v.", supportedText, contract)
+}
+
+// DexSetupFailed returns the rejection for a Dex client that could not be
+// set up; message is one sentence without secrets or values.
+func DexSetupFailed(message string) *LaunchRejection {
+	return &LaunchRejection{Code: RejectionDexSetupFailed, Message: message, ExitCode: 1}
 }
 
 // TerminalFailed returns the rejection for a terminal that could not be set up.

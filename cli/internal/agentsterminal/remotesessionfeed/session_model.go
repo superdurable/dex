@@ -306,25 +306,23 @@ func (model *sessionModel) applySnapshot(snapshot dexagents.AgentSnapshot) {
 		model.isLoaded = true
 		model.isFirstApply = true
 		defer func() { model.isFirstApply = false }()
-		for _, message := range snapshot.Messages {
-			if message.TurnID != activeTurnID {
-				model.lastSeenSequence = max(model.lastSeenSequence, message.Sequence)
-				model.finishedTurns[message.TurnID] = true
-				model.lastTurnNumber = max(model.lastTurnNumber, turnNumberOf(message.TurnID, model.lastTurnNumber))
-			}
+		if model.isResumed {
+			// The history page showed the finished turns.
+			model.skipFinishedTurns(snapshot, activeTurnID)
 		}
 	}
-	model.applyNewMessages(snapshot, activeTurnID)
-	if activeTurnID != "" && !model.finishedTurns[activeTurnID] {
-		if model.currentTurnID != "" && model.currentTurnID != activeTurnID {
-			model.finishTurn(model.currentTurnID, snapshot)
+	isSettled := model.applyNewMessages(snapshot, activeTurnID)
+	if isSettled && activeTurnID != "" && !model.finishedTurns[activeTurnID] && !model.startedTurns[activeTurnID] {
+		if model.currentTurnID == "" || model.settleTurn(model.currentTurnID, snapshot) {
+			model.startTurn(activeTurnID, nil)
 		}
-		model.startTurn(activeTurnID, nil)
 	}
-	model.applyToolCalls(snapshot)
+	if model.currentTurnID != "" && model.currentTurnID == activeTurnID {
+		model.applyToolCalls(snapshot)
+	}
 	model.applyInterrupts(snapshot)
 	if model.currentTurnID != "" && model.currentTurnID != activeTurnID {
-		model.endCurrentTurnWhenConfirmed(snapshot)
+		model.settleTurn(model.currentTurnID, snapshot)
 	}
 	model.applyActivity(snapshot)
 	model.applyQueue(snapshot)
@@ -342,23 +340,38 @@ func (model *sessionModel) applySnapshot(snapshot dexagents.AgentSnapshot) {
 	}
 }
 
+// skipFinishedTurns marks the finished turns of a resumed session's first
+// snapshot as shown, because the history page showed them.
+func (model *sessionModel) skipFinishedTurns(snapshot dexagents.AgentSnapshot, activeTurnID string) {
+	for _, message := range snapshot.Messages {
+		if message.TurnID != activeTurnID {
+			model.lastSeenSequence = max(model.lastSeenSequence, message.Sequence)
+			model.finishedTurns[message.TurnID] = true
+			model.lastTurnNumber = max(model.lastTurnNumber, turnNumberOf(message.TurnID, model.lastTurnNumber))
+		}
+	}
+}
+
 // applyNewMessages shows stored messages after the last one shown, turn by
-// turn. A turn that started and ended between two snapshots shows here.
-func (model *sessionModel) applyNewMessages(snapshot dexagents.AgentSnapshot, activeTurnID string) {
+// turn. A turn that started and ended between two snapshots shows here. It
+// stops before the first message of a later turn while the current turn waits
+// for its end event, and reports whether it got through.
+func (model *sessionModel) applyNewMessages(snapshot dexagents.AgentSnapshot, activeTurnID string) bool {
 	messages := append([]dexagents.AgentMessage(nil), snapshot.Messages...)
 	sort.Slice(messages, func(left, right int) bool { return messages[left].Sequence < messages[right].Sequence })
 	for index, message := range messages {
 		if message.Sequence <= model.lastSeenSequence {
 			continue
 		}
-		model.lastSeenSequence = message.Sequence
 		turnID := message.TurnID
 		if model.finishedTurns[turnID] {
+			model.lastSeenSequence = message.Sequence
 			continue
 		}
-		if model.currentTurnID != "" && model.currentTurnID != turnID {
-			model.finishTurn(model.currentTurnID, snapshot)
+		if model.currentTurnID != "" && model.currentTurnID != turnID && !model.settleTurn(model.currentTurnID, snapshot) {
+			return false
 		}
+		model.lastSeenSequence = message.Sequence
 		if !model.startedTurns[turnID] {
 			model.startTurn(turnID, userMessagesOfTurn(messages[index:], turnID, message.Sequence))
 			if message.Role == dexagents.MessageRoleUser {
@@ -370,6 +383,7 @@ func (model *sessionModel) applyNewMessages(snapshot dexagents.AgentSnapshot, ac
 		}
 		model.emitStoredMessage(message, false)
 	}
+	return true
 }
 
 // userMessagesOfTurn returns the user messages that start a turn: the ones
@@ -414,23 +428,29 @@ func (model *sessionModel) startTurn(turnID string, userMessages []dexagents.Age
 	model.emit(held...)
 }
 
-// endCurrentTurnWhenConfirmed finishes the current turn once the snapshot no
-// longer runs it, after its end event or a short wait for it.
-func (model *sessionModel) endCurrentTurnWhenConfirmed(snapshot dexagents.AgentSnapshot) {
-	turnID := model.currentTurnID
+// settleTurn finishes a turn the snapshot no longer runs once its end event
+// arrived, after a short wait for it, at once without live events, or in the
+// first snapshot. It reports whether the turn is finished; until then the
+// next turn waits, so a late end event still decides this turn's outcome.
+func (model *sessionModel) settleTurn(turnID string, snapshot dexagents.AgentSnapshot) bool {
+	if model.finishedTurns[turnID] {
+		return true
+	}
 	_, hasEndEvent := model.endEvents[turnID]
-	if hasEndEvent || !model.isEventsAvailable {
+	if hasEndEvent || !model.isEventsAvailable || model.isFirstApply {
 		model.finishTurn(turnID, snapshot)
-		return
+		return true
 	}
 	deadline, isWaiting := model.turnEndDeadlines[turnID]
 	if !isWaiting {
 		model.turnEndDeadlines[turnID] = model.feed.now().Add(model.feed.timings.TurnEndEventWait)
-		return
+		return false
 	}
-	if !model.feed.now().Before(deadline) {
-		model.finishTurn(turnID, snapshot)
+	if model.feed.now().Before(deadline) {
+		return false
 	}
+	model.finishTurn(turnID, snapshot)
+	return true
 }
 
 func (model *sessionModel) nextTurnEndDeadline(now time.Time) (time.Duration, bool) {
@@ -468,27 +488,33 @@ func (model *sessionModel) finishTurn(turnID string, snapshot dexagents.AgentSna
 }
 
 func (model *sessionModel) turnOutcome(turnID string, snapshot dexagents.AgentSnapshot) (sessionfeed.TurnOutcome, string) {
-	lastError := "unknown reason"
-	if snapshot.State != nil && snapshot.State.LastTurnError != nil {
-		lastError = *snapshot.State.LastTurnError
+	// last_turn_error belongs to the last finished turn, so it speaks for
+	// this turn only when this turn is that one.
+	var lastTurnError *string
+	if snapshot.State != nil && snapshot.State.TurnCount == int64(turnNumberOf(turnID, 0)) {
+		lastTurnError = snapshot.State.LastTurnError
 	}
 	if event, hasEvent := model.endEvents[turnID]; hasEvent {
 		switch event.eventType {
 		case "turn_cancelled":
 			return sessionfeed.TurnOutcomeCancelled, ""
 		case "turn_failed":
-			if event.errorText != "" {
-				lastError = event.errorText
+			reason := event.errorText
+			if reason == "" && lastTurnError != nil {
+				reason = *lastTurnError
 			}
-			return sessionfeed.TurnOutcomeFailed, lastError
+			if reason == "" {
+				reason = "unknown reason"
+			}
+			return sessionfeed.TurnOutcomeFailed, reason
 		}
 		return sessionfeed.TurnOutcomeCompleted, ""
 	}
 	if model.cancelAcceptedTurns[turnID] {
 		return sessionfeed.TurnOutcomeCancelled, ""
 	}
-	if snapshot.State != nil && snapshot.State.LastTurnError != nil && snapshot.State.Status != dexagents.AgentSessionStatusWaitingForUserMessage {
-		return sessionfeed.TurnOutcomeFailed, lastError
+	if lastTurnError != nil {
+		return sessionfeed.TurnOutcomeFailed, *lastTurnError
 	}
 	return sessionfeed.TurnOutcomeCompleted, ""
 }
