@@ -479,8 +479,11 @@ These checks have limits:
   group, so Ctrl-C never reaches it. It times out after 120 seconds by default
   and 600 at most; a timeout kills the whole group and is a result,
   `killed: timed out after N seconds`. When the shell exits, what it left
-  running in its group (`sleep 30 &`) gets SIGTERM, then SIGKILL 0.5 s later,
-  even when the pipes already ended, so every command takes at least 0.5 s.
+  running in its group (`sleep 30 &`) gets SIGTERM, then SIGKILL unless it
+  is gone within 0.5 s, even when the pipes already ended. `pgrep -g` checks
+  the group every 25 ms, leaving out the unreaped shell; a command that left
+  nothing gets no signal and no wait, and when `pgrep` fails the full grace
+  applies.
   The shell is reaped only after that, without a reap in between (`waitid`
   with `WNOWAIT`, or kqueue on macOS before Python 3.13), so its group ID is
   never reused while it is signaled; a cancelled call finishes this cleanup

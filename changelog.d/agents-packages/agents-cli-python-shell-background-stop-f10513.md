@@ -19,6 +19,7 @@ section: Fixed
   reaping the shell, and closing its pipes before the cancellation goes on.
   One thread per call owns the shell, so this cleanup also finishes when the
   event loop closes or the interpreter exits.
-- The shell tool now gives what a command leaves in its group the whole 0.5 s
+- The shell tool now gives what a command leaves in its group up to 0.5 s
   after SIGTERM, even when the command's output already ended, and stops the
-  group even when its output cannot be read.
+  group even when its output cannot be read. A command that leaves nothing
+  behind gets no signal and no wait.

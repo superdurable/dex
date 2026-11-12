@@ -38,6 +38,9 @@ _LEFT_BEHIND_GRACE_SECONDS = 0.5
 _OUTPUT_AFTER_GROUP_SECONDS = 1.0
 _READ_BYTES = 65536
 _POLL_SECONDS = 0.05
+# How often the stop sequence looks for what the shell left in its group.
+_MEMBER_POLL_SECONDS = 0.025
+_PGREP_TIMEOUT_SECONDS = 2.0
 # How long an exiting interpreter waits for each shell it kills.
 _EXIT_CLEANUP_SECONDS = 3.0
 _LOGGER = logging.getLogger(__name__)
@@ -73,8 +76,10 @@ async def run_shell_command(
 
     The command gets its own process group, so the terminal's Ctrl-C never
     reaches it. When the shell exits, the processes it left in its group, such
-    as ``sleep 30 &``, get SIGTERM, then SIGKILL 0.5 s later; only then is the
-    shell reaped. A timeout kills the whole group at once. After the group is
+    as ``sleep 30 &``, get SIGTERM, then SIGKILL unless they are gone within
+    0.5 s (``pgrep -g`` checks every 25 ms; a command that left nothing gets
+    no signal and no wait); only then is the shell reaped. A timeout kills the
+    whole group at once. After the group is
     cleaned, the output may still arrive for 1 s: a process that left the
     group (``setsid``) and still holds the pipes is not stopped and does not
     hold up the result longer.
@@ -224,12 +229,14 @@ class _ShellOwner(threading.Thread):
                 while not self._exited.wait(_POLL_SECONDS):
                     self._read_output(0.0)
             # The shell is a zombie now, so its group ID stays reserved while the group is cleaned.
-            self._groups.signal_group(pid, signal.SIGTERM)
-            # EOF only ends reading: what the shell left gets its whole grace before SIGKILL.
-            sigkill_at = time.monotonic() + _LEFT_BEHIND_GRACE_SECONDS
-            self._read_output_until(sigkill_at)
-            time.sleep(max(0.0, sigkill_at - time.monotonic()))
-            self._groups.signal_group(pid, signal.SIGKILL)
+            if _has_other_group_members(pid):
+                self._groups.signal_group(pid, signal.SIGTERM)
+                # EOF does not end the grace: a member may close its output and ignore SIGTERM.
+                sigkill_at = time.monotonic() + _LEFT_BEHIND_GRACE_SECONDS
+                while time.monotonic() < sigkill_at and _has_other_group_members(pid):
+                    remaining = max(0.0, sigkill_at - time.monotonic())
+                    self._read_output(min(_MEMBER_POLL_SECONDS, remaining))
+                self._groups.signal_group(pid, signal.SIGKILL)
             self._read_output_until(time.monotonic() + _OUTPUT_AFTER_GROUP_SECONDS)
             self._selector.close()
             self._stdout.close()
@@ -253,7 +260,7 @@ class _ShellOwner(threading.Thread):
     def _read_output(self, timeout: float) -> None:
         """Read what the pipes hold within ``timeout``; a failure ends reading, not the stop."""
         if self._stdout.is_ended and self._stderr.is_ended:
-            time.sleep(timeout)
+            time.sleep(max(0.0, timeout))
             return
         try:
             for key, _ in self._selector.select(timeout):
@@ -369,6 +376,27 @@ class _CappedOutput:
         """Return the kept output as text, with a line that says when it was cut."""
         text = b"".join(self._chunks).decode("utf-8", errors="replace")
         return f"{text}\n[cut at {_MAX_OUTPUT_BYTES} bytes]" if self._is_cut else text
+
+
+def _has_other_group_members(pgid: int) -> bool:
+    """Return whether a process other than the group's leader is in it; ``True`` when unknown."""
+    try:
+        completed = subprocess.run(
+            ["pgrep", "-g", str(pgid)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=_PGREP_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    if completed.returncode == 1:
+        # pgrep exits 1 when nothing matches: the group has no process left at all.
+        return False
+    if completed.returncode != 0:
+        return True
+    return any(pid.isdigit() and int(pid) != pgid for pid in completed.stdout.split())
 
 
 def _abandon(process: subprocess.Popen[bytes], groups: ShellProcessGroups) -> None:

@@ -169,7 +169,8 @@ def spawned(monkeypatch: pytest.MonkeyPatch) -> list[subprocess.Popen[bytes]]:
 
     def recording_popen(*arguments: Any, **options: Any) -> subprocess.Popen[bytes]:
         process: subprocess.Popen[bytes] = real_popen(*arguments, **options)
-        processes.append(process)
+        if list(arguments[0])[:2] == ["/bin/sh", "-c"]:
+            processes.append(process)
         return process
 
     # The shell tool looks Popen up on the module at each call.
@@ -387,3 +388,13 @@ def test_a_forked_child_exits_promptly(arguments: list[str]) -> None:
     )
     seconds = float(completed.stdout.split()[3])
     assert seconds < 1.5, completed.stdout
+
+
+async def test_a_command_that_leaves_nothing_behind_is_not_held_up(tmp_path: Path) -> None:
+    groups = RecordingGroups()
+    started = time.monotonic()
+    output = await run_shell_command("echo hi", tmp_path, 60, process_groups=groups)
+    assert time.monotonic() - started < 0.3
+    assert output == "exit code 0\n--- stdout ---\nhi\n\n--- stderr ---\n"
+    # Nothing was left in the group, so nothing was signaled.
+    assert groups.signal_times == []
