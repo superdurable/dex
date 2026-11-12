@@ -78,13 +78,13 @@ export function createClaudeAgentSdkOrderSupportFlow(
     "look_up_order",
     "Look up one order by its order ID and return its items and status.",
     { order_id: z.string() },
-    async ({ order_id }) => ({ content: [{ type: "text", text: orderDesk.describeOrder(order_id) }] }),
+    async ({ order_id }) => ({ content: [{ type: "text", text: await orderDesk.describeOrder(order_id) }] }),
   );
   const cancelOrder = tool(
     "cancel_order",
     "Cancel one order that has not shipped yet.",
     { order_id: z.string(), reason: z.string() },
-    async ({ order_id, reason }) => ({ content: [{ type: "text", text: orderDesk.cancelOrder(order_id, reason) }] }),
+    async ({ order_id, reason }) => ({ content: [{ type: "text", text: await orderDesk.cancelOrder(order_id, reason) }] }),
   );
   return createClaudeAgentSessionFlow(
     {
