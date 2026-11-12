@@ -258,7 +258,7 @@ other two.
 - **A finished Step does not run again.** Dex saves its result together with
   the move to the next Step. This holds for SYNC Steps, the default; an ASYNC
   result lost in a server failover reruns, as
-  [SYNC and ASYNC Steps](#sync-and-async) explains.
+  [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async) explains.
 - **A Step that was cut off can run again.** A crash, a timeout, or a retry
   can repeat a method that already called an external system. So a Step runs
   at least once, not exactly once. The next section says how to make that
@@ -273,7 +273,7 @@ other two.
   Attributes are the exception: Dex reads them again on every attempt. See
   [Short-lived secrets](/concepts/primitives/attribute#hard-delete-attributes).
 - **Parallel writers can overwrite each other.** Two Steps or RPCs that read
-  and then write the same Attribute need a lock on it. See [What Dex saves](#what-dex-saves).
+  and then write the same Attribute need a lock on it. See [What Dex saves](/concepts/step/advanced-guarantees#what-dex-saves).
 
 ### Idempotency keys {#idempotency-keys}
 
@@ -306,7 +306,7 @@ A Step returns `StepOptions` to control how its methods run. `WaitFor` and
 - **Durability** chooses when Dex stores the result. **SYNC**, the default,
   stores it before the next work starts. **ASYNC** is faster, but a server
   failure can make the method run again. See
-  [SYNC and ASYNC Steps](#sync-and-async).
+  [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async).
 - **Heartbeat** lets a long method report progress and save a checkpoint.
 - **State loading** and **Attribute locks** choose which state the method
   loads and which Attributes it locks.
@@ -326,123 +326,24 @@ for every SDK:
 | Durability | SYNC |
 | Failure policy | Fail the Flow |
 
-[Timeouts and total duration](/reference/go/step-options#timeouts-and-total-duration)
+[Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration)
 in the SDK reference explains how these limits interact.
 
 ## Advanced guarantees {#advanced-guarantees}
 
-These sections cover what you need once Steps run in parallel, take a long time,
-or use ASYNC durability.
+[Advanced Step Guarantees](/concepts/step/advanced-guarantees) covers what Dex
+saves for each method, failure and redelivery, SYNC and ASYNC Steps, and
+cancellation, completion, and order.
 
-### What Dex saves {#what-dex-saves}
-
-In short: a method's writes are saved together, but they are not isolated from
-other Steps and RPCs.
-
-Dex saves each `WaitFor` or `Execute` call on its own. It saves the call's
-Attribute writes and Channel publications together with its result, and only
-when the method succeeds. Calls to external systems are not part of this save.
-
-A Step method's changes take effect all at once. They are not protected from
-other Steps and RPCs, though. A method reads the Flow state as it was when Dex
-handed the method to a Worker. Other Steps and RPCs can change that state
-before the method's changes take effect. Dex does not check that the values
-the method read are still current. So two Steps or RPCs that read and then
-write the same Attribute can overwrite each other's update. To prevent this,
-have both declare a lock on that Attribute. Dex then runs them one at a time.
-See [Attribute locks](/concepts/primitives/attribute#locking).
-
+<a id="what-dex-saves"></a>
 <a id="failure-and-redelivery"></a>
+<a id="failure-and-redelivery-summary"></a>
 <a id="heartbeats-not-acknowledged"></a>
 <a id="same-attempt-redelivery"></a>
 <a id="unknown-outcome"></a>
 <a id="design-for-redelivery"></a>
-
-### Failure and redelivery {#failure-and-redelivery-summary}
-
-In short: when Dex cannot tell whether a method finished, it runs the method
-again or tells you the outcome is unknown.
-
-These cases repeat a method or leave its outcome unknown. They hold for every
-SDK:
-
-- **A Worker stops in the middle of a method.** The attempt fails, and the
-  retry policy runs the method again. Its external calls may already have
-  happened. A server restart or failover does the same to every attempt that
-  a Worker had.
-- **Heartbeats are not acknowledged.** A heartbeat checkpoint can be lost, so a
-  rerun can start from an older checkpoint.
-- **A canceled method keeps running.** Dex does not stop its code. Its
-  external calls still take effect.
-- **An ASYNC Step can repeat an attempt.** See
-  [SYNC and ASYNC Steps](#sync-and-async).
-- **Retries can run out without an answer.** The recovery Step then learns
-  that the work certainly did not run (`NOT_STARTED`) or that it may have
-  run (`NOT_COMPLETED`). On `NOT_COMPLETED`, check the target system by
-  the idempotency key before you repeat or report the effect.
-
-Failure and redelivery in the SDK reference gives the exact rules for each
-case: [Python](/reference/python/failure-and-retries#failure-and-redelivery) ·
-[Go](/reference/go/failure-and-retries#failure-and-redelivery) ·
-[Java](/reference/java/failure-and-retries#failure-and-redelivery) ·
-[TypeScript](/reference/typescript/failure-and-retries#failure-and-redelivery) ·
-[Rust](/reference/rust/failure-and-retries#failure-and-redelivery).
-
-### SYNC and ASYNC Steps {#sync-and-async}
-
-A Step's **durability** chooses when Dex stores its progress.
-
-- **SYNC** is the default. A SYNC Step waits for two log commits: the attempt
-  start, before the Worker receives the task, and the result, before the Flow
-  moves on. Each commit is one write to object storage. Dex groups the
-  commands that are ready at the same moment into one commit, so a commit can
-  carry the work of many Flows.
-- **ASYNC** hands the task to the Worker, and starts the next work, before the
-  start and the result are stored. Dex batches these writes over about 20
-  milliseconds, so a single Flow runs faster. If a Dex Server node fails before
-  the write, Dex runs the same attempt again on a new state snapshot, so it
-  can read different Attribute values.
-- **A lost ASYNC result reruns later work only up to the first SYNC Step.** Dex
-  writes a Flow's commands to its log in order. Once a SYNC Step's start is
-  stored, every earlier command of that Flow is stored too, so a SYNC Step that
-  a Worker has received does not run again because of a lost ASYNC result.
-
-Choose **SYNC** for effects that need the tightest guarantees. Choose
-**ASYNC** for short Steps where latency matters and a rare rerun is
-acceptable. Good ASYNC candidates are fast reads, internal bookkeeping, and
-calls that a key already makes safe to repeat. Keep **SYNC** for a payment,
-an email, or any call whose rerun on a newer snapshot could send different
-arguments. A `StepOptions` setting picks the durability of one Step, and
-`FlowConfig` sets it for a whole Flow.
-[Performance](/intro/performance) gives measured
-latency for both.
-
-### Cancellation, completion, and order {#cancellation-completion-order}
-
-Canceling a Step discards everything its current method has not saved: its
-Attribute writes, its Channel publications, and its decision. What its
-`WaitFor` already saved stays. A decision or an RPC never cancels the Steps that it
-starts itself. [Channel guarantees](/concepts/primitives/channel#guarantees)
-say what happens to the messages a canceled Step consumed.
-
-Dex does not stop a canceled method's code. The method should check for
-cancellation and return. Until it does, its code keeps running. Its calls to external
-systems still take effect, even after the Flow has closed.
-
-`GracefulComplete` ends its own branch and asks Dex to complete the Flow. Dex
-begins to complete the Flow as soon as no Step is active. Until then, other
-Steps and RPCs can still start new Steps, and those Steps delay completion too.
-A later branch that ends with `DeadEnd` does not withdraw the request. After
-the last Step ends, the Flow can stay `RUNNING` briefly while Dex finishes
-pending Attribute Sync writes and transactional RPCs that already started.
-
-Without a pending `GracefulComplete`, a Flow with no active Step keeps
-running. An RPC can still start new Steps in it. End the last branch with a
-completing decision. If a Flow must not wait forever, set a Flow timeout.
-
-Dex starts ready Steps roughly in the order they became ready, but not
-strictly. Do not rely on the order in which parallel Steps start or finish.
-Use a Channel or an Attribute lock when the order matters.
+<a id="sync-and-async"></a>
+<a id="cancellation-completion-order"></a>
 
 ## Reference
 

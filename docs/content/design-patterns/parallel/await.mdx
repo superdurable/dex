@@ -337,6 +337,6 @@ The join Step can also wait for the first branch or for n branches. It can cance
 
 When the other branches keep running instead, their results arrive later. In a loop, the next round's split Step resets the previous round first: its `WaitFor` waits for the remaining results of that round, and its `Execute` can read them. Then it forks the next round. Without a reset, late results stay pending until the Flow closes. The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns#wcp-30) links runnable examples of both shapes.
 
-## Related
+## Next
 
 - [Parallel Steps](/design-patterns/parallel)

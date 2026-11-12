@@ -1,0 +1,52 @@
+---
+title: Choose How to Run Dex
+sidebar_label: Choose How to Run Dex
+slug: /components/choose-how-to-run
+description: Dex Cloud runs Dex Server for you; self-hosting runs it on your own infrastructure. Either way, your Workers run your code wherever you deploy them.
+---
+
+# Choose How to Run Dex
+
+Dex Server runs in one of two places: in Dex Cloud, where Super Durable runs it
+for you, or on your own infrastructure. Your Workers run your Flow code in both
+cases, on your servers, your cloud, or your laptop. For development, `dexcli
+dev` runs a local server on your machine.
+
+| | Dex Cloud | Self-hosted |
+| --- | --- | --- |
+| Who runs Dex Server | Super Durable, with its storage, upgrades, capacity, and monitoring | You, with object storage you provide |
+| Where Workers run | Anywhere you deploy them | Anywhere you deploy them |
+| How Workers connect | Over TLS, with the server's API key | Through the authentication and TLS you configure |
+| What you set up | A server in Dex Cloud, which gets its own endpoint and API key | The [smallest real deployment](/components/production#smallest-deployment): a server node, object storage, authentication, and TLS |
+| Get started | [Sign up for Dex Cloud](https://dex.superdurable.io/register) | [Run Dex in Production](/components/production) |
+
+## Dex Cloud {#dex-cloud}
+
+Super Durable runs Dex Server for your application. Each server you create in
+Dex Cloud has its own endpoint and API key. Your Workers and Clients connect to
+that endpoint over TLS with the key, and your code and credentials stay with
+you.
+
+To connect a Worker or a Client, pass the endpoint and the key:
+
+- The key goes in an [API key credential](/reference/server/authentication#sdk-credentials).
+- TLS is the SDK's [TLS option](/reference/server/authentication#tls).
+
+[Sign up for Dex Cloud](https://dex.superdurable.io/register), then create a
+server.
+
+## Self-hosted {#self-hosted}
+
+You run **dex-server-zd** next to your Workers. It keeps every Flow in object
+storage, such as Amazon S3, and a hot standby can take over when the active
+node stops. You configure authentication, TLS, retention, and monitoring
+yourself. [Run Dex in Production](/components/production) lists each item.
+
+The [Sustainable Use License](/intro/limits#license) lets you run Dex for your
+own business.
+
+## Next
+
+- [Quick Start](/quick-start) runs a Flow against a local server.
+- [Your Application](/components/application) sets up the Worker and Client that connect to either server.
+- [Run Dex in Production](/components/production) covers a self-hosted deployment.

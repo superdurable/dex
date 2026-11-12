@@ -67,6 +67,6 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 这个证明覆盖没有故障的运行。[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)把它扩展到崩溃、恢复、重试和消息重投。在那个页面列出的条件下，从有故障的运行中去掉重复的外部副作用，剩下的就是一次无故障的运行。两个证明合起来表明：这门语言中格式良好的程序在 Dex 上运行时，产生的是一次无故障运行的事件，只是外部副作用可能重复。
 
-## 相关证据 {#related-evidence}
+## 下一步
 
 [Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns)按 43 个 workflow 模式为 Dex 评级，每个评级都配有可运行的示例和针对真实 server 的测试。这些模式在真实 server 上测试常见情形；证明则覆盖这门语言的每个程序。

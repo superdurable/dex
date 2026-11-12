@@ -31,80 +31,35 @@ Quick Start in [Python](/quick-start?sdk=python) [Go](/quick-start?sdk=go) [Type
   <DocsSection section="concepts" to="/concepts" title="Concepts">
     Flow, Step, and the six primitives.
   </DocsSection>
-  <DocsSection section="components" icon="plug" to="/intro/add-to-existing-code" title="Add Dex to your app">
+  <DocsSection section="product-examples" to="/use-cases" title="Examples">
+    Complete processes: an AI agent, orders, subscriptions, and money transfer.
+  </DocsSection>
+  <DocsSection section="components" icon="cloud" to="/components/choose-how-to-run" title="Choose how to run Dex">
+    Dex Cloud runs the server for you, or you run it on your own infrastructure.
+  </DocsSection>
+</div>
+
+## What do you want to do?
+
+<div className="docs-home-sections">
+  <DocsSection section="intro" icon="plug" to="/intro/add-to-existing-code" title="Add Dex to existing code">
     Turn a function, job, or queue consumer you already have into a Flow.
   </DocsSection>
-  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Build with AI">
-    Install the Dex Skills so a coding agent writes correct Dex code.
-  </DocsSection>
-</div>
-
-## What are you building?
-
-<div className="docs-home-sections">
-  <DocsSection section="intro" icon="wrench" to="/get-started#fix-a-process" title="Make existing code survive crashes">
-    Why Dex, the Quick Start, then Add Dex to Existing Code.
-  </DocsSection>
-  <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks" title="Durable agents">
+  <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/quick-start" title="Build a durable agent">
     Keep your agent framework. Each tool call runs in its own Step, and approvals can wait for days.
   </DocsSection>
-  <DocsSection section="product-examples" to="/use-cases" title="Business processes">
-    Orders, subscriptions, user onboarding, and money transfer.
+  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Let a coding agent write it">
+    Install the Dex Skills so your coding agent writes correct Dex code.
   </DocsSection>
-  <DocsSection section="design-patterns" to="/design-patterns" title="Design patterns">
-    Reusable Flow shapes for parallel work, timers, failures, and messages.
-  </DocsSection>
-</div>
-
-## Evaluating Dex?
-
-<div className="docs-home-sections">
-  <DocsSection section="intro" icon="compare" to="/intro/compared-to-durable-execution" title="Compared to existing durable execution">
-    How Dex differs from replay-based engines, and when another tool fits better.
-  </DocsSection>
-  <DocsSection section="intro" icon="scale" to="/intro/compared-to-database" title="Compared to a database">
-    The same order process on a database and queues, then as a Flow.
-  </DocsSection>
-  <DocsSection section="intro" icon="warning" to="/intro/limits" title="Limits">
-    Capacity, requests that can repeat, release status, and the license.
-  </DocsSection>
-  <DocsSection section="intro" icon="gauge" to="/intro/performance" title="Performance">
-    Measured throughput and latency, and what it costs to run.
-  </DocsSection>
-  <DocsSection section="components" to="/components/your-database" title="Dex and Your Database">
-    How a Step writes to the database you already have, and when to copy Flow data to PostgreSQL.
+  <DocsSection section="intro" icon="scale" to="/evaluate" title="Evaluate Dex">
+    How Dex compares with what you run today, its limits, and its measured numbers.
   </DocsSection>
 </div>
 
-## Run Dex
+<div className="docs-home-links">
 
-<div className="docs-home-sections">
-  <DocsSection section="components" icon="server" to="/components/production" title="Run Dex in Production">
-    The smallest real deployment: one server node, an optional standby, and object storage.
-  </DocsSection>
-  <DocsSection section="components" icon="refresh" to="/concepts/failover-and-deploys" title="Failover and Deploys">
-    What happens when the server or a Worker stops, and how to deploy new code.
-  </DocsSection>
-  <DocsSection section="components" icon="monitor" to="/components/web" title="Dex Web">
-    See Flow runs and act on them.
-  </DocsSection>
-  <DocsSection section="components" to="/components" title="Components">
-    Your application, Dex Server, dexcli, and Dex Web, and how they run together.
-  </DocsSection>
+**Run Dex:** [Run Locally](/components/run-locally) · [Your Application](/components/application) · [Run Dex in Production](/components/production) · [Failover and Deploys](/concepts/failover-and-deploys) · [Change Flow Code](/concepts/change-flow-code) · [Dex and Your Database](/components/your-database) · [Dex Web](/components/web)
+
+**Reference:** [Developer Reference](/reference) · [Design Patterns](/design-patterns) · [Correctness and Expressiveness](/correctness-and-expressiveness) · [Glossary](/glossary)
+
 </div>
-
-## Reference
-
-<div className="docs-home-sections">
-  <DocsSection section="reference" to="/reference" title="Developer Reference">
-    Versioned details for every SDK, the server, the CLI, Web, and the agents package.
-  </DocsSection>
-  <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
-    A machine-checked proof of what a crash can and cannot change, and what Dex can express.
-  </DocsSection>
-  <DocsSection section="glossary" to="/glossary" title="Glossary">
-    Every Dex term in one place.
-  </DocsSection>
-</div>
-
-To bring your own code over, [Add Dex to Existing Code](/intro/add-to-existing-code) splits a function, job, or queue consumer into Steps. To run an agent first, use the [Agent Quick Start](/agent-frameworks/quick-start). [Get Started](/get-started) lists every path.

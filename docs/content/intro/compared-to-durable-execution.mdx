@@ -1,6 +1,6 @@
 ---
 title: Compared to Existing Durable Execution
-sidebar_label: Compared to Durable Execution
+sidebar_label: Dex vs. Other Engines
 slug: /intro/compared-to-durable-execution
 description: How Dex relates to replay-based workflow engines, journal-based durable function runtimes, database-backed workflow libraries, step function services, and agent framework checkpoints, and when another tool fits better.
 ---
@@ -270,7 +270,7 @@ Temporal and Cadence are the best-known examples. A workflow function runs on a 
 - Temporal drops a repeated signal that carries the same request ID, on a best-effort basis. Dex does not yet drop a repeated Channel publish, so a publish sent again after a lost response can deliver the message twice. See [Limits](/intro/limits#requests-that-can-repeat).
 - A server failover fails and reruns every in-flight Step attempt, even if its Worker kept running. See [Failover and Deploys](/concepts/failover-and-deploys).
 - A Client starts a Flow with the Flow's definition registered in its own language. A service in another language calls FlowService `StartFlow` over gRPC. See [Application](/components/application#blob-cache).
-- Each Step method chooses [SYNC or ASYNC](/concepts/step#sync-and-async) durability.
+- Each Step method chooses [SYNC or ASYNC](/concepts/step/advanced-guarantees#sync-and-async) durability.
 - The Dex server is one binary on object storage, with one active node and standbys. Temporal runs several services on a database such as Cassandra, MySQL, or PostgreSQL.
 
 ## Journal-based durable function runtimes
@@ -365,20 +365,21 @@ These integrations record each model call, and each tool call they wrap, as a un
 - A single-attempt tool that a crash cut off records `outcome_unknown`. Dex does not run it again, and the model sees that outcome. [Tool Calls](/agent-frameworks/tool-calls) gives the rules and their one exception.
 - The effect class also sets whether a call waits for approval by default. The approval wait holds no Worker, for minutes or for days. [Approvals](/agent-frameworks/approvals) explains the wait.
 - One Dex adapter model covers several frameworks, and the session Flow is the same for each of them.
-- What Dex lacks: a hosted service, and a 1.0 server. You run Dex Server yourself, and it is at version 0.1. The engines above have a longer production record.
+- What Dex lacks: a 1.0 server and a long production record. Dex Server is at version 0.1, and the engines above have run in production for longer. Dex Server runs in [Dex Cloud](/components/choose-how-to-run#dex-cloud) or on your own infrastructure.
 
 ## When another tool is the better fit
 
 - **You want to write the process as one straight-line function.** A replay-based engine, a journal-based runtime, or a database-backed library lets you do that. Dex asks you to model the process as Steps and decisions.
-- **You need a 1.0 server or a managed cloud service today.** The Dex server is at version 0.1. Several other tools offer a hosted service and a longer production record.
+- **You need a 1.0 server today.** Dex Server is at version 0.1. Several other tools have a longer production record.
 - **Your process is one short function in one service, and you already run PostgreSQL.** A database-backed library adds no new server.
 - **Your team already runs another engine at scale.** A move costs more than the difference on this page, unless replay or versioning errors are a real problem for you.
 - **You need one writer per key without thinking about locks.** A virtual object or a single-threaded workflow gives that by default. In Dex you declare Attribute locks.
 - **You need more than one node's capacity in one cluster.** One active Dex Server node serves a cluster. Past it, you run separate clusters. See [Grow past one node](/intro/limits#grow-past-one-node).
 - **You need an OSI open source license.** Dex is source-available under the Sustainable Use License, which limits hosting or reselling Dex as a platform. Temporal and DBOS are MIT licensed. See [License](/intro/limits#license).
 
-## Related
+## Next
 
+- [Performance](/intro/performance): measured throughput, latency, and cost.
 - [Compared to Database](/intro/compared-to-database): the same order process built on a database and queues.
 - [Step guarantees](/concepts/step#guarantees): what Dex promises when a Step fails or runs again.
 - [Correctness and expressiveness](/correctness-and-expressiveness): the proofs and their assumptions.

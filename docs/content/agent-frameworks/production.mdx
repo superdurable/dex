@@ -11,7 +11,7 @@ Agent sessions run on the same Dex Server as every other Flow. Check each item b
 
 | Item | What to know | Details |
 | --- | --- | --- |
-| Dex Server | You run Dex Server yourself, with object storage. One active node serves a cluster. | [Run Dex in Production](/components/production) |
+| Dex Server | Dex Server runs in Dex Cloud or on your own infrastructure with object storage. One active node serves a cluster. | [Choose How to Run Dex](/components/choose-how-to-run), [Run Dex in Production](/components/production) |
 | Authentication | Public API authentication is off by default. Turn it on before the server is reachable from other machines. | [Authentication](/reference/server/authentication) |
 | Retention | A closed session stays readable for 7 days by default, then the server may delete it. Keep transcripts you need longer in your own store. | [Retention](/reference/server/configuration#retention) |
 | Session size | A session ends when its active state reaches the state limit, 64 MiB by default. Message retention, and compaction where the harness supports it, keep it below that. | [Session limits](/reference/agents/session-limits) |
@@ -254,7 +254,7 @@ function countCopies(snapshot: AgentSnapshot, text: string): number {
 [Limits](/intro/limits#requests-that-can-repeat)
 lists the other requests that can repeat.
 
-## Related {#related}
+## Next
 
 - [Limits](/intro/limits): the defaults and known gaps of Dex as a whole.
 - [Sessions](/agent-frameworks/sessions#latency-and-cost): what each Step adds to a turn.

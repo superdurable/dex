@@ -49,8 +49,11 @@ only when a section genuinely doesn't apply.
   including reference, lives in the docs; a README keeps developer notes and
   links to the docs. Link an example's folder, not its README. Clicking a sidebar
   group header opens that group's overview page, which is not listed again
-  under it; items keep their own titles, never "Overview".
-  `npm run lint:structure` enforces both.
+  under it; items keep their own titles, never "Overview". A page's closing
+  list of links is one last section named Next (下一步 in Chinese); following
+  the first Next link gives a linear reading order. The home page and Get
+  Started link straight to the one page that does each job, with no ordered
+  reading lists. `npm run lint:structure` enforces these rules.
 - Every docs change must preserve all four search-index integrity gates:
   routes and internal links resolve without accidental 404s; only declared
   legacy URLs redirect; each indexable page has one unique, self-referencing

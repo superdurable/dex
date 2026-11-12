@@ -55,7 +55,7 @@ const localeCopies = {
       messages: count => (count === '1' ? ' (1 message)' : ` (${count} messages)`),
     },
     summary: 'Dex is a Durable Execution platform. Each entry links to the Markdown export of a documentation page.',
-    languageNote: 'Pages with code have per-language Markdown: replace .md with .go.md, .java.md, .typescript.md, or .rust.md.',
+    languageNote: 'Pages with code have per-language Markdown. The .md file shows Python where a page has Python code; replace .md with .go.md, .java.md, .typescript.md, or .rust.md for another language. llms-full.txt holds every page below in one file.',
     codeLanguage: label => `Code on this page is in ${label}. Other languages: `,
     languageSeparator: ' · ',
     missingLanguage: label => `This part has no ${label} version; see the `,
@@ -91,7 +91,7 @@ const localeCopies = {
       messages: count => `（${count} 条消息）`,
     },
     summary: 'Dex 是 Durable Execution 平台。每个条目链接到一个文档页面的 Markdown 版本。',
-    languageNote: '含代码的页面有按语言划分的 Markdown：把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。',
+    languageNote: '含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，.md 文件显示 Python；换成其他语言时，把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。llms-full.txt 把下面所有页面合成一个文件。',
     codeLanguage: label => `本页代码为 ${label}。其他语言：`,
     languageSeparator: ' · ',
     missingLanguage: label => `这部分没有 ${label} 版本；见 `,
@@ -122,7 +122,7 @@ export function localeCopy(locale) {
 
 export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, siteConfig, i18n, routesPaths}) {
   const versions = [];
-  for (const instance of Object.values(allContent['docusaurus-plugin-content-docs'] ?? {})) {
+  for (const [pluginId, instance] of Object.entries(allContent['docusaurus-plugin-content-docs'] ?? {})) {
     for (const version of instance.loadedVersions) {
       const sourceRoutes = new Map();
       for (const page of version.docs) {
@@ -133,7 +133,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
           sourceRoutes.set(resolve(root, sourceRelative), page.permalink);
         }
       }
-      versions.push({version, pages: version.docs.map(metadata => ({...metadata, sourceRoutes}))});
+      versions.push({version, pluginId, pages: version.docs.map(metadata => ({...metadata, sourceRoutes}))});
     }
   }
   const pages = versions.flatMap(item => item.pages);
@@ -145,6 +145,7 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
     .map(item => `/${item}/`);
   const hostData = JSON.parse(await readFile(join(siteDir, 'src/data/dex-skill-hosts.json'), 'utf8'));
   const entries = new Map();
+  const fullTexts = new Map();
   const writtenPaths = new Set();
   const movedPages = new Set();
   const exported = [];
@@ -164,20 +165,22 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
     collectImports(tree, context);
     tree.children = await transformChildren(tree.children, context);
     const leadText = firstParagraphText(tree);
+    // The Markdown front matter matches the HTML meta description; llms.txt gets a whole-sentence summary.
     const description = singleLine(page.description);
+    const summary = pageDescription(page, tree);
     const frontMatter = {title: page.title,
       ...(description ? {description} : {}),
       canonical_url: context.canonicalUrl,
       source: relative(resolve(siteDir, '..'), sourcePath).split('\\').join('/'),
       locale};
     const pathname = markdownPath(page.permalink, baseUrl);
-    exported.push({page, tree, leadText, description, frontMatter, pathname, languages: sdkLanguages(tree.children)});
+    exported.push({page, tree, leadText, description, summary, frontMatter, pathname, languages: sdkLanguages(tree.children)});
   }
   // Pages with code in several SDKs: the default file shows the first language, and each other
   // language gets its own file. Links in a language file keep the reader's language where they can.
   const languageFiles = new Map(exported.filter(item => item.languages.length > 1)
     .map(item => [new URL(item.pathname, siteConfig.url).href, item]));
-  for (const {page, tree, leadText, description, frontMatter, pathname, languages} of exported) {
+  for (const {page, tree, leadText, summary, frontMatter, pathname, languages} of exported) {
     const multi = languages.length > 1;
     const outputs = [{path: pathname, language: languages[0]},
       ...(multi ? languages.slice(1).map(language => ({path: languageMarkdownPath(pathname, language), language})) : [])];
@@ -200,28 +203,49 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
       if (writtenPaths.has(output.path)) throw new Error(`Duplicate Markdown output: ${output.path}`);
       writtenPaths.add(output.path);
       await writeOutput(outDir, baseUrl, output.path, markdown);
+      if (output.path === pathname) fullTexts.set(page, writer.stringify({...tree, children}));
     }
     if (movedNoticePattern.test(leadText)) movedPages.add(page);
-    entries.set(page, `- [${escapeLabel(page.title)}](${new URL(pathname, siteConfig.url).href})${description ? `: ${description}` : ''}`);
+    entries.set(page, `- [${escapeLabel(page.title)}](${new URL(pathname, siteConfig.url).href})${summary ? `: ${summary}` : ''}`);
   }
   // Archived versions keep Markdown twins but stay out of llms.txt, like the sitemap.
   const sections = llmsSections(versions.filter(item => item.version.isLast), copy, movedPages);
   const index = [`# ${siteConfig.title}`, `> ${copy.summary}`, copy.languageNote,
     ...sections.map(section => `## ${section.title}\n\n${section.pages.map(page => entries.get(page)).join('\n')}`)];
   await writeOutput(outDir, baseUrl, `${baseUrl}llms.txt`, `${index.join('\n\n')}\n`);
+  // llms-full.txt: every listed page's default Markdown, in llms.txt order.
+  const full = [];
+  for (const section of sections) {
+    for (const page of section.pages) {
+      const body = fullTexts.get(page);
+      if (!body) continue;
+      const url = new URL(markdownPath(page.permalink, baseUrl), siteConfig.url).href;
+      const titled = /^#\s/m.test(body.split('\n').find(line => line.trim()) ?? '') ? body : `# ${page.title}\n\n${body}`;
+      full.push(`<!-- ${url} -->\n\n${titled.trim()}`);
+    }
+  }
+  await writeOutput(outDir, baseUrl, `${baseUrl}llms-full.txt`,
+    `# ${siteConfig.title}\n\n> ${copy.summary}\n\n---\n\n${full.join('\n\n---\n\n')}\n`);
   console.log(`[markdown-export] Exported ${pages.length} pages (${locale}) from ${versions.length} docs version(s).`);
 }
 
 function llmsSections(versions, copy, movedPages = new Set()) {
   const sections = [];
   const listed = new Set();
-  for (const {version, pages} of versions) {
+  for (const {version, pages, pluginId} of versions) {
     const pagesById = new Map(pages.map(page => [page.id, page]));
     for (const sidebar of Object.values(version.sidebars ?? {})) {
+      // In a reference instance, groups such as Step repeat in every SDK, so they carry the instance's name.
+      let instanceTitle;
+      const sectionTitle = label => (pluginId !== 'default' && instanceTitle ? `${instanceTitle}: ${label}` : label);
       // Consecutive top-level pages share one section, titled by the first of them.
       let pageRun = [];
       const flushPageRun = () => {
-        if (pageRun.length) sections.push({title: pageRun[0].title, pages: pageRun});
+        if (pageRun.length) {
+          const title = sectionTitle(pageRun[0].title);
+          instanceTitle ??= pageRun[0].title;
+          sections.push({title, pages: pageRun});
+        }
         pageRun = [];
       };
       for (const item of sidebar) {
@@ -231,7 +255,7 @@ function llmsSections(versions, copy, movedPages = new Set()) {
         sectionPages.forEach(page => listed.add(page));
         if (item.type === 'category') {
           flushPageRun();
-          sections.push({title: item.label, pages: sectionPages});
+          sections.push({title: sectionTitle(item.label), pages: sectionPages});
         } else {
           pageRun.push(...sectionPages);
         }
@@ -241,7 +265,22 @@ function llmsSections(versions, copy, movedPages = new Set()) {
   }
   // A page that only says where its content moved helps no reader of llms.txt.
   const unlisted = versions.flatMap(item => item.pages).filter(page => !listed.has(page) && !movedPages.has(page));
-  if (unlisted.length) sections.push({title: copy.otherPages, pages: unlisted});
+  // A page outside the sidebar joins the section of the listed page whose URL is its closest parent.
+  const rest = [];
+  for (const page of unlisted) {
+    let best;
+    for (const section of sections) {
+      for (const listedPage of section.pages) {
+        const parent = listedPage.permalink.replace(/\/?$/, '/');
+        // The docs home is every page's parent, so it adopts nothing.
+        if (parent.split('/').filter(Boolean).every(segment => /^[a-z]{2}(-[A-Za-z]+)?$/.test(segment))) continue;
+        if (page.permalink.startsWith(parent) && (!best || parent.length > best.length)) best = {section, length: parent.length};
+      }
+    }
+    if (best) best.section.pages.push(page);
+    else rest.push(page);
+  }
+  if (rest.length) sections.push({title: copy.otherPages, pages: rest});
   return sections;
 }
 
@@ -967,6 +1006,29 @@ function writeText(node, parent, state, info) {
 function isWithin(directory, file) { const path = relative(directory, file); return path !== '..' && !path.startsWith('../'); }
 function routeKey(pathname) { return pathname.replace(/\/+$/, '') || '/'; }
 const movedNoticePattern = /^(This page moved|本页已经?移)/;
+
+// The page's description wins when it is a whole sentence. Otherwise the first paragraph that says more than where to read a concept,
+// whole, so a description never stops at a source line break.
+function pageDescription(page, tree) {
+  const pointer = /^(For the .+ concept, read .+\.|.+ 的概念见 .+。)$/;
+  // Docusaurus derives a missing description from the first source line, which can stop mid-sentence.
+  const derived = singleLine(page.description);
+  if (derived && /[.!?。！？)`]$/.test(derived) && !pointer.test(derived)) return derived;
+  for (const node of tree.children) {
+    if (node.type !== 'paragraph') continue;
+    const value = singleLine(mdastToString(node));
+    if (!value || pointer.test(value)) continue;
+    const sentences = value.match(/[^.!?。！？]+[.!?。！？]+/g);
+    if (!sentences) return value.slice(0, 240);
+    let result = '';
+    for (const sentence of sentences) {
+      if (result && (result + sentence).length > 240) break;
+      result += sentence;
+    }
+    return result.trim();
+  }
+  return singleLine(page.description);
+}
 
 function firstParagraphText(tree) {
   const lead = tree.children.find(node => node.type === 'paragraph');

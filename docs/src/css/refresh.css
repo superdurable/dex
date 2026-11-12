@@ -144,6 +144,14 @@ html[data-theme='dark'] {
   font-weight: 650;
 }
 
+/* A group header whose overview page is open: the same highlight as a current page, plus an edge mark. */
+.theme-doc-sidebar-menu .menu__list-item-collapsible--active > .menu__link[aria-current='page'],
+.theme-doc-sidebar-menu > .theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible--active > .menu__link[aria-current='page'] {
+  background: color-mix(in srgb, var(--section-accent, var(--sd-accent)) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--section-accent, var(--sd-accent));
+  color: var(--section-accent, var(--sd-accent));
+}
+
 .theme-doc-sidebar-menu .menu__caret::before,
 .theme-doc-sidebar-menu .menu__link--sublist-caret::after {
   background-size: 1.1rem;
@@ -551,6 +559,25 @@ html[data-theme='dark'] {
   border-color: var(--sd-accent);
   color: var(--sd-accent);
   text-decoration: none;
+}
+
+/* Compact link rows under the home page's card groups. */
+.docs-home-links {
+  margin: 2rem 0 1rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
+}
+
+.docs-home-links p {
+  margin: 0 0 0.75rem;
+  color: var(--docs-subtle);
+  font-size: 0.92rem;
+  line-height: 1.8;
+}
+
+.docs-home-links strong {
+  color: var(--docs-heading);
+  margin-right: 0.25rem;
 }
 
 .docs-section-entry__meta {

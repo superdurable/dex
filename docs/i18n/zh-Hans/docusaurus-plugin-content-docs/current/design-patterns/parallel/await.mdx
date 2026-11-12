@@ -338,6 +338,6 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 
 如果其余分支不取消、继续运行，它们的结果会晚到。在循环中，下一轮的拆分 Step 先复位上一轮：它的 `WaitFor` 等待上一轮剩下的结果，它的 `Execute` 可以读取这些结果。然后它 fork 下一轮。如果不复位，晚到的结果会一直待处理，直到 Flow 关闭。[Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns#wcp-30)链接了这两种写法的可运行示例。
 
-## 相关内容
+## 下一步
 
 - [并行 Step](/design-patterns/parallel)

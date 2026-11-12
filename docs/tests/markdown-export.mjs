@@ -261,7 +261,7 @@ try {
 
   assert.match(await readFile(join(outDir, 'reference/go/1.32.md'), 'utf8'), /# Earlier version/);
   const index = await readFile(join(outDir, 'llms.txt'), 'utf8');
-  assert.match(index, /\n含代码的页面有按语言划分的 Markdown：把 \.md 换成 \.go\.md、\.java\.md、\.typescript\.md 或 \.rust\.md。\n/);
+  assert.match(index, /\n含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，\.md 文件显示 Python；换成其他语言时，把 \.md 换成 \.go\.md、\.java\.md、\.typescript\.md 或 \.rust\.md。llms-full\.txt 把下面所有页面合成一个文件。\n/);
   assert.match(index, /^# Fixture\n\n> Dex 是 Durable Execution 平台。/);
   // Archived versions keep their Markdown twin but stay out of llms.txt.
   assert.equal((index.match(/^-/gm) ?? []).length, 3);
@@ -271,6 +271,12 @@ try {
   assert.ok(index.indexOf('## 参考\n\n- [Translated]') < index.indexOf('## Home\n\n- [Home]'), 'llms.txt must follow sidebar order');
   assert.match(index, /## 其他页面\n\n- \[Go reference\].*1.33.md\): The Go reference meta description./);
   assert.doesNotMatch(index, /Ignored front matter description/);
+  // llms-full.txt holds each llms.txt page's default Markdown, in the same order, after its URL.
+  const full = await readFile(join(outDir, 'llms-full.txt'), 'utf8');
+  assert.match(full, /^# Fixture\n\n> Dex 是 Durable Execution 平台。/);
+  assert.ok(full.indexOf('<!-- https://docs.example.test/zh-Hans/translated.md -->') < full.indexOf('<!-- https://docs.example.test/zh-Hans/index.md -->'),
+    'llms-full.txt must follow llms.txt order');
+  assert.doesNotMatch(full, /<!-- [^>]*1\.32\.md -->/, 'archived versions stay out of llms-full.txt');
 
   const english = {...options, baseUrl: '/', outDir: join(siteDir, 'build'), routesPaths: ['/', '/translated/'],
     i18n: {currentLocale: 'en', defaultLocale: 'en', locales: ['en', 'zh-Hans']},

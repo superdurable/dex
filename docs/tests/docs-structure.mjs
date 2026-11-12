@@ -11,6 +11,8 @@
 //    READMEs keep developer notes and link to the docs.
 // 2. Every sidebar group header opens the group's overview page. That page is not listed again
 //    under the header, and no item is labeled Overview.
+// 3. A page's closing list of links is one section named Next (下一步 in Chinese), and it comes last.
+// 4. The home page and Get Started link straight to the page that does each job: no ordered reading lists.
 
 import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
@@ -64,6 +66,53 @@ for (const root of contentRoots) {
   }
 }
 
+// Section names that used to close pages. They are all Next now.
+const oldClosingNames = /^## (Related|Related pages|Related evidence|Next steps|Where to go next|What's next|See also|接下来|相关|相关页面|相关内容|相关证据)( \{#[^}]+\})?\s*$/;
+const nextHeading = /^## (Next|下一步)( \{#[^}]+\})?\s*$/;
+for (const root of contentRoots.filter((item) => item !== 'reference')) {
+  for (const file of mdxFiles(join(docsRoot, root))) {
+    const rel = relative(docsRoot, file);
+    const headings = [];
+    let fence;
+    readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+      const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        if (!fence) fence = fenceMatch[1][0];
+        else if (fenceMatch[1][0] === fence) fence = undefined;
+        return;
+      }
+      if (fence || !line.startsWith('## ')) return;
+      headings.push({line, number: index + 1});
+      if (oldClosingNames.test(line)) {
+        failures.push(`${rel}:${index + 1}: "${line.slice(3)}" closes a page. Name the closing section Next (下一步 in Chinese).`);
+      }
+    });
+    const next = headings.findIndex(({line}) => nextHeading.test(line));
+    if (next !== -1 && next !== headings.length - 1) {
+      failures.push(`${rel}:${headings[next].number}: the Next section must be the page's last section.`);
+    }
+  }
+}
+
+// Ordered lists whose items start with a link are reading lists.
+const routerPages = ['index.mdx', 'intro/get-started.mdx'];
+for (const root of contentRoots.filter((item) => item !== 'reference')) {
+  for (const page of routerPages) {
+    const file = join(docsRoot, root, page);
+    let source;
+    try {
+      source = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    source.split('\n').forEach((line, index) => {
+      if (/^\s*\d+\.\s+\[/.test(line)) {
+        failures.push(`${relative(docsRoot, file)}:${index + 1}: an ordered list of links. Link the one page that does the job; let its Next section give the order.`);
+      }
+    });
+  }
+}
+
 const {default: sidebars} = await import(new URL('../sidebars.ts', import.meta.url));
 
 function docId(item) {
@@ -94,4 +143,4 @@ if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Docs structure check passed: no README links, and every sidebar group header opens its overview.');
+console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, and the home page and Get Started have no reading lists.');

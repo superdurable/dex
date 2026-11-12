@@ -61,7 +61,7 @@ when the file changes, so a rotated token needs no restart:
 | Rust | **credential(...)** on the **ClientOptions** and **WorkerOptions** builders | **FileCredential::new(path)** |
 
 Each SDK also has an **ApiKeyCredential**, which exchanges an API key for a
-short-lived token at a token endpoint you run. The endpoint takes an HTTPS
+short-lived token at a token endpoint. The endpoint takes an HTTPS
 **POST** with a JSON body of **server_id** and **api_key**, and answers 200
 with a JSON body of **access_token**, **token_type** set to **Bearer**, and
 **expires_in** in seconds.

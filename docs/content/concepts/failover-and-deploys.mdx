@@ -60,7 +60,7 @@ work. A long Step does not have to start over. Send a heartbeat with a checkpoin
 value as the work progresses, such as the last batch it finished. The next
 attempt receives the latest stored checkpoint and resumes from it. A checkpoint
 can be lost, so the work after it must be safe to repeat. See
-[Heartbeat](/reference/go/step-options#heartbeat) in the SDK reference.
+[Heartbeat](/reference/python/step-options#heartbeat) in the SDK reference (the same section exists in every SDK).
 
 A graceful step down releases the lease, so a standby takes over at once.
 
@@ -103,7 +103,7 @@ publish to its Channel or skip its Timer, or start a new Flow.
 
 If a node fails before it saves an ASYNC Step's start or result, that Step
 runs again on a new state snapshot, and so does later work up to the first SYNC
-Step. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains why the
+Step. [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async) explains why the
 repeat stops there.
 
 ## You run Time Travel
@@ -112,7 +112,7 @@ Time Travel moves a Flow run back to an earlier point and runs it again from
 there. Every Step after that point runs again, with its external calls. See
 [Recover a Flow with Time Travel](/concepts/change-flow-code#time-travel).
 
-## Related
+## Next
 
 - [Step guarantees](/concepts/step#guarantees)
 - [Limits](/intro/limits)

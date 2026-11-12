@@ -6,6 +6,8 @@ title: AI Agent
 
 An AI agent talks with a user, calls tools, and acts on other systems. A real agent session can last for hours or days. It waits for the user, for a person to approve a write, or for a deadline. Dex runs each session as a durable Flow, so the session survives crashes, deploys, and long waits.
 
+**SDKs:** Python · TypeScript
+
 ## What Dex adds to an agent
 
 - **The conversation is durable.** Dex stores every message in Attributes. A Worker restart loses nothing.
@@ -40,7 +42,7 @@ The AI Agent example is a general, long-running agent in Python and TypeScript. 
 
 [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop) walks through its code and shows how to run it. The code is under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent) and [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent).
 
-## Related
+## Next
 
 - [Agent Frameworks](/agent-frameworks)
 - [Agents reference](/reference/agents/)

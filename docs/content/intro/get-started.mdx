@@ -2,64 +2,33 @@
 title: Get Started
 sidebar_label: Get Started
 slug: /get-started
-description: Pick a starting point by goal. Each path says what you have at the end.
+description: Install dexcli, run the Quick Start, then pick what you want to do next.
 ---
 
 # Get Started
 
-Pick a path by your goal. Each card says what you have at the end.
+Dex runs your process as a Flow of Steps and continues it from the last
+finished Step after a crash, a restart, or a long wait.
 
-:::info What you run
+## Run the Quick Start
 
-You run Dex Server yourself, next to your own Workers. It stores every Flow in object storage, such as Amazon S3 or an S3-compatible store, and can have a standby that takes over if it stops. Dex has no hosted service. Dex is in Beta, and Dex Server is at version 0.1. [Smallest real deployment](/components/production#smallest-deployment) lists what to set up, and [Performance](/intro/performance) gives the numbers, and [Limits](/intro/limits#release-status) gives the release status.
+Install `dexcli` and start Dex on your machine:
 
-:::
+```bash
+brew install superdurable/tap/dexcli
+dexcli dev
+```
 
-## Choose a path by goal
+Then follow the [Quick Start](/quick-start). It runs a Flow, stops its Worker
+in the middle, and shows Dex continue the Flow. [Run Locally](/components/run-locally)
+shows how to install `dexcli` without Homebrew.
 
-<div className="docs-home-sections">
-  <DocsSection section="intro" icon="wrench" to="#fix-a-process" title="Make existing code survive crashes">
-    Why Dex, the Quick Start, then Add Dex to Existing Code. You end with a run you stopped and restarted, and a checklist for your own code.
-  </DocsSection>
-  <DocsSection section="intro" icon="rocket" to="/quick-start" title="See Dex work">
-    The Quick Start. A Flow survives a stopped Worker without charging twice, on your machine.
-  </DocsSection>
-  <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/quick-start" title="Make an agent durable">
-    The Agent Quick Start. An agent session in your framework waits for approval through a Worker restart.
-  </DocsSection>
-  <DocsSection section="components" icon="plug" to="/components/application" title="Add Dex to a service">
-    Your Application. The Worker and Client setup, and the rules for Flows in a real service.
-  </DocsSection>
-  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Let a coding agent write the code">
-    Build with AI. Dex Skills in your coding agent, so it writes correct Dex code.
-  </DocsSection>
-  <DocsSection section="concepts" to="/concepts" title="Learn the model first">
-    Concepts. Flow, Step, the six primitives, and the guarantees Dex gives.
-  </DocsSection>
-  <DocsSection section="intro" icon="scale" to="#evaluate-dex" title="Decide whether Dex fits">
-    How Dex compares with what you run today, its measured numbers, and its license.
-  </DocsSection>
-</div>
+## What do you want to do?
 
-## Evaluate Dex {#evaluate-dex}
+- <a id="fix-a-process"></a>[Add Dex to existing code](/intro/add-to-existing-code): turn a function, job, or queue consumer you already have into a Flow.
+- <a id="durable-agent"></a>[Build a durable agent](/agent-frameworks/quick-start): run an agent in your framework so its tool calls and approvals survive a restart.
+- <a id="coding-agent"></a>[Let a coding agent write it](/build-with-ai/dex-developer-skill): install the Dex Skills so your coding agent writes correct Dex code.
+- <a id="evaluate-dex"></a>[Evaluate Dex](/evaluate): how Dex compares with what you run today, its limits, and its measured numbers.
 
-1. [Why Dex?](/intro/what-is-dex) walks through one order process.
-2. [Compared to Database](/intro/compared-to-database) builds that process on a database and queues, then as a Flow.
-3. [Compared to Existing Durable Execution](/intro/compared-to-durable-execution) maps other tools' terms onto Dex and says when another tool fits better.
-4. [Performance](/intro/performance) gives measured throughput, latency, and cost.
-5. [Limits](/intro/limits) lists what Dex does not do yet, the release status, and the license.
-
-## Make existing code survive crashes {#fix-a-process}
-
-### First visit
-
-1. [Why Dex?](/intro/what-is-dex) shows a charge that succeeds and a ship call that never runs.
-2. [Quick Start](/quick-start) runs a small version and stops its Worker in the middle.
-3. [Add Dex to Existing Code](/intro/add-to-existing-code) splits your own function, job, or queue consumer into Steps and ends with a checklist.
-
-### Before you move your code
-
-4. [Compared to Database](/intro/compared-to-database) builds the same process with status columns and queues, then as a Flow.
-5. [Order Processing](/use-cases/order-processing) has the full process with approval, reminders, and a refund.
-6. [Limits](/intro/limits) lists what to know before production.
-7. [Run Dex in Production](/components/production) lists what you run: one Dex Server node, an optional standby, and object storage.
+Dex Server runs in Dex Cloud or on your own infrastructure.
+[Choose How to Run Dex](/components/choose-how-to-run) compares the two.

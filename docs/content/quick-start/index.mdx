@@ -481,7 +481,7 @@ Both programs build the same Flow and register it in a `Registry`, the list of F
 
 :::note Details
 
-Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains the other choice.
+Both Steps are SYNC, the default: Dex stores each result before the Flow moves on. [SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async) explains the other choice.
 
 The Client uses the registered Flow to name its type and encode the input, so its copy of the mock API is never called. In your own API service, pass stand-ins the same way; see [Start Flows from an API service](/concepts/client#start-from-an-api-service). The SDK Clients have no call that starts a Flow by its type name alone; **dexcli flow start -flow-type** does that from a terminal. Each program also opens a local [blob cache](/components/application#blob-cache), which keeps copies of large values.
 
@@ -988,6 +988,7 @@ installing anything else.
 
 ## Next
 
+- [Add Dex to Existing Code](/intro/add-to-existing-code): turn your own function, job, or queue consumer into a Flow.
 - [Concepts](/concepts): Flows, Steps, waits, and the other building blocks.
 - [A minimal service](/components/application#minimal-service): the same Flow started from an HTTP handler, with the Worker in the same process.
 - [Order Processing](/use-cases/order-processing): a full product example with approvals, retries, and a refund.

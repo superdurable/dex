@@ -38,7 +38,7 @@ When Dex reports that something happened, such as a started Flow or a SYNC
 Step result, Dex has already written it to object storage.
 An ASYNC Step is the exception: Dex moves the Flow on first and writes the
 result in a batch about 20 milliseconds later. See
-[SYNC and ASYNC Steps](/concepts/step#sync-and-async).
+[SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async).
 
 One active process serves a cluster. It holds a lease in object storage, so a
 second process cannot write at the same time. You can run standby processes

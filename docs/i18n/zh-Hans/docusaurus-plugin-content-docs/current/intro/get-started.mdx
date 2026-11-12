@@ -2,53 +2,29 @@
 title: 开始使用
 sidebar_label: Get Started
 slug: /get-started
-description: 按目标选一个起点。每条路径都写明最后你会得到什么。
+description: 安装 dexcli，运行 Quick Start，然后选择接下来要做的事。
 ---
 
 # 开始使用
 
-按你的目标选一条路径。每张卡片写明最后你会得到什么。
+Dex 把你的流程作为一组 Step 组成的 Flow 来运行。崩溃、重启或长时间等待之后，它从最后完成的 Step 继续。
 
-## 按目标选路径
+## 运行 Quick Start
 
-<div className="docs-home-sections">
-  <DocsSection section="intro" icon="wrench" to="#fix-a-process" title="让现有代码在崩溃后继续">
-    最后你会得到一次停掉又重启过的运行、完整的订单示例，以及一份改写你自己代码的检查清单。
-  </DocsSection>
-  <DocsSection section="intro" icon="rocket" to="/quick-start" title="看 Dex 跑起来">
-    Quick Start。在你的机器上，一个 Flow 在 Worker 停掉后继续完成，并且没有重复扣款。
-  </DocsSection>
-  <DocsSection section="agent-frameworks" icon="bot" to="/agent-frameworks/quick-start" title="让 agent 变得 durable">
-    Agent Quick Start。用你的框架写的 agent session，在 Worker 重启期间一直等待审批。
-  </DocsSection>
-  <DocsSection section="components" icon="plug" to="/components/application" title="把 Dex 加进一个服务">
-    Application（Worker 和 Client）。Worker 和 Client 的配置，以及在真实服务里使用 Flow 的规则。
-  </DocsSection>
-  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="让 coding agent 写代码">
-    Dex Skills。装进 coding agent 后，它能写出正确的 Dex 代码。
-  </DocsSection>
-  <DocsSection section="concepts" to="/concepts" title="先理解模型">
-    概念。Flow、Step、六个 Primitive，以及 Dex 给出的保证。
-  </DocsSection>
-  <DocsSection section="intro" icon="scale" to="#evaluate-dex" title="判断 Dex 是否合适">
-    Dex 和你现在用的方案对比如何，它的实测数据，以及它的许可证。
-  </DocsSection>
-</div>
+安装 `dexcli`，在本机启动 Dex：
 
-## 评估 Dex {#evaluate-dex}
+```bash
+brew install superdurable/tap/dexcli
+dexcli dev
+```
 
-1. [为什么是 Dex？](/intro/what-is-dex) 用一个订单流程从头讲到尾。
-2. [与数据库对比](/intro/compared-to-database) 先用数据库和队列构建这个流程，再写成 Flow。
-3. [Compared to Existing Durable Execution](/intro/compared-to-durable-execution)（英文）把其他工具的术语对应到 Dex，并说明什么时候别的工具更合适。
-4. [Performance](/intro/performance)（英文）给出实测的吞吐、延迟和成本。
-5. [Limits](/intro/limits)（英文）列出 Dex 目前还不做什么、发布状态和许可证。
+然后按照 [Quick Start](/quick-start) 操作。它运行一个 Flow，在中途停掉 Worker，然后看 Dex 让 Flow 继续。[本地运行](/components/run-locally) 介绍不用 Homebrew 的安装方式。
 
-## 让现有代码在崩溃后继续 {#fix-a-process}
+## 你想做什么？
 
-1. [为什么是 Dex？](/intro/what-is-dex) 展示扣款成功、发货却一直没有执行的情况。
-2. [与数据库对比](/intro/compared-to-database) 先用状态列和队列构建这个流程，再写成 Flow。
-3. [Quick Start](/quick-start)（英文）运行一个小版本，并在中途停掉它的 Worker。
-4. [Order Processing](/use-cases/order-processing) 是带审批、提醒和退款的完整流程。
-5. [Add Dex to Existing Code](/intro/add-to-existing-code)（英文）把你自己的函数、任务或队列消费者拆成 Step，最后给出一份检查清单。
-6. [Limits](/intro/limits)（英文）列出上生产前要了解的事情。
-7. [Run Dex in Production](/components/production)（英文）列出你要运行的东西：一个 Dex Server 节点、一个可选的备用节点，以及对象存储。
+- <a id="fix-a-process"></a>[将 Dex 加入现有代码](/intro/add-to-existing-code)：把你已有的函数、任务或队列消费者改写成 Flow。
+- <a id="durable-agent"></a>[构建 durable agent](/agent-frameworks/quick-start)：用你的框架运行 agent，让它的工具调用和审批在重启后继续。
+- <a id="coding-agent"></a>[让 coding agent 来写](/build-with-ai/dex-developer-skill)：安装 Dex Skills，让 coding agent 写出正确的 Dex 代码。
+- <a id="evaluate-dex"></a>[评估 Dex](/evaluate)：Dex 和你现在用的方案对比如何，它的限制，以及实测数据。
+
+Dex Server 可以运行在 Dex Cloud，也可以运行在你自己的基础设施上。[选择 Dex 的运行方式](/components/choose-how-to-run)对比了两者。

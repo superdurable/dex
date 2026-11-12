@@ -16,7 +16,7 @@ After a crash or a restart, the process continues from the last recorded Step. I
 
 A Step that was cut off in the middle can run again, so each call to another system passes an idempotency key: a value that lets that system recognize a repeat and skip it. [Idempotency keys](/concepts/step#idempotency-keys) shows how to build one.
 
-You run Dex Server yourself, next to your Workers; [Smallest real deployment](/components/production#smallest-deployment) says what that takes.
+Dex Server runs in Dex Cloud or on your own infrastructure, and your Workers run next to your code. [Choose How to Run Dex](/components/choose-how-to-run) compares the two.
 
 ## The problem
 
@@ -69,8 +69,9 @@ Your application contains a **Worker** and a **Client**, both built with the Dex
 
 Dex does not replay your code, so a code change cannot break a running Flow with a replay error. [Compared to Existing Durable Execution](/intro/compared-to-durable-execution) has the details.
 
-## Next steps
+## Next
 
+- [Compared to Database](/intro/compared-to-database): the same process on a database and queues, then as a Flow.
 - [Quick Start](/quick-start): run your first Flow.
 - [Order Processing](/use-cases/order-processing): run this Flow on your machine.
 - [Concepts](/concepts): Step, Attribute, Channel, Timer, RPC, and the Client APIs.

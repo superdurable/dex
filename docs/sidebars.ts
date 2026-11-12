@@ -61,6 +61,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'concepts/flow/index',
         'concepts/step/index',
+        'concepts/step/advanced-guarantees',
         {
           type: 'category',
           label: 'Primitives',
@@ -76,8 +77,6 @@ const sidebars: SidebarsConfig = {
         },
         'concepts/client',
         'concepts/connector',
-        'concepts/failover-and-deploys',
-        'concepts/change-flow-code',
       ],
     },
     {
@@ -194,12 +193,15 @@ const sidebars: SidebarsConfig = {
       customProps: {section: 'components'},
       link: {type: 'doc', id: 'components/index'},
       items: [
+        'components/choose-how-to-run',
         'components/run-locally',
         'components/application',
         'components/testing',
         'components/your-database',
         'components/server',
         'components/production',
+        'concepts/failover-and-deploys',
+        'concepts/change-flow-code',
         'components/cli',
         'components/web',
       ],
