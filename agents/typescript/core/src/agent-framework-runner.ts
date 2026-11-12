@@ -132,7 +132,11 @@ export interface AgentEventWriter {
    */
   writeToolCallStarted(toolCallId: string, toolName: string): void;
   /**
-   * Writes a `tool_call_finished` event.
+   * Writes a `tool_call_finished` event. The session writes it when a call's record becomes final. A runner
+   * writes it for a tool its framework cannot defer, and for a call whose tool Step returned
+   * {@link ToolExecutionResult.isFinishedByResumedTurn}, once the resumed turn runs that call.
+   *
+   * Changed in 0.6.0: a runner also writes it for a call that the resumed turn runs.
    * @param toolCallId - Framework tool call ID.
    * @param toolName - Tool name.
    * @param status - `succeeded` or `failed` for a call the runner ran itself, or the final status the
@@ -545,6 +549,18 @@ export interface ToolExecutionResult {
    * @since 0.5.0
    */
   readonly runnerToolState?: string;
+  /**
+   * Whether the tool really runs later, inside the resumed `runModelStep`, so this Step only records its approval.
+   * Set it for a tool that runs inside the framework, such as a Claude Code tool, whose Step returns a placeholder
+   * output. The session still records `succeeded` and resumes the turn, and the Step still writes
+   * `tool_call_started`. It writes no `tool_call_finished`: the runner writes that event when the resumed turn runs
+   * the call, with `failed` when the run fails. The runner must write it for every such call that the resumed turn
+   * reaches, including one whose run never reports a result. A turn that ends before it resumes, for example by
+   * `cancelTurn`, leaves the call without a `tool_call_finished`; its turn-ending event ends it. Omit it, or pass
+   * `false`, to let the Step write the event.
+   * @since 0.6.0
+   */
+  readonly isFinishedByResumedTurn?: boolean;
 }
 
 /**

@@ -44,11 +44,13 @@ class ModelApiResponse:
         status: The HTTP status.
         body: The JSON body, for a non-streaming answer.
         events: ``(event name or None, JSON data)`` pairs, for a streaming answer.
+        stream_end: Raw ``data:`` text sent after the events, such as ``[DONE]``.
     """
 
     status: int = 200
     body: Mapping[str, Any] | None = None
     events: Iterable[tuple[str | None, Mapping[str, Any]]] | None = None
+    stream_end: str | None = None
 
 
 class ModelApiStub(ABC):
@@ -72,8 +74,8 @@ class ModelApiStub(ABC):
         """Return the requests that asked the model for a reply."""
         return [request for request in self.requests if self.is_model_request(request)]
 
-    def start(self) -> None:
-        """Serve on a free port in a background thread."""
+    def start(self, port: int = 0) -> None:
+        """Serve on ``port``, or a free port for 0, in a background thread."""
         stub = self
 
         class StubRequestHandler(BaseHTTPRequestHandler):
@@ -109,6 +111,9 @@ class ModelApiStub(ABC):
                         prefix = f"event: {event_name}\n" if event_name else ""
                         self.wfile.write(f"{prefix}data: {json.dumps(data)}\n\n".encode())
                         self.wfile.flush()
+                    if response.stream_end is not None:
+                        self.wfile.write(f"data: {response.stream_end}\n\n".encode())
+                        self.wfile.flush()
                     self.close_connection = True
                     return
                 payload = json.dumps(response.body or {}).encode()
@@ -118,7 +123,7 @@ class ModelApiStub(ABC):
                 self.end_headers()
                 self.wfile.write(payload)
 
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), StubRequestHandler)
+        self._server = ThreadingHTTPServer(("127.0.0.1", port), StubRequestHandler)
         self._server.daemon_threads = True
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()

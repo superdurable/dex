@@ -416,7 +416,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     };
   }
 
-  /** The SDK renames a function tool for the model, so two source names may meet one graph name. */
+  /** The model sees `_` for a source name's other characters, so two source names may meet one graph name. */
   private mapSourceToolNamesToFunctionToolNames(sourceToolNames: readonly string[]): ReadonlyMap<string, string> {
     const functionToolNames = new Map<string, string>();
     const sourceToolNamesByFunctionToolName = new Map<string, string>();

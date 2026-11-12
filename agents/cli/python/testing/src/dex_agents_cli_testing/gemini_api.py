@@ -21,6 +21,7 @@ from typing import Any
 
 from dex_agents_cli_testing.model_api import ModelApiRequest, ModelApiResponse, ModelApiStub
 from dex_agents_cli_testing.scripted_model import (
+    ReplySource,
     ScriptedConversation,
     ScriptedReply,
     ScriptedToolResult,
@@ -32,6 +33,11 @@ _USAGE = {"promptTokenCount": 10, "candidatesTokenCount": 5, "totalTokenCount": 
 
 class GeminiApiStub(ModelApiStub):
     """Serve the scripted model as the Gemini API."""
+
+    def __init__(self, reply_source: ReplySource = scripted_reply) -> None:
+        """Create the stub; ``reply_source`` picks each reply."""
+        super().__init__()
+        self._reply_source = reply_source
 
     def is_model_request(self, request: ModelApiRequest) -> bool:
         """Report whether a request generates content."""
@@ -47,7 +53,7 @@ class GeminiApiStub(ModelApiStub):
         path = request.path.split("?", 1)[0]
         model = path.rsplit("/", 1)[-1].split(":", 1)[0]
         response = _response_object(
-            model, scripted_reply(read_gemini_conversation(model, request.body))
+            model, self._reply_source(read_gemini_conversation(model, request.body))
         )
         if path.endswith(":streamGenerateContent"):
             return ModelApiResponse(events=[(None, response)])
@@ -94,6 +100,9 @@ def read_gemini_conversation(model: str, body: Mapping[str, Any]) -> ScriptedCon
         prompts=prompts,
         tool_results=results,
         tool_names=tool_names,
+        reply_count=sum(
+            1 for content in contents[last_prompt_index + 1 :] if content.get("role") == "model"
+        ),
     )
 
 

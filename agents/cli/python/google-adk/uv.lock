@@ -489,6 +489,7 @@ dependencies = [
     { name = "pexpect" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "ruamel-yaml" },
 ]
 
 [package.metadata]
@@ -499,6 +500,7 @@ requires-dist = [
     { name = "pexpect", specifier = ">=4.9,<5" },
     { name = "pytest", specifier = ">=8.3,<9" },
     { name = "pytest-asyncio", specifier = ">=0.26,<2" },
+    { name = "ruamel-yaml", specifier = ">=0.18,<0.19" },
 ]
 
 [package.metadata.requires-dev]
