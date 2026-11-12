@@ -26,7 +26,7 @@ import signal
 import subprocess
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,7 @@ STOP_GRACE_SECONDS = 2.0
 _PS_TIMEOUT_SECONDS = 5.0
 _POLL_SECONDS = 0.05
 _LOGGER = logging.getLogger(__name__)
+_ABSENT = object()
 
 
 @dataclass(frozen=True)
@@ -122,18 +123,42 @@ class ToolProcessGroupRegistry:
             self._groups[pid] = identity
             self._write_record_locked()
 
-    def unregister(self, pid: int) -> None:
-        """Unregister a tool's child right after reaping it."""
+    def signal_group(self, pid: int, signal_number: int) -> bool:
+        """Signal a registered group; ``False`` when its leader was already released.
+
+        The check and the signal happen under the lock that ``release`` holds
+        while it reaps, so a reaped leader's reused pid is never signaled.
+        """
         with self._lock:
-            if pid in self._groups:
-                del self._groups[pid]
+            return pid in self._groups and _signal_group(pid, signal_number)
+
+    def release(self, pid: int, reap: Callable[[], object]) -> None:
+        """Reap a tool's child with ``reap`` and unregister it, both under the lock."""
+        with self._lock:
+            reap()
+            if self._groups.pop(pid, _ABSENT) is not _ABSENT:
                 self._write_record_locked()
 
     def stop_all(self, grace_seconds: float = STOP_GRACE_SECONDS) -> None:
-        """Send SIGTERM to every registered group, then SIGKILL to those left after the grace."""
+        """Send SIGTERM to every registered group, then SIGKILL to those left after the grace.
+
+        Each signal is sent under the lock, only to groups whose leader is
+        still registered and so still unreaped.
+        """
         with self._lock:
-            groups = list(self._groups)
-        stop_process_groups(groups, grace_seconds)
+            pids = list(self._groups)
+            for pid in pids:
+                _signal_group(pid, signal.SIGTERM)
+        deadline = time.monotonic() + grace_seconds
+        while time.monotonic() < deadline:
+            with self._lock:
+                if not any(pid in self._groups for pid in pids):
+                    return
+            time.sleep(_POLL_SECONDS)
+        with self._lock:
+            for pid in pids:
+                if pid in self._groups:
+                    _signal_group(pid, signal.SIGKILL)
 
     def remove_record(self) -> None:
         """Delete the run record after an orderly exit."""
@@ -152,21 +177,6 @@ class ToolProcessGroupRegistry:
         temporary = self._record_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(record), encoding="utf-8")
         temporary.replace(self._record_path)
-
-
-def stop_process_groups(pgids: Iterable[int], grace_seconds: float = STOP_GRACE_SECONDS) -> None:
-    """Send SIGTERM to process groups the caller owns, then SIGKILL after the grace.
-
-    Call it only for groups whose leader is the caller's unreaped child.
-    """
-    signaled = [pgid for pgid in pgids if _signal_group(pgid, signal.SIGTERM)]
-    deadline = time.monotonic() + grace_seconds
-    while signaled and time.monotonic() < deadline:
-        signaled = [pgid for pgid in signaled if _group_exists(pgid)]
-        if signaled:
-            time.sleep(_POLL_SECONDS)
-    for pgid in signaled:
-        _signal_group(pgid, signal.SIGKILL)
 
 
 @dataclass(frozen=True)

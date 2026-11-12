@@ -25,6 +25,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict
@@ -38,15 +39,19 @@ from dex_agents import LocalDirectoryMediaStore
 from dex_agents_cli_core import cli, session_flow_type
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import TerminalInterface
+from dex_agents_cli_core.local_tools.shell import run_shell_command
+from dex_agents_cli_core.terminal_ui import process_groups as process_groups_module
 from dex_agents_cli_core.terminal_ui.contract import (
     AUTH_ENVIRONMENT_NAMES,
     TERMINAL_ENVIRONMENT_NAMES,
     candidate_session_ids,
 )
 from dex_agents_cli_core.terminal_ui.process_groups import (
+    ToolProcessGroupRegistry,
     read_process_identity,
     stop_leftover_processes,
 )
+from tests.channel_closing_cli import CONTROL_CHANNEL_END_VARIABLE
 from tests.conftest import (
     CliHome,
     FakeConnectorsMcp,
@@ -71,7 +76,14 @@ from tests.fake_terminal_ui import (
     with_fresh_keys,
     worker_host_pid,
 )
-from tests.noisy_cli import BUILD_NOISE, GRANDCHILD_NOISE, IMPORT_NOISE, OPEN_DESCRIPTOR
+from tests.noisy_cli import (
+    BUILD_NOISE,
+    GRANDCHILD_NOISE,
+    IMPORT_NOISE,
+    LAUNCHER_NOISE,
+    LAUNCHER_NOISE_TRIGGER_VARIABLE,
+    OPEN_DESCRIPTOR,
+)
 from tests.scripted_harness import SCRIPTED_FLOW_TYPE, ScriptedHarness
 from tests.test_cli_chat import read_start_flow_input
 from tests.test_cli_images import png_bytes
@@ -232,10 +244,18 @@ async def test_a_chat_hands_off_and_relays_each_local_request(
 async def test_nothing_the_worker_host_writes_reaches_the_terminal(
     cli_home: CliHome, tmp_path: Path, screen: io.StringIO
 ) -> None:
-    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([pause(2000)]))
-    child = start_chat(cli_home, fake, screen, command_module="tests.noisy_cli")
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([pause(3000)]))
+    trigger = tmp_path / "launcher-noise"
+    child = start_chat(
+        cli_home,
+        fake,
+        screen,
+        command_module="tests.noisy_cli",
+        environment={LAUNCHER_NOISE_TRIGGER_VARIABLE: str(trigger)},
+    )
     session_id = await read_session_id(child)
     await fake.wait_for("sent", type="ready")
+    trigger.touch()
     agents_directory = cli_home.home / ".dex" / "agents"
     host_pid = worker_host_pid(agents_directory)
     host_command = subprocess.run(
@@ -259,6 +279,11 @@ async def test_nothing_the_worker_host_writes_reaches_the_terminal(
     assert f"{BUILD_NOISE} on stderr" in log
     assert log.count(GRANDCHILD_NOISE) == 2
     assert f"{OPEN_DESCRIPTOR} {control_fd}\n" not in log
+    # The launcher's own fds 1 and 2 point at the log while dexcli owns the terminal.
+    assert trigger.with_suffix(".done").exists()
+    assert LAUNCHER_NOISE not in shown
+    assert f"{LAUNCHER_NOISE} on stdout" in log
+    assert f"{LAUNCHER_NOISE} on stderr" in log
 
 
 @pytest.mark.parametrize("failure", ["timeout", "rejected", "closed"])
@@ -860,6 +885,142 @@ async def test_the_launcher_replays_each_conformance_transcript(
         await expect(child, resume_line(session_id))
         assert await wait_for_exit(child) == (1 if name == "chat_worker_stopped" else 0)
     assert_replayed(fake, screen)
+
+
+@pytest.mark.parametrize("is_group_broadcast", [False, True], ids=["launcher-only", "group"])
+async def test_an_external_sigint_ends_the_chat_with_130(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO, is_group_broadcast: bool
+) -> None:
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([pause(300_000)]))
+    child = start_chat(cli_home, fake, screen)
+    session_id = await read_session_id(child)
+    await fake.wait_for("sent", type="ready")
+    host_pid = worker_host_pid(cli_home.home / ".dex" / "agents")
+    if is_group_broadcast:
+        os.killpg(child.pid, signal.SIGINT)
+    else:
+        os.kill(child.pid, signal.SIGINT)
+    await expect(child, resume_line(session_id))
+    assert await wait_for_exit(child) == 130
+    assert "Plain chat" not in screen.getvalue()
+    await wait_until_gone([host_pid], timeout=15)
+
+
+async def test_a_worker_host_that_closes_its_channel_before_ready_means_the_plain_chat(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    fake = FakeTerminalUi(tmp_path / "tui")
+    child = start_chat(
+        cli_home,
+        fake,
+        screen,
+        command_module="tests.channel_closing_cli",
+        environment={CONTROL_CHANNEL_END_VARIABLE: "before-ready"},
+    )
+    await expect(
+        child, "Plain chat: the Worker host closed its control channel before it was ready."
+    )
+    await read_session_id(child)
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    assert not fake.was_run()
+
+
+async def test_a_worker_host_that_closes_its_channel_after_ready_answers_host_stopped(
+    cli_home: CliHome, tmp_path: Path, screen: io.StringIO
+) -> None:
+    image = tmp_path / "screenshot.png"
+    image.write_bytes(png_bytes())
+    steps = [
+        {
+            "from": "launcher",
+            "message": {"type": "worker", "state": "stopped", "exit_code": 137},
+            "ignore": ["exit_code"],
+        },
+        request(1, "put_image", {"path": str(image)}, new_key()),
+        error(1, "host_stopped", STOPPED_HOST_MESSAGE),
+    ]
+    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript(steps))
+    child = start_chat(
+        cli_home,
+        fake,
+        screen,
+        command_module="tests.channel_closing_cli",
+        environment={CONTROL_CHANNEL_END_VARIABLE: "after-ready"},
+    )
+    session_id = await read_session_id(child)
+    await expect(child, resume_line(session_id))
+    assert await wait_for_exit(child) == 1
+    assert_replayed(fake, screen)
+
+
+async def test_a_shell_command_leaves_no_background_process_in_the_worker_host(
+    tmp_path: Path,
+) -> None:
+    registry = ToolProcessGroupRegistry(tmp_path / "run" / "scripted-1.json", None, None)
+    registered: list[int] = []
+    register = registry.register
+
+    def record_registration(pid: int) -> None:
+        registered.append(pid)
+        register(pid)
+
+    registry.register = record_registration  # type: ignore[method-assign]
+    output = await run_shell_command(
+        "sleep 30 & echo started", tmp_path, 10, process_groups=registry
+    )
+    assert output.startswith("exit code 0\nstdout:\nstarted")
+    (pgid,) = registered
+    await wait_until_gone([pgid], timeout=5)
+    assert json.loads(registry.record_path.read_text())["tool_process_groups"] == []
+
+
+def test_the_watchdog_never_signals_a_released_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    signaled_after_reap: list[int] = []
+    reaped: set[int] = set()
+    real_signal_group = process_groups_module._signal_group
+
+    def checked_signal_group(pgid: int, signal_number: int) -> bool:
+        if pgid in reaped:
+            signaled_after_reap.append(pgid)
+        return real_signal_group(pgid, signal_number)
+
+    monkeypatch.setattr(process_groups_module, "_signal_group", checked_signal_group)
+    for _ in range(20):
+        registry = ToolProcessGroupRegistry(tmp_path / "run.json", None, None)
+        process = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        registry.register(process.pid)
+        stopper = threading.Thread(target=registry.stop_all, args=(0.05,))
+        stopper.start()
+
+        def reap(pid: int = process.pid) -> None:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            reaped.add(pid)
+
+        registry.release(process.pid, reap)
+        process.returncode = -signal.SIGKILL
+        stopper.join()
+        registry.stop_all(0.01)
+    assert signaled_after_reap == []
+
+
+def test_the_package_imports_without_posix_terminal_modules() -> None:
+    script = (
+        "import sys\n"
+        "sys.modules['termios'] = None\n"
+        "import dex_agents_cli_core, dex_agents_cli_core.cli\n"
+        "from dex_agents_cli_core.terminal_ui import "
+        "child_process, launcher, process_groups, watchdog, worker_host\n"
+        "print('imported')\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert completed.stdout.strip() == "imported", completed.stderr
 
 
 def test_launch_ignore_matches_the_conformance_launch_steps() -> None:

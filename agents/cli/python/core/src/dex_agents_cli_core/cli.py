@@ -460,7 +460,7 @@ async def _run(
         outcome = await _run_terminal_ui(arguments, environment, harness, loaded, inputs, endpoint)
         if isinstance(outcome, int):
             return outcome
-        if isinstance(outcome, PlainFallback):
+        if isinstance(outcome, PlainFallback) and outcome.session_id is not None:
             arguments = replace(arguments, resume_session_id=outcome.session_id)
     return await _run_plain_chat(
         arguments, environment, harness, loaded, inputs, endpoint, log_path

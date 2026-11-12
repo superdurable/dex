@@ -38,6 +38,7 @@ from dex_agents_cli_core.terminal_ui.contract import (
     parse_describe_output,
 )
 from dex_agents_cli_core.terminal_ui.hosted_session import HostedChatSession
+from dex_agents_cli_core.terminal_ui.launcher import open_in_browser
 from dex_agents_cli_core.terminal_ui.local_requests import (
     IdempotencyTable,
     LocalRequestServer,
@@ -482,3 +483,21 @@ async def test_the_worker_host_results_match_the_channel_schema(
     method_result_validator("start_session").validate(started.result)
     missing = await hosted.put_image({"path": str(tmp_path / "missing.png")}, KEY)
     assert missing.error == {"code": "not_found", "message": "missing.png does not exist."}
+
+
+@pytest.mark.parametrize(
+    ("script", "is_opened", "seconds"),
+    [("exit 0", True, 2.0), ("sleep 10", True, 6.0)],
+    ids=["opened", "still-running"],
+)
+async def test_the_browser_opener_answers_within_4_seconds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str, is_opened: bool, seconds: float
+) -> None:
+    opener = tmp_path / "opener"
+    opener.write_text(f"#!/bin/sh\n{script}\n")
+    opener.chmod(0o755)
+    monkeypatch.setenv("BROWSER", str(opener))
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    assert await open_in_browser("http://127.0.0.1:1/") is is_opened
+    assert loop.time() - started < seconds

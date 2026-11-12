@@ -9,7 +9,7 @@
 """The launcher: start the Worker host, hand the terminal to ``dexcli agents-tui``, relay.
 
 The launcher only runs CLI core code. It never reads or writes the terminal
-while ``dexcli`` owns it: its own output goes to the log file meanwhile. A
+while ``dexcli`` owns it: its fds 1 and 2 point at the log file meanwhile. A
 failure before ``ready`` restores the terminal and returns ``PlainFallback``,
 so the command continues in the plain chat on the same session.
 """
@@ -22,14 +22,15 @@ import logging
 import os
 import signal
 import socket
+import subprocess
 import sys
-import termios
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 from dex_agents_cli_core.terminal_ui.channel import MessageChannel
+from dex_agents_cli_core.terminal_ui.child_process import ChildProcess
 from dex_agents_cli_core.terminal_ui.contract import (
     CHAT_METHODS,
     DESCRIBE_TIMEOUT_SECONDS,
@@ -59,9 +60,12 @@ from dex_agents_cli_core.terminal_ui.worker_host import (
 WORKER_HOST_STOP_SECONDS = 10.0
 #: How long a process may take after SIGTERM, before SIGKILL.
 TERMINATE_GRACE_SECONDS = 2.0
-_OPEN_URL_TIMEOUT_SECONDS = 5.0
-# How long dexcli may run after its channel ended, before SIGTERM.
-_EXIT_AFTER_CLOSE_SECONDS = 5.0
+#: How long dexcli may take to exit by itself after its channel ended, before SIGTERM.
+CHANNEL_END_EXIT_SECONDS = 1.0
+#: How long dexcli may take to exit after a SIGINT reached the launcher, before it is forwarded.
+SIGINT_EXIT_SECONDS = 1.0
+#: How long the browser opener may take; one still running then counts as opened.
+OPENER_WAIT_SECONDS = 4.0
 # Leave the alternate screen, turn bracketed paste off, and show the cursor.
 _TERMINAL_RESET = "\x1b[?1049l\x1b[?2004l\x1b[?25h"
 _TERMINAL_UI_EXIT_CODES = frozenset({0, 1, 130, 143})
@@ -86,13 +90,14 @@ class DescribeResult:
 
 @dataclass(frozen=True)
 class PlainFallback:
-    """The handoff failed before ``ready``: continue in the plain chat on this session.
+    """The handoff failed before ``ready``: continue in the plain chat.
 
     Attributes:
-        session_id: The session the Worker host opened.
+        session_id: The session the Worker host opened, to resume, or ``None``
+            when it opened none and the plain chat starts as the command would.
     """
 
-    session_id: str
+    session_id: str | None
 
 
 @dataclass(frozen=True)
@@ -213,13 +218,16 @@ async def run_terminal_ui_chat(
         report: Prints one line on the terminal, before or after the handoff only.
 
     Returns:
-        The command's exit code, or ``PlainFallback`` when the handoff failed before ``ready``.
+        The command's exit code, or ``PlainFallback`` when the chat continues in plain text.
     """
     worker_host = await WorkerHostProcess.spawn(launch)
     try:
         ready = await worker_host.start(launch.start)
         if isinstance(ready, int):
             return ready
+        if ready is None:
+            report("Plain chat: the Worker host closed its control channel before it was ready.")
+            return PlainFallback(None)
         for notice in ready.notices:
             report(notice)
         if ready.connectors_page_url is not None and launch.is_browser_opening_enabled:
@@ -245,11 +253,16 @@ class WorkerReady:
 
 
 class WorkerHostProcess:
-    """The Worker host child: its control channel, its state, and its bounded stop."""
+    """The Worker host child: its control channel, its state, and its bounded stop.
+
+    The control channel ending while the Worker host runs means the Worker
+    host is no longer usable: the launcher stops it within the grace, and
+    every waiting and later relayed request then gets ``host_stopped``.
+    """
 
     def __init__(
         self,
-        process: asyncio.subprocess.Process,
+        process: ChildProcess,
         channel: MessageChannel,
         launch: TerminalUiLaunch,
     ) -> None:
@@ -257,14 +270,17 @@ class WorkerHostProcess:
         self._process = process
         self._channel = channel
         self._launch = launch
-        self._ready: asyncio.Future[WorkerReady | int] = asyncio.get_running_loop().create_future()
+        loop = asyncio.get_running_loop()
+        self._ready: asyncio.Future[WorkerReady | int | None] = loop.create_future()
         self._calls: dict[int, asyncio.Future[RequestOutcome]] = {}
         self._next_call_id = 1
         self._on_event: Callable[[Mapping[str, Any]], None] = lambda _: None
         self._exit_code: int | None = None
+        self._is_stopping = False
+        self._is_channel_ended = False
+        self._stopped = asyncio.Event()
         self._reader = asyncio.create_task(self._read())
         self._watcher = asyncio.create_task(self._watch_exit())
-        self._stopped = asyncio.Event()
 
     @classmethod
     async def spawn(cls, launch: TerminalUiLaunch) -> WorkerHostProcess:
@@ -274,13 +290,15 @@ class WorkerHostProcess:
         launch.log_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with launch.log_path.open("ab") as log:
-                process = await asyncio.create_subprocess_exec(
-                    *launch.worker_host_argv,
-                    "--control-fd",
-                    str(host_fd),
-                    "--launcher-pid",
-                    str(os.getpid()),
-                    stdin=asyncio.subprocess.DEVNULL,
+                process = ChildProcess.spawn(
+                    [
+                        *launch.worker_host_argv,
+                        "--control-fd",
+                        str(host_fd),
+                        "--launcher-pid",
+                        str(os.getpid()),
+                    ],
+                    stdin=subprocess.DEVNULL,
                     stdout=log,
                     stderr=log,
                     pass_fds=(host_fd,),
@@ -296,21 +314,17 @@ class WorkerHostProcess:
         """Return whether the Worker host exited."""
         return self._exit_code is not None
 
-    @property
-    def exit_code(self) -> int | None:
-        """Return its exit status, 128 plus the signal for a kill, or ``None`` while it runs."""
-        return self._exit_code
-
     def subscribe(self, on_event: Callable[[Mapping[str, Any]], None]) -> None:
         """Receive its notices and state changes as terminal UI messages."""
         self._on_event = on_event
 
-    async def start(self, start: WorkerHostStart) -> WorkerReady | int:
+    async def start(self, start: WorkerHostStart) -> WorkerReady | int | None:
         """Send ``start`` and wait until the session is open.
 
         Returns:
-            The session, or the exit code to exit with after a startup failure,
-            whose message was printed on standard error.
+            The session; the exit code to exit with after a startup failure,
+            whose message was printed on standard error; or ``None`` when the
+            control channel ended first.
         """
         await self._channel.send(start.to_message())
         return await self._ready
@@ -319,7 +333,9 @@ class WorkerHostProcess:
         self, method: str, params: Mapping[str, Any], idempotency_key: str
     ) -> RequestOutcome:
         """Relay one request and return its outcome, or ``host_stopped``."""
-        if self.is_stopped or self._channel.is_closed:
+        if self._is_channel_ended and not self.is_stopped:
+            await self._stopped.wait()
+        if self.is_stopped:
             return _host_stopped()
         call_id = self._next_call_id
         self._next_call_id += 1
@@ -341,12 +357,13 @@ class WorkerHostProcess:
 
     async def stop(self) -> None:
         """Stop it in order, then with SIGTERM, then SIGKILL; then clean what it left."""
+        self._is_stopping = True
         if not self.is_stopped:
             await self._channel.send({"type": "shutdown"})
             if not await self._wait_stopped(WORKER_HOST_STOP_SECONDS):
-                _signal_group(self._process.pid, signal.SIGTERM)
+                self._process.signal_group(signal.SIGTERM)
                 if not await self._wait_stopped(TERMINATE_GRACE_SECONDS):
-                    _signal_group(self._process.pid, signal.SIGKILL)
+                    self._process.signal_group(signal.SIGKILL)
                     await self._wait_stopped(None)
         await self._channel.close()
         self._reader.cancel()
@@ -371,10 +388,25 @@ class WorkerHostProcess:
                 message = await self._channel.receive()
             except ChannelProtocolError as error:
                 _LOGGER.error("the Worker host's control channel broke: %s", error)
-                return
+                break
             if message is None:
-                return
+                break
             self._dispatch(message)
+        self._end_channel()
+
+    def _end_channel(self) -> None:
+        """Stop a Worker host that can no longer answer, unless it is stopping anyway."""
+        self._is_channel_ended = True
+        is_startup_failed = self._ready.done() and isinstance(self._ready.result(), int)
+        if self._is_stopping or self.is_stopped or is_startup_failed:
+            return
+        _LOGGER.error("the Worker host closed its control channel; stopping it")
+        if not self._ready.done():
+            self._ready.set_result(None)
+        self._process.signal_group(signal.SIGTERM)
+        asyncio.get_running_loop().call_later(
+            TERMINATE_GRACE_SECONDS, self._process.signal_group, signal.SIGKILL
+        )
 
     def _dispatch(self, message: Mapping[str, Any]) -> None:
         match message["type"]:
@@ -410,7 +442,7 @@ class WorkerHostProcess:
 
     async def _watch_exit(self) -> None:
         returncode = await self._process.wait()
-        self._exit_code = 128 - returncode if returncode < 0 else returncode
+        self._exit_code = _exit_status(returncode)
         _LOGGER.info("the Worker host exited: exit=%d", self._exit_code)
         if not self._ready.done():
             print(
@@ -445,51 +477,57 @@ class _Handoff:
         self._channel: MessageChannel | None = None
         self._is_terminal_ui_ready = False
         self._is_terminated = False
+        self._is_interrupted = False
         self._is_hung_up = False
-        self._process: asyncio.subprocess.Process | None = None
+        self._channel_end_reason: str | None = None
+        self._process: ChildProcess | None = None
         self._plain_reason = ""
 
     async def run(self) -> int | PlainFallback:
+        # POSIX only, so imported here: Windows never reaches the terminal UI path.
+        import termios
+
         saved_mode = termios.tcgetattr(self._terminal_fd)
         self._worker_host.subscribe(self._forward_worker_event)
         loop = asyncio.get_running_loop()
         handled = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
-        # A handler, never SIG_IGN, so dexcli starts with the default dispositions.
-        loop.add_signal_handler(signal.SIGINT, _ignore_signal)
+        # Handlers, never SIG_IGN, so dexcli starts with the default dispositions.
+        loop.add_signal_handler(signal.SIGINT, self._on_sigint)
         loop.add_signal_handler(signal.SIGTERM, self._on_sigterm)
         loop.add_signal_handler(signal.SIGHUP, self._on_sighup)
         try:
-            with _output_to_log(self._launch.log_path):
-                outcome = await self._hand_off()
+            with _output_to_log(self._launch.log_path) as terminal_output:
+                outcome = await self._hand_off(terminal_output)
         finally:
             for signal_number in handled:
                 loop.remove_signal_handler(signal_number)
             self._worker_host.subscribe(lambda _: None)
         if self._is_hung_up:
             return 129
-        if isinstance(outcome, str) and self._is_terminated:
+        if isinstance(outcome, str) and (self._is_terminated or self._is_interrupted):
             self._restore_terminal(saved_mode, is_reset_written=True)
-            return 143
+            self._report_resume()
+            return 143 if self._is_terminated else 130
         if isinstance(outcome, str):
             self._restore_terminal(saved_mode, is_reset_written=outcome != "rejected")
             self._report(f"Plain chat: {self._plain_reason}")
             return PlainFallback(self._ready.session_id)
         return self._finish(outcome, saved_mode)
 
-    async def _hand_off(self) -> int | str:
+    async def _hand_off(self, terminal_output: tuple[int, int]) -> int | str:
         """Return dexcli's exit status after ``ready``, or a fallback kind before it."""
         channel_socket, terminal_ui_socket = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         child_fd = terminal_ui_socket.fileno()
         auth = {"mode": "none"}
         environment = build_terminal_ui_environment(self._launch.terminal_variables, auth)
+        standard_output, standard_error = terminal_output
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                str(self._launch.dexcli),
-                "agents-tui",
-                "--channel-fd",
-                str(child_fd),
+            self._process = ChildProcess.spawn(
+                [str(self._launch.dexcli), "agents-tui", "--channel-fd", str(child_fd)],
                 env=environment,
                 pass_fds=(child_fd,),
+                stdout=standard_output,
+                stderr=standard_error,
             )
         except OSError as error:
             channel_socket.close()
@@ -501,40 +539,39 @@ class _Handoff:
         ready_deadline = loop.time() + READY_TIMEOUT_SECONDS
         channel = await MessageChannel.open(channel_socket)
         self._channel = channel
-        exit_task = asyncio.create_task(self._process.wait())
+        exit_task = asyncio.ensure_future(self._process.wait())
         try:
             await channel.send(self._launch_document())
             fallback = await self._wait_for_ready(channel, exit_task, ready_deadline)
             if fallback is not None:
-                await self._stop_terminal_ui(exit_task)
+                exit_grace = 0.0 if fallback == "timeout" else CHANNEL_END_EXIT_SECONDS
+                await self._stop_terminal_ui(exit_task, exit_grace)
                 return fallback
             self._is_terminal_ui_ready = True
             for message in self._outbox:
                 await channel.send(message)
             self._outbox.clear()
             await self._relay(channel, exit_task)
-            try:
-                return await asyncio.wait_for(asyncio.shield(exit_task), _EXIT_AFTER_CLOSE_SECONDS)
-            except TimeoutError:
-                await self._stop_terminal_ui(exit_task)
-                return exit_task.result()
+            await self._stop_terminal_ui(exit_task, CHANNEL_END_EXIT_SECONDS)
+            return await exit_task
         finally:
             await channel.close()
             if not exit_task.done():
-                await self._stop_terminal_ui(exit_task)
+                await self._stop_terminal_ui(exit_task, 0.0)
 
     async def _wait_for_ready(
         self,
         channel: MessageChannel,
-        exit_task: asyncio.Task[int],
+        exit_task: asyncio.Future[int],
         deadline: float,
     ) -> str | None:
         loop = asyncio.get_running_loop()
         while True:
             receive = asyncio.create_task(channel.receive())
             remaining = max(0.0, deadline - loop.time())
+            waited: set[asyncio.Future[Any]] = {receive, exit_task}
             done, _ = await asyncio.wait(
-                {receive, exit_task}, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+                waited, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
             )
             if receive not in done:
                 receive.cancel()
@@ -553,7 +590,7 @@ class _Handoff:
             try:
                 message = receive.result()
             except ChannelProtocolError:
-                self._plain_reason = "dexcli sent a malformed message before it was ready."
+                self._plain_reason = "dexcli sent a malformed line before it was ready."
                 return "failed"
             if message is None:
                 self._plain_reason = "dexcli closed the channel before it was ready."
@@ -568,7 +605,7 @@ class _Handoff:
                 self._plain_reason = "dexcli sent another message before ready."
                 return "failed"
 
-    async def _relay(self, channel: MessageChannel, exit_task: asyncio.Task[int]) -> None:
+    async def _relay(self, channel: MessageChannel, exit_task: asyncio.Future[int]) -> None:
         handlers: dict[str, RequestHandler] = {
             method: self._relayed_handler(method) for method in HOSTED_METHODS
         }
@@ -576,7 +613,8 @@ class _Handoff:
         server = LocalRequestServer(handlers, channel.send)
         reading = asyncio.create_task(self._read_requests(channel, server))
         try:
-            await asyncio.wait({reading, exit_task}, return_when=asyncio.FIRST_COMPLETED)
+            waited: set[asyncio.Future[Any]] = {reading, exit_task}
+            await asyncio.wait(waited, return_when=asyncio.FIRST_COMPLETED)
         finally:
             if not reading.done():
                 reading.cancel()
@@ -588,18 +626,20 @@ class _Handoff:
         while True:
             try:
                 message = await channel.receive()
-                if message is None:
-                    return
-                kind = message["type"]
-                if kind in ("request", "cancel"):
-                    await server.handle_message(message)
-                elif kind in _LAUNCHER_ONLY_TYPES:
-                    # A known type from the wrong side is malformed: dropped, the channel open.
-                    _LOGGER.warning("dropped a %s message from dexcli", kind)
             except ChannelProtocolError as error:
                 _LOGGER.error("the terminal UI channel broke: %s", error)
+                self._channel_end_reason = "dexcli sent a malformed line"
                 await channel.close()
                 return
+            if message is None:
+                self._channel_end_reason = "dexcli closed the channel"
+                return
+            kind = message["type"]
+            if kind in ("request", "cancel"):
+                await server.handle_message(message)
+            elif kind in _LAUNCHER_ONLY_TYPES:
+                # A known type from the wrong side is malformed: dropped, the channel open.
+                _LOGGER.warning("dropped a %s message from dexcli", kind)
 
     def _relayed_handler(self, method: str) -> RequestHandler:
         async def relay(params: Mapping[str, Any], idempotency_key: str) -> RequestOutcome:
@@ -653,39 +693,46 @@ class _Handoff:
         else:
             self._channel.post(message)
 
-    async def _stop_terminal_ui(self, exit_task: asyncio.Task[int]) -> None:
+    async def _stop_terminal_ui(self, exit_task: asyncio.Future[int], exit_grace: float) -> None:
+        """Give dexcli ``exit_grace`` seconds to exit, then SIGTERM, and SIGKILL 2 s later."""
         process = self._process
         if process is None or exit_task.done():
             return
-        with contextlib.suppress(ProcessLookupError):
-            process.terminate()
-        try:
-            await asyncio.wait_for(asyncio.shield(exit_task), TERMINATE_GRACE_SECONDS)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
+        if exit_grace > 0 and await _waits_within(exit_task, exit_grace):
+            return
+        process.send_signal(signal.SIGTERM)
+        if not await _waits_within(exit_task, TERMINATE_GRACE_SECONDS):
+            process.send_signal(signal.SIGKILL)
             await exit_task
 
     def _finish(self, returncode: int, saved_mode: list[Any]) -> int:
         status = _exit_status(returncode)
         is_unexpected = returncode < 0 or returncode not in _TERMINAL_UI_EXIT_CODES
-        self._restore_terminal(saved_mode, is_reset_written=is_unexpected or self._is_terminated)
-        if is_unexpected and not self._is_terminated:
+        is_signaled = self._is_terminated or self._is_interrupted
+        self._restore_terminal(saved_mode, is_reset_written=is_unexpected or is_signaled)
+        if is_unexpected and not is_signaled:
             self._report(f"The chat closed unexpectedly (dexcli exit {status}).")
-        session_id = self._ready.session_id
-        self._report(
-            f"\nSession {session_id} keeps running. Resume it with: "
-            f"{self._launch.command_name} --resume {session_id}"
-        )
+        elif returncode != 0 and self._channel_end_reason is not None and not is_signaled:
+            self._report(f"The chat closed: {self._channel_end_reason}.")
+        self._report_resume()
         if self._is_terminated:
             return 143
-        if returncode == 130:
+        if self._is_interrupted or returncode == 130:
             return 130
         if is_unexpected or returncode in (1, 143) or self._worker_host.is_stopped:
             return 1
         return 0
 
+    def _report_resume(self) -> None:
+        session_id = self._ready.session_id
+        self._report(
+            f"\nSession {session_id} keeps running. Resume it with: "
+            f"{self._launch.command_name} --resume {session_id}"
+        )
+
     def _restore_terminal(self, saved_mode: list[Any], *, is_reset_written: bool) -> None:
+        import termios
+
         with contextlib.suppress(termios.error, OSError):
             termios.tcsetattr(self._terminal_fd, termios.TCSADRAIN, saved_mode)
         if is_reset_written:
@@ -696,30 +743,49 @@ class _Handoff:
     def _on_sigterm(self) -> None:
         self._is_terminated = True
         process = self._process
-        if process is not None and process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                process.terminate()
+        if process is not None:
+            process.send_signal(signal.SIGTERM)
             asyncio.get_running_loop().call_later(
-                TERMINATE_GRACE_SECONDS, _kill_if_running, process
+                TERMINATE_GRACE_SECONDS, process.send_signal, signal.SIGKILL
             )
+
+    def _on_sigint(self) -> None:
+        """A SIGINT that reached the launcher: let dexcli exit, else forward it, then SIGTERM."""
+        self._is_interrupted = True
+        process = self._process
+        if process is None:
+            return
+        loop = asyncio.get_running_loop()
+        loop.call_later(SIGINT_EXIT_SECONDS, process.send_signal, signal.SIGINT)
+        loop.call_later(
+            SIGINT_EXIT_SECONDS + TERMINATE_GRACE_SECONDS, process.send_signal, signal.SIGTERM
+        )
+        loop.call_later(
+            SIGINT_EXIT_SECONDS + 2 * TERMINATE_GRACE_SECONDS, process.send_signal, signal.SIGKILL
+        )
 
     def _on_sighup(self) -> None:
         self._is_hung_up = True
         process = self._process
-        if process is not None and process.returncode is None:
+        if process is not None:
             asyncio.get_running_loop().call_later(
-                TERMINATE_GRACE_SECONDS, _kill_if_running, process
+                TERMINATE_GRACE_SECONDS, process.send_signal, signal.SIGKILL
             )
+
+
+_BROWSER_OPENERS: set[asyncio.Task[None]] = set()
 
 
 async def open_in_browser(url: str) -> bool:
     """Open a URL with Python's ``webbrowser`` in a child whose output goes nowhere.
 
     The child honors ``BROWSER``, and never writes to the terminal the
-    terminal UI owns.
+    terminal UI owns. An opener that still runs after 4 s counts as opened;
+    it runs on in its own session, and the launcher still reaps it.
 
     Returns:
-        Whether a browser took the URL.
+        Whether a browser took the URL: ``False`` when the opener could not
+        start or exited non-zero within 4 s.
     """
     try:
         process = await asyncio.create_subprocess_exec(
@@ -735,23 +801,53 @@ async def open_in_browser(url: str) -> bool:
     except OSError as error:
         _LOGGER.warning("cannot start the browser opener: %s", error)
         return False
+    waiting = asyncio.ensure_future(process.wait())
+    if await _waits_within(waiting, OPENER_WAIT_SECONDS):
+        return waiting.result() == 0
+    _LOGGER.info("the browser opener still runs after %.0f s", OPENER_WAIT_SECONDS)
+    reaping = asyncio.ensure_future(_reap_opener(waiting))
+    _BROWSER_OPENERS.add(reaping)
+    reaping.add_done_callback(_BROWSER_OPENERS.discard)
+    return True
+
+
+async def _reap_opener(waiting: asyncio.Future[int]) -> None:
+    returncode = await waiting
+    _LOGGER.info("the browser opener exited: exit=%d", returncode)
+
+
+async def _waits_within(future: asyncio.Future[int], seconds: float) -> bool:
+    """Return whether ``future`` finished within ``seconds``, leaving it running otherwise."""
     try:
-        return await asyncio.wait_for(process.wait(), _OPEN_URL_TIMEOUT_SECONDS) == 0
+        await asyncio.wait_for(asyncio.shield(future), seconds)
     except TimeoutError:
-        _LOGGER.warning("the browser opener took over %.0f s", _OPEN_URL_TIMEOUT_SECONDS)
-        return True
+        return False
+    return True
 
 
 @contextlib.contextmanager
-def _output_to_log(log_path: Path) -> Iterator[None]:
-    """Send the launcher's own Python output to the log while dexcli owns the terminal."""
-    with log_path.open("a", encoding="utf-8") as log:
-        saved: tuple[TextIO, TextIO] = (sys.stdout, sys.stderr)
-        sys.stdout, sys.stderr = log, log
-        try:
-            yield
-        finally:
-            sys.stdout, sys.stderr = saved
+def _output_to_log(log_path: Path) -> Iterator[tuple[int, int]]:
+    """Point fds 1 and 2 at the log while dexcli owns the terminal.
+
+    Yields:
+        Copies of the terminal's fds 1 and 2, for dexcli.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    terminal_output = (os.dup(1), os.dup(2))
+    log_fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        os.dup2(log_fd, 1)
+        os.dup2(log_fd, 2)
+        yield terminal_output
+    finally:
+        with contextlib.suppress(OSError, ValueError):
+            sys.stdout.flush()
+            sys.stderr.flush()
+        os.dup2(terminal_output[0], 1)
+        os.dup2(terminal_output[1], 2)
+        for fd in (*terminal_output, log_fd):
+            os.close(fd)
 
 
 def _relayed_outcome(message: Mapping[str, Any]) -> RequestOutcome:
@@ -770,19 +866,3 @@ def _host_stopped() -> RequestOutcome:
 
 def _exit_status(returncode: int) -> int:
     return 128 - returncode if returncode < 0 else returncode
-
-
-def _signal_group(pgid: int, signal_number: int) -> None:
-    # The Worker host leads its group and is this process's unreaped child.
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pgid, signal_number)
-
-
-def _kill_if_running(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is None:
-        with contextlib.suppress(ProcessLookupError):
-            process.kill()
-
-
-def _ignore_signal() -> None:
-    """Let dexcli handle SIGINT; the launcher follows its exit."""

@@ -120,7 +120,7 @@ The command then splits into three processes:
 
 | Process | Runs | Terminal | Process group |
 | --- | --- | --- | --- |
-| Launcher (the command the user ran) | Configuration, `init` questions, the Dex server, `dexcli --describe`, the relay of local requests | Writes only before and after the handoff; its own output goes to the log meanwhile | The foreground one |
+| Launcher (the command the user ran) | Configuration, `init` questions, the Dex server, `dexcli --describe`, the relay of local requests | Writes only before and after the handoff; its fds 1 and 2 point at the log meanwhile | The foreground one |
 | Worker host (`<command> __worker-host`) | The harness, local tools, connectors, the Worker, and the session | Never: standard input is `/dev/null`, output goes to `~/.dex/agents/<name>.log` | Its own session (`start_new_session`) |
 | `dexcli agents-tui --channel-fd <N>` | The chat screen; RPCs and Streams against Dex | Owns it | The foreground one |
 
@@ -132,13 +132,17 @@ The steps of a run:
    `Plain chat: <why>.` and continues in the plain chat.
 2. It starts the Worker host with a `socketpair` control channel, passes the
    actual fd number with `--control-fd`, and waits for `worker_ready`. A
-   startup failure exits with the code and message the plain chat would.
-   Startup notices, the session line, and the Dex Web line print before the
+   startup failure exits with the code and message the plain chat would. A
+   control channel that ends first stops the Worker host and continues in the
+   plain chat. Startup notices, the session line, and the Dex Web line print before the
    handoff, so they stay above the terminal UI.
-3. It saves the terminal mode, installs a SIGINT handler that does nothing
+3. It saves the terminal mode, installs SIGINT, SIGTERM, and SIGHUP handlers
    (never `SIG_IGN`, which `exec` would keep), leaves SIGTSTP at its default,
-   and starts `dexcli` with the channel fd and only the allow-listed
-   environment: no provider key, no `PATH`.
+   points its own fds 1 and 2 at the log, and starts `dexcli` with copies of
+   the terminal's fds, the channel fd, and only the allow-listed environment:
+   no provider key, no `PATH`. It watches both children with a thread that
+   waits for their real exit, because asyncio on Python 3.14 blocks its event
+   loop on a child that only stopped (macOS `waitid` reports stops).
 4. A failure before `ready` (5 s from the spawn) restores the terminal mode,
    prints `Plain chat: <why>.`, stops the Worker host, and resumes the same
    session in the plain chat.
@@ -146,8 +150,12 @@ The steps of a run:
    `list_connectors` to the Worker host and serves `open_url` itself. It keeps
    the one key table, the 4-request in-flight limit, and `cancel` for every
    method, so a stopped Worker host never takes them with it. When the Worker
-   host exits it sends `worker stopped` and answers every waiting and later
-   relayed request with `host_stopped`.
+   host exits, or its control channel ends and the launcher stops it, it
+   sends `worker stopped` and answers every waiting and later relayed request
+   with `host_stopped`. When the channel to `dexcli` ends, `dexcli` gets 1 s
+   to exit, then SIGTERM, and SIGKILL 2 s later. A SIGINT that reaches only
+   the launcher waits 1 s for `dexcli` to exit, forwards SIGINT, then sends
+   SIGTERM 2 s later, and exits 130 without a plain fallback.
 6. When `dexcli` exits, the launcher restores the terminal mode (and resets
    the screen when `dexcli` died), prints the `--resume` line, sends
    `shutdown`, and waits 10 s, then SIGTERM, then after 2 s SIGKILL to the
@@ -165,22 +173,32 @@ a second session while the server retains its run, even from a new launcher.
 
 **The Worker host never outlives the launcher for long.** It stops in order
 when the control channel ends, on `shutdown`, on SIGTERM, or when its
-watchdog thread finds `getppid()` changed (checked every second). The
-watchdog bounds every stop at 15 s: then it stops the registered tool process
-groups and sends SIGKILL to its own process group. On Linux the Worker host
-also sets `PR_SET_PDEATHSIG` to SIGKILL. The bound holds only while the
+watchdog thread finds `getppid()` changed (checked every second). Once a
+stop begins, the watchdog waits 15 s; then it sends SIGTERM to the
+registered tool process groups, SIGKILL 2 s later to those left, and SIGKILL
+to its own process group. So the Worker host and its registered tool groups
+are gone within about 1 + 15 + 2 = 18 s of the launcher's death, plus
+scheduling delay. On Linux the Worker host also sets `PR_SET_PDEATHSIG` to
+SIGKILL: the kernel kills it with the launcher at once, before it can stop
+its tool groups, so those wait for the leftover cleanup below. The bound
+holds only while the
 watchdog thread can take the GIL: a main thread stuck in native code that
 holds the GIL defeats it, as do SIGSTOP and a kernel-level hang. A blocked
 event loop or a blocking system call does not.
 
 The shell tool runs each command in its own process group, which the Worker
 host's group kill does not reach. So the shell tool registers the group right
-after the spawn and unregisters it right after the reap, and the Worker host
+after the spawn. When the shell exits, it waits without reaping it
+(`waitid` with `WNOWAIT`, or kqueue on macOS before Python 3.13), so the
+group ID stays reserved; it sends SIGTERM to what the shell left in the
+group, SIGKILL 0.5 s later, and only then reaps the shell and unregisters
+the group, under the registry lock that every signal takes too. So in the
+Worker host a shell command's background processes end with the command,
+and no signal ever reaches a reused group ID. The Worker host
 mirrors the registry in its run record,
 `~/.dex/agents/run/<name>-<pid>.json`, with its own and the launcher's
 identity: start time from `ps`, and a SHA-256 of the command line, never its
-text, which can carry a secret. It signals a group only
-while the group's leader is its unreaped child. A later `run` with the
+text, which can carry a secret. A later `run` with the
 terminal UI on stops what a record names when the record's launcher is gone:
 before each signal (SIGTERM, then SIGKILL 2 s later) it checks that the
 process still has the recorded start time and group and leads the group, and

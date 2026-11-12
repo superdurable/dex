@@ -14,6 +14,10 @@ that inherits both streams, so a test can check what reaches the terminal.
 
 import os
 import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
 
 from dex_agents import AgentSessionFlow
 from dex_agents_cli_core import HarnessContext, run_agent_cli
@@ -29,7 +33,20 @@ _LIST_DESCRIPTORS = (
     "fd=$((fd + 1)); done"
 )
 
+#: The launcher's own raw writes, made once the test creates the trigger file.
+LAUNCHER_NOISE = "LAUNCHER-RAW-NOISE"
+#: The file whose creation makes the launcher write ``LAUNCHER_NOISE`` to fd 1 and 2.
+LAUNCHER_NOISE_TRIGGER_VARIABLE = "DEX_AGENTS_TEST_LAUNCHER_NOISE_TRIGGER"
+
 os.write(2, f"{IMPORT_NOISE}\n".encode())
+
+
+def _write_launcher_noise(trigger: Path) -> None:
+    while not trigger.exists():
+        time.sleep(0.05)
+    os.write(1, f"{LAUNCHER_NOISE} on stdout\n".encode())
+    os.write(2, f"{LAUNCHER_NOISE} on stderr\n".encode())
+    trigger.with_suffix(".done").touch()
 
 
 class NoisyHarness(ScriptedHarness):
@@ -52,4 +69,7 @@ class NoisyHarness(ScriptedHarness):
 
 
 if __name__ == "__main__":
+    trigger = os.environ.get(LAUNCHER_NOISE_TRIGGER_VARIABLE)
+    if trigger and sys.argv[1:2] != ["__worker-host"]:
+        threading.Thread(target=_write_launcher_noise, args=(Path(trigger),), daemon=True).start()
     raise SystemExit(run_agent_cli(NoisyHarness()))

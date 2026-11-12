@@ -8,13 +8,16 @@
 
 """The Worker host's watchdog: notice a dead launcher, and bound every shutdown.
 
-It runs on its own thread, outside the event loop. Once the launcher is gone,
-or a shutdown starts, the Worker host has 15 seconds to exit; the process
-ends with ``os._exit``, so the bound covers the event loop's teardown too. Then
-the watchdog stops the registered tool groups and kills its own process
-group. The bound holds only while this thread can take the GIL: a main
-thread stuck in native code that holds the GIL defeats it. On Linux the
-kernel also kills the Worker host when the launcher dies (``PR_SET_PDEATHSIG``).
+It runs on its own thread, outside the event loop, and checks the launcher
+every second. Once the launcher is gone, or a shutdown starts, the Worker
+host has 15 s to exit; the process ends with ``os._exit``, so the bound
+covers the event loop's teardown too. Then the watchdog sends SIGTERM to the
+registered tool groups, SIGKILL 2 s later, and SIGKILL to its own process
+group: about 1 + 15 + 2 s after the launcher died. The bound holds only while
+this thread can take the GIL: a main thread stuck in native code that holds
+the GIL defeats it. On Linux the kernel kills the Worker host as soon as the
+launcher dies (``PR_SET_PDEATHSIG``), and the tool groups wait for the next
+run's leftover cleanup.
 """
 
 from __future__ import annotations
