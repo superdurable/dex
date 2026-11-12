@@ -217,7 +217,7 @@ Dex 把等待保存在 Flow 的状态里，所以它不占用 Worker 或线程�
 - `ForceFail` 立即让 Flow 失败。
 - `DeadEnd` 结束这个分支，但不关闭 Flow。
 
-完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。多个完成类的决定都返回 output 时，result 会保留每一个。只有最终完成的 Flow 才保留这些 output。如果 Flow 没有完成（失败、被取消、被终止或超时），它的 result 不含任何 output。
+完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。只有最终完成的 Flow 才返回 output。见 [Flow output](/reference/server/step-and-flow-close#flow-outputs)。
 
 决定还可以取消其他 active Step。见 [并行 Step](/design-patterns/parallel) 和 [并行 SubFlow](/design-patterns/parallel-subflows) 模式。
 

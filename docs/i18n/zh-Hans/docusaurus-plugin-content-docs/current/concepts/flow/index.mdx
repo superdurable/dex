@@ -194,7 +194,7 @@ Flow 在以下情况下关闭：
 - 某个 Step 完成 Flow，或让它失败；
 - 它的 timeout 让它失败或取消它；
 - client 停止它；
-- 用同一个 Flow ID 的新启动终止它。只有新启动使用的 ID reuse policy 会终止正在运行的 Flow 时，才会这样。用 `ALWAYS_RESTART` 启动的 SubFlow 也会这样终止之前的子 Flow。
+- 用同一个 Flow ID 的新启动终止它。只有新启动使用的 ID reuse policy 会终止正在运行的 Flow 时，才会这样。SubFlow 的重启也可能终止之前的子 Flow。见 [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy)。
 
 timeout 也可以不让 Flow 失败或取消，而是运行一个 handler，由它决定结果。Flow 运行期间，client 通过它的 RPC 读取和修改它。
 

@@ -101,15 +101,14 @@ Attribute writes, its Channel publications, and its decision. What its
 starts itself. [Channel guarantees](/concepts/primitives/channel#guarantees)
 say what happens to the messages a canceled Step consumed.
 
-A canceled method's code keeps running until the method returns. The method should check for cancellation and return. Its calls to external
-systems still take effect, even after the Flow has closed.
+A canceled method's code keeps running until the method returns. The method
+should check for cancellation and return. See
+[Step cancellation](/reference/server/step-and-flow-close#step-cancellation).
 
-`GracefulComplete` ends its own branch and asks Dex to complete the Flow. Dex
-begins to complete the Flow as soon as no Step is active. Until then, other
-Steps and RPCs can still start new Steps, and those Steps delay completion too.
-A later branch that ends with `DeadEnd` does not withdraw the request. After
-the last Step ends, the Flow can stay `RUNNING` briefly while Dex finishes
-pending Attribute Sync writes and transactional RPCs that already started.
+`GracefulComplete` ends its own branch and asks Dex to complete the Flow once no
+Step is active. The request stays in force: a later branch that ends with
+`DeadEnd` does not withdraw it. See
+[Completion requests](/reference/server/step-and-flow-close#completion-requests).
 
 A Flow with no active Step keeps running until a `GracefulComplete` is pending, and an RPC can still start new Steps in it. End the last branch with a completing decision. If a Flow must not wait forever, set a Flow timeout.
 

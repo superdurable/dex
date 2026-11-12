@@ -35,24 +35,16 @@ ParentStep.execute(context, input)
 ## Identity and reuse
 
 - Dex generates the child Flow ID from the parent Flow ID, the Step execution ID, and the Condition index.
-- A Step whose Step type contains `-` cannot start SubFlows. The child Flow ID joins its parts with `-`, so a dash would let two parents share one child. Dex fails such a WaitFor attempt without retry. Name every Step that starts SubFlows without `-`; a Step that only waits on Timers or Channels may keep a dash.
-- A later run of the same parent Flow ID generates the same child Flow ID when it creates the same Step execution ID (same Step type and sequence number) and uses the same Condition index. Step execution numbers restart in each run, so this is common. Its start is then a repeated start under the reuse policy. With the default policy it reuses the earlier run's running or completed child until Dex deletes that child. Always restart starts a fresh child but terminates an old child that is still running. When both children must keep running, use a different parent Flow ID.
-- SubFlow options are the start options plus a SubFlow reuse policy.
-- The Request ID that Dex generates for the child start always attaches to a running child or returns its terminal result, whatever the policy. So a parent retry never duplicates the child.
-- A different Request ID goes through the reuse policy:
-
-| Existing child | Attach | Restart if previous exited abnormally (default) | Always restart |
-| --- | --- | --- | --- |
-| none | start | start | start |
-| running | attach | attach | terminate and start |
-| completed | return result | return result | start |
-| failed, canceled, timed out, or terminated | return result | start | start |
+- Name every Step that starts SubFlows without `-` in its Step type. Dex fails such a WaitFor attempt without retry. A Step that only waits on Timers or Channels may keep a dash. See [Step types that start SubFlows](https://docs.superdurable.io/reference/server/runtime-data#subflow-step-types).
+- A later run of the same parent Flow ID can generate the same child Flow ID, so the start follows the SubFlow reuse policy. The default policy reuses the earlier run's running or completed child. Use a different parent Flow ID when both children must keep running. See [Later parent runs](https://docs.superdurable.io/reference/server/runtime-data#subflow-parent-lifecycle).
+- SubFlow options are the start options plus a SubFlow reuse policy. The default restarts a child only when the previous one exited abnormally. ATTACH never restarts. ALWAYS_RESTART terminates a running child and starts a fresh one.
+- A parent retry never duplicates the child: the Request ID Dex generates for the child start attaches to a running child or returns its terminal result under every policy. The policy table is in [SubFlowReusePolicy](https://docs.superdurable.io/reference/server/runtime-data#subflow-reuse-policy).
 
 ## Failures
 
 - When Dex rejects a child start before the child begins, the parent Step's failure carries the rejection detail. Keep it visible in the recovery route.
 - A child that fails returns its failure as the result. The parent decides the business outcome.
-- A child keeps running when its parent Step is canceled or its parent Flow closes. Dex does not stop it. Stop it explicitly, or set a Flow timeout on the child so it ends on its own.
+- A child keeps running when its parent closes. Stop it explicitly, or set a Flow timeout on the child so it ends on its own.
 - A SubFlow without its own Flow timeout can wait forever when no Worker takes its Steps.
 - Delivery of a child result to the parent is not proof that the parent consumed it or finished later work.
 

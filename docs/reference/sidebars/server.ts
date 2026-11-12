@@ -5,6 +5,7 @@ const sidebars: SidebarsConfig = {
     {type: 'link', label: '← Developer Reference', href: '/reference/'},
     'index',
     'runtime-data',
+    'step-and-flow-close',
     'runtime-client',
     'configuration',
     'kubernetes',

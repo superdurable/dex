@@ -18,7 +18,7 @@ server-zd 先把每次写入提交到对象存储，再确认这次写入。它�
 - [Worker 和 Client](/components/application) 连接 server 的 API 端口。Worker 主动建立出站 stream，server 从不主动调用它们。
 - [Dex Web](/components/web) 作为单独的进程运行，通过同一个 API 读取 Flow。
 - [dexcli](/components/cli) 调用同一个 API。**dexcli dev** 还会在你的机器上启动 server-zd。
-- server-zd 为每个 Flow type 保存一份 Flow Definition Graph。Worker 或 `dexcli` 发布它。每份 graph 都记录了自己的生成时间。生成时间更晚的 graph 替换较早的，与上传顺序无关。Dex Web 读取它来画出 Flow。
+- server-zd 为每个 Flow type 保存一份 Flow Definition Graph。Worker 或 `dexcli` 发布它。Dex Web 读取它来画出 Flow。已发布的 graph 何时替换已保存的 graph，见 [Flow definitions 参考](/reference/server/runtime-client#flow-definitions)。
 - server-zd 可以把选定的 Attribute 写入 PostgreSQL，见[在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。
 
 ## 依赖什么 {#dependencies}

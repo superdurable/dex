@@ -366,9 +366,8 @@ To catch a missing lock, write a test that runs those Steps or RPCs at the same
 time and checks the final value.
 
 A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
-not declare it can still write the Attribute. Steps get a lock in the order they started waiting for it. An RPC does
-not queue. It takes a free lock even when Steps are waiting for it. So a steady
-stream of locked RPCs can delay those Steps. Keep locked RPCs short.
+not declare it can still write the Attribute. Keep locked RPCs short, because an RPC can take a free lock ahead of waiting
+Steps. See [Lock order](/reference/server/runtime-data#lock-order).
 
 A method that declares several locks takes them all at once. It starts only
 when every lock is free and it is first in line for each one. It never holds
@@ -508,8 +507,9 @@ What to expect:
   write and logs a warning. Dex does not replay old values or fill a newly
   configured store. [Dex and Your Database](/components/your-database) shows
   how to detect a dropped write and repair the row.
-- When a Flow completes or fails on its own, it stays running until its
-  pending writes are written or dropped. StopFlow does not wait.
+- When a Flow completes or fails on its own, it stays running while pending
+  writes finish. StopFlow does not wait. See
+  [Completion requests](/reference/server/step-and-flow-close#completion-requests).
 - Deleting an Attribute writes NULL to its column. Dex does not delete the row
   when the Flow closes.
 - A store can split the Flow ID into several key columns, and can write each

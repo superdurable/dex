@@ -107,14 +107,12 @@ AwaitAll.waitFor(round) -> Until(Completed.forAllBranches(round))
 AwaitAll.execute(round) -> gracefulComplete(combine(Completed.branchResults(round)))
 ```
 
-- Fork starts the branches and the join Step in one decision and gives all of them one round token: the round key and the branch count. The round key comes from the forking Step execution, so the application keeps no counter and no key. Pass the token unchanged in Step inputs.
+- Fork starts the branches and the join Step in one decision and gives all of them one round token: the round key and the branch count. The application keeps no counter and no key. Pass the token unchanged in Step inputs.
 - Each branch reports exactly one result per round, on every exit path: success, early exit, and the failure recovery route. endBranch reports and ends the branch; reportBranchResult only reports.
 - A branch of several Steps passes the token to its last Step, and only that Step reports. A branch never waits on the join's conditions. Exactly one join Step waits for each round; two waiters split the results.
-- Fork one Join at most once per Step method. For a second independent join, define a second Join or fork with an explicit round key. A fork with an explicit round key is not limited to once per method; give each round a key that no other round of that Join in the Flow run uses. An RPC has no Step execution, so an RPC forks with an explicit round key.
-- Results are durable. A result reported before the join waits still counts. A report commits with the method's result, so a retried branch reports once.
-- An empty branch list is a round with no branches. A forAllBranches wait on it is satisfied at once, but forFirstBranch and forBranches on it fail the wait, so check the list before a first-branch or n-branch join. Continuing without a join when nothing was selected is still the clearer shape.
-- A canceled branch never reports, and its failure route does not run, so a join that waits for every branch never fires. The canceller cannot report for it: Dex picks the cancel set at commit time, and the branch may already have reported. Cancel the join together with the branches, or wait `AnyOf(Completed.forAllBranches(round), Timer(deadline))` and handle the deadline in Execute.
-- The join Step consumes results like any Channel wait. When it is canceled after its wait matched, the consumed results follow the canceled-Step rule in [channel.md](channel.md#wait-and-consume).
+- Fork a given Join at most once per Step method. For a second independent join, define a second Join or fork with an explicit round key. An RPC fork needs an explicit round key; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
+- Do not join an empty branch list. Continue without a join when nothing was selected. A first-branch or n-branch wait on an empty round fails; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
+- A canceled branch never reports, and its failure route does not run, so a join that waits for every branch never fires. Cancel the join together with the branches, or wait `AnyOf(Completed.forAllBranches(round), Timer(deadline))` and handle the deadline in Execute.
 - The Join's ChannelMap accessor reads a round's pending results, for example in a read-only RPC. Never publish to it directly.
 - Decide whether an exhausted branch fails the operation, or routes to a recovery Step that reports a failed result so the join still fires.
 
@@ -147,12 +145,8 @@ AcceptBids.execute(n, round)
 
 A cancelling join's round is never reset. Its canceled branches never report, so a forRemainingBranches wait for them would never finish. In a loop, the next round forks a new round directly; its round key keeps it apart from the old one.
 
-- The count passed to forRemainingBranches equals the count the join consumed: n, or 1 after forFirstBranch. It is the pattern's parameter, not a counter.
-- The next round's branches start only after the reset, so a round blocks the next one by construction. Enablement messages for the next round stay queued until then.
-- Results of one round never satisfy another round's join, even without a reset.
 - In a loop, reset every round whose other branches keep running. Without it, each round leaves its late results pending until the Flow closes. Never reset a cancelling join's round: its canceled branches never report, so the reset would wait forever. Fork the next round directly.
-- Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches. It does not reach later Steps of a multi-Step branch, which are not siblings; cancel those by Step type only when one round runs at a time. When an RPC forked the round with an explicit round key, its branches are siblings of every Step that this RPC name ever started, so cancel them explicitly by Step type instead.
-- A branch that reported before the cancel committed is complete, not canceled. Its result stays pending in the round.
+- Sibling Steps are the Steps that one decision started together. Fork starts the branches and the join together, so a sibling cancel selects exactly this round's branches, not the later Steps of a multi-Step branch. A round that an RPC forked needs an explicit cancel by Step type; see the [Join reference](https://docs.superdurable.io/reference/server/runtime-data#join).
 
 ### First-win parallel Steps
 
@@ -502,7 +496,7 @@ Map each control structure of a process to its Dex recipe. Each row states the r
 | Sequence | Execute returns GoTo to the next Step | Each Step is one commit. Split Steps by recovery boundary, not by line of code. |
 | Exclusive choice | Execute returns one GoTo, chosen from its input and Attributes | Execute picks exactly one branch. |
 | Parallel split | GoToMany | Each branch is its own Step execution and runs concurrently. A branch ends with DeadEnd or a closing decision. |
-| Fork and join | A Join's fork starts the branches and the join Step; each branch ends with endBranch; the join waits forAllBranches, forFirstBranch, or forBranches(n) | Fork starts the join with the branches; results reported before it waits still count. Every branch reports exactly one result on every exit path: success, early exit, and the failure recovery route. A canceled Step reports nothing and its failure route does not run, so a join that waits for every branch never fires. The canceller cannot report for it: Dex picks the cancel set at commit time, and the branch may already have reported. Cancel the join together with the branches, wait for the join and a Timer with AnyOf, or do not cancel branches the join counts. See [Await parallel Steps](#await-parallel-steps). |
+| Fork and join | A Join's fork starts the branches and the join Step; each branch ends with endBranch; the join waits forAllBranches, forFirstBranch, or forBranches(n) | Every branch reports exactly one result on every exit path: success, early exit, and the failure recovery route. A canceled Step reports nothing and its failure route does not run, so a join that waits for every branch never fires. Cancel the join together with the branches, wait for the join and a Timer with AnyOf, or do not cancel branches the join counts. See [Await parallel Steps](#await-parallel-steps). |
 | Several waiters for one event | One message per waiter | One message satisfies one wait. It is never copied to other waiting Steps. Use a ChannelMap with one key per waiter and publish to every key, or publish one message per waiter. |
 | First result of internal work | GoToMany of one Step type; the first to finish returns its result with a decision that cancels its sibling Steps | The sibling selector cancels executions of the same Step type started by the same parent. Losers must be safe to cancel or harmless to finish; cancellation does not undo an external effect. |
 | First external event wins | One Step waits AnyOf over one Channel per event and a Timer for the deadline | Only the winning Condition consumes. When several Channel Conditions are ready at once, the first declared wins. Execute checks the Timer explicitly, then the Channel results, and moves to one branch. |

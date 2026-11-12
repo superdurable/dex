@@ -24,17 +24,12 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 | AtLeastAtMost(min, max) | at least min are pending | from min up to max |
 
 - AtMost does not wait by itself. To wait for at least one message and take up to a limit, use AtLeastAtMost with a minimum of 1.
-- When several Steps wait on one Channel, Dex offers new messages to them in the order they started waiting. A Step whose wait needs more messages than are pending is skipped, and a later Step can take them. A Step that starts waiting while enough messages are pending takes them at once, even ahead of earlier waiters that need more.
-- So a ForN or AtLeast wait can wait forever while ForOne waits on the same Channel keep taking messages one at a time. Do not mix waits that need one message with waits that need several on one Channel; use a ChannelMap instance per consumer when they need different counts.
+- Give each Channel one kind of consumer. A wait for several messages can starve while waits for one message keep taking them. Use one ChannelMap instance per consumer when they need different counts. Waiter order is in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#channel-waiter-order).
 - Only the winning alternative of AnyOf or AnyCombinationOf consumes. See [step.md](step.md#waits-and-conditions).
 - In Execute, check that the Channel result is present before reading it. When another Condition won, nothing was consumed.
 - Consumed messages leave the queue. Publication and consumption remain visible only in the run's recent history window. Pending queue state is not history.
-- A wait consumes when it is satisfied, before Execute runs. If a decision or an RPC cancels the Step before its Execute commits, Dex returns the consumed messages to the front of their Channels or ChannelMap instances, in their original order. Another wait can take them in the same commit.
-- A canceled Execute attempt may already have seen a returned message, so another Step can receive it again. Make message processing idempotent, for example keyed by a business ID in the message.
-- Dex drops the consumed messages instead only when the Flow close itself cancels the Step: a StopFlow request, a Flow timeout, a failure that closes the Flow, or a decision that cancels the Step and closes the Flow with ForceComplete or ForceFail.
-- Every other cancellation returns the messages, even when the Flow then closes. A decision that cancels a Step and returns GracefulComplete closes the Flow when no other Step is active, and the returned messages stay pending in the closed run. Drain them before closing when they matter, for example with ForceCompleteIfChannelsEmpty.
-- When one Step method cancels a Step and publishes messages, the canceled Step never receives those messages. Dex applies the cancellations before it offers the new messages to waiting Steps.
-- The exception is a commit that also closes the Flow at once: ForceComplete, ForceFail, or a ForceCompleteIfChannelsEmpty that closes. A waiting Step can take the commit's publication, and the close then cancels that Step and drops the message. Do not publish work in the same result that force-closes the Flow if the work must survive.
+- A wait consumes when it is satisfied, before Execute runs. If a decision or an RPC cancels the Step before its Execute commits, Dex returns the consumed messages to the front of their Channels or ChannelMap instances, in their original order. Another wait can take them, so a message can reach Execute twice. Make message processing idempotent, for example keyed by a business ID in the message.
+- Dex drops the consumed messages only when the Flow close itself cancels the Step, such as a StopFlow request or a Flow timeout. Drain a Channel before a graceful close when its messages matter, for example with ForceCompleteIfChannelsEmpty. Do not publish work in the same result that force-closes the Flow (ForceComplete, ForceFail, or a closing ForceCompleteIfChannelsEmpty) if the work must survive. The exact cases, and what a canceling commit does with its own publications, are in the [Channel reference](https://docs.superdurable.io/reference/server/runtime-data#canceled-step-messages).
 - A Channel queue is not conversation history. Keep consumed messages in Attributes when the application must show or rebuild them.
 - Plan how externally published messages are drained before the Flow completes. See [patterns.md](patterns.md#drain-channels).
 
@@ -51,10 +46,10 @@ For a durable queue UI, expose a typed read-only RPC that loads the Channel and 
 
 ## Delete, move, or edit pending messages
 
-- Only a pending message can be deleted. Deleting a consumed or already deleted message from a transactional RPC, or directly from dexcli or Dex Web, returns the Channel-message-not-found error. From a Step or a non-transactional RPC it is a no-op.
+- Only a pending message can be deleted. A missing message fails a transactional RPC and is a no-op from a Step or a non-transactional RPC. See [Pending messages](https://docs.superdurable.io/reference/server/runtime-data#manage-pending-messages).
 - Steps and timeout handlers may delete a pending message in the same result as Attribute writes, publications, and a decision. A known message ID can be deleted without loading the envelope.
 - Deletion is a result side effect, not part of the Step decision. From a Step, deletion of an absent message is best effort and the other effects still apply.
-- Dex applies a successful handler's effects in this order: Attribute writes, then pending-message deletions, then publications, then the decision. Waiting Steps take the publications after the decision's cancellations, so no Step the decision cancels receives them.
+- Dex applies a successful handler's effects in this order: Attribute writes, then pending-message deletions, then publications, then the decision.
 - Editing a message means deleting it and publishing a replacement with a new ID. It does not rewrite history or conversation Attributes.
 
 Move or edit atomically with a transactional RPC:

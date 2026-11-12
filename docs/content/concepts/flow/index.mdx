@@ -218,7 +218,8 @@ A Flow closes in one of these ways:
 - a client stops it;
 - a new start with the same Flow ID terminates it. This happens only when the
   new start uses an ID reuse policy that terminates the running Flow. A SubFlow
-  started with `ALWAYS_RESTART` terminates an earlier child the same way.
+  restart can terminate an earlier child too. See
+  [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy).
 
 Instead of failing or canceling the Flow, a timeout can run a handler that
 decides the outcome. While the Flow runs, clients read and change it through

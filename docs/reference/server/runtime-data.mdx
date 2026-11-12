@@ -646,6 +646,13 @@ Retry after that error, with a backoff that suits the application. Make the RPC
 idempotent so that a retry is safe. Successful calls run one at a time under the
 same locks, so concurrent requests do not lose or duplicate updates.
 
+#### Lock order {#lock-order}
+
+Steps that wait for an Attribute lock get it in the order they started waiting.
+An RPC does not join that queue. When the lock is free, the RPC takes it ahead of
+the queued Steps. A steady stream of locked RPCs can therefore delay queued
+Steps for as long as the stream lasts. Keep locked RPCs short.
+
 ## RPCs {#rpcs}
 
 Language-specific RPC rules are in the SDK references: Java Flow classes and
@@ -1383,6 +1390,61 @@ messages as pending, so the Channel is not empty.
 
 Changed in 0.1.26: Dex dropped the consumed messages of every canceled Step.
 
+### Waiter order {#channel-waiter-order}
+
+When several Steps wait on one Channel, Dex offers each new message to them in
+the order they started waiting. A Step whose wait needs more messages than are
+pending is skipped, and a later Step can take them. A Step that starts waiting
+while enough messages are pending takes them at once, even ahead of earlier
+waiters that need more.
+
+A wait for several messages (**ForN**, **AtLeast**) can therefore wait forever
+while waits for one message (**ForOne**) on the same Channel keep taking the
+messages one at a time. Give each Channel one kind of consumer, or use one
+ChannelMap instance for each consumer when they need different counts.
+
+### Join {#join}
+
+A **Join** is a named ChannelMap that counts the results of the parallel
+branches one Step forks. Each fork starts one round and gives the branches and
+the join Step one round token: the round key and the branch count. See
+[Join parallel branches](/reference/go/waits#join) for the API of each language.
+
+- A fork takes its round key from the forking Step execution. A Step method can
+  fork one Join once. For a second independent join, define a second Join or use
+  an explicit round key. A fork with an explicit round key can run several times in
+  one method. Give each round a key that no other round of that Join in the Flow
+  run uses. An RPC has no Step execution, so an RPC forks with an explicit
+  round key.
+- A report commits with the method's result, so a retried branch reports once.
+  A result reported before the join Step waits still counts.
+- Results of one round never satisfy the join of another round.
+- A fork over an empty branch list is a round with no branches. A
+  **ForAllBranches** wait on it is satisfied at once. **ForFirstBranch** and
+  **ForBranches** on it fail the wait.
+- The join Step consumes results like any Channel wait. When a decision cancels
+  it after its wait matched, the results follow
+  [the canceled Step rule](#canceled-step-messages).
+- A canceled branch never reports and its failure route does not run. A branch
+  that reported before the cancel committed is complete, and its result stays
+  pending in the round. Dex picks the Steps to cancel at commit time, so no
+  canceller can report on behalf of a branch.
+- A decision that cancels sibling Steps selects the Steps that one decision
+  started together. Fork starts the branches and the join Step together, so the
+  siblings are exactly the branches of that round. They do not include the later
+  Steps of a multi-Step branch.
+- When an RPC forks a round with an explicit round key, the branches are siblings
+  of every Step that this RPC name ever started. Cancel them by Step type
+  instead.
+- **ForRemainingBranches** resets a round whose other branches keep running. Its
+  count equals the count the join consumed: n, or 1 after **ForFirstBranch**.
+  The next round's branches start only after the reset completes, so enablement
+  messages for the next round stay queued until then.
+  Without a reset, late results stay pending until the Flow closes.
+- A cancelling join's round is never reset, because its canceled branches never
+  report and the reset would wait forever. The next round forks a new round
+  directly. Its round key keeps it apart from the old one.
+
 ### Pending messages {#manage-pending-messages}
 
 Dex assigns a UUIDv7 message ID when it accepts each publication. A Step or RPC
@@ -1709,3 +1771,20 @@ running child or returns its final result, whatever the **ReusePolicy**. This
 makes a retry safe when Dex Server accepted the original start but the parent
 did not receive the response. With a different Request ID, Dex Server applies
 the selected **ReusePolicy** from the table.
+
+### Later parent runs and parent close {#subflow-parent-lifecycle}
+
+A later run of the same parent Flow ID generates the same SubFlow ID when it
+creates the same Step execution ID, which is the same Step type and counter, and
+uses the same condition index. Step execution counters start again in each run,
+so this is common. Dex treats that start as a repeated start under the
+**SubFlowReusePolicy**. With the default policy, the later run reuses the earlier
+run's running or completed child until Dex deletes that child.
+**ALWAYS_RESTART** starts a fresh child, but it terminates an old child that is
+still running. When both children must keep running, use a different parent Flow
+ID.
+
+A child keeps running when its parent Step is canceled or its parent Flow
+closes. Dex does not stop it. Stop it explicitly, or give it a Flow timeout. A
+child without a Flow timeout can wait forever when no Worker takes its Steps.
+
