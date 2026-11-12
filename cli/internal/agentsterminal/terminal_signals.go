@@ -249,12 +249,6 @@ func (command *suspendCommand) SetStdout(io.Writer) {}
 // SetStderr is unused: the command writes nothing.
 func (command *suspendCommand) SetStderr(io.Writer) {}
 
-func stopThisProcess() {
-	if err := syscall.Kill(os.Getpid(), syscall.SIGTSTP); err != nil {
-		debugLog("stop this process", err)
-	}
-}
-
 // isForegroundProcessGroup compares the terminal's foreground process group
 // with this process's group. A background process may ask this without
 // SIGTTOU.

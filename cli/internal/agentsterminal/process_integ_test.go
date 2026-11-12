@@ -97,15 +97,21 @@ func TestSuspendReleasesAndRetakesTheTerminal(t *testing.T) {
 		screen, _ := os.ReadFile(screenPath)
 		return strings.Contains(terminalEscapes.ReplaceAllString(string(screen), ""), "hello")
 	}, 10*time.Second, 50*time.Millisecond, "typing works after the resume")
+	screen, err := os.ReadFile(screenPath)
+	require.NoError(t, err)
+	// A stop signal caught again would release the terminal once more, and
+	// keys typed then would echo in cooked mode.
+	require.Equal(t, 1, strings.Count(string(screen[before:]), "\x1b[?1049l"), "one SIGTSTP releases the terminal once: %q", screen[before:])
 	_, err = keys.Write([]byte("\x15\x04"))
 	require.NoError(t, err)
 	select {
 	case err := <-hostDone:
-		require.NoError(t, err, "host stderr: %s", hostStderr.String())
 		requireNoRaceReports(t, filepath.Join(stateDirectory, "race"))
+		require.NoError(t, err, "host stderr: %s", hostStderr.String())
 	case <-time.After(20 * time.Second):
 		require.NoError(t, host.Process.Kill())
-		t.Fatal("dexcli did not exit")
+		screen, _ := os.ReadFile(screenPath)
+		t.Fatalf("dexcli did not exit; frame:\n%s\nafter the stop: %q", strings.Join(terminalFrame(string(screen), 100, 30), "\n"), screen[before:])
 	}
 }
 
