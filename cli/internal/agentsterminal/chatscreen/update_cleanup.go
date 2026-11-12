@@ -31,6 +31,17 @@ func replaceUpdateControlCharacters(update sessionfeed.SessionUpdate) sessionfee
 	case sessionfeed.UserMessageRejected:
 		typed.Text, typed.Reason = manyLines(typed.Text), oneLine(typed.Reason)
 		return typed
+	case sessionfeed.EarlierMessagesRead:
+		typed.SessionID, typed.FailureText = oneLine(typed.SessionID), oneLine(typed.FailureText)
+		messages := make([]sessionfeed.SessionUpdate, 0, len(typed.Messages))
+		for _, message := range typed.Messages {
+			switch message.(type) {
+			case sessionfeed.UserMessageRecorded, sessionfeed.AssistantMessageRecorded, sessionfeed.ToolCallChanged:
+				messages = append(messages, replaceUpdateControlCharacters(message))
+			}
+		}
+		typed.Messages = messages
+		return typed
 	case sessionfeed.ImageAttached:
 		typed.Attachment = cleanAttachments([]sessionfeed.ImageAttachment{typed.Attachment})[0]
 		return typed
@@ -98,18 +109,24 @@ func cleanToolCall(call sessionfeed.ToolCallChanged) sessionfeed.ToolCallChanged
 		outputTail[index] = oneLine(line)
 	}
 	call.OutputTail = outputTail
+	call.Arguments = cleanArguments(call.Arguments)
+	call.OutputText = manyLines(call.OutputText)
 	return call
+}
+
+func cleanArguments(arguments []sessionfeed.ApprovalArgument) []sessionfeed.ApprovalArgument {
+	cleaned := make([]sessionfeed.ApprovalArgument, len(arguments))
+	for index, argument := range arguments {
+		cleaned[index] = sessionfeed.ApprovalArgument{Name: oneLine(argument.Name), Value: manyLines(argument.Value)}
+	}
+	return cleaned
 }
 
 func cleanApproval(approval sessionfeed.ApprovalRequested) sessionfeed.ApprovalRequested {
 	approval.ToolName, approval.SourceLabel = oneLine(approval.ToolName), oneLine(approval.SourceLabel)
 	approval.ScopeLabel, approval.EffectLabel = oneLine(approval.ScopeLabel), oneLine(approval.EffectLabel)
 	approval.EffectSummary = oneLine(approval.EffectSummary)
-	arguments := make([]sessionfeed.ApprovalArgument, len(approval.Arguments))
-	for index, argument := range approval.Arguments {
-		arguments[index] = sessionfeed.ApprovalArgument{Name: oneLine(argument.Name), Value: manyLines(argument.Value)}
-	}
-	approval.Arguments = arguments
+	approval.Arguments = cleanArguments(approval.Arguments)
 	if approval.Preview != nil {
 		preview := *approval.Preview
 		preview.Path = oneLine(preview.Path)

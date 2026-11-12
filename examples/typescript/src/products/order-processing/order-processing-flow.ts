@@ -51,8 +51,8 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 
   public constructor(public readonly service: MyDependencyService) {
     this.refund = new Refund(service);
-    this.ship = new Ship(service, this.refund);
-    this.charge = new Charge(service, this.ship);
+    this.ship = new Ship(service);
+    this.charge = new Charge(service);
   }
 
   public getFlowType(): string {
@@ -85,10 +85,7 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 class Charge implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(
-    private readonly service: MyDependencyService,
-    private readonly ship: Ship,
-  ) {}
+  public constructor(private readonly service: MyDependencyService) {}
 
   public getStepType(): string {
     return "Charge";
@@ -97,14 +94,14 @@ class Charge implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
+        // One hour in production; 3 seconds keeps the demo short.
         totalDurationMs: 3_000,
       },
     };
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.service.chargeUser(input.email, input.customerId, input.amount);
+    this.service.chargeUser(input.email, input.customerId, input.amount, `charge-${input.orderId}`);
     orderStatus.set(context, "charged");
     return goTo(Ship, input);
   }
@@ -113,10 +110,7 @@ class Charge implements Step<OrderRequest> {
 class Ship implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(
-    private readonly service: MyDependencyService,
-    private readonly refund: Refund,
-  ) {}
+  public constructor(private readonly service: MyDependencyService) {}
 
   public getStepType(): string {
     return "Ship";
@@ -125,12 +119,12 @@ class Ship implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
+        // One hour in production; 3 seconds keeps the demo short.
         totalDurationMs: 3_000,
       },
       executeFailure: ExecuteFailure.proceedTo(Refund, {
         executeRetry: {
-          // totalDurationMs: 60 * 60 * 1000,
+          // One hour in production; 3 seconds keeps the demo short.
           totalDurationMs: 3_000,
         },
       }),
@@ -150,7 +144,7 @@ class Ship implements Step<OrderRequest> {
       );
       return goTo(Ship, input);
     }
-    this.service.shipItem(input.orderId, input.testFailAtShipping);
+    this.service.shipItem(input.orderId, input.testFailAtShipping, `ship-${input.orderId}`);
     orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }
@@ -166,7 +160,7 @@ class Refund implements Step<OrderRequest> {
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.service.updateExternalSystem(`refund ${input.orderId}`);
+    this.service.updateExternalSystem(`refund ${input.orderId}`, `refund-${input.orderId}`);
     orderStatus.set(context, "refunded");
     return gracefulComplete(`refunded:${input.orderId}`);
   }

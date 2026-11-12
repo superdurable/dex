@@ -51,20 +51,24 @@ seller_ok = Channel[str]("seller-ok", str)
 # dex:group group-id:payment group-label:"Payment"
 # dex:explanation text:"Charge the customer for the order."
 class Charge(Step[OrderRequest]):
-    def __init__(self, service: MyDependencyService, ship: Ship) -> None:
+    def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.ship = ship
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
+                # One hour in production; 3 seconds keeps the demo short.
                 total_duration=timedelta(seconds=3),
             )
         )
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
-        self.service.charge_user(input.email, input.customer_id, input.amount)
+        self.service.charge_user(
+            input.email,
+            input.customer_id,
+            input.amount,
+            idempotency_key=f"charge-{input.order_id}",
+        )
         order_status.set(context, "charged")
         return go_to(Ship, input)
 
@@ -72,21 +76,20 @@ class Charge(Step[OrderRequest]):
 # dex:group group-id:shipping group-label:"Shipping"
 # dex:explanation text:"Wait for seller approval, remind after 24 hours, then ship the order."
 class Ship(Step[OrderRequest]):
-    def __init__(self, service: MyDependencyService, refund: Refund) -> None:
+    def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.refund = refund
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
+                # One hour in production; 3 seconds keeps the demo short.
                 total_duration=timedelta(seconds=3),
             )
         ).on_execute_failure_proceed_to(
             Refund,
             StepOptions(
                 execute_retry=RetryPolicy(
-                    # total_duration=timedelta(hours=1),
+                    # One hour in production; 3 seconds keeps the demo short.
                     total_duration=timedelta(seconds=3),
                 )
             ),
@@ -106,7 +109,11 @@ class Ship(Step[OrderRequest]):
                 "Please approve or provide a tracking number.",
             )
             return go_to(Ship, input)
-        self.service.ship_item(input.order_id, input.test_fail_at_shipping)
+        self.service.ship_item(
+            input.order_id,
+            input.test_fail_at_shipping,
+            idempotency_key=f"ship-{input.order_id}",
+        )
         order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 
@@ -118,7 +125,9 @@ class Refund(Step[OrderRequest]):
         self.service = service
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
-        self.service.update_external_system(f"refund {input.order_id}")
+        self.service.update_external_system(
+            f"refund {input.order_id}", idempotency_key=f"refund-{input.order_id}"
+        )
         order_status.set(context, "refunded")
         return graceful_complete(f"refunded:{input.order_id}")
 
@@ -127,8 +136,8 @@ class OrderProcessingFlow(Flow[OrderRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
         self.refund = Refund(service)
-        self.ship = Ship(service, self.refund)
-        self.charge = Charge(service, self.ship)
+        self.ship = Ship(service)
+        self.charge = Charge(service)
 
     def get_steps(self) -> StepList[OrderRequest]:
         return StepList.start_step(self.charge).other_steps(self.ship, self.refund)

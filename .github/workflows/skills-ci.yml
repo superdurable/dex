@@ -9,18 +9,17 @@ on:
       - 'docs/content/components/**'
       - 'docs/content/design-patterns/**'
       - '.github/workflows/skills-ci.yml'
-  push:
-    branches:
-      - main
-    paths:
-      - 'skills/**'
-      - 'docs/content/concepts/**'
-      - 'docs/content/components/**'
-      - 'docs/content/design-patterns/**'
-      - '.github/workflows/skills-ci.yml'
+  workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
+
+# Only pull request runs share a group, so superseded PR commits cancel; main and release runs never do.
+concurrency:
+  group: skills-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package:

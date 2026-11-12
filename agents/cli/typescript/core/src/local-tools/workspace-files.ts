@@ -7,7 +7,17 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { createHash } from "node:crypto";
-import { constants, type Dirent, type Stats } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+  type Dirent,
+  type Stats,
+} from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, type FileHandle } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -24,6 +34,14 @@ const noFollowFlag = constants.O_NOFOLLOW ?? 0;
 // Opening a FIFO or device for reading must not block before its type is checked; Windows has no such flag.
 const nonBlockingOpenFlag = process.platform === "win32" ? 0 : (constants.O_NONBLOCK ?? 0);
 const readChunkBytes = 64 * 1024;
+
+/** A file's workspace path and its current text, for an approval preview; `text` is `null` for a new file. */
+export interface WorkspaceFilePreviewSource {
+  /** The path relative to the workspace, as the tool results show it. */
+  readonly displayPath: string;
+  /** The file's UTF-8 text now, or `null` when no file has the path yet. */
+  readonly text: string | null;
+}
 
 /**
  * A file operation that {@link WorkspaceFiles} refused before it changed anything: a path outside the workspace or
@@ -194,6 +212,97 @@ export class WorkspaceFiles {
     }
     const target = await this.replaceFile(path, text.replace(oldText, () => newText), false, readVersion);
     return `edited ${this.displayPath(target)}: replaced 1 occurrence`;
+  }
+
+  /**
+   * Reads the file a `write_file` or `edit_file` call would replace, for its approval preview, without waiting. It
+   * follows the write's own checks: the directory resolves inside the workspace, the name itself is not a link and
+   * names a regular file with one link, or no file yet. The opened file must be the one the name held before and
+   * after the open, and the directory must still resolve to itself, so a path swapped during the read gives no text.
+   * The model call runs it, so it never throws.
+   * @param path - The file.
+   * @param maximumBytes - The largest file to read.
+   * @returns The workspace path and the text, `text` `null` for a new file, or `undefined` when the write would refuse
+   * the path, the file is larger than `maximumBytes` or not UTF-8, anything changed during the read, or it fails.
+   */
+  public readTextForPreview(path: string, maximumBytes: number): WorkspaceFilePreviewSource | undefined {
+    if (typeof path !== "string" || path === "" || path.includes("\0")) {
+      return undefined;
+    }
+    const candidate = resolve(this.workspace, path);
+    if (candidate === this.workspace) {
+      return undefined;
+    }
+    const directory = this.previewDirectory(dirname(candidate));
+    if (directory === undefined) {
+      return undefined;
+    }
+    const target = join(directory.path, basename(candidate));
+    if (!directory.exists) {
+      return { displayPath: this.displayPath(target), text: null };
+    }
+    let before: Stats;
+    try {
+      before = lstatSync(target);
+    } catch (error: unknown) {
+      const isMissing = (error as NodeJS.ErrnoException).code === "ENOENT";
+      return isMissing ? { displayPath: this.displayPath(target), text: null } : undefined;
+    }
+    if (!before.isFile() || before.nlink > 1 || before.size > maximumBytes) {
+      return undefined;
+    }
+    let descriptor: number;
+    try {
+      descriptor = openSync(target, constants.O_RDONLY | noFollowFlag | nonBlockingOpenFlag);
+    } catch {
+      return undefined;
+    }
+    try {
+      const opened = fstatSync(descriptor);
+      if (!isSameFile(before, opened) || !opened.isFile() || opened.nlink > 1 || opened.size > maximumBytes) {
+        return undefined;
+      }
+      const buffer = Buffer.alloc(maximumBytes + 1);
+      const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0);
+      const after = lstatSync(target);
+      if (bytesRead > maximumBytes || !isSameFile(opened, after) || realpathSync.native(directory.path) !== directory.path) {
+        return undefined;
+      }
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
+      return { displayPath: this.displayPath(target), text };
+    } catch {
+      return undefined;
+    } finally {
+      closeSync(descriptor);
+    }
+  }
+
+  /**
+   * The directory a write would put the file in: its real path when it exists inside the workspace, or the path it
+   * would get when the write creates it below an existing directory inside. `undefined` when it would leave.
+   */
+  private previewDirectory(directory: string): { readonly path: string; readonly exists: boolean } | undefined {
+    let ancestor = directory;
+    for (;;) {
+      let realAncestor: string;
+      try {
+        realAncestor = realpathSync.native(ancestor);
+      } catch {
+        if (ancestor === dirname(ancestor)) {
+          return undefined;
+        }
+        ancestor = dirname(ancestor);
+        continue;
+      }
+      if (!this.isInside(realAncestor)) {
+        return undefined;
+      }
+      if (ancestor === directory) {
+        return lstatSync(realAncestor).isDirectory() ? { path: realAncestor, exists: true } : undefined;
+      }
+      const resolved = join(realAncestor, relative(ancestor, directory));
+      return this.isInside(resolved) ? { path: resolved, exists: false } : undefined;
+    }
   }
 
   /**
@@ -646,6 +755,10 @@ async function readAtMost(handle: FileHandle, maximumBytes: number): Promise<Buf
       return undefined;
     }
   }
+}
+
+function isSameFile(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
 }
 
 function sha256Of(bytes: Buffer): string {

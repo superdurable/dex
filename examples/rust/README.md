@@ -58,6 +58,8 @@ these with `DEX_SERVER_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and
 
 Worker routing is automatic. Clients do not configure Worker targets.
 
+The [Quick Start](./quick-start/) is a separate Cargo package with the code for the docs Quick Start: charge, wait on a Timer, then ship.
+
 ## Products
 
 Every shared product example has a distinct Rust Flow and implementation file.

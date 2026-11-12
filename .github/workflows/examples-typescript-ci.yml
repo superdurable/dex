@@ -1,25 +1,21 @@
 name: TypeScript examples CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "examples/typescript/**"
-      - "examples/entity-store/**"
-      - ".github/workflows/examples-typescript-ci.yml"
   pull_request:
     paths:
       - "examples/typescript/**"
       - "examples/entity-store/**"
       - ".github/workflows/examples-typescript-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: examples-typescript-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: examples-typescript-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality:
@@ -37,6 +33,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             examples/typescript/package-lock.json
+            examples/typescript/quick-start/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Verify published SDK dependency
@@ -59,6 +56,12 @@ jobs:
             exit 1
           fi
       - name: Typecheck
+        run: npm run typecheck
+      - name: Install Quick Start example dependencies
+        working-directory: examples/typescript/quick-start
+        run: npm ci
+      - name: Typecheck Quick Start example
+        working-directory: examples/typescript/quick-start
         run: npm run typecheck
       - name: Unit tests
         run: npm test
@@ -100,6 +103,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             examples/typescript/package-lock.json
+            examples/typescript/quick-start/package-lock.json
             web/package-lock.json
       - uses: actions/setup-go@v7
         with:
@@ -108,6 +112,9 @@ jobs:
             cli/go.sum
             web/go.sum
       - name: Install dependencies
+        run: npm ci
+      - name: Install Quick Start example dependencies
+        working-directory: examples/typescript/quick-start
         run: npm ci
       - name: Integration tests with dexcli dev
         run: ./run-integration-tests.sh

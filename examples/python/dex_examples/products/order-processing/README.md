@@ -7,8 +7,8 @@ With the sample server running:
 
 ```text
 http://localhost:8080/products/order-processing/start
-http://localhost:8080/products/order-processing/approve?workflowId=<flowID>
-http://localhost:8080/products/order-processing/describe?workflowId=<flowID>
+http://localhost:8080/products/order-processing/approve?flowId=<flowID>
+http://localhost:8080/products/order-processing/describe?flowId=<flowID>
 ```
 
 Start returns after ChargeStep completes. Pass `testFailAtShipping=true` on start to

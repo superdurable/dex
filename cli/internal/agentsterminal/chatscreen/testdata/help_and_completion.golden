@@ -6,9 +6,11 @@
   Shift-Enter  new line (also Alt-Enter, Ctrl-J)
   Ctrl-C       cancel the turn; again to exit
   Ctrl-D       exit (empty input)
-  Tab          complete a /command; on empty input, focus waiting approvals and
-               queued messages
+  Tab          complete a /command or an /image path; on empty input, focus
+               waiting approvals and queued messages
   Up/Down      recall earlier messages
+  Ctrl-O       open the last tool's full output
+  PgUp/PgDn    scroll the messages; End follows new ones
   F1           show this help
 
   ␛[1;94mCommands␛[m
@@ -17,9 +19,7 @@
   /drop        delete the last queued message
   /exit        exit; the session stays in Dex
   /help        list keys and commands
-  /image PATH  attach an image to the next message
-  /model ID    change the model
-  /steer       steer the last queued message into the turn
+  /history     read earlier messages of this session
 ␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
  ␛[34m›␛[m ␛[2mType a message. /image attaches a picture, /help lists commands.␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m

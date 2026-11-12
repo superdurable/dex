@@ -41,7 +41,7 @@ const waitOptions = { timeoutMs: 90_000 };
 class CancelCountingOrderDesk extends OrderDesk {
   public cancelCallCount = 0;
 
-  public override cancelOrder(orderId: string, reason: string): string {
+  public override async cancelOrder(orderId: string, reason: string): Promise<string> {
     this.cancelCallCount += 1;
     return super.cancelOrder(orderId, reason);
   }
@@ -110,14 +110,14 @@ export function registerOrderSupportScenarios(setup: OrderSupportScenarioSetup):
   // Runs before the approved cancellation, while order 1002 is still processing.
   test(`${setup.harnessName}: a rejected cancellation never runs`, async () => {
     // An approval here would cancel the order, so the rejection is what keeps the count at 0.
-    assert.equal(orderDesk.describeOrder("1002"), "Order 1002: 1 desk lamp, processing.");
+    assert.equal(await orderDesk.describeOrder("1002"), "Order 1002: 1 desk lamp, processing.");
     const session = await startSession("Please cancel order 1002");
     const interrupt = await waitForApproval(session);
     const rejection = await post(session, `interrupts/${interrupt.interrupt_id}/reject`, { reason: "keep the order" });
     assert.equal(rejection.status, 200);
     await sessions.waitForCompletedTurns(session.sessionId, 1, waitOptions);
     assert.equal(orderDesk.cancelCallCount, 0);
-    assert.equal(orderDesk.describeOrder("1002"), "Order 1002: 1 desk lamp, processing.");
+    assert.equal(await orderDesk.describeOrder("1002"), "Order 1002: 1 desk lamp, processing.");
     // The model reads the rejection reason as the call's result.
     const reply = lastAssistantText(await sessions.getAgentSnapshot(session.sessionId));
     assert.ok(reply.startsWith(scriptedReplyPrefix) && reply.includes("keep the order"), reply);

@@ -90,9 +90,55 @@ jobs:
           echo "Changed-component releases can run only from main" >&2
           exit 1
 
+  # Each selected component's suite runs on this exact commit before any release is created.
+  test-go:
+    name: Test Go SDK
+    needs: plan
+    if: needs.plan.outputs.go == 'true'
+    uses: ./.github/workflows/sdk-go-ci.yml
+  test-java:
+    name: Test Java SDK
+    needs: plan
+    if: needs.plan.outputs.java == 'true'
+    uses: ./.github/workflows/sdk-java-ci.yml
+  test-python:
+    name: Test Python SDK
+    needs: plan
+    if: needs.plan.outputs.python == 'true'
+    uses: ./.github/workflows/sdk-python-ci.yml
+  test-rust:
+    name: Test Rust SDK
+    needs: plan
+    if: needs.plan.outputs.rust == 'true'
+    uses: ./.github/workflows/sdk-rust-ci.yml
+  test-typescript:
+    name: Test TypeScript SDK
+    needs: plan
+    if: needs.plan.outputs.typescript == 'true'
+    uses: ./.github/workflows/sdk-typescript-ci.yml
+  test-web:
+    name: Test Dex Web
+    needs: plan
+    if: needs.plan.outputs.web == 'true'
+    uses: ./.github/workflows/web-ci.yml
+  test-cli:
+    name: Test CLI
+    needs: plan
+    if: needs.plan.outputs.cli == 'true'
+    uses: ./.github/workflows/cli-ci.yml
+  test-agents:
+    name: Test agents packages
+    needs: plan
+    if: needs.plan.outputs.agents == 'true'
+    uses: ./.github/workflows/agents-ci.yml
+
   create-releases:
     name: Create selected releases
-    needs: plan
+    needs: [plan, test-go, test-java, test-python, test-rust, test-typescript, test-web, test-cli, test-agents]
+    # A skipped suite belongs to a component this run does not release.
+    if: >-
+      !cancelled() && needs.plan.result == 'success'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -172,10 +218,11 @@ jobs:
     name: Push released reference snapshots
     needs: [plan, create-releases]
     if: >-
+      !cancelled() && needs.create-releases.result == 'success' && (
       needs.plan.outputs.go == 'true' || needs.plan.outputs.python == 'true' ||
       needs.plan.outputs.java == 'true' || needs.plan.outputs.typescript == 'true' ||
       needs.plan.outputs.rust == 'true' || needs.plan.outputs.web == 'true' ||
-      needs.plan.outputs.cli == 'true' || needs.plan.outputs.agents == 'true'
+      needs.plan.outputs.cli == 'true' || needs.plan.outputs.agents == 'true')
     # A snapshot failure must never fail the release run.
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -258,39 +305,46 @@ jobs:
             echo "The release is unaffected. Run the snapshot from docs/README.md by hand and open its pull request."
           } >> "${GITHUB_STEP_SUMMARY}"
 
+  # Skipped test-* jobs of unselected components would otherwise skip every job after create-releases.
   publish-java:
     name: Publish Java SDK
     needs: [plan, create-releases]
-    if: needs.plan.outputs.java == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.java == 'true' }}
     uses: ./.github/workflows/sdk-java-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
     secrets: inherit
 
   publish-python:
     name: Publish Python SDK
     needs: [plan, create-releases]
-    if: needs.plan.outputs.python == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.python == 'true' }}
     uses: ./.github/workflows/sdk-python-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
       publish: true
     secrets: inherit
 
   publish-rust:
     name: Publish Rust SDK
     needs: [plan, create-releases]
-    if: needs.plan.outputs.rust == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.rust == 'true' }}
     uses: ./.github/workflows/sdk-rust-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
       publish: true
     secrets: inherit
 
   publish-typescript:
     name: Publish TypeScript SDK
     needs: [plan, create-releases]
-    if: needs.plan.outputs.typescript == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.typescript == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -302,23 +356,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          TYPESCRIPT_TAG: ${{ needs.plan.outputs.typescript_tag }}
         run: |
           title="Publish TypeScript SDK ${RELEASE_VERSION}"
+          list_matching_run_ids() {
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow sdk-typescript-publish.yml \
+              --event workflow_dispatch \
+              --commit "${GITHUB_SHA}" \
+              --limit 50 \
+              --json databaseId,displayTitle |
+              jq -c --arg title "${title}" '[.[] | select(.displayTitle == $title) | .databaseId]'
+          }
+          # Earlier runs with the same title, such as dry runs of this commit, are never the new run.
+          existing_run_ids="$(list_matching_run_ids)"
+          # On the new tag, the publisher tests and builds the released commit even if main moves on.
           gh workflow run sdk-typescript-publish.yml \
             --repo "${GITHUB_REPOSITORY}" \
-            --ref main \
+            --ref "${TYPESCRIPT_TAG}" \
             -f "version=${RELEASE_VERSION}"
           for _ in {1..30}; do
-            run_id="$({
-              gh run list \
-                --repo "${GITHUB_REPOSITORY}" \
-                --workflow sdk-typescript-publish.yml \
-                --event workflow_dispatch \
-                --branch main \
-                --limit 20 \
-                --json databaseId,displayTitle
-            } | jq -r --arg title "${title}" \
-              '.[] | select(.displayTitle == $title) | .databaseId' | head -n 1)"
+            run_id="$(list_matching_run_ids | jq -r --argjson existing "${existing_run_ids}" \
+              '.[] | select(. as $id | $existing | index($id) | not)' | head -n 1)"
             if [[ -n "${run_id}" ]]; then
               echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
               exit 0
@@ -337,7 +397,7 @@ jobs:
   publish-agents:
     name: Publish ${{ matrix.publisher.name }}
     needs: [plan, create-releases]
-    if: needs.plan.outputs.agents == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.agents == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -404,29 +464,35 @@ jobs:
   publish-web:
     name: Publish Dex Web
     needs: [plan, create-releases]
-    if: needs.plan.outputs.web == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.web == 'true' }}
     uses: ./.github/workflows/docker-image-web-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
     secrets: inherit
 
   # Runs after create-releases, so an sdk-go release in the same run is the version the module requires.
   publish-web-embedded:
     name: Publish embedded Dex Web Go module
     needs: [plan, create-releases]
-    if: needs.plan.outputs.web == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.web == 'true' }}
     uses: ./.github/workflows/web-embedded-module-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
     secrets: inherit
 
   publish-cli:
     name: Publish CLI
     needs: [plan, create-releases]
-    if: needs.plan.outputs.cli == 'true'
+    if: ${{ !cancelled() && needs.create-releases.result == 'success' && needs.plan.outputs.cli == 'true' }}
     uses: ./.github/workflows/cli-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
       publish: true
     secrets: inherit
 

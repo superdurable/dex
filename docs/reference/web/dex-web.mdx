@@ -20,16 +20,16 @@ dex-web --flow-service-address 127.0.0.1:8801
 
 Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The **superdurable/dex-web**
 container image runs the same binary. It binds to **0.0.0.0:8802**, runs as UID
-and GID 65532, and includes the system CA bundle. Each push to the main branch
-publishes **superdurable/dex-web:latest**, and each **web/vX.Y.Z** release
-publishes **superdurable/dex-web:vX.Y.Z**. Mount Flow Definition Graph
-directories and token files read-only, with permissions that let that UID read
-them.
+and GID 65532, and includes the system CA bundle. Each **web/vX.Y.Z** release
+publishes **superdurable/dex-web:vX.Y.Z**. Pushes to the main branch no longer
+publish **superdurable/dex-web:latest**; run a release tag instead. Mount Flow
+Definition Graph directories and token files read-only, with permissions that
+let that UID read them. Replace **vX.Y.Z** below with a released version.
 
 ~~~bash
 docker run --rm -p 8802:8802 \
   -e DEX_WEB_FLOW_SERVICE_ADDRESS=host.docker.internal:8801 \
-  superdurable/dex-web:latest
+  superdurable/dex-web:vX.Y.Z
 ~~~
 
 Every setting accepts a flag or an environment variable. A flag overrides its
