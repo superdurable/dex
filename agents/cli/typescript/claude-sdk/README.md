@@ -58,6 +58,12 @@ adds approval by tool name, Claude Code reads no settings files, and the tool St
 call again on the Worker that runs it. These tools run inside the Claude Code
 CLI, so a Worker that dies during a turn segment can run one of them twice.
 
+The command uses only these Claude Code tools, the CLI core's browser tools,
+and the connector tools. It loads no MCP servers and no claude.ai connectors
+from your Claude Code configuration or login, such as a workspace `.mcp.json`
+or the Gmail connector of a claude.ai account. External tools come only from
+the Dex connectors, which Dex approves and records as Steps.
+
 ## Images
 
 `/image <path>` attaches an image file to the next message. The command gives

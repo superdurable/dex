@@ -12,6 +12,7 @@ one file gives the same agent in either language.
 | [`examples/`](examples) | Example configuration files; the tests validate each one |
 | [`../conformance/cli_config.json`](../conformance/cli_config.json) | Cases every CLI core must pass |
 | [`tests/`](tests) | The schema and conformance checks, with a test-only reference resolver |
+| [`TERMINAL_UI_CONTRACT.md`](TERMINAL_UI_CONTRACT.md) | Contract 1 between a command and the `dexcli agents-tui` terminal UI, with its schemas and conformance cases |
 
 ## The configuration file
 
@@ -56,7 +57,7 @@ claude: {}
 | `connectors.mcp` | `auto` | The connectors MCP server. `auto` uses the one `dexcli dev` provides. Otherwise an `http` or `https` URL on `127.0.0.1`, `localhost`, or `[::1]`. See URLs below. |
 | `connectors.enabled` | every authorized connection | Which connections, and which of their operations, the agent may call. See below. |
 | `approval.always` | `[]` | Tool names, as the agent sees them, whose every call waits for approval. This adds to what the connectors and local tools already require. |
-| `workspace` | `~/dex-agent-workspace` | The only directory the local file tools use, and the working directory of shell commands. |
+| `workspace` | `~/dex-agent-workspace`; for `dex-agents-pi`, the directory the command starts in | The only directory the local file tools use, and the working directory of shell commands. |
 | `local_tools.files` | `true` | Read, write, list, and search files in `workspace`. Reads run at once; writes wait for approval. |
 | `local_tools.shell.enabled` | `true` | Run shell commands in `workspace`. Each command waits for approval unless the allow list has it. |
 | `local_tools.shell.allow` | `[]` | Commands that run without approval. A command matches only when its whole text equals an entry. `ls -la` does not match `ls`. |
@@ -66,10 +67,18 @@ claude: {}
 | `media.endpoint` | none (AWS S3) | The `http` or `https` URL of an S3-compatible service, such as `http://127.0.0.1:9000`. Only valid with an `s3://` store. It follows the URL rules of `dex.server`. |
 | `claude`, `openai`, `pydantic_ai`, `deepagents`, `google_adk`, `vercel_ai`, `mastra`, `pi`, `builtin` | `{}` | Options of one harness. Each command defines its own section's fields and ignores the other sections. |
 
+`dex-agents-deepagents` keeps Deep Agents' own file and shell tools. As in
+Deep Agents, they run without approval unless `approval.always` names them;
+see [its README](python/deepagents/README.md#deep-agents-tools-in-dex).
+
 Other keys are errors, and `null` is never a valid value: omit the field to
 take its default. In `system_prompt_file` and `workspace`, a leading `~` is the
 home directory and a relative path is relative to the file's directory. The
 command expands them when it uses them.
+
+`dex-agents-pi` keeps Pi's own file and shell tools, which have no workspace
+boundary. As in Pi, they run without approval unless `approval.always` names
+them; see [its README](typescript/pi/README.md#tools-and-approvals).
 
 Do not put secrets in the file. Provider keys come from the environment.
 Connector credentials stay in the connections you authorize in Dex Web. The
@@ -196,3 +205,61 @@ reference resolver. Agents CI runs it through `tests/ci.sh`:
 ```bash
 agents/cli/tests/ci.sh
 ```
+
+## Terminal UI contract
+
+[`TERMINAL_UI_CONTRACT.md`](TERMINAL_UI_CONTRACT.md) specifies how a command
+hands its chat to `dexcli agents-tui`: version negotiation, the launch
+document, the channel, local requests, and redaction. Its cases are in
+[`../conformance/terminal_ui/`](../conformance/terminal_ui), and
+`tests/terminal_ui_contract_host.py` plays either side for tests. No released
+command uses it yet.
+
+## Local end-to-end check
+
+`dex-agents-cli-e2e` runs every agent CLI command, and the agent harness
+examples, against a local mock model API and a local `dexcli dev`. No
+provider key is needed. It is not part of CI.
+
+```bash
+cd agents/cli/python/testing
+uv sync --locked
+uv run --frozen dex-agents-cli-e2e                       # local build of this checkout
+uv run --frozen dex-agents-cli-e2e --source published    # the published 0.5.0 packages
+uv run --frozen dex-agents-cli-e2e --suite commands --only py-openai-sdk,ts-pi --seed-hacker-news
+```
+
+- **Builds.** By default it builds each command from `--checkout`, this
+  checkout unless set, as the command's `ci.sh` does: `uv sync --locked`
+  for Python and `npm ci` and `npm run build` for TypeScript, with the
+  agent libraries and CLI core from the same checkout. `--source published`
+  installs the release wheels of `--published-version` and the npm packages
+  instead.
+- **Model API.** `dex-agents-mock-model-api` serves the OpenAI Responses
+  and Chat Completions APIs, the Anthropic Messages API, and the Gemini API
+  on one port of 127.0.0.1. It accepts any model name. Replies come from a
+  JSON or YAML scenario keyed by the turn's prompt and the step within the
+  turn, and every request goes to a JSONL log with credentials redacted.
+  Each command reaches it through its documented variables:
+  `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, or
+  `pi.provider_base_urls`.
+- **Command suite.** Each command reads a workspace file, writes a file
+  after approval, has a write rejected, runs an allowed shell command and
+  one that asks, calls the Hacker News `list_story_ids` connector operation
+  when a connection is authorized, exits, and resumes the session. It checks
+  the terminal, the workspace, the mock's request log, and the session in
+  the Dex server: its namespaced Flow type, messages, tool records, and
+  uploaded session graph.
+- **Framework suite.** The order support agent of each framework example
+  looks up an order, cancels one after approval, and has a cancellation
+  rejected in a second session, through the example's HTTP session routes.
+- **Dex server.** It starts a private `dexcli dev` on free ports, with its
+  own home, zd data directory, and connector configuration directory, and
+  stops it at the end. No session or connector call reaches another server.
+  `--seed-hacker-news` gives that server a Hacker News connection for the
+  connector step; without one, the step is skipped. `--reuse-server
+  http://127.0.0.1:8802` uses a running `dexcli dev` instead, with its
+  sessions and authorized connections; the run never stops it.
+
+Builds, private homes, terminal transcripts, request logs, and the report
+go to `--work-dir`. The exit code is 1 when a step failed.

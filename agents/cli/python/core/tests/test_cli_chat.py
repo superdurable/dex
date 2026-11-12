@@ -17,7 +17,7 @@ import os
 import re
 import signal
 import socket
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +43,16 @@ async def read_session_id(child: pexpect.spawn) -> str:
     match = child.match
     assert match is not None
     return str(match.group(1))
+
+
+def assert_session_id_names_the_harness_and_utc_start(
+    session_id: str, spawned_at: datetime
+) -> None:
+    # Same shape as the TypeScript CLI core: <harness>-<UTC yyyymmdd-HHMMSS>-<6 hex>.
+    match = re.fullmatch(r"scripted-(\d{8}-\d{6})-[0-9a-f]{6}", session_id)
+    assert match is not None, session_id
+    started_at = datetime.strptime(match.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
+    assert spawned_at <= started_at <= datetime.now(UTC), (session_id, spawned_at)
 
 
 async def count_executed_steps(cli_home: CliHome, session_id: str, step_type: str) -> int:
@@ -104,8 +114,10 @@ async def read_start_flow_input(cli_home: CliHome, session_id: str) -> tuple[str
 async def test_a_new_session_records_where_the_command_runs(cli_home: CliHome) -> None:
     cli_home.write_config(config_yaml(NO_CONNECTORS))
     workspace = cli_home.home / "dex-agent-workspace"
+    spawned_at = datetime.now(UTC).replace(microsecond=0)
     child = cli_home.spawn()
     session_id = await read_session_id(child)
+    assert_session_id_names_the_harness_and_utc_start(session_id, spawned_at)
     await expect(child, "> ")
     flow_type, start_input = await read_start_flow_input(cli_home, session_id)
     child.sendeof()

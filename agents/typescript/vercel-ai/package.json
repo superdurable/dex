@@ -15,7 +15,7 @@
   "type": "module",
   "types": "./dist/src/index.d.ts",
   "engines": {
-    "node": "^22.0.0 || ^24.0.0"
+    "node": "^22.0.0 || ^24.0.0 || ^26.0.0"
   },
   "files": [
     "dist/src",

@@ -27,7 +27,7 @@ import {
   type AgentToolCall,
   type AgentToolCallRecord,
 } from "@superdurable/dex-agents";
-import { connectorTool } from "@superdurable/dex-agents/connectors";
+import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
 import {
   AgentSessionTestClient,
   AgentTestEnvironment,
@@ -49,6 +49,8 @@ import {
   CloseAccountInputSchema,
   CloseAccountOperation,
   FakeLedgerProvider,
+  GetBalanceInputSchema,
+  GetBalanceOperation,
   fakeLedgerConnection,
   fakeLedgerStateDirectoryVariable,
 } from "../fixtures/fake-ledger.js";
@@ -100,11 +102,24 @@ describe("connector tools refused when the OpenAI Agents session is defined", ()
     );
   });
 
-  test("a source tool that the SDK renames to a function tool name is refused", () => {
+  function createBalanceToolSource(toolNames: readonly string[]): ConnectorToolSource {
+    const provider = new FakeLedgerProvider(stateDirectory);
+    return new ConnectorToolSource(
+      toolNames.map((name) =>
+        connectorTool(new GetBalanceOperation(provider), fakeLedgerConnection, {
+          manifest: readFakeLedgerManifest(),
+          inputValidator: GetBalanceInputSchema,
+          name,
+        }),
+      ),
+    );
+  }
+
+  test("a source tool that the model sees under a function tool name is refused", () => {
     const startingAgent = createConnectorStartingAgent(stateDirectory).clone({
       tools: [
         tool({
-          name: "fake_ledger_get_balance",
+          name: "ledger_balance",
           description: "A local balance tool.",
           parameters: z.object({ accountId: z.string() }),
           execute: async () => "local",
@@ -114,13 +129,26 @@ describe("connector tools refused when the OpenAI Agents session is defined", ()
     assert.throws(
       () =>
         createOpenAIAgentsSessionFlow(startingAgent, "RenamedConnectorAgent", {
-          toolSources: [createLedgerToolSource(stateDirectory)],
+          toolSources: [createBalanceToolSource(["ledger.balance"])],
         }),
       {
         name: "TypeError",
         message:
-          "tool fake-ledger_get_balance of a tool source becomes function tool fake_ledger_get_balance, the name of " +
-          "a tool or handoff of the agent graph",
+          "tool ledger.balance of a tool source becomes function tool ledger_balance, the name of a tool or handoff " +
+          "of the agent graph",
+      },
+    );
+  });
+
+  test("two source tools that the model would see under one name are refused", () => {
+    assert.throws(
+      () =>
+        createOpenAIAgentsSessionFlow(createConnectorStartingAgent(stateDirectory), "CollidingSourceToolsAgent", {
+          toolSources: [createBalanceToolSource(["ledger.balance", "ledger_balance"])],
+        }),
+      {
+        name: "TypeError",
+        message: "tools ledger.balance and ledger_balance of tool sources both become function tool ledger_balance",
       },
     );
   });
@@ -245,14 +273,51 @@ describe("connector tools in an OpenAI Agents session on a Dex engine", () => {
     ]);
   });
 
-  test("a tool under its default connector name runs through its source", async () => {
+  test("the model sees each source tool by its source name, with its -", async () => {
+    await startHarness();
+    const sessionId = `connector-${randomUUID()}`;
+    await sessions.startSession(sessionId, "tools");
+    assert.deepEqual((await answerLines(sessionId, 1)).sort(), [
+      "approved_payout",
+      "create_payout",
+      "echo_text",
+      "fake-ledger_get_balance",
+      "fake_ledger_get_balance",
+      "get_balance",
+      "post_note",
+      "post_note_retried",
+    ]);
+  });
+
+  test("two tools that differ only by - and _ each run through their own name and policy", async () => {
     const harness = await startHarness();
     const sessionId = `connector-${randomUUID()}`;
-    await sessions.startSession(sessionId, calls([["fake_ledger_get_balance", { accountId: "a-2" }]], "default-name"));
-    const [record] = await heldRecords(harness, sessionId, "default-name", 1);
-    assert.equal(record?.toolName, "fake-ledger_get_balance");
-    assert.equal(record?.status, "succeeded");
-    assert.deepEqual(await answerLines(sessionId, 1), ['fake_ledger_get_balance: {"accountId":"a-2","amount":100}']);
+    await sessions.startSession(
+      sessionId,
+      calls(
+        [
+          ["fake-ledger_get_balance", { accountId: "a-2" }],
+          ["fake_ledger_get_balance", { accountId: "a-3" }],
+        ],
+        "default-name",
+      ),
+    );
+    // Only the default name's toolPolicies entry requires approval.
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId);
+    assert.equal(interrupt.toolName, "fake-ledger_get_balance");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const records = await heldRecords(harness, sessionId, "default-name", 2);
+    assert.deepEqual(
+      records.map((record) => [record.toolName, record.status]),
+      [
+        ["fake-ledger_get_balance", "succeeded"],
+        ["fake_ledger_get_balance", "succeeded"],
+      ],
+    );
+    assert.deepEqual(await answerLines(sessionId, 1), [
+      'fake-ledger_get_balance: {"accountId":"a-2","amount":100}',
+      'fake_ledger_get_balance: {"accountId":"a-3","amount":100}',
+    ]);
   });
 
   test("an approved Mutation runs once after its approval", async () => {

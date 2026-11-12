@@ -1,0 +1,286 @@
+{
+  "description": "The environment a launcher builds for dexcli agents-tui: never the inherited environment, only these names when set. Hand-written; see agents/cli/TERMINAL_UI_CONTRACT.md.",
+  "terminal_variables": [
+    "HOME",
+    "TERM",
+    "COLORTERM",
+    "TERM_PROGRAM",
+    "NO_COLOR",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "DEX_AGENTS_TUI_DEBUG"
+  ],
+  "auth_variables": {
+    "none": null,
+    "bearer/env": "DEX_CREDENTIAL",
+    "bearer/file": "DEX_CREDENTIAL_FILE",
+    "api_key": "DEX_API_KEY"
+  },
+  "cases": [
+    {
+      "name": "auth-none",
+      "description": "Only the terminal and locale variables pass; provider keys, PATH, and Dex settings stay behind.",
+      "auth": {
+        "mode": "none"
+      },
+      "launcher_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "SHELL": "/bin/zsh",
+        "TMPDIR": "/tmp",
+        "OPENAI_API_KEY": "test-openai-key-not-a-secret",
+        "OPENAI_BASE_URL": "http://127.0.0.1:9000/v1",
+        "ANTHROPIC_API_KEY": "test-anthropic-key-not-a-secret",
+        "AWS_SECRET_ACCESS_KEY": "test-aws-secret-not-a-secret",
+        "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+        "DEX_SERVER_ID": "orders-production",
+        "DEX_TLS": "true",
+        "DEX_TLS_CA_FILE": "/home/user/ca.pem",
+        "DISPLAY": ":0",
+        "BROWSER": "firefox",
+        "DEX_AGENTS_TERMINAL_UI": "1",
+        "NO_COLOR": "1",
+        "TZ": "UTC"
+      },
+      "terminal_ui_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "NO_COLOR": "1",
+        "LANG": "en_US.UTF-8",
+        "TZ": "UTC"
+      },
+      "missing_auth_variable": null
+    },
+    {
+      "name": "auth-none-drops-every-secret",
+      "description": "No auth: no auth variable passes either.",
+      "auth": {
+        "mode": "none"
+      },
+      "launcher_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "SHELL": "/bin/zsh",
+        "TMPDIR": "/tmp",
+        "OPENAI_API_KEY": "test-openai-key-not-a-secret",
+        "OPENAI_BASE_URL": "http://127.0.0.1:9000/v1",
+        "ANTHROPIC_API_KEY": "test-anthropic-key-not-a-secret",
+        "AWS_SECRET_ACCESS_KEY": "test-aws-secret-not-a-secret",
+        "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+        "DEX_SERVER_ID": "orders-production",
+        "DEX_TLS": "true",
+        "DEX_TLS_CA_FILE": "/home/user/ca.pem",
+        "DISPLAY": ":0",
+        "BROWSER": "firefox",
+        "DEX_AGENTS_TERMINAL_UI": "1",
+        "DEX_CREDENTIAL": "test-credential-not-a-secret",
+        "DEX_API_KEY": "test-api-key-not-a-secret"
+      },
+      "terminal_ui_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8"
+      },
+      "missing_auth_variable": null
+    },
+    {
+      "name": "bearer-env",
+      "description": "Only DEX_CREDENTIAL passes.",
+      "auth": {
+        "mode": "bearer",
+        "source": "env"
+      },
+      "launcher_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "SHELL": "/bin/zsh",
+        "TMPDIR": "/tmp",
+        "OPENAI_API_KEY": "test-openai-key-not-a-secret",
+        "OPENAI_BASE_URL": "http://127.0.0.1:9000/v1",
+        "ANTHROPIC_API_KEY": "test-anthropic-key-not-a-secret",
+        "AWS_SECRET_ACCESS_KEY": "test-aws-secret-not-a-secret",
+        "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+        "DEX_SERVER_ID": "orders-production",
+        "DEX_TLS": "true",
+        "DEX_TLS_CA_FILE": "/home/user/ca.pem",
+        "DISPLAY": ":0",
+        "BROWSER": "firefox",
+        "DEX_AGENTS_TERMINAL_UI": "1",
+        "DEX_CREDENTIAL": "test-credential-not-a-secret",
+        "DEX_CREDENTIAL_FILE": "/home/user/.dex/credential"
+      },
+      "terminal_ui_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "DEX_CREDENTIAL": "test-credential-not-a-secret"
+      },
+      "missing_auth_variable": null
+    },
+    {
+      "name": "bearer-file",
+      "description": "Only DEX_CREDENTIAL_FILE passes.",
+      "auth": {
+        "mode": "bearer",
+        "source": "file"
+      },
+      "launcher_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "SHELL": "/bin/zsh",
+        "TMPDIR": "/tmp",
+        "OPENAI_API_KEY": "test-openai-key-not-a-secret",
+        "OPENAI_BASE_URL": "http://127.0.0.1:9000/v1",
+        "ANTHROPIC_API_KEY": "test-anthropic-key-not-a-secret",
+        "AWS_SECRET_ACCESS_KEY": "test-aws-secret-not-a-secret",
+        "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+        "DEX_SERVER_ID": "orders-production",
+        "DEX_TLS": "true",
+        "DEX_TLS_CA_FILE": "/home/user/ca.pem",
+        "DISPLAY": ":0",
+        "BROWSER": "firefox",
+        "DEX_AGENTS_TERMINAL_UI": "1",
+        "DEX_CREDENTIAL": "test-credential-not-a-secret",
+        "DEX_CREDENTIAL_FILE": "/home/user/.dex/credential"
+      },
+      "terminal_ui_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "DEX_CREDENTIAL_FILE": "/home/user/.dex/credential"
+      },
+      "missing_auth_variable": null
+    },
+    {
+      "name": "api-key",
+      "description": "DEX_API_KEY passes; DEX_TOKEN_URL and DEX_SERVER_ID come from the launch document instead.",
+      "auth": {
+        "mode": "api_key",
+        "token_url": "https://auth.example.com/oauth/token",
+        "server_id": "orders-production"
+      },
+      "launcher_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "SHELL": "/bin/zsh",
+        "TMPDIR": "/tmp",
+        "OPENAI_API_KEY": "test-openai-key-not-a-secret",
+        "OPENAI_BASE_URL": "http://127.0.0.1:9000/v1",
+        "ANTHROPIC_API_KEY": "test-anthropic-key-not-a-secret",
+        "AWS_SECRET_ACCESS_KEY": "test-aws-secret-not-a-secret",
+        "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+        "DEX_SERVER_ID": "orders-production",
+        "DEX_TLS": "true",
+        "DEX_TLS_CA_FILE": "/home/user/ca.pem",
+        "DISPLAY": ":0",
+        "BROWSER": "firefox",
+        "DEX_AGENTS_TERMINAL_UI": "1",
+        "DEX_API_KEY": "test-api-key-not-a-secret",
+        "DEX_AGENTS_TUI_DEBUG": "1"
+      },
+      "terminal_ui_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "DEX_AGENTS_TUI_DEBUG": "1",
+        "DEX_API_KEY": "test-api-key-not-a-secret"
+      },
+      "missing_auth_variable": null
+    },
+    {
+      "name": "api-key-missing",
+      "description": "The key is not set, so dexcli rejects the launch with auth_missing.",
+      "auth": {
+        "mode": "api_key",
+        "token_url": "https://auth.example.com/oauth/token",
+        "server_id": "orders-production"
+      },
+      "launcher_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "SHELL": "/bin/zsh",
+        "TMPDIR": "/tmp",
+        "OPENAI_API_KEY": "test-openai-key-not-a-secret",
+        "OPENAI_BASE_URL": "http://127.0.0.1:9000/v1",
+        "ANTHROPIC_API_KEY": "test-anthropic-key-not-a-secret",
+        "AWS_SECRET_ACCESS_KEY": "test-aws-secret-not-a-secret",
+        "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+        "DEX_SERVER_ID": "orders-production",
+        "DEX_TLS": "true",
+        "DEX_TLS_CA_FILE": "/home/user/ca.pem",
+        "DISPLAY": ":0",
+        "BROWSER": "firefox",
+        "DEX_AGENTS_TERMINAL_UI": "1"
+      },
+      "terminal_ui_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8"
+      },
+      "missing_auth_variable": "DEX_API_KEY"
+    },
+    {
+      "name": "bearer-env-empty",
+      "description": "An empty value counts as missing.",
+      "auth": {
+        "mode": "bearer",
+        "source": "env"
+      },
+      "launcher_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "SHELL": "/bin/zsh",
+        "TMPDIR": "/tmp",
+        "OPENAI_API_KEY": "test-openai-key-not-a-secret",
+        "OPENAI_BASE_URL": "http://127.0.0.1:9000/v1",
+        "ANTHROPIC_API_KEY": "test-anthropic-key-not-a-secret",
+        "AWS_SECRET_ACCESS_KEY": "test-aws-secret-not-a-secret",
+        "DEX_TOKEN_URL": "https://auth.example.com/oauth/token",
+        "DEX_SERVER_ID": "orders-production",
+        "DEX_TLS": "true",
+        "DEX_TLS_CA_FILE": "/home/user/ca.pem",
+        "DISPLAY": ":0",
+        "BROWSER": "firefox",
+        "DEX_AGENTS_TERMINAL_UI": "1",
+        "DEX_CREDENTIAL": ""
+      },
+      "terminal_ui_environment": {
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "LANG": "en_US.UTF-8",
+        "DEX_CREDENTIAL": ""
+      },
+      "missing_auth_variable": "DEX_CREDENTIAL"
+    }
+  ]
+}

@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createRequire } from "node:module";
 
 import {
   query,
@@ -37,6 +38,7 @@ import {
   type ToolCallStepOptions,
   type ToolExecutionResult,
 } from "@superdurable/dex-agents";
+import type * as OpenTelemetryApi from "@opentelemetry/api";
 import { defaultToolSourceListingTimeoutMs, type ToolSource } from "@superdurable/dex-agents/builtin-loop";
 import * as zodV3 from "zod/v3";
 import * as zodV4 from "zod/v4";
@@ -122,6 +124,13 @@ export interface ClaudeAgentOptionsContext {
  *
  * The adapter also wraps each callback of your PreToolUse hooks, so it is skipped for a resumed call that
  * already has a final record. Changed in 0.4.0: your PreToolUse hooks no longer run for such a call.
+ *
+ * The adapter also sets `CLAUDE_SECURESTORAGE_CONFIG_DIR` in `env` unless your `env` sets it. Without your
+ * `env`, it passes a copy of `process.env`, which may already set it. The value is the effective
+ * `CLAUDE_CONFIG_DIR`, or `""` without one. The SDK resumes a session from a temporary `CLAUDE_CONFIG_DIR`, and
+ * the variable keeps the CLI on the login that Claude Code stored, such as the macOS Keychain
+ * entry. Changed in 0.6.0: the adapter sets `CLAUDE_SECURESTORAGE_CONFIG_DIR`, so a later turn keeps a stored
+ * Claude Code login.
  */
 export type ClaudeAgentQueryOptions = Omit<
   Options,
@@ -256,6 +265,16 @@ const adapterOwnedOptionNames = [
 ] as const;
 const permissionModesThatSkipTheAdapter = new Set(["acceptEdits", "auto", "bypassPermissions"]);
 const customToolServerNamePattern = /^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*$/;
+// Claude Code keys its stored login by this directory; a store resume moves CLAUDE_CONFIG_DIR.
+const secureStorageConfigDirectoryVariable = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
+// Without `env`, the SDK strips these from the inherited environment unless an option sets them.
+const sdkStrippedEnvironmentVariables: ReadonlySet<string> = new Set([
+  "CLAUDE_CODE_QUESTION_EXTENDED",
+  "CLAUDE_CODE_QUESTION_OPTIONAL_DESCRIPTIONS",
+  "CLAUDE_CODE_AGENT_PROGRESS_SUMMARIES",
+]);
+const requireFromAdapter = createRequire(import.meta.url);
+let loadedOpenTelemetryApi: typeof OpenTelemetryApi | null | undefined;
 const runningDeferredToolExecution = new AsyncLocalStorage<DeferredToolExecution>();
 
 /**
@@ -491,6 +510,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     } finally {
       segmentInput.close();
       turn.cancellationSignal.removeEventListener("abort", abortSegment);
+      toolCallGate.finishUnreportedToolCalls();
     }
     const result = observer.successfulResult();
     const segmentTranscript = sessionStore.takeSegmentTranscript();
@@ -527,8 +547,9 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
    * marked approved here; the resumed turn runs it.
    *
    * @param call - The approved record and its idempotency key.
-   * @returns The source's output; the custom tool's text output; or {@link approvedCliToolOutput} for a tool that
-   * runs inside the CLI. Non-text content of a custom tool is replaced by a short placeholder. With a media store, its
+   * @returns The source's output; the custom tool's text output; or {@link approvedCliToolOutput} with
+   * `isFinishedByResumedTurn` for a tool that runs inside the CLI, whose `tool_call_finished` the resumed turn writes
+   * from the CLI's result. Non-text content of a custom tool is replaced by a short placeholder. With a media store, its
    * MCP `image` content is uploaded and returned as `images` instead.
    * @throws {ToolExecutionError} When the arguments do not match the input schema, the custom tool
    * returned `isError`, or the source threw it. The model sees the text. The runner also throws it when a source
@@ -552,7 +573,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
     }
     const customTool = this.toolCatalog.customTool(record.toolName);
     if (customTool === undefined) {
-      return { output: approvedCliToolOutput };
+      return { output: approvedCliToolOutput, isFinishedByResumedTurn: true };
     }
     const toolArguments = parseCustomToolArguments(customTool, record.arguments);
     const handlerExtra = {
@@ -681,6 +702,7 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
       includePartialMessages: true,
       abortController: segment.abortController,
       extraArgs,
+      env: withSecureStorageConfigDirectory(applicationOptions.env),
     };
   }
 
@@ -904,6 +926,61 @@ class TurnSegmentObserver {
       }
     }
   }
+}
+
+/**
+ * Returns the CLI environment with the secure-storage directory the CLI would use without a resume.
+ *
+ * `env` replaces the Worker's environment for the CLI, so without one the result copies `process.env`.
+ * The copy leaves out the variables that the SDK strips or injects only when `env` is unset, so the
+ * CLI gets the same environment as before. An empty value selects Claude Code's default login.
+ */
+function withSecureStorageConfigDirectory(applicationEnvironment: Options["env"]): NonNullable<Options["env"]> {
+  const environment = applicationEnvironment === undefined ? copyInheritedEnvironment() : { ...applicationEnvironment };
+  environment[secureStorageConfigDirectoryVariable] ??= environment["CLAUDE_CONFIG_DIR"] ?? "";
+  return environment;
+}
+
+/** Copies `process.env` without the variables the SDK would strip or replace in it. */
+function copyInheritedEnvironment(): NonNullable<Options["env"]> {
+  const replacedVariables = readInjectedTraceVariableNames();
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) => !sdkStrippedEnvironmentVariables.has(name.toUpperCase()) && !replacedVariables.has(name),
+    ),
+  );
+}
+
+/**
+ * Returns the variables the SDK sets from the active trace context, as the SDK propagates it.
+ *
+ * With a `traceparent` the SDK also drops inherited `TRACEPARENT` and `TRACESTATE`; otherwise they pass through.
+ */
+function readInjectedTraceVariableNames(): ReadonlySet<string> {
+  const openTelemetryApi = loadOpenTelemetryApi();
+  if (openTelemetryApi === null) {
+    return new Set();
+  }
+  const carrier: Record<string, string> = {};
+  openTelemetryApi.propagation.inject(openTelemetryApi.context.active(), carrier);
+  const variableNames = new Set(Object.keys(carrier).map((key) => key.toUpperCase()));
+  if ("traceparent" in carrier) {
+    variableNames.add("TRACEPARENT");
+    variableNames.add("TRACESTATE");
+  }
+  return variableNames;
+}
+
+function loadOpenTelemetryApi(): typeof OpenTelemetryApi | null {
+  if (loadedOpenTelemetryApi === undefined) {
+    try {
+      loadedOpenTelemetryApi = requireFromAdapter("@opentelemetry/api") as typeof OpenTelemetryApi;
+    } catch {
+      // The API is an optional peer dependency; without it no propagator is registered.
+      loadedOpenTelemetryApi = null;
+    }
+  }
+  return loadedOpenTelemetryApi;
 }
 
 function parseCustomToolArguments(

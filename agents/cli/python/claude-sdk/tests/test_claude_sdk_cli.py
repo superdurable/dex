@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import signal
@@ -30,6 +31,10 @@ from tests.conftest import (
 
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
 APPROVE_PROMPT = "Approve? [y/N, or n <reason>]"
+PRINT_CLAUDE_CODE_ARGUMENTS = (
+    'p=$PPID; for i in 1 2 3; do ps -ww -o command= -p "$p"; '
+    'p=$(ps -o ppid= -p "$p" | tr -d " "); done'
+)
 
 
 def call(tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -90,6 +95,62 @@ async def test_a_connector_read_runs_at_once_and_a_write_runs_once_after_approva
     assert fake_mcp.runs("slack_post_thread_reply") == 1
 
 
+async def test_only_the_dex_connector_tools_come_from_mcp_never_the_user_configuration(
+    cli_home: CliHome, fake_mcp: FakeConnectorsMcp
+) -> None:
+    cli_home.write_config(
+        {
+            "connectors": {"mcp": fake_mcp.url},
+            "local_tools": {"shell": {"enabled": True, "allow": [PRINT_CLAUDE_CODE_ARGUMENTS]}},
+        }
+    )
+
+    def inherited_server(name: str) -> dict[str, Any]:
+        return {"mcpServers": {name: {"type": "http", "url": fake_mcp.url}}}
+
+    cli_home.workspace.mkdir()
+    (cli_home.workspace / ".mcp.json").write_text(json.dumps(inherited_server("project-inherited")))
+    project_settings = {"enableAllProjectMcpServers": True, "hasTrustDialogAccepted": True}
+    (cli_home.home / ".claude.json").write_text(
+        json.dumps(
+            {
+                **inherited_server("user-inherited"),
+                "projects": {os.path.realpath(cli_home.workspace): project_settings},
+            }
+        )
+    )
+    child = cli_home.spawn()
+    await expect(child, "> ")
+    child.sendline(call("Bash", {"command": PRINT_CLAUDE_CODE_ARGUMENTS}))
+    await expect(child, "Bash: ")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+    # Only the CLI arguments prove the two options: setting_sources=[] already drops every MCP
+    # source this test can create, and claude.ai connectors need a real claude.ai login.
+    bash_output = "\n".join(
+        block["content"]
+        if isinstance(block["content"], str)
+        else "\n".join(part.get("text", "") for part in block["content"] or [])
+        for request in cli_home.model_requests()
+        for message in request.get("messages") or []
+        if isinstance(message.get("content"), list)
+        for block in message["content"]
+        if block.get("type") == "tool_result"
+    )
+    # The Bash tool's ancestors include the Claude Code CLI; its settings JSON has no spaces.
+    claude_code_arguments = next(
+        (line.split() for line in bash_output.splitlines() if "--settings" in line.split()), None
+    )
+    assert claude_code_arguments is not None, bash_output
+    assert "--strict-mcp-config" in claude_code_arguments, bash_output
+    settings = json.loads(claude_code_arguments[claude_code_arguments.index("--settings") + 1])
+    assert settings["disableClaudeAiConnectors"] is True
+    mcp_tool_names = {name for name in offered_tool_names(cli_home) if name.startswith("mcp__")}
+    assert any(name.endswith("__hackernews_get_top_stories") for name in mcp_tool_names)
+    assert not [name for name in mcp_tool_names if "inherited" in name]
+
+
 async def test_read_runs_at_once_and_write_and_bash_run_after_approval(
     cli_home: CliHome,
 ) -> None:
@@ -97,6 +158,8 @@ async def test_read_runs_at_once_and_write_and_bash_run_after_approval(
     cli_home.workspace.mkdir()
     (cli_home.workspace / "notes.txt").write_text("buy milk\n")
     child = cli_home.spawn()
+    terminal = io.StringIO()
+    child.logfile_read = terminal
     await expect(child, "> ")
     child.sendline(call("Read", {"file_path": str(cli_home.workspace / "notes.txt")}))
     await expect(child, "buy milk")
@@ -128,11 +191,44 @@ async def test_read_runs_at_once_and_write_and_bash_run_after_approval(
     child.sendline(call("Bash", {"command": "echo no > rejected.txt"}))
     await expect(child, "[approval] Bash")
     child.sendline("n not now")
-    await expect(child, "Bash: ")
+    await expect(child, "Bash: The user rejected this Bash call: not now")
+    await expect(child, "> ")
+
+    child.sendline(call("Bash", {"command": "echo broken; exit 3"}))
+    await expect(child, "[approval] Bash")
+    child.sendline("y")
+    await expect(child, "[tool] Bash failed")
     await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert not (cli_home.workspace / "rejected.txt").exists()
+
+    # The tool Step starts an approved call; the CLI's run in the resumed turn finishes it.
+    output = terminal.getvalue()
+    tool_lines = [line.strip() for line in output.splitlines() if line.startswith("[tool] ")]
+    assert tool_lines == [
+        "[tool] Read started",
+        "[tool] Read succeeded",
+        "[tool] Write started",
+        "[tool] Write succeeded",
+        "[tool] Bash started",
+        "[tool] Bash succeeded",
+        "[tool] Bash rejected",
+        "[tool] Bash started",
+        "[tool] Bash failed",
+    ]
+    # Claude Code resets the cursor on exit when its standard error is the terminal.
+    assert "\x1b[" not in output
+    rejected_results = [
+        block["content"]
+        for request in cli_home.model_requests()
+        for message in request.get("messages") or []
+        if isinstance(message.get("content"), list)
+        for block in message["content"]
+        if block.get("type") == "tool_result" and block.get("is_error")
+    ]
+    assert "The user rejected this Bash call: not now" in rejected_results
+    assert not [result for result in rejected_results if "hook error" in str(result)]
 
 
 async def test_an_allow_listed_command_runs_at_once_in_the_workspace(cli_home: CliHome) -> None:

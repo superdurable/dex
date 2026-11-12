@@ -30,8 +30,10 @@ export class TerminalInput {
    * Starts reading.
    * @param input - The input stream.
    * @param output - The output stream, used for echo on a terminal.
+   * @param linesTypedAhead - Lines that an earlier reader of the same input left unread, returned first.
    */
-  public constructor(input: Readable, output: Writable) {
+  public constructor(input: Readable, output: Writable, linesTypedAhead: readonly string[] = []) {
+    this.lines.push(...linesTypedAhead);
     const isTerminal = (input as { isTTY?: boolean }).isTTY === true;
     this.readline = createInterface({ input, ...(isTerminal ? { output, terminal: true } : { terminal: false }) });
     this.readline.on("line", (line) => this.deliver(line));
@@ -86,10 +88,14 @@ export class TerminalInput {
     });
   }
 
-  /** Stops reading and removes the signal handler. */
-  public close(): void {
+  /**
+   * Stops reading and removes the signal handler.
+   * @returns The lines typed but not yet read, for a later reader of the same input.
+   */
+  public close(): string[] {
     process.off("SIGINT", this.onProcessInterrupt);
     this.readline.close();
+    return this.lines.splice(0);
   }
 
   private deliver(line: string): void {

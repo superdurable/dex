@@ -39,7 +39,11 @@ from tests.connector_agent import (
     CONNECTOR_STATE_GRAPH_FLOW_TYPE,
     build_connector_agent_flows,
 )
-from tests.deep_agents import DEEP_AGENT_FLOW_TYPE, build_deep_agent_flows
+from tests.deep_agents import (
+    DEEP_AGENT_FLOW_TYPE,
+    TOOL_WRAPPER_INVOCATION_PREFIX,
+    build_deep_agent_flows,
+)
 from tests.fake_ledger import (
     STATE_DIR_ENVIRONMENT_VARIABLE as LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE,
 )
@@ -87,7 +91,7 @@ class ScriptedAgentHarness:
         return [
             name
             for name in self.invocations.names()
-            if not name.startswith(MODEL_CALL_INVOCATION_PREFIX)
+            if not name.startswith((MODEL_CALL_INVOCATION_PREFIX, TOOL_WRAPPER_INVOCATION_PREFIX))
         ]
 
     async def read_step_history(self, session_id: str) -> list[StepHistoryEntry]:

@@ -194,11 +194,14 @@ def langchain_agent_session_flow(
             .. versionadded:: 0.5.0
         should_defer_tool_calls_before_middleware: Whether to defer each tool
             call before any middleware tool wrapper runs, as if
-            ``DurableToolCallMiddleware`` came first in ``middleware``. Set it
-            for a Deep Agents agent. Defaults to ``False``. See
-            ``LangGraphAgentRunner``.
+            ``DurableToolCallMiddleware`` came first in ``middleware``, and to
+            run the wrappers in each attempt of the call's tool Step. Set it for a Deep
+            Agents agent. Defaults to ``False``. See ``LangGraphAgentRunner``.
 
             .. versionadded:: 0.5.0
+
+            .. versionchanged:: 0.5.1
+                The tool Step runs the middleware tool wrappers.
 
     Returns:
         The session Flow.
@@ -367,11 +370,14 @@ def langgraph_agent_session_flow(
             .. versionadded:: 0.5.0
         should_defer_tool_calls_before_middleware: Whether to defer each tool
             call before any middleware tool wrapper runs, as if
-            ``DurableToolCallMiddleware`` came first in ``middleware``. Set it
-            for a Deep Agents agent. Defaults to ``False``. See
-            ``LangGraphAgentRunner``.
+            ``DurableToolCallMiddleware`` came first in ``middleware``, and to
+            run the wrappers in each attempt of the call's tool Step. Set it for a Deep
+            Agents agent. Defaults to ``False``. See ``LangGraphAgentRunner``.
 
             .. versionadded:: 0.5.0
+
+            .. versionchanged:: 0.5.1
+                The tool Step runs the middleware tool wrappers.
 
     Returns:
         The session Flow.

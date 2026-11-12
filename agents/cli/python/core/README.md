@@ -40,9 +40,10 @@ Without a terminal it runs on the defaults, writes nothing, and says to run
 JSON Pointer, such as `schema at "/local_tools/shell/allow" (schema keyword type)`.
 
 The exit code is 0 on success; 1 for a failure at run time, such as a Dex
-server that does not start, an explicit `connectors.mcp` URL that is
-unavailable, or a turn or session that failed during the chat; and 2 for a
-usage or configuration error.
+server that does not start, an explicit `connectors.mcp` URL that does not
+answer, or a turn or session that failed during the chat; and 2 for a
+usage or configuration error. Ctrl-C at an `init` question exits with 130, and
+Ctrl-D there exits with 1; neither writes a file.
 
 ### Sessions and Flow types
 
@@ -159,6 +160,7 @@ starts nothing.
 | `DEXCLI` | The `dexcli` executable to run. |
 | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `auto` reuses or starts. |
 | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. |
+| `DEX_AGENTS_OPEN_BROWSER` | `0` or `false` keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. |
 
 ## Connector tools
 
@@ -221,17 +223,26 @@ configuration file enables, which is one MCP `tools/list` and one more catalog
 read, and caches them for the harness:
 
 - An `auto` server that does not answer, such as one answering 503 while it
-  starts or an older `dexcli` without `/mcp`, gives a warning with the reason.
+  starts or an older `dexcli` without `/mcp`, gives a short warning.
   The command runs without connector tools and lists the server again in every
   model call, printing `Connector tools are unavailable for now` and
-  `Connector tools are available again` when that changes. An explicit `connectors.mcp` URL
-  that does not answer stops the command with exit code 1.
+  `Connector tools are available again` when that changes. The warning
+  names the log file `~/.dex/agents/<harness>.log` and the Dex Web
+  Connectors page; each failed listing and its error go to the log file
+  only. A server that answers HTTP 401 or 403 gets a line saying it denied
+  access, so check its access settings and `connectors.mcp`. An explicit
+  `connectors.mcp` URL that does not answer stops the command with exit
+  code 1. A server that answers `initialize` but cannot be listed only warns,
+  whichever URL names it.
+- When `~/.dex/agents` cannot be created or `<harness>.log` cannot be
+  written, the command prints `Logging is off` with the reason and runs
+  without a log file.
 - A harness whose runner fixes its tools when it is built, such as the OpenAI
   Agents SDK command, declares `is_tool_set_fixed_at_build = True`. It offers
   only the connector tools of the startup listing; session settings still
-  narrow them each turn. When the server does not answer at startup, the
-  warning says the run has no connector tools and to restart the command once
-  the server answers. A connection authorized while the command runs also
+  narrow them each turn. When the server does not answer at startup, or the
+  startup listing fails, one warning says the run has no connector tools and
+  to restart the command once the server answers. A connection authorized while the command runs also
   needs a restart.
 - An entry of `connectors.enabled` with no tool on the server has no
   authorized connection. The command prints a hint with the Dex Web

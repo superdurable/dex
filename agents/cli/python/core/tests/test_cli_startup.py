@@ -77,6 +77,69 @@ async def test_yes_writes_the_default_config_without_questions(cli_home: CliHome
     assert written["model"] == "scripted-model"
 
 
+async def test_a_message_typed_with_the_last_answer_reaches_the_chat(cli_home: CliHome) -> None:
+    child = cli_home.spawn()
+    for question in (
+        "Model",
+        "System prompt",
+        "Connectors to enable",
+        "Workspace",
+        "Allow file tools",
+        "Allow shell commands",
+        "Commands that run without approval",
+        "Allow web fetching",
+    ):
+        await expect(child, question)
+        child.sendline("")
+    await expect(child, "Allow a local browser")
+    child.send("\nhello\n")
+    await expect(child, f"Wrote {cli_home.config_path}.")
+    await expect(child, "echo: hello")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+
+async def test_ctrl_c_at_the_first_init_question_exits_with_130_and_writes_no_file(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn("init")
+    await expect(child, "Model")
+    child.sendcontrol("c")
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 130
+    assert "Traceback" not in (child.before or "")
+    assert not cli_home.config_path.exists()
+
+
+async def test_ctrl_c_at_a_later_question_of_the_first_run_setup_exits_with_130(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn()
+    await expect(child, "Model")
+    child.sendline("")
+    await expect(child, "System prompt")
+    child.sendline("You answer in haiku.")
+    await expect(child, "Connectors to enable")
+    child.sendcontrol("c")
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 130
+    assert "Traceback" not in (child.before or "")
+    assert not cli_home.config_path.exists()
+
+
+async def test_ctrl_d_at_an_init_question_exits_with_1_and_writes_no_file(
+    cli_home: CliHome,
+) -> None:
+    child = cli_home.spawn("init")
+    await expect(child, "Model")
+    child.sendline("")
+    await expect(child, "System prompt")
+    child.sendeof()
+    await expect(child, "Cancelled; no configuration written.")
+    assert await wait_for_exit(child) == 1
+    assert not cli_home.config_path.exists()
+
+
 async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_home: CliHome) -> None:
     completed = cli_home.run(stdin="hello there\n")
     assert completed.returncode == 0, completed.stderr
@@ -85,7 +148,7 @@ async def test_without_a_terminal_it_runs_on_defaults_and_writes_no_file(cli_hom
     assert f"Using the running dexcli dev at {cli_home.address}" in completed.stdout
     assert "echo: hello there" in completed.stdout
     # This dexcli dev serves no connectors MCP server, so connectors.mcp: auto only warns.
-    assert "The connectors MCP server is unavailable" in completed.stdout
+    assert "Connector tools are unavailable for now; each turn tries again." in completed.stdout
     assert not cli_home.config_path.exists()
     # The default workspace is a dedicated directory under the home, not the home itself.
     assert (cli_home.home / "dex-agent-workspace").is_dir()
@@ -102,7 +165,7 @@ async def test_a_fixed_tool_set_harness_is_told_to_restart_for_connector_tools(
         "dex-agents-scripted fixes its tools when it starts, so this run has no connector "
         "tools. Restart it once the connectors MCP server answers."
     ) in completed.stdout
-    assert "Continuing without connector tools until it answers" not in completed.stdout
+    assert "each turn tries again" not in completed.stdout
 
 
 async def test_an_invalid_config_names_the_error_code_and_pointer(cli_home: CliHome) -> None:

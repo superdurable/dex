@@ -11,7 +11,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -89,6 +91,13 @@ CLAUDE_CODE_LOCAL_TOOLS: Mapping[str, _ClaudeCodeLocalTool] = {
     "WebFetch": _ClaudeCodeLocalTool(LocalToolGroup.WEB_FETCH, ToolEffect.READ, False, None),
 }
 _RUNNING_TURN: ContextVar[AgentTurnContext] = ContextVar("dex_agents_claude_sdk_cli_turn")
+# OSC, then CSI (Claude Code resets the cursor with one on exit), then other escapes.
+_TERMINAL_CONTROL_SEQUENCE = re.compile(
+    r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+    r"|\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x1b[ -/]*[0-~]"
+    r"|[\x00-\x08\x0b-\x1f\x7f]"
+)
 _GLOB_CHARACTERS = frozenset("*?[{")
 # The input field of each file tool that holds a glob pattern.
 _GLOB_PATTERN_ARGUMENTS = {"Glob": "pattern", "Grep": "glob"}
@@ -180,15 +189,21 @@ class ClaudeCodeLocalTools:
     def build_options(self, options_context: ClaudeAgentOptionsContext) -> ClaudeAgentOptions:
         """Return one turn segment's options: the turn's model, instructions, and tools.
 
+        .. versionchanged:: 0.6.0
+           The options load no MCP servers or claude.ai connectors from the
+           user's Claude Code configuration or login.
+
         Args:
             options_context: The segment's Flow ID, turn ID, and attempt.
 
         Returns:
             Options with the Claude Code tools the turn switches on and the
             tools of calls the turn already recorded, the workspace as
-            ``cwd``, and no settings files. The environment
+            ``cwd``, no settings files, and no MCP servers or claude.ai
+            connectors from the user's Claude Code configuration. The environment
             passes through unchanged, so ``ANTHROPIC_API_KEY`` or the
-            machine's Claude Code login reaches the CLI.
+            machine's Claude Code login reaches the CLI. The CLI's standard
+            error goes to the command's log file, never to the chat terminal.
 
         Raises:
             RuntimeError: Outside a model call, which never happens.
@@ -210,6 +225,11 @@ class ClaudeCodeLocalTools:
             cwd=str(self._context.workspace),
             # Settings files could allow tools before the session's policy sees them.
             setting_sources=[],
+            # External tools come only from the Dex connectors, never the user's MCP config.
+            strict_mcp_config=True,
+            settings=json.dumps({"disableClaudeAiConnectors": True}, separators=(",", ":")),
+            # An inherited terminal would get the CLI's control sequences in the chat.
+            stderr=ClaudeCodeStderrLog.for_command_log().write_line,
         )
 
     def decide_tool_call(
@@ -287,6 +307,58 @@ class ClaudeCodeLocalTools:
         # realpath also follows a dangling link to the target it would create.
         resolved = Path(os.path.realpath(candidate))
         return resolved == self._workspace or self._workspace in resolved.parents
+
+
+class ClaudeCodeStderrLog:
+    """Append the Claude Code CLI's standard error lines to the command's log file.
+
+    Each line loses its terminal control sequences and goes to the log in the
+    command's log format. A failed write drops the line: unlike a logging
+    handler, it never reports the failure on the chat terminal.
+    """
+
+    def __init__(self, log_path: Path | None, formatter: logging.Formatter) -> None:
+        """Write to one log file.
+
+        Args:
+            log_path: The log file, or ``None`` to drop every line.
+            formatter: The format of each line, the log file's own.
+        """
+        self._log_path = log_path
+        self._formatter = formatter
+
+    @classmethod
+    def for_command_log(cls) -> ClaudeCodeStderrLog:
+        """Return a log that writes to the file of the root logger's file handler.
+
+        Returns:
+            A log for that file in its handler's format, or one that drops
+            every line when the root logger has no file handler.
+        """
+        for handler in logging.getLogger().handlers:
+            if isinstance(handler, logging.FileHandler):
+                return cls(Path(handler.baseFilename), handler.formatter or logging.Formatter())
+        return cls(None, logging.Formatter())
+
+    def write_line(self, line: str) -> None:
+        """Append one standard error line, without its control sequences.
+
+        Args:
+            line: The line as the CLI wrote it. A line that is empty without
+                its control sequences is dropped.
+        """
+        text = _TERMINAL_CONTROL_SEQUENCE.sub("", line).strip()
+        if not text or self._log_path is None:
+            return
+        record = logging.LogRecord(
+            __name__, logging.INFO, __file__, 0, "Claude Code stderr: %s", (text,), None
+        )
+        try:
+            with self._log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(self._formatter.format(record) + "\n")
+        except OSError:
+            # The chat terminal must never show this line, so a failed write loses it.
+            return
 
 
 def _glob_base(pattern: str) -> str:

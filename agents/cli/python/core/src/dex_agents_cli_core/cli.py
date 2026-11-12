@@ -20,7 +20,7 @@ import sys
 import webbrowser
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx2
@@ -59,8 +59,12 @@ from dex_agents_cli_core.config_file import (
 )
 from dex_agents_cli_core.connectors import (
     ConnectorCatalogTool,
+    ConnectorsMcpAccessDeniedError,
+    ConnectorsMcpListingError,
     ConnectorsMcpToolSource,
     ConnectorsMcpUnavailableError,
+    connectors_access_denied_sentence,
+    connectors_unavailable_line,
     read_connector_catalog,
 )
 from dex_agents_cli_core.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
@@ -90,6 +94,8 @@ _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
 _SESSION_LIST_PAGE_SIZE = 50
 _SESSION_START_TIMEOUT_SECONDS = 60.0
 _SESSION_START_POLL_SECONDS = 0.1
+# The shell's exit code for a command that Ctrl-C ended.
+_INTERRUPTED_EXIT_CODE = 130
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -99,6 +105,14 @@ class CommandError(Exception):
 
 class CommandFailure(Exception):
     """Report a failure at run time; the command prints it and exits with code 1."""
+
+
+class _InitCancelled(Exception):
+    """Ctrl-C or the end of input during the init questions; nothing was written."""
+
+    def __init__(self, exit_code: int) -> None:
+        super().__init__("the init questions were cancelled")
+        self.exit_code = exit_code
 
 
 @dataclass(frozen=True)
@@ -126,7 +140,9 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     Returns:
         The exit code: 0 on success, 1 for a failure at run time, such as a
         Dex server or an explicit connectors MCP server that is unavailable,
-        and 2 for a usage or configuration error.
+        2 for a usage or configuration error, and 130 for Ctrl-C during the init
+        questions. Input that ends during the init questions exits with 1. A
+        cancelled init writes no file.
     """
     arguments = _parse_arguments(harness, argv)
     try:
@@ -134,17 +150,22 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     except ValueError as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
-    _configure_logging(environment, harness)
+    log_path = _configure_logging(environment, harness)
     try:
+        if arguments.command == "init":
+            return _init(arguments, environment, harness)
+        # Outside asyncio.run, because its SIGINT handler would keep Ctrl-C from ending input().
+        loaded = _load_config(arguments, environment, harness)
         match arguments.command:
-            case "init":
-                return _init(arguments, environment, harness)
             case "sessions":
-                return asyncio.run(_list_sessions(arguments, environment, harness))
+                return asyncio.run(_list_sessions(loaded, environment, harness))
             case "connectors":
-                return asyncio.run(_list_connectors(arguments, environment, harness))
+                return asyncio.run(_list_connectors(loaded, environment, harness))
             case _:
-                return asyncio.run(_run(arguments, environment, harness))
+                return asyncio.run(_run(arguments, loaded, environment, harness, log_path))
+    except _InitCancelled as cancelled:
+        print("\nCancelled; no configuration written.", file=sys.stderr)
+        return cancelled.exit_code
     except (CommandError, ConfigFileError) as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
@@ -194,14 +215,26 @@ def _parse_arguments(harness: AgentHarness, argv: Sequence[str] | None) -> _Argu
     )
 
 
-def _configure_logging(environment: CommandEnvironment, harness: AgentHarness) -> None:
-    environment.agents_directory.mkdir(parents=True, exist_ok=True)
+def _configure_logging(environment: CommandEnvironment, harness: AgentHarness) -> Path | None:
+    """Send the ``logging`` records to the log file.
+
+    Returns:
+        The log file, or ``None`` when it cannot be written; logging is then off.
+    """
     log_path = environment.agents_directory / f"{harness.name}.log"
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
-    root.handlers[:] = [handler]
     root.setLevel(logging.INFO)
+    try:
+        environment.agents_directory.mkdir(parents=True, exist_ok=True)
+        handler: logging.Handler = logging.FileHandler(log_path, encoding="utf-8")
+    except OSError as error:
+        print(f"Logging is off: cannot write {log_path}: {error}", file=sys.stderr)
+        # Without a handler, logging's last resort would print every warning to the terminal.
+        root.handlers[:] = [logging.NullHandler()]
+        return None
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root.handlers[:] = [handler]
+    return log_path
 
 
 def _is_interactive() -> bool:
@@ -248,15 +281,20 @@ def _ask(question: str, default: str) -> str:
     shown = f" [{default}]" if default else ""
     try:
         answer = input(f"{question}{shown}: ")
+    except KeyboardInterrupt:
+        raise _InitCancelled(_INTERRUPTED_EXIT_CODE) from None
     except EOFError:
-        answer = ""
+        raise _InitCancelled(1) from None
     return answer if answer.strip() else default
 
 
 async def _run(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    arguments: _Arguments,
+    loaded: LoadedConfig,
+    environment: CommandEnvironment,
+    harness: AgentHarness,
+    log_path: Path | None,
 ) -> int:
-    loaded = _load_config(arguments, environment, harness)
     config = _with_model_override(loaded.config, arguments)
     media_store = _build_media_store(config, environment)
     prompt_text = _read_system_prompt_file(config, loaded, environment)
@@ -268,7 +306,15 @@ async def _run(
         _report_ignored_settings,
     )
     endpoint = await _resolve_server(config, environment)
-    connectors = await _connect_connectors(config, endpoint, resolver, harness, media_store)
+    connectors = await _connect_connectors(
+        config,
+        endpoint,
+        resolver,
+        harness,
+        media_store,
+        log_path,
+        is_browser_opening_enabled=environment.is_browser_opening_enabled,
+    )
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
@@ -409,14 +455,19 @@ async def _connect_connectors(
     resolver: TurnConfigResolver,
     harness: AgentHarness,
     media_store: MediaStore,
+    log_path: Path | None,
+    *,
+    is_browser_opening_enabled: bool,
 ) -> ConnectorsMcpToolSource | None:
     """Check the connectors MCP server and return its source, or ``None`` for no connector tools.
 
     An unavailable ``auto`` server only warns: the source lists it again on
     every turn, so a server that is still starting comes alive. A harness
     whose tool set is fixed at build time gets no connector tools in this run
-    then, and the warning says to restart it. An explicit URL that is
-    unavailable fails the command with exit code 1.
+    then, and the warning says to restart it. An explicit URL that does not
+    answer ``initialize`` fails the command with exit code 1; one that answers
+    but cannot be listed only warns, as ``auto`` does. Each availability
+    change, the startup one included, prints exactly one line.
     """
     if config.connectors.enabled == ():
         return None
@@ -427,33 +478,55 @@ async def _connect_connectors(
             "Set connectors.mcp to the MCP server's URL."
         )
         return None
-    is_tool_set_fixed = _is_tool_set_fixed_at_build(harness)
+    hint = _connectors_unavailable_hint(log_path, endpoint.web_url)
+    if _is_tool_set_fixed_at_build(harness):
+        restart = _restart_for_connector_tools(harness)
+
+        def describe_unavailable(error: ConnectorsMcpUnavailableError) -> str:
+            if isinstance(error, ConnectorsMcpAccessDeniedError):
+                return f"{connectors_access_denied_sentence(error)} {hint} {restart}"
+            return f"The connectors MCP server is unavailable. {hint} {restart}"
+
+    else:
+
+        def describe_unavailable(error: ConnectorsMcpUnavailableError) -> str:
+            return connectors_unavailable_line(error, hint)
+
     try:
         catalog = await read_connector_catalog(url)
     except ConnectorsMcpUnavailableError as error:
-        message = f"The connectors MCP server is unavailable: {error}"
-        if config.connectors.mcp != AUTO:
-            raise CommandFailure(message) from error
-        if is_tool_set_fixed:
-            print(f"{message}. {_restart_for_connector_tools(harness)}")
-        else:
-            print(f"{message}. Continuing without connector tools until it answers.")
+        # An explicit server that answers initialize stays configured; each turn lists it again.
+        if config.connectors.mcp != AUTO and not isinstance(error, ConnectorsMcpListingError):
+            raise CommandFailure(f"The connectors MCP server is unavailable: {error}") from error
+        _LOGGER.warning("connectors MCP server %s could not be listed", url, exc_info=error)
+        print(describe_unavailable(error))
         return ConnectorsMcpToolSource(
             url,
             resolver,
-            is_available=False,
             report=_report_on_standard_error,
             media_store=media_store,
+            describe_unavailable=describe_unavailable,
+            startup_error=error,
         )
-    _report_unauthorized(config, catalog, endpoint.web_url)
+    _report_unauthorized(config, catalog, endpoint.web_url, is_browser_opening_enabled)
     source = ConnectorsMcpToolSource(
-        url, resolver, report=_report_on_standard_error, media_store=media_store
+        url,
+        resolver,
+        report=_report_on_standard_error,
+        media_store=media_store,
+        describe_unavailable=describe_unavailable,
     )
+    # A failed listing prints the one line through describe_unavailable.
     await source.list_file_enabled_tools()
-    if is_tool_set_fixed and not source.is_available:
-        restart = _restart_for_connector_tools(harness)
-        print(f"The connectors MCP server could not be listed. {restart}")
     return source
+
+
+def _connectors_unavailable_hint(log_path: Path | None, web_url: str | None) -> str:
+    """Say where the error and the connections are, for a line about an unavailable server."""
+    page = f"{web_url}{CONNECTORS_WEB_PATH}" if web_url else "the Dex Web Connectors page"
+    if log_path is None:
+        return f"See {page} for connections."
+    return f"See {log_path} for the error and {page} for connections."
 
 
 def _is_tool_set_fixed_at_build(harness: AgentHarness) -> bool:
@@ -468,7 +541,10 @@ def _restart_for_connector_tools(harness: AgentHarness) -> str:
 
 
 def _report_unauthorized(
-    config: EffectiveConfig, catalog: Sequence[ConnectorCatalogTool], web_url: str | None
+    config: EffectiveConfig,
+    catalog: Sequence[ConnectorCatalogTool],
+    web_url: str | None,
+    is_browser_opening_enabled: bool,
 ) -> None:
     missing = [
         entry
@@ -480,7 +556,7 @@ def _report_unauthorized(
     page = f"{web_url}{CONNECTORS_WEB_PATH}" if web_url else "the Dex Web Connectors page"
     names = ", ".join(_entry_text(entry) for entry in missing)
     print(f"No authorized connection for {names}. Authorize it on {page}.")
-    if web_url is not None and _is_interactive():
+    if web_url is not None and is_browser_opening_enabled and _is_interactive():
         webbrowser.open(f"{web_url}{CONNECTORS_WEB_PATH}")
 
 
@@ -574,7 +650,7 @@ async def _open_session(
                 f"session {resume_session_id} is {info.status.value}, so it cannot continue"
             )
         return resume_session_id
-    session_id = f"{harness.name}-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
+    session_id = f"{harness.name}-{datetime.now(UTC):%Y%m%d-%H%M%S}-{secrets.token_hex(3)}"
     await sessions.start_session(session_id, start_environment=session_start_environment(identity))
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SESSION_START_TIMEOUT_SECONDS
@@ -586,9 +662,8 @@ async def _open_session(
 
 
 async def _list_sessions(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    loaded: LoadedConfig, environment: CommandEnvironment, harness: AgentHarness
 ) -> int:
-    loaded = _load_config(arguments, environment, harness)
     endpoint = await _resolve_server(loaded.config, environment)
     workspace = environment.expand_path(loaded.config.workspace, loaded.directory)
     flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
@@ -617,9 +692,8 @@ async def _list_sessions(
 
 
 async def _list_connectors(
-    arguments: _Arguments, environment: CommandEnvironment, harness: AgentHarness
+    loaded: LoadedConfig, environment: CommandEnvironment, harness: AgentHarness
 ) -> int:
-    loaded = _load_config(arguments, environment, harness)
     config = loaded.config
     endpoint = await _resolve_server(config, environment)
     url = _connectors_mcp_url(config, endpoint)
