@@ -67,6 +67,10 @@ claude: {}
 | `media.endpoint` | none (AWS S3) | The `http` or `https` URL of an S3-compatible service, such as `http://127.0.0.1:9000`. Only valid with an `s3://` store. It follows the URL rules of `dex.server`. |
 | `claude`, `openai`, `pydantic_ai`, `deepagents`, `google_adk`, `vercel_ai`, `mastra`, `pi`, `builtin` | `{}` | Options of one harness. Each command defines its own section's fields and ignores the other sections. |
 
+`dex-agents-deepagents` keeps Deep Agents' own file and shell tools. As in
+Deep Agents, they run without approval unless `approval.always` names them;
+see [its README](python/deepagents/README.md#deep-agents-tools-in-dex).
+
 Other keys are errors, and `null` is never a valid value: omit the field to
 take its default. In `system_prompt_file` and `workspace`, a leading `~` is the
 home directory and a relative path is relative to the file's directory. The

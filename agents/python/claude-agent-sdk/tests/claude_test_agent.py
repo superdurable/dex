@@ -33,7 +33,9 @@ An application PreToolUse hook rewrites ``publish`` input ``"rewrite me"`` to
 application hooks for a resumed call that has a final record. Another denies
 ``publish`` and ``post_note`` while ``DENY_FLAG_FILE_NAME`` exists. With
 ``REAL_CLI_ENVIRONMENT_VARIABLE`` set, the agent runs the bundled Claude Code
-CLI with that JSON object as extra CLI environment. A comma-separated
+CLI with that JSON object as extra CLI environment. A JSON object in
+``EXTRA_CLI_ENVIRONMENT_VARIABLE`` then changes the CLI environment: a string
+sets a variable, and ``null`` removes it, such as ``CLAUDE_CONFIG_DIR``. A comma-separated
 ``ALLOWED_TOOLS_ENVIRONMENT_VARIABLE`` becomes ``allowed_tools``.
 
 With ``MEDIA_STORE_ENVIRONMENT_VARIABLE`` set, the agent takes images from a
@@ -108,6 +110,7 @@ from tests.fake_ledger import (
 CLAUDE_TEST_AGENT_FLOW_TYPE = "ScriptedClaudeAgent"
 FAKE_CLI_PATH_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_CLI_PATH"
 REAL_CLI_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_REAL_CLI_ENV"
+EXTRA_CLI_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_EXTRA_CLI_ENV"
 PERMISSION_MODE_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_PERMISSION_MODE"
 ALLOWED_TOOLS_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_ALLOWED_TOOLS"
 RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_RUN_MODEL_LIMIT"
@@ -164,10 +167,7 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
             if real_cli_environment is not None
             else os.environ[FAKE_CLI_PATH_ENVIRONMENT_VARIABLE],
             cwd=str(state_dir / "workspace"),
-            env={
-                **json.loads(real_cli_environment or "{}"),
-                "CLAUDE_CONFIG_DIR": str(state_dir / "claude-config"),
-            },
+            env=_build_cli_environment(state_dir, real_cli_environment),
             system_prompt=f"You are scripted agent {context.flow_id}.",
             tools=["Bash"],
             allowed_tools=[name for name in allowed_tools.split(",") if name],
@@ -390,6 +390,20 @@ class FileSpendLimit:
     def _log(self, file_name: str, entry: ModelCallCheck | ModelUsageReport) -> None:
         with (self._state_dir / file_name).open("a") as log:
             log.write(json.dumps(dataclasses.asdict(entry)) + "\n")
+
+
+def _build_cli_environment(state_dir: Path, real_cli_environment: str | None) -> dict[str, str]:
+    environment: dict[str, str] = {
+        **json.loads(real_cli_environment or "{}"),
+        "CLAUDE_CONFIG_DIR": str(state_dir / "claude-config"),
+    }
+    extra_environment = json.loads(os.environ.get(EXTRA_CLI_ENVIRONMENT_VARIABLE, "{}"))
+    for name, value in extra_environment.items():
+        if value is None:
+            environment.pop(name, None)
+        else:
+            environment[name] = value
+    return environment
 
 
 def build_claude_test_agent_flow_from_environment() -> AgentSessionFlow:
