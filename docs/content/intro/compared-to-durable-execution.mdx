@@ -17,7 +17,8 @@ Dex shares the goal of other durable execution tools: a process that survives cr
 4. [Failover and Deploys](/concepts/failover-and-deploys), for what runs again.
 5. [Change Flow Code](/concepts/change-flow-code), for versioning without replay.
 6. [Attribute locks](/concepts/primitives/attribute#locking), for state shared by parallel Steps.
-7. [Performance](/intro/performance) and [Limits](/intro/limits).
+7. [Client](/concepts/client), for starting Flows and sending commands.
+8. [Performance](/intro/performance) and [Limits](/intro/limits).
 
 ## What they share
 
@@ -256,7 +257,7 @@ Temporal and Cadence are the best-known examples. The Worker replays a workflow 
 - Dex Steps run in parallel on different Workers. Temporal's single thread still interleaves handlers at await points, so the gap is smaller than "one writer" suggests, and it is real.
 - A retry of a Step method reuses its first attempt's state snapshot. An activity retry reads fresh data.
 - A retried RPC or a repeated Channel publish runs again; Temporal drops repeated updates and, best effort, repeated signals. See [Limits](/intro/limits#requests-that-can-repeat).
-- A Client starts a Flow from the Flow's definition registered in its own language. A service in another language calls FlowService `StartFlow` over gRPC; see [Application](/components/application#blob-cache).
+- A Client starts a Flow from the Flow's definition registered in its own language. A service in another language calls FlowService `StartFlow` over gRPC; see [Start Flows from an API service](/concepts/client#start-from-an-api-service).
 - A server failover reruns every in-flight Step attempt. See [Failover and Deploys](/concepts/failover-and-deploys).
 - Dex Server is one binary on object storage with one active node and standbys. Temporal runs several services on a database.
 
@@ -267,7 +268,7 @@ Restate is an example. A handler runs each side effect through the runtime conte
 | Restate term | Nearest Dex term |
 | --- | --- |
 | Workflow | Flow |
-| Service handler | A short Flow with no Attributes |
+| Service handler | A short Flow with no Attributes. A service handler is a durable, journaled invocation with retries and idempotency keys, but no key-value state. |
 | Journaled action (`ctx.run`) | Step `Execute` |
 | Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A closed run is deleted after retention, while a virtual object lives on. |
 | Object state | Attributes |
@@ -282,7 +283,7 @@ Restate is an example. A handler runs each side effect through the runtime conte
 - Handler code between journaled calls must be deterministic because it runs again. Dex runs Step code fresh, so a code change cannot break a running Flow.
 - A virtual object allows one writer per key. Dex Steps and RPCs of one Flow can run at the same time, with opt-in Attribute locks.
 - Restate deduplicates invocations by idempotency key. Dex deduplicates Flow starts by Flow ID and request ID, and repeated Channel publishes and RPCs run again today.
-- Dex keeps each Step's input, output, and error with the run until retention, and Dex Web shows them on the Flow's graph and Timeline.
+- Restate's UI and CLI show an invocation's journal. Dex keeps each Step's input, output, and error with the run until retention, and Dex Web shows them per Step on the Flow's graph and Timeline.
 
 ## Database-backed workflow libraries
 

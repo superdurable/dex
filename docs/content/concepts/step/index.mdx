@@ -286,7 +286,7 @@ drop a repeat. Build the key from values that stay the same on every attempt:
 - the Flow ID and the `StepExecutionID`, such as `order-1042/Charge-2`,
   when the Step runs more than once in the Flow.
 
-Build the key only from values that stay the same on a retry. The attempt number, the time, and a random value all change. Other pages link here instead of repeating this rule.
+The attempt number, the time, and a random value change on each retry, so leave them out of the key. Other pages link here instead of repeating this rule.
 
 ## StepOptions {#stepoptions}
 
