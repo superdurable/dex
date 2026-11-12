@@ -657,6 +657,9 @@ it: without a starting Step, `StartFlow` starts a run that never executes the
 served starting Step. `dex.IsClientOnlyFlow` reports the marker.
 
 ```go
+// RemoteOrderStatus matches the Attribute that the serving OrderFlow declares.
+var RemoteOrderStatus = dex.DefineAttribute[string]("status")
+
 type RemoteOrderFlow struct {
 	dex.FlowDefaults
 	dex.ClientOnlyFlow
