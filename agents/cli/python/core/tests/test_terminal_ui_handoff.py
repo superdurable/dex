@@ -846,7 +846,14 @@ async def test_a_fifth_waiting_request_is_busy(
 
 
 @pytest.mark.parametrize(
-    ("terminal_ui_exit", "command_exit"), [(0, 0), (1, 1), (130, 130), (143, 1)]
+    ("terminal_ui_exit", "command_exit", "closed_line"),
+    [
+        (0, 0, None),
+        (1, 1, None),
+        (130, 130, None),
+        # dexcli exits 143 by itself after an external SIGTERM.
+        (143, 1, "The chat closed unexpectedly (dexcli exit 143)."),
+    ],
 )
 async def test_the_command_exits_as_the_terminal_ui_did(
     cli_home: CliHome,
@@ -854,13 +861,17 @@ async def test_the_command_exits_as_the_terminal_ui_did(
     screen: io.StringIO,
     terminal_ui_exit: int,
     command_exit: int,
+    closed_line: str | None,
 ) -> None:
     fake = FakeTerminalUi(tmp_path / "tui", chat_transcript([], tui_exit=terminal_ui_exit))
     child = start_chat(cli_home, fake, screen)
     session_id = await read_session_id(child)
     assert await wait_for_exit(child) == command_exit
+    output = screen.getvalue()
+    assert output.count("The chat closed") == (0 if closed_line is None else 1)
+    assert closed_line is None or closed_line in output
     assert_no_launcher_resume_line(screen, session_id)
-    assert_replayed(fake, screen)
+    assert fake.mismatches() == []
     assert list((cli_home.home / ".dex" / "agents" / "run").glob("*.json")) == []
 
 

@@ -770,9 +770,13 @@ class _Handoff:
         is_channel_failed = self._channel_end_reason is not None and (
             self._is_stopped_after_channel_end or self._is_protocol_error
         )
+        # dexcli exiting 143 by itself, as after an external SIGTERM, is an unexpected end.
+        is_unexpected_end = is_unexpected or (
+            returncode == 143 and not self._is_stopped_after_channel_end
+        )
         if is_channel_failed and not is_signaled:
             self._report(f"The chat closed: {self._channel_end_reason}.")
-        elif is_unexpected and not is_signaled:
+        elif is_unexpected_end and not is_signaled:
             self._report(f"The chat closed unexpectedly (dexcli exit {status}).")
         # After ready, dexcli's exit summary is the only resume line: /new can switch sessions.
         if self._is_interrupted:
