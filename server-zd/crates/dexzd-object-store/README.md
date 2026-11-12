@@ -18,19 +18,35 @@ Cancellation can interrupt a multipart upload before the abort request runs. Con
 
 File downloads write to a temporary file beside the target and rename after the full body arrives. Errors and cancellation remove the temporary file without publishing a partial target.
 
-`startup_self_check` verifies create-only and ETag replacement behavior in the configured bucket, then deletes its probe object. Start the server only after it succeeds.
+`startup_self_check` verifies create-only and ETag replacement behavior in the configured bucket, then deletes its probe object. Start the server only after it succeeds. The check fails when it overruns `STARTUP_SELF_CHECK_DEADLINE` (5 minutes). With cleanup it holds its probe object for at most `STARTUP_PROBE_MAXIMUM_LIFETIME`.
 
 ## Mutable object keys and create-only stores
 
-server-zd writes `ReplaceIfEtagMatches` only on mutable object keys: `manifest`, `registry/attribute-indexes`, and keys under `lease/` and `probe/`. `is_mutable_object_key` and the key constants are their single definition. Register a key there before replacing it.
+server-zd writes `ReplaceIfEtagMatches` only on mutable object keys: `manifest`, `registry/attribute-indexes`, and keys under `lease/`, `probe/`, and `registry/flow-definitions/`. `is_mutable_object_key` and the key constants are their single definition. Register a key there before replacing it.
 
 `AliyunOssObjectStore` wraps a store whose only conditional write is create-only, such as Aliyun OSS. Every other key passes through unchanged and rejects `ReplaceIfEtagMatches` with a permanent error. `supports_replace_if_etag_matches_on_every_key` then returns false; wrappers forward the answer.
 
-A mutable key `K` is stored as create-only versions at `K.v/<u64::MAX - generation>`, zero-padded to 20 digits, so a one-key listing returns the newest version. Each version body starts with a 38-byte header: magic, format, tombstone and predecessor flags, a random 128-bit version ID, and the predecessor's ID. ETags are `"g<generation>-<version ID>"`. A read lists the newest version and reads it. A delete writes a tombstone version.
+A mutable key `K` is stored as create-only versions at `K.v/<u64::MAX - generation>`, zero-padded to 20 digits, so a one-key listing returns the newest version. ETags are `"g<generation>-<version ID>"`. A delete writes a tombstone version.
 
-A replacement checks that the ETag's generation holds the named version, creates the next generation, and confirms it. The version is written when it is still the newest, or when the next generation names it as predecessor. Otherwise a stale writer recreated a reclaimed generation: the version is deleted and the write reports `PreconditionFailed`. When the next generation is already gone too, the outcome is unknown. Failures after the create are `OutcomeUnknown`.
+The mapping is injective. A mutable key may contain `.` but never `.v/`, so a Flow type such as `Order_Flow-v1.2` keeps its key. The 20 digits hold no `.v/`, so the last `.v/` of a version key is its separator and determines `K`. The version prefixes of two different mutable keys never overlap, since one key would have to contain `.v/`. A plain key is rejected when the text before any of its `.v/` is a mutable key, so no plain key lies under a version prefix. Flow definition keys are `registry/flow-definitions/<tenant ID>/types/<segment>`: tenant IDs are decimal, and segments percent-encode `/`.
 
-After a confirmed write of generation `n`, a background task deletes generations `n - 2` and below whose successor was written at least 60 seconds before `n`, by the store's own timestamps. It keeps tombstones. Startup probe keys belong to one process, so deleting one removes every version, and `remove_stale_startup_probes` removes probe keys older than one hour. Each read and write of a mutable key adds one listing; a replacement also reads one version header.
+Each version body starts with a 38-byte header, format 1, followed by the caller's payload. A tombstone has no payload.
+
+| Bytes | Field |
+| --- | --- |
+| 0-3 | Magic `DXZV` |
+| 4 | Format, 1 |
+| 5 | Flags: bit 0 tombstone, bit 1 predecessor present; other bits zero |
+| 6-21 | Version ID, a random 128-bit big-endian integer |
+| 22-37 | Predecessor version ID, big-endian; zero without a predecessor |
+
+A read lists the newest version, then reads that physical key. The read must return the listed object: its physical ETag and size must match the listing, or the read lists again. Reclamation and a stale writer can replace a listed version with a resurrected object at the same key, and only this check keeps such an object out of reads. Physical ETags tell objects apart because every body holds a random version ID. Get, head, range reads, file downloads, and listings all use this read. A listing whose prefix may include mutable keys shows each such key once, with its newest version, and hides deleted keys. This slow listing path reads every object under the prefix after `start_after` on each page, because `K.v/...` sorts after `K-x` while `K` sorts before it.
+
+A replacement reads the newest version this way and requires it to be the ETag's version. It then creates the next generation and confirms it. The version is written when it is still the newest, or when the next generation names it as predecessor. Otherwise a stale writer recreated a reclaimed generation: the version is deleted and the write reports `PreconditionFailed`. When the next generation is already gone too, the outcome is unknown. Failures after the create are `OutcomeUnknown`.
+
+This is linearizable because a resurrected object is never the newest. A generation is reclaimed only after two newer ones exist, and the newest generation is never deleted. Reads therefore never return a resurrected object or its ETag. Every predecessor ID comes from a read of the newest version, so a successor names only a version that was the newest, which is a real write.
+
+After a confirmed write of generation `n`, a background task deletes generations `n - 2` and below whose successor was written at least 60 seconds before `n`, by the store's own timestamps. It keeps tombstones. Startup probe keys belong to one process, so deleting one removes every version. `remove_stale_startup_probes` removes probe keys whose newest object is older than one hour by the store's clock. It reads that clock by writing and deleting a probe object of its own. The hour is ten times `STARTUP_PROBE_MAXIMUM_LIFETIME`, so a removed probe has no holder. Each read and write of a mutable key adds one listing; a replacement also reads one version header. Flow definition reads therefore cost a listing and a GET, and listing definitions takes the slow listing path. A version key is `VERSION_OBJECT_KEY_SUFFIX_BYTES` (23) bytes longer than its logical key.
 
 The inner store must create atomically and list consistently right after each write. The layout differs from every other provider, so data cannot move between them.
 

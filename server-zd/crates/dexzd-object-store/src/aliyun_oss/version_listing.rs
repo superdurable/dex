@@ -6,18 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Listings by logical key.
-//!
-//! A prefix that cannot contain a mutable object key is listed by the inner store directly.
-//! Otherwise the versions of each mutable key collapse into one entry for its newest version,
-//! and deleted keys are hidden. Physical order differs from logical order there: `K.v/...`
-//! sorts after `K-x`, while `K` sorts before it. Such a listing therefore reads every object
-//! under the prefix after `start_after` on each page. server-zd does not list these prefixes
-//! in production.
+//! Listings by logical key: versions collapse into their newest, and deleted keys stay hidden.
 
 use std::collections::BTreeMap;
 
-use crate::aliyun_oss::version_keys::{may_list_versioned_keys, versioned_logical_key};
+use crate::aliyun_oss::version_keys::{
+    is_reserved_physical_key, may_list_versioned_keys, versioned_logical_key,
+};
 use crate::aliyun_oss::version_reads::head_versioned;
 use crate::{
     ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreError, ObjectStoreErrorKind,
@@ -35,7 +30,7 @@ enum ListedKey {
     Versioned,
 }
 
-/// Lists logical keys that start with `prefix` and sort after `start_after`.
+/// Lists logical keys; a prefix that may hold versioned keys reads all its later objects per page.
 pub(super) async fn list_logical_keys(
     inner: &dyn ObjectStore,
     prefix: &str,
@@ -83,10 +78,7 @@ pub(super) async fn list_logical_keys(
     })
 }
 
-/// Reads every physical object under `prefix` after `start_after`, keyed by logical key.
-///
-/// Every relevant physical key sorts after `start_after`: a version key `K.v/...` sorts after
-/// its logical key `K`.
+/// Reads every physical object under `prefix` after `start_after`; `K.v/...` sorts after `K`.
 async fn list_physical_keys(
     inner: &dyn ObjectStore,
     prefix: &str,
@@ -106,7 +98,8 @@ async fn list_physical_keys(
                         .entry(logical_key.to_owned())
                         .or_insert(ListedKey::Versioned);
                 }
-            } else if !is_mutable_object_key(&object.key) {
+            } else if !is_mutable_object_key(&object.key) && !is_reserved_physical_key(&object.key)
+            {
                 // Objects stored at a mutable key itself are invisible, as they are to reads.
                 listed_keys.insert(object.key.clone(), ListedKey::Plain(object));
             }

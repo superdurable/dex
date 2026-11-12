@@ -9,7 +9,9 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dexzd_keyspace::TenantId;
-use dexzd_object_store::{ByteRange, ObjectStore, ObjectStoreError};
+use dexzd_object_store::{
+    ByteRange, FLOW_DEFINITION_OBJECT_KEY_PREFIX, ObjectStore, ObjectStoreError,
+};
 use dexzd_protocol::dexzd::v1::FlowDefinitionRecord;
 use prost::Message;
 
@@ -46,7 +48,7 @@ pub(super) enum FlowDefinitionRead {
 
 /// Returns `registry/flow-definitions/<tenant_id>/types/`, the prefix of every record of a tenant.
 pub(super) fn flow_definition_types_prefix(tenant_id: TenantId) -> String {
-    format!("registry/flow-definitions/{}/types/", tenant_id.0)
+    format!("{FLOW_DEFINITION_OBJECT_KEY_PREFIX}{}/types/", tenant_id.0)
 }
 
 /// Returns the object key of the record of `flow_type`.

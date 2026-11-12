@@ -184,17 +184,10 @@ async fn check_object_store(bucket: RealBucket) {
         .expect("the bucket honors x-oss-forbid-overwrite");
     eprintln!("PASS: create-only writes");
     let adapter = Arc::new(AliyunOssObjectStore::new(Arc::clone(&inner)));
-    let now_unix_micros = i64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock is after the Unix epoch")
-            .as_micros(),
-    )
-    .expect("the current time fits in i64 microseconds");
     adapter
-        .remove_stale_startup_probes(now_unix_micros)
+        .remove_stale_startup_probes()
         .await
-        .expect("stale probes are listed");
+        .expect("stale probes are removed by store time");
     let store = InstrumentedObjectStore::new(adapter, NodeMetrics::unregistered());
     startup_self_check(&store)
         .await

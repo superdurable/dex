@@ -153,7 +153,7 @@ async fn connect_aliyun_oss_store(
         .await
         .map_err(bucket_check_error)?;
     let adapter = Arc::new(AliyunOssObjectStore::new(inner));
-    match adapter.remove_stale_startup_probes(now_unix_micros()).await {
+    match adapter.remove_stale_startup_probes().await {
         Ok(0) => {}
         Ok(removed_probe_keys) => {
             tracing::info!(
@@ -187,13 +187,6 @@ async fn new_s3_store(
     S3ObjectStore::new(config)
         .await
         .map_err(|source| ServerError::ObjectStore { bucket, source })
-}
-
-fn now_unix_micros() -> i64 {
-    let since_epoch = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is after the Unix epoch");
-    i64::try_from(since_epoch.as_micros()).expect("the current time fits in i64 microseconds")
 }
 
 fn s3_credentials(

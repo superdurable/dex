@@ -6,12 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Conditional writes and deletes of mutable object keys.
-//!
-//! Each write creates the next generation with a create-only put, then confirms it. The
-//! confirmation tells a real write from a resurrected one: a stale writer can recreate a
-//! generation that reclamation already removed, but that generation's successor then names the
-//! removed version, not the resurrected one, as its predecessor.
+//! Conditional writes and deletes of mutable keys: create the next generation, then confirm it.
 
 use bytes::Bytes;
 
@@ -60,9 +55,7 @@ impl VersionedObjectWriter<'_> {
         }
     }
 
-    /// Deletes `logical_key` by writing a tombstone over its current version.
-    ///
-    /// Succeeds without a write when the key is absent or already deleted.
+    /// Writes a tombstone over the current version; an absent or deleted key needs no write.
     pub(super) async fn delete(&self, logical_key: &str) -> ObjectStoreResult<()> {
         let operation = ObjectStoreOperation::Delete;
         for _ in 0..MAX_TOMBSTONE_ATTEMPTS {
@@ -128,7 +121,7 @@ impl VersionedObjectWriter<'_> {
         .await
     }
 
-    /// Replaces the version named by `etag` when it is the stored version of its generation.
+    /// Replaces the version named by `etag` when a bound read finds it as the newest version.
     async fn replace(
         &self,
         logical_key: &str,
@@ -139,11 +132,19 @@ impl VersionedObjectWriter<'_> {
         let Some(expected) = VersionEtag::parse(etag) else {
             return Ok(WriteOutcome::PreconditionFailed);
         };
-        // Checked before the create: a successor of an ETag never stored would be visible at once.
-        let stored =
-            read_version_header(self.inner, operation, logical_key, expected.generation).await?;
-        let is_expected_version = stored
-            .is_some_and(|header| !header.is_tombstone && header.version_id == expected.version_id);
+        // Only the newest version gets a successor; a hidden or forged version never does.
+        let newest = read_newest_version(
+            self.inner,
+            operation,
+            logical_key,
+            VersionReadExtent::HeaderOnly,
+        )
+        .await?;
+        let is_expected_version = newest.is_some_and(|newest| {
+            newest.generation == expected.generation
+                && newest.header.version_id == expected.version_id
+                && !newest.header.is_tombstone
+        });
         if !is_expected_version {
             return Ok(WriteOutcome::PreconditionFailed);
         }
@@ -157,12 +158,9 @@ impl VersionedObjectWriter<'_> {
         .await
     }
 
-    /// Creates generation `generation` of `logical_key`, a tombstone when `payload` is `None`, and
-    /// confirms it.
+    /// Creates and confirms `generation`, a tombstone without `payload`.
     ///
-    /// Returns `Written` only for a confirmed version and `PreconditionFailed` when the version
-    /// already exists or was resurrected. Errors before the create succeeded had no effect; any
-    /// failure after it is `OutcomeUnknown`.
+    /// Returns `OutcomeUnknown` for any failure after the create succeeded.
     async fn create_version(
         &self,
         operation: ObjectStoreOperation,
@@ -196,11 +194,8 @@ impl VersionedObjectWriter<'_> {
         Ok(outcome)
     }
 
-    /// Decides whether the version just created at `generation` with `version_id` is real.
-    ///
-    /// The version is real when it is still the newest, or when the next generation names it as
-    /// predecessor. Otherwise the generation had been reclaimed before this create, so the
-    /// version is deleted again and the write reports `PreconditionFailed`.
+    /// Returns `Written` for a real version, and `PreconditionFailed` after deleting a resurrected
+    /// one.
     async fn confirm_created_version(
         &self,
         operation: ObjectStoreOperation,

@@ -6,21 +6,27 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Physical keys of the versions of mutable object keys.
+//! Physical keys: generation `g` of key `K` lives at `K.v/<u64::MAX - g>`, newest first.
 //!
-//! Generation `g` of logical key `K` is stored at `K.v/<u64::MAX - g>`, zero-padded to 20
-//! decimal digits, so the newest generation sorts first in a listing.
+//! The crate README proves the mapping injective.
 
 use crate::{
     MUTABLE_OBJECT_KEY_PREFIXES, MUTABLE_OBJECT_KEYS, ObjectStoreError, ObjectStoreErrorKind,
     ObjectStoreOperation, ObjectStoreResult, is_mutable_object_key,
 };
 
-/// Separates a logical key from its version suffix. Logical mutable keys never contain `.`.
+/// Separates a logical key from its version suffix; no logical mutable key contains it.
 const VERSION_KEY_SEPARATOR: &str = ".v/";
 
 /// Digits of `u64::MAX`, the width of an inverted generation.
 const INVERTED_GENERATION_DIGITS: usize = 20;
+
+/// Bytes that a physical version key adds to its logical mutable key.
+///
+/// A caller that limits key lengths adds this to the logical key when the store is an
+/// [`crate::AliyunOssObjectStore`].
+pub const VERSION_OBJECT_KEY_SUFFIX_BYTES: usize =
+    VERSION_KEY_SEPARATOR.len() + INVERTED_GENERATION_DIGITS;
 
 /// How the adapter stores a logical key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,26 +37,23 @@ pub(super) enum LogicalKeyLayout {
     Versioned,
 }
 
-/// Returns how `key` is stored, or a permanent error for a key the adapter cannot store.
-///
-/// A mutable object key containing `.` and a plain key that names a version object are both
-/// rejected, because either would make the physical layout ambiguous.
+/// Returns how `key` is stored; rejects keys that would make the physical layout ambiguous.
 pub(super) fn logical_key_layout(
     operation: ObjectStoreOperation,
     key: &str,
 ) -> ObjectStoreResult<LogicalKeyLayout> {
     if is_mutable_object_key(key) {
-        if key.contains('.') {
+        if key.contains(VERSION_KEY_SEPARATOR) {
             return Err(ObjectStoreError::new(
                 operation,
                 key,
                 ObjectStoreErrorKind::Permanent,
-                "a mutable object key must not contain '.'",
+                "a mutable object key must not contain \".v/\"",
             ));
         }
         return Ok(LogicalKeyLayout::Versioned);
     }
-    if versioned_logical_key(key).is_some() {
+    if is_reserved_physical_key(key) {
         return Err(ObjectStoreError::new(
             operation,
             key,
@@ -63,15 +66,20 @@ pub(super) fn logical_key_layout(
 
 /// Returns the logical key whose version is stored at `physical_key`, if it names a version.
 pub(super) fn versioned_logical_key(physical_key: &str) -> Option<&str> {
-    let separator = physical_key.find('.')?;
-    let (logical_key, suffix) = physical_key.split_at(separator);
-    (suffix.starts_with(VERSION_KEY_SEPARATOR) && is_mutable_object_key(logical_key))
+    // A version suffix holds no ".v/", so the last occurrence is the separator.
+    let separator = physical_key.rfind(VERSION_KEY_SEPARATOR)?;
+    let logical_key = &physical_key[..separator];
+    (is_mutable_object_key(logical_key) && !logical_key.contains(VERSION_KEY_SEPARATOR))
         .then_some(logical_key)
 }
 
-/// Returns whether a listing of `prefix` may contain a mutable object key or one of its versions.
-///
-/// The answer may be a false positive, which only makes the listing slower.
+/// Returns whether `key` lies under the version prefix of some mutable object key.
+pub(super) fn is_reserved_physical_key(key: &str) -> bool {
+    key.match_indices(VERSION_KEY_SEPARATOR)
+        .any(|(separator, _)| is_mutable_object_key(&key[..separator]))
+}
+
+/// Returns whether a listing of `prefix` may include versioned keys; false positives only slow it.
 pub(super) fn may_list_versioned_keys(prefix: &str) -> bool {
     MUTABLE_OBJECT_KEYS
         .iter()
@@ -93,8 +101,7 @@ pub(super) fn version_object_key(logical_key: &str, generation: u64) -> String {
     )
 }
 
-/// Returns the generation stored at `physical_key`, or `None` when the key is not a well-formed
-/// version key under `prefix` (see [`version_prefix`]).
+/// Returns the generation of a well-formed version key under `prefix`, or `None`.
 pub(super) fn version_generation(physical_key: &str, prefix: &str) -> Option<u64> {
     let digits = physical_key.strip_prefix(prefix)?;
     if digits.len() != INVERTED_GENERATION_DIGITS

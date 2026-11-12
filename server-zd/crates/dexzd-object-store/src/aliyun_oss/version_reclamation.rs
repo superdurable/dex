@@ -6,13 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Best-effort removal of superseded versions after a confirmed write.
-//!
-//! After a writer confirms generation `n`, a background task deletes generations `n - 2` and
-//! below whose successor was written at least [`MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION`]
-//! before generation `n`. It never deletes generation `n`, its predecessor, or a tombstone.
-//! Because generation `n` exists, every deleted generation already has a successor, which is
-//! what confirmation of a created version relies on.
+//! Background deletion of superseded versions after a confirmed write; tombstones stay.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,7 +16,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::task::JoinHandle;
 
 use crate::aliyun_oss::version_keys::{version_generation, version_object_key, version_prefix};
-use crate::aliyun_oss::version_reads::read_header_at;
+use crate::aliyun_oss::version_reads::read_listed_header;
 use crate::{ObjectStore, ObjectStoreOperation, STARTUP_PROBE_OBJECT_KEY_PREFIX};
 
 /// How long a version must have been superseded before reclamation deletes it.
@@ -165,13 +159,8 @@ async fn reclaim_superseded_versions(inner: &dyn ObjectStore, request: &Reclamat
             if !is_superseded_long_enough {
                 continue;
             }
-            match read_header_at(
-                inner,
-                ObjectStoreOperation::Delete,
-                logical_key,
-                &object.key,
-            )
-            .await
+            match read_listed_header(inner, ObjectStoreOperation::Delete, logical_key, &object)
+                .await
             {
                 Ok(Some(header)) if !header.is_tombstone => reclaimable_keys.push(object.key),
                 Ok(_) => {}

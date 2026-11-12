@@ -18,14 +18,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use dexzd_clock::WallClock;
 use dexzd_object_store::{
-    AliyunOssObjectStore, FaultAction, MANIFEST_OBJECT_KEY, ObjectStore, ObjectStoreErrorKind,
-    ObjectStoreOperation, WriteCondition, WriteOutcome,
+    AliyunOssObjectStore, ByteRange, FaultAction, MANIFEST_OBJECT_KEY, ObjectStore,
+    ObjectStoreErrorKind, ObjectStoreOperation, STARTUP_PROBE_MAXIMUM_LIFETIME,
+    STARTUP_SELF_CHECK_DEADLINE, StartupSelfCheckFailure, WriteCondition, WriteOutcome,
+    startup_self_check,
 };
 
 use create_only_store::{
-    CreateOnlyStore, RandomDelays, TokioWallClock, etag_generation, version_key,
+    CreateOnlyStore, RandomDelays, TokioWallClock, etag_generation, physical_version_etag,
+    version_key,
 };
 use replacement_history::{ReplacementWorkload, run_replacement_workload};
 
@@ -541,7 +543,6 @@ async fn failed_reclamation_deletes_never_block_later_replacements() {
 async fn deleting_a_startup_probe_removes_every_version_and_stale_probes_are_removed() {
     let physical = CreateOnlyStore::new();
     let store = AliyunOssObjectStore::new(physical.inner());
-    let clock = TokioWallClock::new();
     for key in ["probe/1-1", "probe/2-2"] {
         let WriteOutcome::Written { etag } = store
             .put(
@@ -576,20 +577,346 @@ async fn deleting_a_startup_probe_removes_every_version_and_stale_probes_are_rem
         .await
         .expect("create");
     assert_eq!(
-        store
-            .remove_stale_startup_probes(clock.now_unix_micros())
-            .await
-            .expect("cleanup"),
+        store.remove_stale_startup_probes().await.expect("cleanup"),
         0
     );
     tokio::time::sleep(Duration::from_secs(2 * 60)).await;
     assert_eq!(
-        store
-            .remove_stale_startup_probes(clock.now_unix_micros())
-            .await
-            .expect("cleanup"),
+        store.remove_stale_startup_probes().await.expect("cleanup"),
         1
     );
     let remaining = physical.physical_keys("probe/").await;
     assert_eq!(remaining, [version_key("probe/3-3", 1)]);
+}
+
+/// How a regression test reads the key while a stale writer resurrects its listed version.
+#[derive(Debug, Clone, Copy)]
+enum ResurrectionRead {
+    Get,
+    Head,
+    GetRange,
+    GetToFile,
+    List,
+}
+
+/// Reads `KEY` with `read` and returns the ETag and bytes it saw; head and list return no bytes.
+async fn read_through(
+    store: &AliyunOssObjectStore,
+    read: ResurrectionRead,
+    download: &std::path::Path,
+) -> (String, Bytes) {
+    match read {
+        ResurrectionRead::Get => {
+            let content = store.get(KEY).await.expect("get").expect("exists");
+            (content.etag, content.bytes)
+        }
+        ResurrectionRead::Head => {
+            let metadata = store.head(KEY).await.expect("head").expect("exists");
+            (metadata.etag, Bytes::new())
+        }
+        ResurrectionRead::GetRange => {
+            let range = ByteRange {
+                start: 0,
+                end_inclusive: 2,
+            };
+            let content = store
+                .get_range(KEY, range)
+                .await
+                .expect("get_range")
+                .expect("exists");
+            (content.etag, content.bytes)
+        }
+        ResurrectionRead::GetToFile => {
+            store
+                .get_to_file(KEY, download)
+                .await
+                .expect("get_to_file")
+                .expect("exists");
+            let bytes = tokio::fs::read(download).await.expect("read the download");
+            let etag = store.head(KEY).await.expect("head").expect("exists").etag;
+            (etag, Bytes::from(bytes))
+        }
+        ResurrectionRead::List => {
+            let listing = store.list(KEY, None, 10).await.expect("list");
+            (listing.objects[0].etag.clone(), Bytes::new())
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn no_read_returns_a_version_that_a_stale_writer_resurrected() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    for read in [
+        ResurrectionRead::Get,
+        ResurrectionRead::Head,
+        ResurrectionRead::GetRange,
+        ResurrectionRead::GetToFile,
+        ResurrectionRead::List,
+    ] {
+        let physical = CreateOnlyStore::new();
+        let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+        // The stale creator lists no version, and its create lands after generation 1 is gone.
+        physical.faults.inject(
+            ObjectStoreOperation::Put,
+            &version_key(KEY, 1),
+            0,
+            1,
+            FaultAction::Delay(Duration::from_secs(200)),
+        );
+        let stale_store = Arc::clone(&store);
+        let stale = tokio::spawn(async move {
+            stale_store
+                .put(
+                    KEY,
+                    Bytes::from_static(b"rejected-resurrection"),
+                    WriteCondition::CreateOnly,
+                )
+                .await
+        });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let first = create(store.as_ref(), "one").await;
+        // The reader lists generation 1, then reads its key while the resurrected object is there.
+        physical.faults.inject(
+            ObjectStoreOperation::Get,
+            &version_key(KEY, 1),
+            0,
+            1,
+            FaultAction::Delay(Duration::from_secs(220)),
+        );
+        let reader_store = Arc::clone(&store);
+        let download = directory.path().join(format!("{read:?}"));
+        let reader =
+            tokio::spawn(async move { read_through(reader_store.as_ref(), read, &download).await });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let second = replace(store.as_ref(), &first, "two").await;
+        tokio::time::sleep(RECLAIMABLE_GAP).await;
+        replace(store.as_ref(), &second, "three").await;
+        physical.wait_for_generations(KEY, &[3, 2]).await;
+        // The stale writer confirms late, so its resurrected object outlives the reader's read.
+        physical.faults.inject(
+            ObjectStoreOperation::List,
+            &format!("{KEY}.v/"),
+            0,
+            1,
+            FaultAction::Delay(Duration::from_secs(50)),
+        );
+        let (etag, bytes) = reader.await.expect("the reader finishes");
+        assert_eq!(
+            stale
+                .await
+                .expect("the stale creator finishes")
+                .expect("the stale create completes"),
+            WriteOutcome::PreconditionFailed,
+            "{read:?}: the stale create was a resurrection"
+        );
+        assert_eq!(
+            etag_generation(&etag),
+            3,
+            "{read:?} read the newest version"
+        );
+        let expected: &[u8] = match read {
+            ResurrectionRead::Get | ResurrectionRead::GetToFile => b"three",
+            ResurrectionRead::GetRange => b"thr",
+            ResurrectionRead::Head | ResurrectionRead::List => b"",
+        };
+        assert_eq!(bytes.as_ref(), expected, "{read:?}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_replacement_of_a_resurrected_version_never_confirms_its_creator() {
+    let physical = CreateOnlyStore::new();
+    let store = Arc::new(AliyunOssObjectStore::new(physical.inner()));
+    physical.faults.inject(
+        ObjectStoreOperation::Put,
+        &version_key(KEY, 1),
+        0,
+        1,
+        FaultAction::Delay(Duration::from_secs(200)),
+    );
+    let stale_store = Arc::clone(&store);
+    let stale = tokio::spawn(async move {
+        stale_store
+            .put(
+                KEY,
+                Bytes::from_static(b"second-create"),
+                WriteCondition::CreateOnly,
+            )
+            .await
+    });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let first = create(store.as_ref(), "one").await;
+    let second = replace(store.as_ref(), &first, "two").await;
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    let third = replace(store.as_ref(), &second, "three").await;
+    tokio::time::sleep(RECLAIMABLE_GAP).await;
+    replace(store.as_ref(), &third, "four").await;
+    physical.wait_for_generations(KEY, &[4, 3]).await;
+    // The stale creator's confirmation waits while a writer extends its resurrected version.
+    physical.faults.inject(
+        ObjectStoreOperation::List,
+        &format!("{KEY}.v/"),
+        0,
+        1,
+        FaultAction::Delay(Duration::from_secs(100)),
+    );
+    for _ in 0..300 {
+        let key = version_key(KEY, 1);
+        if physical.store.head(&key).await.expect("head").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    let resurrected_etag = physical_version_etag(&physical, KEY, 1).await;
+    // A successor of the resurrected version, if created, would stay unconfirmed past its creator.
+    physical.faults.inject_after_put(
+        &version_key(KEY, 2),
+        ObjectStoreOperation::List,
+        &format!("{KEY}.v/"),
+        FaultAction::Delay(Duration::from_secs(200)),
+    );
+    let outcome = store
+        .put(
+            KEY,
+            Bytes::from_static(b"false-successor"),
+            WriteCondition::ReplaceIfEtagMatches {
+                etag: resurrected_etag,
+            },
+        )
+        .await
+        .expect("the replacement completes");
+    assert_eq!(outcome, WriteOutcome::PreconditionFailed);
+    assert!(
+        physical
+            .store
+            .head(&version_key(KEY, 2))
+            .await
+            .expect("head")
+            .is_none(),
+        "no successor of the resurrected version was created"
+    );
+    let stale_outcome = stale.await.expect("the stale creator finishes");
+    assert!(
+        !matches!(stale_outcome, Ok(WriteOutcome::Written { .. })),
+        "a second create reported Written without a delete: {stale_outcome:?}"
+    );
+    assert!(!physical.generations(KEY).await.contains(&2));
+    assert_eq!(
+        current_body(store.as_ref()).await,
+        Bytes::from_static(b"four")
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_probe_is_never_swept_while_its_startup_check_may_still_use_it() {
+    let physical = CreateOnlyStore::new();
+    let owner = AliyunOssObjectStore::new(physical.inner());
+    let sweeper = AliyunOssObjectStore::new(physical.inner());
+    let key = "probe/1-active";
+    let WriteOutcome::Written { etag } = owner
+        .put(
+            key,
+            Bytes::from_static(b"probe"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create")
+    else {
+        panic!("the probe create must succeed");
+    };
+    tokio::time::sleep(STARTUP_PROBE_MAXIMUM_LIFETIME).await;
+    assert_eq!(
+        sweeper.remove_stale_startup_probes().await.expect("sweep"),
+        0
+    );
+    let replaced = owner
+        .put(
+            key,
+            Bytes::from_static(b"replacement"),
+            WriteCondition::ReplaceIfEtagMatches { etag },
+        )
+        .await
+        .expect("replace");
+    assert!(matches!(replaced, WriteOutcome::Written { .. }));
+    assert_eq!(
+        physical.physical_keys("probe/").await,
+        [version_key(key, 2), version_key(key, 1)],
+        "the sweep leaves no clock probe behind"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_probe_sweep_ages_probes_by_the_store_clock_only() {
+    // The store clock lags every host clock by decades, as a host clock far ahead would.
+    let physical =
+        CreateOnlyStore::with_store_clock(TokioWallClock::starting_at(946_684_800_000_000));
+    let store = AliyunOssObjectStore::new(physical.inner());
+    store
+        .put(
+            "probe/2-recent",
+            Bytes::from_static(b"probe"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create");
+    assert_eq!(store.remove_stale_startup_probes().await.expect("sweep"), 0);
+    tokio::time::sleep(Duration::from_secs(59 * 60)).await;
+    assert_eq!(store.remove_stale_startup_probes().await.expect("sweep"), 0);
+    tokio::time::sleep(Duration::from_secs(2 * 60)).await;
+    assert_eq!(store.remove_stale_startup_probes().await.expect("sweep"), 1);
+    assert!(physical.physical_keys("probe/").await.is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_startup_check_that_stalls_past_its_deadline_fails_before_its_probe_can_be_swept() {
+    let physical = CreateOnlyStore::new();
+    let store = AliyunOssObjectStore::new(physical.inner());
+    // The correct-ETag replacement is the second probe put; it stalls for over an hour.
+    physical.faults.inject(
+        ObjectStoreOperation::Put,
+        "probe/",
+        1,
+        1,
+        FaultAction::Delay(Duration::from_secs(3601)),
+    );
+    let started = tokio::time::Instant::now();
+    let error = startup_self_check(&store)
+        .await
+        .expect_err("the stalled check fails");
+    assert_eq!(error.check, StartupSelfCheckFailure::CorrectEtagReplacement);
+    assert!(error.detail.contains("deadline"), "{}", error.detail);
+    assert!(started.elapsed() <= STARTUP_PROBE_MAXIMUM_LIFETIME);
+    assert!(started.elapsed() >= STARTUP_SELF_CHECK_DEADLINE);
+    assert!(
+        physical.physical_keys("probe/").await.is_empty(),
+        "the failed check removed its probe"
+    );
+
+    // When the cleanup hangs too, the probe stays until the sweep, long after its owner quit.
+    physical.faults.inject(
+        ObjectStoreOperation::Put,
+        "probe/",
+        1,
+        1,
+        FaultAction::Delay(Duration::from_secs(3601)),
+    );
+    physical.faults.inject(
+        ObjectStoreOperation::List,
+        "probe/",
+        4,
+        1,
+        FaultAction::Delay(Duration::from_secs(3601)),
+    );
+    let error = startup_self_check(&store)
+        .await
+        .expect_err("the stalled check fails");
+    assert!(
+        error.detail.contains("cleanup exceeded"),
+        "{}",
+        error.detail
+    );
+    assert_eq!(physical.physical_keys("probe/").await.len(), 1);
+    tokio::time::sleep(Duration::from_secs(3601)).await;
+    assert_eq!(store.remove_stale_startup_probes().await.expect("sweep"), 1);
+    assert!(physical.physical_keys("probe/").await.is_empty());
 }

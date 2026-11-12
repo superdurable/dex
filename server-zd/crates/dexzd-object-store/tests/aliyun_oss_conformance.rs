@@ -31,12 +31,18 @@ use dexzd_object_store::{
 
 use create_only_store::{CreateOnlyStore, etag_generation, version_key};
 
-const MUTABLE_KEYS: [&str; 4] = [
+const MUTABLE_KEYS: [&str; 7] = [
     "manifest",
     "registry/attribute-indexes",
     "lease/node-a",
     "probe/1-2",
+    "registry/flow-definitions/0/types/Order_Flow-v1.2",
+    "registry/flow-definitions/0/types/ends.v",
+    "registry/flow-definitions/0/types/v",
 ];
+
+/// Prefix of the Flow definition records of the default tenant.
+const FLOW_DEFINITION_TYPES_PREFIX: &str = "registry/flow-definitions/0/types/";
 
 #[tokio::test(start_paused = true)]
 async fn plain_keys_keep_create_only_conformance_and_reject_replacement() {
@@ -514,7 +520,9 @@ async fn keys_that_would_make_the_layout_ambiguous_are_rejected() {
     for key in [
         reserved.as_str(),
         "registry/attribute-indexes.v/1",
-        "lease/a.b",
+        "manifest.v/x.v/00000000000000000001",
+        "lease/a.v/b",
+        "registry/flow-definitions/0/types/a.v/b",
     ] {
         let put = store
             .put(key, Bytes::from_static(b"x"), WriteCondition::CreateOnly)
@@ -531,6 +539,96 @@ async fn keys_that_would_make_the_layout_ambiguous_are_rejected() {
         assert_eq!(delete.kind, ObjectStoreErrorKind::Permanent);
     }
     assert!(physical.physical_keys("").await.is_empty());
+    // Dots elsewhere keep the layout unambiguous.
+    for key in [
+        "lease/a.b",
+        "registry/flow-definitions/0/types/a.v.v",
+        "x/manifest.v/1",
+    ] {
+        let created = store
+            .put(key, Bytes::from_static(b"x"), WriteCondition::CreateOnly)
+            .await
+            .expect("the key is accepted");
+        assert!(matches!(created, WriteOutcome::Written { .. }), "{key}");
+        let content = store.get(key).await.expect("get").expect("exists");
+        assert_eq!(content.bytes, Bytes::from_static(b"x"));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn many_flow_definitions_list_in_logical_order_across_physical_pages() {
+    let physical = CreateOnlyStore::new();
+    let store = AliyunOssObjectStore::new(physical.inner());
+    let mut expected = Vec::new();
+    for index in 0..520 {
+        let segment = match index % 5 {
+            0 => format!("Order_Flow-v1.{index}"),
+            1 => format!("flow{index}.v"),
+            2 => format!("flow{index}%2Fpart"),
+            3 => format!("flow{index}"),
+            _ => format!("flow{index}-v"),
+        };
+        let key = format!("{FLOW_DEFINITION_TYPES_PREFIX}{segment}");
+        let WriteOutcome::Written { etag } = store
+            .put(
+                &key,
+                Bytes::from_static(b"first"),
+                WriteCondition::CreateOnly,
+            )
+            .await
+            .expect("create")
+        else {
+            panic!("the create of {key} must succeed");
+        };
+        store
+            .put(
+                &key,
+                Bytes::from_static(b"second"),
+                WriteCondition::ReplaceIfEtagMatches { etag },
+            )
+            .await
+            .expect("replace");
+        if index % 13 == 0 {
+            store.delete(&key).await.expect("delete");
+        } else {
+            expected.push(key);
+        }
+    }
+    expected.push(format!("{FLOW_DEFINITION_TYPES_PREFIX}v"));
+    store
+        .put(
+            &format!("{FLOW_DEFINITION_TYPES_PREFIX}v"),
+            Bytes::from_static(b"second"),
+            WriteCondition::CreateOnly,
+        )
+        .await
+        .expect("create");
+    expected.sort();
+    assert!(
+        physical
+            .physical_keys(FLOW_DEFINITION_TYPES_PREFIX)
+            .await
+            .len()
+            > 1000
+    );
+    let mut listed = Vec::new();
+    let mut start_after = None;
+    loop {
+        let page = store
+            .list(FLOW_DEFINITION_TYPES_PREFIX, start_after.as_deref(), 97)
+            .await
+            .expect("list");
+        assert!(page.objects.len() <= 97);
+        for object in &page.objects {
+            assert_eq!(object.size, 6, "{} lists its newest version", object.key);
+        }
+        listed.extend(page.objects.into_iter().map(|object| object.key));
+        match page.next_start_after {
+            Some(next) => start_after = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(listed, expected);
 }
 
 #[tokio::test(start_paused = true)]
@@ -557,10 +655,13 @@ fn mutable_object_keys_never_contain_the_version_separator() {
         .iter()
         .chain(MUTABLE_OBJECT_KEY_PREFIXES.iter())
     {
-        assert!(!key.contains('.'), "{key} contains '.'");
+        assert!(!key.contains(".v/"), "{key} contains \".v/\"");
         assert!(is_mutable_object_key(key));
     }
     assert!(is_mutable_object_key(&node_lease_object_key("node-a")));
     assert!(!is_mutable_object_key("manifest/x"));
     assert!(!is_mutable_object_key("snapshot/node-a/manifest/1"));
+    assert!(is_mutable_object_key(
+        "registry/flow-definitions/7/types/Order_Flow-v1.2"
+    ));
 }

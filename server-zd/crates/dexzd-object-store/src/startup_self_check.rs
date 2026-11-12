@@ -6,10 +6,28 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::time::Duration;
+
 use crate::{
     ObjectStore, ObjectStoreError, STARTUP_PROBE_OBJECT_KEY_PREFIX, WriteCondition, WriteOutcome,
 };
 use bytes::Bytes;
+use tokio::time::Instant;
+
+/// Longest time [`startup_self_check`] spends on its conditional writes and the final delete.
+///
+/// A check that overruns it fails, so a slow store fails startup instead of leaving a probe
+/// object in use indefinitely.
+pub const STARTUP_SELF_CHECK_DEADLINE: Duration = Duration::from_secs(5 * 60);
+
+/// Longest time the cleanup after a failed or overrun check may take.
+const PROBE_CLEANUP_LIMIT: Duration = Duration::from_secs(60);
+
+/// Longest time a [`startup_self_check`] call holds its probe object, cleanup included.
+///
+/// A probe object older than this, by store time, has no holder.
+pub const STARTUP_PROBE_MAXIMUM_LIFETIME: Duration =
+    Duration::from_secs(STARTUP_SELF_CHECK_DEADLINE.as_secs() + PROBE_CLEANUP_LIMIT.as_secs());
 
 /// The conditional-write guarantee that failed during startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +58,9 @@ pub struct StartupSelfCheckError {
 }
 
 /// Verifies create-only and ETag replacement semantics, then removes its probe object.
+///
+/// The check fails when it overruns [`STARTUP_SELF_CHECK_DEADLINE`]; the failure names the
+/// step in progress.
 pub async fn startup_self_check(store: &dyn ObjectStore) -> Result<(), StartupSelfCheckError> {
     let key = format!(
         "{STARTUP_PROBE_OBJECT_KEY_PREFIX}{}-{}",
@@ -49,44 +70,69 @@ pub async fn startup_self_check(store: &dyn ObjectStore) -> Result<(), StartupSe
             .expect("system clock is after the Unix epoch")
             .as_nanos()
     );
+    let deadline = Instant::now() + STARTUP_SELF_CHECK_DEADLINE;
+    let mut step = StartupSelfCheckFailure::InitialCreate;
+    let checked =
+        tokio::time::timeout_at(deadline, check_conditional_writes(store, &key, &mut step)).await;
+    let mut observed = match checked {
+        Ok(Ok(())) => {
+            return match tokio::time::timeout_at(deadline, store.delete(&key)).await {
+                Ok(deleted) => deleted.map_err(|source| StartupSelfCheckError {
+                    check: StartupSelfCheckFailure::Cleanup,
+                    detail: "deleting probe failed".to_owned(),
+                    source: Some(source),
+                }),
+                Err(_) => Err(overrun(StartupSelfCheckFailure::Cleanup)),
+            };
+        }
+        Ok(Err(observed)) => observed,
+        Err(_) => overrun(step),
+    };
+    match tokio::time::timeout(PROBE_CLEANUP_LIMIT, store.delete(&key)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(cleanup_error)) => observed
+            .detail
+            .push_str(&format!("; cleanup failed: {cleanup_error}")),
+        Err(_) => observed.detail.push_str(&format!(
+            "; cleanup exceeded its {PROBE_CLEANUP_LIMIT:?} limit"
+        )),
+    }
+    Err(observed)
+}
+
+/// Runs the four conditional writes on `key`, recording the step in progress in `step`.
+async fn check_conditional_writes(
+    store: &dyn ObjectStore,
+    key: &str,
+    step: &mut StartupSelfCheckFailure,
+) -> Result<(), StartupSelfCheckError> {
+    *step = StartupSelfCheckFailure::InitialCreate;
     let first = store
         .put(
-            &key,
+            key,
             Bytes::from_static(b"probe"),
             WriteCondition::CreateOnly,
         )
         .await;
     let initial_etag = match first {
         Ok(WriteOutcome::Written { etag }) => etag,
-        other => {
-            let mut observed = failure(StartupSelfCheckFailure::InitialCreate, other);
-            if let Err(cleanup_error) = store.delete(&key).await {
-                observed
-                    .detail
-                    .push_str(&format!("; cleanup failed: {cleanup_error}"));
-            }
-            return Err(observed);
-        }
+        other => return Err(failure(StartupSelfCheckFailure::InitialCreate, other)),
     };
+    *step = StartupSelfCheckFailure::DuplicateCreate;
     let duplicate = store
         .put(
-            &key,
+            key,
             Bytes::from_static(b"duplicate"),
             WriteCondition::CreateOnly,
         )
         .await;
     if !matches!(duplicate, Ok(WriteOutcome::PreconditionFailed)) {
-        let mut observed = failure(StartupSelfCheckFailure::DuplicateCreate, duplicate);
-        if let Err(cleanup_error) = store.delete(&key).await {
-            observed
-                .detail
-                .push_str(&format!("; cleanup failed: {cleanup_error}"));
-        }
-        return Err(observed);
+        return Err(failure(StartupSelfCheckFailure::DuplicateCreate, duplicate));
     }
+    *step = StartupSelfCheckFailure::WrongEtagReplacement;
     let replacement = store
         .put(
-            &key,
+            key,
             Bytes::from_static(b"replacement"),
             WriteCondition::ReplaceIfEtagMatches {
                 etag: "\"wrong-etag\"".to_owned(),
@@ -94,41 +140,35 @@ pub async fn startup_self_check(store: &dyn ObjectStore) -> Result<(), StartupSe
         )
         .await;
     if !matches!(replacement, Ok(WriteOutcome::PreconditionFailed)) {
-        let mut observed = failure(StartupSelfCheckFailure::WrongEtagReplacement, replacement);
-        if let Err(cleanup_error) = store.delete(&key).await {
-            observed
-                .detail
-                .push_str(&format!("; cleanup failed: {cleanup_error}"));
-        }
-        return Err(observed);
+        return Err(failure(
+            StartupSelfCheckFailure::WrongEtagReplacement,
+            replacement,
+        ));
     }
+    *step = StartupSelfCheckFailure::CorrectEtagReplacement;
     let correct_replacement = store
         .put(
-            &key,
+            key,
             Bytes::from_static(b"replacement"),
             WriteCondition::ReplaceIfEtagMatches { etag: initial_etag },
         )
         .await;
     if !matches!(correct_replacement, Ok(WriteOutcome::Written { .. })) {
-        let mut observed = failure(
+        return Err(failure(
             StartupSelfCheckFailure::CorrectEtagReplacement,
             correct_replacement,
-        );
-        if let Err(cleanup_error) = store.delete(&key).await {
-            observed
-                .detail
-                .push_str(&format!("; cleanup failed: {cleanup_error}"));
-        }
-        return Err(observed);
+        ));
     }
-    store
-        .delete(&key)
-        .await
-        .map_err(|source| StartupSelfCheckError {
-            check: StartupSelfCheckFailure::Cleanup,
-            detail: "deleting probe failed".to_owned(),
-            source: Some(source),
-        })
+    *step = StartupSelfCheckFailure::Cleanup;
+    Ok(())
+}
+
+fn overrun(check: StartupSelfCheckFailure) -> StartupSelfCheckError {
+    StartupSelfCheckError {
+        check,
+        detail: format!("the check exceeded its {STARTUP_SELF_CHECK_DEADLINE:?} deadline"),
+        source: None,
+    }
 }
 
 fn failure(

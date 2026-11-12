@@ -12,7 +12,7 @@ use bytes::Bytes;
 
 use crate::{
     ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY, MANIFEST_OBJECT_KEY, ObjectStore, ObjectStoreError,
-    STARTUP_PROBE_OBJECT_KEY_PREFIX, WriteCondition, WriteOutcome,
+    STARTUP_PROBE_OBJECT_KEY_PREFIX, STARTUP_SELF_CHECK_DEADLINE, WriteCondition, WriteOutcome,
 };
 
 /// Why a bucket cannot hold server-zd data through an [`crate::AliyunOssObjectStore`].
@@ -33,6 +33,12 @@ pub enum AliyunOssBucketCheckError {
     /// The first create-only write of a new probe object did not report a write.
     #[error("the first create-only write of the new probe object {probe_key} was rejected")]
     InitialCreateRejected {
+        /// Key of the probe object relative to the store prefix.
+        probe_key: String,
+    },
+    /// The check did not finish within [`STARTUP_SELF_CHECK_DEADLINE`].
+    #[error("the create-only check of the probe object {probe_key} did not finish in time")]
+    TimedOut {
         /// Key of the probe object relative to the store prefix.
         probe_key: String,
     },
@@ -61,7 +67,8 @@ pub enum AliyunOssBucketCheckError {
 ///
 /// Returns [`AliyunOssBucketCheckError::CreateOnlyIgnored`] when the second write succeeds,
 /// [`AliyunOssBucketCheckError::InitialCreateRejected`] when the first one fails its condition,
-/// and the store's error when a request fails.
+/// [`AliyunOssBucketCheckError::TimedOut`] after [`STARTUP_SELF_CHECK_DEADLINE`], and the store's
+/// error when a request fails.
 pub async fn check_aliyun_oss_create_only_writes(
     inner: &dyn ObjectStore,
 ) -> Result<(), AliyunOssBucketCheckError> {
@@ -73,11 +80,16 @@ pub async fn check_aliyun_oss_create_only_writes(
             .expect("system clock is after the Unix epoch")
             .as_nanos()
     );
-    let outcome = create_twice(inner, &probe_key).await;
-    let deleted = inner.delete(&probe_key).await;
-    outcome?;
-    deleted?;
-    Ok(())
+    // A bounded check keeps the probe younger than the age at which other processes remove it.
+    let checked = tokio::time::timeout(STARTUP_SELF_CHECK_DEADLINE, async {
+        let outcome = create_twice(inner, &probe_key).await;
+        let deleted = inner.delete(&probe_key).await;
+        outcome?;
+        deleted?;
+        Ok(())
+    })
+    .await;
+    checked.unwrap_or(Err(AliyunOssBucketCheckError::TimedOut { probe_key }))
 }
 
 async fn create_twice(

@@ -35,7 +35,8 @@ pub use bucket_checks::{
     check_no_data_of_another_provider,
 };
 pub use startup_probes::STALE_STARTUP_PROBE_AGE;
-use startup_probes::{purge_startup_probe, remove_startup_probes_written_before};
+use startup_probes::{purge_startup_probe, read_store_time, remove_startup_probes_written_before};
+pub use version_keys::VERSION_OBJECT_KEY_SUFFIX_BYTES;
 use version_keys::{LogicalKeyLayout, logical_key_layout};
 use version_listing::list_logical_keys;
 use version_reads::{get_versioned, get_versioned_range, head_versioned};
@@ -92,8 +93,8 @@ impl VersionIdSource for SeededVersionIdSourceForTest {
 /// one-key listing finds the newest version. A replacement checks that the ETag names the
 /// stored version of its generation, creates the next generation, and confirms it, so one
 /// writer wins each generation. Each version body starts with a header that names the version
-/// and its predecessor; ETags have the form `"g<generation>-<version ID>"`. A delete writes a tombstone
-/// version, except on startup probe keys, whose versions are deleted. A background task deletes
+/// and its predecessor; ETags have the form `"g<generation>-<version ID>"`. A delete writes a
+/// tombstone version, except on startup probe keys, whose versions are deleted. A background task deletes
 /// superseded versions, see [`MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION`].
 ///
 /// Every other key is stored at the same physical key and passed to the inner store. Such a
@@ -180,24 +181,31 @@ impl AliyunOssObjectStore {
     }
 
     /// Deletes every startup probe key whose newest object was written more than
-    /// [`STALE_STARTUP_PROBE_AGE`] before `now_unix_micros`, the current wall-clock time.
+    /// [`STALE_STARTUP_PROBE_AGE`] ago, by the store's clock.
     ///
-    /// Such keys remain from processes that stopped during [`crate::startup_self_check`]. Call
-    /// it before the check. Returns the number of probe keys removed. Objects whose store
-    /// reports no last-write time are kept.
+    /// Such keys remain from processes that stopped during [`crate::startup_self_check`]. A
+    /// check holds its probe for at most [`crate::STARTUP_PROBE_MAXIMUM_LIFETIME`], so a removed
+    /// probe has no holder. The current time is the last-write time of a probe object this call
+    /// writes and deletes, so the host clock does not matter. Call it before the check. Returns
+    /// the number of probe keys removed. Objects whose store reports no last-write time are
+    /// kept.
     ///
     /// # Errors
     ///
-    /// Returns the inner store's error when a listing or a delete fails; earlier deletes stay.
-    pub async fn remove_stale_startup_probes(
-        &self,
-        now_unix_micros: i64,
-    ) -> ObjectStoreResult<u64> {
+    /// Returns the inner store's error when a write, listing, or delete fails; earlier deletes
+    /// stay. Returns [`ObjectStoreErrorKind::Permanent`] when the store reports no last-write
+    /// time for the new probe object.
+    pub async fn remove_stale_startup_probes(&self) -> ObjectStoreResult<u64> {
+        let clock_key = format!(
+            "{STARTUP_PROBE_OBJECT_KEY_PREFIX}store-clock-{:032x}",
+            self.version_ids.next_version_id()
+        );
+        let store_now = read_store_time(self, &clock_key).await?;
         let stale_age_micros = i64::try_from(STALE_STARTUP_PROBE_AGE.as_micros())
             .expect("the stale probe age fits in i64 microseconds");
         remove_startup_probes_written_before(
             self.inner.as_ref(),
-            now_unix_micros.saturating_sub(stale_age_micros),
+            store_now.saturating_sub(stale_age_micros),
         )
         .await
     }
