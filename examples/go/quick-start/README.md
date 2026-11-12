@@ -13,6 +13,17 @@ which Steps ran.
 | [`cmd/start/main.go`](cmd/start/main.go) | Starts one Flow with a Client. |
 | [`quickstart_test.go`](quickstart_test.go) | Stops the Worker after `Charge`, starts a new one, and checks that only `Ship` runs. It skips the Timer. |
 
+## Get the code
+
+Download only this folder, without cloning the repository:
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/go/quick-start
+cd quick-start
+```
+
+The folder builds on its own. Its only Dex dependency is `github.com/superdurable/dex/sdk-go` v1.44.0 from the Go module proxy.
+
 ## Run it
 
 Start Dex in one terminal:

@@ -16,6 +16,17 @@ which Steps ran.
 The files run directly with Node.js type stripping, so there is no build step.
 Use Node.js 22.18 or later, or Node.js 24.
 
+## Get the code
+
+Download only this folder, without cloning the repository:
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/typescript/quick-start
+cd quick-start
+```
+
+The folder builds on its own. Its only Dex dependency is `@superdurable/dex` 1.44.0 from npm.
+
 ## Run it
 
 Start Dex in one terminal:

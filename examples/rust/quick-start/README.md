@@ -17,6 +17,17 @@ which Steps ran.
 | [`src/bin/start.rs`](src/bin/start.rs) | Starts one Flow with a Client. |
 | [`tests/quick_start.rs`](tests/quick_start.rs) | Stops the Worker after `Charge`, starts a new one, and checks that only `Ship` runs. It skips the Timer. |
 
+## Get the code
+
+Download only this folder, without cloning the repository:
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/rust/quick-start
+cd quick-start
+```
+
+The folder builds on its own. Its only Dex dependency is `dex-sdk` 1.44.0 from crates.io.
+
 ## Run it
 
 Rust 1.97 or newer is required. Start Dex in one terminal:

@@ -13,6 +13,17 @@ which Steps ran.
 | [`start.py`](start.py) | Starts one Flow with a Client. |
 | [`tests/test_quick_start.py`](tests/test_quick_start.py) | Stops the Worker after `Charge`, starts a new one, and checks that only `Ship` runs. It skips the Timer. |
 
+## Get the code
+
+Download only this folder, without cloning the repository:
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/quick-start
+cd quick-start
+```
+
+The folder builds on its own. Its only Dex dependency is `dex-python-sdk` 1.44.0 from PyPI.
+
 ## Run it
 
 Start Dex in one terminal:

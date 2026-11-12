@@ -13,6 +13,17 @@ which Steps ran.
 | [`StartMain.java`](src/main/java/io/superdurable/dex/quickstart/StartMain.java) | Starts one Flow with a Client. |
 | [`QuickStartTest.java`](src/test/java/io/superdurable/dex/quickstart/QuickStartTest.java) | Stops the Worker after `Charge`, starts a new one, and checks that only `Ship` runs. It skips the Timer. |
 
+## Get the code
+
+Download only this folder, without cloning the repository:
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/java/quick-start
+cd quick-start
+```
+
+The folder builds on its own. Its only Dex dependency is `io.superdurable:dex-sdk` 1.44.0 from Maven Central.
+
 ## Run it
 
 You need JDK 17 or newer. Start Dex in one terminal:
