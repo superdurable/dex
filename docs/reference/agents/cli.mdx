@@ -750,10 +750,12 @@ type to the Dex Server. Dex Web then shows each session's Steps and its
 - The [terminal UI](#terminal-ui) shows each message from Dex Web, or from any
   other client, marked **(another client)**, and asks about the approvals of
   its turn too. Neither the terminal UI nor Dex Web shows who sent a message.
-- The [plain chat](#plain-chat) follows only the turns it starts. Between
-  them, it may print some of the agent's output for another client's message,
-  but not the message itself, and it does not ask about that turn's
-  approvals. Answer them in Dex Web.
+- The [plain chat](#plain-chat) follows the turns it starts. A turn that
+  starts right after one of them, such as another client's message queued
+  during it, may also be shown, with its approvals asked in the terminal.
+  For another client's turn that starts while the plain chat waits for your
+  input, answer its approvals in Dex Web. The plain chat may print some of
+  that turn's output, but not its message.
 - A message from another client starts a turn like your own, with this
   command's local tools and Connectors. The approval rules stay the same. A
   call without approval in [Workspace and local tools](#local-tools) or

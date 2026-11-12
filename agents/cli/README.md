@@ -155,10 +155,11 @@ require the permission `dex-agents-cli.operate` in every CLI core: choose it
 in **Working as** to send a session messages and to answer its approvals and
 questions in Dex Web. The terminal UI shows a message from Dex Web marked
 `(another client)` and asks about its approvals too. The plain chat follows
-only its own turns: it does not show such a message or ask about its
-approvals. Such a message runs the command's local tools like your own, and
-Dex Web can answer their approvals, so only let people who may run tools on
-this machine reach a shared Dex Web.
+its own turns, and may also follow a turn that starts right after one of
+them. For a turn that starts while the plain chat waits for input, answer its
+approvals in Dex Web. A message from Dex Web runs the command's local tools
+like your own, and Dex Web can answer their approvals, so only let people who
+may run tools on this machine reach a shared Dex Web.
 Uploading needs server-zd 0.1.26 or later, which `dexcli dev` 1.46.0 runs. The
 outcome, and a failure such as on an older server, go to the log file
 `~/.dex/agents/<harness>.log`, not the terminal, and the command still starts.
