@@ -1,43 +1,43 @@
 ==== width 30 ====
-› Find open issues about flaky
+␛[2m›␛[m Find open issues about flaky
   tests and post a summary to
   #eng.
 
   I'll search the issue
   tracker first.
 
-  ✓ search_fi…  "flaky" in te…
-  ✓ read_file   tests/integ/r…
+  ␛[32m✓␛[m search_fi…  ␛[2m"flaky" in te…␛[m
+  ␛[32m✓␛[m read_file   ␛[2mtests/integ/r…␛[m
 ~~~~ live area ~~~~
- ⠙ Resize to 40 columns for t…
- › type to queue a message
+ ␛[36m⠙␛[m Resize to 40 columns for t…
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
 ~~~~ cursor 3,1 ~~~~
 
 ==== ASCII symbols ====
-> Find open issues about flaky tests and post a summary to #eng.
+␛[2m>␛[m Find open issues about flaky tests and post a summary to #eng.
 
   I'll search the issue tracker first.
 
-  + search_files      "flaky" in tests/                                     0.4s
-  + read_file         tests/integ/retry_test.go                             0.1s
+  ␛[32m+␛[m search_files      ␛[2m"flaky" in tests/                       12 matches    0.4s␛[m
+  ␛[32m+␛[m read_file         ␛[2mtests/integ/retry_test.go                210 lines    0.1s␛[m
 ~~~~ live area ~~~~
-  \ run_shell_command  go test ./integ/... -run Retry                      15.2s
-    | === RUN   TestRetryBackoff
-    | --- PASS: TestRetryBackoff (0.31s)
-    | ~ 18 more lines
+  ␛[36m\␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                      15.2s␛[m
+    ␛[2m|␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m|␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m|␛[m ␛[2m~ 18 more lines␛[m
 
- +- Approve slack_post_channel_message? --------------------------------------+
- | connector - slack/support-slack - write                                    |
- |                                                                            |
- | channel  #eng                                                              |
- | text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      |
- |          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1~ |
- |          (202 chars - e shows all)                                         |
- |                                                                            |
- | Posts to #eng with connection support-slack.                               |
- |                                                                            |
- | > Approve                                                                y |
- |   Reject                                                                 n |
- |   Reject with a reason                                                   r |
- +----------------------------------------------------------------------------+
- y approve - n reject - r reason - Esc later
+ ␛[34m+- ␛[m␛[1;94mApprove slack_post_channel_message?␛[m ␛[34m--------------------------------------+␛[m
+ ␛[34m|␛[m ␛[2mconnector - slack/support-slack - write␛[m                                    ␛[34m|␛[m
+ ␛[34m|␛[m                                                                            ␛[34m|␛[m
+ ␛[34m|␛[m channel  #eng                                                              ␛[34m|␛[m
+ ␛[34m|␛[m text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      ␛[34m|␛[m
+ ␛[34m|␛[m          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1~ ␛[34m|␛[m
+ ␛[34m|␛[m          ␛[2m(202 chars - e shows all)␛[m                                         ␛[34m|␛[m
+ ␛[34m|␛[m                                                                            ␛[34m|␛[m
+ ␛[34m|␛[m Posts to #eng with connection support-slack.                               ␛[34m|␛[m
+ ␛[34m|␛[m                                                                            ␛[34m|␛[m
+ ␛[34m|␛[m ␛[34m>␛[m ␛[1;34mApprove␛[m                                                                ␛[2my␛[m ␛[34m|␛[m
+ ␛[34m|␛[m   Reject                                                                 ␛[2mn␛[m ␛[34m|␛[m
+ ␛[34m|␛[m   Reject with a reason                                                   ␛[2mr␛[m ␛[34m|␛[m
+ ␛[34m+----------------------------------------------------------------------------+␛[m
+␛[2m y approve - n reject - r reason - Esc later␛[m

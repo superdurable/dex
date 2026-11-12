@@ -114,12 +114,15 @@ func (stream *replyStream) RecordFinalMessage(message sessionfeed.AssistantMessa
 	if !isActive {
 		outputs = append(outputs, stream.FlushPending()...)
 	}
-	streamedText := strings.TrimRight(group.streamedText, " \n")
+	// streamedText is exactly the printed blocks plus the unfinished block.
+	streamedText := group.streamedText
 	switch {
 	case streamedText == "":
 		stream.pendingText = message.Text
 	case strings.HasPrefix(message.Text, streamedText):
 		stream.pendingText += message.Text[len(streamedText):]
+	case strings.HasPrefix(streamedText, message.Text) && strings.TrimSpace(streamedText[len(message.Text):]) == "":
+		// The record only lacks trailing whitespace that was streamed.
 	default:
 		outputs = append(outputs, stream.FlushPending()...)
 		outputs = append(outputs, replyOutput{kind: replyOutputCorrection, text: "reply from the session record:"})

@@ -1,40 +1,20 @@
-==== approvals waiting, message queueing ====
-› Post the summary.
-~~~~ live area ~~~~
-  ? 2 approvals waiting · Tab opens
-  · queueing  Also check the nightly job.
- openai-sdk · gpt-5.2 · turn 1 · ⠏ running model
- › type to queue a message
- Tab opens approvals · Enter queue · Ctrl-C cancel turn · /help
-~~~~ cursor 3,3 ~~~~
-
-==== approvals focused ====
-› Post the summary.
-~~~~ live area ~~~~
-▸ ? 2 approvals waiting · Tab opens
-  · queued  Also check the nightly job.                           Tab acts on it
- openai-sdk · gpt-5.2 · turn 1 · ⠏ running model
- › type to queue a message
- Enter opens · Esc back
-~~~~ cursor 3,3 ~~~~
-
 ==== queued message focused ====
-› Post the summary.
+␛[2m›␛[m Post the summary.
 ~~~~ live area ~~~~
-  ? 2 approvals waiting · Tab opens
-▸ · queued  Also check the nightly job.                           Tab acts on it
- openai-sdk · gpt-5.2 · turn 1 · ⠏ running model
- › type to queue a message
- s steer · x delete · Esc back
+  ␛[33m?␛[m 2 approvals waiting␛[2m · Tab opens␛[m
+␛[34m▸␛[m ␛[2m· queued␛[m  Also check the nightly job.␛[2m · ␛[m␛[2mTab acts on it␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[mturn 1␛[2m · ␛[m␛[36m⠏␛[m running model
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+␛[2m s steer · x delete · Esc back␛[m
 ~~~~ cursor 3,3 ~~~~
 
 ==== delete confirmation ====
-› Post the summary.
+␛[2m›␛[m Post the summary.
 ~~~~ live area ~~~~
-  ? 2 approvals waiting · Tab opens
-▸ · queued  Also check the nightly job.                           Tab acts on it
-  ! Delete the queued message? It will not be sent.
- openai-sdk · gpt-5.2 · turn 1 · ⠏ running model
- › type to queue a message
- y delete · n keep
+  ␛[33m?␛[m 2 approvals waiting␛[2m · Tab opens␛[m
+␛[34m▸␛[m ␛[2m· queued␛[m  Also check the nightly job.␛[2m · ␛[m␛[2mTab acts on it␛[m
+  ␛[33m!␛[m Delete the queued message "Also check the nightly job."? It will not be sen…
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[mturn 1␛[2m · ␛[m␛[36m⠏␛[m running model
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+␛[2m y delete · n keep␛[m
 ~~~~ cursor 3,4 ~~~~

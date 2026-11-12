@@ -14,11 +14,22 @@ type UserAction interface {
 	isUserAction()
 }
 
-// SendUserMessage sends a message. The screen prints it only when idle; a
-// queued one returns as UserMessageRecorded.
+// SendUserMessage sends a message. The screen prints it only when no turn
+// runs or starts; otherwise UserMessageRecorded does.
 type SendUserMessage struct {
 	// Text is the message text.
 	Text string
+	// Images are the attachments from ImageAttached, in order.
+	Images []ImageAttachment
+	// IsPlanMode asks for a planning turn, after /plan.
+	IsPlanMode bool
+}
+
+// ExecutePlan approves one plan revision, so the session starts a turn
+// that runs it.
+type ExecutePlan struct {
+	// Revision is the PlanChanged revision the user reviewed.
+	Revision int64
 }
 
 // ResolveApproval approves or rejects a pending tool call.
@@ -93,3 +104,4 @@ func (CancelTurn) isUserAction()          {}
 func (SteerQueuedMessage) isUserAction()  {}
 func (DeleteQueuedMessage) isUserAction() {}
 func (RunSlashCommand) isUserAction()     {}
+func (ExecutePlan) isUserAction()         {}

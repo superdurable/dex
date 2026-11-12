@@ -1,6 +1,6 @@
 ==== help ====
 ~~~~ live area ~~~~
-  Keys
+  ␛[1;94mKeys␛[m
   Enter        send, or queue while a turn runs
   Shift-Enter  new line (also Alt-Enter, Ctrl-J)
   Ctrl-C       cancel the turn; again to exit
@@ -10,7 +10,7 @@
   Up/Down      recall earlier messages
   F1           show this help
 
-  Commands
+  ␛[1;94mCommands␛[m
   /approve     open the waiting approvals and questions
   /drop        delete the last queued message
   /exit        exit; the session stays in Dex
@@ -19,31 +19,12 @@
   /model ID    change the model
   /steer       steer the last queued message into the turn
 
- Esc close
+␛[2m Esc close␛[m
 
 ==== completion /m ====
 ~~~~ live area ~~~~
- New session · openai-sdk · gpt-5.2
- ▸ /model ID  change the model
- › /m
- Tab complete · Enter run · Esc close
+ ␛[1mNew session␛[m␛[2m · ␛[mopenai-sdk␛[2m · ␛[mgpt-5.2
+ ␛[34m▸␛[m ␛[1;34m/model ID␛[m  ␛[2mchange the model␛[m
+ ␛[34m›␛[m /m
+␛[2m Tab complete · Enter run · Esc close␛[m
 ~~~~ cursor 5,2 ~~~~
-
-==== completed /model ====
-~~~~ live area ~~~~
- New session · openai-sdk · gpt-5.2
- › /model 
- Enter send · /help · Ctrl-D exit
-~~~~ cursor 10,1 ~~~~
-
-==== help capped at 60 percent of 12 rows ====
-~~~~ live area ~~~~
-  Keys
-  Enter        send, or queue while a turn runs
-  Shift-Enter  new line (also Alt-Enter, Ctrl-J)
-  Ctrl-C       cancel the turn; again to exit
-  Ctrl-D       exit (empty input)
-  Tab          complete a /command; on empty input, focus waiting approvals and
-  … 12 more lines
-
- Esc close

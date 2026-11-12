@@ -10,6 +10,7 @@ package chatscreen
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -172,7 +173,9 @@ func TestCtrlCTwiceBeforeCancelIsConfirmed(t *testing.T) {
 	startTurn(harness, "Run the tests.")
 	harness.press(ctrlKey('c'), ctrlKey('c'))
 	require.True(t, harness.screen.isExiting)
-	require.Contains(t, harness.plainFrame(), "! Exited before the cancel was confirmed; the turn may still run. Resume with: dex-agents-openai-sdk --resume openai-sdk-20261111-142233-a1b2c3")
+	frame := harness.plainFrame()
+	require.Contains(t, frame, "! Exited before the cancel was confirmed; the turn may still run. Resume with:")
+	require.Contains(t, frame, "--resume openai-sdk-20261111-142233-a1b2c3")
 }
 
 func TestCtrlCCancelAnswers(t *testing.T) {
@@ -345,16 +348,19 @@ func TestResizeReflowsLiveArea(t *testing.T) {
 }
 
 func TestLiveAreaFitsEveryWidth(t *testing.T) {
-	for width := 20; width <= 140; width++ {
+	for width := 20; width <= 160; width++ {
 		harness := newScreenHarness(t, harnessOptions{width: width})
 		playToolTurn(harness)
 		harness.feed(connectorApproval("approval-1"), fileApproval("approval-2"))
+		limit := min(width, maximumContentWidth)
 		for _, line := range splitLines(harness.screen.View().Content) {
-			require.LessOrEqual(t, displayWidthForTest(line), width, "width %d: line %q is too wide", width, line)
+			require.LessOrEqual(t, displayWidthForTest(line), limit, "width %d: line %q is too wide", width, line)
+			require.False(t, strings.HasSuffix(stripForTest(line), " "), "width %d: line %q ends with a space", width, line)
 		}
 		for _, block := range harness.scrollback {
 			for _, line := range splitLines(block) {
-				require.LessOrEqual(t, displayWidthForTest(line), width, "width %d: scrollback line %q is too wide", width, line)
+				require.LessOrEqual(t, displayWidthForTest(line), limit, "width %d: scrollback line %q is too wide", width, line)
+				require.False(t, strings.HasSuffix(stripForTest(line), " "), "width %d: scrollback line %q ends with a space", width, line)
 			}
 		}
 	}
@@ -385,7 +391,7 @@ func TestPendingSlashCommands(t *testing.T) {
 	require.Equal(t, sessionfeed.SteerQueuedMessage{MessageID: "message-1"}, harness.lastAction())
 	harness.typeText("/drop")
 	harness.press(key(tea.KeyEnter))
-	require.Contains(t, harness.plainFrame(), "Delete the queued message? It will not be sent.")
+	require.Contains(t, harness.plainFrame(), `Delete the queued message "later"? It will not be sent.`)
 	harness.press(textKey('y'))
 	require.Equal(t, sessionfeed.DeleteQueuedMessage{MessageID: "message-1"}, harness.lastAction())
 }
@@ -394,5 +400,5 @@ func TestCtrlZShowsAHintInsteadOfSuspending(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{width: 120})
 	harness.press(ctrlKey('z'))
 	require.False(t, harness.screen.isExiting)
-	require.Contains(t, harness.plainFrame(), "! Ctrl-Z does not suspend this chat. Ctrl-C exits; the session stays in Dex.")
+	require.Contains(t, harness.plainFrame(), "! Ctrl-Z does not suspend this chat. Exit with Ctrl-D; the session keeps running.")
 }

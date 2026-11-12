@@ -1,38 +1,15 @@
 ==== choices and free text ====
-› Compare the branches.
+␛[2m›␛[m Compare the branches.
 ~~~~ live area ~~~~
- ╭─ The agent asks ───────────────────────────────────────────────────────────╮
- │ Which branch should I compare against?                                     │
- │                                                                            │
- │ ▸ main                                                                     │
- │   release-0.6                                                              │
- │   Type an answer…                                                          │
- │   Decline                                                                  │
- ╰────────────────────────────────────────────────────────────────────────────╯
- j/k choose · Enter answer · Esc later
-
-==== no choices ====
-› Compare the branches.
-~~~~ live area ~~~~
- ╭─ The agent asks ───────────────────────────────────────────────────────────╮
- │ What should the release be called?                                         │
- │                                                                            │
- │ ▸ Answer ›                                                                 │
- │   Decline                                                                  │
- ╰────────────────────────────────────────────────────────────────────────────╯
- Enter answer · Esc back
-
-==== choices only ====
-› Compare the branches.
-~~~~ live area ~~~~
- ╭─ The agent asks ───────────────────────────────────────────────────────────╮
- │ Deploy now?                                                                │
- │                                                                            │
- │ ▸ yes                                                                      │
- │   no                                                                       │
- │   Decline                                                                  │
- ╰────────────────────────────────────────────────────────────────────────────╯
- j/k choose · Enter answer · Esc later
+ ␛[34m╭─ ␛[m␛[1;94mThe agent asks␛[m ␛[34m───────────────────────────────────────────────────────────╮␛[m
+ ␛[34m│␛[m Which branch should I compare against?                                     ␛[34m│␛[m
+ ␛[34m│␛[m                                                                            ␛[34m│␛[m
+ ␛[34m│␛[m ␛[34m▸␛[m ␛[1;34mmain␛[m                                                                     ␛[34m│␛[m
+ ␛[34m│␛[m   release-0.6                                                              ␛[34m│␛[m
+ ␛[34m│␛[m   Type an answer…                                                          ␛[34m│␛[m
+ ␛[34m│␛[m   Decline                                                                  ␛[34m│␛[m
+ ␛[34m╰────────────────────────────────────────────────────────────────────────────╯␛[m
+␛[2m j/k choose · Enter answer · Esc later␛[m
 
 ==== no_color, second choice focused ====
 ␛[2m›␛[m Compare the branches.

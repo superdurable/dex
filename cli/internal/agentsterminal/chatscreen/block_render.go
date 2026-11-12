@@ -30,26 +30,57 @@ const (
 	spinnerFrameInterval     = 80 * time.Millisecond
 	maximumLiveReplyLines    = 6
 	reasoningTailLength      = 60
-	minimumToolArgumentWidth = 8
+	minimumToolArgumentWidth = 12
+	maximumToolArgumentWidth = 40
+	// maximumContentWidth keeps columns near the text on wide terminals.
+	maximumContentWidth = 100
 )
 
-// renderUserMessage draws a user message for the scrollback.
-func renderUserMessage(text string, origin string, width int, theme terminaltheme.Theme) []string {
+// renderUserMessage draws a user message and its image chips for the
+// scrollback.
+func renderUserMessage(text string, origin string, images []sessionfeed.ImageAttachment, width int, theme terminaltheme.Theme) []string {
 	prefix := theme.Secondary.Render(theme.Symbols.UserPrompt) + " "
 	if origin != "" {
 		prefix += theme.Secondary.Render("("+origin+")") + " "
 	}
 	var lines []string
-	for index, paragraph := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+	for index, paragraph := range strings.Split(strings.TrimRight(terminaltheme.ExpandTabs(text), "\n"), "\n") {
 		for wrappedIndex, line := range terminaltheme.WrapToWidth(paragraph, max(width-2, 1)) {
 			if index == 0 && wrappedIndex == 0 {
-				lines = append(lines, prefix+line)
+				lines = append(lines, strings.TrimRight(prefix+line, " "))
 				continue
 			}
-			lines = append(lines, contentIndent+line)
+			lines = append(lines, strings.TrimRight(contentIndent+line, " "))
 		}
 	}
+	if len(images) > 0 {
+		lines = append(lines, contentIndent+renderImageChips(images, width-len(contentIndent), theme))
+	}
 	return lines
+}
+
+// renderImageChips draws attachments as "▣ name · type · size" chips.
+func renderImageChips(images []sessionfeed.ImageAttachment, width int, theme terminaltheme.Theme) string {
+	chips := make([]string, 0, len(images))
+	for _, image := range images {
+		parts := nonEmptyStrings(image.Name, image.MimeType, formatByteCount(image.SizeBytes))
+		chips = append(chips, theme.Accent.Render(theme.Symbols.Image)+" "+theme.Secondary.Render(strings.Join(parts, theme.Symbols.Separator)))
+	}
+	return terminaltheme.TruncateToWidth(strings.Join(chips, "  "), width, theme.Symbols.Ellipsis)
+}
+
+// formatByteCount formats a size as "812 B", "240 KB", or "3.4 MB".
+func formatByteCount(size int64) string {
+	switch {
+	case size <= 0:
+		return ""
+	case size < 1024:
+		return fmt.Sprintf("%d B", size)
+	case size < 1024*1024:
+		return fmt.Sprintf("%d KB", (size+512)/1024)
+	default:
+		return fmt.Sprintf("%.1f MB", float64(size)/(1024*1024))
+	}
 }
 
 // renderAssistantMarkdown draws a finished reply block, indented two cells.
@@ -69,7 +100,7 @@ func renderPlainReply(text string, width int) []string {
 	var lines []string
 	for _, paragraph := range strings.Split(terminaltheme.ExpandTabs(text), "\n") {
 		for _, line := range terminaltheme.WrapToWidth(paragraph, max(width-len(contentIndent), 1)) {
-			lines = append(lines, contentIndent+line)
+			lines = append(lines, strings.TrimRight(contentIndent+line, " "))
 		}
 	}
 	if len(lines) > maximumLiveReplyLines {
@@ -97,7 +128,7 @@ func renderNoticeLine(severity sessionfeed.NoticeSeverity, text string, width in
 			lines = append(lines, contentIndent+symbol+" "+line)
 			continue
 		}
-		lines = append(lines, contentIndent+"  "+line)
+		lines = append(lines, contentIndent+"  "+strings.TrimLeft(line, " "))
 	}
 	return lines
 }
@@ -108,55 +139,95 @@ type toolRowClock struct {
 	spinnerFrame int
 }
 
-// renderToolRow draws one tool call. Narrower widths drop the summary, then
-// the duration, then truncate.
+// renderToolRow draws symbol, name, argument, summary, and duration columns.
+// A narrow argument drops the summary, then the duration.
 func renderToolRow(call sessionfeed.ToolCallChanged, nameWidth int, width int, clock toolRowClock, theme terminaltheme.Theme) []string {
-	widthClass := terminaltheme.ClassifyWidth(width)
 	symbol := toolStatusSymbol(call, clock, theme)
-	if widthClass <= terminaltheme.WidthCompact {
+	if terminaltheme.ClassifyWidth(width) <= terminaltheme.WidthCompact {
 		nameWidth = min(max(nameWidth, terminaltheme.DisplayWidth(call.ToolName)), max(width/3, 8))
 	} else {
 		nameWidth = min(max(nameWidth, terminaltheme.DisplayWidth(call.ToolName), minimumToolNameWidth), maximumToolNameWidth)
 	}
 	name := terminaltheme.PadRight(terminaltheme.TruncateToWidth(call.ToolName, nameWidth, theme.Symbols.Ellipsis), nameWidth)
-
-	note := toolStatusNote(call)
-	summary := ""
-	if widthClass >= terminaltheme.WidthFull && call.Status.IsFinished() && note == "" {
-		summary = call.Summary
-		if call.IsOutputTruncated {
-			summary += " (truncated)"
+	columns := newToolRowColumns(call, clock.now)
+	room := width - len(contentIndent) - 2 - nameWidth - 2
+	for room-columns.Width() < minimumToolArgumentWidth {
+		if !columns.DropOne() {
+			break
 		}
 	}
-	duration := ""
-	if widthClass >= terminaltheme.WidthMedium {
-		duration = toolDurationText(call, clock.now)
+	argumentWidth := min(maximumToolArgumentWidth, room-columns.Width())
+	if columns.isNote && argumentWidth < minimumToolArgumentWidth {
+		columns.summary = terminaltheme.TruncateToWidth(columns.summary, max(room-minimumToolArgumentWidth-2, 4), theme.Symbols.Ellipsis)
+		argumentWidth = room - columns.Width()
 	}
-
-	var trailing strings.Builder
-	if note != "" {
-		trailing.WriteString("  " + note)
-	}
-	if summary != "" {
-		trailing.WriteString("  " + terminaltheme.PadLeft(summary, toolSummaryColumnWidth))
-	}
-	if widthClass >= terminaltheme.WidthMedium {
-		trailing.WriteString("  " + terminaltheme.PadLeft(duration, toolDurationColumnWidth))
-	}
-	trailingText := strings.TrimRight(trailing.String(), " ")
-	fixedWidth := len(contentIndent) + 2 + nameWidth + 2
-	argumentWidth := width - fixedWidth - terminaltheme.DisplayWidth(trailingText)
-	if argumentWidth < minimumToolArgumentWidth && note != "" {
-		trailingText = "  " + terminaltheme.TruncateToWidth(note, max(width-fixedWidth-minimumToolArgumentWidth-2, 4), theme.Symbols.Ellipsis)
-		argumentWidth = width - fixedWidth - terminaltheme.DisplayWidth(trailingText)
-	}
-	argument := terminaltheme.TruncateToWidth(terminaltheme.ExpandTabs(call.KeyArgument), max(argumentWidth, 0), theme.Symbols.Ellipsis)
-	if trailingText != "" {
+	argument := terminaltheme.TruncateToWidth(call.KeyArgument, max(argumentWidth, 0), theme.Symbols.Ellipsis)
+	trailing := columns.Render()
+	if trailing != "" {
 		argument = terminaltheme.PadRight(argument, max(argumentWidth, 0))
 	}
-	line := contentIndent + symbol + " " + name + "  " + theme.Secondary.Render(argument) + theme.Secondary.Render(trailingText)
-	lines := []string{strings.TrimRight(line, " ")}
+	rest := strings.TrimRight(argument+trailing, " ")
+	line := contentIndent + symbol + " " + strings.TrimRight(name, " ")
+	if rest != "" {
+		line = contentIndent + symbol + " " + name + "  " + theme.Secondary.Render(rest)
+	}
+	lines := []string{line}
 	return append(lines, renderToolOutput(call, width, theme)...)
+}
+
+// toolRowColumns follow a tool row's argument. The summary column holds the
+// result or the status note.
+type toolRowColumns struct {
+	summary           string
+	hasSummaryColumn  bool
+	isNote            bool
+	duration          string
+	hasDurationColumn bool
+}
+
+func newToolRowColumns(call sessionfeed.ToolCallChanged, now time.Time) toolRowColumns {
+	columns := toolRowColumns{hasSummaryColumn: true, duration: toolDurationText(call, now), hasDurationColumn: true}
+	if note := toolStatusNote(call); note != "" {
+		columns.summary, columns.isNote = note, true
+		return columns
+	}
+	if call.Status.IsFinished() {
+		columns.summary = call.Summary
+		if call.IsOutputTruncated {
+			columns.summary += " (truncated)"
+		}
+	}
+	return columns
+}
+
+// DropOne drops the least important column and reports whether one was left.
+// Notes stay.
+func (columns *toolRowColumns) DropOne() bool {
+	switch {
+	case columns.hasSummaryColumn && !columns.isNote:
+		columns.hasSummaryColumn, columns.summary = false, ""
+	case columns.hasDurationColumn:
+		columns.hasDurationColumn, columns.duration = false, ""
+	default:
+		return false
+	}
+	return true
+}
+
+func (columns toolRowColumns) Width() int {
+	return terminaltheme.DisplayWidth(columns.Render())
+}
+
+// Render right-aligns each column in a fixed width, so a turn's rows line up.
+func (columns toolRowColumns) Render() string {
+	var builder strings.Builder
+	if columns.hasSummaryColumn {
+		builder.WriteString("  " + terminaltheme.PadLeft(columns.summary, toolSummaryColumnWidth))
+	}
+	if columns.hasDurationColumn {
+		builder.WriteString("  " + terminaltheme.PadLeft(columns.duration, toolDurationColumnWidth))
+	}
+	return builder.String()
 }
 
 func renderToolOutput(call sessionfeed.ToolCallChanged, width int, theme terminaltheme.Theme) []string {
@@ -176,7 +247,8 @@ func renderToolOutput(call sessionfeed.ToolCallChanged, width int, theme termina
 	gutter := contentIndent + "  " + theme.Secondary.Render(theme.Symbols.Gutter) + " "
 	lines := make([]string, 0, len(outputLines)+1)
 	for _, outputLine := range outputLines {
-		lines = append(lines, gutter+theme.Secondary.Render(terminaltheme.TruncateToWidth(terminaltheme.ExpandTabs(outputLine), max(width-6, 1), theme.Symbols.Ellipsis)))
+		shown := strings.TrimRight(terminaltheme.TruncateToWidth(outputLine, max(width-6, 1), theme.Symbols.Ellipsis), " ")
+		lines = append(lines, strings.TrimRight(gutter+theme.Secondary.Render(shown), " "))
 	}
 	if hiddenCount > 0 {
 		lines = append(lines, gutter+theme.Secondary.Render(moreLinesText(hiddenCount, theme.Symbols.Ellipsis)))
@@ -201,6 +273,8 @@ func toolStatusSymbol(call sessionfeed.ToolCallChanged, clock toolRowClock, them
 		return theme.Warning.Render(theme.Symbols.Warning)
 	case sessionfeed.ToolCallRejected, sessionfeed.ToolCallCancelled, sessionfeed.ToolCallSkipped:
 		return theme.Secondary.Render(theme.Symbols.NotRun)
+	case sessionfeed.ToolCallFromHistory:
+		return theme.Secondary.Render(theme.Symbols.Queued)
 	default:
 		return theme.Secondary.Render(theme.Symbols.Queued)
 	}
@@ -288,19 +362,10 @@ func formatTokenCount(tokens int64) string {
 	}
 }
 
-// renderLeftRightLine draws left and right parts on one line of width,
-// truncating left first. Both parts are already styled.
-func renderLeftRightLine(left string, right string, width int, ellipsis string) string {
-	rightWidth := terminaltheme.DisplayWidth(right)
-	if right == "" {
-		return terminaltheme.TruncateToWidth(left, width, ellipsis)
-	}
-	leftRoom := width - rightWidth - 2
-	if leftRoom < 4 {
-		return terminaltheme.TruncateToWidth(left, width, ellipsis)
-	}
-	left = terminaltheme.TruncateToWidth(left, leftRoom, ellipsis)
-	return terminaltheme.PadRight(left, width-rightWidth) + right
+// joinFittingParts joins styled parts with separator into a line of at most
+// width cells, truncating the end.
+func joinFittingParts(parts []string, separator string, width int, ellipsis string) string {
+	return terminaltheme.TruncateToWidth(strings.Join(nonEmptyStrings(parts...), separator), width, ellipsis)
 }
 
 // renderHintLine draws the key hints. Compact widths keep only the first two.

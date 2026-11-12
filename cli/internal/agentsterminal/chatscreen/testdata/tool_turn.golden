@@ -1,75 +1,75 @@
 ==== ansi width 40 ====
-› Find open issues about flaky tests and
+␛[2m›␛[m Find open issues about flaky tests and
   post a summary to #eng.
 
   I'll search the issue tracker first.
 
-  ✓ search_files  "flaky" in tests/
-  ✓ read_file     tests/integ/retry_tes…
+  ␛[32m✓␛[m search_files  ␛[2m"flaky" in te…    0.4s␛[m
+  ␛[32m✓␛[m read_file     ␛[2mtests/integ/r…    0.1s␛[m
 ~~~~ live area ~~~~
-  ⠙ run_shell_co…  go test ./integ/... …
-    │ === RUN   TestRetryBackoff
-    │ --- PASS: TestRetryBackoff (0.31s)
-    │ … 18 more lines
+  ␛[36m⠙␛[m run_shell_co…  ␛[2mgo test ./in…   15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
 
- ⠙ running tools 9s
- › type to queue a message
- Enter queue · Ctrl-C cancel turn
+ ␛[36m⠙␛[m running tools 9s
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+␛[2m Enter queue · Ctrl-C cancel turn␛[m
 ~~~~ cursor 3,6 ~~~~
 
 ==== ansi width 60 ====
-› Find open issues about flaky tests and post a summary to
+␛[2m›␛[m Find open issues about flaky tests and post a summary to
   #eng.
 
   I'll search the issue tracker first.
 
-  ✓ search_files      "flaky" in tests/
-  ✓ read_file         tests/integ/retry_test.go
+  ␛[32m✓␛[m search_files      ␛[2m"flaky" in te…      12 matches    0.4s␛[m
+  ␛[32m✓␛[m read_file         ␛[2mtests/integ/r…       210 lines    0.1s␛[m
 ~~~~ live area ~~~~
-  ⠙ run_shell_command  go test ./integ/... -run Retry
-    │ === RUN   TestRetryBackoff
-    │ --- PASS: TestRetryBackoff (0.31s)
-    │ … 18 more lines
+  ␛[36m⠙␛[m run_shell_command  ␛[2mgo test ./in…                   15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
 
- gpt-5.2 · turn 1 · ⠙ running tools 9s              1.2k tok
- › type to queue a message
- Enter queue · Ctrl-C cancel turn · /help
+ gpt-5.2␛[2m · ␛[mturn 1␛[2m · ␛[m␛[36m⠙␛[m running tools 9s␛[2m · ␛[m␛[2m1.2k tok␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+␛[2m Enter queue · Ctrl-C cancel turn · /help␛[m
 ~~~~ cursor 3,6 ~~~~
 
 ==== ansi width 80 ====
-› Find open issues about flaky tests and post a summary to #eng.
+␛[2m›␛[m Find open issues about flaky tests and post a summary to #eng.
 
   I'll search the issue tracker first.
 
-  ✓ search_files      "flaky" in tests/                                     0.4s
-  ✓ read_file         tests/integ/retry_test.go                             0.1s
+  ␛[32m✓␛[m search_files      ␛[2m"flaky" in tests/                       12 matches    0.4s␛[m
+  ␛[32m✓␛[m read_file         ␛[2mtests/integ/retry_test.go                210 lines    0.1s␛[m
 ~~~~ live area ~~~~
-  ⠙ run_shell_command  go test ./integ/... -run Retry                      15.2s
-    │ === RUN   TestRetryBackoff
-    │ --- PASS: TestRetryBackoff (0.31s)
-    │ … 18 more lines
+  ␛[36m⠙␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                      15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
 
- openai-sdk · gpt-5.2 · turn 1 · ⠙ running tools 9s                     1.2k tok
- › type to queue a message
- Enter queue · Ctrl-C cancel turn · /help
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[mturn 1␛[2m · ␛[m␛[36m⠙␛[m running tools 9s␛[2m · ␛[m␛[2m1.2k tok␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+␛[2m Enter queue · Ctrl-C cancel turn · /help␛[m
 ~~~~ cursor 3,6 ~~~~
 
-==== ansi width 120 ====
-› Find open issues about flaky tests and post a summary to #eng.
+==== ansi width 140 ====
+␛[2m›␛[m Find open issues about flaky tests and post a summary to #eng.
 
   I'll search the issue tracker first.
 
-  ✓ search_files      "flaky" in tests/                                                               12 matches    0.4s
-  ✓ read_file         tests/integ/retry_test.go                                                        210 lines    0.1s
+  ␛[32m✓␛[m search_files      ␛[2m"flaky" in tests/                             12 matches    0.4s␛[m
+  ␛[32m✓␛[m read_file         ␛[2mtests/integ/retry_test.go                      210 lines    0.1s␛[m
 ~~~~ live area ~~~~
-  ⠙ run_shell_command  go test ./integ/... -run Retry                                                              15.2s
-    │ === RUN   TestRetryBackoff
-    │ --- PASS: TestRetryBackoff (0.31s)
-    │ … 18 more lines
+  ␛[36m⠙␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                             15.2s␛[m
+    ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
+    ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
+    ␛[2m│␛[m ␛[2m… 18 more lines␛[m
 
- openai-sdk · gpt-5.2 · turn 1 · ⠙ running tools 9s                                                             1.2k tok
- › type to queue a message
- Enter queue · Ctrl-C cancel turn · /help
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[mturn 1␛[2m · ␛[m␛[36m⠙␛[m running tools 9s␛[2m · ␛[m␛[2m1.2k tok␛[m
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+␛[2m Enter queue · Ctrl-C cancel turn · /help␛[m
 ~~~~ cursor 3,6 ~~~~
 
 ==== no_color width 80 ====
@@ -77,15 +77,15 @@
 
   I'll search the issue tracker first.
 
-  ␛[m✓␛[m search_files      ␛[2m"flaky" in tests/                                 ␛[m␛[2m    0.4s␛[m
-  ␛[m✓␛[m read_file         ␛[2mtests/integ/retry_test.go                         ␛[m␛[2m    0.1s␛[m
+  ␛[m✓␛[m search_files      ␛[2m"flaky" in tests/                       12 matches    0.4s␛[m
+  ␛[m✓␛[m read_file         ␛[2mtests/integ/retry_test.go                210 lines    0.1s␛[m
 ~~~~ live area ~~~~
-  ␛[m⠙␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                   ␛[m␛[2m   15.2s␛[m
+  ␛[m⠙␛[m run_shell_command  ␛[2mgo test ./integ/... -run Retry                      15.2s␛[m
     ␛[2m│␛[m ␛[2m=== RUN   TestRetryBackoff␛[m
     ␛[2m│␛[m ␛[2m--- PASS: TestRetryBackoff (0.31s)␛[m
     ␛[2m│␛[m ␛[2m… 18 more lines␛[m
 
- openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[mturn 1␛[2m · ␛[m␛[m⠙␛[m running tools 9s                     ␛[2m1.2k tok␛[m
+ openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[mturn 1␛[2m · ␛[m␛[m⠙␛[m running tools 9s␛[2m · ␛[m␛[2m1.2k tok␛[m
  ␛[m›␛[m ␛[2mtype to queue a message␛[m
 ␛[2m Enter queue · Ctrl-C cancel turn · /help␛[m
 ~~~~ cursor 3,6 ~~~~

@@ -35,6 +35,8 @@ type Theme struct {
 	// Symbols holds the status symbols: Unicode by default, ASCII when the
 	// locale is not UTF-8.
 	Symbols SymbolSet
+	// IsUnicode reports Unicode symbols; false means the ASCII fallback.
+	IsUnicode bool
 	// HasColor reports kept colors. Without them, focus uses reverse video.
 	HasColor bool
 
@@ -58,6 +60,9 @@ type Theme struct {
 	Warning lipgloss.Style
 	// Info styles the spinner and the running symbol.
 	Info lipgloss.Style
+	// BrandMark styles the startup logo's chevron: the brand green, the one
+	// color that is not a status.
+	BrandMark lipgloss.Style
 }
 
 // NewTheme returns the theme for profile. isUnicode selects Unicode symbols.
@@ -77,6 +82,8 @@ func NewTheme(profile colorprofile.Profile, isUnicode bool) Theme {
 		Error:     base.Foreground(errorColor),
 		Warning:   base.Foreground(warningColor),
 		Info:      base.Foreground(infoColor),
+		BrandMark: base.Foreground(okColor),
+		IsUnicode: isUnicode,
 	}
 	if isUnicode {
 		theme.Symbols = unicodeSymbols

@@ -1,32 +1,11 @@
-==== errors, server unreachable ====
-› Summarize.
+==== errors, then the Worker stopped ====
+␛[2m›␛[m Summarize.
 
-  ✗ The turn failed: model call returned 401 (invalid API key). Set
+  ␛[31m✗␛[m The turn failed: model call returned 401 (invalid API key). Set
     OPENAI_API_KEY and send again.
-  ✗ The session failed: tool step exceeded its attempts. Start a new session
-    with /new; this one stays in Dex Web.
-  ✗ Not sent: this agent takes no images. Removed 1 image; send again.
-  ! Live output is off: the Dex server keeps no event stream. Replies appear
+  ␛[33m!␛[m Live output is off: the Dex server keeps no event stream. Replies appear
     when each turn ends.
-  ✗ Unknown command /nope. /help lists commands.
-~~~~ live area ~~~~
- openai-sdk · gpt-5.2 · turn 1 · ✗ server unreachable · retrying
- › type a message
- Enter send · /help · Ctrl-D exit
-~~~~ cursor 3,1 ~~~~
-
-==== worker stopped ====
-› Summarize.
-
-  ✗ The turn failed: model call returned 401 (invalid API key). Set
-    OPENAI_API_KEY and send again.
-  ✗ The session failed: tool step exceeded its attempts. Start a new session
-    with /new; this one stays in Dex Web.
-  ✗ Not sent: this agent takes no images. Removed 1 image; send again.
-  ! Live output is off: the Dex server keeps no event stream. Replies appear
-    when each turn ends.
-  ✗ Unknown command /nope. /help lists commands.
-  ✗ The Worker stopped (exit 137), so this chat cannot continue. Exit and resume
+  ␛[31m✗␛[m The Worker stopped (exit 137), so this chat cannot continue. Exit and resume
     with: dex-agents-openai-sdk --resume openai-sdk-20261111-142233-a1b2c3
 ~~~~ live area ~~~~
- Press any key to exit
+␛[2m Press any key to exit␛[m

@@ -1,79 +1,60 @@
 ==== ansi width 40 ====
-› Post the summary to #eng.
+␛[2m›␛[m Post the summary to #eng.
 ~~~~ live area ~~~~
- ╭─ Approve slack_post_channel_messa… ╮
- │ connector · slack/support-slack ·… │
- │                                    │
- │ channel  #eng                      │
- │ text     Found 3 open issues about │
- │          flaky tests: #812…        │
- │          (202 chars · e shows all) │
- │                                    │
- │ Posts to #eng with connection      │
- │ support-slack.                     │
- │                                    │
- │ ▸ Approve                        y │
- │   Reject                         n │
- │   Reject with a reason           r │
- ╰────────────────────────────────────╯
- y approve · n reject
-
-==== ansi width 60 ====
-› Post the summary to #eng.
-~~~~ live area ~~~~
- ╭─ Approve slack_post_channel_message? ──────────────────╮
- │ connector · slack/support-slack · write                │
- │                                                        │
- │ channel  #eng                                          │
- │ text     Found 3 open issues about flaky tests: #812   │
- │          TestRetryBackoff times out on arm64; #844…    │
- │          (202 chars · e shows all)                     │
- │                                                        │
- │ Posts to #eng with connection support-slack.           │
- │                                                        │
- │ ▸ Approve                                            y │
- │   Reject                                             n │
- │   Reject with a reason                               r │
- ╰────────────────────────────────────────────────────────╯
- y approve · n reject · r reason · Esc later
+ ␛[34m╭─ ␛[m␛[1;94mApprove slack_post_channel_messa…␛[m ␛[34m╮␛[m
+ ␛[34m│␛[m ␛[2mconnector · slack/support-slack ·…␛[m ␛[34m│␛[m
+ ␛[34m│␛[m                                    ␛[34m│␛[m
+ ␛[34m│␛[m channel  #eng                      ␛[34m│␛[m
+ ␛[34m│␛[m text     Found 3 open issues about ␛[34m│␛[m
+ ␛[34m│␛[m          flaky tests: #812…        ␛[34m│␛[m
+ ␛[34m│␛[m          ␛[2m(202 chars · e shows all)␛[m ␛[34m│␛[m
+ ␛[34m│␛[m                                    ␛[34m│␛[m
+ ␛[34m│␛[m Posts to #eng with connection      ␛[34m│␛[m
+ ␛[34m│␛[m support-slack.                     ␛[34m│␛[m
+ ␛[34m│␛[m                                    ␛[34m│␛[m
+ ␛[34m│␛[m ␛[34m▸␛[m ␛[1;34mApprove␛[m                        ␛[2my␛[m ␛[34m│␛[m
+ ␛[34m│␛[m   Reject                         ␛[2mn␛[m ␛[34m│␛[m
+ ␛[34m│␛[m   Reject with a reason           ␛[2mr␛[m ␛[34m│␛[m
+ ␛[34m╰────────────────────────────────────╯␛[m
+␛[2m y approve · n reject␛[m
 
 ==== ansi width 80 ====
-› Post the summary to #eng.
+␛[2m›␛[m Post the summary to #eng.
 ~~~~ live area ~~~~
- ╭─ Approve slack_post_channel_message? ──────────────────────────────────────╮
- │ connector · slack/support-slack · write                                    │
- │                                                                            │
- │ channel  #eng                                                              │
- │ text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      │
- │          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1… │
- │          (202 chars · e shows all)                                         │
- │                                                                            │
- │ Posts to #eng with connection support-slack.                               │
- │                                                                            │
- │ ▸ Approve                                                                y │
- │   Reject                                                                 n │
- │   Reject with a reason                                                   r │
- ╰────────────────────────────────────────────────────────────────────────────╯
- y approve · n reject · r reason · Esc later
+ ␛[34m╭─ ␛[m␛[1;94mApprove slack_post_channel_message?␛[m ␛[34m──────────────────────────────────────╮␛[m
+ ␛[34m│␛[m ␛[2mconnector · slack/support-slack · write␛[m                                    ␛[34m│␛[m
+ ␛[34m│␛[m                                                                            ␛[34m│␛[m
+ ␛[34m│␛[m channel  #eng                                                              ␛[34m│␛[m
+ ␛[34m│␛[m text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      ␛[34m│␛[m
+ ␛[34m│␛[m          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1… ␛[34m│␛[m
+ ␛[34m│␛[m          ␛[2m(202 chars · e shows all)␛[m                                         ␛[34m│␛[m
+ ␛[34m│␛[m                                                                            ␛[34m│␛[m
+ ␛[34m│␛[m Posts to #eng with connection support-slack.                               ␛[34m│␛[m
+ ␛[34m│␛[m                                                                            ␛[34m│␛[m
+ ␛[34m│␛[m ␛[34m▸␛[m ␛[1;34mApprove␛[m                                                                ␛[2my␛[m ␛[34m│␛[m
+ ␛[34m│␛[m   Reject                                                                 ␛[2mn␛[m ␛[34m│␛[m
+ ␛[34m│␛[m   Reject with a reason                                                   ␛[2mr␛[m ␛[34m│␛[m
+ ␛[34m╰────────────────────────────────────────────────────────────────────────────╯␛[m
+␛[2m y approve · n reject · r reason · Esc later␛[m
 
-==== ansi width 120 ====
-› Post the summary to #eng.
+==== ansi width 140 ====
+␛[2m›␛[m Post the summary to #eng.
 ~~~~ live area ~~~~
- ╭─ Approve slack_post_channel_message? ────────────────────────────────────────────────────────────╮
- │ connector · slack/support-slack · write                                                          │
- │                                                                                                  │
- │ channel  #eng                                                                                    │
- │ text     Found 3 open issues about flaky tests: #812 TestRetryBackoff times out on arm64; #844   │
- │          TestRetryJitter fails when GOMAXPROCS=1; #851 the nightly job retries the whole suite…  │
- │          (202 chars · e shows all)                                                               │
- │                                                                                                  │
- │ Posts to #eng with connection support-slack.                                                     │
- │                                                                                                  │
- │ ▸ Approve                                                                                      y │
- │   Reject                                                                                       n │
- │   Reject with a reason                                                                         r │
- ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- y approve · n reject · r reason · Esc later
+ ␛[34m╭─ ␛[m␛[1;94mApprove slack_post_channel_message?␛[m ␛[34m──────────────────────────────────────────────────────────╮␛[m
+ ␛[34m│␛[m ␛[2mconnector · slack/support-slack · write␛[m                                                        ␛[34m│␛[m
+ ␛[34m│␛[m                                                                                                ␛[34m│␛[m
+ ␛[34m│␛[m channel  #eng                                                                                  ␛[34m│␛[m
+ ␛[34m│␛[m text     Found 3 open issues about flaky tests: #812 TestRetryBackoff times out on arm64; #844 ␛[34m│␛[m
+ ␛[34m│␛[m          TestRetryJitter fails when GOMAXPROCS=1; #851 the nightly job retries the whole suit… ␛[34m│␛[m
+ ␛[34m│␛[m          ␛[2m(202 chars · e shows all)␛[m                                                             ␛[34m│␛[m
+ ␛[34m│␛[m                                                                                                ␛[34m│␛[m
+ ␛[34m│␛[m Posts to #eng with connection support-slack.                                                   ␛[34m│␛[m
+ ␛[34m│␛[m                                                                                                ␛[34m│␛[m
+ ␛[34m│␛[m ␛[34m▸␛[m ␛[1;34mApprove␛[m                                                                                    ␛[2my␛[m ␛[34m│␛[m
+ ␛[34m│␛[m   Reject                                                                                     ␛[2mn␛[m ␛[34m│␛[m
+ ␛[34m│␛[m   Reject with a reason                                                                       ␛[2mr␛[m ␛[34m│␛[m
+ ␛[34m╰────────────────────────────────────────────────────────────────────────────────────────────────╯␛[m
+␛[2m y approve · n reject · r reason · Esc later␛[m
 
 ==== no_color width 80 ====
 ␛[2m›␛[m Post the summary to #eng.

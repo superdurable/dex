@@ -10,9 +10,11 @@ package chatscreen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -29,16 +31,18 @@ import (
 // and elapsed times are stable.
 var testClockStart = time.Date(2026, 11, 11, 14, 22, 33, 240_000_000, time.UTC)
 
-// recordingSource is a ChatSessionSource that records actions. Tests feed
-// updates straight into the screen, so NextSessionUpdate never returns one.
+// errNoUpdateInTest ends the screen's wait for updates; tests feed updates
+// straight into the screen.
+var errNoUpdateInTest = errors.New("tests feed updates directly")
+
+// recordingSource is a ChatSessionSource that records actions.
 type recordingSource struct {
 	mutex   sync.Mutex
 	actions []sessionfeed.UserAction
 }
 
-func (source *recordingSource) NextSessionUpdate(ctx context.Context) (sessionfeed.SessionUpdate, error) {
-	<-ctx.Done()
-	return nil, ctx.Err()
+func (source *recordingSource) NextSessionUpdate(context.Context) (sessionfeed.SessionUpdate, error) {
+	return nil, errNoUpdateInTest
 }
 
 func (source *recordingSource) SubmitUserAction(_ context.Context, action sessionfeed.UserAction) error {
@@ -71,6 +75,7 @@ type harnessOptions struct {
 	isASCII   bool
 	commands  []sessionfeed.SlashCommand
 	skipIntro bool
+	showsLogo bool
 }
 
 func newScreenHarness(t *testing.T, options harnessOptions) *screenHarness {
@@ -81,7 +86,7 @@ func newScreenHarness(t *testing.T, options harnessOptions) *screenHarness {
 	if options.height == 0 {
 		options.height = 40
 	}
-	if options.profile == colorprofile.NoTTY {
+	if options.profile == colorprofile.Unknown {
 		options.profile = colorprofile.ANSI
 	}
 	harness := &screenHarness{t: t, source: &recordingSource{}, profile: options.profile, now: testClockStart}
@@ -94,9 +99,12 @@ func newScreenHarness(t *testing.T, options harnessOptions) *screenHarness {
 			harness.scrollback = append(harness.scrollback, text)
 			return nil
 		},
-		Now:             func() time.Time { return harness.now },
-		SessionCommands: options.commands,
+		Now:              func() time.Time { return harness.now },
+		SessionCommands:  options.commands,
+		ShowsStartupLogo: options.showsLogo,
 	})
+	// Animation ticks would sleep; the fixed clock selects spinner frames.
+	harness.screen.isTicking = true
 	harness.screen.Update(tea.WindowSizeMsg{Width: options.width, Height: options.height})
 	if !options.skipIntro {
 		harness.feed(
@@ -110,11 +118,11 @@ func newScreenHarness(t *testing.T, options harnessOptions) *screenHarness {
 	return harness
 }
 
-// feed applies session updates. Their commands only wait for the next
-// update or tick, so they are not run.
+// feed applies session updates and runs the commands they return.
 func (harness *screenHarness) feed(updates ...sessionfeed.SessionUpdate) {
 	for _, update := range updates {
-		harness.screen.Update(sessionUpdateMsg{update: update})
+		_, command := harness.screen.Update(sessionUpdateMsg{update: update})
+		harness.runCommand(command)
 	}
 }
 
@@ -144,8 +152,12 @@ func (harness *screenHarness) runCommand(command tea.Cmd) {
 		}
 		return
 	}
-	if failure, isFailure := message.(userActionFailedMsg); isFailure {
-		harness.screen.Update(failure)
+	switch typed := message.(type) {
+	case userActionFailedMsg:
+		harness.screen.Update(typed)
+	case messageSubmittedMsg:
+		_, next := harness.screen.Update(typed)
+		harness.runCommand(next)
 	}
 }
 
@@ -253,4 +265,12 @@ func splitLines(text string) []string {
 
 func displayWidthForTest(line string) int {
 	return terminaltheme.DisplayWidth(line)
+}
+
+func stripForTest(line string) string {
+	return terminaltheme.StripStyles(line)
+}
+
+func itoaForTest(value int) string {
+	return strconv.Itoa(value)
 }

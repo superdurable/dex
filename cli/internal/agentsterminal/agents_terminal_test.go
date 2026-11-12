@@ -40,3 +40,15 @@ func TestExecuteDemoNeedsATerminal(t *testing.T) {
 	err = Execute(context.Background(), []string{"--demo"}, reader, writer, &stderr)
 	require.EqualError(t, err, "agents-tui: --demo needs a terminal on stdin and stdout")
 }
+
+func TestIsTerminalReflowing(t *testing.T) {
+	lookup := func(values map[string]string) func(string) (string, bool) {
+		return func(name string) (string, bool) {
+			value, ok := values[name]
+			return value, ok
+		}
+	}
+	require.True(t, isTerminalReflowing(lookup(map[string]string{"TERM": "xterm-256color", "TERM_PROGRAM": "Apple_Terminal"})))
+	require.False(t, isTerminalReflowing(lookup(map[string]string{"TERM": "xterm", "XTERM_VERSION": "XTerm(390)"})))
+	require.False(t, isTerminalReflowing(lookup(map[string]string{"TERM": "linux"})))
+}

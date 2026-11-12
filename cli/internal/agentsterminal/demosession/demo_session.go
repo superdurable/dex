@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -163,6 +164,13 @@ func (script *demoScript) play() error {
 				return err
 			}
 		case sessionfeed.RunSlashCommand:
+			if typed.Name == "image" && typed.Argument != "" {
+				attachment := sessionfeed.ImageAttachment{Name: filepath.Base(typed.Argument), MimeType: "image/png", SizeBytes: 245760}
+				if err := script.send(sessionfeed.ImageAttached{Attachment: attachment}); err != nil {
+					return err
+				}
+				continue
+			}
 			if typed.Name == "model" && typed.Argument != "" {
 				model = typed.Argument
 				if err := script.send(sessionfeed.SessionOpened{

@@ -72,10 +72,12 @@ func runDemo(ctx context.Context, stdin *os.File, stdout *os.File) error {
 	theme := terminaltheme.NewTheme(profile, terminaltheme.IsUnicodeLocale(os.LookupEnv))
 	demo := demosession.NewDemoSession(demosession.DemoSessionConfig{Pace: 1})
 	screen := chatscreen.NewChatScreen(programContext, chatscreen.ChatScreenConfig{
-		Source:          demo,
-		Theme:           theme,
-		PrintScrollback: chatscreen.NewScrollbackPrinter(profile),
-		SessionCommands: demosession.DemoSlashCommands(),
+		Source:              demo,
+		Theme:               theme,
+		PrintScrollback:     chatscreen.NewScrollbackPrinter(profile),
+		SessionCommands:     demosession.DemoSlashCommands(),
+		IsTerminalReflowing: isTerminalReflowing(os.LookupEnv),
+		ShowsStartupLogo:    true,
 	})
 	program := tea.NewProgram(
 		screen,
@@ -84,6 +86,7 @@ func runDemo(ctx context.Context, stdin *os.File, stdout *os.File) error {
 		tea.WithOutput(stdout),
 		tea.WithEnvironment(environment),
 		tea.WithColorProfile(profile),
+		tea.WithFilter(chatscreen.NewResizeFilter(screen, stdout)),
 	)
 	finalModel, err := program.Run()
 	if err != nil {
@@ -103,4 +106,14 @@ func runDemo(ctx context.Context, stdin *os.File, stdout *os.File) error {
 		return &ExitError{Code: code}
 	}
 	return nil
+}
+
+// isTerminalReflowing reports whether the terminal rewraps lines when it
+// narrows. Real xterm and the Linux console truncate them instead.
+func isTerminalReflowing(lookupEnv func(string) (string, bool)) bool {
+	if _, isXterm := lookupEnv("XTERM_VERSION"); isXterm {
+		return false
+	}
+	terminalName, _ := lookupEnv("TERM")
+	return terminalName != "linux"
 }

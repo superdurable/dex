@@ -26,6 +26,8 @@ const (
 	collapsedArgumentLineCount = 2
 	maximumDiffPreviewLines    = 12
 	maximumArgumentNameWidth   = 14
+	// minimumPopupHeight fits the borders, one consequence row, and options.
+	minimumPopupHeight = 8
 )
 
 // popupPosition is the place of the open interrupt among the pending ones.
@@ -34,7 +36,8 @@ type popupPosition struct {
 	count int
 }
 
-// renderApprovalPopup draws the approval popup box.
+// renderApprovalPopup fits maximumHeight rows when positive. Details collapse
+// first; title, consequence, and options stay.
 func renderApprovalPopup(
 	approval sessionfeed.ApprovalRequested,
 	popup interruptPopup,
@@ -45,30 +48,27 @@ func renderApprovalPopup(
 	theme terminaltheme.Theme,
 ) []string {
 	box := newPopupBox(width, theme)
-	var body []string
-	header := strings.Join(nonEmptyStrings(approval.SourceLabel, approval.ScopeLabel, approval.EffectLabel), theme.Symbols.Separator)
-	if header != "" {
-		body = append(body, theme.Secondary.Render(terminaltheme.TruncateToWidth(header, box.contentWidth, theme.Symbols.Ellipsis)))
+	var header []string
+	if text := strings.Join(nonEmptyStrings(approval.SourceLabel, approval.ScopeLabel, approval.EffectLabel), theme.Symbols.Separator); text != "" {
+		header = append(header, theme.Secondary.Render(terminaltheme.TruncateToWidth(text, box.contentWidth, theme.Symbols.Ellipsis)))
 	}
 	if !approval.Deadline.IsZero() {
-		body = append(body, theme.Secondary.Render("expires in "+formatRemainingTime(approval.Deadline.Sub(now))))
+		header = append(header, theme.Secondary.Render("expires in "+formatRemainingTime(approval.Deadline.Sub(now))))
 	}
-	body = append(body, "")
-	body = append(body, renderApprovalArguments(approval.Arguments, popup.isShowingAllArguments, box.contentWidth, theme)...)
+	details := append([]string{""}, renderApprovalArguments(approval.Arguments, popup.isShowingAllArguments, box.contentWidth, theme)...)
 	if approval.Preview != nil {
-		body = append(body, "")
-		body = append(body, renderFileChangePreview(*approval.Preview, box.contentWidth, theme)...)
+		details = append(details, "")
+		details = append(details, renderFileChangePreview(*approval.Preview, box.contentWidth, theme)...)
 	}
-	body = append(body, "")
+	consequence := []string{""}
 	if approval.EffectSummary != "" {
-		body = append(body, terminaltheme.WrapToWidth(approval.EffectSummary, box.contentWidth)...)
+		consequence = append(consequence, terminaltheme.WrapToWidth(approval.EffectSummary, box.contentWidth)...)
 	} else {
-		body = append(body, theme.Secondary.Render("The tool does not describe its effect."))
+		consequence = append(consequence, theme.Secondary.Render("The tool does not describe its effect."))
 	}
-	body = append(body, "")
-	var options []string
+	options := []string{""}
 	if popup.isEnteringText {
-		options = renderPopupTextInput("Reason", &popup.textInput, box.contentWidth, theme)
+		options = append(options, renderPopupTextInput("Reason", &popup.textInput, box.contentWidth, theme)...)
 	} else {
 		labels := []string{"Approve", "Reject", "Reject with a reason"}
 		keys := []string{"y", "n", "r"}
@@ -76,35 +76,63 @@ func renderApprovalPopup(
 			options = append(options, renderPopupOption(label, keys[index], index == popup.selectedOption, box.contentWidth, theme))
 		}
 	}
-	maximumBodyHeight := maximumHeight - 2 - len(options)
-	if len(body) > maximumBodyHeight && maximumBodyHeight > 0 {
-		hiddenCount := len(body) - maximumBodyHeight + 1
-		body = append(body[:maximumBodyHeight-1], theme.Secondary.Render(moreLinesText(hiddenCount, theme.Symbols.Ellipsis)))
+	if maximumHeight > 0 {
+		room := maximumHeight - 2 - len(consequence) - len(options)
+		if len(header)+len(details) > room {
+			header, details = fitPopupDetails(header, details, room, popup.isShowingAllArguments, theme)
+		}
 	}
+	body := append(append(append(header, details...), consequence...), options...)
 	title := "Approve " + approval.ToolName + "?"
-	return box.Render(title, positionLabel(position), append(body, options...))
+	return box.Render(title, positionLabel(position), body)
 }
 
-// renderQuestionPopup draws the ask_user popup box.
+// fitPopupDetails cuts the details, then the header, to room rows, ending
+// with a hidden-row count.
+func fitPopupDetails(header []string, details []string, room int, isShowingAll bool, theme terminaltheme.Theme) ([]string, []string) {
+	detailsRoom := room - len(header)
+	if detailsRoom < 2 {
+		header = header[:min(len(header), max(room-1, 0))]
+		detailsRoom = room - len(header)
+	}
+	if detailsRoom <= 0 {
+		return header, nil
+	}
+	hiddenCount := len(details) - detailsRoom + 1
+	hint := moreLinesText(hiddenCount, theme.Symbols.Ellipsis)
+	if !isShowingAll {
+		hint += theme.Symbols.Separator + "e shows all"
+	}
+	return header, append(details[:detailsRoom-1], theme.Secondary.Render(hint))
+}
+
+// renderQuestionPopup fits maximumHeight rows when positive. A long question
+// collapses; options stay.
 func renderQuestionPopup(
 	question sessionfeed.QuestionAsked,
 	popup interruptPopup,
 	position popupPosition,
 	width int,
+	maximumHeight int,
 	theme terminaltheme.Theme,
 ) []string {
 	box := newPopupBox(width, theme)
-	body := terminaltheme.WrapToWidth(question.Question, box.contentWidth)
-	body = append(body, "")
+	questionLines := terminaltheme.WrapToWidth(question.Question, box.contentWidth)
+	options := []string{""}
 	for index, option := range questionOptions(question) {
 		if option.isFreeText && popup.isEnteringText {
-			body = append(body, renderPopupTextInput("Answer", &popup.textInput, box.contentWidth, theme)...)
+			options = append(options, renderPopupTextInput("Answer", &popup.textInput, box.contentWidth, theme)...)
 			continue
 		}
 		isFocused := index == popup.selectedOption && !popup.isEnteringText
-		body = append(body, renderPopupOption(option.label, "", isFocused, box.contentWidth, theme))
+		options = append(options, renderPopupOption(option.label, "", isFocused, box.contentWidth, theme))
 	}
-	return box.Render("The agent asks", positionLabel(position), body)
+	if room := maximumHeight - 2 - len(options); maximumHeight > 0 && len(questionLines) > max(room, 1) {
+		kept := max(room-1, 1)
+		hiddenCount := len(questionLines) - kept
+		questionLines = append(questionLines[:kept], theme.Secondary.Render(moreLinesText(hiddenCount, theme.Symbols.Ellipsis)))
+	}
+	return box.Render("The agent asks", positionLabel(position), append(questionLines, options...))
 }
 
 func renderApprovalArguments(arguments []sessionfeed.ApprovalArgument, isShowingAll bool, contentWidth int, theme terminaltheme.Theme) []string {

@@ -21,6 +21,8 @@ const (
 	approveCommandName = "approve"
 	steerCommandName   = "steer"
 	dropCommandName    = "drop"
+	planCommandName    = "plan"
+	runCommandName     = "run"
 )
 
 // screenCommands are the commands the chat screen runs itself.
@@ -32,18 +34,27 @@ var screenCommands = []sessionfeed.SlashCommand{
 	{Name: steerCommandName, Description: "steer the last queued message into the turn"},
 }
 
+// planCommands exist only for a Flow built with plan mode.
+var planCommands = []sessionfeed.SlashCommand{
+	{Name: planCommandName, Description: "ask for a plan with the next message"},
+	{Name: runCommandName, Description: "approve and run the draft plan"},
+}
+
 // slashCommandRegistry holds the screen commands and the session commands,
 // sorted by name.
 type slashCommandRegistry struct {
 	commands []sessionfeed.SlashCommand
 }
 
-func newSlashCommandRegistry(sessionCommands []sessionfeed.SlashCommand) slashCommandRegistry {
-	commands := make([]sessionfeed.SlashCommand, 0, len(screenCommands)+len(sessionCommands))
-	commands = append(commands, screenCommands...)
+func newSlashCommandRegistry(sessionCommands []sessionfeed.SlashCommand, isPlanModeAvailable bool) slashCommandRegistry {
+	ownCommands := append([]sessionfeed.SlashCommand(nil), screenCommands...)
+	if isPlanModeAvailable {
+		ownCommands = append(ownCommands, planCommands...)
+	}
+	commands := append([]sessionfeed.SlashCommand(nil), ownCommands...)
 	for _, command := range sessionCommands {
-		for _, screenCommand := range screenCommands {
-			if command.Name == screenCommand.Name {
+		for _, ownCommand := range append(screenCommands, planCommands...) {
+			if command.Name == ownCommand.Name {
 				panic("session commands must not redefine /" + command.Name)
 			}
 		}

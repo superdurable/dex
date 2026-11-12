@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -39,6 +40,12 @@ type ChatScreenConfig struct {
 	// SessionCommands are the source's slash commands. Default: none. They
 	// cannot redefine the screen's own commands.
 	SessionCommands []sessionfeed.SlashCommand
+	// IsTerminalReflowing reports a terminal that rewraps lines when it
+	// narrows. Default false. See ReflowCorrection.
+	IsTerminalReflowing bool
+	// ShowsStartupLogo prints the Dex logo above the first frame on a 40x15
+	// terminal or larger. Default false.
+	ShowsStartupLogo bool
 }
 
 // ChatScreen is the chat screen model.
@@ -60,9 +67,15 @@ type ChatScreen struct {
 	lastTurnNumber    int
 	totalTokens       int64
 	reasoningTail     string
-	planItems         []sessionfeed.PlanItem
+	plan              sessionfeed.PlanChanged
+	isPlanModeArmed   bool
+	attachments       []sessionfeed.ImageAttachment
+	heldMessages      []sessionfeed.SendUserMessage
+	isTurnStarting    bool
 	queuedMessages    []sessionfeed.QueuedMessage
 	localQueuedTexts  []string
+	printedSequences  map[int64]bool
+	notices           *noticeFilter
 	isServerReachable bool
 	workerState       sessionfeed.WorkerState
 	exitCode          int
@@ -89,13 +102,26 @@ type ChatScreen struct {
 	isCompletionDismissed     bool
 	isHelpOpen                bool
 	pendingFocus              pendingFocusTarget
-	isConfirmingQueuedDelete  bool
+	pendingDelete             *sessionfeed.QueuedMessage
 	cancelState               cancelState
 	isExitArmed               bool
 	cancelRequestedTurnID     string
 	isWaitingForSessionUpdate bool
 	isTicking                 bool
 	isPrinting                bool
+	sessionCommands           []sessionfeed.SlashCommand
+	messageQueue              []sessionfeed.SendUserMessage
+	isSendingMessage          bool
+	isTerminalReflowing       bool
+	lastFrame                 renderedFrame
+	isLogoPending             bool
+}
+
+// renderedFrame is the last drawn live area: its line widths and cursor.
+type renderedFrame struct {
+	lineWidths   []int
+	cursorRow    int
+	cursorColumn int
 }
 
 // activeTurn is the running turn shown in the context line.
@@ -134,6 +160,7 @@ const (
 	scrollbackBlockReply
 	scrollbackBlockToolRow
 	scrollbackBlockNotice
+	scrollbackBlockLogo
 )
 
 type sessionUpdateMsg struct {
@@ -147,6 +174,13 @@ type sessionFeedFailedMsg struct {
 type userActionFailedMsg struct {
 	action sessionfeed.UserAction
 	err    error
+}
+
+// messageSubmittedMsg ends one SendUserMessage; messages go one at a time
+// so they keep their order.
+type messageSubmittedMsg struct {
+	message sessionfeed.SendUserMessage
+	err     error
 }
 
 type animationTickMsg struct{}
@@ -177,17 +211,22 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 		now = time.Now
 	}
 	return &ChatScreen{
-		ctx:               ctx,
-		source:            config.Source,
-		theme:             config.Theme,
-		printScrollback:   config.PrintScrollback,
-		now:               now,
-		commands:          newSlashCommandRegistry(config.SessionCommands),
-		width:             defaultScreenWidth,
-		isServerReachable: true,
-		replies:           newReplyStream(),
-		interruptFeedback: map[string]string{},
-		interruptOutcomes: map[string]string{},
+		ctx:                 ctx,
+		source:              config.Source,
+		theme:               config.Theme,
+		printScrollback:     config.PrintScrollback,
+		now:                 now,
+		commands:            newSlashCommandRegistry(config.SessionCommands, false),
+		sessionCommands:     config.SessionCommands,
+		isTerminalReflowing: config.IsTerminalReflowing,
+		isLogoPending:       config.ShowsStartupLogo,
+		width:               defaultScreenWidth,
+		isServerReachable:   true,
+		replies:             newReplyStream(),
+		interruptFeedback:   map[string]string{},
+		interruptOutcomes:   map[string]string{},
+		printedSequences:    map[int64]bool{},
+		notices:             newNoticeFilter(),
 	}
 }
 
@@ -216,6 +255,12 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch typed := message.(type) {
 	case tea.WindowSizeMsg:
 		screen.width, screen.height = typed.Width, typed.Height
+		if screen.isLogoPending {
+			screen.isLogoPending = false
+			if typed.Width >= minimumLogoWidth && typed.Height >= minimumLogoHeight {
+				screen.printBlock(scrollbackBlockLogo, renderStartupLogo(screen.theme))
+			}
+		}
 	case tea.KeyPressMsg:
 		commands = append(commands, screen.handleKey(typed))
 	case tea.PasteMsg:
@@ -231,6 +276,12 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		commands = append(commands, screen.handleFeedFailure(typed.err))
 	case userActionFailedMsg:
 		screen.handleActionFailure(typed)
+	case messageSubmittedMsg:
+		screen.isSendingMessage = false
+		if typed.err != nil {
+			screen.handleActionFailure(userActionFailedMsg{action: typed.message, err: typed.err})
+		}
+		commands = append(commands, screen.submitNextMessage())
 	case animationTickMsg:
 		screen.isTicking = false
 		commands = append(commands, screen.startAnimation())
@@ -251,9 +302,66 @@ func (screen *ChatScreen) View() tea.View {
 		return tea.NewView("")
 	}
 	content, cursor := screen.renderLiveArea()
+	screen.rememberFrame(content, cursor)
 	view := tea.NewView(content)
 	view.Cursor = cursor
 	return view
+}
+
+func (screen *ChatScreen) rememberFrame(content string, cursor *tea.Cursor) {
+	lines := strings.Split(content, "\n")
+	frame := renderedFrame{lineWidths: make([]int, len(lines))}
+	for index, line := range lines {
+		frame.lineWidths[index] = terminaltheme.DisplayWidth(line)
+	}
+	frame.cursorRow, frame.cursorColumn = len(lines)-1, frame.lineWidths[len(lines)-1]
+	if cursor != nil {
+		frame.cursorRow, frame.cursorColumn = cursor.Y, cursor.X
+	}
+	screen.lastFrame = frame
+}
+
+// ReflowCorrection returns a cursor-up that lets the renderer erase an old
+// frame the terminal rewrapped when narrowing.
+func (screen *ChatScreen) ReflowCorrection(width int) string {
+	if !screen.isTerminalReflowing || width <= 0 || width >= screen.width {
+		return ""
+	}
+	addedRows := 0
+	for row, lineWidth := range screen.lastFrame.lineWidths {
+		if row >= screen.lastFrame.cursorRow {
+			break
+		}
+		addedRows += max((lineWidth-1)/width, 0)
+	}
+	addedRows += screen.lastFrame.cursorColumn / width
+	if addedRows == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\x1b[%dA", addedRows)
+}
+
+// NewResizeFilter returns the Bubble Tea message filter that writes the
+// screen's ReflowCorrection to output before a resize is handled.
+func NewResizeFilter(screen *ChatScreen, output io.Writer) func(tea.Model, tea.Msg) tea.Msg {
+	return func(_ tea.Model, message tea.Msg) tea.Msg {
+		size, isSize := message.(tea.WindowSizeMsg)
+		if !isSize {
+			return message
+		}
+		if correction := screen.ReflowCorrection(size.Width); correction != "" {
+			if _, err := io.WriteString(output, correction); err != nil {
+				// The resize still applies; only stale rows of the old frame may remain.
+				return message
+			}
+		}
+		return message
+	}
+}
+
+// contentWidth is the width finished blocks and the live area are drawn at.
+func (screen *ChatScreen) contentWidth() int {
+	return min(max(screen.width, 1), maximumContentWidth)
 }
 
 func (screen *ChatScreen) waitForSessionUpdate() tea.Cmd {
@@ -283,6 +391,25 @@ func (screen *ChatScreen) isAnimating() bool {
 	return !screen.isSessionLoaded || screen.isTurnRunning || len(screen.liveToolCalls) > 0
 }
 
+// queueMessage submits message after the ones before it.
+func (screen *ChatScreen) queueMessage(message sessionfeed.SendUserMessage) tea.Cmd {
+	screen.messageQueue = append(screen.messageQueue, message)
+	return screen.submitNextMessage()
+}
+
+func (screen *ChatScreen) submitNextMessage() tea.Cmd {
+	if screen.isSendingMessage || len(screen.messageQueue) == 0 {
+		return nil
+	}
+	message := screen.messageQueue[0]
+	screen.messageQueue = screen.messageQueue[1:]
+	screen.isSendingMessage = true
+	source, ctx := screen.source, screen.ctx
+	return func() tea.Msg {
+		return messageSubmittedMsg{message: message, err: source.SubmitUserAction(ctx, message)}
+	}
+}
+
 func (screen *ChatScreen) submitAction(action sessionfeed.UserAction) tea.Cmd {
 	source, ctx := screen.source, screen.ctx
 	return func() tea.Msg {
@@ -305,7 +432,7 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 		return screen.handleInterruptKey()
 	}
 	if keyName == "ctrl+z" {
-		screen.printNotice(sessionfeed.NoticeSeverityWarning, "Ctrl-Z does not suspend this chat. Ctrl-C exits; the session stays in Dex.")
+		screen.printNotice(sessionfeed.NoticeSeverityWarning, "Ctrl-Z does not suspend this chat. Exit with Ctrl-D; the session keeps running.")
 		return nil
 	}
 	if keyName == "f1" {
@@ -364,6 +491,10 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		screen.isCompletionDismissed = true
 	default:
+		if key.String() == "backspace" && screen.input.IsEmpty() && len(screen.attachments) > 0 {
+			screen.attachments = screen.attachments[:len(screen.attachments)-1]
+			return nil
+		}
 		if screen.input.HandleEditingKey(key) {
 			screen.isCompletionDismissed = false
 			screen.completionIndex = 0
@@ -396,15 +527,42 @@ func (screen *ChatScreen) submitInput() tea.Cmd {
 	if parsed, isCommand := parseSlashCommand(text); isCommand {
 		return screen.runSlashCommand(parsed)
 	}
-	if screen.isTurnRunning {
-		screen.localQueuedTexts = append(screen.localQueuedTexts, text)
-	} else {
-		screen.printBlock(scrollbackBlockUserMessage, renderUserMessage(text, "", screen.width, screen.theme))
+	message := sessionfeed.SendUserMessage{Text: text, Images: screen.attachments, IsPlanMode: screen.isPlanModeArmed}
+	screen.attachments, screen.isPlanModeArmed = nil, false
+	if !screen.isSessionLoaded {
+		screen.heldMessages = append(screen.heldMessages, message)
+		return nil
 	}
-	return screen.submitAction(sessionfeed.SendUserMessage{Text: text})
+	return screen.sendMessage(message)
+}
+
+// sendMessage prints message unless a turn runs or starts, then submits it.
+func (screen *ChatScreen) sendMessage(message sessionfeed.SendUserMessage) tea.Cmd {
+	if screen.isTurnRunning || screen.isTurnStarting {
+		screen.localQueuedTexts = append(screen.localQueuedTexts, message.Text)
+	} else {
+		screen.printBlock(scrollbackBlockUserMessage, renderUserMessage(message.Text, "", message.Images, screen.contentWidth(), screen.theme))
+		screen.isTurnStarting = true
+	}
+	return screen.queueMessage(message)
+}
+
+// releaseHeldMessages sends the messages typed before the first snapshot.
+func (screen *ChatScreen) releaseHeldMessages() tea.Cmd {
+	held := screen.heldMessages
+	screen.heldMessages = nil
+	commands := make([]tea.Cmd, 0, len(held))
+	for _, message := range held {
+		commands = append(commands, screen.sendMessage(message))
+	}
+	return tea.Batch(commands...)
 }
 
 func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
+	if !screen.commands.Has(parsed.name) {
+		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Unknown command /%s. /help lists commands.", parsed.name))
+		return nil
+	}
 	switch parsed.name {
 	case helpCommandName:
 		screen.isHelpOpen = true
@@ -420,10 +578,12 @@ func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
 	case dropCommandName:
 		screen.confirmQueuedMessageDelete()
 		return nil
-	}
-	if !screen.commands.Has(parsed.name) {
-		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Unknown command /%s. /help lists commands.", parsed.name))
+	case planCommandName:
+		screen.isPlanModeArmed = true
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "the next message asks for a plan")
 		return nil
+	case runCommandName:
+		return screen.runPlan()
 	}
 	return screen.submitAction(sessionfeed.RunSlashCommand{Name: parsed.name, Argument: parsed.argument})
 }
@@ -439,6 +599,22 @@ func (screen *ChatScreen) openWaitingInterrupt() {
 	screen.openPopup(next)
 }
 
+// runPlan approves the draft plan when the session can run it now.
+func (screen *ChatScreen) runPlan() tea.Cmd {
+	switch {
+	case len(screen.plan.Items) == 0 || screen.plan.Status != sessionfeed.PlanStatusDraft:
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no draft plan to run")
+		return nil
+	case screen.isTurnRunning || screen.isTurnStarting:
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "wait for the turn to end, then /run")
+		return nil
+	case !screen.plan.IsInPlanInteraction:
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "the session is not waiting for plan approval")
+		return nil
+	}
+	return screen.submitAction(sessionfeed.ExecutePlan{Revision: screen.plan.Revision})
+}
+
 func (screen *ChatScreen) steerLastQueuedMessage() tea.Cmd {
 	if !screen.explainQueuedMessageUnavailable("steer") {
 		return nil
@@ -452,8 +628,15 @@ func (screen *ChatScreen) confirmQueuedMessageDelete() {
 	if !screen.explainQueuedMessageUnavailable("delete") {
 		return
 	}
+	screen.askToDeleteLastQueuedMessage()
+}
+
+// askToDeleteLastQueuedMessage pins the last queued message, so the
+// confirmation deletes the message the user saw.
+func (screen *ChatScreen) askToDeleteLastQueuedMessage() {
+	last := screen.queuedMessages[len(screen.queuedMessages)-1]
+	screen.pendingDelete = &last
 	screen.pendingFocus = pendingFocusQueuedMessage
-	screen.isConfirmingQueuedDelete = true
 }
 
 // explainQueuedMessageUnavailable reports whether a queued message can be
@@ -650,14 +833,14 @@ func (screen *ChatScreen) focusPendingBar() {
 
 func (screen *ChatScreen) handlePendingBarKey(key tea.KeyPressMsg) tea.Cmd {
 	keyName := key.String()
-	if screen.isConfirmingQueuedDelete {
-		screen.isConfirmingQueuedDelete = false
-		if keyName != "y" || !screen.canActOnQueuedMessage() {
+	if screen.pendingDelete != nil {
+		target := *screen.pendingDelete
+		screen.pendingDelete = nil
+		if keyName != "y" {
 			return nil
 		}
 		screen.pendingFocus = pendingFocusNone
-		last := screen.queuedMessages[len(screen.queuedMessages)-1]
-		return screen.submitAction(sessionfeed.DeleteQueuedMessage{MessageID: last.MessageID})
+		return screen.submitAction(sessionfeed.DeleteQueuedMessage{MessageID: target.MessageID})
 	}
 	switch keyName {
 	case "esc":
@@ -680,7 +863,7 @@ func (screen *ChatScreen) handlePendingBarKey(key tea.KeyPressMsg) tea.Cmd {
 		}
 	case "x":
 		if screen.pendingFocus == pendingFocusQueuedMessage && screen.canActOnQueuedMessage() {
-			screen.isConfirmingQueuedDelete = true
+			screen.askToDeleteLastQueuedMessage()
 		}
 	}
 	return nil
@@ -693,15 +876,26 @@ func (screen *ChatScreen) exit(code int) {
 
 // applySessionUpdate applies one session update.
 func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) tea.Cmd {
-	switch typed := update.(type) {
+	var command tea.Cmd
+	switch typed := replaceUpdateControlCharacters(update).(type) {
 	case sessionfeed.SessionOpened:
 		screen.session = typed
 		screen.lastTurnNumber = max(screen.lastTurnNumber, typed.TurnCount)
+		screen.commands = newSlashCommandRegistry(screen.sessionCommands, typed.SupportsPlanMode)
 	case sessionfeed.SessionLoaded:
-		screen.isSessionLoaded = true
+		if !screen.isSessionLoaded {
+			screen.isSessionLoaded = true
+			command = screen.releaseHeldMessages()
+		}
 	case sessionfeed.UserMessageRecorded:
-		screen.flushReplies()
-		screen.printBlock(scrollbackBlockUserMessage, renderUserMessage(typed.Text, typed.Origin, screen.width, screen.theme))
+		screen.printRecordedUserMessage(typed)
+	case sessionfeed.UserMessageRejected:
+		screen.isTurnStarting = false
+		screen.printNotice(sessionfeed.NoticeSeverityError, "Not sent: "+typed.Reason)
+	case sessionfeed.HistoryWindowChanged:
+		screen.printHistoryWindow(typed)
+	case sessionfeed.ImageAttached:
+		screen.attachments = append(screen.attachments, typed.Attachment)
 	case sessionfeed.TurnStarted:
 		screen.startTurn(typed)
 	case sessionfeed.TurnActivityChanged:
@@ -715,13 +909,18 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 		screen.reasoningTail = ""
 		screen.printReplyOutputs(screen.replies.AppendDelta(typed))
 	case sessionfeed.AssistantMessageRecorded:
-		screen.printReplyOutputs(screen.replies.RecordFinalMessage(typed))
+		if typed.Sequence <= 0 || !screen.printedSequences[typed.Sequence] {
+			screen.printedSequences[typed.Sequence] = typed.Sequence > 0
+			screen.printReplyOutputs(screen.replies.RecordFinalMessage(typed))
+		}
 	case sessionfeed.ReasoningDelta:
 		screen.appendReasoning(typed.Text)
 	case sessionfeed.UsageRecorded:
 		screen.totalTokens = typed.TotalTokens
 	case sessionfeed.NoticeRaised:
-		screen.printNotice(typed.Severity, typed.Text)
+		if shown, isShown := screen.notices.Admit(typed.Severity, typed.Text, screen.now()); isShown {
+			screen.printNotice(typed.Severity, shown)
+		}
 	case sessionfeed.CancelRequestAnswered:
 		screen.applyCancelAnswer(typed)
 	case sessionfeed.WorkerStateChanged:
@@ -729,13 +928,9 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 	case sessionfeed.ServerReachabilityChanged:
 		screen.isServerReachable = typed.IsReachable
 	case sessionfeed.QueuedMessagesChanged:
-		screen.queuedMessages = typed.Messages
-		screen.localQueuedTexts = nil
-		if !screen.canActOnQueuedMessage() && screen.pendingFocus == pendingFocusQueuedMessage {
-			screen.pendingFocus = pendingFocusNone
-		}
+		screen.applyQueuedMessages(typed.Messages)
 	case sessionfeed.PlanChanged:
-		screen.planItems = typed.Items
+		screen.plan = typed
 	case sessionfeed.ToolCallChanged:
 		screen.applyToolCall(typed)
 	case sessionfeed.ApprovalRequested:
@@ -745,7 +940,51 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 	case sessionfeed.InterruptResolved:
 		screen.resolveInterrupt(typed)
 	}
-	return screen.startAnimation()
+	return tea.Batch(command, screen.startAnimation())
+}
+
+// printRecordedUserMessage prints a message once per stored sequence.
+func (screen *ChatScreen) printRecordedUserMessage(recorded sessionfeed.UserMessageRecorded) {
+	if recorded.Sequence > 0 {
+		if screen.printedSequences[recorded.Sequence] {
+			return
+		}
+		screen.printedSequences[recorded.Sequence] = true
+	}
+	screen.flushReplies()
+	screen.printBlock(scrollbackBlockUserMessage, renderUserMessage(recorded.Text, recorded.Origin, recorded.Images, screen.contentWidth(), screen.theme))
+}
+
+func (screen *ChatScreen) printHistoryWindow(window sessionfeed.HistoryWindowChanged) {
+	if window.DeletedBeforeSequence > 0 {
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, fmt.Sprintf("messages before #%d were removed by the retention window", window.DeletedBeforeSequence))
+	}
+	if window.EarlierBeforeSequence > 0 && window.EarlierBeforeSequence != window.DeletedBeforeSequence {
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "earlier messages are not shown")
+	}
+}
+
+// applyQueuedMessages replaces the queue and cancels a pinned delete whose
+// message left it.
+func (screen *ChatScreen) applyQueuedMessages(messages []sessionfeed.QueuedMessage) {
+	screen.queuedMessages = messages
+	screen.localQueuedTexts = nil
+	if screen.pendingDelete != nil && !containsQueuedMessage(messages, screen.pendingDelete.MessageID) {
+		screen.pendingDelete = nil
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "the queued message already left the queue; nothing was deleted")
+	}
+	if !screen.canActOnQueuedMessage() && screen.pendingFocus == pendingFocusQueuedMessage {
+		screen.pendingFocus = pendingFocusNone
+	}
+}
+
+func containsQueuedMessage(messages []sessionfeed.QueuedMessage, messageID string) bool {
+	for _, message := range messages {
+		if message.MessageID == messageID {
+			return true
+		}
+	}
+	return false
 }
 
 func (screen *ChatScreen) startTurn(started sessionfeed.TurnStarted) {
@@ -764,6 +1003,10 @@ func (screen *ChatScreen) startTurn(started sessionfeed.TurnStarted) {
 	screen.lastTurnNumber = max(screen.lastTurnNumber, started.TurnNumber)
 	screen.session.IsNewSession = false
 	screen.turnToolNameWidth = 0
+	screen.isTurnStarting = false
+	screen.cancelState = cancelStateNone
+	screen.cancelRequestedTurnID = ""
+	screen.isExitArmed = false
 }
 
 func (screen *ChatScreen) endTurn(ended sessionfeed.TurnEnded) {
@@ -784,6 +1027,7 @@ func (screen *ChatScreen) endTurn(ended sessionfeed.TurnEnded) {
 	if ended.TurnID == screen.turn.turnID {
 		screen.isTurnRunning = false
 		screen.cancelState = cancelStateNone
+		screen.cancelRequestedTurnID = ""
 		screen.isExitArmed = false
 	}
 }
@@ -796,8 +1040,12 @@ func (screen *ChatScreen) appendReasoning(text string) {
 	screen.reasoningTail = string(tail)
 }
 
+// applyCancelAnswer applies the answer only to the request still waiting
+// for it, in the turn that still runs.
 func (screen *ChatScreen) applyCancelAnswer(answer sessionfeed.CancelRequestAnswered) {
-	if answer.TurnID != screen.cancelRequestedTurnID {
+	isCurrentRequest := screen.cancelState == cancelStateRequesting && screen.isTurnRunning &&
+		answer.TurnID == screen.cancelRequestedTurnID && answer.TurnID == screen.turn.turnID
+	if !isCurrentRequest {
 		return
 	}
 	switch answer.Outcome {
@@ -874,6 +1122,7 @@ func (screen *ChatScreen) handleActionFailure(failure userActionFailedMsg) {
 		screen.cancelState = cancelStateNone
 		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Cancel not confirmed: %v.", failure.err))
 	case sessionfeed.SendUserMessage:
+		screen.isTurnStarting = false
 		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Not sent: %v. Press Up to edit and send again.", failure.err))
 	default:
 		screen.printNotice(sessionfeed.NoticeSeverityError, fmt.Sprintf("Request failed: %v.", failure.err))
@@ -992,18 +1241,18 @@ func (screen *ChatScreen) printReplyOutputs(outputs []replyOutput) {
 		case replyOutputCorrection:
 			screen.printNotice(sessionfeed.NoticeSeverityInfo, output.text)
 		default:
-			screen.printBlock(scrollbackBlockReply, renderAssistantMarkdown(output.text, screen.width, screen.theme))
+			screen.printBlock(scrollbackBlockReply, renderAssistantMarkdown(output.text, screen.contentWidth(), screen.theme))
 		}
 	}
 }
 
 func (screen *ChatScreen) printToolRow(call sessionfeed.ToolCallChanged) {
 	clock := toolRowClock{now: screen.now()}
-	screen.printBlock(scrollbackBlockToolRow, renderToolRow(call, screen.turnToolNameWidth, screen.width, clock, screen.theme))
+	screen.printBlock(scrollbackBlockToolRow, renderToolRow(call, screen.turnToolNameWidth, screen.contentWidth(), clock, screen.theme))
 }
 
 func (screen *ChatScreen) printNotice(severity sessionfeed.NoticeSeverity, text string) {
-	screen.printBlock(scrollbackBlockNotice, renderNoticeLine(severity, text, screen.width, screen.theme))
+	screen.printBlock(scrollbackBlockNotice, renderNoticeLine(severity, text, screen.contentWidth(), screen.theme))
 }
 
 // printBlock queues lines for the scrollback. A blank line separates blocks,
@@ -1039,7 +1288,7 @@ func (screen *ChatScreen) flushScrollback() tea.Cmd {
 // renderLiveArea draws the redrawn bottom area and returns the terminal
 // cursor position, or nil when the cursor is hidden.
 func (screen *ChatScreen) renderLiveArea() (string, *tea.Cursor) {
-	width := max(screen.width, 1)
+	width := screen.contentWidth()
 	now := screen.now()
 	spinnerFrame := int(now.UnixMilli() / spinnerFrameInterval.Milliseconds())
 	if terminaltheme.ClassifyWidth(width) == terminaltheme.WidthTooNarrow {
@@ -1049,6 +1298,9 @@ func (screen *ChatScreen) renderLiveArea() (string, *tea.Cursor) {
 	if len(lines) > 0 {
 		lines = append(lines, "")
 	}
+	if screen.isPopupOpen && screen.popupIndex < len(screen.interrupts) && !screen.isHelpOpen && !screen.isInputDisabled {
+		return screen.renderPopupArea(lines, width, now), nil
+	}
 	var cursor *tea.Cursor
 	switch {
 	case screen.isInputDisabled:
@@ -1056,16 +1308,16 @@ func (screen *ChatScreen) renderLiveArea() (string, *tea.Cursor) {
 	case screen.isHelpOpen:
 		lines = append(lines, screen.capToScreenShare(renderHelpOverlay(screen.commands, width, screen.theme))...)
 		lines = append(lines, "", renderHintLine([]string{"Esc close"}, width, screen.theme))
-	case screen.isPopupOpen && screen.popupIndex < len(screen.interrupts):
-		lines = append(lines, screen.renderPopup(width, now)...)
-		lines = append(lines, renderHintLine(screen.popupHints(), width, screen.theme))
 	default:
 		lines = append(lines, screen.renderPendingBar(width)...)
-		if len(screen.planItems) > 0 {
-			lines = append(lines, renderPlanLine(screen.planItems, width, screen.theme))
+		if len(screen.plan.Items) > 0 && screen.plan.Status != sessionfeed.PlanStatusCleared {
+			lines = append(lines, renderPlanLine(screen.plan.Items, width, screen.theme))
 		}
 		lines = append(lines, screen.renderContextLine(width, now, spinnerFrame))
 		lines = append(lines, screen.renderCompletionList(width)...)
+		if len(screen.attachments) > 0 {
+			lines = append(lines, " "+renderImageChips(screen.attachments, width-1, screen.theme))
+		}
 		input := screen.renderInput(width)
 		cursorRow := len(lines) + input.cursorRow
 		lines = append(lines, input.lines...)
@@ -1121,17 +1373,29 @@ func (screen *ChatScreen) renderActivityLines(width int, now time.Time, spinnerF
 	return lines
 }
 
-func (screen *ChatScreen) renderPopup(width int, now time.Time) []string {
+// renderPopupArea draws the popup first, then the activity lines that still
+// fit above it.
+func (screen *ChatScreen) renderPopupArea(activityLines []string, width int, now time.Time) string {
+	popupBudget := 0
+	if screen.height > 0 {
+		popupBudget = max(screen.height-2, minimumPopupHeight)
+	}
 	interrupt := screen.interrupts[screen.popupIndex]
 	position := popupPosition{index: screen.popupIndex, count: len(screen.interrupts)}
+	var popupLines []string
 	if interrupt.approval != nil {
-		maximumHeight := 0
-		if screen.height > 0 {
-			maximumHeight = max(screen.height-4, 8)
-		}
-		return renderApprovalPopup(*interrupt.approval, screen.popup, position, width, maximumHeight, now, screen.theme)
+		popupLines = renderApprovalPopup(*interrupt.approval, screen.popup, position, width, popupBudget, now, screen.theme)
+	} else {
+		popupLines = renderQuestionPopup(*interrupt.question, screen.popup, position, width, popupBudget, screen.theme)
 	}
-	return renderQuestionPopup(*interrupt.question, screen.popup, position, width, screen.theme)
+	popupLines = append(popupLines, renderHintLine(screen.popupHints(), width, screen.theme))
+	if screen.height > 0 {
+		room := max(screen.height-1-len(popupLines), 0)
+		if len(activityLines) > room {
+			activityLines = activityLines[len(activityLines)-room:]
+		}
+	}
+	return strings.Join(append(activityLines, popupLines...), "\n")
 }
 
 func (screen *ChatScreen) popupHints() []string {
@@ -1172,15 +1436,24 @@ func (screen *ChatScreen) renderPendingBar(width int) []string {
 			right = screen.theme.Secondary.Render("Tab acts on it")
 		}
 		left := screen.theme.Secondary.Render(symbols.Queued+" queued") + "  " + message.Text
-		line := renderLeftRightLine(left, right, width-2, symbols.Ellipsis)
+		line := left
+		if right != "" {
+			room := width - 2 - terminaltheme.DisplayWidth(symbols.Separator) - terminaltheme.DisplayWidth(right)
+			line = terminaltheme.TruncateToWidth(left, max(room, 8), symbols.Ellipsis) + screen.theme.Secondary.Render(symbols.Separator) + right
+		}
 		lines = append(lines, screen.renderPendingRow(line, isLast && screen.pendingFocus == pendingFocusQueuedMessage, width))
 	}
 	for _, text := range screen.localQueuedTexts {
 		line := screen.theme.Secondary.Render(symbols.Queued+" queueing") + "  " + text
 		lines = append(lines, screen.renderPendingRow(line, false, width))
 	}
-	if screen.isConfirmingQueuedDelete {
-		lines = append(lines, contentIndent+screen.theme.Warning.Render(symbols.Warning)+" Delete the queued message? It will not be sent.")
+	for _, message := range screen.heldMessages {
+		line := screen.theme.Secondary.Render(symbols.Queued+" waiting for the session") + "  " + message.Text
+		lines = append(lines, screen.renderPendingRow(line, false, width))
+	}
+	if screen.pendingDelete != nil {
+		question := fmt.Sprintf(" Delete the queued message %q? It will not be sent.", screen.pendingDelete.Text)
+		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Warning.Render(symbols.Warning)+question, width, symbols.Ellipsis))
 	}
 	return lines
 }
@@ -1227,8 +1500,8 @@ func countedNoun(count int, noun string) string {
 	return fmt.Sprintf("%d %ss", count, noun)
 }
 
-// renderContextLine draws the context line. When it does not fit, it drops
-// the command, then the turn.
+// renderContextLine draws command, model, turn, status, and usage, dropping
+// the command, then the turn, to fit.
 func (screen *ChatScreen) renderContextLine(width int, now time.Time, spinnerFrame int) string {
 	widthClass := terminaltheme.ClassifyWidth(width)
 	symbols := screen.theme.Symbols
@@ -1239,8 +1512,11 @@ func (screen *ChatScreen) renderContextLine(width int, now time.Time, spinnerFra
 	}
 	isNewSession := screen.session.IsNewSession && !screen.isTurnRunning && screen.isSessionLoaded
 	newSessionLabel := screen.theme.Strong.Render("New session")
+	if isNewSession && symbol == "" {
+		status = ""
+	}
 	if widthClass == terminaltheme.WidthCompact {
-		if isNewSession {
+		if isNewSession && status == "" {
 			status = newSessionLabel
 		}
 		return " " + terminaltheme.TruncateToWidth(status, width-1, symbols.Ellipsis)
@@ -1249,11 +1525,10 @@ func (screen *ChatScreen) renderContextLine(width int, now time.Time, spinnerFra
 	if widthClass == terminaltheme.WidthNarrow {
 		model = terminaltheme.TruncateKeepingTail(model, 16, symbols.Ellipsis)
 	}
-	right := ""
+	usage := ""
 	if screen.totalTokens > 0 {
-		right = screen.theme.Secondary.Render(formatTokenCount(screen.totalTokens))
+		usage = screen.theme.Secondary.Render(formatTokenCount(screen.totalTokens))
 	}
-	command := screen.session.Command
 	turn := ""
 	if turnNumber := screen.displayedTurnNumber(); turnNumber > 0 && !isNewSession {
 		turn = fmt.Sprintf("turn %d", turnNumber)
@@ -1262,25 +1537,22 @@ func (screen *ChatScreen) renderContextLine(width int, now time.Time, spinnerFra
 		separator:       screen.theme.Secondary.Render(symbols.Separator),
 		isNewSession:    isNewSession,
 		newSessionLabel: newSessionLabel,
-		command:         command,
+		command:         screen.session.Command,
 		model:           model,
 		turn:            turn,
 		status:          status,
+		usage:           usage,
 	}
-	room := width
-	if right != "" {
-		room -= terminaltheme.DisplayWidth(right) + 2
-	}
-	left := parts.Join()
-	if terminaltheme.DisplayWidth(left) > room && !isNewSession {
+	line := parts.Join()
+	if terminaltheme.DisplayWidth(line) > width && !isNewSession {
 		parts.command = ""
-		left = parts.Join()
+		line = parts.Join()
 	}
-	if terminaltheme.DisplayWidth(left) > room && !isNewSession {
+	if terminaltheme.DisplayWidth(line) > width && !isNewSession {
 		parts.turn = ""
-		left = parts.Join()
+		line = parts.Join()
 	}
-	return renderLeftRightLine(left, right, width, symbols.Ellipsis)
+	return terminaltheme.TruncateToWidth(line, width, symbols.Ellipsis)
 }
 
 // contextLineParts are the styled parts of the context line.
@@ -1292,13 +1564,14 @@ type contextLineParts struct {
 	model           string
 	turn            string
 	status          string
+	usage           string
 }
 
 func (parts contextLineParts) Join() string {
 	if parts.isNewSession {
-		return " " + strings.Join(nonEmptyStrings(parts.newSessionLabel, parts.command, parts.model), parts.separator)
+		return " " + strings.Join(nonEmptyStrings(parts.newSessionLabel, parts.command, parts.model, parts.status, parts.usage), parts.separator)
 	}
-	return " " + strings.Join(nonEmptyStrings(parts.command, parts.model, parts.turn, parts.status), parts.separator)
+	return " " + strings.Join(nonEmptyStrings(parts.command, parts.model, parts.turn, parts.status, parts.usage), parts.separator)
 }
 
 func (screen *ChatScreen) displayedTurnNumber() int {
@@ -1323,6 +1596,8 @@ func (screen *ChatScreen) contextStatus(now time.Time, spinnerFrame int) (string
 		return spinner, "loading session"
 	case screen.workerState == sessionfeed.WorkerStateReconnecting:
 		return theme.Warning.Render(symbols.Warning), "Worker reconnecting"
+	case screen.workerState == sessionfeed.WorkerStateStopping:
+		return theme.Warning.Render(symbols.Warning), "Worker stopping"
 	case !screen.isTurnRunning:
 		return "", theme.Secondary.Render("ready")
 	case screen.cancelState == cancelStateRequesting:
@@ -1402,6 +1677,8 @@ func (screen *ChatScreen) inputPlaceholder() string {
 	switch {
 	case !screen.isSessionLoaded:
 		return "type a message; it is sent when the session loads"
+	case screen.isPlanModeArmed:
+		return "type what to plan"
 	case screen.isTurnRunning:
 		return "type to queue a message"
 	case screen.session.IsNewSession:
@@ -1416,7 +1693,7 @@ func (screen *ChatScreen) inputPlaceholder() string {
 
 func (screen *ChatScreen) inputHints() []string {
 	switch {
-	case screen.isConfirmingQueuedDelete:
+	case screen.pendingDelete != nil:
 		return []string{"y delete", "n keep"}
 	case screen.pendingFocus == pendingFocusInterrupts:
 		return []string{"Enter opens", "Esc back"}

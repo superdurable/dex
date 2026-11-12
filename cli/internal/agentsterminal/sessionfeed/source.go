@@ -19,8 +19,8 @@ import (
 // no more updates, for example because the session's command stopped.
 var ErrSessionFeedClosed = errors.New("session feed closed")
 
-// ChatSessionSource connects the chat screen to one session. The screen calls
-// it off the UI goroutine.
+// ChatSessionSource connects the chat screen to one session, off the UI
+// goroutine. See SessionLoaded and UserMessageRecorded.
 type ChatSessionSource interface {
 	// NextSessionUpdate returns the next update, ctx.Err() when ctx ends, or
 	// ErrSessionFeedClosed.

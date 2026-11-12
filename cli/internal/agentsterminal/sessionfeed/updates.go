@@ -32,19 +32,56 @@ type SessionOpened struct {
 	// AcceptsTurnControl reports whether the session can cancel a turn and
 	// steer or delete queued messages.
 	AcceptsTurnControl bool
+	// SupportsPlanMode reports a Flow built with plan mode, which enables
+	// /plan and /run.
+	SupportsPlanMode bool
 }
 
-// SessionLoaded reports that the first snapshot arrived, so the screen stops
-// showing "loading session".
+// SessionLoaded reports that the first snapshot arrived. The screen holds
+// typed messages until then and submits them in order.
 type SessionLoaded struct{}
 
-// UserMessageRecorded reports a turn's user message that the screen did not
-// print itself.
+// UserMessageRecorded reports a user message the screen did not print: from
+// history, another client, or a queue.
 type UserMessageRecorded struct {
 	// Text is the message text.
 	Text string
-	// Origin names the client that sent it, such as "Dex Web".
+	// Origin names the client that sent it, such as "Dex Web"; empty for
+	// this terminal or unknown.
 	Origin string
+	// TurnID identifies the turn the message started; empty when unknown.
+	TurnID string
+	// Sequence is the stored sequence, or 0 for none. Each positive sequence
+	// prints once.
+	Sequence int64
+	// Images are the attached images.
+	Images []ImageAttachment
+}
+
+// UserMessageRejected reports that the session refused a SendUserMessage,
+// for example blank text or images the runner cannot take.
+type UserMessageRejected struct {
+	// Text is the refused message text.
+	Text string
+	// Reason says why and what to do next.
+	Reason string
+}
+
+// HistoryWindowChanged describes the history above the oldest message shown.
+type HistoryWindowChanged struct {
+	// EarlierBeforeSequence is the sequence before which more messages can
+	// be read, or 0 when none can.
+	EarlierBeforeSequence int64
+	// DeletedBeforeSequence is the sequence before which retention deleted
+	// messages, or 0 when none were deleted.
+	DeletedBeforeSequence int64
+}
+
+// ImageAttached reports an image stored for the next message, such as after
+// /image.
+type ImageAttached struct {
+	// Attachment is the stored image.
+	Attachment ImageAttachment
 }
 
 // TurnStarted reports that a turn began.
@@ -127,6 +164,9 @@ type AssistantMessageRecorded struct {
 	StepExecutionID string
 	// Text is the complete message text in markdown.
 	Text string
+	// Sequence is the stored message sequence, or 0 when unknown. The
+	// screen prints each positive sequence once.
+	Sequence int64
 }
 
 // ReasoningDelta carries model reasoning. Only its tail shows, never in the
@@ -156,7 +196,8 @@ const (
 	NoticeSeverityError
 )
 
-// NoticeRaised asks the screen to write one notice line to the scrollback.
+// NoticeRaised asks for one notice line. The screen cleans, cuts, and
+// deduplicates it.
 type NoticeRaised struct {
 	// Severity selects the symbol.
 	Severity NoticeSeverity
@@ -201,6 +242,8 @@ const (
 	// WorkerStateReconnecting means the Worker lost its poll stream and is
 	// reconnecting.
 	WorkerStateReconnecting
+	// WorkerStateStopping means the Worker is draining before it exits.
+	WorkerStateStopping
 	// WorkerStateStopped means the Worker exited; the chat cannot continue.
 	WorkerStateStopped
 )
@@ -256,16 +299,40 @@ type PlanItem struct {
 	Status PlanItemStatus
 }
 
+// PlanStatus is the state of the session plan.
+type PlanStatus int
+
+const (
+	// PlanStatusDraft waits for approval with /run.
+	PlanStatusDraft PlanStatus = iota
+	// PlanStatusActive is running.
+	PlanStatusActive
+	// PlanStatusCompleted is done.
+	PlanStatusCompleted
+	// PlanStatusCleared was cleared; the screen hides the plan line.
+	PlanStatusCleared
+)
+
 // PlanChanged replaces the session plan. An empty Items list hides the
 // plan line.
 type PlanChanged struct {
+	// Revision is the plan revision that ExecutePlan approves.
+	Revision int64
+	// Status is the plan state.
+	Status PlanStatus
 	// Items are the plan items in order.
 	Items []PlanItem
+	// IsInPlanInteraction reports the session's plan interaction mode,
+	// which /run requires.
+	IsInPlanInteraction bool
 }
 
 func (SessionOpened) isSessionUpdate()             {}
 func (SessionLoaded) isSessionUpdate()             {}
 func (UserMessageRecorded) isSessionUpdate()       {}
+func (UserMessageRejected) isSessionUpdate()       {}
+func (HistoryWindowChanged) isSessionUpdate()      {}
+func (ImageAttached) isSessionUpdate()             {}
 func (TurnStarted) isSessionUpdate()               {}
 func (TurnActivityChanged) isSessionUpdate()       {}
 func (TurnEnded) isSessionUpdate()                 {}

@@ -32,6 +32,9 @@ const (
 	ToolCallCancelled
 	// ToolCallSkipped did not run.
 	ToolCallSkipped
+	// ToolCallFromHistory comes from stored messages, which keep no
+	// reliable status; Summary holds the output's first line.
+	ToolCallFromHistory
 )
 
 // IsFinished reports a final state. Finished rows move into the scrollback.

@@ -45,6 +45,8 @@ type SymbolSet struct {
 	BoxBottomLeft  string
 	BoxBottomRight string
 	BoxVertical    string
+	// Image marks an image attachment.
+	Image string
 	// DiffAdded and DiffRemoved prefix diff preview lines.
 	DiffAdded   string
 	DiffRemoved string
@@ -70,6 +72,7 @@ var unicodeSymbols = SymbolSet{
 	BoxBottomLeft:  "╰",
 	BoxBottomRight: "╯",
 	BoxVertical:    "│",
+	Image:          "▣",
 	DiffAdded:      "+",
 	DiffRemoved:    "-",
 }
@@ -94,6 +97,7 @@ var asciiSymbols = SymbolSet{
 	BoxBottomLeft:  "+",
 	BoxBottomRight: "+",
 	BoxVertical:    "|",
+	Image:          "#",
 	DiffAdded:      "+",
 	DiffRemoved:    "-",
 }
