@@ -6,9 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-// Rewrites the Install pin and the Supported versions table on each SDK reference landing page.
-// Versions come from reference/versions.json, the reference-<sdk>_versions.json files, and the
-// repository's sdk-<sdk>/vX.Y.Z release tags, so no version is typed by hand.
+// Rewrites the Install pin and the Supported versions table on each SDK reference landing page,
+// the line naming the version the generated API reference is built for, the Dex Server image tag
+// in the Kubernetes manifest, and the Dex Web module pin in Embed Dex Web.
+// Versions come from reference/versions.json, the reference-<sdk>_versions.json files,
+// api-reference-versions.json, and the repository's sdk-<sdk>/vX.Y.Z and web/vX.Y.Z release tags,
+// so no version is typed by hand.
 // Run it after a release snapshots the reference: node scripts/generate-reference-install.mjs
 //
 // The current page and the snapshot of the current line get both the pin and the table.
@@ -31,13 +34,13 @@ function minorLine(version) {
   return version.replace(/\.x$/, '');
 }
 
-const releaseTags = execFileSync('git', ['tag', '-l', 'sdk-*/v*'], {cwd: repositoryRoot, encoding: 'utf8'})
+const releaseTags = execFileSync('git', ['tag', '-l', 'sdk-*/v*', 'web/v*'], {cwd: repositoryRoot, encoding: 'utf8'})
   .split('\n')
   .filter(Boolean);
 
 // The newest released patch of one SDK line, from the sdk-<component>/vX.Y.Z tags.
-function newestRelease(component, line) {
-  const prefix = `sdk-${component}/v${line}.`;
+function newestRelease(component, line, tagPrefix = `sdk-${component}`) {
+  const prefix = `${tagPrefix}/v${line}.`;
   const patches = releaseTags
     .filter((tag) => tag.startsWith(prefix) && /^\d+$/.test(tag.slice(prefix.length)))
     .map((tag) => Number(tag.slice(prefix.length)));
@@ -109,4 +112,28 @@ for (const component of sdkComponents) {
     rewrite(page, component, line, line === current, requirement);
   }
 }
-console.log(`Reference install pins written: ${written.join(', ')}.`);
+
+// Rewrites every match of one pattern on a current page, failing if the page lost the pin.
+function rewritePin(relativePath, pattern, replacement) {
+  const path = `${docsRoot}${relativePath}`;
+  const page = readFileSync(path, 'utf8');
+  if (!pattern.test(page)) throw new Error(`${relativePath} has no pin matching ${pattern}`);
+  writeFileSync(path, page.replace(pattern, replacement));
+}
+
+// The generated API reference names the version it is built for, from api-reference-versions.json.
+const apiVersions = readJson(`${docsRoot}api-reference-versions.json`);
+for (const [component, releases] of Object.entries(apiVersions)) {
+  rewritePin(`reference/${component}/index.mdx`,
+    new RegExp(`(\\(pathname:///api/${component}/latest/\\))[^\\n]*`),
+    (_, link) => `${link}, built for ${releases[0]}.`);
+}
+
+// The Kubernetes manifest deploys the Dex Server release that the current dexcli bundles.
+rewritePin('reference/server/kubernetes.mdx', /dex-server-zd:\d+\.\d+\.\d+/g, `dex-server-zd:${versions.server}`);
+
+// Embed Dex Web pins the newest release of the current Dex Web line.
+const webRelease = newestRelease('web', minorLine(versions.web), 'web');
+rewritePin('reference/web/embed-dex-web.mdx', /web\/embedded@v\d+\.\d+\.\d+/g, `web/embedded@v${webRelease}`);
+
+console.log(`Reference install pins written: ${written.join(', ')}; server image ${versions.server}; Dex Web ${webRelease}.`);

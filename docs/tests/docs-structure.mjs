@@ -313,8 +313,35 @@ for (const id of sequenceDocs) {
   }
 }
 
+// The Dex Server image tag names the server the current dexcli bundles, and the Dex Web module pin
+// names the current Dex Web line, so a copied manifest or install works with the current SDKs.
+{
+  const versions = JSON.parse(readFileSync(join(docsRoot, 'reference/versions.json'), 'utf8'));
+  const webLine = versions.web.replace(/\.x$/, '');
+  const roots = ['content', 'i18n/zh-Hans/docusaurus-plugin-content-docs/current', 'reference/server', 'reference/web', 'reference/cli'];
+  for (const root of roots) {
+    if (!existsSync(join(docsRoot, root))) continue;
+    for (const file of mdxFiles(join(docsRoot, root))) {
+      const path = relative(docsRoot, file);
+      if (/(^|\/)changelog\.mdx?$/.test(path)) continue;
+      readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+        for (const [image, version] of line.matchAll(/dex-server-zd:(\d+\.\d+\.\d+)/g)) {
+          if (version !== versions.server) {
+            failures.push(`${path}:${index + 1}: ${image} is not the current server ${versions.server} (reference/versions.json). Run node scripts/generate-reference-install.mjs.`);
+          }
+        }
+        for (const [pin, minor] of line.matchAll(/web\/embedded@v(\d+\.\d+)\.\d+/g)) {
+          if (minor !== webLine) {
+            failures.push(`${path}:${index + 1}: ${pin} is not the current Dex Web line ${webLine} (reference/versions.json). Run node scripts/generate-reference-install.mjs.`);
+          }
+        }
+      });
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, the home page and Get Started have no reading lists, each overview page carries the name of its group, and SDK pins match the current line.');
+console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, the home page and Get Started have no reading lists, each overview page carries the name of its group, and SDK, server image, and Dex Web pins match the current lines.');
