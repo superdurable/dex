@@ -92,6 +92,9 @@ type SlashCommand struct {
 	Name string
 	// ArgumentHint names the argument in help, such as "ID"; empty for none.
 	ArgumentHint string
+	// IsArgumentOptional reports a command that also runs without its
+	// argument, such as /model showing the current model.
+	IsArgumentOptional bool
 	// Description says what the command does, starting with a verb.
 	Description string
 }

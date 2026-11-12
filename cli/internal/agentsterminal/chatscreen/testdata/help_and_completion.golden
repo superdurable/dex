@@ -4,12 +4,14 @@
   ␛[1;94mKeys␛[m
   Enter        send, or queue while a turn runs
   Shift-Enter  new line (also Alt-Enter, Ctrl-J)
-  Ctrl-C       cancel the turn; again to exit
+  Ctrl-C       cancel the turn or clear the input; press again to exit
+  Esc          cancel the running turn (empty input)
   Ctrl-D       exit (empty input)
   Tab          complete a /command or an /image path; on empty input, focus
-               waiting approvals and queued messages
+               waiting approvals and queued messages, then Up/Down picks one
   Up/Down      recall earlier messages
   Ctrl-O       open the last tool's full output
+  Ctrl-P       show the plan's steps
   PgUp/PgDn    scroll the messages; End follows new ones
   F1           show this help
 
@@ -18,8 +20,6 @@
   /copy        copy the last reply to the clipboard
   /drop        delete the last queued message
   /exit        exit; the session stays in Dex
-  /help        list keys and commands
-  /history     read earlier messages of this session
 ␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
  ␛[34m›␛[m ␛[2mType a message. /image attaches a picture, /help lists commands.␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m

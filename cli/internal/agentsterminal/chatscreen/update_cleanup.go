@@ -75,11 +75,7 @@ func replaceUpdateControlCharacters(update sessionfeed.SessionUpdate) sessionfee
 		typed.Messages = messages
 		return typed
 	case sessionfeed.PlanChanged:
-		items := make([]sessionfeed.PlanItem, len(typed.Items))
-		for index, item := range typed.Items {
-			items[index] = sessionfeed.PlanItem{Title: oneLine(item.Title), Status: item.Status}
-		}
-		typed.Items = items
+		typed.Items = cleanPlanItems(typed.Items)
 		return typed
 	case sessionfeed.ToolCallChanged:
 		return cleanToolCall(typed)
@@ -111,7 +107,18 @@ func cleanToolCall(call sessionfeed.ToolCallChanged) sessionfeed.ToolCallChanged
 	call.OutputTail = outputTail
 	call.Arguments = cleanArguments(call.Arguments)
 	call.OutputText = manyLines(call.OutputText)
+	if call.PlanItems != nil {
+		call.PlanItems = cleanPlanItems(call.PlanItems)
+	}
 	return call
+}
+
+func cleanPlanItems(items []sessionfeed.PlanItem) []sessionfeed.PlanItem {
+	cleaned := make([]sessionfeed.PlanItem, len(items))
+	for index, item := range items {
+		cleaned[index] = sessionfeed.PlanItem{Title: oneLine(item.Title), Status: item.Status}
+	}
+	return cleaned
 }
 
 func cleanArguments(arguments []sessionfeed.ApprovalArgument) []sessionfeed.ApprovalArgument {

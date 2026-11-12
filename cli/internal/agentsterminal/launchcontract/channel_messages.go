@@ -52,6 +52,10 @@ const (
 	ErrorCodeHostStopped   = "host_stopped"
 )
 
+// ErrorCodeBrowserOff is the open_url error of a launcher whose browser
+// opening is switched off.
+const ErrorCodeBrowserOff = "browser_off"
+
 // ChannelError is the error of a response.
 type ChannelError struct {
 	// Code is a lowercase snake_case code.

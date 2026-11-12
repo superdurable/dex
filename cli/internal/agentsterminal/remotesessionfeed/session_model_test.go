@@ -37,6 +37,8 @@ type fakeSessions struct {
 	cancelCalls int
 	// listMessages answers ListAgentMessages when set.
 	listMessages func(sessionID string, beforeSequence *int64, limit int64) (dexagents.AgentMessagesPage, error)
+	// listEvents answers ListAgentEvents when set.
+	listEvents func(pageSize int32, beforePageToken string) (dex.StreamMessagesPage[dexagents.AgentEvent], error)
 }
 
 func (sessions *fakeSessions) SendUserMessage(context.Context, string, dexagents.AgentUserMessage) (bool, error) {
@@ -87,7 +89,10 @@ func (sessions *fakeSessions) ListAgentMessages(_ context.Context, sessionID str
 	return dexagents.AgentMessagesPage{}, nil
 }
 
-func (sessions *fakeSessions) ListAgentEvents(context.Context, string, int32, string) (dex.StreamMessagesPage[dexagents.AgentEvent], error) {
+func (sessions *fakeSessions) ListAgentEvents(_ context.Context, _ string, pageSize int32, beforePageToken string) (dex.StreamMessagesPage[dexagents.AgentEvent], error) {
+	if sessions.listEvents != nil {
+		return sessions.listEvents(pageSize, beforePageToken)
+	}
 	return dex.StreamMessagesPage[dexagents.AgentEvent]{}, nil
 }
 
@@ -411,7 +416,7 @@ func TestSessionWrittenMessagesInHistory(t *testing.T) {
 		originMessage(message(3, "turn-2", dexagents.MessageRoleUser, "[Dex] The user approved plan revision 12. Execute it."), dexagents.AgentMessageOriginPlanExecution),
 		originMessage(message(4, "turn-3", dexagents.MessageRoleUser, "[Dex] Run it."), dexagents.AgentMessageOriginPlanExecution),
 		originMessage(message(5, "turn-4", dexagents.MessageRoleUser, "[Dex] The user approved plan revision 12. Execute it."), dexagents.AgentMessageOriginPlanExecution),
-	}}, nil)
+	}}, nil, nil)
 	updates := harness.drain()
 	recorded := updatesOfType[sessionfeed.UserMessageRecorded](updates)
 	require.Len(t, recorded, 1)

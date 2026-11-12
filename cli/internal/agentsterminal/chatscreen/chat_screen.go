@@ -134,7 +134,43 @@ type ChatScreen struct {
 	turnToolsTurnID       string
 	earlierBeforeSequence int64
 	deletedBeforeSequence int64
+
+	// heldReplies wait for the running tool rows they follow, so a reply
+	// never prints above the row before it.
+	heldReplies []replyOutput
+	// repliesAfterTools are the reply groups that began while a tool row ran.
+	repliesAfterTools        map[replyGroupKey]bool
+	hasReplySinceUserMessage bool
+	isWritingReply           bool
+	// idleExitArmedAt is when an idle Ctrl-C asked for a second press.
+	idleExitArmedAt         time.Time
+	selectedQueuedMessageID string
+	// isPopupDeferredByTyping marks an interrupt that arrived while the user
+	// typed; it opens once the input stays empty.
+	isPopupDeferredByTyping  bool
+	isDeferredPopupScheduled bool
+	deferredPopupGeneration  int
+	// delayedMessage delivers message after delay; tests replace it.
+	delayedMessage func(delay time.Duration, message tea.Msg) tea.Cmd
 }
+
+// idleExitExpiredMsg redraws the hint line when the second Ctrl-C window
+// ends.
+type idleExitExpiredMsg struct{}
+
+// deferredPopupDueMsg opens a deferred interrupt when generation is still
+// current.
+type deferredPopupDueMsg struct {
+	generation int
+}
+
+const (
+	// idleExitWindow is how long a second idle Ctrl-C exits.
+	idleExitWindow = 2 * time.Second
+	// deferredPopupDelay is how long the input stays empty before a deferred
+	// interrupt opens.
+	deferredPopupDelay = time.Second
+)
 
 // pastedImagePrompt asks whether a pasted image path becomes an attachment.
 type pastedImagePrompt struct {
@@ -240,6 +276,10 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 		printedSequences:  map[int64]bool{},
 		notices:           newNoticeFilter(),
 		pathResolver:      config.PathResolver,
+		repliesAfterTools: map[replyGroupKey]bool{},
+		delayedMessage: func(delay time.Duration, message tea.Msg) tea.Cmd {
+			return tea.Tick(delay, func(time.Time) tea.Msg { return message })
+		},
 	}
 	screen.history = newTranscript(config.Theme)
 	screen.history.Append(transcriptBlockWelcome, screen.welcome())
@@ -248,9 +288,7 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 
 func (screen *ChatScreen) welcome() welcomeBlock {
 	isLogoShown := screen.isLogoAllowed && screen.width >= minimumLogoWidth && screen.height >= minimumLogoHeight
-	session := screen.session
-	session.IsNewSession = screen.openedSession.IsNewSession
-	return welcomeBlock{session: session, isLogoShown: isLogoShown}
+	return welcomeBlock{session: screen.openedSession, isLogoShown: isLogoShown}
 }
 
 // ExitSummary is the line printed after the full screen closes: where the
@@ -260,6 +298,9 @@ func (screen *ChatScreen) ExitSummary() string {
 		return screen.exitReason
 	}
 	summary := "Session " + screen.session.SessionID + " keeps running. Resume it with: " + screen.resumeCommand()
+	if first := screen.openedSession.SessionID; first != "" && first != screen.session.SessionID {
+		summary += " This chat started in session " + first + "."
+	}
 	return strings.TrimSpace(screen.exitReason + " " + summary)
 }
 
@@ -284,9 +325,13 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		screen.handleMouseWheel(typed)
 	case tea.KeyPressMsg:
-		commands = append(commands, screen.handleKey(typed))
+		commands = append(commands, screen.handleKey(typed), screen.scheduleDeferredPopup())
 	case tea.PasteMsg:
 		screen.handlePaste(typed.Content)
+		commands = append(commands, screen.scheduleDeferredPopup())
+	case idleExitExpiredMsg:
+	case deferredPopupDueMsg:
+		screen.openDeferredPopup(typed.generation)
 	case SwitchSessionRequestMsg:
 		commands = append(commands, screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: typed.SessionID, IsResumed: typed.IsResumed}))
 	case sessionUpdateMsg:
@@ -385,6 +430,7 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 	if keyName == "ctrl+c" {
 		return screen.handleInterruptKey()
 	}
+	screen.idleExitArmedAt = time.Time{}
 	if screen.pager != nil {
 		return screen.handlePagerKey(key)
 	}
@@ -453,6 +499,8 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 		}
 	case "ctrl+o":
 		screen.openLastToolOutput()
+	case "ctrl+p":
+		screen.openPlanPager()
 	case "up":
 		if screen.input.IsCursorOnFirstLine() {
 			screen.recallHistory(-1)
@@ -476,6 +524,9 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 		if screen.isSessionStartWaiting {
 			screen.isSessionStartWaiting = false
 			return screen.submitAction(sessionfeed.MoveSessionStartToBackground{})
+		}
+		if screen.isTurnRunning && screen.input.IsEmpty() && screen.canRequestCancel() {
+			return screen.requestTurnCancel()
 		}
 	default:
 		if key.String() == "backspace" && screen.input.IsEmpty() && len(screen.attachments) > 0 {
@@ -691,6 +742,10 @@ func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
 	case runCommandName:
 		return screen.runPlan()
 	}
+	if command, _ := screen.commands.Lookup(parsed.name); command.IsArgumentOptional && parsed.argument == "" {
+		// The command shows its current value; the argument is ready to type.
+		screen.input.SetValue("/" + parsed.name + " ")
+	}
 	return screen.submitAction(sessionfeed.RunSlashCommand{Name: parsed.name, Argument: parsed.argument})
 }
 
@@ -841,15 +896,15 @@ func (screen *ChatScreen) confirmQueuedMessageDelete() {
 	if !screen.explainQueuedMessageUnavailable("delete") {
 		return
 	}
-	screen.askToDeleteLastQueuedMessage()
+	screen.askToDeleteQueuedMessage(screen.queuedMessages[len(screen.queuedMessages)-1])
 }
 
-// askToDeleteLastQueuedMessage pins the last queued message, so the
-// confirmation deletes the message the user saw.
-func (screen *ChatScreen) askToDeleteLastQueuedMessage() {
-	last := screen.queuedMessages[len(screen.queuedMessages)-1]
-	screen.pendingDelete = &last
+// askToDeleteQueuedMessage pins message, so the confirmation deletes the
+// message the user saw.
+func (screen *ChatScreen) askToDeleteQueuedMessage(message sessionfeed.QueuedMessage) {
+	screen.pendingDelete = &message
 	screen.pendingFocus = pendingFocusQueuedMessage
+	screen.selectedQueuedMessageID = message.MessageID
 }
 
 // explainQueuedMessageUnavailable reports whether a queued message can be
@@ -907,7 +962,7 @@ func (screen *ChatScreen) handleCompletionKey(key tea.KeyPressMsg) (tea.Cmd, boo
 		screen.input.SetValue(completed)
 		screen.completionIndex = 0
 	case "enter":
-		if selected.ArgumentHint != "" {
+		if selected.ArgumentHint != "" && !selected.IsArgumentOptional {
 			screen.input.SetValue("/" + selected.Name + " ")
 			return nil, true
 		}
@@ -930,12 +985,21 @@ func (screen *ChatScreen) handleInterruptKey() tea.Cmd {
 		return nil
 	}
 	if !screen.isTurnRunning {
-		if !screen.input.IsEmpty() && !screen.isPopupOpen && !screen.isHelpOpen {
+		// Only a plain, empty input counts toward the double-press exit.
+		if screen.closeViewForIdleInterrupt() {
+			screen.idleExitArmedAt = time.Time{}
+			return nil
+		}
+		if !screen.input.IsEmpty() {
 			screen.input.Clear()
 			return nil
 		}
-		screen.exit(0)
-		return nil
+		if screen.isIdleExitArmed() {
+			screen.exit(0)
+			return nil
+		}
+		screen.idleExitArmedAt = screen.now()
+		return screen.delayedMessage(idleExitWindow, idleExitExpiredMsg{})
 	}
 	if screen.isExitArmed || screen.cancelState == cancelStateConfirmed {
 		if screen.cancelState != cancelStateConfirmed && screen.session.AcceptsTurnControl {
@@ -949,6 +1013,49 @@ func (screen *ChatScreen) handleInterruptKey() tea.Cmd {
 		screen.printNotice(sessionfeed.NoticeSeverityWarning, "This agent cannot cancel a running turn. Ctrl-C again exits; the turn keeps running.")
 		return nil
 	}
+	if screen.cancelState != cancelStateNone {
+		// Esc already asked to cancel; this press only arms the exit.
+		return nil
+	}
+	return screen.requestTurnCancel()
+}
+
+// closeViewForIdleInterrupt closes the popup, help, or pending question that
+// has focus, and reports whether one did.
+func (screen *ChatScreen) closeViewForIdleInterrupt() bool {
+	switch {
+	case screen.isPopupOpen:
+		screen.closePopup()
+		screen.isPopupDeferredByTyping = false
+	case screen.isHelpOpen:
+		screen.isHelpOpen = false
+	case screen.pendingPastedImage != nil:
+		screen.keepPastedText()
+	case screen.pendingImageDrop != nil:
+		screen.handleImageDropKey("n")
+	case screen.pendingDelete != nil || screen.pendingFocus != pendingFocusNone:
+		screen.pendingDelete, screen.pendingFocus = nil, pendingFocusNone
+	case screen.pendingSwitchSessionID != "":
+		_, isHandled := screen.handleSwitchKey("n")
+		return isHandled
+	default:
+		return false
+	}
+	return true
+}
+
+// isIdleExitArmed reports an idle Ctrl-C less than idleExitWindow ago.
+func (screen *ChatScreen) isIdleExitArmed() bool {
+	return !screen.idleExitArmedAt.IsZero() && screen.now().Sub(screen.idleExitArmedAt) < idleExitWindow
+}
+
+// canRequestCancel reports whether Esc or Ctrl-C may ask to cancel the
+// running turn now.
+func (screen *ChatScreen) canRequestCancel() bool {
+	return screen.session.AcceptsTurnControl && screen.cancelState == cancelStateNone && screen.turn.turnID != ""
+}
+
+func (screen *ChatScreen) requestTurnCancel() tea.Cmd {
 	screen.cancelState = cancelStateRequesting
 	screen.cancelRequestedTurnID = screen.turn.turnID
 	return screen.submitAction(sessionfeed.CancelTurn{TurnID: screen.turn.turnID})
@@ -981,6 +1088,7 @@ func (screen *ChatScreen) handlePopupKey(key tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case result.isClosed:
 		screen.closePopup()
+		screen.isPopupDeferredByTyping = false
 	case result.isNextRequested:
 		screen.openPopup(screen.nextOpenableInterrupt(screen.popupIndex))
 	case result.action != nil:
@@ -1063,6 +1171,9 @@ func (screen *ChatScreen) openPopup(index int) {
 	screen.popupIndex = index
 	screen.popup = newInterruptPopup(screen.interrupts[index])
 	screen.pendingFocus = pendingFocusNone
+	screen.isPopupDeferredByTyping = false
+	// A second Ctrl-C now answers the popup's view, not the earlier press.
+	screen.idleExitArmedAt = time.Time{}
 }
 
 func (screen *ChatScreen) closePopup() {
@@ -1090,6 +1201,7 @@ func (screen *ChatScreen) focusPendingBar() {
 		screen.pendingFocus = pendingFocusInterrupts
 	case screen.canActOnQueuedMessage():
 		screen.pendingFocus = pendingFocusQueuedMessage
+		screen.selectedQueuedMessageID = screen.queuedMessages[len(screen.queuedMessages)-1].MessageID
 	}
 }
 
@@ -1109,40 +1221,44 @@ func (screen *ChatScreen) handleSwitchKey(keyName string) (tea.Cmd, bool) {
 	return nil, false
 }
 
+// handlePendingBarKey runs the focused row's keys; other printable keys
+// are typed into the input.
 func (screen *ChatScreen) handlePendingBarKey(key tea.KeyPressMsg) tea.Cmd {
 	keyName := key.String()
 	if screen.pendingDelete != nil {
 		target := *screen.pendingDelete
 		screen.pendingDelete = nil
-		if keyName != "y" {
-			return nil
-		}
 		screen.pendingFocus = pendingFocusNone
-		return screen.submitAction(sessionfeed.DeleteQueuedMessage{MessageID: target.MessageID})
+		switch {
+		case keyName == "y":
+			return screen.submitAction(sessionfeed.DeleteQueuedMessage{MessageID: target.MessageID})
+		case keyName != "n" && isPrintableKey(key):
+			return screen.handleKey(key)
+		}
+		return nil
 	}
-	switch keyName {
-	case "esc":
+	rows := screen.pendingRows()
+	index := screen.focusedPendingRowIndex(rows)
+	isQueuedRowFocused := screen.pendingFocus == pendingFocusQueuedMessage && screen.canActOnQueuedMessage()
+	switch {
+	case keyName == "esc":
 		screen.pendingFocus = pendingFocusNone
-	case "tab", "down", "up", "j", "k":
-		if screen.pendingFocus == pendingFocusInterrupts && screen.canActOnQueuedMessage() {
-			screen.pendingFocus = pendingFocusQueuedMessage
-		} else if screen.pendingFocus == pendingFocusQueuedMessage && screen.waitingInterruptCount() > 0 {
-			screen.pendingFocus = pendingFocusInterrupts
-		}
-	case "enter":
-		if screen.pendingFocus == pendingFocusInterrupts {
-			screen.openPopup(screen.nextOpenableInterrupt(-1))
-		}
-	case "s":
-		if screen.pendingFocus == pendingFocusQueuedMessage && screen.canActOnQueuedMessage() {
-			screen.pendingFocus = pendingFocusNone
-			last := screen.queuedMessages[len(screen.queuedMessages)-1]
-			return screen.submitAction(sessionfeed.SteerQueuedMessage{MessageID: last.MessageID})
-		}
-	case "x":
-		if screen.pendingFocus == pendingFocusQueuedMessage && screen.canActOnQueuedMessage() {
-			screen.askToDeleteLastQueuedMessage()
-		}
+	case keyName == "tab" && len(rows) > 0:
+		screen.focusPendingRow(rows[(index+1)%len(rows)])
+	case keyName == "down" && index+1 < len(rows):
+		screen.focusPendingRow(rows[index+1])
+	case keyName == "up" && index > 0:
+		screen.focusPendingRow(rows[index-1])
+	case keyName == "enter" && screen.pendingFocus == pendingFocusInterrupts:
+		screen.openPopup(screen.nextOpenableInterrupt(-1))
+	case keyName == "s" && isQueuedRowFocused:
+		screen.pendingFocus = pendingFocusNone
+		return screen.submitAction(sessionfeed.SteerQueuedMessage{MessageID: screen.selectedQueuedMessage().MessageID})
+	case keyName == "x" && isQueuedRowFocused:
+		screen.askToDeleteQueuedMessage(screen.selectedQueuedMessage())
+	case isPrintableKey(key):
+		screen.pendingFocus = pendingFocusNone
+		return screen.handleKey(key)
 	}
 	return nil
 }
@@ -1165,11 +1281,10 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			// Turn IDs repeat across sessions, so the old session's calls go.
 			screen.turnTools, screen.turnToolsTurnID = nil, ""
 			screen.forgetSessionViews(typed.SessionID)
+			screen.forgetSessionTurns()
 		}
 		screen.session = typed
-		if !screen.isSessionKnown {
-			screen.openedSession, screen.isSessionKnown = typed, true
-		}
+		screen.recordOpenedSession(typed)
 		screen.lastTurnNumber = max(screen.lastTurnNumber, typed.TurnCount)
 		screen.history.Replace(0, screen.welcome())
 		screen.commands = newSlashCommandRegistry(screen.sessionCommands, typed.SupportsPlanMode)
@@ -1209,15 +1324,20 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 		if typed.TurnID == screen.turn.turnID && typed.Activity != screen.turn.activity {
 			screen.turn.activity = typed.Activity
 			screen.turn.activityAt = screen.now()
+			screen.isWritingReply = false
 		}
 	case sessionfeed.TurnEnded:
 		screen.endTurn(typed)
 	case sessionfeed.AssistantTextDelta:
 		screen.reasoningTail = ""
+		screen.isWritingReply = screen.isTurnRunning && typed.TurnID == screen.turn.turnID
+		screen.noteReplyGroup(replyGroupKey{turnID: typed.TurnID, stepExecutionID: typed.StepExecutionID})
 		screen.printReplyOutputs(screen.replies.AppendDelta(typed))
 	case sessionfeed.AssistantMessageRecorded:
 		if typed.Sequence <= 0 || !screen.printedSequences[typed.Sequence] {
 			screen.printedSequences[typed.Sequence] = typed.Sequence > 0
+			screen.isWritingReply = false
+			screen.noteReplyGroup(replyGroupKey{turnID: typed.TurnID, stepExecutionID: typed.StepExecutionID})
 			screen.printReplyOutputs(screen.replies.RecordFinalMessage(typed))
 		}
 	case sessionfeed.ReasoningDelta:
@@ -1243,6 +1363,7 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 		screen.applyQueuedMessages(typed.Messages)
 	case sessionfeed.PlanChanged:
 		screen.plan = typed
+		screen.refreshPlanPager()
 	case sessionfeed.ToolCallChanged:
 		screen.applyToolCall(typed)
 	case sessionfeed.ApprovalRequested:
@@ -1263,12 +1384,13 @@ func (screen *ChatScreen) printRecordedUserMessage(recorded sessionfeed.UserMess
 		}
 		screen.printedSequences[recorded.Sequence] = true
 	}
-	screen.flushReplies()
+	screen.flushAllReplies()
 	screen.printUserMessage(userMessageBlock{text: recorded.Text, origin: recorded.Origin, images: recorded.Images})
 }
 
 func (screen *ChatScreen) printUserMessage(block userMessageBlock) {
 	screen.lastReplyText = ""
+	screen.hasReplySinceUserMessage = false
 	screen.appendBlock(transcriptBlockUserMessage, block)
 }
 
@@ -1288,7 +1410,16 @@ func (screen *ChatScreen) applyQueuedMessages(messages []sessionfeed.QueuedMessa
 	screen.localQueuedTexts = nil
 	if screen.pendingDelete != nil && !containsQueuedMessage(messages, screen.pendingDelete.MessageID) {
 		screen.pendingDelete = nil
+		screen.pendingFocus = pendingFocusNone
 		screen.printNotice(sessionfeed.NoticeSeverityInfo, "the queued message already left the queue; nothing was deleted")
+	}
+	if screen.selectedQueuedMessageID != "" && !containsQueuedMessage(messages, screen.selectedQueuedMessageID) {
+		screen.selectedQueuedMessageID = ""
+		if screen.pendingFocus == pendingFocusQueuedMessage {
+			// s or x must never act on a message the user did not pick.
+			screen.pendingFocus = pendingFocusNone
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, "the selected queued message left the queue; press Tab to select again")
+		}
 	}
 	if !screen.canActOnQueuedMessage() && screen.pendingFocus == pendingFocusQueuedMessage {
 		screen.pendingFocus = pendingFocusNone
@@ -1324,18 +1455,23 @@ func (screen *ChatScreen) startTurn(started sessionfeed.TurnStarted) {
 	screen.cancelState = cancelStateNone
 	screen.cancelRequestedTurnID = ""
 	screen.isExitArmed = false
+	screen.isWritingReply = false
 }
 
+// endTurn prints the turn's unfinished tool rows before its unfinished text,
+// which followed them.
 func (screen *ChatScreen) endTurn(ended sessionfeed.TurnEnded) {
-	screen.printReplyOutputs(screen.replies.EndTurn(ended.TurnID))
 	screen.reasoningTail = ""
+	screen.isWritingReply = false
 	for _, call := range screen.liveToolCalls {
 		screen.printToolRow(call)
 	}
 	screen.liveToolCalls = nil
+	screen.releaseHeldReplies()
+	screen.printReplyOutputs(screen.replies.EndTurn(ended.TurnID))
 	switch ended.Outcome {
 	case sessionfeed.TurnOutcomeCancelled:
-		screen.appendBlock(transcriptBlockNotice, turnCancelledBlock{})
+		screen.appendBlock(transcriptBlockNotice, turnCancelledBlock{isReplyIncomplete: screen.hasReplySinceUserMessage})
 	case sessionfeed.TurnOutcomeFailed:
 		screen.printNotice(sessionfeed.NoticeSeverityError, ended.FailureText)
 	}
@@ -1391,7 +1527,7 @@ func (screen *ChatScreen) applyWorkerState(changed sessionfeed.WorkerStateChange
 	if resume != "" {
 		text += " Exit and resume with: " + resume
 	}
-	screen.flushReplies()
+	screen.flushAllReplies()
 	screen.printNotice(sessionfeed.NoticeSeverityError, text)
 	screen.exitReason = fmt.Sprintf("The Worker stopped (exit %d).", changed.ExitCode)
 	screen.disableInput(1)
@@ -1401,7 +1537,7 @@ func (screen *ChatScreen) handleFeedFailure(err error) tea.Cmd {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return nil
 	}
-	screen.flushReplies()
+	screen.flushAllReplies()
 	text := "The command stopped, so this chat cannot continue."
 	if !errors.Is(err, sessionfeed.ErrSessionFeedClosed) {
 		text = fmt.Sprintf("The session feed failed: %v. This chat cannot continue.", err)
@@ -1470,8 +1606,10 @@ func (screen *ChatScreen) applyToolCall(call sessionfeed.ToolCallChanged) {
 	}
 	if index < 0 {
 		screen.flushReplies()
+		screen.isWritingReply = false
 	}
 	screen.recordTurnTool(call)
+	defer screen.releaseHeldRepliesAfterTools()
 	if call.Status.IsFinished() {
 		if index >= 0 {
 			screen.liveToolCalls = append(screen.liveToolCalls[:index], screen.liveToolCalls[index+1:]...)
@@ -1493,10 +1631,19 @@ func (screen *ChatScreen) addInterrupt(interrupt pendingInterrupt) {
 		}
 	}
 	screen.interrupts = append(screen.interrupts, interrupt)
-	isOtherViewOpen := screen.isHelpOpen || screen.pager != nil || screen.isToolPickerOpen || screen.pendingPastedImage != nil
-	if !screen.isPopupOpen && screen.pendingFocus == pendingFocusNone && !isOtherViewOpen && screen.input.IsEmpty() {
+	switch {
+	case !screen.isSessionLoaded:
+		// It predates loading: the pending bar shows it until Tab opens it.
+	case !screen.isPopupOpen && screen.pendingFocus == pendingFocusNone && !screen.isOtherViewOpen() && screen.input.IsEmpty():
 		screen.openPopup(len(screen.interrupts) - 1)
+	case !screen.isPopupOpen && !screen.input.IsEmpty():
+		screen.isPopupDeferredByTyping = true
 	}
+}
+
+// isOtherViewOpen reports a view that an arriving interrupt must not cover.
+func (screen *ChatScreen) isOtherViewOpen() bool {
+	return screen.isHelpOpen || screen.pager != nil || screen.isToolPickerOpen || screen.pendingPastedImage != nil
 }
 
 func (screen *ChatScreen) resolveInterrupt(resolved sessionfeed.InterruptResolved) {
@@ -1533,8 +1680,11 @@ func (screen *ChatScreen) resolveInterrupt(resolved sessionfeed.InterruptResolve
 	case screen.isPopupOpen && screen.popupIndex > index:
 		screen.popupIndex--
 	}
-	if screen.waitingInterruptCount() == 0 && screen.pendingFocus == pendingFocusInterrupts {
-		screen.pendingFocus = pendingFocusNone
+	if screen.waitingInterruptCount() == 0 {
+		screen.isPopupDeferredByTyping = false
+		if screen.pendingFocus == pendingFocusInterrupts {
+			screen.pendingFocus = pendingFocusNone
+		}
 	}
 }
 
@@ -1553,19 +1703,29 @@ func resolutionText(resolution sessionfeed.InterruptResolution) string {
 	}
 }
 
-func (screen *ChatScreen) flushReplies() {
-	screen.printReplyOutputs(screen.replies.FlushPending())
-}
-
+// printReplyOutputs prints outputs, holding those that follow a running
+// tool row until the row settles.
 func (screen *ChatScreen) printReplyOutputs(outputs []replyOutput) {
 	for _, output := range outputs {
-		switch output.kind {
-		case replyOutputCorrection:
-			screen.printNotice(sessionfeed.NoticeSeverityInfo, output.text)
-		default:
-			screen.lastReplyText = strings.TrimLeft(screen.lastReplyText+"\n\n"+output.text, "\n")
-			screen.appendBlock(transcriptBlockReply, replyBlock{markdown: output.text})
+		if screen.repliesAfterTools[output.group] && screen.hasRunningToolRow() {
+			screen.heldReplies = append(screen.heldReplies, output)
+			continue
 		}
+		if !screen.hasRunningToolRow() {
+			screen.releaseHeldReplies()
+		}
+		screen.printReplyOutput(output)
+	}
+}
+
+func (screen *ChatScreen) printReplyOutput(output replyOutput) {
+	switch output.kind {
+	case replyOutputCorrection:
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, output.text)
+	default:
+		screen.lastReplyText = strings.TrimLeft(screen.lastReplyText+"\n\n"+output.text, "\n")
+		screen.hasReplySinceUserMessage = true
+		screen.appendBlock(transcriptBlockReply, replyBlock{markdown: output.text})
 	}
 }
 

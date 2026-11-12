@@ -43,6 +43,20 @@ func (harness *screenHarness) requestSwitch(request SwitchSessionRequestMsg) {
 	harness.runCommand(command)
 }
 
+// An idle Ctrl-C answers the drop question with "stay" and never counts
+// toward the exit.
+func TestIdleCtrlCAnswersTheImageDropQuestion(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100})
+	harness.feed(sessionfeed.ImageAttached{Attachment: testImage})
+	harness.requestSwitch(SwitchSessionRequestMsg{SessionID: "openai-sdk-2"})
+	require.NotNil(t, harness.screen.pendingImageDrop)
+	harness.press(ctrlKey('c'))
+	require.Nil(t, harness.screen.pendingImageDrop)
+	require.False(t, harness.screen.isIdleExitArmed())
+	require.Empty(t, harness.source.recordedActions(), "nothing switches")
+	require.Len(t, harness.screen.attachments, 1)
+}
+
 // A switch with attached images asks first: n stays and keeps them, y drops
 // them and switches.
 func TestSwitchWithAttachedImagesAsksFirst(t *testing.T) {
