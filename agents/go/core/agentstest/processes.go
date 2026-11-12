@@ -280,8 +280,8 @@ func (process *KillableProcess) ReadLog() (string, error) {
 // --durability.
 const processCrashSafeServerZDConfig = "dev:\n  durabilityMode: processCrashSafe\n"
 
-// connectorsMCPFlag is the dexcli dev flag that turns the Connectors MCP server on or off.
-const connectorsMCPFlag = "-connectors-mcp"
+// connectorsMCPBinaryEnvironmentVariable names the dex-connectors-mcp executable dexcli dev runs instead of a release.
+const connectorsMCPBinaryEnvironmentVariable = "DEX_CONNECTORS_MCP_BINARY"
 
 // PrivateDexEngine runs one dexcli dev engine on free ports with its state in a directory.
 //
@@ -289,11 +289,12 @@ const connectorsMCPFlag = "-connectors-mcp"
 // engine. A killed engine started again resumes every Flow.
 //
 // The engine runs dexcli dev with HOME set to <state directory>/home, so it never reads or writes the
-// user's ~/.dex. It also passes -connectors-mcp=false when that dexcli supports the flag, so the engine
-// serves no Connectors MCP server at /mcp and downloads no release. Start a fake MCP server when a test
+// user's ~/.dex. It also sets DEX_CONNECTORS_MCP_BINARY to a file that does not exist, so the engine never
+// downloads a published Connectors MCP release and has no working /mcp. Start a fake MCP server when a test
 // needs connector tools.
 //
-// Changed in 0.6.0: the engine no longer starts a Connectors MCP server or uses the user's HOME.
+// Changed in 0.6.0: the engine no longer downloads or runs a Connectors MCP server, and no longer uses the
+// user's HOME.
 type PrivateDexEngine struct {
 	stateDir string
 	dexcli   string
@@ -376,20 +377,18 @@ func (engine *PrivateDexEngine) Start(ctx context.Context) error {
 			return fmt.Errorf("write the dex-server-zd durability config: %w", err)
 		}
 	}
-	// A downloaded Connectors MCP release would make tests depend on what is published.
-	connectorsMCPArguments, err := engine.connectorsMCPOffArguments(ctx)
-	if err != nil {
-		return err
-	}
 	// A private HOME keeps dexcli dev out of the user's ~/.dex.
 	homeDir := filepath.Join(engine.stateDir, "home")
 	if err := os.MkdirAll(homeDir, 0o755); err != nil {
 		return fmt.Errorf("create engine home directory: %w", err)
 	}
-	environment := append(os.Environ(), "HOME="+homeDir)
+	environment := append(os.Environ(),
+		"HOME="+homeDir,
+		// A missing binary makes dexcli skip the published release; older dexcli ignores it.
+		connectorsMCPBinaryEnvironmentVariable+"="+filepath.Join(engine.stateDir, "dex-connectors-mcp-not-installed"),
+	)
 	for attempt := 1; ; attempt++ {
-		arguments := append(engine.devArguments(configPath), connectorsMCPArguments...)
-		startErr := engine.process.Start(ctx, arguments, environment, EngineReadyLine, time.Minute)
+		startErr := engine.process.Start(ctx, engine.devArguments(configPath), environment, EngineReadyLine, time.Minute)
 		if startErr == nil {
 			engine.hasStarted = true
 			return nil
@@ -431,23 +430,6 @@ func (engine *PrivateDexEngine) devArguments(configPath string) []string {
 		"-open=false",
 		"-zd-config", configPath,
 	}
-}
-
-// connectorsMCPOffArguments returns -connectors-mcp=false when dexcli dev lists that flag, and nothing for an
-// older dexcli without the Connectors MCP server. It returns an error when dexcli dev -h cannot run.
-func (engine *PrivateDexEngine) connectorsMCPOffArguments(ctx context.Context) ([]string, error) {
-	helpCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	// dexcli dev -h prints its flags and exits; its exit code does not matter here.
-	help, err := exec.CommandContext(helpCtx, engine.dexcli, "dev", "-h").CombinedOutput()
-	var exitErr *exec.ExitError
-	if err != nil && !errors.As(err, &exitErr) {
-		return nil, fmt.Errorf("run %s dev -h: %w", engine.dexcli, err)
-	}
-	if strings.Contains(string(help), connectorsMCPFlag) {
-		return []string{connectorsMCPFlag + "=false"}, nil
-	}
-	return nil, nil
 }
 
 // hasLostAPort reports whether the last start exited because one of its ports was in use.

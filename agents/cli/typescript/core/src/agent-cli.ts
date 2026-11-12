@@ -511,7 +511,7 @@ class AgentCliCommand {
     this.log(`Not authorized yet: ${missing.join(", ")}. Add them with "+ Add" on ${page}.`);
     if (
       isOpeningConnectorsPage &&
-      this.environment.isBrowserOpeningEnabled &&
+      this.environment.isBrowserOpeningEnabled !== false &&
       this.io.isInteractive &&
       server.webUrl !== null
     ) {

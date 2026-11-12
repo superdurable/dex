@@ -62,10 +62,11 @@ export interface CliEnvironment {
   /**
    * Whether an interactive command may open Dex Web pages, such as the Connectors page, in a web browser.
    * `DEX_AGENTS_OPEN_BROWSER` set to `0` or `false` turns it off; any other value, or none, leaves it on.
+   * {@link readCliEnvironment} always sets it. An environment built by hand may omit it, which means `true`.
    *
    * @since 0.6.0
    */
-  readonly isBrowserOpeningEnabled: boolean;
+  readonly isBrowserOpeningEnabled?: boolean;
   /** The variables that child processes, such as `dexcli dev`, inherit. */
   readonly childProcessVariables: NodeJS.ProcessEnv;
 }

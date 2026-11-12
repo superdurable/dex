@@ -6,7 +6,6 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
@@ -18,7 +17,6 @@ const engineReadyLine = "Dex development environment is ready";
 const startAttempts = 3;
 // A config file also works with dexcli releases that predate --durability.
 const processCrashSafeServerZdConfig = "dev:\n  durabilityMode: processCrashSafe\n";
-const connectorsMcpFlag = "-connectors-mcp";
 
 /** Options of {@link PrivateDexEngine.start}. */
 export interface PrivateDexEngineOptions {
@@ -58,11 +56,12 @@ export interface PrivateDexEngineOptions {
  * `dex-server-zd` together. Engines still running when the test process exits receive SIGKILL.
  *
  * The engine runs `dexcli dev` with `HOME` set to `<stateDirectory>/home`, so it never reads or writes the
- * user's `~/.dex`. It also passes `-connectors-mcp=false` when that `dexcli` supports the flag, so the engine
- * serves no Connectors MCP server at `/mcp` and downloads no release. Start a fake MCP server when a test
+ * user's `~/.dex`. It also sets `DEX_CONNECTORS_MCP_BINARY` to a file that does not exist, so the engine never
+ * downloads a published Connectors MCP release and has no working `/mcp`. Start a fake MCP server when a test
  * needs connector tools.
  *
- * Changed in 0.6.0: the engine no longer starts a Connectors MCP server or uses the user's `HOME`.
+ * Changed in 0.6.0: the engine no longer downloads or runs a Connectors MCP server, and no longer uses the
+ * user's `HOME`.
  *
  * @example
  * ```ts
@@ -111,8 +110,6 @@ export class PrivateDexEngine {
       configPath = join(stateDirectory, "zd-overrides.yaml");
       writeFileSync(configPath, processCrashSafeServerZdConfig);
     }
-    // A downloaded Connectors MCP release would make tests depend on what is published.
-    const connectorsMcpArguments = connectorsMcpOffArguments(dexcliPath);
     // A private HOME keeps dexcli dev out of the user's ~/.dex.
     const homeDirectory = join(stateDirectory, "home");
     mkdirSync(homeDirectory, { recursive: true });
@@ -141,13 +138,18 @@ export class PrivateDexEngine {
       if (serverZdPath !== undefined) {
         commandArguments.push("-zd-binary", serverZdPath);
       }
-      commandArguments.push("-zd-config", configPath, ...connectorsMcpArguments);
+      commandArguments.push("-zd-config", configPath);
       try {
         const processGroup = await ChildProcessGroup.start({
           description: "dexcli dev",
           command: dexcliPath,
           commandArguments,
-          environment: { ...process.env, HOME: homeDirectory },
+          environment: {
+            ...process.env,
+            HOME: homeDirectory,
+            // A missing binary makes dexcli skip the published release; older dexcli ignores it.
+            DEX_CONNECTORS_MCP_BINARY: join(stateDirectory, "dex-connectors-mcp-not-installed"),
+          },
           logPath,
           readyLine: engineReadyLine,
           readyTimeoutMs: options.readyTimeoutMs ?? 60_000,
@@ -259,18 +261,6 @@ function closeServer(server: Server): Promise<void> {
     }
     server.close(() => resolve());
   });
-}
-
-function connectorsMcpOffArguments(dexcliPath: string): string[] {
-  const help = spawnSync(dexcliPath, ["dev", "-h"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 30_000,
-  });
-  if (help.error !== undefined) {
-    throw new Error(`cannot run ${dexcliPath} dev -h`, { cause: help.error });
-  }
-  return `${help.stdout}${help.stderr}`.includes(connectorsMcpFlag) ? [`${connectorsMcpFlag}=false`] : [];
 }
 
 function resolveServerZdPath(dexcliPath: string): string | undefined {
