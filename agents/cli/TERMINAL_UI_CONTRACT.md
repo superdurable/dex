@@ -795,17 +795,22 @@ Node, a daemon thread in Python.
 2. A shutdown that starts for another reason (EOF on the control channel,
    `shutdown` from the launcher, SIGTERM) also arms the bound. Node arms it at
    once. Python arms it at the watchdog's next check, up to 1 s later.
-3. 15 s after the bound is armed, if the Worker host still runs, the watchdog
-   sends SIGTERM to every registered tool process group, waits up to 2 s for
-   them, and sends SIGKILL to those left.
-4. It then sends SIGKILL to the Worker host's own process group.
+3. Python: 15 s after the bound is armed, if the Worker host still runs, the
+   watchdog sends SIGTERM to every registered tool process group, waits up to
+   2 s for them, and sends SIGKILL to those left.
+4. It then sends SIGKILL to the Worker host's own process group. In Node this
+   is all the watchdog does at the bound: it never signals a tool process
+   group, because a worker thread cannot tell whether the main thread already
+   reaped the group's leader. The main thread stops the tool groups during an
+   orderly shutdown, and signals a group only while its leader's
+   `ChildProcess` has not reported its exit.
 
 Each number below adds scheduling delay, and holds only while the watchdog
 can run:
 
 | Platform and core | Launcher died | A shutdown began |
 | --- | --- | --- |
-| Node (TypeScript), macOS and Linux | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
+| Node (TypeScript), macOS and Linux | Worker host gone within about 1 + 15 = 16 s. Registered tool groups are gone within that bound when the orderly shutdown runs; when the main thread is stuck they are **not** bounded, and the next start's leftover cleanup stops them | about 15 s, with the same rule for tool groups |
 | Python, macOS | about 1 + 15 + 2 = 18 s | about 1 + 15 + 2 = 18 s |
 | Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 1 + 15 + 2 = 18 s |
 
@@ -813,7 +818,8 @@ The bounds do not hold:
 
 - while the Worker host is stopped (SIGSTOP) or stuck in the kernel;
 - in Python, while the main thread holds the GIL in native code;
-- for tool groups on Python and Linux after the launcher died, as above;
+- for tool groups on Python and Linux after the launcher died, and in Node
+  while the Worker host's main thread is stuck, as above;
 - for processes a harness starts outside the Worker host's group and never
   registers, such as the tool processes of an agent framework's own CLI.
 

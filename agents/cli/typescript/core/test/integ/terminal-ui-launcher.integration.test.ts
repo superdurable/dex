@@ -31,6 +31,8 @@ import {
   isProcessAlive,
   isProcessGroupAlive,
   newUuidV7,
+  contractHostPath,
+  pythonExecutable,
   readTranscript,
   runRecords,
   terminalUiEndMarker,
@@ -38,6 +40,7 @@ import {
   terminalUiStartMarker,
   waitForRunRecord,
   waitUntil,
+  type RunRecordForTest,
   type Transcript,
   type TranscriptStep,
 } from "../fixtures/terminal-ui-test-support.js";
@@ -497,19 +500,21 @@ describe("the terminal UI launcher", () => {
   });
 
   test("after ready, a closed channel or a malformed line ends the chat: the terminal UI stops and the command exits 1", async () => {
-    for (const [step, reason] of [
-      [{ close: "tui" }, "the terminal UI closed its channel"],
-      [{ from: "tui", raw_line: "not json" }, "the terminal UI sent a line the contract does not allow: a line is not JSON"],
+    const malformed = "the terminal UI sent a line the contract does not allow: a line is not JSON";
+    for (const [steps, reason] of [
+      [[{ close: "tui" }, tuiPause(60_000)], "the terminal UI closed its channel"],
+      [[{ from: "tui", raw_line: "not json" }, tuiPause(60_000)], malformed],
+      // A protocol error stays a failure even when the terminal UI then exits 0.
+      [[{ from: "tui", raw_line: "not json" }], malformed],
     ] as const) {
       const home = newHome();
-      const fake = new FakeTerminalUi([chatTranscript("contract_end", [step, tuiPause(60_000)])]);
+      const fake = new FakeTerminalUi([chatTranscript("contract_end", steps)]);
       const terminal = startOnTerminal(home, fake);
-      await waitForReady(fake);
-      const record = await waitForRunRecord(home);
       assert.equal(await terminal.waitForExit(30_000), 1, terminal.terminal.all);
       assert.ok(terminal.terminal.all.includes(`The chat closed unexpectedly (${reason}).`), terminal.terminal.all);
       assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
-      await waitUntil(() => !isProcessAlive(record.hostPid), "the Worker host stopped");
+      // The Worker host removes its run record when it stops.
+      await waitUntil(() => runRecords(home).length === 0, "the Worker host stopped");
     }
   });
 
@@ -622,37 +627,67 @@ describe("the terminal UI launcher", () => {
     }
   });
 
-  for (const isHostStuck of [false, true]) {
-    test(`the Worker host and a running shell command stop after the launcher is killed${isHostStuck ? ", even with the host's main loop stuck" : ""}`, async () => {
-      const home = newHome(shellConfig);
-      const spinFile = join(home.directory, "spin");
-      const fake = new FakeTerminalUi([chatTranscript("launcher_killed", [tuiPause(120_000)])]);
-      const terminal = startOnTerminal(home, fake, [], { DEX_AGENTS_CLI_TEST_SPIN_FILE: spinFile });
-      await waitForReady(fake);
-      const sessionId = await onlySession(home);
-      const sessions = await sessionClients.of(home);
-      await sessions.sendUserMessage(sessionId, `call run_shell_command ${JSON.stringify({ command: shellCommand })}`);
-      const record = await waitForRunRecord(home, (candidate) => candidate.tool_groups.length === 1);
-      const shellGroup = record.tool_groups[0]?.pgid ?? 0;
-      assert.ok(isProcessGroupAlive(shellGroup));
-      // The shell holds stdin, stdout, and stderr only: no channel of the launcher or the terminal UI.
-      assert.deepEqual(openFileDescriptors(shellGroup).filter((fd) => fd > 2), []);
-      if (isHostStuck) {
-        writeFileSync(spinFile, "");
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      process.kill(record.launcher.pid, "SIGKILL");
-      const killedAt = Date.now();
-      await waitUntil(
-        () => !isProcessAlive(record.hostPid) && !isProcessGroupAlive(record.host.pgid) && !isProcessGroupAlive(shellGroup),
-        "the Worker host and the shell command stopped",
-        30_000,
-      );
-      // 1 s to notice, 15 s for an orderly shutdown, 2 s between SIGTERM and SIGKILL for the shell's group, plus slack.
-      assert.ok(Date.now() - killedAt <= 25_000, `stopped after ${Date.now() - killedAt} ms`);
-      await terminal.waitForExit();
-    });
+  async function startShellAndKillLauncher(home: TestHome, isHostStuck: boolean): Promise<{
+    readonly record: RunRecordForTest;
+    readonly shellGroup: number;
+    readonly killedAt: number;
+    readonly terminal: PseudoTerminalCli;
+  }> {
+    const spinFile = join(home.directory, "spin");
+    const fake = new FakeTerminalUi([chatTranscript("launcher_killed", [tuiPause(120_000)])]);
+    const terminal = startOnTerminal(home, fake, [], { DEX_AGENTS_CLI_TEST_SPIN_FILE: spinFile });
+    await waitForReady(fake);
+    const sessionId = await onlySession(home);
+    const sessions = await sessionClients.of(home);
+    await sessions.sendUserMessage(sessionId, `call run_shell_command ${JSON.stringify({ command: shellCommand })}`);
+    const record = await waitForRunRecord(home, (candidate) => candidate.tool_groups.length === 1);
+    const shellGroup = record.tool_groups[0]?.pgid ?? 0;
+    assert.ok(isProcessGroupAlive(shellGroup));
+    // The shell holds stdin, stdout, and stderr only: no channel of the launcher or the terminal UI.
+    assert.deepEqual(openFileDescriptors(shellGroup).filter((fd) => fd > 2), []);
+    if (isHostStuck) {
+      writeFileSync(spinFile, "");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    process.kill(record.launcher.pid, "SIGKILL");
+    return { record, shellGroup, killedAt: Date.now(), terminal };
   }
+
+  test("the Worker host stops a running shell command and exits after the launcher is killed", async () => {
+    const home = newHome(shellConfig);
+    const { record, shellGroup, killedAt, terminal } = await startShellAndKillLauncher(home, false);
+    await waitUntil(
+      () => !isProcessAlive(record.hostPid) && !isProcessGroupAlive(record.host.pgid) && !isProcessGroupAlive(shellGroup),
+      "the Worker host and the shell command stopped",
+      30_000,
+    );
+    // 1 s to notice, then the orderly shutdown: SIGTERM to the shell's group and SIGKILL 2 s later at most.
+    assert.ok(Date.now() - killedAt <= 10_000, `stopped after ${Date.now() - killedAt} ms`);
+    assert.deepEqual(runRecords(home), []);
+    await terminal.waitForExit();
+  });
+
+  test("with its main loop stuck, the Worker host still ends within its bound, and the next start stops the shell command", async () => {
+    const home = newHome(shellConfig);
+    const { record, shellGroup, killedAt, terminal } = await startShellAndKillLauncher(home, true);
+    await waitUntil(
+      () => !isProcessAlive(record.hostPid) && !isProcessGroupAlive(record.host.pgid),
+      "the Worker host stopped",
+      30_000,
+    );
+    // 1 s to notice the launcher is gone, then the 15 s bound, plus slack.
+    assert.ok(Date.now() - killedAt <= 22_000, `stopped after ${Date.now() - killedAt} ms`);
+    // The watchdog thread never signals tool groups: the shell runs on, and its record stays.
+    assert.ok(isProcessGroupAlive(shellGroup), "the watchdog left the shell's group alone");
+    assert.equal(runRecords(home).length, 1);
+    await terminal.waitForExit();
+    const cli = CliProcess.start(home, ["sessions"], { DEX_AGENTS_TERMINAL_UI: "1" });
+    processes.push(cli);
+    assert.equal(await cli.waitForExit(), 0, cli.stderr.all);
+    assert.match(cli.stderr.all, /Stopped 1 tool process group that a leftover worker host left behind\./);
+    await waitUntil(() => !isProcessGroupAlive(shellGroup), "the leftover shell stopped", 10_000);
+    assert.deepEqual(runRecords(home), []);
+  });
 
   test("SIGTERM to the Worker host reports it stopping and stopped, and the chat then exits 1", async () => {
     const home = newHome();
@@ -718,6 +753,43 @@ describe("the terminal UI launcher", () => {
       assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
       await waitUntil(() => !isProcessAlive(record.hostPid), "the Worker host stopped");
     }
+  });
+
+  test("once SIGINT reached the launcher, it exits 130 even when the terminal UI catches SIGINT and exits 0", async () => {
+    const home = newHome();
+    const directory = mkdtempSync(join(tmpdir(), "dex-agents-sigint-tui-"));
+    const script = join(directory, "sigint_tui.py");
+    writeFileSync(
+      script,
+      [
+        "import os, signal, socket, sys, time",
+        "channel = socket.socket(fileno=int(sys.argv[sys.argv.index('--channel-fd') + 1]))",
+        "channel.makefile('rb').readline()",
+        "channel.sendall(b'{\"type\":\"ready\"}\\n')",
+        "signal.signal(signal.SIGINT, lambda *_: os._exit(0))",
+        `open('${join(directory, "ready")}', 'w').close()`,
+        "time.sleep(60)",
+        "",
+      ].join("\n"),
+    );
+    const dexcli = join(directory, "dexcli");
+    writeFileSync(
+      dexcli,
+      [
+        "#!/bin/sh",
+        `if [ "$2" = "--describe" ]; then exec '${pythonExecutable()}' '${contractHostPath}' tui "$@"; fi`,
+        `exec '${pythonExecutable()}' '${script}' "$@"`,
+        "",
+      ].join("\n"),
+    );
+    chmodSync(dexcli, 0o755);
+    const terminal = startOnTerminal(home, undefined, [], { DEXCLI: dexcli });
+    const record = await waitForRunRecord(home);
+    await waitUntil(() => existsSync(join(directory, "ready")), "the terminal UI is ready");
+    process.kill(record.launcher.pid, "SIGINT");
+    assert.equal(await terminal.waitForExit(), 130, terminal.terminal.all);
+    assert.match(terminal.terminal.all, /keeps running\. Resume it with/);
+    await waitUntil(() => !isProcessAlive(record.hostPid), "the Worker host stopped");
   });
 
   test("a terminal UI killed after ready restores the terminal and exits 1", async () => {

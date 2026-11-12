@@ -9,9 +9,7 @@
 // Runs the launcher's own code over every case file of terminal UI contract 1 in agents/conformance/terminal_ui.
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -30,15 +28,7 @@ import { buildTerminalUiEnvironment, type TerminalUiAuth } from "../../src/termi
 import { chooseContract, launcherContractVersions, parseDescription } from "../../src/terminal-ui/terminal-ui-negotiation.js";
 import { terminalUiChannelValidator, terminalUiSchemaValidator } from "../../src/terminal-ui/terminal-ui-schemas.js";
 import { isTerminalUiSelected } from "../../src/terminal-ui/terminal-ui-selection.js";
-import { readProcessIdentity } from "../../src/worker-host/process-identity.js";
-import {
-  createToolGroupSlots,
-  occupyToolGroupSlot,
-  releaseToolGroupSlot,
-  toolGroupsSafeToSignal,
-} from "../../src/worker-host/tool-group-slots.js";
 import { startSessionForKey, type SessionStarter } from "../../src/worker-host/worker-host-methods.js";
-import { writeWorkerHostRunRecord } from "../../src/worker-host/worker-host-run-record.js";
 
 const caseDirectory = fileURLToPath(new URL("../../../../../../conformance/terminal_ui/", import.meta.url));
 
@@ -368,36 +358,6 @@ describe("terminal UI selection", () => {
       { ...selected, harnessTerminalInterface: "plain" as const },
     ]) {
       assert.equal(isTerminalUiSelected(refused), false, JSON.stringify(refused));
-    }
-  });
-});
-
-describe("Worker host watchdog", () => {
-  test("signals only groups still registered whose leader still has the recorded start time", async () => {
-    const child = spawn("sleep", ["600"], { detached: true, stdio: "ignore" });
-    try {
-      const identity = readProcessIdentity(child.pid ?? 0);
-      assert.ok(identity !== undefined);
-      const recordPath = join(mkdtempSync(join(tmpdir(), "dex-agents-run-")), "scripted-1.json");
-      const write = (start_time: string): void =>
-        writeWorkerHostRunRecord(recordPath, { launcher: identity, host: identity, tool_groups: [{ ...identity, start_time }] });
-      write(identity.start_time);
-      const slots = createToolGroupSlots();
-      const slot = occupyToolGroupSlot(slots, identity.pgid);
-      assert.ok(slot !== undefined);
-      assert.deepEqual(toolGroupsSafeToSignal(slots, recordPath), [identity.pgid]);
-      // The release lands right before the hard bound fires: the record still lists the group, the slot does not.
-      releaseToolGroupSlot(slots, slot);
-      assert.deepEqual(toolGroupsSafeToSignal(slots, recordPath), []);
-      // A registered group whose pid now names a process that started at another time.
-      occupyToolGroupSlot(slots, identity.pgid);
-      write("Thu Jan  1 00:00:00 2026");
-      assert.deepEqual(toolGroupsSafeToSignal(slots, recordPath), []);
-      // A leader that already exited.
-      write(identity.start_time);
-      assert.deepEqual(toolGroupsSafeToSignal(slots, recordPath, () => undefined), []);
-    } finally {
-      child.kill("SIGKILL");
     }
   });
 });

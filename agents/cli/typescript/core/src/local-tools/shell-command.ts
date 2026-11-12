@@ -47,7 +47,7 @@ export function runShellCommand(
       stdio: ["ignore", "pipe", "pipe"],
     });
     const registration =
-      child.pid === undefined || process.platform === "win32" ? undefined : toolProcessGroups?.register(child.pid);
+      child.pid === undefined || process.platform === "win32" ? undefined : toolProcessGroups?.register(child);
     // "exit" comes after Node reaped the shell; from then on its pid may name another process.
     child.once("exit", () => registration?.release());
     const stdout = new CappedOutput();

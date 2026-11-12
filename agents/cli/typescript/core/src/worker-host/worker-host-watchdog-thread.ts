@@ -11,7 +11,6 @@
 
 import { parentPort, workerData } from "node:worker_threads";
 
-import { toolGroupsSafeToSignal } from "./tool-group-slots.js";
 import type { WatchdogCommand, WatchdogOptions, WatchdogReport } from "./worker-host-watchdog.js";
 
 const options = workerData as WatchdogOptions;
@@ -36,25 +35,18 @@ const parentCheck = setInterval(() => {
   }
 }, options.parentCheckIntervalMs);
 
-/** Starts the hard exit bound once: tool groups first, then this host's own process group. */
+/**
+ * Starts the hard exit bound once: SIGKILL to this host's own process group. It never signals tool process groups,
+ * because this thread cannot tell whether the main thread already reaped a group's leader.
+ */
 function arm(): void {
   if (isArmed) {
     return;
   }
   isArmed = true;
   setTimeout(() => {
-    // Each signal goes only to groups still registered, checked again right before it is sent.
-    const terminated = toolGroupsSafeToSignal(options.toolGroupSlots, options.recordPath);
-    for (const pgid of terminated) {
-      signal(-pgid, "SIGTERM");
-    }
-    setTimeout(() => {
-      for (const pgid of toolGroupsSafeToSignal(options.toolGroupSlots, options.recordPath)) {
-        signal(-pgid, "SIGKILL");
-      }
-      // The host leads its own process group, so this ends it and every descendant left in the group.
-      signal(-process.pid, "SIGKILL");
-    }, terminated.length === 0 ? 0 : options.toolGroupTermGraceMs);
+    // The host leads its own process group, so this ends it and every descendant left in the group.
+    signal(-process.pid, "SIGKILL");
   }, options.hardExitMs);
 }
 

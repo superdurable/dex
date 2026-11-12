@@ -15,7 +15,6 @@ import type { SessionFlowCapabilities } from "../terminal-ui/launch-document.js"
 import type { LocalRequestOutcome } from "../terminal-ui/request-outcome-table.js";
 import { refusal } from "../terminal-ui/local-request-relay.js";
 import { readProcessIdentity } from "./process-identity.js";
-import { createToolGroupSlots } from "./tool-group-slots.js";
 import { RecordedToolProcessGroups } from "./tool-process-groups.js";
 import { executeWorkerHostMethod } from "./worker-host-methods.js";
 import type {
@@ -56,7 +55,6 @@ export async function runWorkerHost(
 class WorkerHost {
   private readonly launcherPid = process.ppid;
   private readonly watchdog: WorkerHostWatchdog;
-  private readonly toolGroupSlots = createToolGroupSlots();
   private readonly recordPath: string;
   private readonly command: AgentCliCommand;
   private toolGroups: RecordedToolProcessGroups | undefined;
@@ -76,7 +74,7 @@ class WorkerHost {
     const environment = readCliEnvironment(io.environment);
     this.recordPath = workerHostRunRecordPath(environment.agentsDirectory, harness.name, process.pid);
     this.command = createCommand((line) => this.log(line));
-    this.watchdog = new WorkerHostWatchdog(this.launcherPid, this.toolGroupSlots, this.recordPath, () => void this.stop());
+    this.watchdog = new WorkerHostWatchdog(this.launcherPid, () => void this.stop());
     this.startReceived = new Promise((resolve) => {
       this.resolveStart = resolve;
     });
@@ -102,9 +100,7 @@ class WorkerHost {
       this.log("the Worker host could not read its own or its launcher's process identity");
       return 1;
     }
-    this.toolGroups = new RecordedToolProcessGroups(this.recordPath, launcher, self, this.toolGroupSlots, (line) =>
-      this.log(line),
-    );
+    this.toolGroups = new RecordedToolProcessGroups(this.recordPath, launcher, self);
     const start = await this.startReceived;
     if (start === undefined) {
       return this.stop();

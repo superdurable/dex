@@ -495,19 +495,18 @@ The Worker host stops when the launcher asks, when the IPC channel
 disconnects, on SIGTERM, or when its watchdog finds the launcher gone. The
 watchdog runs in a `worker_threads` thread, so it keeps working while the
 main event loop is stuck. It checks `process.ppid` every second. Once the
-launcher is gone or a shutdown started, it allows 15 s; then it sends SIGTERM
-to each registered tool process group, SIGKILL 2 s later, and SIGKILL to the
-Worker host's own group. The registered groups live in a `SharedArrayBuffer`
-that the main thread updates synchronously on each registration and release,
-so the watchdog never signals a released group even while the main loop is
-stuck. Before each signal it also checks that the group's leader still has
-the start time the run record holds and leads the group.
+launcher is gone or a shutdown started, it allows 15 s; then it sends SIGKILL
+to the Worker host's own group. It never signals a tool process group: a
+thread cannot tell whether the main thread already reaped the group's leader.
 
 The shell tool runs each command in its own process group. In a Worker host,
 `runShellCommand` registers that group right after the spawn and releases it
-when Node reaps the shell, so a signal to the group before the release cannot
-reach another process. An orderly shutdown sends each registered group
-SIGTERM, then SIGKILL after 2 s.
+on the shell's `exit` event. An orderly shutdown, on the main thread, sends
+SIGTERM to each registered group whose shell has not exited, then SIGKILL
+after 2 s. Node reaps a child and reports its exit on the main event loop, so
+until then the shell's pid cannot name another process. When the main loop is
+stuck, nothing stops the tool groups: they keep running after the Worker host
+ends, and the next command start stops them from the run record.
 
 Each Worker host keeps a run record, `~/.dex/agents/run/<harness>-<pid>.json`,
 with the `ps` identity (pid, process group, start time, and the SHA-256 of the
@@ -517,12 +516,14 @@ every command start scans these records. For a record whose launcher no
 longer runs, it sends SIGTERM to the Worker host's group and each tool group,
 then SIGKILL 2 s later, each time only when the process still has the
 recorded start time, leads the recorded group, and, for the Worker host,
-still has the recorded command line (a tool's shell may exec its command). It then
-deletes the record and prints
+still has the recorded command line (a tool's shell may exec its command). It
+then deletes the record and prints, for example,
 `Stopped a leftover worker host (pid N) and 1 tool process group.`
 
 Known limits: the 1 s plus 15 s bound needs the Worker host to be scheduled
-at all, so it does not hold while the process is stopped. Processes that a
+at all, so it does not hold while the process is stopped. Tool process groups
+have no bound when the Worker host's main loop is stuck; the next command
+start cleans them up. Processes that a
 harness starts outside the Worker host's group, such as Claude Code's own Bash
 tool, are not registered, and a tool group whose leader was already reaped by
 another process is not signaled. If the launcher and `dexcli` are both killed,

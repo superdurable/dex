@@ -318,8 +318,9 @@ class TerminalUiHandoff {
     const socket = this.child.stdio[channelFdInChild] as Duplex;
     this.channel = new TerminalUiChannel(socket, {
       onMessage: (message) => this.receive(message),
-      onProtocolError: (reason) => this.endContract(`the terminal UI sent a line the contract does not allow: ${reason}`),
-      onEnd: () => this.endContract("the terminal UI closed its channel"),
+      onProtocolError: (reason) =>
+        this.endContract(`the terminal UI sent a line the contract does not allow: ${reason}`, true),
+      onEnd: () => this.endContract("the terminal UI closed its channel", false),
     });
     this.relay = new LocalRequestRelay(methods, true, (id, outcome) =>
       this.channel.send({ type: "response", id, ...outcome }),
@@ -363,13 +364,20 @@ class TerminalUiHandoff {
     this.relay.handleMessage(message);
   }
 
-  /** The channel ended or broke: the contract is over, so the terminal UI must end too. */
-  private endContract(reason: string): void {
+  /**
+   * The channel ended or broke: the contract is over, so the terminal UI must end too.
+   * @param reason - Why, for the line the launcher prints.
+   * @param isFailure - Whether it is a failure however the terminal UI then exits: a protocol error is; an EOF is
+   * not when the terminal UI then exits by itself, which is how it ends a chat.
+   */
+  private endContract(reason: string, isFailure: boolean): void {
     if (this.hasEnded) {
       return;
     }
     if (!this.isReady) {
       this.failure ??= reason;
+    } else if (isFailure) {
+      this.contractEnd ??= reason;
     }
     void this.stopUnlessExiting(() => {
       if (this.isReady) {
