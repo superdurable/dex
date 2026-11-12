@@ -128,7 +128,8 @@ that starts an `execute_plan` turn, and `AgentMessageOriginTurnFailureNote`,
 for a note to the model about tool calls that already ran. Show such a
 message as a session note, or hide it, never as text the user typed. A
 message that a user sent, and every message stored before 0.6.0, has a nil
-`Origin`. Decoding keeps a value that a later release adds. The Go Worker
+`Origin`. Decoding keeps a value that a later release adds. A Worker before
+0.6.0 drops the field when it moves the message into an archive chunk. The Go Worker
 sets `AgentMessageOriginTurnFailureNote` on its turn-failure note.
 
 ```go

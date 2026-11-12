@@ -425,7 +425,8 @@ class AgentMessage:
             the user typed. Only the session sets it: neither
             ``send_user_message`` nor a runner's messages can. The value is a
             plain string, so a value that a later release adds still decodes.
-            Earlier Workers ignore the field.
+            A Worker before 0.6.0 ignores the field, and drops it when it
+            moves the message into an archive chunk.
 
             .. versionadded:: 0.6.0
 

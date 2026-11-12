@@ -1724,10 +1724,7 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 			finished = append(finished, toolCall)
 		}
 	}
-	state, err := flow.appendMessages(ctx, state, turnID, messages, false, nil)
-	if err != nil {
-		return err
-	}
+	origins := make([]*AgentMessageOrigin, len(messages))
 	if len(finished) > 0 {
 		// The records are deleted below; the note keeps the next model from repeating writes.
 		noteText, err := BuildTurnFailureNote(finished)
@@ -1738,11 +1735,13 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 		if err != nil {
 			return err
 		}
+		messages = append(messages, note)
 		noteOrigin := AgentMessageOriginTurnFailureNote
-		state, err = flow.appendMessages(ctx, state, turnID, []FrameworkMessage{note}, false, &noteOrigin)
-		if err != nil {
-			return err
-		}
+		origins = append(origins, &noteOrigin)
+	}
+	state, err := flow.appendMessages(ctx, state, turnID, messages, false, origins)
+	if err != nil {
+		return err
 	}
 	if err := deleteTurnRecords(ctx, toolCalls); err != nil {
 		return err

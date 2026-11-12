@@ -10,6 +10,10 @@ package remotesessionfeed
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -402,6 +406,29 @@ func TestSessionWrittenMessagesInHistory(t *testing.T) {
 		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 12"},
 		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running the approved plan"},
 	}, notices)
+}
+
+// The revision pattern reads every plan execution text the agents conformance suite fixes.
+func TestPlanExecutionRevisionPatternMatchesTheConformanceTexts(t *testing.T) {
+	text, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "agents", "conformance", "texts.json"))
+	require.NoError(t, err)
+	var texts struct {
+		Templates struct {
+			PlanExecutionMessage []struct {
+				Input struct {
+					Revision int64 `json:"revision"`
+				} `json:"input"`
+				Text string `json:"text"`
+			} `json:"plan_execution_message"`
+		} `json:"templates"`
+	}
+	require.NoError(t, json.Unmarshal(text, &texts))
+	require.NotEmpty(t, texts.Templates.PlanExecutionMessage)
+	for _, testCase := range texts.Templates.PlanExecutionMessage {
+		match := planExecutionRevisionPattern.FindStringSubmatch(testCase.Text)
+		require.NotNil(t, match, testCase.Text)
+		require.Equal(t, strconv.FormatInt(testCase.Input.Revision, 10), match[1])
+	}
 }
 
 func originMessage(stored dexagents.AgentMessage, origin dexagents.AgentMessageOrigin) dexagents.AgentMessage {

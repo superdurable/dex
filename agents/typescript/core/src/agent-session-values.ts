@@ -290,8 +290,9 @@ export interface AgentMessage extends FrameworkMessage {
    *
    * Show a message that has an origin as a session note, not as text the user typed. Only the session sets it:
    * `send_user_message` and a runner's messages cannot. The decoder keeps a value it does not know, so a client of
-   * an earlier release still tells such a message apart. Earlier Workers ignore the field. Wire field: `origin`,
-   * `null` when absent; a decoded message omits it then.
+   * an earlier release still tells such a message apart. A Worker before 0.6.0 ignores the field, and drops it when
+   * it moves the message into an archive chunk. Wire field: `origin`, `null` when absent; a decoded message omits it
+   * then.
    *
    * @example
    * ```ts

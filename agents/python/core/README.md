@@ -1335,7 +1335,8 @@ for message in page.messages:
   initial message, and a runner's messages, such as a
   `decide_turn_continuation` message, have none.
 - The wire field is `origin`, `null` when absent. Messages stored before
-  0.6.0 have none, and an earlier Worker ignores the field.
+  0.6.0 have none. A Worker before 0.6.0 ignores the field, and drops it
+  when it moves the message into an archive chunk.
 - A later release may add values. `origin` is a plain string, so a value
   this release does not know still decodes; treat any `origin` as written by
   the session.

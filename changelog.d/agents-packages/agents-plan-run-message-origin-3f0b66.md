@@ -8,7 +8,8 @@ section: Added
   `turn_steered_note`, and `turn_cancelled_note` for the notes that tell the
   model which tool calls of an ended turn ran. The new `AgentMessageOrigin`
   names them. A message that a user sent, and every message stored before
-  0.6.0, has none. The wire field is `null` when absent; Workers before 0.6.0
-  ignore it. Decoders keep a value they do not know, so a later value still
+  0.6.0, has none. The wire field is `null` when absent; a Worker before
+  0.6.0 ignores it and drops it when it moves the message into an archive
+  chunk. Decoders keep a value they do not know, so a later value still
   reads as a session-written message. The Go core decodes the field in
   `remotesession` and sets `turn_failure_note` on its own turn-failure note.

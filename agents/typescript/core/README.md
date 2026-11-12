@@ -1351,7 +1351,7 @@ for (const message of page.messages) {
 - Only the session sets `origin`. `send_user_message`, the start input's initial message, and a runner's messages,
   such as a `decideTurnContinuation` message, have none.
 - The wire field is `origin`, `null` when absent; a decoded message omits it. Messages stored before 0.6.0 have
-  none, and an earlier Worker ignores the field.
+  none. A Worker before 0.6.0 ignores the field, and drops it when it moves the message into an archive chunk.
 - A later release may add values. The decoder keeps a value it does not know, so treat any `origin` as written by
   the session.
 
