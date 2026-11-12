@@ -10,13 +10,13 @@ Stop long-running work safely when a durable interrupt arrives.
 
 Use this pattern for work that loops for a long time, such as batch processing. To wait for an external system, use [Polling](/design-patterns/polling) instead.
 
-**InterruptibleFlow** starts **WorkA** and **WorkB** in parallel. To interrupt them, a client calls the **interrupt** RPC, which sets the **interruptSignal** Attribute. Each branch finishes its current unit of work. Before it starts the next one, it reads the signal and returns **GracefulComplete**. The Flow completes when both branches have stopped.
+`InterruptibleFlow` starts `WorkA` and `WorkB` in parallel. To interrupt them, a client calls the **interrupt** RPC, which sets the `interruptSignal` Attribute. Each branch finishes its current unit of work. Before it starts the next one, it reads the signal and returns `GracefulComplete`. The Flow completes when both branches have stopped.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 
-Each sample shows **WorkA**; **WorkB** is the same. **WaitFor** pauses between units of work. **Execute** completes if the signal is set, and otherwise moves to the next unit. The runnable examples also include Flow registration and the **interrupt** RPC.
+Each sample shows `WorkA`; `WorkB` is the same. `WaitFor` pauses between units of work. `Execute` completes if the signal is set, and otherwise moves to the next unit. The runnable examples also include Flow registration and the **interrupt** RPC.
 
 <SdkTabs
   examples={{
@@ -224,3 +224,7 @@ impl Step for WorkA {
 
 </SdkSnippet>
 </SdkTabs>
+
+## Next
+
+[Durable Timer](/design-patterns/durable-timer)

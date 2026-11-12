@@ -8,12 +8,12 @@ Dex 会对失败的 Step 方法执行指数退避重试。见 [Retry and failure
 
 当只靠重试无法满足需求时，选择以下恢复模式之一。
 
-- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) — 重试失败的工作，耗尽后转到恢复 Step。
-- [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — 重试用完后，等操作人员解决问题并决定下一步。
-- [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout) — 整个 Flow 超时时，运行你自己的处理函数。
-- [WaitFor Failure Recovery](/design-patterns/failure-handling/wait-for-failure-recovery) — **WaitFor** 重试用完后仍然失败时，在 Step 代码中处理这个失败。
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)：重试失败的工作，耗尽后转到恢复 Step。
+- [Manual Recovery](/design-patterns/failure-handling/manual-recovery)：重试用完后，等操作人员解决问题并决定下一步。
+- [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout)：整个 Flow 超时时，运行你自己的处理函数。
+- [WaitFor Failure Recovery](/design-patterns/failure-handling/wait-for-failure-recovery)：`WaitFor` 重试用完后仍然失败时，在 Step 代码中处理这个失败。
 
-## 相关内容
+## 下一步
 
 - [Retry and failure policies](/reference/python/failure-and-retries#retry-and-failure-policies)
 - [Timer](/concepts/primitives/timer)

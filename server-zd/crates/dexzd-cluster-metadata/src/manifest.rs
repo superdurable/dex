@@ -9,15 +9,15 @@
 use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_keyspace::validate_node_identifier;
-use dexzd_object_store::{ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome};
+use dexzd_object_store::{
+    MANIFEST_OBJECT_KEY, ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome,
+};
 use dexzd_protocol::dexzd::v1::{
     LogSegment, Manifest, ManifestNode, PartitionAssignment, SnapshotReference, VersionBarrier,
 };
 use prost::Message;
 
 use crate::{MAX_BEHAVIOR_VERSION, METADATA_FORMAT_VERSION, MIN_BEHAVIOR_VERSION, MetadataError};
-
-const MANIFEST_KEY: &str = "manifest";
 
 /// Node details recorded in the manifest.
 #[derive(Debug, Clone)]
@@ -45,11 +45,11 @@ pub enum ManifestChange {
 /// Reads the current manifest, if present.
 pub async fn read_manifest(store: &dyn ObjectStore) -> Result<Option<Manifest>, MetadataError> {
     store
-        .get(MANIFEST_KEY)
+        .get(MANIFEST_OBJECT_KEY)
         .await?
         .map(|content| {
             Manifest::decode(content.bytes).map_err(|source| MetadataError::Decode {
-                key: MANIFEST_KEY,
+                key: MANIFEST_OBJECT_KEY,
                 source,
             })
         })
@@ -110,7 +110,7 @@ pub async fn create_initial_manifest(
     let manifest = loop {
         let write_result = store
             .put(
-                MANIFEST_KEY,
+                MANIFEST_OBJECT_KEY,
                 Bytes::from(initial_manifest.encode_to_vec()),
                 WriteCondition::CreateOnly,
             )
@@ -135,7 +135,7 @@ pub async fn create_initial_manifest(
         || manifest.partitions.len() != partition_count as usize
     {
         return Err(MetadataError::InvalidMetadata {
-            key: MANIFEST_KEY,
+            key: MANIFEST_OBJECT_KEY,
             detail: format!(
                 "manifest records partition count {} and lists {} partitions, not the \
                  expected {partition_count}",
@@ -158,13 +158,16 @@ where
 {
     // Ambiguous writes followed by another update can apply an edit again.
     loop {
-        let current_object = store
-            .get(MANIFEST_KEY)
-            .await?
-            .ok_or(MetadataError::Missing { key: MANIFEST_KEY })?;
+        let current_object =
+            store
+                .get(MANIFEST_OBJECT_KEY)
+                .await?
+                .ok_or(MetadataError::Missing {
+                    key: MANIFEST_OBJECT_KEY,
+                })?;
         let current =
             Manifest::decode(current_object.bytes).map_err(|source| MetadataError::Decode {
-                key: MANIFEST_KEY,
+                key: MANIFEST_OBJECT_KEY,
                 source,
             })?;
         ensure_version_barrier_supported(&current)?;
@@ -184,7 +187,7 @@ where
         };
         let write_result = store
             .put(
-                MANIFEST_KEY,
+                MANIFEST_OBJECT_KEY,
                 Bytes::from(proposed.encode_to_vec()),
                 condition,
             )
@@ -301,13 +304,13 @@ pub async fn update_partition_snapshot(
     update_manifest(store, clock, |manifest| {
         let assignment = manifest.partitions.get_mut(partition as usize).ok_or(
             MetadataError::InvalidMetadata {
-                key: MANIFEST_KEY,
+                key: MANIFEST_OBJECT_KEY,
                 detail: format!("partition {partition} is out of range"),
             },
         )?;
         if assignment.partition != partition {
             return Err(MetadataError::InvalidMetadata {
-                key: MANIFEST_KEY,
+                key: MANIFEST_OBJECT_KEY,
                 detail: format!("partition entry {partition} is misordered"),
             });
         }

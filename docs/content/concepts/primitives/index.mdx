@@ -1,0 +1,21 @@
+---
+id: index
+title: Primitives
+sidebar_label: Primitives
+slug: /concepts/primitives
+---
+
+# Primitives
+
+Primitives are the building blocks a Flow uses. Each one belongs to a Flow.
+
+| Primitive | What it is | Use it to |
+| --- | --- | --- |
+| [Attribute](/concepts/primitives/attribute) | Durable state that belongs to one Flow. | Keep data between Steps, read it from outside, and search on it. |
+| [RPC](/concepts/primitives/rpc) | A synchronous call into a Flow. | Send commands and read views from your application. |
+| [Channel](/concepts/primitives/channel) | A durable message queue in a Flow. | Deliver messages that Steps wait for. |
+| [Stream](/concepts/primitives/stream) | A best-effort feed that a reader can resume. | Push live progress to a UI. |
+| [Timer](/concepts/primitives/timer) | A durable wait until a time. | Set deadlines, reminders, and schedules. |
+| [SubFlow](/concepts/primitives/subflow) | A Flow that another Flow starts as a child. | Split large or parallel work into child Flows. |
+
+[Concepts](/concepts) shows how the primitives fit with Flow, Step, Client, and Connector.

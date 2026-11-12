@@ -11,16 +11,16 @@ Use this pattern when canceling a Flow must also stop the child Flows it started
 
 An example is a loan application that runs its credit check as a child Flow. When the applicant withdraws, the application closes. The credit check must stop too.
 
-Dex does not stop a SubFlow when its parent closes. The SubFlow keeps running when its parent completes, fails, times out, or is stopped. The parent must stop each child before it closes.
+A SubFlow keeps running when its parent completes, fails, times out, or is stopped. The parent must stop each child before it closes.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## How it works
 
 - A cancel RPC publishes the reason to a cancel Channel.
-- The Step that starts the SubFlow waits with **AnyOf** for the SubFlow or the cancel Channel.
-- When the child finishes first, **Execute** reads its result and moves on.
-- When the cancel message wins, **Execute** reads the child Flow ID with **SubFlowID**. It stops the child with the Client **StopFlow** and closes the parent with **ForceFail**.
+- The Step that starts the SubFlow waits with `AnyOf` for the SubFlow or the cancel Channel.
+- When the child finishes first, `Execute` reads its result and moves on.
+- When the cancel message wins, `Execute` reads the child Flow ID with `SubFlowID`. It stops the child with the Client `StopFlow` and closes the parent with `ForceFail`.
 - Every later Step that waits also waits for the cancel Channel. A cancel that arrives after the child finished still closes the case.
 - List the cancel condition first in every wait. When the cancel message and another condition are ready at the same time, the first declared condition wins. A pending cancel then always wins over a normal completion.
 - A cancel that arrives after the last Step consumed its decision message, or after the Flow closed, cannot change the outcome.
@@ -44,19 +44,19 @@ AwaitUnderwriterDecision.execute
 
 ## Stopping the child
 
-- **Execute** can be retried, and the child can finish at the same moment. Treat "not found", "not active", and "closing" from **StopFlow** as already stopped.
-- The Worker needs a Client to call **StopFlow**. Pass a Client provider to the Flow constructor.
+- `Execute` can be retried, and the child can finish at the same moment. Treat "not found", "not active", and "closing" from `StopFlow` as already stopped.
+- The Worker needs a Client to call `StopFlow`. Pass a Client provider to the Flow constructor.
 - Record the stopped child Flow ID in an Attribute when operators or tests need to find it.
 
 ## Limits
 
 This pattern stops children only when the cancellation arrives through the cancel Channel. Other ways the parent closes leave the children running:
 
-- a Client **StopFlow** on the parent;
+- a Client `StopFlow` on the parent;
 - the parent's Flow timeout;
-- a **ForceFail** or **ForceComplete** from another Step of the parent.
+- a `ForceFail` or `ForceComplete` from another Step of the parent.
 
-Set a Flow timeout on every child, so a child that is never stopped still ends. The example gives the credit check a 7-day timeout. Clients that cancel a case call the cancel RPC, not **StopFlow**.
+Set a Flow timeout on every child, so a child that is never stopped still ends. The example gives the credit check a 7-day timeout. Clients that cancel a case call the cancel RPC, not `StopFlow`.
 
 ## Several children
 
@@ -65,11 +65,11 @@ One cancel message satisfies one wait. When several Steps each hold a child at t
 - Use a ChannelMap with one key per Step. The cancel RPC publishes to every key, and each Step waits on its own key.
 - Or have the cancel RPC publish one message per waiting Step to a single Channel.
 
-Do not close the Flow from the first Step that sees a cancel message. Its **ForceFail** cancels the other Steps before they stop their children. Every Step that holds a child must stop its own child before anything closes the Flow.
+Every Step that holds a child must stop its own child before anything closes the Flow. Closing the Flow from the first Step that sees a cancel message would break this: its `ForceFail` cancels the other Steps before they stop their children.
 
 ## Example
 
-**LoanApplicationFlow** starts with the applicant ID. **RunCreditCheck** starts **CreditCheckFlow** with a 7-day Flow timeout and waits for it or the **cancelApplication** RPC. **AwaitUnderwriterDecision** waits for the **decideApplication** RPC or a later cancellation. When a cancellation stops the credit check, the Flow stores the child Flow ID in the **stoppedCreditCheckFlowId** Attribute.
+`LoanApplicationFlow` starts with the applicant ID. `RunCreditCheck` starts `CreditCheckFlow` with a 7-day Flow timeout and waits for it or the `cancelApplication` RPC. `AwaitUnderwriterDecision` waits for the `decideApplication` RPC or a later cancellation. When a cancellation stops the credit check, the Flow stores the child Flow ID in the `stoppedCreditCheckFlowId` Attribute.
 
 <SdkTabs
   examples={{
@@ -561,7 +561,7 @@ impl Step for AwaitUnderwriterDecision {
 
 - A cancel RPC that only sets an Attribute. Nothing wakes the waiting Step.
 
-## Related
+## Next
 
 - [SubFlow](/concepts/primitives/subflow)
 - [Channel](/concepts/primitives/channel)

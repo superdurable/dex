@@ -10,8 +10,6 @@
 
 use std::collections::BTreeMap;
 
-use dexzd_object_store::ObjectStore;
-
 use crate::engine_simulation::engine_invariants::{pruned_semantic_events, run_count};
 use crate::engine_simulation::simulated_clients::ClientRecords;
 use crate::engine_simulation::simulated_node::{ClusterEnvironment, NodeProcess, copy_local_store};

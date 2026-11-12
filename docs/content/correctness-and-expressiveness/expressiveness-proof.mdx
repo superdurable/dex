@@ -40,7 +40,7 @@ The Flow's internal Channels and Attributes do not count.
 
 ## Why it matters to you {#why-it-matters}
 
-Dex has no threads that block, and no locks held across a wait. A Flow is a
+Dex models concurrency without threads that block or locks held across a wait. A Flow is a
 set of Steps that read and write Attributes, publish and consume Channel
 messages, and wait on Timers. So you may wonder whether some concurrent logic
 cannot be written as a Flow.
@@ -58,16 +58,16 @@ an application. Model your own Flow with the
 | Construct | Dex building blocks | Related design pattern |
 | --- | --- | --- |
 | Thread | A chain of Steps, usually one for each statement. **wait** takes three Steps, and **sleep** and timed **select** add an entry Step. The thread's position and local state travel in the Step input. A running thread is one active Step execution at a time. | |
-| **fork** | **GoToMany** to the parent's next Step and the child's first Step. | |
-| **join** | The ending thread publishes one message to its join Channel, then returns **DeadEnd**. The joining Step waits with **AnyOf** on that Channel and on its own cancel Channel. | [Await Parallel Steps](/design-patterns/parallel/await) |
-| Mutex | A Channel that holds one token while the mutex is free. **lock** waits for the token with **ForOne**. Waiters are served in the order they started waiting. **unlock** publishes the token back. | [Critical Section](/design-patterns/critical-section) |
+| **fork** | `GoToMany` to the parent's next Step and the child's first Step. | |
+| **join** | The ending thread publishes one message to its join Channel, then returns `DeadEnd`. The joining Step waits with `AnyOf` on that Channel and on its own cancel Channel. | [Await Parallel Steps](/design-patterns/parallel/await) |
+| Mutex | A Channel that holds one token while the mutex is free. **lock** waits for the token with `ForOne`. Waiters are served in the order they started waiting. **unlock** publishes the token back. | [Critical Section](/design-patterns/critical-section) |
 | Condition variable | An Attribute holds the list of waiting threads. Each waiter has its own Channel. **wait** adds the thread to the list, releases the mutex, waits on its Channel, then takes the mutex again. **signal** removes the first waiter and publishes to its Channel. **broadcast** does this for every waiter. | |
-| **sleep** | One timed Step. Its **WaitFor** returns **AnyOf** with a Timer and the thread's cancel Channel. | |
-| Timed **select** | The same timed Step. It waits with **AnyOf** on a Timer, the input Channel, and the cancel Channel. Only the winning Condition consumes a message. | [Deferred Choice](/design-patterns/deferred-choice) |
+| **sleep** | One timed Step. Its `WaitFor` returns `AnyOf` with a Timer and the thread's cancel Channel. | |
+| Timed **select** | The same timed Step. It waits with `AnyOf` on a Timer, the input Channel, and the cancel Channel. Only the winning Condition consumes a message. | [Deferred Choice](/design-patterns/deferred-choice) |
 | Cancellation | A message on the canceled thread's cancel Channel. The thread sees it only at a point where it would block. | |
-| Exception | The handler stack travels in the Step input. **throw** is a **GoTo** to the handler's Step. | |
-| Exit or failure | **ForceComplete** with the result, or **ForceFail** with the error. | |
-| External effect | An **Execute** whose only effect is that external call. | |
+| Exception | The handler stack travels in the Step input. **throw** is a `GoTo` to the handler's Step. | |
+| Exit or failure | `ForceComplete` with the result, or `ForceFail` with the error. | |
+| External effect | An `Execute` whose only effect is that external call. | |
 
 An Attribute lock would not work for the mutex, because it covers one Step
 method and not a wait. A Channel token can be held
@@ -87,7 +87,7 @@ leaves a run without failures. Combined, the two proofs show that a
 well-formed program of the language runs on Dex with the events of a run
 without failures, except that external effects can repeat.
 
-## Related evidence {#related-evidence}
+## Next
 
 The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns)
 rates Dex against 43 workflow patterns, each with a runnable example and a

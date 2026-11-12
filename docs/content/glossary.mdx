@@ -7,31 +7,79 @@ slug: /glossary
 
 # Glossary
 
-Short definitions of Dex terms. Use these terms, not the older Workflow and State names.
+Short definitions of Dex terms. Dex grew out of iWF, which called a Flow a Workflow and a Step a State. These docs use only the Dex names.
+
+#### [Agent Step names](/agent-frameworks/sessions)
+
+The Steps of a durable agent session, such as `RunModel`, `CallTool`, `AwaitToolApproval`, and `ResumeTurn`. Sessions explains each one.
+
+#### [App Worker ID](/reference/server/workers#routing-and-availability)
+
+The ID of one running Worker process. Dex routes a Flow's next Step or RPC to the same app Worker ID first. The SDK generates a new one each time the process starts. If you set it yourself, change it after each restart.
 
 #### [Attribute](/concepts/primitives/attribute)
 
 A durable, typed variable on a Flow. You can index it for search.
 
+#### [Attribute Store](/concepts/primitives/attribute#attribute-store-projection)
+
+A PostgreSQL table set that you own, to which Dex Server copies selected Attributes. The copy is one-way, and the Flow stays the source of truth.
+
+#### [Blob cache](/components/application#blob-cache)
+
+A local, size-limited disk cache of large Dex values. Dex sends a large value as a reference, and the cache keeps the value so a Worker or Client does not download it again. Each Worker and Client process opens its own cache directory. Losing the cache loses no data.
+
 #### [Channel](/concepts/primitives/channel)
 
 A durable message pipe. It carries messages from outside a Flow, or between parts of one Flow.
 
+#### [ChannelMap](/concepts/primitives/channel#channelmap)
+
+A family of Channels under one name, with one FIFO queue per instance key, such as one queue per order or per job.
+
+#### [Client](/concepts/client)
+
+The part of your application that talks to Dex from outside a Worker. It starts Flows, calls RPCs, reads Attributes, and waits for Steps. It does not run Flow code.
+
 #### [Condition](/concepts/step#waitfor-and-execute)
 
-What a Step waits for, returned from WaitFor: a Timer, a Channel, or a combination of them.
+What a Step waits for, returned from WaitFor: a Timer, a Channel message, a SubFlow that completes, or a combination of them.
 
-#### [dexcli](/quick-start)
+#### [Connector](/concepts/connector)
 
-The Dex CLI, installed with Homebrew. It runs server-zd and Dex Web on your machine.
+A package that connects a Flow to an external provider. It gives the Flow ready-made Steps, and Triggers that turn provider events into Flow starts or RPC calls.
+
+#### [db9](/reference/server/object-storage#db9)
+
+A separate database product that speaks the PostgreSQL wire protocol. Dex Server can keep its data there instead of in object storage. Stock PostgreSQL is not a listed production store.
+
+#### [Dex Server](/components/server)
+
+The server that stores every Flow's state and hands work to Workers. Its binary is **dex-server-zd**, and its reference calls it **server-zd**.
+
+#### [dexcli](/components/run-locally)
+
+The Dex CLI. It runs Dex Server and Dex Web on your machine, and it inspects and operates Flows.
+
+#### [Durable Execution](/intro/what-is-dex)
+
+Running a process so that it survives crashes, restarts, and long waits. The engine records the process's progress, so after a failure the process continues where it stopped instead of starting over.
 
 #### [Execute](/concepts/step#waitfor-and-execute)
 
 The Step method that runs after the WaitFor condition is met, or right away when the Step has no WaitFor.
 
+#### [Failover](/concepts/failover-and-deploys)
+
+A standby Dex Server process taking over after the active one stops. Every attempt that a Worker had received runs again.
+
 #### [Flow](/concepts/flow)
 
 The top-level durable program. It contains Steps, Attributes, Channels, and RPCs.
+
+#### [Flow Definition Graph](/components/server)
+
+A map of a Flow type's Steps and every move their code can make. **dexcli visualize** builds it from your source code without running it. Workers or dexcli publish it, and Dex Web draws the Flow from it.
 
 #### [Flow ID](/concepts/flow#identifiers)
 
@@ -41,9 +89,25 @@ The ID that your application assigns to a Flow run.
 
 A Client API that reads committed Attribute values from outside a Flow. It does not need a Worker.
 
+#### [Hard-delete Attribute](/concepts/primitives/attribute#hard-delete-attributes)
+
+An Attribute for a short-lived secret. Deleting it erases the stored value permanently. Dex reads it again on every attempt instead of from the attempt's snapshot.
+
+#### [Idempotency key](/concepts/step#idempotency-keys)
+
+A value you send with a call to another system so that system can recognize a repeat and skip it. Build it from values that stay the same on every attempt, such as the Flow ID and a name for the call.
+
+#### [Index slot](/concepts/primitives/attribute#read-and-search-attributes)
+
+A numbered search key, such as `keyword1` or `int2`, that an indexed Attribute uses. Slots are typed, shared by every Flow type in a namespace, and limited in number.
+
 #### [InvokeRPC](/concepts/primitives/rpc)
 
 A Client API that calls a Flow's RPC handler on the Worker.
+
+#### [Join](/design-patterns/parallel/await)
+
+A helper that waits for parallel branches. Each branch reports to a [ChannelMap](/concepts/primitives/channel#channelmap), and the waiting Step waits on that ChannelMap until every branch, or the number it needs, has reported.
 
 #### [Locking](/concepts/primitives/attribute#locking)
 
@@ -53,9 +117,13 @@ Making Steps and RPCs that access the same Attributes run one at a time.
 
 A decision to go to another Step, or to complete or fail the Flow.
 
-#### [Time Travel](/components/application)
+#### [Persistence schema](/concepts/flow#implement-a-flow)
 
-Restarting a Flow run from an earlier Step, after a fix. The run keeps its Run ID.
+The list of Attributes and Channels that a Flow declares. A Worker rejects an Attribute that the schema does not list.
+
+#### [Registry](/components/application#registry)
+
+The set of Flows that a Worker or a Client registers. The Worker runs the Steps and RPCs of those Flows. The Client uses the same definitions to encode inputs and decode results.
 
 #### [RPC](/concepts/primitives/rpc)
 
@@ -65,17 +133,57 @@ A Worker handler that reads or writes a running Flow from outside.
 
 The ID that the engine assigns to each run of a Flow ID.
 
+#### [server-zd](/components/server)
+
+The name of the current Dex Server implementation. Its binary is **dex-server-zd**. Releases and reference pages use this name.
+
+#### [State snapshot](/concepts/step#guarantees)
+
+The Flow state that one Step method attempt reads: the Attributes as they were when Dex handed the attempt to a Worker. A retry of `Execute` reuses the first attempt's snapshot. Hard-delete Attributes are the exception; Dex reads them again on every attempt.
+
 #### [Step](/concepts/step)
 
 The unit of durable control flow. It has an optional WaitFor and an Execute.
 
+#### [Step durability](/concepts/step/advanced-guarantees#sync-and-async)
+
+When Dex stores a Step's progress. **SYNC**, the default, stores each attempt start and result before the Flow moves on. **ASYNC** moves on first, so a server failure can run the attempt again.
+
 #### [Step execution](/reference/server/runtime-client#wait-for-a-step)
 
-One run of a Step type, identified by **step_type** and a number.
+One run of a Step type, identified by `step_type` and a number.
+
+#### [StepDecision](/concepts/step#stepdecision-movements)
+
+What Execute returns: the next Steps to run, or that the Flow completes or fails. Each part of it is a Movement.
+
+#### [Sticky routing](/reference/server/workers#routing-and-availability)
+
+Dex sends a Flow's next Step or RPC to the Worker that served the Flow before, for up to 5 seconds, before any other Worker can take it. It is best effort, so keep state in Dex, not in Worker memory.
+
+#### [Stream](/concepts/primitives/stream)
+
+A best-effort, ordered feed of messages from a Flow to a reader, such as live progress for a UI. A reader can resume where it stopped.
+
+#### [SubFlow](/concepts/primitives/subflow)
+
+A Flow run that a parent Flow starts from one of its Steps. The parent can wait for it like any other Condition.
+
+#### [Time Travel](/concepts/change-flow-code#time-travel)
+
+Running a Flow run again from an earlier point in its history, usually after a fix. The run keeps its Run ID. Its state goes back to that point, Steps after it run again with their external calls, and outside input after it is applied again unless you skip write reapply. The FlowService call is `ResetFlow`.
 
 #### [Timer](/concepts/primitives/timer)
 
 A durable sleep condition. When it fires, the waiting Step resumes.
+
+#### [Transactional RPC](/concepts/primitives/rpc#transactional-reads-and-writes)
+
+An RPC whose changes Dex saves only if every Channel message it deletes is still pending. An RPC that holds a lock is always transactional.
+
+#### [Versioning](/concepts/change-flow-code#versioning-flow-code)
+
+Changing Flow code while Flows are still open. Dex does not replay code, so a deploy causes no replay error. Keep old Step types and RPCs until the Flows that use them finish.
 
 #### [WaitFor](/concepts/step#waitfor-and-execute)
 

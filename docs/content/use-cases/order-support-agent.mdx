@@ -1,0 +1,1796 @@
+---
+title: Order Support Agent
+sidebar_label: Order Support Agent
+slug: /use-cases/order-support-agent
+---
+
+# Order Support Agent
+
+An order support agent with two tools, built once for each agent framework. Pick your framework, and every section below follows that choice.
+
+**SDKs:** Python · TypeScript
+
+Every framework uses the same order support agent. It has two tools on an in-memory order desk:
+
+| Tool | Policy | What Dex does |
+| --- | --- | --- |
+| `look_up_order` | read | Runs without approval and retries on failure. |
+| `cancel_order` | non-idempotent write | Waits in `AwaitToolApproval`, then runs at most once. |
+
+`cancel_order` cancels an order only while it is still processing.
+
+The Python agents are under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses). The TypeScript agents are under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
+
+## The agent and its tools {#define-the-agent}
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+The Flow type is `ClaudeAgentSDKOrderSupport` in Python and `ClaudeAgentSdkOrderSupportAgent` in TypeScript. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses) and [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
+
+The tools are Claude Agent SDK tools. The options give the model, the system prompt, and the CLI environment. The tool policies name each tool by its own name.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/claude_agent_sdk_order_support.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/claude-agent-sdk/claude-agent-sdk-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_claude_agent_sdk_order_support_flow(
+    order_desk: OrderDesk, model: str, slack_connection: slack.Connection | None
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is a Claude model name, such as "claude-opus-5-5"."""
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    @tool(
+        "look_up_order",
+        "Look up one order by its order ID and return its items and status.",
+        {"order_id": str},
+    )
+    async def look_up_order(arguments: dict[str, Any]) -> dict[str, Any]:
+        order = order_desk.describe_order(arguments["order_id"])
+        return {"content": [{"type": "text", "text": order}]}
+
+    @tool(
+        "cancel_order",
+        "Cancel one order that has not shipped yet.",
+        {"order_id": str, "reason": str},
+    )
+    async def cancel_order(arguments: dict[str, Any]) -> dict[str, Any]:
+        result = order_desk.cancel_order(arguments["order_id"], arguments["reason"])
+        return {"content": [{"type": "text", "text": result}]}
+
+    # Every session gets the same options, so the factory does not read its context.
+    def build_options(context: ClaudeAgentOptionsContext) -> ClaudeAgentOptions:
+        return ClaudeAgentOptions(
+            model=model,
+            env=build_claude_cli_environment(os.environ),
+            system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+            # No Claude Code built-in tools: the agent uses only the order tools.
+            tools=[],
+            # Settings files could approve a tool before Dex asks for approval.
+            setting_sources=[],
+        )
+
+    return claude_agent_session_flow(
+        build_options,
+        [look_up_order, cancel_order],
+        flow_type=CLAUDE_AGENT_SDK_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createClaudeAgentSdkOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: string,
+  cliEnvironment: Readonly<Record<string, string>>,
+  slack: Connection | undefined,
+): AgentSessionFlow {
+  const lookUpOrder = tool(
+    "look_up_order",
+    "Look up one order by its order ID and return its items and status.",
+    { order_id: z.string() },
+    async ({ order_id }) => ({ content: [{ type: "text", text: await orderDesk.describeOrder(order_id) }] }),
+  );
+  const cancelOrder = tool(
+    "cancel_order",
+    "Cancel one order that has not shipped yet.",
+    { order_id: z.string(), reason: z.string() },
+    async ({ order_id, reason }) => ({ content: [{ type: "text", text: await orderDesk.cancelOrder(order_id, reason) }] }),
+  );
+  return createClaudeAgentSessionFlow(
+    {
+      options: {
+        model,
+        systemPrompt: orderSupportInstructions,
+        // No Claude Code built-in tools: the agent uses only the order tools.
+        tools: [],
+        // Settings files could approve a tool before Dex asks for approval.
+        settingSources: [],
+        // Only the variables in cliEnvironment reach the CLI, so no other Claude credential can take over.
+        env: { ...cliEnvironment },
+      },
+      customTools: [lookUpOrder, cancelOrder],
+      toolPolicies: {
+        look_up_order: { effect: "read" },
+        cancel_order: { effect: "non_idempotent_write" },
+      },
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    claudeAgentSdkOrderSupportFlowType,
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The example turns off every built-in Claude Code tool, so the agent uses only the order tools. It also loads no settings files, so no settings file can approve a tool before Dex asks.
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+The Flow type is `GoogleADKOrderSupport`. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
+
+The tools are plain Python functions on an ADK `LlmAgent`. The tool policies name each tool.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/google_adk_order_support.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_google_adk_order_support_flow(
+    order_desk: OrderDesk, model: str | BaseLlm, slack_connection: slack.Connection | None
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is a Gemini model name, such as "gemini-2.5-flash"."""
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    agent = LlmAgent(
+        name="order_support",
+        model=model,
+        instruction=ORDER_SUPPORT_INSTRUCTIONS,
+        tools=[look_up_order, cancel_order],
+    )
+    return adk_agent_session_flow(
+        agent,
+        flow_type=GOOGLE_ADK_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+The Flow type is `LangChainOrderSupport`. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
+
+The tools are LangChain tools. A factory builds the agent with `DurableToolCallMiddleware`. Only a Worker calls the factory, so a Client process needs no provider key. The tool policies name each tool.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/langchain_order_support.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_langchain_order_support_flow(
+    order_desk: OrderDesk,
+    model: str | BaseChatModel,
+    slack_connection: slack.Connection | None,
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is a LangChain model name, such as "openai:gpt-5.2"."""
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    @tool
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @tool
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    # Only a Worker calls the factory, so a Client process needs no provider key.
+    def build_order_support_agent() -> Pregel[Any, Any, Any, Any]:
+        return create_agent(
+            model,
+            tools=[look_up_order, cancel_order],
+            system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
+            middleware=[DurableToolCallMiddleware()],
+        )
+
+    return langchain_agent_session_flow(
+        build_order_support_agent,
+        flow_type=LANGCHAIN_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+The Flow type is `MastraOrderSupportAgent`. The full example is under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
+
+The tools are Mastra tools on a Mastra **Agent**. The tool policies name each tool.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/mastra/mastra-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createMastraOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: MastraModelConfig,
+  slack: Connection | undefined,
+): AgentSessionFlow {
+  const lookUpOrder = createTool({
+    id: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    inputSchema: z.object({ order_id: z.string() }),
+    execute: async ({ order_id }) => orderDesk.describeOrder(order_id),
+  });
+  const cancelOrder = createTool({
+    id: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
+    execute: async ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+  });
+  const agent = new Agent({
+    id: "order-support",
+    name: "OrderSupport",
+    instructions: orderSupportInstructions,
+    model,
+    tools: { look_up_order: lookUpOrder, cancel_order: cancelOrder },
+  });
+  return createMastraAgentSessionFlow(agent, mastraOrderSupportFlowType, {
+    toolPolicies: {
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
+    },
+    toolSources: createSlackConnectorToolSources(slack),
+  });
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+The Flow type is `OpenAIAgentsOrderSupport` in Python and `OpenAIAgentsOrderSupportAgent` in TypeScript. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses) and [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
+
+The tools are function tools of the SDK. The agent is a plain SDK agent. The tool policies name each tool.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/openai_agents_order_support.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/openai-agents/openai-agents-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_openai_agents_order_support_flow(
+    order_desk: OrderDesk, model: str | Model, slack_connection: slack.Connection | None
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is an OpenAI model name, such as "gpt-5.2"."""
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    @function_tool
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @function_tool
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    agent = Agent(
+        name="OrderSupport",
+        instructions=ORDER_SUPPORT_INSTRUCTIONS,
+        model=model,
+        tools=[look_up_order, cancel_order],
+    )
+    return openai_agents_session_flow(
+        agent,
+        flow_type=OPENAI_AGENTS_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createOpenAIAgentsOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: string | Model,
+  slack: Connection | undefined,
+): AgentSessionFlow {
+  const lookUpOrder = tool({
+    name: "look_up_order",
+    description: "Look up one order by its order ID and return its items and status.",
+    parameters: z.object({ order_id: z.string() }),
+    // Without errorFunction: null, tool() turns every thrown error into model-visible text.
+    errorFunction: null,
+    execute: ({ order_id }) => orderDesk.describeOrder(order_id),
+  });
+  const cancelOrder = tool({
+    name: "cancel_order",
+    description: "Cancel one order that has not shipped yet.",
+    parameters: z.object({ order_id: z.string(), reason: z.string() }),
+    errorFunction: null,
+    execute: ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+  });
+  const agent = new Agent({
+    name: "OrderSupport",
+    instructions: orderSupportInstructions,
+    model,
+    tools: [lookUpOrder, cancelOrder],
+  });
+  return createOpenAIAgentsSessionFlow(agent, openAIAgentsOrderSupportFlowType, {
+    toolPolicies: {
+      look_up_order: { effect: "read" },
+      cancel_order: { effect: "non_idempotent_write" },
+    },
+    toolSources: createSlackConnectorToolSources(slack),
+  });
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+The Flow type is `PydanticAIOrderSupport`. The full example is under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses).
+
+The tools are plain Pydantic AI tools on the agent. The tool policies name each tool. The agent defers its model check, so a Client process needs no provider key.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/pydantic_ai_order_support.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_pydantic_ai_order_support_flow(
+    order_desk: OrderDesk, model: str | Model, slack_connection: slack.Connection | None
+) -> AgentSessionFlow:
+    """Builds the session Flow; ``model`` is a Pydantic AI model name, such as "openai:gpt-5.2"."""
+    # The model is resolved at the first run, so a Client process needs no provider key.
+    agent = Agent(model, instructions=ORDER_SUPPORT_INSTRUCTIONS, defer_model_check=True)
+
+    # The tools are closures, so they call the OrderDesk passed in here.
+    @agent.tool_plain
+    def look_up_order(order_id: str) -> str:
+        """Look up one order by its order ID and return its items and status."""
+        return order_desk.describe_order(order_id)
+
+    @agent.tool_plain
+    def cancel_order(order_id: str, reason: str) -> str:
+        """Cancel one order that has not shipped yet."""
+        return order_desk.cancel_order(order_id, reason)
+
+    return pydantic_ai_session_flow(
+        agent,
+        flow_type=PYDANTIC_AI_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+The Flow type is `VercelAiOrderSupportAgent`. The full example is under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses).
+
+The definition holds the model, the instructions, AI SDK tools, and the tool policies. Dex decides approval from the policies.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/vercel-ai/vercel-ai-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export function createVercelAiOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: LanguageModel,
+  slack: Connection | undefined,
+): AgentSessionFlow {
+  return createVercelAiAgentSessionFlow(
+    {
+      model,
+      instructions: orderSupportInstructions,
+      tools: {
+        look_up_order: tool({
+          description: "Look up one order by its order ID and return its items and status.",
+          inputSchema: z.object({ order_id: z.string() }),
+          execute: ({ order_id }) => orderDesk.describeOrder(order_id),
+        }),
+        cancel_order: tool({
+          description: "Cancel one order that has not shipped yet.",
+          inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
+          execute: ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
+        }),
+      },
+      toolPolicies: {
+        look_up_order: { effect: "read" },
+        cancel_order: { effect: "non_idempotent_write" },
+      },
+      toolSources: createSlackConnectorToolSources(slack),
+    },
+    vercelAiOrderSupportFlowType,
+  );
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
+## Worker {#register-the-worker}
+
+[Wire the session into your app](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) lists the pieces your own app needs, with one line on each. The blob cache in this code is a local cache for large Flow values; [Registry and blob cache](/components/application#blob-cache) explains it.
+
+One Worker serves the session Flows of every harness in the example. In Python, agent session Steps are async, so the Registry allows async handlers. Build the same session Flow in every process that starts sessions or calls their RPCs. The Registry, Worker, and Client setup is the same for every framework; each tab shows only how that framework's session Flow is built and registered.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+        # Agent session Steps are async, so the Registry allows async handlers.
+        self.registry = Registry(
+            tuple(example.session_flow for example in self.examples), allow_async_handlers=True
+        )
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(BlobCacheConfig(str(config.blob_cache_dir), 1 << 30))
+        self.worker = AsyncWorker(
+            self.registry,
+            self.blob_cache,
+            WorkerOptions(
+                server_address=config.server_address,
+                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+            ),
+        )
+        self.client = AsyncClient(
+            self.registry, self.blob_cache, ClientOptions(server_address=config.server_address)
+        )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def _new_claude_agent_sdk_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    flow = build_claude_agent_sdk_order_support_flow(
+        order_desk, config.claude_agent_sdk_model, slack_connection
+    )
+    return AgentHarnessExample("claude-agent-sdk", flow, order_desk)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
+// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// ...
+const claudeAgentSdkOrderSupportFlow = hasAnthropicApiKey()
+  ? createClaudeAgentSdkOrderSupportFlow(orderDesk, loadClaudeAgentSdkOrderSupportModel(), buildClaudeCliEnvironment(), slack)
+  : undefined;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def _new_google_adk_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    model = _google_adk_model(config.google_adk_model)
+    flow = build_google_adk_order_support_flow(order_desk, model, slack_connection)
+    return AgentHarnessExample("google-adk", flow, order_desk)
+
+# ...
+
+def _google_adk_model(model: str) -> str | BaseLlm:
+    return GoogleADKDemoModel() if is_demo_model(model) else model
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def _new_langchain_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    model = _langchain_model(config.langchain_model)
+    flow = build_langchain_order_support_flow(order_desk, model, slack_connection)
+    return AgentHarnessExample("langchain", flow, order_desk)
+
+# ...
+
+def _langchain_model(model: str) -> str | BaseChatModel:
+    return LangChainDemoChatModel() if is_demo_model(model) else model
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
+// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// ...
+const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel(), slack);
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def _new_openai_agents_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    model = _openai_agents_model(config.openai_agents_model)
+    flow = build_openai_agents_order_support_flow(order_desk, model, slack_connection)
+    return AgentHarnessExample("openai-agents", flow, order_desk)
+
+# ...
+
+def _openai_agents_model(model: str) -> str | Model:
+    return OpenAIAgentsDemoModel() if is_demo_model(model) else model
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
+// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// ...
+const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel(), slack);
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/app.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def _new_pydantic_ai_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
+    order_desk = OrderDesk()
+    model = _pydantic_ai_model(config.pydantic_ai_model)
+    flow = build_pydantic_ai_order_support_flow(order_desk, model, slack_connection)
+    return AgentHarnessExample("pydantic-ai", flow, order_desk)
+
+# ...
+
+def _pydantic_ai_model(model: str) -> str | PydanticAIModel:
+    return build_pydantic_ai_demo_model() if is_demo_model(model) else model
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
+// One order desk for the four agent harness examples; each harness registers its own session Flow type.
+const orderDesk = new OrderDesk();
+// ...
+const vercelAiOrderSupportFlow = createVercelAiOrderSupportFlow(orderDesk, loadVercelAiOrderSupportModel(), slack);
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
+## Session routes {#session-routes}
+
+Every harness serves the same HTTP routes, so you can try them side by side. Each route is one call on the session Flow: start a session, send a message, or resolve an approval.
+
+The calls inside the routes are the Dex Agents API, and they are the same in your app:
+
+| What the route does | Dex Agents call in Python | Dex Agents call in TypeScript |
+| --- | --- | --- |
+| Start a session | `AgentSessionClient.start_session` | `startAgentSession` |
+| Send a user message | `AgentSessionClient.send_user_message` | the `sendUserMessage` RPC, or `sendAgentUserMessage` |
+| Read the session | `read_agent_event_stream_snapshot` or `AgentSessionClient.get_agent_snapshot` | the `getAgentSnapshot` RPC, or `readAgentSnapshot` |
+| Approve or reject a tool call | `AgentSessionClient.resolve_interrupt` | the `resolveInterrupt` RPC |
+
+Everything else belongs to the example: the URL paths, the JSON shapes, the session token, and the error codes. The Python and TypeScript examples shape them a little differently. Design your own routes around the calls above.
+
+Starting a session returns a session token: an HMAC of the session ID under `DEX_AGENT_SESSION_KEY`. Every other route checks the token in the **X-Agent-Session-Token** header and answers 403 without it. Without `DEX_AGENT_SESSION_KEY`, the example picks a random key, so a restart ends every token. A real application uses its own sign-in instead.
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+Every harness serves these same routes. [Session routes](/use-cases/order-support-agent#session-routes) explains them and the session token.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+Every harness serves these same routes. [Session routes](/use-cases/order-support-agent#session-routes) explains them and the session token.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+Every harness serves these same routes. [Session routes](/use-cases/order-support-agent#session-routes) explains them and the session token.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+Every harness serves these same routes. [Session routes](/use-cases/order-support-agent#session-routes) explains them and the session token.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+Every harness serves these same routes. [Session routes](/use-cases/order-support-agent#session-routes) explains them and the session token.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+Every harness serves these same routes. [Session routes](/use-cases/order-support-agent#session-routes) explains them and the session token.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/sessions")
+    async def start_session() -> Response:
+        # The server picks the session ID, so a caller cannot claim an existing session.
+        session_id = f"{harness_name}-order-support-{uuid.uuid4()}"
+        await sessions.start_session(session_id)
+        session_token = sign_session_id(app_state.config.session_key, session_id)
+        return jsonify(session_id=session_id, session_token=session_token)
+
+    @blueprint.post("/messages")
+    async def send_user_message() -> Response:
+        body, session_id = await session_request()
+        accepted = await sessions.send_user_message(session_id, _required_string(body, "text"))
+        return jsonify(accepted=accepted)
+
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+
+    @blueprint.get("/snapshot")
+    async def get_agent_snapshot() -> Response:
+        session_id = request.args.get("session_id", "")
+        if not session_id:
+            raise BadRequest("session_id is required")
+        authorize_session(session_id)
+        try:
+            snapshot = await read_agent_event_stream_snapshot(
+                app_state.client, example.session_flow, session_id
+            )
+        except FlowNotActiveOrNotFoundError as error:
+            raise NotFound("the agent session is missing or no longer retained") from error
+        return jsonify(snapshot.to_json())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+Every harness serves these same routes. [Session routes](/use-cases/order-support-agent#session-routes) explains them and the session token.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions", async (request, response) => {
+    const initialMessage = optionalString(requireBody(request), "message");
+    // The server picks the session ID, so a caller cannot name another session.
+    const sessionId = `order-support-${randomUUID()}`;
+    await startAgentSession(client, flow, sessionId, { initialMessage }, { timeoutMs: 30 * DAY_MS });
+    response.json({ session_id: sessionId, session_token: issueSessionToken(sessionId) });
+  });
+  router.get("/sessions/:id/snapshot", async (request, response) => {
+    response.json(convertAgentSnapshotToJson(await client.invokeRPC(flow.getAgentSnapshot, sessionIdOf(request))));
+  });
+  router.post("/sessions/:id/messages", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const message = { text: requireString(requireBody(request), "text") };
+    sendAccepted(response, await client.invokeRPC(flow.sendUserMessage, sessionId, message));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
+## Run it locally {#run-it-locally}
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type ClaudeAgentSDKOrderSupport \
+  --permission order-support.operate --out definitions/claude-agent-sdk.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+mkdir -p definitions
+npx dex-agents-session-graph --flow-type ClaudeAgentSdkOrderSupportAgent \
+  --permission order-support.operate --out definitions/claude-agent-sdk.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+ANTHROPIC_API_KEY=... uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+ANTHROPIC_API_KEY=... npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Python app serves on **127.0.0.1:8081**. The TypeScript app serves on **127.0.0.1:8080**. Dex Web is at `http://127.0.0.1:8802`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | none; required | The Anthropic API key of the Worker. |
+| `DEX_CLAUDE_AGENT_SDK_MODEL` | **claude-opus-5-5** | The Claude model name. |
+| `DEX_AGENT_SESSION_KEY` | a random key | The key that signs session tokens. A random key ends every token when the process restarts. |
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type GoogleADKOrderSupport \
+  --permission order-support.operate --out definitions/google-adk.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8081**. Dex Web is at `http://127.0.0.1:8802`.
+
+Without `DEX_GOOGLE_ADK_MODEL`, the agent uses `mock/order-support`, a local demo model that needs no key. It calls `look_up_order` for "look up order 1001" and `cancel_order` for "cancel order 1002".
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEX_GOOGLE_ADK_MODEL` | `mock/order-support` | A Gemini model name, such as `gemini-2.5-flash`. |
+| `GOOGLE_API_KEY` | none | The Gemini API key, for a real model. |
+| `DEX_AGENT_SESSION_KEY` | a random key | The key that signs session tokens. |
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type LangChainOrderSupport \
+  --permission order-support.operate --out definitions/langchain-langgraph.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8081**. Dex Web is at `http://127.0.0.1:8802`.
+
+Without `DEX_LANGCHAIN_MODEL`, the agent uses `mock/order-support`, a local demo model that needs no key. It calls `look_up_order` for "look up order 1001" and `cancel_order` for "cancel order 1002".
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEX_LANGCHAIN_MODEL` | `mock/order-support` | A LangChain model name, such as `openai:gpt-5.2`. |
+| `OPENAI_API_KEY` | none | The provider key, for an OpenAI model. |
+| `DEX_AGENT_SESSION_KEY` | a random key | The key that signs session tokens. |
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+mkdir -p definitions
+npx dex-agents-session-graph --flow-type MastraOrderSupportAgent \
+  --permission order-support.operate --out definitions/mastra.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+OPENAI_API_KEY=... MASTRA_TELEMETRY_DISABLED=1 npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8080**. Dex Web is at `http://127.0.0.1:8802`.
+
+This example needs a real model. Its model router reads the provider key, such as `OPENAI_API_KEY`, from the Worker's environment.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEX_MASTRA_MODEL` | `openai/gpt-5-mini` | A Mastra model router ID. |
+| `OPENAI_API_KEY` | none; required for the default | The router's provider key. |
+| `MASTRA_TELEMETRY_DISABLED` | unset | Set to **1** to turn off Mastra's telemetry. |
+| `DEX_AGENT_SESSION_KEY` | a random key | The key that signs session tokens. |
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type OpenAIAgentsOrderSupport \
+  --permission order-support.operate --out definitions/openai-agents-sdk.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+mkdir -p definitions
+npx dex-agents-session-graph --flow-type OpenAIAgentsOrderSupportAgent \
+  --permission order-support.operate --out definitions/openai-agents-sdk.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+OPENAI_API_KEY=... npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Python app serves on **127.0.0.1:8081**. The TypeScript app serves on **127.0.0.1:8080**. Dex Web is at `http://127.0.0.1:8802`.
+
+Without `DEX_OPENAI_AGENTS_MODEL`, the Python agent uses `mock/order-support`, a local demo model that needs no key. It calls `look_up_order` for "look up order 1001" and `cancel_order` for "cancel order 1002". The TypeScript example has no demo model, so it needs `OPENAI_API_KEY`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEX_OPENAI_AGENTS_MODEL` | Python: `mock/order-support`. TypeScript: **gpt-5-mini**. | The OpenAI model name, such as `gpt-5.2`. |
+| `OPENAI_API_KEY` | none | The OpenAI API key, for a real model. |
+| `DEX_AGENT_SESSION_KEY` | a random key | The key that signs session tokens. |
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv sync --locked
+mkdir -p definitions
+uv run --frozen dex-agents-session-graph --flow-type PydanticAIOrderSupport \
+  --permission order-support.operate --out definitions/pydantic-ai.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python/agent-harnesses
+uv run --frozen python -m agent_harness_examples
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8081**. Dex Web is at `http://127.0.0.1:8802`.
+
+Without `DEX_PYDANTIC_AI_MODEL`, the agent uses `mock/order-support`, a local demo model that needs no key. It calls `look_up_order` for "look up order 1001" and `cancel_order` for "cancel order 1002".
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEX_PYDANTIC_AI_MODEL` | `mock/order-support` | A Pydantic AI model name, such as `openai:gpt-5.2`. |
+| `OPENAI_API_KEY` | none | The provider key, for an OpenAI model. |
+| `DEX_AGENT_SESSION_KEY` | a random key | The key that signs session tokens. |
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+In a first terminal, render the session graph, then start Dex. Dex Web reads the graph when it starts, to show the session and its approval controls.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm install
+mkdir -p definitions
+npx dex-agents-session-graph --flow-type VercelAiOrderSupportAgent \
+  --permission order-support.operate --out definitions/vercel-ai-sdk.json
+dexcli dev --flow-rendering-dir ./definitions
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** stays in the foreground. In a second terminal, start the example:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+OPENAI_API_KEY=... npm start
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The app serves on **127.0.0.1:8080**. Dex Web is at `http://127.0.0.1:8802`.
+
+This example needs a real model. It calls OpenAI through `@ai-sdk/openai`, so it needs `OPENAI_API_KEY`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEX_VERCEL_AI_MODEL` | **gpt-5-mini** | The OpenAI model name. |
+| `OPENAI_API_KEY` | none; required | The OpenAI API key of the Worker. |
+| `DEX_AGENT_SESSION_KEY` | a random key | The key that signs session tokens. |
+
+</FrameworkTab>
+</FrameworkTabs>
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/claude-agent-sdk
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+base=http://127.0.0.1:8080/products/agent-harnesses/claude-agent-sdk
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
+  -d '{"message": "Please cancel order 1002"}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run `cancel_order`. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/google-adk
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run `cancel_order`. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/langchain
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run `cancel_order`. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+base=http://127.0.0.1:8080/products/agent-harnesses/mastra
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
+  -d '{"message": "Please cancel order 1002"}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run `cancel_order`. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/openai-agents
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+base=http://127.0.0.1:8080/products/agent-harnesses/openai-agents
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
+  -d '{"message": "Please cancel order 1002"}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run `cancel_order`. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+base=http://127.0.0.1:8081/products/agent-harnesses/pydantic-ai
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' -d '{}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+curl -s -X POST "$base/messages" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" -d "{\"session_id\": \"$id\", \"text\": \"Cancel order 1002\"}"
+until interrupt=$(curl -s "$base/snapshot?session_id=$id" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.snapshot.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/interrupts/resolve" -H 'Content-Type: application/json' \
+  -H "X-Agent-Session-Token: $token" \
+  -d "{\"session_id\": \"$id\", \"interrupt_id\": \"$interrupt\", \"approved\": true}"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run `cancel_order`. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+Start a session, ask the agent to cancel order 1002, and approve the call:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+base=http://127.0.0.1:8080/products/agent-harnesses/vercel-ai
+session=$(curl -s -X POST "$base/sessions" -H 'Content-Type: application/json' \
+  -d '{"message": "Please cancel order 1002"}')
+id=$(echo "$session" | jq -r .session_id)
+token=$(echo "$session" | jq -r .session_token)
+until interrupt=$(curl -s "$base/sessions/$id/snapshot" -H "X-Agent-Session-Token: $token" \
+  | jq -re '.pending_interrupts[0].interrupt_id'); do sleep 1; done
+curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-Session-Token: $token"
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The loop reads the snapshot until the agent asks to run `cancel_order`. That call waits for approval, then runs once. Read the snapshot again to see the agent's answer.
+
+</FrameworkTab>
+</FrameworkTabs>
+
+## Next
+
+- [Agent Quick Start](/agent-frameworks/quick-start)
+- [Approvals](/agent-frameworks/approvals)
+- [Connectors as Tools](/agent-frameworks/connectors-as-tools)

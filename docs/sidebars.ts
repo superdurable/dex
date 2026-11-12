@@ -17,20 +17,40 @@ const sidebars: SidebarsConfig = {
     'index',
     {
       type: 'category',
-      label: 'Intro and Quick Start',
+      label: 'Get Started',
       customProps: {section: 'intro'},
-      items: ['intro/what-is-dex', 'quick-start/index', 'intro/compared-to-database'],
+      link: {type: 'doc', id: 'intro/get-started'},
+      items: [
+        'quick-start/index',
+        'intro/add-to-existing-code',
+      ],
     },
     {
       type: 'category',
-      label: 'Agent Skills',
+      label: 'Build with AI',
       customProps: {section: 'agent-skills'},
-      collapsed: false,
+      // Dex Connector Contributor is linked from the overview, not listed here.
+      link: {type: 'doc', id: 'build-with-ai/dex-developer-skill'},
       items: [
-        'build-with-ai/dex-developer-skill',
         'build-with-ai/dex-developer-skill/dex-app-builder',
         'build-with-ai/dex-developer-skill/dex-sdk',
-        'build-with-ai/dex-developer-skill/dex-connector-contributor',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Durable Agents',
+      customProps: {section: 'agent-frameworks'},
+      // Each framework is a tab on these pages. The built-in loop comes last because most agents use a framework.
+      link: {type: 'doc', id: 'agent-frameworks'},
+      items: [
+        'agent-frameworks/quick-start',
+        'agent-frameworks/add-to-your-agent',
+        'agent-frameworks/sessions',
+        'agent-frameworks/tool-calls',
+        'agent-frameworks/approvals',
+        'agent-frameworks/connectors-as-tools',
+        'agent-frameworks/production',
+        'agent-frameworks/built-in-agent-loop',
       ],
     },
     {
@@ -41,9 +61,11 @@ const sidebars: SidebarsConfig = {
       items: [
         'concepts/flow/index',
         'concepts/step/index',
+        'concepts/step/advanced-guarantees',
         {
           type: 'category',
           label: 'Primitives',
+          link: {type: 'doc', id: 'concepts/primitives/index'},
           items: [
             'concepts/primitives/attribute',
             'concepts/primitives/rpc',
@@ -59,47 +81,9 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Correctness and Expressiveness',
-      customProps: {section: 'correctness'},
-      link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
-      items: [
-        'correctness-and-expressiveness/expressiveness-proof',
-        'correctness-and-expressiveness/failure-transparency-proof',
-        'correctness-and-expressiveness/workflow-patterns',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Components',
-      customProps: {section: 'components'},
-      link: {type: 'doc', id: 'components/index'},
-      items: [
-        'components/application',
-        'components/server',
-        'components/cli',
-        'components/web',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Agent Frameworks',
-      customProps: {section: 'agent-frameworks'},
-      link: {type: 'doc', id: 'agent-frameworks'},
-      items: [
-        'agent-frameworks/built-in-agent-loop',
-        'agent-frameworks/claude-agent-sdk',
-        'agent-frameworks/openai-agents-sdk',
-        'agent-frameworks/pydantic-ai',
-        'agent-frameworks/langchain-langgraph',
-        'agent-frameworks/google-adk',
-        'agent-frameworks/vercel-ai-sdk',
-        'agent-frameworks/mastra',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Design Patterns',
       customProps: {section: 'design-patterns'},
+      // The overview page groups these into Flow control, Reliability, Messaging, and Data.
       link: {type: 'doc', id: 'design-patterns/index'},
       items: [
         {
@@ -127,9 +111,6 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'design-patterns/interruptible',
-        'design-patterns/deferred-choice',
-        'design-patterns/critical-section',
-        'design-patterns/cancel-case',
         {
           type: 'category',
           label: 'Durable Timer',
@@ -140,6 +121,9 @@ const sidebars: SidebarsConfig = {
             'design-patterns/durable-timer/inactiveness-tracker-timer',
           ],
         },
+        'design-patterns/deferred-choice',
+        'design-patterns/critical-section',
+        'design-patterns/cancel-case',
         {
           type: 'category',
           label: 'Failure Handling',
@@ -186,11 +170,13 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Product Examples',
+      label: 'Examples',
       customProps: {section: 'product-examples'},
       link: {type: 'doc', id: 'use-cases/index'},
       items: [
         'use-cases/ai-agent',
+        'use-cases/order-support-agent',
+        'use-cases/order-processing',
         'use-cases/subscription',
         'use-cases/user-onboarding-process',
         'use-cases/money-transfer',
@@ -203,16 +189,60 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Run Dex',
+      customProps: {section: 'components'},
+      link: {type: 'doc', id: 'components/index'},
+      items: [
+        'components/choose-how-to-run',
+        'components/run-locally',
+        'components/application',
+        'components/testing',
+        'components/your-database',
+        'components/server',
+        'components/production',
+        'concepts/failover-and-deploys',
+        'concepts/change-flow-code',
+        'components/cli',
+        'components/web',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Evaluate Dex',
+      customProps: {section: 'correctness'},
+      link: {type: 'doc', id: 'intro/evaluate'},
+      items: [
+        'intro/what-is-dex',
+        'intro/compared-to-database',
+        'intro/compared-to-durable-execution',
+        'intro/performance',
+        'intro/limits',
+        {
+          type: 'category',
+          label: 'Correctness and Expressiveness',
+          link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
+          items: [
+            'correctness-and-expressiveness/expressiveness-proof',
+            'correctness-and-expressiveness/failure-transparency-proof',
+            'correctness-and-expressiveness/workflow-patterns',
+          ],
+        },
+      ],
+    },
+    {
+      type: 'category',
       label: 'Developer Reference',
       customProps: {section: 'reference'},
-      link: {type: 'doc', id: 'reference/index'},
       // Each entry expands into that component's own versioned sidebar. See plugins/shared-docs-sidebar.
-      items: referenceComponents.map(({component, label}) => ({
-        type: 'link' as const,
-        label,
-        href: `/reference/${component}/`,
-        customProps: {referenceComponent: component},
-      })),
+      link: {type: 'doc', id: 'reference/index'},
+      items: [
+        ...referenceComponents.map(({component, label}) => ({
+          type: 'link' as const,
+          label,
+          href: `/reference/${component}/`,
+          customProps: {referenceComponent: component},
+        })),
+      ],
     },
     {type: 'doc', id: 'glossary', customProps: {section: 'glossary'}},
   ],

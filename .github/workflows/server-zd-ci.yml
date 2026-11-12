@@ -1,13 +1,6 @@
 name: Server ZD CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "server-zd/**"
-      - "s3local/**"
-      - "protos/**"
-      - ".github/workflows/server-zd-ci.yml"
   pull_request:
     # labeled runs only the db9 object-store suite when the db9-tests label is added.
     types: [opened, synchronize, reopened, labeled]
@@ -17,13 +10,15 @@ on:
       - "protos/**"
       - ".github/workflows/server-zd-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: server-zd-${{ github.workflow }}-${{ github.ref }}-${{ github.event.action == 'labeled' && 'labeled' || 'changes' }}
-  cancel-in-progress: true
+  group: server-zd-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}-${{ github.event.action == 'labeled' && 'labeled' || 'changes' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always

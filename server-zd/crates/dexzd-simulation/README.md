@@ -339,6 +339,19 @@ following, twin comparisons right after a warm takeover, checks that saw the sta
 and restarting, and standbys following at the end. `hot_standby_events` counts them. The standby draws from its own seeded stream, so the
 other profiles keep their trajectories.
 
+### Create-only object storage
+
+`create_only_storage_with_versioned_mutable_keys_keeps_every_invariant` runs the standard
+profile on 8 seeds from `168886272` (`0x0a110000`), and
+`hot_standby_takeovers_on_create_only_storage_keep_every_invariant` runs the hot standby profile
+on 4 seeds from `168908544` (`0x0a115700`). Their config sets `object_store_semantics` to
+`CreateOnlyWithVersionedMutableKeys`. The shared store then rejects `ReplaceIfEtagMatches`, as
+Aliyun OSS does, and `AliyunOssObjectStore` replaces the manifest, the registry, and the node
+leases through versions. Each physical call waits 1 to 4 ms, so the creates and confirmations of
+different processes interleave. Version IDs come from the seed, so a seed reproduces. Both tests
+require lease contention, old-epoch overlaps, and fenced or self-stopped processes. The other
+tests keep the default semantics, so their trajectories and pins do not change.
+
 ### Pinned trajectories
 
 `pinned_seeds_keep_their_canonical_command_trajectories` runs each line of

@@ -11,6 +11,11 @@ on:
         description: Dex Web semantic version without the v prefix
         required: true
         type: string
+      run_tests:
+        description: Run the Dex Web suite first; false only when the caller already ran it on this commit
+        required: false
+        default: true
+        type: boolean
   workflow_dispatch:
     inputs:
       version:
@@ -27,7 +32,18 @@ permissions:
   contents: write
 
 jobs:
+  # Publishing waits for the Dex Web suite on this exact release commit.
+  tests:
+    name: Dex Web tests
+    if: toJSON(inputs.run_tests) != 'false'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/web-ci.yml
+
   publish:
+    needs: tests
+    if: >-
+      !cancelled() && (needs.tests.result == 'success' || toJSON(inputs.run_tests) == 'false')
     runs-on: ubuntu-latest
     env:
       WEB_VERSION: ${{ inputs.version }}

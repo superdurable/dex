@@ -10,9 +10,9 @@ Start N SubFlows, wait for half to finish, then stop the unfinished children.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-Each child runs in its own **SubFlowStep** execution. A completed child publishes one message to **SubFlowCompletedCh**. **WaitSubFlows** waits for half of those messages, then publishes one **AllDoneCh** message for every possible unfinished child.
+Each child runs in its own `SubFlowStep` execution. A completed child publishes one message to `SubFlowCompletedCh`. `WaitSubFlows` waits for half of those messages, then publishes one `AllDoneCh` message for every possible unfinished child.
 
-The parent does not complete as soon as half of the children have finished. Each unfinished **SubFlowStep** first consumes an **AllDoneCh** message, gets its own **SubFlowID**, and stops that child. Only then does that Step execution complete gracefully. This way, every unfinished branch stops its own SubFlow.
+Once half of the children have finished, each unfinished `SubFlowStep` first consumes an `AllDoneCh` message, gets its own `SubFlowID`, and stops that child. Only then does that Step execution complete gracefully. This way, every unfinished branch stops its own SubFlow.
 
 ## Core implementation
 
@@ -380,7 +380,7 @@ impl Step for WaitSubFlows {
 </SdkSnippet>
 </SdkTabs>
 
-## Related
+## Next
 
 - [Basic parent Flow](/design-patterns/parallel-subflows/basic)
 - [Long-lived parent](/design-patterns/parallel-subflows/long-lived-parent)

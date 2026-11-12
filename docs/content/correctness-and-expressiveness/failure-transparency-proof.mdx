@@ -2,6 +2,7 @@
 title: Failure transparency proof
 sidebar_label: Failure transparency proof
 slug: /correctness-and-expressiveness/failure-transparency-proof
+description: "Dex has a computer-checked proof that failures add only one thing you can observe: repeated external effects. The proof holds under the conditions in What the proof assumes."
 ---
 
 # Failure transparency proof
@@ -23,7 +24,7 @@ The proof covers these failures:
   Worker disconnect, and Dex retries it;
 - a Worker keeps running an attempt after Dex gave up on it;
 - a Worker result arrives twice, or arrives after its attempt was replaced;
-- a client sends the same **StartFlow** request again.
+- a client sends the same `StartFlow` request again.
 
 It compares runs with these failures to runs of the same Flow without them,
 in three parts.
@@ -31,14 +32,14 @@ in three parts.
 - **Remove the repeats, and a sequence without failures remains.** Remove
   every repeated external effect from the events of a run with failures so
   far. The rest is a sequence that the Flow can produce without failures, for
-  the same requests minus the **StartFlow** retries.
+  the same requests minus the `StartFlow` retries.
 - **Every sequence without failures stays possible.** A run in which no
   failure happens produces it.
 - **Fair runs end the same way.** Take the whole event sequence of a fair run
   with failures, and remove the repeats. The result is the whole event
   sequence of a fair run without failures. Both runs complete, both get
   stuck, or both keep running. The reverse direction is proved for requests
-  without **StartFlow** retries. A retry advances the server's clock, so it
+  without `StartFlow` retries. A retry advances the server's clock, so it
   can change which timer is due first.
 
 Each repeated effect is an exact copy of an earlier effect of the same Step
@@ -79,16 +80,16 @@ The [Step guarantees](/concepts/step#guarantees) say more about keys.
 
 When a client retries a request:
 
-- **StartFlow**: reuse the request ID of the first start, set the option that
+- `StartFlow`: reuse the request ID of the first start, set the option that
   returns the existing run on both the first start and the retry, and keep the
   default ID reuse policy. The proof then covers the retry if the server's log
   orders it before Dex purges the closed run. Reaching the server first is not
   enough. See [Start options](/concepts/flow#start-options).
-- **PublishToChannel**: a request sent again after a lost response is a second
+- `PublishToChannel`: a request sent again after a lost response is a second
   request, and it can publish the message twice. Publishing once through RPC
   request IDs is planned in
   [issue 1519](https://github.com/superdurable/dex/issues/1519).
-- **StopFlow**: a retry without a run ID can stop a newer run of the same Flow
+- `StopFlow`: a retry without a run ID can stop a newer run of the same Flow
   ID. Passing a run ID is planned in
   [issue 1520](https://github.com/superdurable/dex/issues/1520).
 
@@ -97,25 +98,25 @@ When a client retries a request:
 The proof holds under these conditions:
 
 - **The scope of the expressiveness proof.** One Flow is started once and
-  receives Channel messages. Under failures, RPCs, SubFlows, **StopFlow**, and
+  receives Channel messages. Under failures, RPCs, SubFlows, `StopFlow`, and
   Attribute locks are outside the proof.
 - **SYNC methods only.** An **ASYNC** method can lose its start in a server
   crash. It then runs again on a new snapshot, so its effects can differ.
-- **Retries never run out, and every error is retryable.** Running out of
+- **Retries continue until an attempt succeeds, and every error is retryable.** Running out of
   retries, or a non-retryable error, fails the Flow. Without failures, a Flow
   fails only when its own code fails it. A long server outage can use up the
   retry time.
-- **No failure policy.** A policy that proceeds after a failure changes what
+- **Failures retry; no failure policy applies.** A policy that proceeds after a failure changes what
   runs next.
 - **Code ignores its attempt.** Effects and results do not depend on the
   attempt number, the first attempt time, the last error, or the last
   heartbeat value. Code that resumes from a heartbeat checkpoint is outside the
   proof.
-- **No hard-delete Attributes.** Dex reads them again on every attempt.
+- **Attributes are the ordinary kind, not hard-delete.** Dex reads them again on every attempt.
 - **Every attempt command names its task.** The server tags each command of a
   started attempt, such as its result, a heartbeat, or its failure, with the
   task that ran it. Every logged command of this kind carries the tag.
-- **The clock does not step back.** On one server, the clock does not step
+- **The clock only moves forward.** On one server, the clock does not step
   back between checking that a timer is due and stamping the command that
   fires it.
 - **Timers fire in order.** Each firing takes the earliest due timers first,
@@ -162,7 +163,7 @@ in real time.
   them. It also checks runs that break an assumption, such as code that reads
   its attempt number, and shows that the claim then fails.
 
-## Related pages {#related-pages}
+## Next
 
 - [Correctness and expressiveness](/correctness-and-expressiveness)
 - [Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof)

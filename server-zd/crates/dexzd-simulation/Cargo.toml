@@ -21,7 +21,8 @@ dexzd-history-segment.workspace = true
 dexzd-keyspace.workspace = true
 dexzd-log.workspace = true
 dexzd-metrics.workspace = true
-dexzd-object-store.workspace = true
+# The versioned storage semantics reproduce through seeded version IDs.
+dexzd-object-store = { workspace = true, features = ["test-util"] }
 dexzd-protocol.workspace = true
 dexzd-request-validation.workspace = true
 dexzd-storage.workspace = true

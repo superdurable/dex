@@ -18,12 +18,9 @@ for locale file layout.
 - State the problem, then the mechanism. Do not stack synonyms or repeat the
   same idea in three forms.
 - Use Dex terms exactly: Flow, Step, Attribute, Channel, RPC, Timer.
-- Do not wrap API names, method names, types, or identifiers in inline
-  backticks in prose. Use **bold** instead (for example **WaitFor**,
-  **StepDecision**, **InvokeRPC**). Fenced code blocks and
-  `bash` / `text` fences are exempt.
-- `make docs-prose-check` enforces this. Hooks run the same check on staged
-  docs when you commit.
+- Write API names, method names, types, and identifiers in inline code in
+  prose (for example `WaitFor`, `StepDecision`, `InvokeRPC`). Use **bold** for a
+  term's first definition and for UI labels.
 - Diagrams and examples should carry structure; prose should not over-explain
   what the diagram already shows.
 - Avoid bullet lists when a paragraph reads better. Avoid numbered lists unless
@@ -59,3 +56,118 @@ Each fact has one home. See Docs Information Placement in
   zooming. Wide tables and code scroll inside their own box. Diagrams fit or
   scroll inside their own box. The docs menu opens and reaches every page.
   List the phone checks in the pull request's Testing section.
+
+## Page structure and voice
+
+These rules come from the docs revisit plan,
+`docs/design/plan/docs-revisit.md`. The plan has the reasons and examples.
+
+### Reading speeds
+
+- The opening has at most three sentences. The first says what the thing is
+  or what the reader has at the end. The second says when to use it or why it
+  matters. The first sentence must read as complete on its own, because it
+  becomes the page description, the `llms.txt` entry, and the search snippet.
+- The headings alone make an outline. Task sections use an imperative verb,
+  such as "Skip a Timer". Concept sections use a noun, such as "Guarantees".
+  Do not use "Overview", "Introduction", "Details", or "More" as a section
+  heading. Keep headings to six words or fewer.
+- The common case comes first. Order sections as what it is, using it, edge
+  cases, and limits. Failure matrices, option lists, defaults, limits, and
+  version notes go to the Developer reference. The page keeps one sentence and
+  a link.
+- At a 390px width, the first screen says what the page is about and where to
+  go next.
+
+### Page skeletons
+
+| Page type | Sections, in order |
+| --- | --- |
+| Concept | Opening, When to use it, Guarantees, The smallest example, Common tasks, Reference links |
+| Design pattern | Use it when (one sentence and one scenario), Flow graph, How it works, Code, Rules and pitfalls, Related |
+| Product example | Goal, Requirements in product terms only, Flow design, Implementation, Run it |
+| Framework page | What the adapter does, Install, How a turn maps to Steps, How this framework differs, Limits |
+| How-to and operate | Goal, Before you start, Numbered steps with expected output, Check it worked, Troubleshooting |
+| Comparison | What they share, then for each tool: term map, the same example, differences, when the other fits |
+
+### Voice
+
+| Sentence type | Form | Example |
+| --- | --- | --- |
+| Definition | The thing is the subject. | A Timer is a durable wait until a point in time. |
+| Instruction | An imperative. "Your" marks the reader's code. | To run a waiting Step early, skip its Timer. Call **SkipTimer** from your Client. |
+| Behavior | Dex or a component is the subject. | Dex treats a skipped Timer as fired. |
+| Condition or outcome | "You" is allowed. | If the Worker stops, you see the Step as Waiting in Dex Web. |
+
+Use the present tense and the active voice. Do not write "can" for something
+that always happens. Do not phrase an instruction as a fact, such as "A Client
+can skip a Timer".
+
+### Sentences
+
+- One clause per sentence. Show cause and effect by order: the cause first,
+  the effect in the next sentence. A sentence may start with "So" or "Then".
+  A short sentence that stands alone carries emphasis.
+- Put the condition first: "If the ship retries run out, the Flow moves to
+  RefundStep."
+- Name the Step, the number, and the default. Say what to do before what not
+  to do.
+- Each paragraph, list item, and callout opens with what is true. A negation
+  comes second, as a clarification. Cut a negation that only restates what the
+  positive already implies, such as "dexcli does not run on Windows" after a
+  macOS or Linux prerequisite. A real warning whose point is the negation keeps it:
+  list its opening words under `positive_first_allow:` in the page's front
+  matter, with a YAML comment that says why.
+  `npm run lint:structure` (tests/docs-positive-first.mjs) enforces this.
+- Define a term on first use, or link to it. The Glossary is the home of every
+  term.
+- Requirement lists use product terms only. The Flow design section maps each
+  requirement to Dex.
+- Write "Flow run", not "Flow execution". Write "Dex Server" on first use,
+  then "the server". Do not write "simply", "just", "easily", "seamless",
+  "powerful", "robust", "leverage", or "note that".
+
+### Structure
+
+- Docs pages never link to a README in the repository; link an example's folder.
+  Clicking a sidebar group header opens that group's overview page, which is not
+  listed again under it and is titled with the group's name; no item is labelled
+  "Overview". Every page in the reading sequence (not a group overview, the home
+  page, Get Started, or the Glossary) ends with one section named Next (下一步),
+  and following its first link gives a linear reading order. The home page and
+  Get Started link straight to the one page that does each job, with no ordered
+  reading lists. `npm run lint:structure` (tests/docs-structure.mjs) enforces this.
+
+### Formatting, code, and diagrams
+
+- Identifiers use inline code (D8). Bold is kept only for a term's first
+  definition and for UI labels.
+- Use a table when three or more items share two or more attributes, with at
+  most four columns. Use a list for parallel items, numbered only when order
+  matters. Use a paragraph for reasoning.
+- Use a `warning` callout only for data loss, a double effect, or a security
+  risk. Never put a required step in a `tip`. Use at most one callout per
+  screen.
+- Put one lead-in sentence before each snippet that says what to notice. Show
+  the smallest excerpt and link the full file. Show "What changes in your code"
+  as a diff. Put a command's expected output in a separate `text` block.
+- Draw a diagram for a relationship or a sequence in time. The prose says what
+  to look at, not what the diagram shows.
+- No fact exists only in an image, a collapsed section, or a tab that the
+  Markdown export drops. Page text never gives instructions to coding agents.
+  A copyable prompt block has four parts: the goal, the source URL, the steps,
+  and the rules.
+
+### Rewriting a page
+
+1. Classify the page by its page type. Split a page that holds two types.
+2. List every fact before writing: behaviors, rules, guarantees, defaults,
+   errors, and limits.
+3. Place each fact. It stays, moves to the reference, or merges into its one
+   home. A dropped fact needs a reason in the pull request.
+4. Write the opening and the headings first, then the body.
+5. Check each sentence against the 2026-11 two questions and the rules above.
+6. Compare the result with the fact list. List technical doubts separately.
+   Never change them quietly.
+7. Check the Markdown export, the 390px width, and the Chinese page.
+8. In the pull request, list the moved anchors, the redirects, and the doubts.

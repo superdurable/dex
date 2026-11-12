@@ -1,19 +1,19 @@
 ---
 id: dex-developer-skill
-title: Dex Skills
-sidebar_label: 总览
+title: 使用 AI 构建
+sidebar_label: 使用 AI 构建
 slug: /build-with-ai/dex-developer-skill
+description: "Dex Skills 是 Dex 官方提供的指导，教 Codex、Claude Code、Cursor 等 coding agent 使用 Dex。有了它，agent 可以设计和构建 Dex 应用、直接使用公开的 Dex SDK，以及贡献官方 Connector。它可以作为 Plugin 安装，也可以作为三个独立 Skill 的组合安装。"
 ---
 
-# 使用 AI 构建 Dex 应用
+# 使用 AI 构建
 
-Dex Skills 是 Dex 官方提供的指导，教 Codex、Claude Code、Cursor 等 coding agent
-使用 Dex。有了它，agent 可以设计和构建 Dex 应用、直接使用公开的 Dex SDK，以及贡献官方
-[Connector](/concepts/connector)。它可以作为 Plugin 安装，也可以作为三个独立 Skill
-的组合安装。
+Dex Skills 教 Codex、Claude Code、Cursor 等 coding agent 设计和构建 Dex 应用、使用 Dex SDK，
+以及贡献官方 [Connector](/concepts/connector)。这些 Skill 是给 agent 的指导，不含运行时代码。
 
-这些 Skill 只是给 agent 看的指导，不包含任何运行时代码。Dex Server、Worker 和应用都不会
-加载它们。
+## 安装与使用 Dex Skills {#install-and-use-dex-skills}
+
+<DexSkillHostTabs skill="all" />
 
 :::tip 从 Dex App Builder 开始
 
@@ -24,13 +24,11 @@ Dex Skills 是 Dex 官方提供的指导，教 Codex、Claude Code、Cursor 等 
 
 ## 需要代码工作区
 
-Dex Skills 不是托管式的应用构建平台。要创建或修改应用，需要在 Codex 或其他 coding-agent
-host 中使用，并让 agent 能写入 repository 或项目目录、编辑文件、执行命令。现有
-repository 和新建的空 repository 都可以。
+要创建或修改应用，请在 Codex 或其他 coding-agent host 中使用 Dex Skills，
+并让 agent 能写入 repository 或项目目录、编辑文件、执行命令。现有 repository 和新建的空 repository 都可以。
 
-在没有 repository 和命令执行能力的普通聊天中，这些 skill 仍然可以帮你梳理业务流程、设计
-架构、写出实现方案。但它们不能创建项目文件、运行测试、构建产物或部署应用。开始实现之前，
-请把确认好的方案转到有 repository 的代码工作区。
+在普通聊天中，这些 skill 可以帮你梳理业务流程、设计架构、写出实现方案。把确认好的方案转到有
+repository 的代码工作区再实现。
 
 ## 选择 Skill
 
@@ -55,18 +53,13 @@ Dex SDK。
 
 ## 二选一安装
 
-只选一种安装方式，不要同时安装：
+每个 host 选一种安装方式：
 
 1. **Plugin（推荐）**：一次安装全部三个 Skill，之后通过 host 的 plugin marketplace
    更新和卸载。
 2. **Standalone Skills**：用 Agent Skills CLI 直接安装全部三个 Skill。
 
-两种都装的话，agent 可能加载到重复的副本，你也无法确定它用的是哪个版本。在同一个 host
-中，两种安装方式的调用语法也可能不同。
-
-## 安装与使用 Dex Skills
-
-<DexSkillHostTabs skill="all" />
+每个 host 只用一种方式，每个 Skill 就只有一份，你也能确定 agent 用的是哪个版本、该怎么调用。
 
 ## 信任与权限
 

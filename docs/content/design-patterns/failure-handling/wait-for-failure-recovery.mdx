@@ -6,17 +6,17 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/wait
 
 # WaitFor Failure Recovery
 
-Recover after **WaitFor** exhausts its retry policy.
+Recover after `WaitFor` exhausts its retry policy.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**WaitForFailureRecoveryFlow** starts **FailingStep**. Its **WaitFor** method would normally return what to wait for. The sample makes it fail on purpose. After the **WaitForRetry** retries run out, the **WaitForFailure** policy proceeds to **FailingStep.Execute**. **Execute** reads the wait failure from its context, then moves to **RecoveryStep**, which completes the Flow.
+`WaitForFailureRecoveryFlow` starts `FailingStep`. Its `WaitFor` method would normally return what to wait for. The sample makes it fail on purpose. After the `WaitForRetry` retries run out, the `WaitForFailure` policy proceeds to `FailingStep.Execute`. `Execute` reads the wait failure from its context, then moves to `RecoveryStep`, which completes the Flow.
 
-Use this pattern when the Flow can still go on after **WaitFor** fails, and Step code can decide what to do next.
+Use this pattern when the Flow can still go on after `WaitFor` fails, and Step code can decide what to do next.
 
 ## Core implementation
 
-Set **WaitForFailure** to proceed, and give **WaitForRetry** a bounded retry policy.
+Set `WaitForFailure` to proceed, and give `WaitForRetry` a bounded retry policy.
 
 <SdkTabs
   examples={{
@@ -169,7 +169,7 @@ impl Step for RecoveryStep {
 </SdkSnippet>
 </SdkTabs>
 
-## Related
+## Next
 
 - [Failure Handling](/design-patterns/failure-handling)
 - [Retry and failure policies](/reference/python/failure-and-retries#retry-and-failure-policies)

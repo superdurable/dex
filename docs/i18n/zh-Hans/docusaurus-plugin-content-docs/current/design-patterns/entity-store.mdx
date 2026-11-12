@@ -7,7 +7,7 @@ sidebar_label: Entity Flow with SQL Projection
 
 每个实体（例如一个用户）对应一个 Flow。Dex 把这个 Flow 中选定的 Attribute 投影（复制）到你的应用自己的 SQL 表中。权威状态保存在 Flow 里，所有写入都经过 Flow。Dex 异步更新 SQL 表，表中只保存最新的值，用于读取和查询。
 
-可运行示例为每个用户保留一个 **UserProfileFlow**。它的 Flow ID 就是 **public.user_profiles** 表的 **user_id** 主键。Server 配置把目标 Attribute Store 命名为 **entityStore**。
+可运行示例为每个用户保留一个 `UserProfileFlow`。它的 Flow ID 就是 `public.user_profiles` 表的 `user_id` 主键。Server 配置把目标 Attribute Store 命名为 `entityStore`。
 
 ## 适用场景
 
@@ -17,7 +17,7 @@ sidebar_label: Entity Flow with SQL Projection
 
 用实体 ID 作为 Flow ID。标记每个要投影的 Attribute，并在启动 Flow 时选择 Attribute Store。通过 Flow 更新或删除 Attribute，Dex 会把结果值投影到 SQL。配置见[在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。
 
-示例投影 text、boolean、integer、double、datetime 和 JSON 值。删除 Attribute 时，SQL 行会保留，对应列投影为 **NULL**。列类型、同步时延和重试见 [Attribute Store sync reference](/reference/server/attribute-store-sync)。
+示例投影 text、boolean、integer、double、datetime 和 JSON 值。删除 Attribute 时，SQL 行会保留，对应列投影为 `NULL`。列类型、同步时延和重试见 [Attribute Store sync reference](/reference/server/attribute-store-sync)。
 
 ## 核心实现
 
@@ -290,7 +290,7 @@ fn update(&self, context: &mut Context, replacement: UserProfile) -> HandlerResu
 
 ### 启动 Flow 时选择存储目标
 
-Attribute Store 在 Server 上配置。启动 Flow 时，在 **FlowConfig** 中选择它。同一个启动请求中的初始 Attribute 值也会投影到 SQL。
+Attribute Store 在 Server 上配置。启动 Flow 时，在 `FlowConfig` 中选择它。同一个启动请求中的初始 Attribute 值也会投影到 SQL。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/entity-store/controller.py', go: 'examples/go/patterns/entity-store/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/EntityStoreController.java', typescript: 'examples/typescript/src/patterns/entity-store/controller.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs'}}>
 <SdkSnippet lang="python">
@@ -336,16 +336,16 @@ FlowConfig::new().attribute_store_names(vec![STORE_NAME.to_owned()])
 
 ## API endpoints
 
-- **POST /patterns/entity-store/profile** — 创建 profile Flow
-- **POST /patterns/entity-store/profile/update** — 更新同步的字段
-- **GET /patterns/entity-store/profile?userId=...** — 从 Flow 读取 profile
-- **POST /patterns/entity-store/profile/clear?userId=...** — 删除同步的值
+- **POST /patterns/entity-store/profile**：创建 profile Flow
+- **POST /patterns/entity-store/profile/update**：更新同步的字段
+- **GET /patterns/entity-store/profile?userId=...**：从 Flow 读取 profile
+- **POST /patterns/entity-store/profile/clear?userId=...**：删除同步的值
 
 ## 使用 PostgreSQL 运行
 
-[共享示例配置](https://github.com/superdurable/dex/tree/main/examples/entity-store) 会创建 **public.user_profiles**，并用 **entityStore** 配置启动 **dexcli dev**。其中还包含每种语言示例的 curl 命令。
+[共享示例配置](https://github.com/superdurable/dex/tree/main/examples/entity-store) 会创建 `public.user_profiles`，并用 `entityStore` 配置启动 **dexcli dev**。其中还包含每种语言示例的 curl 命令。
 
-## 相关内容
+## 下一步
 
 - [Attribute](/concepts/primitives/attribute)
 - [在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)
