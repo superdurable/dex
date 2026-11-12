@@ -10,6 +10,10 @@ package remotesessionfeed
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -360,6 +364,93 @@ func TestSteerOfAConsumedMessage(t *testing.T) {
 	notices := updatesOfType[sessionfeed.NoticeRaised](harness.drain())
 	require.Len(t, notices, 1)
 	require.Equal(t, "The message already started a turn.", notices[0].Text)
+}
+
+// A plan execution message shows as a notice line, never as a user message
+// from another client, and a note for the model shows nothing.
+func TestSessionWrittenMessages(t *testing.T) {
+	harness := newModelHarness(t)
+	planText := "[Dex] The user approved plan revision 3. Execute it and keep the task statuses current with write_todos."
+	harness.applySnapshot(snapshotOf(runningState("turn-1", 0),
+		originMessage(message(1, "turn-1", dexagents.MessageRoleUser, planText), dexagents.AgentMessageOriginPlanExecution)))
+	updates := harness.drain()
+	require.Empty(t, updatesOfType[sessionfeed.UserMessageRecorded](updates))
+	notices := updatesOfType[sessionfeed.NoticeRaised](updates)
+	require.Len(t, notices, 1)
+	require.Equal(t, sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 3", Sequence: 1}, notices[0])
+	require.Len(t, updatesOfType[sessionfeed.TurnStarted](updates), 1)
+
+	harness.model.applyEvent(endEvent("turn-1", "turn_failed", `{"error":"model unavailable"}`))
+	harness.applySnapshot(snapshotOf(idleState(1),
+		originMessage(message(1, "turn-1", dexagents.MessageRoleUser, planText), dexagents.AgentMessageOriginPlanExecution),
+		originMessage(message(2, "turn-1", dexagents.MessageRoleUser, "[Dex] The previous turn failed after these tool calls ran:"), dexagents.AgentMessageOriginTurnFailureNote),
+		originMessage(message(3, "turn-1", dexagents.MessageRoleUser, "[Dex] a later note"), "later_origin")))
+	updates = harness.drain()
+	require.Empty(t, updatesOfType[sessionfeed.UserMessageRecorded](updates))
+	require.Empty(t, updatesOfType[sessionfeed.NoticeRaised](updates))
+	require.Len(t, updatesOfType[sessionfeed.TurnEnded](updates), 1)
+
+	// Running the same revision again is a new execution with its own notice.
+	harness.applySnapshot(snapshotOf(runningState("turn-2", 1),
+		originMessage(message(1, "turn-1", dexagents.MessageRoleUser, planText), dexagents.AgentMessageOriginPlanExecution),
+		originMessage(message(4, "turn-2", dexagents.MessageRoleUser, planText), dexagents.AgentMessageOriginPlanExecution)))
+	notices = updatesOfType[sessionfeed.NoticeRaised](harness.drain())
+	require.Equal(t, []sessionfeed.NoticeRaised{
+		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 3", Sequence: 4},
+	}, notices)
+}
+
+// History shows a plan execution as the same notice, each execution of one
+// revision with its own sequence, and one whose text does not name a
+// revision without the number.
+func TestSessionWrittenMessagesInHistory(t *testing.T) {
+	harness := newModelHarness(t)
+	harness.model.emitHistory(dexagents.AgentMessagesPage{Messages: []dexagents.AgentMessage{
+		message(1, "turn-1", dexagents.MessageRoleUser, "make a plan"),
+		message(2, "turn-1", dexagents.MessageRoleAssistant, "here is the plan"),
+		originMessage(message(3, "turn-2", dexagents.MessageRoleUser, "[Dex] The user approved plan revision 12. Execute it."), dexagents.AgentMessageOriginPlanExecution),
+		originMessage(message(4, "turn-3", dexagents.MessageRoleUser, "[Dex] Run it."), dexagents.AgentMessageOriginPlanExecution),
+		originMessage(message(5, "turn-4", dexagents.MessageRoleUser, "[Dex] The user approved plan revision 12. Execute it."), dexagents.AgentMessageOriginPlanExecution),
+	}}, nil)
+	updates := harness.drain()
+	recorded := updatesOfType[sessionfeed.UserMessageRecorded](updates)
+	require.Len(t, recorded, 1)
+	require.Equal(t, "make a plan", recorded[0].Text)
+	require.Empty(t, recorded[0].Origin)
+	notices := updatesOfType[sessionfeed.NoticeRaised](updates)
+	require.Equal(t, []sessionfeed.NoticeRaised{
+		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 12", Sequence: 3},
+		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running the approved plan", Sequence: 4},
+		{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 12", Sequence: 5},
+	}, notices)
+}
+
+// The revision pattern reads every plan execution text the agents conformance suite fixes.
+func TestPlanExecutionRevisionPatternMatchesTheConformanceTexts(t *testing.T) {
+	text, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "agents", "conformance", "texts.json"))
+	require.NoError(t, err)
+	var texts struct {
+		Templates struct {
+			PlanExecutionMessage []struct {
+				Input struct {
+					Revision int64 `json:"revision"`
+				} `json:"input"`
+				Text string `json:"text"`
+			} `json:"plan_execution_message"`
+		} `json:"templates"`
+	}
+	require.NoError(t, json.Unmarshal(text, &texts))
+	require.NotEmpty(t, texts.Templates.PlanExecutionMessage)
+	for _, testCase := range texts.Templates.PlanExecutionMessage {
+		match := planExecutionRevisionPattern.FindStringSubmatch(testCase.Text)
+		require.NotNil(t, match, testCase.Text)
+		require.Equal(t, strconv.FormatInt(testCase.Input.Revision, 10), match[1])
+	}
+}
+
+func originMessage(stored dexagents.AgentMessage, origin dexagents.AgentMessageOrigin) dexagents.AgentMessage {
+	stored.Origin = &origin
+	return stored
 }
 
 func sequence(answers []bool, errs []error) func() (bool, error) {

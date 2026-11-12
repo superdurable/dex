@@ -68,6 +68,31 @@ func (role *MessageRole) UnmarshalText(text []byte) error {
 	return decodeWireEnum(text, role, "MessageRole", MessageRoleUser, MessageRoleAssistant, MessageRoleTool)
 }
 
+// AgentMessageOrigin names why the session wrote a user message itself, in AgentMessage.Origin.
+//
+// A later release may add values, and decoding keeps a value this release does not know. Show a
+// message with an unknown value as a note from the session, never as text the user typed.
+// Since 0.6.0.
+//
+//	if message.Origin != nil && *message.Origin == dexagents.AgentMessageOriginPlanExecution {
+//		fmt.Println("Running the approved plan")
+//	}
+type AgentMessageOrigin string
+
+const (
+	// AgentMessageOriginPlanExecution marks the message with which execute_plan started the turn.
+	AgentMessageOriginPlanExecution AgentMessageOrigin = "plan_execution"
+	// AgentMessageOriginTurnFailureNote marks the note in which RecordTurnFailure told the model
+	// which tool calls of the failed turn ran.
+	AgentMessageOriginTurnFailureNote AgentMessageOrigin = "turn_failure_note"
+	// AgentMessageOriginTurnSteeredNote marks the note that lists the tool calls that ran before
+	// steer_user_message ended the turn.
+	AgentMessageOriginTurnSteeredNote AgentMessageOrigin = "turn_steered_note"
+	// AgentMessageOriginTurnCancelledNote marks the note that lists the tool calls that ran before
+	// cancel_turn ended the turn.
+	AgentMessageOriginTurnCancelledNote AgentMessageOrigin = "turn_cancelled_note"
+)
+
 // ToolEffect classifies what a tool call does to the world outside the session.
 //
 // Every tool call runs in its own Step, and the effect picks that Step.
@@ -435,6 +460,12 @@ type AgentMessage struct {
 	// Images are the item's images, for display. The Go core never sets them; it keeps the field
 	// so a message written by another core round-trips.
 	Images []AgentImageReference `json:"images"`
+	// Origin is why the session wrote this user message itself, or nil for a message that a user
+	// or the start input sent, for assistant and tool messages, and for every message stored
+	// before 0.6.0. Show a message with an Origin as a session note, not as text the user typed.
+	// Only the session sets it. The Go core sets AgentMessageOriginTurnFailureNote; the other
+	// values come from Workers of another core. Since 0.6.0.
+	Origin *AgentMessageOrigin `json:"origin"`
 }
 
 // MarshalJSON encodes the wire object, writing an empty Images as [] rather than null.

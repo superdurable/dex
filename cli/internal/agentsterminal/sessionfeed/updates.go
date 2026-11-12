@@ -231,6 +231,9 @@ type NoticeRaised struct {
 	// Text says what happened and what to do next, in one or two short
 	// sentences.
 	Text string
+	// Sequence is the stored message the notice shows, or 0. A notice with
+	// a sequence prints once per sequence and skips the repeat filter.
+	Sequence int64
 }
 
 // CancelOutcome is the session's answer to a CancelTurn action.

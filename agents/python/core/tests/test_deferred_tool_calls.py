@@ -28,6 +28,7 @@ from dex_agents import (
     AgentEventType,
     AgentInterrupt,
     AgentInterruptDisplay,
+    AgentMessageOrigin,
     AgentSessionStatus,
     MessageRole,
     ToolCallStatus,
@@ -389,6 +390,10 @@ async def test_failed_turn_after_a_write_leaves_a_note_and_the_write_runs_once(
     note = failed.messages[-1]
     assert note.role is MessageRole.USER
     assert note.turn_id == "turn-1"
+    assert note.origin == AgentMessageOrigin.TURN_FAILURE_NOTE
+    assert [message.origin for message in failed.messages[:-1]] == [None] * (
+        len(failed.messages) - 1
+    )
     key = f"{session_id}/turn-1/turn-1-call-0"
     assert note.text == "\n".join(
         [

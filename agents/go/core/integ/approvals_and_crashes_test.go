@@ -197,6 +197,11 @@ func TestTurnFailureAfterAWriteLeavesTheNote(t *testing.T) {
 		`- charge_card {"amount": 5} -> succeeded: charged 5`,
 		dexagents.TurnFailureNoteFooter,
 	}, "\n"), *snapshot.Messages[3].Text)
+	turnFailureNote := dexagents.AgentMessageOriginTurnFailureNote
+	require.Equal(t, &turnFailureNote, snapshot.Messages[3].Origin, "the session wrote the note")
+	for _, message := range snapshot.Messages[:3] {
+		require.Nil(t, message.Origin, "message %d", message.Sequence)
+	}
 	require.Equal(t, []string{"StartAgentSession", "RunModel", "CallSingleAttemptTool", "ResumeTurn", "RecordTurnFailure"},
 		stack.executedStepTypes("failure"))
 
