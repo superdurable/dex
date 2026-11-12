@@ -19,7 +19,7 @@ Super Durable runs the server for you.
 - One object storage bucket and prefix for the cluster.
 - Authentication turned on before the API is reachable.
 - TLS in front of the API port, or a private network. See [TLS](/reference/server/authentication#tls).
-- Retention set to at least your longest client retry window.
+- [Retention](#retention) long enough for client retries.
 - Metrics served and alerts on the node and its lease.
 
 The [minimal configuration](#minimal-configuration) below sets up this deployment.
@@ -33,7 +33,7 @@ The [minimal configuration](#minimal-configuration) below sets up this deploymen
 | Storage | Object storage holds all server state. db9 (a separate PostgreSQL-compatible database product; stock PostgreSQL is not supported) can replace it. | [Object storage and backup](/reference/server/object-storage), [Dex Server dependencies](/components/server#dependencies) |
 | Search backend | Built-in search needs no database. Heavy search can use PostgreSQL or ParadeDB. | [Search backends](/reference/server/search) |
 | Configuration | `serve` reads one YAML file. Start from the [minimal configuration](#minimal-configuration). | [Install and configure server-zd](/reference/server/configuration) |
-| Retention | Set it to at least your longest client retry window. The default is in [Defaults to change](#defaults-to-change-before-production). | [Retention reference](/reference/server/configuration#retention) |
+| Retention | Size it for client retries, as [Retention](#retention) explains. The default is in [Defaults to change](#defaults-to-change-before-production). | [Retention reference](/reference/server/configuration#retention) |
 | Backup and restore | The bucket prefix is the only source of truth. Version or replicate it, and practice a restore. | [Backup and restore](/reference/server/object-storage#backup-and-restore) |
 | Kubernetes | Run the server as a StatefulSet with graceful shutdown. | [Kubernetes deployment](/reference/server/kubernetes) |
 | Authentication | Off by default. Require a bearer credential before you expose the API. | [Authentication](/reference/server/authentication) |
@@ -47,7 +47,7 @@ The [minimal configuration](#minimal-configuration) below sets up this deploymen
 
 | Default | Change it |
 | --- | --- |
-| Closed runs, with their Step history, are deleted after 7 days. A deleted run frees its Flow ID. | Set [retention](#retention) to at least your longest client retry window, and copy what you must keep to [your own database](/components/your-database). |
+| Closed runs, with their Step history, are deleted after 7 days. A deleted run frees its Flow ID. | Set a longer [retention](#retention), and copy what you must keep to [your own database](/components/your-database). |
 | Public API authentication is off, so any client that reaches the server can call it. | Configure an authenticator before you expose the port, as the [minimal configuration](#minimal-configuration) does. See [Authentication](/reference/server/authentication). |
 | Step retries stop after 4 hours, and then the Flow fails. | Set a retry policy or a failure route in [StepOptions](/concepts/step#stepoptions). |
 
