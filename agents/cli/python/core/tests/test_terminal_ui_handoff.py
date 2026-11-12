@@ -824,6 +824,13 @@ async def test_a_fifth_waiting_request_is_busy(
         if message.get("type") == "response" and message.get("id") in (2, 3, 4, 5):
             step["message"] = error(message["id"], "mcp_unavailable", connectors_off)["message"]
     transcript = insert_pause(transcript, is_ready_step, 1500)
+    # The Worker host's startup notice reaches the terminal UI in the launch document.
+    transcript["steps"][0]["message"]["notices"] = [
+        {
+            "level": "warning",
+            "text": f"{connectors_off} Set connectors.mcp to the MCP server's URL.",
+        }
+    ]
     fake = FakeTerminalUi(tmp_path / "tui", transcript)
     config = {"dex": {"server": f"http://{cli_home.address}"}}
     child = start_chat(cli_home, fake, screen, config)
