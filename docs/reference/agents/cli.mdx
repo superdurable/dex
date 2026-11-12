@@ -147,6 +147,10 @@ Dex server that does not start, an explicit **connectors.mcp** URL that does
 not answer, or a turn or session that failed during the chat. It is 2 for a
 usage or configuration error.
 
+Ctrl-C at an **init** question, or at a first-run question, stops the command
+with exit code 130. Ctrl-D there stops it with exit code 1. Either way the
+command prints **Cancelled; no configuration written.** and writes no file.
+
 ### The local Dex server {#dex-server}
 
 With **dex.server: auto**, the default, the command uses a **dexcli dev** on
