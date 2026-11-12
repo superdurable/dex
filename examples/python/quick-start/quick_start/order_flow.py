@@ -52,7 +52,7 @@ class Ship(Step[str]):
         )
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        self.shop.ship(input)
+        self.shop.ship(input, idempotency_key=f"ship-{input}")
         return graceful_complete(f"shipped {input}")
 
 

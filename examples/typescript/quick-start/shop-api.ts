@@ -24,8 +24,8 @@ export class ShopApi {
     console.log(`Charged ${orderId} with key ${idempotencyKey}`);
   }
 
-  public ship(orderId: string): void {
+  public ship(orderId: string, idempotencyKey: string): void {
     this.shipped.push(orderId);
-    console.log(`Shipped ${orderId}`);
+    console.log(`Shipped ${orderId} with key ${idempotencyKey}`);
   }
 }

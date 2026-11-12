@@ -80,7 +80,7 @@ public final class OrderFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String orderId) {
-            shop.ship(orderId);
+            shop.ship(orderId, "ship-" + orderId);
             return StepDecision.gracefulComplete("shipped " + orderId);
         }
     }

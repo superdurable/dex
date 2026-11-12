@@ -29,9 +29,9 @@ public final class ShopApi {
         System.out.println("Charged " + orderId + " with key " + idempotencyKey);
     }
 
-    public void ship(final String orderId) {
+    public void ship(final String orderId, final String idempotencyKey) {
         shipped.add(orderId);
-        System.out.println("Shipped " + orderId);
+        System.out.println("Shipped " + orderId + " with key " + idempotencyKey);
     }
 
     public List<String> charged() {

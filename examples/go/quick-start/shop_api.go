@@ -40,12 +40,12 @@ func (shop *ShopAPI) Charge(orderID string, idempotencyKey string) {
 	fmt.Println("Charged", orderID, "with key", idempotencyKey)
 }
 
-// Ship records and prints a shipment.
-func (shop *ShopAPI) Ship(orderID string) {
+// Ship records and prints a shipment. A real shipping API uses idempotencyKey to ship once.
+func (shop *ShopAPI) Ship(orderID string, idempotencyKey string) {
 	shop.mu.Lock()
 	defer shop.mu.Unlock()
 	shop.shipped = append(shop.shipped, orderID)
-	fmt.Println("Shipped", orderID)
+	fmt.Println("Shipped", orderID, "with key", idempotencyKey)
 }
 
 // Charged returns the order IDs charged so far.

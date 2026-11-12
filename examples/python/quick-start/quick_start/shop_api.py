@@ -24,6 +24,6 @@ class ShopApi:
         self.charged.append(order_id)
         print(f"Charged {order_id} with key {idempotency_key}", flush=True)
 
-    def ship(self, order_id: str) -> None:
+    def ship(self, order_id: str, idempotency_key: str) -> None:
         self.shipped.append(order_id)
-        print(f"Shipped {order_id}", flush=True)
+        print(f"Shipped {order_id} with key {idempotency_key}", flush=True)

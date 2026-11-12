@@ -34,9 +34,9 @@ impl ShopApi {
         println!("Charged {order_id} with key {idempotency_key}");
     }
 
-    pub fn ship(&self, order_id: &str) {
+    pub fn ship(&self, order_id: &str, idempotency_key: &str) {
         self.record().shipped.push(order_id.to_string());
-        println!("Shipped {order_id}");
+        println!("Shipped {order_id} with key {idempotency_key}");
     }
 
     pub fn charged(&self) -> Vec<String> {

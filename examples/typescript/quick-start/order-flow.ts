@@ -66,7 +66,7 @@ class Ship implements Step<string> {
   }
 
   public execute(_context: Context, orderId: string): StepDecision {
-    this.shop.ship(orderId);
+    this.shop.ship(orderId, `ship-${orderId}`);
     return gracefulComplete(`shipped ${orderId}`);
   }
 }

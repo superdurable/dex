@@ -78,6 +78,6 @@ func (Ship) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
 
 // Execute ships the order and completes the Flow.
 func (step Ship) Execute(_ dex.Context, orderID string) (*dex.StepDecision, error) {
-	step.shop.Ship(orderID)
+	step.shop.Ship(orderID, "ship-"+orderID)
 	return dex.GracefulComplete("shipped " + orderID), nil
 }

@@ -51,7 +51,7 @@ impl Step for Ship {
     }
 
     fn execute(&self, _context: &mut Context, order_id: String) -> HandlerResult<StepDecision> {
-        self.shop.ship(&order_id);
+        self.shop.ship(&order_id, &format!("ship-{order_id}"));
         Ok(StepDecision::graceful_complete(format!(
             "shipped {order_id}"
         )))
