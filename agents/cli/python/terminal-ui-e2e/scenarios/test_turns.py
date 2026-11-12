@@ -179,8 +179,9 @@ def test_ask_user_question_and_answer(
     )
     session = start_chat(run)
     session.submit("ask me a question")
+    # The tool row shows the question first; the popup with the choices follows.
     session.wait_for_display("Which color do you want?", timeout_seconds=90)
-    assert any("blue" in line for line in session.screen.display()), session.describe()
+    session.wait_for_display("blue", timeout_seconds=30)
     session.press("down")
     session.press("enter")
     session.wait_for_text("ASKED-DONE", timeout_seconds=90)
