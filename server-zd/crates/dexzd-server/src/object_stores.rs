@@ -10,9 +10,11 @@ use std::sync::Arc;
 
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
-    AliyunOssObjectStore, Db9ObjectStore, Db9ObjectStoreConfig, InstrumentedObjectStore,
-    ObjectStore, S3ApiDialect, S3Credentials, S3ObjectStore, S3ObjectStoreConfig,
-    check_aliyun_oss_create_only_writes, check_no_data_of_another_provider, startup_self_check,
+    AliyunOssObjectStore, AzureBlobCredentials, AzureGcsObjectStore, AzureGcsObjectStoreConfig,
+    AzureGcsProvider, Db9ObjectStore, Db9ObjectStoreConfig, GoogleCloudStorageCredentials,
+    InstrumentedObjectStore, ObjectStore, S3ApiDialect, S3Credentials, S3ObjectStore,
+    S3ObjectStoreConfig, check_aliyun_oss_create_only_writes, check_no_data_of_another_provider,
+    startup_self_check,
 };
 
 use crate::ServerError;
@@ -55,25 +57,55 @@ impl ObjectStores {
                 )
                 .await?
             }
+            ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
+                let destination = AzureGcsDestination {
+                    provider: config.provider,
+                    azure_account: &config.azure_account,
+                    bucket: &config.bucket,
+                    prefix: &config.prefix,
+                    azure_blob_credentials: config.azure_blob_credentials.as_ref(),
+                    google_cloud_storage_credentials: config
+                        .google_cloud_storage_credentials
+                        .as_ref(),
+                };
+                connect_azure_gcs_store(&destination, metrics).await?
+            }
         };
         let hard_delete = match &config.hard_delete_store {
-            Some(location) if config.provider == ObjectStoreProvider::AliyunOss => {
-                connect_aliyun_oss_store(
-                    location_config(location)?,
-                    StoreRole::HardDelete,
-                    multipart_threshold_bytes,
-                    metrics,
-                )
-                .await?
-            }
-            Some(location) => {
-                connect_store(
-                    location_config(location)?,
-                    multipart_threshold_bytes,
-                    metrics,
-                )
-                .await?
-            }
+            Some(location) => match location.effective_provider(config.provider) {
+                ObjectStoreProvider::AliyunOss => {
+                    connect_aliyun_oss_store(
+                        location_config(location)?,
+                        StoreRole::HardDelete,
+                        multipart_threshold_bytes,
+                        metrics,
+                    )
+                    .await?
+                }
+                provider @ (ObjectStoreProvider::AzureBlob
+                | ObjectStoreProvider::GoogleCloudStorage) => {
+                    let destination = AzureGcsDestination {
+                        provider,
+                        azure_account: &location.azure_account,
+                        bucket: &location.bucket,
+                        prefix: &location.prefix,
+                        azure_blob_credentials: location.azure_blob_credentials.as_ref(),
+                        google_cloud_storage_credentials: location
+                            .google_cloud_storage_credentials
+                            .as_ref(),
+                    };
+                    connect_azure_gcs_store(&destination, metrics).await?
+                }
+                // Validation rejects db9 here, so only s3 remains.
+                ObjectStoreProvider::S3 | ObjectStoreProvider::Db9 => {
+                    connect_store(
+                        location_config(location)?,
+                        multipart_threshold_bytes,
+                        metrics,
+                    )
+                    .await?
+                }
+            },
             None => primary.clone(),
         };
         Ok(Self {
@@ -236,5 +268,62 @@ async fn connect_db9(
             source,
         }
     })?;
+    Ok(Arc::new(instrumented))
+}
+
+/// An azureBlob or googleCloudStorage destination from the primary or hard-delete configuration.
+struct AzureGcsDestination<'a> {
+    provider: ObjectStoreProvider,
+    azure_account: &'a str,
+    bucket: &'a str,
+    prefix: &'a str,
+    azure_blob_credentials: Option<&'a AzureBlobCredentials>,
+    google_cloud_storage_credentials: Option<&'a GoogleCloudStorageCredentials>,
+}
+
+/// Connects, deletes abandoned staging uploads, and verifies conditional writes.
+async fn connect_azure_gcs_store(
+    destination: &AzureGcsDestination<'_>,
+    metrics: &NodeMetrics,
+) -> Result<Arc<dyn ObjectStore>, ServerError> {
+    let unresolved = || ServerError::UnsupportedCredentials {
+        field: "objectStore.credentialsSource",
+        detail: "credentials were not resolved".to_owned(),
+    };
+    let provider = match destination.provider {
+        ObjectStoreProvider::AzureBlob => AzureGcsProvider::AzureBlob {
+            account: destination.azure_account.to_owned(),
+            container: destination.bucket.to_owned(),
+            credentials: destination
+                .azure_blob_credentials
+                .ok_or_else(unresolved)?
+                .clone(),
+        },
+        _ => AzureGcsProvider::GoogleCloudStorage {
+            bucket: destination.bucket.to_owned(),
+            credentials: destination
+                .google_cloud_storage_credentials
+                .ok_or_else(unresolved)?
+                .clone(),
+        },
+    };
+    let bucket = destination.bucket.to_owned();
+    let store = AzureGcsObjectStore::new(AzureGcsObjectStoreConfig {
+        key_prefix: destination.prefix.to_owned(),
+        ..AzureGcsObjectStoreConfig::new(provider)
+    })
+    .map_err(|source| ServerError::ObjectStore {
+        bucket: bucket.clone(),
+        source,
+    })?;
+    match store.delete_abandoned_staging_objects().await {
+        Ok(0) => {}
+        Ok(deleted) => tracing::info!(%bucket, deleted, "deleted abandoned staging uploads"),
+        Err(error) => tracing::warn!(%bucket, %error, "failed to delete abandoned staging uploads"),
+    }
+    let instrumented = InstrumentedObjectStore::new(Arc::new(store), metrics.clone());
+    startup_self_check(&instrumented)
+        .await
+        .map_err(|source| ServerError::ObjectStoreSelfCheck { bucket, source })?;
     Ok(Arc::new(instrumented))
 }

@@ -19,6 +19,9 @@ description: "How server-zd uses object storage: credentials, bucket permissions
 On Amazon EKS, keep **defaultChain** and give the pod's service account an IAM
 role, for example through IAM Roles for Service Accounts or EKS Pod Identity.
 
+For Azure Blob Storage and Google Cloud Storage, see
+[Credentials](/reference/server/configuration#azure-gcs-credentials).
+
 ## Prefix-confined IAM policy {#iam-policy}
 
 For a shared bucket, set a non-empty **objectStore.prefix**. Then grant the
@@ -69,7 +72,10 @@ keep them elsewhere, configure **objectStore.hardDeleteStore** with its own
 **endpoint**, **region**, **bucket**, **prefix**, and **credentialsSource**. With
 **environment** credentials, it reads the **DEX_ZD_HARD_DELETE_STORE_**
 variables with the same suffixes. Grant the same policy for that bucket and
-prefix.
+prefix. Since 0.1.28, its **provider** can select **s3**, **aliyunOSS**,
+**azureBlob**, or **googleCloudStorage**. Without **provider**, it uses
+**aliyunOSS** when the primary store does, and **s3** otherwise. See
+[Azure Blob Storage and Google Cloud Storage](/reference/server/configuration#azure-gcs).
 
 ## Encryption
 
@@ -229,7 +235,7 @@ locks, and read consistently. The database's transaction limits apply to a
 large object.
 
 Hard-delete Attribute values use the same provider, unless
-**objectStore.hardDeleteStore** selects an S3 destination.
+**objectStore.hardDeleteStore** selects another destination.
 
 The server does not migrate existing S3 data to db9. Start db9 with a new
 namespace.
@@ -260,8 +266,8 @@ objectStore:
 | **objectStore.credentialsSource** | **environment**, with the AccessKey ID and secret of a RAM user in **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID** and **DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY** |
 
 The RAM user needs to list, read, write, and delete objects under the prefix.
-A configured **objectStore.hardDeleteStore** uses OSS too. Give it the same
-endpoint and addressing settings.
+A configured **objectStore.hardDeleteStore** without its own **provider** uses
+OSS too. Give it the same endpoint and addressing settings.
 
 The bucket must never have had versioning enabled. Once versioning was enabled
 or suspended, OSS no longer rejects a write that would overwrite an object, and

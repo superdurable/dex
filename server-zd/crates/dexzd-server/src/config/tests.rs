@@ -26,6 +26,7 @@ use crate::DevCommandOptions;
 use crate::component_configs::ComponentConfigs;
 
 type InvalidConfigCase = (&'static str, fn(&mut Config));
+type InvalidBuiltConfigCase = (&'static str, fn() -> Config);
 
 fn valid_config() -> Config {
     let mut configuration = Config::default();
@@ -2330,6 +2331,145 @@ fn postgres_connection_string_uses_environment_only_when_configuration_is_empty(
     assert!(status.success());
 }
 
+fn azure_blob_config() -> Config {
+    let mut configuration = Config::parse_yaml(
+        "cluster:\n  nodeId: node-a\nobjectStore:\n  provider: azureBlob\n  azureAccount: dexaccount\n  bucket: dex-container\n  prefix: cluster-a\nlocalStorage:\n  directory: /tmp/dexzd-test-store\n",
+    )
+    .expect("an azureBlob configuration parses");
+    configuration.object_store.azure_blob_credentials =
+        Some(dexzd_object_store::AzureBlobCredentials::ManagedIdentity {
+            client_id: None,
+            endpoint: None,
+        });
+    configuration
+}
+
+fn google_cloud_storage_config() -> Config {
+    let mut configuration = Config::parse_yaml(
+        "cluster:\n  nodeId: node-a\nobjectStore:\n  provider: googleCloudStorage\n  bucket: dex-bucket\nlocalStorage:\n  directory: /tmp/dexzd-test-store\n",
+    )
+    .expect("a googleCloudStorage configuration parses");
+    configuration.object_store.google_cloud_storage_credentials = Some(
+        dexzd_object_store::GoogleCloudStorageCredentials::ApplicationDefault {
+            credentials_file: None,
+        },
+    );
+    configuration
+}
+
+#[test]
+fn azure_blob_and_google_cloud_storage_providers_parse_and_validate() {
+    let azure = azure_blob_config();
+    assert_eq!(azure.object_store.provider, ObjectStoreProvider::AzureBlob);
+    assert_eq!(azure.object_store.azure_account, "dexaccount");
+    azure
+        .validate()
+        .expect("a resolved azureBlob configuration is valid");
+    let gcs = google_cloud_storage_config();
+    assert_eq!(
+        gcs.object_store.provider,
+        ObjectStoreProvider::GoogleCloudStorage
+    );
+    gcs.validate()
+        .expect("a resolved googleCloudStorage configuration is valid");
+    assert!(
+        serde_yaml_ng::to_string(&azure)
+            .expect("the configuration serializes")
+            .contains("provider: azureBlob")
+    );
+    assert!(
+        serde_yaml_ng::to_string(&gcs)
+            .expect("the configuration serializes")
+            .contains("provider: googleCloudStorage")
+    );
+    assert!(Config::parse_yaml("objectStore:\n  provider: azure\n").is_err());
+}
+
+#[test]
+fn azure_blob_and_google_cloud_storage_settings_name_the_rejected_yaml_path() {
+    let cases: Vec<InvalidBuiltConfigCase> = vec![
+        ("objectStore.azureAccount", || {
+            let mut config = azure_blob_config();
+            config.object_store.azure_account.clear();
+            config
+        }),
+        ("objectStore.azureAccount", || {
+            let mut config = azure_blob_config();
+            config.object_store.azure_account = "Dex.Account".to_owned();
+            config
+        }),
+        ("objectStore.azureAccount", || {
+            let mut config = google_cloud_storage_config();
+            config.object_store.azure_account = "dexaccount".to_owned();
+            config
+        }),
+        ("objectStore.azureAccount", || {
+            let mut config = valid_config();
+            config.object_store.azure_account = "dexaccount".to_owned();
+            config
+        }),
+        ("objectStore.endpoint", || {
+            let mut config = azure_blob_config();
+            config.object_store.endpoint = "https://dexaccount.blob.core.windows.net".to_owned();
+            config
+        }),
+        ("objectStore.forcePathStyle", || {
+            let mut config = google_cloud_storage_config();
+            config.object_store.force_path_style = true;
+            config
+        }),
+        ("objectStore.credentialsSource", || {
+            let mut config = google_cloud_storage_config();
+            config.object_store.credentials_source = CredentialSource::Anonymous;
+            config
+        }),
+        ("objectStore.credentialsSource", || {
+            let mut config = azure_blob_config();
+            config.object_store.azure_blob_credentials = None;
+            config
+        }),
+        ("objectStore.hardDeleteStore.provider", || {
+            let mut config = valid_config();
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                provider: Some(ObjectStoreProvider::Db9),
+                bucket: "hard-delete".to_owned(),
+                ..ObjectStoreLocationConfig::default()
+            });
+            config
+        }),
+        ("objectStore.hardDeleteStore.azureAccount", || {
+            let mut config = valid_config();
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                provider: Some(ObjectStoreProvider::AzureBlob),
+                bucket: "hard-delete".to_owned(),
+                azure_blob_credentials: Some(
+                    dexzd_object_store::AzureBlobCredentials::ManagedIdentity {
+                        client_id: None,
+                        endpoint: None,
+                    },
+                ),
+                ..ObjectStoreLocationConfig::default()
+            });
+            config
+        }),
+        ("objectStore.hardDeleteStore.credentialsSource", || {
+            let mut config = valid_config();
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                provider: Some(ObjectStoreProvider::GoogleCloudStorage),
+                bucket: "hard-delete".to_owned(),
+                ..ObjectStoreLocationConfig::default()
+            });
+            config
+        }),
+    ];
+    for (expected_field, build) in cases {
+        match build().validate() {
+            Err(ConfigError::Invalid { field, .. }) => assert_eq!(field, expected_field),
+            other => panic!("{expected_field} must be rejected, got {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn aliyun_oss_provider_parses_and_requires_a_virtual_hosted_endpoint() {
     let parsed = Config::parse_yaml(
@@ -2381,6 +2521,35 @@ fn aliyun_oss_provider_parses_and_requires_a_virtual_hosted_endpoint() {
             matches!(error, ConfigError::Invalid { field, .. } if field == expected_field),
             "{expected_field}: {error:?}"
         );
+    }
+}
+
+#[test]
+fn dev_rejects_azure_blob_and_google_cloud_storage() {
+    for provider in ["azureBlob", "googleCloudStorage"] {
+        let temporary = tempfile::tempdir().expect("test directory");
+        let yaml_path = temporary.path().join("config.yaml");
+        fs::write(
+            &yaml_path,
+            format!("objectStore:\n  provider: {provider}\n"),
+        )
+        .expect("write test config");
+        let error = Config::load_dev(&DevCommandOptions {
+            data_dir: temporary.path().join("data"),
+            listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
+            log_dir: None,
+            config: Some(yaml_path),
+            attribute_store_config: None,
+            durability: None,
+            application_s3_listen: None,
+            application_s3_bucket: None,
+        })
+        .expect_err("dev must reject a cloud-native provider");
+        let ConfigError::Invalid { field, message } = error else {
+            panic!("dev must name the provider field for {provider}");
+        };
+        assert_eq!(field, "objectStore.provider");
+        assert!(message.contains("serve mode"), "{message}");
     }
 }
 

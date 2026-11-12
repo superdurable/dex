@@ -17,6 +17,7 @@ use super::{
     StandbyMode,
 };
 use crate::DevCommandOptions;
+use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials};
 
 const EMBEDDED_S3_ENDPOINT_PENDING: &str = "http://127.0.0.1:0";
 /// Listen address of `dev` and `local` when neither `--listen` nor `api.listen` sets one.
@@ -351,28 +352,75 @@ impl Config {
             )?
             .unwrap_or_default();
         }
-        self.object_store.credentials = credentials_from_lookup(
-            self.object_store.credentials_source,
-            "objectStore.credentialsSource",
-            "DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID",
-            "DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY",
-            "DEX_ZD_OBJECT_STORE_SESSION_TOKEN",
-            |name| read_environment_credential(name, "objectStore.credentialsSource"),
-        )?;
+        match self.object_store.provider {
+            ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
+                let field = "objectStore.credentialsSource";
+                let lookup = |name| read_environment_credential(name, field);
+                self.object_store.azure_blob_credentials = azure_blob_credentials_from_lookup(
+                    self.object_store.provider,
+                    self.object_store.credentials_source,
+                    field,
+                    "DEX_ZD_OBJECT_STORE_AZURE_ACCOUNT_KEY",
+                    lookup,
+                )?;
+                self.object_store.google_cloud_storage_credentials =
+                    google_cloud_storage_credentials_from_lookup(
+                        self.object_store.provider,
+                        self.object_store.credentials_source,
+                        field,
+                        "DEX_ZD_OBJECT_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH",
+                        lookup,
+                    )?;
+            }
+            _ => {
+                self.object_store.credentials = credentials_from_lookup(
+                    self.object_store.credentials_source,
+                    "objectStore.credentialsSource",
+                    "DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID",
+                    "DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY",
+                    "DEX_ZD_OBJECT_STORE_SESSION_TOKEN",
+                    |name| read_environment_credential(name, "objectStore.credentialsSource"),
+                )?;
+            }
+        }
         if let Some(hard_delete_store) = &mut self.object_store.hard_delete_store {
-            hard_delete_store.credentials = credentials_from_lookup(
-                hard_delete_store.credentials_source,
-                "objectStore.hardDeleteStore.credentialsSource",
-                "DEX_ZD_HARD_DELETE_STORE_ACCESS_KEY_ID",
-                "DEX_ZD_HARD_DELETE_STORE_SECRET_ACCESS_KEY",
-                "DEX_ZD_HARD_DELETE_STORE_SESSION_TOKEN",
-                |name| {
-                    read_environment_credential(
-                        name,
+            let provider = hard_delete_store.effective_provider(self.object_store.provider);
+            match provider {
+                ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
+                    let field = "objectStore.hardDeleteStore.credentialsSource";
+                    let lookup = |name| read_environment_credential(name, field);
+                    hard_delete_store.azure_blob_credentials = azure_blob_credentials_from_lookup(
+                        provider,
+                        hard_delete_store.credentials_source,
+                        field,
+                        "DEX_ZD_HARD_DELETE_STORE_AZURE_ACCOUNT_KEY",
+                        lookup,
+                    )?;
+                    hard_delete_store.google_cloud_storage_credentials =
+                        google_cloud_storage_credentials_from_lookup(
+                            provider,
+                            hard_delete_store.credentials_source,
+                            field,
+                            "DEX_ZD_HARD_DELETE_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH",
+                            lookup,
+                        )?;
+                }
+                _ => {
+                    hard_delete_store.credentials = credentials_from_lookup(
+                        hard_delete_store.credentials_source,
                         "objectStore.hardDeleteStore.credentialsSource",
-                    )
-                },
-            )?;
+                        "DEX_ZD_HARD_DELETE_STORE_ACCESS_KEY_ID",
+                        "DEX_ZD_HARD_DELETE_STORE_SECRET_ACCESS_KEY",
+                        "DEX_ZD_HARD_DELETE_STORE_SESSION_TOKEN",
+                        |name| {
+                            read_environment_credential(
+                                name,
+                                "objectStore.hardDeleteStore.credentialsSource",
+                            )
+                        },
+                    )?;
+                }
+            }
         }
         Ok(())
     }
@@ -492,6 +540,95 @@ fn credentials_from_lookup(
     }))
 }
 
+/// Returns azureBlob credentials: an account key from `account_key_name` for environment, or the
+/// default chain's service principal, workload identity, or managed identity. Returns `None` for
+/// other providers and for anonymous, which validation rejects.
+fn azure_blob_credentials_from_lookup(
+    provider: ObjectStoreProvider,
+    source: CredentialSource,
+    field: &'static str,
+    account_key_name: &'static str,
+    lookup: impl Fn(&'static str) -> Result<Option<String>, ConfigError>,
+) -> Result<Option<AzureBlobCredentials>, ConfigError> {
+    if provider != ObjectStoreProvider::AzureBlob {
+        return Ok(None);
+    }
+    let non_empty = |name| Ok::<_, ConfigError>(lookup(name)?.filter(|value| !value.is_empty()));
+    match source {
+        CredentialSource::Anonymous => Ok(None),
+        CredentialSource::Environment => {
+            let account_key =
+                non_empty(account_key_name)?.ok_or(ConfigError::MissingEnvironmentCredential {
+                    field,
+                    name: account_key_name,
+                })?;
+            Ok(Some(AzureBlobCredentials::AccountKey { account_key }))
+        }
+        CredentialSource::DefaultChain => {
+            let client_id = non_empty("AZURE_CLIENT_ID")?;
+            let tenant_id = non_empty("AZURE_TENANT_ID")?;
+            let client_secret = non_empty("AZURE_CLIENT_SECRET")?;
+            let federated_token_file = non_empty("AZURE_FEDERATED_TOKEN_FILE")?;
+            Ok(Some(
+                match (client_id, tenant_id, client_secret, federated_token_file) {
+                    (Some(client_id), Some(tenant_id), Some(client_secret), _) => {
+                        AzureBlobCredentials::ClientSecret {
+                            tenant_id,
+                            client_id,
+                            client_secret,
+                        }
+                    }
+                    (Some(client_id), Some(tenant_id), None, Some(federated_token_file)) => {
+                        AzureBlobCredentials::WorkloadIdentity {
+                            tenant_id,
+                            client_id,
+                            federated_token_file: PathBuf::from(federated_token_file),
+                        }
+                    }
+                    (client_id, ..) => AzureBlobCredentials::ManagedIdentity {
+                        client_id,
+                        endpoint: non_empty("IDENTITY_ENDPOINT")?,
+                    },
+                },
+            ))
+        }
+    }
+}
+
+/// Returns googleCloudStorage credentials: a service account key file named by `key_path_name`
+/// for environment, or application default credentials. Returns `None` for other providers and
+/// for anonymous, which validation rejects.
+fn google_cloud_storage_credentials_from_lookup(
+    provider: ObjectStoreProvider,
+    source: CredentialSource,
+    field: &'static str,
+    key_path_name: &'static str,
+    lookup: impl Fn(&'static str) -> Result<Option<String>, ConfigError>,
+) -> Result<Option<GoogleCloudStorageCredentials>, ConfigError> {
+    if provider != ObjectStoreProvider::GoogleCloudStorage {
+        return Ok(None);
+    }
+    let non_empty = |name| Ok::<_, ConfigError>(lookup(name)?.filter(|value| !value.is_empty()));
+    match source {
+        CredentialSource::Anonymous => Ok(None),
+        CredentialSource::Environment => {
+            let path =
+                non_empty(key_path_name)?.ok_or(ConfigError::MissingEnvironmentCredential {
+                    field,
+                    name: key_path_name,
+                })?;
+            Ok(Some(GoogleCloudStorageCredentials::ServiceAccountKeyFile {
+                path: PathBuf::from(path),
+            }))
+        }
+        CredentialSource::DefaultChain => {
+            Ok(Some(GoogleCloudStorageCredentials::ApplicationDefault {
+                credentials_file: non_empty("GOOGLE_APPLICATION_CREDENTIALS")?.map(PathBuf::from),
+            }))
+        }
+    }
+}
+
 #[cfg(test)]
 mod credential_tests {
     use super::*;
@@ -537,5 +674,154 @@ mod credential_tests {
                 ..
             }
         ));
+    }
+
+    fn lookup_from(
+        variables: &'static [(&'static str, &'static str)],
+    ) -> impl Fn(&'static str) -> Result<Option<String>, ConfigError> {
+        move |name| {
+            Ok(variables
+                .iter()
+                .find(|(variable, _)| *variable == name)
+                .map(|(_, value)| (*value).to_owned()))
+        }
+    }
+
+    fn azure_credentials(
+        source: CredentialSource,
+        variables: &'static [(&'static str, &'static str)],
+    ) -> Result<Option<AzureBlobCredentials>, ConfigError> {
+        azure_blob_credentials_from_lookup(
+            ObjectStoreProvider::AzureBlob,
+            source,
+            "objectStore.credentialsSource",
+            "DEX_ZD_OBJECT_STORE_AZURE_ACCOUNT_KEY",
+            lookup_from(variables),
+        )
+    }
+
+    #[test]
+    fn azure_blob_credentials_follow_the_credential_source() {
+        let account_key = azure_credentials(
+            CredentialSource::Environment,
+            &[("DEX_ZD_OBJECT_STORE_AZURE_ACCOUNT_KEY", "test-account-key")],
+        )
+        .expect("the account key resolves")
+        .expect("environment credentials");
+        assert_eq!(
+            account_key,
+            AzureBlobCredentials::AccountKey {
+                account_key: "test-account-key".to_owned()
+            }
+        );
+        assert!(!format!("{account_key:?}").contains("test-account-key"));
+        assert!(matches!(
+            azure_credentials(CredentialSource::Environment, &[]),
+            Err(ConfigError::MissingEnvironmentCredential {
+                name: "DEX_ZD_OBJECT_STORE_AZURE_ACCOUNT_KEY",
+                ..
+            })
+        ));
+        let client_secret = azure_credentials(
+            CredentialSource::DefaultChain,
+            &[
+                ("AZURE_CLIENT_ID", "client"),
+                ("AZURE_TENANT_ID", "tenant"),
+                ("AZURE_CLIENT_SECRET", "test-client-secret"),
+                ("AZURE_FEDERATED_TOKEN_FILE", "/var/run/token"),
+            ],
+        )
+        .expect("the service principal resolves")
+        .expect("default-chain credentials");
+        assert!(matches!(
+            client_secret,
+            AzureBlobCredentials::ClientSecret { .. }
+        ));
+        assert!(!format!("{client_secret:?}").contains("test-client-secret"));
+        assert_eq!(
+            azure_credentials(
+                CredentialSource::DefaultChain,
+                &[
+                    ("AZURE_CLIENT_ID", "client"),
+                    ("AZURE_TENANT_ID", "tenant"),
+                    ("AZURE_FEDERATED_TOKEN_FILE", "/var/run/token"),
+                ],
+            )
+            .expect("the workload identity resolves"),
+            Some(AzureBlobCredentials::WorkloadIdentity {
+                tenant_id: "tenant".to_owned(),
+                client_id: "client".to_owned(),
+                federated_token_file: PathBuf::from("/var/run/token"),
+            })
+        );
+        assert_eq!(
+            azure_credentials(
+                CredentialSource::DefaultChain,
+                &[("AZURE_CLIENT_ID", "client")]
+            )
+            .expect("the managed identity resolves"),
+            Some(AzureBlobCredentials::ManagedIdentity {
+                client_id: Some("client".to_owned()),
+                endpoint: None,
+            })
+        );
+        assert_eq!(
+            azure_blob_credentials_from_lookup(
+                ObjectStoreProvider::GoogleCloudStorage,
+                CredentialSource::Environment,
+                "objectStore.credentialsSource",
+                "DEX_ZD_OBJECT_STORE_AZURE_ACCOUNT_KEY",
+                lookup_from(&[]),
+            )
+            .expect("other providers read nothing"),
+            None
+        );
+    }
+
+    #[test]
+    fn google_cloud_storage_credentials_follow_the_credential_source() {
+        let resolve = |source, variables| {
+            google_cloud_storage_credentials_from_lookup(
+                ObjectStoreProvider::GoogleCloudStorage,
+                source,
+                "objectStore.credentialsSource",
+                "DEX_ZD_OBJECT_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH",
+                lookup_from(variables),
+            )
+        };
+        assert_eq!(
+            resolve(
+                CredentialSource::Environment,
+                &[(
+                    "DEX_ZD_OBJECT_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH",
+                    "/secrets/key.json"
+                )],
+            )
+            .expect("the key file path resolves"),
+            Some(GoogleCloudStorageCredentials::ServiceAccountKeyFile {
+                path: PathBuf::from("/secrets/key.json"),
+            })
+        );
+        assert!(matches!(
+            resolve(CredentialSource::Environment, &[]),
+            Err(ConfigError::MissingEnvironmentCredential {
+                name: "DEX_ZD_OBJECT_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH",
+                ..
+            })
+        ));
+        assert_eq!(
+            resolve(
+                CredentialSource::DefaultChain,
+                &[("GOOGLE_APPLICATION_CREDENTIALS", "/home/adc.json")],
+            )
+            .expect("application default credentials resolve"),
+            Some(GoogleCloudStorageCredentials::ApplicationDefault {
+                credentials_file: Some(PathBuf::from("/home/adc.json")),
+            })
+        );
+        assert_eq!(
+            resolve(CredentialSource::Anonymous, &[]).expect("anonymous reads nothing"),
+            None
+        );
     }
 }

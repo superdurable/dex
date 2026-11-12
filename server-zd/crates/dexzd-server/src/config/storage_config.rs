@@ -10,6 +10,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+use dexzd_object_store::{AzureBlobCredentials, GoogleCloudStorageCredentials};
 use serde::{Deserialize, Serialize};
 
 /// Chooses how S3 credentials are supplied without putting secrets in YAML.
@@ -54,6 +55,12 @@ pub enum ObjectStoreProvider {
     /// Aliyun OSS through its S3-compatible endpoint, with versioned objects for replaced keys.
     #[serde(rename = "aliyunOSS")]
     AliyunOss,
+    /// Azure Blob Storage through its native API; `bucket` names the container.
+    #[serde(rename = "azureBlob")]
+    AzureBlob,
+    /// Google Cloud Storage through its native API.
+    #[serde(rename = "googleCloudStorage")]
+    GoogleCloudStorage,
 }
 
 impl ObjectStoreProvider {
@@ -63,6 +70,8 @@ impl ObjectStoreProvider {
             Self::S3 => "s3",
             Self::Db9 => "db9",
             Self::AliyunOss => "aliyunOSS",
+            Self::AzureBlob => "azureBlob",
+            Self::GoogleCloudStorage => "googleCloudStorage",
         }
     }
 }
@@ -81,9 +90,10 @@ impl fmt::Debug for Db9ConnectionString {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreConfig {
-    /// Defaults to s3; db9 selects transactional PostgreSQL-compatible storage, and aliyunOSS
-    /// selects Aliyun OSS through its S3-compatible endpoint with virtual-hosted addressing.
-    /// aliyunOSS requires endpoint and rejects forcePathStyle; the hard-delete store uses it too.
+    /// Defaults to s3; db9 selects transactional PostgreSQL-compatible storage, aliyunOSS selects
+    /// Aliyun OSS through its S3-compatible endpoint with virtual-hosted addressing, and azureBlob
+    /// or googleCloudStorage selects that cloud's native API. aliyunOSS requires endpoint and
+    /// rejects forcePathStyle. Existing data cannot switch providers.
     pub provider: ObjectStoreProvider,
     /// Defaults to empty; resolved from DEX_ZD_DB9_CONNECTION_STRING, never serialized.
     #[serde(skip)]
@@ -97,21 +107,35 @@ pub struct ObjectStoreConfig {
     /// Dev and local modes set 127.0.0.1:0 until startup replaces it with the bound embedded S3 address.
     /// The server connects to this endpoint; it does not advertise it.
     pub endpoint: String,
-    /// Defaults to us-east-1; region used for bucket lookup and request signing.
+    /// Defaults to us-east-1; region used for bucket lookup and request signing. Only s3 and aliyunOSS use it.
     pub region: String,
     /// Defaults to empty and must be set before serving; bucket containing cluster manifests, logs, and snapshots.
+    /// For azureBlob it names the container.
     pub bucket: String,
+    /// Defaults to empty; the storage account name, required for azureBlob and rejected otherwise.
+    pub azure_account: String,
     /// Defaults to empty; prepended to every durable object key and must not begin with a slash.
     pub prefix: String,
     /// Defaults to false; use path-style bucket addressing when an S3-compatible endpoint requires it.
     pub force_path_style: bool,
     /// Defaults to defaultChain; environment reads DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID, DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY, and optional DEX_ZD_OBJECT_STORE_SESSION_TOKEN.
+    /// For azureBlob, environment reads the account key from DEX_ZD_OBJECT_STORE_AZURE_ACCOUNT_KEY,
+    /// and defaultChain uses a service principal or workload identity from AZURE_* variables, else
+    /// a managed identity. For googleCloudStorage, environment reads a service account key file path
+    /// from DEX_ZD_OBJECT_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH, and defaultChain uses application
+    /// default credentials. Neither cloud accepts anonymous.
     pub credentials_source: CredentialSource,
     /// Defaults to none; when present, hard-delete values use this separate destination instead of the primary bucket and prefix.
     pub hard_delete_store: Option<ObjectStoreLocationConfig>,
     /// Defaults to none; runtime credentials resolved from environment when credentialsSource is environment, never serialized.
     #[serde(skip)]
     pub credentials: Option<ObjectStoreCredentials>,
+    /// Defaults to none; azureBlob credentials resolved from the environment, never serialized.
+    #[serde(skip)]
+    pub azure_blob_credentials: Option<AzureBlobCredentials>,
+    /// Defaults to none; googleCloudStorage credentials resolved from the environment, never serialized.
+    #[serde(skip)]
+    pub google_cloud_storage_credentials: Option<GoogleCloudStorageCredentials>,
 }
 
 impl Default for ObjectStoreConfig {
@@ -124,47 +148,79 @@ impl Default for ObjectStoreConfig {
             endpoint: String::new(),
             region: "us-east-1".to_owned(),
             bucket: String::new(),
+            azure_account: String::new(),
             prefix: String::new(),
             force_path_style: false,
             credentials_source: CredentialSource::DefaultChain,
             hard_delete_store: None,
             credentials: None,
+            azure_blob_credentials: None,
+            google_cloud_storage_credentials: None,
         }
     }
 }
 
-/// Selects an optional, independent S3 destination for hard-delete values.
+/// Selects an optional, independent destination for hard-delete values.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreLocationConfig {
+    /// Defaults to none, which uses aliyunOSS when the primary store does and s3 otherwise.
+    /// s3, aliyunOSS, azureBlob, or googleCloudStorage selects that provider; db9 is rejected.
+    pub provider: Option<ObjectStoreProvider>,
     /// Defaults to empty; uses AWS endpoint resolution for this destination when omitted.
     /// The server connects to this HTTP(S) endpoint; it does not bind or advertise it.
     pub endpoint: String,
     /// Defaults to us-east-1; region for this hard-delete destination's requests.
     pub region: String,
-    /// Defaults to empty and must be set when this destination is configured.
+    /// Defaults to empty and must be set when this destination is configured; the container for azureBlob.
     pub bucket: String,
+    /// Defaults to empty; the storage account name, required for azureBlob and rejected otherwise.
+    pub azure_account: String,
     /// Defaults to empty; prefix for hard-delete objects, with no leading slash.
     pub prefix: String,
     /// Defaults to false; use path-style bucket addressing for this destination.
     pub force_path_style: bool,
     /// Defaults to defaultChain; environment reads DEX_ZD_HARD_DELETE_STORE_ACCESS_KEY_ID, DEX_ZD_HARD_DELETE_STORE_SECRET_ACCESS_KEY, and optional DEX_ZD_HARD_DELETE_STORE_SESSION_TOKEN.
+    /// For azureBlob, environment reads DEX_ZD_HARD_DELETE_STORE_AZURE_ACCOUNT_KEY; for
+    /// googleCloudStorage, it reads DEX_ZD_HARD_DELETE_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH. defaultChain
+    /// works as it does for the primary store.
     pub credentials_source: CredentialSource,
     /// Defaults to none; runtime credentials resolved from environment when credentialsSource is environment, never serialized.
     #[serde(skip)]
     pub credentials: Option<ObjectStoreCredentials>,
+    /// Defaults to none; azureBlob credentials resolved from the environment, never serialized.
+    #[serde(skip)]
+    pub azure_blob_credentials: Option<AzureBlobCredentials>,
+    /// Defaults to none; googleCloudStorage credentials resolved from the environment, never serialized.
+    #[serde(skip)]
+    pub google_cloud_storage_credentials: Option<GoogleCloudStorageCredentials>,
+}
+
+impl ObjectStoreLocationConfig {
+    /// Returns the provider of this destination: the configured one, or else aliyunOSS when the
+    /// primary store uses aliyunOSS and s3 otherwise.
+    pub fn effective_provider(&self, primary: ObjectStoreProvider) -> ObjectStoreProvider {
+        self.provider.unwrap_or(match primary {
+            ObjectStoreProvider::AliyunOss => ObjectStoreProvider::AliyunOss,
+            _ => ObjectStoreProvider::S3,
+        })
+    }
 }
 
 impl Default for ObjectStoreLocationConfig {
     fn default() -> Self {
         Self {
+            provider: None,
             endpoint: String::new(),
             region: "us-east-1".to_owned(),
             bucket: String::new(),
+            azure_account: String::new(),
             prefix: String::new(),
             force_path_style: false,
             credentials_source: CredentialSource::DefaultChain,
             credentials: None,
+            azure_blob_credentials: None,
+            google_cloud_storage_credentials: None,
         }
     }
 }

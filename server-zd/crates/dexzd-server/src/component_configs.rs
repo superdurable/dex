@@ -423,7 +423,7 @@ fn attribute_sync_config(config: &Config) -> Result<AttributeSyncConfig, ServerE
 
 /// Returns the bytes that the object store adds to a logical key before the 1024-byte S3 limit.
 ///
-/// S3 adds the prefix and a slash; db9 adds the prefix alone. aliyunOSS also adds a version
+/// S3, Azure Blob Storage, and GCS add the prefix and a slash; db9 adds the prefix alone. aliyunOSS also adds a version
 /// suffix to replaced keys, and OSS allows one byte less than S3.
 fn object_key_overhead_bytes(config: &ObjectStoreConfig) -> usize {
     let prefix_bytes = if config.prefix.is_empty() {
@@ -432,7 +432,10 @@ fn object_key_overhead_bytes(config: &ObjectStoreConfig) -> usize {
         config.prefix.len() + 1
     };
     match config.provider {
-        ObjectStoreProvider::S3 | ObjectStoreProvider::Db9 => prefix_bytes,
+        ObjectStoreProvider::S3
+        | ObjectStoreProvider::Db9
+        | ObjectStoreProvider::AzureBlob
+        | ObjectStoreProvider::GoogleCloudStorage => prefix_bytes,
         ObjectStoreProvider::AliyunOss => {
             prefix_bytes + VERSION_OBJECT_KEY_SUFFIX_BYTES + ALIYUN_OSS_KEY_LIMIT_SHORTFALL_BYTES
         }

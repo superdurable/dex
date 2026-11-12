@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Object storage interface used by server-zd, with S3 and db9 implementations and a fault-injecting in-memory implementation for tests.
+//! Object storage interface used by server-zd, with S3, db9, Azure Blob Storage, and Google Cloud Storage implementations and a fault-injecting in-memory implementation for tests.
 //!
 //! Keys passed to [`ObjectStore`] are relative to the store's configured prefix, for example
 //! `log/node-a/0000000001/00000000000000000042`.
@@ -15,6 +15,7 @@
 //! [`WriteCondition`] exactly.
 
 mod aliyun_oss;
+mod azure_gcs;
 mod db9;
 mod file_download;
 mod in_memory;
@@ -30,6 +31,10 @@ pub use aliyun_oss::{
     AliyunOssBucketCheckError, AliyunOssObjectStore, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
     STALE_STARTUP_PROBE_AGE, VERSION_OBJECT_KEY_SUFFIX_BYTES, check_aliyun_oss_create_only_writes,
     check_no_data_of_another_provider,
+};
+pub use azure_gcs::{
+    AzureBlobCredentials, AzureGcsObjectStore, AzureGcsObjectStoreConfig, AzureGcsProvider,
+    GoogleCloudStorageCredentials, STAGING_KEY_PREFIX,
 };
 pub use db9::{Db9ObjectStore, Db9ObjectStoreConfig};
 pub use in_memory::{FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions};
