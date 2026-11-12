@@ -10,7 +10,7 @@
 //!
 //! The manifest, the registry, and node leases rely on replacement of mutable object keys only.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,23 +28,47 @@ use dexzd_protocol::dexzd::v1::NodeLease;
 use prost::Message;
 use tokio::time::Instant;
 
-/// Wall-clock time that advances with Tokio's paused clock.
+/// Wall-clock time that advances with Tokio's paused clock, plus an adjustable offset.
 struct TokioWallClock {
     origin: Instant,
+    offset_micros: AtomicI64,
 }
 
 impl WallClock for TokioWallClock {
     fn now_unix_micros(&self) -> i64 {
         1_800_000_000_000_000
             + i64::try_from(self.origin.elapsed().as_micros()).expect("test time fits in i64")
+            + self.offset_micros.load(Ordering::SeqCst)
     }
 }
 
-/// Delays calls by a few pseudo-random milliseconds, and once delays the listing after a put.
+/// The listing after a put of `put_key` waits `delay`, once.
+struct DelayedListingAfterPut {
+    put_key: String,
+    is_armed: bool,
+    delay: Duration,
+}
+
+/// Delays calls by a few pseudo-random milliseconds, and injects one-shot faults.
 struct InterleavingFaults {
     sequence: AtomicU64,
     is_delaying_every_call: bool,
-    delayed_listing_after_put: Mutex<Option<(String, bool)>>,
+    delayed_listing_after_put: Mutex<Option<DelayedListingAfterPut>>,
+    /// The next put under this prefix applies, then reports an unknown outcome.
+    lost_response_of_next_put_under: Mutex<Option<String>>,
+}
+
+impl InterleavingFaults {
+    fn delay_listing_after_put(&self, put_key: String, delay: Duration) {
+        *self
+            .delayed_listing_after_put
+            .lock()
+            .expect("fault lock is not poisoned") = Some(DelayedListingAfterPut {
+            put_key,
+            is_armed: false,
+            delay,
+        });
+    }
 }
 
 impl FaultInjector for InterleavingFaults {
@@ -54,13 +78,27 @@ impl FaultInjector for InterleavingFaults {
                 .delayed_listing_after_put
                 .lock()
                 .expect("fault lock is not poisoned");
-            if let Some((put_key, is_armed)) = delayed.as_mut() {
-                if operation == ObjectStoreOperation::Put && key == put_key {
-                    *is_armed = true;
-                } else if operation == ObjectStoreOperation::List && *is_armed {
+            if let Some(listing) = delayed.as_mut() {
+                if operation == ObjectStoreOperation::Put && key == listing.put_key {
+                    listing.is_armed = true;
+                } else if operation == ObjectStoreOperation::List && listing.is_armed {
+                    let delay = listing.delay;
                     *delayed = None;
-                    return FaultAction::Delay(Duration::from_secs(10));
+                    return FaultAction::Delay(delay);
                 }
+            }
+        }
+        if operation == ObjectStoreOperation::Put {
+            let mut lost_response = self
+                .lost_response_of_next_put_under
+                .lock()
+                .expect("fault lock is not poisoned");
+            if lost_response
+                .as_deref()
+                .is_some_and(|prefix| key.starts_with(prefix))
+            {
+                *lost_response = None;
+                return FaultAction::ApplyThenOutcomeUnknown;
             }
         }
         if !self.is_delaying_every_call {
@@ -83,9 +121,11 @@ impl VersionedMetadataStore {
             sequence: AtomicU64::new(0),
             is_delaying_every_call,
             delayed_listing_after_put: Mutex::new(None),
+            lost_response_of_next_put_under: Mutex::new(None),
         });
         let clock = Arc::new(TokioWallClock {
             origin: Instant::now(),
+            offset_micros: AtomicI64::new(0),
         });
         let physical = Arc::new(InMemoryObjectStore::with_options(
             InMemoryObjectStoreOptions {
@@ -234,12 +274,10 @@ async fn a_manifest_edit_superseded_before_its_confirmation_applies_once() {
     create_initial_manifest(store.as_ref(), clock.as_ref(), 4, &node())
         .await
         .expect("create");
-    *metadata
-        .faults
-        .delayed_listing_after_put
-        .lock()
-        .expect("fault lock is not poisoned") =
-        Some((format!("manifest.v/{:020}", u64::MAX - 2), false));
+    metadata.faults.delay_listing_after_put(
+        format!("manifest.v/{:020}", u64::MAX - 2),
+        Duration::from_secs(10),
+    );
     let delayed_store = metadata.process_store();
     let delayed_clock = metadata.clock();
     let delayed_bump = tokio::spawn(async move {
@@ -255,6 +293,15 @@ async fn a_manifest_edit_superseded_before_its_confirmation_applies_once() {
         .expect("the delayed bump finishes")
         .expect("the delayed bump is confirmed");
     assert_eq!(first_epoch, 1);
+    assert!(
+        metadata
+            .faults
+            .delayed_listing_after_put
+            .lock()
+            .expect("fault lock is not poisoned")
+            .is_none(),
+        "the first bump's confirmation was delayed"
+    );
     let manifest = read_manifest(store.as_ref())
         .await
         .expect("read")
@@ -361,4 +408,182 @@ async fn racing_registrations_each_apply_once() {
         .expect("read");
     assert_eq!(registry.registrations.len(), 6);
     assert_eq!(registry.version, 6);
+}
+
+/// Returns the physical key of `generation` of the lease of node-a.
+fn lease_version_key(generation: u64) -> String {
+    format!(
+        "{}.v/{:020}",
+        node_lease_object_key("node-a"),
+        u64::MAX - generation
+    )
+}
+
+/// Returns the newest stored generation of the lease of node-a.
+async fn newest_lease_generation(metadata: &VersionedMetadataStore) -> u64 {
+    let prefix = format!("{}.v/", node_lease_object_key("node-a"));
+    let newest = metadata
+        .physical_keys(&prefix)
+        .await
+        .into_iter()
+        .next()
+        .expect("the lease has a version");
+    u64::MAX
+        - newest
+            .strip_prefix(&prefix)
+            .expect("the key is a lease version")
+            .parse::<u64>()
+            .expect("the suffix is an inverted generation")
+}
+
+/// Acquires the lease of node-a and returns it with its first validity deadline.
+async fn acquire_node_lease(
+    metadata: &VersionedMetadataStore,
+    config: &LeaseConfig,
+) -> (dexzd_cluster_metadata::LeaseHandle, Instant) {
+    create_initial_manifest(
+        metadata.process_store().as_ref(),
+        metadata.clock().as_ref(),
+        2,
+        &node(),
+    )
+    .await
+    .expect("create");
+    let handle = acquire_lease(metadata.process_store(), metadata.clock(), &node(), config)
+        .await
+        .expect("acquire");
+    let deadline = match *handle.subscribe().borrow() {
+        LeaseStatus::ValidUntil(deadline) => deadline,
+        LeaseStatus::Lost(ref detail) => panic!("the new lease was lost: {detail}"),
+    };
+    (handle, deadline)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_renewal_whose_response_was_lost_is_adopted_with_the_etag_it_reads() {
+    let metadata = VersionedMetadataStore::new(false);
+    let (handle, first_deadline) = acquire_node_lease(&metadata, &LeaseConfig::default()).await;
+    let mut status = handle.subscribe();
+    status.borrow_and_update();
+    *metadata
+        .faults
+        .lost_response_of_next_put_under
+        .lock()
+        .expect("fault lock is not poisoned") = Some(lease_version_key(
+        newest_lease_generation(&metadata).await + 1,
+    ));
+    tokio::time::timeout(Duration::from_secs(4), status.changed())
+        .await
+        .expect("the read confirms the renewal")
+        .expect("the status changes");
+    let renewed_deadline = match *status.borrow_and_update() {
+        LeaseStatus::ValidUntil(deadline) => deadline,
+        LeaseStatus::Lost(ref detail) => panic!("the landed renewal was lost: {detail}"),
+    };
+    let renewal_interval = LeaseConfig::default().duration / 3;
+    assert!(renewed_deadline >= first_deadline + renewal_interval);
+    assert!(renewed_deadline < first_deadline + renewal_interval + Duration::from_millis(100));
+    assert!(
+        metadata
+            .faults
+            .lost_response_of_next_put_under
+            .lock()
+            .expect("fault lock is not poisoned")
+            .is_none(),
+        "the renewal's create lost its response"
+    );
+    // The next renewal replaces the adopted version with the ETag a read returned.
+    tokio::time::timeout(Duration::from_secs(4), status.changed())
+        .await
+        .expect("the next renewal succeeds")
+        .expect("the status changes");
+    assert!(matches!(
+        *status.borrow(),
+        LeaseStatus::ValidUntil(deadline) if deadline > renewed_deadline
+    ));
+    handle.shutdown().await.expect("release");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_renewal_cut_off_between_its_create_and_its_confirmation_is_adopted_on_the_retry() {
+    let metadata = VersionedMetadataStore::new(false);
+    let (handle, first_deadline) = acquire_node_lease(&metadata, &LeaseConfig::default()).await;
+    let mut status = handle.subscribe();
+    status.borrow_and_update();
+    // Longer than the renewal attempt timeout, so the attempt is dropped after its create.
+    let renewal_generation = newest_lease_generation(&metadata).await + 1;
+    metadata.faults.delay_listing_after_put(
+        lease_version_key(renewal_generation),
+        Duration::from_secs(4),
+    );
+    tokio::time::timeout(Duration::from_secs(6), status.changed())
+        .await
+        .expect("the retry confirms the created renewal")
+        .expect("the status changes");
+    let renewed_deadline = match *status.borrow() {
+        LeaseStatus::ValidUntil(deadline) => deadline,
+        LeaseStatus::Lost(ref detail) => panic!("the created renewal was lost: {detail}"),
+    };
+    // Validity counts from the attempt that created the version.
+    let renewal_interval = LeaseConfig::default().duration / 3;
+    assert!(renewed_deadline >= first_deadline + renewal_interval);
+    assert!(renewed_deadline < first_deadline + renewal_interval + Duration::from_millis(100));
+    assert!(
+        metadata
+            .faults
+            .delayed_listing_after_put
+            .lock()
+            .expect("fault lock is not poisoned")
+            .is_none(),
+        "the renewal's confirmation was delayed"
+    );
+    handle.shutdown().await.expect("release");
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_old_holder_loses_the_lease_and_its_release_keeps_the_new_holder() {
+    let metadata = VersionedMetadataStore::new(false);
+    let config = LeaseConfig {
+        fail_fast: true,
+        ..LeaseConfig::default()
+    };
+    let (old_holder, _) = acquire_node_lease(&metadata, &config).await;
+    let mut old_status = old_holder.subscribe();
+    // The new process sees the old lease expired past its grace.
+    metadata
+        .clock
+        .offset_micros
+        .store(12_000_000, Ordering::SeqCst);
+    let new_holder = acquire_lease(metadata.process_store(), metadata.clock(), &node(), &config)
+        .await
+        .expect("take over");
+    assert_eq!(new_holder.epoch(), old_holder.epoch() + 1);
+    tokio::time::advance(Duration::from_secs(4)).await;
+    old_status.changed().await.expect("the status changes");
+    assert!(
+        matches!(&*old_status.borrow(), LeaseStatus::Lost(detail) if detail.contains("precondition failed"))
+    );
+    let store = metadata.process_store();
+    let lease_key = node_lease_object_key("node-a");
+    let before = store
+        .get(&lease_key)
+        .await
+        .expect("get")
+        .expect("the lease exists");
+    old_holder
+        .shutdown()
+        .await
+        .expect("the old release completes");
+    let after = store
+        .get(&lease_key)
+        .await
+        .expect("get")
+        .expect("the lease exists");
+    assert_eq!(after.etag, before.etag);
+    assert_eq!(after.bytes, before.bytes);
+    assert!(matches!(
+        *new_holder.subscribe().borrow(),
+        LeaseStatus::ValidUntil(_)
+    ));
+    new_holder.shutdown().await.expect("release");
 }

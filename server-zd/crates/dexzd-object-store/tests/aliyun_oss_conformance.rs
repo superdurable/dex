@@ -24,8 +24,9 @@ use bytes::Bytes;
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
     AliyunOssObjectStore, ByteRange, InMemoryObjectStore, InMemoryObjectStoreOptions,
-    InstrumentedObjectStore, MANIFEST_OBJECT_KEY, ObjectStore, ObjectStoreErrorKind,
-    WriteCondition, WriteOutcome, startup_self_check,
+    InstrumentedObjectStore, MANIFEST_OBJECT_KEY, MUTABLE_OBJECT_KEY_PREFIXES, MUTABLE_OBJECT_KEYS,
+    ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome, is_mutable_object_key,
+    node_lease_object_key, startup_self_check,
 };
 
 use create_only_store::{CreateOnlyStore, etag_generation, version_key};
@@ -548,4 +549,18 @@ async fn only_stores_with_replacement_everywhere_report_the_capability() {
     assert!(InMemoryObjectStore::new().supports_replace_if_etag_matches_on_every_key());
     let unrestricted = InMemoryObjectStore::with_options(InMemoryObjectStoreOptions::default());
     assert!(unrestricted.supports_replace_if_etag_matches_on_every_key());
+}
+
+#[test]
+fn mutable_object_keys_never_contain_the_version_separator() {
+    for key in MUTABLE_OBJECT_KEYS
+        .iter()
+        .chain(MUTABLE_OBJECT_KEY_PREFIXES.iter())
+    {
+        assert!(!key.contains('.'), "{key} contains '.'");
+        assert!(is_mutable_object_key(key));
+    }
+    assert!(is_mutable_object_key(&node_lease_object_key("node-a")));
+    assert!(!is_mutable_object_key("manifest/x"));
+    assert!(!is_mutable_object_key("snapshot/node-a/manifest/1"));
 }
