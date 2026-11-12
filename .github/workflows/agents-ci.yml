@@ -89,6 +89,17 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
+      # Pi's grep and find run rg and fd. PI_OFFLINE makes a missing one fail instead of downloading it.
+      - name: Install rg and fd for Pi
+        if: matrix.package.path == 'agents/cli/typescript/pi'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ripgrep fd-find
+          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+          rg --version
+          fd --version
+          echo "PI_OFFLINE=1" >> "$GITHUB_ENV"
       - name: Install Go
         if: matrix.package.language == 'go'
         uses: actions/setup-go@v7

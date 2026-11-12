@@ -182,6 +182,7 @@ download it again.
 | **DEXCLI** | The **dexcli** executable to run. |
 | **DEX_AGENTS_DEX_PORT**, **DEX_AGENTS_WEB_PORT** | The ports of the **dexcli dev** that **auto** reuses or starts. |
 | **DEX_AGENTS_DEXCLI_DOWNLOAD_URL** | The base URL of **dexcli** release downloads, such as a mirror. It must be https, or http on 127.0.0.1, localhost, or [::1]. |
+| **DEX_AGENTS_OPEN_BROWSER** | **0** or **false** keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. Since 0.6.0. |
 
 Any other **dex.server** value is the URL of a Dex server. The command
 connects to it and starts nothing. See [dexcli dev](/reference/cli/#start-locally)
@@ -514,9 +515,8 @@ the same store.
 Session settings cannot change the store. Keep every image for as long as its
 sessions may replay it: a missing image fails the turn.
 
-Every command except **dex-agents-pi** shows the images to its model. With
-**dex-agents-pi**, a message with images is not sent: the command says so and
-removes the attached images. Send the message again without them.
+Every command shows the images to its model. In **dex-agents-pi**, an image
+that **read** returns reaches the model too, after the result's text.
 
 ## Sessions in Dex Web {#dex-web}
 
@@ -554,9 +554,6 @@ graph and its Actions.
   [Harnesses with their own tools](#harness-tools).
 - **Claude Code tools can run twice.** In **dex-agents-claude-sdk**, a Worker
   that dies during a turn segment runs the segment again, with its tool calls.
-- **Pi takes no images.** **dex-agents-pi** does not send a message with
-  images. An image that its **read** tool returns reaches the model only as a
-  note naming the image type.
 - **Gemini sees no tool images in the Python built-in loop.**
   **dex-agents-builtin** in Python sends a Gemini model, a **gemini/**,
   **vertex_ai/**, or **vertex_ai_beta/** model, the images of user messages

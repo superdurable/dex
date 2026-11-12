@@ -46,7 +46,8 @@ npm ci
 npm run typecheck
 npm run build
 
-# Pi's grep and find need rg and fd. Pi downloads the missing ones, as it does for its users; the tests copy them.
+# Pi's grep and find need rg and fd. Pi uses them from PATH, else downloads them, as it does for its users; the tests
+# copy downloaded ones. With PI_OFFLINE=1, as in CI, a missing one fails here instead of downloading.
 if [[ -z "${DEX_AGENTS_PI_SEARCH_TOOLS_DIR:-}" ]]; then
   DEX_AGENTS_PI_SEARCH_TOOLS_DIR="$(mktemp -d)"
   trap 'rm -rf "$DEX_AGENTS_PI_SEARCH_TOOLS_DIR"' EXIT
@@ -54,7 +55,4 @@ fi
 export DEX_AGENTS_PI_SEARCH_TOOLS_DIR
 PI_CODING_AGENT_DIR="$DEX_AGENTS_PI_SEARCH_TOOLS_DIR" node dist/test/fixtures/download-search-tools.js
 
-# dexcli dev never starts a connectors MCP server, and nothing opens a browser.
-export DEX_CONNECTORS_MCP_BINARY="$DEX_AGENTS_PI_SEARCH_TOOLS_DIR/missing-dex-connectors-mcp"
-export DEX_AGENTS_OPEN_BROWSER=0
 npm test

@@ -19,6 +19,7 @@ import {
   readdirSync,
   realpathSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -261,11 +262,27 @@ export class TestHome {
     }
   }
 
-  /** Removes every `PATH` directory that has `rg`, `fd`, or `fdfind`, so Pi finds neither. */
+  /**
+   * Hides `rg`, `fd`, and `fdfind` from Pi: each `PATH` directory that has one, such as `/usr/bin`, is replaced by a
+   * directory of links to its other entries.
+   */
   public hideSearchTools(): void {
+    const hiddenNames = new Set(["rg", "fd", "fdfind"]);
     this.searchPath = this.searchPath
       .split(delimiter)
-      .filter((directory) => !["rg", "fd", "fdfind"].some((name) => isExecutable(join(directory, name))))
+      .map((directory, index) => {
+        if (![...hiddenNames].some((name) => isExecutable(join(directory, name)))) {
+          return directory;
+        }
+        const mirror = join(this.directory, "path-without-search-tools", String(index));
+        mkdirSync(mirror, { recursive: true });
+        for (const name of readdirSync(directory)) {
+          if (!hiddenNames.has(name)) {
+            symlinkSync(join(directory, name), join(mirror, name));
+          }
+        }
+        return mirror;
+      })
       .join(delimiter);
   }
 
@@ -307,9 +324,11 @@ export class TestHome {
     return {
       PATH: this.searchPath,
       HOME: this.directory,
-      // Pi never downloads rg or fd in a test, and dexcli dev never starts a connectors MCP server.
+      // Pi never downloads rg or fd in a test.
       PI_OFFLINE: "1",
-      DEX_CONNECTORS_MCP_BINARY: join(this.directory, "missing-dex-connectors-mcp"),
+      // A dexcli dev the command starts runs no published Connectors MCP release.
+      DEX_CONNECTORS_MCP_BINARY: join(this.directory, "dex-connectors-mcp-not-installed"),
+      // Tests never open the user's web browser.
       DEX_AGENTS_OPEN_BROWSER: "0",
       TMPDIR: tmpdir(),
       DEXCLI: dexcli,

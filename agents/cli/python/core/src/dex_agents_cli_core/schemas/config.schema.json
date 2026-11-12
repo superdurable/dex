@@ -86,7 +86,7 @@
     "workspace": {
       "$ref": "#/$defs/single_line_text",
       "default": "~/dex-agent-workspace",
-      "description": "The only directory the local file tools may read and write, and the working directory of shell commands. A leading ~ means the home directory; a relative path is relative to the directory of this configuration file."
+      "description": "The only directory the local file tools may read and write, and the working directory of shell commands. A leading ~ means the home directory; a relative path is relative to the directory of this configuration file. dex-agents-pi defaults to the directory the command starts in instead, and uses it only as the working directory of its own tools."
     },
     "local_tools": {
       "type": "object",

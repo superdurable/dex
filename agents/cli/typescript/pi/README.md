@@ -234,8 +234,10 @@ serves connector reads and writes, including tools named `read` and
 
 The tests set `PI_OFFLINE=1`, so Pi never downloads `rg` or `fd` during a
 test. Before the tests, `ci.sh` runs Pi's `grep` and `find` once with
-`PI_CODING_AGENT_DIR` set to a temporary directory, so Pi downloads the
-missing tools there; the `grep` and `find` test copies them into the private
-home's `~/.pi/agent/bin`. Set `DEX_AGENTS_PI_SEARCH_TOOLS_DIR` to keep that
-directory between runs. `ci.sh` also points `DEX_CONNECTORS_MCP_BINARY` at a
-missing file and sets `DEX_AGENTS_OPEN_BROWSER=0`.
+`PI_CODING_AGENT_DIR` set to a temporary directory. When `PATH` lacks a tool,
+Pi downloads it there, and the `grep` and `find` test copies it into the
+private home's `~/.pi/agent/bin`. Set `DEX_AGENTS_PI_SEARCH_TOOLS_DIR` to keep
+that directory between runs. Agents CI installs `ripgrep` and `fd-find` with
+apt instead and sets `PI_OFFLINE=1`, so a missing tool fails `ci.sh` rather
+than downloading. The test without `rg` and `fd` hides them by replacing each
+`PATH` directory that has one with a directory of links to its other entries.
