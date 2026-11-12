@@ -132,7 +132,7 @@ names, such as `send_user_message`, through `dex.RPCOptions.Name`, which the
 Go SDK gained after `sdk-go/v1.32.0`. Until a release contains it, `go.mod`
 requires a pseudo-version of that change. Package `remotesession` needs
 `dex.ClientOnlyFlow`, which the Go SDK adds in 1.46.0; until that release,
-`go.mod` replaces the Go SDK with the repository copy.
+`go.mod` requires a pseudo-version of the change too.
 
 ## Running an agent
 
