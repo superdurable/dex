@@ -10,6 +10,8 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { waitForQueuedOutput } from "../queued-output.js";
+
 /** Leave the alternate screen, turn off bracketed paste, and show the cursor. */
 const terminalResetSequence = "\u001b[?1049l\u001b[?2004l\u001b[?25h";
 
@@ -45,16 +47,25 @@ export class TerminalModeGuard {
 
 /**
  * Sends the launcher's own JavaScript writes to stdout and stderr into the log file while the terminal UI owns the
- * terminal, such as a framework's late warning. Bytes written to the file descriptors directly are not covered.
+ * terminal, such as a framework's late warning or a `console` call.
+ *
+ * It does not move fds 1 and 2: Node has no atomic `dup2`, and emulating one races with other threads. The launcher
+ * runs only CLI core code, which never writes to those fds directly, and every child it starts during the handoff
+ * gets a log file, a pipe, or nothing as its stdout and stderr.
  */
 export class LauncherOutputRedirect {
   private readonly originals: { readonly stdout: typeof process.stdout.write; readonly stderr: typeof process.stderr.write };
 
   /**
-   * Starts the redirect.
+   * Starts the redirect, after the output Node still queues for the terminal left.
    * @param logFilePath - The command's log file.
    */
-  public constructor(logFilePath: string) {
+  public static async start(logFilePath: string): Promise<LauncherOutputRedirect> {
+    await waitForQueuedOutput([process.stdout, process.stderr]);
+    return new LauncherOutputRedirect(logFilePath);
+  }
+
+  private constructor(logFilePath: string) {
     this.originals = { stdout: process.stdout.write, stderr: process.stderr.write };
     mkdirSync(dirname(logFilePath), { recursive: true });
     const toLog = ((chunk: string | Uint8Array, encodingOrCallback?: unknown, callback?: unknown): boolean => {
@@ -71,11 +82,6 @@ export class LauncherOutputRedirect {
     }) as typeof process.stdout.write;
     process.stdout.write = toLog;
     process.stderr.write = toLog;
-  }
-
-  /** Writes to the terminal, bypassing the redirect. */
-  public writeToTerminal(text: string): void {
-    this.originals.stderr.call(process.stderr, text);
   }
 
   /** Ends the redirect. */

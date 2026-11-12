@@ -8,7 +8,7 @@
 
 // The scripted test harness as a command, the way a harness package's bin calls the CLI core.
 
-import { existsSync, writeSync } from "node:fs";
+import { existsSync, writeFileSync, writeSync } from "node:fs";
 
 import { processAgentCliIo, runAgentCli, type AgentHarness } from "../../src/index.js";
 import {
@@ -64,5 +64,22 @@ if (spinFile !== undefined && process.argv[2] === "__worker-host") {
     }
   }, 100).unref();
 }
+// Once the file exists, the launcher's JavaScript writes to stdout and stderr, directly and through console.
+const launcherCanaryFile = process.env.DEX_AGENTS_CLI_TEST_LAUNCHER_CANARY_FILE;
+if (launcherCanaryFile !== undefined && process.argv[2] !== "__worker-host") {
+  const timer = setInterval(() => {
+    if (!existsSync(launcherCanaryFile)) {
+      return;
+    }
+    clearInterval(timer);
+    process.stdout.write("launcher canary stdout\n");
+    process.stderr.write("launcher canary stderr\n");
+    console.log("launcher canary console.log");
+    console.error("launcher canary console.error");
+    writeFileSync(`${launcherCanaryFile}.written`, "");
+  }, 100);
+  timer.unref();
+}
+
 const harness = variants[process.env[scriptedHarnessVariantVariable] ?? ""] ?? scriptedHarness;
 process.exit(await runAgentCli(harness, processAgentCliIo()));

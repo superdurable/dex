@@ -15,6 +15,9 @@ import { terminalUiSchemaValidator } from "./terminal-ui-schemas.js";
 export const launcherContractVersions: readonly number[] = Object.freeze([1]);
 /** How long `dexcli agents-tui --describe` may take. */
 const describeTimeoutMs = 5_000;
+/** The first `dexcli` release whose `agents-tui` speaks contract 1. */
+export const terminalUiMinimumDexcliVersion = "1.46.0";
+const newerDexcliHint = `The terminal UI needs dexcli ${terminalUiMinimumDexcliVersion} or later; point DEXCLI at one`;
 
 /** A mode of the terminal UI. */
 export type TerminalUiMode = "chat" | "sessions" | "connectors";
@@ -43,15 +46,24 @@ export function chooseContract(
 ): ContractChoice {
   const described = new Set(Object.keys(description.contracts).map(Number));
   const common = launcherContracts.filter((version) => described.has(version)).sort((left, right) => right - left);
+  if (described.size === 0) {
+    return { plainReason: "no_common_contract", detail: `dexcli ${description.dexcli_version} offers no terminal UI contract` };
+  }
   if (common.length === 0) {
-    return { plainReason: "no_common_contract", detail: `dexcli ${description.dexcli_version} shares no terminal UI contract with this command` };
+    const isCommandOlder = Math.min(...described) > Math.max(...launcherContracts);
+    return {
+      plainReason: "no_common_contract",
+      detail: `dexcli ${description.dexcli_version} speaks no terminal UI contract this command knows. ${
+        isCommandOlder ? "Upgrade this command to use it" : newerDexcliHint
+      }`,
+    };
   }
   for (const version of common) {
     if (mode in (description.contracts[String(version)]?.modes ?? {})) {
       return { contract: version };
     }
   }
-  return { plainReason: "mode_missing", detail: `dexcli ${description.dexcli_version} has no terminal UI ${mode} mode` };
+  return { plainReason: "mode_missing", detail: `dexcli ${description.dexcli_version} has no ${mode} terminal UI` };
 }
 
 /**
@@ -63,7 +75,7 @@ export function chooseContract(
 export async function negotiateTerminalUi(dexcli: string, mode: TerminalUiMode): Promise<ContractChoice> {
   const output = await runDescribe(dexcli);
   if (typeof output !== "object") {
-    return { plainReason: "describe_failed", detail: output };
+    return { plainReason: "describe_failed", detail: `${dexcli} has no terminal UI (${output}). ${newerDexcliHint}` };
   }
   return chooseContract(launcherContractVersions, output, mode);
 }
@@ -87,8 +99,8 @@ async function runDescribe(dexcli: string): Promise<TerminalUiDescription | stri
     chunks.push(chunk);
   });
   const exit = new Promise<string | number>((resolve) => {
-    child.once("error", (error) => resolve(`dexcli could not start: ${error.message}`));
-    child.once("close", (code, signal) => resolve(code ?? `dexcli ended by ${signal ?? "a signal"}`));
+    child.once("error", (error) => resolve(`it cannot run: ${error.message}`));
+    child.once("close", (code, signal) => resolve(code ?? `agents-tui --describe ended by ${signal ?? "a signal"}`));
   });
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<string>((resolve) => {
@@ -98,13 +110,13 @@ async function runDescribe(dexcli: string): Promise<TerminalUiDescription | stri
   clearTimeout(timer);
   if (status === "timeout") {
     child.kill("SIGKILL");
-    return `dexcli agents-tui --describe did not answer within ${describeTimeoutMs / 1000} seconds`;
+    return `agents-tui --describe did not answer within ${describeTimeoutMs / 1000} seconds`;
   }
   if (isTooLong) {
-    return "dexcli agents-tui --describe printed more than 1 MiB";
+    return "agents-tui --describe printed more than 1 MiB";
   }
   if (status !== 0) {
-    return typeof status === "string" ? status : `dexcli agents-tui --describe exited with ${status}`;
+    return typeof status === "string" ? status : `agents-tui --describe exited with code ${status}`;
   }
   return parseDescription(Buffer.concat(chunks));
 }
@@ -117,17 +129,17 @@ async function runDescribe(dexcli: string): Promise<TerminalUiDescription | stri
 export function parseDescription(stdout: Buffer): TerminalUiDescription | string {
   const body = stdout.at(-1) === 0x0a ? stdout.subarray(0, -1) : stdout;
   if (body.length > maxChannelLineBytes) {
-    return "dexcli agents-tui --describe printed more than 1 MiB";
+    return "agents-tui --describe printed more than 1 MiB";
   }
   let value: unknown;
   try {
     value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
   } catch {
-    return "dexcli agents-tui --describe did not print one JSON object";
+    return "agents-tui --describe did not print one JSON object";
   }
   const validate = terminalUiSchemaValidator("describe");
   if (!validate(value)) {
-    return "dexcli agents-tui --describe printed a document this command does not understand";
+    return "agents-tui --describe printed a document this command does not understand";
   }
   return value as TerminalUiDescription;
 }
