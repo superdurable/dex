@@ -1,18 +1,6 @@
 name: Rust Rules CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "**/clippy.toml"
-      - "script/check-rust-rules.py"
-      - "script/check_rust_rules_test.py"
-      - "script/rust-crate-layers.json"
-      - "script/rust-rules-baseline.json"
-      - "Makefile"
-      - ".github/workflows/rust-rules-ci.yml"
   pull_request:
     paths:
       - "**/*.rs"
@@ -25,13 +13,15 @@ on:
       - "Makefile"
       - ".github/workflows/rust-rules-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: rust-rules-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: rust-rules-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   RUSTUP_TOOLCHAIN: "1.97.1"

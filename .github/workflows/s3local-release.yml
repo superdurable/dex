@@ -16,6 +16,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Building pushes image digests, so it waits for the s3local suite on this commit.
+  tests:
+    name: S3local tests
+    uses: ./.github/workflows/s3local-ci.yml
+
   preflight:
     name: Verify release version
     runs-on: ubuntu-24.04
@@ -85,7 +90,7 @@ jobs:
 
   build:
     name: Build and smoke Linux ${{ matrix.arch }}
-    needs: preflight
+    needs: [preflight, tests]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:

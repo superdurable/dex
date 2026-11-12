@@ -1,22 +1,6 @@
 name: TypeScript SDK CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "sdk-typescript/**"
-      - "examples/typescript/decorator-free-rpc/**"
-      - "sdk-rust/Cargo.lock"
-      - "sdk-rust/Cargo.toml"
-      - "sdk-rust/crates/dex-blob-cache/**"
-      - "sdk-rust/crates/dex-blob-cache-node/**"
-      - "cli/**"
-      - "server-zd/**"
-      - "s3local/**"
-      - "protos/**"
-      - "web/**"
-      - ".github/workflows/sdk-typescript-ci.yml"
-      - ".github/workflows/sdk-typescript-publish.yml"
   pull_request:
     paths:
       - "sdk-typescript/**"
@@ -33,13 +17,15 @@ on:
       - ".github/workflows/sdk-typescript-ci.yml"
       - ".github/workflows/sdk-typescript-publish.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: sdk-typescript-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: sdk-typescript-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   contracts:

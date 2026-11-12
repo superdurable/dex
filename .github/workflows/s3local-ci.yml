@@ -1,23 +1,20 @@
 name: S3local CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "s3local/**"
-      - ".github/workflows/s3local-ci.yml"
   pull_request:
     paths:
       - "s3local/**"
       - ".github/workflows/s3local-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: s3local-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: s3local-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
