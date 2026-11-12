@@ -15,8 +15,13 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from dex_agents_cli_core.terminal_ui.contract import (
+    AUTH_ENVIRONMENT_NAMES,
+    TERMINAL_ENVIRONMENT_NAMES,
+)
 
 #: The ``dexcli`` release a command downloads when none is installed.
 DEXCLI_VERSION = "1.45.0"
@@ -38,6 +43,8 @@ DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_DOWNLOAD_URL"
 #:
 #: .. versionadded:: 0.6.0
 OPEN_BROWSER_ENVIRONMENT_VARIABLE = "DEX_AGENTS_OPEN_BROWSER"
+#: Set to ``1`` or ``true`` to chat in the ``dexcli`` terminal UI on a terminal; off by default.
+TERMINAL_UI_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TERMINAL_UI"
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,18 @@ class CommandEnvironment:
             any other value, or none, leaves it on.
 
             .. versionadded:: 0.6.0
+        is_terminal_ui_enabled: Whether ``run`` on a terminal may hand the chat
+            to the ``dexcli`` terminal UI. ``DEX_AGENTS_TERMINAL_UI`` set to
+            ``1`` or ``true`` turns it on; it is off otherwise.
+
+            .. versionadded:: 0.6.0
+        terminal_type: ``TERM``, or ``None`` when it is not set.
+
+            .. versionadded:: 0.6.0
+        terminal_variables: The variables the terminal UI may get: the
+            terminal, locale, and Dex auth variables that are set.
+
+            .. versionadded:: 0.6.0
     """
 
     home: Path
@@ -71,6 +90,9 @@ class CommandEnvironment:
     dexcli_release_base_url: str = DEXCLI_RELEASE_BASE_URL
     search_path: tuple[Path, ...] = ()
     is_browser_opening_enabled: bool = True
+    is_terminal_ui_enabled: bool = False
+    terminal_type: str | None = None
+    terminal_variables: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> CommandEnvironment:
@@ -104,6 +126,14 @@ class CommandEnvironment:
             .strip()
             .lower()
             not in ("0", "false"),
+            is_terminal_ui_enabled=values.get(TERMINAL_UI_ENVIRONMENT_VARIABLE, "").strip().lower()
+            in ("1", "true"),
+            terminal_type=values.get("TERM") or None,
+            terminal_variables={
+                name: values[name]
+                for name in (*TERMINAL_ENVIRONMENT_NAMES, *AUTH_ENVIRONMENT_NAMES)
+                if name in values
+            },
         )
 
     @property
