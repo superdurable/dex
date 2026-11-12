@@ -214,7 +214,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     for (const toolName of ["read_file", "write_file", "edit_file", "list_directory", "search_files", "run_shell_command"]) {
       assert.ok(!offered.includes(toolName), `${toolName} is not offered`);
     }
-    assert.match(JSON.stringify(offeredTool("bash")), /Timeout in seconds \(optional, no default timeout\)/);
+    assert.match(JSON.stringify(offeredTool("bash")), /Timeout in seconds; defaults to 120/);
     assert.match(JSON.stringify(offeredTool("grep")), /Respects \.gitignore/);
   });
 

@@ -25,6 +25,7 @@ export {
 } from "./pi-harness.js";
 export {
   PiCodingToolSource,
+  defaultBashTimeoutSeconds,
   maximumBashTimeoutSeconds,
   piCodingLocalTools,
   type PiCodingLocalTool,

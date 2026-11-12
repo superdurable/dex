@@ -70,7 +70,7 @@ approval:
   always: [bash]                  # optional: make every bash call wait
 pi:
   load_project_context: true      # add AGENTS.md files to the instructions
-  bash_timeout_seconds: 300       # optional: bash timeout when the model passes none
+  bash_timeout_seconds: 120       # bash timeout when the model passes none
   provider_base_urls:             # optional: replace a provider's URL
     anthropic: https://llm-proxy.example.com
 ```
@@ -78,7 +78,7 @@ pi:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `pi.load_project_context` | `true` | Whether each model call adds the project context files, as Pi does. See below. |
-| `pi.bash_timeout_seconds` | None | Seconds a `bash` command runs before it is killed when the model passes no `timeout`. A whole number from 1 to 600. Without it, as in Pi, such a command has no timeout. |
+| `pi.bash_timeout_seconds` | `120` | Seconds a `bash` command runs before it is killed when the model passes no `timeout`. A whole number from 1 to 600. Pi itself has no default timeout, because you can abort a command there; cancelling a Dex turn waits for a running tool call, so this command keeps one. |
 | `pi.provider_base_urls` | `{}` | An `http` or `https` URL per provider, which replaces the URL in pi-ai's catalog, such as a proxy or a compatible endpoint. |
 
 Any other key in the section is a configuration error.
@@ -149,8 +149,10 @@ and connector tools stay on top, and the agent can ask you questions with
   working directory, not a guardrail and not a sandbox. `bash` runs any
   command with your permissions, without approval by default. Use OS-level
   isolation, such as a container, when the agent must not reach other files.
-- A `bash` command without a `timeout` argument has no timeout, as in Pi,
-  unless `pi.bash_timeout_seconds` sets one. When a command's output is too
+- A `bash` command without a `timeout` argument is killed after
+  `pi.bash_timeout_seconds`, 120 by default. Unlike Pi, the command needs a
+  default: cancelling a turn waits for a running tool call to end. A
+  `timeout` from the model follows Pi's rules. When a command's output is too
   long, the result shows its end and names the temporary file with the full
   output, as Pi does. That file exists only on the machine whose Worker ran
   the command.

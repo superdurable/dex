@@ -261,7 +261,7 @@ any key in it is a configuration error.
 | Field | Default | Meaning |
 | --- | --- | --- |
 | **pi.load_project_context** | **true** | Each model call adds the project context files after the instructions, as Pi does: the **AGENTS.md** in Pi's global directory, **~/.pi/agent**, and the one in the workspace and in each directory above it, outermost first. In each directory, the first of **AGENTS.override.md**, **AGENTS.md**, **AGENTS.MD**, **CLAUDE.md**, and **CLAUDE.MD** counts. |
-| **pi.bash_timeout_seconds** | None | Seconds a **bash** command runs when the model passes no timeout. A whole number from 1 to 600. Without it, as in Pi, such a command has no timeout. |
+| **pi.bash_timeout_seconds** | **120** | Seconds a **bash** command runs when the model passes no timeout. A whole number from 1 to 600. Pi has no default timeout, but cancelling a turn waits for a running tool call, so the command keeps one. |
 | **pi.provider_base_urls** | Empty | An http or https URL per provider that replaces the URL in pi-ai's catalog, such as a proxy. |
 
 The Pi command reads the context files in every model call, so an edited file

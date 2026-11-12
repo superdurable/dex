@@ -80,6 +80,16 @@ export const piCodingLocalTools: Readonly<Record<string, PiCodingLocalTool>> = O
 });
 
 /**
+ * Seconds a `bash` command runs before it is killed when the model passes no `timeout`.
+ *
+ * Pi itself has no default timeout, because its user can abort a running command. Cancelling a Dex turn waits for a
+ * running tool Step instead, so the command keeps one.
+ *
+ * @since 0.5.0
+ */
+export const defaultBashTimeoutSeconds = 120;
+
+/**
  * The largest `bash` default timeout in seconds that `pi.bash_timeout_seconds` may set.
  *
  * @since 0.5.0
@@ -105,7 +115,8 @@ const refusalReferenceKey = "refused";
  * - A failure before a `write` or `edit` wrote its file, or before `bash` started its shell, records `failed`, and the
  *   model sees why. A `bash` command that exits with a non-zero code or that its timeout killed records `failed`
  *   too, with its output. Any other failure after the effect started records `outcome_unknown`.
- * - A call without `timeout` gets the source's default timeout when it has one; otherwise, as in Pi, it has none.
+ * - A call without `timeout` gets the source's default timeout, because cancelling a turn does not stop a running
+ *   tool Step. A `timeout` from the model follows Pi's rules.
  * - `bash` output that Pi writes as it runs reaches the session as `pi.tool_progress` events.
  * - With `HarnessContext.mediaStore`, the images a tool returns, such as `read` of a PNG, are uploaded to it in the
  *   tool Step and reach the model after the output text: at most `maxImagesPerMessage` accepted images, and a
@@ -129,18 +140,15 @@ export class PiCodingToolSource implements ToolSource {
    * Creates the source.
    *
    * @param context - The harness context: the workspace, the per-turn configuration, and the tool Step permissions.
-   * @param bashTimeoutSeconds - Seconds a `bash` command runs when the model passes no `timeout`, or `undefined` for
-   * no timeout, as in Pi. Changed in 0.6.0: defaults to `undefined` instead of 120.
+   * @param bashTimeoutSeconds - Seconds a `bash` command runs when the model passes no `timeout`; defaults to
+   * {@link defaultBashTimeoutSeconds}.
    * @throws {RangeError} When `bashTimeoutSeconds` is not a whole number from 1 to {@link maximumBashTimeoutSeconds}.
    */
   public constructor(
     private readonly context: HarnessContext,
-    private readonly bashTimeoutSeconds?: number,
+    private readonly bashTimeoutSeconds: number = defaultBashTimeoutSeconds,
   ) {
-    if (
-      bashTimeoutSeconds !== undefined &&
-      (!Number.isSafeInteger(bashTimeoutSeconds) || bashTimeoutSeconds < 1 || bashTimeoutSeconds > maximumBashTimeoutSeconds)
-    ) {
+    if (!Number.isSafeInteger(bashTimeoutSeconds) || bashTimeoutSeconds < 1 || bashTimeoutSeconds > maximumBashTimeoutSeconds) {
       throw new RangeError(`bashTimeoutSeconds must be a whole number from 1 to ${maximumBashTimeoutSeconds}`);
     }
     this.workspace = realpathSync.native(context.workspace);
@@ -245,7 +253,7 @@ export class PiCodingToolSource implements ToolSource {
       ...(this.context.mediaStore === undefined ? {} : { mediaStore: this.context.mediaStore }),
     };
     const executedArguments =
-      toolName === "bash" && toolArguments["timeout"] === undefined && this.bashTimeoutSeconds !== undefined
+      toolName === "bash" && toolArguments["timeout"] === undefined
         ? { ...toolArguments, timeout: this.bashTimeoutSeconds }
         : toolArguments;
     return toToolExecutionResult(await functionTool.execute(executedArguments, context));
@@ -261,11 +269,8 @@ export class PiCodingToolSource implements ToolSource {
     return Promise.reject(new ToolExecutionError("Pi tools start no tasks"));
   }
 
-  /** Replaces Pi's "no default timeout" text when this source applies one. */
+  /** Replaces Pi's "no default timeout" text, since this source applies one. */
   private describeBashTimeout(parameters: Record<string, unknown>): Record<string, unknown> {
-    if (this.bashTimeoutSeconds === undefined) {
-      return parameters;
-    }
     const properties = parameters["properties"] as Record<string, Record<string, unknown>>;
     return {
       ...parameters,

@@ -9,17 +9,14 @@ section: Breaking
   any path you can, including absolute paths, `~`, links, and hard links.
   `grep` and `find` run `rg` and `fd` and respect `.gitignore`; Pi downloads
   a missing one to `~/.pi/agent/bin` unless `PI_OFFLINE` is set.
-- `dex-agents-pi`: a `bash` command without `timeout` has no timeout unless
-  `pi.bash_timeout_seconds` sets one; the default was 120 seconds. A `timeout`
-  from the model is no longer capped at 600 seconds. A non-zero exit or a
-  timeout kill records `failed` with the output instead of a result. A cut
-  output names Pi's temporary file, which the command no longer deletes.
+- `dex-agents-pi`: a `timeout` from the model follows Pi's rules and is no
+  longer capped at 600 seconds; `pi.bash_timeout_seconds` still applies,
+  120 by default, when the model passes none. A non-zero exit or a timeout
+  kill records `failed` with the output instead of a result. A cut output
+  names Pi's temporary file, which the command no longer deletes.
 - `dex-agents-pi`: without `workspace` in the file, the workspace is the
   directory the command starts in, and `init` writes no `workspace`. A file
   that an earlier `init` wrote keeps its `workspace: ~/dex-agent-workspace`.
   A session started without a file resumes only with that line in the file.
 - `@superdurable/dex-agents-pi-cli`: `WorkspaceGrep`,
-  `defaultGrepMatchTimeoutMs`, `WorkspaceGrepArguments`, and
-  `defaultBashTimeoutSeconds` are removed. `PiCodingToolSource`'s
-  `bashTimeoutSeconds` defaults to none, and `PiSection.bashTimeoutSeconds`
-  may be `undefined`.
+  `defaultGrepMatchTimeoutMs`, and `WorkspaceGrepArguments` are removed.

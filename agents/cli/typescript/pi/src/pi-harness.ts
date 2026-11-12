@@ -11,7 +11,12 @@ import type { AgentSessionFlow } from "@superdurable/dex-agents";
 import { createBuiltinAgentSessionFlow, type BuiltinLoopAgentRunner } from "@superdurable/dex-agents/builtin-loop";
 import { ConfigError, type AgentHarness, type HarnessContext } from "@superdurable/dex-agents-cli-core";
 
-import { maximumBashTimeoutSeconds, PiCodingToolSource, piCodingLocalTools } from "./pi-coding-tool-source.js";
+import {
+  defaultBashTimeoutSeconds,
+  maximumBashTimeoutSeconds,
+  PiCodingToolSource,
+  piCodingLocalTools,
+} from "./pi-coding-tool-source.js";
 import { PiModelClients } from "./pi-model-clients.js";
 import { PrefixedConnectorToolSource } from "./prefixed-connector-tool-source.js";
 import { ProjectContextFiles, type ProjectContextFile } from "./project-context-files.js";
@@ -59,11 +64,11 @@ export interface PiSection {
    */
   readonly providerBaseUrls: Readonly<Record<string, string>>;
   /**
-   * Seconds a `bash` command runs before it is killed when the model passes no `timeout`, or `undefined` for no
-   * timeout, as in Pi. `bash_timeout_seconds` in the file, a whole number from 1 to `maximumBashTimeoutSeconds`.
-   * Changed in 0.6.0: defaults to `undefined` instead of 120.
+   * Seconds a `bash` command runs before it is killed when the model passes no `timeout`.
+   * `bash_timeout_seconds` in the file, a whole number from 1 to `maximumBashTimeoutSeconds`; defaults to
+   * `defaultBashTimeoutSeconds`, 120.
    */
-  readonly bashTimeoutSeconds: number | undefined;
+  readonly bashTimeoutSeconds: number;
 }
 
 /**
@@ -167,17 +172,15 @@ export function readPiSection(options: Readonly<Record<string, unknown>>): PiSec
       throw new ConfigError("schema", `/pi/${escapeJsonPointer(key)}`, "additionalProperties");
     }
   }
-  const bashTimeoutSeconds = options["bash_timeout_seconds"];
-  if (bashTimeoutSeconds !== undefined) {
-    if (typeof bashTimeoutSeconds !== "number" || !Number.isSafeInteger(bashTimeoutSeconds)) {
-      throw new ConfigError("schema", "/pi/bash_timeout_seconds", "type");
-    }
-    if (bashTimeoutSeconds < 1) {
-      throw new ConfigError("schema", "/pi/bash_timeout_seconds", "minimum");
-    }
-    if (bashTimeoutSeconds > maximumBashTimeoutSeconds) {
-      throw new ConfigError("schema", "/pi/bash_timeout_seconds", "maximum");
-    }
+  const bashTimeoutSeconds = options["bash_timeout_seconds"] ?? defaultBashTimeoutSeconds;
+  if (typeof bashTimeoutSeconds !== "number" || !Number.isSafeInteger(bashTimeoutSeconds)) {
+    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "type");
+  }
+  if (bashTimeoutSeconds < 1) {
+    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "minimum");
+  }
+  if (bashTimeoutSeconds > maximumBashTimeoutSeconds) {
+    throw new ConfigError("schema", "/pi/bash_timeout_seconds", "maximum");
   }
   const isProjectContextLoaded = options["load_project_context"] ?? true;
   if (typeof isProjectContextLoaded !== "boolean") {
