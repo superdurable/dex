@@ -27,6 +27,7 @@ The mock API prints each call, so the Worker's output shows which Steps ran. You
 - `dexcli`: install it with **brew install superdurable/tap/dexcli**, or see [Run Locally](/components/run-locally) to install it without Homebrew.
 - The toolchain for your language: Python 3.11 or later with uv, Go 1.24 or later, JDK 17 or later, Node.js 22.18 or later, or Rust 1.97 or later.
 - Git, to get the example code.
+- Three terminals: one for `dexcli dev`, one for the Worker, and one to start Flows.
 
 ## 1. Install Dex and get the code
 
@@ -49,6 +50,8 @@ State dir:     /Users/you/.dex/zd/8801
 
 Press Ctrl+C to stop.
 ```
+
+This Quick Start does not use the **Connectors MCP** address; you can ignore it.
 
 Keep it running. Log lines from the server scroll above this block.
 
@@ -906,7 +909,7 @@ Worker is ready (process 41502). Press Ctrl+C to stop it.
 Charge for order-5e6f7a8b already done (key charge-order-5e6f7a8b); not charged again
 ```
 
-Thirty seconds later, the Worker ships the order.
+When the Ship Timer fires, 60 seconds after Charge finishes by default, the Worker ships the order.
 
 ## 7. See the run in Dex Web
 

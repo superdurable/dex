@@ -263,9 +263,12 @@ other two.
   can repeat a method that already called an external system. So a Step runs
   at least once, not exactly once. The next section says how to make that
   safe.
-- **A retry sees the state of its first attempt.** A retry of `Execute`
-  reuses the state snapshot of the first attempt. It does not see Attribute
-  writes made since then. To wait for such a write, have the writer publish a
+- **A retry sees the state of its first attempt.** A method's **state
+  snapshot** is the Flow state that Dex passes to it: every ordinary Attribute,
+  the size of every Channel, and the AttributeMap values and pending Channel
+  messages that its `StepOptions` select. Dex takes it when it hands attempt 1
+  to a Worker. A retry of `Execute` reuses that snapshot, so it does not see
+  Attribute writes made since then. To wait for such a write, have the writer publish a
   Channel message, and wait for it in the next Step's `WaitFor`. Hard-delete
   Attributes are the exception: Dex reads them again on every attempt. See
   [Short-lived secrets](/concepts/primitives/attribute#hard-delete-attributes).
@@ -388,15 +391,21 @@ case: [Python](/reference/python/failure-and-retries#failure-and-redelivery) ·
 
 A Step's **durability** chooses when Dex stores its progress.
 
-- **SYNC** is the default. Dex stores the start of each attempt before the
-  Worker receives it, and stores the result before the Flow moves on. Each of
-  these waits for a write to object storage.
+- **SYNC** is the default. A SYNC Step waits for two log commits: the attempt
+  start, before the Worker receives the task, and the result, before the Flow
+  moves on. Each commit is one write to object storage. Dex groups the
+  commands that are ready at the same moment into one commit, so a commit can
+  carry the work of many Flows.
 - **ASYNC** hands the task to the Worker, and starts the next work, before the
   start and the result are stored. Dex batches these writes over about 20
   milliseconds. A single Flow runs faster. If a Dex Server node fails before
   the write, Dex runs the same attempt again on a new state snapshot, so it
   can read different Attribute values. Later work that started from the lost
-  result runs again too.
+  result runs again too, up to the first SYNC Step. Dex writes a Flow's
+  commands to its log in order, so once a SYNC Step's start is stored, every
+  earlier command of that Flow, including an ASYNC result, is stored too. A
+  SYNC Step that a Worker has received therefore does not run again because an
+  earlier ASYNC result was lost.
 
 Choose **SYNC** for effects that need the tightest guarantees. Choose
 **ASYNC** for short Steps where latency matters and a rare rerun is

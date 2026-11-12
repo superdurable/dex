@@ -89,8 +89,18 @@ checks instead:
    reach.** A Worker that lacks one hands the call to another Worker. If none has
    it, a Step waits in the queue and an RPC fails.
 3. **Run the integration tests of the new build against Flows started by the old
-   one.** Start Flows with the old build, stop it, start the new build, and let
-   them finish. [Test Your Flows](/components/testing) shows the setup.
+   one.** [Test Your Flows](/components/testing) shows the setup. The Quick
+   Start's restart test is the shape to copy: it stops one Worker in the middle
+   of a Flow and finishes the Flow with another. For a version check:
+   1. Check out the old build. Start a Worker from it, start Flows, and wait
+      until each reaches the Step you care about, with
+      `wait_for_step_completion` or a search on `ActiveStepTypes`.
+   2. Stop that Worker gracefully.
+   3. Start a Worker from the new build against the same Dex Server. Skip any
+      Timers with `skip-timer`, send the messages the Flows wait for, and wait
+      for each Flow to finish.
+   4. Check each Flow's result and Attributes, and that the new build raised no
+      decoding error.
 
 ### Example: add a fee to Charge {#versioning-example}
 

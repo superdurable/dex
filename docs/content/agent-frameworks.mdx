@@ -8,9 +8,14 @@ sidebar_label: Overview
 
 Dex runs an AI agent as a durable agent session. You can build the agent with the built-in agent loop of Dex Agents, or keep an agent that you already wrote with an agent framework. Both run on the same session Flow, so sessions behave the same either way.
 
-:::info What you run
+:::info What changes in your app
 
-You run Dex Server next to your app. Dex is in Beta, and Dex Server is at version 0.1. [Performance and Maturity](/intro/performance-and-maturity) gives the numbers and the license. [Run Dex in Production](/components/production) lists what to set up.
+- **Your agent definition stays.** You wrap it and give each tool a policy.
+- **Your request handler changes shape.** It sends the user's message to the session and returns. The reply arrives on the session's event stream, or in its snapshot.
+- **You run two more things.** A Worker process runs the session Steps, and Dex Server stores them. You host Dex Server yourself. Dex is in Beta, Dex Server is at version 0.1, and one active node serves a cluster.
+- **Each turn waits on Dex commits.** A turn with three parallel tool calls adds about 0.4 seconds; see [Latency and cost](/agent-frameworks/sessions#latency-and-cost).
+
+[Agents in Production](/agent-frameworks/production) lists what to set up, and [Performance and Maturity](/intro/performance-and-maturity) gives the numbers and the license.
 
 :::
 
@@ -37,6 +42,9 @@ To see it, run the [Agent Quick Start](/agent-frameworks/quick-start), or read t
 | **Client** | The part of your app that starts sessions and calls them. |
 | **Attribute** | A named value that a Flow keeps. A session keeps its conversation and tool calls in Attributes. |
 | **Interrupt** | A point where a turn waits for a person. An approval is an interrupt: the snapshot lists it under `pending_interrupts`, and `resolve_interrupt` answers it. A question to the user is the other kind. |
+| **SYNC** | Each agent session Step is SYNC: Dex stores its result in object storage before the session moves on. |
+| **Blob cache** | A local, size-limited directory where a Worker or Client keeps large values. It holds only copies, so it can live on ephemeral disk and is safe to lose. See [Registry and blob cache](/components/application#blob-cache). |
+| **Activation** | The burst of Steps between two durable waits: it starts when the session takes a user message or an approval answer, and ends when the session waits again. [Tracing](/reference/agents/tracing) emits one trace per activation. |
 | **Turn segment** | In the Claude Agent SDK, the part of a turn that one CLI run handles, in one `RunModel` Step. A write tool call ends a segment. |
 
 The Steps of one turn, such as `RunModel` and `CallSingleAttemptTool`, are listed in [Sessions](/agent-frameworks/sessions#a-durable-agent-session). [Concepts](/concepts) explains Flows, Steps, and the other Dex building blocks.
@@ -50,6 +58,9 @@ The Steps of one turn, such as `RunModel` and `CallSingleAttemptTool`, are liste
 - [Connectors as Tools](/agent-frameworks/connectors-as-tools): call official Connector operations from the agent.
 - [Agents in Production](/agent-frameworks/production): the checklist before you run sessions in production.
 - [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop): build a new agent without a framework.
+
+Operating agents:
+
 - [Tracing](/reference/agents/tracing): OpenTelemetry spans for each model call and tool call, next to your framework's own spans.
 - [Upgrades](/reference/agents/upgrades): how a deploy reaches sessions that are already running.
 - [Session limits](/reference/agents/session-limits): the state limit, message retention, and compaction.

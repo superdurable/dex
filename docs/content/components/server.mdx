@@ -20,7 +20,8 @@ ships as one binary, **dex-server-zd**; its releases and the
 | A PostgreSQL Attribute Store | No | Copies of selected Attributes in your own tables. See [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection). |
 | A metrics listener | No | Prometheus metrics. See [Metrics](/reference/server/metrics). |
 
-db9 is a separate database product that speaks the PostgreSQL wire protocol.
+Can you use your own PostgreSQL for Dex Server's state? Not today. db9 is a
+separate database product that speaks the PostgreSQL wire protocol.
 Dex Server can keep its command logs, lease, snapshots, and values there
 instead of in S3. Stock PostgreSQL is not a supported production store for
 this today, although the db9 provider's tests also run against PostgreSQL 16.

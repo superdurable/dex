@@ -43,8 +43,8 @@ cargo add dex-sdk                                # Rust
 For Java, add `io.superdurable:dex-sdk` from Maven Central to your Gradle or
 Maven build.
 
-Pin the SDK version in your build, as the [Quick Start](/quick-start) examples
-do. An SDK and a Dex Server work together when their protocol ranges overlap,
+The lines above install the newest release. Pin the version in your build:
+use the version your [Quick Start](/quick-start) example pins. An SDK and a Dex Server work together when their protocol ranges overlap,
 not when their version numbers match; [Upgrades](/reference/server/upgrades)
 explains the rule.
 
@@ -98,7 +98,10 @@ A Worker and a Client each take two more objects:
 - **A Registry of your Flows.** The Worker runs the Steps and RPCs of the
   Flows in it. The Client uses the same definitions to encode a Flow's start
   input and its RPC arguments, and to decode results. So a Client builds the
-  Flow objects too, even though it never runs a Step. A service in another language either has the Flow code in its
+  Flow objects too, even though it never runs a Step. Pass stand-ins for the
+  Flow's services in a process that only starts Flows, because the Client never
+  calls them; [Start Flows from an API service](/concepts/client#start-from-an-api-service)
+  explains this. A service in another language either has the Flow code in its
   own language, or calls the FlowService `StartFlow` request over gRPC with
   the Flow type and an input that the Flow can decode, as
   **dexcli flow start** does.

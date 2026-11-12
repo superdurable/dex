@@ -2,7 +2,7 @@
 id: what-is-dex
 title: Why Dex?
 sidebar_label: Why Dex?
-description: Dex records each Step of a process as it runs, so the process continues after a crash, a restart, or a long wait. This page shows the problem with an order process, how Dex models it, and how Dex differs from replay-based durable execution.
+description: Dex records each Step of a process as it runs, so the process continues after a crash, a restart, or a long wait. This page shows the problem with an order process and how Dex models it.
 ---
 
 import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
@@ -16,11 +16,7 @@ After a crash or a restart, the process continues from the last recorded Step. I
 
 A Step that was cut off in the middle can run again, so each call to another system passes an idempotency key: a value that lets that system recognize a repeat and skip it. [Idempotency keys](/concepts/step#idempotency-keys) shows how to build one.
 
-:::info What you run
-
-You run Dex Server yourself, next to your own Workers. It stores every Flow in object storage, such as Amazon S3, and can have a standby that takes over if it stops. No hosted option is documented. Dex is in Beta, and Dex Server is at version 0.1. [Run Dex in Production](/components/production) lists what to set up, and [Performance and Maturity](/intro/performance-and-maturity) gives the numbers and the release status.
-
-:::
+You run Dex Server yourself, next to your Workers; [Get Started](/get-started) says what that takes.
 
 ## The problem
 
@@ -67,11 +63,11 @@ Your application contains a **Worker** and a **Client**, both built with the Dex
 
 <DexSystemDiagram markdownDescription="The Client calls Dex Server with startFlow and invokeRPC. Dex Server calls the Worker to run Steps and RPCs." />
 
-## How this differs from replay-based durable execution
+<a id="how-this-differs-from-replay-based-durable-execution"></a>
 
-Replay-based engines rebuild a workflow's state by replaying its event history, so workflow code must be deterministic. Dex does not replay code, so a code change cannot break a running Flow with a replay error.
+## Coming from another durable execution tool
 
-[Compared to Existing Durable Execution](/intro/compared-to-durable-execution) maps each tool family's terms onto Dex, and says when another tool fits better.
+Dex does not replay your code, so a code change cannot break a running Flow with a replay error. [Compared to Existing Durable Execution](/intro/compared-to-durable-execution) has the details.
 
 ## Next steps
 

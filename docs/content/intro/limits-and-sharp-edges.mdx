@@ -31,8 +31,8 @@ links to the page that covers it.
 ## Capacity and availability
 
 - **One active node is the ceiling of a cluster.** Dex divides a cluster's
-  Flows and task queues into partitions, and today one node owns every
-  partition. So a larger load needs a larger node or a separate cluster. See
+  Flows and task queues into partitions, which are fixed slices of that
+  state. Today one node owns every partition. So a larger load needs a larger node or a separate cluster. See
   [Grow past one node](#grow-past-one-node) and
   [Performance and Maturity](/intro/performance-and-maturity).
 - **Failover takes up to the lease duration plus 1 second.** The lease is 10
@@ -48,8 +48,10 @@ links to the page that covers it.
   [Failover and Deploys](/concepts/failover-and-deploys).
 - **The partition count is fixed at the first start.** The first start
   records `cluster.partitionCount`, 1024 by default for **serve**, and a
-  later start with a different count fails. Choose it before the first
-  production start. See
+  later start with a different count fails. Most clusters keep the default.
+  Fewer partitions make each SearchFlows call with the built-in search scan
+  less, so choose the count before the first production start if search
+  speed matters. See
   [Partition count](/reference/server/configuration#single-node-partition-count).
 - **Some upgrades stop the cluster.** Some server releases need every server
   process stopped, standbys included, before the new version starts. Upgrades

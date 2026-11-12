@@ -10,7 +10,7 @@ An approval asks whether a tool call should happen at all. A call that needs app
 
 ## How an approval works {#approvals}
 
-A tool's policy decides whether its calls wait for approval. By default, non-idempotent and unclassified writes wait, and reads and idempotent writes do not. [Require approval](/agent-frameworks/tool-calls#require-approval) shows how to change that per tool.
+A tool's policy decides whether its calls wait for approval; [Require approval](/agent-frameworks/tool-calls#require-approval) gives the defaults and how to change them per tool.
 
 Approval is separate from retry: a refund with an idempotency key is still a real refund.
 
@@ -22,7 +22,7 @@ While an approval waits, the turn waits with it, and new user messages queue unt
 
 Your application answers a pending call with the session Flow's `resolve_interrupt` RPC. It passes the interrupt ID, whether the call is approved, and an optional message for the model. In Python, `AgentSessionClient` wraps the RPC as `resolve_interrupt`. The snapshot from `get_agent_snapshot` lists pending calls under `pending_interrupts`.
 
-The example apps expose this RPC as an HTTP route:
+The example apps expose this RPC as an HTTP route. These are excerpts: the request helpers, such as `session_request`, are in each tab's linked file. The [complete quick start app](/agent-frameworks/quick-start#web-handler) shows the same route with nothing left out.
 
 <SdkTabs
   examples={{

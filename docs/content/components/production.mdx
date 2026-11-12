@@ -16,7 +16,7 @@ decide and set up before launch. Each item links to the page with the details.
 | Item | What to know | Details |
 | --- | --- | --- |
 | Topology | One active Dex Server node serves the cluster. Hot standby nodes can take over when it stops. The active node holds a lease in object storage. | [Dex Server](/components/server), [Lease, hot standby, and step down](/reference/server/high-availability) |
-| Capacity and cost | Size the node from the measured peaks and the S3 request cost. Past one node, run separate clusters. | [Performance and Maturity](/intro/performance-and-maturity), [Grow past one node](/intro/limits-and-sharp-edges#grow-past-one-node) |
+| Capacity and cost | Size the node from the measured peaks and the S3 request cost. As a starting point derived from the benchmark, a 2-vCPU node peaked near 1,800 SYNC Steps per second and a 16-vCPU node near 8,400; start small and watch CPU, which is the limit. Past one node, run separate clusters. | [Performance and Maturity](/intro/performance-and-maturity), [Grow past one node](/intro/limits-and-sharp-edges#grow-past-one-node) |
 | Storage | Object storage, such as Amazon S3, holds all server state. The db9 provider can replace it with a PostgreSQL-compatible database. Give each cluster its own bucket prefix and an IAM policy confined to it. | [Object storage and backup](/reference/server/object-storage) |
 | Search backend | The built-in search needs no database. For large or frequent searches, project search documents to PostgreSQL or ParadeDB. | [Search backends](/reference/server/search), [Dex Server dependencies](/components/server#dependencies) |
 | Configuration | **serve** reads one YAML file. Start from the [minimal configuration](#minimal-configuration) below. | [Install and configure server-zd](/reference/server/configuration) |
@@ -58,6 +58,6 @@ Replace `BUCKET` and `PREFIX` with your bucket and key prefix. `cluster.nodeId`,
 - A Flow that does not advance or that failed:
   [Troubleshoot a Flow run](/reference/web/debugging).
 - Recover a Flow after a fix by running it again from an earlier Step:
-  [Time Travel](/components/application#time-travel).
+  [Time Travel](/concepts/change-flow-code#time-travel).
 - Agent sessions in production:
   [Agents reference](/reference/agents).

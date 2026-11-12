@@ -48,8 +48,29 @@ error, and nothing is stored.
 The FlowService request `PublishToChannel` stores Channel messages on the
 server with no Worker connected. A waiting Step wakes when a Worker runs again.
 The SDK Clients do not expose this request. Call it through gRPC or with
-**dexcli api call PublishToChannel**. A repeated publish is not dropped today;
-see [Limits and Sharp Edges](/intro/limits-and-sharp-edges).
+`dexcli api call PublishToChannel`.
+
+## Send a command at most once {#inbound-commands}
+
+Dex does not drop a repeated command today. An RPC that the caller retries
+after a lost response runs again, and a repeated `PublishToChannel` delivers
+the message twice. [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat)
+tracks the planned fix.
+
+Pick the path by what must hold when no Worker runs:
+
+- An **RPC** answers at once and can return a value, but it needs a running
+  Worker.
+- **`PublishToChannel`** stores the command with no Worker connected, and a
+  waiting Step handles it later.
+
+Until Dex drops repeats, drop them inside the Flow. Give each command a
+request ID from your caller, and send it with the RPC arguments or the
+Channel message. Keep the IDs that the Flow has handled in an Attribute or an
+AttributeMap. The RPC or the Step that handles the command checks that record
+first, and does nothing for an ID it already handled. If more than one Step or
+RPC can handle commands at the same time, [lock](/concepts/primitives/attribute#locking)
+that record.
 
 ## How it relates to the other Primitives {#related-primitives}
 

@@ -29,6 +29,28 @@ session can run on different versions.
   every Worker of the Flow type on the older release before any Worker on the
   newer release starts. [Release notes](#release-notes) lists these releases.
 
+### What a stop does to in-flight calls {#in-flight-calls}
+
+A release that needs every older Worker stopped, or a server upgrade that
+stops every server process, interrupts the calls that are running:
+
+- A Worker that you stop gracefully lets running handlers finish for the drain
+  timeout, 30 seconds by default, and then cancels them. A cancelled model call
+  or `CallTool` runs again later. A single-attempt tool that was cancelled
+  records `outcome_unknown`. See [Graceful stop](/reference/agents/workers#graceful-stop).
+- A server stop fails every attempt that a Worker had received. A
+  single-attempt tool among them records `outcome_unknown`. See
+  [Agent tools and server upgrades](/concepts/failover-and-deploys).
+- While no Worker runs, `send_user_message`, `resolve_interrupt`, and the other
+  session RPCs fail with **Unavailable** after 10 seconds. Retry them as
+  [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy)
+  describes.
+
+To keep these to a minimum, stop the Workers gracefully before the upgrade,
+with a drain timeout above your usual tool call time, and check the sessions
+that record `outcome_unknown` afterwards; see
+[Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown).
+
 See [Versioning Flow code](/concepts/change-flow-code#versioning-flow-code)
 for the general rules.
 

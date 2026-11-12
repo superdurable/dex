@@ -225,13 +225,23 @@ If you know iWF, Dex grew out of it. A Dex Step is an iWF State, and `WaitFor` i
 
 ## Replay-based workflow engines
 
+**Coming from Temporal?** Read these in order:
+
+1. [The main difference](#the-main-difference-an-explicit-step-graph-not-replayed-code) and [Determinism moved](#determinism-moved-it-did-not-vanish) on this page.
+2. [Step](/concepts/step), for the guarantees and the defaults.
+3. [Failover and Deploys](/concepts/failover-and-deploys), for what runs again.
+4. [Change Flow Code](/concepts/change-flow-code), for versioning without replay.
+5. [Attribute locks](/concepts/primitives/attribute#locking), for state shared by parallel Steps.
+6. [Client](/concepts/client), for starting Flows and sending commands.
+7. [Performance and Maturity](/intro/performance-and-maturity) and [Limits and Sharp Edges](/intro/limits-and-sharp-edges).
+
 Temporal and Cadence are the best-known examples. A workflow function runs on a Worker. The engine records an event history, and the Worker replays the function against that history to rebuild its state. Side effects go in activities. Workflow code must be deterministic. It reads the time or a random value only through deterministic APIs, such as `workflow.Now` and `SideEffect`.
 
 | Temporal or Cadence term | Nearest Dex term |
 | --- | --- |
 | Workflow type and Workflow ID | Flow type and Flow ID |
 | Run ID | Run ID |
-| Activity | The work inside a Step's `Execute`. The whole `Execute` is one retry unit. For one durable call per unit, give each call its own Step. Each SYNC Step costs one commit to object storage, about 105 ms at p50 in the [benchmark](/intro/performance-and-maturity). |
+| Activity | The work inside a Step's `Execute`. The whole `Execute` is one retry unit. For one durable call per unit, give each call its own Step. Each SYNC Step waits for two commits to object storage, its start and its result: about 105 ms at p50 at half of peak load in the [benchmark](/intro/performance-and-maturity), and about two single writes at low load (an estimate). |
 | Workflow code between activities | Step decisions: `GoTo`, `GoToMany`, `GracefulComplete`, `DeadEnd` |
 | Signal | Channel message. An SDK Client sends it through an RPC of the Flow, which needs a connected Worker. The FlowService `PublishToChannel` request stores the message with no Worker online. See [Publish messages](/concepts/primitives/channel#publish-messages). |
 | Query | Read-only RPC, or a direct Attribute read from the Client |
@@ -268,7 +278,7 @@ Restate is an example. A handler is a function. Each side effect runs through th
 | Restate term | Nearest Dex term |
 | --- | --- |
 | Workflow | Flow |
-| Service handler | No direct match. A stateless handler is plain application code; a Dex Flow is a process with its own state and runs. |
+| Service handler | A short Flow with no Attributes. A service handler is a durable, journaled invocation with retries and idempotency keys, but no key-value state. |
 | Journaled action (`ctx.run`) | Step `Execute` |
 | Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A Flow run closes, and a closed run is deleted after retention (7 days by default), while a virtual object lives on. |
 | Object state (key-value) | Attributes |
@@ -284,7 +294,7 @@ Restate is an example. A handler is a function. Each side effect runs through th
 - A virtual object allows one writer per key at a time. In Dex, Steps and RPCs of one Flow can run at the same time. Locks are opt-in per Attribute.
 - A Restate shared handler runs alongside others and cannot write the object's state. It can still call other services. A Dex RPC may write Attributes, and an RPC without a lock can run alongside Steps.
 - Restate deduplicates an invocation that carries the same idempotency key, and a Temporal Update carries an update ID. Both drop a repeated inbound request. Dex deduplicates a Flow start by Flow ID and request ID, but not yet a repeated Channel publish or RPC. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
-- Dex keeps each Step's input, output, and error, and Dex Web shows them per Step.
+- Restate's UI and CLI show an invocation's journal. Dex keeps each Step's input, output, and error with the Flow run until retention deletes it (7 days by default), and Dex Web shows them per Step on the Flow's graph and Timeline.
 
 ## Database-backed workflow libraries
 

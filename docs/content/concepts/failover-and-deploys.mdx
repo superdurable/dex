@@ -18,6 +18,7 @@ was in progress. This page lists each event and what runs again.
 | You deploy new Step code | Nothing that already finished | Keep open Flows working. See [Versioning Flow code](/concepts/change-flow-code#versioning-flow-code). |
 | You change `WaitFor` code | Nothing that already waits | Expect old conditions on Steps that already wait. |
 | An ASYNC Step's start is lost | That attempt, on a new snapshot | Use SYNC when the Step must see one snapshot. |
+| An ASYNC Step's result is lost | That Step, and the work that started from it up to the first SYNC Step | Make ASYNC Steps and the work after them safe to repeat. |
 | You run Time Travel | Every Step after the chosen point | Key external calls so a repeat has no effect. |
 
 ## A Worker crashes or stops
@@ -63,6 +64,20 @@ can be lost, so the work after it must be safe to repeat. See
 
 A graceful step down releases the lease, so a standby takes over at once.
 
+### Agent tools and server upgrades
+
+An agent's single-attempt tool that was running during a failover ends as
+`outcome_unknown`, because its attempt reached a Worker and then failed. See
+[Tool Calls](/agent-frameworks/tool-calls). Some server upgrades stop every
+server process, which fails in-flight attempts the same way. Before such an
+upgrade, stop the Workers gracefully first. A graceful stop starts no new
+tasks and lets running handlers finish and send their results, for up to the
+drain timeout, 30 seconds by default. Then stop and upgrade the server, and
+start the Workers again. Calls made while no Worker runs wait in the queue, or
+fail with `Unavailable` for an RPC. See
+[Workers and the task queue](/reference/server/workers) and
+[Upgrades](/reference/server/upgrades).
+
 ## You deploy new code
 
 Each Step attempt runs the code of the Worker that takes it; Dex does not
@@ -84,11 +99,17 @@ the conditions its `WaitFor` returned. New `WaitFor` code applies to Step
 executions that start after the deploy. To change what an old Step waits for,
 publish to its Channel or skip its Timer, or start a new Flow.
 
-## An ASYNC Step's start is lost
+## An ASYNC Step's start or result is lost
 
 An ASYNC Step moves on before Dex saves its start. If the node fails first, the
 same attempt runs again on a new state snapshot, so it can read different
-Attribute values. See [SYNC and ASYNC Steps](/concepts/step#sync-and-async).
+Attribute values.
+
+If the node fails before an ASYNC result is saved, the result is lost. The
+Step runs again, and so does work that started from that result. That repeat
+stops at the first SYNC Step. Dex writes a Flow's commands to its log in
+order, so a SYNC Step's stored start means every earlier result of that Flow is
+stored too. See [SYNC and ASYNC Steps](/concepts/step#sync-and-async).
 
 ## You run Time Travel
 

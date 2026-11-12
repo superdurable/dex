@@ -28,7 +28,7 @@ The tool calls of one model response run in parallel. When they all finish, `Res
 
 ### Latency and cost {#latency-and-cost}
 
-Every session Step is SYNC: Dex commits the Step's result to object storage before the session moves on. A turn in which the model asks for three tools and then answers takes six Steps: two `RunModel`, three tool Steps, and one `ResumeTurn`. [Performance and Maturity](/intro/performance-and-maturity#latency-below-the-peak) measured a p50 of about 105 ms for a SYNC Step on a 2-vCPU server at half of its peak load. The three tool Steps run in parallel, so the turn waits on four Steps in a row. At that p50, they add about 0.4 seconds to the turn, on top of the model and tool time.
+Every session Step is SYNC: Dex commits the Step's start before the Worker gets it, and its result before the session moves on, each to object storage. A turn in which the model asks for three tools and then answers takes six Steps: two `RunModel`, three tool Steps, and one `ResumeTurn`. [Performance and Maturity](/intro/performance-and-maturity#latency-below-the-peak) measured a p50 of about 105 ms for a SYNC Step on a 2-vCPU server at half of its peak load. The three tool Steps run in parallel, so the turn waits on four Steps in a row. At that p50, they add about 0.4 seconds to the turn, on top of the model and tool time.
 
 A `RunModel` Step retries up to three attempts within 30 minutes. A retry sends the model call to the provider again, so you pay for its tokens again. `run_model_limit` in Python, or `runModelLimit` in TypeScript, lowers the attempts for an expensive call. [Step timeouts](/reference/agents/workers#timeouts) lists the defaults.
 

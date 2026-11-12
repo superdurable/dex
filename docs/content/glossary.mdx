@@ -93,6 +93,10 @@ A Client API that reads committed Attribute values from outside a Flow. It does 
 
 An Attribute for a short-lived secret. Deleting it erases the stored value permanently. Dex reads it again on every attempt instead of from the attempt's snapshot.
 
+#### [Idempotency key](/concepts/step#idempotency-keys)
+
+A value you send with a call to another system so that system can recognize a repeat and skip it. Build it from values that stay the same on every attempt, such as the Flow ID and a name for the call.
+
 #### [Index slot](/concepts/primitives/attribute#read-and-search-attributes)
 
 A numbered search key, such as `keyword1` or `int2`, that an indexed Attribute uses. Slots are typed, shared by every Flow type in a namespace, and limited in number.
@@ -117,6 +121,10 @@ A decision to go to another Step, or to complete or fail the Flow.
 
 The list of Attributes and Channels that a Flow declares. A Worker rejects an Attribute that the schema does not list.
 
+#### [Registry](/components/application#blob-cache)
+
+The set of Flows that a Worker or a Client registers. The Worker runs the Steps and RPCs of those Flows. The Client uses the same definitions to encode inputs and decode results.
+
 #### [RPC](/concepts/primitives/rpc)
 
 A Worker handler that reads or writes a running Flow from outside.
@@ -128,6 +136,10 @@ The ID that the engine assigns to each run of a Flow ID.
 #### [server-zd](/components/server)
 
 The name of the current Dex Server implementation. Its binary is **dex-server-zd**. Releases and reference pages use this name.
+
+#### [State snapshot](/concepts/step#guarantees)
+
+The Flow state that one Step method attempt reads: the Attributes as they were when Dex handed the attempt to a Worker. A retry of `Execute` reuses the first attempt's snapshot. Hard-delete Attributes are the exception; Dex reads them again on every attempt.
 
 #### [Step](/concepts/step)
 

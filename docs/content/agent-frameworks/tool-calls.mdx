@@ -79,7 +79,7 @@ To make that harmless, pass the call's idempotency key to the service that the t
 
 Run these steps from a support tool or a small job that your app starts when it sees the status. No search finds these calls for you, because no Step waits on them.
 
-This function from the Python quick start example runs steps 2 to 4 for every call in the session's history whose result says the outcome is unknown. **check** asks your service and returns the text to report:
+This module from the Python quick start example, shown whole, runs steps 2 to 4 for every call in the session's history whose result says the outcome is unknown. **check** asks your service and returns the text to report:
 
 <SdkTabs
   examples={{
@@ -88,6 +88,25 @@ This function from the Python quick start example runs steps 2 to 4 for every ca
 <SdkSnippet lang="python">
 
 ```python
+"""Reports the real outcome of tool calls that the session recorded as outcome_unknown."""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Protocol
+
+from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, AgentSnapshot, MessageRole
+
+# Asks your service about one call: (idempotency key, tool arguments as JSON) -> report text.
+OutcomeCheck = Callable[[str, str], Awaitable[str]]
+
+
+class SessionMessenger(Protocol):
+    async def get_agent_snapshot(self, session_id: str) -> AgentSnapshot: ...
+
+    async def send_user_message(self, session_id: str, text: str) -> bool: ...
+
+
 async def report_unknown_outcomes(
     sessions: SessionMessenger, session_id: str, check: OutcomeCheck
 ) -> list[str]:
