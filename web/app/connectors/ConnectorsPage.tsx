@@ -914,6 +914,7 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
   const [authMethodIds, setAuthMethodIds] = useState(() => initialConnectionAuthMethodIds(manifest, connection));
   const auth = selectedManifestAuth(manifest.spec.auth, authMethodId);
   const oauth = !isMultiple && auth.type === 'oauth2';
+  const needsNoCredentials = !isMultiple && auth.type === 'none';
   const requestedScopesText = oauth ? requestedOAuthScopesText(auth.oauth2) : '';
   const storedCredentialFields = new Set(oauth ? [] : connection.storedCredentialFields ?? []);
   const storedValueFields = connectionStoredValueFieldNames(manifest, connection, session);
@@ -1049,7 +1050,7 @@ export function ConnectorForm({ catalog, connection, session, onConfigured, onEr
     </fieldset>}
     {requestedScopesText !== '' && <p className="sc-why">{requestedScopesText}</p>}
     <div className="connector-form-actions">
-      <button className="v2-primary" disabled={submitting || (isMultiple && authMethodIds.length === 0)} type="submit">{oauth ? 'Authorize' : 'Save local credentials'}</button>
+      <button className="v2-primary" disabled={submitting || (isMultiple && authMethodIds.length === 0)} type="submit">{oauth ? 'Authorize' : needsNoCredentials ? 'Save connection' : 'Save local credentials'}</button>
       {onCancel && <button className="v2-ghost" onClick={onCancel} type="button">Cancel</button>}
     </div>
   </form>;

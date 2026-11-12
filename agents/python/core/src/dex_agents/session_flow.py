@@ -2392,6 +2392,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 runner_tool_state=result.runner_tool_state,
             )
             tool_call_span.record_finished(succeeded)
+            if result.is_finished_by_resumed_turn:
+                # The resumed turn runs the call and writes its tool_call_finished.
+                _record_final_tool_call(context, succeeded, None)
+                return dead_end()
             return _finish_tool_call(context, succeeded, events)
 
     def _wait_for_tool_task_poll(self, context: Context, tool_call_id: str) -> Wait:
@@ -3505,11 +3509,13 @@ def _finish_tool_call(
 def _record_final_tool_call(
     context: AsyncContext,
     finished: AgentToolCall,
-    events: AgentEventWriter,
+    events: AgentEventWriter | None,
 ) -> None:
+    """Record a final call and publish its result; ``events`` ``None`` writes no event."""
     AGENT_TOOL_CALLS.set(context, finished.tool_call_id, finished)
     TOOL_CALL_RESULTS.publish(context, ToolCallCompleted(tool_call_id=finished.tool_call_id))
-    events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
+    if events is not None:
+        events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
 
 
 def _write_plan_updated(events: AgentEventWriter, plan: AgentPlan) -> None:
