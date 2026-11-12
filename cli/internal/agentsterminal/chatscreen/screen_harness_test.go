@@ -153,6 +153,8 @@ func (harness *screenHarness) runCommand(command tea.Cmd) {
 	case messageSubmittedMsg:
 		_, next := harness.screen.Update(typed)
 		harness.runCommand(next)
+	case pathCompletionsFoundMsg:
+		harness.screen.Update(typed)
 	}
 }
 
