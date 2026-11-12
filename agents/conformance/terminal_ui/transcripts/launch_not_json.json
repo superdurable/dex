@@ -1,0 +1,23 @@
+{
+  "name": "launch_not_json",
+  "description": "The launch line is not JSON.",
+  "real_roles": [
+    "tui"
+  ],
+  "terminal_ui_environment": {},
+  "steps": [
+    {
+      "from": "launcher",
+      "raw_line": "{\"type\":\"launch\",\"contract\":1,"
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "launch_rejected",
+        "code": "invalid_launch",
+        "message": "The launch document is not a JSON object."
+      }
+    }
+  ],
+  "tui_exit": 2
+}

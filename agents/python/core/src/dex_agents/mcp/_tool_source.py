@@ -198,6 +198,40 @@ class McpToolCallInterruptedError(Exception):
         self.detail = detail
 
 
+class _McpHttpFailedResponse:
+    """Record the latest failed JSON-RPC request of a Streamable HTTP client.
+
+    The MCP client turns an HTTP error status into a JSON-RPC error without
+    the status, so this response hook keeps it.
+
+    Attributes:
+        status_code: The HTTP status of the latest POST answered 400 or above,
+            or ``None`` when none failed.
+        text: The start of that response's body.
+    """
+
+    def __init__(self) -> None:
+        """Start with no failed response."""
+        self.status_code: int | None = None
+        self.text = ""
+
+    def observe(self, http_client: httpx2.AsyncClient) -> None:
+        """Record the failed POST responses of ``http_client`` from now on.
+
+        Args:
+            http_client: The client the MCP transport sends its requests with.
+        """
+        http_client.event_hooks["response"].append(self._record)
+
+    async def _record(self, response: httpx2.Response) -> None:
+        # Only POST carries a JSON-RPC request; GET opens the event stream, DELETE ends the session.
+        if response.request.method != "POST" or response.status_code < 400:
+            return
+        self.status_code = response.status_code
+        body = await response.aread()
+        self.text = body.decode("utf-8", errors="replace").strip()[:500]
+
+
 class McpToolListingError(Exception):
     """Report that no configured MCP server could be listed.
 
@@ -209,18 +243,28 @@ class McpToolListingError(Exception):
     Attributes:
         server_name: Configured name of the last MCP server that failed.
         detail: What went wrong with that server.
+        http_status: The HTTP status a Streamable HTTP server answered to the
+            failed request, such as 401 or 403 for denied access. ``None`` for a
+            stdio server, or when no HTTP response came, such as for a refused
+            connection or a timeout.
+
+            .. versionadded:: 0.6.0
     """
 
-    def __init__(self, server_name: str, detail: str) -> None:
+    def __init__(self, server_name: str, detail: str, http_status: int | None = None) -> None:
         """Create the error.
 
         Args:
             server_name: Configured name of the MCP server.
             detail: What went wrong.
+            http_status: The HTTP status the server answered, when it answered one.
+
+                .. versionadded:: 0.6.0
         """
         super().__init__(f"could not list the tools of MCP server {server_name!r}: {detail}")
         self.server_name = server_name
         self.detail = detail
+        self.http_status = http_status
 
 
 @dataclass(frozen=True)
@@ -1278,9 +1322,11 @@ class McpToolSource:
 
     async def _list_server_tools(self, server: McpServerConfig) -> list[McpTool]:
         detail = "no listing attempt"
+        http_status: int | None = None
         for listing_attempt in range(1, self._connection_attempts + 1):
+            failed_response = _McpHttpFailedResponse()
             try:
-                async with self._new_client(server) as client:
+                async with self._new_client(server, failed_response) as client:
                     listed = []
                     cursor: str | None = None
                     for _ in range(_TOOL_LISTING_PAGE_LIMIT):
@@ -1295,11 +1341,14 @@ class McpToolSource:
                 ]
             except Exception as error:
                 detail = _describe_exception(error)
+                http_status = failed_response.status_code
             if listing_attempt < self._connection_attempts:
                 await asyncio.sleep(_CONNECTION_RETRY_DELAY_SECONDS * listing_attempt)
-        raise McpToolListingError(server.name, detail)
+        raise McpToolListingError(server.name, detail, http_status)
 
-    def _new_client(self, server: McpServerConfig) -> Client:
+    def _new_client(
+        self, server: McpServerConfig, failed_response: _McpHttpFailedResponse | None = None
+    ) -> Client:
         transport: Transport | StdioServerParameters
         if isinstance(server, McpStdioServerConfig):
             transport = StdioServerParameters(
@@ -1312,7 +1361,10 @@ class McpToolSource:
             transport = cast(
                 Transport,
                 _open_streamable_http_transport(
-                    server, self._connection_timeout_seconds, self._request_timeout_seconds
+                    server,
+                    self._connection_timeout_seconds,
+                    self._request_timeout_seconds,
+                    failed_response,
                 ),
             )
         # Handshake requests use this bound; tool calls and polls pass request_timeout.
@@ -1638,11 +1690,14 @@ async def _open_streamable_http_transport(
     server: McpStreamableHttpServerConfig,
     connection_timeout_seconds: float,
     read_timeout_seconds: float,
+    failed_response: _McpHttpFailedResponse | None,
 ) -> AsyncIterator[Any]:
     http_client = httpx2.AsyncClient(
         headers=dict(server.headers or {}),
         timeout=httpx2.Timeout(connection_timeout_seconds, read=read_timeout_seconds),
     )
+    if failed_response is not None:
+        failed_response.observe(http_client)
     async with http_client, streamable_http_client(server.url, http_client=http_client) as streams:
         yield streams
 

@@ -54,8 +54,12 @@ import {
 import {
   ConnectorsMcpToolSource,
   DisabledConnectorsToolSource,
+  connectorsAccessDeniedSentence,
+  connectorsUnavailableLine,
+  isConnectorsMcpAccessDenied,
   probeConnectorsMcp,
   type ConnectorToolIdentity,
+  type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
 import { resolveDexServer, type DexServerConnection } from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
@@ -378,6 +382,11 @@ class AgentCliCommand {
     } finally {
       clearTimeout(timer);
     }
+    this.writeLogLine(line);
+  }
+
+  /** Appends one timestamped line to the log file. */
+  private writeLogLine(line: string): void {
     try {
       mkdirSync(this.environment.agentsDirectory, { recursive: true });
       appendFileSync(this.logFilePath(), `${new Date().toISOString()} ${line}\n`);
@@ -469,34 +478,48 @@ class AgentCliCommand {
     if (!availability.isAvailable && !isAuto) {
       throw new Error(`the connectors MCP server is unavailable: ${availability.reason}`);
     }
-    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore);
+    const hint = this.connectorsUnavailableHint(server);
     const isToolSetFixed = this.harness.isToolSetFixedAtBuild === true;
+    const describeUnavailable = (unavailability: ConnectorsMcpUnavailability): string => {
+      if (!isToolSetFixed) {
+        return connectorsUnavailableLine(unavailability, hint);
+      }
+      const lead = isConnectorsMcpAccessDenied(unavailability)
+        ? connectorsAccessDeniedSentence(unavailability.httpStatus ?? 0)
+        : "The connectors MCP server is unavailable.";
+      return `${lead} ${hint} ${this.restartForConnectorTools()}`;
+    };
+    const source = new ConnectorsMcpToolSource(url, turns, this.log, mediaStore, {
+      startupAvailability: availability,
+      writeLogLine: (line) => this.writeLogLine(line),
+      describeUnavailable,
+    });
     if (!availability.isAvailable) {
-      this.log(
-        isToolSetFixed
-          ? `The connectors MCP server is unavailable: ${availability.reason}. ${this.restartForConnectorTools()}`
-          : `Connector tools are unavailable for now; each turn tries again: ${availability.reason}`,
-      );
-      return source;
-    }
-    if (!isToolSetFixed) {
-      await this.reportUnauthorizedConnectors(effective, await source.readIdentities(), server, isOpeningConnectorsPage);
+      this.writeLogLine(`connectors MCP server ${url} is unavailable: ${availability.reason}`);
+      this.log(describeUnavailable(availability));
       return source;
     }
     let identities: ReadonlyMap<string, ConnectorToolIdentity>;
     try {
       identities = await source.readIdentities();
     } catch (error: unknown) {
-      this.log(`The connectors MCP server could not be listed: ${describe(error)}. ${this.restartForConnectorTools()}`);
+      this.writeLogLine(`connectors MCP server ${url} could not be listed: ${describe(error)}`);
+      // The source prints the one unavailability line and stays quiet while the next turns fail the same way.
+      await source.listTools();
       return source;
     }
     await this.reportUnauthorizedConnectors(effective, identities, server, isOpeningConnectorsPage);
-    // Outside a model call the listing uses the file's configuration.
-    await source.listTools();
-    if (!source.isAvailable) {
-      this.log(`The connectors MCP server could not be listed. ${this.restartForConnectorTools()}`);
+    if (isToolSetFixed) {
+      // Outside a model call the listing uses the file's configuration; a failure prints its one line.
+      await source.listTools();
     }
     return source;
+  }
+
+  /** Says where the error and the connections are, for a terminal line about an unavailable server. */
+  private connectorsUnavailableHint(server: DexServerConnection): string {
+    const page = server.webUrl === null ? "the Dex Web Connectors page" : `${server.webUrl}/v1/connectors`;
+    return `See ${this.logFilePath()} for the error and ${page} for connections.`;
   }
 
   private restartForConnectorTools(): string {
