@@ -229,7 +229,9 @@ original key names. It does not copy searches stored at the root into a base
 path. Display preferences, such as the theme, time zone, page size, and panel
 widths, apply to every base path on the origin.
 
-### What the handler does not do {#limits}
+<a id="what-the-handler-does-not-do"></a>
+
+### Handler scope {#limits}
 
 - It keeps no state between Dex Servers. Each request gets its own routes,
   definition reader, and server engine lookup, and two handlers share nothing.

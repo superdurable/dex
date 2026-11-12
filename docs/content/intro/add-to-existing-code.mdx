@@ -340,6 +340,8 @@ The default retry policy keeps retrying a Step for 4 hours and then fails the Fl
 
 Give each external call an [idempotency key](/concepts/step#idempotency-keys). Here the order ID is the Flow ID, so **charge-** plus the order ID works for the Charge call.
 
+<a id="when-an-api-takes-no-idempotency-key"></a>
+
 ## Make a keyless API call safe {#when-an-api-has-no-idempotency-key}
 
 For an API that takes no key, a repeated call has a second effect. Two approaches make that window small:
