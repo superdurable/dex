@@ -19,7 +19,6 @@ import tempfile
 from pathlib import Path
 
 from dex_agents_cli_core.environment import DEXCLI_VERSION
-
 from dex_agents_cli_testing.e2e.command_cases import COMMAND_CASES
 from dex_agents_cli_testing.e2e.command_suite import COMMAND_STEPS, run_command_suite
 from dex_agents_cli_testing.e2e.dex_server import DexServer, HackerNewsConnectionSeed
