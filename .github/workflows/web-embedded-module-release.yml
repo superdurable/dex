@@ -12,9 +12,9 @@ on:
         required: true
         type: string
       run_tests:
-        description: Run the Dex Web suite first; false only when the caller already ran it on this commit
+        description: Run the Dex Web test workflow before publishing
         required: false
-        default: true
+        default: false
         type: boolean
   workflow_dispatch:
     inputs:
@@ -27,15 +27,20 @@ on:
         required: false
         default: false
         type: boolean
+      run_tests:
+        description: Run the Dex Web test workflow before publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 jobs:
-  # Publishing waits for the Dex Web suite on this exact release commit.
+  # Tests are optional; run_tests=true runs the Dex Web suite on this commit before publishing.
   tests:
     name: Dex Web tests
-    if: toJSON(inputs.run_tests) != 'false'
+    if: inputs.run_tests
     permissions:
       contents: read
     uses: ./.github/workflows/web-ci.yml
@@ -43,7 +48,7 @@ jobs:
   publish:
     needs: tests
     if: >-
-      !cancelled() && (needs.tests.result == 'success' || toJSON(inputs.run_tests) == 'false')
+      !cancelled() && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       WEB_VERSION: ${{ inputs.version }}

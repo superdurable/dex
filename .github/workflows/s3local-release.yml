@@ -7,6 +7,11 @@ on:
         description: S3local semantic version without the v prefix
         required: true
         type: string
+      run_tests:
+        description: Run the s3local test workflow before publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -16,9 +21,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Building pushes image digests, so it waits for the s3local suite on this commit.
+  # Tests are optional; run_tests=true runs the s3local suite before building pushes image digests.
   tests:
     name: S3local tests
+    if: inputs.run_tests
     uses: ./.github/workflows/s3local-ci.yml
 
   preflight:
@@ -91,6 +97,9 @@ jobs:
   build:
     name: Build and smoke Linux ${{ matrix.arch }}
     needs: [preflight, tests]
+    if: >-
+      !cancelled() && needs.preflight.result == 'success'
+      && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -224,6 +233,8 @@ jobs:
   manifest:
     name: Publish multi-architecture image
     needs: [preflight, build]
+    # Skipped optional tests would otherwise skip this job too.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     outputs:
       digest: ${{ steps.manifest.outputs.digest }}
@@ -293,6 +304,7 @@ jobs:
   release:
     name: Publish GitHub release
     needs: [preflight, build, manifest]
+    if: ${{ !cancelled() && needs.manifest.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

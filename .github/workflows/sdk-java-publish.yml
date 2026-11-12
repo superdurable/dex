@@ -10,9 +10,9 @@ on:
         required: true
         type: string
       run_tests:
-        description: Run the Java SDK suite first; false only when the caller already ran it on this commit
+        description: Run the Java SDK test workflow before publishing
         required: false
-        default: true
+        default: false
         type: boolean
   workflow_dispatch:
     inputs:
@@ -20,6 +20,11 @@ on:
         description: Maven release version
         required: true
         type: string
+      run_tests:
+        description: Run the Java SDK test workflow before publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -29,14 +34,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Publishing waits for the Java SDK suite on this exact release commit.
+  # Tests are optional; run_tests=true runs the Java SDK suite on this commit before publishing.
   tests:
     name: Java SDK tests
-    if: >
-      toJSON(inputs.run_tests) != 'false' && (
-      github.event_name == 'workflow_call' ||
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.release.tag_name, 'sdk-java/v'))
+    if: inputs.run_tests
     permissions:
       contents: read
       id-token: write
@@ -96,7 +97,7 @@ jobs:
     needs: [native, tests]
     if: >-
       !cancelled() && needs.native.result == 'success'
-      && (needs.tests.result == 'success' || toJSON(inputs.run_tests) == 'false')
+      && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:

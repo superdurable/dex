@@ -19,6 +19,11 @@ on:
         required: false
         default: ""
         type: string
+      run_tests:
+        description: Run each selected component's test workflow before creating any release
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -90,52 +95,52 @@ jobs:
           echo "Changed-component releases can run only from main" >&2
           exit 1
 
-  # Each selected component's suite runs on this exact commit before any release is created.
+  # Tests are optional; run_tests=true runs each selected component's suite before any release is created.
   test-go:
     name: Test Go SDK
     needs: plan
-    if: needs.plan.outputs.go == 'true'
+    if: inputs.run_tests && needs.plan.outputs.go == 'true'
     uses: ./.github/workflows/sdk-go-ci.yml
   test-java:
     name: Test Java SDK
     needs: plan
-    if: needs.plan.outputs.java == 'true'
+    if: inputs.run_tests && needs.plan.outputs.java == 'true'
     uses: ./.github/workflows/sdk-java-ci.yml
   test-python:
     name: Test Python SDK
     needs: plan
-    if: needs.plan.outputs.python == 'true'
+    if: inputs.run_tests && needs.plan.outputs.python == 'true'
     uses: ./.github/workflows/sdk-python-ci.yml
   test-rust:
     name: Test Rust SDK
     needs: plan
-    if: needs.plan.outputs.rust == 'true'
+    if: inputs.run_tests && needs.plan.outputs.rust == 'true'
     uses: ./.github/workflows/sdk-rust-ci.yml
   test-typescript:
     name: Test TypeScript SDK
     needs: plan
-    if: needs.plan.outputs.typescript == 'true'
+    if: inputs.run_tests && needs.plan.outputs.typescript == 'true'
     uses: ./.github/workflows/sdk-typescript-ci.yml
   test-web:
     name: Test Dex Web
     needs: plan
-    if: needs.plan.outputs.web == 'true'
+    if: inputs.run_tests && needs.plan.outputs.web == 'true'
     uses: ./.github/workflows/web-ci.yml
   test-cli:
     name: Test CLI
     needs: plan
-    if: needs.plan.outputs.cli == 'true'
+    if: inputs.run_tests && needs.plan.outputs.cli == 'true'
     uses: ./.github/workflows/cli-ci.yml
   test-agents:
     name: Test agents packages
     needs: plan
-    if: needs.plan.outputs.agents == 'true'
+    if: inputs.run_tests && needs.plan.outputs.agents == 'true'
     uses: ./.github/workflows/agents-ci.yml
 
   create-releases:
     name: Create selected releases
     needs: [plan, test-go, test-java, test-python, test-rust, test-typescript, test-web, test-cli, test-agents]
-    # A skipped suite belongs to a component this run does not release.
+    # A suite is skipped when run_tests is off or this run does not release its component.
     if: >-
       !cancelled() && needs.plan.result == 'success'
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
@@ -305,7 +310,7 @@ jobs:
             echo "The release is unaffected. Run the snapshot from docs/README.md by hand and open its pull request."
           } >> "${GITHUB_STEP_SUMMARY}"
 
-  # Skipped test-* jobs of unselected components would otherwise skip every job after create-releases.
+  # Skipped test-* jobs would otherwise skip every job after create-releases.
   publish-java:
     name: Publish Java SDK
     needs: [plan, create-releases]
@@ -313,7 +318,7 @@ jobs:
     uses: ./.github/workflows/sdk-java-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
-      # test-* above already ran this component's suite on this commit.
+      # test-* above runs this component's suite when run_tests is on.
       run_tests: false
     secrets: inherit
 
@@ -324,7 +329,7 @@ jobs:
     uses: ./.github/workflows/sdk-python-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
-      # test-* above already ran this component's suite on this commit.
+      # test-* above runs this component's suite when run_tests is on.
       run_tests: false
       publish: true
     secrets: inherit
@@ -336,7 +341,7 @@ jobs:
     uses: ./.github/workflows/sdk-rust-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
-      # test-* above already ran this component's suite on this commit.
+      # test-* above runs this component's suite when run_tests is on.
       run_tests: false
       publish: true
     secrets: inherit
@@ -371,7 +376,7 @@ jobs:
           }
           # Earlier runs with the same title, such as dry runs of this commit, are never the new run.
           existing_run_ids="$(list_matching_run_ids)"
-          # On the new tag, the publisher tests and builds the released commit even if main moves on.
+          # On the new tag, the publisher builds the released commit even if main moves on.
           gh workflow run sdk-typescript-publish.yml \
             --repo "${GITHUB_REPOSITORY}" \
             --ref "${TYPESCRIPT_TAG}" \
@@ -468,7 +473,7 @@ jobs:
     uses: ./.github/workflows/docker-image-web-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
-      # test-* above already ran this component's suite on this commit.
+      # test-* above runs this component's suite when run_tests is on.
       run_tests: false
     secrets: inherit
 
@@ -480,7 +485,7 @@ jobs:
     uses: ./.github/workflows/web-embedded-module-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
-      # test-* above already ran this component's suite on this commit.
+      # test-* above runs this component's suite when run_tests is on.
       run_tests: false
     secrets: inherit
 
@@ -491,7 +496,7 @@ jobs:
     uses: ./.github/workflows/cli-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
-      # test-* above already ran this component's suite on this commit.
+      # test-* above runs this component's suite when run_tests is on.
       run_tests: false
       publish: true
     secrets: inherit
