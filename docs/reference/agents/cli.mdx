@@ -434,7 +434,10 @@ Each Deep Agents tool runs only while the turn switches its group on.
   refuse a path outside the workspace and any path with **..**. **Bash** is
   not confined. Claude Code reads no settings files, so their allow rules
   cannot skip an approval, and its other tools, such as subagents, are not
-  offered. These tools run inside the Claude Code CLI, not in their own Steps,
+  offered. The command uses only these Claude Code tools, the browser tools,
+  and the Connector tools. It loads no MCP servers and no claude.ai connectors
+  from your Claude Code configuration or login, so external tools come only
+  from Connectors that Dex approves and records. Changed in 0.6.0. These tools run inside the Claude Code CLI, not in their own Steps,
   so a Worker that dies during a turn segment can run one of them twice. The
   browser and Connector tools still run in their own Steps.
 - **Pi.** The agent keeps Pi's own tools and behavior and adds the Connector,
