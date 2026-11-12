@@ -221,17 +221,128 @@ Keep two calls in one Step only when they succeed or fail together. A Step with 
 
 ### Route a failure to a recovery Step
 
-When the retries of a Step run out, its failure route can move the Flow to a recovery Step instead of failing it. In Order Processing, **Ship** retries, and then the Flow goes to **Refund**; [its Ship options](/use-cases/order-processing#2-flow-steps-and-rpcs) show the failure route in every SDK.
+When the retries of a Step run out, its failure route can move the Flow to a recovery Step instead of failing it. In Order Processing, **Ship** retries, and then the Flow goes to **Refund**:
 
-Without a failure route, the Flow fails when the [default retry window](/concepts/step#stepoptions) ends. To let a person decide instead, route the failure to a Step that waits for them, as [Manual Recovery](/design-patterns/failure-handling/manual-recovery) shows. [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) shows the automatic route. After you fix the cause of a failed run, [Time Travel](/concepts/change-flow-code#time-travel) can run it again from an earlier point.
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+    rust: 'examples/rust/src/products/order_processing',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(
+            # One hour in production; 3 seconds keeps the demo short.
+            total_duration=timedelta(seconds=3),
+        )
+    ).on_execute_failure_proceed_to(
+        Refund,
+        StepOptions(
+            execute_retry=RetryPolicy(
+                # One hour in production; 3 seconds keeps the demo short.
+                total_duration=timedelta(seconds=3),
+            )
+        ),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (step shipStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			// One hour in production; 3 seconds keeps the demo short.
+			TotalDuration: 3 * time.Second,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(
+			refundStep{},
+			&dex.StepOptions{
+				ExecuteRetry: &dex.RetryPolicy{
+					// One hour in production; 3 seconds keeps the demo short.
+					TotalDuration: 3 * time.Second,
+				},
+			},
+		),
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    // One hour in production; 3 seconds keeps the demo short.
+                    .totalDuration(Duration.ofSeconds(3))
+                    .build())
+            .onExecuteFailureProceedTo(
+                    Refund.class,
+                    StepOptions.newBuilder()
+                            .executeRetry(RetryPolicy.newBuilder()
+                                    // One hour in production; 3 seconds keeps the demo short.
+                                    .totalDuration(Duration.ofSeconds(3))
+                                    .build())
+                            .build())
+            .build();
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+public getStepOptions() {
+  return {
+    executeRetry: {
+      // One hour in production; 3 seconds keeps the demo short.
+      totalDurationMs: 3_000,
+    },
+    executeFailure: ExecuteFailure.proceedTo(Refund, {
+      executeRetry: {
+        // One hour in production; 3 seconds keeps the demo short.
+        totalDurationMs: 3_000,
+      },
+    }),
+  };
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_retry(
+            RetryPolicy::new()
+                // One hour in production; 3 seconds keeps the demo short.
+                .total_duration(Duration::from_secs(3)),
+        )
+        .on_execute_failure_proceed_to(&Refund::default())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The default retry policy keeps retrying a Step for 4 hours and then fails the Flow; a failure route catches that failure instead. To let a person decide, route the failure to a Step that waits for them, as [Manual Recovery](/design-patterns/failure-handling/manual-recovery) shows. [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) shows the automatic route. After you fix the cause of a failed run, [Time Travel](/concepts/change-flow-code#time-travel) can run it again from an earlier point.
 
 ## Place the idempotency keys
 
 Give each external call an [idempotency key](/concepts/step#idempotency-keys). Here the order ID is the Flow ID, so **charge-** plus the order ID works for the Charge call.
 
-## When an API has no idempotency key
+## When an API takes no idempotency key {#when-an-api-has-no-idempotency-key}
 
-Some APIs take no key, so a repeated call has a second effect. You can make that window small:
+For an API that takes no key, a repeated call has a second effect. Two approaches make that window small:
 
 - **Check first.** Send your own reference with the call, such as the order ID in a shipment's reference field. At the start of the Step, look the effect up by that reference. If it already exists, skip the call.
 - **Record the attempt.** If the API has no lookup, write a row keyed like an idempotency key, such as **ship-order-1042**, to your own database in the same Step, just before the call. On a rerun, a row that is already there means the call may have happened. Stop and check by hand, or go to a recovery Step, instead of calling again.

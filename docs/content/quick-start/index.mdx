@@ -23,7 +23,22 @@ brew install superdurable/tap/dexcli
 dexcli dev
 ```
 
-In a second terminal, download the example. The command fetches only the example's folder, with no clone of the repository:
+**dexcli dev** starts Dex Server and Dex Web. When it is ready, the first terminal prints:
+
+```text
+Dex development environment is ready
+
+Dex Web:       http://127.0.0.1:8802
+Connectors MCP: http://127.0.0.1:8802/mcp
+Dex Server:    127.0.0.1:8801
+State dir:     /Users/you/.dex/zd/8801
+
+Press Ctrl+C to stop.
+```
+
+Keep it running; server log lines scroll above this block. This Quick Start leaves the **Connectors MCP** address unused.
+
+In a second terminal, download the example. The command downloads the repository archive and extracts only the example's folder, with no clone of the repository:
 
 <SdkTabs
   examples={{
@@ -92,21 +107,6 @@ You need Rust 1.97 or later.
 
 </SdkSnippet>
 </SdkTabs>
-
-**dexcli dev** starts Dex Server and Dex Web. When it is ready, the first terminal prints:
-
-```text
-Dex development environment is ready
-
-Dex Web:       http://127.0.0.1:8802
-Connectors MCP: http://127.0.0.1:8802/mcp
-Dex Server:    127.0.0.1:8801
-State dir:     /Users/you/.dex/zd/8801
-
-Press Ctrl+C to stop.
-```
-
-Keep it running; server log lines scroll above this block. This Quick Start leaves the **Connectors MCP** address unused.
 
 ## 2. Read the Flow
 

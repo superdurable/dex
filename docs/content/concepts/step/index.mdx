@@ -251,8 +251,8 @@ A decision can also cancel other active Steps. See the
 In short: finished work is saved, unfinished work can repeat.
 
 Four rules matter most. The first two are all you need for a first Flow.
-[Advanced guarantees](#advanced-guarantees) explains the details behind the
-other two.
+[Advanced Step Guarantees](/concepts/step/advanced-guarantees) explains the
+details behind the other two.
 
 - **A finished Step stays finished.** Dex saves its result together with
   the move to the next Step. This holds for SYNC Steps, the default; an ASYNC
@@ -328,9 +328,15 @@ in the SDK reference explains how these limits interact.
 
 ## Advanced guarantees {#advanced-guarantees}
 
-[Advanced Step Guarantees](/concepts/step/advanced-guarantees) covers what Dex
-saves for each method, failure and redelivery, SYNC and ASYNC Steps, and
-cancellation, completion, and order.
+A method's Attribute writes and Channel publications are saved together with
+its result, and only when it succeeds. When a method's outcome is uncertain, Dex
+runs it again or reports an unknown outcome. A SYNC Step saves its result before
+the Flow moves on; an ASYNC result can be lost in a server failover and run
+again. [Advanced Step Guarantees](/concepts/step/advanced-guarantees) gives the
+exact rules: [what Dex saves](/concepts/step/advanced-guarantees#what-dex-saves),
+[failure and redelivery](/concepts/step/advanced-guarantees#failure-and-redelivery-summary),
+[SYNC and ASYNC Steps](/concepts/step/advanced-guarantees#sync-and-async), and
+[cancellation, completion, and order](/concepts/step/advanced-guarantees#cancellation-completion-order).
 
 <a id="what-dex-saves"></a>
 <a id="failure-and-redelivery"></a>

@@ -18,7 +18,7 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 
 <ArchitectureComparison markdownDescription="数据库、队列加 outbox，你要搭建和运行的部分。表：带 status 列的订单表、审批表和 outbox 表。队列：charge-requests、ship-requests、refund-requests、retry topic 或 visibility timeout，以及死信队列（DLQ）。服务和任务：扣款、发货、退款消费者，outbox relay，提醒 cron job，审批接口，状态轮询接口，以及 DLQ 查看和修复工具。它们运行在数据库和队列 broker 上。Dex，你要编写和运行的部分：一个 Flow，包含 Charge Step、Ship Step、Refund Step 和 approve RPC，以及运行这个 Flow 的 Worker。它们运行在 Dex Server 上，Dex Server 提供每个 Step 自己的 retry、durable Timer、等待 Channel、Client 等待 API，以及 Step 历史和重新执行。" />
 
-## 数据库做不到什么
+## 数据库把哪些事留给你的代码 {#what-a-database-does-not-do}
 
 PostgreSQL、MySQL、S3 这类数据库和存储服务，负责保存数据，并在你查询时返回数据。它们是被动的：只有你的代码调用它们时，它们才会做事。
 
