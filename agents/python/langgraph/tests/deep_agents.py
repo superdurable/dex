@@ -18,13 +18,15 @@ file tools on the in-state ``StateBackend``, and adds these tools:
 * ``flaky_visit`` sends the same append through the task's send, and its first attempt fails.
 * ``echo_text`` (read) returns its text unchanged.
 * ``wait_at_gate`` (read) waits at the gate it names.
+* ``save_note`` and ``read_note`` write and read the graph's in-memory store.
 
 ``task`` is excluded. A middleware records each model request's model and tool names, and
 each tool call its tool wrapper sees.
 The ``read_file`` agent also has a tool source whose ``read_file`` replaces Deep Agents'.
 The evicting agent's ``FilesystemMiddleware`` evicts every tool result over a small limit.
-Two more Flows share one compiled graph whose recorder comes before the durable middleware,
-one with the deferral first and one in middleware order.
+Three more Flows share one compiled graph whose recorder comes before the durable middleware:
+one with the default deferral first, one in middleware order, and one whose order the
+Worker's environment picks.
 """
 
 from __future__ import annotations
@@ -59,7 +61,10 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph._internal._constants import CONFIG_KEY_SEND
 from langgraph.config import get_config
+from langgraph.prebuilt import InjectedStore
 from langgraph.prebuilt.tool_node import ToolCallRequest
+from langgraph.store.base import BaseStore
+from langgraph.store.memory import InMemoryStore
 from langgraph.types import Command
 
 from dex_agents_langgraph import (
@@ -75,6 +80,9 @@ SOURCE_READ_FILE_DEEP_AGENT_FLOW_TYPE = "SourceReadFileDeepAgent"
 SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE = "SharedGraphDeferredFirstDeepAgent"
 SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE = "SharedGraphMiddlewareOrderDeepAgent"
 EVICTING_DEEP_AGENT_FLOW_TYPE = "EvictingDeepAgent"
+ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE = "OrderSwitchDeepAgent"
+#: Set in a Worker's environment to keep the middleware order, the default before 0.6.0.
+MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE = "DEEP_AGENT_KEEPS_MIDDLEWARE_ORDER"
 #: Tokens above which the evicting agent writes a tool result to a file instead.
 EVICTION_TOKEN_LIMIT = 50
 MODEL_REQUESTS_LOG_NAME = "model-requests.jsonl"
@@ -93,6 +101,8 @@ DEEP_AGENT_TOOL_POLICIES = {
     "flaky_visit": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
     "echo_text": ToolPolicy(ToolEffect.READ),
     "wait_at_gate": ToolPolicy(ToolEffect.READ),
+    "save_note": ToolPolicy(ToolEffect.IDEMPOTENT_WRITE, requires_approval=False),
+    "read_note": ToolPolicy(ToolEffect.READ),
 }
 
 
@@ -112,7 +122,9 @@ class RecordedModelRequest:
     state: dict[str, str]
 
 
-def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
+def build_deep_agent_flows(
+    state_dir: Path, *, defers_tool_calls_first: bool = True
+) -> list[AgentSessionFlow]:
     """Build the Deep Agents session Flows; every Worker builds the same ones."""
     turn_models: dict[str, BaseChatModel] = {}
 
@@ -132,7 +144,6 @@ def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
             excluded_tool_names=["task"],
             select_turn_chat_model=select_turn_chat_model,
-            should_defer_tool_calls_before_middleware=True,
         ),
         langchain_agent_session_flow(
             _deep_agent_factory(state_dir),
@@ -140,18 +151,24 @@ def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
             tool_sources=[WorkspaceReadFileSource()],
             excluded_tool_names=["task", "read_file"],
-            should_defer_tool_calls_before_middleware=True,
         ),
         langchain_agent_session_flow(
             shared_graph,
             flow_type=SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE,
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
-            should_defer_tool_calls_before_middleware=True,
         ),
         langchain_agent_session_flow(
             shared_graph,
             flow_type=SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE,
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
+            should_defer_tool_calls_before_middleware=False,
+        ),
+        # A Worker's environment picks the order, so a session can move from one to the other.
+        langchain_agent_session_flow(
+            shared_graph,
+            flow_type=ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE,
+            tool_policies=DEEP_AGENT_TOOL_POLICIES,
+            should_defer_tool_calls_before_middleware=defers_tool_calls_first,
         ),
         langchain_agent_session_flow(
             _deep_agent_factory(
@@ -161,13 +178,15 @@ def build_deep_agent_flows(state_dir: Path) -> list[AgentSessionFlow]:
             flow_type=EVICTING_DEEP_AGENT_FLOW_TYPE,
             tool_policies=DEEP_AGENT_TOOL_POLICIES,
             excluded_tool_names=["task"],
-            should_defer_tool_calls_before_middleware=True,
         ),
     ]
 
 
 def build_deep_agent_flows_from_environment() -> list[AgentSessionFlow]:
-    return build_deep_agent_flows(Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]))
+    return build_deep_agent_flows(
+        Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
+        defers_tool_calls_first=os.environ.get(MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE) is None,
+    )
 
 
 def read_recorded_model_requests(state_dir: Path) -> list[RecordedModelRequest]:
@@ -202,6 +221,7 @@ def _deep_agent_factory(
                 *extra_middleware,
             ],
             state_schema=TopicState,
+            store=InMemoryStore(),
         )
 
     return build_deep_agent
@@ -278,7 +298,29 @@ def _build_topic_tools(state_dir: Path) -> list[BaseTool]:
         await file_gate.wait_for_release()
         return f"passed {gate}"
 
-    return [set_topic, pad_topic, get_topic, add_visit, flaky_visit, echo_text, wait_at_gate]
+    @tool
+    def save_note(note: str, store: Annotated[BaseStore, InjectedStore()]) -> str:
+        """Keep a note in the graph's store."""
+        store.put(("notes",), "latest", {"note": note})
+        return "saved"
+
+    @tool
+    def read_note(store: Annotated[BaseStore, InjectedStore()]) -> str:
+        """Read the note from the graph's store."""
+        item = store.get(("notes",), "latest")
+        return "no note" if item is None else str(item.value["note"])
+
+    return [
+        set_topic,
+        pad_topic,
+        get_topic,
+        add_visit,
+        flaky_visit,
+        echo_text,
+        wait_at_gate,
+        save_note,
+        read_note,
+    ]
 
 
 def _scripted_model(state_dir: Path, model: str | None = None) -> ScriptedChatModel:

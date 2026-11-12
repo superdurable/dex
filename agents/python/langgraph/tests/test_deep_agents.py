@@ -21,7 +21,7 @@ import pytest
 from deepagents import create_deep_agent
 from dex import FlowStatus
 from dex_agents import AgentSessionFlow, AgentSnapshot, MessageRole
-from dex_agents.testing import AgentTestStack, InvocationLog, wait_for_agent_snapshot
+from dex_agents.testing import AgentTestStack, FileGate, InvocationLog, wait_for_agent_snapshot
 from dex_agents.ui_stream import agent_snapshot_to_json
 
 from dex_agents_langgraph import DurableToolCallMiddleware, LangGraphAgentRunner
@@ -30,6 +30,8 @@ from tests.deep_agents import (
     DEEP_AGENT_FLOW_TYPE,
     EVICTING_DEEP_AGENT_FLOW_TYPE,
     EVICTION_TOKEN_LIMIT,
+    MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE,
+    ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE,
     SHARED_GRAPH_DEFERRED_FIRST_FLOW_TYPE,
     SHARED_GRAPH_MIDDLEWARE_ORDER_FLOW_TYPE,
     SOURCE_READ_FILE_DEEP_AGENT_FLOW_TYPE,
@@ -139,6 +141,20 @@ async def test_a_large_tool_result_is_evicted_to_a_file_once_in_its_tool_step(
     assert harness.tool_invocations() == ["echo_text"]
     # The listing sees the file, so the recorded state write reached the next model call.
     assert _tool_wrapper_invocations(harness) == ["echo_text", "ls"]
+
+
+async def test_tools_in_their_tool_steps_share_the_compiled_graphs_store(
+    deep_agent_harness: ScriptedAgentHarness,
+) -> None:
+    harness = deep_agent_harness
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call save_note {"note": "buy milk"} then call read_note {}'
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == "save_note: saved; read_note: buy milk"
 
 
 async def test_task_is_neither_offered_nor_run_when_excluded(
@@ -321,6 +337,45 @@ async def test_two_runners_sharing_one_graph_keep_their_own_middleware_order(
         assert middleware_order.messages[-1].text == "get_topic: topic is unset"
         # The recorder wraps the deferral, so it sees the call when it defers and when it resumes.
         assert invocations.count(wrapper_invocation) == 1 + 2
+
+
+async def test_a_session_paused_in_middleware_order_resumes_with_the_deferral_first(
+    tmp_path: Path,
+) -> None:
+    async with _deep_agent_stack(tmp_path) as (stack, flows, state_dir):
+        worker = await stack.start_worker({MIDDLEWARE_ORDER_ENVIRONMENT_VARIABLE: "1"})
+        invocations = InvocationLog(state_dir / INVOCATION_LOG_NAME)
+        gate = FileGate(state_dir, "order")
+        sessions = stack.sessions(flows[ORDER_SWITCH_DEEP_AGENT_FLOW_TYPE])
+        session_id = f"session-{uuid4().hex}"
+        await sessions.start_session(
+            session_id,
+            'call get_topic {} then call wait_at_gate {"gate": "order"} then call get_topic {}',
+        )
+        await gate.wait_until_reached()
+        # The old order wrapped the first call's deferral and replay in RunModel.
+        assert invocations.count(f"{TOOL_WRAPPER_INVOCATION_PREFIX}get_topic") == 2
+
+        worker.kill()
+        gate.release()
+        await stack.start_worker()
+        snapshot = await wait_for_agent_snapshot(
+            sessions,
+            session_id,
+            lambda current: current
+            if current.state is not None
+            and current.state.turn_count >= 1
+            and current.state.active_turn_id is None
+            else None,
+            description="the turn to finish on the new Worker",
+        )
+
+    assert snapshot.messages[-1].text == (
+        "get_topic: topic is unset; wait_at_gate: passed order; get_topic: topic is unset"
+    )
+    # The checkpoint paused under the old order resumed; the later call ran its wrapper once.
+    assert invocations.count("get_topic") == 2
+    assert invocations.count(f"{TOOL_WRAPPER_INVOCATION_PREFIX}get_topic") == 3
 
 
 async def test_state_writes_over_the_state_limit_fail_the_session(tmp_path: Path) -> None:

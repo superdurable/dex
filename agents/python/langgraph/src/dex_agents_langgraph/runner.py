@@ -17,7 +17,7 @@ import threading
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, TypeGuard
 from uuid import UUID, uuid4
 
 from dex_agents import (
@@ -106,6 +106,7 @@ from dex_agents_langgraph.messages import (
 )
 from dex_agents_langgraph.tool_deferral import (
     TOOL_CALL_IDEMPOTENCY_KEY_CONFIGURABLE,
+    DurableToolCallMiddleware,
     DurableToolNode,
     _bind_run_model,
     _bind_tool_step,
@@ -116,6 +117,7 @@ from dex_agents_langgraph.tool_deferral import (
     _RunModelBinding,
     _source_tool_as_langchain_tool,
     _tool_node_deferring_first,
+    awrap_durable_tool_call,
 )
 
 #: A compiled LangGraph graph, as ``create_agent`` and ``StateGraph.compile`` return it.
@@ -198,11 +200,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     Step records the update after the output text, and the next ``RunModel``
     applies it with the recorded ``ToolMessage``.
 
-    With ``should_defer_tool_calls_before_middleware``, each attempt of a
-    tool Step runs the call through its tool node's middleware tool
-    wrappers, such as Deep Agents' large result eviction. A retried attempt
-    runs them again, so their side effects follow the tool's retry policy.
-    The next ``RunModel`` replays the recorded result without running them.
+    By default each attempt of a tool Step runs the call through its root
+    graph tool node's middleware tool wrappers, such as Deep Agents' large
+    result eviction. A retried attempt runs them again, so their side effects
+    follow the tool's retry policy. The next ``RunModel`` replays the
+    recorded result without running them. See
+    ``should_defer_tool_calls_before_middleware``.
 
     Tool sources, such as ``ConnectorToolSource``, add tools that the runner
     lists in every ``RunModel``. ``DurableToolCallMiddleware`` adds them to
@@ -248,7 +251,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         media_store: MediaStore | None = None,
         excluded_tool_names: Collection[str] = (),
         select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None] | None = None,
-        should_defer_tool_calls_before_middleware: bool = False,
+        should_defer_tool_calls_before_middleware: bool = True,
     ) -> None:
         """Create a runner for one compiled graph.
 
@@ -335,29 +338,41 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                 .. versionadded:: 0.5.0
             should_defer_tool_calls_before_middleware: Whether to make the
                 deferral the outermost tool wrapper of every plain
-                ``ToolNode`` of the root graph, as if ``DurableToolCallMiddleware``
-                came first in ``middleware``. Set it for a Deep Agents agent,
-                where ``create_deep_agent`` places your middleware after its
-                own. The runner applies it to its own copy of the graph, so
-                the graph you pass and other runners that share it keep
-                their order. Each tool call's tool Step then runs the
-                middleware tool wrappers of its root graph tool node, such as
-                ``FilesystemMiddleware``'s large result eviction, around the
-                tool, in each attempt of that Step; a retried attempt runs
-                them again. Each wrapper sees the graph state at the call's
-                deferral without the message list, and may write state as a
-                tool does. ``RunModel`` replays the recorded result before
-                the wrappers, so they never run there. Defaults to
-                ``False``, which keeps the middleware order: middleware
-                listed before ``DurableToolCallMiddleware`` wrap the deferral
-                and the replay in ``RunModel``, and a tool Step calls the tool
-                alone, without any wrapper.
+                ``ToolNode`` of the root graph that has an async tool wrapper,
+                as a ``create_agent`` graph with ``DurableToolCallMiddleware``
+                does, whatever the middleware order, and run the node's
+                middleware tool wrappers in each tool Step. A tool node
+                without wrappers is left as it is. Defaults to ``True``.
+                The runner applies it to its own copy of the graph, so the
+                graph you pass and other runners that share it keep their
+                order. Each tool call's tool
+                Step runs the middleware tool wrappers of its root graph tool
+                node, such as ``FilesystemMiddleware``'s large result
+                eviction, around the tool, in each attempt of that Step; a
+                retried attempt runs them again, so their side effects follow
+                the tool's retry policy. Each wrapper sees the graph state at
+                the call's deferral without the message list, and may write
+                state as a tool does. So that it can, each call of a node
+                that has wrappers besides ``DurableToolCallMiddleware`` stores
+                that state with its record: one model response with N calls
+                stores it N times, and the session fails when its run state
+                outgrows the Dex limit. ``RunModel`` replays the recorded
+                result before the wrappers, so they never run there. Pass
+                ``False`` for the earlier behavior: middleware listed before
+                ``DurableToolCallMiddleware`` wrap the deferral and the replay
+                in ``RunModel``, and a tool Step calls the tool alone, without
+                any wrapper. A session recorded under either setting resumes
+                under the other: the tool Step and ``RunModel`` read the same
+                records.
 
                 .. versionadded:: 0.5.0
 
                 .. versionchanged:: 0.5.1
                     A tool Step runs the tool node's middleware tool wrappers.
                     Before, it called the tool alone, so no wrapper ever ran.
+
+                .. versionchanged:: 0.6.0
+                    Defaults to ``True``. Before, it defaulted to ``False``.
 
         Raises:
             TypeError: If ``graph`` is neither a compiled graph nor callable,
@@ -675,6 +690,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         message list. Its runtime has the compiled graph's ``store``, which
         is ``None`` unless the graph was compiled with one, and no
         ``context``, as the runner runs graphs without a run context.
+        An ``InjectedStore`` parameter receives that store.
         ``get_store()`` and ``get_runtime()`` do not work there. It reads
         and writes state as in a graph task, which Deep Agents'
         ``StateBackend`` does. A tool may also return a ``Command`` whose
@@ -682,8 +698,8 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         result's ``runner_tool_state``, apart from the output, and the next
         ``RunModel`` replays them as the graph task's writes.
 
-        With ``should_defer_tool_calls_before_middleware``, a tool of a root
-        graph tool node runs through that node's middleware tool wrappers and
+        By default a tool of a root graph tool node runs through that node's
+        middleware tool wrappers and
         its tool error handling, as in the graph. The wrappers receive the
         same state and runtime, and their state writes are recorded as the
         tool's. A tool of ``tools=`` that no tool node has runs alone.
@@ -725,6 +741,10 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             The tool runtime has the compiled graph's store. A tool of a root
             graph tool node runs through its middleware tool wrappers when
             the runner defers tool calls before middleware.
+
+        .. versionchanged:: 0.6.0
+            Tools run through their tool node's middleware tool wrappers by
+            default, and an ``InjectedStore`` parameter receives the store.
         """
         record = call.tool_call
         if self._tool_sources.is_source_tool_call(record):
@@ -768,12 +788,11 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
                     result = await _run_through_tool_node_wrappers(
                         wrapping_tool_node, tool_call, tool_runtime
                     )
-                elif is_state_tool:
+                else:
+                    # Injects state, runtime, and store arguments; other calls pass unchanged.
                     result = await tool.ainvoke(
                         self._with_injected_tool_arguments(tool, tool_call, tool_runtime), config
                     )
-                else:
-                    result = await tool.ainvoke(tool_call, config)
             except ToolException as error:
                 raise ToolExecutionError(str(error)) from error
         if isinstance(result, list):
@@ -882,8 +901,11 @@ class LangGraphAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         wrapping_tool_nodes: dict[str, ToolNode] = {}
         if self._should_defer_tool_calls_before_middleware:
             _require_tool_node_call_path()
-            graph = _with_tool_calls_deferred_first(graph)
-            wrapping_tool_nodes = _tool_nodes_with_wrappers_by_tool_name(graph, tools_by_name)
+            deferring_graph = _with_tool_calls_deferred_first(graph)
+            wrapping_tool_nodes = _tool_nodes_with_wrappers_by_tool_name(
+                graph, deferring_graph, tools_by_name
+            )
+            graph = deferring_graph
         return _LoadedGraph(
             graph=graph,
             tools_by_name=tools_by_name,
@@ -1144,26 +1166,51 @@ def _with_tool_calls_deferred_first(graph: CompiledGraph) -> CompiledGraph:
     # A copy, so the caller's graph and other runners that share it keep their order.
     nodes = {
         name: node.copy({"bound": _tool_node_deferring_first(node.bound)})
-        if isinstance(node.bound, ToolNode) and not isinstance(node.bound, DurableToolNode)
+        if _has_async_tool_wrapper(node.bound)
         else node
         for name, node in graph.nodes.items()
     }
     return graph.copy(update={"nodes": nodes})
 
 
+def _has_async_tool_wrapper(bound: object) -> TypeGuard[ToolNode]:
+    # A node without wrappers has no DurableToolCallMiddleware either; its tools stay blocked.
+    return (
+        isinstance(bound, ToolNode)
+        and not isinstance(bound, DurableToolNode)
+        and bound._awrap_tool_call is not None
+    )
+
+
 def _tool_nodes_with_wrappers_by_tool_name(
-    graph: CompiledGraph, tools_by_name: Mapping[str, BaseTool]
+    graph: CompiledGraph, deferring_graph: CompiledGraph, tools_by_name: Mapping[str, BaseTool]
 ) -> dict[str, ToolNode]:
     # Only root graph nodes defer first, so only their wrappers all sit inside the deferral.
     nodes: dict[str, ToolNode] = {}
-    for node in graph.nodes.values():
+    for node_name, node in graph.nodes.items():
         bound = node.bound
-        if not isinstance(bound, ToolNode) or isinstance(bound, DurableToolNode):
+        if not isinstance(bound, ToolNode) or not _has_async_tool_wrapper(bound):
             continue
+        if not _has_middleware_tool_wrappers(bound):
+            continue
+        deferring_node = deferring_graph.nodes[node_name].bound
+        if not isinstance(deferring_node, ToolNode):
+            raise TypeError(f"the deferring copy of tool node {node_name} is not a ToolNode")
         for tool_name, tool in bound.tools_by_name.items():
             if tools_by_name.get(tool_name) is tool:
-                nodes.setdefault(tool_name, bound)
+                nodes.setdefault(tool_name, deferring_node)
     return nodes
+
+
+def _has_middleware_tool_wrappers(tool_node: ToolNode) -> bool:
+    # A node wrapped only by the deferral runs its tools alone and needs no stored state.
+    wrapper = tool_node._awrap_tool_call
+    if wrapper is None:
+        return False
+    unwrapped = inspect.unwrap(wrapper)
+    if unwrapped is awrap_durable_tool_call:
+        return False
+    return not isinstance(getattr(unwrapped, "__self__", None), DurableToolCallMiddleware)
 
 
 def _require_tool_node_call_path() -> None:
