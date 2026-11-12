@@ -1,12 +1,4 @@
 {
-  "shell.header.homeAriaLabel": {
-    "message": "Super Durable 首页",
-    "description": "The accessible name of the header wordmark link"
-  },
-  "shell.header.primaryNavigationAriaLabel": {
-    "message": "主导航",
-    "description": "The ARIA label of the header site links"
-  },
   "shell.header.mobileNavigationAriaLabel": {
     "message": "移动端导航",
     "description": "The ARIA label of the header mobile menu links"
@@ -50,5 +42,57 @@
   "docs.markdown.view.newTab": {
     "message": "查看 Markdown（在新标签页中打开）",
     "description": "The accessible name of the link that opens the Markdown export of a docs page in a new tab"
+  },
+  "shell.header.docsTitle": {
+    "message": "Super Durable",
+    "description": "The header wordmark text"
+  },
+  "shell.header.discord": {
+    "message": "Discord",
+    "description": "The header Discord link"
+  },
+  "shell.header.github": {
+    "message": "GitHub",
+    "description": "The header GitHub link"
+  },
+  "shell.header.superDurableHome": {
+    "message": "Super Durable 首页",
+    "description": "The header link back to the superdurable.io home page"
+  },
+  "shell.tabs.docs": {
+    "message": "文档",
+    "description": "The header tab for the docs home"
+  },
+  "shell.tabs.quickStart": {
+    "message": "快速开始",
+    "description": "The header tab for the Quick Start"
+  },
+  "shell.tabs.agents": {
+    "message": "AI 智能体",
+    "description": "The header tab for Durable Agents"
+  },
+  "shell.tabs.examples": {
+    "message": "示例",
+    "description": "The header tab for the product examples"
+  },
+  "shell.tabs.ariaLabel": {
+    "message": "文档分区",
+    "description": "The ARIA label of the header tab row"
+  },
+  "theme.SearchBar.label": {
+    "message": "搜索…",
+    "description": "The ARIA label and placeholder for search button"
+  },
+  "shell.header.themeToggle": {
+    "message": "切换浅色和深色",
+    "description": "The accessible name of the header theme switch"
+  },
+  "shell.header.signUpCloud": {
+    "message": "注册 Cloud",
+    "description": "The header button to sign up for Dex Cloud"
+  },
+  "shell.heading.linkCopied": {
+    "message": "已复制",
+    "description": "Shown next to a heading after its section link is copied"
   }
 }

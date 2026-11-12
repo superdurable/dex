@@ -1258,7 +1258,7 @@ func (flow *AgentSessionFlow) beginTurn(ctx dex.Context, state AgentState, text 
 	if userMessage.Role != MessageRoleUser {
 		return errors.New("BuildUserMessage must return a user message")
 	}
-	state, err = flow.appendMessages(ctx, state, turnID, []FrameworkMessage{userMessage}, true)
+	state, err = flow.appendMessages(ctx, state, turnID, []FrameworkMessage{userMessage}, true, nil)
 	if err != nil {
 		return err
 	}
@@ -1396,7 +1396,7 @@ func (flow *AgentSessionFlow) completeTurn(
 	if err != nil {
 		return err
 	}
-	state, err = flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false)
+	state, err = flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false, nil)
 	if err != nil {
 		return err
 	}
@@ -1432,7 +1432,7 @@ func (flow *AgentSessionFlow) startToolCalls(
 	if err := validateToolCallsRequested(outcome, toolCalls); err != nil {
 		return nil, err
 	}
-	state, err := flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false)
+	state, err := flow.appendMessages(ctx, state, turnID, outcome.NewMessages, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1724,6 +1724,7 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 			finished = append(finished, toolCall)
 		}
 	}
+	origins := make([]*AgentMessageOrigin, len(messages))
 	if len(finished) > 0 {
 		// The records are deleted below; the note keeps the next model from repeating writes.
 		noteText, err := BuildTurnFailureNote(finished)
@@ -1735,8 +1736,10 @@ func (flow *AgentSessionFlow) failTurnWithRecords(
 			return err
 		}
 		messages = append(messages, note)
+		noteOrigin := AgentMessageOriginTurnFailureNote
+		origins = append(origins, &noteOrigin)
 	}
-	state, err := flow.appendMessages(ctx, state, turnID, messages, false)
+	state, err := flow.appendMessages(ctx, state, turnID, messages, false, origins)
 	if err != nil {
 		return err
 	}
@@ -1951,7 +1954,15 @@ func writeInterruptRaised(events *AgentEventWriter, interrupt AgentInterrupt) er
 		"question":         interrupt.Question,
 		"choices":          nonNilSlice(interrupt.Choices),
 		"allows_free_text": interrupt.AllowsFreeText,
+		"display":          interruptDisplayPayload(interrupt.Display),
 	})
+}
+
+func interruptDisplayPayload(display *AgentInterruptDisplay) any {
+	if display == nil {
+		return nil
+	}
+	return map[string]any{"target": display.Target, "summary": display.Summary, "preview": display.Preview}
 }
 
 func deleteTurnRecords(ctx dex.Context, toolCalls []AgentToolCall) error {

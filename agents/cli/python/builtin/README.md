@@ -48,8 +48,24 @@ tools of the connectors MCP server. Every call runs in its own Dex tool Step,
 with the CLI core's policy. Reads run at once, file writes and shell commands
 wait for approval unless the shell allow list has the command, and the file
 tools stay in the workspace. See the
-[CLI core README](../core/README.md) for the local tools. The agent can also
-ask you a question with the `ask_user` built-in tool.
+[CLI core README](../core/README.md) for the local tools.
+
+The agent also has two built-in tools that the session runs itself:
+
+- `ask_user` asks you a question, and the turn waits for your answer.
+- `write_todos` replaces the session's plan, a short task list, with no
+  approval.
+
+Plan mode is on. Use it through the terminal UI (`dexcli agents-tui`) or the
+session API, not the plain chat, which sends `/plan` and `/run` as ordinary
+messages. In the terminal UI, `/plan <message>` starts a planning turn: the
+agent drafts a plan with `write_todos` and uses no other tool. `/run` approves
+the draft, and the agent runs it with every tool.
+
+The names `ask_user` and `write_todos` are reserved, so a connector or local
+tool with one of these names fails the turn. This is a breaking change for
+such a tool: rename the conflicting connector or local tool, or use another
+harness.
 
 ## Development
 

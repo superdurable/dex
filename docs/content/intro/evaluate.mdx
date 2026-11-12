@@ -1,0 +1,20 @@
+---
+id: evaluate
+title: Evaluate Dex
+sidebar_label: Evaluate Dex
+slug: /evaluate
+description: The pages for deciding whether Dex fits your system, what each one answers, and the order to read them in.
+---
+
+# Evaluate Dex
+
+These pages help you decide whether Dex fits your system. Read them in order, or go straight to your question.
+
+- [Why Dex?](/intro/what-is-dex) shows the problem with an order process that breaks halfway, and how Dex models it as a Flow of Steps.
+- [Dex vs. Databases](/intro/compared-to-database) builds the same process on a database, then with queues and an outbox, then as a Flow, and lists the duties that stay with you.
+- [Dex and Your Database](/components/your-database) shows how a Step writes to the database you already have, and when to copy Flow data to PostgreSQL.
+- [Dex vs. Other Engines](/intro/compared-to-durable-execution) maps Dex to replay-based engines, journal-based runtimes, and database-backed libraries, and says when another tool fits better.
+- [Performance](/intro/performance) gives measured throughput and latency on one node with S3, what it costs to run, and how to repeat a result.
+- [Limits](/intro/limits) lists what can surprise a team in production, the release status, and the license.
+- [Failover and Deploys](/concepts/failover-and-deploys) shows what happens when the server or a Worker stops, and how to deploy new code while Flows are open.
+- [Correctness and Expressiveness](/correctness-and-expressiveness) gives a machine-checked proof of what a crash can and cannot change, and what Dex can express.

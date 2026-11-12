@@ -7,6 +7,16 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 export {
+  buildConnectorToolApprovalDisplay,
+  isCredentialLikeName,
+  maxApprovalPreviewBytes,
+  maxApprovalSummaryBytes,
+  maxApprovalTargetBytes,
+  redactInlineCredentials,
+  redactedArgumentValue,
+  type ConnectorToolApprovalDisplayInput,
+} from "./agent-approval-display.js";
+export {
   builtInToolDefinitions,
   writeTodosCalledMoreThanOnce,
   type BuiltInTool,
@@ -126,12 +136,14 @@ export {
   type AgentEventType,
   type AgentImageReference,
   type AgentInterrupt,
+  type AgentInterruptDisplay,
   type AgentInterruptKind,
   type AgentInterruptResolution,
   type AgentMessage,
   type AgentMessageChunk,
   type AgentMessageChunkRange,
   type AgentMessageIndex,
+  type AgentMessageOrigin,
   type AgentMessageRole,
   type AgentMessagesPage,
   type AgentPlan,

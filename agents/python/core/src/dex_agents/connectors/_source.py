@@ -36,6 +36,7 @@ from dex_connectors.sdk import (
 )
 from dex_connectors.sdk.singledispatch import Marker, State
 
+from dex_agents.approval_display import build_connector_tool_approval_display
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
 from dex_agents.connectors._step_context import ConnectorStepContext, FenceEvidence
 from dex_agents.runner import (
@@ -539,6 +540,10 @@ class ConnectorToolSource:
     ) -> DeferredToolCall:
         """Build the call with the manifest's effect class and the call's approval.
 
+        A call that needs approval carries the display of
+        ``build_connector_tool_approval_display``: the operation, the
+        connection, and the short arguments.
+
         Args:
             turn: The ``RunModel`` context. A ``tool_policies`` entry for the
                 tool changes only whether the call waits for approval.
@@ -563,6 +568,16 @@ class ConnectorToolSource:
             policy=ToolPolicy(tool.effect, requires_approval),
             tool_source_reference=json.dumps({"tool": tool.name}),
             ordered=tool.effect is not ToolEffect.READ,
+            approval_display=(
+                build_connector_tool_approval_display(
+                    connector_id=tool.connector_id,
+                    connection_name=tool.connection.name,
+                    operation=tool.operation_id,
+                    arguments=arguments,
+                )
+                if requires_approval
+                else None
+            ),
         )
 
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:

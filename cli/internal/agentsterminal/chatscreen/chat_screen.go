@@ -20,6 +20,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionfeed"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
+	"github.com/superdurable/dex/cli/internal/agentsterminal/typedpaths"
 )
 
 // ChatScreenConfig configures NewChatScreen.
@@ -38,6 +39,9 @@ type ChatScreenConfig struct {
 	// ShowsStartupLogo shows the Dex logo in the welcome area on a 40x15
 	// terminal or larger. Default false.
 	ShowsStartupLogo bool
+	// PathResolver resolves typed and pasted /image paths. Default nil, which
+	// turns off path completion and the pasted image prompt.
+	PathResolver *typedpaths.PathResolver
 }
 
 // ChatScreen is the chat screen model.
@@ -98,6 +102,7 @@ type ChatScreen struct {
 	pendingDelete             *sessionfeed.QueuedMessage
 	isSessionStartWaiting     bool
 	pendingSwitchSessionID    string
+	pendingImageDrop          *sessionfeed.SwitchSession
 	cancelState               cancelState
 	isExitArmed               bool
 	cancelRequestedTurnID     string
@@ -110,8 +115,31 @@ type ChatScreen struct {
 	openedSession    sessionfeed.SessionOpened
 	isSessionKnown   bool
 	sessionCommands  []sessionfeed.SlashCommand
-	messageQueue     []sessionfeed.SendUserMessage
+	messageQueue     []queuedUserMessage
 	isSendingMessage bool
+
+	pathResolver *typedpaths.PathResolver
+	// pathCompletions are the /image candidates Tab found; any edit clears them.
+	pathCompletions         []string
+	isPathCompletionPartial bool
+	pathCompletionRequestID int64
+	historyReadRequestID    int64
+	pendingPastedImage      *pastedImagePrompt
+	pager                   *pagerView
+	isToolPickerOpen        bool
+	toolPickerIndex         int
+	// turnTools are the calls of the newest turn that ran tools, with their
+	// output for Ctrl-O and /tools.
+	turnTools             []sessionfeed.ToolCallChanged
+	turnToolsTurnID       string
+	earlierBeforeSequence int64
+	deletedBeforeSequence int64
+}
+
+// pastedImagePrompt asks whether a pasted image path becomes an attachment.
+type pastedImagePrompt struct {
+	path string
+	text string
 }
 
 // activeTurn is the running turn shown in the context line.
@@ -163,6 +191,16 @@ type messageSubmittedMsg struct {
 
 type animationTickMsg struct{}
 
+// pathCompletionsFoundMsg ends one /image completion, which reads the disk
+// off the event loop.
+type pathCompletionsFoundMsg struct {
+	requestID   int64
+	sessionID   string
+	inputText   string
+	partial     string
+	completions typedpaths.PathCompletions
+}
+
 const (
 	defaultScreenWidth  = 80
 	defaultScreenHeight = 24
@@ -201,6 +239,7 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 		interruptOutcomes: map[string]string{},
 		printedSequences:  map[int64]bool{},
 		notices:           newNoticeFilter(),
+		pathResolver:      config.PathResolver,
 	}
 	screen.history = newTranscript(config.Theme)
 	screen.history.Append(transcriptBlockWelcome, screen.welcome())
@@ -220,7 +259,7 @@ func (screen *ChatScreen) ExitSummary() string {
 	if screen.session.SessionID == "" {
 		return screen.exitReason
 	}
-	summary := "Session " + screen.session.SessionID + " stays in Dex. Resume with: " + screen.resumeCommand()
+	summary := "Session " + screen.session.SessionID + " keeps running. Resume it with: " + screen.resumeCommand()
 	return strings.TrimSpace(screen.exitReason + " " + summary)
 }
 
@@ -248,6 +287,8 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		commands = append(commands, screen.handleKey(typed))
 	case tea.PasteMsg:
 		screen.handlePaste(typed.Content)
+	case SwitchSessionRequestMsg:
+		commands = append(commands, screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: typed.SessionID, IsResumed: typed.IsResumed}))
 	case sessionUpdateMsg:
 		screen.isWaitingForSessionUpdate = false
 		commands = append(commands, screen.applySessionUpdate(typed.update))
@@ -265,6 +306,8 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			screen.handleActionFailure(userActionFailedMsg{action: typed.message, err: typed.err})
 		}
 		commands = append(commands, screen.submitNextMessage())
+	case pathCompletionsFoundMsg:
+		screen.applyPathCompletions(typed)
 	case animationTickMsg:
 		screen.isTicking = false
 		commands = append(commands, screen.startAnimation())
@@ -304,7 +347,7 @@ func (screen *ChatScreen) isAnimating() bool {
 
 // queueMessage submits message after the ones before it.
 func (screen *ChatScreen) queueMessage(message sessionfeed.SendUserMessage) tea.Cmd {
-	screen.messageQueue = append(screen.messageQueue, message)
+	screen.messageQueue = append(screen.messageQueue, queuedUserMessage{message: message, sessionID: screen.session.SessionID})
 	return screen.submitNextMessage()
 }
 
@@ -312,17 +355,17 @@ func (screen *ChatScreen) submitNextMessage() tea.Cmd {
 	if screen.isSendingMessage || len(screen.messageQueue) == 0 {
 		return nil
 	}
-	message := screen.messageQueue[0]
+	queued := screen.messageQueue[0]
 	screen.messageQueue = screen.messageQueue[1:]
 	screen.isSendingMessage = true
-	source, ctx := screen.source, screen.ctx
+	message, source, ctx := queued.message, screen.source, screen.targetSessionContext(queued.sessionID)
 	return func() tea.Msg {
 		return messageSubmittedMsg{message: message, err: source.SubmitUserAction(ctx, message)}
 	}
 }
 
 func (screen *ChatScreen) submitAction(action sessionfeed.UserAction) tea.Cmd {
-	source, ctx := screen.source, screen.ctx
+	source, ctx := screen.source, screen.actionContext(action)
 	return func() tea.Msg {
 		if err := source.SubmitUserAction(ctx, action); err != nil {
 			return userActionFailedMsg{action: action, err: err}
@@ -341,6 +384,9 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 	keyName := key.String()
 	if keyName == "ctrl+c" {
 		return screen.handleInterruptKey()
+	}
+	if screen.pager != nil {
+		return screen.handlePagerKey(key)
 	}
 	if screen.handleScrollKey(key) {
 		return nil
@@ -363,6 +409,15 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 			screen.helpScrollFromTop += popupScrollStep
 		}
 		return nil
+	}
+	if screen.pendingImageDrop != nil {
+		return screen.handleImageDropKey(keyName)
+	}
+	if screen.isToolPickerOpen {
+		return screen.handleToolPickerKey(keyName)
+	}
+	if screen.pendingPastedImage != nil {
+		return screen.handlePastedImageKey(key)
 	}
 	if screen.pendingSwitchSessionID != "" && screen.input.IsEmpty() && !screen.isPopupOpen {
 		if command, isHandled := screen.handleSwitchKey(keyName); isHandled {
@@ -393,7 +448,11 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 	case "tab":
 		if screen.input.IsEmpty() {
 			screen.focusPendingBar()
+		} else {
+			return screen.completeImagePath()
 		}
+	case "ctrl+o":
+		screen.openLastToolOutput()
 	case "up":
 		if screen.input.IsCursorOnFirstLine() {
 			screen.recallHistory(-1)
@@ -421,9 +480,10 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 	default:
 		if key.String() == "backspace" && screen.input.IsEmpty() && len(screen.attachments) > 0 {
 			screen.attachments = screen.attachments[:len(screen.attachments)-1]
-			return nil
+			return screen.submitAction(sessionfeed.DetachImage{})
 		}
 		if screen.input.HandleEditingKey(key) {
+			screen.pathCompletions = nil
 			screen.isCompletionDismissed = false
 			screen.completionIndex = 0
 			screen.isExitArmed = screen.isExitArmed && screen.isTurnRunning
@@ -434,10 +494,121 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 
 func (screen *ChatScreen) handlePaste(content string) {
 	switch {
+	case screen.pager != nil:
+		if screen.pager.isTypingSearch {
+			screen.pager.searchInput.InsertText(strings.ReplaceAll(content, "\n", " "))
+		}
 	case screen.isPopupOpen && screen.popup.isEnteringText:
 		screen.popup.textInput.InsertText(content)
-	case !screen.isPopupOpen && !screen.isHelpOpen && screen.pendingFocus == pendingFocusNone:
+	case screen.isPopupOpen || screen.isHelpOpen || screen.isToolPickerOpen || screen.pendingFocus != pendingFocusNone:
+	case screen.pendingPastedImage != nil:
+		screen.keepPastedText()
 		screen.input.InsertText(content)
+	default:
+		screen.pathCompletions = nil
+		if path, isImage := screen.pastedImagePath(content); isImage && screen.input.IsEmpty() {
+			screen.pendingPastedImage = &pastedImagePrompt{path: path, text: content}
+			return
+		}
+		screen.input.InsertText(content)
+	}
+}
+
+// pastedImagePath reports a paste that names one image file, when this
+// session takes images.
+func (screen *ChatScreen) pastedImagePath(content string) (string, bool) {
+	if screen.pathResolver == nil || !screen.commands.Has(imageCommandName) || screen.isInputDisabled {
+		return "", false
+	}
+	return screen.pathResolver.PastedImagePath(content)
+}
+
+// handlePastedImageKey answers "Attach NAME?": Enter attaches, Esc keeps the
+// text, and any other key keeps the text and then types.
+func (screen *ChatScreen) handlePastedImageKey(key tea.KeyPressMsg) tea.Cmd {
+	switch key.String() {
+	case "enter":
+		path := screen.pendingPastedImage.path
+		screen.pendingPastedImage = nil
+		return screen.submitAction(sessionfeed.RunSlashCommand{Name: imageCommandName, Argument: path})
+	case "esc":
+		screen.keepPastedText()
+		return nil
+	}
+	screen.keepPastedText()
+	return screen.handleKey(key)
+}
+
+func (screen *ChatScreen) keepPastedText() {
+	screen.input.InsertText(screen.pendingPastedImage.text)
+	screen.pendingPastedImage = nil
+}
+
+// completeImagePath starts completing the PATH of "/image PATH" on Tab. The
+// directory read runs off the event loop.
+func (screen *ChatScreen) completeImagePath() tea.Cmd {
+	text := screen.input.Value()
+	if screen.pathResolver == nil || !screen.commands.Has(imageCommandName) || !strings.HasPrefix(text, imageCommandPrefix) || strings.Contains(text, "\n") {
+		return nil
+	}
+	screen.pathCompletionRequestID++
+	request := pathCompletionsFoundMsg{
+		requestID: screen.pathCompletionRequestID,
+		sessionID: screen.session.SessionID,
+		inputText: text,
+		partial:   strings.TrimLeft(strings.TrimPrefix(text, imageCommandPrefix), " "),
+	}
+	resolver := *screen.pathResolver
+	return func() tea.Msg {
+		request.completions = resolver.CompletePath(request.partial)
+		return request
+	}
+}
+
+// applyPathCompletions applies a finished completion while the input and
+// session are still the ones it read: one candidate replaces the PATH,
+// several extend it to their common prefix.
+func (screen *ChatScreen) applyPathCompletions(found pathCompletionsFoundMsg) {
+	if found.requestID != screen.pathCompletionRequestID || found.sessionID != screen.session.SessionID || found.inputText != screen.input.Value() {
+		return
+	}
+	candidates := found.completions.Candidates
+	screen.pathCompletions, screen.isPathCompletionPartial = nil, false
+	switch len(candidates) {
+	case 0:
+		if found.completions.IsPartial {
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, fmt.Sprintf("no match in the first %d entries; type more of the name", typedpaths.MaximumScannedEntries))
+		} else {
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, "no file matches "+found.partial)
+		}
+	case 1:
+		screen.input.SetValue(imageCommandPrefix + candidates[0])
+	default:
+		screen.input.SetValue(imageCommandPrefix + typedpaths.LongestCommonPrefix(candidates))
+		screen.pathCompletions, screen.isPathCompletionPartial = candidates, found.completions.IsPartial
+	}
+}
+
+// forgetSessionViews closes what belongs to the session the chat leaves:
+// popups and their interrupts, pagers, queued rows, completions, and prompts.
+func (screen *ChatScreen) forgetSessionViews(nextSessionID string) {
+	// Message sequences and turn IDs repeat across sessions.
+	screen.flushReplies()
+	screen.printedSequences = map[int64]bool{}
+	screen.replies = newReplyStream()
+	// Images and queued messages of the old session never reach the new one.
+	screen.attachments, screen.pendingImageDrop = nil, nil
+	screen.dropQueuedMessagesOfOtherSessions(nextSessionID)
+	screen.closePopup()
+	screen.interrupts = nil
+	screen.interruptFeedback, screen.interruptOutcomes = map[string]string{}, map[string]string{}
+	screen.pendingFocus, screen.pendingDelete = pendingFocusNone, nil
+	screen.queuedMessages = nil
+	screen.pager, screen.isToolPickerOpen = nil, false
+	screen.pathCompletions, screen.isPathCompletionPartial = nil, false
+	screen.pathCompletionRequestID++
+	if screen.pendingPastedImage != nil {
+		screen.keepPastedText()
 	}
 }
 
@@ -497,6 +668,11 @@ func (screen *ChatScreen) runSlashCommand(parsed parsedSlashCommand) tea.Cmd {
 		return nil
 	case copyCommandName:
 		return screen.copyLastReply()
+	case toolsCommandName:
+		screen.openToolPicker()
+		return nil
+	case historyCommandName:
+		return screen.openHistoryPager()
 	case exitCommandName:
 		screen.exit(0)
 		return nil
@@ -542,18 +718,114 @@ func (screen *ChatScreen) openWaitingInterrupt() {
 
 // runPlan approves the draft plan when the session can run it now.
 func (screen *ChatScreen) runPlan() tea.Cmd {
-	switch {
-	case len(screen.plan.Items) == 0 || screen.plan.Status != sessionfeed.PlanStatusDraft:
-		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no draft plan to run")
-		return nil
-	case screen.isTurnRunning || screen.isTurnStarting:
-		screen.printNotice(sessionfeed.NoticeSeverityInfo, "wait for the turn to end, then /run")
-		return nil
-	case !screen.plan.IsInPlanInteraction:
-		screen.printNotice(sessionfeed.NoticeSeverityInfo, "the session is not waiting for plan approval")
+	if reason := screen.runUnavailableReason(); reason != "" {
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, reason)
 		return nil
 	}
 	return screen.submitAction(sessionfeed.ExecutePlan{Revision: screen.plan.Revision})
+}
+
+// runUnavailableReason says why /run cannot run now, or is empty when it can.
+func (screen *ChatScreen) runUnavailableReason() string {
+	switch {
+	case len(screen.plan.Items) == 0 || screen.plan.Status != sessionfeed.PlanStatusDraft:
+		return "no draft plan to run"
+	case screen.isTurnRunning || screen.isTurnStarting:
+		return "wait for the turn to end, then /run"
+	case !screen.plan.IsInPlanInteraction:
+		return "the session is not waiting for plan approval"
+	}
+	return ""
+}
+
+// openLastToolOutput opens the newest tool call of the newest turn in the
+// pager.
+func (screen *ChatScreen) openLastToolOutput() {
+	if len(screen.turnTools) == 0 {
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no tool output yet")
+		return
+	}
+	screen.pager = newToolPager(screen.turnTools[len(screen.turnTools)-1])
+}
+
+func (screen *ChatScreen) openToolPicker() {
+	if len(screen.turnTools) == 0 {
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no tool ran yet")
+		return
+	}
+	screen.isToolPickerOpen = true
+	screen.toolPickerIndex = len(screen.turnTools) - 1
+}
+
+func (screen *ChatScreen) handleToolPickerKey(keyName string) tea.Cmd {
+	switch keyName {
+	case "esc", "q":
+		screen.isToolPickerOpen = false
+	case "up", "k":
+		screen.toolPickerIndex = max(screen.toolPickerIndex-1, 0)
+	case "down", "j":
+		screen.toolPickerIndex = min(screen.toolPickerIndex+1, len(screen.turnTools)-1)
+	case "enter":
+		screen.isToolPickerOpen = false
+		screen.pager = newToolPager(screen.turnTools[screen.toolPickerIndex])
+	}
+	return nil
+}
+
+// openHistoryPager opens the earlier messages and reads their newest page.
+func (screen *ChatScreen) openHistoryPager() tea.Cmd {
+	if screen.earlierBeforeSequence <= 0 {
+		if screen.deletedBeforeSequence > 0 {
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, fmt.Sprintf("messages before #%d were removed by the retention window", screen.deletedBeforeSequence))
+		} else {
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, "every message of this session is on screen")
+		}
+		return nil
+	}
+	screen.pager = newHistoryPager(screen.session.SessionID, screen.earlierBeforeSequence, screen.deletedBeforeSequence)
+	return screen.readEarlierMessages()
+}
+
+func (screen *ChatScreen) handlePagerKey(key tea.KeyPressMsg) tea.Cmd {
+	result := screen.pager.HandleKey(key, screen.pagerSize(), screen.theme)
+	switch {
+	case result.isClosed:
+		screen.pager = nil
+	case result.isEarlierWanted:
+		return screen.readEarlierMessages()
+	}
+	return nil
+}
+
+// readEarlierMessages asks for the history pager's next page under a new
+// request ID, so an answer to a closed pager never applies.
+func (screen *ChatScreen) readEarlierMessages() tea.Cmd {
+	screen.historyReadRequestID++
+	return screen.submitAction(screen.pager.startReadingEarlier(screen.historyReadRequestID))
+}
+
+func (screen *ChatScreen) pagerSize() pagerSize {
+	return pagerSize{width: min(screen.width, maximumContentWidth), bodyHeight: max(screen.height-pagerChromeHeight, 1)}
+}
+
+// recordTurnTool keeps call for Ctrl-O and /tools; a call of a newer turn
+// replaces the calls of the turn before.
+func (screen *ChatScreen) recordTurnTool(call sessionfeed.ToolCallChanged) {
+	turnID := call.TurnID
+	if turnID == "" {
+		turnID = screen.turn.turnID
+	}
+	if turnID != screen.turnToolsTurnID {
+		screen.turnTools, screen.turnToolsTurnID = nil, turnID
+		screen.isToolPickerOpen = false
+	}
+	for index, existing := range screen.turnTools {
+		if existing.ToolCallID == call.ToolCallID {
+			screen.turnTools[index] = call
+			return
+		}
+	}
+	screen.turnTools = append(screen.turnTools, call)
 }
 
 func (screen *ChatScreen) steerLastQueuedMessage() tea.Cmd {
@@ -652,6 +924,11 @@ func (screen *ChatScreen) handleCompletionKey(key tea.KeyPressMsg) (tea.Cmd, boo
 // handleInterruptKey applies Ctrl-C: cancel a running turn, clear a draft,
 // or exit.
 func (screen *ChatScreen) handleInterruptKey() tea.Cmd {
+	if screen.pager != nil || screen.isToolPickerOpen {
+		// The first Ctrl-C closes the reader, so the draft behind it stays.
+		screen.pager, screen.isToolPickerOpen = nil, false
+		return nil
+	}
 	if !screen.isTurnRunning {
 		if !screen.input.IsEmpty() && !screen.isPopupOpen && !screen.isHelpOpen {
 			screen.input.Clear()
@@ -823,7 +1100,7 @@ func (screen *ChatScreen) handleSwitchKey(keyName string) (tea.Cmd, bool) {
 	switch keyName {
 	case "y":
 		screen.pendingSwitchSessionID = ""
-		return screen.submitAction(sessionfeed.SwitchSession{SessionID: sessionID}), true
+		return screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: sessionID}), true
 	case "n", "esc":
 		screen.pendingSwitchSessionID = ""
 		screen.printNotice(sessionfeed.NoticeSeverityInfo, "staying in this session; resume "+sessionID+" later with /sessions")
@@ -884,6 +1161,10 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			// Another session: hold typed messages until its first snapshot.
 			screen.isSessionLoaded = false
 			screen.pendingSwitchSessionID = ""
+			screen.earlierBeforeSequence, screen.deletedBeforeSequence = 0, 0
+			// Turn IDs repeat across sessions, so the old session's calls go.
+			screen.turnTools, screen.turnToolsTurnID = nil, ""
+			screen.forgetSessionViews(typed.SessionID)
 		}
 		screen.session = typed
 		if !screen.isSessionKnown {
@@ -903,7 +1184,12 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 		screen.isTurnStarting = false
 		screen.printNotice(sessionfeed.NoticeSeverityError, "Not sent: "+typed.Reason)
 	case sessionfeed.HistoryWindowChanged:
+		screen.earlierBeforeSequence, screen.deletedBeforeSequence = typed.EarlierBeforeSequence, typed.DeletedBeforeSequence
 		screen.printHistoryWindow(typed)
+	case sessionfeed.EarlierMessagesRead:
+		if screen.pager != nil {
+			screen.pager.applyEarlierPage(typed, screen.pagerSize(), screen.theme)
+		}
 	case sessionfeed.ImageAttached:
 		screen.attachments = append(screen.attachments, typed.Attachment)
 	case sessionfeed.SessionStartChanged:
@@ -913,7 +1199,7 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			// The user still waits for /new: switch now.
 			screen.isSessionStartWaiting = false
 			screen.printNotice(sessionfeed.NoticeSeverityInfo, "Started session "+typed.SessionID+"; switching to it.")
-			command = screen.submitAction(sessionfeed.SwitchSession{SessionID: typed.SessionID})
+			command = screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: typed.SessionID})
 		} else {
 			screen.pendingSwitchSessionID = typed.SessionID
 		}
@@ -939,7 +1225,12 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 	case sessionfeed.UsageRecorded:
 		screen.totalTokens = typed.TotalTokens
 	case sessionfeed.NoticeRaised:
-		if shown, isShown := screen.notices.Admit(typed.Severity, typed.Text, screen.now()); isShown {
+		if typed.Sequence > 0 {
+			if !screen.printedSequences[typed.Sequence] {
+				screen.printedSequences[typed.Sequence] = true
+				screen.printNotice(typed.Severity, terminaltheme.TruncateCodePoints(typed.Text, maximumNoticeCodePoints, "…"))
+			}
+		} else if shown, isShown := screen.notices.Admit(typed.Severity, typed.Text, screen.now()); isShown {
 			screen.printNotice(typed.Severity, shown)
 		}
 	case sessionfeed.CancelRequestAnswered:
@@ -986,7 +1277,7 @@ func (screen *ChatScreen) printHistoryWindow(window sessionfeed.HistoryWindowCha
 		screen.printNotice(sessionfeed.NoticeSeverityInfo, fmt.Sprintf("messages before #%d were removed by the retention window", window.DeletedBeforeSequence))
 	}
 	if window.EarlierBeforeSequence > 0 && window.EarlierBeforeSequence != window.DeletedBeforeSequence {
-		screen.printNotice(sessionfeed.NoticeSeverityInfo, "earlier messages are not shown")
+		screen.printNotice(sessionfeed.NoticeSeverityInfo, "earlier messages: /history")
 	}
 }
 
@@ -1131,6 +1422,9 @@ func (screen *ChatScreen) disableInput(exitCode int) {
 	screen.closePopup()
 	screen.isHelpOpen = false
 	screen.pendingFocus = pendingFocusNone
+	screen.pager = nil
+	screen.isToolPickerOpen = false
+	screen.pendingPastedImage = nil
 }
 
 func (screen *ChatScreen) handleActionFailure(failure userActionFailedMsg) {
@@ -1177,6 +1471,7 @@ func (screen *ChatScreen) applyToolCall(call sessionfeed.ToolCallChanged) {
 	if index < 0 {
 		screen.flushReplies()
 	}
+	screen.recordTurnTool(call)
 	if call.Status.IsFinished() {
 		if index >= 0 {
 			screen.liveToolCalls = append(screen.liveToolCalls[:index], screen.liveToolCalls[index+1:]...)
@@ -1198,7 +1493,8 @@ func (screen *ChatScreen) addInterrupt(interrupt pendingInterrupt) {
 		}
 	}
 	screen.interrupts = append(screen.interrupts, interrupt)
-	if !screen.isPopupOpen && screen.pendingFocus == pendingFocusNone && !screen.isHelpOpen && screen.input.IsEmpty() {
+	isOtherViewOpen := screen.isHelpOpen || screen.pager != nil || screen.isToolPickerOpen || screen.pendingPastedImage != nil
+	if !screen.isPopupOpen && screen.pendingFocus == pendingFocusNone && !isOtherViewOpen && screen.input.IsEmpty() {
 		screen.openPopup(len(screen.interrupts) - 1)
 	}
 }
@@ -1274,6 +1570,8 @@ func (screen *ChatScreen) printReplyOutputs(outputs []replyOutput) {
 }
 
 func (screen *ChatScreen) printToolRow(call sessionfeed.ToolCallChanged) {
+	// The transcript keeps only the row; turnTools keeps the output.
+	call.Arguments, call.OutputText = nil, ""
 	screen.appendBlock(transcriptBlockToolRow, toolRowBlock{call: call, nameWidth: screen.turnToolNameWidth, printedAt: screen.now()})
 }
 

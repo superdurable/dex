@@ -67,7 +67,7 @@ impl Config {
         )?;
         validate_prefix("objectStore.prefix", &self.object_store.prefix)?;
         match self.object_store.provider {
-            ObjectStoreProvider::S3 => {
+            ObjectStoreProvider::S3 | ObjectStoreProvider::AliyunOss => {
                 ensure(
                     !self.object_store.region.trim().is_empty(),
                     "objectStore.region",
@@ -79,6 +79,15 @@ impl Config {
                         self.object_store.credentials.is_some(),
                         "objectStore.credentialsSource",
                         "environment credentials must be resolved before serving",
+                    )?;
+                }
+                if self.object_store.provider == ObjectStoreProvider::AliyunOss {
+                    validate_aliyun_oss_addressing(
+                        ("objectStore.endpoint", &self.object_store.endpoint),
+                        (
+                            "objectStore.forcePathStyle",
+                            self.object_store.force_path_style,
+                        ),
                     )?;
                 }
             }
@@ -133,8 +142,9 @@ impl Config {
             &self.object_store.azure_account,
         )?;
         if let Some(hard_delete) = &self.object_store.hard_delete_store {
-            match hard_delete.provider {
-                ObjectStoreProvider::S3 => {
+            let provider = hard_delete.effective_provider(self.object_store.provider);
+            match provider {
+                ObjectStoreProvider::S3 | ObjectStoreProvider::AliyunOss => {
                     ensure(
                         !hard_delete.region.trim().is_empty(),
                         "objectStore.hardDeleteStore.region",
@@ -150,6 +160,18 @@ impl Config {
                         &hard_delete.endpoint,
                     )?;
                     validate_prefix("objectStore.hardDeleteStore.prefix", &hard_delete.prefix)?;
+                    if provider == ObjectStoreProvider::AliyunOss {
+                        validate_aliyun_oss_addressing(
+                            (
+                                "objectStore.hardDeleteStore.endpoint",
+                                &hard_delete.endpoint,
+                            ),
+                            (
+                                "objectStore.hardDeleteStore.forcePathStyle",
+                                hard_delete.force_path_style,
+                            ),
+                        )?;
+                    }
                     if hard_delete.credentials_source == CredentialSource::Environment {
                         ensure(
                             hard_delete.credentials.is_some(),
@@ -161,7 +183,8 @@ impl Config {
                 ObjectStoreProvider::Db9 => {
                     return Err(ConfigError::Invalid {
                         field: "objectStore.hardDeleteStore.provider",
-                        message: "must be s3, azureBlob, or googleCloudStorage".to_owned(),
+                        message: "must be s3, aliyunOSS, azureBlob, or googleCloudStorage"
+                            .to_owned(),
                     });
                 }
                 ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
@@ -174,11 +197,11 @@ impl Config {
                     validate_azure_gcs_destination(
                         &HARD_DELETE_STORE_FIELDS,
                         &AzureGcsDestination {
-                            provider: hard_delete.provider,
+                            provider,
                             endpoint: &hard_delete.endpoint,
                             is_force_path_style: hard_delete.force_path_style,
                             credentials_source: hard_delete.credentials_source,
-                            has_resolved_credentials: match hard_delete.provider {
+                            has_resolved_credentials: match provider {
                                 ObjectStoreProvider::AzureBlob => {
                                     hard_delete.azure_blob_credentials.is_some()
                                 }
@@ -190,7 +213,7 @@ impl Config {
             }
             validate_azure_account(
                 HARD_DELETE_STORE_FIELDS.azure_account,
-                hard_delete.provider,
+                provider,
                 &hard_delete.azure_account,
             )?;
         }
@@ -765,6 +788,24 @@ fn validate_endpoint(field: &'static str, endpoint: &str) -> Result<(), ConfigEr
                 && !endpoint.chars().any(char::is_whitespace)),
         field,
         "must be an HTTP(S) URL without whitespace",
+    )
+}
+
+/// Aliyun OSS has no AWS endpoint resolution and rejects path-style requests.
+fn validate_aliyun_oss_addressing(
+    (endpoint_field, endpoint): (&'static str, &str),
+    (path_style_field, is_force_path_style): (&'static str, bool),
+) -> Result<(), ConfigError> {
+    ensure(
+        !endpoint.is_empty(),
+        endpoint_field,
+        "aliyunOSS requires the S3-compatible endpoint of the bucket's region, such as \
+         https://s3.oss-cn-hangzhou.aliyuncs.com",
+    )?;
+    ensure(
+        !is_force_path_style,
+        path_style_field,
+        "aliyunOSS accepts only virtual-hosted-style requests; remove forcePathStyle",
     )
 }
 

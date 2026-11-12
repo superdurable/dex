@@ -1174,18 +1174,18 @@ describe("agent snapshot JSON for browsers", () => {
         '"accepts_turn_control":false},' +
         '"messages":[{"sequence":3,"turn_id":"turn-2","role":"user","text":"refund order 42",' +
         '"tool_call_id":null,"tool_name":null,"tool_arguments":null,"tool_output":null,' +
-        '"created_at":"2026-11-01T12:00:00.000Z","images":[]}],' +
+        '"created_at":"2026-11-01T12:00:00.000Z","images":[],"origin":null}],' +
         '"pending_interrupts":[{"interrupt_id":"call-1-input-2","kind":"question",' +
         '"tool_call_id":"call-1","tool_name":"refund_order","arguments":"{\\"order_id\\":\\"42\\"}",' +
         '"created_at":"2026-11-01T12:00:01.000Z","deadline":null,"question":"Refund to the card?",' +
-        '"choices":["yes","no"],"allows_free_text":false}],' +
+        '"choices":["yes","no"],"allows_free_text":false,"display":null}],' +
         '"tool_calls":[{"tool_call_id":"call-1","turn_id":"turn-2","tool_name":"refund_order",' +
         '"arguments":"{\\"order_id\\":\\"42\\"}","effect":"idempotent_write","requires_approval":false,' +
         '"status":"awaiting_answer","output":null,"error":null,"rejection_message":null,' +
         '"deferral_order":0,"wait_until":null,"input_question":"Refund to the card?",' +
         '"input_choices":["yes","no"],"input_allows_free_text":false,"cancellation_reason":null,' +
         '"task_id":null,"task_poll_interval_seconds":null,"ordered_write":false,"write_queued":false,' +
-        '"skipped":false,"truncated_output_bytes":null,"images":[]}],' +
+        '"skipped":false,"truncated_output_bytes":null,"images":[],"approval_display":null}],' +
         '"usage":{"model_calls":1,"input_tokens":10,"output_tokens":5,"cached_input_tokens":0,' +
         '"reasoning_tokens":0},"queued_message_count":0,"plan":{"revision":2,"status":"active",' +
         '"tasks":[{"content":"Refund the order","status":"in_progress"}],' +

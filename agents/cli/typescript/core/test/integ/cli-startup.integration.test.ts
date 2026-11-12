@@ -10,11 +10,19 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { createServer as createHttp2Server } from "node:http2";
+import type { AddressInfo } from "node:net";
 import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
+import { listAgentSessions, sortAgentSessionsByLastActivity, type AgentSessionSummary } from "@superdurable/dex-agents";
+import {
+  findFreeLoopbackPorts,
+  pollUntil,
+  PrivateDexEngine,
+  type AgentSessionTestClient,
+} from "@superdurable/dex-agents/testing";
 
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
 import {
@@ -331,6 +339,59 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.match(cli.stderr.all, /is invalid: schema at \/local_tools\/files \(type\)/);
   });
 
+  test("an unreachable Dex server stops the command with one line that says how to fix it", async () => {
+    const [closedPort] = await findFreeLoopbackPorts(1);
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`dex:\n  server: http://127.0.0.1:${closedPort}\nconnectors: {enabled: []}\nlocal_tools: {browser: false}\n`);
+    const cli = start(home);
+    assert.equal(await cli.waitForExit(), 1);
+    assert.equal(
+      cli.stderr.all,
+      `dex-agents-scripted: cannot reach the Dex server at 127.0.0.1:${closedPort}, which dex.server names. Start ` +
+        "that server, or set dex.server to auto to use dexcli dev on this machine.\n",
+    );
+  });
+
+  test("a reachable Dex server that answers UNAVAILABLE is named with its details", async () => {
+    // Every call gets a trailers-only gRPC response with status 14, as a reachable but unready server sends.
+    const server = createHttp2Server();
+    server.on("stream", (stream) => {
+      stream.respond(
+        { ":status": 200, "content-type": "application/grpc", "grpc-status": "14", "grpc-message": "warming up" },
+        { endStream: true },
+      );
+    });
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const home = new TestHome(enginePorts(engine));
+      home.writeConfig(`dex:\n  server: http://127.0.0.1:${port}\nconnectors: {enabled: []}\nlocal_tools: {browser: false}\n`);
+      const cli = start(home);
+      assert.equal(await cli.waitForExit(), 1);
+      assert.equal(
+        cli.stderr.all,
+        `dex-agents-scripted: the Dex server at 127.0.0.1:${port} returned UNAVAILABLE: warming up. It may still be ` +
+          "starting; try again in a moment.\n",
+      );
+    } finally {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
+  });
+
+  test("an anyOf error names the values the field accepts", async () => {
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig("dex:\n  server: localhost:7233\n");
+    const cli = start(home);
+    assert.equal(await cli.waitForExit(), 2);
+    assert.ok(
+      cli.stderr.all.includes(
+        'is invalid: schema at /dex/server (anyOf). Use "auto" (dexcli dev on this machine), or the http or https ' +
+          "URL of a Dex server, without user info.",
+      ),
+      cli.stderr.all,
+    );
+  });
+
   test("dex.server auto starts dexcli dev when none runs, a command meanwhile reuses it, and it stops with its starter", async () => {
     const [dexPort, webPort] = await findFreeLoopbackPorts(2);
     const home = new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 });
@@ -567,10 +628,11 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       chat.writeLine("/exit");
       assert.equal(await chat.waitForExit(), 0);
 
+      await waitForVisibleRunningSessions(sessions, home.sessionFlowType(), 61, oldest);
       const listed = start(home, ["sessions"]);
       assert.equal(await listed.waitForExit(), 0);
       const lines = listed.stdout.all.split("\n").filter((line) => line.includes("\trunning\t"));
-      assert.equal(lines.length, 61);
+      assert.equal(lines.length, 61, listed.stdout.all);
       assert.ok(lines[0]?.startsWith(`${oldest}\t`), listed.stdout.all);
       assert.ok(lines.slice(1).every((line) => /\t0\t—$/.test(line)), listed.stdout.all);
       assert.doesNotMatch(listed.stdout.all, /More sessions exist/);
@@ -578,12 +640,49 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       for (let index = 0; index < 200; index += 1) {
         await sessions.startSession(`extra-${String(index).padStart(3, "0")}`);
       }
+      await waitForVisibleRunningSessions(sessions, home.sessionFlowType(), 261);
       const capped = start(home, ["sessions"]);
       assert.equal(await capped.waitForExit(), 0);
-      assert.equal(capped.stdout.all.split("\n").filter((line) => line.includes("\trunning\t")).length, 250);
+      assert.equal(
+        capped.stdout.all.split("\n").filter((line) => line.includes("\trunning\t")).length,
+        250,
+        capped.stdout.all,
+      );
       assert.match(capped.stdout.all, /More sessions exist; this list sorts the first 250 that Dex returns/);
     } finally {
       await sessionClients.close();
     }
   });
 });
+
+/**
+ * Waits until search shows every running session, since Flow search is eventually consistent.
+ * @param sessions - The test client whose Client searches.
+ * @param flowType - The session Flow type.
+ * @param count - The number of running sessions to wait for.
+ * @param mostRecentSessionId - The session that must sort first by last activity, if any.
+ * @returns A Promise that resolves once search shows them.
+ */
+async function waitForVisibleRunningSessions(
+  sessions: AgentSessionTestClient,
+  flowType: string,
+  count: number,
+  mostRecentSessionId?: string,
+): Promise<void> {
+  await pollUntil(
+    async () => {
+      const running: AgentSessionSummary[] = [];
+      let nextPageToken = "";
+      do {
+        const page = await listAgentSessions(sessions.client, flowType, { nextPageToken });
+        running.push(...page.sessions.filter((session) => session.status === "running"));
+        nextPageToken = page.nextPageToken;
+      } while (nextPageToken !== "");
+      const isMostRecentFirst =
+        mostRecentSessionId === undefined ||
+        sortAgentSessionsByLastActivity(running)[0]?.sessionId === mostRecentSessionId;
+      return running.length === count && isMostRecentFirst ? true : undefined;
+    },
+    { description: `search to show ${count} running sessions`, timeoutMs: 30_000 },
+  );
+}

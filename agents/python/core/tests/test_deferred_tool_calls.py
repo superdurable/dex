@@ -18,12 +18,17 @@ from datetime import UTC, datetime
 from dex_agents import (
     APPROVAL_DEADLINE_PASSED,
     FRAMEWORK_RUN_STATE,
+    MAX_APPROVAL_PREVIEW_BYTES,
+    MAX_APPROVAL_SUMMARY_BYTES,
+    MAX_APPROVAL_TARGET_BYTES,
     OUTCOME_UNKNOWN_TOOL_RESULT,
     PENDING_INTERRUPTS,
     TURN_FAILURE_NOTE_FOOTER,
     TURN_FAILURE_NOTE_HEADER,
     AgentEventType,
     AgentInterrupt,
+    AgentInterruptDisplay,
+    AgentMessageOrigin,
     AgentSessionStatus,
     MessageRole,
     ToolCallStatus,
@@ -110,6 +115,57 @@ async def test_rejected_write_never_runs_and_the_model_sees_the_rejection(
         if event.type == AgentEventType.TOOL_CALL_FINISHED
     ]
     assert [payload["status"] for payload in finished] == ["rejected"]
+
+
+async def test_an_approval_carries_its_sources_display_in_the_interrupt_record_and_event(
+    harness: ScriptedAgentHarness,
+) -> None:
+    await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    display = {"target": "ops@example.com", "summary": "Sends an email to ops@example.com."}
+    calls = [
+        {"message": "shown", "display": {**display, "preview": "Subject: Order 7"}},
+        {"message": "big", "display": {**display, "preview": MAX_APPROVAL_PREVIEW_BYTES + 1}},
+        {"message": "plain"},
+        {"message": "huge", "display": {"target": 2_000, "summary": 100_000}},
+    ]
+    await harness.sessions.start_session(
+        session_id, " && ".join(f"call publish {json.dumps(call)}" for call in calls)
+    )
+    waiting = await wait_for_agent_snapshot(
+        harness.sessions,
+        session_id,
+        lambda snapshot: snapshot if len(snapshot.pending_interrupts) == 4 else None,
+        description="four approvals",
+    )
+    shown, big, plain, huge = waiting.pending_interrupts
+    # The session cuts a long target and summary, so a display never grows the records by much.
+    assert huge.display == AgentInterruptDisplay(
+        target="x" * (MAX_APPROVAL_TARGET_BYTES - 3) + "…",
+        summary="x" * (MAX_APPROVAL_SUMMARY_BYTES - 3) + "…",
+    )
+    expected = AgentInterruptDisplay(**display, preview="Subject: Order 7")
+    assert shown.display == expected
+    # The session keeps the target and summary but drops a preview over the bound.
+    assert big.display == AgentInterruptDisplay(**display)
+    assert plain.display is None
+    assert waiting.tool_calls[0].approval_display == expected
+    raised = [
+        json.loads(event.payload)["display"]
+        for event in await harness.agent_events(session_id)
+        if event.type == AgentEventType.INTERRUPT_RAISED
+    ]
+    assert raised == [
+        {**display, "preview": "Subject: Order 7"},
+        {**display, "preview": None},
+        None,
+        {"target": huge.display.target, "summary": huge.display.summary, "preview": None},
+    ]
+    for interrupt in waiting.pending_interrupts:
+        assert await harness.sessions.resolve_interrupt(
+            session_id, interrupt.interrupt_id, approved=False
+        )
+    await harness.wait_for_turns(session_id, 1)
 
 
 async def test_a_call_finished_by_the_resumed_turn_writes_no_finished_event(
@@ -334,6 +390,10 @@ async def test_failed_turn_after_a_write_leaves_a_note_and_the_write_runs_once(
     note = failed.messages[-1]
     assert note.role is MessageRole.USER
     assert note.turn_id == "turn-1"
+    assert note.origin == AgentMessageOrigin.TURN_FAILURE_NOTE
+    assert [message.origin for message in failed.messages[:-1]] == [None] * (
+        len(failed.messages) - 1
+    )
     key = f"{session_id}/turn-1/turn-1-call-0"
     assert note.text == "\n".join(
         [

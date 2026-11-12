@@ -261,6 +261,20 @@ export interface FrameworkMessage {
   readonly images?: readonly AgentImageReference[];
 }
 
+/**
+ * Known values of {@link AgentMessage.origin}: why the session wrote a `user` message itself.
+ *
+ * - `plan_execution`: `execute_plan` started the turn with the text of `buildPlanExecutionMessage`.
+ * - `turn_failure_note`: `RecordTurnFailure` told the model which tool calls of the failed turn ran.
+ * - `turn_steered_note`: `steer_user_message` ended the turn, and the note lists the tool calls that ran.
+ * - `turn_cancelled_note`: `cancel_turn` ended the turn, and the note lists the tool calls that ran.
+ *
+ * A later release may add values. Show a message with a value you do not know as a note from the session, never
+ * as text the user typed.
+ * @since 0.6.0
+ */
+export type AgentMessageOrigin = "plan_execution" | "turn_failure_note" | "turn_steered_note" | "turn_cancelled_note";
+
 /** One message stored in the `AgentMessages` AttributeMap under its zero-padded sequence. */
 export interface AgentMessage extends FrameworkMessage {
   /** Monotonic session-wide sequence, starting at 1. Wire field: `sequence`. */
@@ -269,6 +283,31 @@ export interface AgentMessage extends FrameworkMessage {
   readonly turnId: string;
   /** RFC 3339 time at which the session stored the message. Wire field: `created_at`. */
   readonly createdAt: string;
+  /**
+   * Why the session wrote this `user` message itself, usually an {@link AgentMessageOrigin}. It is absent on a
+   * message that a user or the start input sent, on `assistant` and `tool` messages, and on every message stored
+   * before 0.6.0.
+   *
+   * Show a message that has an origin as a session note, not as text the user typed. Only the session sets it:
+   * `send_user_message` and a runner's messages cannot. The decoder keeps a value it does not know, so a client of
+   * an earlier release still tells such a message apart. A Worker before 0.6.0 ignores the field, and drops it when
+   * it moves the message into an archive chunk. Wire field: `origin`, `null` when absent; a decoded message omits it
+   * then.
+   *
+   * @example
+   * ```ts
+   * const page = await client.invokeRPC(flow.listAgentMessages, sessionId, { beforeSequence: null, limit: 50 });
+   * for (const message of page.messages) {
+   *   if (message.origin === "plan_execution") {
+   *     console.log("Running the approved plan");
+   *   } else if (message.origin === undefined && message.role === "user") {
+   *     console.log(`> ${message.text ?? ""}`);
+   *   }
+   * }
+   * ```
+   * @since 0.6.0
+   */
+  readonly origin?: AgentMessageOrigin | (string & {});
 }
 
 /**
@@ -511,6 +550,14 @@ export interface AgentToolCall {
    * @since 0.5.0
    */
   readonly runnerToolState?: string | null;
+  /**
+   * What the call acts on and does, from {@link DeferredToolCall.approvalDisplay}, for a call that needs approval;
+   * otherwise absent. The session copies it into the call's {@link AgentInterrupt.display} when it raises the
+   * approval, which for a queued ordered write happens later. Wire field: `approval_display`, `null` when there is
+   * none; a decoded record omits it then. A Worker before 0.6.0 ignores it, and drops it when it rewrites the record.
+   * @since 0.6.0
+   */
+  readonly approvalDisplay?: AgentInterruptDisplay | null;
 }
 
 /**
@@ -591,6 +638,55 @@ export interface AgentToolCallRecord
  */
 export type AgentInterruptKind = "tool_approval" | "question";
 
+/**
+ * What one tool approval acts on and what the call does, for the person who decides.
+ *
+ * The tool's source builds it from the call's concrete arguments and returns it in
+ * {@link DeferredToolCall.approvalDisplay}; the session stores it in {@link AgentInterrupt.display}. An approval UI
+ * shows {@link target} and {@link summary} above the arguments, and {@link preview} when it is set. When an
+ * interrupt has no display, show the concrete arguments only and do not guess the call's effect from its name or
+ * description.
+ *
+ * The text describes the request, not its result: it never says how often the call runs or what it achieves,
+ * because a retried write may run again and a provider may refuse it. Its text comes from the call's arguments, which
+ * the session stores in full as before. As best-effort hygiene, a source shows the value of a credential-like
+ * argument, such as `api_key`, `clientSecret`, or `credentials`, as `<redacted>` (see {@link isCredentialLikeName}),
+ * and replaces common credential shapes in text it shows (see {@link redactInlineCredentials}). This is not a
+ * security boundary: a credential in another form can still appear. The session cuts a target over {@link maxApprovalTargetBytes} and a summary
+ * over {@link maxApprovalSummaryBytes}, ending them with `…`, and drops a preview over
+ * {@link maxApprovalPreviewBytes}, so a display adds little to the records that hold it.
+ *
+ * @example
+ * ```ts
+ * const display: AgentInterruptDisplay = {
+ *   target: "docs/notes.md",
+ *   summary: "Writes 12 bytes to docs/notes.md.",
+ *   preview: "--- docs/notes.md (the file now)\n+++ docs/notes.md (after this write)\n@@ -1 +1 @@\n-old\n+new\n",
+ * };
+ * const interrupt = snapshot.pendingInterrupts.find((pending) => pending.display != null);
+ * console.log(interrupt?.display?.summary);
+ * ```
+ * @since 0.6.0
+ */
+export interface AgentInterruptDisplay {
+  /**
+   * What the call acts on, such as a workspace path, a shell command's working directory, or a connector and its
+   * connection (`slack/support-slack`). Wire field: `target`.
+   */
+  readonly target: string;
+  /**
+   * One sentence that says what the call does to {@link target}, built from the call's concrete arguments, such as
+   * `Runs a shell command in /work/app: npm test`. Wire field: `summary`.
+   */
+  readonly summary: string;
+  /**
+   * Longer text to show with the summary, or `null` for none. A local file write sets a unified diff of the file as
+   * it was when the call was requested against the new content; its header lines say so. Wire field: `preview`,
+   * `null` when there is none.
+   */
+  readonly preview?: string | null;
+}
+
 /** One pending approval or question, stored in the `PendingInterrupts` Attribute. */
 export interface AgentInterrupt {
   /**
@@ -629,6 +725,13 @@ export interface AgentInterrupt {
    * `choices` is empty and for a tool approval. Wire field: `allows_free_text`.
    */
   readonly allowsFreeText?: boolean;
+  /**
+   * What a `tool_approval` call acts on and does, from its tool's source, or `null` when the source gave none and
+   * for a `question`. Wire field: `display`, `null` when there is none; a decoded interrupt omits it then. A Worker
+   * before 0.6.0 writes none, and drops it when it rewrites `PendingInterrupts`, so treat it as optional.
+   * @since 0.6.0
+   */
+  readonly display?: AgentInterruptDisplay | null;
 }
 
 /** Resolution of one interrupt, published to the `InterruptResolutions` ChannelMap. */

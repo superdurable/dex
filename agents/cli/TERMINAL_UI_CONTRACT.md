@@ -77,6 +77,12 @@ when any of these holds:
 | `no_common_contract` | No contract version is supported by both sides. |
 | `mode_missing` | Common contracts exist, but none has the mode this subcommand needs. |
 
+dexcli 1.46.0 is the first release whose `agents-tui` speaks contract 1. The
+`describe_failed` line says so and tells the user to point `DEXCLI` at such a
+`dexcli`. The `no_common_contract` line says which side to upgrade: the
+command when every contract `dexcli` speaks is newer than its own, else
+`dexcli`.
+
 Otherwise the launcher takes the contracts both sides support, highest first,
 and uses the first one whose `modes` include the needed mode. A missing mode
 moves only that subcommand to plain text.
@@ -185,7 +191,7 @@ right after the spawn. It holds no secret.
 | `display` | Text to show and never log. Paths write the home directory as `~`. All optional. |
 | `methods` | The local requests the launcher side serves. |
 | `capabilities` | From the session Flow the Worker host actually built, never guessed from the harness name. `images` is present only when the runner accepts images, with its limits. `plan_mode` is `true` only when the Flow was built with plan mode. `turn_control` says whether the Flow supports steer and cancel; `state.accepts_turn_control` in the snapshot still decides each time. An absent boolean is `false`. |
-| `notices` | Notices to show once the first frame is up. It may be, and usually is, empty: the launcher prints startup notices on the terminal before the handoff, so they stay in the scrollback above the terminal UI. |
+| `notices` | Notices to show once the first frame is up, in order: the lines the launcher printed while it started a `dexcli dev`, such as its log file, as `info`, then the Worker host's startup notices, such as connector tools that are unavailable. A reused `dexcli dev` adds no line. It is often empty. |
 | `log_path` | The command's log file, for display. |
 | `connectors` | connectors mode: the rows, in the shape of `list_connectors`'s result. |
 
@@ -243,7 +249,11 @@ retries, and a slow server never causes a fallback.
   saved before the spawn, prints `Plain chat: <reason>.`, and continues in the
   plain text chat on the same session.
 - A failure after `ready` never falls back. The launcher restores the
-  terminal, prints how to resume, and exits.
+  terminal and exits.
+- After `ready`, `dexcli`'s exit summary is the only line that says how to
+  resume: `/new` can switch sessions, so the launcher could name the wrong
+  one. The launcher prints its own resume line only when it continues in the
+  plain chat, or when `dexcli` never sent `ready`.
 
 ### When the channel ends
 
@@ -271,8 +281,8 @@ A SIGINT sent to the whole foreground process group reaches `dexcli` too, and
 1. waits 1 s for `dexcli` to exit by itself;
 2. then forwards SIGINT to `dexcli`;
 3. sends SIGTERM 2 s after that if `dexcli` still runs;
-4. restores the terminal, stops the Worker host, prints how to resume, and
-   exits 130.
+4. restores the terminal, stops the Worker host, prints how to resume only
+   when `dexcli` never sent `ready` (see [Ready](#ready)), and exits 130.
 
 This never falls back to the plain chat, even before `ready`.
 
@@ -333,8 +343,8 @@ errors use this one shape.
 
 `worker` reports the Worker host's state. `exit_code` is its exit status, or
 128 plus the signal number when a signal killed it. After `stopped` the chat
-stays open but cannot run turns; the launcher prints how to resume after the
-user exits.
+stays open but cannot run turns; `dexcli`'s exit summary says how to resume
+after the user exits.
 
 A launcher must send `stopped` when the Worker host exits, and should send
 `stopping` when it starts to shut the host down. `reconnecting` and `ready`
@@ -581,8 +591,11 @@ operation finishes, `get_request_result` returns its real outcome.
 ## Notices
 
 The launcher turns the Worker host's user-facing log lines into `notice`
-messages. Startup notices, such as `Not authorized yet: …`, are printed
-before the handoff, so they stay in the scrollback above the terminal UI.
+messages. Startup notices, such as `Not authorized yet: …`, go into the launch
+document's `notices` instead of the terminal, because the terminal UI covers
+the screen right after the handoff. Progress lines that the launcher prints
+while it waits, such as for a `dexcli dev` it starts, stay in the scrollback
+too.
 
 Both the launch document's `notices` and `notice` messages are shown like
 this:
@@ -803,27 +816,44 @@ Node, a daemon thread in Python.
 1. Every 1 s it checks whether the parent is still the launcher. When it is
    not, it starts an orderly shutdown and arms the hard bound at once.
 2. A shutdown that starts for another reason (EOF on the control channel,
-   `shutdown` from the launcher, SIGTERM) also arms the bound. Node arms it at
-   once. Python arms it at the watchdog's next check, up to 1 s later.
-3. 15 s after the bound is armed, if the Worker host still runs, the watchdog
-   sends SIGTERM to every registered tool process group, waits up to 2 s for
-   them, and sends SIGKILL to those left.
-4. It then sends SIGKILL to the Worker host's own process group.
+   `shutdown` from the launcher, SIGTERM) also arms the bound at once.
+3. Python: 15 s after the bound is armed, if the Worker host still runs, the
+   watchdog sends SIGTERM to every registered tool process group, waits up to
+   2 s for them, and sends SIGKILL to those left.
+4. It then sends SIGKILL to the Worker host's own process group. In Node this
+   is all the watchdog does at the bound: it never signals a tool process
+   group, because a worker thread cannot tell whether the main thread already
+   reaped the group's leader. The main thread stops the tool groups during an
+   orderly shutdown, and signals a group only while its leader's
+   `ChildProcess` has not reported its exit.
+
+Python's watchdog may signal tool groups (step 3) because the Python shell
+tool owns every reap of a tool group leader: it spawns the shell with
+`subprocess.Popen` outside asyncio's child watcher, waits for its exit
+without reaping it (`waitid` with `WNOWAIT`, or kqueue on macOS before
+Python 3.13), stops what the shell left in its group, and only then reaps it
+with `waitpid`, under the registry lock that every signal also takes. A
+registration whose run record cannot be written is undone, and that shell is
+killed and reaped at once. So, within a running Worker host, no signal
+reaches a reaped leader's reused pid. A core whose tool leaders are reaped
+elsewhere, such as by an event loop's child watcher, must not signal tool
+groups from its watchdog.
 
 Each number below adds scheduling delay, and holds only while the watchdog
 can run:
 
 | Platform and core | Launcher died | A shutdown began |
 | --- | --- | --- |
-| Node (TypeScript), macOS and Linux | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
-| Python, macOS | about 1 + 15 + 2 = 18 s | about 1 + 15 + 2 = 18 s |
-| Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 1 + 15 + 2 = 18 s |
+| Node (TypeScript), macOS and Linux | Worker host gone within about 1 + 15 = 16 s. Registered tool groups are gone within that bound when the orderly shutdown runs; when the main thread is stuck they are **not** bounded, and the next start's leftover cleanup stops them | about 15 s, with the same rule for tool groups |
+| Python, macOS | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
+| Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 15 + 2 = 17 s |
 
 The bounds do not hold:
 
 - while the Worker host is stopped (SIGSTOP) or stuck in the kernel;
 - in Python, while the main thread holds the GIL in native code;
-- for tool groups on Python and Linux after the launcher died, as above;
+- for tool groups on Python and Linux after the launcher died, and in Node
+  while the Worker host's main thread is stuck, as above;
 - for processes a harness starts outside the Worker host's group and never
   registers, such as the tool processes of an agent framework's own CLI.
 
@@ -846,3 +876,9 @@ not part of a tool group's identity. The start time is what the system
 reports, such as `ps -o lstart` in the C locale. A record holds the SHA-256
 of the Worker host's command line (UTF-8, as `ps -ww -o command=` prints it),
 never its text, because a command line can carry a secret.
+
+This cleanup is best effort, not a proof of ownership. The start time has
+one-second resolution, and the identity check and the signal are separate
+steps. A pid reused within the same second, or between the check and the
+signal, could still be signaled. Checking right before each signal keeps that
+window small; nothing removes it.

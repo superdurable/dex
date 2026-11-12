@@ -82,6 +82,28 @@ type HistoryWindowChanged struct {
 	DeletedBeforeSequence int64
 }
 
+// EarlierMessagesRead answers ReadEarlierMessages with one page of stored
+// messages.
+type EarlierMessagesRead struct {
+	// SessionID is the session of the request.
+	SessionID string
+	// BeforeSequence is the request's sequence.
+	BeforeSequence int64
+	// RequestID is the request's ID.
+	RequestID int64
+	// Messages are the page in stored order. Each is a UserMessageRecorded,
+	// an AssistantMessageRecorded, or a ToolCallChanged.
+	Messages []SessionUpdate
+	// EarlierBeforeSequence is the sequence before which more messages can
+	// be read, or 0 when none can.
+	EarlierBeforeSequence int64
+	// DeletedBeforeSequence is the sequence before which retention deleted
+	// messages, or 0 when none were deleted.
+	DeletedBeforeSequence int64
+	// FailureText says why the page could not be read; empty on success.
+	FailureText string
+}
+
 // ImageAttached reports an image stored for the next message, such as after
 // /image.
 type ImageAttached struct {
@@ -209,6 +231,9 @@ type NoticeRaised struct {
 	// Text says what happened and what to do next, in one or two short
 	// sentences.
 	Text string
+	// Sequence is the stored message the notice shows, or 0. A notice with
+	// a sequence prints once per sequence and skips the repeat filter.
+	Sequence int64
 }
 
 // CancelOutcome is the session's answer to a CancelTurn action.
@@ -338,6 +363,7 @@ func (UserMessageRecorded) isSessionUpdate()       {}
 func (UserMessageRejected) isSessionUpdate()       {}
 func (HistoryWindowChanged) isSessionUpdate()      {}
 func (ImageAttached) isSessionUpdate()             {}
+func (EarlierMessagesRead) isSessionUpdate()       {}
 func (TurnStarted) isSessionUpdate()               {}
 func (TurnActivityChanged) isSessionUpdate()       {}
 func (TurnEnded) isSessionUpdate()                 {}

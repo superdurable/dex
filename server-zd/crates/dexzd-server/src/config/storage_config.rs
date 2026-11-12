@@ -52,12 +52,28 @@ pub enum ObjectStoreProvider {
     S3,
     /// Transactional SQL objects stored in db9.
     Db9,
+    /// Aliyun OSS through its S3-compatible endpoint, with versioned objects for replaced keys.
+    #[serde(rename = "aliyunOSS")]
+    AliyunOss,
     /// Azure Blob Storage through its native API; `bucket` names the container.
     #[serde(rename = "azureBlob")]
     AzureBlob,
     /// Google Cloud Storage through its native API.
     #[serde(rename = "googleCloudStorage")]
     GoogleCloudStorage,
+}
+
+impl ObjectStoreProvider {
+    /// Returns the YAML spelling of the provider.
+    pub fn yaml_name(self) -> &'static str {
+        match self {
+            Self::S3 => "s3",
+            Self::Db9 => "db9",
+            Self::AliyunOss => "aliyunOSS",
+            Self::AzureBlob => "azureBlob",
+            Self::GoogleCloudStorage => "googleCloudStorage",
+        }
+    }
 }
 
 /// Credentials resolved outside YAML and omitted from diagnostics.
@@ -74,8 +90,10 @@ impl fmt::Debug for Db9ConnectionString {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreConfig {
-    /// Defaults to s3; db9 selects transactional PostgreSQL-compatible storage, and azureBlob or
-    /// googleCloudStorage selects that cloud's native API. Existing data cannot switch providers.
+    /// Defaults to s3; db9 selects transactional PostgreSQL-compatible storage, aliyunOSS selects
+    /// Aliyun OSS through its S3-compatible endpoint with virtual-hosted addressing, and azureBlob
+    /// or googleCloudStorage selects that cloud's native API. aliyunOSS requires endpoint and
+    /// rejects forcePathStyle. Existing data cannot switch providers.
     pub provider: ObjectStoreProvider,
     /// Defaults to empty; resolved from DEX_ZD_DB9_CONNECTION_STRING, never serialized.
     #[serde(skip)]
@@ -146,8 +164,9 @@ impl Default for ObjectStoreConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreLocationConfig {
-    /// Defaults to s3; azureBlob or googleCloudStorage selects that cloud's native API. db9 is rejected.
-    pub provider: ObjectStoreProvider,
+    /// Defaults to none, which uses aliyunOSS when the primary store does and s3 otherwise.
+    /// s3, aliyunOSS, azureBlob, or googleCloudStorage selects that provider; db9 is rejected.
+    pub provider: Option<ObjectStoreProvider>,
     /// Defaults to empty; uses AWS endpoint resolution for this destination when omitted.
     /// The server connects to this HTTP(S) endpoint; it does not bind or advertise it.
     pub endpoint: String,
@@ -177,10 +196,21 @@ pub struct ObjectStoreLocationConfig {
     pub google_cloud_storage_credentials: Option<GoogleCloudStorageCredentials>,
 }
 
+impl ObjectStoreLocationConfig {
+    /// Returns the provider of this destination: the configured one, or else aliyunOSS when the
+    /// primary store uses aliyunOSS and s3 otherwise.
+    pub fn effective_provider(&self, primary: ObjectStoreProvider) -> ObjectStoreProvider {
+        self.provider.unwrap_or(match primary {
+            ObjectStoreProvider::AliyunOss => ObjectStoreProvider::AliyunOss,
+            _ => ObjectStoreProvider::S3,
+        })
+    }
+}
+
 impl Default for ObjectStoreLocationConfig {
     fn default() -> Self {
         Self {
-            provider: ObjectStoreProvider::S3,
+            provider: None,
             endpoint: String::new(),
             region: "us-east-1".to_owned(),
             bucket: String::new(),

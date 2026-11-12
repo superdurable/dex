@@ -1,6 +1,7 @@
 ---
 title: Workers and the task queue
 sidebar_label: Workers and task queue
+description: "Every Dex Worker is a pull Worker. It opens outbound task streams to Dex Server and never listens for incoming calls. For Worker setup, see Application."
 ---
 
 # Workers and the task queue
@@ -63,6 +64,15 @@ exiting; it is still safe to call after **Start** returns.
 
 Each pull Worker polls its own app Worker ID queue and the queue of every Flow
 type it registers. Flow type names must be unique within a Dex Server.
+
+Dex routes by Flow type, not by Step type. Any Worker that registers a Flow
+type can receive any Step or RPC of it. There is no option that limits a
+Worker to some Step types; a Worker that lacks a Step type only declines it,
+as [Unsupported types](#unsupported-types) describes. To run some work on a
+separate pool of Workers, such as hosts with GPUs, give that work its own Flow
+type, for example a SubFlow, and register that Flow type only on the pool.
+Queues have no concurrency or rate limit of their own. The task slots of each
+Worker bound how many tasks it runs at once.
 
 For each Step attempt or RPC, Dex first tries the app Worker ID that served the
 Flow before. This is sticky routing. When no stream for that ID is still
@@ -176,8 +186,8 @@ cancellation, and waits for handlers to return. Dex treats a task on a reset
 stream as one that may have run, so the retry policy applies. Long-running
 handlers should respond to cancellation. A final output that Dex has not yet
 confirmed gets 5 more seconds to flush, so shutdown can return up to 5 seconds
-after the drain deadline. Each SDK README describes its exact Stop or close
-behavior.
+after the drain deadline. Each SDK's Workers reference page shows how its
+Worker stops.
 
 When a slot frees up, Dex gives it to waiting RPCs before waiting Steps.
 

@@ -15,15 +15,15 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/cron
 
 这个 Flow 有三种 Step：
 
-1. **Init** 检查间隔和运行次数都是正数，然后转到 **WaitForSchedule**。
-2. **WaitForSchedule** 等待间隔 Timer、**Trigger** 消息或 **Skip** 消息。**Skip** 算作一次运行，但不执行工作，然后开始下一个间隔。Timer 或 **Trigger** 会启动 **Run**。如果这不是最后一次，还会同时启动下一次 **WaitForSchedule**。
+1. **Init** 检查间隔和运行次数都是正数，然后转到 `WaitForSchedule`。
+2. `WaitForSchedule` 等待间隔 Timer、**Trigger** 消息或 **Skip** 消息。**Skip** 算作一次运行，但不执行工作，然后开始下一个间隔。Timer 或 **Trigger** 会启动 **Run**。如果这不是最后一次，还会同时启动下一次 `WaitForSchedule`。
 3. **Run** 执行计划中的工作。最后一次运行时，它完成 Flow；其他时候，它所在的分支以 dead end 结束。
 
 要提前运行或跳过一次，用 Client 向 **Trigger** 或 **Skip** Channel 发布消息。
 
 ## 核心实现
 
-代码片段展示 **WaitForSchedule** Step 和它的调度 decision。可运行示例还包括 input 类型、Flow 注册和具体工作。
+代码片段展示 `WaitForSchedule` Step 和它的调度 decision。可运行示例还包括 input 类型、Flow 注册和具体工作。
 
 <SdkTabs
   examples={{
@@ -235,7 +235,7 @@ impl Step for WaitForSchedule {
 </SdkSnippet>
 </SdkTabs>
 
-## 相关页面
+## 下一步
 
 - [Channel](/concepts/primitives/channel)
 - [Timer](/concepts/primitives/timer)

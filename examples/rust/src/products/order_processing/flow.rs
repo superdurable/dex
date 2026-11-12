@@ -69,7 +69,7 @@ impl OrderProcessingFlow {
 
 impl Default for OrderProcessingFlow {
     fn default() -> Self {
-        Self::new(MyDependencyService)
+        Self::new(MyDependencyService::default())
     }
 }
 
@@ -114,14 +114,18 @@ impl Step for Charge {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
             RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
+                // One hour in production; 3 seconds keeps the demo short.
                 .total_duration(Duration::from_secs(3)),
         )
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        self.service
-            .charge_user(&input.email, &input.customer_id, input.amount);
+        self.service.charge_user_with_idempotency_key(
+            &input.email,
+            &input.customer_id,
+            input.amount,
+            &format!("charge-{}", input.order_id),
+        );
         context.record_event("charge", input.order_id.clone())?;
         ORDER_STATUS.set(context, "charged".to_string())?;
         Ok(StepDecision::go_to(&Ship::default(), input))
@@ -144,7 +148,7 @@ impl Step for Ship {
         StepOptions::new()
             .execute_retry(
                 RetryPolicy::new()
-                    // .total_duration(Duration::from_secs(60 * 60))
+                    // One hour in production; 3 seconds keeps the demo short.
                     .total_duration(Duration::from_secs(3)),
             )
             .on_execute_failure_proceed_to(&Refund::default())
@@ -167,8 +171,11 @@ impl Step for Ship {
             context.record_event("shipment-reminder", input.order_id.clone())?;
             return Ok(StepDecision::go_to(&Ship::default(), input));
         }
-        self.service
-            .ship_item(&input.order_id, input.test_fail_at_shipping)?;
+        self.service.ship_item_with_idempotency_key(
+            &input.order_id,
+            input.test_fail_at_shipping,
+            &format!("ship-{}", input.order_id),
+        )?;
         context.record_event("ship", input.order_id.clone())?;
         ORDER_STATUS.set(context, "shipped".to_string())?;
         Ok(StepDecision::graceful_complete(format!(
@@ -193,14 +200,16 @@ impl Step for Refund {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
             RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
+                // One hour in production; 3 seconds keeps the demo short.
                 .total_duration(Duration::from_secs(3)),
         )
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        self.service
-            .update_external_system(&format!("refund {}", input.order_id));
+        self.service.update_external_system_with_idempotency_key(
+            &format!("refund {}", input.order_id),
+            &format!("refund-{}", input.order_id),
+        );
         context.record_event("refund", input.order_id.clone())?;
         ORDER_STATUS.set(context, "refunded".to_string())?;
         Ok(StepDecision::graceful_complete(format!(

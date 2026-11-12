@@ -31,7 +31,7 @@
   },
   "locales": {
     "en": {
-      "introduction": "Choose your current host. On one host, use either the Plugin or standalone Skills, not both.",
+      "introduction": "Choose your host, then one installation path: the Plugin or the standalone Skills.",
       "hosts": [
         {
           "id": "codex-desktop",
@@ -52,7 +52,7 @@
             {
               "type": "p",
               "children": [
-                "This path does not require a separate Codex CLI installation."
+                "This path needs no separate Codex CLI installation."
               ]
             },
             {
@@ -134,7 +134,7 @@
             {
               "type": "p",
               "children": [
-                "Do not also install the Plugin when using this path. Install all three Skills together."
+                "This path installs all three Skills together."
               ]
             },
             {
@@ -254,7 +254,7 @@
             {
               "type": "p",
               "children": [
-                "Do not also install the Plugin when using this path. Install all three Skills together."
+                "This path installs all three Skills together."
               ]
             },
             {
@@ -378,7 +378,7 @@
             {
               "type": "p",
               "children": [
-                "Claude does not document a per-user upgrade command. For an organization-managed marketplace, an owner uses Organization settings → Plugins & skills → Marketplaces → Update."
+                "For an organization-managed marketplace, an owner uses Organization settings → Plugins & skills → Marketplaces → Update. Claude documents no per-user upgrade command."
               ]
             },
             {
@@ -390,7 +390,7 @@
             {
               "type": "p",
               "children": [
-                "Dex does not distribute standalone ZIP Skills for Claude web or desktop. Use the Plugin path."
+                "Claude web and desktop install Dex through the Plugin path; there is no standalone ZIP of the Skills."
               ]
             }
           ]
@@ -468,7 +468,7 @@
             {
               "type": "p",
               "children": [
-                "Do not also install the Plugin when using this path. Install all three Skills together."
+                "This path installs all three Skills together."
               ]
             },
             {
@@ -604,7 +604,7 @@
             {
               "type": "p",
               "children": [
-                "Do not also install the Plugin when using this path. Install all three Skills together."
+                "This path installs all three Skills together."
               ]
             },
             {
@@ -670,7 +670,7 @@
             {
               "type": "p",
               "children": [
-                "Dex does not document one universal marketplace Plugin flow for unlisted hosts."
+                "For hosts not listed here, follow the host's own Plugin marketplace steps."
               ]
             },
             {
@@ -738,7 +738,7 @@
       ]
     },
     "zh-Hans": {
-      "introduction": "选择当前使用的 host。一个 host 只能选择 Plugin 或 standalone Skills 中的一种安装路径。",
+      "introduction": "选择你使用的 host，再选择一种安装方式：Plugin 或 standalone Skills。",
       "hosts": [
         {
           "id": "codex-desktop",
@@ -759,7 +759,7 @@
             {
               "type": "p",
               "children": [
-                "此路径不需要单独安装 Codex CLI。"
+                "此路径无需另外安装 Codex CLI。"
               ]
             },
             {
@@ -841,7 +841,7 @@
             {
               "type": "p",
               "children": [
-                "如果选择该方式，请不要再安装 Plugin。三个 Skills 必须一起安装。"
+                "这种方式会一起安装三个 Skills。"
               ]
             },
             {
@@ -961,7 +961,7 @@
             {
               "type": "p",
               "children": [
-                "如果选择该方式，请不要再安装 Plugin。三个 Skills 必须一起安装。"
+                "这种方式会一起安装三个 Skills。"
               ]
             },
             {
@@ -1085,7 +1085,7 @@
             {
               "type": "p",
               "children": [
-                "Claude 没有公开的 per-user upgrade command。organization-managed marketplace 由 owner 在 Organization settings → Plugins & skills → Marketplaces → Update 中更新。"
+                "organization-managed marketplace 由 owner 在 Organization settings → Plugins & skills → Marketplaces → Update 中更新。Claude 没有公开的 per-user upgrade command。"
               ]
             },
             {
@@ -1097,7 +1097,7 @@
             {
               "type": "p",
               "children": [
-                "Dex 不为 Claude Web 或 Desktop 分发 standalone ZIP Skills。请使用 Plugin。"
+                "Claude Web 和 Desktop 通过 Plugin 安装 Dex，没有 standalone ZIP Skills。"
               ]
             }
           ]
@@ -1175,7 +1175,7 @@
             {
               "type": "p",
               "children": [
-                "如果选择该方式，请不要再安装 Plugin。三个 Skills 必须一起安装。"
+                "这种方式会一起安装三个 Skills。"
               ]
             },
             {
@@ -1311,7 +1311,7 @@
             {
               "type": "p",
               "children": [
-                "如果选择该方式，请不要再安装 Plugin。三个 Skills 必须一起安装。"
+                "这种方式会一起安装三个 Skills。"
               ]
             },
             {
@@ -1377,7 +1377,7 @@
             {
               "type": "p",
               "children": [
-                "Dex 没有为未单列的 host 记录通用 marketplace Plugin 流程。"
+                "对于未单列的 host，按该 host 自己的 Plugin marketplace 步骤安装。"
               ]
             },
             {

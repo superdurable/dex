@@ -198,7 +198,7 @@ func TestHistoryRecordsAndRetentionWindow(t *testing.T) {
 		sessionfeed.AssistantMessageRecorded{TurnID: "turn-9", StepExecutionID: "step-1", Text: "old answer", Sequence: 42},
 	)
 	scrollback := harness.scrollbackText()
-	requireInOrder(t, scrollback, "· messages before #12 were removed by the retention window", "· earlier messages are not shown", "› old question", "· read_file", "module example.com/app", "old answer")
+	requireInOrder(t, scrollback, "· messages before #12 were removed by the retention window", "· earlier messages: /history", "› old question", "· read_file", "module example.com/app", "old answer")
 	require.Equal(t, 1, strings.Count(scrollback, "old answer"))
 	require.NotContains(t, scrollback, "✓ read_file", "history tool rows show no status")
 }
@@ -224,6 +224,18 @@ func TestNoticesAreCleanedCutAndDeduplicated(t *testing.T) {
 	harness.advance(5100 * time.Millisecond)
 	harness.feed(repeat)
 	require.Equal(t, 3, countRepeats(), "a hidden repeat does not restart the 10 s window")
+}
+
+// A notice for a stored message prints once per sequence, so a repeated plan
+// execution of one revision shows again within the repeat window.
+func TestNoticesWithASequencePrintOncePerSequence(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100})
+	countRuns := func() int { return strings.Count(harness.scrollbackText(), "Running plan revision 2") }
+	first := sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 2", Sequence: 5}
+	harness.feed(first, first)
+	require.Equal(t, 1, countRuns(), "the same stored message prints once")
+	harness.feed(sessionfeed.NoticeRaised{Severity: sessionfeed.NoticeSeverityInfo, Text: "Running plan revision 2", Sequence: 9})
+	require.Equal(t, 2, countRuns(), "another execution of the revision is not a repeat")
 }
 
 func TestSessionTextCannotWriteEscapeSequences(t *testing.T) {

@@ -7,7 +7,7 @@ slug: /design-patterns/hash-partitioned-attribute-map
 
 当记录有稳定的查找 key，而且每条记录都是结构化数据时，使用这个模式。示例按 email 地址保存客户 profile。一次查找只读取一个 partition，而不是整个目录。
 
-**CustomerDirectoryFlow** 是只处理 RPC 的 Flow。只需启动一次，不设置 Flow timeout。**CustomerProfilesByEmailPartition** 这个 AttributeMap 最多有 1,000 个 instance，每个 instance 在需要时才出现。每个 instance 保存一个从 canonical email 到完整 profile 的 dictionary。
+`CustomerDirectoryFlow` 是只处理 RPC 的 Flow。只需启动一次，不设置 Flow timeout。`CustomerProfilesByEmailPartition` 这个 AttributeMap 最多有 1,000 个 instance，每个 instance 在需要时才出现。每个 instance 保存一个从 canonical email 到完整 profile 的 dictionary。
 
 ## 稳定分区算法
 
@@ -23,11 +23,11 @@ Hash 冲突只会让多个 email 落进同一个 partition。Dictionary 仍然�
 
 ## 精确查找与串行写入
 
-Controller 和 RPC handler 各自计算 partition。Controller 调用 **UpsertCustomerProfile** 时，要求 Dex 只加载这一个 partition instance 并给它加锁。Handler 再次计算 partition，读取 bucket，更新一条 profile，再写回 bucket。同一 partition 的写入逐个执行，不同 partition 可以并发写入。
+Controller 和 RPC handler 各自计算 partition。Controller 调用 `UpsertCustomerProfile` 时，要求 Dex 只加载这一个 partition instance 并给它加锁。Handler 再次计算 partition，读取 bucket，更新一条 profile，再写回 bucket。同一 partition 的写入逐个执行，不同 partition 可以并发写入。
 
 同一 partition 的并发写入可能收到 lock-conflict 错误。upsert 是幂等的，所以直接重试，见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/reference/server/runtime-data#whole-map-coordination)。
 
-**GetCustomerProfileByEmail** 只加载一个 partition，不增加写锁。Partition 不存在或 canonical email 不存在时都会返回 not found。
+`GetCustomerProfileByEmail` 只加载一个 partition，不增加写锁。Partition 不存在或 canonical email 不存在时都会返回 not found。
 
 <SdkTabs
   examples={{
@@ -141,3 +141,7 @@ GET  /patterns/hash-partitioned-attribute-map/customer-profile?emailAddress=alic
 ```
 
 Partition 数量是持久化数据的一部分。修改它会把大多数 key 移到别的 partition，因此需要完整 rehash 或新的 Flow 版本。这个示例没有实现删除、全目录枚举、跨字段搜索和调整 partition 数量。
+
+## 下一步
+
+[Entity Flow with SQL Projection](/design-patterns/entity-store)：Keep one Flow for each entity, such as a user.

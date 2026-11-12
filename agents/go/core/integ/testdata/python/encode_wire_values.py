@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 
 from dex.codec import CodecRegistry
 
@@ -32,11 +33,13 @@ from dex_agents.builtin_loop.transcript import encode_builtin_loop_message
 from dex_agents.values import (
     AgentEvent,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentInterruptResolution,
     AgentMessage,
     AgentMessageChunk,
     AgentMessageChunkRange,
     AgentMessageIndex,
+    AgentMessageOrigin,
     AgentMessagesPage,
     AgentPlan,
     AgentPlanTask,
@@ -126,6 +129,9 @@ TOOL_CALLS = [
         task_id="task-1",
         task_poll_interval_seconds=5,
         task_answer_pending=True,
+        approval_display=AgentInterruptDisplay(
+            target="orders/7", summary="Refunds order 7 \u00fc <now>.", preview="--- a\n+++ b\n"
+        ),
     ),
     AgentToolCall(
         tool_call_id="call-3",
@@ -158,6 +164,7 @@ INTERRUPT = AgentInterrupt(
     arguments="{}",
     created_at="2026-11-01T12:00:00.123Z",
     deadline="2026-11-02T12:00:00.123Z",
+    display=AgentInterruptDisplay(target="orders/7", summary="Refunds order 7."),
 )
 USAGE = AgentUsage(
     model_calls=2, input_tokens=20, output_tokens=10, cached_input_tokens=3, reasoning_tokens=4
@@ -187,6 +194,19 @@ VALUES: list[tuple[str, type, object]] = [
     ),
     ("AgentState", AgentState, STATE),
     ("AgentMessage", AgentMessage, MESSAGE),
+    (
+        "AgentMessage/plan-execution",
+        AgentMessage,
+        replace(
+            MESSAGE,
+            role=MessageRole.USER,
+            tool_call_id=None,
+            tool_name=None,
+            tool_arguments=None,
+            origin=AgentMessageOrigin.PLAN_EXECUTION,
+        ),
+    ),
+    ("AgentMessage/unknown-origin", AgentMessage, replace(MESSAGE, origin="later_origin")),
     *((f"AgentToolCall/{call.tool_call_id}", AgentToolCall, call) for call in TOOL_CALLS),
     ("AgentMessageChunk", AgentMessageChunk, AgentMessageChunk(messages=[MESSAGE])),
     (
@@ -282,7 +302,8 @@ def event_payloads() -> list[dict[str, object]]:
         "interrupt_raised",
         {"interrupt_id": "call-2", "tool_call_id": "call-2", "tool_name": "refund_order",
          "deadline": None, "kind": "tool_approval", "question": None, "choices": [],
-         "allows_free_text": True},
+         "allows_free_text": True,
+         "display": {"target": "orders/7", "summary": "Refunds order 7.", "preview": None}},
     )
     writer.write_event(
         "interrupt_resolved",

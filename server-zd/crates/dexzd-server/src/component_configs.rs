@@ -18,6 +18,7 @@ use dexzd_engine::{
     default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
+use dexzd_object_store::VERSION_OBJECT_KEY_SUFFIX_BYTES;
 use dexzd_protocol::dexzd::v1::RunSettings;
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::RocksDbStoreOptions;
@@ -25,7 +26,13 @@ use dexzd_stream_store::StreamStoreConfig;
 use dexzd_worker_dispatch::MatchingConfig;
 
 use crate::ServerError;
-use crate::config::{Config, StandbyConfig, StandbyMode, StreamStoreBackend, available_cpu_count};
+use crate::config::{
+    Config, ObjectStoreConfig, ObjectStoreProvider, StandbyConfig, StandbyMode, StreamStoreBackend,
+    available_cpu_count,
+};
+
+/// OSS limits object keys to 1023 bytes, one less than S3.
+const ALIYUN_OSS_KEY_LIMIT_SHORTFALL_BYTES: usize = 1;
 
 /// The incarnation of this node's log stream; one node writes one stream until multi-node support.
 const LOG_STREAM_INCARNATION: u32 = 1;
@@ -347,12 +354,7 @@ impl ComponentConfigs {
                 u64::from(config.matching.max_flow_type_length),
             )?,
             max_response_bytes: grpc_max_message_bytes,
-            // S3 adds the prefix and a slash; db9 adds the prefix alone.
-            object_key_prefix_bytes: if config.object_store.prefix.is_empty() {
-                0
-            } else {
-                config.object_store.prefix.len() + 1
-            },
+            object_key_prefix_bytes: object_key_overhead_bytes(&config.object_store),
         };
         let history_reads = HistoryReadsConfig {
             read_cache_directory: config
@@ -417,6 +419,27 @@ fn attribute_sync_config(config: &Config) -> Result<AttributeSyncConfig, ServerE
             .min(lease_margin),
         lease_margin,
     })
+}
+
+/// Returns the bytes that the object store adds to a logical key before the 1024-byte S3 limit.
+///
+/// S3, Azure Blob Storage, and GCS add the prefix and a slash; db9 adds the prefix alone. aliyunOSS also adds a version
+/// suffix to replaced keys, and OSS allows one byte less than S3.
+fn object_key_overhead_bytes(config: &ObjectStoreConfig) -> usize {
+    let prefix_bytes = if config.prefix.is_empty() {
+        0
+    } else {
+        config.prefix.len() + 1
+    };
+    match config.provider {
+        ObjectStoreProvider::S3
+        | ObjectStoreProvider::Db9
+        | ObjectStoreProvider::AzureBlob
+        | ObjectStoreProvider::GoogleCloudStorage => prefix_bytes,
+        ObjectStoreProvider::AliyunOss => {
+            prefix_bytes + VERSION_OBJECT_KEY_SUFFIX_BYTES + ALIYUN_OSS_KEY_LIMIT_SHORTFALL_BYTES
+        }
+    }
 }
 
 fn to_usize(field: &'static str, value: u64) -> Result<usize, ServerError> {

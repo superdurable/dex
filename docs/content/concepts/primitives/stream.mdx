@@ -1,6 +1,7 @@
 ---
 title: Stream
 slug: /concepts/primitives/stream
+description: "A Stream delivers messages from a Flow to a reader in real time. A Step or a Client writes messages. A Client reads them in order and can resume where it stopped. Dex keeps Stream messages only on a best-effort basis."
 ---
 
 # Stream
@@ -36,7 +37,7 @@ A Stream gives up durability for speed:
   messages. A slow reader can miss them.
 - A Step write goes out at once, while the Step still runs. A later Step failure
   does not roll it back.
-- A failed Stream write never fails the Step.
+- A Step succeeds even when a Stream write fails.
 - A reader sees messages in the order Dex stored them.
 
 The capacity is shared by all Flow runs with the same Flow type and
@@ -257,10 +258,10 @@ impl Step for RenderPreview {
 
 A Client has two ways to read a Stream:
 
-- <a id="resumable-reads"></a>**ReadStream** reads forward, one message at a time. Each message carries a
+- <a id="resumable-reads"></a>`ReadStream` reads forward, one message at a time. Each message carries a
   resume token. Pass the token back to read the next message. When no new
   message exists, the call waits for one.
-- <a id="listing-messages"></a>**ListStreamMessages** pages backward from the
+- <a id="listing-messages"></a>`ListStreamMessages` pages backward from the
   newest message. It returns at once.
 
 See [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) and
@@ -271,9 +272,15 @@ handler writes through an injected Client.
 
 ## Reference
 
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
+
 The [Stream](/reference/python/stream) page of each SDK reference lists the
 API names in that language.
 
 [Data primitive semantics](/reference/server/runtime-data#streams) covers write
 semantics, buffered text, reads, listing, capacity, and storage in detail. The
 server settings are in [Streams](/reference/server/configuration#streams).
+
+## Next
+
+[Timer](/concepts/primitives/timer): A Timer is a durable wait until a point in time.

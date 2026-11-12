@@ -1,12 +1,13 @@
 ---
 title: Reminder
+description: "ReminderFlow sends a reminder every interval until the recipient opts out. Its Step waits for either the interval Timer or the OptOut Channel."
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/design-patterns/reminder.json';
 
 # Reminder
 
-**ReminderFlow** sends a reminder every interval until the recipient opts out. **ReminderStep** waits for either the interval Timer or the **OptOut** Channel. When the timer fires, it sends a reminder and moves to itself. When **OptOut** arrives first, the Step completes the Flow.
+`ReminderFlow` sends a reminder every interval until the recipient opts out. `ReminderStep` waits for either the interval Timer or the `OptOut` Channel. When the timer fires, it sends a reminder and moves to itself. When `OptOut` arrives first, the Step completes the Flow.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -18,16 +19,21 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/remi
 
 ```python
 class ReminderStep(Step[None]):
-    def __init__(self, service: ServiceDependency, opt_out: Channel[None]) -> None:
+    def __init__(
+        self,
+        service: ServiceDependency,
+        opt_out: Channel[None],
+    ) -> None:
         self.service = service
         self.opt_out = opt_out
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
-        return Wait.any_of(Timer.by_duration(REMINDER_INTERVAL), self.opt_out.for_one())
+        return Wait.any_of(
+            Timer.by_duration(REMINDER_INTERVAL),
+            self.opt_out.for_one(),
+        )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         if not context.has_timer_fired():
             return graceful_complete()
         self.service.send_email("Reminder: please respond", "Hello, ...")
@@ -116,21 +122,27 @@ class ReminderStep implements Step<void> {
 
 ```rust
 #[derive(Default)]
-struct ReminderStep;
+struct ReminderStep {
+    service: MyDependencyService,
+}
 
 impl Step for ReminderStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([Timer::by_duration(Duration::from_secs(5)), OPT_OUT.for_one()]))
+        Ok(Wait::any_of([
+            Timer::by_duration(Duration::from_secs(5)),
+            OPT_OUT.for_one(),
+        ]))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
         if !context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete("opted-out".to_string()));
         }
-        context.record_event("reminder", "sent".to_string())?;
-        Ok(StepDecision::go_to(&ReminderStep, ()))
+        self.service
+            .send_email("user@example.com", "Reminder: please respond", "Hello, ...");
+        Ok(StepDecision::go_to(&ReminderStep::default(), ()))
     }
 }
 ```
@@ -139,7 +151,7 @@ impl Step for ReminderStep {
 
 </SdkTabs>
 
-## Related
+## Next
 
 - [Timer](/concepts/primitives/timer)
 - [Channel](/concepts/primitives/channel)

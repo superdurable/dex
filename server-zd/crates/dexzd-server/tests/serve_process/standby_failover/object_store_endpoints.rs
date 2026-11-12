@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use s3local::Store;
-use s3local_server::{ServerConfig, ServerHandle, SignatureVerification};
+use s3local_server::{S3ApiDialect, ServerConfig, ServerHandle, SignatureVerification};
 
 use crate::PRIMARY_PREFIX;
 use crate::harness::s3local_admin_request;
@@ -99,7 +99,8 @@ pub(crate) struct ObjectStoreEndpoint {
 
 impl ObjectStoreEndpoint {
     /// Serves `store` on a free loopback port without signature checks, like the shared emulator.
-    pub(crate) async fn start(store: Arc<Store>) -> Self {
+    /// It answers requests as the endpoint of `api_dialect` does.
+    pub(crate) async fn start(store: Arc<Store>, api_dialect: S3ApiDialect) -> Self {
         let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
             .await
             .expect("the endpoint binds a loopback port");
@@ -108,6 +109,7 @@ impl ObjectStoreEndpoint {
             listener,
             ServerConfig {
                 signature_verification: SignatureVerification::Off,
+                api_dialect,
                 ..ServerConfig::default()
             },
         )

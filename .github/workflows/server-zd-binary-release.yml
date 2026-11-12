@@ -402,10 +402,22 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # Publishing waits for the server-zd suites on this exact release commit.
+  test-server-zd:
+    name: Server ZD tests
+    needs: metadata
+    if: needs.metadata.outputs.publish == 'true'
+    uses: ./.github/workflows/server-zd-ci.yml
+  test-server-zd-integ:
+    name: Server integration tests
+    needs: metadata
+    if: needs.metadata.outputs.publish == 'true'
+    uses: ./.github/workflows/server-zd-integ-ci.yml
+
   publish:
     name: Publish Release assets
     if: needs.metadata.outputs.publish == 'true'
-    needs: [metadata, checksums]
+    needs: [metadata, checksums, test-server-zd, test-server-zd-integ]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

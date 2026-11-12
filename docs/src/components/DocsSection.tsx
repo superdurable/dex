@@ -10,19 +10,41 @@
 
 import React, {type ReactNode} from 'react';
 import Link from '@docusaurus/Link';
-import {ArrowRight} from 'lucide-react';
+import type {LucideIcon} from 'lucide-react';
+import {ArrowRight, Bot, Cloud, Code2, Gauge, GitCompare, Layers, Monitor, Plug, RefreshCw, Rocket, Scale, Server, TriangleAlert, Wrench} from 'lucide-react';
 import {docsSectionIcons, type DocsSectionKey} from './docsSections';
+
+// Icons a card can use instead of its section's icon; the colour still comes from the section.
+const cardIcons = {
+  bot: Bot,
+  cloud: Cloud,
+  code: Code2,
+  compare: GitCompare,
+  gauge: Gauge,
+  layers: Layers,
+  monitor: Monitor,
+  plug: Plug,
+  refresh: RefreshCw,
+  rocket: Rocket,
+  scale: Scale,
+  server: Server,
+  warning: TriangleAlert,
+  wrench: Wrench,
+} satisfies Record<string, LucideIcon>;
 
 export type DocsSectionProps = {
   section: DocsSectionKey;
+  icon?: keyof typeof cardIcons;
+  /** A short note under the title, such as how long the path takes. */
+  meta?: string;
   to: string;
   title: string;
   children: ReactNode;
 };
 
 /** One entry of the docs home page: a section icon, its name, and what readers find there. */
-export default function DocsSection({section, to, title, children}: DocsSectionProps): ReactNode {
-  const Icon = docsSectionIcons[section];
+export default function DocsSection({section, icon, meta, to, title, children}: DocsSectionProps): ReactNode {
+  const Icon = icon ? cardIcons[icon] : docsSectionIcons[section];
   return (
     <Link className="docs-section-entry" data-docs-section={section} to={to}>
       <span className="docs-section-entry__icon" aria-hidden="true">
@@ -33,6 +55,7 @@ export default function DocsSection({section, to, title, children}: DocsSectionP
           {title}
           <ArrowRight className="docs-section-entry__arrow" size={16} aria-hidden="true" />
         </strong>
+        {meta ? <span className="docs-section-entry__meta">{meta}</span> : null}
         <span>{children}</span>
       </span>
     </Link>

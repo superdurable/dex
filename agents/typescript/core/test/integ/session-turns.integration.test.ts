@@ -15,6 +15,8 @@ import { after, before, describe, test } from "node:test";
 import {
   createAgentSessionFlow,
   emptyAgentUsage,
+  maxApprovalSummaryBytes,
+  maxApprovalTargetBytes,
   messageSequenceKey,
   missingToolTaskPoller,
   outcomeUnknownToolResult,
@@ -293,6 +295,46 @@ describe("agent session turns with an in-process Worker", () => {
     assert.ok(eventTypes.includes("tool_call_finished"));
   });
 
+  test("an approval carries its source's display in the interrupt, the record, and the event", async () => {
+    const sessionId = newSessionId("approval-display");
+    await sessions.startSession(
+      sessionId,
+      "call displayed_send and oversized_display_send and huge_display_send and send_email",
+    );
+    const displayed = await sessions.waitForPendingInterrupt(sessionId, "displayed_send");
+    const oversized = await sessions.waitForPendingInterrupt(sessionId, "oversized_display_send");
+    const plain = await sessions.waitForPendingInterrupt(sessionId, "send_email");
+    const huge = await sessions.waitForPendingInterrupt(sessionId, "huge_display_send");
+    // The session cuts a long target and summary, so a display never grows the records by much.
+    assert.deepEqual(huge.display, {
+      target: `${"t".repeat(maxApprovalTargetBytes - 3)}…`,
+      summary: `${"s".repeat(maxApprovalSummaryBytes - 3)}…`,
+      preview: null,
+    });
+    const display = { target: "ops@example.com", summary: "Sends an email to ops@example.com.", preview: "Subject: Order 7" };
+    assert.deepEqual(displayed.display, display);
+    // The session keeps the target and summary but drops a preview over maxApprovalPreviewBytes.
+    assert.deepEqual(oversized.display, { ...display, preview: null });
+    assert.equal(plain.display, undefined);
+    assert.deepEqual((await sessions.readToolCall(sessionId, displayed.toolCallId))?.approvalDisplay, display);
+    const raised = (await sessions.listAgentEvents(sessionId))
+      .filter((event) => event.type === "interrupt_raised")
+      .map((event) => JSON.parse(event.payload) as { tool_name: string; display: unknown });
+    assert.deepEqual(
+      Object.fromEntries(raised.map((payload) => [payload.tool_name, payload.display])),
+      {
+        displayed_send: display,
+        oversized_display_send: { ...display, preview: null },
+        huge_display_send: huge.display,
+        send_email: null,
+      },
+    );
+    for (const interrupt of [displayed, oversized, huge, plain]) {
+      assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, false), true);
+    }
+    await sessions.waitForCompletedTurns(sessionId, 1);
+  });
+
   test("a call finished by the resumed turn writes no tool_call_finished from its Step", async () => {
     const sessionId = newSessionId("finished-by-resumed-turn");
     await sessions.startSession(sessionId, "call approve_framework_write");
@@ -460,10 +502,10 @@ describe("agent session turns with an in-process Worker", () => {
     const snapshot = await sessions.getAgentSnapshot(sessionId);
     assert.deepEqual(snapshot.toolCalls, []);
     assert.deepEqual(
-      snapshot.messages.map((message) => [message.sequence, message.turnId, message.role]),
+      snapshot.messages.map((message) => [message.sequence, message.turnId, message.role, message.origin]),
       [
-        [1, "turn-1", "user"],
-        [2, "turn-1", "user"],
+        [1, "turn-1", "user", undefined],
+        [2, "turn-1", "user", "turn_failure_note"],
       ],
     );
     assert.equal(

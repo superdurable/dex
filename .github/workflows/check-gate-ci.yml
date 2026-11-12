@@ -5,8 +5,6 @@ on:
     # Adding or removing the ci:fast-merge label changes the required workflows.
     # edited re-runs the skills checks that read the pull request description.
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
-  # A manual dispatch checks non-PR CI only; it validates no pull request description.
-  workflow_dispatch:
 
 permissions:
   actions: read
@@ -30,6 +28,11 @@ jobs:
           fetch-depth: 2
       - name: Validate CI runner policy
         run: make ci-runner-check
+      # A filter that differs from its workflow's paths waits forever or never enforces a check.
+      - name: Check that path filters match their workflows
+        run: |
+          python3 .github/scripts/workflow_paths_test.py
+          python3 .github/scripts/workflow_paths.py check-paths
       - name: Reject agent attribution
         if: github.event_name == 'pull_request'
         env:
@@ -57,8 +60,21 @@ jobs:
               - 'blob-cache-go/**'
               - 'protos/**'
               - 'server-zd/**'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
               - 's3local/**'
-              - 'cli/**'
+              # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
+              - 'cli/cmd/**'
+              - 'cli/internal/command/**'
+              - 'cli/internal/dev/**'
+              - 'cli/internal/flowviz/**'
+              - 'cli/internal/pointervalue/**'
+              - 'cli/internal/update/**'
+              - 'cli/schema/**'
+              - 'cli/go.mod'
+              - 'cli/go.sum'
+              - 'cli/Makefile'
+              - 'cli/SERVER_ZD_RELEASE'
               - 'web/**'
               - 'go.work'
               - 'go.work.sum'
@@ -66,11 +82,25 @@ jobs:
               - '.github/workflows/sdk-go-ci.yml'
             sdk_rust:
               - 'sdk-rust/**'
-              - 'cli/**'
+              # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
+              - 'cli/cmd/**'
+              - 'cli/internal/command/**'
+              - 'cli/internal/dev/**'
+              - 'cli/internal/flowviz/**'
+              - 'cli/internal/pointervalue/**'
+              - 'cli/internal/update/**'
+              - 'cli/schema/**'
+              - 'cli/go.mod'
+              - 'cli/go.sum'
+              - 'cli/Makefile'
+              - 'cli/SERVER_ZD_RELEASE'
               - 'server-zd/**'
               - 's3local/**'
               - 'protos/**'
-              - 'web/**'
+              # The suites run the Web server inside dexcli dev but never load its pages.
+              - 'web/**/*.go'
+              - 'web/go.mod'
+              - 'web/go.sum'
               - 'codecov.yml'
               - '.github/workflows/sdk-rust-ci.yml'
             sdk_java:
@@ -79,8 +109,22 @@ jobs:
               - 'sdk-rust/Cargo.toml'
               - 'sdk-rust/crates/dex-blob-cache/**'
               - 'sdk-rust/crates/dex-blob-cache-jni/**'
-              - 'cli/**'
-              - 'web/**'
+              # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
+              - 'cli/cmd/**'
+              - 'cli/internal/command/**'
+              - 'cli/internal/dev/**'
+              - 'cli/internal/flowviz/**'
+              - 'cli/internal/pointervalue/**'
+              - 'cli/internal/update/**'
+              - 'cli/schema/**'
+              - 'cli/go.mod'
+              - 'cli/go.sum'
+              - 'cli/Makefile'
+              - 'cli/SERVER_ZD_RELEASE'
+              # The suites run the Web server inside dexcli dev but never load its pages.
+              - 'web/**/*.go'
+              - 'web/go.mod'
+              - 'web/go.sum'
               - 'server-zd/**'
               - 's3local/**'
               - 'protos/**'
@@ -93,10 +137,24 @@ jobs:
               - 'sdk-rust/Cargo.toml'
               - 'sdk-rust/crates/dex-blob-cache/**'
               - 'sdk-rust/crates/dex-blob-cache-python/**'
-              - 'cli/**'
+              # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
+              - 'cli/cmd/**'
+              - 'cli/internal/command/**'
+              - 'cli/internal/dev/**'
+              - 'cli/internal/flowviz/**'
+              - 'cli/internal/pointervalue/**'
+              - 'cli/internal/update/**'
+              - 'cli/schema/**'
+              - 'cli/go.mod'
+              - 'cli/go.sum'
+              - 'cli/Makefile'
+              - 'cli/SERVER_ZD_RELEASE'
               - 'server-zd/**'
               - 's3local/**'
-              - 'web/**'
+              # The suites run the Web server inside dexcli dev but never load its pages.
+              - 'web/**/*.go'
+              - 'web/go.mod'
+              - 'web/go.sum'
               - 'protos/**'
               - 'codecov.yml'
               - '.github/workflows/sdk-python-ci.yml'
@@ -107,11 +165,25 @@ jobs:
               - 'sdk-rust/Cargo.toml'
               - 'sdk-rust/crates/dex-blob-cache/**'
               - 'sdk-rust/crates/dex-blob-cache-node/**'
-              - 'cli/**'
+              # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
+              - 'cli/cmd/**'
+              - 'cli/internal/command/**'
+              - 'cli/internal/dev/**'
+              - 'cli/internal/flowviz/**'
+              - 'cli/internal/pointervalue/**'
+              - 'cli/internal/update/**'
+              - 'cli/schema/**'
+              - 'cli/go.mod'
+              - 'cli/go.sum'
+              - 'cli/Makefile'
+              - 'cli/SERVER_ZD_RELEASE'
               - 'server-zd/**'
               - 's3local/**'
               - 'protos/**'
-              - 'web/**'
+              # The suites run the Web server inside dexcli dev but never load its pages.
+              - 'web/**/*.go'
+              - 'web/go.mod'
+              - 'web/go.sum'
               - '.github/workflows/sdk-typescript-ci.yml'
               - '.github/workflows/sdk-typescript-publish.yml'
             rust_rules:
@@ -126,11 +198,14 @@ jobs:
               - '.github/workflows/rust-rules-ci.yml'
             web:
               - 'web/**'
+              - 'packages/flow-definition-renderer/**'
+              - 'docs/src/data/flow-definitions/**'
+              - 'agents/conformance/session_graph.json'
               - 'protos/**'
-              - 'sdk-go/integ/main_test.go'
-              - 'sdk-go/integ/web*'
-              - 'sdk-go/integ/webv2*/**'
+              - 'sdk-go/**'
+              - 'script/release/*embedded_web_module.py'
               - '.github/workflows/web-ci.yml'
+              - '.github/workflows/web-embedded-module-release.yml'
             examples_go:
               - 'examples/go/**'
               - '.github/workflows/examples-go-ci.yml'
@@ -160,6 +235,8 @@ jobs:
             server_zd_integ:
               - 'sdk-go/**'
               - 'server-zd/**'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
               - 'protos/**'
               - '.github/workflows/server-zd-integ-ci.yml'
             server_zd_simulation_runner:
@@ -209,6 +286,8 @@ jobs:
               - 'docs/reference/*/changelog.mdx'
               - 'agents/CHANGELOG.md'
               - '.github/workflows/release-changed-components.yml'
+              - '.github/workflows/cli-release.yml'
+              - '.github/workflows/docker-image-web-release.yml'
               - '.github/workflows/release-tooling-ci.yml'
               - 'CONTRIBUTING.md'
             skills:
@@ -221,6 +300,8 @@ jobs:
               - 'agents/**'
               - 'cli/**'
               - 'sdk-go/**'
+              - 'blob-cache-go/**'
+              - 'script/release/**'
               - 'sdk-java/**'
               - 'sdk-python/**'
               - 'sdk-rust/**'
@@ -312,62 +393,35 @@ jobs:
         run: |
           set -euo pipefail
 
-          expected=()
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            expected=(
-              "Agents CI"
-              "Blob Cache Go CI"
-              "Dex CLI CI"
-              "Copyright"
-              "Go examples CI"
-              "Java examples CI"
-              "Python examples CI"
-              "Rust examples CI"
-              "TypeScript examples CI"
-              "Generated Code CI"
-              "Release Tooling CI"
-              "Go SDK CI"
-              "Java SDK CI"
-              "Python SDK CI"
-              "Rust Rules CI"
-              "Rust SDK CI"
-              "TypeScript SDK CI"
-              "S3local CI"
-              "Server ZD CI"
-              "Server Integration against server-zd"
-              "Server ZD Simulation Runner CI"
-              "Web CI"
-            )
-          else
-            expected+=("CLA")
-            [[ "$FILTER_AGENTS" == "true" ]] && expected+=("Agents CI")
-            [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
-            [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
-            [[ "$FILTER_SDK_JAVA" == "true" ]] && expected+=("Java SDK CI")
-            [[ "$FILTER_SDK_PYTHON" == "true" ]] && expected+=("Python SDK CI")
-            [[ "$FILTER_SDK_TYPESCRIPT" == "true" ]] && expected+=("TypeScript SDK CI")
-            [[ "$FILTER_RUST_RULES" == "true" ]] && expected+=("Rust Rules CI")
-            [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
-            [[ "$FILTER_EXAMPLES_GO" == "true" ]] && expected+=("Go examples CI")
-            [[ "$FILTER_EXAMPLES_JAVA" == "true" ]] && expected+=("Java examples CI")
-            [[ "$FILTER_EXAMPLES_PYTHON" == "true" ]] && expected+=("Python examples CI")
-            [[ "$FILTER_EXAMPLES_RUST" == "true" ]] && expected+=("Rust examples CI")
-            [[ "$FILTER_S3LOCAL" == "true" ]] && expected+=("S3local CI")
-            [[ "$FILTER_SERVER_ZD" == "true" ]] && expected+=("Server ZD CI")
-            [[ "$FILTER_SERVER_ZD_INTEG" == "true" ]] && expected+=("Server Integration against server-zd")
-            [[ "$FILTER_SERVER_ZD_SIMULATION_RUNNER" == "true" ]] && expected+=("Server ZD Simulation Runner CI")
-            [[ "$FILTER_SERVER_ZD_IMAGE" == "true" ]] && expected+=("Server ZD image release")
-            [[ "$FILTER_SERVER_ZD_BINARY" == "true" ]] && expected+=("Server ZD binary release")
-            [[ "$FILTER_SERVER_ZD_MINIO" == "true" ]] && expected+=("Server ZD MinIO Nightly")
-            [[ "$FILTER_EXAMPLES_TYPESCRIPT" == "true" ]] && expected+=("TypeScript examples CI")
-            [[ "$FILTER_GENERATED_CODE" == "true" ]] && expected+=("Generated Code CI")
-            [[ "$FILTER_RELEASE_TOOLING" == "true" ]] && expected+=("Release Tooling CI")
-            [[ "$FILTER_SKILLS" == "true" ]] && expected+=("Skills CI")
-            [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")
-          fi
+          # Main CI (all) checks main; this gate checks only pull requests.
+          expected=("CLA")
+          [[ "$FILTER_AGENTS" == "true" ]] && expected+=("Agents CI")
+          [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
+          [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
+          [[ "$FILTER_SDK_JAVA" == "true" ]] && expected+=("Java SDK CI")
+          [[ "$FILTER_SDK_PYTHON" == "true" ]] && expected+=("Python SDK CI")
+          [[ "$FILTER_SDK_TYPESCRIPT" == "true" ]] && expected+=("TypeScript SDK CI")
+          [[ "$FILTER_RUST_RULES" == "true" ]] && expected+=("Rust Rules CI")
+          [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
+          [[ "$FILTER_EXAMPLES_GO" == "true" ]] && expected+=("Go examples CI")
+          [[ "$FILTER_EXAMPLES_JAVA" == "true" ]] && expected+=("Java examples CI")
+          [[ "$FILTER_EXAMPLES_PYTHON" == "true" ]] && expected+=("Python examples CI")
+          [[ "$FILTER_EXAMPLES_RUST" == "true" ]] && expected+=("Rust examples CI")
+          [[ "$FILTER_S3LOCAL" == "true" ]] && expected+=("S3local CI")
+          [[ "$FILTER_SERVER_ZD" == "true" ]] && expected+=("Server ZD CI")
+          [[ "$FILTER_SERVER_ZD_INTEG" == "true" ]] && expected+=("Server Integration against server-zd")
+          [[ "$FILTER_SERVER_ZD_SIMULATION_RUNNER" == "true" ]] && expected+=("Server ZD Simulation Runner CI")
+          [[ "$FILTER_SERVER_ZD_IMAGE" == "true" ]] && expected+=("Server ZD image release")
+          [[ "$FILTER_SERVER_ZD_BINARY" == "true" ]] && expected+=("Server ZD binary release")
+          [[ "$FILTER_SERVER_ZD_MINIO" == "true" ]] && expected+=("Server ZD MinIO Nightly")
+          [[ "$FILTER_EXAMPLES_TYPESCRIPT" == "true" ]] && expected+=("TypeScript examples CI")
+          [[ "$FILTER_GENERATED_CODE" == "true" ]] && expected+=("Generated Code CI")
+          [[ "$FILTER_RELEASE_TOOLING" == "true" ]] && expected+=("Release Tooling CI")
+          [[ "$FILTER_SKILLS" == "true" ]] && expected+=("Skills CI")
+          [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")
 
           # ci:fast-merge stops the SDK, CLI, Web, examples, and agents
-          # suites from blocking the merge. They still run on the pull request and on main.
+          # suites from blocking the merge. They still run on the pull request and in Main CI (all).
           # The SDK suites on server-zd are non-blocking too; Server ZD CI still blocks.
           if [[ "$EVENT_NAME" == "pull_request" && "$IS_FAST_MERGE" == "true" ]]; then
             non_blocking=(

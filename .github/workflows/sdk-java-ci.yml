@@ -1,22 +1,6 @@
 name: Java SDK CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "sdk-java/**"
-      - "sdk-rust/Cargo.lock"
-      - "sdk-rust/Cargo.toml"
-      - "sdk-rust/crates/dex-blob-cache/**"
-      - "sdk-rust/crates/dex-blob-cache-jni/**"
-      - "cli/**"
-      - "web/**"
-      - "server-zd/**"
-      - "s3local/**"
-      - "protos/**"
-      - "codecov.yml"
-      - ".github/workflows/sdk-java-ci.yml"
-      - ".github/workflows/sdk-java-publish.yml"
   pull_request:
     paths:
       - "sdk-java/**"
@@ -24,8 +8,22 @@ on:
       - "sdk-rust/Cargo.toml"
       - "sdk-rust/crates/dex-blob-cache/**"
       - "sdk-rust/crates/dex-blob-cache-jni/**"
-      - "cli/**"
-      - "web/**"
+      # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
+      - "cli/cmd/**"
+      - "cli/internal/command/**"
+      - "cli/internal/dev/**"
+      - "cli/internal/flowviz/**"
+      - "cli/internal/pointervalue/**"
+      - "cli/internal/update/**"
+      - "cli/schema/**"
+      - "cli/go.mod"
+      - "cli/go.sum"
+      - "cli/Makefile"
+      - "cli/SERVER_ZD_RELEASE"
+      # The suites run the Web server inside dexcli dev but never load its pages.
+      - "web/**/*.go"
+      - "web/go.mod"
+      - "web/go.sum"
       - "server-zd/**"
       - "s3local/**"
       - "protos/**"
@@ -33,13 +31,15 @@ on:
       - ".github/workflows/sdk-java-ci.yml"
       - ".github/workflows/sdk-java-publish.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: sdk-java-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: sdk-java-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   contracts:
@@ -50,7 +50,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        java-version: ["8", "17", "21", "25", "26"]
+        # Pull requests test the oldest and newest JVM; main and release runs test every JVM.
+        java-version: ${{ fromJSON(github.event_name == 'pull_request' && '["8", "26"]' || '["8", "17", "21", "25", "26"]') }}
     defaults:
       run:
         working-directory: sdk-java

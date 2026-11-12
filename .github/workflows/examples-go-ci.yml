@@ -1,25 +1,21 @@
 name: Go examples CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "examples/go/**"
-      - "examples/entity-store/**"
-      - ".github/workflows/examples-go-ci.yml"
   pull_request:
     paths:
       - "examples/go/**"
       - "examples/entity-store/**"
       - ".github/workflows/examples-go-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: examples-go-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: examples-go-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit:
@@ -33,7 +29,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: examples/go/go.mod
-          cache-dependency-path: examples/go/go.sum
+          cache-dependency-path: |
+            examples/go/go.sum
+            examples/go/quick-start/go.sum
       - name: Verify released module dependencies
         env:
           GOWORK: "off"
@@ -69,6 +67,38 @@ jobs:
         env:
           GOWORK: "off"
         run: make unitTests
+      - name: Verify Quick Start released module dependencies
+        working-directory: examples/go/quick-start
+        env:
+          GOWORK: "off"
+        run: |
+          set -euo pipefail
+          go mod verify
+          for module in \
+            github.com/superdurable/dex/sdk-go \
+            github.com/superdurable/dex/blob-cache-go; do
+            replacement="$(go list -m -f '{{if .Replace}}{{.Replace.Path}}{{end}}' "$module")"
+            if [[ -n "$replacement" ]]; then
+              echo "::error::Quick Start $module must use a released version, not $replacement"
+              exit 1
+            fi
+          done
+          quick_start_sdk="$(go list -m -f '{{.Version}}' github.com/superdurable/dex/sdk-go)"
+          examples_sdk="$(cd .. && go list -m -f '{{.Version}}' github.com/superdurable/dex/sdk-go)"
+          if [[ "$quick_start_sdk" != "$examples_sdk" ]]; then
+            echo "::error::Quick Start uses sdk-go $quick_start_sdk; the Go examples use $examples_sdk"
+            exit 1
+          fi
+      - name: Check Quick Start formatting
+        working-directory: examples/go/quick-start
+        run: test -z "$(gofmt -s -l .)" || { gofmt -s -l .; exit 1; }
+      - name: Build and vet Quick Start
+        working-directory: examples/go/quick-start
+        env:
+          GOWORK: "off"
+        run: |
+          go build ./...
+          go vet ./...
 
   e2e:
     name: End-to-end tests (pull, zd)

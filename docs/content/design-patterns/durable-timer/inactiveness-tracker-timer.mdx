@@ -6,7 +6,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/inac
 
 # Inactiveness Tracker Timer
 
-Use this pattern when an action should happen only after a period without activity. **InactivenessTrackerFlow** starts with **TrackerStep**. It waits for either the Timer or the **Active** Channel. If activity arrives first, **TrackerStep** moves to itself, which starts a new Timer. If the Timer fires first, the Flow moves to **ProcessInactiveness**.
+Use this pattern when an action should happen only after a period without activity. `InactivenessTrackerFlow` starts with `TrackerStep`. It waits for either the Timer or the **Active** Channel. If activity arrives first, `TrackerStep` moves to itself, which starts a new Timer. If the Timer fires first, the Flow moves to `ProcessInactiveness`.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -131,7 +131,7 @@ impl Step for TrackerStep {
 
 </SdkTabs>
 
-## Related
+## Next
 
 - [Timer](/concepts/primitives/timer)
 - [Channel](/concepts/primitives/channel)

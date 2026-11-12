@@ -50,11 +50,11 @@ fn layer_for(process_label: &str, storage: &Arc<SharedObjectStorage>) -> Arc<Nod
 }
 
 /// Runs `test` on a paused current-thread runtime with a layer over an empty shared store.
-fn with_layer(test: impl AsyncFnOnce(&NodeObjectStore, &InMemoryObjectStore)) {
+fn with_layer(test: impl AsyncFnOnce(&NodeObjectStore, &dyn ObjectStore)) {
     paused_runtime().block_on(async {
         let storage = shared_storage();
         let layer = layer_for("p1", &storage);
-        test(&layer, &storage.store).await;
+        test(&layer, storage.store.as_ref()).await;
     });
 }
 
@@ -104,7 +104,7 @@ fn observed_faults(layer: &NodeObjectStore) -> Vec<(InjectedFault, FaultEffect)>
     })
 }
 
-async fn put_directly(store: &InMemoryObjectStore, key: &str, body: &'static [u8]) {
+async fn put_directly(store: &dyn ObjectStore, key: &str, body: &'static [u8]) {
     let outcome = store
         .put(key, Bytes::from_static(body), WriteCondition::CreateOnly)
         .await;

@@ -135,6 +135,10 @@ impl ObjectStore for SnapshotUploadStore {
     ) -> ObjectStoreResult<ObjectListing> {
         self.inner.list(prefix, start_after, max_keys).await
     }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
 }
 
 fn abandoned(operation: ObjectStoreOperation, key: &str) -> ObjectStoreError {
@@ -144,4 +148,25 @@ fn abandoned(operation: ObjectStoreOperation, key: &str) -> ObjectStoreError {
         ObjectStoreErrorKind::Transient,
         "the node stopped serving, so the snapshot upload was abandoned",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use dexzd_cluster_metadata::LeaseValidityDeadline;
+    use dexzd_object_store::{InMemoryObjectStore, InMemoryObjectStoreOptions};
+
+    use super::*;
+
+    #[test]
+    fn forwards_whether_the_inner_store_replaces_every_key() {
+        let inner: Arc<dyn ObjectStore> = Arc::new(InMemoryObjectStore::with_options(
+            InMemoryObjectStoreOptions {
+                rejects_replace_if_etag_matches: true,
+                ..InMemoryObjectStoreOptions::default()
+            },
+        ));
+        let state = Arc::new(CommitState::new(1, LeaseValidityDeadline::disarmed()));
+        let upload = SnapshotUploadStore::new(inner, state);
+        assert!(!upload.supports_replace_if_etag_matches_on_every_key());
+    }
 }

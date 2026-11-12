@@ -244,7 +244,10 @@ impl Config {
         if configuration.object_store.provider != ObjectStoreProvider::S3 {
             return Err(ConfigError::Invalid {
                 field: "objectStore.provider",
-                message: "db9 requires serve mode, as do azureBlob and googleCloudStorage; dev and local use embedded S3".to_owned(),
+                message: format!(
+                    "{} requires serve mode; dev and local use embedded S3",
+                    configuration.object_store.provider.yaml_name()
+                ),
             });
         }
         if configuration.standby.mode == StandbyMode::Hot {
@@ -381,12 +384,13 @@ impl Config {
             }
         }
         if let Some(hard_delete_store) = &mut self.object_store.hard_delete_store {
-            match hard_delete_store.provider {
+            let provider = hard_delete_store.effective_provider(self.object_store.provider);
+            match provider {
                 ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
                     let field = "objectStore.hardDeleteStore.credentialsSource";
                     let lookup = |name| read_environment_credential(name, field);
                     hard_delete_store.azure_blob_credentials = azure_blob_credentials_from_lookup(
-                        hard_delete_store.provider,
+                        provider,
                         hard_delete_store.credentials_source,
                         field,
                         "DEX_ZD_HARD_DELETE_STORE_AZURE_ACCOUNT_KEY",
@@ -394,7 +398,7 @@ impl Config {
                     )?;
                     hard_delete_store.google_cloud_storage_credentials =
                         google_cloud_storage_credentials_from_lookup(
-                            hard_delete_store.provider,
+                            provider,
                             hard_delete_store.credentials_source,
                             field,
                             "DEX_ZD_HARD_DELETE_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH",

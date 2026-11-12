@@ -1,35 +1,40 @@
 name: Rust SDK CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "sdk-rust/**"
-      - "cli/**"
-      - "server-zd/**"
-      - "s3local/**"
-      - "protos/**"
-      - "web/**"
-      - "codecov.yml"
-      - ".github/workflows/sdk-rust-ci.yml"
   pull_request:
     paths:
       - "sdk-rust/**"
-      - "cli/**"
+      # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
+      - "cli/cmd/**"
+      - "cli/internal/command/**"
+      - "cli/internal/dev/**"
+      - "cli/internal/flowviz/**"
+      - "cli/internal/pointervalue/**"
+      - "cli/internal/update/**"
+      - "cli/schema/**"
+      - "cli/go.mod"
+      - "cli/go.sum"
+      - "cli/Makefile"
+      - "cli/SERVER_ZD_RELEASE"
       - "server-zd/**"
       - "s3local/**"
       - "protos/**"
-      - "web/**"
+      # The suites run the Web server inside dexcli dev but never load its pages.
+      - "web/**/*.go"
+      - "web/go.mod"
+      - "web/go.sum"
       - "codecov.yml"
       - ".github/workflows/sdk-rust-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: sdk-rust-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: sdk-rust-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -55,14 +60,46 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
+  # macOS and Windows test a pull request only when it changes the Rust SDK itself.
+  platforms:
+    name: Select test platforms
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      os: ${{ steps.select.outputs.os }}
+    steps:
+      # Depth 2 includes the merge commit's first parent, the pull request base.
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - name: Select operating systems
+        id: select
+        env:
+          IS_PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          all_platforms='["ubuntu-latest", "macos-latest", "windows-latest"]'
+          if [[ "$IS_PULL_REQUEST" != "true" ]]; then
+            echo "os=$all_platforms" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed_files="$(git diff --name-only HEAD^1 HEAD)"
+          if grep -qE '^(sdk-rust/|\.github/workflows/sdk-rust-ci\.yml$)' <<<"$changed_files"; then
+            echo "os=$all_platforms" >> "$GITHUB_OUTPUT"
+          else
+            echo 'os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+
   tests:
     name: Tests (${{ matrix.os }})
+    needs: platforms
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON(needs.platforms.outputs.os) }}
     defaults:
       run:
         working-directory: sdk-rust

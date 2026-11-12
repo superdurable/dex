@@ -200,7 +200,7 @@
         "turn_id": "turn-1",
         "attempt": 1,
         "step_execution_id": "RunModel-1",
-        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"interrupt_id\":\"RunModel-1-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\"}"
+        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"display\":null,\"interrupt_id\":\"RunModel-1-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\"}"
       },
       {
         "type": "usage_recorded",
@@ -270,7 +270,7 @@
         "turn_id": "turn-2",
         "attempt": 1,
         "step_execution_id": "RunModel-3",
-        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"interrupt_id\":\"RunModel-3-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"send_email\"}"
+        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"display\":null,\"interrupt_id\":\"RunModel-3-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"send_email\"}"
       },
       {
         "type": "usage_recorded",
@@ -323,6 +323,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Email the ops team.\"}",
             "images": [],
+            "origin": null,
             "role": "user",
             "sequence": 1,
             "text": "Email the ops team.",
@@ -336,6 +337,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"send_email\\\",\\\"arguments\\\":\\\"{\\\\\\\"to\\\\\\\": \\\\\\\"ops@example.com\\\\\\\", \\\\\\\"body\\\\\\\": \\\\\\\"Order 7 shipped ✓\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\",\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\", \\\"body\\\": \\\"Order 7 shipped ✓\\\"}\"}]}",
             "images": [],
+            "origin": null,
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -353,6 +355,7 @@
             "choices": [],
             "created_at": "<timestamp>",
             "deadline": null,
+            "display": null,
             "interrupt_id": "RunModel-1-0",
             "kind": "tool_approval",
             "question": null,
@@ -376,6 +379,7 @@
         "steered_messages": [],
         "tool_calls": [
           {
+            "approval_display": null,
             "arguments": "{\"to\": \"ops@example.com\", \"body\": \"Order 7 shipped ✓\"}",
             "cancellation_reason": null,
             "deferral_order": 0,
@@ -422,6 +426,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Email the ops team.\"}",
             "images": [],
+            "origin": null,
             "role": "user",
             "sequence": 1,
             "text": "Email the ops team.",
@@ -435,6 +440,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-1-0\\\",\\\"name\\\":\\\"send_email\\\",\\\"arguments\\\":\\\"{\\\\\\\"to\\\\\\\": \\\\\\\"ops@example.com\\\\\\\", \\\\\\\"body\\\\\\\": \\\\\\\"Order 7 shipped ✓\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\",\"arguments\":\"{\\\"to\\\": \\\"ops@example.com\\\", \\\"body\\\": \\\"Order 7 shipped ✓\\\"}\"}]}",
             "images": [],
+            "origin": null,
             "role": "assistant",
             "sequence": 2,
             "text": null,
@@ -448,6 +454,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\",\"output\":\"{\\\"sent_to\\\": \\\"ops@example.com\\\", \\\"body\\\": \\\"Order 7 shipped ✓\\\"}\"}",
             "images": [],
+            "origin": null,
             "role": "tool",
             "sequence": 3,
             "text": null,
@@ -461,6 +468,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"Sent.\\\"}\",\"text\":\"Sent.\",\"tool_calls\":[]}",
             "images": [],
+            "origin": null,
             "role": "assistant",
             "sequence": 4,
             "text": "Sent.",
@@ -474,6 +482,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"user_text\",\"text\":\"Email finance.\"}",
             "images": [],
+            "origin": null,
             "role": "user",
             "sequence": 5,
             "text": "Email finance.",
@@ -487,6 +496,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"function_call\\\",\\\"call_id\\\":\\\"RunModel-3-0\\\",\\\"name\\\":\\\"send_email\\\",\\\"arguments\\\":\\\"{\\\\\\\"to\\\\\\\": \\\\\\\"finance@example.com\\\\\\\", \\\\\\\"body\\\\\\\": \\\\\\\"Refund order 7\\\\\\\"}\\\"}\",\"text\":null,\"tool_calls\":[{\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"send_email\",\"arguments\":\"{\\\"to\\\": \\\"finance@example.com\\\", \\\"body\\\": \\\"Refund order 7\\\"}\"}]}",
             "images": [],
+            "origin": null,
             "role": "assistant",
             "sequence": 6,
             "text": null,
@@ -500,6 +510,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"tool_result\",\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"send_email\",\"output\":\"Not now, it is a holiday.\"}",
             "images": [],
+            "origin": null,
             "role": "tool",
             "sequence": 7,
             "text": null,
@@ -513,6 +524,7 @@
             "created_at": "<timestamp>",
             "framework_item": "{\"type\":\"model_output\",\"provider\":\"dex-scripted\",\"api\":\"scripted\",\"item\":\"{\\\"type\\\":\\\"message\\\",\\\"text\\\":\\\"I did not send it.\\\"}\",\"text\":\"I did not send it.\",\"tool_calls\":[]}",
             "images": [],
+            "origin": null,
             "role": "assistant",
             "sequence": 8,
             "text": "I did not send it.",

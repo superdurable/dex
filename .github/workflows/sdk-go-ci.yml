@@ -1,41 +1,42 @@
 name: Go SDK CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "sdk-go/**"
-      - "blob-cache-go/**"
-      - "protos/**"
-      - "server-zd/**"
-      - "s3local/**"
-      - "cli/**"
-      - "web/**"
-      - "go.work"
-      - "go.work.sum"
-      - "codecov.yml"
-      - ".github/workflows/sdk-go-ci.yml"
   pull_request:
     paths:
       - "sdk-go/**"
       - "blob-cache-go/**"
       - "protos/**"
       - "server-zd/**"
+      - "sdk-rust/Cargo.toml"
+      - "sdk-rust/crates/dex-blob-cache/**"
       - "s3local/**"
-      - "cli/**"
+      # The suites build dexcli and run dexcli dev; the agents terminal UI is not part of it.
+      - "cli/cmd/**"
+      - "cli/internal/command/**"
+      - "cli/internal/dev/**"
+      - "cli/internal/flowviz/**"
+      - "cli/internal/pointervalue/**"
+      - "cli/internal/update/**"
+      - "cli/schema/**"
+      - "cli/go.mod"
+      - "cli/go.sum"
+      - "cli/Makefile"
+      - "cli/SERVER_ZD_RELEASE"
       - "web/**"
       - "go.work"
       - "go.work.sum"
       - "codecov.yml"
       - ".github/workflows/sdk-go-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: sdk-go-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: sdk-go-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit:

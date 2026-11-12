@@ -134,6 +134,10 @@ DEX_SERVER_ADDRESS="$dex_address" make integTests
 DEX_SERVER_ADDRESS="$dex_address" make workflowPatternsTests
 DEX_SERVER_ADDRESS="$dex_address" make controlStructurePatternsTests
 DEX_SERVER_ADDRESS="$dex_address" make flowSmokeTests
+(
+  cd "$script_dir/quick-start"
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address" cargo test --locked
+)
 
 if $keep_running; then
   echo ""

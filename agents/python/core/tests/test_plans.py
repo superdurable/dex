@@ -23,6 +23,7 @@ from dex_agents import (
     PLANNING_TURN_INSTRUCTION,
     PLANNING_TURN_TOOL_REJECTION,
     WRITE_TODOS_CALLED_MORE_THAN_ONCE,
+    AgentMessageOrigin,
     AgentPlan,
     AgentPlanTask,
     AgentSessionFlow,
@@ -203,6 +204,19 @@ async def test_a_plan_mode_message_drafts_with_only_write_todos_and_execute_plan
         "Execute it and keep the task statuses current with write_todos."
     )
     assert executing["user_texts"][-2].startswith("[Dex] The current plan, revision 2, is active:")
+    # Only the session-written message of the execution carries an origin, in history too.
+    expected_origins = [
+        ("turn-1", None),
+        ("turn-2", None),
+        ("turn-3", AgentMessageOrigin.PLAN_EXECUTION),
+    ]
+    page = await plan_harness.sessions.list_agent_messages(session_id)
+    for messages in (snapshot.messages, page.messages):
+        assert [
+            (message.turn_id, message.origin)
+            for message in messages
+            if message.role is MessageRole.USER
+        ] == expected_origins
     third_turn_events = [
         event.type
         for event in await plan_harness.agent_events(session_id)

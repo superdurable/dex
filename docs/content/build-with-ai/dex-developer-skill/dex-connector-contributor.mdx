@@ -3,6 +3,7 @@ id: dex-connector-contributor
 title: Dex Connector Contributor
 sidebar_label: Dex Connector Contributor
 slug: /build-with-ai/dex-developer-skill/dex-connector-contributor
+description: "Dex Connector Contributor is a specialist sub-skill. It adds one capability to the official Dex Connectors Library, tests it, and submits it upstream as one pull request that is easy to review."
 ---
 
 # Dex Connector Contributor
@@ -19,8 +20,7 @@ is the tested reference. Python and TypeScript packages are optional, and they
 may implement only some of the capabilities. They must pass the conformance
 scenarios recorded from the Go implementation.
 
-Applications can use released Connectors from Go, Python, and TypeScript. Java
-and Rust do not support Connectors yet. The detailed rules are in the
+Applications can use released Connectors from Go, Python, and TypeScript. The detailed rules are in the
 library's [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) and
 [docs/](https://github.com/superdurable/dex-connectors-library/tree/main/docs).
 
@@ -28,7 +28,14 @@ library's [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blo
 
 ## Install and use
 
-<DexSkillHostTabs skill="dex-connector-contributor" />
+[Install Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) once; it installs all three Skills. Then call this Skill in your coding agent, for example in Codex and in Claude Code with the Plugin:
+
+```text
+$dex-connector-contributor Add <XYZ> to Dex official connector library
+/superdurable-dex:dex-connector-contributor Add <XYZ> to Dex official connector library
+```
+
+[Install and use Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) has the invocation for every host.
 
 If your application only uses a released Connector, use
 [Dex App Builder](./dex-app-builder.mdx) or [Dex SDK](./dex-sdk.mdx) instead.
@@ -40,27 +47,25 @@ provider's documented public API or official SDK. It checks the provider's
 authentication scopes, rate limits, idempotency support, pagination, event
 acknowledgement, and failure behavior.
 
-It does not scrape private endpoints, copy browser credentials,
-reverse-engineer internal protocols, or claim provider support that is not
-publicly documented.
+It stays within what the provider documents publicly: no scraping of private endpoints, copying of browser credentials, or reverse-engineering of internal protocols.
 
 ## Repository and fork workflow
 
 The skill first looks for your GitHub fork of
-**superdurable/dex-connectors-library** and checks it. If you have no fork, it
+`superdurable/dex-connectors-library` and checks it. If you have no fork, it
 asks your permission and opens GitHub's fork page. You click **Create fork**.
 Only then does the agent clone the fork and start work.
 
 In the local clone, your fork is **origin** and the official repository is
-**upstream**. The agent works on its own **codex/** branch, created from the
-latest **upstream/main**. It leaves unrelated local changes untouched.
+**upstream**. The agent works on its own `codex/` branch, created from the
+latest `upstream/main`. It leaves unrelated local changes untouched.
 
 ## Contribution workflow
 
 The skill follows this order:
 
 1. Confirm the provider capability and its public contract.
-2. Update **connector.yaml** before writing provider code.
+2. Update `connector.yaml` before writing provider code.
 3. Run code generation. Config, Credentials, definitions, branches, operation
    factories, UI constants, and defaults stay generated, never hand-written.
 4. Implement the provider adapter and the tests that call the provider.
@@ -74,12 +79,12 @@ The skill follows this order:
 
 ## Durability and security boundaries
 
-- Provider calls run only in the **Execute** method of a Connector Step.
+- Provider calls run only in the `Execute` method of a Connector Step.
 - RPCs only route requests or change Dex state. They never call providers.
 - Calls that change data at the provider are idempotent. When the result of
   such a call is unknown, the Connector first queries the provider to find out
   what happened.
-- Credentials and raw secrets never go into Flow input, Attributes, Results,
+- Credentials and raw secrets stay out of Flow input, Attributes, Results,
   receipts, Streams, logs, fixtures, generated values, or release artifacts.
 - Each module pins an exact published Dex Go SDK version. Branches, SHAs,
   pseudo-versions, and local replacements are never committed.

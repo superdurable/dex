@@ -1,0 +1,350 @@
+---
+title: Dex vs. Other Engines
+sidebar_label: Dex vs. Other Engines
+slug: /intro/compared-to-durable-execution
+description: How Dex relates to replay-based workflow engines, journal-based durable function runtimes, database-backed workflow libraries, step function services, and agent framework checkpoints, and when another tool fits better.
+---
+
+# Dex vs. Other Engines
+
+Dex shares the goal of other durable execution tools: a process that survives crashes, restarts, and long waits. This page maps each tool family's terms onto Dex, says where the designs differ, and says when another tool fits better.
+
+**Coming from Temporal?** Read these in order:
+
+1. [The main difference](#the-main-difference-an-explicit-step-graph-not-replayed-code) and [Determinism moved](#determinism-moved-it-did-not-vanish) on this page.
+2. [Step](/concepts/step), for the guarantees and the defaults.
+3. [Advanced Step Guarantees](/concepts/step/advanced-guarantees), for redelivery, unknown outcomes, and SYNC and ASYNC Steps.
+4. [Failover and Deploys](/concepts/failover-and-deploys), for what runs again.
+5. [Change Flow Code](/concepts/change-flow-code), for versioning without replay.
+6. [Attribute locks](/concepts/primitives/attribute#locking), for state shared by parallel Steps.
+7. [Client](/concepts/client), for starting Flows and sending commands.
+8. [Performance](/intro/performance) and [Limits](/intro/limits).
+
+## What they share
+
+Every tool on this page records a process's progress outside the process. After a crash, the process continues from that record. The engines, runtimes, and libraries also offer durable timers, waits for outside events, and retries. An agent framework checkpointer covers less; [its section](#agent-framework-checkpoints) says what it leaves to you.
+
+## The main difference: an explicit Step graph instead of replayed code {#the-main-difference-an-explicit-step-graph-not-replayed-code}
+
+Most durable execution tools let you write a process as one function and rebuild its state by replaying that function. Dex records Step results instead. A Flow is a set of Steps. Each Step returns a decision that names the next Steps or completes the Flow, and Dex records the result together with that decision.
+
+- **What you gain.** Step code is ordinary code. It may read the clock, use random numbers, and call any library. A code change never causes a replay or nondeterminism error in a running Flow. State lives in Attributes, not in an event history.
+- **What it costs.** You model control flow as Steps and decisions. A loop is a Step that moves to itself, and a branch is a decision with two targets.
+
+### Where determinism moved {#determinism-moved-it-did-not-vanish}
+
+One rule replaces the replay rule. A Step can run more than once, so each external effect depends only on what Dex passes the Step; see [Idempotency keys](/concepts/step#idempotency-keys). Every tool on this page leaves the same duty to you, and the [failure proof](/correctness-and-expressiveness/failure-transparency-proof) assumes it. Clock and random values are fine in a Step's decisions and saved data, and they stay out of idempotency keys and any effect that must be identical on a rerun.
+
+### Concurrency defaults
+
+Dex runs the Steps of one Flow in parallel on different Workers, and an RPC can run alongside them. They share the Flow's Attributes, and you choose which Attributes need a [lock](/concepts/primitives/attribute#locking). A Temporal workflow runs on one thread, and a Restate virtual object allows one exclusive handler per key, so both give one writer by default.
+
+### The same process in both models
+
+A reminder loop sends a reminder at each interval until the person opts out. In Temporal, the loop is ordinary code that the engine replays. This sketch is illustrative, not from the Dex examples:
+
+```python
+@workflow.defn
+class ReminderWorkflow:
+    def __init__(self) -> None:
+        self.opted_out = False
+
+    @workflow.signal
+    def opt_out(self) -> None:
+        self.opted_out = True
+
+    @workflow.run
+    async def run(self) -> None:
+        while True:
+            try:
+                await workflow.wait_condition(
+                    lambda: self.opted_out, timeout=REMINDER_INTERVAL
+                )
+                return
+            except asyncio.TimeoutError:
+                await workflow.execute_activity(
+                    send_reminder, start_to_close_timeout=timedelta(seconds=30)
+                )
+```
+
+In Dex, the loop is a Step that moves to itself. It waits for the Timer or the opt-out Channel, and its decision chooses what comes next. This excerpt is from the runnable [Reminder](/design-patterns/durable-timer/reminder) pattern:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/reminders/reminder_flow.py',
+    go: 'examples/go/patterns/reminders/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/reminders/ReminderFlow.java',
+    typescript: 'examples/typescript/src/patterns/reminders/reminder-flow.ts',
+    rust: 'examples/rust/src/patterns/reminders/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class ReminderStep(Step[None]):
+    def __init__(
+        self,
+        service: ServiceDependency,
+        opt_out: Channel[None],
+    ) -> None:
+        self.service = service
+        self.opt_out = opt_out
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.any_of(
+            Timer.by_duration(REMINDER_INTERVAL),
+            self.opt_out.for_one(),
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        if not context.has_timer_fired():
+            return graceful_complete()
+        self.service.send_email("Reminder: please respond", "Hello, ...")
+        return go_to(ReminderStep, None)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type reminderStep struct {
+	dex.StepDefaults
+	service patternsservice.ServiceDependency
+}
+
+func (reminderStep) WaitFor(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(5*time.Second),
+		OptOut.ForOne(),
+	), nil
+}
+
+func (step reminderStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	if !ctx.HasTimerFired() {
+		return dex.GracefulComplete(nil), nil
+	}
+	step.service.SendEmail("Reminder: please respond", "Hello, ...")
+	return dex.GoTo(reminderStep{}, nil), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class ReminderStep implements Step<Void> {
+    @Override
+    public Class<Void> getInputType() {
+        return Void.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Void input) {
+        return Wait.anyOf(
+                Timer.byDuration(Duration.ofSeconds(5)),
+                optOut.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        if (!context.hasTimerFired()) {
+            return StepDecision.gracefulComplete();
+        }
+        service.sendEmail("Reminder: please respond", "Hello, ...");
+        return StepDecision.goTo(ReminderStep.class, null);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+class ReminderStep implements Step<void> {
+  public constructor(private readonly service: ServiceDependency) {}
+
+  public getStepType(): string {
+    return "ReminderStep";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(
+      Timer.byDuration(REMINDER_WAIT_MS),
+      optOut.forOne(),
+    );
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    if (!context.hasTimerFired()) {
+      return gracefulComplete();
+    }
+    this.service.sendEmail("Reminder: please respond", "Hello, ...");
+    return goTo(ReminderStep, undefined);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct ReminderStep {
+    service: MyDependencyService,
+}
+
+impl Step for ReminderStep {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            Timer::by_duration(Duration::from_secs(5)),
+            OPT_OUT.for_one(),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        if !context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete("opted-out".to_string()));
+        }
+        self.service
+            .send_email("user@example.com", "Reminder: please respond", "Hello, ...");
+        Ok(StepDecision::go_to(&ReminderStep::default(), ()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The reminder passes no idempotency key, because a second reminder does no harm. In Rust, `has_any_timer_fired` asks whether any Timer of the Wait fired. The Temporal version reads top to bottom and is rebuilt by replay. The Dex version names each state, and Dex stores the wait and the decision.
+
+If you know iWF, Dex grew out of it. A Dex Step is an iWF State, and `WaitFor` is `WaitUntil`.
+
+## Replay-based workflow engines
+
+Temporal and Cadence are the best-known examples. The Worker replays a workflow function against a recorded event history to rebuild its state. Side effects go in activities, and workflow code reads time or randomness only through deterministic APIs.
+
+| Temporal or Cadence term | Nearest Dex term |
+| --- | --- |
+| Workflow type, Workflow ID, Run ID | Flow type, Flow ID, Run ID |
+| Activity | The work inside a Step's `Execute`, which is one retry unit. Give each durable call its own Step. A SYNC Step waits for two commits to object storage; see [Performance](/intro/performance) for latency. |
+| Workflow code between activities | Step decisions: `GoTo`, `GoToMany`, `GracefulComplete`, `DeadEnd` |
+| Signal | Channel message. FlowService `PublishToChannel` stores it with no Worker online; see [Publish messages](/concepts/primitives/channel#publish-messages). |
+| Query | Read-only RPC, or a direct Attribute read from the Client |
+| Update | RPC that writes Attributes or publishes to a Channel. It needs a Worker within 10 seconds and has no update-ID deduplication. |
+| Timer or sleep | Timer condition in a Step's `WaitFor` |
+| Child workflow | SubFlow |
+| Task queue and sticky queue | Flow type queue with best-effort sticky routing. To send work to a separate Worker pool, give it its own Flow type. |
+| Search attributes | Indexed Attributes |
+| Reset | Time Travel, which keeps the same Run ID |
+| Continue-As-New | Unneeded. Dex keeps a window of each run's newest history events and prunes older ones; see [History window](/reference/server/configuration#history-window). |
+| Local activity | Closest is an **ASYNC** Step, which moves on before its result is saved and reruns if a server node fails first. |
+| Cancellation scope | An RPC cancels active Steps by Step type, and `StopFlow` stops the Flow. Cancellation is cooperative; see [Cancel running Steps](/concepts/primitives/rpc#cancel-running-steps). |
+| Schedule | A Flow that loops on a Timer; see [Cron schedule](/design-patterns/durable-timer/cron). |
+
+**The same.** One active run per Flow ID, with an ID reuse policy. Pull Workers. Durable timers and waits that hold no Worker. Retry policies per unit of work.
+
+**Different.**
+
+- A Worker reads saved state instead of replaying history, so it needs no history cache. See [Routing and availability](/reference/server/workers#routing-and-availability).
+- Versioning keeps old Step types and makes additive changes, with no patch markers. [Change Flow Code](/concepts/change-flow-code#versioning-flow-code) explains the rules, and [Check before you deploy](/concepts/change-flow-code#check-before-you-deploy) gives the manual compatibility check.
+- Dex Steps run in parallel on different Workers. Temporal's single thread still interleaves handlers at await points, so the gap is smaller than "one writer" suggests, and it is real.
+- A retry of a Step method reuses its first attempt's state snapshot. An activity retry reads fresh data.
+- A retried RPC or a repeated Channel publish runs again; Temporal drops repeated updates and, best effort, repeated signals. See [Limits](/intro/limits#requests-that-can-repeat).
+- A Client starts a Flow from the Flow's definition registered in its own language. A service in another language calls FlowService `StartFlow` over gRPC; see [Start Flows from an API service](/concepts/client#start-from-an-api-service).
+- A server failover reruns every in-flight Step attempt. See [Failover and Deploys](/concepts/failover-and-deploys).
+- Dex Server is one binary on object storage with one active node and standbys. Temporal runs several services on a database.
+
+## Journal-based durable function runtimes
+
+Restate is an example. A handler runs each side effect through the runtime context, which records its result in a journal. After a failure, the handler runs again and recorded results are returned. Keyed virtual objects hold state with one writer per key.
+
+| Restate term | Nearest Dex term |
+| --- | --- |
+| Workflow | Flow |
+| Service handler | A short Flow with no Attributes. A service handler is a durable, journaled invocation with retries and idempotency keys, but no key-value state. |
+| Journaled action (`ctx.run`) | Step `Execute` |
+| Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A closed run is deleted after retention, while a virtual object lives on. |
+| Object state | Attributes |
+| Awakeable or durable promise | Channel message that a Step waits for |
+| Durable sleep | Timer |
+| Shared handler | RPC that writes no Attributes |
+
+**The same.** Recorded side-effect work is reused after a crash. State is keyed by an ID you choose.
+
+**Different.**
+
+- Handler code between journaled calls must be deterministic because it runs again. Dex runs Step code fresh, so a code change cannot break a running Flow.
+- A virtual object allows one writer per key. Dex Steps and RPCs of one Flow can run at the same time, with opt-in Attribute locks.
+- Restate deduplicates invocations by idempotency key. Dex deduplicates Flow starts by Flow ID and request ID, and repeated Channel publishes and RPCs run again today.
+- Restate's UI and CLI show an invocation's journal. Dex keeps each Step's input, output, and error with the run until retention, and Dex Web shows them per Step on the Flow's graph and Timeline.
+
+## Database-backed workflow libraries
+
+DBOS is an example. Workflows and steps are annotated functions in your application, checkpointed in your PostgreSQL database. After a crash, the workflow runs again and completed steps return their recorded output.
+
+| DBOS term | Nearest Dex term |
+| --- | --- |
+| Workflow, Workflow ID | Flow, Flow ID |
+| Step | Step `Execute` |
+| Send and receive | Channel |
+| Events (set and get) | Attributes, read by RPC or by the Client |
+| Durable sleep | Timer |
+| Queue | Flow type queue. It has no per-queue concurrency or rate limit; each Worker's task slots bound its work. |
+
+**The same.** Ordinary application code with recorded steps. Workflow IDs make starts idempotent.
+
+**Different.**
+
+- The DBOS workflow function must be deterministic between steps.
+- DBOS **send** takes an idempotency key. A repeated Dex Channel publish can deliver twice today.
+- DBOS adds no server beyond the PostgreSQL database you run. Dex runs its own server on object storage, and can sync Attribute values to your database.
+
+## Step function services
+
+AWS Step Functions is an example: a state machine in a JSON definition language, each state calling a service. Both record an explicit graph of states. Dex Steps and decisions are code in your language, and they run on your Workers, so a Step can call any library.
+
+## Agent framework checkpoints
+
+LangGraph is an example. A checkpointer saves graph state after each step under a thread ID, and an interrupt pauses the graph for a person. Its hosted platform resumes runs.
+
+| Agent framework term | Nearest Dex term |
+| --- | --- |
+| Thread ID | Session ID, which is the Flow ID |
+| Checkpoint | The session's Attributes after each model call or tool call |
+| Interrupt for human input | A tool call waiting in `AwaitToolApproval`, or a question |
+| Node or tool call | One Step |
+
+A checkpointer saves state; restarting a crashed run or waking it on a timer needs the hosted platform or your own code. Dex Server does that for every session. With Dex Agents you keep your framework, and the adapter wraps the agent in a session Flow; see [Durable Agents](/agent-frameworks).
+
+### Agent frameworks on a durable execution engine
+
+The OpenAI Agents SDK on Temporal, Pydantic AI on Temporal, DBOS, or Prefect, and the LangGraph platform all record each model call and wrapped tool call as a unit of the engine, so a crash repeats only the running call.
+
+- Each Dex tool has an effect class. A read may run again. A non-idempotent write runs in one attempt by default and, if cut off, records `outcome_unknown` for the model; see [Tool Calls](/agent-frameworks/tool-calls).
+- The effect class also sets the default approval. An approval wait holds no Worker, for minutes or days; see [Approvals](/agent-frameworks/approvals).
+- One adapter model and one session Flow cover every supported framework.
+- Dex Server is at version 0.1 and runs in [Dex Cloud](/components/choose-how-to-run#dex-cloud) or on your own infrastructure. The engines above have a longer production record.
+
+## When another tool is the better fit
+
+- **You want to write the process as one straight-line function.** A replay-based engine, a journal-based runtime, or a database-backed library lets you do that. Dex asks you to model the process as Steps and decisions.
+- **You need a 1.0 server today.** Dex Server is at version 0.1. Several other tools have a longer production record.
+- **Your process is one short function in one service, and you already run PostgreSQL.** A database-backed library adds no new server.
+- **Your team already runs another engine at scale.** A move costs more than the difference on this page, unless replay or versioning errors are a real problem for you.
+- **You want one writer per key with no locks to declare.** A virtual object or a single-threaded workflow gives that by default. In Dex you declare Attribute locks.
+- **You need more than one node's capacity in one cluster.** One active Dex Server node serves a cluster. Past it, you run separate clusters. See [Grow past one node](/intro/limits#grow-past-one-node).
+- **You need an OSI open source license.** Dex is source-available under the Sustainable Use License, which limits hosting or reselling Dex as a platform. Temporal and DBOS are MIT licensed. See [License](/intro/limits#license).
+
+## Next
+
+- [Performance](/intro/performance): measured throughput, latency, and cost.
+- [Dex vs. Databases](/intro/compared-to-database): the same order process built on a database and queues.
+- [Step guarantees](/concepts/step#guarantees): what Dex promises when a Step fails or runs again.
+- [Correctness and Expressiveness](/correctness-and-expressiveness): the proofs and their assumptions.

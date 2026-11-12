@@ -25,6 +25,7 @@ from dex_agents import (
     AgentEventType,
     AgentInterrupt,
     AgentMessage,
+    AgentMessageOrigin,
     AgentSnapshot,
     InteractionMode,
     InterruptKind,
@@ -558,6 +559,12 @@ async def test_an_adapter_without_unfinished_turn_messages_gets_a_note(
             "Do not repeat these tool calls unless the user asks again.",
         ]
     )
+    assert [message.origin for message in steered.messages] == [
+        None,
+        AgentMessageOrigin.TURN_STEERED_NOTE,
+        None,
+        None,
+    ]
     assert steered.messages[-1].text == "said: instead"
     assert harness.invocations.count("model:turn-1:2") == 0
 
@@ -572,6 +579,7 @@ async def test_an_adapter_without_unfinished_turn_messages_gets_a_note(
     assert (cancelled.messages[-1].text or "").startswith(
         f"{TURN_CANCELLED_NOTE_HEADER}\n- lookup "
     )
+    assert cancelled.messages[-1].origin == AgentMessageOrigin.TURN_CANCELLED_NOTE
     assert cancelled.state is not None and cancelled.state.turn_count == 3
 
 

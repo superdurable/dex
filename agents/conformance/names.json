@@ -386,6 +386,12 @@
       "assistant",
       "tool"
     ],
+    "AgentMessageOrigin": [
+      "plan_execution",
+      "turn_failure_note",
+      "turn_steered_note",
+      "turn_cancelled_note"
+    ],
     "ToolEffect": [
       "read",
       "idempotent_write",

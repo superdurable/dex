@@ -41,6 +41,9 @@ func TestDescribeWithAnEmptyEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, document.Contracts, "1")
 	require.Contains(t, document.Contracts["1"].Modes, launchcontract.ModeChat)
+	require.Equal(t, []string{}, document.Contracts["1"].Modes[launchcontract.ModeSessions].UsesMethods)
+	require.Equal(t, []string{launchcontract.MethodListConnectors, launchcontract.MethodOpenURL},
+		document.Contracts["1"].Modes[launchcontract.ModeConnectors].UsesMethods)
 }
 
 // SIGTSTP releases the terminal (leaves the alternate screen, shows the

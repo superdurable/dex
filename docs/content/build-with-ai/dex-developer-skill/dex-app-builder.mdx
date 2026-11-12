@@ -3,6 +3,7 @@ id: dex-app-builder
 title: Dex App Builder
 sidebar_label: Dex App Builder
 slug: /build-with-ai/dex-developer-skill/dex-app-builder
+description: "Dex App Builder is the primary skill for creating a Dex application or process product. It covers the whole path: working out the business process, choosing the UI, building the Go backend, testing locally, and handing off the result."
 ---
 
 # Dex App Builder
@@ -14,7 +15,14 @@ result.
 
 ## Install and use
 
-<DexSkillHostTabs skill="dex-app-builder" />
+[Install Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) once; it installs all three Skills. Then call this Skill in your coding agent, for example in Codex and in Claude Code with the Plugin:
+
+```text
+$dex-app-builder Design and build an event-registration application.
+/superdurable-dex:dex-app-builder Design and build an event-registration application.
+```
+
+[Install and use Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) has the invocation for every host.
 
 ## When to use it
 
@@ -79,8 +87,8 @@ stricter rules of its own:
 
 - write the application backend in Go;
 - target strict Dex Web and Flow Definition Graph 2.0 rendering;
-- call external providers only from **Execute**;
-- keep provider calls and Dex changes out of **WaitFor**;
+- call external providers only from `Execute`;
+- keep provider calls and Dex changes out of `WaitFor`;
 - model each human operation as a typed Action with an explicit permission;
 - keep credentials inside Connectors or the runtime environment, not in
   application code;
@@ -128,3 +136,7 @@ When App Builder finishes, you have:
 - a repository ready for review.
 
 Return to [Dex Skills overview and installation](../dex-developer-skill.mdx).
+
+## Next
+
+[Dex SDK](/build-with-ai/dex-developer-skill/dex-sdk): Dex SDK is a specialist sub-skill.

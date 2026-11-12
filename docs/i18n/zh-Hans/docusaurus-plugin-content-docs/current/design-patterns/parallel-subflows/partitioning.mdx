@@ -16,7 +16,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 ## 核心实现
 
-**SubmitStep** 先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不在运行，**SubmitStep** 就以该请求作为初始输入启动它。父 Flow 的 **Init** 会把这个输入发布到 **RequestChannel**，所以请求不会丢失。如果另一个提交方抢先启动了父 Flow，本次启动会以 **FlowAlreadyStarted** 失败，**SubmitStep** 随后重试。下一次执行会在正在运行的父 Flow 上调用 RPC。
+`SubmitStep` 先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不在运行，`SubmitStep` 就以该请求作为初始输入启动它。父 Flow 的 **Init** 会把这个输入发布到 `RequestChannel`，所以请求不会丢失。如果另一个提交方抢先启动了父 Flow，本次启动会以 `FlowAlreadyStarted` 失败，`SubmitStep` 随后重试。下一次执行会在正在运行的父 Flow 上调用 RPC。
 
 <SdkTabs
   examples={{
@@ -166,7 +166,7 @@ fn partition(request: &str, partitions: usize) -> usize {
 </SdkSnippet>
 </SdkTabs>
 
-## 相关内容
+## 下一步
 
 - [短生命周期父 Flow](/design-patterns/parallel-subflows/short-lived-parent)
 - [高可用背压](/design-patterns/parallel-subflows/back-pressure)

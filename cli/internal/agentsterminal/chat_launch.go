@@ -30,13 +30,16 @@ import (
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launchcontract"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/launcherchannel"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/remotesessionfeed"
+	"github.com/superdurable/dex/cli/internal/agentsterminal/sessionlisting"
 	"github.com/superdurable/dex/cli/internal/agentsterminal/terminaltheme"
+	"github.com/superdurable/dex/cli/internal/agentsterminal/typedpaths"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-// supportedModes are the modes this dexcli runs. The sessions and
-// connectors pickers come later, so launchers use plain text for them.
-var supportedModes = launchcontract.SupportedModes{1: {launchcontract.ModeChat}}
+// supportedModes are the modes this dexcli runs.
+var supportedModes = launchcontract.SupportedModes{
+	1: {launchcontract.ModeChat, launchcontract.ModeSessions, launchcontract.ModeConnectors},
+}
 
 // The exit codes of the contract.
 const (
@@ -46,8 +49,9 @@ const (
 	blobCacheBytes     = 64 << 20
 )
 
-// runChannelChat runs the chat for the launcher on channelFD.
-func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *os.File) error {
+// runChannelHandoff runs the launch document's mode for the launcher on
+// channelFD.
+func runChannelHandoff(ctx context.Context, channelFD int, stdin *os.File, stdout *os.File) error {
 	channel, err := openLauncherChannel(channelFD)
 	if err != nil {
 		return &ExitError{Code: exitCodeInvalid}
@@ -98,12 +102,20 @@ func runChannelChat(ctx context.Context, channelFD int, stdin *os.File, stdout *
 	}
 	defer restoreStderr()
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(discardWriter{}, discardWriter{}, discardWriter{}))
-	// The chat's own signal handling decides how SIGINT, SIGTERM, and SIGHUP
+	// The mode's own signal handling decides how SIGINT, SIGTERM, and SIGHUP
 	// end it; the caller's signal context would kill it without the exit code.
-	return runChat(context.WithoutCancel(ctx), channel, launch, connection, signals, stdin, stdout)
+	modeContext := context.WithoutCancel(ctx)
+	switch launch.Mode {
+	case launchcontract.ModeSessions:
+		return runSessionsMode(modeContext, channel, launch, connection, signals, stdin, stdout)
+	case launchcontract.ModeConnectors:
+		return runConnectorsMode(modeContext, channel, launch, signals, stdin, stdout)
+	}
+	return runChat(modeContext, channel, launch, connection, signals, stdin, stdout)
 }
 
-// dexConnection is the Dex client of the chat and its blob cache.
+// dexConnection is the Dex client and its blob cache. flow is nil in
+// connectors mode.
 type dexConnection struct {
 	client      *dex.Client
 	flow        *remotesession.RemoteSessionFlow
@@ -217,6 +229,7 @@ func runChat(
 	}
 	home, _ := os.LookupEnv("HOME")
 	channel.Start(launch.Methods)
+	pickerRequests := make(chan struct{}, 1)
 	feed := remotesessionfeed.NewRemoteSessionFeed(remotesessionfeed.RemoteSessionFeedConfig{
 		Sessions:         remotesession.NewRemoteSessionClient(connection.client, connection.flow),
 		Requests:         channel,
@@ -224,6 +237,12 @@ func runChat(
 		HomeDirectory:    home,
 		WorkingDirectory: workingDirectory,
 		Debugf:           debugLog,
+		OpenSessionPicker: func() {
+			select {
+			case pickerRequests <- struct{}{}:
+			default:
+			}
+		},
 	})
 	feedDone := make(chan struct{})
 	go func() {
@@ -235,17 +254,32 @@ func runChat(
 	environment := os.Environ()
 	profile := terminaltheme.TerminalColorProfile(colorprofile.Detect(stdout, environment), os.LookupEnv)
 	theme := terminaltheme.NewTheme(profile, terminaltheme.IsUnicodeLocale(os.LookupEnv))
+	pathResolver := typedpaths.NewPathResolver(home, workingDirectory)
 	screen := chatscreen.NewChatScreen(chatContext, chatscreen.ChatScreenConfig{
-		Source:          feed,
-		Theme:           theme,
-		SessionCommands: feed.SlashCommands(),
+		Source:           feed,
+		Theme:            theme,
+		SessionCommands:  feed.SlashCommands(),
+		ShowsStartupLogo: true,
+		PathResolver:     &pathResolver,
 	})
 	output := newFirstFrameWriter(stdout, func() {
 		if sendErr := channel.SendReady(); sendErr != nil {
 			debugLog("send ready", sendErr)
 		}
 	})
-	frames := newReadyReporter(screen, output, feed)
+	newSessionHint := ""
+	if launch.HasMethod(launchcontract.MethodStartSession) {
+		newSessionHint = "start a new one with /new"
+	}
+	withPicker := newChatSessionPicker(chatContext, screen, chatSessionPickerConfig{
+		Sessions:         sessionlisting.NewSessionLister(connection.client, launch.Session.FlowType),
+		CurrentSessionID: feed.SessionID,
+		Theme:            theme,
+		Heading:          sessionsHeading(launch, theme),
+		NewSessionHint:   newSessionHint,
+		PickerRequests:   pickerRequests,
+	})
+	frames := newReadyReporter(withPicker, output, feed)
 	program := tea.NewProgram(
 		frames,
 		tea.WithContext(chatContext),
@@ -281,11 +315,17 @@ func runChat(
 // Every failure is dex_setup_failed.
 func newDexClient(launch launchcontract.LaunchDocument) (*dex.Client, *remotesession.RemoteSessionFlow, func(), *launchcontract.LaunchRejection) {
 	invalid := launchcontract.DexSetupFailed
-	flow, err := remotesession.NewRemoteSessionFlow(launch.Session.FlowType)
-	if err != nil {
-		return nil, nil, nil, invalid("The session Flow type is not valid.")
+	var flow *remotesession.RemoteSessionFlow
+	var flows []dex.Flow
+	if launch.Mode != launchcontract.ModeConnectors {
+		var err error
+		flow, err = remotesession.NewRemoteSessionFlow(launch.Session.FlowType)
+		if err != nil {
+			return nil, nil, nil, invalid("The session Flow type is not valid.")
+		}
+		flows = []dex.Flow{flow}
 	}
-	registry, err := dex.NewRegistry([]dex.Flow{flow})
+	registry, err := dex.NewRegistry(flows)
 	if err != nil {
 		return nil, nil, nil, invalid("The session Flow type is not valid.")
 	}

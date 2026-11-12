@@ -1,6 +1,7 @@
 ---
 title: Object storage and backup
 sidebar_label: Object storage and backup
+description: "How server-zd uses object storage: credentials, bucket permissions, lifecycle rules, encryption, and backup."
 ---
 
 # Object storage and backup
@@ -62,7 +63,8 @@ startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"
 ~~~
 
 Startup also writes and deletes a probe object under the prefix, to check that
-conditional writes work. The server needs no bucket-wide access and no bucket
+conditional writes work. Since 0.1.27, startup fails when this check does not
+finish within 5 minutes. The server needs no bucket-wide access and no bucket
 administration action.
 
 Hard-delete Attribute values use the primary bucket and prefix by default. To
@@ -70,8 +72,9 @@ keep them elsewhere, configure **objectStore.hardDeleteStore** with its own
 **endpoint**, **region**, **bucket**, **prefix**, and **credentialsSource**. With
 **environment** credentials, it reads the **DEX_ZD_HARD_DELETE_STORE_**
 variables with the same suffixes. Grant the same policy for that bucket and
-prefix. Since 0.1.27, its **provider** can be **azureBlob** or
-**googleCloudStorage**. See
+prefix. Since 0.1.27, its **provider** can select **s3**, **aliyunOSS**,
+**azureBlob**, or **googleCloudStorage**. Without **provider**, it uses
+**aliyunOSS** when the primary store does, and **s3** otherwise. See
 [Azure Blob Storage and Google Cloud Storage](/reference/server/configuration#azure-gcs).
 
 ## Encryption
@@ -237,6 +240,64 @@ Hard-delete Attribute values use the same provider, unless
 The server does not migrate existing S3 data to db9. Start db9 with a new
 namespace.
 
+## Aliyun OSS provider {#aliyun-oss}
+
+Since 0.1.27, **serve** can keep its object storage in an Aliyun OSS bucket.
+The server uses the S3-compatible endpoint of OSS. Every feature works as it
+does on S3, including leases, hot standby, snapshots, history offload, and
+Flow definition uploads.
+
+~~~yaml
+objectStore:
+  provider: aliyunOSS
+  endpoint: https://s3.oss-cn-hangzhou.aliyuncs.com
+  region: cn-hangzhou
+  bucket: BUCKET
+  prefix: PREFIX
+  credentialsSource: environment
+~~~
+
+| Setting | Value |
+| --- | --- |
+| **objectStore.provider** | **aliyunOSS** |
+| **objectStore.endpoint** | Required. **https://s3.oss-REGION.aliyuncs.com**, the S3-compatible endpoint of the bucket's region |
+| **objectStore.region** | The OSS region ID, such as **cn-hangzhou** |
+| **objectStore.forcePathStyle** | Leave it unset. OSS accepts only virtual-hosted-style requests, so **true** fails validation |
+| **objectStore.credentialsSource** | **environment**, with the AccessKey ID and secret of a RAM user in **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID** and **DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY** |
+
+The RAM user needs to list, read, write, and delete objects under the prefix.
+A configured **objectStore.hardDeleteStore** without its own **provider** uses
+OSS too. Give it the same endpoint and addressing settings.
+
+The bucket must never have had versioning enabled. Once versioning was enabled
+or suspended, OSS no longer rejects a write that would overwrite an object, and
+the server depends on that rejection. At startup the server writes a probe
+object twice. If the second write succeeds, startup fails with a message that
+names **x-oss-forbid-overwrite** and versioning. A bucket cannot return to the
+unversioned state, so use a new bucket.
+
+OSS has no conditional replacement of an object. The server therefore stores
+its mutable metadata objects as a series of versions. These are the cluster
+manifest, the Attribute index registry, node leases, startup probes, and Flow
+definitions. A key **K** becomes objects under **K.v/**, one per change. The
+server manages these objects and deletes old versions itself. Do not edit,
+copy, or delete them, and do not add a lifecycle rule that expires them. A
+version key is 23 bytes longer than **K**, and OSS allows keys of at most 1023
+bytes. So **UploadFlowDefinitions** accepts Flow types whose object keys are 24
+bytes shorter than on S3.
+
+Every other object keeps its key. Log batches, snapshots, and history segments
+are written once. In the rare case that an uploaded history segment differs from
+committed history, the server deletes it and writes it again.
+
+Data cannot move between **aliyunOSS** and another provider, because the
+object layouts differ. If the prefix holds a cluster manifest or an Attribute
+index registry that another provider wrote, startup fails with a message that
+the data was written by another provider. Start **aliyunOSS** on an empty
+prefix.
+
+**dev** and **local** reject **aliyunOSS**.
+
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The server rebuilds the
@@ -270,6 +331,22 @@ To restore:
    restored prefix.
 
 Writes acknowledged after the restore point are lost.
+
+### What a restore means for your Flows {#restore-and-flows}
+
+Every Flow goes back to its state at the restore point:
+
+- Steps that finished after that point run again, so their external calls
+  repeat. [Idempotency keys](/concepts/step#idempotency-keys) make the repeats
+  harmless.
+- Timers that fired after that point fire again. The server fires overdue
+  Timers as soon as it starts.
+- Attempts in progress at that point fail and retry, as after a failover.
+- Flows started, and Channel messages published, after that point are gone.
+  Start or publish them again.
+
+Your own database is not rolled back. Reconcile it against the restored Flows,
+for example by searching for Flows whose state disagrees with your rows.
 
 With the [db9 provider](#db9), the two provider tables hold that state. Back
 them up and restore them together, to one point in time.

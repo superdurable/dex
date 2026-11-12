@@ -23,7 +23,7 @@ import type { BuiltInTool } from "./agent-built-in-tools.js";
 import { agentSessionStepTypes } from "./agent-session-step-types.js";
 import { isContextCompactionRunner, type ResolvedCompactionPolicy } from "./agent-context-compaction.js";
 import { StreamAgentEventWriter } from "./agent-event-writer.js";
-import { encodeAgentMessage } from "./agent-session-codecs.js";
+import { encodeAgentInterruptDisplay, encodeAgentMessage } from "./agent-session-codecs.js";
 import { validateImageReferences } from "./agent-media.js";
 import {
   resolveToolPolicy,
@@ -53,6 +53,7 @@ import {
   type AgentMessageChunk,
   type AgentMessageChunkRange,
   type AgentMessageIndex,
+  type AgentMessageOrigin,
   type AgentPlan,
   type AgentState,
   type AgentToolCall,
@@ -452,6 +453,7 @@ export class AgentSessionTransitions {
       question: interrupt.question ?? null,
       choices: interrupt.choices ?? [],
       allows_free_text: interrupt.allowsFreeText ?? true,
+      display: encodeAgentInterruptDisplay(interrupt.display),
     });
   }
 
@@ -595,7 +597,8 @@ export class AgentSessionTransitions {
    * straight into a chunk of its own, so the first store writes the largest value it ever needs. In the same
    * commit it moves the oldest window messages into archive chunks while the window is over its size and
    * applies retention; it writes `AgentMessageIndex` only when one of them changed it. It requires the whole
-   * window to be loaded. With `startsTurn`, `TurnReplySequence` records where the turn's replies begin.
+   * window to be loaded. With `startsTurn`, `TurnReplySequence` records where the turn's replies begin. A non-null
+   * `origin` marks every appended message as written by the session itself.
    */
   public appendMessages(
     context: Context,
@@ -603,6 +606,7 @@ export class AgentSessionTransitions {
     turnId: string,
     frameworkMessages: readonly FrameworkMessage[],
     startsTurn = false,
+    origin: AgentMessageOrigin | null = null,
   ): AgentState {
     if (frameworkMessages.length === 0 && !startsTurn) {
       this.writeAgentState(context, state);
@@ -641,6 +645,7 @@ export class AgentSessionTransitions {
         ...(frameworkMessage.images === undefined || frameworkMessage.images.length === 0
           ? {}
           : { images: frameworkMessage.images }),
+        ...(origin === null ? {} : { origin }),
       };
       const key = messageSequenceKey(nextMessageSequence);
       if (messageChunkOverheadBytes + agentMessageBytes(message) > this.config.messageChunkMaxBytes) {
@@ -786,7 +791,8 @@ export class AgentSessionTransitions {
         if (userMessages.some((userMessage) => userMessage.role !== "user")) {
           throw new TypeError("buildUserMessage must return a message with role user");
         }
-        const stateWithMessage = this.appendMessages(context, state, turnId, userMessages, true);
+        const origin = executedPlan === undefined ? null : "plan_execution";
+        const stateWithMessage = this.appendMessages(context, state, turnId, userMessages, true, origin);
         this.writeAgentState(context, {
           ...stateWithMessage,
           status: "running_model",
@@ -857,9 +863,11 @@ export class AgentSessionTransitions {
     const isCancelled = transitions.readTurnControlReason(context, turnId) === "turn_cancelled";
     const storedMessageCount = transitions.countStoredTurnReplies(context, initialState, turnId);
     let messages = transitions.buildUnfinishedTurnMessages(context, initialState, turnId, toolCalls);
+    let noteOrigin: AgentMessageOrigin | null = null;
     if (messages === null) {
       messages = [];
       if (toolCalls.length > 0) {
+        noteOrigin = isCancelled ? "turn_cancelled_note" : "turn_steered_note";
         // The records are deleted below; the note keeps the next model from repeating them.
         const note = transitions.runner.buildUserMessage(
           buildToolCallNote(isCancelled ? turnCancelledNoteHeader : turnSteeredNoteHeader, toolCalls),
@@ -870,7 +878,7 @@ export class AgentSessionTransitions {
         messages = [note];
       }
     }
-    const stateWithMessages = transitions.appendMessages(context, initialState, turnId, messages);
+    const stateWithMessages = transitions.appendMessages(context, initialState, turnId, messages, false, noteOrigin);
     for (const toolCall of toolCalls) {
       persistence.agentToolCalls.delete(context, toolCall.toolCallId);
     }

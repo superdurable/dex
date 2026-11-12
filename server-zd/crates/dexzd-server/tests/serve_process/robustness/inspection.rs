@@ -8,11 +8,16 @@
 
 //! Reads a node's objects through the S3 API to check log, snapshot, and lease state.
 
-use dexzd_object_store::{ObjectStore, S3Credentials, S3ObjectStore, S3ObjectStoreConfig};
+use std::sync::Arc;
+
+use dexzd_object_store::{
+    AliyunOssObjectStore, ObjectStore, S3ApiDialect, S3Credentials, S3ObjectStore,
+    S3ObjectStoreConfig, node_lease_object_key,
+};
 use dexzd_protocol::dexzd::v1::{LogBatchHeader, NodeLease, SnapshotManifest};
 use prost::Message;
 
-use crate::harness;
+use crate::harness::{self, TestObjectStoreProvider};
 use crate::{NODE_ID, PRIMARY_BUCKET, PRIMARY_PREFIX};
 
 const LOG_BATCH_MAGIC: &[u8; 8] = b"DEXZDLOG";
@@ -21,11 +26,19 @@ const LOG_BATCH_PREFIX_LENGTH: usize = 14;
 
 /// Reads the node's objects through the S3 API, as another process would.
 pub(crate) struct ObjectStoreInspector {
-    store: S3ObjectStore,
+    store: Arc<dyn ObjectStore>,
 }
 
 impl ObjectStoreInspector {
     pub(crate) async fn connect(primary_endpoint: &str) -> Self {
+        Self::connect_for_provider(primary_endpoint, TestObjectStoreProvider::S3).await
+    }
+
+    /// Reads logical keys as a server process of `provider` does.
+    pub(crate) async fn connect_for_provider(
+        primary_endpoint: &str,
+        provider: TestObjectStoreProvider,
+    ) -> Self {
         let mut config = S3ObjectStoreConfig::new("us-east-1", PRIMARY_BUCKET);
         config.endpoint = Some(primary_endpoint.to_owned());
         config.key_prefix = PRIMARY_PREFIX.to_owned();
@@ -35,10 +48,21 @@ impl ObjectStoreInspector {
             secret_access_key: harness::SECRET_ACCESS_KEY.to_owned(),
             session_token: None,
         };
-        Self {
-            store: S3ObjectStore::new(config)
+        let is_aliyun_oss = provider == TestObjectStoreProvider::AliyunOss;
+        if is_aliyun_oss {
+            config.api_dialect = S3ApiDialect::AliyunOss;
+        }
+        let store: Arc<dyn ObjectStore> = Arc::new(
+            S3ObjectStore::new(config)
                 .await
                 .expect("the inspection store is configured"),
+        );
+        Self {
+            store: if is_aliyun_oss {
+                Arc::new(AliyunOssObjectStore::new(store))
+            } else {
+                store
+            },
         }
     }
 
@@ -154,7 +178,7 @@ impl ObjectStoreInspector {
     pub(crate) async fn try_node_lease(
         &self,
     ) -> Result<Option<NodeLease>, dexzd_object_store::ObjectStoreError> {
-        let Some(content) = self.store.get(&format!("lease/{NODE_ID}")).await? else {
+        let Some(content) = self.store.get(&node_lease_object_key(NODE_ID)).await? else {
             return Ok(None);
         };
         Ok(Some(

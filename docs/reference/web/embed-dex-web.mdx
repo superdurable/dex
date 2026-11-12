@@ -1,6 +1,7 @@
 ---
 title: Embed Dex Web in a Go server
 sidebar_label: Embed in a Go server
+description: "Since 1.43. A host application can serve Dex Web from its own Go HTTP server. The Go module github.com/superdurable/dex/web/embedded returns one http.Handler that serves Dex Web for many Dex Servers. The host mounts it under a path prefix on its own origin, such as /dex-web/SERVER_ID/."
 ---
 
 # Embed Dex Web in a Go server
@@ -18,7 +19,7 @@ Dex Server behind a reverse proxy is enough.
 ## Install {#install}
 
 ~~~bash
-go get github.com/superdurable/dex/web/embedded@v1.43.0
+go get github.com/superdurable/dex/web/embedded@v1.45.0
 ~~~
 
 Each **web/vX.Y.Z** release publishes the module as
@@ -123,7 +124,7 @@ unary FlowService RPCs.
 | --- | --- |
 | **FlowServiceClient** | Required. The FlowService client of the Dex Server. It must already carry the credential. |
 | **BasePath** | Required. The path prefix of this Dex Server's Dex Web, such as **/dex-web/server-a**. It follows the [base path rules](/reference/web/dex-web#base-path). |
-| **FlowRenderingDirectory** | Optional. A directory of Flow Definition Graph JSON files for this Dex Server, read on every definition request, like **--flow-rendering-dir**. Since 1.45, Dex Web also reads the definitions uploaded to the Dex Server through **FlowServiceClient**, so uploaded definitions need no directory. A Flow type in the directory wins. See [Definition sources](/reference/web/flow-visualization#definition-sources). |
+| **FlowRenderingDirectory** | Optional. A directory of Flow Definition Graph JSON files for this Dex Server, read on every definition request, like **--flow-rendering-dir**. Since 1.45.0, Dex Web also reads the definitions uploaded to the Dex Server through **FlowServiceClient**, so uploaded definitions need no directory. A Flow type in the directory wins. See [Definition sources](/reference/web/flow-visualization#definition-sources). |
 
 The handler serves the pages, assets, **/api** routes, **/healthz**, and
 **/readyz** under **BasePath**. **/readyz** checks only the resolved Dex Server.
@@ -228,7 +229,9 @@ original key names. It does not copy searches stored at the root into a base
 path. Display preferences, such as the theme, time zone, page size, and panel
 widths, apply to every base path on the origin.
 
-### What the handler does not do {#limits}
+<a id="what-the-handler-does-not-do"></a>
+
+### Handler scope {#limits}
 
 - It keeps no state between Dex Servers. Each request gets its own routes,
   definition reader, and server engine lookup, and two handlers share nothing.

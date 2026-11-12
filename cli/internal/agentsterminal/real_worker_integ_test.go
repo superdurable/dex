@@ -35,6 +35,8 @@ import (
 )
 
 const (
+	chatTerminalWidth  = 110
+	chatTerminalHeight = 32
 	realWorkerFlowType = "TerminalUIRemoteSessionAgent"
 	realWorkerTimeout  = 2 * time.Minute
 	screenWait         = 30 * time.Second
@@ -73,6 +75,9 @@ func TestChatWithARealPythonWorker(t *testing.T) {
 	t.Run("QueueAndSteer", stack.testQueueAndSteer)
 	t.Run("PlanAndRun", stack.testPlanAndRun)
 	t.Run("ImageThroughPutImage", stack.testImageThroughPutImage)
+	t.Run("PastedImagePathAttaches", stack.testPastedImagePathAttaches)
+	t.Run("CtrlOShowsTheToolOutput", stack.testCtrlOShowsTheToolOutput)
+	t.Run("HistoryReadsEarlierMessages", stack.testHistoryReadsEarlierMessages)
 	t.Run("DebugLogAndStderrStayPrivate", stack.testDebugLogAndStderrStayPrivate)
 }
 
@@ -177,6 +182,98 @@ func (stack *realWorkerStack) testImageThroughPutImage(t *testing.T) {
 	chat.exit()
 }
 
+// putImageLaunch is a chat launch whose launcher stores one image through
+// put_image, answering with the Worker's stored reference.
+func (stack *realWorkerStack) putImageLaunch(t *testing.T) chatLaunch {
+	referenceText, err := os.ReadFile(filepath.Join(stack.coordination, "image-reference.json"))
+	require.NoError(t, err)
+	var reference map[string]any
+	require.NoError(t, json.Unmarshal(referenceText, &reference))
+	return chatLaunch{
+		methods:   []string{"put_image"},
+		hasImages: true,
+		launcherSteps: []any{
+			map[string]any{"from": "tui", "message": map[string]any{
+				"type": "request", "id": 1, "idempotency_key": "01a1caff-6ed8-71f4-b2a9-0c3d5e6f7081",
+				"method": "put_image", "params": map[string]any{"path": "/home/user/dot.png"},
+			}, "ignore": []string{"idempotency_key", "params.path"}},
+			map[string]any{"from": "launcher", "message": map[string]any{
+				"type": "response", "id": 1, "result": map[string]any{"image": reference, "name": "dot.png"},
+			}},
+		},
+	}
+}
+
+// A terminal pastes a dropped file as its path; the chat offers to attach
+// it, and Enter stores it through put_image.
+func (stack *realWorkerStack) testPastedImagePathAttaches(t *testing.T) {
+	sessionID := "terminal-ui-paste"
+	stack.startSession(t, sessionID)
+	imagePath := filepath.Join(t.TempDir(), "dot.png")
+	require.NoError(t, os.WriteFile(imagePath, []byte("\x89PNG stand-in; the launcher side stores images"), 0o600))
+	chat := stack.openChatWithLaunch(t, sessionID, false, stack.putImageLaunch(t))
+	chat.waitForScreen("Type a message.")
+	chat.typeText("\x1b[200~'" + imagePath + "'\x1b[201~")
+	chat.waitForScreen("Attach dot.png?")
+	chat.typeText("\r")
+	chat.waitForScreen("image/png")
+	time.Sleep(300 * time.Millisecond)
+	chat.typeText("describe\r")
+	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	require.Equal(t, "saw 1 images", lastAssistantText(finished))
+	chat.waitForScreen("saw 1 images")
+	chat.exit()
+}
+
+// Ctrl-O opens the last tool's stored output with its arguments; raw mode
+// keeps ^O from the terminal's discard character.
+func (stack *realWorkerStack) testCtrlOShowsTheToolOutput(t *testing.T) {
+	sessionID := "terminal-ui-tool-output"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("publish pager note\r")
+	chat.waitForScreen("Approve publish_note?")
+	chat.typeText("y")
+	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	chat.waitForScreen("publish_note: published pager note")
+	chat.typeText("\x0f")
+	chat.waitForScreen("Tool output")
+	chat.waitForScreen("Arguments")
+	require.Contains(t, chat.screenSince("Tool output"), "published pager note", "the pager shows the stored output")
+	chat.typeText("q")
+	chat.waitForScreen("Ctrl-D exit")
+	chat.exit()
+}
+
+// A resumed chat shows the newest page; /history reads the page before it.
+func (stack *realWorkerStack) testHistoryReadsEarlierMessages(t *testing.T) {
+	sessionID := "terminal-ui-history"
+	stack.startSession(t, sessionID)
+	// Two stored messages per turn; 26 turns leave one page above the newest 50.
+	for turn := 1; turn <= 26; turn++ {
+		text := fmt.Sprintf("say filler %d", turn)
+		if turn == 1 {
+			text = "say oldest-entry"
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		isQueued, err := stack.sessions.SendUserMessage(ctx, sessionID, dexagents.AgentUserMessage{Text: text})
+		cancel()
+		require.NoError(t, err)
+		require.True(t, isQueued)
+		stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(int64(turn)))
+	}
+	chat := stack.openChat(t, sessionID, true)
+	// The renderer redraws only changed cells, so wait for a unique text.
+	chat.waitForScreen("turn 26")
+	require.NotContains(t, chat.screen(), "oldest-entry", "the first turn is above the newest page")
+	chat.typeText("/history\r")
+	chat.waitForScreen("Earlier messages")
+	chat.waitForScreen("said: oldest-entry")
+	chat.waitForScreen("start of the session")
+	chat.typeText("q")
+	chat.exit()
+}
+
 func (stack *realWorkerStack) testQuestionAnswer(t *testing.T) {
 	sessionID := "terminal-ui-question"
 	stack.startSession(t, sessionID)
@@ -185,7 +282,9 @@ func (stack *realWorkerStack) testQuestionAnswer(t *testing.T) {
 	stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
 		return len(snapshot.PendingInterrupts) == 1 && snapshot.PendingInterrupts[0].Kind == dexagents.InterruptKindQuestion
 	})
-	chat.waitForScreen("Which color?")
+	// The tool row shows the question before the popup opens; wait for the
+	// popup's hints.
+	chat.waitForScreen("Enter answer")
 	chat.typeText("\r")
 	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
 	require.Equal(t, `ask_user: {"status":"answered","answer":"red"}`, lastAssistantText(finished))
@@ -223,6 +322,12 @@ func (stack *realWorkerStack) testQueueAndSteer(t *testing.T) {
 }
 
 func newRealWorkerStack(t *testing.T) *realWorkerStack {
+	return newRealWorkerStackWithSummary(t, false)
+}
+
+// newRealWorkerStackWithSummary starts the stack; isSummaryIndexed turns on
+// the session summary Attributes, which registers their index keys.
+func newRealWorkerStackWithSummary(t *testing.T, isSummaryIndexed bool) *realWorkerStack {
 	uvPath, uvErr := exec.LookPath("uv")
 	pythonPath, pythonErr := exec.LookPath("python3")
 	serverZD := os.Getenv(agentstest.DexServerZDEnvironmentVariable)
@@ -261,6 +366,9 @@ func newRealWorkerStack(t *testing.T) *realWorkerStack {
 		"DEX_CONNECTORS_MCP_BINARY="+filepath.Join(stateDirectory, "dex-connectors-mcp-not-installed"),
 		"DEX_AGENTS_OPEN_BROWSER=0",
 	)
+	if isSummaryIndexed {
+		workerEnvironment = append(workerEnvironment, "REMOTE_SESSION_SUMMARY_INDEXED=1")
+	}
 	require.NoError(t, stack.worker.Start(context.Background(),
 		[]string{uvPath, "run", "--project", pythonCore, "--frozen", "python", script, realWorkerFlowType},
 		workerEnvironment, agentstest.WorkerReadyLine, realWorkerTimeout))
@@ -314,6 +422,8 @@ func (stack *realWorkerStack) testApprovalRoundTrip(t *testing.T) {
 	sessionID := "terminal-ui-approval"
 	stack.startSession(t, sessionID)
 	chat := stack.openChat(t, sessionID, false)
+	// The real command shows the Dex logo in the welcome area.
+	chat.waitForScreen("Super Durable")
 	chat.typeText("publish hello\r")
 	interrupt := stack.waitForSnapshot(t, sessionID, func(snapshot dexagents.AgentSnapshot) bool {
 		return len(snapshot.PendingInterrupts) == 1
@@ -325,7 +435,7 @@ func (stack *realWorkerStack) testApprovalRoundTrip(t *testing.T) {
 	require.Equal(t, "publish_note: published hello", lastAssistantText(finished))
 	chat.waitForScreen("publish_note: published hello")
 	chat.exit()
-	require.Contains(t, chat.screen(), "Session "+sessionID+" stays in Dex")
+	require.Contains(t, chat.screen(), "Session "+sessionID+" keeps running")
 }
 
 func (stack *realWorkerStack) testResumeShowsHistory(t *testing.T) {
@@ -384,6 +494,9 @@ type chatLaunch struct {
 	hasImages     bool
 	launcherSteps []any
 	isDebugLogOn  bool
+	// resumeSessionID launches the sessions mode instead, which must send
+	// this result.
+	resumeSessionID string
 }
 
 func (stack *realWorkerStack) openChat(t *testing.T, sessionID string, isResumed bool) *chatRun {
@@ -412,13 +525,20 @@ func (stack *realWorkerStack) openChatWithLaunch(t *testing.T, sessionID string,
 		"notices":      []any{},
 		"log_path":     "~/.dex/agents/test.log",
 	}
+	lastSteps := []any{map[string]any{"close": "tui"}}
+	if options.resumeSessionID != "" {
+		launch["mode"] = "sessions"
+		launch["session"] = map[string]any{"flow_type": realWorkerFlowType}
+		launch["capabilities"] = map[string]any{}
+		lastSteps = []any{map[string]any{"from": "tui", "message": map[string]any{"type": "result", "resume_session_id": options.resumeSessionID}}}
+	}
 	transcript := map[string]any{
 		"name": "real_worker_chat", "description": "Hold the channel open while the test types into dexcli.",
 		"real_roles": []string{"tui"}, "terminal_ui_environment": map[string]any{},
 		"steps": append(append([]any{
 			map[string]any{"from": "launcher", "message": launch},
 			map[string]any{"from": "tui", "message": map[string]any{"type": "ready"}},
-		}, options.launcherSteps...), map[string]any{"close": "tui"}),
+		}, options.launcherSteps...), lastSteps...),
 		"tui_exit": 0,
 	}
 	transcriptPath := filepath.Join(directory, "transcript.json")
@@ -428,7 +548,7 @@ func (stack *realWorkerStack) openChatWithLaunch(t *testing.T, sessionID string,
 	recordPath := filepath.Join(directory, "record.jsonl")
 	chat := &chatRun{t: t, racePrefix: filepath.Join(directory, "race"), screenPath: filepath.Join(directory, "screen.log"), hostDone: make(chan error, 1), hostStderr: &bytes.Buffer{}}
 	host := exec.Command(stack.pythonPath, contractHostScript, "launcher",
-		"--transcript", transcriptPath, "--pty", "110x32", "--screen-log", chat.screenPath, "--record", recordPath,
+		"--transcript", transcriptPath, "--pty", fmt.Sprintf("%dx%d", chatTerminalWidth, chatTerminalHeight), "--screen-log", chat.screenPath, "--record", recordPath,
 		"--step-timeout", "180", "--pty-input-from-stdin", raceEnvironmentArgument(chat.racePrefix), "--", stack.dexcli, "agents-tui")
 	debugLog := os.Getenv("DEX_AGENTS_TUI_DEBUG")
 	if options.isDebugLogOn {
@@ -480,6 +600,23 @@ func (chat *chatRun) screenSince(mark string) string {
 	return text
 }
 
+// frame returns the screen as the terminal shows it now.
+func (chat *chatRun) frame() string {
+	data, err := os.ReadFile(chat.screenPath)
+	if err != nil {
+		return ""
+	}
+	return strings.Join(terminalFrame(string(data), chatTerminalWidth, chatTerminalHeight), "\n")
+}
+
+// waitForFrame waits until the current frame shows text. Unlike the log,
+// it holds a line redrawn from its middle.
+func (chat *chatRun) waitForFrame(text string) {
+	chat.t.Helper()
+	require.Eventually(chat.t, func() bool { return strings.Contains(chat.frame(), text) },
+		screenWait, 50*time.Millisecond, "the frame shows %q", text)
+}
+
 func (chat *chatRun) waitForScreen(text string) {
 	chat.t.Helper()
 	require.Eventually(chat.t, func() bool { return strings.Contains(chat.screen(), text) },
@@ -490,6 +627,12 @@ func (chat *chatRun) waitForScreen(text string) {
 func (chat *chatRun) exit() {
 	chat.t.Helper()
 	chat.typeText("\x04")
+	chat.waitForHostExit()
+}
+
+// waitForHostExit waits for the host, which checks every step and exit 0.
+func (chat *chatRun) waitForHostExit() {
+	chat.t.Helper()
 	select {
 	case err := <-chat.hostDone:
 		require.NoError(chat.t, err, "the host saw the expected exit")

@@ -60,6 +60,32 @@ class MessageRole(StrEnum):
     TOOL = "tool"
 
 
+class AgentMessageOrigin(StrEnum):
+    """Name why the session wrote a ``USER`` message itself.
+
+    ``AgentMessage.origin`` holds one of these values. A later release may
+    add values. Show a message with a value you do not know as a note from
+    the session, never as text the user typed.
+
+    .. versionadded:: 0.6.0
+
+    Attributes:
+        PLAN_EXECUTION: ``execute_plan`` started the turn with the text of
+            ``build_plan_execution_message``.
+        TURN_FAILURE_NOTE: ``RecordTurnFailure`` told the model which tool
+            calls of the failed turn ran.
+        TURN_STEERED_NOTE: ``steer_user_message`` ended the turn, and the
+            note lists the tool calls that ran.
+        TURN_CANCELLED_NOTE: ``cancel_turn`` ended the turn, and the note
+            lists the tool calls that ran.
+    """
+
+    PLAN_EXECUTION = "plan_execution"
+    TURN_FAILURE_NOTE = "turn_failure_note"
+    TURN_STEERED_NOTE = "turn_steered_note"
+    TURN_CANCELLED_NOTE = "turn_cancelled_note"
+
+
 class ToolEffect(StrEnum):
     """Classify what a tool call does to the world outside the session.
 
@@ -391,6 +417,26 @@ class AgentMessage:
             those a tool result returned. Empty for an item without images.
 
             .. versionadded:: 0.5.0
+        origin: Why the session wrote this ``USER`` message itself, usually an
+            ``AgentMessageOrigin`` value, or ``None``. It is ``None`` for a
+            message that a user or the start input sent, for ``ASSISTANT``
+            and ``TOOL`` messages, and for every message stored before 0.6.0.
+            Show a message that has an origin as a session note, not as text
+            the user typed. Only the session sets it: neither
+            ``send_user_message`` nor a runner's messages can. The value is a
+            plain string, so a value that a later release adds still decodes.
+            A Worker before 0.6.0 ignores the field, and drops it when it
+            moves the message into an archive chunk.
+
+            .. versionadded:: 0.6.0
+
+    Example:
+        >>> page = await sessions.list_agent_messages("session-42")
+        >>> for message in page.messages:
+        ...     if message.origin == AgentMessageOrigin.PLAN_EXECUTION:
+        ...         print("Running the approved plan")
+        ...     elif message.origin is None and message.role is MessageRole.USER:
+        ...         print(f"> {message.text}")
     """
 
     sequence: int
@@ -404,6 +450,7 @@ class AgentMessage:
     framework_item: str
     created_at: str
     images: list[AgentImageReference] = field(default_factory=list)
+    origin: str | None = None
 
 
 class QuestionResolution(StrEnum):
@@ -453,6 +500,59 @@ class QuestionAnswer:
     question: str
     answer: str
     resolution: QuestionResolution = QuestionResolution.ANSWERED
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentInterruptDisplay:
+    """Say what one tool approval acts on and what the call does.
+
+    The tool's source builds it from the call's concrete arguments and
+    returns it in ``DeferredToolCall.approval_display``. The session stores
+    it in ``AgentInterrupt.display``. An approval UI shows ``target`` and
+    ``summary`` above the arguments, and ``preview`` when it is set. When an
+    interrupt has no display, show the concrete arguments only and do not
+    guess the call's effect from its name or description.
+
+    The text describes the request, not its result: it never says how often
+    the call runs or what it achieves, because a retried write may run again
+    and a provider may refuse it. Its text comes from the call's arguments,
+    which the session stores in full as before. As best-effort hygiene, a
+    source shows the value of a credential-like argument, such as
+    ``api_key``, ``clientSecret``, or ``credentials``, as ``"<redacted>"``
+    (see ``dex_agents.approval_display.is_credential_like_name``), and
+    replaces common credential shapes in text it shows (see
+    ``dex_agents.approval_display.redact_inline_credentials``). This is not a
+    security boundary: a credential in another form can still appear. The session
+    cuts a target over ``MAX_APPROVAL_TARGET_BYTES`` and a summary over
+    ``MAX_APPROVAL_SUMMARY_BYTES``, ending them with ``…``, and drops a
+    preview over ``MAX_APPROVAL_PREVIEW_BYTES``, so a display adds little to
+    the records that hold it.
+
+    .. versionadded:: 0.6.0
+
+    Example:
+        >>> display = AgentInterruptDisplay(
+        ...     target="docs/notes.md",
+        ...     summary="Writes 12 bytes to docs/notes.md.",
+        ... )
+        >>> interrupt = next(i for i in snapshot.pending_interrupts if i.display)
+        >>> print(interrupt.display.summary)
+
+    Attributes:
+        target: What the call acts on, such as a workspace path, a shell
+            command's working directory, or a connector and its connection
+            (``slack/support-slack``).
+        summary: One sentence that says what the call does to ``target``,
+            built from the call's concrete arguments, such as
+            ``Runs a shell command in /work/app: npm test``.
+        preview: Longer text to show with the summary, or ``None``. A local
+            file write sets a unified diff of the file as it was when the call
+            was requested against the new content; its header lines say so.
+    """
+
+    target: str
+    summary: str
+    preview: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -559,6 +659,14 @@ class AgentToolCall:
             written before 0.5.0 has none, and a Worker before 0.5.0 ignores it.
 
             .. versionadded:: 0.5.0
+        approval_display: What the call acts on and does, from
+            ``DeferredToolCall.approval_display``, for a call that needs
+            approval, or ``None``. The session copies it into the call's
+            ``AgentInterrupt.display`` when it raises the approval, which for
+            a queued ordered write happens later. A Worker before 0.6.0
+            ignores it, and drops it when it rewrites the record.
+
+            .. versionadded:: 0.6.0
     """
 
     tool_call_id: str
@@ -590,6 +698,7 @@ class AgentToolCall:
     truncated_output_bytes: int | None = None
     images: list[AgentImageReference] = field(default_factory=list)
     runner_tool_state: str | None = None
+    approval_display: AgentInterruptDisplay | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -618,6 +727,12 @@ class AgentInterrupt:
             free text only.
         allows_free_text: Whether ``answer_question`` accepts an answer that
             is not one of ``choices``. Always ``True`` when ``choices`` is empty.
+        display: What a ``TOOL_APPROVAL`` call acts on and does, from its
+            tool's source, or ``None`` when the source gave none and for a
+            ``QUESTION``. A Worker before 0.6.0 writes none, and drops it when
+            it rewrites ``PendingInterrupts``, so treat it as optional.
+
+            .. versionadded:: 0.6.0
     """
 
     interrupt_id: str
@@ -630,6 +745,7 @@ class AgentInterrupt:
     question: str | None = None
     choices: list[str] = field(default_factory=list)
     allows_free_text: bool = True
+    display: AgentInterruptDisplay | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

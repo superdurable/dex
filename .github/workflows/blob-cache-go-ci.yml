@@ -1,23 +1,20 @@
 name: Blob Cache Go CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "blob-cache-go/**"
-      - ".github/workflows/blob-cache-go-ci.yml"
   pull_request:
     paths:
       - "blob-cache-go/**"
       - ".github/workflows/blob-cache-go-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: blob-cache-go-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: blob-cache-go-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   blob-cache:

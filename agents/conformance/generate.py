@@ -84,11 +84,13 @@ from dex_agents import (
     AgentEventWriter,
     AgentImageReference,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentInterruptResolution,
     AgentMessage,
     AgentMessageChunk,
     AgentMessageChunkRange,
     AgentMessageIndex,
+    AgentMessageOrigin,
     AgentMessagesPage,
     AgentPlan,
     AgentPlanTask,
@@ -446,6 +448,11 @@ def full_tool_call(**changes: Any) -> AgentToolCall:
         task_answer_pending=True,
         images=[CHART_IMAGE],
         runner_tool_state='{"format":"runner.v1","state":"opaque"}',
+        approval_display=AgentInterruptDisplay(
+            target="bank/checking",
+            summary='Calls bank transfer with connection checking; amount: 5, memo: "Grüße".',
+            preview=TRICKY_TEXT,
+        ),
     )
     return replace(record, **changes)
 
@@ -471,6 +478,17 @@ def approval_interrupt() -> AgentInterrupt:
         tool_name="send_email",
         arguments='{"to": "ops@example.com"}',
         created_at=CREATED_AT,
+    )
+
+
+def displayed_approval_interrupt() -> AgentInterrupt:
+    return replace(
+        approval_interrupt(),
+        display=AgentInterruptDisplay(
+            target="docs/notes.md",
+            summary="Writes 3 bytes to docs/notes.md.",
+            preview=TRICKY_TEXT,
+        ),
     )
 
 
@@ -787,6 +805,34 @@ def build_value_documents() -> list[dict[str, Any]]:
         "A tool result that returned an image.",
         replace(tool_message(), images=[CHART_IMAGE]),
     )
+    messages.value(
+        "plan-execution",
+        "The user message with which execute_plan started a turn.",
+        replace(
+            user_message(),
+            text=build_plan_execution_message(3),
+            framework_item=json.dumps(
+                {"type": "user_text", "text": build_plan_execution_message(3)},
+                separators=(",", ":"),
+            ),
+            origin=AgentMessageOrigin.PLAN_EXECUTION,
+        ),
+    )
+    for origin in (
+        AgentMessageOrigin.TURN_FAILURE_NOTE,
+        AgentMessageOrigin.TURN_STEERED_NOTE,
+        AgentMessageOrigin.TURN_CANCELLED_NOTE,
+    ):
+        messages.value(
+            f"origin-{origin}",
+            f"A user message with origin {origin}.",
+            replace(user_message(sequence=4), origin=origin),
+        )
+    messages.wire(
+        "unknown-origin",
+        "An origin a later release adds decodes and keeps its value.",
+        {**RELEASED_MESSAGE, "images": [], "origin": "later_origin"},
+    )
     messages.wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", RELEASED_MESSAGE)
     documents.append(messages)
 
@@ -842,6 +888,28 @@ def build_value_documents() -> list[dict[str, Any]]:
 
     interrupts = ValueCases("AgentInterrupt", "One AgentInterrupt, as in PendingInterrupts.")
     interrupts.value("tool-approval", "A tool approval with defaults.", approval_interrupt())
+    interrupts.value(
+        "tool-approval-display",
+        "A tool approval with the display its tool's source built.",
+        displayed_approval_interrupt(),
+    )
+    interrupts.wire(
+        "tool-approval-display-without-preview",
+        "A display whose preview is absent.",
+        {
+            "interrupt_id": "call-2",
+            "kind": "tool_approval",
+            "tool_call_id": "call-2",
+            "tool_name": "run_shell_command",
+            "arguments": '{"command": "npm test"}',
+            "created_at": CREATED_AT,
+            "deadline": None,
+            "display": {
+                "target": "/work/app",
+                "summary": "Runs a shell command in /work/app: npm test",
+            },
+        },
+    )
     interrupts.value("question", "A question with every field set.", question_interrupt())
     interrupts.wire("released-0.1.0", "As dex-agents 0.1.0 wrote it.", RELEASED_INTERRUPT)
     documents.append(interrupts)
@@ -1488,6 +1556,7 @@ def build_names() -> dict[str, Any]:
         "enums": {
             "AgentSessionStatus": [str(value) for value in AgentSessionStatus],
             "MessageRole": [str(value) for value in MessageRole],
+            "AgentMessageOrigin": [str(value) for value in AgentMessageOrigin],
             "ToolEffect": [str(value) for value in ToolEffect],
             "ToolCallStatus": [str(value) for value in ToolCallStatus],
             "InterruptKind": [str(value) for value in InterruptKind],

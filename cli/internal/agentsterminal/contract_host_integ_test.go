@@ -12,6 +12,7 @@ package agentsterminal
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	dexagents "github.com/superdurable/dex/agents/go/core"
+	"github.com/superdurable/dex/agents/go/core/agentstest"
+	"github.com/superdurable/dex/agents/go/core/builtinloop"
+	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 var (
@@ -87,6 +93,19 @@ var transcriptKeys = map[string][]keystrokes{
 	},
 	"launch_terminal_failed_beats_dex_setup": nil,
 	"launch_dex_setup_failed":                nil,
+	// The pickers: refresh the connectors once, or resume the one session.
+	"connectors_refresh":         {{afterStep: 1, afterScreen: "hacker-news", text: "r"}, {afterStep: -1, afterScreen: "refreshed", text: "q"}},
+	"connectors_mcp_unavailable": {{afterStep: 1, afterScreen: "hacker-news", text: "r"}, {afterStep: -1, afterScreen: "Connectors are off", text: "q"}},
+	"sessions_resume_result":     {{afterStep: 1, afterScreen: transcriptResumedSessionID, text: "\r"}},
+}
+
+// transcriptResumedSessionID is the session sessions_resume_result picks.
+const transcriptResumedSessionID = "openai-sdk-20261110-091500-0f1e2d"
+
+// transcriptsWithSessions need a Dex server with these running sessions of
+// the launch document's Flow type.
+var transcriptsWithSessions = map[string][]string{
+	"sessions_resume_result": {transcriptResumedSessionID},
 }
 
 // launchSessionID is the session of every launch document in the transcripts.
@@ -95,15 +114,23 @@ const launchSessionID = "openai-sdk-20261111-142233-a1b2c3"
 // transcriptScreenChecks check what the screen showed, after the host passed.
 var transcriptScreenChecks = map[string]func(t *testing.T, screen string){
 	"chat_start_session_background_switch": func(t *testing.T, screen string) {
-		require.NotContains(t, screen, "Session "+launchSessionID+" stays in Dex", "the chat switched to the new session")
-		require.Regexp(t, `Session openai-sdk-\d{8}-\d{6}-[0-9a-f]{12} stays in Dex`, screen)
+		require.NotContains(t, screen, "Session "+launchSessionID+" keeps running", "the chat switched to the new session")
+		require.Regexp(t, `Session openai-sdk-\d{8}-\d{6}-[0-9a-f]{12} keeps running`, screen)
 	},
 	"chat_start_session_background_exit": func(t *testing.T, screen string) {
 		require.Contains(t, screen, "A new session is already starting.")
-		require.Contains(t, screen, "Session "+launchSessionID+" stays in Dex", "the summary names the session the chat shows")
+		require.Contains(t, screen, "Session "+launchSessionID+" keeps running", "the summary names the session the chat shows")
 	},
 	"chat_start_session_background_stay": func(t *testing.T, screen string) {
-		require.Contains(t, screen, "Session "+launchSessionID+" stays in Dex", "the chat stayed")
+		require.Contains(t, screen, "Session "+launchSessionID+" keeps running", "the chat stayed")
+	},
+	"connectors_refresh": func(t *testing.T, screen string) {
+		require.Contains(t, screen, "slack/support-slack")
+		require.Contains(t, screen, "(no connector)")
+		require.Contains(t, screen, "refreshed: 3 connector tools")
+	},
+	"connectors_mcp_unavailable": func(t *testing.T, screen string) {
+		require.Contains(t, screen, "hacker-news", "the rows stay after the failed refresh")
 	},
 }
 
@@ -130,10 +157,6 @@ var launcherPauses = map[string]struct {
 	"chat_host_stopped": {afterStep: 2, milliseconds: 1500},
 }
 
-// transcriptsOfLaterModes need the sessions and connectors pickers, which
-// this dexcli does not run yet.
-var transcriptsOfLaterModes = []string{"sessions_resume_result", "connectors_refresh", "connectors_mcp_unavailable"}
-
 // Every transcript a real dexcli can play passes against the contract host
 // as launcher, with dexcli on a pseudo-terminal and keys typed into it.
 func TestTranscriptsAgainstTheContractHost(t *testing.T) {
@@ -159,15 +182,83 @@ func TestTranscriptsAgainstTheContractHost(t *testing.T) {
 			continue
 		}
 		t.Run(transcript.Name, func(t *testing.T) {
-			if slices.Contains(transcriptsOfLaterModes, transcript.Name) {
-				t.Skip("this dexcli runs only chat; the sessions and connectors pickers come with their own pull request")
-			}
 			keys, isKnown := transcriptKeys[transcript.Name]
 			require.True(t, isKnown, "add the keys of a new transcript to transcriptKeys")
-			t.Parallel()
-			playTranscript(t, pythonPath, dexcli, data, keys)
+			dexAddress := ""
+			if sessionIDs, needsSessions := transcriptsWithSessions[transcript.Name]; needsSessions {
+				// The engine reads its paths from the environment, so this
+				// subtest runs before the parallel ones.
+				dexAddress, _ = startEngineWithSessions(t, dexcli, launchFlowType(t, data), sessionIDs)
+			} else {
+				t.Parallel()
+			}
+			playTranscript(t, pythonPath, dexcli, data, keys, dexAddress)
 		})
 	}
+}
+
+// launchFlowType returns the session Flow type of a transcript's launch.
+func launchFlowType(t *testing.T, transcriptData []byte) string {
+	var transcript struct {
+		Steps []struct {
+			Message struct {
+				Session struct {
+					FlowType string `json:"flow_type"`
+				} `json:"session"`
+			} `json:"message"`
+		} `json:"steps"`
+	}
+	require.NoError(t, json.Unmarshal(transcriptData, &transcript))
+	flowType := transcript.Steps[0].Message.Session.FlowType
+	require.NotEmpty(t, flowType)
+	return flowType
+}
+
+// startEngineWithSessions starts a private engine with running sessions
+// of flowType and no Worker.
+func startEngineWithSessions(t *testing.T, dexcli string, flowType string, sessionIDs []string) (string, *dex.Client) {
+	serverZD := os.Getenv(agentstest.DexServerZDEnvironmentVariable)
+	if serverZD == "" {
+		serverZD, _ = exec.LookPath("dex-server-zd")
+	}
+	if serverZD == "" {
+		t.Skip("needs dex-server-zd (DEX_SERVER_ZD_BINARY)")
+	}
+	t.Setenv(agentstest.DexcliEnvironmentVariable, dexcli)
+	t.Setenv(agentstest.DexServerZDEnvironmentVariable, serverZD)
+	stateDirectory := t.TempDir()
+	engine, err := agentstest.NewPrivateDexEngine(filepath.Join(stateDirectory, "engine"))
+	require.NoError(t, err)
+	require.NoError(t, engine.Start(context.Background()))
+	t.Cleanup(engine.Kill)
+	starter, client := newSessionStarter(t, engine.Address(), flowType, stateDirectory)
+	for _, sessionID := range sessionIDs {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, err := starter.StartSession(ctx, sessionID, nil, dex.StartFlowOptions{})
+		cancel()
+		require.NoError(t, err)
+	}
+	return engine.Address(), client
+}
+
+// newSessionStarter starts sessions of flowType through a typing-only Flow:
+// no Worker runs them, so they stay running.
+func newSessionStarter(t *testing.T, address string, flowType string, stateDirectory string) (*dexagents.AgentSessionClient, *dex.Client) {
+	definition, err := builtinloop.NewAgentDefinition("typing-only", "unused",
+		agentstest.NewScriptedModelClient(func(builtinloop.ModelRequest) (agentstest.ScriptedModelReply, error) {
+			return agentstest.ScriptedModelReply{}, nil
+		}))
+	require.NoError(t, err)
+	flow, err := builtinloop.NewBuiltinAgentSessionFlow(definition, flowType)
+	require.NoError(t, err)
+	registry, err := dex.NewRegistry([]dex.Flow{flow})
+	require.NoError(t, err)
+	cache, err := agentstest.OpenTestBlobCache(filepath.Join(stateDirectory, "starter-blob-cache"))
+	require.NoError(t, err)
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{FlowServiceAddress: address})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	return dexagents.NewAgentSessionClient(client, flow), client
 }
 
 func buildDexcli(t *testing.T) string {
@@ -191,12 +282,16 @@ func buildDexcli(t *testing.T) string {
 }
 
 // playTranscript runs the host as launcher against dexcli with the
-// transcript's Dex addresses moved to ports where nothing listens.
-func playTranscript(t *testing.T, pythonPath string, dexcli string, data []byte, keys []keystrokes) {
+// transcript's Dex addresses moved to ports where nothing listens, or the
+// server address to dexAddress when it is set.
+func playTranscript(t *testing.T, pythonPath string, dexcli string, data []byte, keys []keystrokes, dexAddress string) {
 	stateDirectory := t.TempDir()
 	home := filepath.Join(stateDirectory, "home")
 	require.NoError(t, os.MkdirAll(home, 0o700))
-	rewritten := strings.ReplaceAll(string(data), "127.0.0.1:8801", "127.0.0.1:"+closedPort(t))
+	if dexAddress == "" {
+		dexAddress = "127.0.0.1:" + closedPort(t)
+	}
+	rewritten := strings.ReplaceAll(string(data), "127.0.0.1:8801", dexAddress)
 	rewritten = strings.ReplaceAll(rewritten, "127.0.0.1:8802", "127.0.0.1:"+closedPort(t))
 	require.NotContains(t, rewritten, ":8801")
 	require.NotContains(t, rewritten, ":8802")

@@ -2431,7 +2431,7 @@ fn azure_blob_and_google_cloud_storage_settings_name_the_rejected_yaml_path() {
         ("objectStore.hardDeleteStore.provider", || {
             let mut config = valid_config();
             config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
-                provider: ObjectStoreProvider::Db9,
+                provider: Some(ObjectStoreProvider::Db9),
                 bucket: "hard-delete".to_owned(),
                 ..ObjectStoreLocationConfig::default()
             });
@@ -2440,7 +2440,7 @@ fn azure_blob_and_google_cloud_storage_settings_name_the_rejected_yaml_path() {
         ("objectStore.hardDeleteStore.azureAccount", || {
             let mut config = valid_config();
             config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
-                provider: ObjectStoreProvider::AzureBlob,
+                provider: Some(ObjectStoreProvider::AzureBlob),
                 bucket: "hard-delete".to_owned(),
                 azure_blob_credentials: Some(
                     dexzd_object_store::AzureBlobCredentials::ManagedIdentity {
@@ -2455,7 +2455,7 @@ fn azure_blob_and_google_cloud_storage_settings_name_the_rejected_yaml_path() {
         ("objectStore.hardDeleteStore.credentialsSource", || {
             let mut config = valid_config();
             config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
-                provider: ObjectStoreProvider::GoogleCloudStorage,
+                provider: Some(ObjectStoreProvider::GoogleCloudStorage),
                 bucket: "hard-delete".to_owned(),
                 ..ObjectStoreLocationConfig::default()
             });
@@ -2467,6 +2467,60 @@ fn azure_blob_and_google_cloud_storage_settings_name_the_rejected_yaml_path() {
             Err(ConfigError::Invalid { field, .. }) => assert_eq!(field, expected_field),
             other => panic!("{expected_field} must be rejected, got {other:?}"),
         }
+    }
+}
+
+#[test]
+fn aliyun_oss_provider_parses_and_requires_a_virtual_hosted_endpoint() {
+    let parsed = Config::parse_yaml(
+        "objectStore:\n  provider: aliyunOSS\n  endpoint: https://s3.oss-cn-hangzhou.aliyuncs.com\n  region: cn-hangzhou\n",
+    )
+    .expect("aliyunOSS parses");
+    assert_eq!(parsed.object_store.provider, ObjectStoreProvider::AliyunOss);
+    assert!(Config::parse_yaml("objectStore:\n  provider: aliyunOss\n").is_err());
+
+    let aliyun_oss = || {
+        let mut configuration = valid_config();
+        configuration.object_store.provider = ObjectStoreProvider::AliyunOss;
+        configuration.object_store.endpoint = "https://s3.oss-cn-hangzhou.aliyuncs.com".to_owned();
+        configuration.object_store.region = "cn-hangzhou".to_owned();
+        configuration
+    };
+    aliyun_oss()
+        .validate()
+        .expect("a virtual-hosted endpoint is valid");
+    let cases: [InvalidConfigCase; 4] = [
+        ("objectStore.endpoint", |config| {
+            config.object_store.endpoint.clear()
+        }),
+        ("objectStore.forcePathStyle", |config| {
+            config.object_store.force_path_style = true
+        }),
+        ("objectStore.hardDeleteStore.endpoint", |config| {
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                bucket: "hard-delete".to_owned(),
+                ..ObjectStoreLocationConfig::default()
+            })
+        }),
+        ("objectStore.hardDeleteStore.forcePathStyle", |config| {
+            config.object_store.hard_delete_store = Some(ObjectStoreLocationConfig {
+                bucket: "hard-delete".to_owned(),
+                endpoint: "https://s3.oss-cn-hangzhou.aliyuncs.com".to_owned(),
+                force_path_style: true,
+                ..ObjectStoreLocationConfig::default()
+            })
+        }),
+    ];
+    for (expected_field, mutate) in cases {
+        let mut configuration = aliyun_oss();
+        mutate(&mut configuration);
+        let error = configuration
+            .validate()
+            .expect_err("the aliyunOSS configuration is invalid");
+        assert!(
+            matches!(error, ConfigError::Invalid { field, .. } if field == expected_field),
+            "{expected_field}: {error:?}"
+        );
     }
 }
 
@@ -2497,4 +2551,56 @@ fn dev_rejects_azure_blob_and_google_cloud_storage() {
         assert_eq!(field, "objectStore.provider");
         assert!(message.contains("serve mode"), "{message}");
     }
+}
+
+#[test]
+fn dev_rejects_the_aliyun_oss_provider_by_its_name() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let yaml_path = temporary.path().join("config.yaml");
+    fs::write(&yaml_path, "objectStore:\n  provider: aliyunOSS\n").expect("write test config");
+    let error = Config::load_dev(&DevCommandOptions {
+        data_dir: temporary.path().join("data"),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
+        log_dir: None,
+        config: Some(yaml_path),
+        attribute_store_config: None,
+        durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
+    })
+    .expect_err("dev must reject aliyunOSS");
+    assert!(
+        matches!(
+            &error,
+            ConfigError::Invalid { field: "objectStore.provider", message }
+                if message.starts_with("aliyunOSS requires serve mode")
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn flow_definition_key_budget_counts_the_aliyun_oss_version_suffix() {
+    let key_overhead = |provider, prefix: &str| {
+        let mut configuration = valid_config();
+        configuration.object_store.provider = provider;
+        configuration.object_store.prefix = prefix.to_owned();
+        ComponentConfigs::from_config(&configuration, false)
+            .expect("component config")
+            .flow_definitions
+            .object_key_prefix_bytes
+    };
+    assert_eq!(key_overhead(ObjectStoreProvider::S3, ""), 0);
+    assert_eq!(key_overhead(ObjectStoreProvider::S3, "cluster-a"), 10);
+    assert_eq!(key_overhead(ObjectStoreProvider::Db9, "cluster-a"), 10);
+    let version_suffix = dexzd_object_store::VERSION_OBJECT_KEY_SUFFIX_BYTES;
+    assert_eq!(version_suffix, 23);
+    assert_eq!(
+        key_overhead(ObjectStoreProvider::AliyunOss, ""),
+        version_suffix + 1
+    );
+    assert_eq!(
+        key_overhead(ObjectStoreProvider::AliyunOss, "cluster-a"),
+        10 + version_suffix + 1
+    );
 }
