@@ -262,12 +262,20 @@ async def test_sessions_lists_this_agents_sessions(cli_home: CliHome) -> None:
     child = cli_home.spawn()
     session_id = await read_session_id(child)
     await expect(child, "> ")
+    child.sendline("hello   the  list")
+    await expect(child, "echo: hello")
+    await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
     completed = cli_home.run("sessions")
     assert completed.returncode == 0, completed.stderr
-    assert session_id in completed.stdout
-    assert json.dumps(session_id)[1:-1] in completed.stdout
+    minute = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}"
+    assert re.search(
+        rf"^{re.escape(session_id)}  running  started {minute}  updated {minute}  1 turn  "
+        r"hello the list$",
+        completed.stdout,
+        re.MULTILINE,
+    ), completed.stdout
 
 
 async def test_a_failed_turn_makes_the_command_exit_1(cli_home: CliHome) -> None:

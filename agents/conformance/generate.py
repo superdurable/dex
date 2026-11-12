@@ -69,6 +69,7 @@ from dex_agents import (
     QUESTION_DEADLINE_PASSED,
     QUESTION_DECLINED_TOOL_RESULT,
     SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
+    SESSION_TITLE_MAX_CODE_POINTS,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
     TOOL_CALL_NOT_RUN_ERROR_PREFIX,
@@ -133,6 +134,7 @@ from dex_agents import (
     build_context_summary_prompt,
     build_plan_execution_message,
     build_plan_note,
+    build_session_title,
     build_turn_failure_note,
     describe_tool_call_outcome,
     message_sequence_key,
@@ -1412,6 +1414,14 @@ def persistence_kind(definition: object) -> str:
     raise TypeError(f"unknown persistence definition {definition!r}")
 
 
+def persistence_index(definition: object) -> dict[str, Any]:
+    """Return the ``index`` entry of an indexed Attribute, or nothing."""
+    index = getattr(definition, "index", None)
+    if index is None:
+        return {}
+    return {"index": {"type": index.type.value, "key": index.index_key}}
+
+
 def build_names() -> dict[str, Any]:
     flow = build_manifest_flow()
     registry = Registry([flow], allow_async_handlers=True)
@@ -1448,6 +1458,7 @@ def build_names() -> dict[str, Any]:
             "name": name,
             "kind": persistence_kind(definition),
             "value_type": type_name_of(definition.value_type),
+            **persistence_index(definition),
         }
         for name, definition in sorted(registered.persistence.items())
     ]
@@ -1520,8 +1531,10 @@ def build_names() -> dict[str, Any]:
                 "AgentPlan.updated_at",
                 "ContextSummary.created_at",
                 "TurnCancellationRequest.requested_at",
+                "AgentSessionLastActivityAt",
             ],
         },
+        "session_titles": build_session_title_cases(),
         "mcp_resource_and_prompt_tool_names": [
             tool.name for tool in build_resource_and_prompt_tools(MCP_SERVER_NAMES)
         ],
@@ -1543,6 +1556,32 @@ def build_names() -> dict[str, Any]:
             "message_rollover_max_bytes_per_commit": MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT,
             "default_retained_message_limit": DEFAULT_RETAINED_MESSAGE_LIMIT,
         },
+    }
+
+
+def build_session_title_cases() -> dict[str, Any]:
+    """Return first user messages with the ``AgentSessionTitle`` each core must derive."""
+    examples = [
+        ("plain", "Find open issues about flaky tests"),
+        ("whitespace-runs", "  Fix the\n\tflaky\r\n retry  test\f\v "),
+        ("long", "word " * 30),
+        ("cut-at-space", "a" * 79 + " tail"),
+        ("astral", "\U0001f600" * 90),
+        ("non-ascii-space-kept", "\u00a0caf\u00e9\u3000menu\u2028"),
+        ("only-whitespace", " \t\n "),
+    ]
+    return {
+        "format": (
+            "the first user message with each run of ASCII spaces, tabs, and line breaks "
+            "(U+0009 to U+000D and U+0020) made one space, leading and trailing spaces "
+            "removed, then cut to max_code_points Unicode code points without a trailing "
+            "space; null when nothing is left"
+        ),
+        "max_code_points": SESSION_TITLE_MAX_CODE_POINTS,
+        "examples": [
+            {"name": name, "message": message, "title": build_session_title(message)}
+            for name, message in examples
+        ],
     }
 
 

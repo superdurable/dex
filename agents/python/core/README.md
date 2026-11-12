@@ -1259,6 +1259,39 @@ does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
 `config_override`, or call `update_flow_config` for a running session. See
 [Find sessions that need a person](https://docs.superdurable.io/reference/agents/approvals#find-sessions).
 
+## Listing sessions
+
+Since 0.6.0, every session keeps a summary that a session list needs: its
+title, the first user message cut to 80 characters; the time its latest turn
+started or ended; and its turn count. `list_agent_sessions` reads one page of
+them in one `AsyncClient.search_flows` call, without a snapshot per session and
+without a running Worker:
+
+```python
+page = await list_agent_sessions(client, flow.get_flow_type(), title_search="refund")
+for session in sort_agent_sessions_by_last_activity(page.sessions):
+    print(session.session_id, session.title or "—", session.last_activity_at, session.turn_count)
+```
+
+- Dex returns running sessions first, then the most recently closed and
+  started ones. It cannot sort by last activity, so
+  `sort_agent_sessions_by_last_activity` sorts the sessions you loaded.
+- `title_search` matches whole words of the title, without case: `flaky`
+  finds "Fix the flaky test", `flak` does not. Pass the same `title_search`
+  with each `next_page_token`.
+- A session that an earlier release started has no title, so a title search
+  never finds it. It gains the last activity time and the turn count at its
+  next turn on this release. Show each missing value as a dash.
+- The three Attributes are indexed under `text1` (FULL_TEXT), `datetime1`
+  (DATETIME), and `int1` (INT), the generic keys that every Flow type of a
+  namespace shares. A Worker registers them when it starts. With PostgreSQL
+  search, a namespace has three keys of each of these types; when all three
+  are taken by other names, the Worker fails to start with
+  `ATTRIBUTE_INDEX_CAPACITY_EXCEEDED`. Search queries of other Flow types must
+  filter on `FlowType`.
+- The title is the user's own text, so it is in the search index. Do not put
+  secrets in a session's first message.
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
@@ -1375,6 +1408,9 @@ Persistence, shared by every agent Flow type and exported from `dex_agents`:
 | `PlanExecutions` | ChannelMap `PLAN_EXECUTIONS`, key `plan_execution_key(revision)` (decimal) | `PlanExecutionRequest` |
 | `PendingPlanExecution` | Attribute `PENDING_PLAN_EXECUTION` | `PlanExecutionRequest` that `execute_plan` accepted and `AwaitUserMessage` has not consumed |
 | `ContextSummary` | Attribute `CONTEXT_SUMMARY` | `ContextSummary`, set once the session compacts |
+| `AgentSessionTitle` | Attribute `AGENT_SESSION_TITLE`, indexed FULL_TEXT `text1` | `str`, the first user message's title; set by the first turn only |
+| `AgentSessionLastActivityAt` | Attribute `AGENT_SESSION_LAST_ACTIVITY_AT`, indexed DATETIME `datetime1` | `str`, RFC 3339 time the latest turn started or ended |
+| `AgentSessionTurnCount` | Attribute `AGENT_SESSION_TURN_COUNT`, indexed INT `int1` | `int`, `AgentState.turn_count` as of the latest turn start or end |
 | `AgentEvents` | Stream `flow.agent_events`, one per Flow type | `AgentEvent` |
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`,

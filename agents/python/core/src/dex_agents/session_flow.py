@@ -98,6 +98,9 @@ from dex_agents.persistence import (
     AGENT_MESSAGE_INDEX,
     AGENT_MESSAGES,
     AGENT_PLAN,
+    AGENT_SESSION_LAST_ACTIVITY_AT,
+    AGENT_SESSION_TITLE,
+    AGENT_SESSION_TURN_COUNT,
     AGENT_STATE,
     AGENT_TOOL_CALLS,
     AGENT_TRACE_CONTEXT,
@@ -170,6 +173,7 @@ from dex_agents.runner import (
     build_turn_failure_note,
 )
 from dex_agents.session_settings import check_stored_session_settings
+from dex_agents.session_summary import build_session_title
 from dex_agents.spend_limit import (
     MODEL_CALL_REFUSED_ERROR_PREFIX,
     SPEND_LIMIT_CALL_TIMEOUT,
@@ -742,6 +746,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             CONTEXT_SUMMARY,
             SESSION_SETTINGS,
             TURN_SESSION_SETTINGS,
+            AGENT_SESSION_TITLE,
+            AGENT_SESSION_LAST_ACTIVITY_AT,
+            AGENT_SESSION_TURN_COUNT,
             self.agent_events,
         )
 
@@ -1249,6 +1256,9 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     accepts_turn_control=True,
                 ),
             )
+            _record_session_activity(context, state.turn_count)
+            if state.turn_count == 0 and messages:
+                _record_session_title(context, messages[0].text)
             events = self._event_writer(context, turn_id)
             events.write_event(AgentEventType.TURN_STARTED, {"sequence": sequence})
             if executed_plan is not None:
@@ -1668,6 +1678,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 last_turn_error=turn_error,
             ),
         )
+        _record_session_activity(context, state.turn_count + 1)
         if turn_error is not None:
             events.write_event(AgentEventType.TURN_FAILED, {"error": turn_error})
             return go_to(self._await_user_message, None)
@@ -2728,6 +2739,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 last_turn_error=None,
             ),
         )
+        _record_session_activity(context, state.turn_count + 1)
         message_count = stored_message_count + len(messages)
         if is_cancelled:
             events.write_event(AgentEventType.TURN_CANCELLED, {"message_count": message_count})
@@ -2762,17 +2774,19 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             FRAMEWORK_RUN_STATE.delete(context)
         if _pending_interrupts(context):
             PENDING_INTERRUPTS.set(context, [])
+        turn_count = state.turn_count + (0 if state.active_turn_id is None else 1)
         AGENT_STATE.set(
             context,
             replace(
                 state,
                 status=AgentSessionStatus.FAILED,
-                turn_count=state.turn_count + (0 if state.active_turn_id is None else 1),
+                turn_count=turn_count,
                 active_turn_id=None,
                 accepts_turn_control=False,
                 last_turn_error=error,
             ),
         )
+        _record_session_activity(context, turn_count)
         events = self._event_writer(context, state.active_turn_id)
         events.write_event(AgentEventType.TURN_FAILED, {"error": error})
         return force_fail(error)
@@ -2812,6 +2826,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 last_turn_error=error,
             ),
         )
+        _record_session_activity(context, state.turn_count + 1)
         events.write_event(AgentEventType.TURN_FAILED, {"error": error})
         return go_to(self._await_user_message, None)
 
@@ -3021,6 +3036,7 @@ class StartAgentSession(Step[AgentSessionStartInput]):
             if input.session_settings:
                 SESSION_SETTINGS.set(context, input.session_settings)
         AGENT_STATE.set(context, AgentState(status=AgentSessionStatus.WAITING_FOR_USER_MESSAGE))
+        _record_session_activity(context, 0)
         AGENT_USAGE.set(context, AgentUsage())
         PENDING_INTERRUPTS.set(context, [])
         if input.initial_message is None or not input.initial_message.strip():
@@ -3790,6 +3806,21 @@ def _validate_framework_message(message: object) -> None:
         if not isinstance(getattr(message, name), str | None):
             raise TypeError(f"FrameworkMessage.{name} must be a str or None")
     validate_image_references(list(message.images))
+
+
+def _record_session_activity(context: Context, turn_count: int) -> None:
+    """Write the session's last activity time and, when it changed, its turn count."""
+    # The Step's scheduled time comes from Dex and stays the same across retries.
+    AGENT_SESSION_LAST_ACTIVITY_AT.set(context, _rfc3339(context.first_attempt_at))
+    if AGENT_SESSION_TURN_COUNT.get(context) != turn_count:
+        AGENT_SESSION_TURN_COUNT.set(context, turn_count)
+
+
+def _record_session_title(context: Context, first_message_text: str) -> None:
+    """Write the session's title from its first user message, unless it already has one."""
+    title = build_session_title(first_message_text)
+    if title is not None and AGENT_SESSION_TITLE.get(context) is None:
+        AGENT_SESSION_TITLE.set(context, title)
 
 
 def _rfc3339(moment: datetime) -> str:

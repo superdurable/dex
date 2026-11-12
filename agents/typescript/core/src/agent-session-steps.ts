@@ -170,6 +170,7 @@ export class StartAgentSessionStep implements Step<AgentSessionStartInput> {
       }
     }
     this.transitions.writeAgentState(context, state);
+    this.transitions.recordSessionActivity(context, 0);
     persistence.agentUsage.set(context, emptyAgentUsage());
     persistence.pendingInterrupts.set(context, []);
     const initialMessage = input.initialMessage;
@@ -504,6 +505,7 @@ export class RunModelStep implements Step<void> {
       lastTurnError: turnError,
       acceptsTurnControl: false,
     });
+    transitions.recordSessionActivity(context, state.turnCount + 1);
     if (turnError !== null) {
       events.writeEvent("turn_failed", { error: turnError });
       return transitions.goToAwaitUserMessage();
@@ -1520,14 +1522,16 @@ function recordFailedSession(
   if (transitions.readPendingInterrupts(context).length > 0) {
     persistence.pendingInterrupts.set(context, []);
   }
+  const turnCount = state.turnCount + (state.activeTurnId === null ? 0 : 1);
   transitions.writeAgentState(context, {
     ...state,
     status: "failed",
-    turnCount: state.turnCount + (state.activeTurnId === null ? 0 : 1),
+    turnCount,
     activeTurnId: null,
     lastTurnError: error,
     acceptsTurnControl: false,
   });
+  transitions.recordSessionActivity(context, turnCount);
   transitions.writeEvents(context, state.activeTurnId, (events) => events.writeEvent("turn_failed", { error }));
   return forceFail(error);
 }
@@ -1572,6 +1576,7 @@ function recordFailedTurn(
     lastTurnError: turnError,
     acceptsTurnControl: false,
   });
+  transitions.recordSessionActivity(context, state.turnCount + 1);
   transitions.writeEvents(context, turnId, (events) => events.writeEvent("turn_failed", { error: turnError }));
   return transitions.goToAwaitUserMessage();
 }

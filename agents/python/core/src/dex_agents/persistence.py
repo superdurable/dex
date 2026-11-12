@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dex import Attribute, AttributeMap, Channel, ChannelMap
+from dex import Attribute, AttributeIndex, AttributeMap, Channel, ChannelMap, IndexType
 
 from dex_agents.values import (
     AgentInterrupt,
@@ -137,6 +137,33 @@ SESSION_SETTINGS: Attribute[dict[str, Any]] = Attribute("SessionSettings", dict[
 #: when the turn began. A copy from an earlier turn reads as no settings.
 TURN_SESSION_SETTINGS: Attribute[TurnSessionSettings] = Attribute(
     "TurnSessionSettings", TurnSessionSettings
+)
+
+#: The session's title: its first user message with each run of spaces, tabs, and line
+#: breaks made one space, cut to 80 code points. Set by the session's first turn only, so
+#: a session that an earlier release started never has one. Indexed as FULL_TEXT under
+#: ``text1``. See ``list_agent_sessions``.
+#:
+#: .. versionadded:: 0.6.0
+AGENT_SESSION_TITLE: Attribute[str] = Attribute(
+    "AgentSessionTitle", str, AttributeIndex(IndexType.FULL_TEXT, "text1")
+)
+
+#: When the latest turn started or ended, as RFC 3339 UTC text with milliseconds, such as
+#: ``2026-11-02T09:30:00.000Z``. It is the time Dex scheduled the Step that started or ended
+#: the turn, at one-second precision. Indexed as DATETIME under ``datetime1``.
+#:
+#: .. versionadded:: 0.6.0
+AGENT_SESSION_LAST_ACTIVITY_AT: Attribute[str] = Attribute(
+    "AgentSessionLastActivityAt", str, AttributeIndex(IndexType.DATETIME, "datetime1")
+)
+
+#: ``AgentState.turn_count`` as of the latest turn start or end: the turns that completed,
+#: failed, or ended by steering or cancellation. Indexed as INT under ``int1``.
+#:
+#: .. versionadded:: 0.6.0
+AGENT_SESSION_TURN_COUNT: Attribute[int] = Attribute(
+    "AgentSessionTurnCount", int, AttributeIndex(IndexType.INT, "int1")
 )
 
 #: Default ``AgentEvents`` Stream capacity: 10 MiB.

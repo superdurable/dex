@@ -17,7 +17,9 @@ import { parseArgs } from "node:util";
 import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
   LocalDirectoryMediaStore,
+  listAgentSessions,
   sessionFlowDefinitionDocument,
+  sortAgentSessionsByLastActivity,
   startAgentSession,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
@@ -64,7 +66,6 @@ import { TurnConfigResolver } from "./turn-config-resolver.js";
 
 const subcommands = ["run", "init", "connectors", "sessions"] as const;
 type Subcommand = (typeof subcommands)[number];
-const sessionsPageSize = 50;
 const blobCacheBytes = 256 * 1024 * 1024;
 
 /**
@@ -574,13 +575,22 @@ class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     });
-    const page = await this.client.searchFlows(`FlowType = "${flowType}"`, sessionsPageSize);
-    if (page.flows.length === 0) {
+    const page = await listAgentSessions(this.client, flowType);
+    if (page.sessions.length === 0) {
       this.io.stdout.write(`No ${flowType} sessions.\n`);
       return 0;
     }
-    for (const flow of page.flows) {
-      this.io.stdout.write(`${flow.flowId}\t${flow.status}\t${flow.startedAt.toISOString()}\n`);
+    // A session an earlier release started has no summary fields; "—" stands for each one.
+    for (const session of sortAgentSessionsByLastActivity(page.sessions)) {
+      const columns = [
+        session.sessionId,
+        session.status,
+        session.startedAt.toISOString(),
+        session.lastActivityAt?.toISOString() ?? "—",
+        session.turnCount === null ? "—" : String(session.turnCount),
+        session.title ?? "—",
+      ];
+      this.io.stdout.write(`${columns.join("\t")}\n`);
     }
     this.io.stdout.write(`Resume one with: dex-agents-${this.harness.name} --resume <session>\n`);
     return 0;

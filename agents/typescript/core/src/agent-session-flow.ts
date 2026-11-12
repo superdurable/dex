@@ -600,6 +600,12 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     public readonly turnSessionSettings = persistence.turnSessionSettings;
     /** The `TurnReplySequence` Attribute; see {@link AgentSessionPersistence.turnReplySequence}. */
     public readonly turnReplySequence = persistence.turnReplySequence;
+    /** The `AgentSessionTitle` Attribute; see {@link AgentSessionPersistence.agentSessionTitle}. */
+    public readonly agentSessionTitle = persistence.agentSessionTitle;
+    /** The `AgentSessionLastActivityAt` Attribute; see {@link AgentSessionPersistence.agentSessionLastActivityAt}. */
+    public readonly agentSessionLastActivityAt = persistence.agentSessionLastActivityAt;
+    /** The `AgentSessionTurnCount` Attribute; see {@link AgentSessionPersistence.agentSessionTurnCount}. */
+    public readonly agentSessionTurnCount = persistence.agentSessionTurnCount;
     private readonly steps = StepList.startStep<AgentSessionStartInput>(
       new StartAgentSessionStep(transitions),
     ).otherSteps(
@@ -654,6 +660,9 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
           persistence.sessionSettings,
           persistence.turnSessionSettings,
           persistence.turnReplySequence,
+          persistence.agentSessionTitle,
+          persistence.agentSessionLastActivityAt,
+          persistence.agentSessionTurnCount,
         ],
         channels: [
           persistence.queuedUserMessages,

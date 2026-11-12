@@ -34,6 +34,7 @@ import {
   type ToolPolicy,
 } from "./agent-framework-runner.js";
 import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
+import { buildSessionTitle } from "./agent-session-summary.js";
 import {
   modelCallRefusedErrorPrefix,
   withinSpendLimitCallTimeout,
@@ -152,6 +153,23 @@ export class AgentSessionTransitions {
 
   public writeAgentState(context: Context, state: AgentState): void {
     this.persistence.agentState.set(context, state);
+  }
+
+  /** Writes the session's last activity time and, when it changed, its turn count. */
+  public recordSessionActivity(context: Context, turnCount: number): void {
+    // The Step's scheduled time comes from Dex and stays the same across retries.
+    this.persistence.agentSessionLastActivityAt.set(context, context.firstAttemptAt.toISOString());
+    if (this.persistence.agentSessionTurnCount.get(context) !== turnCount) {
+      this.persistence.agentSessionTurnCount.set(context, turnCount);
+    }
+  }
+
+  /** Writes the session's title from its first user message, unless it already has one. */
+  public recordSessionTitle(context: Context, firstMessageText: string): void {
+    const title = buildSessionTitle(firstMessageText);
+    if (title !== null && this.persistence.agentSessionTitle.get(context) === undefined) {
+      this.persistence.agentSessionTitle.set(context, title);
+    }
   }
 
   public readPendingInterrupts(context: Context): readonly AgentInterrupt[] {
@@ -771,6 +789,11 @@ export class AgentSessionTransitions {
           interactionMode,
           acceptsTurnControl: true,
         });
+        this.recordSessionActivity(context, state.turnCount);
+        const firstMessage = messages[0];
+        if (state.turnCount === 0 && firstMessage !== undefined) {
+          this.recordSessionTitle(context, firstMessage.text);
+        }
         this.writeEvents(context, turnId, (events) => {
           events.writeEvent("turn_started", { sequence });
           if (executedPlan !== undefined) {
@@ -856,6 +879,7 @@ export class AgentSessionTransitions {
       acceptsTurnControl: false,
     };
     transitions.writeAgentState(context, endedState);
+    transitions.recordSessionActivity(context, endedState.turnCount);
     const messageCount = storedMessageCount + messages.length;
     transitions.writeEvents(context, turnId, (events) =>
       isCancelled

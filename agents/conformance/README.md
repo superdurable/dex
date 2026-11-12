@@ -21,7 +21,7 @@ tool, MCP tool, and image tests, and `cli_config.json` and
 | Path | What it fixes |
 | --- | --- |
 | [`values/`](values) | Golden wire values, one file per value type |
-| [`names.json`](names.json) | Step types, RPCs, persistence names, event types, enums, map keys, ID and timestamp formats |
+| [`names.json`](names.json) | Step types, RPCs, persistence names and their index keys, event types, enums, map keys, ID and timestamp formats, and the session title rule |
 | [`texts.json`](texts.json) | Every model-visible text the session writes |
 | [`transcripts/`](transcripts) | Scripted-turn scenarios and the transcript each core must reproduce |
 | [`session_graph.json`](session_graph.json) | The session Flow Definition Graph that Dex Web loads, with placeholders for the Flow type and the Action permission |

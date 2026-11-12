@@ -14,6 +14,7 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,10 +27,12 @@ from dex_agents import (
     AGENT_MESSAGES,
     AgentEventType,
     AgentMessageIndex,
+    AgentSessionSummary,
     InterruptKind,
+    list_agent_sessions,
     message_sequence_key,
 )
-from dex_agents.testing import wait_for_agent_snapshot
+from dex_agents.testing import wait_for_agent_snapshot, wait_until
 from tests.conftest import ScriptedAgentHarness
 from tests.public_api_shape import describe_public_api
 from tests.scripted_agent import (
@@ -288,6 +291,53 @@ async def test_a_session_the_released_worker_stored_moves_into_chunks_over_sever
     ]
     assert completed[25] == len(publish_turn) - 1
     assert completed == [1] * 25 + [len(publish_turn) - 1] + [1] * (turns - 26)
+
+
+async def test_a_session_the_released_worker_ran_lists_without_a_title(
+    harness: ScriptedAgentHarness,
+    released_python: str,
+) -> None:
+    released_worker = await harness.stack.start_worker(python_executable=released_python)
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "say refund order 7")
+    await harness.wait_for_turns(session_id, 1)
+    released = await _wait_for_listed_session(harness, session_id, lambda _: True)
+    assert (released.title, released.last_activity_at, released.turn_count) == (None, None, None)
+
+    released_worker.kill()
+    await harness.stack.start_worker()
+    assert await harness.sessions.send_user_message(session_id, "say refund again")
+    await harness.wait_for_turns(session_id, 2)
+    upgraded = await _wait_for_listed_session(
+        harness, session_id, lambda session: session.turn_count == 2
+    )
+
+    # Only the first turn sets a title, so the session never gets one or matches a title search.
+    assert upgraded.title is None
+    assert upgraded.last_activity_at is not None
+    titled = await list_agent_sessions(
+        harness.stack.client, harness.flow.get_flow_type(), title_search="refund"
+    )
+    assert titled.sessions == []
+
+
+async def _wait_for_listed_session(
+    harness: ScriptedAgentHarness,
+    session_id: str,
+    is_expected: Callable[[AgentSessionSummary], bool],
+) -> AgentSessionSummary:
+    async def probe() -> AgentSessionSummary | None:
+        page = await list_agent_sessions(harness.stack.client, harness.flow.get_flow_type())
+        return next(
+            (
+                session
+                for session in page.sessions
+                if session.session_id == session_id and is_expected(session)
+            ),
+            None,
+        )
+
+    return await wait_until(f"{session_id} in the session list", probe)
 
 
 @dataclass(frozen=True)

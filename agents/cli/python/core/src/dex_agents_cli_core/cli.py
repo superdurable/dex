@@ -40,9 +40,12 @@ from dex import (
 
 from dex_agents import (
     AgentSessionClient,
+    AgentSessionSummary,
     LocalDirectoryMediaStore,
     MediaStore,
+    list_agent_sessions,
     session_flow_definition_document,
+    sort_agent_sessions_by_last_activity,
 )
 from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli_core.chat import Terminal, TerminalChat
@@ -87,7 +90,6 @@ _BLOB_CACHE_BYTES = 64 * 1024 * 1024
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
 # How long the command waits for the session graph upload before it logs a failure.
 _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
-_SESSION_LIST_PAGE_SIZE = 50
 _SESSION_START_TIMEOUT_SECONDS = 60.0
 _SESSION_START_POLL_SECONDS = 0.1
 _LOGGER = logging.getLogger(__name__)
@@ -602,16 +604,15 @@ async def _list_sessions(
         ClientOptions(server_address=endpoint.address, flow_service_tls=tls),
     )
     try:
-        page = await client.search_flows(f"FlowType = {_quote(flow_type)}", _SESSION_LIST_PAGE_SIZE)
+        page = await list_agent_sessions(client, flow_type)
     finally:
         await client.close()
         blob_cache.close()
-    if not page.flows:
+    if not page.sessions:
         print("No sessions yet.")
         return 0
-    for entry in page.flows:
-        started = entry.started_at.astimezone().strftime("%Y-%m-%d %H:%M")
-        print(f"{entry.flow_id}  {entry.status.name.lower()}  started {started}")
+    for session in sort_agent_sessions_by_last_activity(page.sessions):
+        print(_session_line(session))
     print(f"Resume one with: {command_name(harness)} --resume <session-id>")
     return 0
 
@@ -667,5 +668,20 @@ async def _print_connections(web_url: str) -> None:
         )
 
 
-def _quote(text: str) -> str:
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+def _session_line(session: AgentSessionSummary) -> str:
+    """Return one ``sessions`` line; an earlier release's session lacks the last three parts."""
+    line = (
+        f"{session.session_id}  {session.status.name.lower()}  "
+        f"started {_local_minute(session.started_at)}"
+    )
+    if session.last_activity_at is not None:
+        line += f"  updated {_local_minute(session.last_activity_at)}"
+    if session.turn_count is not None:
+        line += f"  {session.turn_count} {'turn' if session.turn_count == 1 else 'turns'}"
+    if session.title is not None:
+        line += f"  {session.title}"
+    return line
+
+
+def _local_minute(moment: datetime) -> str:
+    return moment.astimezone().strftime("%Y-%m-%d %H:%M")

@@ -6,7 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { Attribute, AttributeMap, Channel, ChannelMap, Stream, stringCodec } from "@superdurable/dex";
+import {
+  Attribute,
+  AttributeMap,
+  Channel,
+  ChannelMap,
+  IndexType,
+  Stream,
+  int64Codec,
+  stringCodec,
+  type Codec,
+} from "@superdurable/dex";
 
 import {
   agentEventCodec,
@@ -52,6 +62,17 @@ import type {
   TurnCancellationRequest,
   TurnControlRequest,
 } from "./agent-session-values.js";
+
+/** Index keys of the session summary Attributes, shared with the Python core. */
+export const sessionSummaryIndexKeys = { title: "text1", lastActivityAt: "datetime1", turnCount: "int1" } as const;
+
+// An int64 Value, as the Python core's Attribute[int] encodes it.
+const turnCountCodec: Codec<number> = {
+  typeName: "AgentSessionTurnCount",
+  wireKind: "int64",
+  encode: (value) => int64Codec.encode(BigInt(value)),
+  decode: (value) => Number(int64Codec.decode(value)),
+};
 
 /** Default byte budget of the `AgentEvents` Stream: 10 MiB. */
 export const defaultAgentEventsCapacityBytes = 10 * 1024 * 1024;
@@ -159,6 +180,30 @@ export interface AgentSessionPersistence {
    * that starts a turn writes it; turn events count the replies from it.
    */
   readonly turnReplySequence: Attribute<TurnReplySequence>;
+  /**
+   * The `AgentSessionTitle` Attribute: the session's first user message with each run of spaces, tabs, and line
+   * breaks made one space, cut to 80 code points; see `buildSessionTitle`. Only the session's first turn sets
+   * it, so a session that an earlier release started never has one. Indexed as `FULL_TEXT` under `text1`; see
+   * `listAgentSessions`.
+   *
+   * @since 0.6.0
+   */
+  readonly agentSessionTitle: Attribute<string>;
+  /**
+   * The `AgentSessionLastActivityAt` Attribute: when the latest turn started or ended, as RFC 3339 UTC text with
+   * milliseconds, such as `2026-11-02T09:30:00.000Z`. It is the time Dex scheduled the Step that started or ended the
+   * turn, at one-second precision. Indexed as `DATETIME` under `datetime1`.
+   *
+   * @since 0.6.0
+   */
+  readonly agentSessionLastActivityAt: Attribute<string>;
+  /**
+   * The `AgentSessionTurnCount` Attribute: {@link AgentState.turnCount} as of the latest turn start or end, the turns
+   * that completed, failed, or ended by steering or cancellation. Indexed as `INT` under `int1`.
+   *
+   * @since 0.6.0
+   */
+  readonly agentSessionTurnCount: Attribute<number>;
 }
 
 export function createAgentSessionPersistence(
@@ -189,6 +234,18 @@ export function createAgentSessionPersistence(
     sessionSettings: new Attribute("SessionSettings", sessionSettingsCodec),
     turnSessionSettings: new Attribute("TurnSessionSettings", turnSessionSettingsCodec),
     turnReplySequence: new Attribute("TurnReplySequence", turnReplySequenceCodec),
+    agentSessionTitle: new Attribute("AgentSessionTitle", stringCodec, {
+      type: IndexType.FULL_TEXT,
+      indexKey: sessionSummaryIndexKeys.title,
+    }),
+    agentSessionLastActivityAt: new Attribute("AgentSessionLastActivityAt", stringCodec, {
+      type: IndexType.DATETIME,
+      indexKey: sessionSummaryIndexKeys.lastActivityAt,
+    }),
+    agentSessionTurnCount: new Attribute("AgentSessionTurnCount", turnCountCodec, {
+      type: IndexType.INT,
+      indexKey: sessionSummaryIndexKeys.turnCount,
+    }),
   };
 }
 

@@ -198,6 +198,16 @@ export {
   type SessionFlowGraphOptions,
 } from "./agent-session-flow-graph.js";
 export { agentSessionActiveStepSearchMode, startAgentSession } from "./agent-session-start.js";
+export {
+  buildSessionTitle,
+  defaultSessionListPageSize,
+  listAgentSessions,
+  sessionTitleMaxCodePoints,
+  sortAgentSessionsByLastActivity,
+  type AgentSessionSummary,
+  type AgentSessionSummaryPage,
+  type ListAgentSessionsOptions,
+} from "./agent-session-summary.js";
 export { invalidStartSessionSettingsReason } from "./agent-session-steps.js";
 export {
   genAISemanticConventionsSchemaUrls,

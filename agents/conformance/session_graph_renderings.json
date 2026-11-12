@@ -4,15 +4,15 @@
     {
       "flow_type": "SupportAgent",
       "action_permission": "support-agent.operate",
-      "sha256": "d3128928babdd06d98e516f5b87baac51e38643eeb65ef193a2c752452f33f10"
+      "sha256": "2daf6040473817a4f9247a4bbbb5027308d9423471b09c6cd2e8090953a75b9d"
     },
     {
       "flow_type": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok> \u0001",
       "action_permission": "a.b-c1",
-      "sha256": "67924720969db5a8f52944f85fe7f37e5492b27e9e7c5271208a2f5faa8661c8"
+      "sha256": "eb6a5cf84e4a5aafda5a745f36b949c20b49d7183040fe89f1c6820c2feed180"
     }
   ],
-  "generated_at": "2026-11-10T07:43:04.000Z",
+  "generated_at": "2026-11-11T12:00:00.000Z",
   "generated_at_description": "The generated_at of every session Flow definition document a core returns. It changes to a later time whenever template_sha256 changes.",
-  "template_sha256": "1ce042a06781614311db772ab21f14644f21c9459ad1248454042798bf4629e3"
+  "template_sha256": "51e97b706959cc8cae3c94766a6b63cee63fdab77610474651b2c00b5512900b"
 }

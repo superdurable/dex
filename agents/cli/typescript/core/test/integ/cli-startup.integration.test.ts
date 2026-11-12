@@ -279,10 +279,13 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
     const chat = start(home);
     const sessionId = await chat.waitForSession();
+    chat.writeLine("hello   the  list");
+    await chat.stdout.waitFor("echo: hello");
     chat.writeLine("/exit");
     assert.equal(await chat.waitForExit(), 0);
     const list = start(home, ["sessions"]);
     assert.equal(await list.waitForExit(), 0);
-    assert.match(list.stdout.all, new RegExp(`${sessionId}\\trunning`));
+    const time = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
+    assert.match(list.stdout.all, new RegExp(`^${sessionId}\\trunning\\t${time}\\t${time}\\t1\\thello the list$`, "m"));
   });
 });
