@@ -25,6 +25,10 @@ pub struct SnapshotConfig {
     /// Defaults to 24 h. Log batches are deleted only when a snapshot at least this old covers
     /// them, and older snapshots are deleted only this long after a newer one exists.
     pub deletion_delay: Duration,
+    /// Defaults to false. When true, snapshots leave out zero-byte write-ahead log files; see
+    /// [`dexzd_storage::SnapshotUploadOptions`]. Set it for an object store that cannot create
+    /// an empty object with a create-only write.
+    pub should_skip_empty_write_ahead_log_files: bool,
 }
 
 impl Default for SnapshotConfig {
@@ -36,6 +40,7 @@ impl Default for SnapshotConfig {
             retry_delay: Duration::from_secs(30),
             retained_count: 3,
             deletion_delay: Duration::from_secs(24 * 60 * 60),
+            should_skip_empty_write_ahead_log_files: false,
         }
     }
 }

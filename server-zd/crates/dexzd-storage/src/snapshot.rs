@@ -37,6 +37,16 @@ pub struct SnapshotIdentity {
     pub created_at_unix_micros: i64,
 }
 
+/// Which checkpoint files [`create_snapshot`] leaves out of a snapshot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SnapshotUploadOptions {
+    /// Defaults to false. When true, zero-byte write-ahead log files (names ending in `.log`) are
+    /// neither uploaded nor listed in the snapshot manifest. A RocksDB checkpoint flushes its
+    /// memtables first, so its newest write-ahead log is usually empty and holds no data. Set it
+    /// for an object store that cannot create an empty object with a create-only write.
+    pub should_skip_empty_write_ahead_log_files: bool,
+}
+
 pub trait SnapshotSource: LocalStore {
     fn export_snapshot(
         &self,
@@ -140,12 +150,15 @@ impl LocalStore for RestoredLocalStore {
 }
 
 /// Uploads a snapshot of `store`; `node_meta_lock` guards every NodeMeta read-modify-write.
+///
+/// `options` selects the checkpoint files that the snapshot leaves out.
 pub async fn create_snapshot<S: SnapshotSource>(
     store: &S,
     object_store: &dyn ObjectStore,
     identity: &SnapshotIdentity,
     snapshot_number: u64,
     node_meta_lock: &Mutex<()>,
+    options: SnapshotUploadOptions,
 ) -> StorageResult<(String, SnapshotManifest)> {
     validate_node_identifier(&identity.node_id)?;
     let node_meta = store
@@ -179,6 +192,12 @@ pub async fn create_snapshot<S: SnapshotSource>(
             continue;
         }
         let path = entry.path();
+        if options.should_skip_empty_write_ahead_log_files
+            && file_name.ends_with(".log")
+            && entry.metadata()?.len() == 0
+        {
+            continue;
+        }
         let (size_bytes, checksum) = file_checksum(&path)?;
         // Immutable files keep unique names; mutable files use content hashes in their object keys.
         let immutable_file = file_name.ends_with(".sst") || file_name.ends_with(".blob");

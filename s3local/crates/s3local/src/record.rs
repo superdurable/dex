@@ -150,6 +150,9 @@ pub struct VersionRecord {
     /// Number of parts for an object completed by a multipart upload.
     #[serde(default)]
     pub parts_count: Option<u32>,
+    /// Whether an AppendObject of the Tencent COS dialect wrote this version.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_appendable: bool,
 }
 
 /// An in-progress multipart upload, persisted in the `uploads` table.

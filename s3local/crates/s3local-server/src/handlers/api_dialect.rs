@@ -30,11 +30,21 @@ impl DialectWriteCondition {
         operation: &str,
         dialect: S3ApiDialect,
     ) -> Result<Self, S3Error> {
-        if dialect == S3ApiDialect::AmazonS3 {
-            return Ok(Self {
-                condition: write_condition(headers, operation)?,
-                is_forbid_overwrite: false,
-            });
+        match dialect {
+            S3ApiDialect::AmazonS3 => {
+                return Ok(Self {
+                    condition: write_condition(headers, operation)?,
+                    is_forbid_overwrite: false,
+                });
+            }
+            // Tencent COS silently overwrites despite If-None-Match, If-Match, or forbid-overwrite.
+            S3ApiDialect::TencentCos => {
+                return Ok(Self {
+                    condition: WriteCondition::Unconditional,
+                    is_forbid_overwrite: false,
+                });
+            }
+            S3ApiDialect::AliyunOss => {}
         }
         if headers.contains_key("if-none-match") || headers.contains_key("if-match") {
             // Aliyun OSS answers 400, not S3's 501, for conditional writes.
@@ -69,22 +79,31 @@ impl DialectWriteCondition {
     }
 }
 
-/// Aliyun OSS requires `Content-MD5` on DeleteObjects; its value is verified with the body.
+/// Aliyun OSS and Tencent COS require `Content-MD5` on DeleteObjects; its value is verified with
+/// the body.
 pub(super) fn require_delete_objects_content_md5(
     headers: &HeaderMap,
     dialect: S3ApiDialect,
 ) -> Result<(), S3Error> {
-    if dialect == S3ApiDialect::AliyunOss && header_text(headers, "content-md5").is_none() {
-        return Err(S3Error::new(
+    if header_text(headers, "content-md5").is_some() {
+        return Ok(());
+    }
+    match dialect {
+        S3ApiDialect::AmazonS3 => Ok(()),
+        S3ApiDialect::AliyunOss => Err(S3Error::new(
             StatusCode::BAD_REQUEST,
             "MissingArgument",
             "Missing Some Required Arguments: Content-MD5",
-        ));
+        )),
+        S3ApiDialect::TencentCos => Err(S3Error::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidRequest",
+            "Content-MD5 is required for a multi-object delete",
+        )),
     }
-    Ok(())
 }
 
-/// Aliyun OSS UploadPart responses carry only the ETag.
+/// Aliyun OSS and Tencent COS UploadPart responses carry only the ETag.
 pub(super) fn echoes_part_checksum(dialect: S3ApiDialect) -> bool {
     dialect == S3ApiDialect::AmazonS3
 }

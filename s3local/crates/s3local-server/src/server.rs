@@ -459,6 +459,14 @@ async fn dispatch(
         S3Operation::PutObject { bucket, key } => {
             handlers::put_object(store, bucket, key, parts.headers, body, api_dialect).await
         }
+        S3Operation::AppendObject { bucket, key, query } => match api_dialect {
+            S3ApiDialect::TencentCos => {
+                handlers::append_object(store, bucket, key, query, parts.headers, body).await
+            }
+            S3ApiDialect::AmazonS3 | S3ApiDialect::AliyunOss => {
+                Err(S3Error::not_implemented("AppendObject"))
+            }
+        },
         S3Operation::CopyObject {
             bucket,
             key,

@@ -26,7 +26,8 @@ pub use memory_store::InMemoryLocalStore;
 pub use rocksdb_store::{RocksDbLocalStore, RocksDbStoreOptions};
 pub use snapshot::{
     DEFAULT_SNAPSHOT_RETENTION, RestoredLocalStore, SnapshotIdentity, SnapshotSource,
-    create_snapshot, restore_snapshot, restore_snapshot_with_lineage_id, retain_snapshots,
+    SnapshotUploadOptions, create_snapshot, restore_snapshot, restore_snapshot_with_lineage_id,
+    retain_snapshots,
 };
 pub use state_comparison::{
     CanonicalizedStoreField, StateComparisonError, StateDifference, compare_store_views,

@@ -18,3 +18,4 @@ mod multipart;
 mod observations;
 mod signatures;
 mod support;
+mod tencent_cos_dialect;

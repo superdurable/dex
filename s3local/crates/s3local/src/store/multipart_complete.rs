@@ -145,6 +145,7 @@ impl Store {
             etag: multipart_etag(&selected),
             checksum,
             parts_count: Some(part_count),
+            is_appendable: false,
         };
         let completed_upload = CompletedUpload {
             upload_key,

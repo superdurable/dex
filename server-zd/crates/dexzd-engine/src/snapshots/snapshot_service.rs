@@ -15,7 +15,8 @@ use dexzd_cluster_metadata::ManifestChange;
 use dexzd_object_store::ObjectStore;
 use dexzd_protocol::dexzd::v1::{LogPosition, Manifest, SnapshotManifest, SnapshotReference};
 use dexzd_storage::{
-    LocalReadView, LocalStore, RestoredLocalStore, SnapshotIdentity, StorageError, create_snapshot,
+    LocalReadView, LocalStore, RestoredLocalStore, SnapshotIdentity, SnapshotUploadOptions,
+    StorageError, create_snapshot,
 };
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio::time::{Instant, MissedTickBehavior};
@@ -271,6 +272,11 @@ impl SnapshotService {
         };
         let node_meta_lock = self.node_meta_lock.clone();
         let id_source = self.id_source.clone();
+        let upload_options = SnapshotUploadOptions {
+            should_skip_empty_write_ahead_log_files: self
+                .config
+                .should_skip_empty_write_ahead_log_files,
+        };
         let created = match self.blocking_work {
             BlockingWorkPlacement::BlockingThreadPool => {
                 let runtime = tokio::runtime::Handle::current();
@@ -298,6 +304,7 @@ impl SnapshotService {
                         &identity,
                         snapshot_number,
                         &node_meta_lock,
+                        upload_options,
                     ))
                 })
                 .await
@@ -324,6 +331,7 @@ impl SnapshotService {
                             &identity,
                             snapshot_number,
                             &node_meta_lock,
+                            upload_options,
                         )
                         .await
                     }
@@ -430,6 +438,7 @@ async fn create_store_snapshot(
     identity: &SnapshotIdentity,
     snapshot_number: u64,
     node_meta_lock: &std::sync::Mutex<()>,
+    upload_options: SnapshotUploadOptions,
 ) -> Result<(String, SnapshotManifest), StorageError> {
     match store {
         RestoredLocalStore::RocksDb(rocks) => {
@@ -439,6 +448,7 @@ async fn create_store_snapshot(
                 identity,
                 snapshot_number,
                 node_meta_lock,
+                upload_options,
             )
             .await
         }
@@ -449,6 +459,7 @@ async fn create_store_snapshot(
                 identity,
                 snapshot_number,
                 node_meta_lock,
+                upload_options,
             )
             .await
         }

@@ -97,6 +97,7 @@ impl Controls {
                             rule.operation,
                             Some(
                                 S3OperationName::PutObject
+                                    | S3OperationName::AppendObject
                                     | S3OperationName::CopyObject
                                     | S3OperationName::UploadPart
                                     | S3OperationName::CompleteMultipartUpload
@@ -105,7 +106,7 @@ impl Controls {
                     {
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            "commit_then_drop requires operation PutObject, CopyObject, UploadPart, or CompleteMultipartUpload".into(),
+                            "commit_then_drop requires operation PutObject, AppendObject, CopyObject, UploadPart, or CompleteMultipartUpload".into(),
                         ));
                     }
                 }

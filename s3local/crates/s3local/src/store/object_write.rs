@@ -46,6 +46,13 @@ pub enum WriteCondition {
     /// Aliyun OSS `x-oss-forbid-overwrite: true`: [`Self::IfNoneMatchAny`] in a bucket that never had
     /// versioning, and unconditional once versioning was enabled or suspended.
     ForbidOverwriteUnlessVersioned,
+    /// Tencent COS AppendObject at `position`: the key must be absent and `position` 0, or hold an
+    /// appendable object of `position` bytes. The append extends `base_internal_version`, which
+    /// must still be current; `None` appends to nothing, so it matches an empty appendable object.
+    AppendAtPosition {
+        position: u64,
+        base_internal_version: Option<String>,
+    },
 }
 
 /// Object attributes supplied with a PutObject request.
@@ -54,6 +61,8 @@ pub struct PutObjectRequest {
     pub content_headers: ContentHeaders,
     pub user_metadata: BTreeMap<String, String>,
     pub write_condition: WriteCondition,
+    /// Marks the version as appendable, as a Tencent COS AppendObject does.
+    pub is_appendable: bool,
 }
 
 /// Result of a committed PutObject.
@@ -139,6 +148,7 @@ impl Store {
             etag: staged.md5_hex.clone(),
             checksum: staged.checksum.clone(),
             parts_count: None,
+            is_appendable: request.is_appendable,
         };
         self.publish_and_commit(
             bucket,
@@ -217,6 +227,7 @@ impl Store {
             etag: staged.md5_hex.clone(),
             checksum: staged.checksum.clone(),
             parts_count: None,
+            is_appendable: false,
         };
         let destination = self.publish_and_commit(
             bucket,
@@ -279,6 +290,7 @@ impl Store {
             last_modified_unix_ms: unix_ms(staged.upload_id),
             data_file: Some(relative_path.clone()),
             parts_count: attributes.parts_count,
+            is_appendable: attributes.is_appendable,
         };
         let header = DataFileHeader {
             bucket: bucket.to_owned(),
@@ -401,6 +413,7 @@ pub(super) struct VersionAttributes {
     pub(super) etag: String,
     pub(super) checksum: ObjectChecksum,
     pub(super) parts_count: Option<u32>,
+    pub(super) is_appendable: bool,
 }
 
 /// The multipart upload a commit consumes, removed in the same transaction.
@@ -453,6 +466,17 @@ fn check_write_condition(
     key: &str,
 ) -> Result<(), StoreError> {
     match (write_condition, current) {
+        (
+            WriteCondition::AppendAtPosition {
+                position,
+                base_internal_version,
+            },
+            current,
+        ) => check_append_position(
+            *position,
+            base_internal_version.as_deref(),
+            current.filter(|record| !record.is_delete_marker),
+        ),
         (WriteCondition::Unconditional, _)
         | (WriteCondition::IfNoneMatchAny | WriteCondition::ForbidOverwriteUnlessVersioned, None) => {
             Ok(())
@@ -478,6 +502,41 @@ fn check_write_condition(
                 Err(StoreError::PreconditionFailed)
             }
         }
+    }
+}
+
+/// Checks an AppendObject the way Tencent COS does; an empty appendable object accepts position 0.
+fn check_append_position(
+    position: u64,
+    base_internal_version: Option<&str>,
+    current: Option<&VersionRecord>,
+) -> Result<(), StoreError> {
+    let mismatch = |object_size| StoreError::AppendPositionMismatch {
+        position,
+        object_size,
+    };
+    let Some(current) = current else {
+        return if position == 0 {
+            Ok(())
+        } else {
+            Err(mismatch(0))
+        };
+    };
+    if !current.is_appendable {
+        return if current.size == position {
+            Err(StoreError::ObjectNotAppendable)
+        } else {
+            Err(mismatch(current.size))
+        };
+    }
+    let extends_current = match base_internal_version {
+        None => position == 0,
+        Some(base) => base == current.internal_version,
+    };
+    if current.size == position && extends_current {
+        Ok(())
+    } else {
+        Err(mismatch(current.size))
     }
 }
 
