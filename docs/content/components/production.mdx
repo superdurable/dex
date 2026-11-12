@@ -33,7 +33,7 @@ The [minimal configuration](#minimal-configuration) below sets up this deploymen
 | Storage | Object storage holds all server state. db9 (a separate PostgreSQL-compatible database product; stock PostgreSQL is not supported) can replace it. | [Object storage and backup](/reference/server/object-storage), [Dex Server dependencies](/components/server#dependencies) |
 | Search backend | Built-in search needs no database. Heavy search can use PostgreSQL or ParadeDB. | [Search backends](/reference/server/search) |
 | Configuration | `serve` reads one YAML file. Start from the [minimal configuration](#minimal-configuration). | [Install and configure server-zd](/reference/server/configuration) |
-| Retention | Closed runs are deleted after 7 days by default. See [Retention](#retention). | [Retention reference](/reference/server/configuration#retention) |
+| Retention | Set it to at least your longest client retry window. The default is in [Defaults to change](#defaults-to-change-before-production). | [Retention reference](/reference/server/configuration#retention) |
 | Backup and restore | The bucket prefix is the only source of truth. Version or replicate it, and practice a restore. | [Backup and restore](/reference/server/object-storage#backup-and-restore) |
 | Kubernetes | Run the server as a StatefulSet with graceful shutdown. | [Kubernetes deployment](/reference/server/kubernetes) |
 | Authentication | Off by default. Require a bearer credential before you expose the API. | [Authentication](/reference/server/authentication) |
@@ -59,10 +59,9 @@ watch CPU. Past one node, run separate clusters.
 
 ### Retention {#retention}
 
-Set `retention.closedFlowDuration` to at least your longest client retry
-window: once a run is deleted, its Flow ID can start a new Flow. Copy data you
-must keep longer to your own tables with
-[Attribute Store sync](/components/your-database).
+Set `retention.closedFlowDuration` to cover your longest client retry window,
+since a deleted run frees its Flow ID. Copy data you must keep longer to your
+own tables with [Attribute Store sync](/components/your-database).
 
 ## Minimal configuration {#minimal-configuration}
 

@@ -14,9 +14,11 @@ dev` runs a local server on your machine.
 
 | | Dex Cloud | Self-hosted |
 | --- | --- | --- |
-| Who runs Dex Server | Super Durable, with its storage, upgrades, capacity, and monitoring | You, with object storage you provide |
-| Where Workers run | Anywhere you deploy them | Anywhere you deploy them |
+| Who operates Dex Server | Super Durable: storage, upgrades, capacity, and monitoring | You |
+| Where Flow state is stored | In Dex Server's storage, which Super Durable operates. Flow inputs, Attributes, and Step results live there. | In the object storage bucket you provide |
+| Where your code runs | Your Workers, on your servers, your cloud, or your laptop. Your code and your API credentials stay there. | The same |
 | How Workers connect | Over TLS, with the server's API key | Through the authentication and TLS you configure |
+| Upgrades | Super Durable upgrades the server | You upgrade it; upgrades roll forward. See [Upgrades and compatibility](/reference/server/upgrades) |
 | What you set up | A server in Dex Cloud, which gets its own endpoint and API key | The [smallest real deployment](/components/production#smallest-deployment): a server node, object storage, authentication, and TLS |
 | Get started | [Sign up for Dex Cloud](https://dex.superdurable.io/register) | [Run Dex in Production](/components/production) |
 
@@ -24,8 +26,12 @@ dev` runs a local server on your machine.
 
 Super Durable runs Dex Server for your application. Each server you create in
 Dex Cloud has its own endpoint and API key. Your Workers and Clients connect to
-that endpoint over TLS with the key, and your code and credentials stay with
-you.
+that endpoint over TLS with the key.
+
+Your code runs in your Workers, so your code and the credentials it uses for
+your own APIs stay on your side. Flow state, meaning Flow inputs, Attributes,
+and Step results, is stored by Dex Server, so in Dex Cloud it lives in storage
+that Super Durable operates.
 
 To connect a Worker or a Client, pass the endpoint and the key:
 

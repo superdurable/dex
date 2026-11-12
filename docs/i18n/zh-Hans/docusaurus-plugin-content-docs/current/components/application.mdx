@@ -28,13 +28,13 @@ Worker 启动时，可以把它的 Flow 的 Flow Definition Graph 发布到 serv
 Dex 是加进你服务里的一个库，不是包在服务外面的框架。安装你所用语言的 SDK：
 
 ~~~bash
-pip install dex-python-sdk                       # Python
-go get github.com/superdurable/dex/sdk-go@latest # Go
-npm install @superdurable/dex                    # TypeScript
-cargo add dex-sdk                                # Rust
+pip install dex-python-sdk==1.44.0                       # Python
+go get github.com/superdurable/dex/sdk-go@v1.44.0        # Go
+npm install @superdurable/dex@1.44.0                     # TypeScript
+cargo add dex-sdk@=1.44.0                                # Rust
 ~~~
 
-Java 项目在 Gradle 或 Maven 构建中加入 Maven Central 上的 `io.superdurable:dex-sdk`。
+Java 项目在 Gradle 或 Maven 构建中加入 Maven Central 上的 `io.superdurable:dex-sdk:1.44.0`。
 
 Worker 可以运行在两个地方：
 

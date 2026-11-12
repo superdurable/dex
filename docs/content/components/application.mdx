@@ -34,22 +34,22 @@ Dex adds a library to your service, not a framework around it. Install the SDK
 for your language:
 
 ~~~bash
-pip install dex-python-sdk                       # Python
-go get github.com/superdurable/dex/sdk-go@latest # Go
-npm install @superdurable/dex                    # TypeScript
-cargo add dex-sdk                                # Rust
+pip install dex-python-sdk==1.44.0                       # Python
+go get github.com/superdurable/dex/sdk-go@v1.44.0        # Go
+npm install @superdurable/dex@1.44.0                     # TypeScript
+cargo add dex-sdk@=1.44.0                                # Rust
 ~~~
 
-For Java, add `io.superdurable:dex-sdk` from Maven Central to your Gradle or
+For Java, add `io.superdurable:dex-sdk:1.44.0` from Maven Central to your Gradle or
 Maven build.
 
-Pin the version in your build. Each Quick Start example shows the pinned line:
+These lines pin the version the Quick Start uses. Each Quick Start example shows the same pin in its build file:
 [Python](https://github.com/superdurable/dex/blob/main/examples/python/quick-start/pyproject.toml),
 [Go](https://github.com/superdurable/dex/blob/main/examples/go/quick-start/go.mod),
 [Java](https://github.com/superdurable/dex/blob/main/examples/java/quick-start/build.gradle),
 [TypeScript](https://github.com/superdurable/dex/blob/main/examples/typescript/quick-start/package.json), and
 [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/quick-start/Cargo.toml). An SDK and a Dex Server work together when their protocol ranges overlap,
-not when their version numbers match; [Upgrades](/reference/server/upgrades)
+whatever their version numbers; [Upgrades](/reference/server/upgrades)
 explains the rule.
 
 The Worker can run in two places:
