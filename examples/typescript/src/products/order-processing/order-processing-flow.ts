@@ -51,8 +51,8 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 
   public constructor(public readonly service: MyDependencyService) {
     this.refund = new Refund(service);
-    this.ship = new Ship(service, this.refund);
-    this.charge = new Charge(service, this.ship);
+    this.ship = new Ship(service);
+    this.charge = new Charge(service);
   }
 
   public getFlowType(): string {
@@ -85,10 +85,7 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 class Charge implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(
-    private readonly service: MyDependencyService,
-    private readonly ship: Ship,
-  ) {}
+  public constructor(private readonly service: MyDependencyService) {}
 
   public getStepType(): string {
     return "Charge";
@@ -113,10 +110,7 @@ class Charge implements Step<OrderRequest> {
 class Ship implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(
-    private readonly service: MyDependencyService,
-    private readonly refund: Refund,
-  ) {}
+  public constructor(private readonly service: MyDependencyService) {}
 
   public getStepType(): string {
     return "Ship";

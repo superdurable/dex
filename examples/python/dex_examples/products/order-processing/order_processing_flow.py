@@ -51,9 +51,8 @@ seller_ok = Channel[str]("seller-ok", str)
 # dex:group group-id:payment group-label:"Payment"
 # dex:explanation text:"Charge the customer for the order."
 class Charge(Step[OrderRequest]):
-    def __init__(self, service: MyDependencyService, ship: Ship) -> None:
+    def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.ship = ship
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -77,9 +76,8 @@ class Charge(Step[OrderRequest]):
 # dex:group group-id:shipping group-label:"Shipping"
 # dex:explanation text:"Wait for seller approval, remind after 24 hours, then ship the order."
 class Ship(Step[OrderRequest]):
-    def __init__(self, service: MyDependencyService, refund: Refund) -> None:
+    def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.refund = refund
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -138,8 +136,8 @@ class OrderProcessingFlow(Flow[OrderRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
         self.refund = Refund(service)
-        self.ship = Ship(service, self.refund)
-        self.charge = Charge(service, self.ship)
+        self.ship = Ship(service)
+        self.charge = Charge(service)
 
     def get_steps(self) -> StepList[OrderRequest]:
         return StepList.start_step(self.charge).other_steps(self.ship, self.refund)

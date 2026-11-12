@@ -52,8 +52,8 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     public OrderProcessingFlow(final MyDependencyService service) {
         this.service = service;
         this.refund = new Refund(service);
-        this.ship = new Ship(service, this.refund);
-        this.charge = new Charge(service, this.ship);
+        this.ship = new Ship(service);
+        this.charge = new Charge(service);
     }
 
     @Override
@@ -79,11 +79,9 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     static final class Charge implements Step<OrderRequest> {
         private final MyDependencyService service;
-        private final Ship ship;
 
-        Charge(final MyDependencyService service, final Ship ship) {
+        Charge(final MyDependencyService service) {
             this.service = service;
-            this.ship = ship;
         }
 
         @Override
@@ -116,11 +114,9 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     static final class Ship implements Step<OrderRequest> {
         private final MyDependencyService service;
-        private final Refund refund;
 
-        Ship(final MyDependencyService service, final Refund refund) {
+        Ship(final MyDependencyService service) {
             this.service = service;
-            this.refund = refund;
         }
 
         @Override
