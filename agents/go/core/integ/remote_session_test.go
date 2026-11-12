@@ -582,9 +582,17 @@ func (harness *remoteSessionHarness) testSteerRacesDelete(t *testing.T) {
 		require.Equal(t, 1, takenCount, "exactly one of steer and delete takes the message")
 		isSteered := results[0].err == nil && results[0].isAccepted
 		harness.releaseGate(t, gate)
-		snapshot := harness.waitForIdle(t, sessionID)
+		// Wait for the reply: the session can look idle between ending the steered turn and starting the next.
+		raceReply := "said: " + strings.TrimPrefix(text, "say ")
+		finalReply := "stalled at " + gate
+		if isSteered {
+			finalReply = raceReply
+		}
+		snapshot := harness.waitForSnapshot(t, sessionID, "the reply "+finalReply, func(snapshot dexagents.AgentSnapshot) bool {
+			return isIdle(snapshot) && messageText(snapshot.Messages[len(snapshot.Messages)-1]) == finalReply
+		})
 		hasRun := slices.ContainsFunc(snapshot.Messages, func(message dexagents.AgentMessage) bool {
-			return messageText(message) == "said: "+strings.TrimPrefix(text, "say ")
+			return messageText(message) == raceReply
 		})
 		require.Equal(t, isSteered, hasRun, "a steered message runs, and a deleted one never does")
 	}
