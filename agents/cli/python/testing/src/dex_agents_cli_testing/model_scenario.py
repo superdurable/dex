@@ -15,6 +15,7 @@ A scenario file is JSON or YAML::
         steps:
           - tool_calls: [{name: read_file, arguments: {path: notes.txt}}]
           - text: "read done: {tool_results}"
+            stream_delay_seconds: 0.2   # optional: stream one word per 0.2 s
 
 The latest user prompt picks the turn. The step is the number of model
 replies after that prompt in the request, so a retried or replayed request
@@ -72,10 +73,12 @@ class ScenarioStep:
     Attributes:
         text: The reply text, with placeholders, or ``None``.
         tool_calls: The tool calls, in order.
+        stream_delay_seconds: The pause between streamed words; 0 streams the text at once.
     """
 
     text: str | None
     tool_calls: Sequence[ScenarioToolCall]
+    stream_delay_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -204,6 +207,7 @@ def _parse_step(raw: object) -> ScenarioStep:
         tool_calls=tuple(
             ScenarioToolCall(str(call["name"]), dict(call.get("arguments") or {})) for call in calls
         ),
+        stream_delay_seconds=float(raw.get("stream_delay_seconds") or 0.0),
     )
 
 
@@ -220,7 +224,9 @@ def _step_reply(step: ScenarioStep, conversation: ScriptedConversation) -> Scrip
             ScriptedToolCall(f"call_{uuid.uuid4().hex[:16]}", resolved, dict(call.arguments))
         )
     text = None if step.text is None else _fill_placeholders(step.text, conversation)
-    return ScriptedReply(text=text, tool_calls=tuple(calls))
+    return ScriptedReply(
+        text=text, tool_calls=tuple(calls), stream_delay_seconds=step.stream_delay_seconds
+    )
 
 
 def _resolve_rewritten_name(tool_name: str, tool_names: Sequence[str]) -> str | None:

@@ -21,10 +21,14 @@
 from __future__ import annotations
 
 import json
+import re
+import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+
+_WORD_WITH_SPACE = re.compile(r"\S+\s*|\s+")
 
 
 @dataclass(frozen=True)
@@ -83,10 +87,24 @@ class ScriptedReply:
     Attributes:
         text: The answer text, or ``None``.
         tool_calls: The tool calls, in order.
+        stream_delay_seconds: The pause before each word after the first when the
+            text streams; 0 streams the text as one delta.
     """
 
     text: str | None = None
     tool_calls: Sequence[ScriptedToolCall] = field(default_factory=tuple)
+    stream_delay_seconds: float = 0.0
+
+
+def stream_text_deltas(text: str, delay_seconds: float) -> Iterator[str]:
+    """Yield ``text`` as streamed deltas: one word each, ``delay_seconds`` apart, or all at once."""
+    if delay_seconds <= 0:
+        yield text
+        return
+    for index, word in enumerate(_WORD_WITH_SPACE.findall(text)):
+        if index > 0:
+            time.sleep(delay_seconds)
+        yield word
 
 
 ReplySource = Callable[[ScriptedConversation], ScriptedReply]

@@ -107,14 +107,18 @@ class ModelApiStub(ABC):
                     self.send_header("Cache-Control", "no-cache")
                     self.send_header("Connection", "close")
                     self.end_headers()
-                    for event_name, data in response.events:
-                        prefix = f"event: {event_name}\n" if event_name else ""
-                        self.wfile.write(f"{prefix}data: {json.dumps(data)}\n\n".encode())
-                        self.wfile.flush()
-                    if response.stream_end is not None:
-                        self.wfile.write(f"data: {response.stream_end}\n\n".encode())
-                        self.wfile.flush()
                     self.close_connection = True
+                    try:
+                        for event_name, data in response.events:
+                            prefix = f"event: {event_name}\n" if event_name else ""
+                            self.wfile.write(f"{prefix}data: {json.dumps(data)}\n\n".encode())
+                            self.wfile.flush()
+                        if response.stream_end is not None:
+                            self.wfile.write(f"data: {response.stream_end}\n\n".encode())
+                            self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        # A cancelled turn closes a slow stream early.
+                        return
                     return
                 payload = json.dumps(response.body or {}).encode()
                 self.send_response(response.status)
