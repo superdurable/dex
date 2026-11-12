@@ -15,17 +15,21 @@ concurrency:
 
 jobs:
   plan:
-    name: Decide whether main changed
+    name: Select the suites that main changed
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
-      actions: read
+      actions: write
+      contents: read
     outputs:
-      should_test: ${{ steps.decide.outputs.should_test }}
+      suites: ${{ steps.select.outputs.suites }}
     steps:
-      # A scheduled run skips a commit that an earlier finished scheduled run already tested.
-      - name: Compare with the last finished scheduled run
-        id: decide
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # A scheduled run tests the suites whose pull request paths changed since the last successful one.
+      - name: Select suites from the changes since the last successful scheduled run
+        id: select
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -33,127 +37,144 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          select_every_suite() {
+            echo "suites=$(python3 .github/scripts/workflow_paths.py select-main-suites)" >> "$GITHUB_OUTPUT"
+          }
           if [[ "$EVENT_NAME" != "schedule" ]]; then
-            echo "should_test=true" >> "$GITHUB_OUTPUT"
+            echo "A ${EVENT_NAME} run tests every suite."
+            select_every_suite
             exit 0
           fi
-          last_tested_sha="$(gh run list --repo "$REPO" --workflow main-ci-all.yml \
-            --event schedule --branch main --status completed --limit 20 \
-            --json headSha,conclusion \
-            --jq '[.[] | select(.conclusion == "success" or .conclusion == "failure")][0].headSha // ""')"
-          echo "Last finished scheduled run tested ${last_tested_sha:-nothing}; main is ${HEAD_SHA}."
-          if [[ "$last_tested_sha" == "$HEAD_SHA" ]]; then
-            echo "should_test=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_test=true" >> "$GITHUB_OUTPUT"
+          scheduled_runs="$(gh run list --repo "$REPO" --workflow main-ci-all.yml \
+            --event schedule --branch main --status completed --limit 50 \
+            --json headSha,conclusion)"
+          last_finished_sha="$(jq -r '[.[] | select(.conclusion == "success" or .conclusion == "failure")][0].headSha // ""' \
+            <<<"$scheduled_runs")"
+          # Cancelling, not succeeding, keeps this run from becoming the baseline of the next one.
+          if [[ "$last_finished_sha" == "$HEAD_SHA" ]]; then
+            echo "The last finished scheduled run already tested ${HEAD_SHA}; cancelling this run."
+            echo "suites=[]" >> "$GITHUB_OUTPUT"
+            gh run cancel "$GITHUB_RUN_ID" --repo "$REPO"
+            exit 0
           fi
+          last_success_sha="$(jq -r '[.[] | select(.conclusion == "success")][0].headSha // ""' <<<"$scheduled_runs")"
+          if [[ -z "$last_success_sha" ]] || ! git merge-base --is-ancestor "$last_success_sha" "$HEAD_SHA"; then
+            echo "No successful scheduled run is an ancestor of ${HEAD_SHA}; testing every suite."
+            select_every_suite
+            exit 0
+          fi
+          git diff --name-only "$last_success_sha" "$HEAD_SHA" > "$RUNNER_TEMP/changed-files.txt"
+          suites="$(python3 .github/scripts/workflow_paths.py select-main-suites \
+            --changed-files "$RUNNER_TEMP/changed-files.txt")"
+          echo "Changes since ${last_success_sha} select: ${suites}"
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
 
   agents:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'agents')
     uses: ./.github/workflows/agents-ci.yml
   blob-cache-go:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'blob-cache-go')
     uses: ./.github/workflows/blob-cache-go-ci.yml
   cli:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'cli')
     uses: ./.github/workflows/cli-ci.yml
   copyright:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'copyright')
     uses: ./.github/workflows/copyright-ci.yml
   examples-go:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'examples-go')
     uses: ./.github/workflows/examples-go-ci.yml
   examples-java:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'examples-java')
     uses: ./.github/workflows/examples-java-ci.yml
   examples-python:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'examples-python')
     uses: ./.github/workflows/examples-python-ci.yml
   examples-rust:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'examples-rust')
     uses: ./.github/workflows/examples-rust-ci.yml
   examples-typescript:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'examples-typescript')
     uses: ./.github/workflows/examples-typescript-ci.yml
   generated-code:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'generated-code')
     uses: ./.github/workflows/generated-code-ci.yml
   release-tooling:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'release-tooling')
     uses: ./.github/workflows/release-tooling-ci.yml
   rust-rules:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'rust-rules')
     uses: ./.github/workflows/rust-rules-ci.yml
   s3local:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 's3local')
     uses: ./.github/workflows/s3local-ci.yml
   sdk-go:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'sdk-go')
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/sdk-go-ci.yml
   sdk-java:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'sdk-java')
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/sdk-java-ci.yml
   sdk-python:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'sdk-python')
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/sdk-python-ci.yml
   sdk-rust:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'sdk-rust')
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/sdk-rust-ci.yml
   sdk-typescript:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'sdk-typescript')
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/sdk-typescript-ci.yml
   server-zd:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'server-zd')
     uses: ./.github/workflows/server-zd-ci.yml
   server-zd-integ:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'server-zd-integ')
     uses: ./.github/workflows/server-zd-integ-ci.yml
   server-zd-simulation-runner:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'server-zd-simulation-runner')
     uses: ./.github/workflows/server-zd-simulation-runner-ci.yml
   skills:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'skills')
     uses: ./.github/workflows/skills-ci.yml
   web:
     needs: plan
-    if: needs.plan.outputs.should_test == 'true'
+    if: contains(fromJSON(needs.plan.outputs.suites), 'web')
     uses: ./.github/workflows/web-ci.yml
 
   full-tests:
@@ -189,27 +210,27 @@ jobs:
     outputs:
       failed_suites: ${{ steps.verdict.outputs.failed_suites }}
     steps:
-      - name: Check every suite
+      - name: Check every selected suite
         id: verdict
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          SHOULD_TEST: ${{ needs.plan.outputs.should_test }}
+          SELECTED_SUITES: ${{ needs.plan.outputs.suites }}
         run: |
           set -euo pipefail
-          if [[ "$SHOULD_TEST" == "false" ]]; then
-            echo "Main has not changed since the last finished scheduled run; no suite ran."
-            exit 0
-          fi
-          expected_result=success
-          failed_suites="$(jq -r --arg expected "$expected_result" \
-            '[to_entries[] | select(.value.result != $expected) | "\(.key) (\(.value.result))"] | join(", ")' \
-            <<<"$NEEDS_JSON")"
+          # A selected suite must succeed; a suite that was not selected must be skipped.
+          failed_suites="$(jq -r --argjson selected "${SELECTED_SUITES:-null}" '
+            [to_entries[]
+             | . as $entry
+             | (if .key == "plan" or ($selected // [] | index($entry.key)) then "success" else "skipped" end) as $expected
+             | select(.value.result != $expected)
+             | "\(.key) (\(.value.result))"]
+            | join(", ")' <<<"$NEEDS_JSON")"
           echo "failed_suites=$failed_suites" >> "$GITHUB_OUTPUT"
           if [[ -n "$failed_suites" ]]; then
             echo "Suites that did not succeed: $failed_suites"
             exit 1
           fi
-          echo "Every suite succeeded."
+          echo "Every selected suite succeeded: ${SELECTED_SUITES}"
 
   # Failures on main have no pull request to show them, so they open or update one issue.
   report-failure:
