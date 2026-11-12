@@ -178,7 +178,8 @@ host's group kill does not reach. So the shell tool registers the group right
 after the spawn and unregisters it right after the reap, and the Worker host
 mirrors the registry in its run record,
 `~/.dex/agents/run/<name>-<pid>.json`, with its own and the launcher's
-identity (start time and command line from `ps`). It signals a group only
+identity: start time from `ps`, and a SHA-256 of the command line, never its
+text, which can carry a secret. It signals a group only
 while the group's leader is its unreaped child. A later `run` with the
 terminal UI on stops what a record names when the record's launcher is gone:
 before each signal (SIGTERM, then SIGKILL 2 s later) it checks that the

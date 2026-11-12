@@ -27,7 +27,6 @@ from dex_agents import LocalDirectoryMediaStore
 from dex_agents_cli_core.config import ConnectorsConfig
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.terminal_ui.contract import (
-    ChannelProtocolError,
     DescribeOutputError,
     IdempotencyKeyError,
     build_terminal_ui_environment,
@@ -293,16 +292,20 @@ _LAUNCHER_MESSAGE = channel_definition("from_launcher")
 )
 async def test_request_message_cases(case: dict[str, Any]) -> None:
     requests = _Requests()
-    try:
-        await requests.server.handle_message(case["message"])
-    except ChannelProtocolError:
-        assert not case["is_valid"]
-        return
+    await requests.server.handle_message(case["message"])
     await requests.settle()
     for message in requests.sent:
         _LAUNCHER_MESSAGE.validate(message)
-    if case["message"]["type"] == "cancel":
+    request_id = case["message"].get("id")
+    has_usable_id = (
+        isinstance(request_id, int)
+        and not isinstance(request_id, bool)
+        and 1 <= request_id <= 2**53 - 1
+    )
+    if case["message"]["type"] == "cancel" or not has_usable_id:
+        # A cancel of an unknown request, or a request without a usable id, gets no answer.
         assert requests.sent == []
+        assert case["message"]["type"] == "cancel" or not case["is_valid"]
         return
     (response,) = requests.sent
     if case["is_valid"]:
@@ -395,6 +398,27 @@ async def test_a_fifth_waiting_request_is_busy_and_get_request_result_never_is()
     await requests.server.handle_message(request(7, "list_connectors", keys[4], {}))
     await requests.settle()
     assert requests.sent[-1] == {"type": "response", "id": 7, "result": {"echo": {}}}
+
+
+@pytest.mark.parametrize(
+    "code", ["invalid_params", "unknown_method", "busy", "cancelled", "timeout", "host_stopped"]
+)
+async def test_a_wait_or_rejection_error_is_never_remembered(code: str) -> None:
+    sent: list[dict[str, Any]] = []
+
+    async def failing(params: Mapping[str, Any], key: str) -> RequestOutcome:
+        return RequestOutcome.failed(code, "It ended.")
+
+    async def send(message: Mapping[str, Any]) -> None:
+        sent.append(dict(message))
+
+    server = LocalRequestServer({"put_image": failing}, send)
+    await server.handle_message(request(1, "put_image", KEY, {"path": "/a.png"}))
+    await asyncio.sleep(0.01)
+    await server.handle_message(request(2, "get_request_result", None, {"idempotency_key": KEY}))
+    await asyncio.sleep(0.01)
+    assert sent[0]["error"]["code"] == code
+    assert sent[1]["result"] == {"state": "unknown"}
 
 
 async def test_an_outcome_that_is_not_remembered_leaves_the_key_unknown() -> None:

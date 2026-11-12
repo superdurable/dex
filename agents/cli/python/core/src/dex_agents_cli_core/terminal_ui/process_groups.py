@@ -18,6 +18,7 @@ left behind, after checking each process's identity again before each signal.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -45,13 +46,14 @@ class ProcessIdentity:
         pid: The process ID.
         pgid: Its process group ID.
         started: Its start time, as ``ps -o lstart`` prints it in the C locale.
-        command: Its full command line.
+        command_sha256: The SHA-256 of its full command line, as 64 hex digits; a
+            command line can carry a secret, so its text is never recorded.
     """
 
     pid: int
     pgid: int
     started: str
-    command: str
+    command_sha256: str
 
     def is_group_leader(self) -> bool:
         """Return whether the process leads its own process group."""
@@ -76,8 +78,9 @@ def read_process_identity(pid: int) -> ProcessIdentity | None:
     if completed.returncode != 0 or len(fields) < 6 or not fields[0].isdigit():
         return None
     command = fields[6] if len(fields) == 7 else ""
+    command_sha256 = hashlib.sha256(command.encode("utf-8")).hexdigest()
     return ProcessIdentity(
-        pid=pid, pgid=int(fields[0]), started=" ".join(fields[1:6]), command=command
+        pid=pid, pgid=int(fields[0]), started=" ".join(fields[1:6]), command_sha256=command_sha256
     )
 
 
@@ -279,7 +282,7 @@ def _is_same_process(identity: ProcessIdentity, *, is_command_compared: bool = T
     current = read_process_identity(identity.pid)
     if current is None or (current.pgid, current.started) != (identity.pgid, identity.started):
         return False
-    return not is_command_compared or current.command == identity.command
+    return not is_command_compared or current.command_sha256 == identity.command_sha256
 
 
 def _signal_group(pgid: int, signal_number: int) -> bool:
@@ -313,5 +316,5 @@ def _identity_from_fields(fields: object) -> ProcessIdentity | None:
         pid=int(fields["pid"]),
         pgid=int(fields["pgid"]),
         started=str(fields["started"]),
-        command=str(fields["command"]),
+        command_sha256=str(fields["command_sha256"]),
     )

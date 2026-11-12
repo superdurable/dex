@@ -45,7 +45,9 @@ LAUNCH_IGNORE = [
     "session.flow_type",
     "session.session_id",
     "display",
+    "capabilities",
     "log_path",
+    "connectors",
 ]
 
 
@@ -129,6 +131,7 @@ class FakeTerminalUi:
         transcript: Mapping[str, Any] | None = None,
         *,
         describe: Mapping[str, Any] | None = None,
+        aliases: Mapping[str, str] | None = None,
         step_timeout_seconds: float = 30.0,
     ) -> None:
         """Write the wrapper, the transcript, and an optional ``--describe`` document."""
@@ -148,6 +151,8 @@ class FakeTerminalUi:
             "--step-timeout",
             str(step_timeout_seconds),
         ]
+        for fixture_value, actual_value in (aliases or {}).items():
+            arguments += ["--alias", f"{fixture_value}={actual_value}"]
         if describe is not None:
             describe_path = directory / "describe.json"
             describe_path.write_text(json.dumps(describe))

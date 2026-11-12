@@ -47,9 +47,17 @@ from dex_agents_cli_core.terminal_ui.process_groups import (
     read_process_identity,
     stop_leftover_processes,
 )
-from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
+from tests.conftest import (
+    CliHome,
+    FakeConnectorsMcp,
+    config_yaml,
+    expect,
+    session_client,
+    wait_for_exit,
+)
 from tests.fake_terminal_ui import (
     LAUNCH_IGNORE,
+    TRANSCRIPTS_DIR,
     FakeTerminalUi,
     chat_transcript,
     insert_pause,
@@ -194,7 +202,10 @@ async def test_a_chat_hands_off_and_relays_each_local_request(
             "ignore": ["result", "error"],
         },
     ]
-    fake = FakeTerminalUi(tmp_path / "tui", chat_transcript(steps))
+    transcript = chat_transcript(steps)
+    # The scripted runner takes images, has no plan mode, and supports turn control.
+    transcript["steps"][0]["ignore"].remove("capabilities")
+    fake = FakeTerminalUi(tmp_path / "tui", transcript)
     child = start_chat(cli_home, fake, screen, environment={"DEX_AGENTS_OPEN_BROWSER": "1"})
     session_id = await read_session_id(child)
     await expect(child, resume_line(session_id))
@@ -227,7 +238,12 @@ async def test_nothing_the_worker_host_writes_reaches_the_terminal(
     await fake.wait_for("sent", type="ready")
     agents_directory = cli_home.home / ".dex" / "agents"
     host_pid = worker_host_pid(agents_directory)
-    host_command = run_record(agents_directory, host_pid)["worker_host"]["command"]
+    host_command = subprocess.run(
+        ["ps", "-ww", "-o", "command=", "-p", str(host_pid)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     (control_fd,) = re.findall(r"__worker-host --control-fd (\d+)", host_command)
     await expect(child, resume_line(session_id))
     assert await wait_for_exit(child) == 0
@@ -756,7 +772,12 @@ def test_leftover_cleanup_checks_each_process_before_signaling(tmp_path: Path) -
         reused_identity = read_process_identity(reused.pid)
         member = read_process_identity(not_a_leader.pid)
         assert host and tool and reused_identity and member
-        gone_launcher = {"pid": 999_999, "pgid": 999_999, "started": "never", "command": "x"}
+        gone_launcher = {
+            "pid": 999_999,
+            "pgid": 999_999,
+            "started": "never",
+            "command_sha256": "0" * 64,
+        }
         write_record(run_directory / "a.json", gone_launcher, asdict(host), [asdict(tool)])
         forged = {**asdict(reused_identity), "started": "Thu Jan  1 00:00:00 1970"}
         write_record(run_directory / "b.json", gone_launcher, forged, [asdict(member)])
@@ -789,6 +810,56 @@ def write_record(
             {"launcher": launcher, "worker_host": worker_host, "tool_process_groups": list(tools)}
         )
     )
+
+
+#: Every conformance transcript a real launcher replays; sessions and connectors modes come later.
+LAUNCHER_TRANSCRIPTS = sorted(
+    path.stem
+    for path in TRANSCRIPTS_DIR.glob("*.json")
+    if "launcher" in json.loads(path.read_text())["real_roles"]
+)
+LAUNCHER_MODES_NOT_YET_SERVED = {"connectors_refresh", "sessions_resume_result"}
+
+
+@pytest.mark.parametrize("name", LAUNCHER_TRANSCRIPTS)
+async def test_the_launcher_replays_each_conformance_transcript(
+    cli_home: CliHome,
+    tmp_path: Path,
+    screen: io.StringIO,
+    fake_mcp: FakeConnectorsMcp,
+    name: str,
+) -> None:
+    if name in LAUNCHER_MODES_NOT_YET_SERVED:
+        pytest.skip("the sessions and connectors modes are not served yet")
+    transcript = load_transcript(name)
+    pictures = tmp_path / "pictures"
+    pictures.mkdir()
+    (pictures / "screenshot.png").write_bytes(png_bytes())
+    (tmp_path / "notes.txt").write_text("not an image")
+    aliases = {
+        "/home/user/pictures/screenshot.png": str(pictures / "screenshot.png"),
+        "/home/user/notes.txt": str(tmp_path / "notes.txt"),
+        "http://127.0.0.1:8803/mcp": fake_mcp.url,
+    }
+    fake = FakeTerminalUi(tmp_path / "tui", transcript, aliases=aliases)
+    config = {"connectors": {"mcp": fake_mcp.url}}
+    browser = "1" if name == "chat_open_url" else "0"
+    child = start_chat(
+        cli_home, fake, screen, config, environment={"DEX_AGENTS_OPEN_BROWSER": browser}
+    )
+    session_id = await read_session_id(child)
+    if name == "chat_worker_stopped":
+        await fake.wait_for("sent", type="ready")
+        os.kill(worker_host_pid(cli_home.home / ".dex" / "agents"), signal.SIGKILL)
+    if name == "ready_timeout":
+        await expect(child, "Plain chat: the terminal UI was not ready in 5 s.")
+        await expect(child, "> ")
+        child.sendeof()
+        assert await wait_for_exit(child) == 0
+    else:
+        await expect(child, resume_line(session_id))
+        assert await wait_for_exit(child) == (1 if name == "chat_worker_stopped" else 0)
+    assert_replayed(fake, screen)
 
 
 def test_launch_ignore_matches_the_conformance_launch_steps() -> None:

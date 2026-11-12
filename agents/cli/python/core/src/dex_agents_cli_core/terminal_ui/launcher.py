@@ -594,7 +594,8 @@ class _Handoff:
                 if kind in ("request", "cancel"):
                     await server.handle_message(message)
                 elif kind in _LAUNCHER_ONLY_TYPES:
-                    raise ChannelProtocolError(f"dexcli sent a {kind} message")
+                    # A known type from the wrong side is malformed: dropped, the channel open.
+                    _LOGGER.warning("dropped a %s message from dexcli", kind)
             except ChannelProtocolError as error:
                 _LOGGER.error("the terminal UI channel broke: %s", error)
                 await channel.close()
@@ -611,9 +612,7 @@ class _Handoff:
         if not isinstance(url, str) or not is_open_url_allowed(self._launch.start.web_url, url):
             return RequestOutcome.failed("refused", "open_url only opens Dex Web pages.")
         if not self._launch.is_browser_opening_enabled:
-            return RequestOutcome.failed(
-                "browser_off", "This command does not open a web browser (DEX_AGENTS_OPEN_BROWSER)."
-            )
+            return RequestOutcome.failed("browser_off", "Opening a browser is turned off.")
         if not await open_in_browser(url):
             return RequestOutcome.failed("open_failed", "No web browser opened the page.")
         return RequestOutcome.succeeded({})

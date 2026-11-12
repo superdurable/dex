@@ -27,13 +27,16 @@ from dex_agents_cli_core.terminal_ui.contract import (
     MAX_IN_FLIGHT_REQUESTS,
     REMEMBERED_KEY_LIMIT,
     REMEMBERED_KEY_SECONDS,
-    ChannelProtocolError,
     IdempotencyKeyError,
     idempotency_key_time_ms,
     invalid_params_message,
 )
 
 _MAX_REQUEST_ID = 2**53 - 1
+#: Error codes that end a wait or reject a request; a key never remembers them.
+NEVER_REMEMBERED_CODES = frozenset(
+    {"invalid_params", "unknown_method", "busy", "cancelled", "timeout", "host_stopped"}
+)
 _INVALID_KEY_MESSAGE = "The idempotency key is not a lowercase UUIDv7."
 _LOGGER = logging.getLogger(__name__)
 
@@ -178,13 +181,16 @@ class LocalRequestServer:
     async def handle_message(self, message: Mapping[str, Any]) -> None:
         """Handle a ``request`` or ``cancel``; other types belong to the caller.
 
-        Raises:
-            ChannelProtocolError: For a request or cancel without a valid ``id``.
+        A request or cancel without a usable ``id`` is malformed: it is dropped
+        without an answer, and the channel stays open.
         """
-        if message["type"] == "cancel":
-            await self._cancel(_request_id(message))
+        request_id = _request_id(message)
+        if request_id is None:
+            _LOGGER.warning("dropped a %s message without a usable id", message["type"])
+        elif message["type"] == "cancel":
+            await self._cancel(request_id)
         elif message["type"] == "request":
-            await self._handle_request(message)
+            await self._handle_request(request_id, message)
 
     async def close(self) -> None:
         """Stop waiting for every outcome; operations already running finish on their own."""
@@ -195,8 +201,7 @@ class LocalRequestServer:
             with contextlib.suppress(asyncio.CancelledError):
                 await waiter
 
-    async def _handle_request(self, message: Mapping[str, Any]) -> None:
-        request_id = _request_id(message)
+    async def _handle_request(self, request_id: int, message: Mapping[str, Any]) -> None:
         method = message.get("method")
         params = message.get("params")
         if not isinstance(method, str) or not isinstance(params, dict):
@@ -219,6 +224,9 @@ class LocalRequestServer:
         problem = invalid_params_message(method, params)
         if problem is not None:
             await self._reject(request_id, "invalid_params", problem)
+            return
+        if "idempotency_key" not in message:
+            await self._reject(request_id, "invalid_params", "The request has no idempotency_key.")
             return
         key = _valid_key(message.get("idempotency_key"))
         if key is None:
@@ -272,7 +280,10 @@ class LocalRequestServer:
         operation.outcome = outcome
         if self._operations.get(key) is not operation:
             return
-        if outcome.is_remembered:
+        is_wait_error = (
+            outcome.error is not None and outcome.error["code"] in NEVER_REMEMBERED_CODES
+        )
+        if outcome.is_remembered and not is_wait_error:
             self._table.finish(key, self._clock())
         else:
             self._table.forget(key)
@@ -350,12 +361,12 @@ def _valid_key(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _request_id(message: Mapping[str, Any]) -> int:
+def _request_id(message: Mapping[str, Any]) -> int | None:
     request_id = message.get("id")
     if (
         not isinstance(request_id, int)
         or isinstance(request_id, bool)
         or not 1 <= request_id <= _MAX_REQUEST_ID
     ):
-        raise ChannelProtocolError(f"a {message['type']} message has no valid id")
+        return None
     return request_id
