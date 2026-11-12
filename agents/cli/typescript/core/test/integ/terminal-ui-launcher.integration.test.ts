@@ -553,9 +553,21 @@ describe("the terminal UI launcher", () => {
 
   test("a dexcli without the terminal UI keeps the plain chat and starts no Worker host", async () => {
     const home = newHome();
-    const terminal = startOnTerminal(home, undefined);
+    // A dexcli before agents-tui: it rejects that subcommand and runs every other one.
+    const olderDexcli = join(home.directory, "older-dexcli");
+    writeFileSync(
+      olderDexcli,
+      [
+        "#!/bin/sh",
+        `if [ "$1" = "agents-tui" ]; then echo 'unknown command "agents-tui" for "dexcli"' >&2; exit 2; fi`,
+        `exec '${resolve(process.env.DEXCLI ?? "dexcli")}' "$@"`,
+        "",
+      ].join("\n"),
+    );
+    chmodSync(olderDexcli, 0o755);
+    const terminal = startOnTerminal(home, undefined, [], { DEXCLI: olderDexcli });
     await terminal.terminal.waitFor(
-      `Plain chat: ${resolve(process.env.DEXCLI ?? "")} has no terminal UI (agents-tui --describe exited with code 2). ` +
+      `Plain chat: ${olderDexcli} has no terminal UI (agents-tui --describe exited with code 2). ` +
         "The terminal UI needs dexcli 1.46.0 or later; point DEXCLI at one.",
     );
     await terminal.terminal.waitFor("Type a message");
