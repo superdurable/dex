@@ -31,6 +31,7 @@ import {
   connectorConfigurationEffectText,
   connectorHostReadyMessage,
   connectorSetupTabs,
+  connectionsResponseWithEmptyLists,
   connectorWriteHeaders,
   connectionWriteRequestBody,
   initialConnectionAuthMethodIds,
@@ -414,6 +415,30 @@ describe('Connections contract', () => {
       ['trigger', 'threadReplyCreated', true],
     ]);
     expect(initialConnectorSetupTabKey(connection)).toBe('operation:PostCompletion:post');
+  });
+
+  it('reads the null lists Go sends, such as the uses of a trigger-only connection, as empty', () => {
+    const response = connectionsResponseWithEmptyLists(JSON.parse(`{
+      "enabled": true, "definitionRevision": "r1", "csrfToken": "csrf",
+      "connections": [{
+        "connectorId": "slack", "connectionName": "workspace", "status": "Ready", "uses": null,
+        "triggerUses": [{
+          "flowName": "Approval", "triggerName": "threadReplyCreated", "bindingName": "reply", "configured": false,
+          "configuration": null,
+          "configurationUI": {"units": [{"id": "channel", "unitId": "channelPicker", "label": "Channel", "required": true, "bindings": null}]}
+        }]
+      }]
+    }`));
+    const connection = response.connections[0];
+    expect(connection.uses).toEqual([]);
+    expect(connection.triggerUses?.[0].configuration).toEqual({});
+    expect(connection.triggerUses?.[0].configurationUI.units[0].bindings).toEqual([]);
+    expect(connectionsResponseWithEmptyLists(JSON.parse('{"connections": null}')).connections).toEqual([]);
+    expect(connectorSetupTabs(connection).map((tab) => [tab.kind, tab.label])).toEqual([
+      ['authorize', 'Authorize'],
+      ['trigger', 'threadReplyCreated'],
+    ]);
+    expect(initialConnectorSetupTabKey(connection)).toBe('trigger:Approval:reply');
   });
 
   it('keeps configuration tabs behind authorization and opens the first tab when all are configured', () => {
