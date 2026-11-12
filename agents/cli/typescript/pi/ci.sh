@@ -10,6 +10,7 @@
 
 # Builds the core, the Pi package, and the CLI core, installs locked dependencies, typechecks, and runs the
 # integration tests. DEXCLI must name the dexcli binary; dex-server-zd must sit in the same directory.
+# DEX_AGENTS_PI_SEARCH_TOOLS_DIR may name a directory whose bin/ keeps Pi's rg and fd between runs.
 
 set -euo pipefail
 
@@ -43,4 +44,15 @@ node --version
 # pi-ai calls a local scripted Messages API in every test.
 npm ci
 npm run typecheck
+npm run build
+
+# Pi's grep and find need rg and fd. Pi uses them from PATH, else downloads them, as it does for its users; the tests
+# copy downloaded ones. With PI_OFFLINE=1, as in CI, a missing one fails here instead of downloading.
+if [[ -z "${DEX_AGENTS_PI_SEARCH_TOOLS_DIR:-}" ]]; then
+  DEX_AGENTS_PI_SEARCH_TOOLS_DIR="$(mktemp -d)"
+  trap 'rm -rf "$DEX_AGENTS_PI_SEARCH_TOOLS_DIR"' EXIT
+fi
+export DEX_AGENTS_PI_SEARCH_TOOLS_DIR
+PI_CODING_AGENT_DIR="$DEX_AGENTS_PI_SEARCH_TOOLS_DIR" node dist/test/fixtures/download-search-tools.js
+
 npm test

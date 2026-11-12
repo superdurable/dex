@@ -1,0 +1,383 @@
+{
+  "name": "chat_unknown_method_and_busy",
+  "description": "A method the launcher does not serve fails with unknown_method. With 4 requests in flight a fifth fails with busy; get_request_result does not count.",
+  "real_roles": [
+    "launcher"
+  ],
+  "terminal_ui_environment": {},
+  "steps": [
+    {
+      "from": "launcher",
+      "message": {
+        "type": "launch",
+        "contract": 1,
+        "mode": "chat",
+        "command": {
+          "name": "dex-agents-openai-sdk",
+          "harness": "openai-sdk",
+          "language": "python",
+          "version": "0.7.0"
+        },
+        "dex": {
+          "server_address": "127.0.0.1:8801",
+          "tls": {
+            "enabled": false,
+            "ca_file": null,
+            "server_name": null
+          },
+          "auth": {
+            "mode": "none"
+          },
+          "web_url": "http://127.0.0.1:8802"
+        },
+        "session": {
+          "flow_type": "DexAgentsOpenAISdkCliSession-ab12cd",
+          "session_id": "openai-sdk-20261111-142233-a1b2c3",
+          "is_resumed": false
+        },
+        "display": {
+          "model": "gpt-5.2",
+          "workspace": "~/dex-agent-workspace",
+          "config_path": "~/.dex/agents/openai-sdk.yaml"
+        },
+        "methods": [
+          "put_image",
+          "start_session",
+          "list_connectors",
+          "open_url",
+          "get_request_result"
+        ],
+        "capabilities": {
+          "images": {
+            "max_per_message": 20,
+            "max_bytes": 3750000
+          },
+          "plan_mode": false,
+          "turn_control": true
+        },
+        "notices": [],
+        "log_path": "~/.dex/agents/openai-sdk.log"
+      },
+      "ignore": [
+        "command.name",
+        "command.harness",
+        "command.language",
+        "command.version",
+        "dex.server_address",
+        "dex.web_url",
+        "session.flow_type",
+        "session.session_id",
+        "display",
+        "log_path"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "ready"
+      }
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 1,
+        "idempotency_key": "01a1caff-7068-75b8-b6e5-40708192a3b4",
+        "method": "export_transcript",
+        "params": {}
+      },
+      "ignore": [
+        "idempotency_key"
+      ]
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "response",
+        "id": 1,
+        "error": {
+          "code": "unknown_method",
+          "message": "This command does not serve export_transcript."
+        }
+      }
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 2,
+        "idempotency_key": "01a1caff-7069-75b8-b6e5-41708192a3b4",
+        "method": "list_connectors",
+        "params": {}
+      },
+      "ignore": [
+        "idempotency_key"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 3,
+        "idempotency_key": "01a1caff-706a-75b8-b6e5-42708192a3b4",
+        "method": "list_connectors",
+        "params": {}
+      },
+      "ignore": [
+        "idempotency_key"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 4,
+        "idempotency_key": "01a1caff-706b-75b8-b6e5-43708192a3b4",
+        "method": "list_connectors",
+        "params": {}
+      },
+      "ignore": [
+        "idempotency_key"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 5,
+        "idempotency_key": "01a1caff-706c-75b8-b6e5-44708192a3b4",
+        "method": "list_connectors",
+        "params": {}
+      },
+      "ignore": [
+        "idempotency_key"
+      ]
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 6,
+        "idempotency_key": "01a1caff-706d-75b8-b6e5-45708192a3b4",
+        "method": "list_connectors",
+        "params": {}
+      },
+      "ignore": [
+        "idempotency_key"
+      ]
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "response",
+        "id": 6,
+        "error": {
+          "code": "busy",
+          "message": "4 local requests are already running."
+        }
+      }
+    },
+    {
+      "from": "tui",
+      "message": {
+        "type": "request",
+        "id": 7,
+        "method": "get_request_result",
+        "params": {
+          "idempotency_key": "01a1caff-7069-75b8-b6e5-41708192a3b4"
+        }
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "response",
+        "id": 7,
+        "result": {
+          "state": "running"
+        }
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "response",
+        "id": 2,
+        "result": {
+          "mcp_url": "http://127.0.0.1:8803/mcp",
+          "tools": [
+            {
+              "name": "hacker_news_list_story_ids",
+              "connector": "hacker-news",
+              "connection": "default",
+              "operation": "list_story_ids",
+              "is_enabled": true
+            },
+            {
+              "name": "slack_post_message",
+              "connector": "slack",
+              "connection": "support-slack",
+              "operation": "post_message",
+              "is_enabled": false
+            },
+            {
+              "name": "lookup",
+              "connector": null,
+              "connection": null,
+              "operation": null,
+              "is_enabled": true
+            }
+          ],
+          "connections": [
+            {
+              "connector": "hacker-news",
+              "connection": "default",
+              "status": "authorized"
+            },
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "status": "pending"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "response",
+        "id": 3,
+        "result": {
+          "mcp_url": "http://127.0.0.1:8803/mcp",
+          "tools": [
+            {
+              "name": "hacker_news_list_story_ids",
+              "connector": "hacker-news",
+              "connection": "default",
+              "operation": "list_story_ids",
+              "is_enabled": true
+            },
+            {
+              "name": "slack_post_message",
+              "connector": "slack",
+              "connection": "support-slack",
+              "operation": "post_message",
+              "is_enabled": false
+            },
+            {
+              "name": "lookup",
+              "connector": null,
+              "connection": null,
+              "operation": null,
+              "is_enabled": true
+            }
+          ],
+          "connections": [
+            {
+              "connector": "hacker-news",
+              "connection": "default",
+              "status": "authorized"
+            },
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "status": "pending"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "response",
+        "id": 4,
+        "result": {
+          "mcp_url": "http://127.0.0.1:8803/mcp",
+          "tools": [
+            {
+              "name": "hacker_news_list_story_ids",
+              "connector": "hacker-news",
+              "connection": "default",
+              "operation": "list_story_ids",
+              "is_enabled": true
+            },
+            {
+              "name": "slack_post_message",
+              "connector": "slack",
+              "connection": "support-slack",
+              "operation": "post_message",
+              "is_enabled": false
+            },
+            {
+              "name": "lookup",
+              "connector": null,
+              "connection": null,
+              "operation": null,
+              "is_enabled": true
+            }
+          ],
+          "connections": [
+            {
+              "connector": "hacker-news",
+              "connection": "default",
+              "status": "authorized"
+            },
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "status": "pending"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "from": "launcher",
+      "message": {
+        "type": "response",
+        "id": 5,
+        "result": {
+          "mcp_url": "http://127.0.0.1:8803/mcp",
+          "tools": [
+            {
+              "name": "hacker_news_list_story_ids",
+              "connector": "hacker-news",
+              "connection": "default",
+              "operation": "list_story_ids",
+              "is_enabled": true
+            },
+            {
+              "name": "slack_post_message",
+              "connector": "slack",
+              "connection": "support-slack",
+              "operation": "post_message",
+              "is_enabled": false
+            },
+            {
+              "name": "lookup",
+              "connector": null,
+              "connection": null,
+              "operation": null,
+              "is_enabled": true
+            }
+          ],
+          "connections": [
+            {
+              "connector": "hacker-news",
+              "connection": "default",
+              "status": "authorized"
+            },
+            {
+              "connector": "slack",
+              "connection": "support-slack",
+              "status": "pending"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "tui_exit": 0
+}

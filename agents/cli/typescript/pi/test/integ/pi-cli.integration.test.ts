@@ -7,34 +7,31 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
-  linkSync,
-  readdirSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
 
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, RefusingProxy, TestHome, enginePorts, mockApiKey, openSessionClient } from "../fixtures/cli-test-support.js";
+import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { MockMessagesApi } from "../fixtures/mock-messages-api.js";
 
-const failAfterRenameHook = fileURLToPath(new URL("../fixtures/fail-after-rename-hook.js", import.meta.url));
 const noConnectors = { connectors: { enabled: [] }, local_tools: { browser: false } };
 const piToolNames = ["read", "grep", "find", "ls", "write", "edit", "bash"];
 
@@ -64,12 +61,16 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
   let engine: PrivateDexEngine;
   let api: MockMessagesApi;
   let proxy: RefusingProxy;
+  let connectors: FakeConnectorsMcpServer;
+  let connectorsUrl: string;
   const processes: CliProcess[] = [];
 
   before(async () => {
     engine = await PrivateDexEngine.start();
     api = await MockMessagesApi.start();
     proxy = await RefusingProxy.start();
+    connectors = new FakeConnectorsMcpServer();
+    connectorsUrl = await connectors.start();
   });
 
   afterEach(async () => {
@@ -80,6 +81,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
   });
 
   after(async () => {
+    await connectors?.stop();
     await proxy?.stop();
     await api?.stop();
     await engine?.stop();
@@ -100,6 +102,11 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
   function offeredToolNames(): string[] {
     const tools = (api.modelRequests().at(-1)?.["tools"] as Record<string, unknown>[] | undefined) ?? [];
     return tools.map((tool) => String(tool["name"]));
+  }
+
+  function offeredTool(toolName: string): Record<string, unknown> | undefined {
+    const tools = (api.modelRequests().at(-1)?.["tools"] as Record<string, unknown>[] | undefined) ?? [];
+    return tools.find((tool) => tool["name"] === toolName);
   }
 
   function lastToolResults(): string {
@@ -187,7 +194,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.doesNotMatch(JSON.stringify(content), /image omitted/);
   });
 
-  test("read and ls run at once, and the Pi tools replace the CLI core's file and shell tools", async () => {
+  test("Pi's tools replace the CLI core's file and shell tools, and reads run at once", async () => {
     const home = newHome(noConnectors);
     mkdirSync(home.workspace, { recursive: true });
     writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
@@ -201,38 +208,93 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(await cli.waitForExit(), 0);
     assert.doesNotMatch(cli.stdout.all, /Approve (read|ls)/);
     const offered = offeredToolNames();
-    for (const toolName of [...piToolNames, "fetch_web_page"]) {
+    for (const toolName of [...piToolNames, "fetch_web_page", "ask_user"]) {
       assert.ok(offered.includes(toolName), `${toolName} is offered`);
     }
     for (const toolName of ["read_file", "write_file", "edit_file", "list_directory", "search_files", "run_shell_command"]) {
       assert.ok(!offered.includes(toolName), `${toolName} is not offered`);
     }
+    assert.match(JSON.stringify(offeredTool("bash")), /Timeout in seconds; defaults to 120/);
+    assert.match(JSON.stringify(offeredTool("grep")), /Respects \.gitignore/);
   });
 
-  test("write and edit wait for approval and run once", async () => {
+  test("write, edit, and bash change the workspace at once, as in Pi", async () => {
     const home = newHome(noConnectors);
     mkdirSync(home.workspace, { recursive: true });
     const notes = join(home.workspace, "notes.txt");
     writeFileSync(notes, "buy milk\n");
     const cli = start(home);
     await cli.waitForSession();
+    cli.writeLine(call("write", { path: "todo/today.txt", content: "call mom" }));
+    await cli.stdout.waitFor("write: Successfully wrote to todo/today.txt");
+    cli.writeLine(call("edit", { path: "notes.txt", edits: [{ oldText: "milk", newText: "milk and eggs" }] }));
+    await cli.stdout.waitFor("edit: Successfully replaced 1 block(s) in notes.txt.");
+    cli.writeLine(call("bash", { command: "pwd -P; echo ran > bash.txt" }));
+    await cli.stdout.waitFor(`bash: ${realpathSync(home.workspace)}`);
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(cli.stdout.all, /Approve/);
+    assert.equal(readFileSync(join(home.workspace, "todo", "today.txt"), "utf8"), "call mom");
+    assert.equal(readFileSync(notes, "utf8"), "buy milk and eggs\n");
+    assert.equal(readFileSync(join(home.workspace, "bash.txt"), "utf8"), "ran\n");
+  });
 
+  test("approval.always makes write and bash wait, and a rejected call never runs", async () => {
+    const home = newHome({ ...noConnectors, approval: { always: ["write", "bash"] } });
+    const cli = start(home);
+    await cli.waitForSession();
     const todo = join(home.workspace, "todo.txt");
+    cli.writeLine(call("write", { path: "todo.txt", content: "call mom" }));
+    await cli.stdout.waitFor("Approve write?");
+    cli.writeLine("n not now");
+    await cli.stdout.waitFor("write: ");
+    await cli.stdout.waitFor("> ");
+    assert.equal(existsSync(todo), false);
     cli.writeLine(call("write", { path: "todo.txt", content: "call mom" }));
     await cli.stdout.waitFor("Approve write?");
     assert.equal(existsSync(todo), false);
     cli.writeLine("y");
     await cli.stdout.waitFor("write: Successfully wrote");
-    assert.equal(readFileSync(todo, "utf8"), "call mom");
-
-    cli.writeLine(call("edit", { path: "notes.txt", edits: [{ oldText: "milk", newText: "milk and eggs" }] }));
-    await cli.stdout.waitFor("Approve edit?");
-    assert.equal(readFileSync(notes, "utf8"), "buy milk\n");
+    cli.writeLine(call("bash", { command: "echo approved > bash.txt" }));
+    await cli.stdout.waitFor("Approve bash?");
+    assert.equal(existsSync(join(home.workspace, "bash.txt")), false);
     cli.writeLine("y");
-    await cli.stdout.waitFor("edit: ");
+    await cli.stdout.waitFor("bash: ");
+    cli.writeLine(call("edit", { path: "todo.txt", edits: [{ oldText: "mom", newText: "dad" }] }));
+    await cli.stdout.waitFor("edit: Successfully replaced");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
-    assert.equal(readFileSync(notes, "utf8"), "buy milk and eggs\n");
+    assert.equal(cli.stdout.all.match(/Approve write\?/g)?.length, 2);
+    assert.doesNotMatch(cli.stdout.all, /Approve edit/);
+    assert.equal(readFileSync(todo, "utf8"), "call dad");
+    assert.equal(readFileSync(join(home.workspace, "bash.txt"), "utf8"), "approved\n");
+  });
+
+  test("a write that fails after creating its parent directories records outcome_unknown", async () => {
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    await cli.waitForSession();
+    // The file system creates made/ and then refuses the over-long directory name.
+    cli.writeLine(call("write", { path: `made/${"x".repeat(300)}/notes.txt`, content: "never written" }));
+    await cli.stdout.waitFor("write: The tool call's outcome is unknown");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.ok(existsSync(join(home.workspace, "made")), "the write created made/ before it failed");
+  });
+
+  test("the file tools reach files outside the workspace, as in Pi", async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
+    writeFileSync(join(outside, "shared.txt"), "outside note\n");
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("read", { path: join(outside, "shared.txt") }));
+    await cli.stdout.waitFor("read: outside note");
+    cli.writeLine(call("write", { path: join(outside, "created.txt"), content: "written by the agent" }));
+    await cli.stdout.waitFor("write: Successfully wrote");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(readFileSync(join(outside, "created.txt"), "utf8"), "written by the agent");
   });
 
   test("an edit that fails before writing records a failure the model sees", async () => {
@@ -242,93 +304,76 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     const cli = start(home);
     await cli.waitForSession();
     cli.writeLine(call("edit", { path: "notes.txt", edits: [{ oldText: "bread", newText: "cake" }] }));
-    await cli.stdout.waitFor("Approve edit?");
-    cli.writeLine("y");
+    await cli.stdout.waitFor("edit: ");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine(call("edit", { path: "missing.txt", edits: [{ oldText: "a", newText: "b" }] }));
     await cli.stdout.waitFor("edit: ");
     await cli.stdout.waitFor("> ");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     const toolResults = JSON.stringify(api.modelRequests().at(-1)?.["messages"]);
     assert.match(toolResults, /Could not find/);
+    assert.match(toolResults, /Could not edit file: missing\.txt/);
     assert.doesNotMatch(toolResults, /outcome is unknown/);
     assert.equal(readFileSync(join(home.workspace, "notes.txt"), "utf8"), "buy milk\n");
   });
 
-  test("an allow-listed bash command runs at once in the workspace, and others wait", async () => {
-    const home = newHome({ ...noConnectors, local_tools: { browser: false, shell: { enabled: true, allow: ["pwd -P"] } } });
+  test("a bash command that exits with a non-zero code records a failure with its output", async () => {
+    const home = newHome(noConnectors);
     const cli = start(home);
     await cli.waitForSession();
-    cli.writeLine(call("bash", { command: "pwd -P" }));
-    await cli.stdout.waitFor(`bash: ${realpathSync(home.workspace)}`);
-    assert.doesNotMatch(cli.stdout.all, /Approve bash/);
-
-    cli.writeLine(call("bash", { command: "echo ran > bash.txt" }));
-    await cli.stdout.waitFor("Approve bash?");
-    assert.equal(existsSync(join(home.workspace, "bash.txt")), false);
-    cli.writeLine("n not now");
+    cli.writeLine(call("bash", { command: "echo ran > ran.txt; echo bad; exit 3" }));
     await cli.stdout.waitFor("bash: ");
-
-    cli.writeLine(call("bash", { command: "echo approved > bash.txt" }));
-    await cli.stdout.waitFor("Approve bash?");
-    cli.writeLine("y");
-    await cli.stdout.waitFor("bash: ");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    assert.equal(readFileSync(join(home.workspace, "bash.txt"), "utf8"), "approved\n");
-  });
-
-  test("a bash command that exits with a non-zero code is a result, not a failure", async () => {
-    const command = "echo ran > ran.txt; echo bad; exit 3";
-    const home = newHome({ ...noConnectors, local_tools: { browser: false, shell: { enabled: true, allow: [command] } } });
-    const cli = start(home);
-    await cli.waitForSession();
-    cli.writeLine(call("bash", { command }));
-    await cli.stdout.waitFor("bash: bad");
     await cli.stdout.waitFor("> ");
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     const toolResult = lastToolResults();
+    assert.match(toolResult, /bad/);
     assert.match(toolResult, /Command exited with code 3/);
-    assert.doesNotMatch(toolResult, /The tool call failed|outcome is unknown/);
+    assert.doesNotMatch(toolResult, /outcome is unknown/);
     assert.equal(readFileSync(join(home.workspace, "ran.txt"), "utf8"), "ran\n");
   });
 
-  test("a cut bash output deletes only Pi's own temporary file", async () => {
-    const victim = join(tmpdir(), `pi-bash-victim-${process.pid}-${Date.now()}.log`);
-    writeFileSync(victim, "keep me");
-    const imitation = `echo 'Full output: ${victim}]'`;
-    const longOutput = "seq 1 200000";
-    const home = newHome({
-      ...noConnectors,
-      local_tools: { browser: false, shell: { enabled: true, allow: [imitation, longOutput] } },
-    });
-    const piOutputFiles = (): string[] => readdirSync(tmpdir()).filter((name) => name.startsWith("pi-bash-") && !name.includes("victim"));
-    const filesBefore = new Set(piOutputFiles());
+  test("a cut bash output names Pi's file with the full output", async () => {
+    const home = newHome(noConnectors);
     const cli = start(home);
     await cli.waitForSession();
-    cli.writeLine(call("bash", { command: imitation }));
-    await cli.stdout.waitFor(`bash: Full output: ${victim}]`);
+    cli.writeLine(call("bash", { command: "seq 1 200000" }));
+    await cli.stdout.waitFor("Full output: ");
     await cli.stdout.waitFor("> ");
-    assert.equal(readFileSync(victim, "utf8"), "keep me");
-
-    cli.writeLine(call("bash", { command: longOutput }));
-    await cli.stdout.waitFor("The full output is not kept");
-    await cli.stdout.waitFor("> ");
-    const longOutputResult = (JSON.parse(lastToolResults()) as { content: unknown }[]).at(-1)?.content;
-    assert.doesNotMatch(String(longOutputResult), /Full output: /);
-    assert.match(String(longOutputResult), /The full output is not kept/);
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
-    assert.deepEqual(piOutputFiles().filter((name) => !filesBefore.has(name)), []);
-    assert.equal(readFileSync(victim, "utf8"), "keep me");
+    const fullOutputPath = /Full output: ([^\]\\"]+)\]/.exec(lastToolResults())?.[1];
+    assert.ok(fullOutputPath !== undefined, lastToolResults());
+    try {
+      assert.match(readFileSync(fullOutputPath, "utf8"), /^1\n2\n[\s\S]*\n200000\n$/);
+    } finally {
+      rmSync(fullOutputPath, { force: true });
+    }
+  });
+
+  test("bash output reaches the session as tool progress while the command runs", async () => {
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    const sessionId = await cli.waitForSession();
+    cli.writeLine(call("bash", { command: "echo first; sleep 1; echo second" }));
+    await cli.stdout.waitFor("bash: first\nsecond");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
+    let progress: string[];
+    try {
+      progress = (await sessions.listAgentEvents(sessionId))
+        .filter((event) => event.type === "pi.tool_progress")
+        .map((event) => String((JSON.parse(event.payload) as Record<string, unknown>)["text"]));
+    } finally {
+      await environment.close();
+    }
+    assert.ok(progress.some((text) => text.includes("first")), JSON.stringify(progress));
   });
 
   test("a bash command without a timeout is killed after pi.bash_timeout_seconds, and the model sees it", async () => {
-    const home = newHome({
-      ...noConnectors,
-      local_tools: { browser: false, shell: { enabled: true, allow: ["echo started; sleep 30; echo finished"] } },
-      pi: { bash_timeout_seconds: 1 },
-    });
+    const home = newHome({ ...noConnectors, pi: { bash_timeout_seconds: 1 } });
     const cli = start(home);
     await cli.waitForSession();
     const startedAt = Date.now();
@@ -339,14 +384,65 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
     assert.ok(elapsedMs < 20_000, `the command was killed early, after ${elapsedMs} ms`);
-    const bashTool = ((api.modelRequests().at(-1)?.["tools"] as Record<string, unknown>[] | undefined) ?? []).find(
-      (tool) => tool["name"] === "bash",
-    );
-    assert.match(JSON.stringify(bashTool), /defaults to 1, at most 600/);
+    assert.match(JSON.stringify(offeredTool("bash")), /Timeout in seconds; defaults to 1/);
     const toolResult = lastToolResults();
     assert.match(toolResult, /started/);
     assert.match(toolResult, /Command timed out after 1 seconds/);
-    assert.doesNotMatch(toolResult, /finished|outcome is unknown|The tool call failed/);
+    assert.doesNotMatch(toolResult, /finished|outcome is unknown/);
+  });
+
+  test("a bash call with an invalid timeout records a failure and never runs", async () => {
+    const home = newHome(noConnectors);
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("bash", { command: "echo ran > ran.txt", timeout: -1 }));
+    await cli.stdout.waitFor("bash: ");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const toolResult = lastToolResults();
+    assert.match(toolResult, /Invalid timeout/);
+    assert.doesNotMatch(toolResult, /outcome is unknown/);
+    assert.equal(existsSync(join(home.workspace, "ran.txt")), false);
+  });
+
+  test("grep and find run Pi's rg and fd in the workspace", async () => {
+    const home = newHome(noConnectors);
+    home.provideSearchTools();
+    mkdirSync(join(home.workspace, "src"), { recursive: true });
+    mkdirSync(join(home.workspace, ".git"), { recursive: true });
+    writeFileSync(join(home.workspace, ".gitignore"), "ignored.ts\n");
+    writeFileSync(join(home.workspace, "src", "a.ts"), "const Alpha = 1;\nconst beta = 2;\n");
+    writeFileSync(join(home.workspace, "ignored.ts"), "const alpha = 3;\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true }));
+    await cli.stdout.waitFor("grep: src/a.ts:1: const Alpha = 1;");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine(call("find", { pattern: "*.ts" }));
+    await cli.stdout.waitFor("find: src/a.ts");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.doesNotMatch(cli.stdout.all, /ignored\.ts|Approve/);
+  });
+
+  test("without rg and fd, offline grep and find fail with Pi's message, and the session goes on", async () => {
+    const home = newHome(noConnectors);
+    home.hideSearchTools();
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("grep", { pattern: "milk" }));
+    await cli.stdout.waitFor("ripgrep (rg) is not available and could not be downloaded");
+    cli.writeLine(call("find", { pattern: "*.txt" }));
+    await cli.stdout.waitFor("fd is not available and could not be downloaded");
+    cli.writeLine("say still here");
+    await cli.stdout.waitFor("said: still here");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(existsSync(home.piBinDirectory), false);
   });
 
   test("a group switched off in the file is not offered", async () => {
@@ -373,7 +469,12 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     const sessionId = await cli.waitForSession();
     const { environment, sessions } = await openSessionClient(engine, home.sessionFlowType());
     try {
-      await sessions.updateSessionSettings(sessionId, { local_tools: { shell: { enabled: false } } });
+      // The RPC returns false until the session has initialized, which may follow the session line.
+      const deadline = Date.now() + 60_000;
+      while (!(await sessions.updateSessionSettings(sessionId, { local_tools: { shell: { enabled: false } } }))) {
+        assert.ok(Date.now() < deadline, "the session settings were never accepted");
+        await delay(200);
+      }
     } finally {
       await environment.close();
     }
@@ -387,7 +488,8 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
   });
 
   test("an approved call is checked again by the Worker that runs it", async () => {
-    const home = newHome(noConnectors);
+    const approval = { always: ["write"] };
+    const home = newHome({ ...noConnectors, approval });
     const first = start(home);
     const sessionId = await first.waitForSession();
     const todo = join(home.workspace, "todo.txt");
@@ -397,7 +499,7 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     await first.kill();
 
     // The file now switches the file tools off; the Worker that runs the approved call applies it.
-    home.writeConfig({ ...noConnectors, local_tools: { browser: false, files: false } });
+    home.writeConfig({ ...noConnectors, approval, local_tools: { browser: false, files: false } });
     const second = start(home, ["--resume", sessionId]);
     await second.stdout.waitFor("Approve write?");
     second.writeLine("y");
@@ -408,232 +510,9 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
     assert.equal(existsSync(todo), false);
   });
 
-  test("file tools refuse paths outside the workspace", async () => {
-    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
-    writeFileSync(join(outside, "secret.txt"), "do not read");
-    const home = newHome(noConnectors);
-    mkdirSync(home.workspace, { recursive: true });
-    symlinkSync(join(outside, "created.txt"), join(home.workspace, "link.txt"));
-    const cli = start(home);
-    await cli.waitForSession();
-    for (const path of [join(outside, "secret.txt"), `../../${basename(outside)}/secret.txt`, `@${outside}/secret.txt`]) {
-      cli.writeLine(call("read", { path }));
-      await cli.stdout.waitFor("is outside the workspace");
-    }
-    cli.writeLine(call("ls", { path: outside }));
-    await cli.stdout.waitFor("is outside the workspace");
-    cli.writeLine(call("find", { pattern: "*.txt", path: outside }));
-    await cli.stdout.waitFor("is outside the workspace");
-    cli.writeLine(call("write", { path: "link.txt", content: "x" }));
-    await cli.stdout.waitFor("Approve write?");
-    cli.writeLine("y");
-    await cli.stdout.waitFor("is a symbolic link");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    assert.doesNotMatch(cli.stdout.all, /Approve (read|ls|find)/);
-    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
-    assert.equal(existsSync(join(outside, "created.txt")), false);
-  });
-
-  test("read's file name fallbacks never reach a link out of the workspace", async () => {
-    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
-    writeFileSync(join(outside, "secret.txt"), "do not read");
-    const home = newHome(noConnectors);
-    mkdirSync(home.workspace, { recursive: true });
-    const variants: readonly (readonly [string, string])[] = [
-      ["a'b.txt", "a’b.txt"],
-      ["Shot 10.00.00 AM.txt", "Shot 10.00.00 AM.txt"],
-      ["café.txt", "café.txt"],
-    ];
-    for (const [, linkName] of variants) {
-      symlinkSync(join(outside, "secret.txt"), join(home.workspace, linkName));
-    }
-    const cli = start(home);
-    await cli.waitForSession();
-    for (const [requested] of variants) {
-      cli.writeLine(call("read", { path: requested }));
-      await cli.stdout.waitFor("read: ");
-      await cli.stdout.waitFor("> ");
-    }
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    assert.doesNotMatch(cli.stdout.all, /Approve read/);
-    assert.equal(cli.stdout.all.match(/is outside the workspace/g)?.length, variants.length);
-    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
-  });
-
-  test("a path swapped for a link out of the workspace after the call was requested is refused", async () => {
-    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
-    writeFileSync(join(outside, "a.txt"), "do not read");
-    const home = newHome({ ...noConnectors, approval: { always: ["read", "ls", "grep", "find"] } });
-    const notes = join(home.workspace, "notes");
-    mkdirSync(notes, { recursive: true });
-    writeFileSync(join(notes, "a.txt"), "inside note");
-    const cli = start(home);
-    await cli.waitForSession();
-    const calls: readonly (readonly [string, Readonly<Record<string, unknown>>])[] = [
-      ["read", { path: "notes/a.txt" }],
-      ["ls", { path: "notes" }],
-      ["grep", { pattern: "read", path: "notes" }],
-      ["find", { pattern: "*.txt", path: "notes" }],
-    ];
-    for (const [toolName, toolInput] of calls) {
-      cli.writeLine(call(toolName, toolInput));
-      await cli.stdout.waitFor(`Approve ${toolName}?`);
-      renameSync(notes, `${notes}-real`);
-      symlinkSync(outside, notes);
-      cli.writeLine("y");
-      await cli.stdout.waitFor(`${toolName}: `);
-      await cli.stdout.waitFor("> ");
-      unlinkSync(notes);
-      renameSync(`${notes}-real`, notes);
-    }
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    assert.equal(cli.stdout.all.match(/is outside the workspace/g)?.length, calls.length);
-    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
-  });
-
-  test("grep matches with a glob, ignoring case, a literal, context lines, and a limit", async () => {
-    const home = newHome(noConnectors);
-    mkdirSync(join(home.workspace, "src"), { recursive: true });
-    writeFileSync(join(home.workspace, "src", "a.ts"), "const Alpha = 1;\nconst beta = 2;\nconst gamma = 3;\n");
-    writeFileSync(join(home.workspace, "src", "b.md"), "alpha in the docs\n");
-    writeFileSync(join(home.workspace, "notes.txt"), "a.b is literal\naxb is not\n");
-    mkdirSync(join(home.workspace, "lib", "src"), { recursive: true });
-    writeFileSync(join(home.workspace, "lib", "src", "c.ts"), "alpha nested\n");
-    assert.equal(spawnSync("mkfifo", [join(home.workspace, "pipe")]).status, 0);
-    writeFileSync(join(home.workspace, "big.log"), `alpha\n${"x".repeat(1536 * 1024)}\n`);
-    const cli = start(home);
-    await cli.waitForSession();
-    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "*.ts" }));
-    await cli.stdout.waitFor("grep: lib/src/c.ts:1: alpha nested\nsrc/a.ts:1: const Alpha = 1;");
-    await cli.stdout.waitFor("> ");
-    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "/src/*.ts" }));
-    await cli.stdout.waitFor("grep: src/a.ts:1: const Alpha = 1;\n");
-    await cli.stdout.waitFor("> ");
-    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, glob: "!src" }));
-    await cli.stdout.waitFor("grep: No matches found");
-    await cli.stdout.waitFor(/1 files larger than \S+ were skipped/);
-    cli.writeLine(call("grep", { pattern: "nested", glob: "!lib/" }));
-    await cli.stdout.waitFor("grep: No matches found");
-    cli.writeLine(call("read", { path: "pipe" }));
-    await cli.stdout.waitFor("is not a regular file");
-    cli.writeLine(call("grep", { pattern: "alpha", ignoreCase: true, limit: 1 }));
-    await cli.stdout.waitFor("1 matches limit reached");
-    cli.writeLine(call("grep", { pattern: "a.b", literal: true }));
-    await cli.stdout.waitFor("grep: notes.txt:1: a.b is literal");
-    await cli.stdout.waitFor("> ");
-    cli.writeLine(call("grep", { pattern: "beta", path: "src", context: 1 }));
-    await cli.stdout.waitFor("grep: a.ts-1- const Alpha = 1;\na.ts:2: const beta = 2;\na.ts-3- const gamma = 3;");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    assert.doesNotMatch(cli.stdout.all, /b\.md|axb|Approve grep/);
-  });
-
-  test("a grep pattern that backtracks without end fails the call instead of blocking the Worker", async () => {
-    const home = newHome(noConnectors);
-    mkdirSync(home.workspace, { recursive: true });
-    writeFileSync(join(home.workspace, "slow.txt"), `${"a!".repeat(32)}\n${"a".repeat(32)}!\n`);
-    const cli = start(home);
-    await cli.waitForSession();
-    const startedAt = Date.now();
-    cli.writeLine(call("grep", { pattern: "(a+)+$" }));
-    await cli.stdout.waitFor("the pattern took too long to match", 60_000);
-    await cli.stdout.waitFor("> ");
-    assert.ok(Date.now() - startedAt < 40_000, "the call failed within its budget");
-    cli.writeLine("say still here");
-    await cli.stdout.waitFor("said: still here");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-  });
-
-  test("a hard link to an outside file is refused for read, write, and edit, and grep never reads it", async () => {
-    const outside = realpathSync(mkdtempSync(join(tmpdir(), "dex-agents-pi-outside-")));
-    writeFileSync(join(outside, "secret.txt"), "do not read");
-    const home = newHome(noConnectors);
-    mkdirSync(home.workspace, { recursive: true });
-    linkSync(join(outside, "secret.txt"), join(home.workspace, "linked.txt"));
-    const cli = start(home);
-    await cli.waitForSession();
-    cli.writeLine(call("read", { path: "linked.txt" }));
-    await cli.stdout.waitFor("has 2 hard links");
-    cli.writeLine(call("grep", { pattern: "read" }));
-    await cli.stdout.waitFor("grep: No matches found");
-    cli.writeLine(call("grep", { pattern: "read", path: "linked.txt" }));
-    await cli.stdout.waitFor("has 2 hard links");
-    cli.writeLine(call("write", { path: "linked.txt", content: "overwritten" }));
-    await cli.stdout.waitFor("Approve write?");
-    cli.writeLine("y");
-    await cli.stdout.waitFor("has 2 hard links");
-    cli.writeLine(call("edit", { path: "linked.txt", edits: [{ oldText: "read", newText: "write" }] }));
-    await cli.stdout.waitFor("Approve edit?");
-    cli.writeLine("y");
-    await cli.stdout.waitFor("has 2 hard links");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    assert.equal(readFileSync(join(outside, "secret.txt"), "utf8"), "do not read");
-    assert.doesNotMatch(JSON.stringify(api.modelRequests()), /do not read/);
-  });
-
-  test("a write that fails after its rename records outcome_unknown", async () => {
-    const home = newHome(noConnectors);
-    mkdirSync(home.workspace, { recursive: true });
-    writeFileSync(join(home.workspace, "draft.txt"), "before");
-    const cli = start(home, [], ["--import", failAfterRenameHook]);
-    await cli.waitForSession();
-    cli.writeLine(call("write", { path: "draft.txt", content: "after" }));
-    await cli.stdout.waitFor("Approve write?");
-    cli.writeLine("y");
-    await cli.stdout.waitFor("write: The tool call's outcome is unknown");
-    cli.writeLine(call("write", { path: "../outside.txt", content: "after" }));
-    await cli.stdout.waitFor("Approve write?");
-    cli.writeLine("y");
-    await cli.stdout.waitFor("write: The tool call failed: ");
-    await cli.stdout.waitFor("> ");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    assert.match(lastToolResults(), /is outside the workspace/);
-  });
-
-  test("an edit of a file over 4 MiB is refused as too large", async () => {
-    const home = newHome(noConnectors);
-    mkdirSync(home.workspace, { recursive: true });
-    const content = `alpha\n${"x".repeat(5 * 1024 * 1024)}\n`;
-    writeFileSync(join(home.workspace, "large.txt"), content);
-    const cli = start(home);
-    await cli.waitForSession();
-    cli.writeLine(call("edit", { path: "large.txt", edits: [{ oldText: "alpha", newText: "beta" }] }));
-    await cli.stdout.waitFor("Approve edit?");
-    cli.writeLine("y");
-    await cli.stdout.waitFor("too large to edit");
-    await cli.stdout.waitFor("> ");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    assert.doesNotMatch(lastToolResults(), /outcome is unknown|changed after/);
-    assert.equal(readFileSync(join(home.workspace, "large.txt"), "utf8"), content);
-  });
-
-  test("a bash call with an invalid timeout records a failure and never runs", async () => {
-    const home = newHome(noConnectors);
-    const cli = start(home);
-    await cli.waitForSession();
-    cli.writeLine(call("bash", { command: "echo ran > ran.txt", timeout: -1 }));
-    await cli.stdout.waitFor("Approve bash?");
-    cli.writeLine("y");
-    await cli.stdout.waitFor("bash: ");
-    await cli.stdout.waitFor("> ");
-    cli.writeLine("/exit");
-    assert.equal(await cli.waitForExit(), 0);
-    const toolResult = lastToolResults();
-    assert.match(toolResult, /The tool call failed: timeout must be a number of seconds/);
-    assert.doesNotMatch(toolResult, /outcome is unknown/);
-    assert.equal(existsSync(join(home.workspace, "ran.txt")), false);
-  });
-
   test("a bash command whose Worker dies after it started records outcome_unknown and never runs again", async () => {
     const command = "echo started >> runs.txt; sleep 20";
-    const home = newHome({ ...noConnectors, local_tools: { browser: false, shell: { enabled: true, allow: [command] } } });
+    const home = newHome(noConnectors);
     const first = start(home);
     const sessionId = await first.waitForSession();
     first.writeLine(call("bash", { command }));
@@ -647,9 +526,105 @@ describe("dex-agents-pi with pi-ai against a scripted Messages API", () => {
 
     const second = start(home, ["--resume", sessionId]);
     await second.stdout.waitFor("bash: The tool call's outcome is unknown", 240_000);
+    second.writeLine("recall");
+    await second.stdout.waitFor("history: ");
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
     assert.equal(readFileSync(runs, "utf8"), "started\n");
+  });
+
+  test("a connector read runs at once, and every connector write runs once after approval", async () => {
+    const cli = start(newHome({ connectors: { mcp: connectorsUrl }, local_tools: { browser: false } }));
+    await cli.waitForSession();
+    cli.writeLine(call("hackernews_get_top_stories", {}));
+    await cli.stdout.waitFor("hackernews_get_top_stories: 1. Durable agents; 2. Local first");
+    assert.equal(connectors.runCount("hackernews_get_top_stories"), 1);
+    assert.doesNotMatch(cli.stdout.all, /Approve hackernews_get_top_stories/);
+
+    cli.writeLine(call("slack_post_thread_reply", { thread: "T1", text: "on it" }));
+    await cli.stdout.waitFor("Approve slack_post_thread_reply?");
+    assert.equal(connectors.runCount("slack_post_thread_reply"), 0);
+    cli.writeLine("y");
+    await cli.stdout.waitFor("slack_post_thread_reply: posted on it in T1");
+
+    // An idempotent connector write waits too.
+    cli.writeLine(call("notion_update_page_title", { page: "P1", title: "Plan" }));
+    await cli.stdout.waitFor("Approve notion_update_page_title?");
+    assert.equal(connectors.runCount("notion_update_page_title"), 0);
+    cli.writeLine("n not now");
+    await cli.stdout.waitFor("notion_update_page_title: ");
+    await cli.stdout.waitFor("> ");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(connectors.runCount("slack_post_thread_reply"), 1);
+    assert.equal(connectors.runCount("notion_update_page_title"), 0);
+  });
+
+  test("a connector tool named like a Pi tool gets the connector_ prefix", async () => {
+    const enabled = ["hackernews", "files/default", "archive/default"];
+    const home = newHome({
+      connectors: { mcp: connectorsUrl, enabled },
+      approval: { always: ["connector_connector_read"] },
+      local_tools: { browser: false },
+    });
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("read", { path: "notes.txt" }));
+    await cli.stdout.waitFor("read: buy milk");
+    cli.writeLine(call("connector_read", { path: "a.txt" }));
+    await cli.stdout.waitFor("connector_read: read through the archive connector: a.txt");
+    cli.writeLine(call("connector_connector_read", { path: "b.txt" }));
+    await cli.stdout.waitFor("Approve connector_connector_read?");
+    assert.equal(connectors.runCount("read"), 0);
+    cli.writeLine("y");
+    await cli.stdout.waitFor("connector_connector_read: read through the files connector: b.txt");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    const offered = offeredToolNames();
+    assert.equal(offered.filter((name) => name === "read").length, 1);
+    assert.ok(offered.includes("connector_read"));
+    assert.ok(offered.includes("connector_connector_read"));
+    assert.ok(offered.includes("hackernews_get_top_stories"));
+    assert.equal(connectors.runCount("read"), 1);
+    assert.equal(connectors.runCount("connector_read"), 1);
+  });
+
+  test("approval.always matches the name the agent sees: read gates Pi's read, not a renamed connector read", async () => {
+    const home = newHome({
+      connectors: { mcp: connectorsUrl, enabled: ["files/default", "archive/default"] },
+      approval: { always: ["read"] },
+      local_tools: { browser: false },
+    });
+    mkdirSync(home.workspace, { recursive: true });
+    writeFileSync(join(home.workspace, "notes.txt"), "buy milk\n");
+    const connectorReadsBefore = connectors.runCount("read");
+    const cli = start(home);
+    await cli.waitForSession();
+    cli.writeLine(call("connector_connector_read", { path: "b.txt" }));
+    await cli.stdout.waitFor("connector_connector_read: read through the files connector: b.txt");
+    assert.doesNotMatch(cli.stdout.all, /Approve connector_connector_read/);
+    cli.writeLine(call("read", { path: "notes.txt" }));
+    await cli.stdout.waitFor("Approve read?");
+    cli.writeLine("y");
+    await cli.stdout.waitFor("read: buy milk");
+    cli.writeLine("/exit");
+    assert.equal(await cli.waitForExit(), 0);
+    assert.equal(connectors.runCount("read"), connectorReadsBefore + 1);
+  });
+
+  test("--yes writes no workspace, and the workspace is the directory the command starts in", async () => {
+    const home = new TestHome(enginePorts(engine), api, proxy.url);
+    const first = start(home, ["--yes"]);
+    const sessionId = await first.waitForSession();
+    first.writeLine("/exit");
+    assert.equal(await first.waitForExit(), 0);
+    const written = readFileSync(home.configPath, "utf8");
+    assert.doesNotMatch(written, /workspace/);
+    const listing = start(home, ["sessions"]);
+    assert.equal(await listing.waitForExit(), 0);
+    assert.match(listing.stdout.all, new RegExp(`${sessionId}\\t`));
   });
 
   test("each model call adds the workspace's AGENTS.md, unless pi.load_project_context is false", async () => {

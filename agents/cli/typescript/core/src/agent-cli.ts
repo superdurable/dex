@@ -50,6 +50,7 @@ import {
   readConfigFile,
   readFileInstructions,
   writeConfigFile,
+  type InitAnswers,
   type LoadedConfig,
 } from "./config-file.js";
 import {
@@ -127,7 +128,9 @@ export function processAgentCliIo(): AgentCliIo {
  * ```
  * @param harness - The command's harness.
  * @param io - The process; defaults to {@link processAgentCliIo}.
- * @returns The exit code: 0 on success, 1 for a failure, 2 for invalid arguments or configuration.
+ * @returns The exit code: 0 on success, 1 for a failure or for input that ended during the `init` questions, 2 for
+ * invalid arguments or configuration, and 130 for Ctrl-C during the `init` questions. A cancelled `init` writes no
+ * file.
  * @since 0.5.0
  */
 export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = processAgentCliIo()): Promise<number> {
@@ -149,6 +152,9 @@ export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = proces
   try {
     return await command.run();
   } catch (error: unknown) {
+    if (error instanceof InitCancelledError) {
+      return error.exitCode;
+    }
     log(`dex-agents-${harness.name}: ${describe(error)}`);
     return error instanceof ConfigError || error instanceof UsageError ? 2 : 1;
   } finally {
@@ -167,10 +173,22 @@ interface ParsedArguments {
 
 class UsageError extends Error {}
 
+/** Ctrl-C or the end of input during the `init` questions, after which nothing was written. */
+class InitCancelledError extends Error {
+  public constructor(public readonly exitCode: number) {
+    super("the init questions were cancelled");
+  }
+}
+
+/** The shell's exit code for a command that Ctrl-C ended. */
+const interruptedExitCode = 130;
+
 /** One command run, owning everything it opened. */
 class AgentCliCommand {
   private readonly environment: CliEnvironment;
   private input: TerminalInput | undefined;
+  private isInitInterrupted = false;
+  private linesTypedAhead: readonly string[] = [];
   private worker: Worker | undefined;
   private client: Client | undefined;
   private blobCache: BlobCache | undefined;
@@ -195,13 +213,10 @@ class AgentCliCommand {
         : // A relative --config is relative to the working directory, so expand it as if a file there named it.
           expandConfigPath(this.parsed.configPath, join(process.cwd(), "--config"), this.environment.homeDirectory);
     if (this.parsed.subcommand === "init") {
-      const loaded = await this.initConfig(configPath);
-      return loaded === undefined ? 1 : 0;
+      await this.initConfig(configPath);
+      return 0;
     }
     const loaded = await this.loadConfig(configPath);
-    if (loaded === undefined) {
-      return 1;
-    }
     const effective = this.applyOverrides(loaded.effective);
     if (this.parsed.subcommand === "run") {
       this.mediaStore = await createMediaStore(effective.media, this.environment.agentsDirectory);
@@ -232,20 +247,21 @@ class AgentCliCommand {
     }
   }
 
-  private async initConfig(configPath: string): Promise<LoadedConfig | undefined> {
+  private async initConfig(configPath: string): Promise<LoadedConfig> {
     const answers = this.parsed.isYes || !this.io.isInteractive
       ? defaultInitAnswers(this.harness)
-      : await askInitQuestions(this.harness, (question) => this.ask(question), this.log);
+      : await this.askInitQuestionsAtTerminal();
     if (answers === null) {
-      this.log("Input ended before the configuration was complete; nothing was written.");
-      return undefined;
+      this.io.stdout.write("\n");
+      this.log("Cancelled; no configuration written.");
+      throw new InitCancelledError(this.isInitInterrupted ? interruptedExitCode : 1);
     }
     const loaded = writeConfigFile(configPath, answers, this.harness);
     this.log(`Wrote ${configPath}`);
     return loaded;
   }
 
-  private async loadConfig(configPath: string): Promise<LoadedConfig | undefined> {
+  private async loadConfig(configPath: string): Promise<LoadedConfig> {
     if (isConfigPresent(configPath)) {
       try {
         return readConfigFile(configPath, this.harness);
@@ -510,7 +526,12 @@ class AgentCliCommand {
     }
     const page = server.webUrl === null ? "the Dex Web Connectors page" : `${server.webUrl}/v1/connectors`;
     this.log(`Not authorized yet: ${missing.join(", ")}. Add them with "+ Add" on ${page}.`);
-    if (isOpeningConnectorsPage && this.io.isInteractive && server.webUrl !== null) {
+    if (
+      isOpeningConnectorsPage &&
+      this.environment.isBrowserOpeningEnabled !== false &&
+      this.io.isInteractive &&
+      server.webUrl !== null
+    ) {
       openInBrowser(`${server.webUrl}/v1/connectors`);
     }
     return missing;
@@ -613,14 +634,32 @@ class AgentCliCommand {
   }
 
   private terminalInput(): TerminalInput {
-    this.input ??= new TerminalInput(this.io.stdin, this.io.stdout);
+    this.input ??= new TerminalInput(this.io.stdin, this.io.stdout, this.linesTypedAhead);
     return this.input;
   }
 
+  private async askInitQuestionsAtTerminal(): Promise<InitAnswers | null> {
+    try {
+      return await askInitQuestions(this.harness, (question) => this.ask(question), this.log);
+    } finally {
+      // Closing leaves raw mode, so Ctrl-C during startup ends the process until the chat reads again.
+      this.linesTypedAhead = this.input?.close() ?? [];
+      this.input = undefined;
+    }
+  }
+
+  /** Returns the answer, or `null` after Ctrl-C or the end of input. */
   private async ask(question: string): Promise<string | null> {
     this.io.stdout.write(question);
-    const line = await this.terminalInput().nextLine();
-    return line === lineWaitAborted ? null : line;
+    const input = this.terminalInput();
+    const interrupt = new AbortController();
+    input.onInterrupt(() => interrupt.abort());
+    const line = await input.nextLine(interrupt.signal);
+    if (line === lineWaitAborted) {
+      this.isInitInterrupted = true;
+      return null;
+    }
+    return line;
   }
 }
 

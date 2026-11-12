@@ -10,7 +10,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+import dataclasses
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before anything imports it
@@ -18,16 +21,53 @@ import dex_agents_cli_core  # noqa: F401  # first: it configures gRPC before any
 # isort: split
 
 from deepagents import create_deep_agent
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain.agents.middleware.todo import WRITE_TODOS_TOOL_DESCRIPTION, Todo
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ModelRequest,
+    ModelResponse,
+    TodoListMiddleware,
+)
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import BaseTool
 
-from dex_agents import AgentSessionFlow, AgentTurnContext
-from dex_agents_cli_core import ConfigError, HarnessContext, LocalToolGroup, current_turn_config
-from dex_agents_langgraph import DurableToolCallMiddleware, langchain_agent_session_flow
+from dex_agents import (
+    AgentSessionFlow,
+    AgentSessionOptions,
+    AgentTurnContext,
+    AgentTurnOutcome,
+    DeferredToolCall,
+    DeferredToolExecution,
+    DeferredToolOutcome,
+    ToolCallsRequested,
+    ToolEffect,
+    ToolExecutionError,
+    ToolPolicy,
+)
+from dex_agents.builtin_loop import ToolSource
+from dex_agents_cli_core import (
+    CONNECTORS_TOOL_SOURCE_NAME,
+    ConfigError,
+    EffectiveConfig,
+    HarnessContext,
+    LocalToolGroup,
+    current_turn_config,
+    is_local_tool_group_enabled,
+    resolve_turn_tool_policy,
+)
+from dex_agents_deepagents_cli.connector_tool_names import PrefixedConnectorToolSource
+from dex_agents_deepagents_cli.workspace_backend import (
+    bind_artifacts_session,
+    build_workspace_backend,
+    default_artifacts_directory,
+    remove_stale_session_artifacts,
+)
+from dex_agents_langgraph import (
+    CompiledGraphSource,
+    DurableToolCallMiddleware,
+    LangGraphAgentRunner,
+)
 
 #: The Flow type of the command's sessions, before the CLI core namespaces it.
 DEEPAGENTS_CLI_FLOW_TYPE = "DexAgentsDeepAgentsCliSession"
@@ -45,28 +85,78 @@ DEFAULT_INSTRUCTIONS = (
 #: The todo tool's name, as Deep Agents and LangChain name it.
 WRITE_TODOS_TOOL_NAME = "write_todos"
 
-#: Deep Agents' subagent tool, which the session neither offers nor runs.
+#: Deep Agents' subagent tool. A subagent runs inside the tool Step of its call.
 TASK_TOOL_NAME = "task"
+
+#: Deep Agents' shell tool.
+EXECUTE_TOOL_NAME = "execute"
+
+
+@dataclass(frozen=True)
+class DeepAgentsToolRule:
+    """How the command runs one of Deep Agents' own tools.
+
+    Attributes:
+        effect: The effect class of each call, which decides its retries.
+        groups: The local tool groups the turn must switch on, or the tool
+            is neither offered nor run.
+    """
+
+    effect: ToolEffect
+    groups: frozenset[LocalToolGroup] = frozenset()
+
+    def is_enabled(self, turn: EffectiveConfig) -> bool:
+        """Report whether the turn switches on every group the tool needs."""
+        return all(is_local_tool_group_enabled(turn, group) for group in self.groups)
+
+
+_FILES = frozenset({LocalToolGroup.FILES})
+
+#: The rule of every tool the agent's graph has. No tool waits for approval
+#: unless ``approval.always`` names it, as in Deep Agents without ``interrupt_on``.
+DEEP_AGENTS_TOOL_RULES: Mapping[str, DeepAgentsToolRule] = {
+    "ls": DeepAgentsToolRule(ToolEffect.READ, _FILES),
+    "read_file": DeepAgentsToolRule(ToolEffect.READ, _FILES),
+    "glob": DeepAgentsToolRule(ToolEffect.READ, _FILES),
+    "grep": DeepAgentsToolRule(ToolEffect.READ, _FILES),
+    "write_file": DeepAgentsToolRule(ToolEffect.IDEMPOTENT_WRITE, _FILES),
+    # A rerun of a replace_all edit can apply it twice.
+    "edit_file": DeepAgentsToolRule(ToolEffect.NON_IDEMPOTENT_WRITE, _FILES),
+    "delete": DeepAgentsToolRule(ToolEffect.IDEMPOTENT_WRITE, _FILES),
+    EXECUTE_TOOL_NAME: DeepAgentsToolRule(
+        ToolEffect.NON_IDEMPOTENT_WRITE, frozenset({LocalToolGroup.SHELL})
+    ),
+    # A subagent may use every file tool and execute, without their own Steps or approvals.
+    TASK_TOOL_NAME: DeepAgentsToolRule(
+        ToolEffect.NON_IDEMPOTENT_WRITE, frozenset({LocalToolGroup.FILES, LocalToolGroup.SHELL})
+    ),
+    WRITE_TODOS_TOOL_NAME: DeepAgentsToolRule(ToolEffect.READ),
+}
+
+#: Tools whose ``approval.always`` entry makes ``task`` wait too: a subagent calls them unseen.
+_TASK_APPROVAL_TOOL_NAMES = frozenset(DEEP_AGENTS_TOOL_RULES)
 
 
 class DeepAgentsHarness:
     """The ``dex-agents-deepagents`` command: a Deep Agents agent in the terminal.
 
-    The agent comes from ``create_deep_agent`` and runs on the Dex LangGraph
-    adapter, so every model call is a ``RunModel`` Step and every tool call
-    its own tool Step. Deep Agents' own file tools are removed and its
-    ``task`` subagent tool is excluded: the CLI core's local tools provide
-    files and shell commands with the CLI core's policies, and a subagent would
-    run its model and tool calls inside one tool Step, out of Dex's sight.
-    ``write_todos`` stays as a read-only tool that records the plan in the
-    conversation.
+    The agent comes from ``create_deep_agent`` with Deep Agents' own tools:
+    the file tools and ``execute`` on the workspace, ``write_todos``, and the
+    ``task`` subagent tool. The CLI core's connector, web fetch, and browser
+    tools come on top. The agent runs on the Dex LangGraph adapter, so every
+    model call is a ``RunModel`` Step and every tool call its own tool Step,
+    which runs Deep Agents' tool middleware once. As in Deep Agents without
+    ``interrupt_on``, its own tools run without approval unless
+    ``approval.always`` names them; connector writes always wait for one.
     """
 
     name = "deepagents"
     config_section = "deepagents"
     flow_type = DEEPAGENTS_CLI_FLOW_TYPE
     default_model: str | None = DEFAULT_DEEPAGENTS_MODEL
-    replaced_local_tools: frozenset[LocalToolGroup] = frozenset()
+    replaced_local_tools: frozenset[LocalToolGroup] = frozenset(
+        {LocalToolGroup.FILES, LocalToolGroup.SHELL}
+    )
 
     def create_session_flow(self, context: HarnessContext) -> AgentSessionFlow:
         """Build the Deep Agents session Flow from the effective configuration.
@@ -77,46 +167,158 @@ class DeepAgentsHarness:
         Returns:
             The Flow, with ``context.flow_type`` as its type.
 
+        It first deletes the artifacts of sessions that changed none of
+        them within ``SESSION_ARTIFACTS_RETENTION``.
+
         Raises:
             ConfigError: If the ``deepagents`` section has a key; it has no options yet.
         """
         validate_deepagents_section(context.harness_options)
+        remove_stale_session_artifacts(default_artifacts_directory())
         file_model = context.config.model
-        return langchain_agent_session_flow(
-            lambda: build_deep_agent(file_model),
-            flow_type=context.flow_type,
-            tool_sources=context.tool_sources,
-            media_store=context.media_store,
-            excluded_tool_names=[TASK_TOOL_NAME],
+        workspace = context.workspace
+        runner = DeepAgentsAgentRunner(
+            context,
+            lambda: build_deep_agent(file_model, workspace),
+            tool_sources=deep_agents_tool_sources(context.tool_sources),
             select_turn_chat_model=TurnChatModelSelector(file_model),
-            should_defer_tool_calls_before_middleware=True,
         )
+        return AgentSessionFlow(runner, flow_type=context.flow_type, options=AgentSessionOptions())
 
 
-def build_deep_agent(file_model: str) -> Any:
+def build_deep_agent(file_model: str, workspace: Path) -> Any:
     """Build the command's Deep Agents graph.
 
-    Deep Agents' file tools and summarization are replaced by middleware that
-    adds nothing. The summarization would make an extra model call with the
-    file's model inside a ``RunModel`` Step. The session Flow excludes the
-    ``task`` tool.
+    Deep Agents' file tools and ``execute`` work on the workspace through
+    ``build_workspace_backend``. LangChain's ``TodoListMiddleware`` adds
+    ``write_todos``. The summarization is replaced by middleware that adds
+    nothing: it would make an extra model call with the file's model inside a
+    ``RunModel`` Step.
 
     Args:
         file_model: The configuration file's model; each turn may override it.
+            A subagent of ``task`` always uses it.
+        workspace: The absolute workspace directory.
 
     Returns:
         The compiled agent graph.
     """
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        TodoListMiddleware(),
+        DurableToolCallMiddleware(),
+        TurnInstructionsMiddleware(workspace),
+        LocalToolSwitchesMiddleware(),
+        _WithoutSummarization(),
+    ]
     return create_deep_agent(
         deep_agents_chat_model(file_model),
-        tools=[write_todos_tool()],
-        middleware=[
-            _WithoutFilesystemTools(),
-            _WithoutSummarization(),
-            DurableToolCallMiddleware(),
-            TurnInstructionsMiddleware(),
-        ],
+        backend=build_workspace_backend(workspace),
+        middleware=middleware,
     )
+
+
+def deep_agents_tool_sources(tool_sources: Sequence[ToolSource]) -> list[ToolSource]:
+    """Return the CLI core's tool sources, with connector tools that fit beside Deep Agents'.
+
+    Args:
+        tool_sources: ``HarnessContext.tool_sources``.
+
+    Returns:
+        The sources; the connectors source prefixes a tool whose name a Deep
+        Agents tool uses and asks approval for every write.
+    """
+    return [
+        PrefixedConnectorToolSource(source, DEEP_AGENTS_TOOL_RULES.keys())
+        if source.source_name == CONNECTORS_TOOL_SOURCE_NAME
+        else source
+        for source in tool_sources
+    ]
+
+
+class DeepAgentsAgentRunner(LangGraphAgentRunner):
+    """The LangGraph runner with the CLI core's per-turn rules for Deep Agents' own tools.
+
+    Each call of a Deep Agents tool gets its effect from
+    ``DEEP_AGENTS_TOOL_RULES`` and waits for approval only when the turn's
+    ``approval.always`` names it. A call of a tool whose local tool group the
+    turn switches off runs at once and its tool Step refuses it.
+    """
+
+    def __init__(
+        self,
+        context: HarnessContext,
+        graph: CompiledGraphSource,
+        *,
+        tool_sources: Sequence[ToolSource],
+        select_turn_chat_model: Callable[[AgentTurnContext], BaseChatModel | None],
+    ) -> None:
+        """Create the runner, deferring every tool call before Deep Agents' middleware.
+
+        Args:
+            context: The harness context, for each turn's configuration.
+            graph: The graph, or the function that builds it on the Worker.
+            tool_sources: The connector and local tool sources.
+            select_turn_chat_model: Picks each turn's chat model.
+        """
+        super().__init__(
+            graph,
+            tool_sources=tool_sources,
+            media_store=context.media_store,
+            select_turn_chat_model=select_turn_chat_model,
+            should_defer_tool_calls_before_middleware=True,
+        )
+        self._context = context
+
+    async def run_model_step(self, turn: AgentTurnContext) -> AgentTurnOutcome:
+        """Run one model call and give each Deep Agents tool call the turn's policy."""
+        with bind_artifacts_session(turn.flow_id):
+            outcome = await super().run_model_step(turn)
+        if not isinstance(outcome, ToolCallsRequested):
+            return outcome
+        turn_config = self._context.resolve_turn(turn.session_settings)
+        return dataclasses.replace(
+            outcome,
+            tool_calls=[
+                _with_turn_policy(turn, turn_config, tool_call) for tool_call in outcome.tool_calls
+            ],
+        )
+
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
+        """Run one call, after refusing a Deep Agents tool its turn switches off here.
+
+        Raises:
+            ToolExecutionError: The call's turn switches the tool's local tool
+                group off on this Worker, so nothing runs.
+        """
+        rule = DEEP_AGENTS_TOOL_RULES.get(call.tool_call.tool_name)
+        if rule is not None and not rule.is_enabled(
+            self._context.resolve_tool_step_permissions(call)
+        ):
+            raise ToolExecutionError(
+                f"tool {call.tool_call.tool_name} is switched off for this session"
+            )
+        with bind_artifacts_session(call.flow_id):
+            return await super().execute_deferred_tool_call(call)
+
+
+def _with_turn_policy(
+    turn: AgentTurnContext, turn_config: EffectiveConfig, tool_call: DeferredToolCall
+) -> DeferredToolCall:
+    # Sources rename colliding tools, so a rule's name is always a graph tool.
+    rule = DEEP_AGENTS_TOOL_RULES.get(tool_call.tool_name)
+    if rule is None:
+        return tool_call
+    if not rule.is_enabled(turn_config):
+        # Its tool Step only records the refusal, so nothing waits for approval.
+        policy = ToolPolicy(ToolEffect.READ, requires_approval=False)
+    else:
+        is_task_approval_required = tool_call.tool_name == TASK_TOOL_NAME and bool(
+            _TASK_APPROVAL_TOOL_NAMES & set(turn_config.approval.always)
+        )
+        policy = resolve_turn_tool_policy(
+            turn, tool_call.tool_name, rule.effect, is_task_approval_required, turn_config
+        )
+    return dataclasses.replace(tool_call, policy=policy)
 
 
 def validate_deepagents_section(options: Mapping[str, Any]) -> None:
@@ -149,26 +351,6 @@ def deep_agents_chat_model(model: str) -> BaseChatModel:
     return init_chat_model(model)
 
 
-def write_todos_tool() -> BaseTool:
-    """Return ``write_todos``: a read-only tool whose result repeats the new plan.
-
-    LangChain's own todo tool returns a graph ``Command`` that writes agent
-    state, which a Dex tool Step cannot return. The plan lives in the
-    conversation instead.
-    """
-
-    def write_todos(todos: list[Todo]) -> str:
-        lines = [f"- [{todo['status']}] {todo['content']}" for todo in todos]
-        return "Updated the todo list:\n" + "\n".join(lines)
-
-    return StructuredTool.from_function(
-        write_todos,
-        name=WRITE_TODOS_TOOL_NAME,
-        description=WRITE_TODOS_TOOL_DESCRIPTION,
-        metadata={"readOnlyHint": True},
-    )
-
-
 class TurnChatModelSelector:
     """Pick the running turn's chat model when it differs from the configuration file's."""
 
@@ -192,7 +374,16 @@ class TurnChatModelSelector:
 
 
 class TurnInstructionsMiddleware(AgentMiddleware[Any, Any, Any]):
-    """Put the running turn's instructions first in every model call's system message."""
+    """Put the running turn's instructions and the workspace first in every system message."""
+
+    def __init__(self, workspace: Path | None = None) -> None:
+        """Name the workspace the file tools work in.
+
+        Args:
+            workspace: The absolute workspace directory; ``None`` names none.
+        """
+        super().__init__()
+        self._workspace = workspace
 
     async def awrap_model_call(
         self,
@@ -203,20 +394,39 @@ class TurnInstructionsMiddleware(AgentMiddleware[Any, Any, Any]):
         turn = current_turn_config()
         if turn is None:
             return await handler(request)
-        instructions = turn.instructions or DEFAULT_INSTRUCTIONS
-        existing = request.system_message.text if request.system_message is not None else ""
-        system_message = SystemMessage(
-            f"{instructions}\n\n{existing}" if existing else instructions
-        )
-        return await handler(request.override(system_message=system_message))
+        sections = [turn.instructions or DEFAULT_INSTRUCTIONS]
+        if self._workspace is not None:
+            sections.append(
+                f"Your workspace is {self._workspace}. File tools take absolute paths "
+                "inside it, and execute runs commands in it."
+            )
+        if request.system_message is not None and request.system_message.text:
+            sections.append(request.system_message.text)
+        return await handler(request.override(system_message=SystemMessage("\n\n".join(sections))))
 
 
-class _WithoutFilesystemTools(AgentMiddleware[Any, Any, Any]):
-    """Replace Deep Agents' file tools, whose names the CLI core's local tools use."""
+class LocalToolSwitchesMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Leave out the Deep Agents tools whose local tool group the running turn switches off."""
 
-    @property
-    def name(self) -> str:
-        return "FilesystemMiddleware"
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
+    ) -> ModelResponse[Any]:
+        """Remove the switched-off tools from the model request."""
+        turn = current_turn_config()
+        if turn is None:
+            return await handler(request)
+        tools = [tool for tool in request.tools if _is_offered(tool, turn)]
+        if len(tools) == len(request.tools):
+            return await handler(request)
+        return await handler(request.override(tools=tools))
+
+
+def _is_offered(tool: BaseTool | Mapping[str, Any], turn: EffectiveConfig) -> bool:
+    name = tool.name if isinstance(tool, BaseTool) else tool.get("name")
+    rule = DEEP_AGENTS_TOOL_RULES.get(name) if isinstance(name, str) else None
+    return rule is None or rule.is_enabled(turn)
 
 
 class _WithoutSummarization(AgentMiddleware[Any, Any, Any]):

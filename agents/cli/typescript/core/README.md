@@ -151,6 +151,7 @@ interface AgentHarness {
   readonly flowType: string;
   readonly defaultModel: string | null;
   readonly replacedLocalTools?: readonly LocalToolGroup[];
+  readonly defaultWorkspaceLocation?: "dex_agent_workspace" | "launch_directory"; // TypeScript only
   createSessionFlow(context: HarnessContext): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
 }
 
@@ -184,6 +185,10 @@ type LocalToolGroup = "files" | "shell" | "web_fetch" | "browser";
   `approval.always`. A harness reads only the model and the instructions,
   with `resolveTurn` in each model call. Rejected settings throw there, so
   the turn fails with the error code and JSON Pointer.
+- `defaultWorkspaceLocation: "launch_directory"` makes the directory the
+  command starts in the workspace when the file sets none, as Pi does, and
+  `init` then writes no `workspace`. The default is `~/dex-agent-workspace`.
+  The Python CLI core has no such option.
 - `replacedLocalTools` lists the groups the harness serves with its own
   tools. The CLI core leaves them out of `context.toolSources`. The harness
   gives its own tools the same rules, with these exports:
@@ -389,6 +394,7 @@ entry is refused.
 | `DEXCLI` | The `dexcli` executable to use. |
 | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `auto` reuses or starts. |
 | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. It must be `https`, or `http` on 127.0.0.1, localhost, or [::1]. |
+| `DEX_AGENTS_OPEN_BROWSER` | `0` or `false` keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. |
 
 ## Development
 

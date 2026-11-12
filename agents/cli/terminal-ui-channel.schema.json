@@ -1,0 +1,756 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dex Agents terminal UI channel message, contract 1",
+  "description": "One line on the terminal UI channel after the launch document. #/$defs/from_launcher is what the launcher sends and #/$defs/from_tui is what dexcli agents-tui sends; the top level accepts either. A message of a type contract 1 does not define is valid when its type is a lowercase name, so a receiver can skip what a later sender adds; a message of a defined type must match that type's definition. Each request method's params are checked here; check a response's result against the method's <method>_result definition. See TERMINAL_UI_CONTRACT.md.",
+  "$comment": "Patterns end with (?![\\s\\S]) rather than $, because Python's re lets $ match before a trailing newline and ECMAScript does not. Objects allow unknown properties, because receivers ignore fields that a later addition to contract 1 brings. The not schemas repeat properties so that Ajv's strictRequired mode accepts them. $defs shared with terminal-ui-launch.schema.json must stay identical.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/from_launcher"
+    },
+    {
+      "$ref": "#/$defs/from_tui"
+    }
+  ],
+  "$defs": {
+    "from_launcher": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/response"
+        },
+        {
+          "$ref": "#/$defs/notice_message"
+        },
+        {
+          "$ref": "#/$defs/worker_message"
+        },
+        {
+          "$ref": "#/$defs/later_message"
+        }
+      ]
+    },
+    "from_tui": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ready_message"
+        },
+        {
+          "$ref": "#/$defs/launch_rejected_message"
+        },
+        {
+          "$ref": "#/$defs/request"
+        },
+        {
+          "$ref": "#/$defs/cancel_message"
+        },
+        {
+          "$ref": "#/$defs/result_message"
+        },
+        {
+          "$ref": "#/$defs/later_message"
+        }
+      ]
+    },
+    "request_id": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "1 for the first request of a dexcli process, then one more for each request."
+    },
+    "method_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])"
+    },
+    "error_code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+      "description": "A lowercase UUIDv7 that dexcli makes for one user action. Its time must also fall in the years 2000 to 9999, which a pattern cannot check."
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/error_code"
+        },
+        "message": {
+          "type": "string",
+          "description": "One English sentence for the user. It never holds a secret or an environment value."
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "id": {
+          "$ref": "#/$defs/request_id"
+        },
+        "method": {
+          "$ref": "#/$defs/method_name"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/idempotency_key"
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "get_request_result"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "not": {
+              "properties": {
+                "idempotency_key": true
+              },
+              "required": [
+                "idempotency_key"
+              ]
+            },
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/get_request_result_params"
+              }
+            }
+          },
+          "else": {
+            "required": [
+              "idempotency_key"
+            ],
+            "properties": {
+              "idempotency_key": true
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "put_image"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/put_image_params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "start_session"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/start_session_params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "list_connectors"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/list_connectors_params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "open_url"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/open_url_params"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "response"
+        },
+        "id": {
+          "$ref": "#/$defs/request_id"
+        },
+        "result": {
+          "type": "object"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "result": true,
+            "error": true
+          },
+          "required": [
+            "result"
+          ],
+          "not": {
+            "properties": {
+              "error": true
+            },
+            "required": [
+              "error"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "result": true,
+            "error": true
+          },
+          "required": [
+            "error"
+          ],
+          "not": {
+            "properties": {
+              "result": true
+            },
+            "required": [
+              "result"
+            ]
+          }
+        }
+      ]
+    },
+    "cancel_message": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "cancel"
+        },
+        "id": {
+          "$ref": "#/$defs/request_id"
+        }
+      }
+    },
+    "ready_message": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "ready"
+        }
+      }
+    },
+    "launch_rejected_message": {
+      "type": "object",
+      "required": [
+        "type",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "const": "launch_rejected"
+        },
+        "code": {
+          "$ref": "#/$defs/error_code",
+          "description": "invalid_launch, auth_missing, contract_unsupported, mode_unsupported, or terminal_failed in contract 1."
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "result_message": {
+      "type": "object",
+      "required": [
+        "type",
+        "resume_session_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "resume_session_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "notice": {
+      "type": "object",
+      "required": [
+        "level",
+        "text"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "notice_message": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/notice"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "notice"
+            }
+          }
+        }
+      ]
+    },
+    "worker_message": {
+      "type": "object",
+      "required": [
+        "type",
+        "state"
+      ],
+      "properties": {
+        "type": {
+          "const": "worker"
+        },
+        "state": {
+          "enum": [
+            "ready",
+            "reconnecting",
+            "stopping",
+            "stopped"
+          ]
+        },
+        "exit_code": {
+          "type": "integer",
+          "description": "Only with stopped: the Worker host's exit code, or 128 plus the signal number."
+        }
+      },
+      "if": {
+        "properties": {
+          "state": {
+            "const": "stopped"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "required": [
+          "exit_code"
+        ],
+        "properties": {
+          "exit_code": true
+        }
+      },
+      "else": {
+        "not": {
+          "properties": {
+            "exit_code": true
+          },
+          "required": [
+            "exit_code"
+          ]
+        }
+      }
+    },
+    "put_image_params": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "The absolute path of the image file."
+        }
+      }
+    },
+    "put_image_result": {
+      "type": "object",
+      "required": [
+        "image",
+        "name"
+      ],
+      "properties": {
+        "image": {
+          "$ref": "#/$defs/image_reference"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The file's base name, for the attachment chip."
+        }
+      }
+    },
+    "image_reference": {
+      "type": "object",
+      "description": "AgentImageReference as the session Flow stores it; send it unchanged in AgentUserMessage.images.",
+      "required": [
+        "uri",
+        "mime_type",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "type": {
+          "const": "image"
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "maxLength counts code points; the image rules also limit the URI to 1024 bytes of UTF-8."
+        },
+        "mime_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp"
+          ]
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3750000
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+        }
+      }
+    },
+    "start_session_params": {
+      "type": "object"
+    },
+    "start_session_result": {
+      "type": "object",
+      "required": [
+        "session_id"
+      ],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*-[0-9]{8}-[0-9]{6}-(?:[0-9a-f]{6}|[0-9a-f]{12})(?![\\s\\S])",
+          "description": "The ID derived from the request's idempotency key: the 6-digit suffix, or the 12-digit one when another request started the 6-digit ID."
+        }
+      }
+    },
+    "list_connectors_params": {
+      "type": "object"
+    },
+    "list_connectors_result": {
+      "$ref": "#/$defs/connector_list"
+    },
+    "open_url_params": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "open_url_result": {
+      "type": "object"
+    },
+    "get_request_result_params": {
+      "type": "object",
+      "required": [
+        "idempotency_key"
+      ],
+      "properties": {
+        "idempotency_key": {
+          "$ref": "#/$defs/idempotency_key"
+        }
+      }
+    },
+    "get_request_result_result": {
+      "type": "object",
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "done",
+            "running",
+            "unknown"
+          ]
+        },
+        "result": {
+          "type": "object"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "if": {
+        "properties": {
+          "state": {
+            "const": "done"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "oneOf": [
+          {
+            "properties": {
+              "result": true,
+              "error": true
+            },
+            "required": [
+              "result"
+            ],
+            "not": {
+              "properties": {
+                "error": true
+              },
+              "required": [
+                "error"
+              ]
+            }
+          },
+          {
+            "properties": {
+              "result": true,
+              "error": true
+            },
+            "required": [
+              "error"
+            ],
+            "not": {
+              "properties": {
+                "result": true
+              },
+              "required": [
+                "result"
+              ]
+            }
+          }
+        ]
+      },
+      "else": {
+        "not": {
+          "properties": {
+            "result": true,
+            "error": true
+          },
+          "anyOf": [
+            {
+              "required": [
+                "result"
+              ],
+              "properties": {
+                "result": true
+              }
+            },
+            {
+              "required": [
+                "error"
+              ],
+              "properties": {
+                "error": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    "connector_list": {
+      "type": "object",
+      "description": "The connector tools the connectors MCP server offers, and the Dex Web connections when the launcher read them.",
+      "required": [
+        "mcp_url",
+        "tools"
+      ],
+      "properties": {
+        "mcp_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "connector",
+              "connection",
+              "operation",
+              "is_enabled"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The tool name the agent sees."
+              },
+              "connector": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "null when the tool carries no Dex identity."
+              },
+              "connection": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "operation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "is_enabled": {
+                "type": "boolean",
+                "description": "Whether connectors.enabled lets the agent use it."
+              }
+            }
+          }
+        },
+        "connections": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "The Dex Web connections, or null or absent when the launcher did not read them.",
+          "items": {
+            "type": "object",
+            "required": [
+              "connector",
+              "connection",
+              "status"
+            ],
+            "properties": {
+              "connector": {
+                "type": "string"
+              },
+              "connection": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "later_message": {
+      "type": "object",
+      "description": "A message type that a later addition to contract 1 brings. Receivers skip it.",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])",
+          "not": {
+            "enum": [
+              "launch",
+              "response",
+              "notice",
+              "worker",
+              "ready",
+              "launch_rejected",
+              "request",
+              "cancel",
+              "result"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

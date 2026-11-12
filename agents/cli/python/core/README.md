@@ -42,7 +42,8 @@ JSON Pointer, such as `schema at "/local_tools/shell/allow" (schema keyword type
 The exit code is 0 on success; 1 for a failure at run time, such as a Dex
 server that does not start, an explicit `connectors.mcp` URL that is
 unavailable, or a turn or session that failed during the chat; and 2 for a
-usage or configuration error.
+usage or configuration error. Ctrl-C at an `init` question exits with 130, and
+Ctrl-D there exits with 1; neither writes a file.
 
 ### Sessions and Flow types
 
@@ -169,6 +170,7 @@ starts nothing.
 | `DEXCLI` | The `dexcli` executable to run. |
 | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `auto` reuses or starts. |
 | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. |
+| `DEX_AGENTS_OPEN_BROWSER` | `0` or `false` keeps the command from opening a web browser, such as the Dex Web Connectors page at a terminal. |
 
 ## Connector tools
 
