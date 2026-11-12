@@ -6,10 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! One shared in-memory object store with S3 semantics, seen by each node through a fault layer.
+//! One shared in-memory object store with S3 semantics by default, seen by each node through a
+//! fault layer.
 
 mod closed_stream_replays;
 mod landing_writes;
+mod shared_store_semantics;
 mod storage_observations;
 mod store_discards;
 
@@ -37,6 +39,7 @@ use tokio::time::Instant;
 pub(crate) use closed_stream_replays::replays_voided_closed_batch;
 pub(crate) use landing_writes::SharedObjectStorage;
 use landing_writes::{CrashLanding, UnlandedLogWrites, WriteLanding, lock_unlanded};
+pub(crate) use shared_store_semantics::shared_store_with_semantics;
 pub(crate) use storage_observations::StorageObservations;
 pub(crate) use store_discards::has_discarded_existing_store;
 
@@ -660,6 +663,12 @@ impl ObjectStore for NodeObjectStore {
             self.storage.store.list(prefix, start_after, max_keys)
         })
         .await
+    }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.storage
+            .store
+            .supports_replace_if_etag_matches_on_every_key()
     }
 }
 

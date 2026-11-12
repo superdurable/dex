@@ -10,6 +10,8 @@ publish.workspace = true
 
 [features]
 db9-integration = []
+# Exposes deterministic constructors for simulations.
+test-util = []
 
 [dependencies]
 dexzd-postgres-connection.workspace = true

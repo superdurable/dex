@@ -53,15 +53,41 @@ impl VersionIdSource for RandomVersionIdSource {
     }
 }
 
+/// Derives distinct version IDs from a seed with SplitMix64, for reproducible simulations.
+#[cfg(feature = "test-util")]
+struct SeededVersionIdSourceForTest {
+    state: std::sync::Mutex<u64>,
+}
+
+#[cfg(feature = "test-util")]
+impl VersionIdSource for SeededVersionIdSourceForTest {
+    fn next_version_id(&self) -> u128 {
+        let mut state = self
+            .state
+            .lock()
+            .expect("the version ID seed lock is not poisoned");
+        let mut next_half = || {
+            *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut mixed = *state;
+            mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            mixed ^ (mixed >> 31)
+        };
+        // SplitMix64 is a bijection of its state, so the high halves never repeat.
+        (u128::from(next_half()) << 64) | u128::from(next_half())
+    }
+}
+
 /// An [`ObjectStore`] for a store whose only conditional write is create-only, such as
 /// Aliyun OSS with `x-oss-forbid-overwrite`.
 ///
 /// Mutable object keys (see [`crate::is_mutable_object_key`]) get linearizable
 /// [`WriteCondition::CreateOnly`] and [`WriteCondition::ReplaceIfEtagMatches`] writes. Each
 /// logical key `K` is stored as create-only versions at `K.v/<u64::MAX - generation>`, so a
-/// one-key listing finds the newest version. A replacement creates the next generation, so only
-/// one writer wins it. Each version body starts with a header that names the version and its
-/// predecessor; ETags have the form `"g<generation>-<version ID>"`. A delete writes a tombstone
+/// one-key listing finds the newest version. A replacement checks that the ETag names the
+/// stored version of its generation, creates the next generation, and confirms it, so one
+/// writer wins each generation. Each version body starts with a header that names the version
+/// and its predecessor; ETags have the form `"g<generation>-<version ID>"`. A delete writes a tombstone
 /// version, except on startup probe keys, whose versions are deleted. A background task deletes
 /// superseded versions, see [`MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION`].
 ///
@@ -116,10 +142,35 @@ impl AliyunOssObjectStore {
     ///
     /// Panics when called outside a Tokio runtime.
     pub fn new(inner: Arc<dyn ObjectStore>) -> Self {
+        Self::with_version_id_source(inner, Box::new(RandomVersionIdSource))
+    }
+
+    /// Wraps `inner` like [`Self::new`], deriving version IDs from `seed` instead of a random
+    /// generator, so a deterministic simulation writes the same bodies on every run.
+    ///
+    /// Stores that share an inner store must use different seeds.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called outside a Tokio runtime.
+    #[cfg(feature = "test-util")]
+    pub fn with_seeded_version_ids_for_test(inner: Arc<dyn ObjectStore>, seed: u64) -> Self {
+        Self::with_version_id_source(
+            inner,
+            Box::new(SeededVersionIdSourceForTest {
+                state: std::sync::Mutex::new(seed),
+            }),
+        )
+    }
+
+    fn with_version_id_source(
+        inner: Arc<dyn ObjectStore>,
+        version_ids: Box<dyn VersionIdSource>,
+    ) -> Self {
         Self {
             reclaimer: VersionReclaimer::start(Arc::clone(&inner)),
             inner,
-            version_ids: Box::new(RandomVersionIdSource),
+            version_ids,
         }
     }
 

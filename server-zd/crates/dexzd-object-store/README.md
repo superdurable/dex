@@ -20,9 +20,25 @@ File downloads write to a temporary file beside the target and rename after the 
 
 `startup_self_check` verifies create-only and ETag replacement behavior in the configured bucket, then deletes its probe object. Start the server only after it succeeds.
 
+## Mutable object keys and create-only stores
+
+server-zd writes `ReplaceIfEtagMatches` only on mutable object keys: `manifest`, `registry/attribute-indexes`, and keys under `lease/` and `probe/`. `is_mutable_object_key` and the key constants are their single definition. Register a key there before replacing it.
+
+`AliyunOssObjectStore` wraps a store whose only conditional write is create-only, such as Aliyun OSS. Every other key passes through unchanged and rejects `ReplaceIfEtagMatches` with a permanent error. `supports_replace_if_etag_matches_on_every_key` then returns false; wrappers forward the answer.
+
+A mutable key `K` is stored as create-only versions at `K.v/<u64::MAX - generation>`, zero-padded to 20 digits, so a one-key listing returns the newest version. Each version body starts with a 38-byte header: magic, format, tombstone and predecessor flags, a random 128-bit version ID, and the predecessor's ID. ETags are `"g<generation>-<version ID>"`. A read lists the newest version and reads it. A delete writes a tombstone version.
+
+A replacement checks that the ETag's generation holds the named version, creates the next generation, and confirms it. The version is written when it is still the newest, or when the next generation names it as predecessor. Otherwise a stale writer recreated a reclaimed generation: the version is deleted and the write reports `PreconditionFailed`. When the next generation is already gone too, the outcome is unknown. Failures after the create are `OutcomeUnknown`.
+
+After a confirmed write of generation `n`, a background task deletes generations `n - 2` and below whose successor was written at least 60 seconds before `n`, by the store's own timestamps. It keeps tombstones. Startup probe keys belong to one process, so deleting one removes every version, and `remove_stale_startup_probes` removes probe keys older than one hour. Each read and write of a mutable key adds one listing; a replacement also reads one version header.
+
+The inner store must create atomically and list consistently right after each write. The layout differs from every other provider, so data cannot move between them.
+
 ## Testing
 
 The shared conformance suite exercises the in-memory implementation and an in-process s3local in strict, process-crash-safe, and relaxed durability modes. It needs no cloud credentials or external service.
+
+`aliyun_oss_conformance` and `aliyun_oss_versioned_cas` run `AliyunOssObjectStore` over an in-memory store that rejects `ReplaceIfEtagMatches`. They cover racing writers, stale writers after reclamation, superseded writers, injected faults, tombstones, and probe removal. The racing histories are checked for one winner per generation and real-time order.
 
 ## db9 SQL provider
 

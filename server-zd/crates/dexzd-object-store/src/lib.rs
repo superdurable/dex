@@ -222,12 +222,13 @@ pub fn node_lease_object_key(node_id: &str) -> String {
 
 /// Returns whether `key` is a mutable object key.
 ///
-/// Mutable object keys are the only keys that server-zd writes with
+/// Mutable object keys are the keys that server-zd replaces with
 /// [`WriteCondition::ReplaceIfEtagMatches`]: the keys in [`MUTABLE_OBJECT_KEYS`] and the keys
 /// that start with a prefix in [`MUTABLE_OBJECT_KEY_PREFIXES`]. A store without atomic
 /// replacement, such as [`AliyunOssObjectStore`], keeps each of them as a series of create-only
-/// versions and rejects replacement of every other key. Register a key here before writing it
-/// with `ReplaceIfEtagMatches`. Mutable object keys never contain `.`.
+/// versions and rejects replacement of every other key; see
+/// [`ObjectStore::supports_replace_if_etag_matches_on_every_key`]. Register a key here before
+/// replacing it. Mutable object keys must not contain `.`.
 pub fn is_mutable_object_key(key: &str) -> bool {
     MUTABLE_OBJECT_KEYS.contains(&key)
         || MUTABLE_OBJECT_KEY_PREFIXES
