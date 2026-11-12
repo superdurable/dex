@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Object storage interface used by server-zd, with S3 and db9 implementations and a fault-injecting in-memory implementation for tests.
+Object storage interface used by server-zd, with S3, db9, Azure Blob Storage, and Google Cloud Storage implementations and a fault-injecting in-memory implementation for tests.
 
 ## S3 configuration
 

@@ -8,6 +8,12 @@
 
 #[path = "conformance/aliyun_oss_dialect.rs"]
 mod aliyun_oss_dialect;
+#[path = "conformance/azure_gcs_cloud.rs"]
+mod azure_gcs_cloud;
+#[path = "conformance/azure_gcs_fake_server.rs"]
+mod azure_gcs_fake_server;
+#[path = "conformance/fake_cloud_server.rs"]
+mod fake_cloud_server;
 #[path = "conformance/recording_s3_proxy.rs"]
 mod recording_s3_proxy;
 

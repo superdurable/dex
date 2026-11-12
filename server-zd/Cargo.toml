@@ -66,11 +66,13 @@ dhat = "0.3"
 futures = "0.3"
 http-body-util = "0.1"
 humantime-serde = "1"
+http = "1"
 hyper = { version = "1", features = ["client", "http1"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "tls12"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 libc = "0.2"
 md-5 = "0.10"
+object_store = { version = "0.14.2", default-features = false, features = ["azure", "gcp"] }
 prost = "0.14"
 prost-types = "0.14"
 prometheus-client = "0.25.1"
@@ -106,6 +108,7 @@ tower-layer = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 unicode-properties = { version = "0.1.4", default-features = false, features = ["general-category"] }
+url = "2"
 uuid = { version = "1", features = ["v4", "v7"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zstd = "0.13"

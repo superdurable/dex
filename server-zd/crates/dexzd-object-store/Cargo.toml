@@ -23,6 +23,13 @@ base64.workspace = true
 bytes.workspace = true
 dexzd-clock = { path = "../dexzd-clock" }
 md-5.workspace = true
+object_store.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+http.workspace = true
+time.workspace = true
+url.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

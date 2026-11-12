@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Object storage interface used by server-zd, with S3 and db9 implementations and a fault-injecting in-memory implementation for tests.
+//! Object storage interface used by server-zd, with S3, db9, Azure Blob Storage, and Google Cloud Storage implementations and a fault-injecting in-memory implementation for tests.
 //!
 //! Keys passed to [`ObjectStore`] are relative to the store's configured prefix, for example
 //! `log/node-a/0000000001/00000000000000000042`.
@@ -14,6 +14,7 @@
 //! Every server-zd commit depends on conditional writes, so implementations must honor
 //! [`WriteCondition`] exactly.
 
+mod azure_gcs;
 mod db9;
 mod file_download;
 mod in_memory;
@@ -25,6 +26,10 @@ mod startup_self_check;
 
 use std::path::Path;
 
+pub use azure_gcs::{
+    AzureBlobCredentials, AzureGcsObjectStore, AzureGcsObjectStoreConfig, AzureGcsProvider,
+    GoogleCloudStorageCredentials, STAGING_KEY_PREFIX,
+};
 pub use db9::{Db9ObjectStore, Db9ObjectStoreConfig};
 pub use in_memory::{FaultAction, FaultInjector, InMemoryObjectStore};
 pub use instrumented::InstrumentedObjectStore;
