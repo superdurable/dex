@@ -280,9 +280,9 @@ dependencies = [
 
 [[package]]
 name = "dex-sdk"
-version = "1.44.0"
+version = "1.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "785b561629e880a7a2ecfd43b46ccd8140224f85891532e7b01da7e61a5e9c82"
+checksum = "0a5aa986094a098deb1e58fce672ec5e7416faf7bd64ad5b23a9b19007d28940"
 dependencies = [
  "bytes",
  "dex-blob-cache",
@@ -297,6 +297,7 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-stream",
  "tonic",

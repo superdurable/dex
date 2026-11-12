@@ -22,7 +22,7 @@ curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --st
 cd quick-start
 ```
 
-The folder builds on its own. Its only Dex dependency is `io.superdurable:dex-sdk` 1.44.0 from Maven Central.
+The folder builds on its own. Its only Dex dependency is `io.superdurable:dex-sdk` 1.45.0 from Maven Central.
 
 ## Run it
 

@@ -26,7 +26,7 @@ curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --st
 cd quick-start
 ```
 
-The folder builds on its own. Its only Dex dependency is `dex-sdk` 1.44.0 from crates.io.
+The folder builds on its own. Its only Dex dependency is `dex-sdk` 1.45.0 from crates.io.
 
 ## Run it
 

@@ -15,7 +15,7 @@
     "test": "node --test --test-force-exit test/quick-start.test.ts"
   },
   "dependencies": {
-    "@superdurable/dex": "1.44.0"
+    "@superdurable/dex": "1.45.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -7,7 +7,7 @@ repositories {
 }
 
 dependencies {
-    implementation "io.superdurable:dex-sdk:1.44.0"
+    implementation "io.superdurable:dex-sdk:1.45.0"
 
     testImplementation platform("org.junit:junit-bom:5.13.4")
     testImplementation "org.junit.jupiter:junit-jupiter"

@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/superdurable/dex/blob-cache-go v0.1.2
-	github.com/superdurable/dex/sdk-go v1.44.0
+	github.com/superdurable/dex/sdk-go v1.45.0
 )
 
 require (

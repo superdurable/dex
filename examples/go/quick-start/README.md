@@ -22,7 +22,7 @@ curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --st
 cd quick-start
 ```
 
-The folder builds on its own. Its only Dex dependency is `github.com/superdurable/dex/sdk-go` v1.44.0 from the Go module proxy.
+The folder builds on its own. Its only Dex dependency is `github.com/superdurable/dex/sdk-go` v1.45.0 from the Go module proxy.
 
 ## Run it
 

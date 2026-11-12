@@ -25,7 +25,7 @@ curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --st
 cd quick-start
 ```
 
-The folder builds on its own. Its only Dex dependency is `@superdurable/dex` 1.44.0 from npm.
+The folder builds on its own. Its only Dex dependency is `@superdurable/dex` 1.45.0 from npm.
 
 ## Run it
 
