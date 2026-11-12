@@ -11,6 +11,7 @@ package remotesessionfeed
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -47,16 +48,27 @@ func TestMessageQueuedBeforeTheChatCarriesNoOrigin(t *testing.T) {
 // The history marks turns that the recent events show as cancelled.
 func TestHistoryMarksCancelledTurns(t *testing.T) {
 	harness := newModelHarness(t)
-	turnID := "turn-2"
-	harness.sessions.listEvents = func(pageSize int32, beforePageToken string) (dex.StreamMessagesPage[dexagents.AgentEvent], error) {
-		require.Empty(t, beforePageToken)
-		return dex.StreamMessagesPage[dexagents.AgentEvent]{Messages: []dex.ListedStreamMessage[dexagents.AgentEvent]{
-			{Value: dexagents.AgentEvent{Type: "turn_cancelled", TurnID: &turnID}},
-			{Value: textEvent("turn-1", "step-1", 1, "done")},
-		}}, nil
+	// The newest page holds turn-2's cancel among many deltas; turn-1's end
+	// is two pages back, so the reader goes on until it has it.
+	pages := [][]dexagents.AgentEvent{
+		{endEvent("turn-2", "turn_cancelled", "{}"), textEvent("turn-2", "step-2", 1, "partial")},
+		{textEvent("turn-2", "step-2", 1, "more")},
+		{endEvent("turn-1", "turn_completed", "{}"), textEvent("turn-1", "step-1", 1, "done")},
+		{endEvent("turn-0", "turn_cancelled", "{}")},
 	}
-	cancelled := readCancelledTurns(context.Background(), harness.feed, "session-1")
-	require.Equal(t, map[string]bool{"turn-2": true}, cancelled)
+	var requestedTokens []string
+	harness.sessions.listEvents = func(_ int32, beforePageToken string) (dex.StreamMessagesPage[dexagents.AgentEvent], error) {
+		requestedTokens = append(requestedTokens, beforePageToken)
+		index := len(requestedTokens) - 1
+		page := dex.StreamMessagesPage[dexagents.AgentEvent]{NextPageToken: fmt.Sprintf("page-%d", index+1)}
+		for _, event := range pages[index] {
+			page.Messages = append(page.Messages, dex.ListedStreamMessage[dexagents.AgentEvent]{Value: event})
+		}
+		return page, nil
+	}
+	cancelled := readHistoryTurnEnds(context.Background(), harness.feed, "session-1", "turn-1")
+	require.Equal(t, map[string]bool{"turn-2": true, "turn-1": false}, cancelled)
+	require.Equal(t, []string{"", "page-1", "page-2"}, requestedTokens, "it stops at the oldest shown turn's end")
 
 	harness.model = newSessionModel(harness.feed, "session-1", 1, true)
 	harness.model.emitHistory(dexagents.AgentMessagesPage{Messages: []dexagents.AgentMessage{

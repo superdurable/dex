@@ -236,6 +236,7 @@ func (model *sessionModel) endHistoryTurn(turnID string, isCancelled bool) {
 	}
 	model.finishedTurns[turnID] = true
 	model.lastTurnNumber = max(model.lastTurnNumber, turnNumberOf(turnID, model.lastTurnNumber))
+	// Without an end event the turn shows no marker, which is all Completed shows.
 	ended := sessionfeed.TurnEnded{TurnID: turnID, Outcome: sessionfeed.TurnOutcomeCompleted}
 	if isCancelled {
 		ended.Outcome = sessionfeed.TurnOutcomeCancelled

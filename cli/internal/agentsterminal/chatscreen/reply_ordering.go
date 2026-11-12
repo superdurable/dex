@@ -68,7 +68,10 @@ func (screen *ChatScreen) forgetSessionTurns() {
 	screen.repliesAfterTools = map[replyGroupKey]bool{}
 	screen.lastTurnNumber, screen.totalTokens = 0, 0
 	screen.isWritingReply = false
-	screen.isPopupDeferredByTyping = false
+	screen.lastReplyText, screen.hasReplySinceUserMessage = "", false
+	// A wait for the old session's deferred popup never opens the new one's.
+	screen.isPopupDeferredByTyping, screen.isDeferredPopupScheduled = false, false
+	screen.deferredPopupGeneration++
 }
 
 // recordOpenedSession keeps the first session for the welcome area, with the

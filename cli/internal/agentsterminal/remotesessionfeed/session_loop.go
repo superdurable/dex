@@ -34,8 +34,8 @@ type snapshotFetched struct {
 	epoch    int64
 	snapshot dexagents.AgentSnapshot
 	history  *dexagents.AgentMessagesPage
-	// cancelledTurns are the history's turns that recent events show as
-	// cancelled; the stored messages do not say.
+	// cancelledTurns says, for history turns with a found end event, whether
+	// each was cancelled; stored messages do not say.
 	cancelledTurns map[string]bool
 	err            error
 }
@@ -228,7 +228,9 @@ func (loop *sessionLoop) startFetch() {
 				feed.notice(sessionfeed.NoticeSeverityWarning, "Could not load the history: "+describeError(err)+".")
 			} else {
 				fetched.history = &page
-				fetched.cancelledTurns = readCancelledTurns(loop.ctx, feed, model.sessionID)
+				if len(page.Messages) > 0 {
+					fetched.cancelledTurns = readHistoryTurnEnds(loop.ctx, feed, model.sessionID, page.Messages[0].TurnID)
+				}
 			}
 		}
 		select {
@@ -298,17 +300,18 @@ func (loop *sessionLoop) applyFetchFailure(err error) {
 	loop.scheduleRefresh(min(backoff, loop.feed.timings.MaxLoadBackoff))
 }
 
-// Reading cancelled turns for the history is best effort: at most this many
-// of the newest retained events.
+// The history reads end events back to its oldest turn, at most this many
+// pages of the newest retained events.
 const (
 	historyEventPageSize  = 100
-	historyEventPageCount = 3
+	historyEventPageCount = 20
 )
 
-// readCancelledTurns returns the turns the newest events show as
-// cancelled, up to the first read error.
-func readCancelledTurns(ctx context.Context, feed *RemoteSessionFeed, sessionID string) map[string]bool {
-	cancelled := map[string]bool{}
+// readHistoryTurnEnds returns, for each turn whose end event it found, whether
+// it was cancelled. It stops after oldestTurnID's end, the oldest event, or a
+// read error.
+func readHistoryTurnEnds(ctx context.Context, feed *RemoteSessionFeed, sessionID string, oldestTurnID string) map[string]bool {
+	isCancelledByTurn := map[string]bool{}
 	pageToken := ""
 	for range historyEventPageCount {
 		listContext, cancel := context.WithTimeout(ctx, feed.timings.SnapshotTimeout)
@@ -316,20 +319,27 @@ func readCancelledTurns(ctx context.Context, feed *RemoteSessionFeed, sessionID 
 		cancel()
 		if err != nil {
 			feed.debugf("read the history events", err)
-			return cancelled
+			return isCancelledByTurn
 		}
 		for _, message := range page.Messages {
-			if event := message.Value; event.Type == "turn_cancelled" && event.TurnID != nil {
-				cancelled[*event.TurnID] = true
+			event := message.Value
+			if event.TurnID == nil || !turnEndEventTypes[event.Type] {
+				continue
+			}
+			if _, isKnown := isCancelledByTurn[*event.TurnID]; !isKnown {
+				isCancelledByTurn[*event.TurnID] = event.Type == "turn_cancelled"
 			}
 		}
-		if page.NextPageToken == "" {
-			return cancelled
+		if _, isOldestEnded := isCancelledByTurn[oldestTurnID]; isOldestEnded || page.NextPageToken == "" {
+			return isCancelledByTurn
 		}
 		pageToken = page.NextPageToken
 	}
-	return cancelled
+	return isCancelledByTurn
 }
+
+// turnEndEventTypes are the AgentEvents types that end a turn.
+var turnEndEventTypes = map[string]bool{"turn_completed": true, "turn_failed": true, "turn_cancelled": true, "turn_steered": true}
 
 // followAgentEvents reads the session's AgentEvents from now on and hands
 // them to the loop until ctx ends or the Stream store is off.

@@ -191,3 +191,113 @@ func TestPlanStepsShowAsAChecklist(t *testing.T) {
 	harness.press(key(tea.KeyEscape))
 	require.Nil(t, harness.screen.pager)
 }
+
+// Plan step titles from a tool call never reach the terminal as escapes.
+func TestPlanStepTitlesLoseControlCharacters(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{width: 100})
+	startTurn(harness, "Plan it.")
+	call := finishedTool("call-1", "write_todos", "2 steps", sessionfeed.ToolCallSucceeded, "plan updated", 0)
+	call.TurnID = "turn-1"
+	call.PlanItems = []sessionfeed.PlanItem{
+		{Title: "Clear\x1b[2Jscreen\rnow", Status: sessionfeed.PlanItemPending},
+		{Title: "C1\u009b31mred\u0007bell", Status: sessionfeed.PlanItemInProgress},
+	}
+	harness.feed(call, sessionfeed.TurnEnded{TurnID: "turn-1"})
+	raw := harness.scrollbackRaw()
+	require.NotContains(t, raw, "\x1b[2J")
+	require.NotContains(t, raw, "\r")
+	require.NotContains(t, raw, "\u009b")
+	require.NotContains(t, raw, "\u0007")
+	requireInOrder(t, harness.scrollbackText(), "☐ Clear", "screen now", "☐ C1", "red bell")
+}
+
+// A queued message that leaves the queue while selected never hands s or x
+// to another message.
+func TestSelectedQueuedMessageLeavingTheQueueDropsTheFocus(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{})
+	queueTwoMessages(harness)
+	harness.press(key(tea.KeyTab), key(tea.KeyUp))
+	require.Equal(t, "message-1", harness.screen.selectedQueuedMessage().MessageID)
+	harness.feed(sessionfeed.QueuedMessagesChanged{Messages: []sessionfeed.QueuedMessage{{MessageID: "message-2", Text: "second queued"}}})
+	require.Equal(t, pendingFocusNone, harness.screen.pendingFocus)
+	require.Contains(t, harness.scrollbackText(), "press Tab to select again")
+	actionCount := len(harness.source.recordedActions())
+	harness.typeText("s")
+	require.Len(t, harness.source.recordedActions(), actionCount, "s is text, not a steer of message-2")
+	require.Equal(t, "s", harness.screen.input.Value())
+
+	harness.press(key(tea.KeyBackspace), key(tea.KeyTab), textKey('x'))
+	require.NotNil(t, harness.screen.pendingDelete)
+	harness.feed(sessionfeed.QueuedMessagesChanged{Messages: []sessionfeed.QueuedMessage{{MessageID: "message-3", Text: "third queued"}}})
+	require.Nil(t, harness.screen.pendingDelete)
+	require.Equal(t, pendingFocusNone, harness.screen.pendingFocus)
+	harness.typeText("y")
+	require.Equal(t, "y", harness.screen.input.Value(), "y is text; nothing is deleted")
+}
+
+// Ctrl-C first closes what has focus and never counts toward the exit.
+func TestIdleCtrlCClosesThePopupBeforeArmingTheExit(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{})
+	harness.feed(sessionfeed.ApprovalRequested{InterruptID: "approval-1", ToolName: "write_file"})
+	require.True(t, harness.screen.isPopupOpen)
+	harness.press(ctrlKey('c'))
+	require.False(t, harness.screen.isPopupOpen, "the first Ctrl-C closes the popup")
+	require.False(t, harness.screen.isIdleExitArmed(), "closing the popup does not count")
+	harness.press(ctrlKey('c'))
+	require.False(t, harness.screen.isExiting)
+
+	harness.typeText("draft")
+	harness.press(key(tea.KeyF1), ctrlKey('c'))
+	require.False(t, harness.screen.isHelpOpen, "Ctrl-C closes the help")
+	require.Equal(t, "draft", harness.screen.input.Value(), "the draft behind the help stays")
+	harness.press(ctrlKey('c'))
+	require.True(t, harness.screen.input.IsEmpty())
+	require.False(t, harness.screen.isExiting)
+	harness.press(ctrlKey('c'), ctrlKey('c'))
+	require.True(t, harness.screen.isExiting, "an empty input counts the two presses")
+}
+
+// A popup that opens after the first idle Ctrl-C takes the next press.
+func TestPopupAfterTheFirstIdleCtrlCDisarmsTheExit(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{})
+	harness.press(ctrlKey('c'))
+	require.True(t, harness.screen.isIdleExitArmed())
+	harness.feed(sessionfeed.ApprovalRequested{InterruptID: "approval-1", ToolName: "write_file"})
+	require.True(t, harness.screen.isPopupOpen)
+	harness.press(ctrlKey('c'))
+	require.False(t, harness.screen.isExiting)
+	require.False(t, harness.screen.isPopupOpen)
+}
+
+// A switch forgets the old session's last reply and its deferred-popup wait.
+func TestSessionSwitchForgetsTheLastReplyAndThePopupWait(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{})
+	startTurn(harness, "Answer.")
+	harness.feed(
+		sessionfeed.AssistantMessageRecorded{TurnID: "turn-1", StepExecutionID: "step-1", Text: "old answer", Sequence: 2},
+		connectorApproval("approval-old"),
+	)
+	harness.press(key(tea.KeyEscape))
+	harness.typeText("x")
+	harness.feed(connectorApproval("approval-1"))
+	harness.press(key(tea.KeyBackspace))
+	require.Len(t, harness.delayed, 1, "the old session waits to open its approval")
+	stale := harness.delayed
+	harness.delayed = nil
+
+	switchSession(harness, "openai-sdk-20261111-150000-ffffff")
+	harness.typeText("/copy")
+	harness.press(key(tea.KeyEnter))
+	require.Contains(t, harness.scrollbackText(), "no reply to copy yet", "/copy never copies the old session's reply")
+
+	startTurn(harness, "Post it.")
+	harness.typeText("y")
+	harness.feed(connectorApproval("approval-2"))
+	harness.press(key(tea.KeyBackspace))
+	for _, message := range stale {
+		harness.screen.Update(message)
+	}
+	require.False(t, harness.screen.isPopupOpen, "the old session's wait does not open the new approval")
+	harness.deliverDelayed()
+	require.True(t, harness.screen.isPopupOpen, "the new session's own wait does")
+}

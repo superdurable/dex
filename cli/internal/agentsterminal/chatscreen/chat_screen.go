@@ -972,7 +972,12 @@ func (screen *ChatScreen) handleInterruptKey() tea.Cmd {
 		return nil
 	}
 	if !screen.isTurnRunning {
-		if !screen.input.IsEmpty() && !screen.isPopupOpen && !screen.isHelpOpen {
+		// Only a plain, empty input counts toward the double-press exit.
+		if screen.closeViewForIdleInterrupt() {
+			screen.idleExitArmedAt = time.Time{}
+			return nil
+		}
+		if !screen.input.IsEmpty() {
 			screen.input.Clear()
 			return nil
 		}
@@ -1000,6 +1005,28 @@ func (screen *ChatScreen) handleInterruptKey() tea.Cmd {
 		return nil
 	}
 	return screen.requestTurnCancel()
+}
+
+// closeViewForIdleInterrupt closes the popup, help, or pending question that
+// has focus, and reports whether one did.
+func (screen *ChatScreen) closeViewForIdleInterrupt() bool {
+	switch {
+	case screen.isPopupOpen:
+		screen.closePopup()
+		screen.isPopupDeferredByTyping = false
+	case screen.isHelpOpen:
+		screen.isHelpOpen = false
+	case screen.pendingPastedImage != nil:
+		screen.keepPastedText()
+	case screen.pendingDelete != nil || screen.pendingFocus != pendingFocusNone:
+		screen.pendingDelete, screen.pendingFocus = nil, pendingFocusNone
+	case screen.pendingSwitchSessionID != "":
+		_, isHandled := screen.handleSwitchKey("n")
+		return isHandled
+	default:
+		return false
+	}
+	return true
 }
 
 // isIdleExitArmed reports an idle Ctrl-C less than idleExitWindow ago.
@@ -1130,6 +1157,8 @@ func (screen *ChatScreen) openPopup(index int) {
 	screen.popup = newInterruptPopup(screen.interrupts[index])
 	screen.pendingFocus = pendingFocusNone
 	screen.isPopupDeferredByTyping = false
+	// A second Ctrl-C now answers the popup's view, not the earlier press.
+	screen.idleExitArmedAt = time.Time{}
 }
 
 func (screen *ChatScreen) closePopup() {
@@ -1361,12 +1390,15 @@ func (screen *ChatScreen) applyQueuedMessages(messages []sessionfeed.QueuedMessa
 	screen.localQueuedTexts = nil
 	if screen.pendingDelete != nil && !containsQueuedMessage(messages, screen.pendingDelete.MessageID) {
 		screen.pendingDelete = nil
+		screen.pendingFocus = pendingFocusNone
 		screen.printNotice(sessionfeed.NoticeSeverityInfo, "the queued message already left the queue; nothing was deleted")
 	}
-	if !containsQueuedMessage(messages, screen.selectedQueuedMessageID) {
+	if screen.selectedQueuedMessageID != "" && !containsQueuedMessage(messages, screen.selectedQueuedMessageID) {
 		screen.selectedQueuedMessageID = ""
-		if len(messages) > 0 {
-			screen.selectedQueuedMessageID = messages[len(messages)-1].MessageID
+		if screen.pendingFocus == pendingFocusQueuedMessage {
+			// s or x must never act on a message the user did not pick.
+			screen.pendingFocus = pendingFocusNone
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, "the selected queued message left the queue; press Tab to select again")
 		}
 	}
 	if !screen.canActOnQueuedMessage() && screen.pendingFocus == pendingFocusQueuedMessage {
