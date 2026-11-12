@@ -133,7 +133,8 @@ export class CliProcess {
   private constructor(private readonly child: ChildProcess) {
     this.stdout = new TextCollector(child.stdout as Readable);
     this.stderr = new TextCollector(child.stderr as Readable);
-    this.exited = new Promise((resolve) => child.once("exit", (code) => resolve(code)));
+    // "exit" can fire before stdout is drained; "close" waits for the stdio streams too.
+    this.exited = new Promise((resolve) => child.once("close", (code) => resolve(code)));
   }
 
   /**

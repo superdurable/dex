@@ -577,7 +577,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       const listed = start(home, ["sessions"]);
       assert.equal(await listed.waitForExit(), 0);
       const lines = listed.stdout.all.split("\n").filter((line) => line.includes("\trunning\t"));
-      assert.equal(lines.length, 61);
+      assert.equal(lines.length, 61, listed.stdout.all);
       assert.ok(lines[0]?.startsWith(`${oldest}\t`), listed.stdout.all);
       assert.ok(lines.slice(1).every((line) => /\t0\t—$/.test(line)), listed.stdout.all);
       assert.doesNotMatch(listed.stdout.all, /More sessions exist/);
@@ -588,7 +588,11 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       await waitForVisibleRunningSessions(sessions, home.sessionFlowType(), 261);
       const capped = start(home, ["sessions"]);
       assert.equal(await capped.waitForExit(), 0);
-      assert.equal(capped.stdout.all.split("\n").filter((line) => line.includes("\trunning\t")).length, 250);
+      assert.equal(
+        capped.stdout.all.split("\n").filter((line) => line.includes("\trunning\t")).length,
+        250,
+        capped.stdout.all,
+      );
       assert.match(capped.stdout.all, /More sessions exist; this list sorts the first 250 that Dex returns/);
     } finally {
       await sessionClients.close();
