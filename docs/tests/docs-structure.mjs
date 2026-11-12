@@ -9,7 +9,8 @@
 // Structure rules the docs build does not check on its own:
 // 1. Docs pages never link to a README in the repository. User-facing content lives in the docs;
 //    READMEs keep developer notes and link to the docs.
-// 2. Sidebar group headers only expand. Each group's first item is its Overview page.
+// 2. Every sidebar group header opens the group's overview page. That page is not listed again
+//    under the header, and no item is labeled Overview.
 
 import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
@@ -65,14 +66,23 @@ for (const root of contentRoots) {
 
 const {default: sidebars} = await import(new URL('../sidebars.ts', import.meta.url));
 
+function docId(item) {
+  if (typeof item === 'string') return item;
+  if (item && typeof item === 'object' && item.type === 'doc') return item.id;
+  return undefined;
+}
+
 function checkCategories(items, trail) {
   for (const item of items) {
+    if (item && typeof item === 'object' && item.label === 'Overview') {
+      failures.push(`sidebars.ts: "${[...trail, 'Overview'].join(' > ')}" is labeled Overview. The group header opens the overview; keep each item's own title.`);
+    }
     if (typeof item !== 'object' || item.type !== 'category') continue;
     const where = [...trail, item.label].join(' > ');
-    if (item.link) failures.push(`sidebars.ts: "${where}" has a link. Group headers only expand; list the page as its first item, labeled Overview.`);
-    const [first] = item.items ?? [];
-    if (!first || typeof first !== 'object' || first.type !== 'doc' || first.label !== 'Overview') {
-      failures.push(`sidebars.ts: the first item of "${where}" must be a doc item labeled Overview.`);
+    if (!item.link || item.link.type !== 'doc') {
+      failures.push(`sidebars.ts: "${where}" has no overview. Give the group header link: {type: 'doc', id: <its overview page>}.`);
+    } else if ((item.items ?? []).some((child) => docId(child) === item.link.id)) {
+      failures.push(`sidebars.ts: "${where}" lists its overview page (${item.link.id}) again under the header.`);
     }
     checkCategories(item.items ?? [], [...trail, item.label]);
   }
@@ -84,4 +94,4 @@ if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Docs structure check passed: no README links, and every sidebar group opens on its Overview.');
+console.log('Docs structure check passed: no README links, and every sidebar group header opens its overview.');

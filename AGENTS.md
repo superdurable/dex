@@ -47,8 +47,9 @@ only when a section genuinely doesn't apply.
   links to use the destination directly.
 - Docs pages never link to a README in the repository. User-facing content,
   including reference, lives in the docs; a README keeps developer notes and
-  links to the docs. Link an example's folder, not its README. Sidebar group
-  headers only expand, and each group's first item is its Overview page.
+  links to the docs. Link an example's folder, not its README. Clicking a sidebar
+  group header opens that group's overview page, which is not listed again
+  under it; items keep their own titles, never "Overview".
   `npm run lint:structure` enforces both.
 - Every docs change must preserve all four search-index integrity gates:
   routes and internal links resolve without accidental 404s; only declared
