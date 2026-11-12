@@ -289,7 +289,14 @@ async def _run(
         _report_ignored_settings,
     )
     endpoint = await _resolve_server(config, environment)
-    connectors = await _connect_connectors(config, endpoint, resolver, harness, media_store)
+    connectors = await _connect_connectors(
+        config,
+        endpoint,
+        resolver,
+        harness,
+        media_store,
+        is_browser_opening_enabled=environment.is_browser_opening_enabled,
+    )
     local_tools = _local_tool_source(config, workspace, harness, resolver)
     tool_sources: list[ToolSource] = [
         source for source in (connectors, local_tools) if source is not None
@@ -430,6 +437,8 @@ async def _connect_connectors(
     resolver: TurnConfigResolver,
     harness: AgentHarness,
     media_store: MediaStore,
+    *,
+    is_browser_opening_enabled: bool,
 ) -> ConnectorsMcpToolSource | None:
     """Check the connectors MCP server and return its source, or ``None`` for no connector tools.
 
@@ -466,7 +475,7 @@ async def _connect_connectors(
             report=_report_on_standard_error,
             media_store=media_store,
         )
-    _report_unauthorized(config, catalog, endpoint.web_url)
+    _report_unauthorized(config, catalog, endpoint.web_url, is_browser_opening_enabled)
     source = ConnectorsMcpToolSource(
         url, resolver, report=_report_on_standard_error, media_store=media_store
     )
@@ -489,7 +498,10 @@ def _restart_for_connector_tools(harness: AgentHarness) -> str:
 
 
 def _report_unauthorized(
-    config: EffectiveConfig, catalog: Sequence[ConnectorCatalogTool], web_url: str | None
+    config: EffectiveConfig,
+    catalog: Sequence[ConnectorCatalogTool],
+    web_url: str | None,
+    is_browser_opening_enabled: bool,
 ) -> None:
     missing = [
         entry
@@ -501,7 +513,7 @@ def _report_unauthorized(
     page = f"{web_url}{CONNECTORS_WEB_PATH}" if web_url else "the Dex Web Connectors page"
     names = ", ".join(_entry_text(entry) for entry in missing)
     print(f"No authorized connection for {names}. Authorize it on {page}.")
-    if web_url is not None and _is_interactive():
+    if web_url is not None and is_browser_opening_enabled and _is_interactive():
         webbrowser.open(f"{web_url}{CONNECTORS_WEB_PATH}")
 
 

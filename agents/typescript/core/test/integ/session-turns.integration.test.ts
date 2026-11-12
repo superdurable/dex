@@ -293,6 +293,22 @@ describe("agent session turns with an in-process Worker", () => {
     assert.ok(eventTypes.includes("tool_call_finished"));
   });
 
+  test("a call finished by the resumed turn writes no tool_call_finished from its Step", async () => {
+    const sessionId = newSessionId("finished-by-resumed-turn");
+    await sessions.startSession(sessionId, "call approve_framework_write");
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId, "approve_framework_write");
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    // The record is final, so the turn resumes; only the runner may report the finish.
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, "approve_framework_write -> approved for the resumed turn");
+    const toolEvents = (await sessions.listAgentEvents(sessionId))
+      .filter((event) => event.type === "tool_call_started" || event.type === "tool_call_finished")
+      .map((event) => [event.type, (JSON.parse(event.payload) as { tool_call_id: string }).tool_call_id]);
+    assert.deepEqual(toolEvents, [["tool_call_started", "turn-1-approve_framework_write"]]);
+  });
+
   test("resolve_interrupt called twice returns false the second time and the write runs once", async () => {
     const sessionId = newSessionId("resolve-twice");
     await sessions.startSession(sessionId, "call send_email");

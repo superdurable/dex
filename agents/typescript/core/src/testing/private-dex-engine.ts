@@ -55,6 +55,14 @@ export interface PrivateDexEngineOptions {
  * never share state. The engine runs in its own process group; {@link stop} ends `dexcli` and
  * `dex-server-zd` together. Engines still running when the test process exits receive SIGKILL.
  *
+ * The engine runs `dexcli dev` with `HOME` set to `<stateDirectory>/home`, so it never reads or writes the
+ * user's `~/.dex`. It also sets `DEX_CONNECTORS_MCP_BINARY` to a file that does not exist, so the engine never
+ * downloads a published Connectors MCP release and has no working `/mcp`. Start a fake MCP server when a test
+ * needs connector tools.
+ *
+ * Changed in 0.6.0: the engine no longer downloads or runs a Connectors MCP server, and no longer uses the
+ * user's `HOME`.
+ *
  * @example
  * ```ts
  * import { before, after } from "node:test";
@@ -102,6 +110,9 @@ export class PrivateDexEngine {
       configPath = join(stateDirectory, "zd-overrides.yaml");
       writeFileSync(configPath, processCrashSafeServerZdConfig);
     }
+    // A private HOME keeps dexcli dev out of the user's ~/.dex.
+    const homeDirectory = join(stateDirectory, "home");
+    mkdirSync(homeDirectory, { recursive: true });
     let lastFailure: unknown;
     for (let attempt = 1; attempt <= startAttempts; attempt += 1) {
       const [dexPort, webPort] = await findFreeLoopbackPorts(2);
@@ -133,7 +144,12 @@ export class PrivateDexEngine {
           description: "dexcli dev",
           command: dexcliPath,
           commandArguments,
-          environment: process.env,
+          environment: {
+            ...process.env,
+            HOME: homeDirectory,
+            // A missing binary makes dexcli skip the published release; older dexcli ignores it.
+            DEX_CONNECTORS_MCP_BINARY: join(stateDirectory, "dex-connectors-mcp-not-installed"),
+          },
           logPath,
           readyLine: engineReadyLine,
           readyTimeoutMs: options.readyTimeoutMs ?? 60_000,
