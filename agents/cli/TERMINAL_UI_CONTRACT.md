@@ -136,6 +136,17 @@ fd number goes on the command line.
   no other child, such as `dexcli dev` or `stty`.
 - Either side closing the socket ends the session of the contract.
 
+### The launcher's own output
+
+While the terminal UI runs, the launcher's output goes to the command's log
+file instead of the terminal. A Python launcher points fds 1 and 2 at the log
+with `dup2` and restores them afterwards. Node has no atomic `dup2`, so a Node
+launcher covers its JavaScript output (`process.stdout`, `process.stderr`, and
+`console`) and the children it starts, which get a log file, a pipe, or
+nothing as stdout and stderr. Its guarantee does not cover raw writes to fds 1
+and 2 by native code. The Worker host's stdout and stderr are the log file in
+both.
+
 ### Environment
 
 The launcher builds the terminal UI's environment from an allow-list and never

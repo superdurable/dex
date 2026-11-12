@@ -49,6 +49,8 @@ export interface TerminalUiChatLaunch {
   readonly homeDirectory: string;
   readonly agentsDirectory: string;
   readonly logFilePath: string;
+  /** The lines the command printed while it started a `dexcli dev`; empty when it started none. */
+  readonly startedDexcliDevLines: readonly string[];
   /** The launcher's environment, which the Worker host inherits. */
   readonly environment: NodeJS.ProcessEnv;
   /** Whether `open_url` may start a browser. */
@@ -80,6 +82,8 @@ interface TerminalUiExit {
 export class TerminalUiChatLauncher {
   private readonly writeLine: (line: string) => void;
   private host: WorkerHostProcess | undefined;
+  /** The Worker host's log lines before its session opened, which the launch document carries as notices. */
+  private readonly workerHostStartupLines: string[] = [];
 
   /**
    * Creates the launcher.
@@ -98,9 +102,17 @@ export class TerminalUiChatLauncher {
    * @returns How it ended.
    */
   public async run(): Promise<TerminalUiChatOutcome> {
-    const host = new WorkerHostProcess(this.launch.logFilePath, this.launch.environment, (text) => this.writeLine(text));
+    const host = new WorkerHostProcess(this.launch.logFilePath, this.launch.environment, (text) =>
+      this.workerHostStartupLines.push(text),
+    );
     this.host = host;
     const startup = await host.start(this.launch.start);
+    if (startup.type !== "worker_ready") {
+      // Without a terminal UI to show them in, the startup lines go to the terminal.
+      for (const line of this.workerHostStartupLines) {
+        this.writeLine(line);
+      }
+    }
     if (startup.type === "startup_failed") {
       this.writeLine(`${this.launch.commandName}: ${startup.message}`);
       await this.stopHost();
@@ -124,10 +136,17 @@ export class TerminalUiChatLauncher {
     this.launch.commandSignals.release();
     const signals = new LauncherSignals();
     try {
-      const redirect = new LauncherOutputRedirect(this.launch.logFilePath);
+      const redirect = await LauncherOutputRedirect.start(this.launch.logFilePath);
       let handoff: TerminalUiHandoff;
       try {
-        handoff = new TerminalUiHandoff(this.launch, host, ready, signals);
+        handoff = new TerminalUiHandoff(this.launch, host, ready, signals, this.workerHostStartupLines);
+      } catch (error: unknown) {
+        // No terminal UI started, so nothing else stops the Worker host.
+        redirect.close();
+        await this.stopHost();
+        throw error;
+      }
+      try {
         await handoff.finished;
       } finally {
         redirect.close();
@@ -307,7 +326,7 @@ class TerminalUiHandoff {
   private readonly child: ChildProcess;
   private readonly channel: TerminalUiChannel;
   private readonly relay: LocalRequestRelay;
-  private readonly readyTimer: NodeJS.Timeout;
+  private readyTimer: NodeJS.Timeout | undefined;
   private readonly queuedMessages: Record<string, unknown>[] = [];
   private hasEnded = false;
   private resolveFinished: () => void = () => undefined;
@@ -317,6 +336,7 @@ class TerminalUiHandoff {
     host: WorkerHostProcess,
     ready: WorkerHostReady,
     signals: LauncherSignals,
+    workerHostStartupLines: readonly string[],
   ) {
     const methods = new Map<string, LocalRequestMethod>();
     for (const method of relayedChatMethods) {
@@ -342,6 +362,8 @@ class TerminalUiHandoff {
       capabilities: ready.capabilities,
       logPath: launch.logFilePath,
       homeDirectory: launch.homeDirectory,
+      startedDexcliDevLines: launch.startedDexcliDevLines,
+      workerHostStartupLines,
     });
     this.finished = new Promise((resolve) => {
       this.resolveFinished = resolve;
@@ -367,28 +389,35 @@ class TerminalUiHandoff {
     this.relay = new LocalRequestRelay(methods, true, (id, outcome) =>
       this.channel.send({ type: "response", id, ...outcome }),
     );
-    this.channel.send(document);
-    this.readyTimer = setTimeout(() => {
-      if (!this.isReady) {
-        this.failure ??= `the terminal UI was not ready within ${terminalUiReadyTimeoutMs / 1000} seconds`;
+    try {
+      this.channel.send(document);
+      this.readyTimer = setTimeout(() => {
+        if (!this.isReady) {
+          this.failure ??= `the terminal UI was not ready within ${terminalUiReadyTimeoutMs / 1000} seconds`;
+          void this.stop();
+        }
+      }, terminalUiReadyTimeoutMs);
+      host.listen({
+        onLog: (text) => this.sendWhenReady({ type: "notice", level: "warning", text: noticeText(text) }),
+        onStopping: () => this.sendWhenReady({ type: "worker", state: "stopping" }),
+        onExit: (exitCode) => {
+          this.hostExitCode = exitCode;
+          this.sendWhenReady({ type: "worker", state: "stopped", exit_code: exitCode });
+        },
+      });
+      signals.whenTerminated(() => {
+        this.wasStoppedByLauncher = true;
         void this.stop();
-      }
-    }, terminalUiReadyTimeoutMs);
-    host.listen({
-      onLog: (text) => this.sendWhenReady({ type: "notice", level: "warning", text: noticeText(text) }),
-      onStopping: () => this.sendWhenReady({ type: "worker", state: "stopping" }),
-      onExit: (exitCode) => {
-        this.hostExitCode = exitCode;
-        this.sendWhenReady({ type: "worker", state: "stopped", exit_code: exitCode });
-      },
-    });
-    signals.whenTerminated(() => {
-      this.wasStoppedByLauncher = true;
+      });
+      signals.whenInterrupted(() => void this.interrupt());
+      // A hangup of the terminal reaches dexcli too; a SIGHUP to the launcher alone must still end it.
+      signals.whenHungUp(() => void this.stopUnlessExiting());
+    } catch (error: unknown) {
+      // dexcli already runs: stop it, so the pre-ready failure path stops the Worker host and goes on in plain text.
+      this.failure ??= `the launcher could not start the terminal UI: ${error instanceof Error ? error.message : String(error)}`;
+      this.channel.close();
       void this.stop();
-    });
-    signals.whenInterrupted(() => void this.interrupt());
-    // A hangup of the terminal reaches dexcli too; a SIGHUP to the launcher alone must still end it.
-    signals.whenHungUp(() => void this.stopUnlessExiting());
+    }
   }
 
   private receive(message: ChannelMessage): void {

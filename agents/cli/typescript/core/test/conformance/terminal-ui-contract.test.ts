@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { chatLaunchDocument, noticeText } from "../../src/terminal-ui/launch-document.js";
+import { chatLaunchDocument, maxLaunchNoticeBytes, noticeText } from "../../src/terminal-ui/launch-document.js";
 import { LocalRequestRelay, refusal } from "../../src/terminal-ui/local-request-relay.js";
 import { isOpenUrlAllowed } from "../../src/terminal-ui/open-url-policy.js";
 import { candidateSessionIds, idempotencyKeyTimeMs } from "../../src/terminal-ui/request-keys.js";
@@ -192,6 +192,20 @@ describe("terminal UI contract 1: describe.json", () => {
     assert.equal(typeof parseDescription(Buffer.from("[1]\n")), "string");
   });
 
+  test("a no_common_contract line names the side to upgrade, and none for a dexcli without contracts", () => {
+    const detail = (contracts: readonly string[]): string => {
+      const choice = chooseContract([1], {
+        dexcli_version: "1.46.0",
+        contracts: Object.fromEntries(contracts.map((version) => [version, { modes: { chat: {} } }])),
+      }, "chat");
+      assert.ok("plainReason" in choice && choice.plainReason === "no_common_contract");
+      return choice.detail;
+    };
+    assert.equal(detail([]), "dexcli 1.46.0 offers no terminal UI contract");
+    assert.match(detail(["2", "3"]), /this command knows\. Upgrade this command to use it$/);
+    assert.match(detail(["0"]), /this command knows\. The terminal UI needs dexcli 1\.46\.0 or later; point DEXCLI at one$/);
+  });
+
   test("the launcher chooses the highest common contract with the mode", () => {
     for (const negotiation of cases.negotiation) {
       const choice = chooseContract(negotiation.launcher_contracts, negotiation.describe, negotiation.mode);
@@ -308,24 +322,30 @@ describe("terminal UI contract 1: messages.json", () => {
 });
 
 describe("terminal UI contract 1: the launch document", () => {
+  const launchDetails = {
+    commandName: "dex-agents-scripted",
+    harnessName: "scripted",
+    commandVersion: "0.6.0",
+    serverAddress: "127.0.0.1:18801",
+    isTls: false,
+    webUrl: "http://127.0.0.1:18802",
+    flowType: "DexAgentsCliScriptedSession-ab12cd",
+    sessionId: "scripted-20261111-142233-a1b2c3",
+    isResumed: false,
+    model: "scripted/default",
+    workspace: "/home/user/dex-agent-workspace",
+    configPath: "/home/user/.dex/agents/scripted.yaml",
+    methods: ["put_image", "start_session", "list_connectors", "open_url", "get_request_result"],
+    capabilities: { images: { max_per_message: 20, max_bytes: 3_750_000 }, plan_mode: false, turn_control: true },
+    logPath: "/home/user/.dex/agents/scripted.log",
+    homeDirectory: "/home/user",
+  };
+
   test("the chat launch document passes the launch schema and writes paths with ~", () => {
     const document = chatLaunchDocument({
-      commandName: "dex-agents-scripted",
-      harnessName: "scripted",
-      commandVersion: "0.6.0",
-      serverAddress: "127.0.0.1:18801",
-      isTls: false,
-      webUrl: "http://127.0.0.1:18802",
-      flowType: "DexAgentsCliScriptedSession-ab12cd",
-      sessionId: "scripted-20261111-142233-a1b2c3",
-      isResumed: false,
-      model: "scripted/default",
-      workspace: "/home/user/dex-agent-workspace",
-      configPath: "/home/user/.dex/agents/scripted.yaml",
-      methods: ["put_image", "start_session", "list_connectors", "open_url", "get_request_result"],
-      capabilities: { images: { max_per_message: 20, max_bytes: 3_750_000 }, plan_mode: false, turn_control: true },
-      logPath: "/home/user/.dex/agents/scripted.log",
-      homeDirectory: "/home/user",
+      ...launchDetails,
+      startedDexcliDevLines: ["Starting dexcli dev\tnow", "dexcli dev is ready (pid 42)."],
+      workerHostStartupLines: ["x".repeat(600)],
     });
     const validate = terminalUiSchemaValidator("launch");
     assert.equal(validate(document), true, JSON.stringify(validate.errors));
@@ -335,6 +355,32 @@ describe("terminal UI contract 1: the launch document", () => {
       config_path: "~/.dex/agents/scripted.yaml",
     });
     assert.equal(document.log_path, "~/.dex/agents/scripted.log");
+    // The dexcli dev lines come first, as info; the Worker host's startup lines follow, as warnings.
+    assert.deepEqual(document.notices, [
+      { level: "info", text: "Starting dexcli dev now" },
+      { level: "info", text: "dexcli dev is ready (pid 42)." },
+      { level: "warning", text: `${"x".repeat(499)}…` },
+    ]);
+  });
+
+  test("many long multi-byte startup lines keep the launch document within its notice budget", () => {
+    const lines = Array.from({ length: 3_000 }, (_, index) => `${index} ${"界".repeat(600)}`);
+    const document = chatLaunchDocument({ ...launchDetails, startedDexcliDevLines: ["started"], workerHostStartupLines: lines });
+    const notices = document.notices as { level: string; text: string }[];
+    const noticeBytes = Buffer.byteLength(JSON.stringify(notices.slice(0, -1)), "utf8");
+    assert.ok(noticeBytes <= maxLaunchNoticeBytes, `${noticeBytes} bytes`);
+    assert.ok(Buffer.byteLength(JSON.stringify(document), "utf8") < 128 * 1024);
+    assert.deepEqual(notices[0], { level: "info", text: "started" });
+    // Each kept line is cut to 500 code points of 3 bytes, about 1.5 KB of JSON, so about 43 fit.
+    const kept = notices.length - 2;
+    assert.ok(kept > 30 && kept < 50, `${kept} lines kept`);
+    assert.ok(notices[1]?.text.startsWith("0 界"));
+    assert.deepEqual(notices.at(-1), {
+      level: "warning",
+      text: `… ${3_001 - (kept + 1)} more lines in ~/.dex/agents/scripted.log`,
+    });
+    const validate = terminalUiSchemaValidator("launch");
+    assert.equal(validate(document), true, JSON.stringify(validate.errors));
   });
 });
 
@@ -418,6 +464,25 @@ describe("launcher output", () => {
       assert.doesNotMatch(text, /\b(?:writeSync|write|writev)\(\s*[12]\s*,/, path);
       assert.doesNotMatch(text, /createWriteStream\([^)]*fd:\s*[12]\b/, path);
     }
+  });
+
+  test("no child the launcher starts, except the terminal UI, inherits stdout or stderr", () => {
+    // Local tools run only in the Worker host and the plain chat, whose output is not under a terminal UI.
+    const sourceDirectory = fileURLToPath(new URL("../../src/", import.meta.url));
+    const sources = listJavaScript(sourceDirectory).filter((path) => !path.includes("/local-tools/"));
+    let terminalUiSpawns = 0;
+    for (const path of sources) {
+      const text = readFileSync(path, "utf8");
+      assert.doesNotMatch(text, /stdio:\s*"inherit"/, path);
+      for (const match of text.matchAll(/stdio:\s*\[([^\]]*)\]/g)) {
+        const entries = (match[1] ?? "").split(",").map((entry) => entry.trim());
+        if (entries.slice(1, 3).includes('"inherit"')) {
+          assert.ok(path.endsWith("terminal-ui-chat-launcher.js"), `${path}: ${match[0]}`);
+          terminalUiSpawns += 1;
+        }
+      }
+    }
+    assert.equal(terminalUiSpawns, 1);
   });
 });
 

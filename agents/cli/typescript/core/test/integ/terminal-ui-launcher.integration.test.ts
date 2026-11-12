@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { after, afterEach, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +29,8 @@ import {
   chatTranscript,
   cliEntryPath,
   isProcessAlive,
+  isReceived,
+  ignoringLaunchNotices,
   isProcessGroupAlive,
   newUuidV7,
   contractHostPath,
@@ -552,11 +554,72 @@ describe("the terminal UI launcher", () => {
   test("a dexcli without the terminal UI keeps the plain chat and starts no Worker host", async () => {
     const home = newHome();
     const terminal = startOnTerminal(home, undefined);
-    await terminal.terminal.waitFor("Plain chat: dexcli agents-tui --describe exited with 2.");
+    await terminal.terminal.waitFor(
+      `Plain chat: ${resolve(process.env.DEXCLI ?? "")} has no terminal UI (agents-tui --describe exited with code 2). ` +
+        "The terminal UI needs dexcli 1.46.0 or later; point DEXCLI at one.",
+    );
     await terminal.terminal.waitFor("Type a message");
     assert.deepEqual(runRecords(home), []);
     terminal.type("/exit\r");
     assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
+  });
+
+  test("a DEXCLI that names no executable file stops the command in terminal UI mode and in the plain chat", async () => {
+    const home = newHome();
+    const missing = join(home.directory, "missing-dexcli");
+    const terminal = startOnTerminal(home, undefined, [], { DEXCLI: missing });
+    assert.equal(await terminal.waitForExit(), 1, terminal.terminal.all);
+    assert.match(terminal.terminal.all, new RegExp(`DEXCLI is not an executable file: ${missing}\\. Unset DEXCLI`));
+    assert.doesNotMatch(terminal.terminal.all, /Plain chat:/);
+    assert.deepEqual(runRecords(home), []);
+    // The plain chat needs dexcli only to start a dexcli dev, so these ports have none.
+    const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+    const plainHome = newHome(quietConfig, new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 }));
+    const plain = startOnTerminal(plainHome, undefined, ["--plain"], { DEXCLI: missing });
+    assert.equal(await plain.waitForExit(), 1, plain.terminal.all);
+    assert.match(
+      plain.terminal.all,
+      new RegExp(`dex-agents-scripted: DEXCLI is not an executable file: ${missing}\\. Unset DEXCLI`),
+    );
+    assert.doesNotMatch(plain.terminal.all, /Starting dexcli dev|Type a message/);
+  });
+
+  test("the lines of a dexcli dev the command started and the Worker host's startup lines reach the launch document", async () => {
+    const connectors = new FakeConnectorsMcpServer();
+    const connectorsUrl = await connectors.start();
+    try {
+      const [dexPort, webPort] = await findFreeLoopbackPorts(2);
+      const home = newHome(
+        `connectors:\n  mcp: "${connectorsUrl}"\n  enabled: [gmail/work]\nlocal_tools: {browser: false}\n`,
+        new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 }),
+      );
+      const fake = new FakeTerminalUi([ignoringLaunchNotices(readTranscript("chat_ready_then_exit"))], {
+        hasMarkers: true,
+        isLaunchNoticeRecorded: true,
+      });
+      const terminal = startOnTerminal(home, fake);
+      assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
+      const received = fake.record().find(isReceived("launch"));
+      const notices = received?.notices as { level: string; text: string }[] | undefined;
+      const devLog = join(home.directory, ".dex", "agents", "dexcli-dev.log");
+      assert.deepEqual(notices?.slice(0, 1), [
+        { level: "info", text: `Starting dexcli dev (Dex Web ${webPort}, Dex ${dexPort}); log: ${devLog}` },
+      ]);
+      assert.equal(notices?.[1]?.level, "info");
+      assert.match(notices?.[1]?.text ?? "", /^dexcli dev is ready \(pid \d+\)/);
+      assert.deepEqual(
+        notices?.slice(2).map((notice) => notice.level),
+        ["warning"],
+        JSON.stringify(notices),
+      );
+      assert.match(notices?.[2]?.text ?? "", /^Not authorized yet: gmail\/work\./);
+      // The dexcli dev lines were printed while the command waited; the Worker host's line only in the terminal UI.
+      const output = terminal.terminal.all;
+      assert.match(output.slice(0, output.indexOf(terminalUiStartMarker)), /dexcli dev is ready \(pid \d+\)/);
+      assert.doesNotMatch(output, /Not authorized yet/);
+    } finally {
+      await connectors.stop();
+    }
   });
 
   test("on Windows the command never probes dexcli or starts a Worker host", async () => {
@@ -609,19 +672,53 @@ describe("the terminal UI launcher", () => {
     assert.equal(fake.describeCount + fake.launchCount, 0, "no terminal");
   });
 
-  test("nothing the Worker host, its children, or the launcher's late writes print reaches the terminal UI's screen", async () => {
+  test("nothing the Worker host, its children, the launcher's JavaScript output, or its opener prints reaches the terminal UI's screen", async () => {
     const home = newHome();
-    const fake = new FakeTerminalUi([chatTranscript("leaks", [tuiPause(15_000)])], { hasMarkers: true });
-    const terminal = startOnTerminal(home, fake, [], { DEX_AGENTS_CLI_TEST_IMPORT_NOISE: "1" });
+    // open_url starts the platform's opener: a child of the launcher during the handoff, which writes to both.
+    const [, openUrlRequest, openUrlResponse] = readTranscript("chat_open_url").steps.slice(1);
+    const openerDirectory = mkdtempSync(join(tmpdir(), "dex-agents-opener-"));
+    const openedFile = join(openerDirectory, "opened");
+    for (const opener of ["open", "xdg-open"]) {
+      writeFileSync(
+        join(openerDirectory, opener),
+        `#!/bin/sh\necho opener wrote to stdout\necho opener wrote to stderr >&2\necho "$1" >> '${openedFile}'\n`,
+      );
+      chmodSync(join(openerDirectory, opener), 0o755);
+    }
+    const fake = new FakeTerminalUi(
+      [chatTranscript("leaks", [openUrlRequest ?? {}, openUrlResponse ?? {}, tuiPause(15_000)])],
+      { hasMarkers: true },
+    );
+    const canaryFile = join(home.directory, "launcher-canary");
+    const terminal = startOnTerminal(home, fake, [], {
+      DEX_AGENTS_CLI_TEST_IMPORT_NOISE: "1",
+      DEX_AGENTS_CLI_TEST_LAUNCHER_CANARY_FILE: canaryFile,
+      DEX_AGENTS_OPEN_BROWSER: "1",
+      PATH: `${openerDirectory}:${process.env.PATH ?? ""}`,
+    });
     await waitForReady(fake);
+    writeFileSync(canaryFile, "");
+    await waitUntil(() => existsSync(`${canaryFile}.written`), "the launcher wrote its canary");
     const sessionId = await onlySession(home);
     const sessions = await sessionClients.of(home);
     assert.equal(await sessions.sendUserMessage(sessionId, "leak"), true);
     await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 12_000 });
     assert.equal(await terminal.waitForExit(), 0, terminal.terminal.all);
     assert.equal(textBetweenMarkers(terminal.terminal.all), "");
+    assert.match(readFileSync(openedFile, "utf8"), new RegExp(`^${engine.webUrl}/v2/flows/`));
+    assert.doesNotMatch(terminal.terminal.all, /opener wrote/);
     const log = logFile(home);
-    for (const text of ["host wrote to fd 1", "host wrote to fd 2", "grandchild wrote to stdout", "grandchild wrote to stderr", "import noise later"]) {
+    for (const text of [
+      "host wrote to fd 1",
+      "host wrote to fd 2",
+      "grandchild wrote to stdout",
+      "grandchild wrote to stderr",
+      "import noise later",
+      "launcher canary stdout",
+      "launcher canary stderr",
+      "launcher canary console.log",
+      "launcher canary console.error",
+    ]) {
       assert.match(log, new RegExp(text), text);
     }
   });
@@ -733,7 +830,7 @@ describe("the terminal UI launcher", () => {
   });
 
   test("SIGTERM and SIGHUP during the handoff, and SIGTERM in the plain chat after a fallback, stop the dexcli dev the command started", async () => {
-    const [launch] = readTranscript("chat_ready_then_exit").steps;
+    const [launch] = ignoringLaunchNotices(readTranscript("chat_ready_then_exit")).steps;
     const rejected: Transcript = {
       ...readTranscript("chat_ready_then_exit"),
       steps: [launch ?? {}, { from: "tui", message: { type: "launch_rejected", code: "auth_missing", message: "DEX_API_KEY is not set." } }],
@@ -746,7 +843,9 @@ describe("the terminal UI launcher", () => {
     ] as const) {
       const [dexPort, webPort] = await findFreeLoopbackPorts(2);
       const home = newHome(quietConfig, new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 }));
-      const fake = new FakeTerminalUi([isFallback ? rejected : chatTranscript("own_dexcli_dev", [tuiPause(60_000)])]);
+      const fake = new FakeTerminalUi([
+        isFallback ? rejected : ignoringLaunchNotices(chatTranscript("own_dexcli_dev", [tuiPause(60_000)])),
+      ]);
       const terminal = startOnTerminal(home, fake);
       const startedLine = await terminal.terminal.waitFor(/dexcli dev is ready \(pid \d+\)/, 120_000);
       const devPid = Number(/pid (\d+)/.exec(startedLine)?.[1]);
@@ -775,7 +874,7 @@ describe("the terminal UI launcher", () => {
         ? newHome(quietConfig, new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 }))
         : newHome();
       const pauseFile = join(home.directory, "pause");
-      const fake = new FakeTerminalUi([chatTranscript("slow_host_stop", [tuiPause(1_500)])]);
+      const fake = new FakeTerminalUi([ignoringLaunchNotices(chatTranscript("slow_host_stop", [tuiPause(1_500)]))]);
       const terminal = startOnTerminal(home, fake, [], { DEX_AGENTS_CLI_TEST_PAUSE_FILE: pauseFile });
       await waitForReady(fake);
       const record = await waitForRunRecord(home);

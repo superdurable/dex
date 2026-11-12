@@ -64,7 +64,7 @@ import {
   type ConnectorToolIdentity,
   type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
-import { resolveDexcliExecutable } from "./dexcli-binary.js";
+import { DexcliVariableError, resolveDexcliExecutable } from "./dexcli-binary.js";
 import {
   StartedDexcliDevProcess,
   describeLostDexcliDev,
@@ -300,6 +300,8 @@ export class AgentCliCommand {
   private sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> | undefined;
   private readonly startedDexcliDev: StartedDexcliDevProcess;
   private server: DexServerConnection | undefined;
+  /** The lines printed while this command started a `dexcli dev`, which the terminal UI shows again. */
+  private startedDexcliDevLines: readonly string[] = [];
   private libraryConsole: LibraryConsoleRedirection | undefined;
 
   public constructor(
@@ -358,8 +360,16 @@ export class AgentCliCommand {
     if (this.parsed.subcommand === "run") {
       this.mediaStore = await createMediaStore(effective.media, this.environment.agentsDirectory);
     }
-    const server = await resolveDexServerForCommand(effective.dex.server, this.environment, this.log, this.startedDexcliDev);
+    const serverLines: string[] = [];
+    const logServerLine = (line: string): void => {
+      serverLines.push(line);
+      this.log(line);
+    };
+    const server = await resolveDexServerForCommand(effective.dex.server, this.environment, logServerLine, this.startedDexcliDev);
     this.server = server;
+    if (server.origin === "started") {
+      this.startedDexcliDevLines = serverLines;
+    }
     if (server.webUrl !== null) {
       this.log(`Dex Web: ${server.webUrl}`);
     }
@@ -502,6 +512,9 @@ export class AgentCliCommand {
     try {
       dexcli = resolve(await resolveDexcliExecutable(this.environment, this.log));
     } catch (error: unknown) {
+      if (error instanceof DexcliVariableError) {
+        throw error;
+      }
       this.log(`Plain chat: ${describe(error)}.`);
       return undefined;
     }
@@ -531,6 +544,7 @@ export class AgentCliCommand {
         homeDirectory: this.environment.homeDirectory,
         agentsDirectory: this.environment.agentsDirectory,
         logFilePath: this.logFilePath(),
+        startedDexcliDevLines: this.startedDexcliDevLines,
         environment: this.environment.childProcessVariables,
         isBrowserOpeningEnabled: this.environment.isBrowserOpeningEnabled !== false,
         commandSignals: {
