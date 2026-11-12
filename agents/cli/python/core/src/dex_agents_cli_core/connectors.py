@@ -11,12 +11,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 import httpx2
 from mcp import Client, Implementation
+from mcp.client.streamable_http import streamable_http_client
 
 from dex_agents import (
     AgentToolCall,
@@ -58,6 +60,8 @@ _CLIENT_NAME = "dex-agents-cli"
 _CATALOG_TIMEOUT_SECONDS = 15.0
 _CATALOG_REFRESH_SECONDS = 30.0
 _LISTING_PAGE_LIMIT = 100
+_ACCESS_DENIED_STATUS_CODES = frozenset({401, 403})
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -164,6 +168,30 @@ class ConnectorsMcpUnavailableError(Exception):
     """Report that the connectors MCP server cannot be listed, with the reason."""
 
 
+class ConnectorsMcpListingError(ConnectorsMcpUnavailableError):
+    """Report that the connectors MCP server answered ``initialize`` but its listing failed."""
+
+
+class ConnectorsMcpAccessDeniedError(ConnectorsMcpUnavailableError):
+    """Report that the connectors MCP server answered HTTP 401 or 403.
+
+    .. versionadded:: 0.6.0
+
+    Attributes:
+        status_code: The HTTP status, 401 or 403.
+    """
+
+    def __init__(self, reason: str, status_code: int) -> None:
+        """Keep the reason and the HTTP status.
+
+        Args:
+            reason: The reason, such as which URL denied access.
+            status_code: The HTTP status, 401 or 403.
+        """
+        super().__init__(reason)
+        self.status_code = status_code
+
+
 @dataclass(frozen=True)
 class ConnectorToolDefinition:
     """A connector tool as the model sees it: the MCP tool name without a server prefix.
@@ -183,6 +211,41 @@ class ConnectorToolDefinition:
     identity: ConnectorToolIdentity | None = None
 
 
+def connectors_unavailable_line(error: ConnectorsMcpUnavailableError, hint: str | None) -> str:
+    """Return the terminal line for connector tools that each turn tries again.
+
+    A server that denied access gets a line saying so, because retrying
+    does not help until its access settings change.
+
+    Args:
+        error: Why the server cannot be listed.
+        hint: A sentence to append, such as where the log file is.
+
+    Returns:
+        The line.
+    """
+    if isinstance(error, ConnectorsMcpAccessDeniedError):
+        line = f"Connector tools are unavailable. {connectors_access_denied_sentence(error)}"
+    else:
+        line = "Connector tools are unavailable for now; each turn tries again."
+    return line if hint is None else f"{line} {hint}"
+
+
+def connectors_access_denied_sentence(error: ConnectorsMcpAccessDeniedError) -> str:
+    """Return the sentence that says the server denied access and what to check.
+
+    Args:
+        error: The denial.
+
+    Returns:
+        The sentence.
+    """
+    return (
+        f"The connectors MCP server denied access (HTTP {error.status_code}). "
+        "Check its access settings and that connectors.mcp names the right server."
+    )
+
+
 async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
     """List the connectors MCP server's tools and the connector operation each one runs.
 
@@ -195,14 +258,23 @@ async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
     Raises:
         ConnectorsMcpUnavailableError: If the server cannot be listed. A server
             that answers 503 gives its reason, such as that it is still starting.
+            It is a ``ConnectorsMcpAccessDeniedError`` when the server answers
+            HTTP 401 or 403, and otherwise a ``ConnectorsMcpListingError`` when
+            the server answered ``initialize`` and only the listing failed.
     """
+    is_initialized = False
+    failed_response = _FailedHttpResponse()
     try:
-        async with Client(
-            url,
-            read_timeout_seconds=_CATALOG_TIMEOUT_SECONDS,
-            client_info=_client_info(),
-            cache=None,
-        ) as client:
+        async with (
+            httpx2.AsyncClient(timeout=httpx2.Timeout(_CATALOG_TIMEOUT_SECONDS)) as http_client,
+            Client(
+                streamable_http_client(url, http_client=failed_response.observe(http_client)),
+                read_timeout_seconds=_CATALOG_TIMEOUT_SECONDS,
+                client_info=_client_info(),
+                cache=None,
+            ) as client,
+        ):
+            is_initialized = True
             tools: list[Any] = []
             cursor: str | None = None
             for _ in range(_LISTING_PAGE_LIMIT):
@@ -212,7 +284,13 @@ async def read_connector_catalog(url: str) -> tuple[ConnectorCatalogTool, ...]:
                 if not cursor:
                     break
     except Exception as error:
-        raise ConnectorsMcpUnavailableError(await _describe_unavailable(url, error)) from error
+        raise _unavailable_error(
+            url,
+            error,
+            failed_response.status_code,
+            failed_response.text,
+            is_initialized=is_initialized,
+        ) from error
     return tuple(
         ConnectorCatalogTool(
             name=tool.name, description=tool.description or "", identity=_identity(tool.meta)
@@ -240,6 +318,8 @@ class ConnectorsMcpToolSource:
         is_available: bool = True,
         report: Callable[[str], None] | None = None,
         media_store: MediaStore | None = None,
+        describe_unavailable: Callable[[ConnectorsMcpUnavailableError], str] | None = None,
+        startup_error: ConnectorsMcpUnavailableError | None = None,
     ) -> None:
         """Connect to one connectors MCP server.
 
@@ -248,18 +328,37 @@ class ConnectorsMcpToolSource:
             resolver: The turn configuration resolver.
             is_available: Whether the server answered when the command started.
             report: Prints a line when the server stops or starts answering;
-                ``None`` prints nothing.
+                ``None`` prints nothing. Each failed listing, with its
+                error, goes to the ``logging`` warning log instead.
+
+                .. versionchanged:: 0.6.0
+                   The line no longer carries the error.
             media_store: The store for the images that tool results carry.
                 With a store, each image of a successful result is uploaded
                 in the tool Step and reaches the model as an image reference.
                 ``None``, the default, keeps images as JSON in the output text.
 
                 .. versionadded:: 0.5.0
+            describe_unavailable: Returns the line ``report`` prints for a
+                listing error when the server stops answering, or starts or
+                stops denying access. ``None``, the default, uses
+                ``connectors_unavailable_line`` without a hint.
+
+                .. versionadded:: 0.6.0
+            startup_error: Why the server did not answer when the command
+                started. It implies ``is_available=False``, and a listing that
+                fails the same way prints nothing.
+
+                .. versionadded:: 0.6.0
         """
         self._url = url
         self._resolver = resolver
-        self._is_available = is_available
+        self._is_available = is_available and startup_error is None
+        self._is_access_denied = isinstance(startup_error, ConnectorsMcpAccessDeniedError)
         self._report = report
+        self._describe_unavailable = describe_unavailable or (
+            lambda error: connectors_unavailable_line(error, None)
+        )
         self._mcp = McpToolSource(
             [McpStreamableHttpServerConfig(name=_MCP_SERVER_NAME, url=url)],
             client_name=_CLIENT_NAME,
@@ -290,8 +389,9 @@ class ConnectorsMcpToolSource:
         """Return the tools the running turn enables; none outside a model call.
 
         The server is listed again in every model call. While it does not
-        answer, no connector tools are offered, and a line is printed when it
-        stops and when it starts answering again.
+        answer, no connector tools are offered. One line is printed when it
+        stops answering, when it starts or stops denying access, and when it
+        answers again.
         """
         turn_config = current_turn_config()
         if turn_config is None:
@@ -316,14 +416,22 @@ class ConnectorsMcpToolSource:
         try:
             mcp_tools = await self._mcp.list_tools(refresh=True)
             catalog = await read_connector_catalog(self._url)
-        except (McpToolListingError, ConnectorsMcpUnavailableError) as error:
-            if self._is_available and self._report is not None:
-                self._report(f"Connector tools are unavailable for now: {error}")
-            self._is_available = False
+        except McpToolListingError as error:
+            _LOGGER.warning("connectors MCP server %s is unavailable: %s", self._url, error)
+            self._report_listing_failure(
+                _unavailable_error(self._url, error, error.http_status, "", is_initialized=False)
+            )
             return ()
-        if not self._is_available and self._report is not None:
-            self._report("Connector tools are available again.")
+        except ConnectorsMcpUnavailableError as error:
+            _LOGGER.warning("connectors MCP server %s is unavailable: %s", self._url, error)
+            self._report_listing_failure(error)
+            return ()
+        if not self._is_available:
+            _LOGGER.info("connectors MCP server %s is available again", self._url)
+            if self._report is not None:
+                self._report("Connector tools are available again.")
         self._is_available = True
+        self._is_access_denied = False
         identities = {tool.name: tool.identity for tool in catalog}
         self._last_listing = tuple(
             ConnectorToolDefinition(
@@ -337,6 +445,15 @@ class ConnectorsMcpToolSource:
             if _is_enabled(turn_config.connectors, identities.get(tool.mcp_tool_name))
         )
         return self._last_listing
+
+    def _report_listing_failure(self, error: ConnectorsMcpUnavailableError) -> None:
+        """Print one line when the server stops answering or its access denial changes."""
+        is_access_denied = isinstance(error, ConnectorsMcpAccessDeniedError)
+        has_changed = self._is_available or is_access_denied != self._is_access_denied
+        self._is_available = False
+        self._is_access_denied = is_access_denied
+        if has_changed and self._report is not None:
+            self._report(self._describe_unavailable(error))
 
     def deferred_tool_call(
         self,
@@ -527,22 +644,63 @@ def _identity(meta: Mapping[str, Any] | None) -> ConnectorToolIdentity | None:
     )
 
 
-async def _describe_unavailable(url: str, error: Exception) -> str:
-    """Ask the endpoint directly, so a 503 shows the server's own reason."""
-    try:
-        async with httpx2.AsyncClient(timeout=5.0) as http:
-            response = await http.get(url, headers={"Accept": "text/event-stream"})
-    except httpx2.HTTPError as http_error:
-        return f"cannot reach {url}: {http_error}"
-    if response.status_code == 503:
-        reason = response.text.strip() or "the server is not ready"
-        return f"{url} is not ready: {reason}"
-    if response.status_code == 404:
-        return (
+def _unavailable_error(
+    url: str,
+    error: Exception,
+    status_code: int | None,
+    response_text: str,
+    *,
+    is_initialized: bool,
+) -> ConnectorsMcpUnavailableError:
+    """Return the error for a failed listing, by the HTTP status of the request that failed."""
+    if status_code in _ACCESS_DENIED_STATUS_CODES:
+        return ConnectorsMcpAccessDeniedError(
+            f"{url} denied access (HTTP {status_code})", status_code
+        )
+    if status_code == 503:
+        reason = response_text or "the server is not ready"
+        return _unavailable_error_type(is_initialized)(f"{url} is not ready: {reason}")
+    if status_code == 404:
+        return _unavailable_error_type(is_initialized)(
             f"{url} does not serve MCP (404); this dexcli dev predates the connectors MCP "
             "server or runs with --connectors-mcp=false"
         )
-    return f"cannot list the tools of {url}: {error}"
+    if status_code is None and not is_initialized:
+        return ConnectorsMcpUnavailableError(f"cannot reach {url}: {_describe_exception(error)}")
+    return _unavailable_error_type(is_initialized)(
+        f"cannot list the tools of {url}: {_describe_exception(error)}"
+    )
+
+
+def _unavailable_error_type(is_initialized: bool) -> type[ConnectorsMcpUnavailableError]:
+    return ConnectorsMcpListingError if is_initialized else ConnectorsMcpUnavailableError
+
+
+def _describe_exception(error: BaseException) -> str:
+    if isinstance(error, BaseExceptionGroup):
+        return "; ".join(_describe_exception(inner) for inner in error.exceptions)
+    text = str(error)
+    return f"{type(error).__name__}: {text}" if text else type(error).__name__
+
+
+class _FailedHttpResponse:
+    """Record the latest failed POST of the catalog read, whose status the MCP client drops."""
+
+    def __init__(self) -> None:
+        self.status_code: int | None = None
+        self.text = ""
+
+    def observe(self, http_client: httpx2.AsyncClient) -> httpx2.AsyncClient:
+        http_client.event_hooks["response"].append(self._record)
+        return http_client
+
+    async def _record(self, response: httpx2.Response) -> None:
+        # Only POST carries a JSON-RPC request; GET opens the event stream, DELETE ends the session.
+        if response.request.method != "POST" or response.status_code < 400:
+            return
+        self.status_code = response.status_code
+        body = await response.aread()
+        self.text = body.decode("utf-8", errors="replace").strip()[:500]
 
 
 def _client_info() -> Implementation:

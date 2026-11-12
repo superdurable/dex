@@ -21,9 +21,9 @@ import {
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
 } from "@superdurable/dex-agents";
-import { McpToolSource, type McpTool } from "@superdurable/dex-agents/mcp";
+import { McpToolListingError, McpToolSource, type McpTool } from "@superdurable/dex-agents/mcp";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import {
   canonicalOperationName,
@@ -55,6 +55,7 @@ export const connectorToolMetaKeys = Object.freeze({
 
 const mcpServerName = "connectors";
 const identityListingTtlMs = 30_000;
+const identityRequestTimeoutMs = 15_000;
 const probeTimeoutMs = 5_000;
 const disabledReferenceKey = "disabled_tool";
 const mcpReferenceKey = "mcp_reference";
@@ -97,9 +98,60 @@ export interface ConnectorToolIdentity {
  *
  * @since 0.5.0
  */
-export type ConnectorsMcpAvailability =
-  | { readonly isAvailable: true }
-  | { readonly isAvailable: false; readonly reason: string };
+export type ConnectorsMcpAvailability = { readonly isAvailable: true } | ConnectorsMcpUnavailability;
+
+/**
+ * Why a connectors MCP server does not answer.
+ *
+ * @since 0.6.0
+ */
+export interface ConnectorsMcpUnavailability {
+  readonly isAvailable: false;
+  /** The reason, with the server's own message when it sent one. */
+  readonly reason: string;
+  /** The HTTP status the server answered, or `undefined` when nothing answered. */
+  readonly httpStatus?: number;
+}
+
+/**
+ * Options of {@link ConnectorsMcpToolSource}.
+ *
+ * A command with a log file passes `writeLogLine` and `describeUnavailable`, so the terminal shows one short line
+ * for each availability change, and the errors go to the log file:
+ *
+ * ```ts
+ * const source = new ConnectorsMcpToolSource(url, turns, (line) => console.error(line), mediaStore, {
+ *   startupAvailability: await probeConnectorsMcp(url),
+ *   writeLogLine: (line) => appendFileSync(logPath, `${line}\n`),
+ *   describeUnavailable: (unavailability) =>
+ *     unavailability.httpStatus === 401 || unavailability.httpStatus === 403
+ *       ? `Connector tools are unavailable: access denied. See ${logPath}.`
+ *       : `Connector tools are unavailable for now. See ${logPath}.`,
+ * });
+ * ```
+ *
+ * @since 0.6.0
+ */
+export interface ConnectorsMcpToolSourceOptions {
+  /**
+   * Whether the server answered when the command started, as {@link probeConnectorsMcp} returns it. When it did not,
+   * a listing that fails the same way writes no terminal line, because the command already printed one. Defaults to
+   * available.
+   */
+  readonly startupAvailability?: ConnectorsMcpAvailability;
+  /**
+   * Writes one line to the command's log file: each failed listing with its full error, and each warning of the
+   * wrapped `McpToolSource`. Omitted, the terminal line of a failure carries the error, and the `McpToolSource`
+   * warnings go to `console.warn`. A callback that throws loses only that line, which then goes to `console.warn`.
+   */
+  readonly writeLogLine?: (line: string) => void;
+  /**
+   * Returns the terminal line for a failed listing when the server stops answering, or starts or stops denying
+   * access. It is used only with `writeLogLine`. Defaults to a line that says each turn tries again, or that the
+   * server denied access and what to check.
+   */
+  readonly describeUnavailable?: (unavailability: ConnectorsMcpUnavailability) => string;
+}
 
 /** A listed tool with the MCP tool it renames. */
 interface ConnectorSourceTool extends SourceToolDefinition {
@@ -126,7 +178,9 @@ export class ConnectorsMcpToolSource implements ToolSource {
   private identities: { readonly expiresAt: number; readonly byToolName: ReadonlyMap<string, ConnectorToolIdentity> } =
     { expiresAt: 0, byToolName: new Map() };
   private lastListing: readonly ConnectorSourceTool[] = [];
-  private lastListingFailure: string | undefined;
+  private unavailability: ConnectorsMcpUnavailability | undefined;
+  private readonly logFileWriter: ((line: string) => void) | undefined;
+  private readonly describeUnavailable: (unavailability: ConnectorsMcpUnavailability) => string;
 
   /**
    * Creates the source.
@@ -136,19 +190,27 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * @param mediaStore - The store for the images that tool results carry. With a store, each image of a successful
    * result is uploaded in the tool Step and reaches the model as an image reference. Omitted, images stay JSON in
    * the output text. Since 0.5.0.
+   * @param options - The availability at startup and where the errors go. Since 0.6.0.
    */
   public constructor(
     private readonly url: string,
     private readonly turns: TurnConfigResolver,
     private readonly log: (line: string) => void,
     mediaStore?: MediaStore,
+    options: ConnectorsMcpToolSourceOptions = {},
   ) {
+    const startup = options.startupAvailability;
+    this.unavailability = startup === undefined || startup.isAvailable ? undefined : startup;
+    this.logFileWriter = options.writeLogLine;
+    this.describeUnavailable =
+      options.describeUnavailable ?? ((unavailability) => connectorsUnavailableLine(unavailability, undefined));
     this.mcp = new McpToolSource(
       [{ name: mcpServerName, transport: "streamable_http", url, trustsToolAnnotations: true }],
       {
         resourceAndPromptToolsEnabled: false,
         clientName: "dex-agents-cli",
         ...(mediaStore === undefined ? {} : { mediaStore }),
+        ...(options.writeLogLine === undefined ? {} : { logWarning: options.writeLogLine }),
       },
     );
   }
@@ -159,22 +221,25 @@ export class ConnectorsMcpToolSource implements ToolSource {
    */
   public async listTools(): Promise<readonly SourceToolDefinition[]> {
     const turn = this.turns.currentTurn();
+    const identityListing = new AbortController();
     let tools: readonly McpTool[];
     let identities: ReadonlyMap<string, ConnectorToolIdentity>;
     try {
-      [tools, identities] = await Promise.all([this.mcp.listTools(), this.readIdentities()]);
+      // The first failure decides; Promise.all handles the other rejection.
+      [tools, identities] = await Promise.all([
+        this.mcp.listTools(),
+        this.readIdentities(false, identityListing.signal),
+      ]);
     } catch (error: unknown) {
-      const reason = describeError(error);
-      if (reason !== this.lastListingFailure) {
-        this.log(`Connector tools are unavailable for now: ${reason}`);
-        this.lastListingFailure = reason;
-      }
+      identityListing.abort(error);
+      this.reportListingFailure(error);
       this.lastListing = [];
       return [];
     }
-    if (this.lastListingFailure !== undefined) {
+    if (this.unavailability !== undefined) {
       this.log("Connector tools are available again.");
-      this.lastListingFailure = undefined;
+      this.writeLogLine(`connectors MCP server ${this.url} is available again`);
+      this.unavailability = undefined;
     }
     const listed: ConnectorSourceTool[] = [];
     for (const tool of tools) {
@@ -192,7 +257,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * @since 0.5.0
    */
   public get isAvailable(): boolean {
-    return this.lastListingFailure === undefined;
+    return this.unavailability === undefined;
   }
 
   /**
@@ -209,6 +274,8 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * approval display (see `buildConnectorToolApprovalDisplay`).
    * @param turn - The `RunModel` context.
    * @param call - The model's call.
+   * @param approvalToolName - The name `approval.always` matches; defaults to `call.toolName`. A wrapper that offers
+   * the tool under another name passes that name. Since 0.6.0.
    * @returns The deferred call.
    */
   public deferredToolCall(
@@ -219,6 +286,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
       readonly arguments: string;
       readonly listedTool: SourceToolDefinition;
     },
+    approvalToolName: string = call.toolName,
   ): DeferredToolCall {
     const turnConfig = this.turns.turnOf(turn);
     const mcpTool = this.findMcpTool(call.listedTool, call.toolName);
@@ -250,7 +318,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
               operationName: identity.operationName,
             },
     };
-    const requiresApproval = inner.policy.requiresApproval || turnConfig.approval.always.includes(call.toolName);
+    const requiresApproval = inner.policy.requiresApproval || turnConfig.approval.always.includes(approvalToolName);
     return {
       ...inner,
       toolSourceReference: JSON.stringify(reference),
@@ -272,15 +340,19 @@ export class ConnectorsMcpToolSource implements ToolSource {
   /**
    * Runs one call in its tool Step.
    * @param call - The approved call.
+   * @param approvalToolName - The name `approval.always` matches; defaults to the call's tool name. Since 0.6.0.
    * @returns The tool's outcome.
    * @throws {ToolExecutionError} When the tool is switched off for the session or failed.
    */
-  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+  public async executeDeferredToolCall(
+    call: DeferredToolExecution,
+    approvalToolName: string = call.toolCall.toolName,
+  ): Promise<DeferredToolOutcome> {
     throwWhenDisabled(call.toolCall);
     const reference = readConnectorCallReference(call.toolCall);
     const mcpCall = withMcpReference(call, reference);
     const expected = reference[expectedIdentityReferenceKey];
-    await this.authorizeOnThisWorker(call, expected);
+    await this.authorizeOnThisWorker(call, expected, approvalToolName);
     // Only a resume that never sends may skip the listing, so a changed catalog cannot block it.
     if (!this.mcp.willResumeToolTaskWithoutSending(mcpCall)) {
       await this.requireSameBinding(call.toolCall.toolName, expected);
@@ -336,6 +408,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
   private async authorizeOnThisWorker(
     call: DeferredToolExecution,
     expected: ExpectedConnectorIdentity | null,
+    approvalToolName: string,
   ): Promise<void> {
     const { toolName } = call.toolCall;
     let permissions: TurnConfig;
@@ -357,8 +430,8 @@ export class ConnectorsMcpToolSource implements ToolSource {
         `tool ${toolName} is not enabled in the configuration of the Worker that ran it; it did not run`,
       );
     }
-    if (!call.toolCall.requiresApproval && permissions.approval.always.includes(toolName)) {
-      throw new ToolExecutionError(`tool ${toolName} now needs approval, and this call had none; it did not run`);
+    if (!call.toolCall.requiresApproval && permissions.approval.always.includes(approvalToolName)) {
+      throw new ToolExecutionError(`tool ${approvalToolName} now needs approval, and this call had none; it did not run`);
     }
   }
 
@@ -391,19 +464,60 @@ export class ConnectorsMcpToolSource implements ToolSource {
   /**
    * Returns the connector identity of every tool the server lists now, whatever the configuration enables.
    * @param isFresh - Whether to list the server again instead of using a listing from the last 30 seconds.
+   * @param signal - Aborts the listing and closes its connection. Since 0.6.0.
    * @returns The identities, by tool name.
-   * @throws {Error} When the server cannot be listed.
+   * @throws {Error} When the server cannot be listed within 15 seconds, or `signal` aborts the listing.
    */
-  public async readIdentities(isFresh = false): Promise<ReadonlyMap<string, ConnectorToolIdentity>> {
+  public async readIdentities(
+    isFresh = false,
+    signal?: AbortSignal,
+  ): Promise<ReadonlyMap<string, ConnectorToolIdentity>> {
     if (!isFresh && Date.now() < this.identities.expiresAt) {
       return this.identities.byToolName;
     }
     const byToolName = new Map<string, ConnectorToolIdentity>();
-    for (const identity of await listConnectorToolIdentities(this.url)) {
+    for (const identity of await listConnectorToolIdentities(this.url, signal)) {
       byToolName.set(identity.toolName, identity);
     }
     this.identities = { expiresAt: Date.now() + identityListingTtlMs, byToolName };
     return byToolName;
+  }
+
+  /** Logs every failure; the terminal gets one line only when the availability changes. */
+  private reportListingFailure(failure: unknown): void {
+    const previous = this.unavailability;
+    const reason = describeError(failure);
+    const httpStatus = httpStatusOfListingFailure(failure);
+    const unavailability: ConnectorsMcpUnavailability = {
+      isAvailable: false,
+      reason,
+      ...(httpStatus === undefined ? {} : { httpStatus }),
+    };
+    this.unavailability = unavailability;
+    const hasChanged =
+      previous === undefined || isConnectorsMcpAccessDenied(previous) !== isConnectorsMcpAccessDenied(unavailability);
+    if (this.logFileWriter === undefined) {
+      if (hasChanged) {
+        this.log(`Connector tools are unavailable for now: ${reason}`);
+      }
+      return;
+    }
+    this.writeLogLine(`connectors MCP server ${this.url} is unavailable: ${reason}`);
+    if (hasChanged) {
+      this.log(this.describeUnavailable(unavailability));
+    }
+  }
+
+  /** Writes to the log file; a failing writer sends the line to `console.warn` instead. */
+  private writeLogLine(line: string): void {
+    if (this.logFileWriter === undefined) {
+      return;
+    }
+    try {
+      this.logFileWriter(line);
+    } catch (error: unknown) {
+      console.warn(`${line} (the log line could not be written: ${describeError(error)})`);
+    }
   }
 
   private isToolEnabled(
@@ -491,19 +605,26 @@ export class DisabledConnectorsToolSource implements ToolSource {
  * Lists the connector identity of each tool a connectors MCP server offers, from the tools' `_meta`. A tool without
  * a connector and a connection in `_meta` is left out.
  *
+ * Each request waits at most 15 seconds. The connection is closed when the listing ends, fails, or is aborted.
+ *
  * @param url - The server's Streamable HTTP URL.
+ * @param signal - Aborts the listing. Since 0.6.0.
  * @returns The identities, in listing order.
- * @throws {Error} When the server cannot be reached or listed.
+ * @throws {Error} When the server cannot be reached or listed, a request times out, or `signal` aborts the listing.
  * @since 0.5.0
  */
-export async function listConnectorToolIdentities(url: string): Promise<ConnectorToolIdentity[]> {
+export async function listConnectorToolIdentities(
+  url: string,
+  signal?: AbortSignal,
+): Promise<ConnectorToolIdentity[]> {
   const client = new McpClient({ name: "dex-agents-cli", version: "0.5.0" });
-  await client.connect(new StreamableHTTPClientTransport(new URL(url)));
+  const requestOptions = { timeout: identityRequestTimeoutMs, ...(signal === undefined ? {} : { signal }) };
   try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(url)), requestOptions);
     const identities: ConnectorToolIdentity[] = [];
     let cursor: string | undefined;
     do {
-      const page = await client.listTools(cursor === undefined ? {} : { cursor });
+      const page = await client.listTools(cursor === undefined ? {} : { cursor }, requestOptions);
       for (const tool of page.tools) {
         const meta = (tool._meta ?? {}) as Record<string, unknown>;
         const connector = readMetaString(meta, connectorToolMetaKeys.connector);
@@ -563,10 +684,18 @@ export async function probeConnectorsMcp(url: string): Promise<ConnectorsMcpAvai
     return { isAvailable: true };
   }
   if (response.status === 404) {
-    return { isAvailable: false, reason: `${url} serves no MCP server (HTTP 404); dexcli dev serves one from dexcli 1.43` };
+    return {
+      isAvailable: false,
+      reason: `${url} serves no MCP server (HTTP 404); dexcli dev serves one from dexcli 1.43`,
+      httpStatus: 404,
+    };
   }
   const reason = body.trim().slice(0, 500);
-  return { isAvailable: false, reason: `${url} answered HTTP ${response.status}${reason === "" ? "" : `: ${reason}`}` };
+  return {
+    isAvailable: false,
+    reason: `${url} answered HTTP ${response.status}${reason === "" ? "" : `: ${reason}`}`,
+    httpStatus: response.status,
+  };
 }
 
 /**
@@ -656,6 +785,62 @@ function throwWhenDisabled(toolCall: AgentToolCall): void {
   if (typeof reference === "object" && reference !== null && disabledReferenceKey in reference) {
     throw new ToolExecutionError(`tool ${toolCall.toolName} is not enabled for this session`);
   }
+}
+
+/**
+ * Returns the terminal line for connector tools that each turn tries again, with an optional hint sentence.
+ *
+ * A server that denied access gets a line saying so, because retrying does not help until its access settings change.
+ *
+ * @param unavailability - Why the server does not answer.
+ * @param hint - A sentence to append, such as where the log file is.
+ * @returns The line.
+ * @since 0.6.0
+ */
+export function connectorsUnavailableLine(
+  unavailability: ConnectorsMcpUnavailability,
+  hint: string | undefined,
+): string {
+  const line = isConnectorsMcpAccessDenied(unavailability)
+    ? `Connector tools are unavailable. ${connectorsAccessDeniedSentence(unavailability.httpStatus ?? 0)}`
+    : "Connector tools are unavailable for now; each turn tries again.";
+  return hint === undefined ? line : `${line} ${hint}`;
+}
+
+/**
+ * Returns the sentence that says the server denied access and what to check.
+ *
+ * @param httpStatus - The HTTP status, 401 or 403.
+ * @returns The sentence.
+ * @since 0.6.0
+ */
+export function connectorsAccessDeniedSentence(httpStatus: number): string {
+  return (
+    `The connectors MCP server denied access (HTTP ${httpStatus}). ` +
+    "Check its access settings and that connectors.mcp names the right server."
+  );
+}
+
+/**
+ * Returns whether the server answered HTTP 401 or 403.
+ *
+ * @param unavailability - Why the server does not answer.
+ * @returns Whether it denied access.
+ * @since 0.6.0
+ */
+export function isConnectorsMcpAccessDenied(unavailability: ConnectorsMcpUnavailability): boolean {
+  return unavailability.httpStatus === 401 || unavailability.httpStatus === 403;
+}
+
+/** Returns the HTTP status the failed listing request itself answered, if it answered one. */
+function httpStatusOfListingFailure(error: unknown): number | undefined {
+  if (error instanceof McpToolListingError) {
+    return error.httpStatus;
+  }
+  if (error instanceof StreamableHTTPError && error.code !== undefined && error.code > 0) {
+    return error.code;
+  }
+  return undefined;
 }
 
 function describeError(error: unknown): string {
