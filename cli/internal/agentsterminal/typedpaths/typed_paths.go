@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -44,6 +45,14 @@ var imageExtensions = map[string]bool{".png": true, ".jpg": true, ".jpeg": true,
 type PathResolver struct {
 	homeDirectory    string
 	workingDirectory string
+	// openDirectory opens a directory for completion; nil means os.Open.
+	openDirectory func(path string) (directoryReader, error)
+}
+
+// directoryReader reads a directory in batches, as *os.File does.
+type directoryReader interface {
+	ReadDir(count int) ([]os.DirEntry, error)
+	Close() error
 }
 
 // NewPathResolver returns a resolver that expands ~ to homeDirectory and
@@ -117,7 +126,13 @@ func (resolver PathResolver) CompletePath(partial string) PathCompletions {
 	if err != nil {
 		return PathCompletions{}
 	}
-	names, isPartial := scanMatchingNames(absoluteDirectory, namePrefix)
+	names, isPartial := resolver.scanMatchingNames(absoluteDirectory, namePrefix)
+	if isPartial && namePrefix != "" && !slices.Contains(names, namePrefix) {
+		// The exact name may lie past the scan, so typing all of it still completes.
+		if _, err := os.Lstat(filepath.Join(absoluteDirectory, namePrefix)); err == nil {
+			names = append(names, namePrefix)
+		}
+	}
 	sort.Strings(names)
 	if len(names) > maximumCompletions {
 		names, isPartial = names[:maximumCompletions], true
@@ -133,8 +148,8 @@ func (resolver PathResolver) CompletePath(partial string) PathCompletions {
 // scanMatchingNames returns the entry names in directory that start with
 // namePrefix, reading at most MaximumScannedEntries, and whether it stopped
 // early. Hidden names need a prefix that starts with ".".
-func scanMatchingNames(directory string, namePrefix string) ([]string, bool) {
-	file, err := os.Open(directory)
+func (resolver PathResolver) scanMatchingNames(directory string, namePrefix string) ([]string, bool) {
+	file, err := resolver.open(directory)
 	if err != nil {
 		return nil, false
 	}
@@ -158,6 +173,13 @@ func scanMatchingNames(directory string, namePrefix string) ([]string, bool) {
 		}
 	}
 	return names, true
+}
+
+func (resolver PathResolver) open(directory string) (directoryReader, error) {
+	if resolver.openDirectory != nil {
+		return resolver.openDirectory(directory)
+	}
+	return os.Open(directory)
 }
 
 // LongestCommonPrefix returns the longest prefix all completions share.

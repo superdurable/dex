@@ -570,7 +570,11 @@ func (screen *ChatScreen) applyPathCompletions(found pathCompletionsFoundMsg) {
 	screen.pathCompletions, screen.isPathCompletionPartial = nil, false
 	switch len(candidates) {
 	case 0:
-		screen.printNotice(sessionfeed.NoticeSeverityInfo, "no file matches "+found.partial)
+		if found.completions.IsPartial {
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, fmt.Sprintf("no match in the first %d entries; type more of the name", typedpaths.MaximumScannedEntries))
+		} else {
+			screen.printNotice(sessionfeed.NoticeSeverityInfo, "no file matches "+found.partial)
+		}
 	case 1:
 		screen.input.SetValue(imageCommandPrefix + candidates[0])
 	default:
@@ -580,8 +584,13 @@ func (screen *ChatScreen) applyPathCompletions(found pathCompletionsFoundMsg) {
 }
 
 // forgetSessionViews closes what belongs to the session the chat leaves:
-// pagers, the tool list, pending completions, and the paste prompt.
+// popups and their interrupts, pagers, queued rows, completions, and prompts.
 func (screen *ChatScreen) forgetSessionViews() {
+	screen.closePopup()
+	screen.interrupts = nil
+	screen.interruptFeedback, screen.interruptOutcomes = map[string]string{}, map[string]string{}
+	screen.pendingFocus, screen.pendingDelete = pendingFocusNone, nil
+	screen.queuedMessages = nil
 	screen.pager, screen.isToolPickerOpen = nil, false
 	screen.pathCompletions, screen.isPathCompletionPartial = nil, false
 	screen.pathCompletionRequestID++

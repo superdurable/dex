@@ -112,6 +112,10 @@ type DiffLine struct {
 	LineNumber int
 	// Text is the line text without the diff sign.
 	Text string
+	// IsMissingFinalNewline reports that this line ends its side of the file
+	// without a newline: the file now for a removed line, after the write
+	// for an added line, and both for a context line.
+	IsMissingFinalNewline bool
 }
 
 // FileChangePreview is a tool's preview of a file write, diffed against the

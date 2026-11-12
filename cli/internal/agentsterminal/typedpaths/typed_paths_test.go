@@ -10,6 +10,7 @@ package typedpaths
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -125,6 +126,55 @@ func TestCompletePathKeepsTheTypedQuoting(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, filepath.Join(home, "my diagram.png"), path, "a completion resolves to the file: %s", typed)
 	}
+}
+
+// countingDirectory lists totalCount synthetic entries and counts the ones
+// read.
+type countingDirectory struct {
+	totalCount int
+	readCount  int
+}
+
+func (directory *countingDirectory) ReadDir(count int) ([]os.DirEntry, error) {
+	var entries []os.DirEntry
+	for len(entries) < count && directory.readCount < directory.totalCount {
+		entries = append(entries, syntheticEntry(fmt.Sprintf("entry-%05d.png", directory.readCount)))
+		directory.readCount++
+	}
+	if len(entries) == 0 {
+		return nil, io.EOF
+	}
+	return entries, nil
+}
+
+func (directory *countingDirectory) Close() error { return nil }
+
+type syntheticEntry string
+
+func (entry syntheticEntry) Name() string               { return string(entry) }
+func (entry syntheticEntry) IsDir() bool                { return false }
+func (entry syntheticEntry) Type() os.FileMode          { return 0 }
+func (entry syntheticEntry) Info() (os.FileInfo, error) { return nil, os.ErrNotExist }
+
+// The scan reads at most MaximumScannedEntries; a match past them reports a
+// partial scan, and the exact name still completes.
+func TestCompletePathReadsAtMostTheCap(t *testing.T) {
+	realDirectory := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(realDirectory, "entry-09000.png"), nil, 0o600))
+	listing := &countingDirectory{totalCount: 10_000}
+	resolver := NewPathResolver("", realDirectory)
+	resolver.openDirectory = func(string) (directoryReader, error) { return listing, nil }
+	completions := resolver.CompletePath("entry-09")
+	require.Equal(t, MaximumScannedEntries, listing.readCount, "the scan stops at the cap")
+	require.Empty(t, completions.Candidates, "entry-09000 lies past the cap")
+	require.True(t, completions.IsPartial)
+	listing.readCount = 0
+	exact := resolver.CompletePath("entry-09000.png")
+	require.Equal(t, []string{"entry-09000.png"}, exact.Candidates, "the whole name still completes")
+	listing.readCount, listing.totalCount = 0, 30
+	whole := resolver.CompletePath("entry-")
+	require.False(t, whole.IsPartial)
+	require.Len(t, whole.Candidates, 30)
 }
 
 // A huge directory costs at most MaximumScannedEntries reads.

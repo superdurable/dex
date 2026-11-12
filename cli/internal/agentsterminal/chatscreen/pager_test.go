@@ -390,6 +390,76 @@ func TestSessionSwitchClosesEveryPagerAndPrompt(t *testing.T) {
 	require.Equal(t, imagePath, harness.screen.input.Value(), "the pasted text stays")
 }
 
+func switchSession(harness *screenHarness, sessionID string) {
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: sessionID, IsNewSession: true}, sessionfeed.SessionLoaded{})
+}
+
+// The old session's approvals and questions never reach the new one: not
+// open, not waiting, not behind Tab.
+func TestSessionSwitchDropsTheOldInterrupts(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{height: 30})
+	startTurn(harness, "Post the summary.")
+	harness.feed(connectorApproval("approval-1"))
+	require.True(t, harness.screen.isPopupOpen)
+	switchSession(harness, "openai-sdk-20261111-150000-ffffff")
+	require.False(t, harness.screen.isPopupOpen, "the approval popup closes")
+	require.NotContains(t, harness.plainFrame(), "Approve slack_post_channel_message?")
+	harness.press(key(tea.KeyTab))
+	require.False(t, harness.screen.isPopupOpen, "Tab finds nothing waiting")
+	require.Equal(t, pendingFocusNone, harness.screen.pendingFocus)
+	harness.press(textKey('y'))
+	require.Empty(t, approvalActions(harness), "y is text, not an approval")
+
+	question := sessionfeed.QuestionAsked{InterruptID: "question-1", Question: "Which branch?", Choices: []string{"main"}}
+	harness.screen.input.Clear()
+	harness.feed(question)
+	harness.press(key(tea.KeyEscape))
+	require.False(t, harness.screen.isPopupOpen)
+	require.Contains(t, harness.plainFrame(), "1 question waiting")
+	switchSession(harness, "openai-sdk-20261111-160000-eeeeee")
+	require.NotContains(t, harness.plainFrame(), "question waiting")
+	harness.press(key(tea.KeyTab))
+	require.False(t, harness.screen.isPopupOpen, "Tab after the switch opens no old question")
+	require.Empty(t, harness.screen.interrupts)
+}
+
+// A completion read for the old session never fills the new one's input.
+func TestImagePathCompletionForTheOldSessionIsDropped(t *testing.T) {
+	harness, _ := newImageHarness(t)
+	harness.typeText("/image dia")
+	_, command := harness.screen.Update(key(tea.KeyTab))
+	switchSession(harness, "openai-sdk-20261111-150000-ffffff")
+	harness.runCommand(command)
+	require.Equal(t, "/image dia", harness.screen.input.Value())
+}
+
+// An empty result of a cut-short scan says so instead of "no file matches".
+func TestPartialScanWithoutAMatchSaysSo(t *testing.T) {
+	harness, _ := newImageHarness(t)
+	harness.typeText("/image zzz")
+	harness.screen.applyPathCompletions(pathCompletionsFoundMsg{
+		requestID: harness.screen.pathCompletionRequestID, sessionID: testSessionID, inputText: "/image zzz", partial: "zzz",
+		completions: typedpaths.PathCompletions{IsPartial: true},
+	})
+	text := harness.scrollbackText()
+	require.Contains(t, text, "no match in the first 2000 entries; type more of the name")
+	require.NotContains(t, text, "no file matches")
+}
+
+// The diff preview says which side ends without a newline.
+func TestFileChangePreviewShowsTheMissingNewline(t *testing.T) {
+	theme := terminaltheme.NewTheme(colorprofile.ANSI, true)
+	preview := sessionfeed.FileChangePreview{Path: "notes/a.txt", AddedLineCount: 1, RemovedLineCount: 1, Lines: []sessionfeed.DiffLine{
+		{Kind: sessionfeed.DiffLineRemoved, LineNumber: 1, Text: "last", IsMissingFinalNewline: true},
+		{Kind: sessionfeed.DiffLineAdded, LineNumber: 1, Text: "last"},
+	}}
+	plain := terminaltheme.StripStyles(strings.Join(renderFileChangePreview(preview, 70, theme), "\n"))
+	requireInOrder(t, plain, "- last", `\ the file now has no newline at its end`, "+ last")
+	preview.Lines[0].IsMissingFinalNewline, preview.Lines[1].IsMissingFinalNewline = false, true
+	plain = terminaltheme.StripStyles(strings.Join(renderFileChangePreview(preview, 70, theme), "\n"))
+	requireInOrder(t, plain, "- last", "+ last", `\ no newline at the end after this write`)
+}
+
 // The first Ctrl-C closes a reader; the draft behind it follows the usual
 // idle rules.
 func TestCtrlCClosesThePagerBeforeTheDraft(t *testing.T) {
