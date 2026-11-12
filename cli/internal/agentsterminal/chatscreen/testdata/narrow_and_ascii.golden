@@ -1,0 +1,54 @@
+==== width 30 ====
+~~~~ 30x24 ~~~~
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ␛[36m⠙␛[m Resize to 40 columns for t…
+ ␛[34m›␛[m ␛[2mtype to queue a message␛[m
+~~~~ cursor 3,23 ~~~~
+
+==== ASCII symbols ====
+~~~~ 80x24 ~~~~
+  ␛[2mcommand:   ␛[mopenai-sdk
+  ␛[2mmodel:     ␛[mgpt-5.2
+  ␛[2mdirectory: ␛[m~/dex-agent-workspace
+  ␛[2msession:   ␛[mopenai-sdk-20261111-142233-a1b2c3␛[2m (new)␛[m
+  ␛[2mDex Web:   ␛[mhttp://127.0.0.1:8802
+
+ ␛[34m+- ␛[m␛[1;94mApprove slack_post_channel_message?␛[m ␛[34m--------------------------------------+␛[m
+ ␛[34m|␛[m ␛[2mconnector - slack/support-slack - write␛[m                                    ␛[34m|␛[m
+ ␛[34m|␛[m                                                                            ␛[34m|␛[m
+ ␛[34m|␛[m channel  #eng                                                              ␛[34m|␛[m
+ ␛[34m|␛[m text     Found 3 open issues about flaky tests: #812 TestRetryBackoff      ␛[34m|␛[m
+ ␛[34m|␛[m          times out on arm64; #844 TestRetryJitter fails when GOMAXPROCS=1~ ␛[34m|␛[m
+ ␛[34m|␛[m          ␛[2m(202 chars - e shows all)␛[m                                         ␛[34m|␛[m
+ ␛[34m|␛[m                                                                            ␛[34m|␛[m
+ ␛[34m|␛[m Posts to #eng with connection support-slack.                               ␛[34m|␛[m
+ ␛[34m|␛[m                                                                            ␛[34m|␛[m
+ ␛[34m|␛[m ␛[34m>␛[m ␛[1;34mApprove␛[m                                                                ␛[2my␛[m ␛[34m|␛[m
+ ␛[34m|␛[m   Reject                                                                 ␛[2mn␛[m ␛[34m|␛[m
+ ␛[34m|␛[m   Reject with a reason                                                   ␛[2mr␛[m ␛[34m|␛[m
+ ␛[34m+----------------------------------------------------------------------------+␛[m
+␛[2m--------------------------------------------------------------------------------␛[m
+ ␛[34m>␛[m ␛[2mtype to queue a message␛[m
+ openai-sdk␛[2m - ␛[mgpt-5.2␛[2m - ␛[m␛[2m~/dex-agent-workspace␛[m                  ␛[2mturn 1 - 1.2k tok␛[m
+ ␛[36m\␛[m running tools 9s                  ␛[2my approve - n reject - r reason - Esc later␛[m
