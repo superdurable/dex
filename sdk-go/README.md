@@ -640,6 +640,48 @@ the physical index names with Dex Server before opening task streams. Existing
 indexes return immediately; a synchronization failure or the default two-minute
 deadline fails startup. Indexed AttributeMaps must declare a fixed index key.
 
+### Client-only Flows
+
+Since 1.46.0, a Flow that embeds `dex.ClientOnlyFlow` types the RPCs and
+Streams of a Flow type that another application serves, such as a Worker in
+another language. It declares the served Flow type, the RPC methods with the
+served names, types, and `RPCOptions`, and the Attributes, Channels, and Streams
+those options and reads name. Its RPC methods are never called. A client-only
+Flow declares no Steps; `NewRegistry` rejects one that does.
+
+Register it in the Registry of the Client only. `NewWorker` returns
+`*dex.ClientOnlyFlowError` for a Registry that holds a client-only Flow, so a
+Worker never polls tasks it cannot run. `InvokeRPC`, `ReadStream`, and the
+other Client calls work as with any registered Flow. Do not start runs with
+it: without a starting Step, `StartFlow` starts a run that never executes the
+served starting Step. `dex.IsClientOnlyFlow` reports the marker.
+
+```go
+type RemoteOrderFlow struct {
+	dex.FlowDefaults
+	dex.ClientOnlyFlow
+}
+
+func (RemoteOrderFlow) GetFlowType() string { return "OrderFlow" }
+
+func (RemoteOrderFlow) GetSteps() []dex.StepDef { return nil }
+
+func (RemoteOrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{RemoteOrderStatus}}
+}
+
+func (flow RemoteOrderFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Cancel, &dex.RPCOptions{
+		Name:           "cancel",
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(RemoteOrderStatus)},
+	})}
+}
+
+func (RemoteOrderFlow) Cancel(dex.Context, string) (*dex.RPCResult[bool], error) {
+	return nil, errors.New("RemoteOrderFlow is client-only")
+}
+```
+
 ## Attribute Store synchronization
 
 Opt an Attribute or AttributeMap into the Flow's external latest-state
