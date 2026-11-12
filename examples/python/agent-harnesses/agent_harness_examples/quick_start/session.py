@@ -42,9 +42,12 @@ from dex_agents import (
     AgentSessionStatus,
     MessageRole,
 )
+from dex_agents.session_graph import session_flow_definition_document
 
 
 PULL_REGISTRATION_TIMEOUT_SECONDS = 30.0
+# The Dex Web role that may approve, reject, and send messages in a session.
+ACTION_PERMISSION = "agent-quick-start.operate"
 # Tool calls run as parallel Steps, so the Worker needs a slot for each one.
 MAX_CONCURRENT_TASKS = 16
 POLL_INTERVAL_SECONDS = 0.5
@@ -68,6 +71,12 @@ class QuickStartApp:
             WorkerOptions(
                 server_address=server_address,
                 pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
+                # Dex Web draws the session and offers Approve from this graph.
+                flow_definitions=[
+                    session_flow_definition_document(
+                        session_flow.get_flow_type(), ACTION_PERMISSION
+                    )
+                ],
             ),
         )
         self.client = AsyncClient(

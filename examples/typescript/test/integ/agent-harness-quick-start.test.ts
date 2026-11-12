@@ -32,6 +32,7 @@ import { OrderDesk } from "../../src/products/agent-harnesses/order-support/orde
 import * as claudeAgentSdk from "../../src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.js";
 import * as mastra from "../../src/products/agent-harnesses/quick-start/mastra-quick-start.js";
 import * as openAIAgents from "../../src/products/agent-harnesses/quick-start/openai-agents-quick-start.js";
+import { askAgent } from "../../src/products/agent-harnesses/quick-start/quick-start-embed.js";
 import { QuickStartApp, runTurn } from "../../src/products/agent-harnesses/quick-start/quick-start-session.js";
 import * as vercelAi from "../../src/products/agent-harnesses/quick-start/vercel-ai-quick-start.js";
 import { scriptedCancelReason, scriptedReplyPrefix } from "./agent-harnesses/order-support-script.js";
@@ -124,3 +125,18 @@ for (const [name, buildDurableAgent] of Object.entries(frameworks)) {
     });
   });
 }
+
+describe("Agent Quick Start: embedded host", () => {
+  test("one Worker and one Client answer one turn", async () => {
+    const flow = openAIAgents.buildDurableAgent(new OrderDesk(), new ScriptedOrderSupportOpenAIModel());
+    const snapshot = await askAgent(
+      flow,
+      `embed-test-${randomUUID()}`,
+      "Look up order 1001",
+      serverAddress,
+      join(stateDirectory, "embed-cache"),
+    );
+    const replies = snapshot.messages.filter((item) => item.role === "assistant" && item.text).map((item) => item.text);
+    assert.equal(replies.at(-1), `${scriptedReplyPrefix}Order 1001: 2 notebooks, shipped.`);
+  });
+});

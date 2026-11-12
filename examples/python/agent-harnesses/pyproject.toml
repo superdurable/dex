@@ -7,15 +7,15 @@ license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "dex-agents[connectors]==0.4.0",
-    "dex-agents-claude-agent-sdk==0.4.0",
-    "dex-agents-google-adk==0.4.0",
-    "dex-agents-langgraph==0.4.0",
-    "dex-agents-openai-agents==0.4.0",
-    "dex-agents-pydantic-ai==0.4.0",
+    "dex-agents[connectors]==0.5.0",
+    "dex-agents-claude-agent-sdk==0.5.0",
+    "dex-agents-google-adk==0.5.0",
+    "dex-agents-langgraph==0.5.0",
+    "dex-agents-openai-agents==0.5.0",
+    "dex-agents-pydantic-ai==0.5.0",
     # Moves to PyPI (dex-connector-slack==0.2.0) once the release is published there.
     "dex-connector-slack @ https://github.com/superdurable/dex-connectors-library/releases/download/connectors%2Fslack%2Fpython%2Fv0.2.0/dex_connector_slack-0.2.0-py3-none-any.whl#sha256=df82651d748d69bdf906b71fc965098e408d40e86f28b3b27ff493240cfaf320",
-    "dex-python-sdk==1.38.0",
+    "dex-python-sdk==1.45.0",
     "langchain-openai>=1.1,<2",
     "pydantic-ai-slim[openai]>=2.64,<3",
     "quart>=0.20.0,<0.21",
