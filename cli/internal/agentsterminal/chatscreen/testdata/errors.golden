@@ -1,0 +1,11 @@
+==== errors, then the Worker stopped ====
+␛[2m›␛[m Summarize.
+
+  ␛[31m✗␛[m The turn failed: model call returned 401 (invalid API key). Set
+    OPENAI_API_KEY and send again.
+  ␛[33m!␛[m Live output is off: the Dex server keeps no event stream. Replies appear
+    when each turn ends.
+  ␛[31m✗␛[m The Worker stopped (exit 137), so this chat cannot continue. Exit and resume
+    with: dex-agents-openai-sdk --resume openai-sdk-20261111-142233-a1b2c3
+~~~~ live area ~~~~
+␛[2m Press any key to exit␛[m
