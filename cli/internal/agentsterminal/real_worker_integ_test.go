@@ -35,6 +35,8 @@ import (
 )
 
 const (
+	chatTerminalWidth  = 110
+	chatTerminalHeight = 32
 	realWorkerFlowType = "TerminalUIRemoteSessionAgent"
 	realWorkerTimeout  = 2 * time.Minute
 	screenWait         = 30 * time.Second
@@ -69,6 +71,9 @@ func TestChatWithARealPythonWorker(t *testing.T) {
 	t.Run("ApprovalRoundTrip", stack.testApprovalRoundTrip)
 	t.Run("ResumeShowsHistory", stack.testResumeShowsHistory)
 	t.Run("CtrlCCancelsTheTurn", stack.testCtrlCCancelsTheTurn)
+	t.Run("EscCancelsTheTurn", stack.testEscCancelsTheTurn)
+	t.Run("IdleCtrlCExitsOnTheSecondPress", stack.testIdleCtrlCExitsOnTheSecondPress)
+	t.Run("ResumeKeepsAWaitingApprovalClosed", stack.testResumeKeepsAWaitingApprovalClosed)
 	t.Run("QuestionAnswer", stack.testQuestionAnswer)
 	t.Run("QueueAndSteer", stack.testQueueAndSteer)
 	t.Run("PlanAndRun", stack.testPlanAndRun)
@@ -435,9 +440,9 @@ func (stack *realWorkerStack) testResumeShowsHistory(t *testing.T) {
 	chat.typeText("say again\r")
 	finished := stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(2))
 	require.Equal(t, "said: again", lastAssistantText(finished))
-	chat.waitForScreen("said: again")
-	require.Equal(t, 1, strings.Count(chat.screenSince("publish_note: published hello"), "say again"),
-		"the message this terminal sent shows once")
+	chat.waitForFrame("said: again")
+	// The raw log may hold a redrawn line twice; the frame shows what the user sees.
+	require.Equal(t, 1, strings.Count(chat.frame(), "say again"), "the message this terminal sent shows once")
 	chat.exit()
 }
 
@@ -462,6 +467,62 @@ func (stack *realWorkerStack) testCtrlCCancelsTheTurn(t *testing.T) {
 	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
 	chat.waitForScreen("turn cancelled")
 	chat.exit()
+}
+
+// Esc on the empty input cancels the running turn, as Ctrl-C does.
+func (stack *realWorkerStack) testEscCancelsTheTurn(t *testing.T) {
+	sessionID := "terminal-ui-esc-cancel"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("stall esc-gate\r")
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(filepath.Join(stack.coordination, "esc-gate.reached"))
+		return err == nil
+	}, realWorkerTimeout, 50*time.Millisecond, "the model Step waits at the gate")
+	chat.waitForScreen("Esc interrupt")
+	chat.typeText("\x1b")
+	chat.waitForScreen("cancelling")
+	require.NoError(t, os.WriteFile(filepath.Join(stack.coordination, "esc-gate.released"), nil, 0o600))
+	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	chat.waitForScreen("turn cancelled")
+	chat.exit()
+}
+
+// An idle Ctrl-C asks for a second press, which exits.
+func (stack *realWorkerStack) testIdleCtrlCExitsOnTheSecondPress(t *testing.T) {
+	sessionID := "terminal-ui-idle-ctrl-c"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.waitForScreen("Ctrl-D exit")
+	chat.typeText("\x03")
+	chat.waitForScreen("Press Ctrl-C again to exit")
+	chat.typeText("\x03")
+	chat.waitForHostExit()
+}
+
+// A resumed chat leaves a waiting approval in the pending bar, so the user
+// reads the history before Tab opens it.
+func (stack *realWorkerStack) testResumeKeepsAWaitingApprovalClosed(t *testing.T) {
+	sessionID := "terminal-ui-resume-approval"
+	stack.startSession(t, sessionID)
+	chat := stack.openChat(t, sessionID, false)
+	chat.typeText("publish later\r")
+	chat.waitForScreen("Approve publish_note?")
+	chat.exit()
+	resumed := stack.openChat(t, sessionID, true)
+	resumed.waitForScreen("1 approval waiting")
+	resumed.waitForScreen("Tab opens approvals")
+	// The deferred popup would open after a second; this one never does.
+	time.Sleep(1500 * time.Millisecond)
+	require.NotContains(t, resumed.screen(), "Approve publish_note?")
+	resumed.typeText("\t")
+	time.Sleep(300 * time.Millisecond)
+	resumed.typeText("\r")
+	resumed.waitForScreen("Approve publish_note?")
+	resumed.typeText("y")
+	stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(1))
+	resumed.waitForScreen("publish_note: published later")
+	resumed.exit()
 }
 
 // chatRun is one dexcli agents-tui on a PTY, with the contract host as a
@@ -527,7 +588,7 @@ func (stack *realWorkerStack) openChatWithLaunch(t *testing.T, sessionID string,
 	recordPath := filepath.Join(directory, "record.jsonl")
 	chat := &chatRun{t: t, racePrefix: filepath.Join(directory, "race"), screenPath: filepath.Join(directory, "screen.log"), hostDone: make(chan error, 1), hostStderr: &bytes.Buffer{}}
 	host := exec.Command(stack.pythonPath, contractHostScript, "launcher",
-		"--transcript", transcriptPath, "--pty", "110x32", "--screen-log", chat.screenPath, "--record", recordPath,
+		"--transcript", transcriptPath, "--pty", fmt.Sprintf("%dx%d", chatTerminalWidth, chatTerminalHeight), "--screen-log", chat.screenPath, "--record", recordPath,
 		"--step-timeout", "180", "--pty-input-from-stdin", raceEnvironmentArgument(chat.racePrefix), "--", stack.dexcli, "agents-tui")
 	debugLog := os.Getenv("DEX_AGENTS_TUI_DEBUG")
 	if options.isDebugLogOn {
@@ -579,6 +640,23 @@ func (chat *chatRun) screenSince(mark string) string {
 	return text
 }
 
+// frame returns the screen as the terminal shows it now.
+func (chat *chatRun) frame() string {
+	data, err := os.ReadFile(chat.screenPath)
+	if err != nil {
+		return ""
+	}
+	return strings.Join(terminalFrame(string(data), chatTerminalWidth, chatTerminalHeight), "\n")
+}
+
+// waitForFrame waits until the current frame shows text. Unlike the log,
+// it holds a line redrawn from its middle.
+func (chat *chatRun) waitForFrame(text string) {
+	chat.t.Helper()
+	require.Eventually(chat.t, func() bool { return strings.Contains(chat.frame(), text) },
+		screenWait, 50*time.Millisecond, "the frame shows %q", text)
+}
+
 func (chat *chatRun) waitForScreen(text string) {
 	chat.t.Helper()
 	require.Eventually(chat.t, func() bool { return strings.Contains(chat.screen(), text) },
@@ -589,6 +667,12 @@ func (chat *chatRun) waitForScreen(text string) {
 func (chat *chatRun) exit() {
 	chat.t.Helper()
 	chat.typeText("\x04")
+	chat.waitForHostExit()
+}
+
+// waitForHostExit waits for the host, which checks every step and exit 0.
+func (chat *chatRun) waitForHostExit() {
+	chat.t.Helper()
 	select {
 	case err := <-chat.hostDone:
 		require.NoError(chat.t, err, "the host saw the expected exit")
