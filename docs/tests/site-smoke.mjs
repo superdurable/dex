@@ -192,7 +192,7 @@ assert.doesNotMatch(mobileMenu, /sd-locale/);
 const headerTabs = header.match(/<nav class="sd-tabs" aria-label="Docs sections">[\s\S]*?<\/details><\/div><\/nav>/)?.[0] ?? '';
 assert.deepEqual(
   [...headerTabs.matchAll(/<a class="sd-tab[^"]*"[^>]*? href="([^"]*)"[^>]*>(?:<svg[\s\S]*?<\/svg>)([^<]*)<\/a>/g)].map((match) => [match[2], match[1]]),
-  [['Docs', '/'], ['Quickstart', '/quick-start/'], ['AI Agents', '/agent-frameworks/'], ['Examples', '/use-cases/']],
+  [['Docs', '/'], ['Quick Start', '/quick-start/'], ['AI Agents', '/agent-frameworks/'], ['Examples', '/use-cases/']],
 );
 assert.match(headerTabs, /<a class="sd-tab sd-tab--active" aria-current="page" href="\/">/);
 // The language switch sits at the end of the tab row and names the current language.
@@ -481,6 +481,13 @@ for (const filePath of htmlIndexFiles) {
     const [, component, version] = referenceMatch;
     const sidebarHtml = html.match(/<nav aria-label="[^"]*" class="menu thin-scrollbar[\s\S]*?<\/nav>/)?.[0] ?? '';
     assert.match(sidebarHtml, />Design Patterns</, `${route} must show the main docs sidebar`);
+    // The component header opens its overview, so no item under it opens that page again.
+    const componentRoot = `/${route.startsWith('/zh-Hans/') ? 'zh-Hans/' : ''}reference/${component}/${version ? `${version}/` : ''}`;
+    const rootLinks = [...sidebarHtml.matchAll(/<a\b[^>]*>/g)].map(([tag]) => tag)
+      .filter((tag) => attributeValue(tag, 'href') === componentRoot);
+    assert.equal(rootLinks.length, 1, `${route}: the sidebar must open ${componentRoot} once, from the component header`);
+    assert.match(attributeValue(rootLinks[0], 'class') ?? '', /menu__link--sublist/,
+      `${route}: ${componentRoot} must be the component header's link, not an item under it`);
     assert.match(sidebarHtml, /menu__link--active[^>]*aria-current="page"|aria-current="page"[^>]*menu__link--active/,
       `${route} must highlight its page in the sidebar`);
     const select = html.match(/<select\b[^>]*>[\s\S]*?<\/select>/)?.[0];
@@ -669,6 +676,18 @@ for (const localeRoot of ['', 'zh-Hans/']) {
     const target = new URL(href);
     assert.equal(target.origin, siteOrigin);
     assert.ok(outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `llms.txt links to missing ${href}`);
+  }
+  // Every llms-full file llms.txt names exists, and each page with framework files answers to its default
+  // framework's name too, so a reader can build any file name the index describes.
+  for (const [name] of index.matchAll(/llms-full(?:\.[a-z]+)?\.txt/g)) {
+    assert.ok(outputFilePaths.has(`${localeRoot}${name}`), `llms.txt names missing ${localeRoot}${name}`);
+  }
+  for (const [, href] of index.matchAll(/^- \[[^\n]*?\]\((https?:[^)]+\.md)\)[^\n]*(?:By framework: |按框架：)/gm)) {
+    const filePath = decodeURIComponent(new URL(href).pathname).slice(1);
+    const framework = (await readFile(join(root, filePath), 'utf8')).match(/^framework: "([^"]+)"$/m)?.[1];
+    assert.ok(framework, `${filePath} must name its framework`);
+    const alias = filePath.replace(/\.md$/, `.${framework}.md`);
+    assert.ok(outputFilePaths.has(alias), `${filePath} needs its default-framework alias ${alias}`);
   }
   // Each entry's first link is the page; per-framework links after it point at that page's other files.
   for (const [, href] of index.matchAll(/^- \[[^\n]*?\]\((https?:[^)]+\.md)\)/gm)) {

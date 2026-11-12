@@ -15,7 +15,8 @@
 // 4. The home page and Get Started link straight to the page that does each job: no ordered reading lists.
 // 5. A group's overview page has the group's name as its title, so the header and the page agree.
 // 6. Every sidebar page that is not a group overview, the home page, Get Started, or the Glossary ends with Next.
-// 7. Rules 2 and 5 also hold in each Developer reference component's sidebar.
+// 7. Rules 2 and 5 also hold in each Developer reference component's sidebar. Its index page comes first, and the
+//    shared sidebar hides it because the Developer Reference header already opens it.
 
 import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
@@ -211,7 +212,15 @@ for (const name of readdirSync(join(docsRoot, 'reference/sidebars')).filter((fil
       check(item.items ?? [], [...trail, item.label]);
     }
   };
-  for (const [sidebarName, items] of Object.entries(componentSidebars)) check(items, [component, sidebarName]);
+  for (const [sidebarName, items] of Object.entries(componentSidebars)) {
+    // The component's index page stays first so it keeps a sidebar; the shared sidebar hides it, because the
+    // Developer Reference header already opens it (site-smoke checks the rendered sidebar).
+    const indexAt = items.findIndex((item) => docId(item) === 'index');
+    if (indexAt > 1 || (indexAt === 1 && !(items[0]?.type === 'link'))) {
+      failures.push(`${where}: index must be the first page, right after the back link, so the shared sidebar can hide it.`);
+    }
+    check(items, [component, sidebarName]);
+  }
 }
 
 
@@ -262,8 +271,28 @@ for (const id of sequenceDocs) {
   }
 }
 
+// Every SDK version pin in the guides names the current SDK line, so a reader's install matches the matrix.
+{
+  const versions = JSON.parse(readFileSync(join(docsRoot, 'reference/versions.json'), 'utf8'));
+  const sdkLine = versions.go.replace(/\.x$/, '');
+  // pip ==, Go @v, npm @, cargo @= or @, and the Maven coordinate.
+  const pinPattern = /(?:dex-python-sdk==|sdk-go@v|@superdurable\/dex@|cargo add dex-sdk@=?|io\.superdurable:dex-sdk:)(\d+\.\d+)\.\d+/g;
+  for (const root of ['content', 'i18n/zh-Hans/docusaurus-plugin-content-docs/current']) {
+    for (const file of mdxFiles(join(docsRoot, root))) {
+      const lines = readFileSync(file, 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        for (const [pin, line_] of line.matchAll(pinPattern)) {
+          if (line_ !== sdkLine) {
+            failures.push(`${relative(docsRoot, file)}:${index + 1}: ${pin} is not the current SDK line ${sdkLine} (reference/versions.json). Pin ${sdkLine}.x.`);
+          }
+        }
+      });
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, the home page and Get Started have no reading lists, and each overview page carries the name of its group.');
+console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, the home page and Get Started have no reading lists, each overview page carries the name of its group, and SDK pins match the current line.');

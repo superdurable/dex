@@ -129,6 +129,8 @@ Claude only text.
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
+See [the agents setup](/agents#setup) and [this page's section](/#stable).
+
 <SdkTabs>
 <SdkSnippet lang="typescript">
 
@@ -189,21 +191,23 @@ try {
   await writeFile(join(contentPathLocalized, 'translated.mdx'), '# Translated\n');
   await writeFile(join(contentPath, 'translated.mdx'), '# English source\n');
   await writeFile(join(contentPath, 'older.mdx'), '# Earlier version\n');
+  await writeFile(join(contentPath, 'agents.mdx'), '# Agents\n\n<FrameworkTabs>\n<FrameworkTab framework="claude-agent-sdk">\n\nClaude agents.\n\n</FrameworkTab>\n<FrameworkTab framework="mastra">\n\n## Setup\n\nMastra agents.\n\n</FrameworkTab>\n</FrameworkTabs>\n');
   await writeFile(join(contentPath, 'moved.mdx'), '# Moved\n\nThis page moved. See [Home](/zh-Hans/).\n');
   const metadata = (id, source, permalink, title) => ({id, source, permalink, title,
     description: `The ${title}\n  meta description.`, frontMatter: {description: 'Ignored front matter description.'}});
   const fallback = metadata('index', '@site/reference/index.mdx', '/zh-Hans/', 'Home');
   const translated = metadata('translated', '@site/i18n/zh-Hans/reference/translated.mdx', '/zh-Hans/translated/', 'Translated');
   const earlier = metadata('older', '@site/reference/older.mdx', '/zh-Hans/reference/go/1.32/', 'Go reference');
+  const agents = metadata('agents', '@site/reference/agents.mdx', '/zh-Hans/agents/', 'Agents');
   // Without a front matter description, Docusaurus keeps only the first source line.
   const moved = {id: 'moved', source: '@site/reference/moved.mdx', permalink: '/zh-Hans/moved/', title: 'Moved',
     description: 'This page moved.', frontMatter: {}};
   const sidebars = {docs: [{type: 'category', label: '参考', link: {type: 'doc', id: 'translated'}, items: []}, {type: 'doc', id: 'index'}]};
   const options = {siteDir, outDir, baseUrl: '/zh-Hans/', siteConfig: {url: 'https://docs.example.test', title: 'Fixture', trailingSlash: true},
     i18n: {currentLocale: 'zh-Hans', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
-    routesPaths: ['/zh-Hans/', '/zh-Hans/translated/', '/zh-Hans/moved/', '/zh-Hans/reference/go/1.32/', '/zh-Hans/cloud/'],
+    routesPaths: ['/zh-Hans/', '/zh-Hans/agents/', '/zh-Hans/translated/', '/zh-Hans/moved/', '/zh-Hans/reference/go/1.32/', '/zh-Hans/cloud/'],
     allContent: {'docusaurus-plugin-content-docs': {
-      primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars, docs: [fallback, translated, moved]}]},
+      primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars, docs: [fallback, translated, moved, agents]}]},
       'reference-go': {loadedVersions: [{isLast: false, contentPath, contentPathLocalized, docs: [earlier]},
         {isLast: true, contentPath, contentPathLocalized, docs: [{...earlier, permalink: '/zh-Hans/reference/go/1.33/'}]}]},
     }}};
@@ -248,6 +252,12 @@ try {
   assert.match(homeMastra, /framework: "mastra"/);
   assert.doesNotMatch(homeMastra, /Claude only text/);
   assert.match(homeMastra, /本文件为 Mastra 版本。其他框架：\[Claude Agent SDK\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.md\)/);
+  // A link in one framework's file keeps that framework, and a link to this page's own section stays in this file.
+  assert.match(homeMastra, /\[the agents setup\]\(https:\/\/docs\.example\.test\/zh-Hans\/agents\.mastra\.md#setup\)/);
+  assert.match(homeMastra, /\[this page's section\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.mastra\.md#stable\)/);
+  // The default framework's file also answers to that framework's name.
+  assert.equal(await readFile(join(outDir, 'index.claude-agent-sdk.md'), 'utf8'), home);
+  assert.equal(await readFile(join(outDir, 'agents.claude-agent-sdk.md'), 'utf8'), await readFile(join(outDir, 'agents.md'), 'utf8'));
   // A framework with TypeScript tabs only gets TypeScript files only.
   assert.match(homeMastra, /```ts\nconst mastraOnly = 1\n```/);
   await assert.rejects(readFile(join(outDir, 'index.mastra.python.md'), 'utf8'));
@@ -302,12 +312,12 @@ try {
   assert.match(await readFile(join(outDir, 'llms-full.go.txt'), 'utf8'), /const sample = 1/);
   assert.match(index, /^# Fixture\n\n> Dex 是 Durable Execution 平台。/);
   // Archived versions keep their Markdown twin but stay out of llms.txt.
-  assert.equal((index.match(/^-/gm) ?? []).length, 3);
+  assert.equal((index.match(/^-/gm) ?? []).length, 4);
   // A moved notice stays out of llms.txt.
   assert.doesNotMatch(index, /\[Moved\]/);
   assert.doesNotMatch(index, /1\.32\.md/);
   assert.ok(index.indexOf('## 参考\n\n- [Translated]') < index.indexOf('## Home\n\n- [Home]'), 'llms.txt must follow sidebar order');
-  assert.match(index, /## 其他页面\n\n- \[Go reference\].*1.33.md\): The Go reference meta description./);
+  assert.match(index, /## 其他页面\n\n(?:- [^\n]*\n)*- \[Go reference\].*1.33.md\): The Go reference meta description./);
   assert.doesNotMatch(index, /Ignored front matter description/);
   // llms-full.txt holds each llms.txt page's default Markdown, in the same order, after its URL.
   const full = await readFile(join(outDir, 'llms-full.txt'), 'utf8');
@@ -315,6 +325,8 @@ try {
   assert.ok(full.indexOf('<!-- https://docs.example.test/zh-Hans/translated.md -->') < full.indexOf('<!-- https://docs.example.test/zh-Hans/index.md -->'),
     'llms-full.txt must follow llms.txt order');
   assert.doesNotMatch(full, /<!-- [^>]*1\.32\.md -->/, 'archived versions stay out of llms-full.txt');
+  // llms-full.txt shows Python code, so llms-full.python.txt is the same file.
+  assert.equal(await readFile(join(outDir, 'llms-full.python.txt'), 'utf8'), full);
 
   const english = {...options, baseUrl: '/', outDir: join(siteDir, 'build'), routesPaths: ['/', '/translated/'],
     i18n: {currentLocale: 'en', defaultLocale: 'en', locales: ['en', 'zh-Hans']},

@@ -55,7 +55,7 @@ const localeCopies = {
       messages: count => (count === '1' ? ' (1 message)' : ` (${count} messages)`),
     },
     summary: 'Dex is a Durable Execution platform. Each entry links to the Markdown export of a documentation page.',
-    languageNote: 'Pages with code have per-language Markdown. The .md file shows Python where a page has Python code, and .python.md is the same file; replace .md with .go.md, .java.md, .typescript.md, or .rust.md for another language. llms-full.txt holds every page below in one file with Python code; llms-full.go.txt, llms-full.java.txt, llms-full.typescript.txt, and llms-full.rust.txt hold them with that language\'s code.',
+    languageNote: 'Pages with code have per-language Markdown. The .md file shows Python where a page has Python code, and .python.md is the same file; replace .md with .go.md, .java.md, .typescript.md, or .rust.md for another language. llms-full.txt holds every page below in one file with Python code, and llms-full.python.txt is the same file; llms-full.go.txt, llms-full.java.txt, llms-full.typescript.txt, and llms-full.rust.txt hold them with that language\'s code.',
     indexPointer: url => `> Index of every page for AI agents: ${url}`,
     codeLanguage: label => `Code on this page is in ${label}. Other languages: `,
     languageSeparator: ' · ',
@@ -97,7 +97,7 @@ const localeCopies = {
       messages: count => `（${count} 条消息）`,
     },
     summary: 'Dex 是 Durable Execution 平台。每个条目链接到一个文档页面的 Markdown 版本。',
-    languageNote: '含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，.md 文件显示 Python，.python.md 与它相同；换成其他语言时，把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。llms-full.txt 把下面所有页面合成一个文件，代码为 Python；llms-full.go.txt、llms-full.java.txt、llms-full.typescript.txt 和 llms-full.rust.txt 中的代码为对应语言。',
+    languageNote: '含代码的页面有按语言划分的 Markdown。页面有 Python 代码时，.md 文件显示 Python，.python.md 与它相同；换成其他语言时，把 .md 换成 .go.md、.java.md、.typescript.md 或 .rust.md。llms-full.txt 把下面所有页面合成一个文件，代码为 Python，llms-full.python.txt 与它相同；llms-full.go.txt、llms-full.java.txt、llms-full.typescript.txt 和 llms-full.rust.txt 中的代码为对应语言。',
     indexPointer: url => `> 供 AI 智能体使用的全部页面索引：${url}`,
     codeLanguage: label => `本页代码为 ${label}。其他语言：`,
     languageSeparator: ' · ',
@@ -203,6 +203,13 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
   // language gets its own file. Links in a language file keep the reader's language where they can.
   const languageFiles = new Map(exported.filter(item => item.languages.length > 1)
     .map(item => [new URL(item.pathname, siteConfig.url).href, item]));
+  // Pages with framework tabs: a link from one framework's file keeps the reader in that framework.
+  const frameworkFiles = new Map(exported.filter(item => item.frameworks.length > 0).map(item => [
+    new URL(item.pathname, siteConfig.url).href,
+    {frameworks: item.frameworks, languages: new Map(item.frameworks.map(framework => [framework,
+      framework === item.frameworks[0] ? item.languages
+        : frameworkLanguages(item.tree.children, framework, selectFramework(item.tree.children, framework, '', copy))]))},
+  ]));
   for (const {page, tree, leadText, summary, frontMatter, pathname, languages: defaultLanguages, frameworks} of exported) {
     // Pages with framework tabs get one file per framework. The page's default file shows the first framework.
     for (const framework of frameworks.length > 0 ? frameworks : [undefined]) {
@@ -226,6 +233,12 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
         let children = output.language
           ? selectLanguage(base, output.language, language => new URL(pagePath(language), siteConfig.url).href, copy)
           : base;
+        // A link to this page's own section stays in this file.
+        children = keepSamePageLinks(children, new URL(pathname, siteConfig.url).href,
+          new URL(output.path, siteConfig.url).href);
+        if (framework !== undefined) {
+          children = keepFrameworkInLinks(children, framework, output.language, frameworkFiles);
+        }
         if (output.language && output.language !== defaultLanguages[0]) {
           children = keepLanguageInLinks(children, output.language, languageFiles);
         }
@@ -253,6 +266,11 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
         if (multi && output.language === languages[0]) {
           paths.push(isDefaultFramework ? languageMarkdownPath(pathname, output.language)
             : frameworkMarkdownPath(pathname, framework, output.language));
+        }
+        // The default framework's files also answer to that framework's own names.
+        if (framework !== undefined && isDefaultFramework) {
+          if (output.language === undefined || output.language === languages[0]) paths.push(frameworkMarkdownPath(pathname, framework));
+          if (multi) paths.push(frameworkMarkdownPath(pathname, framework, output.language));
         }
         for (const path of paths) {
           if (writtenPaths.has(path)) throw new Error(`Duplicate Markdown output: ${path}`);
@@ -292,8 +310,10 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
         full.push(`<!-- ${url} -->\n\n${titled.trim()}`);
       }
     }
-    await writeOutput(outDir, baseUrl, `${baseUrl}llms-full${language ? `.${language}` : ''}.txt`,
-      `# ${siteConfig.title}\n\n> ${copy.summary}\n\n---\n\n${full.join('\n\n---\n\n')}\n`);
+    const fullText = `# ${siteConfig.title}\n\n> ${copy.summary}\n\n---\n\n${full.join('\n\n---\n\n')}\n`;
+    await writeOutput(outDir, baseUrl, `${baseUrl}llms-full${language ? `.${language}` : ''}.txt`, fullText);
+    // llms-full.txt shows Python code, so llms-full.python.txt is the same file.
+    if (!language) await writeOutput(outDir, baseUrl, `${baseUrl}llms-full.python.txt`, fullText);
   }
   console.log(`[markdown-export] Exported ${pages.length} pages (${locale}) from ${versions.length} docs version(s).`);
 }
@@ -748,6 +768,51 @@ function isLeadIn(node) {
 function plainText(node) {
   if (typeof node.value === 'string') return node.value;
   return (node.children ?? []).map(plainText).join('');
+}
+
+/**
+ * Points a link to this page's own section at the file being written, so the reader stays in that file.
+ *
+ * @returns {object[]} New child nodes with rewritten link URLs.
+ */
+function keepSamePageLinks(nodes, pageUrl, fileUrl) {
+  return nodes.map(node => {
+    if (node.type === 'link' && typeof node.url === 'string' && fileUrl !== pageUrl) {
+      const [base, hash] = node.url.split('#');
+      if (base === pageUrl && hash !== undefined) {
+        return {...node, url: `${fileUrl}#${hash}`, data: {...node.data, keepLanguage: true}};
+      }
+    }
+    if (!Array.isArray(node.children)) return node;
+    return {...node, children: keepSamePageLinks(node.children, pageUrl, fileUrl)};
+  });
+}
+
+/**
+ * Points links at another page's file for the same agent framework, and for the same SDK language where that
+ * framework has it. A page without that framework keeps its default file, which keepLanguageInLinks may refine.
+ *
+ * @returns {object[]} New child nodes with rewritten link URLs.
+ */
+function keepFrameworkInLinks(nodes, framework, language, frameworkFiles) {
+  return nodes.map(node => {
+    if (node.type === 'link' && typeof node.url === 'string' && !node.data?.keepLanguage) {
+      const [base, hash] = node.url.split('#');
+      const target = frameworkFiles.get(base);
+      if (target && target.frameworks.includes(framework)) {
+        const languages = target.languages.get(framework) ?? [];
+        const own = languages.includes(language) ? language : languages[0];
+        const first = own === undefined || own === languages[0];
+        const path = framework === target.frameworks[0]
+          ? (first ? base : languageMarkdownPath(base, own))
+          : (first ? frameworkMarkdownPath(base, framework) : frameworkMarkdownPath(base, framework, own));
+        return {...node, url: path + (hash !== undefined ? `#${hash}` : ''), data: {...node.data, keepLanguage: true},
+          children: keepFrameworkInLinks(node.children ?? [], framework, language, frameworkFiles)};
+      }
+    }
+    if (!Array.isArray(node.children)) return node;
+    return {...node, children: keepFrameworkInLinks(node.children, framework, language, frameworkFiles)};
+  });
 }
 
 /**
