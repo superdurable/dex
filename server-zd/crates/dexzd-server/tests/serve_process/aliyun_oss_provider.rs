@@ -624,7 +624,7 @@ pub(super) async fn assert_completed(
 
 /// Starts `flow_id` with `input` on the pull Worker, waits until it completes, and returns its
 /// run ID.
-pub(super) async fn run_flow_with_input(
+async fn run_flow_with_input(
     flow_client: &mut FlowServiceClient<Channel>,
     flow_id: &str,
     input: &str,
@@ -666,7 +666,7 @@ pub(super) async fn run_flow_with_input(
 }
 
 /// Returns `length` letters and digits from a fixed linear congruential sequence.
-pub(super) fn pseudo_random_text(length: usize) -> String {
+fn pseudo_random_text(length: usize) -> String {
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let mut state: u64 = 0x2545_f491_4f6c_dd1d;
     (0..length)
