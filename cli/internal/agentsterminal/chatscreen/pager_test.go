@@ -310,6 +310,49 @@ func TestToolRowsCountReturnedImages(t *testing.T) {
 	require.Contains(t, harness.scrollbackText(), "saved ▣ 2")
 }
 
+// Turn IDs repeat across sessions, so a switch forgets the old calls.
+func TestSessionSwitchForgetsTheToolOutputs(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{height: 24})
+	startTurn(harness, "Run the tests.")
+	harness.feed(outputTool("call-1", "turn-1", "run_shell_command", "old session output"), sessionfeed.TurnEnded{TurnID: "turn-1"})
+	harness.feed(sessionfeed.SessionOpened{Command: "openai-sdk", SessionID: "openai-sdk-20261111-150000-ffffff", IsNewSession: true}, sessionfeed.SessionLoaded{})
+	pressCtrlO(harness)
+	require.Nil(t, harness.screen.pager)
+	require.Contains(t, harness.scrollbackText(), "no tool output yet")
+	startTurn(harness, "Run them again.")
+	harness.feed(outputTool("call-9", "turn-1", "run_shell_command", "new session output"))
+	require.Len(t, harness.screen.turnTools, 1)
+	pressCtrlO(harness)
+	require.Contains(t, harness.plainFrame(), "new session output")
+}
+
+// Lower-casing changes the byte length of some letters; the match must not.
+func TestPagerSearchHighlightsAfterLettersThatChangeLength(t *testing.T) {
+	row := "İİİ Ⱥ the needle here"
+	highlighted := highlightMatch(row, "NEEDLE")
+	require.Equal(t, row, terminaltheme.StripStyles(highlighted))
+	require.Contains(t, highlighted, "\x1b[7mneedle")
+	harness := newScreenHarness(t, harnessOptions{height: 20})
+	startTurn(harness, "Read it.")
+	harness.feed(outputTool("call-1", "turn-1", "read_file", row), sessionfeed.TurnEnded{TurnID: "turn-1"})
+	pressCtrlO(harness)
+	harness.press(textKey('/'))
+	harness.typeText("needle")
+	harness.press(key(tea.KeyEnter))
+	require.GreaterOrEqual(t, harness.screen.pager.matchRow, 0)
+	require.Contains(t, harness.plainFrame(), row)
+}
+
+// A path pasted after "/image " is the command's argument, not a new
+// attachment.
+func TestPastedImagePathAfterImageCommandIsText(t *testing.T) {
+	harness, imagePath := newImageHarness(t)
+	harness.typeText("/image ")
+	harness.screen.Update(tea.PasteMsg{Content: imagePath})
+	require.Nil(t, harness.screen.pendingPastedImage)
+	require.Equal(t, "/image "+imagePath, harness.screen.input.Value())
+}
+
 func TestPagerFrames(t *testing.T) {
 	set := newGoldenFrameSet(t)
 	for _, width := range []int{40, 80} {

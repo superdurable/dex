@@ -32,8 +32,8 @@ const maximumCompletions = 50
 // imageExtensions are the file types a pasted path offers to attach.
 var imageExtensions = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true}
 
-// PathResolver turns typed text into absolute paths. Its zero value resolves
-// relative paths against "/" and has no home directory.
+// PathResolver turns typed text into absolute paths. Its zero value has no
+// home directory.
 type PathResolver struct {
 	homeDirectory    string
 	workingDirectory string

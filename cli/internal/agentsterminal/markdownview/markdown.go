@@ -307,8 +307,8 @@ func (renderer markdownRenderer) renderTable(table *extensionast.Table, width in
 	return lines
 }
 
-// shrinkTableColumns narrows the widest column, one cell at a time, until
-// the columns and their gaps fit width or every column is at its minimum.
+// shrinkTableColumns narrows the widest column until the table fits width or
+// reaches minimumTableColumnWidth.
 func shrinkTableColumns(columnWidths []int, width int) {
 	total := 2 * (len(columnWidths) - 1)
 	for _, columnWidth := range columnWidths {

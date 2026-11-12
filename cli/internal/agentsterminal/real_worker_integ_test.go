@@ -261,8 +261,7 @@ func (stack *realWorkerStack) testHistoryReadsEarlierMessages(t *testing.T) {
 		stack.waitForSnapshot(t, sessionID, isIdleAfterTurns(int64(turn)))
 	}
 	chat := stack.openChat(t, sessionID, true)
-	// The "earlier messages: /history" notice sits above the window, so it
-	// never draws; the renderer writes only changed cells of similar rows.
+	// The renderer redraws only changed cells, so wait for a unique text.
 	chat.waitForScreen("turn 26")
 	require.NotContains(t, chat.screen(), "oldest-entry", "the first turn is above the newest page")
 	chat.typeText("/history\r")

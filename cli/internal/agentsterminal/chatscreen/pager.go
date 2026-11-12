@@ -10,6 +10,7 @@ package chatscreen
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -79,8 +80,8 @@ func (pager *pagerView) startReadingEarlier() sessionfeed.ReadEarlierMessages {
 	return sessionfeed.ReadEarlierMessages{SessionID: history.sessionID, BeforeSequence: history.requestedBefore}
 }
 
-// applyEarlierPage adds an answered page above the rows on screen and keeps
-// the rows the user reads in place. It reports false for a stale answer.
+// applyEarlierPage puts an answered page above the shown rows, which stay in
+// place. It returns false for a stale answer.
 func (pager *pagerView) applyEarlierPage(answer sessionfeed.EarlierMessagesRead, size pagerSize, theme terminaltheme.Theme) bool {
 	history := pager.history
 	if history == nil || !history.isLoading || answer.SessionID != history.sessionID || answer.BeforeSequence != history.requestedBefore {
@@ -191,14 +192,14 @@ func (pager *pagerView) findMatch(from int, isForward bool, size pagerSize, them
 	if pager.searchQuery == "" {
 		return
 	}
-	query := strings.ToLower(pager.searchQuery)
+	matcher := searchMatcher(pager.searchQuery)
 	step := 1
 	if !isForward {
 		step = -1
 	}
 	rows := pager.bodyRows(size.width, theme)
 	for row := from; row >= 0 && row < len(rows); row += step {
-		if strings.Contains(strings.ToLower(terminaltheme.StripStyles(rows[row])), query) {
+		if matcher.MatchString(terminaltheme.StripStyles(rows[row])) {
 			pager.matchRow = row
 			if row < pager.top || row >= pager.top+size.bodyHeight {
 				pager.top = max(row-size.bodyHeight/3, 0)
@@ -266,15 +267,21 @@ func (pager *pagerView) renderStatusRow(width int, waitingText string, theme ter
 	return joinLeftAndRight(left, fitting, width, symbols.Ellipsis)
 }
 
+// searchMatcher matches query literally, ignoring case, on the original
+// text, so match offsets stay valid.
+func searchMatcher(query string) *regexp.Regexp {
+	return regexp.MustCompile("(?i)" + regexp.QuoteMeta(query))
+}
+
 // highlightMatch reverses the first case-insensitive match of query in a
 // plain row.
 func highlightMatch(plainRow string, query string) string {
-	index := strings.Index(strings.ToLower(plainRow), strings.ToLower(query))
-	if query == "" || index < 0 {
+	match := searchMatcher(query).FindStringIndex(plainRow)
+	if query == "" || match == nil {
 		return plainRow
 	}
-	startColumn := terminaltheme.DisplayWidth(plainRow[:index])
-	endColumn := startColumn + terminaltheme.DisplayWidth(plainRow[index:index+len(query)])
+	startColumn := terminaltheme.DisplayWidth(plainRow[:match[0]])
+	endColumn := startColumn + terminaltheme.DisplayWidth(plainRow[match[0]:match[1]])
 	rowWidth := terminaltheme.DisplayWidth(plainRow)
 	matchStyle := lipgloss.NewStyle().Reverse(true)
 	return ansi.Cut(plainRow, 0, startColumn) + matchStyle.Render(ansi.Cut(plainRow, startColumn, endColumn)) + ansi.Cut(plainRow, endColumn, rowWidth)

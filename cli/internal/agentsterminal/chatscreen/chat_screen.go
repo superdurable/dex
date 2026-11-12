@@ -485,7 +485,7 @@ func (screen *ChatScreen) handlePaste(content string) {
 		screen.input.InsertText(content)
 	default:
 		screen.pathCompletions = nil
-		if path, isImage := screen.pastedImagePath(content); isImage {
+		if path, isImage := screen.pastedImagePath(content); isImage && screen.input.IsEmpty() {
 			screen.pendingPastedImage = &pastedImagePrompt{path: path, text: content}
 			return
 		}
@@ -852,7 +852,7 @@ func (screen *ChatScreen) handleCompletionKey(key tea.KeyPressMsg) (tea.Cmd, boo
 // or exit.
 func (screen *ChatScreen) handleInterruptKey() tea.Cmd {
 	if !screen.isTurnRunning {
-		if !screen.input.IsEmpty() && !screen.isPopupOpen && !screen.isHelpOpen {
+		if !screen.input.IsEmpty() && !screen.isPopupOpen && !screen.isHelpOpen && screen.pager == nil {
 			screen.input.Clear()
 			return nil
 		}
@@ -1084,6 +1084,8 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			screen.isSessionLoaded = false
 			screen.pendingSwitchSessionID = ""
 			screen.earlierBeforeSequence, screen.deletedBeforeSequence = 0, 0
+			// Turn IDs repeat across sessions, so the old session's calls go.
+			screen.turnTools, screen.turnToolsTurnID, screen.isToolPickerOpen = nil, "", false
 			if screen.pager != nil && screen.pager.history != nil {
 				screen.pager = nil
 			}

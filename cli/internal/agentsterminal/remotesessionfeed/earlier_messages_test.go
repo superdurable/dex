@@ -27,8 +27,8 @@ func toolMessage(sequence int64, toolCallID *string, name string, arguments stri
 	}
 }
 
-// /history reads one page before the sequence the screen names, of the
-// session it names, and drops stored items with nothing to show.
+// /history reads the named session's page before the named sequence, and
+// drops empty items.
 func TestReadEarlierMessagesAnswersWithOnePage(t *testing.T) {
 	harness := newModelHarness(t)
 	callID := "call-1"
