@@ -1,0 +1,52 @@
+---
+title: Self-Host Dex
+sidebar_label: Self-Host Dex
+slug: /components/self-host
+description: Run dex-server-zd next to your Workers on your own object storage. What it needs, how it stores Flows, what happens when a node fails, and how to start it.
+---
+
+# Self-Host Dex
+
+You run **dex-server-zd** next to your Workers. It keeps every Flow in object storage, such as Amazon S3, and a standby can take over when the active node stops. You configure authentication, TLS, retention, and monitoring yourself.
+
+The [Sustainable Use License](/intro/limits#license) lets you run Dex for your own business.
+
+## What it needs {#dependencies}
+
+| Dependency | Required | What it gives you |
+| --- | --- | --- |
+| Object storage, such as Amazon S3 or an S3-compatible store | Yes, or db9 in its place | The record of every Flow |
+| A PostgreSQL or ParadeDB search backend | No | Large or frequent searches served from SQL. See [Search backends](/reference/server/search). |
+| A PostgreSQL Attribute Store | No | Copies of selected Attributes in your own tables. See [Dex and Your Database](/components/your-database). |
+| A metrics listener | No | Prometheus metrics. See [Metrics](/reference/server/metrics). |
+
+db9 is the PostgreSQL-compatible option for Dex Server's own state; stock PostgreSQL is not supported. [Dex Server dependencies](/components/server#dependencies) explains it.
+
+## How it stores Flows {#how-it-works}
+
+Object storage is the record. Dex Server keeps a local store only as a cache, and a node rebuilds that cache from object storage after a restart. When Dex reports that something happened, such as a started Flow or a SYNC Step result, Dex has already written it to object storage.
+
+One active process serves a cluster. It holds a lease in object storage, so a second process cannot write at the same time. Its capacity is the cluster's ceiling. [Limits](/intro/limits) and [Performance](/intro/performance) give the numbers.
+
+## When a node fails {#failover}
+
+A standby takes over after the active node's lease expires, plus 1 second. The lease is 10 seconds by default. Without a standby, the node serves again only after it restarts. A graceful step down releases the lease, so a standby takes over at once.
+
+After a takeover, every Step attempt that a Worker had received runs again, and each one uses a retry. So the external calls in a Step need an [idempotency key](/concepts/step#idempotency-keys). [Failover and Deploys](/concepts/failover-and-deploys) lists what runs again for each event, and [Lease, hot standby, and step down](/reference/server/high-availability) gives the timings.
+
+## Run it {#run-it}
+
+In production, run **dex-server-zd serve** with one YAML configuration file. The release publishes binaries and a container image. On Kubernetes, run it as a StatefulSet.
+
+```bash
+dex-server-zd serve --config /etc/dex-server-zd/config.yaml
+```
+
+To run one production node on local disk without external object storage, run **dex-server-zd local**. It keeps an embedded object store in its data directory and has no standby.
+
+[Run Dex in Production](/components/production#minimal-configuration) has a minimal configuration with authentication on.
+
+## Next
+
+- [Run Dex in Production](/components/production): the checklist before launch.
+- [Dex Server](/components/server): the full page on the server and its dependencies.

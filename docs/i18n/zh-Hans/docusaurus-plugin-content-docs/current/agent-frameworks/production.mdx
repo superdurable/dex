@@ -13,7 +13,7 @@ Agent Session 和其他所有 Flow 运行在同一个 Dex Server 上。把 Sessi
 
 | 事项 | 需要知道什么 | 详情 |
 | --- | --- | --- |
-| Dex Server | Dex Server 运行在 Dex Cloud 上，或者运行在你自己带对象存储的基础设施上。一个集群由一个活动节点提供服务。 | [选择 Dex 的运行方式](/components/choose-how-to-run)、[在生产环境运行 Dex](/components/production) |
+| Dex Server | Dex Server 运行在 Dex Cloud 上，或者运行在你自己带对象存储的基础设施上。一个集群由一个活动节点提供服务。 | [在哪里运行 Dex Server](/components#where-to-run)、[在生产环境运行 Dex](/components/production) |
 | 认证 | Public API 认证默认关闭。在 server 能被其他机器访问之前打开它。 | [Authentication](/reference/server/authentication)（英文） |
 | 保留期 | 已关闭的 Session 默认在 7 天内仍可读取，之后 server 可能删除它。需要保存更久的对话记录，请放在你自己的存储中。 | [Retention](/reference/server/configuration#retention)（英文） |
 | Session 大小 | Session 的 active state 达到 state 上限（默认 64 MiB）时，Session 结束。Message 保留策略，以及 harness 支持时的 compaction，会让它保持在上限以下。 | [Session limits](/reference/agents/session-limits)（英文） |

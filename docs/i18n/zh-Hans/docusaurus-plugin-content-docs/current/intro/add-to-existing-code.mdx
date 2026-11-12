@@ -367,6 +367,16 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 客服和报表读取的订单表可以继续保留。在一个 Step 里用以订单 ID 为 key 的 upsert 写入它，这样即使重复执行，写入的也是同一行。在创建订单的 handler 里启动 Flow，用订单 ID 作为 Flow ID。[Dex 与你的数据库](/components/your-database)讲了这两点，也讲了两次写入中有一次失败时会怎样。
 
+## 在你的服务中运行 {#run-it-in-your-service}
+
+三个部分把 Flow 接入你已有的服务：
+
+- **Worker 运行 Step。** 在你的服务进程中启动它，和 HTTP server 放在一起。如果 Step 需要和 API 不同的扩缩容、资源或发布节奏，就把它部署成独立的进程。Worker 只发起出站连接，所以不需要负载均衡器或入站端口。
+- **Flow 的构造函数接收你的服务。** 把 Step 调用的每个服务，例如支付 API，传给 Flow 的构造函数。这样从 Worker 注册 Flow 的那一刻起，每个 Step 都有它的服务，测试也可以用同样的方式传入一个假的服务。
+- **Client 在你的 handler 里启动 Flow。** 创建订单的 handler 启动 Flow，用订单 ID 作为 Flow ID，并带一个 request ID，这样重试的请求不会启动第二个 Flow。调用方需要知道 Charge 已经完成时，handler 用 Client 的等待 Step 完成调用来等这个 Step。Dex 记录下这个 Step 时等待就结束，所以 handler 不需要自己的状态表或轮询循环。
+
+[你的应用](/components/application)给出每个部分的代码，包括 Worker 在同一进程中的[一个最小的服务](/components/application#minimal-service)。它还讲了 Worker 的容量、关闭和容器。
+
 ## 检查清单 {#checklist}
 
 - 每个会改变其他系统的调用都在自己的 Step 里，或者只和一起成功、一起失败的调用共用一个 Step。
@@ -381,7 +391,8 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## 下一步 {#next}
 
+- [测试你的 Flow](/components/testing)：在真实的 Dex Server 上测试 Flow，并跳过它的 Timer。
 - [在生产环境运行 Dex](/components/production)：Flow 在生产环境运行之前要准备什么。
 - [订单处理](/use-cases/order-processing)：这个流程在每种 SDK 里的可运行代码。
 - [概念](/concepts)：每个构建块的详细说明。
-- [修改 Flow 代码](/concepts/change-flow-code)：在 Flow 仍有未结束的 run 时，怎样修改它的代码。
+- [部署代码变更](/concepts/change-flow-code)：在 Flow 仍有未结束的 run 时，怎样修改它的代码。

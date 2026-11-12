@@ -3562,5 +3562,13 @@
   {
     "from": "/zh-Hans/concepts/step/advanced-guarantees",
     "to": "/zh-Hans/correctness-and-expressiveness/step-guarantees"
+  },
+  {
+    "from": "/components/choose-how-to-run",
+    "to": "/components"
+  },
+  {
+    "from": "/zh-Hans/components/choose-how-to-run",
+    "to": "/zh-Hans/components"
   }
 ]

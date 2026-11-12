@@ -305,7 +305,7 @@ Dex 保留每次运行最新的一段历史事件，生产服务器默认 50,000
 
 在 Temporal 里，改变命令顺序的代码修改会让打开的运行重放失败。Temporal 提供两种工具。Worker Versioning 把运行固定到某个代码版本的 Worker 上，Temporal 称它为推荐的方式。Patching 用 `Patched` 或 `GetVersion` 在代码里分支。
 
-打开的 Dex Flow 从下一个 Step 开始运行新代码。Dex 从不重放，所以代码修改不会导致重放错误。规则转移到了你的数据和 Step 类型上：在旧 Flow 结束前保留旧的 Step 类型，以增量方式修改 Attribute 和输入。[修改 Flow 代码](/concepts/change-flow-code#versioning-flow-code)给出这些规则。[部署前检查](/concepts/change-flow-code#check-before-you-deploy)给出手动检查方法。Dex 还没有自动检查。
+打开的 Dex Flow 从下一个 Step 开始运行新代码。Dex 从不重放，所以代码修改不会导致重放错误。规则转移到了你的数据和 Step 类型上：在旧 Flow 结束前保留旧的 Step 类型，以增量方式修改 Attribute 和输入。[部署代码变更](/concepts/change-flow-code#versioning-flow-code)给出这些规则。[部署前检查](/concepts/change-flow-code#check-before-you-deploy)给出手动检查方法。Dex 还没有自动检查。
 
 ### 运行服务器 {#run-the-server}
 
@@ -315,7 +315,7 @@ Dex 保留每次运行最新的一段历史事件，生产服务器默认 50,000
 | 必需的存储 | 一个数据库：Cassandra、MySQL 或 PostgreSQL。SQLite 只用于开发。 | 对象存储，例如 Amazon S3，或者用 db9 代替。 |
 | 搜索存储 | Visibility 存储。生产环境推荐 Elasticsearch。 | 默认内置。PostgreSQL 或 ParadeDB 可选。 |
 | 扩展 | 每个服务可以横向扩展。 | 一个活跃节点就是一个集群的上限。超过它，就运行多个独立集群。见[限制](/intro/limits#grow-past-one-node)。 |
-| 托管选项 | Temporal Cloud | [Dex Cloud](/components/choose-how-to-run#dex-cloud) |
+| 托管选项 | Temporal Cloud | [Dex Cloud](/components/dex-cloud) |
 | 发布状态 | 生产使用的时间更长 | Beta。Dex Server 处于 0.1.x。见[发布状态](/intro/limits#release-status)。 |
 | 许可证 | MIT | Sustainable Use License 1.0，源码可见。见[许可证](/intro/limits#license)。 |
 
@@ -400,6 +400,6 @@ LangGraph 是一个例子。checkpointer 在每个节点之后按 thread ID 保�
 
 - [Step](/concepts/step)：保证和默认值。
 - [故障转移和部署](/concepts/failover-and-deploys)：哪些会再次运行，以及何时运行。
-- [修改 Flow 代码](/concepts/change-flow-code)：不依赖重放的版本管理。
+- [部署代码变更](/concepts/change-flow-code)：不依赖重放的版本管理。
 - [性能](/intro/performance)和[限制](/intro/limits)。
 - [Dex vs. 数据库](/intro/compared-to-database)：用数据库和队列构建的同一个订单流程。

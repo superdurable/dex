@@ -7,10 +7,10 @@ description: A checklist for running Dex in production, with a link to the page 
 
 # Run Dex in Production
 
-**dexcli dev** runs everything on one machine for development. This page
-covers a self-hosted production server, which you run next to your own Workers.
-It lists what to decide and set up before launch, and each item links to the
-page with the details.
+This page lists what to decide and set up before launch. Each item links to
+the page with the details. Most items are for a [self-hosted](/components/self-host)
+server. In [Dex Cloud](/components/dex-cloud), Super Durable runs the server,
+and the items about your Workers, code changes, and database still apply.
 
 ## Smallest real deployment {#smallest-deployment}
 
@@ -27,7 +27,7 @@ The [minimal configuration](#minimal-configuration) below sets up this deploymen
 
 | Item | What to know | Details |
 | --- | --- | --- |
-| Topology | One active node serves the cluster. Hot standbys can take over. | [Dex Server](/components/server), [Lease, hot standby, and step down](/reference/server/high-availability) |
+| Topology | One active node serves the cluster. Hot standbys can take over. | [Self-Host Dex](/components/self-host), [Lease, hot standby, and step down](/reference/server/high-availability) |
 | Capacity and cost | CPU is the limit. Start small; see [Sizing](#sizing). | [Performance](/intro/performance), [Grow past one node](/intro/limits#grow-past-one-node) |
 | Storage | Object storage holds all server state. db9 (a separate PostgreSQL-compatible database product; stock PostgreSQL is not supported) can replace it. | [Object storage and backup](/reference/server/object-storage), [Dex Server dependencies](/components/server#dependencies) |
 | Search backend | Built-in search needs no database. Heavy search can use PostgreSQL or ParadeDB. | [Search backends](/reference/server/search) |
@@ -40,7 +40,7 @@ The [minimal configuration](#minimal-configuration) below sets up this deploymen
 | Workers | Workers connect out. Size their task slots, and stop them gracefully in a deploy. | [Workers and the task queue](/reference/server/workers) |
 | Upgrades | Upgrades roll forward. Read each release's notes first; some need every process stopped. | [Upgrades and compatibility](/reference/server/upgrades), [Agent release notes](/reference/agents/upgrades#release-notes) |
 | Your database | Writes from Steps must be safe to repeat. | [Dex and Your Database](/components/your-database) |
-| Code changes | Keep old Step types and RPCs until their Flows close. | [Change Flow Code](/concepts/change-flow-code) |
+| Code changes | Keep old Step types and RPCs until their Flows close. | [Deploy Code Changes](/concepts/change-flow-code) |
 
 ### Defaults to change {#defaults-to-change-before-production}
 
@@ -99,7 +99,7 @@ lists the matching SDK option.
 ## When something goes wrong
 
 - A Flow that does not advance or that failed:
-  [Troubleshoot a Flow run](/reference/web/debugging).
+  [Operate and Debug](/components/operate-and-debug).
 - Recover a Flow after a fix by running it again from an earlier Step:
   [Time Travel](/concepts/change-flow-code#time-travel).
 - Agent sessions in production:
@@ -107,5 +107,5 @@ lists the matching SDK option.
 
 ## Next
 
-- [Failover and Deploys](/concepts/failover-and-deploys): What runs again when a Worker crashes, a Dex Server node fails over, or you deploy new code, and what you must do about it.
-- [Dex Cloud](/components/choose-how-to-run#dex-cloud): Super Durable runs the server for you.
+- [Operate and Debug](/components/operate-and-debug): find a Flow, fix one that is stuck or failed, and recover it.
+- [Deploy Code Changes](/concepts/change-flow-code): change Flow code while runs are still open.

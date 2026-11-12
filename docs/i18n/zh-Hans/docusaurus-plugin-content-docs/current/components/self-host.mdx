@@ -1,0 +1,52 @@
+---
+title: 自托管 Dex
+sidebar_label: 自托管 Dex
+slug: /components/self-host
+description: 在你自己的对象存储上，把 dex-server-zd 运行在 Worker 旁边。它需要什么，怎样保存 Flow，节点故障时会怎样，以及怎样启动它。
+---
+
+# 自托管 Dex
+
+你在 Worker 旁边运行 **dex-server-zd**。它把每个 Flow 保存在对象存储里，比如 Amazon S3；活动节点停止时，备用节点可以接管。认证、TLS、保留期和监控由你自己配置。
+
+[Sustainable Use License](/intro/limits#license) 允许你为自己的业务运行 Dex。
+
+## 它需要什么 {#dependencies}
+
+| 依赖 | 是否必需 | 它提供什么 |
+| --- | --- | --- |
+| 对象存储，比如 Amazon S3 或兼容 S3 的存储 | 是，或者用 db9 代替 | 每个 Flow 的记录 |
+| PostgreSQL 或 ParadeDB 搜索后端 | 否 | 用 SQL 处理大量或频繁的搜索。见 [Search backends](/reference/server/search)（英文）。 |
+| PostgreSQL Attribute Store | 否 | 把选定的 Attribute 复制到你自己的表中。见 [Dex 和你的数据库](/components/your-database)。 |
+| 指标监听端口 | 否 | Prometheus 指标。见 [Metrics](/reference/server/metrics)（英文）。 |
+
+db9 是兼容 PostgreSQL、可以保存 Dex Server 自身状态的选项；普通 PostgreSQL 不受支持。[Dex Server 的依赖](/components/server#dependencies)介绍了它。
+
+## 它怎样保存 Flow {#how-it-works}
+
+对象存储是记录。Dex Server 的本地存储只是缓存，节点重启后会从对象存储重建这个缓存。Dex 报告某件事已经发生时，比如一个 Flow 已经启动，或者一个 SYNC Step 已经有结果，Dex 已经把它写入了对象存储。
+
+一个活动进程服务整个集群。它在对象存储中持有一个 lease，所以第二个进程无法同时写入。它的容量就是集群的上限。[限制](/intro/limits)和[性能](/intro/performance)给出具体数字。
+
+## 节点故障时 {#failover}
+
+活动节点的 lease 过期后再过 1 秒，备用节点接管。lease 默认是 10 秒。没有备用节点时，节点重启后才能再次提供服务。主动让出（graceful step down）会释放 lease，所以备用节点立即接管。
+
+接管之后，Worker 已经收到的每个 Step 尝试都会再运行一次，每次都会用掉一次重试。所以 Step 中的外部调用需要[幂等键](/concepts/step#idempotency-keys)。[故障转移和部署](/concepts/failover-and-deploys)列出每种事件下哪些会重新运行，[Lease, hot standby, and step down](/reference/server/high-availability)（英文）给出具体时间。
+
+## 运行它 {#run-it}
+
+生产环境中，用一个 YAML 配置文件运行 **dex-server-zd serve**。发布版本提供二进制文件和容器镜像。在 Kubernetes 上，把它作为 StatefulSet 运行。
+
+```bash
+dex-server-zd serve --config /etc/dex-server-zd/config.yaml
+```
+
+要在本地磁盘上运行一个生产节点、不使用外部对象存储，运行 **dex-server-zd local**。它在数据目录里保存一个内嵌的对象存储，没有备用节点。
+
+[在生产环境运行 Dex](/components/production#minimal-configuration) 有一份开启身份验证的最小配置。
+
+## 下一步 {#next}
+
+- [在生产环境运行 Dex](/components/production)：上线前的检查清单。
+- [Dex Server](/components/server)：关于 server 和它的依赖的完整页面。

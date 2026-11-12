@@ -1,12 +1,12 @@
 ---
 id: change-flow-code
-title: Change Flow Code
-sidebar_label: Change Flow Code
+title: Deploy Code Changes
+sidebar_label: Deploy Code Changes
 slug: /concepts/change-flow-code
-description: How to deploy changed Flow code while Flows are still open, with a worked example, and how to recover a Flow with Time Travel after a fix.
+description: What a deploy changes for open Flows, how to deploy changed Flow code while Flows are still open, with a worked example, and how to recover a Flow with Time Travel after a fix.
 ---
 
-# Change Flow Code
+# Deploy Code Changes
 
 Flows can stay open for days or months, so new code often meets Flows that
 started under old code. This page shows how to change code safely and how to
@@ -26,6 +26,21 @@ Rules: read only. Do not deploy, stop, or rerun any Flow.
 ```
 
 </CodingAgentBox>
+
+## What a deploy changes {#what-a-deploy-changes}
+
+- **A Step runs the code of the Worker that takes it.** Dex does not replay
+  earlier Steps. A Flow that waits in a Step today runs the new `Execute` when
+  its conditions are met.
+- **A rolling deploy routes each call to a Worker that has it.** A Worker that lacks a Step type or RPC
+  declines it, and Dex hands the call to another Worker. The Step attempt is
+  not used up.
+- **A Step that already waits keeps its old conditions.** New `WaitFor` code
+  applies to Step executions that start after the deploy. To change what an old
+  Step waits for, publish to its Channel or skip its Timer.
+
+[Failover and Deploys](/concepts/failover-and-deploys) lists what runs again
+during a deploy and a failover.
 
 ## Versioning Flow code {#versioning-flow-code}
 
@@ -175,6 +190,6 @@ in the server reference covers the request options and limits.
 
 ## Next
 
+- [Operate and Debug](/components/operate-and-debug): find a Flow and fix one that is stuck or failed.
 - [Failover and Deploys](/concepts/failover-and-deploys): what runs again during a deploy.
 - [Step guarantees](/concepts/step#guarantees)
-- [Your Application](/components/application)

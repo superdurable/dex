@@ -1,12 +1,12 @@
 ---
 id: change-flow-code
-title: 修改 Flow 代码
-sidebar_label: 修改 Flow 代码
+title: 部署代码变更
+sidebar_label: 部署代码变更
 slug: /concepts/change-flow-code
-description: 在 Flow 仍未关闭时怎样部署修改后的 Flow 代码，附一个完整示例，以及修复之后怎样用 Time Travel 恢复 Flow。
+description: 部署对未关闭的 Flow 有什么影响，在 Flow 仍未关闭时怎样部署修改后的 Flow 代码，附一个完整示例，以及修复之后怎样用 Time Travel 恢复 Flow。
 ---
 
-# 修改 Flow 代码
+# 部署代码变更
 
 Flow 可能保持打开几天甚至几个月，所以新代码经常会遇到在旧代码下启动的 Flow。这一页介绍怎样安全地修改代码，以及修复之后怎样重新运行 Flow。
 
@@ -23,6 +23,14 @@ Flow 可能保持打开几天甚至几个月，所以新代码经常会遇到在
 ```
 
 </CodingAgentBox>
+
+## 部署会改变什么 {#what-a-deploy-changes}
+
+- **Step 运行接手它的那个 Worker 的代码。** Dex 不会重放之前的 Step。今天在某个 Step 中等待的 Flow，条件满足时运行新的 `Execute`。
+- **滚动部署把每个调用交给具备它的 Worker。** 缺少某个 Step 类型或 RPC 的 Worker 会拒绝它，Dex 把调用交给另一个 Worker，这次 Step 尝试不会被用掉。
+- **已经在等待的 Step 保持旧的条件。** 新的 `WaitFor` 代码只适用于部署之后才开始的 Step 执行。要改变旧 Step 等待的内容，向它的 Channel 发布消息，或者跳过它的 Timer。
+
+[故障转移和部署](/concepts/failover-and-deploys)列出部署和故障转移期间哪些会重新运行。
 
 ## Flow 代码的版本管理 {#versioning-flow-code}
 
@@ -100,6 +108,6 @@ Time Travel 把 run 的状态恢复成那个点时的样子：它的 Attribute�
 
 ## 下一步 {#next}
 
+- [运维和排错](/components/operate-and-debug)：找到 Flow，修复停住或失败的 Flow。
 - [故障转移和部署](/concepts/failover-and-deploys)：部署期间哪些会重新运行。
 - [Step 的保证](/concepts/step#guarantees)
-- [Application（Worker 和 Client）](/components/application)

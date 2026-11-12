@@ -11,8 +11,7 @@ description: "Dex Skills is the official guidance that teaches a coding agent, s
 Dex Skills teaches a coding agent, such as Codex, Claude Code, or Cursor, to
 design and build Dex applications, use the Dex SDK, and contribute official
 [Connectors](/concepts/connector). The Skills are guidance for the agent and
-hold no runtime code. To build, the agent needs a coding workspace; see
-[Before implementation](./dex-developer-skill/dex-app-builder.mdx#before-implementation).
+hold no runtime code.
 
 ## Install and use Dex Skills
 
@@ -26,16 +25,57 @@ other skills when the job needs SDK or Connector work.
 
 :::
 
+## Copy a prompt from a page {#copy-a-prompt}
+
+The [Quick Start](/quick-start) and [Add Dex to Existing Code](/intro/add-to-existing-code)
+open with a box for your coding agent. Copy its prompt into the agent. The
+prompt names the page's Markdown version as the source of truth for package
+names, commands, and code, and tells the agent not to invent APIs. The agent
+pages, such as the [Agent Quick Start](/agent-frameworks/quick-start), have the
+same box.
+
+## What App Builder does {#what-app-builder-does}
+
+App Builder builds a complete Dex application with a Go backend, from the
+business process to a tested, committed result. It works in four stages:
+
+1. **Confirm the business process.** It talks with you first. It works out the
+   roles and their permissions, the triggers, waits, retries, and recovery, and
+   the external systems with the Connector capabilities they need. It settles
+   every open question that matters before it writes code.
+2. **Choose the application surface.** Dex Web is the default process UI. A
+   custom React UI is built only when the product needs screens that Dex Web
+   does not offer, first as a prototype on mock data that you approve.
+3. **Design and implement the Flow.** Before it writes code, it states the
+   Flow's identity, input and output, Steps, Attributes, Channels, RPCs,
+   Timers, retries, and recovery. It loads the Dex SDK skill for the SDK rules.
+4. **Verify and hand off.** It runs the template's full check, including
+   behavior against a real Dex Server and the recovery paths. The handoff lists
+   your decisions, what was built, the test results, and known limits, in a
+   clean Git commit.
+
+<a id="before-implementation"></a>
+
+To create files and run tests, App Builder needs a coding workspace: a
+writable repository, file-editing tools, and command execution. Without one,
+it still works out the process and writes a plan. [Before implementation](./dex-developer-skill/dex-app-builder.mdx#before-implementation) lists what it checks first.
+
+When an official Connector, operation, Trigger, or configuration UI unit that
+the application needs is missing or broken, App Builder loads the Connector
+Contributor skill. The application can test against a local copy of the
+Connector while the contribution is in review. It is not ready for production
+until the Connector is released with an exact version.
+
+[Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) has the full
+workflow.
+
 ## Choose a skill
 
-| Skill | Use it for |
-| --- | --- |
-| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | The primary skill. Work out a process, prototype it, then build and test it locally as a complete application with a Go backend. |
-| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | Build, debug, test, and run Dex applications in Python, Go, Java, TypeScript, or Rust. |
-| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | Create, test, and contribute official Connector operations, Triggers, and configuration UI units. |
-
-Each skill page explains when to call it directly and how it works with the
-others.
+| Skill | Call it directly when | Full page |
+| --- | --- | --- |
+| **Dex App Builder** | The request is a product, an application, or a business process. This is the primary skill and the default. | [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx) |
+| **Dex SDK** | The task is narrow SDK work in Python, Go, Java, TypeScript, or Rust, such as debugging a Flow or adding a Step to an existing application. | [Dex SDK](./dex-developer-skill/dex-sdk.mdx) |
+| **Dex Connector Contributor** | The task is a standalone contribution of an official Connector operation, Trigger, or configuration UI unit. | [Dex Connector Contributor](./dex-developer-skill/dex-connector-contributor.mdx) |
 
 ## Trust and permissions
 
@@ -47,5 +87,7 @@ metadata. If a newer release exists, the hook tells you, but it does not
 install it. The agent still needs your permission to create a GitHub fork,
 push a branch, open a pull request, or change a running Flow.
 
-Next, read [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx), the
-primary skill.
+## Next
+
+- [Quick Start](/quick-start): copy its prompt into your coding agent, or follow the steps by hand.
+- [Durable Agents](/agent-frameworks): run an AI agent built with your framework as a durable session.

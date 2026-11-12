@@ -31,7 +31,7 @@ Rules: ask me about any tool you cannot classify. Do not invent APIs.
 
 - **Your agent definition stays.** You wrap it and give each tool a policy.
 - **Your request handler changes shape.** It sends the user's message to the session and returns. The reply arrives on the session's event stream, or in its snapshot.
-- **You run two more things.** A Worker process runs the session Steps, and Dex Server stores them. Dex Server runs in Dex Cloud or on your own infrastructure; [Choose How to Run Dex](/components/choose-how-to-run) compares the two. Dex is in Beta, Dex Server is at version 0.1, and one active node serves a cluster.
+- **You run two more things.** A Worker process runs the session Steps, and Dex Server stores them. Dex Server runs in Dex Cloud or on your own infrastructure; [Where to run Dex Server](/components#where-to-run) compares the two. Dex is in Beta, Dex Server is at version 0.1, and one active node serves a cluster.
 - **Each turn waits on Dex commits.** A turn with three parallel tool calls adds about 0.4 seconds; see [Latency and cost](/agent-frameworks/sessions#latency-and-cost).
 
 [Run Agents in Production](/agent-frameworks/production) lists what to set up. [Performance](/intro/performance) gives the numbers, and [Limits](/intro/limits#license) gives the license.
@@ -481,7 +481,7 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): A
 </FrameworkTab>
 </FrameworkTabs>
 
-Tools the framework runs itself, such as MCP servers and hosted tools, need the changes in your framework's [Limits](/agent-frameworks/framework-support#limits). The session runs in a Worker and is driven by a Client; [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) shows that host code.
+Tools the framework runs itself, such as MCP servers and hosted tools, need the changes in your framework's [Limits](/agent-frameworks/framework-details#limits). The session runs in a Worker and is driven by a Client; [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) shows that host code.
 
 ## Use it in your own agent {#use-it-in-your-own-agent}
 
@@ -954,4 +954,5 @@ The [AI Agent](/use-cases/ai-agent) example's chat routes show the same pieces. 
 
 ## Next
 
-[Sessions](/agent-frameworks/sessions)
+- [Framework Support](/agent-frameworks/framework-support): what your framework supports, and its limits.
+- [How Durable Agents Work](/agent-frameworks/how-it-works): your framework's terms mapped to Dex.
