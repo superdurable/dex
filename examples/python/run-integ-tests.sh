@@ -156,6 +156,11 @@ fi
 # Arguments for the main suites would not match its tests, so they run with no arguments or alone.
 if ! $only_agent_harnesses && ((${#test_args[@]} == 0)); then
   (
+    cd "$script_dir/agent-starter"
+    DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+      uv run --frozen pytest -vv tests/
+  )
+  (
     cd "$script_dir/quick-start"
     DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
       uv run --frozen pytest -vv tests/
