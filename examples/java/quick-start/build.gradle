@@ -1,0 +1,70 @@
+plugins {
+    id "application"
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation "io.superdurable:dex-sdk:1.45.0"
+
+    testImplementation platform("org.junit:junit-bom:5.13.4")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+// Builds with the JDK that runs Gradle (17 or newer).
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+}
+
+// The SDK's disk cache loads a native library; this keeps newer JDKs from warning about it.
+def quietJvmArgs = ["--enable-native-access=ALL-UNNAMED"]
+
+// ./gradlew installDist writes three commands to build/install/quick-start/bin:
+// worker runs the Worker until Ctrl+C, start starts one OrderFlow, and service
+// serves POST /orders with the Worker in the same process.
+// They run outside Gradle so that Ctrl+C reaches the Worker.
+application {
+    mainClass = "io.superdurable.dex.quickstart.WorkerMain"
+    applicationDefaultJvmArgs = quietJvmArgs
+}
+
+tasks.named("startScripts", CreateStartScripts) {
+    applicationName = "worker"
+}
+
+def startCommandScripts = tasks.register("startCommandScripts", CreateStartScripts) {
+    applicationName = "start"
+    mainClass = "io.superdurable.dex.quickstart.StartMain"
+    defaultJvmOpts = quietJvmArgs
+    classpath = tasks.named("startScripts", CreateStartScripts).get().classpath
+    outputDir = layout.buildDirectory.dir("start-command-scripts").get().asFile
+}
+
+def serviceCommandScripts = tasks.register("serviceCommandScripts", CreateStartScripts) {
+    applicationName = "service"
+    mainClass = "io.superdurable.dex.quickstart.ServiceMain"
+    defaultJvmOpts = quietJvmArgs
+    classpath = tasks.named("startScripts", CreateStartScripts).get().classpath
+    outputDir = layout.buildDirectory.dir("service-command-scripts").get().asFile
+}
+
+distributions.main.contents {
+    from(startCommandScripts) {
+        into "bin"
+    }
+    from(serviceCommandScripts) {
+        into "bin"
+    }
+}
+
+tasks.named("test", Test) {
+    useJUnitPlatform()
+    jvmArgs quietJvmArgs
+    testLogging {
+        events "passed", "skipped", "failed"
+        showStandardStreams = true
+    }
+}

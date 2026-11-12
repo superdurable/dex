@@ -20,6 +20,7 @@ cancel_order changes it. A real application calls its order service here.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 ORDER_SUPPORT_INSTRUCTIONS = (
@@ -39,7 +40,9 @@ class Order:
 class OrderDesk:
     """An in-memory order system that records every cancel_order call it receives."""
 
-    def __init__(self) -> None:
+    def __init__(self, tool_delay_seconds: float = 0) -> None:
+        # Each tool call sleeps this long first, so a demo can stop the Worker mid-call.
+        self._tool_delay_seconds = tool_delay_seconds
         self._orders = {
             "1001": Order("1001", "2 notebooks", "shipped"),
             "1002": Order("1002", "1 desk lamp", "processing"),
@@ -49,12 +52,14 @@ class OrderDesk:
         self.cancel_order_calls: list[str] = []
 
     def describe_order(self, order_id: str) -> str:
+        time.sleep(self._tool_delay_seconds)
         order = self._orders.get(order_id)
         if order is None:
             return f"Order {order_id} does not exist."
         return f"Order {order.order_id}: {order.items}, {order.status}."
 
     def cancel_order(self, order_id: str, reason: str) -> str:
+        time.sleep(self._tool_delay_seconds)
         self.cancel_order_calls.append(order_id)
         order = self._orders.get(order_id)
         if order is None:
