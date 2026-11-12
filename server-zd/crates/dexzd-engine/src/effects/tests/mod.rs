@@ -42,7 +42,9 @@ use dexzd_clock::WallClock;
 use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
 use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId};
-use dexzd_object_store::{FaultAction, FaultInjector, InMemoryObjectStore, ObjectStoreOperation};
+use dexzd_object_store::{
+    FaultAction, FaultInjector, InMemoryObjectStore, ObjectStore, ObjectStoreOperation,
+};
 use dexzd_protocol::dex::{
     FlowTimeoutPolicy, InvokeExecuteMethodOutput, InvokeExecuteMethodResponse,
     InvokeWaitForMethodOutput, InvokeWaitForMethodResponse, PollWorkerTaskFrame, PullRouting,
@@ -1416,6 +1418,8 @@ impl MethodDispatchSession for FakeSession {
 pub(super) struct DurableState {
     pub(super) state: Arc<Mutex<MemoryState>>,
     pub(super) objects: Arc<InMemoryObjectStore>,
+    /// History uploads use this store instead of `objects` when set.
+    pub(super) history_objects: Option<Arc<dyn ObjectStore>>,
     pub(super) local_store: Arc<InMemoryLocalStore>,
     pub(super) clock: Arc<TokioWallClock>,
 }
@@ -1425,6 +1429,7 @@ impl DurableState {
         Self {
             state: Arc::new(Mutex::new(MemoryState::default())),
             objects: Arc::new(InMemoryObjectStore::new()),
+            history_objects: None,
             local_store: Arc::new(InMemoryLocalStore::new()),
             clock: Arc::new(TokioWallClock::new()),
         }
@@ -1515,7 +1520,10 @@ impl EffectHarness {
                 metrics: Arc::clone(&metrics),
                 dispatcher: Arc::clone(&dispatcher) as _,
                 hard_delete_objects: hard_delete_objects.clone(),
-                history_object_store: Arc::clone(&durable.objects) as _,
+                history_object_store: durable
+                    .history_objects
+                    .clone()
+                    .unwrap_or_else(|| Arc::clone(&durable.objects) as _),
                 partition_hasher: hasher.clone(),
                 clock: Arc::clone(&clock) as _,
                 validation_config,

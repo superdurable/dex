@@ -11,6 +11,7 @@
 //! retention, and purges.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -28,8 +29,9 @@ use dexzd_keyspace::row_keys::{
 use dexzd_keyspace::{ColumnFamily, PartitionId, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_metrics::HistoryUploadOutcome;
 use dexzd_object_store::{
-    FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions, ObjectStore,
-    ObjectStoreOperation, WriteCondition,
+    ByteRange, FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions,
+    ObjectContent, ObjectListing, ObjectMetadata, ObjectStore, ObjectStoreOperation,
+    ObjectStoreResult, WriteCondition, WriteOutcome,
 };
 use dexzd_protocol::dex::{AttributeWrite, SetAttributesRequest, StopFlowRequest, StopType};
 use dexzd_protocol::dexzd::v1::{
@@ -595,6 +597,166 @@ async fn an_existing_object_that_does_not_decode_is_replaced_then_acknowledged()
 }
 
 #[tokio::test(start_paused = true)]
+async fn exhausted_writes_without_atomic_replacement_keep_the_existing_object() {
+    let objects = Arc::new(InMemoryObjectStore::with_options(
+        InMemoryObjectStoreOptions {
+            rejects_replace_if_etag_matches: true,
+            ..InMemoryObjectStoreOptions::default()
+        },
+    ));
+    let stale_writers = Arc::new(StaleWriterStore {
+        inner: Arc::clone(&objects),
+        history_calls: Mutex::new(Vec::new()),
+    });
+    let durable = DurableState {
+        objects: Arc::clone(&objects),
+        history_objects: Some(Arc::clone(&stale_writers) as _),
+        ..DurableState::new()
+    };
+    let harness = EffectHarness::with_config(durable, EffectsConfig::default());
+    harness.rebuild_all_partitions().await;
+    enable_history_offload(&harness);
+    let run_id = harness.start_flow(start_request("order-1"), settings());
+    close_run(&harness, "order-1", run_id);
+    let segment = segments(&harness, "order-1", run_id)
+        .pop()
+        .expect("the close sealed a segment");
+    let key = object_key(&harness, "order-1", run_id, &segment);
+    let attempts = 2;
+    wait_until(&harness, "two upload attempts run out of writes", || {
+        stale_writers.history_call_count(ObjectStoreOperation::Get)
+            >= attempts * crate::effects::history_uploads::MAX_CONDITIONAL_WRITES
+    })
+    .await;
+    assert!(acknowledgments(&harness).is_empty());
+    harness.shutdown().await;
+
+    let calls = stale_writers.history_calls();
+    let mut gets = 0;
+    for (position, operation) in calls.iter().enumerate() {
+        if *operation != ObjectStoreOperation::Get {
+            continue;
+        }
+        gets += 1;
+        if gets % crate::effects::history_uploads::MAX_CONDITIONAL_WRITES == 0 {
+            assert_ne!(
+                calls.get(position + 1),
+                Some(&ObjectStoreOperation::Delete),
+                "the last round of an attempt deletes the object: {calls:?}"
+            );
+        }
+    }
+    assert!(objects.get(&key).await.expect("the object reads").is_some());
+}
+
+/// Lets a stale writer recreate a history segment object before each create-only write.
+struct StaleWriterStore {
+    inner: Arc<InMemoryObjectStore>,
+    history_calls: Mutex<Vec<ObjectStoreOperation>>,
+}
+
+impl StaleWriterStore {
+    fn record(&self, operation: ObjectStoreOperation, key: &str) {
+        if key.starts_with(HISTORY_SEGMENT_OBJECT_KEY_PREFIX) {
+            self.history_calls
+                .lock()
+                .expect("the call log lock is not poisoned")
+                .push(operation);
+        }
+    }
+
+    fn history_calls(&self) -> Vec<ObjectStoreOperation> {
+        self.history_calls
+            .lock()
+            .expect("the call log lock is not poisoned")
+            .clone()
+    }
+
+    fn history_call_count(&self, operation: ObjectStoreOperation) -> usize {
+        self.history_calls()
+            .into_iter()
+            .filter(|call| *call == operation)
+            .count()
+    }
+}
+
+#[async_trait::async_trait]
+impl ObjectStore for StaleWriterStore {
+    async fn put(
+        &self,
+        key: &str,
+        body: Bytes,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.record(ObjectStoreOperation::Put, key);
+        if key.starts_with(HISTORY_SEGMENT_OBJECT_KEY_PREFIX)
+            && condition == WriteCondition::CreateOnly
+        {
+            self.inner
+                .put(
+                    key,
+                    Bytes::from_static(b"a stale writer's segment"),
+                    WriteCondition::Unconditional,
+                )
+                .await?;
+        }
+        self.inner.put(key, body, condition).await
+    }
+
+    async fn put_file(
+        &self,
+        key: &str,
+        path: &Path,
+        condition: WriteCondition,
+    ) -> ObjectStoreResult<WriteOutcome> {
+        self.inner.put_file(key, path, condition).await
+    }
+
+    async fn get(&self, key: &str) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.record(ObjectStoreOperation::Get, key);
+        self.inner.get(key).await
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> ObjectStoreResult<Option<ObjectContent>> {
+        self.inner.get_range(key, range).await
+    }
+
+    async fn get_to_file(&self, key: &str, path: &Path) -> ObjectStoreResult<Option<u64>> {
+        self.inner.get_to_file(key, path).await
+    }
+
+    async fn head(&self, key: &str) -> ObjectStoreResult<Option<ObjectMetadata>> {
+        self.inner.head(key).await
+    }
+
+    async fn delete(&self, key: &str) -> ObjectStoreResult<()> {
+        self.record(ObjectStoreOperation::Delete, key);
+        self.inner.delete(key).await
+    }
+
+    async fn delete_many(&self, keys: &[String]) -> ObjectStoreResult<()> {
+        self.inner.delete_many(keys).await
+    }
+
+    async fn list(
+        &self,
+        prefix: &str,
+        start_after: Option<&str>,
+        max_keys: u32,
+    ) -> ObjectStoreResult<ObjectListing> {
+        self.inner.list(prefix, start_after, max_keys).await
+    }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_store_without_atomic_replacement_deletes_then_creates_a_mismatched_object() {
     let objects = Arc::new(InMemoryObjectStore::with_options(
         InMemoryObjectStoreOptions {
@@ -976,6 +1138,7 @@ async fn a_node_restored_from_a_snapshot_before_the_acknowledgments_finishes_the
     let restored = DurableState {
         state: Arc::new(Mutex::new(snapshot)),
         objects: Arc::clone(&durable.objects),
+        history_objects: None,
         local_store: Arc::new(InMemoryLocalStore::new()),
         clock: Arc::clone(&durable.clock),
     };

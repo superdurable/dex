@@ -12,7 +12,8 @@ use bytes::Bytes;
 
 use crate::{
     ATTRIBUTE_INDEX_REGISTRY_OBJECT_KEY, MANIFEST_OBJECT_KEY, ObjectStore, ObjectStoreError,
-    STARTUP_PROBE_OBJECT_KEY_PREFIX, STARTUP_SELF_CHECK_DEADLINE, WriteCondition, WriteOutcome,
+    STARTUP_PROBE_MAXIMUM_LIFETIME, STARTUP_PROBE_OBJECT_KEY_PREFIX, STARTUP_SELF_CHECK_DEADLINE,
+    WriteCondition, WriteOutcome,
 };
 
 /// Why a bucket cannot hold server-zd data through an [`crate::AliyunOssObjectStore`].
@@ -42,6 +43,22 @@ pub enum AliyunOssBucketCheckError {
         /// Key of the probe object relative to the store prefix.
         probe_key: String,
     },
+    /// The probe object could not be deleted after the check passed.
+    #[error("the check passed, but deleting the probe object {probe_key} failed: {detail}")]
+    CleanupFailed {
+        /// Key of the probe object relative to the store prefix.
+        probe_key: String,
+        /// The delete error, or that the delete did not finish in time.
+        detail: String,
+    },
+    /// The check failed, and deleting its probe object failed too.
+    #[error("{check}; deleting the probe object afterwards also failed: {cleanup}")]
+    CheckAndCleanupFailed {
+        /// Why the check failed.
+        check: Box<AliyunOssBucketCheckError>,
+        /// The delete error, or that the delete did not finish in time.
+        cleanup: String,
+    },
     /// A mutable object key holds an object that another provider wrote in place.
     #[error(
         "the object {key} was written by another objectStore.provider, such as s3; the \
@@ -68,7 +85,9 @@ pub enum AliyunOssBucketCheckError {
 /// Returns [`AliyunOssBucketCheckError::CreateOnlyIgnored`] when the second write succeeds,
 /// [`AliyunOssBucketCheckError::InitialCreateRejected`] when the first one fails its condition,
 /// [`AliyunOssBucketCheckError::TimedOut`] after [`STARTUP_SELF_CHECK_DEADLINE`], and the store's
-/// error when a request fails.
+/// error when a request fails. A failed probe delete returns
+/// [`AliyunOssBucketCheckError::CleanupFailed`], or
+/// [`AliyunOssBucketCheckError::CheckAndCleanupFailed`] with the check's own error.
 pub async fn check_aliyun_oss_create_only_writes(
     inner: &dyn ObjectStore,
 ) -> Result<(), AliyunOssBucketCheckError> {
@@ -80,16 +99,34 @@ pub async fn check_aliyun_oss_create_only_writes(
             .expect("system clock is after the Unix epoch")
             .as_nanos()
     );
-    // A bounded check keeps the probe younger than the age at which other processes remove it.
-    let checked = tokio::time::timeout(STARTUP_SELF_CHECK_DEADLINE, async {
-        let outcome = create_twice(inner, &probe_key).await;
-        let deleted = inner.delete(&probe_key).await;
-        outcome?;
-        deleted?;
-        Ok(())
-    })
-    .await;
-    checked.unwrap_or(Err(AliyunOssBucketCheckError::TimedOut { probe_key }))
+    // Bounded steps keep the probe younger than the age at which other processes remove it.
+    let checked =
+        tokio::time::timeout(STARTUP_SELF_CHECK_DEADLINE, create_twice(inner, &probe_key))
+            .await
+            .unwrap_or_else(|_| {
+                Err(AliyunOssBucketCheckError::TimedOut {
+                    probe_key: probe_key.clone(),
+                })
+            });
+    let cleanup_limit = STARTUP_PROBE_MAXIMUM_LIFETIME.saturating_sub(STARTUP_SELF_CHECK_DEADLINE);
+    let cleanup = match tokio::time::timeout(cleanup_limit, inner.delete(&probe_key)).await {
+        Ok(Ok(())) => None,
+        Ok(Err(error)) => Some(error.to_string()),
+        Err(_) => Some(format!(
+            "the delete did not finish within {cleanup_limit:?}"
+        )),
+    };
+    match (checked, cleanup) {
+        (Ok(()), None) => Ok(()),
+        (Ok(()), Some(detail)) => {
+            Err(AliyunOssBucketCheckError::CleanupFailed { probe_key, detail })
+        }
+        (Err(check), None) => Err(check),
+        (Err(check), Some(cleanup)) => Err(AliyunOssBucketCheckError::CheckAndCleanupFailed {
+            check: Box::new(check),
+            cleanup,
+        }),
+    }
 }
 
 async fn create_twice(
