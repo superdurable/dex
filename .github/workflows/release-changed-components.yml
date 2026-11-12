@@ -90,9 +90,55 @@ jobs:
           echo "Changed-component releases can run only from main" >&2
           exit 1
 
+  # Each selected component's suite runs on this exact commit before any release is created.
+  test-go:
+    name: Test Go SDK
+    needs: plan
+    if: needs.plan.outputs.go == 'true'
+    uses: ./.github/workflows/sdk-go-ci.yml
+  test-java:
+    name: Test Java SDK
+    needs: plan
+    if: needs.plan.outputs.java == 'true'
+    uses: ./.github/workflows/sdk-java-ci.yml
+  test-python:
+    name: Test Python SDK
+    needs: plan
+    if: needs.plan.outputs.python == 'true'
+    uses: ./.github/workflows/sdk-python-ci.yml
+  test-rust:
+    name: Test Rust SDK
+    needs: plan
+    if: needs.plan.outputs.rust == 'true'
+    uses: ./.github/workflows/sdk-rust-ci.yml
+  test-typescript:
+    name: Test TypeScript SDK
+    needs: plan
+    if: needs.plan.outputs.typescript == 'true'
+    uses: ./.github/workflows/sdk-typescript-ci.yml
+  test-web:
+    name: Test Dex Web
+    needs: plan
+    if: needs.plan.outputs.web == 'true'
+    uses: ./.github/workflows/web-ci.yml
+  test-cli:
+    name: Test CLI
+    needs: plan
+    if: needs.plan.outputs.cli == 'true'
+    uses: ./.github/workflows/cli-ci.yml
+  test-agents:
+    name: Test agents packages
+    needs: plan
+    if: needs.plan.outputs.agents == 'true'
+    uses: ./.github/workflows/agents-ci.yml
+
   create-releases:
     name: Create selected releases
-    needs: plan
+    needs: [plan, test-go, test-java, test-python, test-rust, test-typescript, test-web, test-cli, test-agents]
+    # A skipped suite belongs to a component this run does not release.
+    if: >-
+      !cancelled() && needs.plan.result == 'success'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -265,6 +311,8 @@ jobs:
     uses: ./.github/workflows/sdk-java-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
     secrets: inherit
 
   publish-python:
@@ -274,6 +322,8 @@ jobs:
     uses: ./.github/workflows/sdk-python-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
       publish: true
     secrets: inherit
 
@@ -284,6 +334,8 @@ jobs:
     uses: ./.github/workflows/sdk-rust-publish.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
       publish: true
     secrets: inherit
 
@@ -408,6 +460,8 @@ jobs:
     uses: ./.github/workflows/docker-image-web-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
     secrets: inherit
 
   # Runs after create-releases, so an sdk-go release in the same run is the version the module requires.
@@ -418,6 +472,8 @@ jobs:
     uses: ./.github/workflows/web-embedded-module-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
     secrets: inherit
 
   publish-cli:
@@ -427,6 +483,8 @@ jobs:
     uses: ./.github/workflows/cli-release.yml
     with:
       version: ${{ needs.plan.outputs.version }}
+      # test-* above already ran this component's suite on this commit.
+      run_tests: false
       publish: true
     secrets: inherit
 

@@ -1,13 +1,6 @@
 name: Agents CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "agents/**"
-      - ".github/workflows/agents-ci.yml"
-      - ".github/workflows/agents-python-publish.yml"
-      - ".github/workflows/agents-typescript-publish.yml"
   pull_request:
     paths:
       - "agents/**"
@@ -15,13 +8,15 @@ on:
       - ".github/workflows/agents-python-publish.yml"
       - ".github/workflows/agents-typescript-publish.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: agents-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: agents-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DEXCLI_RELEASE_TAG: cli-v1.45.0

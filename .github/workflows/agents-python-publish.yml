@@ -39,6 +39,11 @@ env:
     dex-agents-pydantic-ai-cli dex-agents-deepagents-cli dex-agents-google-adk-cli dex-agents-builtin-cli
 
 jobs:
+  # Publishing waits for the agents suite on this exact release commit.
+  tests:
+    name: Agents tests
+    uses: ./.github/workflows/agents-ci.yml
+
   prepare:
     name: Validate release
     runs-on: ubuntu-latest
@@ -139,7 +144,7 @@ jobs:
   publish:
     name: Publish agents Python packages
     if: needs.prepare.outputs.publish == 'true'
-    needs: [prepare, build]
+    needs: [prepare, build, tests]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
