@@ -60,6 +60,8 @@ from dex_agents_deepagents_cli.connector_tool_names import PrefixedConnectorTool
 from dex_agents_deepagents_cli.workspace_backend import (
     bind_artifacts_session,
     build_workspace_backend,
+    default_artifacts_directory,
+    remove_stale_session_artifacts,
 )
 from dex_agents_langgraph import (
     CompiledGraphSource,
@@ -165,10 +167,14 @@ class DeepAgentsHarness:
         Returns:
             The Flow, with ``context.flow_type`` as its type.
 
+        It first deletes the artifacts of sessions that changed none of
+        them within ``SESSION_ARTIFACTS_RETENTION``.
+
         Raises:
             ConfigError: If the ``deepagents`` section has a key; it has no options yet.
         """
         validate_deepagents_section(context.harness_options)
+        remove_stale_session_artifacts(default_artifacts_directory())
         file_model = context.config.model
         workspace = context.workspace
         runner = DeepAgentsAgentRunner(

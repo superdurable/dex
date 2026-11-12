@@ -45,11 +45,14 @@ from dex_agents_deepagents_cli.harness import (
 )
 from dex_agents_deepagents_cli.workspace_backend import (
     DEEP_AGENTS_ARTIFACT_PREFIXES,
+    SESSION_ARTIFACTS_RETENTION,
     SessionArtifactsBackend,
     WorkspaceShellBackend,
     bind_artifacts_session,
     build_workspace_backend,
     default_artifacts_directory,
+    ensure_artifacts_directory,
+    remove_stale_session_artifacts,
 )
 
 __all__ = [
@@ -60,6 +63,7 @@ __all__ = [
     "DEFAULT_DEEPAGENTS_MODEL",
     "DEFAULT_INSTRUCTIONS",
     "EXECUTE_TOOL_NAME",
+    "SESSION_ARTIFACTS_RETENTION",
     "TASK_TOOL_NAME",
     "WRITE_TODOS_TOOL_NAME",
     "DeepAgentsAgentRunner",
@@ -77,7 +81,9 @@ __all__ = [
     "deep_agents_chat_model",
     "deep_agents_tool_sources",
     "default_artifacts_directory",
+    "ensure_artifacts_directory",
     "main",
+    "remove_stale_session_artifacts",
     "run",
     "validate_deepagents_section",
 ]

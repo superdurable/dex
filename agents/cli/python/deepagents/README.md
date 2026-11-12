@@ -71,8 +71,13 @@ call runs in its own tool Step, after approval when its policy asks for it.
   rooted at the workspace, so a file tool and `execute` name a file the same
   way. Paths are absolute. A path that resolves outside the workspace fails
   with an error the model sees, and `ls`, `glob`, and `grep` leave out
-  entries whose real path is outside it, such as a link to a file elsewhere.
-  `execute` is not confined.
+  entries whose real path is outside it, such as a link to a file elsewhere;
+  `grep` never opens such a file.
+- That check is a guardrail against mistaken paths, not a sandbox.
+  `execute` runs any command with your permissions, without approval by
+  default. A link that changes during a call, or a hard link in the
+  workspace to a file elsewhere, is not detected. Use OS-level isolation,
+  such as a container, when the agent must not reach other files.
 - `local_tools.files` and `local_tools.shell.enabled` switch the tools on and
   off per turn. `task` needs both, because a subagent uses both.
 - Each tool Step attempt runs Deep Agents' tool middleware around the tool,
@@ -82,9 +87,17 @@ call runs in its own tool Step, after approval when its policy asks for it.
   for that. Deep Agents writes evicted results and long user messages under
   the paths `/large_tool_results/` and `/conversation_history/`, which its
   file tools read. Each session keeps them in its own directory,
-  `~/.dex/agents/deepagents-artifacts/<SHA-256 of the session ID>/`, mode
-  0700, so two sessions never see each other's files and a restarted Worker
-  on the same machine finds them.
+  `~/.dex/agents/deepagents-artifacts/<SHA-256 of the session ID>/`, so two
+  sessions never see each other's files and a restarted Worker on the same
+  machine finds them. Before each file operation the command checks every
+  directory from `deepagents-artifacts` down: you own it, it is no link, and
+  a looser mode becomes 0700. `~/.dex` and `~/.dex/agents` keep their mode
+  but must not be another user's link. A failed check is an error result of
+  that tool call.
+- When the command starts, it deletes the artifacts of every session whose
+  files changed more than 30 days ago. It never follows a link, and it logs
+  each directory it removes or cannot remove. A session resumed after that
+  can no longer read its earlier large results.
 - `edit_file`, `execute`, and `task` calls are never retried, so a Worker that
   dies during one records `outcome_unknown`. `write_file` and `delete` calls
   may run again after a failure.
@@ -146,8 +159,11 @@ workspace file inside one tool Step, and a `task` that waits for approval
 when `approval.always` names `read_file`; and a large `execute` result that
 lands in the session's own artifacts directory. Backend tests cover links to
 files outside the workspace, which `ls`, `glob`, and `grep` leave out with
-and without ripgrep and which reads and writes refuse, and two sessions that
-write the same large-result path without seeing each other's file.
+and without ripgrep, which the Python search never opens, and which reads and
+writes refuse; two sessions that write the same large-result path without
+seeing each other's file; a session directory that is a link, which is an
+error result; looser artifact directories, which become 0700; and the
+removal of a session's artifacts after 30 days, which never follows a link.
 They also cover the offered tools, which are Deep Agents' own and none of
 the CLI core's file and shell tools; switched-off file and shell tools, which
 are not offered; a model change and a `system_prompt` in the session

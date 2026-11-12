@@ -427,10 +427,14 @@ Each Deep Agents tool runs only while the turn switches its group on.
   **interrupt_on** does. Connector writes always wait for approval.
 - The file tools take absolute paths and work on the real files of the
   workspace. They refuse a path that resolves outside the workspace, and
-  **ls**, **glob**, and **grep** leave out entries that do. **execute** runs
-  **/bin/sh** in the workspace with the command's environment and is not
-  confined. Large tool results and long user messages go to a private
-  directory of the session under **~/.dex/agents/deepagents-artifacts**.
+  **ls**, **glob**, and **grep** leave out entries that do. This is a
+  guardrail against mistaken paths, not a sandbox: **execute** runs
+  **/bin/sh** in the workspace with your permissions and can reach any path.
+- Large tool results and long user messages go to a private directory of the
+  session under **~/.dex/agents/deepagents-artifacts**. The command checks
+  that you own each of its directories and that none is a link. When it
+  starts, it deletes the directories of sessions whose files changed more
+  than 30 days ago.
 - Each call is its own tool Step, whose attempts also run Deep Agents' tool
   middleware, such as the eviction of a large result to a file. An
   **edit_file**, **execute**, or **task** call never runs twice.
@@ -553,6 +557,12 @@ graph and its Actions.
   [Resume a session](#resume).
 - **The local tools are not a sandbox.** An approved shell command runs with
   your permissions. See [Workspace and local tools](#local-tools).
+- **Deep Agents file tools are a guardrail, not a sandbox.** In
+  **dex-agents-deepagents**, **execute** runs any command with your
+  permissions, without approval unless **approval.always** names it. The file
+  tools' workspace check does not detect a link that changes during a call or
+  a hard link in the workspace to a file elsewhere. See
+  [Harnesses with their own tools](#harness-tools).
 - **Claude Code tools can run twice.** In **dex-agents-claude-sdk**, a Worker
   that dies during a turn segment runs the segment again, with its tool calls.
 - **Pi takes no images.** **dex-agents-pi** does not send a message with
