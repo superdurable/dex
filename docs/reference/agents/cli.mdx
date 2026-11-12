@@ -80,6 +80,9 @@ uvx --from dex-agents-deepagents-cli --with langchain-mistralai dex-agents-deepa
 Each command reads the provider's API key from its standard environment
 variable. Keys never go in the configuration file. The commands never print or
 store a key.
+**dex-agents-claude-sdk** uses an Anthropic API key, as Anthropic's terms
+require for products built on the Claude Agent SDK. See the
+[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview).
 
 | Command | Environment variables |
 | --- | --- |
@@ -146,6 +149,10 @@ The exit code is 0 on success. It is 1 for a failure at run time, such as a
 Dex server that does not start, an explicit **connectors.mcp** URL that does
 not answer, or a turn or session that failed during the chat. It is 2 for a
 usage or configuration error.
+
+Ctrl-C at an **init** question, or at a first-run question, stops the command
+with exit code 130. Ctrl-D there stops it with exit code 1. Either way the
+command prints **Cancelled; no configuration written.** and writes no file.
 
 ### The local Dex server {#dex-server}
 
@@ -391,6 +398,7 @@ OS-level isolation, such as a container, closes that gap.
 
 Three commands replace some local tools with their framework's own tools. Use
 these names in **approval.always**. The other groups keep the CLI core's tools.
+Each Deep Agents tool runs only while the turn switches its group on.
 
 | Command | Group | Tools | Approval |
 | --- | --- | --- | --- |
@@ -401,6 +409,10 @@ these names in **approval.always**. The other groups keep the CLI core's tools.
 | **dex-agents-pi** | **files** | **read**, **grep**, **find**, **ls** | None |
 | **dex-agents-pi** | **files** | **write**, **edit** | Every call |
 | **dex-agents-pi** | **shell** | **bash** | Unless the allow list has the whole command text |
+| **dex-agents-deepagents** | **files** | **ls**, **read_file**, **glob**, **grep** | None |
+| **dex-agents-deepagents** | **files** | **write_file**, **edit_file**, **delete** | None, unless **approval.always** names the tool |
+| **dex-agents-deepagents** | **shell** | **execute** | None, unless **approval.always** names it. **local_tools.shell.allow** has no effect. |
+| **dex-agents-deepagents** | **files** and **shell** | **task** | None, unless **approval.always** names any Deep Agents tool |
 | **dex-agents-deepagents** | None | **write_todos** | None |
 
 - **Claude Agent SDK.** Claude Code runs in the workspace. Its file tools
@@ -416,10 +428,34 @@ these names in **approval.always**. The other groups keep the CLI core's tools.
   command needs neither **fd** nor **rg**. They skip **.git** and
   **node_modules** and do not read **.gitignore**. A **grep** or **find** call
   has 10 seconds in all.
-- **Deep Agents.** The CLI core's file and shell tools replace Deep Agents' own,
-  which would work on a virtual file system. The **task** tool is not offered,
-  because a subagent would make its own model and tool calls inside one tool
-  Step. **write_todos** is kept as a read that returns the plan as text.
+- **Deep Agents.** The agent keeps Deep Agents' own tools and adds the
+  Connector, web fetch, and browser tools. As in Deep Agents without
+  **interrupt_on**, its file tools, **execute**, and **task** run without
+  approval. Name a tool in **approval.always** to make it wait, as
+  **interrupt_on** does. Connector writes always wait for approval.
+- The file tools take absolute paths and work on the real files of the
+  workspace. They refuse a path that resolves outside the workspace, and
+  **ls**, **glob**, and **grep** leave out entries that do. This is a
+  guardrail against mistaken paths, not a sandbox: **execute** runs
+  **/bin/sh** in the workspace with your permissions and can reach any path.
+- Large tool results and long user messages go to a private directory of the
+  session under **~/.dex/agents/deepagents-artifacts**. The command checks
+  that you own each of its directories and that none is a link. When it
+  starts, it deletes the directories of sessions whose files changed more
+  than 30 days ago.
+- Each call is its own tool Step, whose attempts also run Deep Agents' tool
+  middleware, such as the eviction of a large result to a file. An
+  **edit_file**, **execute**, or **task** call never runs twice.
+- **write_todos** updates the agent's todo list. The list lasts for one turn.
+- **task** runs a subagent inside the tool Step of its call. The subagent's
+  model and tool calls have no Steps or approvals of their own, use the
+  configuration file's model, and do not count in the session's usage. A
+  Worker that dies during the call runs none of it again: the call records
+  **outcome_unknown**.
+- A Connector tool whose name a Deep Agents tool has gets the prefix
+  **connector_**, such as **connector_read_file**. **approval.always** names it
+  that way. If that name is taken too, the prefix repeats until the name is
+  free.
 
 ## Connectors {#connectors}
 
@@ -529,6 +565,12 @@ graph and its Actions.
   [Resume a session](#resume).
 - **The local tools are not a sandbox.** An approved shell command runs with
   your permissions. See [Workspace and local tools](#local-tools).
+- **Deep Agents file tools are a guardrail, not a sandbox.** In
+  **dex-agents-deepagents**, **execute** runs any command with your
+  permissions, without approval unless **approval.always** names it. The file
+  tools' workspace check does not detect a link that changes during a call or
+  a hard link in the workspace to a file elsewhere. See
+  [Harnesses with their own tools](#harness-tools).
 - **Claude Code tools can run twice.** In **dex-agents-claude-sdk**, a Worker
   that dies during a turn segment runs the segment again, with its tool calls.
 - **Pi takes no images.** **dex-agents-pi** does not send a message with
@@ -544,9 +586,11 @@ graph and its Actions.
 - **TypeScript built-in and Vercel AI SDK models.** These commands accept only
   **openai/** and **anthropic/** model IDs. Any other model stops the command,
   or fails the turn when session settings set it.
-- **Deep Agents does not compact.** A long **dex-agents-deepagents** session
-  ends when its input no longer fits the model's context window. Start a new
-  session then. See [Compaction](/reference/agents/session-limits#compaction).
+- **Deep Agents does not compact or summarize.** Deep Agents' summarization is
+  off, because it would make an extra model call inside a model call's Step.
+  A long **dex-agents-deepagents** session ends when its input no longer fits
+  the model's context window. Start a new session then. See
+  [Compaction](/reference/agents/session-limits#compaction).
 - **The local server check does not authenticate.** On a shared machine, set
   **dex.server** and **connectors.mcp** to URLs you trust. See
   [The local Dex server](#dex-server).
