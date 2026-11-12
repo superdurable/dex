@@ -244,7 +244,7 @@ func (stack *realWorkerStack) testCtrlOShowsTheToolOutput(t *testing.T) {
 	chat.waitForScreen("Arguments")
 	require.Contains(t, chat.screenSince("Tool output"), "published pager note", "the pager shows the stored output")
 	chat.typeText("q")
-	chat.waitForScreen("Ctrl-D exit")
+	chat.waitForFrame("Ctrl-D exit")
 	chat.exit()
 }
 
@@ -493,9 +493,9 @@ func (stack *realWorkerStack) testIdleCtrlCExitsOnTheSecondPress(t *testing.T) {
 	sessionID := "terminal-ui-idle-ctrl-c"
 	stack.startSession(t, sessionID)
 	chat := stack.openChat(t, sessionID, false)
-	chat.waitForScreen("Ctrl-D exit")
+	chat.waitForFrame("Ctrl-D exit")
 	chat.typeText("\x03")
-	chat.waitForScreen("Press Ctrl-C again to exit")
+	chat.waitForFrame("Press Ctrl-C again to exit")
 	chat.typeText("\x03")
 	chat.waitForHostExit()
 }
@@ -508,10 +508,12 @@ func (stack *realWorkerStack) testResumeKeepsAWaitingApprovalClosed(t *testing.T
 	chat := stack.openChat(t, sessionID, false)
 	chat.typeText("publish later\r")
 	chat.waitForScreen("Approve publish_note?")
+	chat.typeText("\x1b")
+	chat.waitForFrame("1 approval waiting")
 	chat.exit()
 	resumed := stack.openChat(t, sessionID, true)
-	resumed.waitForScreen("1 approval waiting")
-	resumed.waitForScreen("Tab opens approvals")
+	resumed.waitForFrame("1 approval waiting")
+	resumed.waitForFrame("Tab opens approvals")
 	// The deferred popup would open after a second; this one never does.
 	time.Sleep(1500 * time.Millisecond)
 	require.NotContains(t, resumed.screen(), "Approve publish_note?")
