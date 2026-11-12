@@ -440,27 +440,47 @@ and returns its ID once the session is ready, as the command does at startup.
    bytes. `harness` is `command.harness`. The vectors in
    [`../conformance/terminal_ui/session_ids.json`](../conformance/terminal_ui/session_ids.json)
    fix this.
-2. It calls `StartFlow` for the first candidate with the key as the start
-   request's `request_id` and with "ignore already started" set
-   (`request_id` and `ignore_already_started` in the Dex SDKs' start options).
-   The Dex server stores the request ID with the run. When this key already
-   started that Flow ID, `StartFlow` returns that run, and the result is that
-   ID.
-3. When another request started that Flow ID, `StartFlow` fails with
-   `FlowAlreadyStarted`. The full key differs, so this is a collision of the
-   6-digit suffix (about 1 in 16 million for two keys of the same second), or
-   a session the plain chat started with a random suffix. It then tries the
-   12-digit candidate the same way.
-4. When another request started that one too, it answers `id_conflict`, and
-   the terminal UI shows `! Session ID conflict; press /new again.` The next
-   `/new` is a new action with a new key.
+2. Every `StartFlow` call below passes the key as the start request's
+   `request_id` and sets "ignore already started" (`request_id` and
+   `ignore_already_started` in the Dex SDKs' start options). The Dex server
+   stores the request ID with the run. For a Flow ID whose latest retained
+   run this key started, `StartFlow` returns that run and starts nothing.
+   For a Flow ID another request started, it fails with `FlowAlreadyStarted`.
+3. It reads the long candidate with `DescribeFlow`. When that Flow exists, it
+   calls `StartFlow` on it. A returned run is this key's earlier session:
+   the result is the long ID, and nothing else is tried. This step comes
+   first so that a resend never starts the short ID while the long one
+   already holds this key, for example after the run that once held the
+   short ID was purged.
+4. It calls `StartFlow` on the short candidate. A returned or new run gives
+   the short ID.
+5. When the short candidate fails with `FlowAlreadyStarted` (a 6-digit
+   suffix collision, about 1 in 16 million for two keys of the same second,
+   or a session the plain chat started with a random suffix), and step 3
+   found no long Flow, it calls `StartFlow` on the long candidate. A
+   returned or new run gives the long ID.
+6. Otherwise it answers `id_conflict`, and the terminal UI shows
+   `! Session ID conflict; press /new again.` The next `/new` is a new action
+   with a new key.
 
-So a resent key never starts a second session and never takes another
-request's session, even after the key table forgot it or the Worker host
-restarted. `session_ids.json` has two keys that share a 6-digit ID and the
-outcome for each set of existing Flows. Neither the session start input nor
-any Flow Attribute changes: the key lives in the server's start request
-record.
+Within one Worker host the key table runs one request per key at a time, so
+no second request with the same key races these steps.
+
+**What is guaranteed.** A resend with the same key never starts a second
+session, and never takes another request's session, while the Dex server
+still retains the runs that key may have started. This holds after the key
+table forgot the key and after a Worker host restart. Resends happen only
+inside a request's recovery (at most 60 s after it was first sent, see
+[Cancel and timeouts](#cancel-and-timeouts)), far shorter than any server
+retention. After the server purged the key's own run, a later resend of that
+key may start a new session; this is outside the guarantee.
+
+`session_ids.json` has two keys that share a 6-digit ID, the outcome for each
+set of retained Flows, and two sequences with purges: the other key's run is
+purged and the fallback key resends (its long-ID run again, nothing new), and
+the fallback key's own run is purged and it resends (a new session). Neither
+the session start input nor any Flow Attribute changes: the key lives in the
+server's start request record.
 
 **`list_connectors`** returns what `connectors` shows: `mcp_url`, one `tools`
 row per connector tool (`name`, `connector`, `connection`, `operation`, each
@@ -652,8 +672,9 @@ Its record starts with the arguments, the environment's names (never their
 values), and the terminal size and foreground state. It then lists a summary
 of every message it sent and received: type, ID, method, contract, mode,
 state, level, and error code. It never writes a message's texts, paths, or
-other values, in its record or on stderr. A difference names the fields
-that differ, not their values.
+other values, in its record or on stderr; a type, method, or code that is not
+a short lowercase name shows as `(other)`. A difference names only the fields
+this contract defines and counts the others, and never shows values.
 
 Run the checks:
 

@@ -43,7 +43,7 @@ import sys
 import termios
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -149,17 +149,26 @@ def candidate_session_ids(harness: str, idempotency_key: str) -> tuple[str, ...]
 
 
 def start_session_outcome(
-    harness: str, idempotency_key: str, started_request_ids: Mapping[str, str]
+    harness: str, idempotency_key: str, started_request_ids: MutableMapping[str, str]
 ) -> str | None:
-    """Return the session ID start_session ends with, or None for id_conflict.
+    """Run start_session against a model of the server; return the session ID or None.
 
-    ``started_request_ids`` maps each existing Flow ID to the StartFlow request ID that
-    started it. A candidate ID that is free, or that this key started, is the result.
+    ``started_request_ids`` maps each Flow ID the server retains to the StartFlow request
+    ID that started it; a started run is added to it. None means id_conflict. The long
+    candidate is checked first, so a resend never starts the short one while the long one
+    already holds this key.
     """
-    for session_id in candidate_session_ids(harness, idempotency_key):
-        started_by = started_request_ids.get(session_id)
-        if started_by is None or started_by == idempotency_key:
-            return session_id
+    short_id, long_id = candidate_session_ids(harness, idempotency_key)
+    long_holder = started_request_ids.get(long_id)
+    if long_holder == idempotency_key:
+        return long_id
+    short_holder = started_request_ids.get(short_id)
+    if short_holder is None or short_holder == idempotency_key:
+        started_request_ids[short_id] = idempotency_key
+        return short_id
+    if long_holder is None:
+        started_request_ids[long_id] = idempotency_key
+        return long_id
     return None
 
 
@@ -601,11 +610,11 @@ class TranscriptReplay:
         differing = differing_paths(
             _without_paths(expected, ignore), _without_paths(received, ignore)
         )
-        if differing:
+        if differing.known_paths or differing.unknown_field_count:
             raise ReplayMismatchError(
                 f"expected {json.dumps(summarize_message(expected), sort_keys=True)}, "
                 f"received {json.dumps(summarize_message(received), sort_keys=True)}; "
-                f"they differ at {', '.join(differing)}"
+                f"they differ at {differing.describe()}"
             )
 
     def _bind_alias(self, path: str, fixture_value: object, received_value: object) -> None:
@@ -625,35 +634,144 @@ def summarize_message(message: Mapping[str, Any]) -> dict[str, Any]:
     The summary keeps type, id, method, contract, mode, state, level, the error code, and
     whether a response holds a result.
     """
-    summary = {
-        name: message[name]
-        for name in ("type", "id", "method", "contract", "mode", "state", "level", "code")
-        if isinstance(message.get(name), str | int) and not isinstance(message.get(name), bool)
-    }
+    summary: dict[str, Any] = {}
+    for name in ("type", "id", "method", "contract", "mode", "state", "level", "code"):
+        value = message.get(name)
+        if isinstance(value, int) and not isinstance(value, bool):
+            summary[name] = value
+        elif isinstance(value, str):
+            summary[name] = value if _SUMMARY_NAME.fullmatch(value) else "(other)"
     error = message.get("error")
     if isinstance(error, dict) and isinstance(error.get("code"), str):
-        summary["error_code"] = error["code"]
+        code = error["code"]
+        summary["error_code"] = code if _SUMMARY_NAME.fullmatch(code) else "(other)"
     if "result" in message:
         summary["has_result"] = True
     return summary
 
 
-def differing_paths(expected: object, received: object, path: str = "") -> list[str]:
-    """Return the dotted paths where two JSON values differ, without their values."""
-    if isinstance(expected, dict) and isinstance(received, dict):
-        return [
-            difference
-            for name in sorted(set(expected) | set(received))
-            for difference in differing_paths(
-                expected.get(name, _MISSING), received.get(name, _MISSING), f"{path}.{name}"
-            )
-        ]
+@dataclass
+class MessageDifference:
+    """Where two messages differ: dotted paths of known fields, and a count of the rest."""
+
+    known_paths: list[str]
+    unknown_field_count: int
+
+    def describe(self) -> str:
+        """Return the difference as text that holds no value and no unknown field name."""
+        parts = list(self.known_paths)
+        if self.unknown_field_count:
+            parts.append(f"{self.unknown_field_count} field(s) contract 1 does not define")
+        return ", ".join(parts)
+
+
+def differing_paths(expected: object, received: object) -> MessageDifference:
+    """Return where two JSON values differ, never their values or untrusted field names."""
+    difference = MessageDifference([], 0)
+    _collect_differences(expected, received, "", difference)
+    return difference
+
+
+def _collect_differences(
+    expected: object, received: object, path: str, difference: MessageDifference
+) -> None:
     if expected == received:
-        return []
-    return [path.lstrip(".") or "(the message)"]
+        return
+    if not isinstance(expected, dict) or not isinstance(received, dict):
+        difference.known_paths.append(path.lstrip(".") or "(the message)")
+        return
+    for name in set(expected) | set(received):
+        expected_value = expected.get(name, _MISSING)
+        received_value = received.get(name, _MISSING)
+        if expected_value == received_value:
+            continue
+        if name in CHANNEL_FIELD_NAMES:
+            _collect_differences(expected_value, received_value, f"{path}.{name}", difference)
+        else:
+            difference.unknown_field_count += 1
+    difference.known_paths.sort()
 
 
 _MISSING = object()
+_SUMMARY_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
+# Every property name in the three terminal-ui-*.schema.json files; a test keeps it in sync.
+CHANNEL_FIELD_NAMES: Final = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "auth",
+        "ca_file",
+        "capabilities",
+        "code",
+        "command",
+        "config_path",
+        "connection",
+        "connections",
+        "connector",
+        "connectors",
+        "contract",
+        "contracts",
+        "credential",
+        "dex",
+        "dexcli_version",
+        "display",
+        "enabled",
+        "error",
+        "exit_code",
+        "flow_type",
+        "harness",
+        "id",
+        "idempotency_key",
+        "image",
+        "images",
+        "is_enabled",
+        "is_resumed",
+        "language",
+        "level",
+        "log_path",
+        "max_bytes",
+        "max_per_message",
+        "mcp_url",
+        "message",
+        "method",
+        "methods",
+        "mime_type",
+        "mode",
+        "model",
+        "modes",
+        "name",
+        "notices",
+        "operation",
+        "params",
+        "path",
+        "plan_mode",
+        "result",
+        "resume_session_id",
+        "server_address",
+        "server_id",
+        "server_name",
+        "session",
+        "session_id",
+        "sha256",
+        "size_bytes",
+        "source",
+        "state",
+        "status",
+        "text",
+        "tls",
+        "token",
+        "token_url",
+        "tools",
+        "turn_control",
+        "type",
+        "uri",
+        "url",
+        "uses_methods",
+        "version",
+        "web_url",
+        "workspace",
+    }
+)
 
 
 def _line_summary(line: bytes | None) -> str:
