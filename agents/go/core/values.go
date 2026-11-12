@@ -9,6 +9,7 @@
 package dexagents
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -990,6 +991,126 @@ type PlanExecutionRequest struct {
 	Revision int64 `json:"revision"`
 }
 
+// ExecutePlanRequest approves one plan revision through the execute_plan RPC.
+//
+// This Go core does not serve execute_plan; Workers of a core with plan mode do.
+// Since 0.6.0.
+type ExecutePlanRequest struct {
+	// Revision is the AgentPlan.Revision that the user reviewed.
+	Revision int64 `json:"revision"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing or null revision field, or a wrong JSON type.
+func (request *ExecutePlanRequest) UnmarshalJSON(data []byte) error {
+	type wireExecutePlanRequest ExecutePlanRequest
+	var decoded wireExecutePlanRequest
+	if err := decodeNonNullWireObject(data, &decoded, "ExecutePlanRequest", "revision"); err != nil {
+		return err
+	}
+	*request = ExecutePlanRequest(decoded)
+	return nil
+}
+
+// SteerUserMessageRequest steers the running turn through the steer_user_message RPC.
+//
+// Set exactly one field: MessageID moves a queued message, and Text steers
+// with new text. The RPC returns false when both or neither are set. This Go
+// core does not serve steer_user_message; Workers of a core with steering do.
+// Since 0.6.0.
+type SteerUserMessageRequest struct {
+	// MessageID is PendingUserMessage.MessageID of a queued message, or nil.
+	MessageID *string `json:"message_id"`
+	// Text is the new message text, or nil.
+	Text *string `json:"text"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing message_id or text field, or a wrong JSON type. Either
+// field may be null.
+func (request *SteerUserMessageRequest) UnmarshalJSON(data []byte) error {
+	type wireSteerUserMessageRequest SteerUserMessageRequest
+	var decoded wireSteerUserMessageRequest
+	if err := decodeWireObject(data, &decoded, "SteerUserMessageRequest", "message_id", "text"); err != nil {
+		return err
+	}
+	*request = SteerUserMessageRequest(decoded)
+	return nil
+}
+
+// DeleteQueuedMessageRequest deletes one queued user message through the delete_queued_message RPC.
+//
+// This Go core does not serve delete_queued_message; Workers of a core with
+// steering do. Since 0.6.0.
+type DeleteQueuedMessageRequest struct {
+	// MessageID is PendingUserMessage.MessageID from get_agent_snapshot.
+	MessageID string `json:"message_id"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing or null message_id field, or a wrong JSON type.
+func (request *DeleteQueuedMessageRequest) UnmarshalJSON(data []byte) error {
+	type wireDeleteQueuedMessageRequest DeleteQueuedMessageRequest
+	var decoded wireDeleteQueuedMessageRequest
+	if err := decodeNonNullWireObject(data, &decoded, "DeleteQueuedMessageRequest", "message_id"); err != nil {
+		return err
+	}
+	*request = DeleteQueuedMessageRequest(decoded)
+	return nil
+}
+
+// CancelTurnRequest stops the running turn through the cancel_turn RPC.
+//
+// This Go core does not serve cancel_turn; Workers of a core with turn
+// control do. Since 0.6.0.
+type CancelTurnRequest struct {
+	// TurnID is the turn to stop, or nil for the active turn. The RPC returns false when it names
+	// another turn.
+	TurnID *string `json:"turn_id"`
+}
+
+// UnmarshalJSON decodes the wire object; a missing turn_id decodes as nil.
+//
+// It returns an error for a wrong JSON type.
+func (request *CancelTurnRequest) UnmarshalJSON(data []byte) error {
+	type wireCancelTurnRequest CancelTurnRequest
+	var decoded wireCancelTurnRequest
+	if err := decodeWireObject(data, &decoded, "CancelTurnRequest"); err != nil {
+		return err
+	}
+	*request = CancelTurnRequest(decoded)
+	return nil
+}
+
+// AnswerQuestionRequest answers one pending question interrupt through the answer_question RPC.
+//
+// Decline a question with resolve_interrupt and Approved false instead. This
+// Go core does not serve answer_question; Workers of a core with questions
+// do. Since 0.6.0.
+type AnswerQuestionRequest struct {
+	// InterruptID is AgentInterrupt.InterruptID of a pending question interrupt.
+	InterruptID string `json:"interrupt_id"`
+	// Answer is the answer text. The RPC returns false for blank text, and for text outside
+	// AgentInterrupt.Choices when AgentInterrupt.AllowsFreeText is false.
+	Answer string `json:"answer"`
+}
+
+// UnmarshalJSON decodes the wire object and checks its required fields.
+//
+// It returns an error for a missing or null interrupt_id or answer field, or a wrong JSON type.
+func (request *AnswerQuestionRequest) UnmarshalJSON(data []byte) error {
+	type wireAnswerQuestionRequest AnswerQuestionRequest
+	var decoded wireAnswerQuestionRequest
+	if err := decodeNonNullWireObject(data, &decoded, "AnswerQuestionRequest", "interrupt_id", "answer"); err != nil {
+		return err
+	}
+	*request = AnswerQuestionRequest(decoded)
+	return nil
+}
+
 // ToolCallCompleted reports that one tool call of the active turn has a final record.
 //
 // Every tool call publishes exactly one to the internal ToolCallResults
@@ -1228,6 +1349,20 @@ func decodeWireObject(data []byte, target any, typeName string, requiredKeys ...
 		return fmt.Errorf("decode %s: %w", typeName, err)
 	}
 	return nil
+}
+
+// decodeNonNullWireObject is decodeWireObject whose required fields must also not be JSON null.
+func decodeNonNullWireObject(data []byte, target any, typeName string, requiredKeys ...string) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return fmt.Errorf("%s must be a JSON object: %w", typeName, err)
+	}
+	for _, key := range requiredKeys {
+		if value, isPresent := keys[key]; isPresent && string(bytes.TrimSpace(value)) == "null" {
+			return fmt.Errorf("%s field %q must not be null", typeName, key)
+		}
+	}
+	return decodeWireObject(data, target, typeName, requiredKeys...)
 }
 
 func decodeWireEnum[Enum ~string](text []byte, target *Enum, typeName string, allowed ...Enum) error {
