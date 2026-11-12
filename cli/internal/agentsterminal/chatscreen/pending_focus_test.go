@@ -163,10 +163,10 @@ func TestWaitingQuestionIsCalledAQuestion(t *testing.T) {
 	require.Contains(t, frame, "Tab opens questions")
 }
 
-// A finished write_todos row lists the plan steps; Ctrl-P opens them all.
+// A finished write_todos row lists the plan steps; Ctrl-T opens them all.
 func TestPlanStepsShowAsAChecklist(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{width: 100})
-	harness.press(ctrlKey('p'))
+	harness.press(ctrlKey('t'))
 	require.Contains(t, harness.scrollbackText(), "no plan yet")
 	startTurn(harness, "Plan it.")
 	items := []sessionfeed.PlanItem{
@@ -179,9 +179,9 @@ func TestPlanStepsShowAsAChecklist(t *testing.T) {
 	harness.feed(call, sessionfeed.PlanChanged{Revision: 1, Status: sessionfeed.PlanStatusDraft, Items: items}, sessionfeed.TurnEnded{TurnID: "turn-1"})
 	requireInOrder(t, harness.scrollbackText(), "write_todos", "3 steps", "plan updated", "☑ Read the file", "☐ Fix the test", "☐ Ship it")
 	require.Contains(t, harness.plainFrame(), "plan · 1 of 3 done · ▸ Fix the test")
-	require.Contains(t, harness.plainFrame(), "Ctrl-P steps")
+	require.Contains(t, harness.plainFrame(), "Ctrl-T steps")
 
-	harness.press(ctrlKey('p'))
+	harness.press(ctrlKey('t'))
 	require.NotNil(t, harness.screen.pager)
 	pager := harness.plainFrame()
 	requireInOrder(t, pager, "Plan", "revision 1 · draft · 1 of 3 done", "☑ Read the file", "☐ Fix the test", "☐ Ship it")

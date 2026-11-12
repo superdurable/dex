@@ -59,7 +59,12 @@ func (content messageContent) Window(top int, height int) []string {
 	return window
 }
 
-const statusBarHeight = 2
+const (
+	statusBarHeight = 2
+	// arrowScrollStep is the rows one Up or Down moves the messages; a wheel
+	// notch usually sends three.
+	arrowScrollStep = 1
+)
 
 // screenLayout is one frame's split of the screen into the message view and
 // the docked rows below it.
@@ -162,7 +167,7 @@ func (screen *ChatScreen) computeLayout() screenLayout {
 	layout.docked = screen.renderPendingBar(layout.contentWidth)
 	if len(screen.plan.Items) > 0 && screen.plan.Status != sessionfeed.PlanStatusCleared {
 		layout.docked = append(layout.docked, joinLeftAndRight(renderPlanLine(screen.plan.Items, layout.contentWidth, screen.theme),
-			screen.theme.Secondary.Render("Ctrl-P steps"), layout.contentWidth, screen.theme.Symbols.Ellipsis))
+			screen.theme.Secondary.Render("Ctrl-T steps"), layout.contentWidth, screen.theme.Symbols.Ellipsis))
 	}
 	layout.docked = append(layout.docked, screen.renderCompletionList(layout.contentWidth)...)
 	layout.docked = append(layout.docked, screen.renderPathCompletions(layout.contentWidth)...)

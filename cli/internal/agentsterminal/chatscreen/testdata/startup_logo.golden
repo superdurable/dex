@@ -1,9 +1,9 @@
 ==== UTF-8 ====
 ~~~~ 80x24 ~~~~
-  ▐█▌␛[92m ▜▙␛[m
-  ▐█▌␛[92m  ▜█▙␛[m  ␛[1mDex␛[m
-  ▐█▌␛[92m  ▟█▛␛[m  ␛[2mSuper Durable␛[m
-  ▐█▌␛[92m ▟▛␛[m
+  ▐█▌␛[32m ▜▙␛[m
+  ▐█▌␛[32m  ▜█▙␛[m  ␛[1mDex␛[m
+  ▐█▌␛[32m  ▟█▛␛[m  ␛[2mSuper Durable␛[m
+  ▐█▌␛[32m ▟▛␛[m
 
   ␛[2mcommand:   ␛[mopenai-sdk
   ␛[2mmodel:     ␛[mgpt-5.2
@@ -28,10 +28,10 @@
 
 ==== ASCII ====
 ~~~~ 80x24 ~~~~
-  |#|␛[92m \\␛[m
-  |#|␛[92m  \\␛[m   ␛[1mDex␛[m
-  |#|␛[92m  //␛[m   ␛[2mSuper Durable␛[m
-  |#|␛[92m //␛[m
+  |#|␛[32m \\␛[m
+  |#|␛[32m  \\␛[m   ␛[1mDex␛[m
+  |#|␛[32m  //␛[m   ␛[2mSuper Durable␛[m
+  |#|␛[32m //␛[m
 
   ␛[2mcommand:   ␛[mopenai-sdk
   ␛[2mmodel:     ␛[mgpt-5.2

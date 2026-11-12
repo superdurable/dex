@@ -129,7 +129,7 @@ func renderNoticeLine(severity sessionfeed.NoticeSeverity, text string, width in
 		bodyStyle = theme.Secondary
 	}
 	wrapped := terminaltheme.WrapToWidth(terminaltheme.ExpandTabs(body), max(width-4, 1))
-	if plainText := terminaltheme.ExpandTabs(text); noticeURLPattern.MatchString(plainText) {
+	if plainText := terminaltheme.ExpandTabs(text); hasLinkableURL(plainText) {
 		wrapped = renderLinkedLines(plainText, terminaltheme.WrapToWidth(plainText, max(width-4, 1)), bodyStyle, theme)
 	}
 	lines := make([]string, 0, len(wrapped))
@@ -146,6 +146,15 @@ func renderNoticeLine(severity sessionfeed.NoticeSeverity, text string, width in
 // noticeURLPattern finds the web addresses in a notice, such as Dex Web
 // links, without trailing punctuation.
 var noticeURLPattern = regexp.MustCompile(`https?://[!-~]*[A-Za-z0-9/#=&%_~+-]`)
+
+func hasLinkableURL(text string) bool {
+	for _, candidate := range noticeURLPattern.FindAllString(text, -1) {
+		if terminaltheme.IsLinkableURL(candidate) {
+			return true
+		}
+	}
+	return false
+}
 
 // renderLinkedLines returns the wrapped lines of text in style, with each URL
 // piece linked to its whole URL. Each line closes its own link.
@@ -166,6 +175,9 @@ func renderLinkedLines(text string, wrapped []string, style lipgloss.Style, them
 		rendered.WriteString(line[:strings.Index(line, trimmed)])
 		position := start
 		for _, span := range urlSpans {
+			if !terminaltheme.IsLinkableURL(text[span[0]:span[1]]) {
+				continue
+			}
 			pieceStart, pieceEnd := max(span[0], position), min(span[1], cursor)
 			if pieceStart >= pieceEnd {
 				continue
@@ -492,10 +504,11 @@ var helpKeyRows = [][2]string{
 	{"Esc", "cancel the running turn (empty input)"},
 	{"Ctrl-D", "exit (empty input)"},
 	{"Tab", "complete a /command or an /image path; on empty input, focus waiting approvals and queued messages, then Up/Down picks one"},
-	{"Up/Down", "recall earlier messages"},
+	{"Up/Down", "scroll the messages (empty input); move in a draft; keep recalling after Ctrl-P"},
+	{"Ctrl-P/N", "recall earlier and later messages"},
 	{"Ctrl-O", "open the last tool's full output"},
-	{"Ctrl-P", "show the plan's steps"},
-	{"PgUp/PgDn", "scroll the messages; End follows new ones"},
+	{"Ctrl-T", "show the plan's steps"},
+	{"PgUp/PgDn", "scroll the messages by a page; End follows new ones"},
 	{"Drag", "select text to copy with the terminal's copy key"},
 	{"F1", "show this help"},
 }

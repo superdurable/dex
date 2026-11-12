@@ -159,6 +159,11 @@ func TestStartupLogoSkipsSmallTerminals(t *testing.T) {
 
 func TestStartupLogoUsesTheBrandGreenOfTheBackground(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{showsLogo: true, profile: colorprofile.TrueColor})
+	unknown := harness.screen.View().Content
+	require.Contains(t, unknown, "  ▐█▌\x1b[32m", "without a background reply the chevron is ANSI green, readable on both")
+	require.NotContains(t, unknown, "38;2;112;238;169m")
+
+	harness.screen.Update(tea.BackgroundColorMsg{Color: color.Black})
 	dark := harness.screen.View().Content
 	require.Contains(t, dark, "  ▐█▌\x1b[38;2;112;238;169m", "the bar takes the default foreground; a dark background gets #70eea9")
 
@@ -198,6 +203,17 @@ func TestDexWebURLsAreLinks(t *testing.T) {
 			require.Contains(t, line, "\x1b]8;;\x1b\\", "each line closes its link")
 		}
 	}
+	for _, unsafe := range []string{"javascript:alert(1)", "file:///etc/passwd", "ftp://example.com/x", "http:///no-host", "http://"} {
+		lines := renderNoticeLine(sessionfeed.NoticeSeverityInfo, "Open "+unsafe+" now.", 80, harness.screen.theme)
+		require.NotContains(t, strings.Join(lines, ""), "\x1b]8;", "%s is not linked", unsafe)
+	}
+
+	harness.screen.openedSession.WebURL = "javascript:alert(1)"
+	unsafeWelcome := strings.Join(harness.screen.welcome().Render(80, harness.screen.theme), "\n")
+	require.NotContains(t, unsafeWelcome, "\x1b]8;", "an unsafe web_url is not linked")
+	require.NotContains(t, unsafeWelcome, "\x1b[4;34m", "an unsafe web_url is plain text")
+	require.Contains(t, unsafeWelcome, "javascript:alert(1)")
+
 	require.Equal(t, "✗DexWebdidnotopen.Open"+sessionURL+"yourself.", strings.Join(strings.Fields(stripForTest(strings.Join(narrow, ""))), ""), "wrapping keeps every character")
 }
 

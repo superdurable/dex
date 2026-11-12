@@ -49,7 +49,14 @@ func TestRenderLinkLinksOnlyPrintableURLs(t *testing.T) {
 	link := theme.RenderLink("http://127.0.0.1:8802", "Dex Web")
 	require.Equal(t, "\x1b]8;;http://127.0.0.1:8802\x1b\\\x1b[4;34mDex Web\x1b[m\x1b]8;;\x1b\\", link)
 	require.Equal(t, 7, DisplayWidth(link), "link sequences take no cells")
-	require.NotContains(t, theme.RenderLink("http://x\x07y", "x"), "\x1b]8;", "a URL with a control character is not linked")
+	for _, rejected := range []string{
+		"javascript:alert(1)", "file:///etc/passwd", "ftp://example.com/x", "http:///path", "https://",
+		"http://example.com/a b", "http://x\x07y", "http://x\x1b]8;;y", "", "127.0.0.1:8802",
+	} {
+		require.False(t, IsLinkableURL(rejected), "%q", rejected)
+		require.Equal(t, "x", theme.RenderLink(rejected, "x"), "%q renders as plain text", rejected)
+	}
+	require.True(t, IsLinkableURL("https://example.com/sessions/a?b=c#d"))
 }
 
 func TestIsUnicodeLocale(t *testing.T) {

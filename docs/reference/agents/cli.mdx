@@ -383,11 +383,16 @@ table, is drawn as formatted text.
 | Esc | Cancel the running turn when the input is empty. |
 | Ctrl-D | Exit when the input is empty. |
 | Tab | Complete a slash command or an **/image** path. With an empty input, go to the waiting approvals and queued messages. |
-| Up, Down | Recall earlier messages. |
+| Up, Down | With an empty input, scroll the messages one line. In a typed message, move between its lines. After Ctrl-P, keep recalling. |
+| Ctrl-P, Ctrl-N | Recall earlier messages, or go back toward the newest. |
 | Ctrl-O | Open the last tool call's full output. |
-| Ctrl-P | Show the plan's steps. |
-| PgUp, PgDn | Scroll the messages. End follows new ones again. |
+| Ctrl-T | Show the plan's steps. |
+| PgUp, PgDn | Scroll the messages by a page. End follows new ones again. |
 | F1 | Show the keys and the commands. |
+
+A mouse drag selects text for the terminal's copy key. Terminals that turn
+the mouse wheel into Up and Down keys scroll the messages with it. A Dex Web
+address is a link; terminals with hyperlink support open it on a click.
 
 A tool call that waits for approval opens a panel with the tool, its
 arguments, and for a file write, the change. Press **y** to approve, **n** to

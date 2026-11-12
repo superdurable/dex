@@ -54,9 +54,9 @@ type ChatScreen struct {
 
 	width  int
 	height int
-	// hasLightBackground is the terminal's answer to the background color
-	// query; dark until it answers.
-	hasLightBackground bool
+	// background is the terminal's answer to the background color query;
+	// unknown until it answers.
+	background terminalBackground
 
 	session           sessionfeed.SessionOpened
 	isSessionLoaded   bool
@@ -291,7 +291,7 @@ func NewChatScreen(ctx context.Context, config ChatScreenConfig) *ChatScreen {
 
 func (screen *ChatScreen) welcome() welcomeBlock {
 	isLogoShown := screen.isLogoAllowed && screen.width >= minimumLogoWidth && screen.height >= minimumLogoHeight
-	return welcomeBlock{session: screen.openedSession, isLogoShown: isLogoShown, hasLightBackground: screen.hasLightBackground}
+	return welcomeBlock{session: screen.openedSession, isLogoShown: isLogoShown, background: screen.background}
 }
 
 // ExitSummary is the line printed after the full screen closes: where the
@@ -327,7 +327,10 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		screen.width, screen.height = max(typed.Width, 1), max(typed.Height, 1)
 		screen.history.Replace(0, screen.welcome())
 	case tea.BackgroundColorMsg:
-		screen.hasLightBackground = !typed.IsDark()
+		screen.background = terminalBackgroundLight
+		if typed.IsDark() {
+			screen.background = terminalBackgroundDark
+		}
 		screen.history.Replace(0, screen.welcome())
 	case tea.KeyPressMsg:
 		commands = append(commands, screen.handleKey(typed), screen.scheduleDeferredPopup())
@@ -504,20 +507,14 @@ func (screen *ChatScreen) handleInputKey(key tea.KeyPressMsg) tea.Cmd {
 		}
 	case "ctrl+o":
 		screen.openLastToolOutput()
-	case "ctrl+p":
+	case "ctrl+t":
 		screen.openPlanPager()
-	case "up":
-		if screen.input.IsCursorOnFirstLine() {
-			screen.recallHistory(-1)
-		} else {
-			screen.input.MoveCursorVertically(true)
-		}
-	case "down":
-		if screen.input.IsCursorOnLastLine() {
-			screen.recallHistory(1)
-		} else {
-			screen.input.MoveCursorVertically(false)
-		}
+	case "ctrl+p":
+		screen.recallHistory(-1)
+	case "ctrl+n":
+		screen.recallHistory(1)
+	case "up", "down":
+		screen.handleUpDownKey(key.String() == "up")
 	case "ctrl+d":
 		if screen.input.IsEmpty() {
 			screen.exit(0)
@@ -924,6 +921,31 @@ func (screen *ChatScreen) explainQueuedMessageUnavailable(verb string) bool {
 		return false
 	}
 	return true
+}
+
+// handleUpDownKey scrolls an empty input's messages, since wheels send arrow
+// keys. An unedited recalled message keeps recalling.
+func (screen *ChatScreen) handleUpDownKey(isUp bool) {
+	step := 1
+	if isUp {
+		step = -1
+	}
+	switch {
+	case screen.input.IsEmpty():
+		screen.scrollBy(step * arrowScrollStep)
+	case isUp && screen.input.IsCursorOnFirstLine() && screen.isShowingRecalledMessage():
+		screen.recallHistory(-1)
+	case !isUp && screen.input.IsCursorOnLastLine() && screen.isShowingRecalledMessage():
+		screen.recallHistory(1)
+	default:
+		screen.input.MoveCursorVertically(isUp)
+	}
+}
+
+// isShowingRecalledMessage reports an input that holds an unedited earlier
+// message.
+func (screen *ChatScreen) isShowingRecalledMessage() bool {
+	return screen.historyIndex < len(screen.inputHistory) && screen.input.Value() == screen.inputHistory[screen.historyIndex]
 }
 
 func (screen *ChatScreen) recallHistory(step int) {

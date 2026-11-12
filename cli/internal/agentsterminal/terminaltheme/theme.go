@@ -12,6 +12,7 @@ package terminaltheme
 
 import (
 	"bytes"
+	"net/url"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -70,6 +71,9 @@ type Theme struct {
 	// Link styles a URL: the accent color, underlined. It is an ansi.Style
 	// because lipgloss underlines each character separately.
 	Link ansi.Style
+	// BrandMark styles the logo's chevron until the terminal reports its
+	// background: ANSI green, readable on both.
+	BrandMark lipgloss.Style
 	// BrandOnDark and BrandOnLight style the logo's chevron, the one
 	// non-status color, per terminal background.
 	BrandOnDark  lipgloss.Style
@@ -93,6 +97,7 @@ func NewTheme(profile colorprofile.Profile, isUnicode bool) Theme {
 		Error:     base.Foreground(errorColor),
 		Warning:   base.Foreground(warningColor),
 		Info:      base.Foreground(infoColor),
+		BrandMark: base.Foreground(okColor),
 		Link:      ansi.NewStyle().Underline(true).ForegroundColor(accentColor),
 		IsUnicode: isUnicode,
 	}
@@ -108,15 +113,28 @@ func NewTheme(profile colorprofile.Profile, isUnicode bool) Theme {
 }
 
 // RenderLink returns text underlined in the accent color, inside an OSC 8
-// hyperlink to url that terminals open on a click. A url with spaces or
-// control characters returns the styled text without a link.
+// hyperlink to url that terminals open on a click. It returns text unchanged
+// when IsLinkableURL rejects url.
 func (theme Theme) RenderLink(url string, text string) string {
-	if url == "" || strings.ContainsFunc(url, isOutsideLinkCharacters) {
-		return theme.Link.Styled(text)
+	if !IsLinkableURL(url) {
+		return text
 	}
 	// ST, not BEL, ends the sequences: BEL is a control character the
 	// screen otherwise never draws.
 	return "\x1b]8;;" + url + "\x1b\\" + theme.Link.Styled(text) + "\x1b]8;;\x1b\\"
+}
+
+// IsLinkableURL reports an http or https URL with a host and only printable
+// ASCII characters, the only URLs drawn as links.
+func IsLinkableURL(rawURL string) bool {
+	if rawURL == "" || strings.ContainsFunc(rawURL, isOutsideLinkCharacters) {
+		return false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func isOutsideLinkCharacters(character rune) bool {

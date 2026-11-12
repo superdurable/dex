@@ -9,17 +9,17 @@
   Ctrl-D       exit (empty input)
   Tab          complete a /command or an /image path; on empty input, focus
                waiting approvals and queued messages, then Up/Down picks one
-  Up/Down      recall earlier messages
+  Up/Down      scroll the messages (empty input); move in a draft; keep
+               recalling after Ctrl-P
+  Ctrl-P/N     recall earlier and later messages
   Ctrl-O       open the last tool's full output
-  Ctrl-P       show the plan's steps
-  PgUp/PgDn    scroll the messages; End follows new ones
+  Ctrl-T       show the plan's steps
+  PgUp/PgDn    scroll the messages by a page; End follows new ones
   Drag         select text to copy with the terminal's copy key
   F1           show this help
 
   ␛[1;94mCommands␛[m
   /approve     open the waiting approvals and questions
-  /copy        copy the last reply to the clipboard
-  /drop        delete the last queued message
 ␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
  ␛[34m›␛[m ␛[2mType a message. /image attaches a picture, /help lists commands.␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m

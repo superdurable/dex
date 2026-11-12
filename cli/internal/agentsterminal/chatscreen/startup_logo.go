@@ -48,10 +48,19 @@ var asciiLogoRows = []logoRow{
 // welcomeBlock opens the message view: the logo, where the session runs,
 // and how to start.
 type welcomeBlock struct {
-	session            sessionfeed.SessionOpened
-	isLogoShown        bool
-	hasLightBackground bool
+	session     sessionfeed.SessionOpened
+	isLogoShown bool
+	background  terminalBackground
 }
+
+// terminalBackground is the terminal's reply to the background color query.
+type terminalBackground int
+
+const (
+	terminalBackgroundUnknown terminalBackground = iota
+	terminalBackgroundDark
+	terminalBackgroundLight
+)
 
 func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string {
 	var lines []string
@@ -93,10 +102,14 @@ func (block welcomeBlock) Render(width int, theme terminaltheme.Theme) []string 
 }
 
 func (block welcomeBlock) brandStyle(theme terminaltheme.Theme) lipgloss.Style {
-	if block.hasLightBackground {
+	switch block.background {
+	case terminalBackgroundDark:
+		return theme.BrandOnDark
+	case terminalBackgroundLight:
 		return theme.BrandOnLight
+	default:
+		return theme.BrandMark
 	}
-	return theme.BrandOnDark
 }
 
 // renderStartupLogo draws the brand mark. Its green chevron is the one
