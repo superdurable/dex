@@ -105,8 +105,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/superdurable/dex/blob-cache-go v0.1.2 h1:vHwmUZl59GkpTdrcwouj47rnKdx45ETfZdtfxn/vzSM=
 github.com/superdurable/dex/blob-cache-go v0.1.2/go.mod h1:Atepb7+sztvDCztVKmlvEKCSKFCkHKtDhoFYjaFmtEw=
-github.com/superdurable/dex/sdk-go v1.45.0 h1:HizfFkbzzEq+VIdf/LDRqEEsYQn9p/qWcJfAbzlsDHk=
-github.com/superdurable/dex/sdk-go v1.45.0/go.mod h1:bmi+YWb2SuoQEEcili2+I0ePs+W1yVHGx/OD1bl71W0=
+github.com/superdurable/dex/sdk-go v1.45.1-0.20261112014933-d42ec7ae6850 h1:rCkYSHHOv/1Tmv+71nZFRsKsoS/HLQ76w1YH+XVv/mY=
+github.com/superdurable/dex/sdk-go v1.45.1-0.20261112014933-d42ec7ae6850/go.mod h1:bmi+YWb2SuoQEEcili2+I0ePs+W1yVHGx/OD1bl71W0=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
 github.com/tidwall/gjson v1.19.0 h1:xwxm7n691Uf3u5OFjzngavjGTh55KX5q/9w9xHW88JU=
 github.com/tidwall/gjson v1.19.0/go.mod h1:V37/opeE/JbLUOfH0QTXiNez2l0RUjYUhpT4szFQAfc=

@@ -224,6 +224,8 @@ export function parseConfigYaml(text: string): unknown {
  * @param config - The parsed file; `null` or `undefined` is `{}`.
  * @param harnessSection - The command's harness section, such as `claude`.
  * @param harnessDefaultModel - The command's default model, or `null` when it has none.
+ * @param harnessDefaultWorkspace - The workspace when the file sets none; defaults to {@link defaultWorkspace}.
+ * Since 0.6.0.
  * @returns The effective configuration.
  * @throws {ConfigError} `schema`, `invalid_url`, `duplicate_tool`, `duplicate_connection`, or `model_required`.
  * @since 0.5.0
@@ -232,6 +234,7 @@ export function resolveConfig(
   config: unknown,
   harnessSection: string,
   harnessDefaultModel: string | null,
+  harnessDefaultWorkspace: string = defaultWorkspace,
 ): EffectiveConfig {
   const value = config ?? {};
   throwFirstSchemaError(validators().config, value);
@@ -259,7 +262,7 @@ export function resolveConfig(
     dex: { server: dexServer },
     connectors: { mcp: connectorsMcp, enabled: entries },
     approval: { always: [...(file.approval?.always ?? [])] },
-    workspace: file.workspace ?? defaultWorkspace,
+    workspace: file.workspace ?? harnessDefaultWorkspace,
     local_tools: {
       files: file.local_tools?.files ?? true,
       shell: { enabled: shell?.enabled ?? true, allow: [...(shell?.allow ?? [])] },

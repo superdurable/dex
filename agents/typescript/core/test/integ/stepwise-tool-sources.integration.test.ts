@@ -27,6 +27,7 @@ import {
   type ToolTaskPollOutcome,
 } from "../../src/index.js";
 import {
+  McpToolListingError,
   McpToolSource,
   defaultMcpSourceName,
   mcpGetPromptToolName,
@@ -336,12 +337,18 @@ describe("tool source routing, policies, listing failures, and name collisions",
     const directory = mkdtempSync(join(tmpdir(), "stepwise-down-"));
     const refusingLog = join(directory, "refusing.log");
     const hangingLog = join(directory, "hanging.log");
+    const warnings: string[] = [];
     const source = new McpToolSource(
       [
         { transport: "stdio", name: "refusing", command: writeLaunchScript(join(directory, "refusing"), refusingLog, "exit 1") },
         { transport: "stdio", name: "hanging", command: writeLaunchScript(join(directory, "hanging"), hangingLog, "exec sleep 60") },
       ],
-      { connectionTimeoutMs: 3_000, connectionAttempts: 1, listingFailureBackoffMs: 300_000 },
+      {
+        connectionTimeoutMs: 3_000,
+        connectionAttempts: 1,
+        listingFailureBackoffMs: 300_000,
+        logWarning: (message) => warnings.push(message),
+      },
     );
     const model = answers();
     const runner = new BuiltinLoopAgentRunner({
@@ -374,6 +381,29 @@ describe("tool source routing, policies, listing failures, and name collisions",
     );
     assert.equal(launches(refusingLog), 1);
     assert.equal(launches(hangingLog), 1);
+    // The backoff keeps each down server to one warning, written through logWarning.
+    assert.deepEqual(
+      warnings.map((warning) => warning.split(":")[0]).sort(),
+      ["left MCP server hanging out of the tool listing", "left MCP server refusing out of the tool listing"],
+    );
+  });
+
+  test("a logWarning callback that throws does not replace the listing outcome", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stepwise-throwing-warning-"));
+    const refusingLog = join(directory, "refusing.log");
+    const source = new McpToolSource(
+      [{ transport: "stdio", name: "refusing", command: writeLaunchScript(join(directory, "refusing"), refusingLog, "exit 1") }],
+      {
+        connectionTimeoutMs: 3_000,
+        connectionAttempts: 1,
+        logWarning: () => {
+          throw new Error("the disk is full");
+        },
+      },
+    );
+    // With no server listed, listTools reports the listing failure, not the callback's error.
+    await assert.rejects(source.listTools(), McpToolListingError);
+    assert.equal(launches(refusingLog), 1);
   });
 
   test("a hanging source is bounded per model call", async () => {

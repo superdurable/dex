@@ -63,8 +63,12 @@ from dex_agents_cli_core.config_file import (
 )
 from dex_agents_cli_core.connectors import (
     ConnectorCatalogTool,
+    ConnectorsMcpAccessDeniedError,
+    ConnectorsMcpListingError,
     ConnectorsMcpToolSource,
     ConnectorsMcpUnavailableError,
+    connectors_access_denied_sentence,
+    connectors_unavailable_line,
     read_connector_catalog,
 )
 from dex_agents_cli_core.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
@@ -182,7 +186,7 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     except ValueError as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
-    _configure_logging(environment, harness)
+    log_path = _configure_logging(environment, harness)
     try:
         if arguments.command == "init":
             return _init(arguments, environment, harness)
@@ -194,7 +198,7 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
             case "connectors":
                 return asyncio.run(_list_connectors(loaded, environment, harness))
             case _:
-                return asyncio.run(_run(arguments, loaded, environment, harness))
+                return asyncio.run(_run(arguments, loaded, environment, harness, log_path))
     except _InitCancelled as cancelled:
         print("\nCancelled; no configuration written.", file=sys.stderr)
         return cancelled.exit_code
@@ -213,14 +217,16 @@ def _run_worker_host(harness: AgentHarness, argv: Sequence[str]) -> int:
     except ValueError as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
-    _configure_logging(environment, harness)
+    log_path = _configure_logging(environment, harness)
 
     async def open_run(
         start: WorkerHostStart,
         reports: WorkerHostReports,
         process_groups: ToolProcessGroupRegistry,
     ) -> HostedRun:
-        return await _open_hosted_run(environment, harness, start, reports, process_groups)
+        return await _open_hosted_run(
+            environment, harness, start, reports, process_groups, log_path
+        )
 
     return run_worker_host(argv, harness.name, environment.agents_directory / "run", open_run)
 
@@ -231,6 +237,7 @@ async def _open_hosted_run(
     start: WorkerHostStart,
     reports: WorkerHostReports,
     process_groups: ToolProcessGroupRegistry,
+    log_path: Path | None,
 ) -> HostedRun:
     """Build the Worker and open the session for a launcher, as ``run`` does in one process."""
     try:
@@ -260,6 +267,7 @@ async def _open_hosted_run(
                 report=reports.report,
                 report_runtime=reports.report,
                 open_connectors_page=reports.open_connectors_page,
+                log_path=log_path,
             ),
             process_groups=process_groups,
         )
@@ -366,14 +374,26 @@ def _parse_arguments(harness: AgentHarness, argv: Sequence[str] | None) -> _Argu
     )
 
 
-def _configure_logging(environment: CommandEnvironment, harness: AgentHarness) -> None:
-    environment.agents_directory.mkdir(parents=True, exist_ok=True)
+def _configure_logging(environment: CommandEnvironment, harness: AgentHarness) -> Path | None:
+    """Send the ``logging`` records to the log file.
+
+    Returns:
+        The log file, or ``None`` when it cannot be written; logging is then off.
+    """
     log_path = environment.agents_directory / f"{harness.name}.log"
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
-    root.handlers[:] = [handler]
     root.setLevel(logging.INFO)
+    try:
+        environment.agents_directory.mkdir(parents=True, exist_ok=True)
+        handler: logging.Handler = logging.FileHandler(log_path, encoding="utf-8")
+    except OSError as error:
+        print(f"Logging is off: cannot write {log_path}: {error}", file=sys.stderr)
+        # Without a handler, logging's last resort would print every warning to the terminal.
+        root.handlers[:] = [logging.NullHandler()]
+        return None
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    root.handlers[:] = [handler]
+    return log_path
 
 
 def _is_interactive() -> bool:
@@ -432,6 +452,7 @@ async def _run(
     loaded: LoadedConfig,
     environment: CommandEnvironment,
     harness: AgentHarness,
+    log_path: Path | None,
 ) -> int:
     inputs = _prepare_run(arguments.model, loaded, environment, _report_ignored_settings)
     endpoint = await _resolve_server(inputs.config, environment)
@@ -441,7 +462,9 @@ async def _run(
             return outcome
         if isinstance(outcome, PlainFallback):
             arguments = replace(arguments, resume_session_id=outcome.session_id)
-    return await _run_plain_chat(arguments, environment, harness, loaded, inputs, endpoint)
+    return await _run_plain_chat(
+        arguments, environment, harness, loaded, inputs, endpoint, log_path
+    )
 
 
 def _is_terminal_ui_wanted(
@@ -559,6 +582,7 @@ async def _run_plain_chat(
     loaded: LoadedConfig,
     inputs: _RunInputs,
     endpoint: DexServerEndpoint,
+    log_path: Path | None,
 ) -> int:
     session_worker = await _SessionWorker.start(
         environment,
@@ -570,6 +594,7 @@ async def _run_plain_chat(
             report=print,
             report_runtime=_report_on_standard_error,
             open_connectors_page=_open_connectors_page_if_interactive(environment),
+            log_path=log_path,
         ),
     )
     terminal = Terminal()
@@ -604,11 +629,13 @@ class _SessionWorkerReports:
         report: Prints one startup line, such as a connectors warning.
         report_runtime: Prints one line while the chat runs.
         open_connectors_page: Opens the Dex Web Connectors page, or does nothing.
+        log_path: The log file a line about an error points to, or ``None``.
     """
 
     report: Callable[[str], None]
     report_runtime: Callable[[str], None]
     open_connectors_page: Callable[[str], None]
+    log_path: Path | None
 
 
 class _SessionWorker:
@@ -654,6 +681,7 @@ class _SessionWorker:
             inputs.resolver,
             harness,
             inputs.media_store,
+            reports.log_path,
             reports=reports,
         )
         local_tools = _local_tool_source(
@@ -798,6 +826,7 @@ async def _connect_connectors(
     resolver: TurnConfigResolver,
     harness: AgentHarness,
     media_store: MediaStore,
+    log_path: Path | None,
     *,
     reports: _SessionWorkerReports,
 ) -> ConnectorsMcpToolSource | None:
@@ -806,8 +835,10 @@ async def _connect_connectors(
     An unavailable ``auto`` server only warns: the source lists it again on
     every turn, so a server that is still starting comes alive. A harness
     whose tool set is fixed at build time gets no connector tools in this run
-    then, and the warning says to restart it. An explicit URL that is
-    unavailable fails the command with exit code 1.
+    then, and the warning says to restart it. An explicit URL that does not
+    answer ``initialize`` fails the command with exit code 1; one that answers
+    but cannot be listed only warns, as ``auto`` does. Each availability
+    change, the startup one included, prints exactly one line.
     """
     if config.connectors.enabled == ():
         return None
@@ -818,33 +849,55 @@ async def _connect_connectors(
             "Set connectors.mcp to the MCP server's URL."
         )
         return None
-    is_tool_set_fixed = _is_tool_set_fixed_at_build(harness)
+    hint = _connectors_unavailable_hint(log_path, endpoint.web_url)
+    if _is_tool_set_fixed_at_build(harness):
+        restart = _restart_for_connector_tools(harness)
+
+        def describe_unavailable(error: ConnectorsMcpUnavailableError) -> str:
+            if isinstance(error, ConnectorsMcpAccessDeniedError):
+                return f"{connectors_access_denied_sentence(error)} {hint} {restart}"
+            return f"The connectors MCP server is unavailable. {hint} {restart}"
+
+    else:
+
+        def describe_unavailable(error: ConnectorsMcpUnavailableError) -> str:
+            return connectors_unavailable_line(error, hint)
+
     try:
         catalog = await read_connector_catalog(url)
     except ConnectorsMcpUnavailableError as error:
-        message = f"The connectors MCP server is unavailable: {error}"
-        if config.connectors.mcp != AUTO:
-            raise CommandFailure(message) from error
-        if is_tool_set_fixed:
-            reports.report(f"{message}. {_restart_for_connector_tools(harness)}")
-        else:
-            reports.report(f"{message}. Continuing without connector tools until it answers.")
+        # An explicit server that answers initialize stays configured; each turn lists it again.
+        if config.connectors.mcp != AUTO and not isinstance(error, ConnectorsMcpListingError):
+            raise CommandFailure(f"The connectors MCP server is unavailable: {error}") from error
+        _LOGGER.warning("connectors MCP server %s could not be listed", url, exc_info=error)
+        reports.report(describe_unavailable(error))
         return ConnectorsMcpToolSource(
             url,
             resolver,
-            is_available=False,
             report=reports.report_runtime,
             media_store=media_store,
+            describe_unavailable=describe_unavailable,
+            startup_error=error,
         )
     _report_unauthorized(config, catalog, endpoint.web_url, reports)
     source = ConnectorsMcpToolSource(
-        url, resolver, report=reports.report_runtime, media_store=media_store
+        url,
+        resolver,
+        report=reports.report_runtime,
+        media_store=media_store,
+        describe_unavailable=describe_unavailable,
     )
+    # A failed listing prints the one line through describe_unavailable.
     await source.list_file_enabled_tools()
-    if is_tool_set_fixed and not source.is_available:
-        restart = _restart_for_connector_tools(harness)
-        reports.report(f"The connectors MCP server could not be listed. {restart}")
     return source
+
+
+def _connectors_unavailable_hint(log_path: Path | None, web_url: str | None) -> str:
+    """Say where the error and the connections are, for a line about an unavailable server."""
+    page = f"{web_url}{CONNECTORS_WEB_PATH}" if web_url else "the Dex Web Connectors page"
+    if log_path is None:
+        return f"See {page} for connections."
+    return f"See {log_path} for the error and {page} for connections."
 
 
 def _is_tool_set_fixed_at_build(harness: AgentHarness) -> bool:
