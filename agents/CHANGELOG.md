@@ -4,6 +4,506 @@ All twenty-six published Dex agents packages share this changelog and one versio
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## 0.6.0 (2026-11-12)
+
+### Breaking
+
+- `dex-agents-deepagents` (Python): file writes and shell commands no longer
+  wait for approval by default, as in Deep Agents without `interrupt_on`.
+  Name `write_file`, `edit_file`, `delete`, `execute`, or `task` in
+  `approval.always` to make them wait. `local_tools.shell.allow` has no effect
+  on this command. The tool names are Deep Agents' own, so `read_file`,
+  `write_file`, and `edit_file` take `file_path` with an absolute path, and the
+  CLI core's `list_directory`, `search_files`, and `run_shell_command` are gone
+  from this command; a resumed session replays its earlier calls of them
+  unchanged.
+- `dex_agents_deepagents_cli`: `build_deep_agent` takes the workspace as a
+  second argument, and `write_todos_tool` is removed; `write_todos` comes from
+  LangChain's `TodoListMiddleware`.
+- `dex-agents-pi` (TypeScript): `write`, `edit`, and `bash` no longer wait for
+  approval by default, as in Pi. Name a tool in `approval.always` to make it
+  wait. `local_tools.shell.allow` has no effect on this command.
+- `dex-agents-pi`: the file tools and `bash` no longer go through the CLI
+  core's workspace file layer. They use Pi's own local operations and reach
+  any path you can, including absolute paths, `~`, links, and hard links.
+  `grep` and `find` run `rg` and `fd` and respect `.gitignore`; Pi downloads
+  a missing one to `~/.pi/agent/bin` unless `PI_OFFLINE` is set.
+- `dex-agents-pi`: a `timeout` from the model follows Pi's rules and is no
+  longer capped at 600 seconds; `pi.bash_timeout_seconds` still applies,
+  120 by default, when the model passes none. A non-zero exit or a timeout
+  kill records `failed` with the output instead of a result. A cut output
+  names Pi's temporary file, which the command no longer deletes.
+- `dex-agents-pi`: without `workspace` in the file, the workspace is the
+  directory the command starts in, and `init` writes no `workspace`. A file
+  that an earlier `init` wrote keeps its `workspace: ~/dex-agent-workspace`.
+  A session started without a file resumes only with that line in the file.
+- `@superdurable/dex-agents-pi-cli`: `WorkspaceGrep`,
+  `defaultGrepMatchTimeoutMs`, and `WorkspaceGrepArguments` are removed.
+- TypeScript OpenAI Agents adapter and the TypeScript **dex-agents-openai-sdk**:
+  a turn that waits on a call of a source tool whose name has `-`, such as one
+  waiting for approval, while its Worker upgrades fails when it resumes. Its
+  saved run state names the tool with `_`, the name the model saw before this
+  release, and the SDK no longer finds that tool. New turns are not affected.
+
+### Added
+
+- The Dex Agents CLI commands (`dex-agents-cli-core` and
+  `@superdurable/dex-agents-cli-core`) read `DEX_AGENTS_OPEN_BROWSER`. Set it
+  to `0` or `false`, and a command at a terminal no longer opens the Dex Web
+  Connectors page in a web browser. It still prints the page's URL.
+- Python and TypeScript cores: `ToolExecutionResult` has an optional
+  `is_finished_by_resumed_turn` (`isFinishedByResumedTurn`). A runner sets it
+  when its tool Step only approves a tool that really runs later, inside the
+  resumed `RunModel`, such as a Claude Code tool. The session still records
+  `succeeded` and writes `tool_call_started`, but writes no
+  `tool_call_finished`; the runner writes that event when the resumed turn
+  runs the call. Nothing new is stored, and runners that leave it unset
+  behave as before.
+- Go core: package `remotesession` calls agent sessions that Python or
+  TypeScript Workers serve, from a Go Client that serves none.
+  `RemoteSessionFlow` registers every session RPC of those cores with the same
+  names, locks, state loads, and wire values, including `answer_question`,
+  `cancel_turn`, `steer_user_message`, `delete_queued_message`,
+  `execute_plan`, and `send_user_message` with `plan_mode` and `images`, plus
+  the `AgentEvents` Stream; `RemoteSessionClient` types the calls. The flow is
+  client-only, so a Go Worker refuses it. The Go core adds the wire types
+  `ExecutePlanRequest`, `SteerUserMessageRequest`,
+  `DeleteQueuedMessageRequest`, `CancelTurnRequest`, and
+  `AnswerQuestionRequest`. The Go Worker's session Flow is unchanged.
+- Python and TypeScript cores: a tool approval can say what the call acts on
+  and what it does. New `AgentInterruptDisplay` `{target, summary, preview}`:
+  a tool source returns it in `DeferredToolCall.approval_display`
+  (`approvalDisplay`), and the session stores it in the new optional
+  `AgentInterrupt.display`, on the call's record as `approval_display`
+  (`approvalDisplay`), and in the `interrupt_raised` event's new `display`
+  key. A queued ordered write raises its approval later with the display its
+  source built. The session cuts a target over `MAX_APPROVAL_TARGET_BYTES`
+  (`maxApprovalTargetBytes`, 1 KiB) and a summary over
+  `MAX_APPROVAL_SUMMARY_BYTES` (`maxApprovalSummaryBytes`, 2 KiB), ending
+  them with `…`, and drops a preview over `MAX_APPROVAL_PREVIEW_BYTES`
+  (`maxApprovalPreviewBytes`, 16 KiB). Each new field is `null` when there is
+  none, so a reader treats a missing display as "show the arguments"; a
+  Worker before 0.6.0 ignores the fields and drops them when it rewrites a
+  record or `PendingInterrupts`. The Go core decodes and keeps both fields.
+- Python and TypeScript cores: `ConnectorToolSource` sets the display of a call
+  that needs approval, with the new `build_connector_tool_approval_display`
+  (`buildConnectorToolApprovalDisplay`): the target is
+  `<connector>/<connection>`, and the summary names the operation, the
+  connection, and up to five short scalar arguments, never the operation's
+  description. A credential-like argument, such as `credentials`, `apiKey`, or
+  `PGPASSWORD`, shows `<redacted>`, and string values and names have common
+  credential shapes replaced. The new `is_credential_like_name`
+  (`isCredentialLikeName`) and `redact_inline_credentials`
+  (`redactInlineCredentials`) hold the rules, and
+  `agents/conformance/approval_display.json` fixes them for every core. This
+  redaction is best-effort hygiene for displayed text, not a security
+  boundary: the session stores the call's full arguments as before.
+- Python and TypeScript CLI cores: a `write_file` or `edit_file` approval names
+  the workspace path and carries a unified diff of the file as it is when the
+  model asks against the new content, with header lines that say so and
+  `\ No newline at end of file` markers. The preview reads the file with the
+  write's own link and workspace checks. It is left out for files or content
+  over 64 KiB, diffs over 200 lines, paths the write would refuse, content the
+  best-effort credential redaction changes, and credential files such as
+  `.env`, `.aws/credentials`, `.kube/config`, or `secrets.yaml`. A
+  `run_shell_command` approval names the working directory and the command
+  with common credential shapes redacted; the call's arguments keep the full
+  command. A connector tool's approval names its operation, connection, and
+  short arguments.
+- TypeScript CLI core (`@superdurable/dex-agents-cli-core`):
+  `AgentHarness.defaultWorkspaceLocation`. With `launch_directory`, the
+  workspace is the directory the command starts in when the file sets none,
+  and `init` writes no `workspace`. `resolveConfig` takes the harness's
+  default workspace as an optional fourth argument.
+  `ConnectorsMcpToolSource.deferredToolCall` and `executeDeferredToolCall`
+  take an optional name for `approval.always` to match, for a wrapper that
+  offers the tool under another name. All additions are optional, so existing
+  harnesses build and behave as before.
+- `@superdurable/dex-agents-pi-cli`: `PrefixedConnectorToolSource` and
+  `collidingConnectorToolPrefix`, which offer the connector tools beside Pi's
+  tools.
+- Python, TypeScript, and Go cores: a stored user message that the session
+  wrote itself carries the new optional `AgentMessage.origin`, so a client can
+  tell it apart from text a person typed. The values are `plan_execution` for
+  the message that starts an `execute_plan` turn, and `turn_failure_note`,
+  `turn_steered_note`, and `turn_cancelled_note` for the notes that tell the
+  model which tool calls of an ended turn ran. The new `AgentMessageOrigin`
+  names them. A message that a user sent, and every message stored before
+  0.6.0, has none. The wire field is `null` when absent; a Worker before
+  0.6.0 ignores it and drops it when it moves the message into an archive
+  chunk. Decoders keep a value they do not know, so a later value still
+  reads as a session-written message. The Go core decodes the field in
+  `remotesession` and sets `turn_failure_note` on its own turn-failure note.
+- Python and TypeScript cores: a session Flow can keep a summary for session
+  lists in three indexed Attributes. Turn it on with
+  `AgentSessionOptions.summary_attributes_indexed` (Python) or
+  `summaryAttributesIndexed` (TypeScript); it is off by default, and then the
+  Flow neither declares nor writes them. `flow.options` reports the setting.
+  `AgentSessionTitle` (FULL_TEXT, index key `text1`) is the first user
+  message with each run of ASCII whitespace made one space, cut to its first
+  80 Unicode code points, and only the first turn writes it.
+  `AgentSessionLastActivityAt` (DATETIME, `datetime1`) is the RFC 3339 time
+  the first attempt of the Step that started or ended the latest turn
+  started. `AgentSessionTurnCount` (INT, `int1`) is `AgentState.turn_count`
+  as of that Step. Python exports them as `AGENT_SESSION_TITLE`,
+  `AGENT_SESSION_LAST_ACTIVITY_AT`, and `AGENT_SESSION_TURN_COUNT`; the
+  TypeScript Flow has `agentSessionTitle`, `agentSessionLastActivityAt`, and
+  `agentSessionTurnCount`. The persisted format only gains these Attributes.
+- Adapter factories take the same option: Python `summary_attributes_indexed`
+  of `builtin_agent_session_flow`, `openai_agents_session_flow`,
+  `pydantic_ai_session_flow`, and `adk_agent_session_flow`; TypeScript
+  `summaryAttributesIndexed` of `createBuiltinAgentSessionFlow`,
+  `createOpenAIAgentsSessionFlow`, `createMastraAgentSessionFlow`,
+  `createVercelAiAgentSessionFlow`, and `createClaudeAgentSessionFlow`.
+- Before turning the option on: the title is the user's own words, and anyone
+  who can search the namespace's Flows reads it. With PostgreSQL search, a
+  Worker with the option fails to start with `FAILED_PRECONDITION` when the
+  namespace registered `text1`, `datetime1`, or `int1` with another type, or
+  when all three keys of one of these types are taken by other names.
+- Python and TypeScript cores: `list_agent_sessions` / `listAgentSessions`
+  reads one page of a session Flow type's sessions, with an optional title
+  search, in one `SearchFlows` call, without snapshots and without a Worker.
+  A title search raises `SessionTitleSearchUnavailableError` while the
+  namespace has not registered `text1`; another search error stays a
+  `DexServiceError`. `sort_agent_sessions_by_last_activity` /
+  `sortAgentSessionsByLastActivity` sorts loaded sessions, because Dex sorts
+  only by start or close time. `build_session_title` / `buildSessionTitle`
+  gives the title rule, which the conformance suite fixes in `names.json`
+  `session_titles`.
+- A session without the option, or one that an earlier release started,
+  lists without the summary and never matches a title search. An earlier
+  session gains the last activity time and the turn count at its next turn on
+  a Worker with the option. During a rolling upgrade, turns that an earlier
+  Worker or a Go Worker runs leave the summary as it was. An earlier session
+  with no turn yet gains a title at its first turn. Turning the option off
+  stops new writes; the values written before stay. A session that fails
+  because its state would exceed the server's limit can keep the values of its
+  last turn start.
+- Python and TypeScript CLI cores: a new `sessions.summary` setting, `auto`
+  by default, decides whether the commands' session Flows keep the summary.
+  `auto` keeps it only with `dex.server: auto`, the local `dexcli dev`, and
+  leaves a Dex server URL alone; `on` keeps it with any server; `off` never.
+  The CLI core passes the result to the harness as
+  `HarnessContext.is_session_summary_indexed` /
+  `HarnessContext.isSessionSummaryIndexed`; every built-in harness builds its
+  Flow with it, and the command refuses to start when a harness's Flow does
+  not follow it, in either direction. The check reads the Flow's persistence
+  schema, which decides the index keys the Worker registers, and its options;
+  it verifies what the Flow declares and does not sandbox harness code. A
+  custom harness must honor the field.
+  The TypeScript `EffectiveConfig` gains an optional `sessions` field, which
+  `resolveConfig` always sets. `sessions` loads up to five pages of 50
+  sessions, sorts them by last activity, says when more exist, and adds the
+  time of the latest turn, the turn count, and the title. The TypeScript line
+  keeps its tab-separated ID, status, and start time and appends the three
+  columns, with `—` for a missing value.
+- The Python CLI commands (`dex-agents-cli-core`) accept `--plain`, which
+  keeps the chat in plain text lines instead of the `dexcli` terminal UI.
+- The TypeScript CLI commands (`@superdurable/dex-agents-cli-core`) take
+  `--plain`, which keeps the chat in plain text instead of the `dexcli`
+  terminal UI. Pi always keeps the plain text chat, through the new
+  `AgentHarness.terminalInterface` declaration (`"plain"`).
+
+### Changed
+
+- `dex-agents-claude-sdk` (Python and TypeScript): the command no longer loads
+  MCP servers or claude.ai connectors from the user's Claude Code
+  configuration or login, such as a workspace `.mcp.json`, a user-scope MCP
+  server, or the Gmail and Google Drive connectors of a claude.ai account. Its
+  Claude Agent SDK options set `strictMcpConfig` (`strict_mcp_config`) and the
+  flag setting `disableClaudeAiConnectors`, so the model sees only Claude
+  Code's built-in tools, the browser tools, and the Dex connector tools, which
+  Dex approves and records as Steps. The Claude Agent SDK adapters keep their
+  defaults for applications.
+- **dex-agents-builtin** (Python and TypeScript): plan mode is on, and the
+  agent has the `write_todos` built-in tool next to `ask_user`. In the
+  terminal UI, `/plan` drafts a plan with `write_todos` only, and `/run`
+  approves it and runs it with every tool; the session API works too. The
+  plain chat has no plan commands.
+- **dex-agents-builtin**: `write_todos` is now a reserved tool name, so a
+  connector or local tool with that name fails the turn. Rename the
+  conflicting tool, or use another harness.
+- Python CLI core, terminal UI: the startup notices of the Worker host, such
+  as connector tools that are unavailable, and the lines about a `dexcli dev`
+  that the command started, such as its log file, reach the terminal UI as
+  launch notices. Before, they were printed only before the terminal UI
+  covered the screen, so the user saw them after exiting.
+- Python and TypeScript CLI cores (`dex-agents-cli-core`,
+  `@superdurable/dex-agents-cli-core`): a `dexcli dev` that a command started
+  for `dex.server: auto` now stops when the command exits, instead of running
+  on. This covers `/exit`, the end of input, the Ctrl-C that exits, a failure,
+  SIGTERM, and SIGHUP, and the `run`, `sessions`, and `connectors`
+  subcommands. The command removes `~/.dex/agents/dexcli-dev.json`, sends
+  SIGTERM to the `dexcli dev` process group, which includes `dex-server-zd`,
+  then SIGKILL after 20 seconds, and prints "Stopped the dexcli dev this
+  command started." Another signal during those 20 seconds sends SIGKILL at
+  once. The command signals the group only while `dexcli dev` itself still
+  runs. After SIGTERM or SIGHUP it exits with 128 plus the signal number. The
+  startup line says that the server stops with the command.
+- A reused `dexcli dev` is never stopped: one you started, or one that another
+  command started. To share one server across sessions, run `dexcli dev`
+  yourself first, or set `dex.server`. A command that reused another command's
+  `dexcli dev` fails with exit code 1 and one short line when that server
+  stops. A command killed with SIGKILL, or one that crashes, leaves its
+  `dexcli dev` running; later commands reuse it and do not stop it.
+- On Windows, the TypeScript CLI core stops a started `dexcli dev` with
+  `taskkill /T`, then `taskkill /T /F`, so `dex-server-zd` stops too. The
+  Python CLI core sends CTRL_BREAK_EVENT first, then `taskkill /T /F`. It no
+  longer checks the recorded `dexcli dev` with `os.kill(pid, 0)`, which ends
+  that process on Windows.
+- TypeScript CLI core: during the chat, the Dex SDK Worker's task stream
+  reconnect messages go only to `~/.dex/agents/<harness>.log`, so a lost Dex
+  server no longer prints stack traces into the chat. Other library warnings
+  show their first line on the terminal and their full text in the log file.
+- TypeScript CLI core: closing the terminal no longer ends a command on Linux
+  with an uncaught `setRawMode EIO` error before it handles SIGHUP. The
+  command now stops the `dexcli dev` it started and exits with 129.
+- `dex-agents-deepagents` (Python) keeps Deep Agents' own tools: `ls`,
+  `read_file`, `write_file`, `edit_file`, `delete`, `glob`, `grep`, and
+  `execute` on the real workspace files through a `LocalShellBackend` rooted at
+  the workspace, LangChain's `write_todos`, and the `task` subagent tool. They
+  replace the CLI core's file and shell tools; the connector, web fetch, and
+  browser tools stay. Connector writes always wait for approval. File tools
+  refuse a path whose real path is outside the workspace, and `ls`, `glob`,
+  and `grep` leave out such entries, such as links to files elsewhere. This
+  is a guardrail against mistaken paths, not a sandbox: `execute` runs any
+  command with the user's permissions. `task`
+  runs its subagent inside one tool Step, with the configuration file's model
+  and no Steps or approvals of its own, so it waits for approval whenever
+  `approval.always` names any Deep Agents tool. A connector tool whose name a
+  Deep Agents tool has gets the prefix `connector_`, repeated until the name
+  is free. Large tool results and long user messages go to a 0700 directory
+  per session under `~/.dex/agents/deepagents-artifacts`, which the command
+  deletes at startup once its files are 30 days old. `write_todos` returns a
+  graph `Command` that updates the todo list for the turn. Deep Agents' summarization stays off.
+- Python LangGraph adapter, behavior change: `should_defer_tool_calls_before_middleware`
+  now defaults to `True` in `LangGraphAgentRunner`,
+  `langchain_agent_session_flow`, and `langgraph_agent_session_flow`. In a
+  session the deferral is the outermost tool wrapper of every root graph tool
+  node that has an async tool wrapper, whatever the middleware order, and
+  each tool Step attempt runs the node's other middleware tool wrappers around
+  the tool. Middleware listed before `DurableToolCallMiddleware` no longer see
+  calls in `RunModel`, and middleware listed after it now run in the tool Step;
+  their side effects follow the tool's retry policy. Every call of such a
+  node with a wrapper besides the bare deferral, as in every `create_agent`
+  graph, stores the non-message graph state with its record, so N calls of
+  one model response store it N times. Pass
+  `should_defer_tool_calls_before_middleware=False` to keep the earlier
+  order. Each turn keeps the order its first model call used, recorded in its
+  run state and call records, so a Worker with the other setting finishes it
+  without running a wrapper twice; turns paused before this release keep the
+  middleware order. Known upgrade limitation: a turn in flight under a 0.5.x
+  runner that set the option to `True`, such as the 0.5.0
+  `dex-agents-deepagents`, recorded no order, so it finishes in the
+  middleware order and a wrapper listed before the deferral runs once in
+  `RunModel` where 0.5.x ran none; it never runs twice. A tool node without
+  wrappers, a tool node in a subgraph, and a node with only synchronous
+  wrappers are left unchanged. A tool name that root tool nodes with any
+  different tool wrappers share, a bare deferral and a wrapped node
+  included, now raises `ValueError` when the runner loads the graph.
+- Python LangGraph adapter: a tool Step that runs a tool node's wrappers no
+  longer applies the node's `handle_tool_errors`, so an exception in the tool
+  body, such as a `ValidationError`, fails the attempt and a write records
+  `outcome_unknown`, as it does without wrappers.
+- Python LangGraph adapter: an `InjectedStore` parameter of a tool receives
+  the compiled graph's store in its tool Step.
+- Every agents TypeScript package (`@superdurable/dex-agents`, the adapters,
+  `@superdurable/dex-agents-pi`, and the agent CLI packages) adds Node 26
+  (`^26.0.0`) to its **engines.node** range, so installing on Node 26 no longer
+  prints `EBADENGINE` warnings for them. The two Pi packages keep their
+  `^22.19.0` lower bound. Agents CI runs the TypeScript packages on Node 22
+  and Node 26.
+- `dex-agents-pi` (TypeScript) keeps Pi's own `read`, `grep`, `find`, `ls`,
+  `write`, `edit`, and `bash` with Pi's behavior, built from pi-coding-agent's
+  tool factories with their default local operations. Each call is still its
+  own Dex tool Step: reads retry, and `write`, `edit`, and `bash` never run
+  twice. `bash` output reaches the session as `pi.tool_progress` events while
+  it runs. The connector, web fetch, browser, and `ask_user` tools stay.
+  Connector writes always wait for approval, also when the connector marks
+  them idempotent. A connector tool whose name a Pi tool has gets the prefix
+  `connector_`, repeated until the name is free.
+- Python and TypeScript CLI cores: the commands download `dexcli` 1.46.0,
+  which has the terminal UI, instead of 1.45.0 when they find no `dexcli` of
+  at least 1.46.0. A `dexcli` on `PATH` older than 1.46.0 is no longer used.
+- Python and TypeScript CLI cores: at a terminal, `run` now chats in the
+  `dexcli agents-tui` terminal UI by default. `--plain` keeps the plain text
+  chat. The plain chat is still used without a message when standard input or
+  output is not a terminal, when `TERM` is unset or `dumb`, on Windows, and in
+  `dex-agents-pi`; it is used with a `Plain chat:` line when `dexcli` has no
+  terminal UI or the terminal UI fails to start.
+
+### Fixed
+
+- Python and TypeScript Claude Agent SDK adapters: when the user rejects a
+  call of a tool that runs inside the Claude Code CLI, such as `Write` or
+  `Bash`, the model now sees "The user rejected this Write call: not now"
+  instead of "PreToolUse:Write hook error: not now". The resumed PreToolUse
+  hook answers the rejected record with `ask`, and `can_use_tool` /
+  `canUseTool` denies the call with that text, which Claude Code passes to the
+  model without a prefix. A rejection without a reason reads "The user
+  rejected this Write call.", and deadline, planning-turn, and cancellation
+  rejections keep their recorded text. The session still records the call as
+  `rejected`.
+- Python and TypeScript Claude Agent SDK adapters: an approved call of a tool
+  that runs inside the Claude Code CLI writes one `tool_call_started`, from its
+  tool Step, and one `tool_call_finished`, from the CLI's tool result in the
+  resumed turn segment: `failed` when the run fails, such as a `Bash` command
+  that exits non-zero, and `succeeded` otherwise. A segment that ends without
+  that result, such as one that fails or is cancelled, writes
+  `outcome_unknown`. The tool Step returns `is_finished_by_resumed_turn`
+  (`isFinishedByResumedTurn`), so it no longer writes a `succeeded` finish for
+  the approval, and `dex-agents-claude-sdk` prints `[tool] Write started` and
+  `[tool] Write succeeded` once. A retried `RunModel` attempt runs the tool
+  again and reports it again, as every event of a retried attempt may repeat.
+- `dex-agents-claude-sdk` (Python): Claude Code's standard error goes to the
+  command's log file instead of the chat terminal, with OSC, CSI, and other
+  terminal control sequences removed, so the cursor control sequence
+  `ESC[?25h` that Claude Code writes to a terminal when it exits no longer
+  appears in the chat after every turn segment. A failed write to the log
+  drops the line and never reaches the terminal.
+- Python and TypeScript Claude Agent SDK adapters: a stored Claude Code
+  login keeps working after the first turn. Every later turn segment resumes
+  from a temporary `CLAUDE_CONFIG_DIR` that the Claude Agent SDK prepares, and
+  on macOS and Linux Claude Code then looked for its stored login, such as the
+  macOS Keychain entry, under that directory. Without an `ANTHROPIC_API_KEY`,
+  every later turn failed with "Not logged in · Please run /login", also in
+  `dex-agents-claude-sdk`. The adapters now set
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` in the CLI environment to the effective
+  `CLAUDE_CONFIG_DIR`, or to `""` without one, unless the application or the
+  Worker environment already sets it. The TypeScript adapter merges it into the
+  application's `env`, or into a copy of `process.env` when `env` is unset.
+- Ctrl-C at a configuration question of `init`, or of the first run without a
+  configuration file, now quits the CLI commands of both CLI cores
+  (`@superdurable/dex-agents-cli-core` and `dex-agents-cli-core`). The command
+  prints `Cancelled; no configuration written.`, writes no file, and exits with
+  code 130. Before, the TypeScript commands ignored Ctrl-C there, and the Python
+  commands ignored it during the first run and printed a traceback in `init`.
+- Ctrl-D at a configuration question now cancels the same way and exits with
+  code 1. Before, the Python commands took the default answer and went on.
+- Python and TypeScript CLI cores: a Dex server that cannot be reached at
+  startup stops the command with one line that names its address and says how
+  to fix it, instead of the raw gRPC error. A reachable server that answers
+  `UNAVAILABLE` is named with its details and a hint to try again. The Python
+  commands printed a traceback before.
+- Python and TypeScript CLI cores: a configuration error on a field that takes
+  one of several forms, such as `dex.server`, names the forms it takes.
+- Python CLI core: when `dexcli` has no terminal UI, the `Plain chat:` line
+  names the `dexcli` version the terminal UI needs, 1.46.0 or later, and says
+  to point `DEXCLI` at one. A `dexcli` that speaks only newer contracts says
+  to upgrade the command.
+- Python and TypeScript CLI cores: a `DEXCLI` that names no executable file
+  says to unset `DEXCLI` or point it at `dexcli`. The Python commands now check
+  it too, in plain and terminal UI mode alike, instead of failing later or
+  falling back to the plain chat.
+- The shell tool of the Python CLI commands (`dex-agents-cli-core`) now stops
+  what a command leaves running in its process group, such as `sleep 30 &`,
+  when the command ends: SIGTERM, then SIGKILL 0.5 s later. Before, those
+  processes ran on after the plain chat's tool call returned, and one holding
+  the output kept the call waiting until it exited.
+- A process that left the command's group, for example with `setsid`, and
+  still holds its output no longer delays the result by more than 1 s after
+  the group is cleaned. It is not stopped.
+- The Python shell tool's result now has the TypeScript CLI's form: a timeout
+  is a result, `killed: timed out after N seconds`, instead of a tool error; a
+  shell that a signal ended reports `exit code 128+N`; both `--- stdout ---`
+  and `--- stderr ---` always appear, each cut at 64 KiB with a
+  `[cut at 65536 bytes]` line. The output is cut while it is read, so a
+  command that prints a lot no longer fills the memory.
+- A cancelled shell tool call now finishes stopping the command's group,
+  reaping the shell, and closing its pipes before the cancellation goes on.
+  One thread per call owns the shell, so this cleanup also finishes when the
+  event loop closes or the interpreter exits.
+- The shell tool now gives what a command leaves in its group up to 0.5 s
+  after SIGTERM, even when the command's output already ended, and stops the
+  group even when its output cannot be read. A command that leaves nothing
+  behind gets no signal and no wait.
+- Python and TypeScript CLI cores: the terminal shows exactly one short line
+  for each change in connector tool availability: when the connectors MCP
+  server stops answering, naming the log file `~/.dex/agents/<harness>.log`
+  and the Dex Web Connectors page, and when connector tools are available
+  again. A harness that fixes its tools at build gets one line saying to
+  restart, also when the startup listing fails. Each failed listing and its
+  full error go to the log file only. Before, the TypeScript commands printed
+  the whole error at startup and twice before every turn.
+- Python and TypeScript CLI cores: a connectors MCP server that answers HTTP
+  401 or 403, also only to `tools/list`, gets a line saying it denied access
+  and to check its access settings and `connectors.mcp`, instead of a line
+  saying each turn tries again.
+- Python CLI core: a command whose `~/.dex/agents` directory or
+  `<harness>.log` file cannot be written prints `Logging is off` with the
+  reason and starts without a log file, instead of exiting with an error.
+- **ConnectorsMcpToolSource** takes the new `startupAvailability`,
+  `writeLogLine`, and `describeUnavailable` options in TypeScript, and
+  `describe_unavailable` and `startup_error` in Python. In Python, the line
+  `report` prints no longer carries the error, which goes to the `logging`
+  warning log. `ConnectorsMcpAvailability` in TypeScript carries the HTTP
+  status of a server that answered, and Python raises
+  `ConnectorsMcpAccessDeniedError` for HTTP 401 and 403. In TypeScript,
+  `readIdentities` and `listConnectorToolIdentities` take an `AbortSignal`,
+  and each of their requests waits at most 15 seconds, so a failed listing
+  is reported without waiting for a server that does not answer.
+- Python and TypeScript cores: **McpToolListingError** carries the HTTP
+  status a Streamable HTTP server answered to the failed listing, as
+  `httpStatus` in TypeScript and `http_status` in Python.
+- TypeScript core: **McpToolSource** takes a `logWarning` option that receives
+  its warnings, such as a server left out of the tool listing, instead of
+  `console.warn`. A `logWarning` that throws falls back to `console.warn`, so
+  it never fails `listTools()` or a tool call.
+- The `sessions` subcommand of both CLI cores
+  (`@superdurable/dex-agents-cli-core` and `dex-agents-cli-core`) now loads
+  pages until it has 250 sessions or Dex has no more, instead of stopping after
+  five pages. A page with fewer than 50 sessions no longer shortens the list.
+  It sends at most 20 requests, and says that more sessions exist when it
+  stops before the end.
+- `runAgentCli` of `@superdurable/dex-agents-cli-core` now returns or throws
+  only after its output reached stdout and stderr, waiting at most 2 seconds.
+  A handled SIGTERM, SIGHUP, or SIGINT waits the same way before the command
+  exits. Before, a harness command that exits
+  with `process.exit(await runAgentCli(...))` could lose the end of a long
+  `sessions` list written to a pipe, including the `Resume one with` line.
+- Python and TypeScript CLI cores: a connectors MCP server that answers
+  `initialize` but cannot list its tools, such as one answering HTTP 503 to
+  `tools/list`, no longer stops an agent command at startup. The command prints
+  one line saying connector tools are unavailable for now, writes the error to
+  its log file, and starts the chat; each turn lists the server again. An explicit
+  `connectors.mcp` URL that does not answer `initialize` still stops the
+  command.
+- The private test engine (**PrivateDexEngine** in `dex_agents.testing`,
+  `@superdurable/dex-agents/testing`, and the Go `agentstest` package) no
+  longer downloads or runs a Connectors MCP server. It sets
+  `DEX_CONNECTORS_MCP_BINARY` for its `dexcli dev` to a file that does not
+  exist, so a test never depends on a published Connectors MCP release. The
+  engine also runs with `HOME` set to a directory under its state directory,
+  so it never reads or writes the user's `~/.dex`.
+- Python LangGraph adapter: with `should_defer_tool_calls_before_middleware`,
+  a tool Step runs the call through its root graph tool node's middleware tool
+  wrappers, such as Deep Agents' large-result eviction, in each attempt;
+  their side effects follow the tool's retry policy. Before, the tool Step called the tool alone, so no wrapper ever
+  ran. The wrappers see the state of the call's deferral without the
+  message list, and their state writes are recorded with the tool's.
+  `RunModel` replays the wrapped result without running the wrappers. Every
+  call of a root tool node then stores the non-message state in its record.
+  Without the option, nothing changes. `dex-agents-langgraph` now requires
+  `langgraph` 1.2, `langgraph-prebuilt` 1.1, and `langchain-core` 1.7, the
+  tested releases, because it calls a private `ToolNode` method.
+- Python LangGraph adapter: a tool's `ToolRuntime` in its tool Step has the
+  compiled graph's `store` instead of `None`. It still has no `context`.
+- TypeScript OpenAI Agents adapter and the TypeScript **dex-agents-openai-sdk**:
+  the model sees each tool source's tool, such as a Connector tool, by its
+  source name, as the Python adapter does. The OpenAI Agents SDK's `tool()`
+  used to turn every `-` into `_`, so the model saw
+  `hacker_news_daily_list_story_ids` for `hacker-news-daily_list_story_ids`,
+  and two tools that differ only by `-` and `_` could not both be offered.
+  Only a character the OpenAI API refuses, one other than a letter, digit,
+  `_`, or `-`, still reaches the model as `_`.
+- The shell tool of the TypeScript CLI commands stops what a command left in
+  its process group when the command ends, such as a process started with
+  `&`, and answers at once. Before, such a call waited for its timeout and
+  then killed the group.
+- The Python CLI core (`dex-agents-cli-core`) builds a new session ID from the
+  UTC start time, as the TypeScript CLI core does, instead of the local time.
+  Both now give the same shape, such as `builtin-20261111-203123-3efeb4`.
+
 ## 0.5.0 (2026-11-11)
 
 ### Dex SDK 1.45.0
