@@ -1110,8 +1110,7 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 		screen.printHistoryWindow(typed)
 	case sessionfeed.EarlierMessagesRead:
 		if screen.pager != nil {
-			pagerWidth := screen.pagerSize().width
-			screen.pager.applyEarlierPage(typed, pagerWidth, screen.theme)
+			screen.pager.applyEarlierPage(typed, screen.pagerSize(), screen.theme)
 		}
 	case sessionfeed.ImageAttached:
 		screen.attachments = append(screen.attachments, typed.Attachment)

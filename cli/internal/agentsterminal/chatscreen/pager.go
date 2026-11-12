@@ -50,8 +50,7 @@ type historyPages struct {
 }
 
 func newToolPager(call sessionfeed.ToolCallChanged) *pagerView {
-	title := strings.Join(nonEmptyStrings(call.ToolName, call.KeyArgument), "  ")
-	return &pagerView{title: title, tool: call, matchRow: -1}
+	return &pagerView{title: "Tool output", tool: call, matchRow: -1}
 }
 
 func newHistoryPager(sessionID string, earlierBeforeSequence int64, deletedBeforeSequence int64) *pagerView {
@@ -82,12 +81,12 @@ func (pager *pagerView) startReadingEarlier() sessionfeed.ReadEarlierMessages {
 
 // applyEarlierPage adds an answered page above the rows on screen and keeps
 // the rows the user reads in place. It reports false for a stale answer.
-func (pager *pagerView) applyEarlierPage(answer sessionfeed.EarlierMessagesRead, width int, theme terminaltheme.Theme) bool {
+func (pager *pagerView) applyEarlierPage(answer sessionfeed.EarlierMessagesRead, size pagerSize, theme terminaltheme.Theme) bool {
 	history := pager.history
 	if history == nil || !history.isLoading || answer.SessionID != history.sessionID || answer.BeforeSequence != history.requestedBefore {
 		return false
 	}
-	rowsBefore := len(pager.bodyRows(width, theme))
+	rowsBefore := len(pager.bodyRows(size.width, theme))
 	history.isLoading = false
 	if answer.FailureText != "" {
 		history.failureText = answer.FailureText
@@ -98,7 +97,8 @@ func (pager *pagerView) applyEarlierPage(answer sessionfeed.EarlierMessagesRead,
 	if answer.DeletedBeforeSequence > 0 {
 		history.deletedBeforeSequence = answer.DeletedBeforeSequence
 	}
-	pager.top += max(len(pager.bodyRows(width, theme))-rowsBefore, 0)
+	rowCount := len(pager.bodyRows(size.width, theme))
+	pager.top = min(pager.top+max(rowCount-rowsBefore, 0), max(rowCount-size.bodyHeight, 0))
 	pager.matchRow = -1
 	return true
 }
