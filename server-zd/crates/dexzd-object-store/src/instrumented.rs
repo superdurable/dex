@@ -130,4 +130,8 @@ impl ObjectStore for InstrumentedObjectStore {
         self.record(ObjectOperation::List, prefix, &result);
         result
     }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
 }

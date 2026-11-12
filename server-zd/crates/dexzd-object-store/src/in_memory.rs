@@ -66,6 +66,22 @@ pub struct InMemoryObjectStore {
     state: Mutex<State>,
     injector: Option<Arc<dyn FaultInjector>>,
     clock: Option<Arc<dyn WallClock>>,
+    rejects_replace_if_etag_matches: bool,
+}
+
+/// Construction options of an [`InMemoryObjectStore`].
+#[derive(Default)]
+pub struct InMemoryObjectStoreOptions {
+    /// Selects an action for each call.
+    /// Defaults to `None`, which runs every call normally.
+    pub injector: Option<Arc<dyn FaultInjector>>,
+    /// Timestamps writes.
+    /// Defaults to `None`, which uses the system clock.
+    pub clock: Option<Arc<dyn WallClock>>,
+    /// Whether puts with [`WriteCondition::ReplaceIfEtagMatches`] fail with a permanent error
+    /// without effect, as on a store that offers only create-only conditional writes.
+    /// Defaults to false.
+    pub rejects_replace_if_etag_matches: bool,
 }
 
 impl InMemoryObjectStore {
@@ -76,11 +92,10 @@ impl InMemoryObjectStore {
 
     /// Creates an empty store whose calls consult `injector`.
     pub fn with_injector(injector: Arc<dyn FaultInjector>) -> Self {
-        Self {
-            state: Mutex::new(State::default()),
+        Self::with_options(InMemoryObjectStoreOptions {
             injector: Some(injector),
-            clock: None,
-        }
+            ..InMemoryObjectStoreOptions::default()
+        })
     }
 
     /// Creates an empty fault-injecting store that timestamps writes with `clock`.
@@ -88,10 +103,20 @@ impl InMemoryObjectStore {
         injector: Arc<dyn FaultInjector>,
         clock: Arc<dyn WallClock>,
     ) -> Self {
-        Self {
-            state: Mutex::new(State::default()),
+        Self::with_options(InMemoryObjectStoreOptions {
             injector: Some(injector),
             clock: Some(clock),
+            ..InMemoryObjectStoreOptions::default()
+        })
+    }
+
+    /// Creates an empty store configured by `options`.
+    pub fn with_options(options: InMemoryObjectStoreOptions) -> Self {
+        Self {
+            state: Mutex::new(State::default()),
+            injector: options.injector,
+            clock: options.clock,
+            rejects_replace_if_etag_matches: options.rejects_replace_if_etag_matches,
         }
     }
 
@@ -208,6 +233,16 @@ impl ObjectStore for InMemoryObjectStore {
         condition: WriteCondition,
     ) -> ObjectStoreResult<WriteOutcome> {
         let action = self.before_call(ObjectStoreOperation::Put, key).await?;
+        if self.rejects_replace_if_etag_matches
+            && matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. })
+        {
+            return Err(ObjectStoreError::new(
+                ObjectStoreOperation::Put,
+                key,
+                ObjectStoreErrorKind::Permanent,
+                "this store does not support ReplaceIfEtagMatches",
+            ));
+        }
         let mut state = self
             .state
             .lock()
@@ -405,5 +440,9 @@ impl ObjectStore for InMemoryObjectStore {
                 next_start_after,
             },
         )
+    }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        !self.rejects_replace_if_etag_matches
     }
 }
