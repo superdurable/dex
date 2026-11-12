@@ -1,8 +1,9 @@
 ---
 id: index
 title: Concepts
-sidebar_label: Overview
+sidebar_label: Concepts
 slug: /concepts
+description: "Dex has a small programming model. A Flow is a durable program. Steps move it forward. Primitives hold its state and connect it to the outside world. Your application drives Flows through a Client."
 ---
 
 # Concepts
@@ -74,15 +75,41 @@ calls an RPC. A **Stream** carries live updates back to a UI.
 
 ## Components
 
-Concepts are the programming model. [Components](/components) are the
-processes that run it:
+Concepts are the programming model. These processes run it, and
+[Run Dex](/components) covers each one:
 
 - Your **application** hosts the Flow code in Workers and calls Dex through
   Clients.
-- **server-zd** stores Flow state and hands Steps and RPCs to Workers.
-- **dexcli** runs a local Dex, and **Dex Web** lets operators inspect Flows.
+- [Dex Server](/components/server) stores Flow state and hands Steps and RPCs
+  to Workers.
+- `dexcli` runs a local Dex, and **Dex Web** lets operators inspect Flows.
 
-## Where to go next
+## What Dex guarantees {#guarantees}
+
+Dex saves each Step's result together with the move to the next Step. A Step
+that finished does not run again; the one exception is an
+[ASYNC Step](/concepts/step/advanced-guarantees#sync-and-async), which can run again if a server
+node fails before its result is written. A Step that was cut off can run again;
+see [Idempotency keys](/concepts/step#idempotency-keys).
+A retry reads the [state snapshot](/concepts/step#guarantees) of the first
+attempt, not newer writes. [Step](/concepts/step#guarantees) lists every
+guarantee and its limits.
+
+Parallel Steps and RPCs share Attributes without isolation; see
+[Attribute locks](/concepts/primitives/attribute#locking).
+[Failover and Deploys](/concepts/failover-and-deploys) lists what runs again
+after a crash, a server failover, or a deploy.
+
+## Change Flow code {#change-flow-code}
+
+Open Flows can meet changed rules or renamed Steps after a deploy.
+[Versioning Flow code](/concepts/change-flow-code#versioning-flow-code) shows how
+to keep them working. [Time Travel](/concepts/change-flow-code#time-travel) runs
+a Flow again from an earlier point after a fix.
+
+<a id="where-to-go-next"></a>
+
+## Next
 
 - Read [Flow](/concepts/flow) and [Step](/concepts/step) first. The
   Primitives build on them.

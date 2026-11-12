@@ -1,6 +1,7 @@
 ---
 title: Object storage and backup
 sidebar_label: Object storage and backup
+description: "How server-zd uses object storage: credentials, bucket permissions, lifecycle rules, encryption, and backup."
 ---
 
 # Object storage and backup
@@ -265,6 +266,22 @@ To restore:
    restored prefix.
 
 Writes acknowledged after the restore point are lost.
+
+### What a restore means for your Flows {#restore-and-flows}
+
+Every Flow goes back to its state at the restore point:
+
+- Steps that finished after that point run again, so their external calls
+  repeat. [Idempotency keys](/concepts/step#idempotency-keys) make the repeats
+  harmless.
+- Timers that fired after that point fire again. The server fires overdue
+  Timers as soon as it starts.
+- Attempts in progress at that point fail and retry, as after a failover.
+- Flows started, and Channel messages published, after that point are gone.
+  Start or publish them again.
+
+Your own database is not rolled back. Reconcile it against the restored Flows,
+for example by searching for Flows whose state disagrees with your rows.
 
 With the [db9 provider](#db9), the two provider tables hold that state. Back
 them up and restore them together, to one point in time.

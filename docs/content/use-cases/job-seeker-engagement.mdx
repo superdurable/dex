@@ -1,12 +1,14 @@
 ---
-title: Job seeker engagement
+title: Job Seeker Engagement
 ---
 
 import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagement.json';
 
-# Job seeker engagement
+# Job Seeker Engagement
 
 Keep an employer and a job seeker aligned while the job seeker decides whether to accept an opportunity.
+
+**SDKs:** Python · Go · TypeScript · Java · Rust
 
 ## Product requirements
 
@@ -21,11 +23,11 @@ The process accepts an employer ID, job seeker ID, and initial notes. It must:
 7. Complete with **timeout** if no acceptance arrives within 60 days.
 8. Expose the current status and notes through an RPC, and make status searchable through an indexed Attribute.
 
-The deadline branch waits for the 60-day Timer or a message on **CompleteProcess**, whichever comes first. The reminder branch separately waits for a five-second Timer or a message on **OptOutReminder**.
+The deadline branch waits for the 60-day Timer or a message on `CompleteProcess`, whichever comes first. The reminder branch separately waits for a five-second Timer or a message on `OptOutReminder`.
 
 Failures and other outcomes to handle:
 
-- No acceptance arrives before the deadline. This is an expected **timeout** result, not an infrastructure failure.
+- The deadline passes without an acceptance. This is an expected **timeout** result, not an infrastructure failure.
 - A decline is requested after the status has changed, or an acceptance is requested after completion. The RPC rejects the invalid transition without scheduling a notification Step.
 - Email and recruiting-system calls can fail temporarily. Their adapters should return the error so that Dex retries the Step that made the call.
 - A dependency can complete a call and the Worker can then fail before Dex records success. In production, send email and notifications with an idempotency key or another way to drop duplicates.
@@ -39,16 +41,16 @@ The Go, Java, Python, and TypeScript examples implement the full 60-day process.
 
 After **Initialize**, the Flow splits into three parallel branches:
 
-**Initialize** → **ProcessTimeout** ∥ **Reminder** ∥ **NotifyExternalSystem**
+**Initialize** → `ProcessTimeout` ∥ **Reminder** ∥ `NotifyExternalSystem`
 
 It combines these design patterns:
 
 - [**Static parallel Steps**](/design-patterns/parallel/static) separate the deadline, the reminder loop, and the external notification. A slow branch does not block the others.
 - [**Durable reminder**](/design-patterns/durable-timer/reminder) moves **Reminder** back to itself after each Timer fires.
-- [**Interruptible wait**](/design-patterns/interruptible) uses **AnyOf** so a Channel message can wake a Step before its Timer.
+- [**Interruptible wait**](/design-patterns/interruptible) uses `AnyOf` so a Channel message can wake a Step before its Timer.
 - [**Responsive update**](/design-patterns/responsive-update) lets **Accept** and **Decline** RPCs validate and change persisted state while the Flow is waiting.
 - [**Attribute match**](/design-patterns/responsive-update/attribute-match) lets a caller wait until an Attribute reaches the value it expects.
-- **Completion by one branch**: **ProcessTimeout** completes the Flow with **done** or **timeout**. The other branches finish or end as dead ends.
+- **Completion by one branch**: `ProcessTimeout` completes the Flow with **done** or **timeout**. The other branches finish or end as dead ends.
 
 The reminder and deadline branches use separate Channels. Opting out of reminders therefore cannot accept, decline, or finish the opportunity. Status, notes, and timestamps live in Attributes, so every branch and RPC reads the same values.
 
@@ -416,13 +418,13 @@ impl Step for WaitForDecision {
 
 ## Demo
 
-Run Dex and any language example server, then start Job seeker engagement from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The demo below uses the Go example. It initializes an employer and job seeker, opts out of reminders, records a decline, then accepts the opportunity. The Flow finishes with **done** after the acceptance message wakes **ProcessTimeout**.
+Run Dex and any language example server, then start Job seeker engagement from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The demo below uses the Go example. It initializes an employer and job seeker, opts out of reminders, records a decline, then accepts the opportunity. The Flow finishes with **done** after the acceptance message wakes `ProcessTimeout`.
 
 <a href="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img src="/img/use-cases/job-seeker-engagement-step-execution-graph.jpg" alt="Completed Job seeker engagement Step execution graph" />
 </a>
 
-## Related
+## Next
 
 - [Reminder](/design-patterns/durable-timer/reminder)
 - [Interruptible](/design-patterns/interruptible)

@@ -3,6 +3,7 @@ id: dex-app-builder
 title: Dex App Builder
 sidebar_label: Dex App Builder
 slug: /build-with-ai/dex-developer-skill/dex-app-builder
+description: "Dex App Builder 是创建 Dex 应用或流程产品的主要 skill。它覆盖完整的过程：梳理业务流程、选择 UI、构建 Go 后端、在本地测试，最后交付结果。"
 ---
 
 # Dex App Builder
@@ -12,7 +13,14 @@ Dex App Builder 是创建 Dex 应用或流程产品的**主要 skill**。它覆�
 
 ## 安装与使用
 
-<DexSkillHostTabs skill="dex-app-builder" />
+先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程智能体中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
+
+```text
+$dex-app-builder Design and build an event-registration application.
+/superdurable-dex:dex-app-builder Design and build an event-registration application.
+```
+
+[安装和使用 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) 列出了每个 host 的调用方式。
 
 ## 何时使用
 
@@ -71,8 +79,8 @@ App Builder 在两种管理流程的方式中选一种：
 
 - 应用后端使用 Go；
 - 严格按照 Dex Web 和 Flow Definition Graph 2.0 的渲染要求来写；
-- 只在 **Execute** 中调用外部 provider；
-- **WaitFor** 中不调用 provider，也不修改 Dex 状态；
+- 只在 `Execute` 中调用外部 provider；
+- `WaitFor` 中不调用 provider，也不修改 Dex 状态；
 - 每个人工操作都建模为带明确权限的 typed Action；
 - 凭据放在 Connector 或运行环境中，不放在应用代码里；
 - 使用已发布 Connector 的能力，不在应用里新增 provider client。
@@ -110,3 +118,7 @@ App Builder 完成后，你会得到：
 - 可以直接 review 的 repository。
 
 返回 [Dex Skills 总览与安装](../dex-developer-skill.mdx)。
+
+## 下一步
+
+[Dex SDK](/build-with-ai/dex-developer-skill/dex-sdk)：Dex SDK 是一个专用 sub-skill。它帮助 agent 用公开的 Dex SDK 构建、调试、测试和运行应用，支持 Python、Go、Java、TypeScript 和 Rust。

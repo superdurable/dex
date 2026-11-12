@@ -12,7 +12,7 @@
 
 .root {
   --cd-accent: var(--section-accent, var(--ifm-color-primary));
-  --cd-wait: var(--accent-product-examples, #92400e);
+  --cd-wait: var(--docs-warn, #92400e);
   --cd-ink: var(--docs-heading, var(--text));
   --cd-text: var(--docs-text, var(--text));
   --cd-subtle: var(--muted-strong);

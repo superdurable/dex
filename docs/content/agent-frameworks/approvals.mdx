@@ -1,0 +1,90 @@
+---
+title: Approvals
+sidebar_label: Approvals
+slug: /agent-frameworks/approvals
+---
+
+# Approvals
+
+An approval asks whether a tool call should happen at all. A call that needs approval waits until a person answers, for minutes or for days, without holding a Worker.
+
+## How an approval works {#approvals}
+
+A tool's policy decides whether its calls wait for approval; [Require approval](/agent-frameworks/tool-calls#require-approval) gives the defaults and how to change them per tool.
+
+Approval is separate from retry: a refund with an idempotency key is still a real refund.
+
+A tool call that needs approval waits in its own `AwaitToolApproval` Step until someone answers. The wait holds no Worker slot, and it survives Worker restarts and deploys. A person approves or rejects the call [from your application](#approve-from-your-application) or [in Dex Web](#approve-in-dex-web). The model sees a rejection and can react to it.
+
+While an approval waits, the turn waits with it, and new user messages queue until the turn ends. If an approval must not wait forever, set an approval deadline. Dex rejects a call that is still pending at the deadline. See [Approval deadlines](/reference/agents/approvals#approval-deadlines).
+
+## Approve from your application {#approve-from-your-application}
+
+Your application answers a pending call with the session Flow's `resolve_interrupt` RPC. It passes the interrupt ID, whether the call is approved, and an optional message for the model. In Python, `AgentSessionClient` wraps the RPC as `resolve_interrupt`. The snapshot from `get_agent_snapshot` lists pending calls under `pending_interrupts`.
+
+The example apps expose this RPC as an HTTP route. These are excerpts: the request helpers, such as `session_request`, are in each tab's linked file. The [complete quick start app](/agent-frameworks/add-to-your-agent#web-handler) shows the same route with nothing left out.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/http_routes.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/order-support/order-support-routes.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.post("/interrupts/resolve")
+    async def resolve_interrupt() -> Response:
+        body, session_id = await session_request()
+        interrupt_id = _required_string(body, "interrupt_id")
+        if not isinstance(approved := body.get("approved"), bool):
+            raise BadRequest("approved must be a boolean")
+        rejection_message = body.get("rejection_message")
+        if rejection_message is not None and not isinstance(rejection_message, str):
+            raise BadRequest("rejection_message must be a string")
+        accepted = await sessions.resolve_interrupt(
+            session_id, interrupt_id, approved=approved, rejection_message=rejection_message
+        )
+        return jsonify(accepted=accepted)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  router.post("/sessions/:id/interrupts/:interruptId/approve", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const approval = { interruptId: String(request.params.interruptId), approved: true, rejectionMessage: null };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, approval));
+  });
+  router.post("/sessions/:id/interrupts/:interruptId/reject", async (request, response) => {
+    const sessionId = sessionIdOf(request);
+    const rejectionMessage = optionalString(requireBody(request), "reason");
+    const rejection = { interruptId: String(request.params.interruptId), approved: false, rejectionMessage };
+    sendAccepted(response, await client.invokeRPC(flow.resolveInterrupt, sessionId, rejection));
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Check who may approve before you call the RPC. The example routes accept only a caller that holds the session's signed token. `resolve_interrupt` is safe to retry: a second call for the same interrupt returns **False** and changes nothing. [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy) covers what a caller sees while Workers restart.
+
+## Approve in Dex Web {#approve-in-dex-web}
+
+You can also approve a call in Dex Web. Dex Web shows the **Agent session** tab for a Flow type whose session graph the server holds.
+
+The [Agent Quick Start](/agent-frameworks/quick-start) program uploads that graph itself, in Python and in TypeScript: its Worker passes the graph in its Worker options (`flow_definitions` in Python, `flowDefinitions` in TypeScript) when it starts. So with plain **dexcli dev**, Dex Web already shows the tab. The upload needs recent Dex Agents and Dex Server releases; [Upload the session graph from the Worker](/reference/agents/dex-web#upload-the-graph) has the details.
+
+Then approve the call:
+
+1. Open the session's run. Its Flow ID is the session ID.
+2. Select the **Agent session** tab.
+3. Set **Working as** to `agent-quick-start.operate`, the permission in the graph.
+4. Select **Approve** or **Reject** on the `cancel_order` card. Dex Web calls `resolve_interrupt` for you.
+
+[Show sessions in Dex Web](/reference/agents/dex-web) covers both paths for production.
+
+## Next
+
+- [Tool Calls](/agent-frameworks/tool-calls)
+- [Approvals reference](/reference/agents/approvals)

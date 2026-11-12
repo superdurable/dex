@@ -1,6 +1,7 @@
 ---
 title: Authentication
 sidebar_label: Authentication
+description: "Public API authentication is off by default. Configure auth.authenticators to require a bearer credential on every FlowService and WorkerTaskService call. gRPC health checks need no credential. The server tries the authenticators in order."
 ---
 
 # Authentication
@@ -45,9 +46,34 @@ The server checks a credential once, when a call starts. An open pull Worker
 stream stays open after its token expires or is revoked. The Worker needs a
 valid credential when it reconnects.
 
+## Send credentials from Workers and Clients {#sdk-credentials}
+
+Workers and Clients each take a **credential** option, and Dex sends its token
+with every call. A file credential reads the token from a file and rereads it
+when the file changes, so a rotated token needs no restart:
+
+| SDK | Credential option | File credential |
+|---|---|---|
+| Python | **credential** on **ClientOptions** and **WorkerOptions** | **FileCredential(path)** |
+| Go | **Credential** field on **ClientOptions** and **WorkerOptions** | **dex.FileCredential(path)** |
+| Java | **credential(...)** on the **ClientOptions** and **WorkerOptions** builders | **new FileCredential(path)** |
+| TypeScript | **credential** in the Client and Worker options | **new FileCredential(path)** |
+| Rust | **credential(...)** on the **ClientOptions** and **WorkerOptions** builders | **FileCredential::new(path)** |
+
+Each SDK also has an **ApiKeyCredential**, which exchanges an API key for a
+short-lived token at a token endpoint. The endpoint takes an HTTPS
+**POST** with a JSON body of **server_id** and **api_key**, and answers 200
+with a JSON body of **access_token**, **token_type** set to **Bearer**, and
+**expires_in** in seconds.
+
+## TLS {#tls}
+
 **api.listen** serves plaintext gRPC, so bearer credentials cross the network in
 clear text. Terminate TLS in front of the server, or restrict the network to
-trusted callers.
+trusted callers. When TLS is in front, set the SDK's **flow_service_tls**
+option (**FlowServiceTLS** in Go, **flowServiceTls** in Java and TypeScript,
+**flow_service_tls(...)** on the Rust builders) on
+Workers and Clients.
 
 ## Admin credentials {#admin-credentials}
 

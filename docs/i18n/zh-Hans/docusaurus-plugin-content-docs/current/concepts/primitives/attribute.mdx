@@ -306,11 +306,13 @@ self.progress
 <a id="read-from-outside-a-flow"></a>
 <a id="indexed-attributes"></a>
 
-## 读取和搜索 Attribute
+## 读取和搜索 Attribute {#read-and-search-attributes}
+
+<a id="读取和搜索-attribute"></a>
 
 Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时候改用 RPC，见[什么时候读取需要 RPC](/concepts/client#related-primitives)。另见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)。在 Flow 启动时设置初始值，见 [Initial values](/reference/server/runtime-data#initial-attribute-values)。
 
-带 index 的 Attribute 可以用在 **SearchFlows** 查询里，查找 Flow run。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
+带 index 的 Attribute 可以用在 `SearchFlows` 查询里，查找 Flow run。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
 
 ## Lock {#locking}
 
@@ -318,7 +320,7 @@ Flow 外的代码通过 [Client](/concepts/client) 读取 Attribute。什么时�
 
 lock 只对声明了它的 Step 和 RPC 起作用。没有声明这个 lock 的 Step 或 RPC 仍然可以写这个 Attribute。Step 按开始等待 lock 的顺序拿到它。RPC 不排队。即使有 Step 在等一个空闲的 lock，RPC 也会直接拿走它。所以持续不断的加锁 RPC 可能推迟这些 Step。让加锁的 RPC 尽量短。
 
-这个 Step 在 **Execute** 运行期间锁住一个 singleton Attribute 和一个 AttributeMap instance：
+这个 Step 在 `Execute` 运行期间锁住一个 singleton Attribute 和一个 AttributeMap instance：
 
 <SdkTabs
   examples={{
@@ -391,7 +393,7 @@ StepOptions::new()
 <a id="lock-an-rpc"></a>
 <a id="rpc-lock-conflicts"></a>
 
-lock 的获取时机，以及 **WaitFor**、**Execute** 和 RPC 的 lock，见 [Locks](/reference/server/runtime-data#attribute-locks)。lock conflict 见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)，锁住整张 AttributeMap 见 [whole-map coordination](/reference/server/runtime-data#whole-map-coordination)。
+lock 的获取时机，以及 `WaitFor`、`Execute` 和 RPC 的 lock，见 [Locks](/reference/server/runtime-data#attribute-locks)。lock conflict 见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)，锁住整张 AttributeMap 见 [whole-map coordination](/reference/server/runtime-data#whole-map-coordination)。
 
 ## 短期 secret {#hard-delete-attributes}
 
@@ -410,8 +412,8 @@ Attribute Store sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表
 
 1. 在 server 启动前建好表。Dex 不会创建、迁移或回填表。
 2. 在 server 配置里配置这个 store。
-3. 用 **syncToAttributeStore** 标记 Attribute 或 AttributeMap。
-4. 启动 Flow 时，在它的 **FlowConfig** 里列出 store 名称。
+3. 用 `syncToAttributeStore` 标记 Attribute 或 AttributeMap。
+4. 启动 Flow 时，在它的 `FlowConfig` 里列出 store 名称。
 
 需要知道的行为：
 
@@ -429,3 +431,7 @@ Attribute Store sync 把选中的 Attribute 复制到你自己的 PostgreSQL 表
 每个 SDK 参考的 [Attribute](/reference/python/attribute) 页列出该语言的 API 名称。
 
 [Data primitive semantics](/reference/server/runtime-data#attributes) 详细说明初始值、Client 读取、index、hard-delete Attribute 和 lock。
+
+## 下一步
+
+[RPC](/concepts/primitives/rpc)：An RPC (Remote Procedure Call) lets code outside a Flow interact with a running Flow.

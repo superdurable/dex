@@ -8,7 +8,7 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 # Channel
 
-**Channel** 是单个 Flow run 内部一条 durable 的 first-in, first-out (FIFO) 队列。Step 和 RPC 向它发布有类型的消息。Step 在 **WaitFor** 里等待这个 Channel，从而消费消息。消息不会跨 Flow run。
+**Channel** 是单个 Flow run 内部一条 durable 的 first-in, first-out (FIFO) 队列。Step 和 RPC 向它发布有类型的消息。Step 在 `WaitFor` 里等待这个 Channel，从而消费消息。消息不会跨 Flow run。
 
 <ChannelScopeDiagram markdownDescription="Flow run 拥有一个由其 Step 和 RPC 共享的 FIFO Channel。发布者添加消息，每条消息由一个等待中的消费 Step 消费。" />
 
@@ -23,10 +23,10 @@ Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新
 - Dex 把每条消息和 Flow 一起 durable 存储。
 - 消息保持到达顺序。
 - 一条消息由一个 wait 消费。Dex 不会把它复制给其他等待中的 Step。
-- Step 的 wait 消费了消息之后、Dex 保存它的 **Execute** 结果之前，Step 可能被取消。这时 Dex 把这些消息按原来的顺序放回 Channel 的最前面。之后的 wait 可以再消费它们。
-- 被取消的 **Execute** 可能已经看到过放回的消息。所以一条消息可能两次到达 **Execute**。消息处理要做成幂等的。
-- 如果 Step 是因为 Flow 关闭而被取消的，Dex 会丢弃这些消息，不再放回。**StopFlow** 请求、Flow timeout，以及用 **ForceComplete** 或 **ForceFail** 关闭 Flow 的决定，都属于这种情况。
-- 其他取消都会放回消息，即使 Flow 之后关闭，例如在 **GracefulComplete** 之后。Flow 关闭后，不会再有 Step 消费它们。
+- Step 的 wait 消费了消息之后、Dex 保存它的 `Execute` 结果之前，Step 可能被取消。这时 Dex 把这些消息按原来的顺序放回 Channel 的最前面。之后的 wait 可以再消费它们。
+- 被取消的 `Execute` 可能已经看到过放回的消息。所以一条消息可能两次到达 `Execute`。消息处理要做成幂等的。
+- 如果 Step 是因为 Flow 关闭而被取消的，Dex 会丢弃这些消息，不再放回。`StopFlow` 请求、Flow timeout，以及用 `ForceComplete` 或 `ForceFail` 关闭 Flow 的决定，都属于这种情况。
+- 其他取消都会放回消息，即使 Flow 之后关闭，例如在 `GracefulComplete` 之后。Flow 关闭后，不会再有 Step 消费它们。
 - 一个 Step 方法取消某个 Step、同时发布消息时，被取消的 Step 不会收到这些消息。
 - 多个 Step 等待同一个 Channel 时，最先开始等待的 Step 最先有机会拿到新消息。如果一个 Step 的 wait 需要的消息比待处理的多，它会被跳过，之后的 Step 可以拿走这些消息。
 - 所以当其他 Step 一条一条地拿走消息时，等待多条消息的 Step 可能永远等不到。在同一个 Channel 上，不要同时有等待一条消息的 Step 和等待多条消息的 Step。
@@ -37,7 +37,7 @@ Channel 适合 Step 要等待的事件，例如一次审批、用户回复或新
 
 Channel 有稳定的名字和消息类型。先定义它，再加到 Flow 的 persistence schema。
 
-在这个例子里，start Step 等待 **ApprovalMessages** Channel 上的一条消息，或者一个 Timer。**publishApprovalMessage** RPC 发布审批消息。
+在这个例子里，start Step 等待 `ApprovalMessages` Channel 上的一条消息，或者一个 Timer。`publishApprovalMessage` RPC 发布审批消息。
 
 <SdkTabs
 examples={{
@@ -241,19 +241,19 @@ fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
 </SdkSnippet>
 </SdkTabs>
 
-如果第二个 Channel **QueuedMessages** 上有 RPC 放入的待处理消息，**Execute** 会先取走它，见[管理待处理消息](#manage-pending-messages)。Timer 分支在读取 Channel 结果之前返回。审批胜出时，Channel condition 已经消费了一条消息，所以第一个结果一定存在。完整示例还会在 Step options 中加载 **QueuedMessages**，在 persistence schema 中注册这些 Channel，并注册 RPC。
+如果第二个 Channel `QueuedMessages` 上有 RPC 放入的待处理消息，`Execute` 会先取走它，见[管理待处理消息](#manage-pending-messages)。Timer 分支在读取 Channel 结果之前返回。审批胜出时，Channel condition 已经消费了一条消息，所以第一个结果一定存在。完整示例还会在 Step options 中加载 `QueuedMessages`，在 persistence schema 中注册这些 Channel，并注册 RPC。
 
 ## 等待并消费 {#wait-and-consume}
 
-**WaitFor** 中的 Channel condition 会等到队列里有足够的消息。然后 Dex 按 FIFO 顺序移除选中的消息，作为 Channel results 传给 **Execute**。
+`WaitFor` 中的 Channel condition 会等到队列里有足够的消息。然后 Dex 按 FIFO 顺序移除选中的消息，作为 Channel results 传给 `Execute`。
 
 | Condition | 何时继续 | 消费什么 |
 | --- | --- | --- |
-| **ForOne** | 至少有一条消息在队列中。 | 正好一条消息。 |
-| **ForN** | 队列中至少有请求的数量。 | 正好这个数量的消息。 |
-| **AtLeast** | 队列中至少有请求的数量。 | 当前所有可用消息。 |
-| **AtMost** | 立即继续，队列为空时也一样。 | 当前队列中最多请求数量的消息。 |
-| **AtLeastAtMost** | 队列中至少有下限数量。 | 当前队列中从下限到上限数量的消息。 |
+| `ForOne` | 至少有一条消息在队列中。 | 正好一条消息。 |
+| `ForN` | 队列中至少有请求的数量。 | 正好这个数量的消息。 |
+| `AtLeast` | 队列中至少有请求的数量。 | 当前所有可用消息。 |
+| `AtMost` | 立即继续，队列为空时也一样。 | 当前队列中最多请求数量的消息。 |
+| `AtLeastAtMost` | 队列中至少有下限数量。 | 当前队列中从下限到上限数量的消息。 |
 
 ## 发布消息 {#publish-messages}
 
@@ -274,3 +274,7 @@ Dex 接受每条消息时会给它一个 ID。Step 或 RPC 可以加载待处理
 每个 SDK 参考的 [Channel](/reference/python/channel) 页列出该语言的 API 名称。
 
 [Data primitive semantics](/reference/server/runtime-data#channels) 详细说明 wait condition、待处理消息、删除、状态加载和 ChannelMap key。
+
+## 下一步
+
+[Stream](/concepts/primitives/stream)：A Stream delivers messages from a Flow to a reader in real time.

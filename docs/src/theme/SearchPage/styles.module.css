@@ -1,0 +1,47 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+.scopes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 2rem;
+}
+
+.scopesLabel {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.875rem;
+  margin-right: 0.25rem;
+}
+
+.scope {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 999px;
+  color: var(--ifm-font-color-base);
+  font-size: 0.875rem;
+  padding: 0.25rem 0.75rem;
+}
+
+.scope:hover {
+  border-color: var(--sd-accent);
+  text-decoration: none;
+}
+
+.scopeActive {
+  background: var(--sd-accent-soft);
+  border-color: var(--sd-accent);
+  color: var(--ifm-font-color-base);
+}
+
+/* The scope links replace the plugin's context menu. */
+.scoped :global(#context-selector) {
+  display: none;
+}

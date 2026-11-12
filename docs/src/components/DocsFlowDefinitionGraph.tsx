@@ -19,6 +19,10 @@ const ESTIMATED_CANVAS_HEIGHT_PX = 340;
 
 interface DocsFlowDefinitionGraphProps {
   graph: FlowDefinitionGraph;
+  /** Markdown export only: the page that lists this graph's Steps, linked instead of repeating them. */
+  markdownReference?: string;
+  /** Markdown export only: the link text for markdownReference. */
+  markdownReferenceLabel?: string;
 }
 
 export default function DocsFlowDefinitionGraph({graph}: DocsFlowDefinitionGraphProps) {

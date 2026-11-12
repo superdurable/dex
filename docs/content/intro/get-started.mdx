@@ -1,0 +1,34 @@
+---
+title: Get Started
+sidebar_label: Get Started
+slug: /get-started
+description: Install dexcli, run the Quick Start, then pick what you want to do next.
+---
+
+# Get Started
+
+Dex runs your process as a Flow of Steps and continues it from the last
+finished Step after a crash, a restart, or a long wait.
+
+## Run the Quick Start
+
+Install `dexcli` and start Dex on your machine:
+
+```bash
+brew install superdurable/tap/dexcli
+dexcli dev
+```
+
+Then follow the [Quick Start](/quick-start). It runs a Flow, stops its Worker
+in the middle, and shows Dex continue the Flow. [Run Locally](/components/run-locally)
+shows how to install `dexcli` without Homebrew.
+
+## What do you want to do?
+
+- <a id="fix-a-process"></a>[Add Dex to existing code](/intro/add-to-existing-code): turn a function, job, or queue consumer you already have into a Flow.
+- <a id="durable-agent"></a>[Build a durable agent](/agent-frameworks/quick-start): run an agent in your framework so its tool calls and approvals survive a restart.
+- <a id="coding-agent"></a>[Let a coding agent write it](/build-with-ai/dex-developer-skill): install the Dex Skills so your coding agent writes correct Dex code.
+- <a id="evaluate-dex"></a>[Evaluate Dex](/evaluate): how Dex compares with what you run today, its limits, and its measured numbers.
+
+Dex Server runs in Dex Cloud or on your own infrastructure.
+[Choose How to Run Dex](/components/choose-how-to-run) compares the two.

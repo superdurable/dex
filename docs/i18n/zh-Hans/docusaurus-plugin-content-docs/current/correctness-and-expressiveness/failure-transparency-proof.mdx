@@ -20,13 +20,13 @@ Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变�
 - Step 方法的一次 attempt 失败，例如 Worker 报错、超时或 Worker 断开，然后 Dex 重试；
 - Dex 已经放弃某次 attempt，Worker 却还在继续运行它；
 - Worker 的结果到达两次，或在它的 attempt 被替换之后才到达；
-- 客户端再次发送同一个 **StartFlow** 请求。
+- 客户端再次发送同一个 `StartFlow` 请求。
 
 证明把有这些故障的运行，与同一个 Flow 没有故障的运行相比较，分三部分。
 
-- **去掉重复，剩下的就是无故障的序列。** 从一次有故障的运行到目前为止的事件中，去掉每个重复的外部副作用。剩下的，是这个 Flow 在没有故障时、对同样的请求（去掉 **StartFlow** 重试）能产生的序列。
+- **去掉重复，剩下的就是无故障的序列。** 从一次有故障的运行到目前为止的事件中，去掉每个重复的外部副作用。剩下的，是这个 Flow 在没有故障时、对同样的请求（去掉 `StartFlow` 重试）能产生的序列。
 - **每个无故障的序列仍然可能发生。** 一次恰好没出故障的运行就会产生它。
-- **公平的运行以相同方式结束。** 取一次有故障的公平运行的完整事件序列，去掉重复。结果是一次无故障公平运行的完整事件序列。两次运行要么都完成，要么都卡住，要么都一直运行。反方向在请求中没有 **StartFlow** 重试时得到证明。一次重试会推进 server 的时钟，因此可能改变哪个 Timer 先到期。
+- **公平的运行以相同方式结束。** 取一次有故障的公平运行的完整事件序列，去掉重复。结果是一次无故障公平运行的完整事件序列。两次运行要么都完成，要么都卡住，要么都一直运行。反方向在请求中没有 `StartFlow` 重试时得到证明。一次重试会推进 server 的时钟，因此可能改变哪个 Timer 先到期。
 
 每个重复的副作用，都是同一个 Step 方法先前某个副作用的精确副本。
 
@@ -48,20 +48,20 @@ Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变�
 
 客户端重试请求时：
 
-- **StartFlow**：复用第一次启动的 request ID；第一次启动和重试都设置返回已有运行的选项；保持默认的 ID 复用策略。这样，只要 server 的日志把重试排在 Dex 清除已关闭的运行之前，证明就覆盖这次重试。先到达 server 并不够。见[启动选项](/concepts/flow#start-options)。
-- **PublishToChannel**：响应丢失后再次发送的请求是第二个请求，可能把消息发布两次。通过 RPC request ID 只发布一次的做法已在计划中，见 [issue 1519](https://github.com/superdurable/dex/issues/1519)。
-- **StopFlow**：不带 run ID 的重试，可能停掉同一 Flow ID 较新的一次运行。传入 run ID 的做法已在计划中，见 [issue 1520](https://github.com/superdurable/dex/issues/1520)。
+- `StartFlow`：复用第一次启动的 request ID；第一次启动和重试都设置返回已有运行的选项；保持默认的 ID 复用策略。这样，只要 server 的日志把重试排在 Dex 清除已关闭的运行之前，证明就覆盖这次重试。先到达 server 并不够。见[启动选项](/concepts/flow#start-options)。
+- `PublishToChannel`：响应丢失后再次发送的请求是第二个请求，可能把消息发布两次。通过 RPC request ID 只发布一次的做法已在计划中，见 [issue 1519](https://github.com/superdurable/dex/issues/1519)。
+- `StopFlow`：不带 run ID 的重试，可能停掉同一 Flow ID 较新的一次运行。传入 run ID 的做法已在计划中，见 [issue 1520](https://github.com/superdurable/dex/issues/1520)。
 
 ## 证明依赖的假设 {#what-the-proof-assumes}
 
 证明在以下条件下成立：
 
-- **与表达能力证明相同的范围。** 一个 Flow 启动一次，并接收 Channel 消息。故障下的 RPC、SubFlow、**StopFlow** 和 Attribute 锁不在证明范围内。
+- **与表达能力证明相同的范围。** 一个 Flow 启动一次，并接收 Channel 消息。故障下的 RPC、SubFlow、`StopFlow` 和 Attribute 锁不在证明范围内。
 - **只覆盖 SYNC 方法。** **ASYNC** 方法可能在 server 崩溃时丢失它的启动。它随后会在新的快照上再次运行，所以副作用可能不同。
-- **重试不会用完，所有错误都可重试。** 重试用完或遇到不可重试的错误，Flow 都会失败。没有故障时，Flow 只有在它自己的代码让它失败时才会失败。server 长时间停机可能耗尽重试时间。
-- **没有失败策略。** 失败后继续执行的策略会改变接下来运行什么。
+- **重试一直持续到成功，所有错误都可重试。** 重试用完或遇到不可重试的错误，Flow 都会失败。没有故障时，Flow 只有在它自己的代码让它失败时才会失败。server 长时间停机可能耗尽重试时间。
+- **失败一律重试，不使用失败策略。** 失败后继续执行的策略会改变接下来运行什么。
 - **代码不关心自己是第几次 attempt。** 副作用和结果不依赖 attempt 编号、第一次 attempt 的时间、上一次错误或上一次心跳值。从心跳检查点恢复的代码不在证明范围内。
-- **不使用 hard-delete Attribute。** Dex 在每次 attempt 时都重新读取它们。
+- **只使用普通 Attribute，不使用 hard-delete Attribute。** Dex 在每次 attempt 时都重新读取它们。
 - **每个 attempt 命令都标明它的任务。** server 给已启动 attempt 的每个命令（例如它的结果、心跳或失败）标上运行它的任务。日志中每个这类命令都带有这个标记。
 - **时钟不回退。** 在单个 server 上，从检查某个 Timer 到期到给触发它的命令打时间戳，这期间时钟不回退。
 - **Timer 按顺序触发。** 每次触发都先取最早到期的 Timer：按到期时间排序，同时到期的按固定顺序排序。真实的 server 有一个很短的窗口，可能先触发一个 Timer，而另一个更早到期的 Timer 仍在等待。两个证明都不覆盖这个窗口。
@@ -89,7 +89,7 @@ Dex 有一个经计算机检查的证明：故障唯一能带来的可观察变�
 - **先测试，再证明。** 一个 fuzzer 遍历了带有崩溃、重试和迟到 attempt 的随机运行，并在每一步检查论证是否成立。
 - **示例和反例。** 证明助手检查了带有崩溃、重试和迟到的重复副作用的示例运行，并把证明应用到这些运行上。它还检查了违反某条假设的运行，例如读取 attempt 编号的代码，并表明这时结论不成立。
 
-## 相关页面 {#related-pages}
+## 下一步
 
 - [Correctness and expressiveness](/correctness-and-expressiveness)
 - [表达能力证明](/correctness-and-expressiveness/expressiveness-proof)

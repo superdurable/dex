@@ -1,13 +1,14 @@
 ---
 title: SubFlow
 slug: /concepts/primitives/subflow
+description: "A SubFlow is a Flow run that a parent Flow starts from one of its Steps. The child is a normal Flow with its own Steps, Attributes, and Channels. The parent waits for it like any other condition in WaitFor."
 ---
 
 # SubFlow
 
 A **SubFlow** is a Flow run that a parent Flow starts from one of its
 Steps. The child is a normal Flow with its own Steps, Attributes, and Channels.
-The parent waits for it like any other condition in **WaitFor**.
+The parent waits for it like any other condition in `WaitFor`.
 
 ## When to use a SubFlow
 
@@ -37,7 +38,7 @@ When you start the parent Flow ID again, the new run usually computes
 the same SubFlow IDs as the earlier run. Dex then applies the reuse policy. With
 the default policy, the new run gets the earlier run's child, running or
 completed, until Dex deletes that child. To start a fresh child in every run,
-use **ALWAYS_RESTART**. It terminates the earlier child if that child is still
+use `ALWAYS_RESTART`. It terminates the earlier child if that child is still
 running. When both children must keep running, use a different parent Flow ID.
 
 A child keeps running when its parent Step is canceled or its parent Flow
@@ -47,7 +48,7 @@ own.
 ## Start and wait for a SubFlow
 
 The target Flow must be registered on the Worker. Its start Step must accept the
-input passed to **SubFlow**. **WaitFor** starts the child. **Execute** reads its
+input passed to **SubFlow**. `WaitFor` starts the child. `Execute` reads its
 result after the child completes.
 
 <SdkTabs
@@ -213,10 +214,10 @@ impl Step for SubFlowParent {
 
 ## Wait for several SubFlows
 
-Use **allOf** to make the parent wait for all SubFlows to complete.
+Use `allOf` to make the parent wait for all SubFlows to complete.
 
-Use **anyOf** when the parent does not need to wait for all of them. A SubFlow
-keeps running after **WaitFor** stops waiting. **Execute** can still get the
+Use `anyOf` when the parent does not need to wait for all of them. A SubFlow
+keeps running after `WaitFor` stops waiting. `Execute` can still get the
 SubFlow ID to stop it, or pass the ID to another Step to decide how to handle
 it. See [SubFlow results](/reference/python/waits#subflow-results) for combining SubFlows with
 other conditions.
@@ -225,11 +226,17 @@ other conditions.
 
 ## Reference
 
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
+
 The [SubFlow](/reference/python/subflow) page of each SDK reference lists the
 API names in that language.
 
-**SubFlowOptions** accept the same options as starting a Flow from a Client,
+`SubFlowOptions` accept the same options as starting a Flow from a Client,
 plus a reuse policy. See
 [SubFlowOptions](/reference/server/runtime-data#subflow-options) and
 [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) for the options and the
 reuse policy for each state of an existing child.
+
+## Next
+
+[Client](/concepts/client): A Client is how your application talks to Dex from outside a Worker.
