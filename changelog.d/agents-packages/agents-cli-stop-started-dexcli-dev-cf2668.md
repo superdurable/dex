@@ -28,3 +28,6 @@ section: Changed
   reconnect messages go only to `~/.dex/agents/<harness>.log`, so a lost Dex
   server no longer prints stack traces into the chat. Other library warnings
   show their first line on the terminal and their full text in the log file.
+- TypeScript CLI core: closing the terminal no longer ends a command on Linux
+  with an uncaught `setRawMode EIO` error before it handles SIGHUP. The
+  command now stops the `dexcli dev` it started and exits with 129.

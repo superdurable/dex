@@ -165,6 +165,8 @@ export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = proces
     return 0;
   }
   const command = new AgentCliCommand(harness, io, parsed, log);
+  ignoreWriteErrorsOfClosedTerminal(io.stdout);
+  ignoreWriteErrorsOfClosedTerminal(io.stderr);
   try {
     return await command.run();
   } catch (error: unknown) {
@@ -932,6 +934,18 @@ function openInBrowser(url: string): void {
   const child = spawn(command, [url], { stdio: "ignore", detached: true });
   child.once("error", () => undefined);
   child.unref();
+}
+
+/** A closed terminal fails writes with EIO; the command must still stop the dexcli dev it started. */
+function ignoreWriteErrorsOfClosedTerminal(stream: Writable): void {
+  if ((stream as { isTTY?: boolean }).isTTY !== true) {
+    return;
+  }
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EIO") {
+      throw error;
+    }
+  });
 }
 
 function describe(error: unknown): string {
