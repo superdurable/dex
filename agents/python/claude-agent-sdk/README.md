@@ -42,16 +42,18 @@ DEXCLI=/path/to/dexcli ./ci.sh
 
 The Worker needs Claude Code credentials, such as `ANTHROPIC_API_KEY`, exactly
 as a plain Claude Agent SDK program does.
+Per Anthropic's terms, products built on the Claude Agent SDK authenticate with
+an API key (`ANTHROPIC_API_KEY`); see the
+[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview).
 
 Every segment after the first resumes the Claude session from a temporary
-config directory that the Claude Agent SDK prepares. The SDK copies the
-credentials file of the Worker's config directory there. It copies a Claude
-Code login kept in the macOS Keychain only when `CLAUDE_CONFIG_DIR` is unset
-and no credential, such as `ANTHROPIC_API_KEY`, is set in the environment or in
-the options' `env`. A macOS Worker that sets `CLAUDE_CONFIG_DIR` and uses a
-Keychain login therefore runs its first segment and fails every resumed segment
-with "Not logged in". Give such a Worker environment credentials, such as
-`ANTHROPIC_API_KEY`, or leave `CLAUDE_CONFIG_DIR` unset.
+config directory that the Claude Agent SDK prepares. A login that Claude Code stored,
+such as one in the macOS Keychain, keeps working across turns. Claude
+Code finds that login by `CLAUDE_SECURESTORAGE_CONFIG_DIR`, so the adapter sets
+it in the CLI environment to the effective `CLAUDE_CONFIG_DIR`, or to `""` when
+none is set. A resumed segment then uses the login of the first one. To choose
+another login, set `CLAUDE_SECURESTORAGE_CONFIG_DIR` in `env` or in the Worker
+environment; the adapter keeps your value.
 
 ## Running an agent
 
@@ -585,9 +587,7 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
 - On the first turn of a session Claude Code also writes its usual local
   transcript under `CLAUDE_CONFIG_DIR` (`~/.claude` by default). The adapter
   never reads it; set `CLAUDE_CONFIG_DIR` in `env` to choose where it goes.
-  With a macOS Keychain login, a custom `CLAUDE_CONFIG_DIR` breaks resume; see
-  [Installation](#installation). Later segments run in a temporary directory
-  that the SDK removes.
+  Later segments run in a temporary directory that the SDK removes.
 - Dex compaction is not available. Claude Code keeps its own transcript and
   compacts it inside the CLI, so the adapter has no summary to put in the
   model input, and `AgentSessionOptions.compaction` raises `TypeError`. The
@@ -621,7 +621,7 @@ speaks this subset of the SDK's stream-json protocol:
 | Direction | Message |
 | --- | --- |
 | SDK to CLI | `cli -v`, the version check. |
-| SDK to CLI | Arguments `--output-format stream-json --input-format stream-json`, `--resume=<id>`, `--mcp-config <json>`, `--permission-prompt-tool stdio`, `--permission-mode`, `--session-mirror`, `--include-partial-messages`; `CLAUDE_CONFIG_DIR` in the environment. |
+| SDK to CLI | Arguments `--output-format stream-json --input-format stream-json`, `--resume=<id>`, `--mcp-config <json>`, `--permission-prompt-tool stdio`, `--permission-mode`, `--session-mirror`, `--include-partial-messages`; `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR` in the environment. |
 | SDK to CLI | `control_request` `initialize` with `hooks.PreToolUse[].hookCallbackIds`; the CLI answers `control_response` `success`. |
 | SDK to CLI | One `user` prompt for a new segment. None for a resumed deferred call: the CLI resumes it on startup. Stdin closes after the result. |
 | CLI to SDK | `control_request` `mcp_message` with JSON-RPC `initialize`, `notifications/initialized`, `tools/list`, and `tools/call` carrying `_meta["claudecode/toolUseId"]`; the SDK answers `{"mcp_response": ...}`. |
