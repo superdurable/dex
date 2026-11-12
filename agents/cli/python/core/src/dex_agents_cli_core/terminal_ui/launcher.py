@@ -209,13 +209,18 @@ def worker_host_argv() -> list[str]:
 
 
 async def run_terminal_ui_chat(
-    launch: TerminalUiLaunch, report: Callable[[str], None]
+    launch: TerminalUiLaunch,
+    report: Callable[[str], None],
+    *,
+    restore_signal_handlers: Callable[[], object],
 ) -> int | PlainFallback:
     """Run one chat with the terminal UI.
 
     Args:
         launch: What the handoff needs.
         report: Prints one line on the terminal, before or after the handoff only.
+        restore_signal_handlers: Installs the command's own SIGTERM and SIGHUP
+            handlers again once the handoff removed its own.
 
     Returns:
         The command's exit code, or ``PlainFallback`` when the chat continues in plain text.
@@ -235,7 +240,7 @@ async def run_terminal_ui_chat(
         report(f"Session {ready.session_id}")
         if launch.start.web_url is not None:
             report(f"Dex Web: {launch.start.web_url}/v1/flows/{ready.session_id}?view=session")
-        handoff = _Handoff(launch, worker_host, ready, report)
+        handoff = _Handoff(launch, worker_host, ready, report, restore_signal_handlers)
         return await handoff.run()
     finally:
         await worker_host.stop()
@@ -467,8 +472,10 @@ class _Handoff:
         worker_host: WorkerHostProcess,
         ready: WorkerReady,
         report: Callable[[str], None],
+        restore_signal_handlers: Callable[[], object],
     ) -> None:
         self._launch = launch
+        self._restore_signal_handlers = restore_signal_handlers
         self._worker_host = worker_host
         self._ready = ready
         self._report = report
@@ -502,6 +509,7 @@ class _Handoff:
         finally:
             for signal_number in handled:
                 loop.remove_signal_handler(signal_number)
+            self._restore_signal_handlers()
             self._worker_host.subscribe(lambda _: None)
         if self._is_hung_up:
             return 129

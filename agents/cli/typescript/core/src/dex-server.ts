@@ -6,9 +6,20 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import {
+  closeSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { constants, tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -25,6 +36,13 @@ const reuseWaitTimeoutMs = 60_000;
 const pollIntervalMs = 250;
 const identityProbeTimeoutMs = 5_000;
 const identityProbeFlowId = "dex-agents-cli-identity-probe";
+// Longer than the 10 seconds dexcli dev gives dex-server-zd to shut down.
+const stopGracePeriodMs = 20_000;
+const killWaitMs = 5_000;
+// dexcli dev stops dex-server-zd before it exits; this only catches a member that outlives it.
+const leftoverWaitMs = 2_000;
+const stoppedLine = "Stopped the dexcli dev this command started.";
+const sharingHint = "To share one dexcli dev across sessions, run dexcli dev yourself first.";
 
 /**
  * The Dex server a command uses.
@@ -75,8 +93,8 @@ export interface StartedDexcliDev {
  * command started only says that it may still be starting and which connectors MCP URL it printed. Without any
  * server, it starts
  * `dexcli dev` on those ports in the background, with its output in `~/.dex/agents/dexcli-dev.log`, waits until
- * it is ready, and records it in `~/.dex/agents/dexcli-dev.json`. The started server keeps running after the
- * command exits, so later commands and Dex Web reuse it.
+ * it is ready, and records it in `~/.dex/agents/dexcli-dev.json`. The `dexcli dev` it starts keeps running after
+ * this function returns. A command that `runAgentCli` runs stops the `dexcli dev` it started when it exits.
  *
  * @param server - `dex.server`: `auto` or an `http` or `https` URL.
  * @param environment - The command's environment settings.
@@ -89,6 +107,16 @@ export async function resolveDexServer(
   server: string,
   environment: CliEnvironment,
   log: (line: string) => void,
+): Promise<DexServerConnection> {
+  return resolveDexServerForCommand(server, environment, log, undefined);
+}
+
+/** Resolves `dex.server` as {@link resolveDexServer} does; `startedDexcliDev` owns a `dexcli dev` it starts. */
+export async function resolveDexServerForCommand(
+  server: string,
+  environment: CliEnvironment,
+  log: (line: string) => void,
+  startedDexcliDev: StartedDexcliDevProcess | undefined,
 ): Promise<DexServerConnection> {
   if (server !== "auto") {
     const url = new URL(server);
@@ -119,7 +147,7 @@ export async function resolveDexServer(
       origin: "reused",
     };
   }
-  const connectorsMcpUrl = await startDexcliDev(environment, log);
+  const connectorsMcpUrl = await startDexcliDev(environment, log, startedDexcliDev);
   return {
     serverAddress,
     isTls: false,
@@ -144,7 +172,160 @@ export function readStartedDexcliDev(environment: CliEnvironment): StartedDexcli
   }
 }
 
-async function startDexcliDev(environment: CliEnvironment, log: (line: string) => void): Promise<string | undefined> {
+/** The `dexcli dev` one command spawned; stopping it ends its process group and removes its record. */
+export class StartedDexcliDevProcess {
+  private child: ChildProcess | undefined;
+  private exited: Promise<void> = Promise.resolve();
+  private stopping: Promise<void> | undefined;
+  private readonly signalListeners = new Map<NodeJS.Signals, () => void>();
+
+  /**
+   * Owns no process yet.
+   * @param environment - Locates the record.
+   * @param log - Writes the stopped line.
+   */
+  public constructor(
+    private readonly environment: CliEnvironment,
+    private readonly log: (line: string) => void,
+  ) {}
+
+  /**
+   * Owns a spawned `dexcli dev`; until it stops, SIGTERM, SIGHUP, and SIGINT stop it and exit.
+   * @param child - The spawned group leader.
+   */
+  public track(child: ChildProcess): void {
+    this.child = child;
+    this.exited = new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        resolve();
+      } else {
+        child.once("exit", () => resolve());
+      }
+    });
+    this.listenForTerminationSignals();
+  }
+
+  /** Leaves Ctrl-C to the terminal chat, which cancels a turn on the first one. */
+  public releaseInterrupt(): void {
+    this.removeSignalListener("SIGINT");
+  }
+
+  /**
+   * Stops the group once, SIGTERM then SIGKILL, and removes the record. A signal during the stop kills the group
+   * at once and exits.
+   * @returns A Promise that resolves after the leader exited, at once when nothing was started.
+   */
+  public stop(): Promise<void> {
+    this.stopping ??= this.doStop();
+    return this.stopping;
+  }
+
+  private async doStop(): Promise<void> {
+    const child = this.child;
+    const pid = child?.pid;
+    if (child === undefined || pid === undefined) {
+      this.removeSignalListeners();
+      return;
+    }
+    this.listenForTerminationSignals();
+    removeRecordOf(this.environment, pid);
+    const wasRunning = this.isLeaderRunning();
+    if (wasRunning) {
+      signalProcessGroup(pid, "SIGTERM");
+      if (!(await resolvesWithin(this.exited, stopGracePeriodMs))) {
+        this.killGroupWhileLeaderRuns();
+        await resolvesWithin(this.exited, killWaitMs);
+      }
+    }
+    // Signal 0 delivers nothing, so asking about a group ID that may be reused is harmless.
+    const isGroupGone = process.platform === "win32" || (await isTrueWithin(() => !isProcessGroupAlive(pid), leftoverWaitMs));
+    if (!isGroupGone) {
+      this.writeLine(
+        `dexcli dev (pid ${pid}) exited, but processes of its process group may still run; if so, stop them with: kill -- -${pid}`,
+      );
+    } else if (wasRunning) {
+      this.writeLine(stoppedLine);
+    }
+    this.removeSignalListeners();
+  }
+
+  /** Node reaps the leader just before it sets these fields, so until then its group ID stays this group's. */
+  private isLeaderRunning(): boolean {
+    return this.child !== undefined && this.child.exitCode === null && this.child.signalCode === null;
+  }
+
+  private killGroupWhileLeaderRuns(): void {
+    const pid = this.child?.pid;
+    if (pid !== undefined && this.isLeaderRunning()) {
+      signalProcessGroup(pid, "SIGKILL");
+    }
+  }
+
+  private onTerminationSignal(signal: NodeJS.Signals): void {
+    // After SIGHUP the terminal is gone; its read and write errors must not end the command before the stop.
+    for (const stream of [process.stdin, process.stdout, process.stderr]) {
+      stream.on("error", () => undefined);
+    }
+    const exitCode = 128 + constants.signals[signal];
+    if (this.stopping === undefined) {
+      void this.stop().then(() => process.exit(exitCode));
+      return;
+    }
+    // A signal during the grace period means: do not wait any longer.
+    this.killGroupWhileLeaderRuns();
+    process.exit(exitCode);
+  }
+
+  private listenForTerminationSignals(): void {
+    for (const signal of ["SIGTERM", "SIGHUP", "SIGINT"] as const) {
+      if (!this.signalListeners.has(signal)) {
+        const listener = (): void => this.onTerminationSignal(signal);
+        this.signalListeners.set(signal, listener);
+        process.on(signal, listener);
+      }
+    }
+  }
+
+  private removeSignalListeners(): void {
+    for (const signal of [...this.signalListeners.keys()]) {
+      this.removeSignalListener(signal);
+    }
+  }
+
+  private writeLine(line: string): void {
+    try {
+      this.log(line);
+    } catch {
+      // After SIGHUP the terminal may be gone; the server is stopped either way.
+    }
+  }
+
+  private removeSignalListener(signal: NodeJS.Signals): void {
+    const listener = this.signalListeners.get(signal);
+    if (listener !== undefined) {
+      process.off(signal, listener);
+      this.signalListeners.delete(signal);
+    }
+  }
+}
+
+/**
+ * Describes a reused `dexcli dev` that stopped.
+ * @param webUrl - Its Dex Web URL.
+ * @returns The short error text, or `undefined` while it still answers.
+ */
+export async function describeLostDexcliDev(webUrl: string): Promise<string | undefined> {
+  if ((await probeReadiness(webUrl)).state !== "absent") {
+    return undefined;
+  }
+  return `the dexcli dev at ${webUrl} stopped. A dexcli dev that another command started stops when that command exits. ${sharingHint}`;
+}
+
+async function startDexcliDev(
+  environment: CliEnvironment,
+  log: (line: string) => void,
+  startedDexcliDev: StartedDexcliDevProcess | undefined,
+): Promise<string | undefined> {
   const dexcli = await resolveDexcliExecutable(environment, log);
   mkdirSync(environment.agentsDirectory, { recursive: true });
   const logPath = join(environment.agentsDirectory, "dexcli-dev.log");
@@ -165,6 +346,7 @@ async function startDexcliDev(environment: CliEnvironment, log: (line: string) =
     env: environment.childProcessVariables,
   });
   closeSync(logFile);
+  startedDexcliDev?.track(child);
   let exitDescription: string | undefined;
   child.once("exit", (code, signal) => {
     exitDescription = `exited with ${code ?? signal ?? "unknown status"}`;
@@ -186,12 +368,16 @@ async function startDexcliDev(environment: CliEnvironment, log: (line: string) =
         ...(connectorsMcpUrl === undefined ? {} : { connectorsMcpUrl }),
       };
       writeFileSync(startedRecordPath(environment), `${JSON.stringify(record, null, 2)}\n`);
-      log(`dexcli dev is running (pid ${record.pid}) and keeps running after this command exits.`);
+      log(
+        startedDexcliDev === undefined
+          ? `dexcli dev is ready (pid ${record.pid}) and keeps running.`
+          : `dexcli dev is ready (pid ${record.pid}); it stops when this command exits. ${sharingHint}`,
+      );
       return connectorsMcpUrl;
     }
     if (exitDescription !== undefined || Date.now() >= deadline) {
-      if (exitDescription === undefined) {
-        child.kill("SIGTERM");
+      if (exitDescription === undefined && child.pid !== undefined) {
+        signalProcessGroup(child.pid, "SIGTERM");
       }
       throw new Error(
         `dexcli dev ${exitDescription ?? `was not ready within ${startTimeoutMs / 1000} seconds`}; ` +
@@ -300,6 +486,97 @@ async function probeDexFlowService(serverAddress: string): Promise<string | unde
     blobCache.close();
     rmSync(cacheDirectory, { recursive: true, force: true });
   }
+}
+
+/** Signals a group whose leader is still unreaped; Windows has no groups, so taskkill ends the process tree. */
+function signalProcessGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
+  if (process.platform === "win32") {
+    // Node's kill would force-end dexcli dev alone and leave dex-server-zd running.
+    const result = spawnSync("taskkill", ["/PID", String(pid), "/T", ...(signal === "SIGKILL" ? ["/F"] : [])], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    if (result.error !== undefined) {
+      // Without taskkill, ending dexcli dev alone is the only stop left.
+      killIgnoringExit(pid, signal);
+    }
+    return;
+  }
+  killIgnoringExit(-pid, signal);
+}
+
+function killIgnoringExit(target: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(target, signal);
+  } catch {
+    // The process already exited.
+  }
+}
+
+function isProcessGroupAlive(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** Returns whether a Promise resolves within the timeout. */
+async function resolvesWithin(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
+  // A referenced timer keeps Node running while it waits for the unreferenced child.
+  const timeoutCancellation = new AbortController();
+  const timeout = delay(timeoutMs, "timeout" as const, { signal: timeoutCancellation.signal }).catch(() => "cancelled" as const);
+  const outcome = await Promise.race([promise.then(() => "resolved" as const), timeout]);
+  timeoutCancellation.abort();
+  return outcome === "resolved";
+}
+
+/** Polls a condition; returns whether it became true within the timeout. */
+async function isTrueWithin(condition: () => boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (condition()) {
+      return true;
+    }
+    if (Date.now() >= deadline) {
+      return false;
+    }
+    await delay(pollIntervalMs);
+  }
+}
+
+/** Removes the record only when it names `pid`; renaming it aside first keeps a record written meanwhile. */
+function removeRecordOf(environment: CliEnvironment, pid: number): void {
+  const recordPath = startedRecordPath(environment);
+  const claimedPath = `${recordPath}.${process.pid}-${randomBytes(4).toString("hex")}.removing`;
+  try {
+    renameSync(recordPath, claimedPath);
+  } catch {
+    return; // No record.
+  }
+  let recordedPid: unknown;
+  try {
+    recordedPid = (JSON.parse(readFileSync(claimedPath, "utf8")) as { pid?: unknown }).pid;
+  } catch {
+    recordedPid = undefined;
+  }
+  if (recordedPid !== pid) {
+    try {
+      linkSync(claimedPath, recordPath);
+    } catch (error: unknown) {
+      // EEXIST: a newer record took its place, and that one stays. Without hard links, copy it back.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        try {
+          // "wx" creates the file only if it is absent, so a newer record is never overwritten.
+          writeFileSync(recordPath, readFileSync(claimedPath), { flag: "wx" });
+        } catch {
+          // A newer record exists, or the copy failed; losing it costs only the recorded connectors URL.
+        }
+      }
+    }
+  }
+  rmSync(claimedPath, { force: true });
 }
 
 function isProcessAlive(pid: number): boolean {
