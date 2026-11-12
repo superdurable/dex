@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -48,7 +49,10 @@ SDK_SUITES_THAT_RUN_DEXCLI_DEV = (
     "sdk-typescript-ci.yml",
 )
 
-USES_PATTERN =re.compile(r"^    uses: \./\.github/workflows/(?P<file>[A-Za-z0-9_.-]+\.ya?ml)\s*$")
+USES_PATTERN = re.compile(
+    r"^    uses:\s+(?P<quote>[\"']?)\./\.github/workflows/(?P<file>[A-Za-z0-9_.-]+\.ya?ml)(?P=quote)\s*$"
+)
+ANY_USES_PATTERN = re.compile(r"^    uses:")
 JOB_PATTERN = re.compile(r"^  (?P<job>[A-Za-z0-9_-]+):\s*$")
 NAME_PATTERN = re.compile(r"^name: (?P<name>.+?)\s*$")
 LIST_ITEM_PATTERN = re.compile(r"^(?P<indent> *)- *(?P<value>.+?)\s*$")
@@ -69,14 +73,18 @@ def main() -> int:
     select.add_argument(
         "--changed-files",
         type=Path,
-        help="file with one changed repository path per line; omit to select every suite",
+        help="file with one changed repository path per line",
     )
+    select.add_argument("--base-sha", help="select the suites that the changes from this commit affect")
+    select.add_argument("--head-sha", default="HEAD", help="the commit that --base-sha is compared with")
     commands.add_parser("check-paths")
     arguments = parser.parse_args()
 
     if arguments.command == "select-main-suites":
         changed_files = None
-        if arguments.changed_files is not None:
+        if arguments.base_sha is not None:
+            changed_files = list_changed_files(arguments.base_sha, arguments.head_sha)
+        elif arguments.changed_files is not None:
             changed_files = [
                 line.strip()
                 for line in arguments.changed_files.read_text(encoding="utf-8").splitlines()
@@ -99,10 +107,22 @@ def select_main_suites(workflow_directory: Path, changed_files: list[str] | None
         return sorted(suite_files)
     selected = []
     for job, suite_file in sorted(suite_files.items()):
-        patterns = read_pull_request_paths(workflow_directory / suite_file)
+        patterns = None if suite_file is None else read_pull_request_paths(workflow_directory / suite_file)
         if patterns is None or any(matches_any(path, patterns) for path in changed_files):
             selected.append(job)
     return selected
+
+
+def list_changed_files(base_sha: str, head_sha: str, repository: Path | None = None) -> list[str]:
+    """Returns the paths changed from base_sha to head_sha; a rename lists its old and new path."""
+    result = subprocess.run(
+        ["git", "diff", "--no-renames", "--name-only", base_sha, head_sha],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [line for line in result.stdout.splitlines() if line]
 
 
 def check_gate_filters(workflow_directory: Path) -> list[str]:
@@ -162,9 +182,12 @@ def check_dexcli_paths(workflow_directory: Path, cli_internal_directory: Path) -
     return differences
 
 
-def read_called_workflows(caller_path: Path) -> dict[str, str]:
-    """Returns each job of the caller workflow that calls a local workflow, mapped to that file."""
-    called = {}
+def read_called_workflows(caller_path: Path) -> dict[str, str | None]:
+    """Returns each job of the caller workflow that calls a workflow, mapped to the local file it calls.
+
+    A job whose uses: value this script cannot read maps to None, so every change selects it.
+    """
+    called: dict[str, str | None] = {}
     current_job = None
     in_jobs = False
     for line in caller_path.read_text(encoding="utf-8").splitlines():
@@ -177,9 +200,10 @@ def read_called_workflows(caller_path: Path) -> dict[str, str]:
         if job_match:
             current_job = job_match.group("job")
             continue
+        if current_job is None or not ANY_USES_PATTERN.match(line):
+            continue
         uses_match = USES_PATTERN.match(line)
-        if uses_match and current_job is not None:
-            called[current_job] = uses_match.group("file")
+        called[current_job] = uses_match.group("file") if uses_match else None
     if not called:
         raise SystemExit(f"{caller_path} calls no local workflow")
     return called

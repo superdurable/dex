@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -97,8 +98,44 @@ class SelectMainSuitesTest(unittest.TestCase):
         (self.workflows / "web-ci.yml").write_text(WEB.replace("web/**", "web/{app,lib}/**"), encoding="utf-8")
         self.assertEqual(self.select(["docs/index.mdx"]), ["web"])
 
+    def test_a_quoted_uses_value_is_read(self) -> None:
+        main_ci = MAIN_CI.replace("uses: ./.github/workflows/web-ci.yml", 'uses: "./.github/workflows/web-ci.yml"')
+        (self.workflows / "main-ci-all.yml").write_text(main_ci, encoding="utf-8")
+        self.assertEqual(self.select(["web/app/page.tsx"]), ["web"])
+        self.assertEqual(self.select(["docs/index.mdx"]), [])
+
+    def test_a_uses_value_this_script_cannot_read_selects_its_job(self) -> None:
+        main_ci = MAIN_CI.replace(
+            "uses: ./.github/workflows/web-ci.yml", "uses: ./.github/workflows/${{ matrix.suite }}.yml"
+        )
+        (self.workflows / "main-ci-all.yml").write_text(main_ci, encoding="utf-8")
+        self.assertEqual(self.select(["docs/index.mdx"]), ["web"])
+        self.assertEqual(self.select(None), ["sdk-go", "web"])
+
+    def test_a_rename_across_directories_selects_both_suites(self) -> None:
+        repository = Path(self.temporary_directory.name) / "repository"
+        (repository / "sdk-go").mkdir(parents=True)
+        (repository / "sdk-go/client.go").write_text("package dex\n", encoding="utf-8")
+        self.git(repository, "init", "-q")
+        self.git(repository, "add", "-A")
+        self.git(repository, "commit", "-q", "-m", "base")
+        (repository / "web").mkdir()
+        self.git(repository, "mv", "sdk-go/client.go", "web/client.go")
+        self.git(repository, "commit", "-q", "-m", "move")
+        changed_files = workflow_paths.list_changed_files("HEAD~1", "HEAD", repository)
+        self.assertEqual(sorted(changed_files), ["sdk-go/client.go", "web/client.go"])
+        self.assertEqual(self.select(changed_files), ["sdk-go", "web"])
+
     def select(self, changed_files: list[str] | None) -> list[str]:
         return workflow_paths.select_main_suites(self.workflows, changed_files)
+
+    @staticmethod
+    def git(repository: Path, *arguments: str) -> None:
+        subprocess.run(
+            ["git", "-c", "user.name=CI", "-c", "user.email=ci@example.com", *arguments],
+            cwd=repository,
+            check=True,
+        )
 
 
 GATE = """name: Check Gate CI
@@ -167,7 +204,8 @@ class RepositoryWorkflowsTest(unittest.TestCase):
         suites = workflow_paths.read_called_workflows(workflows / workflow_paths.MAIN_CI_WORKFLOW)
         for job, suite_file in suites.items():
             with self.subTest(job=job):
-                self.assertTrue(workflow_paths.read_pull_request_paths(workflows / suite_file))
+                self.assertIsNotNone(suite_file)
+                self.assertTrue(workflow_paths.read_pull_request_paths(workflows / str(suite_file)))
 
 
 if __name__ == "__main__":

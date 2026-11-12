@@ -63,9 +63,8 @@ jobs:
             select_every_suite
             exit 0
           fi
-          git diff --name-only "$last_success_sha" "$HEAD_SHA" > "$RUNNER_TEMP/changed-files.txt"
           suites="$(python3 .github/scripts/workflow_paths.py select-main-suites \
-            --changed-files "$RUNNER_TEMP/changed-files.txt")"
+            --base-sha "$last_success_sha" --head-sha "$HEAD_SHA")"
           echo "Changes since ${last_success_sha} select: ${suites}"
           echo "suites=$suites" >> "$GITHUB_OUTPUT"
 
