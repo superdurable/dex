@@ -31,6 +31,7 @@ from dex_agents_cli_testing.scripted_model import (
     ScriptedReply,
     ScriptedToolResult,
     scripted_reply,
+    stream_text_deltas,
 )
 
 _USAGE = {
@@ -75,10 +76,11 @@ class ResponsesApiStub(ModelApiStub):
             return ModelApiResponse(404, body={"error": {"message": "not found"}})
         body = {**request.body, "input": self._resolve_item_references(request.body.get("input"))}
         conversation = read_responses_conversation(body)
-        response = _response_object(body, self._reply_source(conversation))
+        reply = self._reply_source(conversation)
+        response = _response_object(body, reply)
         self._remember_sent_items(response["output"])
         if request.body.get("stream"):
-            return ModelApiResponse(events=_stream_events(response))
+            return ModelApiResponse(events=_stream_events(response, reply.stream_delay_seconds))
         return ModelApiResponse(body=response)
 
     def _remember_sent_items(self, items: Sequence[Mapping[str, Any]]) -> None:
@@ -207,7 +209,9 @@ def _response_object(body: Mapping[str, Any], reply: ScriptedReply) -> dict[str,
     }
 
 
-def _stream_events(response: Mapping[str, Any]) -> Iterator[tuple[str, Mapping[str, Any]]]:
+def _stream_events(
+    response: Mapping[str, Any], delay_seconds: float
+) -> Iterator[tuple[str, Mapping[str, Any]]]:
     sequence = iter(range(1_000_000))
     pending = {**response, "status": "in_progress", "output": []}
 
@@ -233,14 +237,15 @@ def _stream_events(response: Mapping[str, Any]) -> Iterator[tuple[str, Mapping[s
                 content_index=0,
                 part=empty_part,
             )
-            yield event(
-                "response.output_text.delta",
-                item_id=item["id"],
-                output_index=index,
-                content_index=0,
-                delta=text,
-                logprobs=[],
-            )
+            for delta in stream_text_deltas(text, delay_seconds):
+                yield event(
+                    "response.output_text.delta",
+                    item_id=item["id"],
+                    output_index=index,
+                    content_index=0,
+                    delta=delta,
+                    logprobs=[],
+                )
             yield event(
                 "response.output_text.done",
                 item_id=item["id"],

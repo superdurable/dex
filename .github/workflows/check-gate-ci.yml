@@ -55,6 +55,10 @@ jobs:
               - '.github/workflows/agents-ci.yml'
               - '.github/workflows/agents-python-publish.yml'
               - '.github/workflows/agents-typescript-publish.yml'
+            agents_terminal_ui:
+              - 'agents/cli/**'
+              - 'cli/internal/agentsterminal/**'
+              - '.github/workflows/agents-terminal-ui-e2e-ci.yml'
             sdk_go:
               - 'sdk-go/**'
               - 'blob-cache-go/**'
@@ -366,6 +370,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT_NAME: ${{ github.event_name }}
           FILTER_AGENTS: ${{ steps.filter.outputs.agents }}
+          FILTER_AGENTS_TERMINAL_UI: ${{ steps.filter.outputs.agents_terminal_ui }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
           FILTER_SDK_JAVA: ${{ steps.filter.outputs.sdk_java }}
@@ -396,6 +401,7 @@ jobs:
           # Main CI (all) checks main; this gate checks only pull requests.
           expected=("CLA")
           [[ "$FILTER_AGENTS" == "true" ]] && expected+=("Agents CI")
+          [[ "$FILTER_AGENTS_TERMINAL_UI" == "true" ]] && expected+=("Agents terminal UI e2e CI")
           [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
           [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
           [[ "$FILTER_SDK_JAVA" == "true" ]] && expected+=("Java SDK CI")
@@ -426,6 +432,7 @@ jobs:
           if [[ "$EVENT_NAME" == "pull_request" && "$IS_FAST_MERGE" == "true" ]]; then
             non_blocking=(
               "Agents CI"
+              "Agents terminal UI e2e CI"
               "Blob Cache Go CI"
               "Dex CLI CI"
               "Go SDK CI"

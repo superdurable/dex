@@ -263,3 +263,19 @@ uv run --frozen dex-agents-cli-e2e --suite commands --only py-openai-sdk,ts-pi -
 
 Builds, private homes, terminal transcripts, request logs, and the report
 go to `--work-dir`. The exit code is 1 when a step failed.
+
+## Terminal UI end-to-end check
+
+[`python/terminal-ui-e2e/`](python/terminal-ui-e2e) runs a command with
+`DEX_AGENTS_TERMINAL_UI=1` on a pseudo-terminal and checks what the terminal
+shows. It uses a `dexcli` with `agents-tui`, a private `dexcli dev`, and the
+mock model API, so no provider key is needed.
+
+```bash
+DEXCLI=/path/to/dexcli agents/cli/python/terminal-ui-e2e/run-scenarios.sh \
+  --command py-openai-sdk --command py-builtin
+```
+
+Without `DEXCLI`, the script builds `dexcli` from this checkout, which needs
+the Dex Web build in `web/assets/dist`. Agents terminal UI e2e CI runs
+`py-openai-sdk` on Linux; the other commands run locally.

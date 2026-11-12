@@ -1,0 +1,95 @@
+name: Agents terminal UI e2e CI
+
+on:
+  pull_request:
+    paths:
+      - "agents/cli/**"
+      - "cli/internal/agentsterminal/**"
+      - ".github/workflows/agents-terminal-ui-e2e-ci.yml"
+  workflow_dispatch:
+  # Main CI (all) calls this suite on main.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agents-terminal-ui-e2e-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scenarios:
+    # One command per CLI core runs here; run-scenarios.sh runs the rest locally.
+    name: Terminal UI scenarios (${{ matrix.command }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add ts-openai-sdk once the TypeScript CLI core hands its chat to the terminal UI.
+        command: [py-openai-sdk]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            web/go.sum
+            sdk-go/go.sum
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: agents/cli/python/terminal-ui-e2e
+          enable-cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install bundled server-zd
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release="$(cat cli/SERVER_ZD_RELEASE)"
+          archive="dex-server-zd_${release#server-zd/}_linux_amd64.tar.gz"
+          download_dir="$RUNNER_TEMP/server-zd"
+          gh release download "$release" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$archive" --pattern checksums.txt --dir "$download_dir"
+          (cd "$download_dir" && sha256sum --check --ignore-missing checksums.txt)
+          tar -xzf "$download_dir/$archive" -C "$download_dir"
+          echo "DEX_SERVER_ZD_BINARY=$download_dir/dex-server-zd" >> "$GITHUB_ENV"
+      - name: Build embedded Web assets
+        working-directory: web
+        run: |
+          npm ci --no-fund --no-audit
+          npm run build
+      - name: Build dexcli from this checkout
+        env:
+          GOWORK: "off"
+        run: |
+          set -euo pipefail
+          (cd cli && go build -trimpath -o "$RUNNER_TEMP/dexcli/dexcli" ./cmd/dexcli)
+          "$RUNNER_TEMP/dexcli/dexcli" agents-tui --describe
+          echo "DEXCLI=$RUNNER_TEMP/dexcli/dexcli" >> "$GITHUB_ENV"
+      - name: Run the scenarios
+        env:
+          COMMAND: ${{ matrix.command }}
+          WORK_DIR: ${{ runner.temp }}/terminal-ui-e2e
+        run: |
+          agents/cli/python/terminal-ui-e2e/run-scenarios.sh \
+            --command "$COMMAND" --python 3.11 --work-dir "$WORK_DIR" -v
+      - name: Upload transcripts and logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agents-terminal-ui-e2e-${{ matrix.command }}
+          path: |
+            ${{ runner.temp }}/terminal-ui-e2e/cases/**/terminal-*.bin
+            ${{ runner.temp }}/terminal-ui-e2e/cases/**/*.log
+            ${{ runner.temp }}/terminal-ui-e2e/cases/**/model-requests.jsonl
+            ${{ runner.temp }}/terminal-ui-e2e/logs/**
+          if-no-files-found: ignore
