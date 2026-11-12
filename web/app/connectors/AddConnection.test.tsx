@@ -281,7 +281,7 @@ describe('A credential-free connection on the Connectors page', () => {
     fireEvent.change(within(form).getByRole('textbox', { name: /Connection name/ }), { target: { value: 'public' } });
     fireEvent.click(within(form).getByRole('button', { name: 'Add connection' }));
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Save local credentials' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save connection' }));
     expect(await screen.findByText('Authorization complete')).not.toBeNull();
     const put = requests.find((request) => request.method === 'PUT');
     expect(JSON.parse(put?.body ?? '{}')).toEqual({
@@ -294,7 +294,7 @@ describe('A credential-free connection on the Connectors page', () => {
   it('opens with an unsaved credential-free connection selected', async () => {
     stubConnectorAPI([pendingHackerNewsConnection, slackConnection]);
     renderConnectorsPage();
-    expect(await screen.findByRole('button', { name: 'Save local credentials' })).not.toBeNull();
+    expect(await screen.findByRole('button', { name: 'Save connection' })).not.toBeNull();
     const list = screen.getByRole('list', { name: 'Connections' });
     expect(list.textContent).toContain('Hacker News Daily');
     expect(list.textContent).toContain('Slack');
@@ -369,12 +369,14 @@ describe('A credential-free connection on the Connectors page', () => {
     });
     renderConnectorsPage();
     expect(await screen.findByRole('heading', { name: 'Hacker News Daily setup' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Save connection' })).not.toBeNull();
 
     const list = screen.getByRole('list', { name: 'Connections' });
     fireEvent.click(within(list).getByRole('button', { name: /Slack/ }));
     expect(await screen.findByRole('heading', { name: 'Slack' })).not.toBeNull();
     expect(screen.getByRole('status').textContent).toBe('Loading Connector release…');
     expect(screen.queryByRole('heading', { name: 'Hacker News Daily setup' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save connection' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save local credentials' })).toBeNull();
 
     answerSlackSession(new Response(JSON.stringify({
@@ -386,6 +388,8 @@ describe('A credential-free connection on the Connectors page', () => {
       },
     })));
     expect(await screen.findByRole('heading', { name: 'Slack setup' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Save local credentials' })).not.toBeNull();
     expect(screen.queryByRole('heading', { name: 'Hacker News Daily setup' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save connection' })).toBeNull();
   });
 });
