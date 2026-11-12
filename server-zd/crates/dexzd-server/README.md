@@ -24,3 +24,23 @@ cargo test -p dexzd-server --test serve_process real_aliyun_oss -- --ignored --n
 ```
 
 With `--ignored`, a missing variable fails the test and names every missing variable.
+
+## Manual Tencent COS tests
+
+`tests/serve_process/tencent_cos_real_bucket.rs` checks `objectStore.provider: tencentCOS`
+against a real Tencent COS bucket. CI never runs these tests. Run them after changing tencentCOS
+or aliyunOSS code, after upgrading aws-sdk, and before a release.
+
+Use a single-AZ bucket whose versioning was never enabled. The checks cover the bucket checks,
+concurrent appends, the versioned compare-and-swap, a 20 MiB append and multipart upload, batch
+deletes, and a serve process restart. Each test writes under a new prefix and deletes it at the
+end, as the Aliyun OSS tests do. From `server-zd/`:
+
+```text
+DEX_COS_ENDPOINT=https://cos.ap-guangzhou.myqcloud.com \
+DEX_COS_REGION=ap-guangzhou \
+DEX_COS_BUCKET=<bucket-appid> \
+DEX_COS_ACCESS_KEY_ID=<SecretId> \
+DEX_COS_SECRET_ACCESS_KEY=<SecretKey> \
+cargo test -p dexzd-server --test serve_process real_tencent_cos -- --ignored --nocapture --test-threads=1
+```

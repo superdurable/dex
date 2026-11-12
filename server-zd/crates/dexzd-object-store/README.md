@@ -24,7 +24,7 @@ File downloads write to a temporary file beside the target and rename after the 
 
 server-zd writes `ReplaceIfEtagMatches` only on mutable object keys: `manifest`, `registry/attribute-indexes`, and keys under `lease/`, `probe/`, and `registry/flow-definitions/`. `is_mutable_object_key` and the key constants are their single definition. Register a key there before replacing it.
 
-`AliyunOssObjectStore` wraps a store whose only conditional write is create-only, such as Aliyun OSS. Every other key passes through unchanged and rejects `ReplaceIfEtagMatches` with a permanent error. `supports_replace_if_etag_matches_on_every_key` then returns false; wrappers forward the answer.
+`AliyunOssObjectStore` wraps a store whose only conditional write is create-only, such as Aliyun OSS or Tencent COS. Every other key passes through unchanged and rejects `ReplaceIfEtagMatches` with a permanent error. `supports_replace_if_etag_matches_on_every_key` then returns false; wrappers forward the answer.
 
 A mutable key `K` is stored as create-only versions at `K.v/<u64::MAX - generation>`, zero-padded to 20 digits, so a one-key listing returns the newest version. ETags are `"g<generation>-<version ID>"`. A delete writes a tombstone version.
 
@@ -118,7 +118,9 @@ GCS application default credentials support `service_account` and
 
 The shared conformance suite exercises the in-memory implementation and an in-process s3local in strict, process-crash-safe, and relaxed durability modes. It needs no cloud credentials or external service.
 
-`aliyun_oss_conformance` and `aliyun_oss_versioned_cas` run `AliyunOssObjectStore` over an in-memory store that rejects `ReplaceIfEtagMatches`. They cover racing writers, stale writers after reclamation and resurrection, superseded writers, injected faults, tombstones, probe removal, and Flow definition keys. The racing histories must fit a sequential compare-and-swap order in real time. One conformance test also runs the adapter over `S3ObjectStore` against s3local's Aliyun OSS dialect, with content and opaque ETags.
+`aliyun_oss_conformance` and `aliyun_oss_versioned_cas` run `AliyunOssObjectStore` over an in-memory store that rejects `ReplaceIfEtagMatches`. They cover racing writers, stale writers after reclamation and resurrection, superseded writers, injected faults, tombstones, probe removal, and Flow definition keys. The racing histories must fit a sequential compare-and-swap order in real time. One conformance test also runs the adapter over `S3ObjectStore` against s3local's Aliyun OSS dialect, with content and opaque ETags, and another against its Tencent COS dialect.
+
+The Tencent COS dialect of `S3ObjectStore` creates objects with a signed AppendObject at position 0. The conformance suite runs it against s3local's Tencent COS dialect with strict signature checks: shared cases, racing creators, empty and oversized bodies, ambiguous appends, and the bucket checks. `tencent_cos_bucket_checks` covers the check's timeouts and cleanup failures.
 
 Azure Blob Storage and GCS error mapping runs against a scripted local HTTP server in the same suite.
 

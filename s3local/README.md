@@ -195,7 +195,7 @@ binary; `start` uses explicit defaults and ignores `S3LOCAL_*` environment varia
 | `--control-authentication` | `S3LOCAL_CONTROL_AUTHENTICATION` | `off` | `root` requires root SigV4 signatures on every test control when signature verification is strict. |
 | `--access-key-id` | `S3LOCAL_ACCESS_KEY_ID` | `s3local` | Root access key; the only identity that can manage credentials. |
 | `--secret-access-key` | `S3LOCAL_SECRET_ACCESS_KEY` | `s3local` | Root signing secret. |
-| `--api-dialect` | `S3LOCAL_API_DIALECT` | `amazon-s3` | `amazon-s3` or `aliyun-oss`. |
+| `--api-dialect` | `S3LOCAL_API_DIALECT` | `amazon-s3` | `amazon-s3`, `aliyun-oss`, or `tencent-cos`. |
 
 The `aliyun-oss` dialect emulates the S3-compatible endpoint of Aliyun OSS. PutObject and
 CompleteMultipartUpload reject `If-None-Match` and `If-Match` with `400 NotImplemented`. They honor
@@ -203,6 +203,19 @@ CompleteMultipartUpload reject `If-None-Match` and `If-Match` with `400 NotImple
 As in OSS, a bucket whose versioning was ever enabled or suspended ignores the header and overwrites.
 UploadPart responses omit checksum headers. DeleteObjects without `Content-MD5` returns
 `400 MissingArgument`. The `amazon-s3` dialect ignores `x-oss-forbid-overwrite`.
+
+The `tencent-cos` dialect emulates the S3-compatible endpoint of Tencent COS. PutObject and
+CompleteMultipartUpload ignore `If-None-Match`, `If-Match`, and `x-cos-forbid-overwrite`, and
+overwrite. `POST /<bucket>/<key>?append&position=N` serves AppendObject. It requires
+`Content-Length`, or answers `411 MissingContentLength`. The key must be absent at position 0, or
+hold an appendable object of N bytes. Otherwise it answers `409 AppendPositionErr`, or
+`409 ObjectNotAppendable` for a non-appendable object of N bytes. The check is atomic, so
+concurrent appends at one position have one winner. As in COS, an empty appendable object accepts
+position 0 again. A success returns `x-cos-next-append-position` and no ETag. `Content-MD5` and
+checksum headers are verified only at position 0. A PutObject replaces an appendable object with a
+normal one. UploadPart responses omit checksum headers, and DeleteObjects without `Content-MD5`
+returns `400 InvalidRequest`. Other dialects answer AppendObject with `501 NotImplemented`.
+Requests are path-style, so the dialect does not emulate COS's rejection of path-style addressing.
 
 Opaque ETags identify a committed version rather than its MD5. Repeated HEAD/GET requests and
 server restarts return the same ETag for that version. Writing identical bytes creates a different

@@ -298,6 +298,75 @@ prefix.
 
 **dev** and **local** reject **aliyunOSS**.
 
+## Tencent COS provider {#tencent-cos}
+
+Since 0.1.29, **serve** can keep its object storage in a Tencent COS bucket.
+The server uses the S3-compatible endpoint of COS. Every feature works as it
+does on S3, including leases, hot standby, snapshots, history offload, and
+Flow definition uploads.
+
+~~~yaml
+objectStore:
+  provider: tencentCOS
+  endpoint: https://cos.ap-guangzhou.myqcloud.com
+  region: ap-guangzhou
+  bucket: BUCKET-APPID
+  prefix: PREFIX
+  credentialsSource: environment
+~~~
+
+| Setting | Value |
+| --- | --- |
+| **objectStore.provider** | **tencentCOS** |
+| **objectStore.endpoint** | Required. **https://cos.REGION.myqcloud.com**, the S3-compatible endpoint of the bucket's region |
+| **objectStore.region** | The COS region, such as **ap-guangzhou** |
+| **objectStore.bucket** | The full bucket name, including its APPID suffix, such as **dex-1250000000** |
+| **objectStore.forcePathStyle** | Leave it unset. COS accepts only virtual-hosted-style requests, so **true** fails validation |
+| **objectStore.credentialsSource** | **environment**, with the SecretId and SecretKey of a CAM user in **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID** and **DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY** |
+
+The CAM user needs to list, read, write, append to (**cos:AppendObject**), and
+delete objects under the prefix, and to read the bucket's versioning status
+(**cos:GetBucketVersioning**). A configured
+**objectStore.hardDeleteStore** without its own **provider** uses COS too.
+Give it the same endpoint and addressing settings.
+
+COS ignores conditional PutObject headers. The server creates each object with
+one AppendObject request at position 0, which COS rejects when the key already
+holds an object. These are appendable objects. They have these limits:
+
+- An object holds at most 5 GiB. The server never writes an object that large.
+  With **tencentCOS**, **localStorage.writeBufferBytes** can be at most 1 GiB,
+  so every snapshot file stays far below the limit.
+- The bucket must use single-AZ storage. Multi-AZ buckets and the
+  INTELLIGENT_TIERING storage class reject appends, and startup then fails with a
+  message that names both.
+- The bucket's versioning must never have been enabled. At startup the server
+  reads the versioning status and fails when it is **Enabled** or
+  **Suspended**. A bucket cannot return to the unversioned state, so use a new
+  bucket.
+- COS cannot copy appendable objects. Back up the prefix by downloading and
+  uploading its objects, rather than with server-side copy or bucket replication.
+
+At startup the server also appends a probe object twice. The second append
+must fail, or startup fails.
+
+The server stores its mutable metadata objects as a series of versions, as it
+does on OSS. These are the cluster manifest, the Attribute index registry, node
+leases, startup probes, and Flow definitions. A key **K** becomes objects under
+**K.v/**, one per change. The server manages these objects and deletes old
+versions itself. Do not edit, copy, or delete them, and do not add a lifecycle
+rule that expires them. A version key is 23 bytes longer than **K**, and COS
+allows keys of at most 850 bytes. So **UploadFlowDefinitions** accepts Flow
+types whose object keys are 197 bytes shorter than on S3.
+
+Data cannot move between **tencentCOS** and another provider, because the
+object layouts differ. If the prefix holds a cluster manifest or an Attribute
+index registry that another provider wrote, startup fails with a message that
+the data was written by another provider. Start **tencentCOS** on an empty
+prefix.
+
+**dev** and **local** reject **tencentCOS**.
+
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The server rebuilds the
