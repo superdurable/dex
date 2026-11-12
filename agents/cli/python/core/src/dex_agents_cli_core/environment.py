@@ -34,10 +34,6 @@ DEX_PORT_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEX_PORT"
 WEB_PORT_ENVIRONMENT_VARIABLE = "DEX_AGENTS_WEB_PORT"
 #: A mirror of the ``dexcli`` release downloads.
 DEXCLI_DOWNLOAD_URL_ENVIRONMENT_VARIABLE = "DEX_AGENTS_DEXCLI_DOWNLOAD_URL"
-#: Set to ``0`` or ``false`` so a command never opens a web browser.
-#:
-#: .. versionadded:: 0.6.0
-OPEN_BROWSER_ENVIRONMENT_VARIABLE = "DEX_AGENTS_OPEN_BROWSER"
 
 
 @dataclass(frozen=True)
@@ -54,12 +50,6 @@ class CommandEnvironment:
         dexcli_version: The ``dexcli`` release to download.
         dexcli_release_base_url: Base URL of the release downloads.
         search_path: The ``PATH`` directories, searched for ``dexcli``.
-        is_browser_opening_enabled: Whether an interactive command may open
-            Dex Web pages, such as the Connectors page, in a web browser.
-            ``DEX_AGENTS_OPEN_BROWSER`` set to ``0`` or ``false`` turns it off;
-            any other value, or none, leaves it on.
-
-            .. versionadded:: 0.6.0
     """
 
     home: Path
@@ -70,7 +60,6 @@ class CommandEnvironment:
     dexcli_version: str = DEXCLI_VERSION
     dexcli_release_base_url: str = DEXCLI_RELEASE_BASE_URL
     search_path: tuple[Path, ...] = ()
-    is_browser_opening_enabled: bool = True
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> CommandEnvironment:
@@ -100,10 +89,6 @@ class CommandEnvironment:
             search_path=tuple(
                 Path(entry) for entry in values.get("PATH", "").split(os.pathsep) if entry
             ),
-            is_browser_opening_enabled=values.get(OPEN_BROWSER_ENVIRONMENT_VARIABLE, "")
-            .strip()
-            .lower()
-            not in ("0", "false"),
         )
 
     @property

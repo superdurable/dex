@@ -38,7 +38,6 @@ export const defaultDexcliDownloadUrl = "https://github.com/superdurable/dex/rel
  * | `PATH` | Where a preinstalled `dexcli` is looked for. |
  * | `DEX_AGENTS_DEX_PORT`, `DEX_AGENTS_WEB_PORT` | The ports of the `dexcli dev` that `dex.server: auto` reuses or starts. Default 8801 and 8802. |
  * | `DEX_AGENTS_DEXCLI_DOWNLOAD_URL` | The base URL of `dexcli` release downloads, such as a mirror. |
- * | `DEX_AGENTS_OPEN_BROWSER` | Set to `0` or `false` so the command never opens a web browser. Since 0.6.0. |
  *
  * @since 0.5.0
  */
@@ -59,14 +58,6 @@ export interface CliEnvironment {
   readonly dexcliDevWebPort: number;
   /** The base URL of `dexcli` release downloads. */
   readonly dexcliDownloadUrl: string;
-  /**
-   * Whether an interactive command may open Dex Web pages, such as the Connectors page, in a web browser.
-   * `DEX_AGENTS_OPEN_BROWSER` set to `0` or `false` turns it off; any other value, or none, leaves it on.
-   * {@link readCliEnvironment} always sets it. An environment built by hand may omit it, which means `true`.
-   *
-   * @since 0.6.0
-   */
-  readonly isBrowserOpeningEnabled?: boolean;
   /** The variables that child processes, such as `dexcli dev`, inherit. */
   readonly childProcessVariables: NodeJS.ProcessEnv;
 }
@@ -89,7 +80,6 @@ export function readCliEnvironment(environment: NodeJS.ProcessEnv): CliEnvironme
     dexcliDevDexPort: readPort(environment, "DEX_AGENTS_DEX_PORT", defaultDexcliDevDexPort),
     dexcliDevWebPort: readPort(environment, "DEX_AGENTS_WEB_PORT", defaultDexcliDevWebPort),
     dexcliDownloadUrl: nonEmpty(environment.DEX_AGENTS_DEXCLI_DOWNLOAD_URL) ?? defaultDexcliDownloadUrl,
-    isBrowserOpeningEnabled: !["0", "false"].includes((environment.DEX_AGENTS_OPEN_BROWSER ?? "").trim().toLowerCase()),
     childProcessVariables: { ...environment, HOME: homeDirectory },
   };
 }

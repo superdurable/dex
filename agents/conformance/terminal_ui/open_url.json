@@ -1,0 +1,144 @@
+{
+  "description": "Which URLs open_url opens. Hand-written; see agents/cli/TERMINAL_UI_CONTRACT.md.",
+  "rule": "Refuse a URL that contains a character at or below U+0020, U+007F, or a backslash. Otherwise split both URLs (RFC 3986). Allow only when web_url is not null; both schemes are http or https and equal without case; the URL has no userinfo; the hosts are equal without case; the ports are equal, with 80 for http and 443 for https when absent; no path segment is . or .. (also when written with %2e); and the URL's path equals web_url's path without its trailing slashes, or starts with that path followed by /, or web_url's path is empty or /.",
+  "cases": [
+    {
+      "description": "The base URL itself.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802",
+      "is_allowed": true
+    },
+    {
+      "description": "The root path.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802/",
+      "is_allowed": true
+    },
+    {
+      "description": "A path, query, and fragment.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802/v2/flows/openai-sdk-20261111-142233-a1b2c3?tab=session#top",
+      "is_allowed": true
+    },
+    {
+      "description": "Scheme and host compare without case.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "HTTP://127.0.0.1:8802/v2",
+      "is_allowed": true
+    },
+    {
+      "description": "The default port equals an explicit one.",
+      "web_url": "http://localhost:80",
+      "url": "http://LOCALHOST/v2",
+      "is_allowed": true
+    },
+    {
+      "description": "Under a base path.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/web/v2/flows",
+      "is_allowed": true
+    },
+    {
+      "description": "A trailing slash on the base does not matter.",
+      "web_url": "https://dex.example.com/web/",
+      "url": "https://dex.example.com/web",
+      "is_allowed": true
+    },
+    {
+      "description": "The base path must end at a segment boundary.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/webhooks",
+      "is_allowed": false
+    },
+    {
+      "description": "Outside the base path.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/",
+      "is_allowed": false
+    },
+    {
+      "description": "A dot segment.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/web/../admin",
+      "is_allowed": false
+    },
+    {
+      "description": "A percent-encoded dot segment.",
+      "web_url": "https://dex.example.com/web",
+      "url": "https://dex.example.com/web/%2e%2E/admin",
+      "is_allowed": false
+    },
+    {
+      "description": "Another host that starts with the base host.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802.evil.example/",
+      "is_allowed": false
+    },
+    {
+      "description": "Userinfo: the host is evil.example.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802@evil.example/",
+      "is_allowed": false
+    },
+    {
+      "description": "Userinfo is refused even for the right host.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://user@127.0.0.1:8802/",
+      "is_allowed": false
+    },
+    {
+      "description": "Another port.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8803/",
+      "is_allowed": false
+    },
+    {
+      "description": "Another scheme.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "https://127.0.0.1:8802/",
+      "is_allowed": false
+    },
+    {
+      "description": "A backslash.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802\\@evil.example/",
+      "is_allowed": false
+    },
+    {
+      "description": "A space.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802/ x",
+      "is_allowed": false
+    },
+    {
+      "description": "A control character.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "http://127.0.0.1:8802/\tx",
+      "is_allowed": false
+    },
+    {
+      "description": "Not http or https.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "javascript:alert(1)",
+      "is_allowed": false
+    },
+    {
+      "description": "A file URL.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "file:///home/user/.ssh/id_ed25519",
+      "is_allowed": false
+    },
+    {
+      "description": "No scheme.",
+      "web_url": "http://127.0.0.1:8802",
+      "url": "//127.0.0.1:8802/",
+      "is_allowed": false
+    },
+    {
+      "description": "No web_url in the launch document.",
+      "web_url": null,
+      "url": "http://127.0.0.1:8802/",
+      "is_allowed": false
+    }
+  ]
+}

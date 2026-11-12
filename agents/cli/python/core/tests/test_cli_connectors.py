@@ -243,8 +243,6 @@ async def test_an_unauthorized_connection_prints_a_hint_and_opens_the_connectors
     cli_home.write_config(
         config_yaml({"connectors": {"mcp": fake_mcp.url, "enabled": ["hackernews", "gmail/work"]}})
     )
-    # The fake BROWSER records the URL, so this test may let the command open it.
-    cli_home.extra_environment["DEX_AGENTS_OPEN_BROWSER"] = "1"
     child = cli_home.spawn()
     connectors_page = f"http://127.0.0.1:{cli_home.web_port}/v1/connectors"
     await expect(
@@ -254,24 +252,6 @@ async def test_an_unauthorized_connection_prints_a_hint_and_opens_the_connectors
     child.sendeof()
     assert await wait_for_exit(child) == 0
     assert cli_home.opened_urls.read_text().split() == [connectors_page]
-
-
-async def test_dex_agents_open_browser_0_keeps_the_connectors_page_closed_at_a_terminal(
-    cli_home: CliHome, fake_mcp: FakeConnectorsMcp
-) -> None:
-    cli_home.write_config(
-        config_yaml({"connectors": {"mcp": fake_mcp.url, "enabled": ["hackernews", "gmail/work"]}})
-    )
-    assert cli_home.environment()["DEX_AGENTS_OPEN_BROWSER"] == "0"
-    child = cli_home.spawn()
-    connectors_page = f"http://127.0.0.1:{cli_home.web_port}/v1/connectors"
-    await expect(
-        child, f"No authorized connection for gmail/work. Authorize it on {connectors_page}."
-    )
-    await expect(child, "> ")
-    child.sendeof()
-    assert await wait_for_exit(child) == 0
-    assert not cli_home.opened_urls.exists()
 
 
 async def test_connectors_lists_the_tools_and_whether_the_config_enables_them(
