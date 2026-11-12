@@ -102,6 +102,7 @@ type ChatScreen struct {
 	pendingDelete             *sessionfeed.QueuedMessage
 	isSessionStartWaiting     bool
 	pendingSwitchSessionID    string
+	pendingImageDrop          *sessionfeed.SwitchSession
 	cancelState               cancelState
 	isExitArmed               bool
 	cancelRequestedTurnID     string
@@ -114,7 +115,7 @@ type ChatScreen struct {
 	openedSession    sessionfeed.SessionOpened
 	isSessionKnown   bool
 	sessionCommands  []sessionfeed.SlashCommand
-	messageQueue     []sessionfeed.SendUserMessage
+	messageQueue     []queuedUserMessage
 	isSendingMessage bool
 
 	pathResolver *typedpaths.PathResolver
@@ -286,6 +287,8 @@ func (screen *ChatScreen) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		commands = append(commands, screen.handleKey(typed))
 	case tea.PasteMsg:
 		screen.handlePaste(typed.Content)
+	case SwitchSessionRequestMsg:
+		commands = append(commands, screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: typed.SessionID, IsResumed: typed.IsResumed}))
 	case sessionUpdateMsg:
 		screen.isWaitingForSessionUpdate = false
 		commands = append(commands, screen.applySessionUpdate(typed.update))
@@ -344,7 +347,7 @@ func (screen *ChatScreen) isAnimating() bool {
 
 // queueMessage submits message after the ones before it.
 func (screen *ChatScreen) queueMessage(message sessionfeed.SendUserMessage) tea.Cmd {
-	screen.messageQueue = append(screen.messageQueue, message)
+	screen.messageQueue = append(screen.messageQueue, queuedUserMessage{message: message, sessionID: screen.session.SessionID})
 	return screen.submitNextMessage()
 }
 
@@ -352,17 +355,17 @@ func (screen *ChatScreen) submitNextMessage() tea.Cmd {
 	if screen.isSendingMessage || len(screen.messageQueue) == 0 {
 		return nil
 	}
-	message := screen.messageQueue[0]
+	queued := screen.messageQueue[0]
 	screen.messageQueue = screen.messageQueue[1:]
 	screen.isSendingMessage = true
-	source, ctx := screen.source, screen.ctx
+	message, source, ctx := queued.message, screen.source, screen.targetSessionContext(queued.sessionID)
 	return func() tea.Msg {
 		return messageSubmittedMsg{message: message, err: source.SubmitUserAction(ctx, message)}
 	}
 }
 
 func (screen *ChatScreen) submitAction(action sessionfeed.UserAction) tea.Cmd {
-	source, ctx := screen.source, screen.ctx
+	source, ctx := screen.source, screen.actionContext(action)
 	return func() tea.Msg {
 		if err := source.SubmitUserAction(ctx, action); err != nil {
 			return userActionFailedMsg{action: action, err: err}
@@ -406,6 +409,9 @@ func (screen *ChatScreen) handleKey(key tea.KeyPressMsg) tea.Cmd {
 			screen.helpScrollFromTop += popupScrollStep
 		}
 		return nil
+	}
+	if screen.pendingImageDrop != nil {
+		return screen.handleImageDropKey(keyName)
 	}
 	if screen.isToolPickerOpen {
 		return screen.handleToolPickerKey(keyName)
@@ -585,7 +591,14 @@ func (screen *ChatScreen) applyPathCompletions(found pathCompletionsFoundMsg) {
 
 // forgetSessionViews closes what belongs to the session the chat leaves:
 // popups and their interrupts, pagers, queued rows, completions, and prompts.
-func (screen *ChatScreen) forgetSessionViews() {
+func (screen *ChatScreen) forgetSessionViews(nextSessionID string) {
+	// Message sequences and turn IDs repeat across sessions.
+	screen.flushReplies()
+	screen.printedSequences = map[int64]bool{}
+	screen.replies = newReplyStream()
+	// Images and queued messages of the old session never reach the new one.
+	screen.attachments, screen.pendingImageDrop = nil, nil
+	screen.dropQueuedMessagesOfOtherSessions(nextSessionID)
 	screen.closePopup()
 	screen.interrupts = nil
 	screen.interruptFeedback, screen.interruptOutcomes = map[string]string{}, map[string]string{}
@@ -1087,7 +1100,7 @@ func (screen *ChatScreen) handleSwitchKey(keyName string) (tea.Cmd, bool) {
 	switch keyName {
 	case "y":
 		screen.pendingSwitchSessionID = ""
-		return screen.submitAction(sessionfeed.SwitchSession{SessionID: sessionID}), true
+		return screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: sessionID}), true
 	case "n", "esc":
 		screen.pendingSwitchSessionID = ""
 		screen.printNotice(sessionfeed.NoticeSeverityInfo, "staying in this session; resume "+sessionID+" later with /sessions")
@@ -1151,7 +1164,7 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			screen.earlierBeforeSequence, screen.deletedBeforeSequence = 0, 0
 			// Turn IDs repeat across sessions, so the old session's calls go.
 			screen.turnTools, screen.turnToolsTurnID = nil, ""
-			screen.forgetSessionViews()
+			screen.forgetSessionViews(typed.SessionID)
 		}
 		screen.session = typed
 		if !screen.isSessionKnown {
@@ -1186,7 +1199,7 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			// The user still waits for /new: switch now.
 			screen.isSessionStartWaiting = false
 			screen.printNotice(sessionfeed.NoticeSeverityInfo, "Started session "+typed.SessionID+"; switching to it.")
-			command = screen.submitAction(sessionfeed.SwitchSession{SessionID: typed.SessionID})
+			command = screen.requestSessionSwitch(sessionfeed.SwitchSession{SessionID: typed.SessionID})
 		} else {
 			screen.pendingSwitchSessionID = typed.SessionID
 		}

@@ -71,6 +71,7 @@ type refreshRequested struct{}
 
 type sessionSwitchRequested struct {
 	sessionID string
+	isResumed bool
 }
 
 func (snapshotFetched) isLoopInput()        {}
@@ -185,7 +186,7 @@ func (loop *sessionLoop) handleInput(input loopInput) {
 		loop.feed.sessionID = typed.sessionID
 		loop.feed.stateMutex.Unlock()
 		loop.feed.notice(sessionfeed.NoticeSeverityInfo, "── session "+typed.sessionID+" ──")
-		loop.openSession(typed.sessionID, model.epoch+1, false)
+		loop.openSession(typed.sessionID, model.epoch+1, typed.isResumed)
 	}
 }
 
