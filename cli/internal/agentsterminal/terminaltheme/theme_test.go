@@ -52,6 +52,7 @@ func TestRenderLinkLinksOnlyPrintableURLs(t *testing.T) {
 	for _, rejected := range []string{
 		"javascript:alert(1)", "file:///etc/passwd", "ftp://example.com/x", "http:///path", "https://",
 		"http://example.com/a b", "http://x\x07y", "http://x\x1b]8;;y", "", "127.0.0.1:8802",
+		"http://:80", "http://user@:80",
 	} {
 		require.False(t, IsLinkableURL(rejected), "%q", rejected)
 		require.Equal(t, "x", theme.RenderLink(rejected, "x"), "%q renders as plain text", rejected)

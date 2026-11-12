@@ -960,8 +960,10 @@ func (screen *ChatScreen) recallHistory(step int) {
 	screen.input.SetValue(screen.inputHistory[screen.historyIndex])
 }
 
+// isCompletionVisible keeps the list closed on an unedited recalled message,
+// so Up and Down keep recalling.
 func (screen *ChatScreen) isCompletionVisible() bool {
-	if screen.isCompletionDismissed {
+	if screen.isCompletionDismissed || screen.isShowingRecalledMessage() {
 		return false
 	}
 	prefix, isTypingName := completionPrefix(screen.input.Value())

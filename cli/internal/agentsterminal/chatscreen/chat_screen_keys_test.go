@@ -375,6 +375,31 @@ func TestUpDownScrollOnAnEmptyInputAndRecallAfterCtrlP(t *testing.T) {
 	require.Equal(t, "third!", harness.screen.input.Value(), "an edited recall is a draft")
 }
 
+func TestRecalledSlashCommandsKeepRecallingWithUpDown(t *testing.T) {
+	harness := newScreenHarness(t, harnessOptions{})
+	for _, text := range []string{"hello", "/copy", "/help"} {
+		harness.typeText(text)
+		harness.press(key(tea.KeyEnter))
+		if harness.screen.isHelpOpen {
+			harness.press(key(tea.KeyEscape))
+		}
+	}
+	harness.press(ctrlKey('p'))
+	require.Equal(t, "/help", harness.screen.input.Value())
+	require.False(t, harness.screen.isCompletionVisible(), "a recalled command does not open the completion list")
+	harness.press(key(tea.KeyUp))
+	require.Equal(t, "/copy", harness.screen.input.Value(), "Up keeps recalling past a recalled command")
+	harness.press(key(tea.KeyUp))
+	require.Equal(t, "hello", harness.screen.input.Value())
+	harness.press(key(tea.KeyDown), key(tea.KeyDown))
+	require.Equal(t, "/help", harness.screen.input.Value(), "Down keeps recalling too")
+
+	harness.press(key(tea.KeyUp))
+	require.Equal(t, "/copy", harness.screen.input.Value())
+	harness.press(key(tea.KeyBackspace))
+	require.True(t, harness.screen.isCompletionVisible(), "editing the recalled command opens the completion list again")
+}
+
 func TestPasteGoesToTheFocusedInput(t *testing.T) {
 	harness := newScreenHarness(t, harnessOptions{})
 	harness.screen.Update(tea.PasteMsg{Content: "line one\r\nline two"})
