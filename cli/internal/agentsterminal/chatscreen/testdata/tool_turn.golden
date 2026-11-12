@@ -5,7 +5,7 @@
   I'll search the issue tracker first.
 
   ✓ search_files  "flaky" in tests/
-  ✓ read_file  tests/integ/retry_test.go
+  ✓ read_file     tests/integ/retry_tes…
 ~~~~ live area ~~~~
   ⠙ run_shell_co…  go test ./integ/... …
     │ === RUN   TestRetryBackoff

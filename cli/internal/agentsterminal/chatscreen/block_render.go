@@ -113,9 +113,10 @@ type toolRowClock struct {
 func renderToolRow(call sessionfeed.ToolCallChanged, nameWidth int, width int, clock toolRowClock, theme terminaltheme.Theme) []string {
 	widthClass := terminaltheme.ClassifyWidth(width)
 	symbol := toolStatusSymbol(call, clock, theme)
-	nameWidth = min(max(nameWidth, terminaltheme.DisplayWidth(call.ToolName), minimumToolNameWidth), maximumToolNameWidth)
 	if widthClass <= terminaltheme.WidthCompact {
-		nameWidth = min(terminaltheme.DisplayWidth(call.ToolName), max(width/3, 8))
+		nameWidth = min(max(nameWidth, terminaltheme.DisplayWidth(call.ToolName)), max(width/3, 8))
+	} else {
+		nameWidth = min(max(nameWidth, terminaltheme.DisplayWidth(call.ToolName), minimumToolNameWidth), maximumToolNameWidth)
 	}
 	name := terminaltheme.PadRight(terminaltheme.TruncateToWidth(call.ToolName, nameWidth, theme.Symbols.Ellipsis), nameWidth)
 
