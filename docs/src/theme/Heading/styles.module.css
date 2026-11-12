@@ -1,0 +1,83 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Keeps an anchored heading clear of the sticky header after a jump. */
+.anchorWithStickyNavbar {
+  scroll-margin-top: calc(var(--ifm-navbar-height) + 0.5rem);
+}
+
+.anchorWithHideOnScrollNavbar {
+  scroll-margin-top: 0.5rem;
+}
+
+.heading {
+  position: relative;
+}
+
+/* The link sits in the left margin, so showing it moves nothing. */
+.link {
+  position: absolute;
+  top: 50%;
+  left: -1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  transform: translateY(-50%);
+  border-radius: 4px;
+  color: var(--ifm-color-emphasis-500);
+  opacity: 0;
+  transition: opacity var(--ifm-transition-fast), color var(--ifm-transition-fast);
+  user-select: none;
+}
+
+.link:hover {
+  color: var(--ifm-color-emphasis-800);
+}
+
+.link:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 2px;
+}
+
+.icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+@media (hover: hover) {
+  .heading:hover > .link {
+    opacity: 1;
+  }
+}
+
+/* Touch screens have no hover, so the link stays hidden there. */
+@media (hover: none) {
+  .link {
+    display: none;
+  }
+}
+
+.copied {
+  margin-left: 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ifm-color-emphasis-600);
+  opacity: 0;
+  transition: opacity var(--ifm-transition-fast);
+  vertical-align: middle;
+}
+
+.copiedVisible {
+  opacity: 1;
+}

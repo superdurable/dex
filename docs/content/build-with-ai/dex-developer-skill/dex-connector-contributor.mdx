@@ -20,8 +20,7 @@ is the tested reference. Python and TypeScript packages are optional, and they
 may implement only some of the capabilities. They must pass the conformance
 scenarios recorded from the Go implementation.
 
-Applications can use released Connectors from Go, Python, and TypeScript. Java
-and Rust do not support Connectors yet. The detailed rules are in the
+Applications can use released Connectors from Go, Python, and TypeScript. The detailed rules are in the
 library's [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) and
 [docs/](https://github.com/superdurable/dex-connectors-library/tree/main/docs).
 
@@ -29,7 +28,14 @@ library's [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blo
 
 ## Install and use
 
-<DexSkillHostTabs skill="dex-connector-contributor" />
+[Install Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) once; it installs all three Skills. Then call this Skill in your coding agent, for example in Codex and in Claude Code with the Plugin:
+
+```text
+$dex-connector-contributor Add <XYZ> to Dex official connector library
+/superdurable-dex:dex-connector-contributor Add <XYZ> to Dex official connector library
+```
+
+[Install and use Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) has the invocation for every host.
 
 If your application only uses a released Connector, use
 [Dex App Builder](./dex-app-builder.mdx) or [Dex SDK](./dex-sdk.mdx) instead.

@@ -404,7 +404,8 @@ regenerated. Resolve them with the revert-and-confirm procedure in
   including reference, lives in the docs; a README keeps developer notes and
   links to the docs. Link an example's folder, not its README. Clicking a sidebar
   group header opens that group's overview page, which is not listed again
-  under it; items keep their own titles, never "Overview". A page's closing
+  under it, and that page's title is the group's name; items keep their own
+  titles, never "Overview". A page's closing
   list of links is one last section named Next (下一步 in Chinese); following
   the first Next link gives a linear reading order. The home page and Get
   Started link straight to the one page that does each job, with no ordered

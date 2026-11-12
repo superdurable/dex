@@ -18,15 +18,21 @@ Dex Connector Contributor 是一个专用 sub-skill。它为官方
 TypeScript package 是可选的，可以只实现部分能力，但必须通过从 Go 实现录制的
 conformance 场景。
 
-应用可以在 Go、Python 和 TypeScript 中使用已发布的 Connector。Java 和 Rust 暂不支持
-Connector。详细规则见该库的 [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) 和
+应用可以在 Go、Python 和 TypeScript 中使用已发布的 Connector。详细规则见该库的 [AGENTS.md](https://github.com/superdurable/dex-connectors-library/blob/main/AGENTS.md) 和
 [docs/](https://github.com/superdurable/dex-connectors-library/tree/main/docs)。
 
 :::
 
 ## 安装与使用
 
-<DexSkillHostTabs skill="dex-connector-contributor" />
+先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程智能体中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
+
+```text
+$dex-connector-contributor Add <XYZ> to Dex official connector library
+/superdurable-dex:dex-connector-contributor Add <XYZ> to Dex official connector library
+```
+
+[安装和使用 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) 列出了每个 host 的调用方式。
 
 如果你的应用只是使用已发布的 Connector，请改用 [Dex App Builder](./dex-app-builder.mdx)
 或 [Dex SDK](./dex-sdk.mdx)。

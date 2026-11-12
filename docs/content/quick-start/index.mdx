@@ -10,35 +10,90 @@ description: Run a Flow that charges an order, waits on a Timer, and ships it. S
 
 Run your first Flow, stop its Worker in the middle of a wait, and watch Dex continue the Flow after a restart. It takes about 10 minutes.
 
-## What you will build
-
-An order Flow with two Steps:
-
-- **Charge** charges the order through a mock payment API.
-- **Ship** waits 60 seconds on a Timer, then ships the order through a mock shipping API.
-
-The mock API prints each call, so the Worker's output shows which Steps ran. You start a Flow, stop the Worker while Ship waits, and start the Worker again. Ship runs when the Timer fires. Charge does not run a second time.
-
-<CrashTimeline variant="quick-start" />
-
-## Before you start
-
-- macOS or Linux. `dexcli` does not run on Windows; see [Install dexcli](/components/run-locally#install-dexcli) for WSL 2.
-- `dexcli`: install it with **brew install superdurable/tap/dexcli**, or see [Run Locally](/components/run-locally) to install it without Homebrew.
-- The toolchain for your language; [step 1](#1-install-dex-and-get-the-code) names the version.
-- Git, to get the example code.
-- Three terminals: one for `dexcli dev`, one for the Worker, and one to start Flows.
+<a id="before-you-start"></a>
 
 ## 1. Install Dex and get the code
 
-Install `dexcli` with Homebrew and start Dex on your machine. [Run Locally](/components/run-locally) shows how to install it without Homebrew.
+You need macOS or Linux and three terminals: one for `dexcli dev`, one for the Worker, and one to start Flows.
+
+In the first terminal, install `dexcli` and start Dex. [Run Locally](/components/run-locally) shows how to install it without Homebrew.
 
 ```bash
 brew install superdurable/tap/dexcli
 dexcli dev
 ```
 
-**dexcli dev** starts Dex Server and Dex Web. When it is ready, it prints:
+In a second terminal, download the example. The command fetches only the example's folder, with no clone of the repository:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/quick-start',
+    go: 'examples/go/quick-start',
+    java: 'examples/java/quick-start',
+    typescript: 'examples/typescript/quick-start',
+    rust: 'examples/rust/quick-start',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/quick-start
+cd quick-start
+uv sync --locked
+```
+
+You need Python 3.11 or later, with uv. Without uv, create a virtual environment and install the SDK version that `pyproject.toml` pins. Then run each Python command below with `.venv/bin/python` in place of **uv run --frozen python**:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install "dex-python-sdk==1.44.0"
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/go/quick-start
+cd quick-start
+```
+
+You need Go 1.24 or later.
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/java/quick-start
+cd quick-start
+./gradlew installDist
+```
+
+You need JDK 17 or later.
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/typescript/quick-start
+cd quick-start
+npm ci
+```
+
+You need Node.js 22.18 or later.
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/rust/quick-start
+cd quick-start
+```
+
+You need Rust 1.97 or later.
+
+</SdkSnippet>
+</SdkTabs>
+
+**dexcli dev** starts Dex Server and Dex Web. When it is ready, the first terminal prints:
 
 ```text
 Dex development environment is ready
@@ -51,85 +106,22 @@ State dir:     /Users/you/.dex/zd/8801
 Press Ctrl+C to stop.
 ```
 
-This Quick Start does not use the **Connectors MCP** address; you can ignore it.
-
-Keep it running. Log lines from the server scroll above this block.
-
-In a second terminal, get the example code:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/quick-start',
-    go: 'examples/go/quick-start',
-    java: 'examples/java/quick-start',
-    typescript: 'examples/typescript/quick-start',
-    rust: 'examples/rust/quick-start',
-  }}>
-<SdkSnippet lang="python">
-
-You need Python 3.11 or later, with uv (or pip, as below).
-
-```bash
-git clone https://github.com/superdurable/dex.git
-cd dex/examples/python/quick-start
-uv sync --locked
-```
-
-Without uv, create a virtual environment and install the SDK version that `pyproject.toml` pins. Then run each Python command below with `.venv/bin/python` in place of **uv run --frozen python**:
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install "dex-python-sdk==1.44.0"
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-You need Go 1.24 or later.
-
-```bash
-git clone https://github.com/superdurable/dex.git
-cd dex/examples/go/quick-start
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-You need JDK 17 or later.
-
-```bash
-git clone https://github.com/superdurable/dex.git
-cd dex/examples/java/quick-start
-./gradlew installDist
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-You need Node.js 22.18 or later.
-
-```bash
-git clone https://github.com/superdurable/dex.git
-cd dex/examples/typescript/quick-start
-npm ci
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-You need Rust 1.97 or later.
-
-```bash
-git clone https://github.com/superdurable/dex.git
-cd dex/examples/rust/quick-start
-```
-
-</SdkSnippet>
-</SdkTabs>
+Keep it running; server log lines scroll above this block. This Quick Start leaves the **Connectors MCP** address unused.
 
 ## 2. Read the Flow
 
-The code is already in the folder you cloned. This step and the next one walk through it.
+<a id="what-you-will-build"></a>
+
+The example is an order Flow with two Steps:
+
+- **Charge** charges the order through a mock payment API.
+- **Ship** waits 60 seconds on a Timer, then ships the order through a mock shipping API.
+
+The mock API prints each call, so the Worker's output shows which Steps ran. You start a Flow, stop the Worker while Ship waits, and start the Worker again. Ship runs when the Timer fires, and Charge runs only once.
+
+<CrashTimeline variant="quick-start" />
+
+This step and the next one walk through the code in the folder you downloaded.
 
 A Flow is a process that Dex runs to completion. Each Step is one unit of work in it. Dex saves the result of each Step, so a Step that finished does not run again.
 

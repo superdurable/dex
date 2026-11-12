@@ -13,6 +13,7 @@
 //    under the header, and no item is labeled Overview.
 // 3. A page's closing list of links is one section named Next (下一步 in Chinese), and it comes last.
 // 4. The home page and Get Started link straight to the page that does each job: no ordered reading lists.
+// 5. A group's overview page has the group's name as its title, so the header and the page agree.
 
 import {readdirSync, readFileSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
@@ -139,8 +140,39 @@ function checkCategories(items, trail) {
 
 for (const [name, items] of Object.entries(sidebars)) checkCategories(items, [name]);
 
+// Maps each doc ID to its title, read from the English source the way Docusaurus derives IDs.
+function docTitles(root) {
+  const titles = new Map();
+  for (const file of mdxFiles(join(docsRoot, root))) {
+    const rel = relative(join(docsRoot, root), file).split('\\').join('/');
+    const source = readFileSync(file, 'utf8');
+    const frontMatter = source.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+    const field = (key) => frontMatter.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1].trim().replace(/^["']|["']$/g, '');
+    const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
+    const id = `${dir}${field('id') ?? rel.slice(dir.length).replace(/\.mdx?$/, '')}`;
+    const title = field('title') ?? source.match(/^# (.+)$/m)?.[1].trim();
+    if (title) titles.set(id, title);
+  }
+  return titles;
+}
+
+const englishTitles = docTitles('content');
+function checkOverviewTitles(items) {
+  for (const item of items) {
+    if (typeof item !== 'object' || item.type !== 'category') continue;
+    if (item.link?.type === 'doc') {
+      const title = englishTitles.get(item.link.id);
+      if (title && title !== item.label) {
+        failures.push(`sidebars.ts: the "${item.label}" group opens ${item.link.id}, titled "${title}". Title the overview page "${item.label}".`);
+      }
+    }
+    checkOverviewTitles(item.items ?? []);
+  }
+}
+for (const items of Object.values(sidebars)) checkOverviewTitles(items);
+
 if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
-console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, and the home page and Get Started have no reading lists.');
+console.log('Docs structure check passed: no README links, every sidebar group header opens its overview, pages close with Next, the home page and Get Started have no reading lists, and each overview page carries the name of its group.');

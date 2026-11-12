@@ -21,7 +21,7 @@ Dex runs an AI agent as a durable agent session. You can build the agent with th
 
 ## Do you need this? {#do-you-need-this}
 
-An agent that only answers questions in one request may not. A durable session helps when one of these can happen to your agent:
+A durable session helps when one of these can happen to your agent:
 
 - **A crash or a deploy in the middle of a conversation.** Without Dex, the process loses the turn in progress, and the user has to ask again. With Dex, the session continues from the last finished model call or tool call.
 - **A write tool runs twice.** A retry after a timeout can send a second email or a second refund. Dex runs a non-idempotent write at most once, with [one narrow exception](/agent-frameworks/tool-calls#tool-runs-twice). When a write may or may not have happened, Dex records an unknown outcome instead of running it again.

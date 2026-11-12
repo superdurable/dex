@@ -13,7 +13,14 @@ Dex SDK 是一个专用 sub-skill。它帮助 agent 用公开的 Dex SDK 构建�
 
 ## 安装与使用
 
-<DexSkillHostTabs skill="dex-sdk" />
+先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程智能体中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
+
+```text
+$dex-sdk Diagnose why this Flow retries after the payment Step completes.
+/superdurable-dex:dex-sdk Diagnose why this Flow retries after the payment Step completes.
+```
+
+[安装和使用 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) 列出了每个 host 的调用方式。
 
 完整的产品或业务流程需求，请从 [Dex App Builder](./dex-app-builder.mdx) 开始。
 App Builder 开始做后端时会加载 Dex SDK。

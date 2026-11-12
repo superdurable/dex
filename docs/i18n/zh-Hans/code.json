@@ -90,5 +90,9 @@
   "shell.header.signUpCloud": {
     "message": "注册 Cloud",
     "description": "The header button to sign up for Dex Cloud"
+  },
+  "shell.heading.linkCopied": {
+    "message": "已复制",
+    "description": "Shown next to a heading after its section link is copied"
   }
 }

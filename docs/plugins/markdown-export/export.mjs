@@ -61,6 +61,11 @@ const localeCopies = {
     missingLanguage: label => `This part has no ${label} version; see the `,
     missingLanguagePage: label => `${label} page`,
     missingLanguageEnd: '.',
+    missingFramework: label => `This part has no ${label} version; see the `,
+    missingFrameworkPage: 'default page',
+    frameworkIs: label => `This file shows the ${label} version. Other frameworks: `,
+    frameworkFiles: 'By framework: ',
+    frameworkNote: 'Agent pages with framework tabs have one Markdown file per framework, such as quick-start.mastra.md, and per framework and language, such as quick-start.openai-agents-sdk.typescript.md.',
     otherPages: 'Other pages',
     admonitions: {note: 'Note', tip: 'Tip', info: 'Info', warning: 'Warning', danger: 'Danger', caution: 'Caution',
       important: 'Important', secondary: 'Secondary', success: 'Success'},
@@ -97,6 +102,11 @@ const localeCopies = {
     missingLanguage: label => `这部分没有 ${label} 版本；见 `,
     missingLanguagePage: label => `${label} 页面`,
     missingLanguageEnd: '。',
+    missingFramework: label => `这部分没有 ${label} 版本；见`,
+    missingFrameworkPage: '默认页面',
+    frameworkIs: label => `本文件为 ${label} 版本。其他框架：`,
+    frameworkFiles: '按框架：',
+    frameworkNote: '带框架标签页的智能体页面按框架各有一个 Markdown 文件，例如 quick-start.mastra.md；也按框架和语言各有一个，例如 quick-start.openai-agents-sdk.typescript.md。',
     otherPages: '其他页面',
     admonitions: {note: '备注', tip: '提示', info: '信息', warning: '注意', danger: '危险', caution: '警告',
       important: '重要', secondary: '补充', success: '成功'},
@@ -174,43 +184,73 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
       source: relative(resolve(siteDir, '..'), sourcePath).split('\\').join('/'),
       locale};
     const pathname = markdownPath(page.permalink, baseUrl);
-    exported.push({page, tree, leadText, description, summary, frontMatter, pathname, languages: sdkLanguages(tree.children)});
+    const frameworks = agentFrameworksIn(tree.children);
+    const defaultChildren = frameworks.length > 0 ? selectFramework(tree.children, frameworks[0], '', copy) : tree.children;
+    exported.push({page, tree, leadText, description, summary, frontMatter, pathname, frameworks,
+      languages: frameworks.length > 0 ? frameworkLanguages(tree.children, frameworks[0], defaultChildren)
+        : sdkLanguages(defaultChildren)});
   }
   // Pages with code in several SDKs: the default file shows the first language, and each other
   // language gets its own file. Links in a language file keep the reader's language where they can.
   const languageFiles = new Map(exported.filter(item => item.languages.length > 1)
     .map(item => [new URL(item.pathname, siteConfig.url).href, item]));
-  for (const {page, tree, leadText, summary, frontMatter, pathname, languages} of exported) {
-    const multi = languages.length > 1;
-    const outputs = [{path: pathname, language: languages[0]},
-      ...(multi ? languages.slice(1).map(language => ({path: languageMarkdownPath(pathname, language), language})) : [])];
-    for (const output of outputs) {
-      const pagePath = language => language === languages[0] ? pathname : languageMarkdownPath(pathname, language);
-      let children = output.language
-        ? selectLanguage(tree.children, output.language, language => new URL(pagePath(language), siteConfig.url).href, copy)
-        : tree.children;
-      if (multi && output.language !== languages[0]) children = keepLanguageInLinks(children, output.language, languageFiles);
-      children = resolveSdkQueryLinks(children, languageFiles);
-      if (multi) {
-        const note = languageNote(output.language, languages, pagePath, siteConfig.url, copy);
-        const at = children[0]?.type === 'heading' && children[0].depth === 1 ? 1 : 0;
-        children.splice(at, 0, note);
+  for (const {page, tree, leadText, summary, frontMatter, pathname, languages: defaultLanguages, frameworks} of exported) {
+    // Pages with framework tabs get one file per framework. The page's default file shows the first framework.
+    for (const framework of frameworks.length > 0 ? frameworks : [undefined]) {
+      const isDefaultFramework = framework === undefined || framework === frameworks[0];
+      const base = framework === undefined ? tree.children
+        : selectFramework(tree.children, framework, new URL(pathname, siteConfig.url).href, copy);
+      const languages = isDefaultFramework ? defaultLanguages : frameworkLanguages(tree.children, framework, base);
+      const multi = languages.length > 1;
+      const pagePath = language => {
+        const first = language === undefined || language === languages[0];
+        // A language this framework lacks points at the page's default file for that language.
+        if (language !== undefined && !languages.includes(language)) {
+          return defaultLanguages.includes(language) && language !== defaultLanguages[0]
+            ? languageMarkdownPath(pathname, language) : pathname;
+        }
+        if (isDefaultFramework) return first ? pathname : languageMarkdownPath(pathname, language);
+        return first ? frameworkMarkdownPath(pathname, framework) : frameworkMarkdownPath(pathname, framework, language);
+      };
+      const outputs = (languages.length > 0 ? languages : [undefined]).map(language => ({path: pagePath(language), language}));
+      for (const output of outputs) {
+        let children = output.language
+          ? selectLanguage(base, output.language, language => new URL(pagePath(language), siteConfig.url).href, copy)
+          : base;
+        if (output.language && output.language !== defaultLanguages[0]) {
+          children = keepLanguageInLinks(children, output.language, languageFiles);
+        }
+        children = resolveSdkQueryLinks(children, languageFiles);
+        const notes = [];
+        if (framework !== undefined) {
+          const frameworkPath = item => (item === frameworks[0] ? pathname : frameworkMarkdownPath(pathname, item));
+          notes.push(frameworkNote(framework, frameworks, frameworkPath, siteConfig.url, copy));
+        }
+        if (multi) notes.push(languageNote(output.language, languages, pagePath, siteConfig.url, copy));
+        if (notes.length > 0) {
+          const at = children[0]?.type === 'heading' && children[0].depth === 1 ? 1 : 0;
+          children = [...children.slice(0, at), ...notes, ...children.slice(at)];
+        }
+        const fields = {...frontMatter, ...(framework ? {framework} : {}), ...(multi ? {language: output.language} : {})};
+        const yaml = Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
+        const hasTitle = children.some(node => node.type === 'heading' && node.depth === 1);
+        const markdown = `---\n${yaml}\n---\n\n${hasTitle ? '' : `# ${page.title}\n\n`}${writer.stringify({...tree, children})}`;
+        if (writtenPaths.has(output.path)) throw new Error(`Duplicate Markdown output: ${output.path}`);
+        writtenPaths.add(output.path);
+        await writeOutput(outDir, baseUrl, output.path, markdown);
+        if (output.path === pathname) fullTexts.set(page, writer.stringify({...tree, children}));
       }
-      const fields = multi ? {...frontMatter, language: output.language} : frontMatter;
-      const yaml = Object.entries(fields).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n');
-      const hasTitle = children.some(node => node.type === 'heading' && node.depth === 1);
-      const markdown = `---\n${yaml}\n---\n\n${hasTitle ? '' : `# ${page.title}\n\n`}${writer.stringify({...tree, children})}`;
-      if (writtenPaths.has(output.path)) throw new Error(`Duplicate Markdown output: ${output.path}`);
-      writtenPaths.add(output.path);
-      await writeOutput(outDir, baseUrl, output.path, markdown);
-      if (output.path === pathname) fullTexts.set(page, writer.stringify({...tree, children}));
     }
     if (movedNoticePattern.test(leadText)) movedPages.add(page);
-    entries.set(page, `- [${escapeLabel(page.title)}](${new URL(pathname, siteConfig.url).href})${summary ? `: ${summary}` : ''}`);
+    const frameworkLinks = frameworks.length > 1
+      ? ` ${copy.frameworkFiles}${frameworks.map(framework => `[${frameworkLabels[framework]}](${new URL(framework === frameworks[0]
+        ? pathname : frameworkMarkdownPath(pathname, framework), siteConfig.url).href})`).join(copy.languageSeparator)}`
+      : '';
+    entries.set(page, `- [${escapeLabel(page.title)}](${new URL(pathname, siteConfig.url).href})${summary ? `: ${summary}` : ''}${frameworkLinks}`);
   }
   // Archived versions keep Markdown twins but stay out of llms.txt, like the sitemap.
   const sections = llmsSections(versions.filter(item => item.version.isLast), copy, movedPages);
-  const index = [`# ${siteConfig.title}`, `> ${copy.summary}`, copy.languageNote,
+  const index = [`# ${siteConfig.title}`, `> ${copy.summary}`, copy.languageNote, copy.frameworkNote,
     ...sections.map(section => `## ${section.title}\n\n${section.pages.map(page => entries.get(page)).join('\n')}`)];
   await writeOutput(outDir, baseUrl, `${baseUrl}llms.txt`, `${index.join('\n\n')}\n`);
   // llms-full.txt: every listed page's default Markdown, in llms.txt order.
@@ -450,29 +490,89 @@ async function expandCrashTimeline(node, context) {
     paragraph(copy.summary)];
 }
 
-// Mirrors FrameworkTabs.tsx: each framework's content under a bold label, in tab order.
+// Mirrors FrameworkTabs.tsx. Each FrameworkTabs becomes one group; selectFramework later keeps one framework per
+// output file, so a reader of the Markdown sees one framework at a time, as on the page.
 const frameworkLabels = {
   'claude-agent-sdk': 'Claude Agent SDK',
   'openai-agents-sdk': 'OpenAI Agents SDK', 'pydantic-ai': 'Pydantic AI',
   'langchain-langgraph': 'LangChain and LangGraph', 'google-adk': 'Google ADK',
   'vercel-ai-sdk': 'Vercel AI SDK', mastra: 'Mastra',
 };
+// Tab order, as in src/components/agentFrameworks.ts.
+export const frameworkOrder = ['claude-agent-sdk', 'google-adk', 'langchain-langgraph', 'mastra', 'openai-agents-sdk',
+  'pydantic-ai', 'vercel-ai-sdk'];
+const frameworkGroupType = 'dexFrameworkGroup';
 async function expandFrameworkTabs(node, context) {
-  const tabs = [];
+  const variants = {};
   for (const child of node.children.filter(child => child.type === 'mdxJsxFlowElement')) {
     if (child.name !== 'FrameworkTab') fail(context, child, 'FrameworkTabs children must be FrameworkTab elements');
     const framework = attribute(child, 'framework', context);
     if (!Object.hasOwn(frameworkLabels, framework)) fail(context, child, `Unknown agent framework ${framework}`);
-    tabs.push({framework, content: await transformChildren(child.children, context)});
+    variants[framework] = await transformChildren(child.children, context);
   }
-  // A block that opens every tab is written once, before the labels, so the export does not repeat it.
-  const shared = [];
-  while (tabs.length > 1 && tabs.every(tab => tab.content.length > 0 &&
-      markdownNodeKey(tab.content[0]) === markdownNodeKey(tabs[0].content[0]))) {
-    shared.push(tabs[0].content[0]);
-    for (const tab of tabs) tab.content.shift();
-  }
-  return [...shared, ...tabs.flatMap(tab => [paragraph(frameworkLabels[tab.framework], true), ...tab.content])];
+  return [{type: frameworkGroupType, variants}];
+}
+
+/** Lists the agent frameworks that the page's FrameworkTabs groups contain, in tab order. */
+function agentFrameworksIn(nodes) {
+  const found = new Set();
+  const visit = list => {
+    for (const node of list) {
+      if (node.type === frameworkGroupType) Object.keys(node.variants).forEach(framework => found.add(framework));
+      else if (Array.isArray(node.children)) visit(node.children);
+    }
+  };
+  visit(nodes);
+  return frameworkOrder.filter(framework => found.has(framework));
+}
+
+/**
+ * Lists the SDK languages of one framework's own tabs, so a TypeScript-only framework gets only TypeScript files.
+ *
+ * @returns {string[]} The languages in that framework's FrameworkTab content, or every language on the page when
+ *   its tabs hold no SDK code.
+ */
+function frameworkLanguages(nodes, framework, selected) {
+  const own = [];
+  const visit = list => {
+    for (const node of list) {
+      if (node.type === frameworkGroupType) own.push(...(node.variants[framework] ?? []));
+      else if (Array.isArray(node.children)) visit(node.children);
+    }
+  };
+  visit(nodes);
+  const languages = sdkLanguages(own);
+  return languages.length > 0 ? languages : sdkLanguages(selected);
+}
+
+/**
+ * Replaces each FrameworkTabs group with one framework's content. A group without that framework becomes a
+ * one-line note that links the page's default file.
+ */
+function selectFramework(nodes, framework, defaultUrl, copy) {
+  return nodes.flatMap(node => {
+    if (node.type === frameworkGroupType) {
+      if (node.variants[framework]) return node.variants[framework];
+      return [{type: 'paragraph', children: [text(copy.missingFramework(frameworkLabels[framework])),
+        {type: 'link', url: defaultUrl, data: {keepLanguage: true}, children: [text(copy.missingFrameworkPage)]},
+        text(copy.missingLanguageEnd)]}];
+    }
+    if (!Array.isArray(node.children)) return [node];
+    return [{...node, children: selectFramework(node.children, framework, defaultUrl, copy)}];
+  });
+}
+
+/** Returns the path of a page's Markdown for one agent framework and SDK language, such as `/quick-start.mastra.md`. */
+export function frameworkMarkdownPath(pathname, framework, language) {
+  return pathname.replace(/\.md$/, language ? `.${framework}.${language}.md` : `.${framework}.md`);
+}
+
+function frameworkNote(framework, frameworks, frameworkPath, siteUrl, copy) {
+  const links = frameworks.filter(item => item !== framework).flatMap((item, index) => [
+    ...(index > 0 ? [text(copy.languageSeparator)] : []),
+    {type: 'link', url: new URL(frameworkPath(item), siteUrl).href, data: {keepLanguage: true}, children: [text(frameworkLabels[item])]},
+  ]);
+  return {type: 'paragraph', children: [text(copy.frameworkIs(frameworkLabels[framework])), ...links]};
 }
 
 function markdownNodeKey(node) {

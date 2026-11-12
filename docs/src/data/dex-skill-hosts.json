@@ -31,7 +31,7 @@
   },
   "locales": {
     "en": {
-      "introduction": "Choose your current host. On one host, use either the Plugin or standalone Skills, not both.",
+      "introduction": "Choose your host, then one installation path: the Plugin or the standalone Skills.",
       "hosts": [
         {
           "id": "codex-desktop",
@@ -134,7 +134,7 @@
             {
               "type": "p",
               "children": [
-                "Do not also install the Plugin when using this path. Install all three Skills together."
+                "This path installs all three Skills together."
               ]
             },
             {
@@ -254,7 +254,7 @@
             {
               "type": "p",
               "children": [
-                "Do not also install the Plugin when using this path. Install all three Skills together."
+                "This path installs all three Skills together."
               ]
             },
             {
@@ -468,7 +468,7 @@
             {
               "type": "p",
               "children": [
-                "Do not also install the Plugin when using this path. Install all three Skills together."
+                "This path installs all three Skills together."
               ]
             },
             {
@@ -604,7 +604,7 @@
             {
               "type": "p",
               "children": [
-                "Do not also install the Plugin when using this path. Install all three Skills together."
+                "This path installs all three Skills together."
               ]
             },
             {
@@ -738,7 +738,7 @@
       ]
     },
     "zh-Hans": {
-      "introduction": "选择当前使用的 host。一个 host 只能选择 Plugin 或 standalone Skills 中的一种安装路径。",
+      "introduction": "选择你使用的 host，再选择一种安装方式：Plugin 或 standalone Skills。",
       "hosts": [
         {
           "id": "codex-desktop",
@@ -841,7 +841,7 @@
             {
               "type": "p",
               "children": [
-                "如果选择该方式，请不要再安装 Plugin。三个 Skills 必须一起安装。"
+                "这种方式会一起安装三个 Skills。"
               ]
             },
             {
@@ -961,7 +961,7 @@
             {
               "type": "p",
               "children": [
-                "如果选择该方式，请不要再安装 Plugin。三个 Skills 必须一起安装。"
+                "这种方式会一起安装三个 Skills。"
               ]
             },
             {
@@ -1175,7 +1175,7 @@
             {
               "type": "p",
               "children": [
-                "如果选择该方式，请不要再安装 Plugin。三个 Skills 必须一起安装。"
+                "这种方式会一起安装三个 Skills。"
               ]
             },
             {
@@ -1311,7 +1311,7 @@
             {
               "type": "p",
               "children": [
-                "如果选择该方式，请不要再安装 Plugin。三个 Skills 必须一起安装。"
+                "这种方式会一起安装三个 Skills。"
               ]
             },
             {

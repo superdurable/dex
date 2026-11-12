@@ -1,21 +1,21 @@
 ---
 id: dex-developer-skill
-title: Dex Skills
+title: Build with AI
 sidebar_label: Build with AI
 slug: /build-with-ai/dex-developer-skill
 description: "Dex Skills is the official guidance that teaches a coding agent, such as Codex, Claude Code, or Cursor, to work with Dex. With it, the agent can design and build Dex applications, use the public Dex SDK directly, and contribute official Connectors."
 ---
 
-# Build with AI using Dex Skills
+# Build with AI
 
-Dex Skills is the official guidance that teaches a coding agent, such as Codex,
-Claude Code, or Cursor, to work with Dex. With it, the agent can design and
-build Dex applications, use the public Dex SDK directly, and contribute
-official [Connectors](/concepts/connector). You install it as a Plugin or as
-a standalone bundle of three Skills.
+Dex Skills teaches a coding agent, such as Codex, Claude Code, or Cursor, to
+design and build Dex applications, use the Dex SDK, and contribute official
+[Connectors](/concepts/connector). The Skills are guidance for the agent and
+hold no runtime code.
 
-The Skills are guidance for the agent only. They contain no runtime code. Dex
-Server, Workers, and applications never load them.
+## Install and use Dex Skills
+
+<DexSkillHostTabs skill="all" />
 
 :::tip Start with Dex App Builder
 
@@ -27,16 +27,14 @@ other skills when the job needs SDK or Connector work.
 
 ## Requires a coding workspace
 
-Dex Skills is not a hosted application builder. To create or change an
-application, run it in Codex or another coding-agent host that gives the agent
+To create or change an application, run Dex Skills in Codex or another
+coding-agent host that gives the agent
 a writable repository or project, file-editing tools, and command execution.
 The repository can be an existing one or a new, empty one.
 
-In a plain chat without repository and command access, the skills can still
-help you work out the business process, design the architecture, and write a
-plan for implementation. They cannot create project files, run tests, build
-artifacts, or deploy the application. Move the agreed plan into a coding
-workspace with a repository before you implement it.
+In a plain chat, the skills help you work out the business process, design
+the architecture, and write a plan for implementation. Move the agreed plan
+into a coding workspace with a repository to build it.
 
 ## Choose a skill
 
@@ -64,20 +62,15 @@ The source and releases are in
 
 ## Choose one installation path
 
-Use one of these paths, not both:
+Pick one path per host:
 
 1. **Plugin (recommended)** installs all three Skills. You install, update,
    and remove them through the host's plugin marketplace.
 2. **Standalone Skills** installs all three Skills directly with the Agent
    Skills CLI.
 
-If you install both, the agent can end up with duplicate copies, and you
-cannot tell which version it uses. On the same host, the two installations can
-also be invoked with different syntax.
-
-## Install and use Dex Skills
-
-<DexSkillHostTabs skill="all" />
+One path per host keeps a single copy of each Skill, so you always know which
+version the agent uses and how to invoke it.
 
 ## Trust and permissions
 

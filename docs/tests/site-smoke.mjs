@@ -15,7 +15,7 @@ import remarkParse from 'remark-parse';
 import remarkMdx from 'remark-mdx';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
-import {languageMarkdownPath, prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
+import {frameworkMarkdownPath, frameworkOrder, languageMarkdownPath, prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
 import {markdownPath} from '../src/markdownPath.mjs';
 import './markdown-export.mjs';
 import {readReferenceDocuments, compareVersions} from '../scripts/snapshot-reference.mjs';
@@ -321,13 +321,16 @@ assert.match(dexSkills, /Requires a coding workspace/);
 assert.match(dexSkills, /writable repository or project, file-editing tools, and command execution/);
 assert.match(dexSkills, /https:\/\/github\.com\/superdurable\/dex-skills/);
 
-const englishDexSkillPages = [dexSkills, dexAppBuilder, dexSdk, dexConnectorContributor];
-const chineseDexSkillPages = [zhDexSkills, zhDexAppBuilder, zhDexSdk, zhDexConnectorContributor];
-for (const page of englishDexSkillPages) {
-  assertDexSkillHostTabs(page, 'Other clients', false);
-}
-for (const page of chineseDexSkillPages) {
-  assertDexSkillHostTabs(page, '其他客户端', true);
+// The full install lives once, on the Build with AI overview. Each skill page links to it and shows its own invocation.
+assertDexSkillHostTabs(dexSkills, 'Other clients', false);
+assertDexSkillHostTabs(zhDexSkills, '其他客户端', true);
+for (const [page, skill] of [[dexAppBuilder, 'dex-app-builder'], [dexSdk, 'dex-sdk'],
+  [dexConnectorContributor, 'dex-connector-contributor'], [zhDexAppBuilder, 'dex-app-builder'], [zhDexSdk, 'dex-sdk'],
+  [zhDexConnectorContributor, 'dex-connector-contributor']]) {
+  assert.equal((page.match(/role="tab"/g) ?? []).length, 0, `${skill} page repeats the install tabs`);
+  assert.match(page, /href="\/(?:zh-Hans\/)?build-with-ai\/dex-developer-skill\/#install-and-use-dex-skills"/);
+  assert.match(htmlText(page), new RegExp(`\\$${skill} `));
+  assert.match(htmlText(page), new RegExp(`/superdurable-dex:${skill} `));
 }
 
 assert.match(dexSkillHostTabsSource, /defaultValue=\{hosts\[0\]\.id\}/);
@@ -339,7 +342,9 @@ for (const {hosts} of Object.values(dexSkillHostData.locales)) {
 }
 assert.doesNotMatch(dexSkillHostTabsSource, /\blazy(?:=|\s)/);
 for (const source of dexSkillSources) {
-  assert.match(source, /<DexSkillHostTabs skill="(?:all|dex-app-builder|dex-sdk|dex-connector-contributor)" \/>/);
+  // Only the overview carries the install tabs; skill pages link to it.
+  if (/^id: dex-developer-skill$/m.test(source)) assert.match(source, /<DexSkillHostTabs skill="all" \/>/);
+  else assert.doesNotMatch(source, /<DexSkillHostTabs/);
   assert.doesNotMatch(source, /^## (?:Install for|安装到) (?:Codex|Claude|Cursor)$/m);
   assert.doesNotMatch(source, /\[(?:installation overview|安装总览)\]/i);
 }
@@ -589,15 +594,22 @@ for (const [canonical, {html, route}] of canonicalPages) {
   const source = await readFile(join(docsRoot, '..', metadata.source), 'utf8');
   const sourceTree = sourceParser.parse(prepareSource(source, {headingIds: new Map(), locale, sourcePath: metadata.source}));
   const groups = [];
+  // SdkTabs inside a FrameworkTab belong to that framework's Markdown files only.
+  const markFramework = (node, framework) => {
+    const own = node.name === 'FrameworkTab' ? node.attributes.find(attribute => attribute.name === 'framework')?.value : framework;
+    if (own) node.framework = own;
+    node.children?.forEach(child => markFramework(child, own));
+  };
+  markFramework(sourceTree, undefined);
   visitMarkdown(sourceTree, node => {
     if (node.name !== 'SdkTabs' && !(node.name === 'SdkSnippet' && !node.isInsideSdkTabs)) return;
     const snippets = node.name === 'SdkSnippet' ? [node] : node.children.filter(child => child.name === 'SdkSnippet');
     snippets.forEach(snippet => { snippet.isInsideSdkTabs = node.name === 'SdkTabs'; });
-    groups.push(new Map(snippets.map(snippet => {
+    groups.push(Object.assign(new Map(snippets.map(snippet => {
       const language = snippet.attributes.find(attribute => attribute.name === 'lang')?.value;
       return [language, snippet.children.filter(child => child.type === 'code')
         .map(block => ({lang: block.lang || language, value: block.value}))];
-    })));
+    })), {framework: node.framework}));
   });
   const assertBlocksInOrder = (filePath, blocks, expectedBlocks) => {
     let codeCursor = 0;
@@ -608,23 +620,42 @@ for (const [canonical, {html, route}] of canonicalPages) {
     }
   };
   // Prop-only SdkTabs have no SdkSnippet children here, so the exporter's own test covers them.
-  const pageLanguages = sdkOrder.filter(language => groups.some(group => group.has(language)));
-  // A group without the file's language becomes a one-line note instead of code.
-  const blocksFor = language => groups.flatMap(group => group.get(language) ?? []);
-  if (pageLanguages.length > 1) {
-    assert.match(markdown, new RegExp(`^language: "${pageLanguages[0]}"$`, 'm'), `${pathname} must show its first SDK language`);
-    assertBlocksInOrder(pathname, codeBlocks, blocksFor(pageLanguages[0]));
-    // The first language is the page's own .md file; every other language gets page.<language>.md.
-    for (const language of pageLanguages.slice(1)) {
-      const languagePath = languageMarkdownPath(pathname, language);
-      const languageMarkdown = await readFile(join(root, languagePath.slice(1)), 'utf8');
-      assert.match(languageMarkdown, new RegExp(`^language: "${language}"$`, 'm'), `${languagePath} must name its language`);
-      assert.equal(JSON.parse(languageMarkdown.match(/^canonical_url: (.+)$/m)?.[1] ?? 'null'), canonical,
-        `${languagePath} has incorrect HTML canonical`);
-      assertBlocksInOrder(languagePath, auditMarkdownFile(languagePath, languageMarkdown), blocksFor(language));
+  const pageFrameworks = frameworkOrder.filter(framework => groups.some(group => group.framework === framework));
+  for (const framework of pageFrameworks.length > 0 ? pageFrameworks : [undefined]) {
+    const isDefaultFramework = framework === undefined || framework === pageFrameworks[0];
+    const frameworkGroups = groups.filter(group => !group.framework || group.framework === framework);
+    // A framework's files follow the languages of its own tabs, as the exporter does.
+    const ownGroups = frameworkGroups.filter(group => framework && group.framework === framework);
+    const languageGroups = ownGroups.some(group => group.size > 0) ? ownGroups : frameworkGroups;
+    const pageLanguages = sdkOrder.filter(language => languageGroups.some(group => group.has(language)));
+    const filePath = language => {
+      const first = language === undefined || language === pageLanguages[0];
+      if (isDefaultFramework) return first ? pathname : languageMarkdownPath(pathname, language);
+      return first ? frameworkMarkdownPath(pathname, framework) : frameworkMarkdownPath(pathname, framework, language);
+    };
+    const readFileFor = async language => {
+      if (filePath(language) === pathname) return {text: markdown, blocks: codeBlocks};
+      const text = await readFile(join(root, filePath(language).slice(1)), 'utf8');
+      assert.equal(JSON.parse(text.match(/^canonical_url: (.+)$/m)?.[1] ?? 'null'), canonical,
+        `${filePath(language)} has incorrect HTML canonical`);
+      if (framework) assert.match(text, new RegExp(`^framework: "${framework}"$`, 'm'), `${filePath(language)} must name its framework`);
+      return {text, blocks: auditMarkdownFile(filePath(language), text)};
+    };
+    // A group without the file's language becomes a one-line note instead of code.
+    const blocksFor = language => frameworkGroups.flatMap(group => group.get(language) ?? []);
+    if (pageLanguages.length > 1) {
+      // The first language is the framework's own file; every other language gets its own file.
+      for (const language of pageLanguages) {
+        const {text, blocks} = await readFileFor(language);
+        assert.match(text, new RegExp(`^language: "${language}"$`, 'm'), `${filePath(language)} must name its language`);
+        assertBlocksInOrder(filePath(language), blocks, blocksFor(language));
+      }
+    } else {
+      const {blocks} = await readFileFor(pageLanguages[0]);
+      const expected = pageLanguages.length === 1 ? blocksFor(pageLanguages[0])
+        : frameworkGroups.flatMap(group => [...group.values()].flat());
+      assertBlocksInOrder(filePath(pageLanguages[0]), blocks, expected);
     }
-  } else {
-    assertBlocksInOrder(pathname, codeBlocks, groups.flatMap(group => [...group.values()].flat()));
   }
   markdownPages++;
   // A page that only says it moved stays out of llms.txt.
@@ -638,6 +669,9 @@ for (const localeRoot of ['', 'zh-Hans/']) {
     const target = new URL(href);
     assert.equal(target.origin, siteOrigin);
     assert.ok(outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `llms.txt links to missing ${href}`);
+  }
+  // Each entry's first link is the page; per-framework links after it point at that page's other files.
+  for (const [, href] of index.matchAll(/^- \[[^\n]*?\]\((https?:[^)]+\.md)\)/gm)) {
     assert.equal(indexedMarkdown.has(href), false, `llms.txt duplicates ${href}`);
     indexedMarkdown.add(href);
   }
@@ -696,10 +730,9 @@ function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
 
 function assertSkillInvocationExamples(html, skillName, prompt) {
   const text = htmlText(html);
-  assert.ok(text.includes(`@Dex ${prompt}`));
+  // Skill pages show the Codex and Claude Code Plugin invocations; the overview lists every host.
   assert.ok(text.includes(`$${skillName} ${prompt}`));
   assert.ok(text.includes(`/superdurable-dex:${skillName} ${prompt}`));
-  assert.ok(text.includes(`/${skillName} ${prompt}`));
   for (const otherPrompt of [
     'Design and build an event-registration application.',
     'Diagnose why this Flow retries after the payment Step completes.',

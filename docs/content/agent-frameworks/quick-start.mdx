@@ -2,119 +2,271 @@
 title: Agent Quick Start
 sidebar_label: Agent Quick Start
 slug: /agent-frameworks/quick-start
+description: Run your framework's agent as a durable Dex session from a downloaded example, approve a write, then stop the program while it waits and while a tool runs, and watch the session carry on.
 ---
 
 # Agent Quick Start
 
-Run an agent built with your framework as a durable Dex session, then stop it in the middle of a conversation and watch it carry on. It takes about 10 minutes.
+Run your framework's agent as a durable Dex session, then stop it in the middle of a conversation and watch it carry on. It takes about 10 minutes.
 
-Building a new agent without a framework? Start with the [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop).
+<a id="before-you-start"></a>
+<a id="what-you-will-build"></a>
+<a id="run-it"></a>
 
-Your agent definition stays the same; your app also runs a Worker and Dex Server. [What changes in your app](/agent-frameworks) lists the costs.
+## 1. Get the example and run it {#get-the-example}
 
-## What you will build {#what-you-will-build}
-
-A small order support agent. It has two tools on an in-memory order desk:
-
-- `look_up_order` reads an order. It is a read, so Dex may retry it.
-- `cancel_order` cancels an order that has not shipped. It is a write, so it runs at most once, and only after a person approves it.
-
-You wrap a plain agent with Dex and ask it to cancel an order. Then you stop the program while the cancellation waits for approval, and again in the middle of a tool call, and check what Dex ran.
-
-The steps run inside a clone of the Dex repository. In Python you can instead start in an empty folder with published packages only, using [the one-file starter](#start-in-an-empty-folder). There is no TypeScript starter yet, so in TypeScript follow the steps below.
-
-<CrashTimeline variant="agent" />
-
-## Before you start {#before-you-start}
-
-- `dexcli`: run **brew install superdurable/tap/dexcli**. [Run Locally](/components/run-locally) has the other ways to install it.
-- Git, to get the example, and `jq` for one check in step 5.
-
-<SdkTabs>
-<SdkSnippet lang="python">
-
-You need Python 3.11 or later with uv. Google ADK, LangChain, OpenAI Agents SDK, and Pydantic AI run on a local demo model that needs no API key. The Claude Agent SDK calls a real model, so it needs `ANTHROPIC_API_KEY` in the environment.
-
-```bash
-python3 --version   # 3.11 or later
-uv --version
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-You need Node.js 22 or later with npm. Every TypeScript framework calls a real model, so it needs your provider key, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, in the environment.
-
-```bash
-node --version   # v22 or later
-npm --version
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## 1. Get the example {#get-the-example}
-
-Clone the Dex repository and start Dex in a first terminal:
-
-```bash
-git clone https://github.com/superdurable/dex.git
-cd dex
-dexcli dev
-```
-
-Keep **dexcli dev** running. Open a second terminal in the **dex** folder for the next steps.
-
-## 2. Make your agent durable {#make-it-durable}
-
-Each framework's example file has two functions. The first is the agent as the framework alone writes it, with the two tools. The second wraps the same agent in a Dex agent session and gives each tool a policy. For these two function tools, that is the only change. Tools the framework runs itself, such as MCP servers and hosted tools, need the changes in your framework's [Limits](/agent-frameworks/sessions#limits).
-
-`look_up_order` is a read, and `cancel_order` is a non-idempotent write. [Tool Calls](/agent-frameworks/tool-calls) says how each kind runs and why the write waits for approval.
+In one terminal, run `dexcli dev` ([install `dexcli`](/components/run-locally)). In a second terminal, pick your framework, download its example, and ask the agent about an order:
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
 
-Your agent, written with the framework alone:
-
 <SdkTabs
   examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts',
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
   }}>
 <SdkSnippet lang="python">
 
-```python
-def build_plain_agent(order_desk: OrderDesk, model: str) -> ClaudeAgentOptions:
-    """Returns the agent's options as the Claude Agent SDK alone writes them."""
-    orders = create_sdk_mcp_server("orders", tools=build_order_tools(order_desk))
-    return ClaudeAgentOptions(
-        model=model,
-        system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
-        mcp_servers={"orders": orders},
-        allowed_tools=["mcp__orders__look_up_order", "mcp__orders__cancel_order"],
-    )
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start claude-agent-sdk "Look up order 1001"
+```
+
+You need Python 3.11 or later with uv. It calls Claude, so set `ANTHROPIC_API_KEY` first.
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- claude-agent-sdk "Look up order 1001"
+```
+
+You need Node.js 22 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="google-adk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start google-adk "Look up order 1001"
+```
+
+You need Python 3.11 or later with uv. It runs on a local demo model, so it needs no API key.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="langchain-langgraph">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start langchain "Look up order 1001"
+```
+
+You need Python 3.11 or later with uv. It runs on a local demo model, so it needs no API key.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- mastra "Look up order 1001"
+```
+
+You need Node.js 22 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="openai-agents-sdk">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start openai-agents "Look up order 1001"
+```
+
+You need Python 3.11 or later with uv. It runs on a local demo model, so it needs no API key.
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- openai-agents "Look up order 1001"
+```
+
+You need Node.js 22 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="pydantic-ai">
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=3 dex-main/examples/python/agent-harnesses
+cd agent-harnesses
+uv sync --locked
+uv run --frozen python -m agent_harness_examples.quick_start pydantic-ai "Look up order 1001"
+```
+
+You need Python 3.11 or later with uv. It runs on a local demo model, so it needs no API key.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+<FrameworkTab framework="vercel-ai-sdk">
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```bash
+curl -sL https://codeload.github.com/superdurable/dex/tar.gz/main | tar -xz --strip-components=2 dex-main/examples/typescript
+cd typescript
+npm install
+npm run agent-quick-start -- vercel-ai "Look up order 1001"
+```
+
+You need Node.js 22 or later. It calls a real model, so set your provider key first, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
+The program starts a session, prints its ID, and prints the agent's reply:
+
+```text
+Session openai-agents-quick-start-6792dcbb
+Agent: Local demo response: Order 1001: 2 notebooks, shipped.
+```
+
+The agent is a small order support agent with two tools. `look_up_order` reads an order, so Dex may retry it. `cancel_order` cancels an order that has not shipped; it is a write, so it runs at most once, and only after a person approves it.
+
+## 2. Approve a write {#approve-a-write}
+
+Run the same command with the message **Cancel order 1002**. The program stops and asks:
+
+```text
+cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
+```
+
+The session waits in `AwaitToolApproval`. Type **y**, and the agent cancels the order and replies. [Approvals](/agent-frameworks/approvals) shows how your app reads and answers the waiting call, and how a person approves it in Dex Web.
+
+## 3. Stop the program while the agent waits {#stop-the-worker}
+
+Ask to cancel order 1002 again; each run without `--session-id` starts a new session. When the program asks you to approve, press Ctrl+C. The program, its Worker, and its Client stop, and the session keeps waiting in Dex.
+
+Run the step 1 command again from the same folder, with `--session-id SESSION_ID` in place of the message. A new Worker starts, and the program asks about the same `cancel_order` call. Type **y**. The order is cancelled once, and the model calls before the restart stay done.
+
+## 4. Stop it while a tool runs {#stop-while-a-tool-runs}
+
+A crash in the middle of a tool call is the harder case. The example can slow each tool call down, so you have time to stop it.
+
+1. Put `DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20` in front of the step 1 command and ask about order 1001.
+2. Within 20 seconds, kill the program as a crash would. A crash is a kill signal; Ctrl+C lets a running call finish first.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```bash
+pkill -9 -f agent_harness_examples.quick_start
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
-```ts
-/** Returns the agent's options as the Claude Agent SDK alone writes them. */
-export function buildPlainAgent(orderDesk: OrderDesk, model: string): Options {
-  const orders = createSdkMcpServer({ name: "orders", tools: buildOrderTools(orderDesk) });
-  return {
-    model,
-    systemPrompt: orderSupportInstructions,
-    mcpServers: { orders },
-    allowedTools: ["mcp__orders__look_up_order", "mcp__orders__cancel_order"],
-  };
-}
+```bash
+pkill -9 -f quick-start-main.js
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-The same agent as a durable session:
+3. Run the program again with `--session-id` and no message. The agent answers with the order.
+4. Check how the tool call ran:
+
+```bash
+dexcli flow history --all SESSION_ID | jq '.events[]
+  | select(.payload.context.stepType == "CallTool")
+  | .payload.context | {finalAttempt, failure: .lastFailureInfo.details.detail}'
+```
+
+`finalAttempt` is **2**. The first attempt failed when the Worker disconnected, and because `look_up_order` is a read, Dex ran it again on the new Worker. The model call before it ran once.
+
+Now do the same with a write: ask to cancel order 1002 with the delay set, approve it, kill the program within 20 seconds, and run it again with `--session-id`. Dex records `cancel_order` as `outcome_unknown` and runs it no second time, because it is a non-idempotent write. The agent tells the user that the outcome is unknown, and your application checks the order system before anyone tries again. [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) shows how.
+
+<CrashTimeline variant="agent" />
+
+## What made it durable {#make-it-durable}
+
+Each framework's example wraps the same agent in a Dex agent session and gives each tool a policy. For these two function tools, that is the only change:
+
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
 
 <SdkTabs
   examples={{
@@ -178,39 +330,6 @@ export function buildDurableAgent(
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-Your agent, written with the framework alone:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_plain_agent(order_desk: OrderDesk, model: str | BaseLlm) -> LlmAgent:
-    """Returns the agent as Google ADK alone writes it."""
-
-    def look_up_order(order_id: str) -> str:
-        """Look up one order by its order ID and return its items and status."""
-        return order_desk.describe_order(order_id)
-
-    def cancel_order(order_id: str, reason: str) -> str:
-        """Cancel one order that has not shipped yet."""
-        return order_desk.cancel_order(order_id, reason)
-
-    return LlmAgent(
-        name="order_support",
-        model=model,
-        instruction=ORDER_SUPPORT_INSTRUCTIONS,
-        tools=[look_up_order, cancel_order],
-    )
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The same agent as a durable session:
-
 <SdkTabs
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py',
@@ -235,45 +354,6 @@ def build_durable_agent(order_desk: OrderDesk, model: str | BaseLlm) -> AgentSes
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
-
-Your agent, written with the framework alone:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_plain_agent(
-    order_desk: OrderDesk,
-    model: str | BaseChatModel,
-    middleware: Sequence[AgentMiddleware[Any, Any]] = (),
-) -> Pregel[Any, Any, Any, Any]:
-    """Returns the agent as LangChain alone writes it."""
-
-    @tool
-    def look_up_order(order_id: str) -> str:
-        """Look up one order by its order ID and return its items and status."""
-        return order_desk.describe_order(order_id)
-
-    @tool
-    def cancel_order(order_id: str, reason: str) -> str:
-        """Cancel one order that has not shipped yet."""
-        return order_desk.cancel_order(order_id, reason)
-
-    return create_agent(
-        model,
-        tools=[look_up_order, cancel_order],
-        system_prompt=ORDER_SUPPORT_INSTRUCTIONS,
-        middleware=middleware,
-    )
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The same agent as a durable session:
 
 <SdkTabs
   examples={{
@@ -301,44 +381,6 @@ def build_durable_agent(order_desk: OrderDesk, model: str | BaseChatModel) -> Ag
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-Your agent, written with the framework alone:
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```ts
-/** Returns the agent as Mastra alone writes it. */
-export function buildPlainAgent(orderDesk: OrderDesk, model: MastraModelConfig): Agent {
-  const lookUpOrder = createTool({
-    id: "look_up_order",
-    description: "Look up one order by its order ID and return its items and status.",
-    inputSchema: z.object({ order_id: z.string() }),
-    execute: async ({ order_id }) => orderDesk.describeOrder(order_id),
-  });
-  const cancelOrder = createTool({
-    id: "cancel_order",
-    description: "Cancel one order that has not shipped yet.",
-    inputSchema: z.object({ order_id: z.string(), reason: z.string() }),
-    execute: async ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
-  });
-  return new Agent({
-    id: "order-support",
-    name: "OrderSupport",
-    instructions: orderSupportInstructions,
-    model,
-    tools: { look_up_order: lookUpOrder, cancel_order: cancelOrder },
-  });
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The same agent as a durable session:
-
 <SdkTabs
   examples={{
     typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts',
@@ -362,71 +404,6 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: MastraModelConfig
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
-
-Your agent, written with the framework alone:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_plain_agent(order_desk: OrderDesk, model: str | Model) -> Agent:
-    """Returns the agent as the OpenAI Agents SDK alone writes it."""
-
-    @function_tool
-    def look_up_order(order_id: str) -> str:
-        """Look up one order by its order ID and return its items and status."""
-        return order_desk.describe_order(order_id)
-
-    @function_tool
-    def cancel_order(order_id: str, reason: str) -> str:
-        """Cancel one order that has not shipped yet."""
-        return order_desk.cancel_order(order_id, reason)
-
-    return Agent(
-        name="OrderSupport",
-        instructions=ORDER_SUPPORT_INSTRUCTIONS,
-        model=model,
-        tools=[look_up_order, cancel_order],
-    )
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```ts
-/** Returns the agent as the OpenAI Agents SDK alone writes it. */
-export function buildPlainAgent(orderDesk: OrderDesk, model: string | Model): Agent {
-  const lookUpOrder = tool({
-    name: "look_up_order",
-    description: "Look up one order by its order ID and return its items and status.",
-    parameters: z.object({ order_id: z.string() }),
-    errorFunction: null,
-    execute: ({ order_id }) => orderDesk.describeOrder(order_id),
-  });
-  const cancelOrder = tool({
-    name: "cancel_order",
-    description: "Cancel one order that has not shipped yet.",
-    parameters: z.object({ order_id: z.string(), reason: z.string() }),
-    errorFunction: null,
-    execute: ({ order_id, reason }) => orderDesk.cancelOrder(order_id, reason),
-  });
-  return new Agent({
-    name: "OrderSupport",
-    instructions: orderSupportInstructions,
-    model,
-    tools: [lookUpOrder, cancelOrder],
-  });
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The same agent as a durable session:
 
 <SdkTabs
   examples={{
@@ -469,38 +446,6 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: string | Model): 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-Your agent, written with the framework alone:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def build_plain_agent(order_desk: OrderDesk, model: str | Model) -> Agent[None, str]:
-    """Returns the agent as Pydantic AI alone writes it."""
-    # The model is resolved at the first run, so a Client process needs no provider key.
-    agent = Agent(model, instructions=ORDER_SUPPORT_INSTRUCTIONS, defer_model_check=True)
-
-    @agent.tool_plain
-    def look_up_order(order_id: str) -> str:
-        """Look up one order by its order ID and return its items and status."""
-        return order_desk.describe_order(order_id)
-
-    @agent.tool_plain
-    def cancel_order(order_id: str, reason: str) -> str:
-        """Cancel one order that has not shipped yet."""
-        return order_desk.cancel_order(order_id, reason)
-
-    return agent
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The same agent as a durable session:
-
 <SdkTabs
   examples={{
     python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py',
@@ -525,26 +470,6 @@ def build_durable_agent(order_desk: OrderDesk, model: str | Model) -> AgentSessi
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
-
-Your agent, written with the framework alone:
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```ts
-/** Returns the agent as the Vercel AI SDK alone writes it. */
-export function buildPlainAgent(orderDesk: OrderDesk, model: LanguageModel) {
-  return new ToolLoopAgent({ model, instructions: orderSupportInstructions, tools: buildOrderTools(orderDesk) });
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-The same agent as a durable session:
 
 <SdkTabs
   examples={{
@@ -576,670 +501,31 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): A
 </FrameworkTab>
 </FrameworkTabs>
 
-Some adapters need one more thing. LangChain takes a factory and adds `DurableToolCallMiddleware`, which runs each tool call as its own Step. The Claude Agent SDK takes the tools in a list next to the options, so Dex can run each one itself.
+LangChain also adds `DurableToolCallMiddleware`, which runs each tool call as its own Step. The Claude Agent SDK takes the tools in a list next to the options, so Dex runs each one itself. Tools the framework runs itself, such as MCP servers and hosted tools, need the changes in your framework's [Limits](/agent-frameworks/sessions#limits). The session runs in a Worker and is driven by a Client; [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent#wire-it-into-your-app) shows that host code.
 
-The session also needs a Worker and a Client, as any Dex application does. The example creates both in one process. The Worker runs the session's Steps, and the Client starts the session and talks to it. Both also open a [blob cache](/components/application#blob-cache): a local, size-limited directory for large values, which you can delete at any time:
+## Start from one file {#start-in-an-empty-folder}
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-    def __init__(
-        self, session_flow: AgentSessionFlow, server_address: str, blob_cache_dir: Path
-    ) -> None:
-        # Agent session Steps are async, so the Registry allows async handlers.
-        self.registry = Registry((session_flow,), allow_async_handlers=True)
-        blob_cache_dir.mkdir(parents=True, exist_ok=True)
-        self.blob_cache = open_blob_cache(BlobCacheConfig(str(blob_cache_dir), 1 << 30))
-        self.worker = AsyncWorker(
-            self.registry,
-            self.blob_cache,
-            WorkerOptions(
-                server_address=server_address,
-                pull=PullWorkerOptions(max_concurrent_tasks=MAX_CONCURRENT_TASKS),
-                # Dex Web draws the session and offers Approve from this graph.
-                flow_definitions=[
-                    session_flow_definition_document(
-                        session_flow.get_flow_type(), ACTION_PERMISSION
-                    )
-                ],
-            ),
-        )
-        self.client = AsyncClient(
-            self.registry, self.blob_cache, ClientOptions(server_address=server_address)
-        )
-        self.sessions = AgentSessionClient(self.client, session_flow)
-        self._worker_task: asyncio.Task[None] | None = None
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```ts
-  public static async start(flow: AgentSessionFlow, serverAddress: string, blobCacheDir: string): Promise<QuickStartApp> {
-    const registry = new Registry([flow]);
-    const blobCache = openBlobCache({ directory: blobCacheDir, maxBytes: 1 << 30 });
-    const worker = new Worker(registry, blobCache, {
-      serverAddress,
-      pull: { maxConcurrentTasks: 16 },
-      // Dex Web draws the session and offers Approve from this graph.
-      flowDefinitions: [sessionFlowDefinitionDocument({ flowType: flow.getFlowType(), actionPermission })],
-    });
-    const client = new Client(registry, blobCache, { serverAddress });
-    const app = new QuickStartApp(flow, client, worker, blobCache);
-    try {
-      await worker.start();
-      await worker.waitPullRegistered({ timeoutMs: pullRegistrationTimeoutMs });
-    } catch (failure) {
-      await app.close();
-      throw failure;
-    }
-    return app;
-  }
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## 3. Run it {#run-it}
-
-In the second terminal, ask the agent about an order. Pick your framework:
-
-<FrameworkTabs>
-<FrameworkTab framework="claude-agent-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-cd examples/python/agent-harnesses
-uv sync --locked
-uv run --frozen python -m agent_harness_examples.quick_start claude-agent-sdk "Look up order 1001"
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-cd examples/typescript
-npm install
-npm run agent-quick-start -- claude-agent-sdk "Look up order 1001"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="google-adk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-cd examples/python/agent-harnesses
-uv sync --locked
-uv run --frozen python -m agent_harness_examples.quick_start google-adk "Look up order 1001"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="langchain-langgraph">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-cd examples/python/agent-harnesses
-uv sync --locked
-uv run --frozen python -m agent_harness_examples.quick_start langchain "Look up order 1001"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="mastra">
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-cd examples/typescript
-npm install
-npm run agent-quick-start -- mastra "Look up order 1001"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="openai-agents-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-cd examples/python/agent-harnesses
-uv sync --locked
-uv run --frozen python -m agent_harness_examples.quick_start openai-agents "Look up order 1001"
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-cd examples/typescript
-npm install
-npm run agent-quick-start -- openai-agents "Look up order 1001"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="pydantic-ai">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-cd examples/python/agent-harnesses
-uv sync --locked
-uv run --frozen python -m agent_harness_examples.quick_start pydantic-ai "Look up order 1001"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="vercel-ai-sdk">
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-cd examples/typescript
-npm install
-npm run agent-quick-start -- vercel-ai "Look up order 1001"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-</FrameworkTabs>
-
-The program starts a session and prints its ID. It sends the message and prints the agent's reply:
-
-```text
-Session openai-agents-quick-start-6792dcbb
-Agent: Local demo response: Order 1001: 2 notebooks, shipped.
-```
-
-`look_up_order` is a read, so it ran without asking you. Now ask the agent to cancel an order. Use the same command with the message **Cancel order 1002**. This time the program stops and asks:
-
-```text
-cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
-```
-
-The session waits in `AwaitToolApproval`. The program reads the waiting call from the session and sends your answer back:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-    answered: set[str] = set()
-    while True:
-        snapshot = await sessions.get_agent_snapshot(session_id)
-        state = snapshot.state
-        for interrupt in snapshot.pending_interrupts:
-            if interrupt.interrupt_id in answered:
-                continue
-            answered.add(interrupt.interrupt_id)
-            approved = await decide_approval(interrupt)
-            await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=approved)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```ts
-  const answered = new Set<string>();
-  for (;;) {
-    const snapshot = await readAgentSnapshot(app.client, app.flow, sessionId);
-    for (const interrupt of snapshot.pendingInterrupts) {
-      if (answered.has(interrupt.interruptId)) {
-        continue;
-      }
-      answered.add(interrupt.interruptId);
-      const approved = await decideApproval(interrupt);
-      const resolution = { interruptId: interrupt.interruptId, approved, rejectionMessage: null };
-      await app.client.invokeRPC(app.flow.resolveInterrupt, sessionId, resolution);
-    }
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-Type **y**. The agent cancels the order and replies.
-
-## 4. Stop the program while the agent waits {#stop-the-worker}
-
-Ask to cancel an order again, in a new session: run the step 3 command again without `--session-id`, and the program starts a new session. When the program asks you to approve, press Ctrl+C instead. The program, its Worker, and its Client are gone, and the program prints how to resume. The session keeps waiting in Dex; [Approvals](/agent-frameworks/approvals) explains how the wait holds no Worker.
-
-Run the program again from the same folder, with the session ID it printed and no message:
-
-<FrameworkTabs>
-<FrameworkTab framework="claude-agent-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-uv run --frozen python -m agent_harness_examples.quick_start claude-agent-sdk --session-id SESSION_ID
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-npm run agent-quick-start -- claude-agent-sdk --session-id SESSION_ID
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="google-adk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-uv run --frozen python -m agent_harness_examples.quick_start google-adk --session-id SESSION_ID
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="langchain-langgraph">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-uv run --frozen python -m agent_harness_examples.quick_start langchain --session-id SESSION_ID
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="mastra">
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm run agent-quick-start -- mastra --session-id SESSION_ID
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="openai-agents-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-uv run --frozen python -m agent_harness_examples.quick_start openai-agents --session-id SESSION_ID
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-npm run agent-quick-start -- openai-agents --session-id SESSION_ID
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="pydantic-ai">
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-uv run --frozen python -m agent_harness_examples.quick_start pydantic-ai --session-id SESSION_ID
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="vercel-ai-sdk">
-
-<SdkTabs
-  examples={{
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm run agent-quick-start -- vercel-ai --session-id SESSION_ID
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-</FrameworkTabs>
-
-A new Worker starts, and the program asks about the same `cancel_order` call. Type **y**. The order is cancelled once. The model calls and the look-up before the restart did not run again.
-
-A person can also approve the call in Dex Web instead of in your program. The program's Worker uploads the session graph, so Dex Web shows the **Agent session** tab with plain **dexcli dev**. [Approve in Dex Web](/agent-frameworks/approvals#approve-in-dex-web) shows the steps.
-
-## 5. Stop it while a tool runs {#stop-while-a-tool-runs}
-
-Step 4 stopped the program while nothing ran. A crash in the middle of a tool call is the harder case. The example can slow each tool call down, so you have time to stop it.
-
-1. Ask about an order again, with a 20-second delay on each tool call. Set `DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20` in front of the step 3 command.
-2. Within 20 seconds, kill the program as a crash would. Ctrl+C is not a crash: it lets a running call finish first.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pkill -9 -f agent_harness_examples.quick_start
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-pkill -9 -f quick-start-main.js
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-3. Run the program again with `--session-id` and no message. The agent answers with the order.
-4. Check how the tool call ran:
-
-```bash
-dexcli flow history --all SESSION_ID | jq '.events[]
-  | select(.payload.context.stepType == "CallTool")
-  | .payload.context | {finalAttempt, failure: .lastFailureInfo.details.detail}'
-```
-
-`finalAttempt` is **2**. The first attempt failed because the Worker disconnected. `look_up_order` is a read, so Dex ran it again on the new Worker. The model call before it did not run again.
-
-Now try a write. Ask to cancel order 1002 with the delay set, approve it, and kill the program within 20 seconds. Then run it again with `--session-id`.
-
-`cancel_order` is a non-idempotent write, so Dex does not run it a second time. The call records `outcome_unknown`, and the agent tells the user so. With the demo model, the reply reads: "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically." Your application then checks the order system before anyone tries again. [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) shows how.
-
-You have run your first durable agent. Its Worker went away in the middle of a conversation, and the session lost nothing. The read that was cut off ran again, and the write that was cut off was reported as `outcome_unknown` instead of running twice.
-
-## Start in an empty folder {#start-in-an-empty-folder}
-
-The one-file starter is Python only. There is no TypeScript starter yet, so TypeScript readers use the steps above.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-starter/agent.py',
-  }}>
-<SdkSnippet lang="python">
-
-The steps above run inside a clone of the Dex repository. To start in your own folder instead, use the one-file starter. It is the OpenAI Agents SDK agent from step 2 with its host in the same file, and it imports only published packages. It calls a real model, so it needs `OPENAI_API_KEY`.
-
-Keep `dexcli dev` running in another terminal, then run:
+The one-file starter is the OpenAI Agents SDK agent with its Worker and Client in one Python file. It uses published packages only and calls a real model, so set `OPENAI_API_KEY`. With `dexcli dev` running:
 
 ```bash
 mkdir order-agent && cd order-agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install dex-agents-openai-agents==0.5.0 dex-python-sdk==1.45.0
 curl -fsSLO https://raw.githubusercontent.com/superdurable/dex/main/examples/python/agent-starter/agent.py
-export OPENAI_API_KEY=...
 python agent.py "Cancel order 1002, it was a mistake"
 ```
 
-The program asks **Approve cancel_order? [y/N]** before the write runs. This is the whole file:
+The program asks **Approve cancel_order? [y/N]** before the write runs. [agent.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-starter/agent.py) is the whole program.
 
-```python
-"""A durable OpenAI Agents SDK agent in one file.
-
-Run Dex with `dexcli dev`, set OPENAI_API_KEY, then run:
-
-    python agent.py "Cancel order 1002, it was a mistake"
-
-The Worker and the Client run in this process. Each tool call that needs
-approval asks on the terminal.
-"""
-
-from __future__ import annotations
-
-import asyncio
-import os
-import sys
-import uuid
-from collections.abc import Awaitable, Callable
-
-from agents import Agent, Model, function_tool
-from dex import (
-    AsyncClient,
-    AsyncWorker,
-    BlobCacheConfig,
-    ClientOptions,
-    Registry,
-    WorkerOptions,
-    open_blob_cache,
-)
-from dex_agents import (
-    AgentInterrupt,
-    AgentSessionClient,
-    AgentSessionFlow,
-    AgentSessionStatus,
-    MessageRole,
-    ToolEffect,
-    ToolPolicy,
-)
-from dex_agents_openai_agents import openai_agents_session_flow
-
-SERVER_ADDRESS = os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
-MODEL = os.environ.get("AGENT_MODEL", "gpt-5.2")
-
-ORDERS = {
-    "1001": {"item": "desk lamp", "status": "shipped"},
-    "1002": {"item": "office chair", "status": "processing"},
-}
-
-
-# The plain agent: your OpenAI Agents SDK code, unchanged by Dex.
-@function_tool
-def look_up_order(order_id: str) -> str:
-    """Look up one order by its order ID and return its item and status."""
-    order = ORDERS.get(order_id)
-    return f"order {order_id}: {order}" if order else f"order {order_id} not found"
-
-
-@function_tool
-def cancel_order(order_id: str, reason: str) -> str:
-    """Cancel one order that has not shipped yet."""
-    order = ORDERS.get(order_id)
-    if order is None or order["status"] == "shipped":
-        return f"order {order_id} cannot be cancelled"
-    order["status"] = "cancelled"
-    return f"order {order_id} cancelled: {reason}"
-
-
-def build_agent(model: str | Model) -> Agent:
-    return Agent(
-        name="OrderSupport",
-        instructions="Help with orders. Look an order up before you change it.",
-        model=model,
-        tools=[look_up_order, cancel_order],
-    )
-
-
-# The Dex change: wrap the agent and give each tool a policy.
-def build_session_flow(model: str | Model) -> AgentSessionFlow:
-    return openai_agents_session_flow(
-        build_agent(model),
-        flow_type="AgentStarter",
-        tool_policies={
-            "look_up_order": ToolPolicy(ToolEffect.READ),
-            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
-        },
-    )
-
-
-ApprovalDecider = Callable[[AgentInterrupt], Awaitable[bool]]
-
-
-# The host: one Worker and one Client in this process.
-async def ask(
-    session_flow: AgentSessionFlow,
-    message: str,
-    decide_approval: ApprovalDecider,
-    session_id: str | None = None,
-) -> list[str]:
-    """Starts a session, sends message, answers approvals, and returns the replies."""
-    registry = Registry((session_flow,), allow_async_handlers=True)
-    cache = open_blob_cache(BlobCacheConfig(".dex-blob-cache", 1 << 30))
-    worker = AsyncWorker(registry, cache, WorkerOptions(server_address=SERVER_ADDRESS))
-    client = AsyncClient(registry, cache, ClientOptions(server_address=SERVER_ADDRESS))
-    worker_task = asyncio.create_task(worker.start())
-    try:
-        await worker.wait_pull_registered(timeout=30)
-        sessions = AgentSessionClient(client, session_flow)
-        session_id = session_id or f"agent-starter-{uuid.uuid4().hex[:8]}"
-        await sessions.start_session(session_id)
-        await sessions.send_user_message(session_id, message)
-        answered: set[str] = set()
-        while True:
-            snapshot = await sessions.get_agent_snapshot(session_id)
-            for interrupt in snapshot.pending_interrupts:
-                if interrupt.interrupt_id not in answered:
-                    answered.add(interrupt.interrupt_id)
-                    approved = await decide_approval(interrupt)
-                    await sessions.resolve_interrupt(
-                        session_id, interrupt.interrupt_id, approved=approved
-                    )
-            state = snapshot.state
-            if state and state.status == AgentSessionStatus.FAILED:
-                raise RuntimeError(f"the session failed: {state.last_turn_error}")
-            if (
-                state
-                and state.turn_count >= 1
-                and state.status == AgentSessionStatus.WAITING_FOR_USER_MESSAGE
-            ):
-                return [
-                    item.text
-                    for item in snapshot.messages
-                    if item.role == MessageRole.ASSISTANT and item.text
-                ]
-            await asyncio.sleep(0.5)
-    finally:
-        await client.close()
-        await worker.close()
-        await worker_task
-        cache.close()
-
-
-async def ask_on_terminal(interrupt: AgentInterrupt) -> bool:
-    answer = await asyncio.to_thread(input, f"Approve {interrupt.tool_name}? [y/N] ")
-    return answer.strip().lower() == "y"
-
-
-def main() -> None:
-    message = " ".join(sys.argv[1:]) or "Look up order 1001"
-    replies = asyncio.run(ask(build_session_flow(MODEL), message, ask_on_terminal))
-    for reply in replies:
-        print(reply)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## Use it in your own agent {#use-it-in-your-own-agent}
-
+<a id="use-it-in-your-own-agent"></a>
 <a id="complete-files"></a>
 <a id="wire-it-into-your-app"></a>
-
-[Add Dex to Your Agent](/agent-frameworks/add-to-your-agent) has the install line for each framework, [the complete files](/agent-frameworks/add-to-your-agent#complete-files), and [how to wire a session into a web app](/agent-frameworks/add-to-your-agent#wire-it-into-your-app).
-
 <a id="web-handler"></a>
-
 
 ## Next
 
-- [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent) moves this agent into your own app.
+- [Add Dex to Your Agent](/agent-frameworks/add-to-your-agent) moves this agent into your own app, with the complete files and a web app.
 - [Sessions](/agent-frameworks/sessions) explains what survived the restart, and how your framework's turn maps onto Steps.
 - [Tool Calls](/agent-frameworks/tool-calls) explains why `cancel_order` runs at most once, and the one narrow case where a write can run twice.
+- [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop) builds an agent without a framework.
 - [Order Support Agent](/use-cases/order-support-agent) is the full example, with its HTTP routes.

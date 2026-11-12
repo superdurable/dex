@@ -121,6 +121,27 @@ ${fence}
 
 <CrashTimeline variant="quick-start" />
 
+<FrameworkTabs>
+<FrameworkTab framework="claude-agent-sdk">
+
+Claude only text.
+
+</FrameworkTab>
+<FrameworkTab framework="mastra">
+
+<SdkTabs>
+<SdkSnippet lang="typescript">
+
+${fence}ts
+const mastraOnly = 1
+${fence}
+
+</SdkSnippet>
+</SdkTabs>
+
+</FrameworkTab>
+</FrameworkTabs>
+
 ## Install and use
 
 <DexSkillHostTabs skill="dex-sdk" />
@@ -219,6 +240,18 @@ try {
   // Back-to-back notes for the same page collapse into one, and a lead-in left between them goes too.
   assert.equal(home.match(/这部分没有 Python 版本/g).length, 1);
   assert.doesNotMatch(home, /The same sample as a session:/);
+  // A page with framework tabs gets one file per framework; each file shows only its framework's content.
+  assert.match(home, /\n本文件为 Claude Agent SDK 版本。其他框架：\[Mastra\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.mastra\.md\)\n/);
+  assert.match(home, /Claude only text\./);
+  assert.doesNotMatch(home, /mastraOnly/);
+  const homeMastra = await readFile(join(outDir, 'index.mastra.md'), 'utf8');
+  assert.match(homeMastra, /framework: "mastra"/);
+  assert.doesNotMatch(homeMastra, /Claude only text/);
+  assert.match(homeMastra, /本文件为 Mastra 版本。其他框架：\[Claude Agent SDK\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.md\)/);
+  // A framework with TypeScript tabs only gets TypeScript files only.
+  assert.match(homeMastra, /```ts\nconst mastraOnly = 1\n```/);
+  await assert.rejects(readFile(join(outDir, 'index.mastra.python.md'), 'utf8'));
+  await assert.rejects(readFile(join(outDir, 'index.mastra.typescript.md'), 'utf8'));
   const homeGo = await readFile(join(outDir, 'index.go.md'), 'utf8');
   assert.match(homeGo, /language: "go"/);
   assert.match(homeGo, /本页代码为 Go。其他语言：\[Python\]\(https:\/\/docs\.example\.test\/zh-Hans\/index\.md\)/);
@@ -253,7 +286,7 @@ try {
   assert.match(home, /例子: \[examples\/python\/sample_flow.py\]/);
 
   // Skill hosts sit one level below the surrounding section.
-  assert.match(home, /## Install and use\n\n选择当前使用的 host/);
+  assert.match(home, /## Install and use\n\n选择你使用的 host/);
   assert.match(home, /\n### Codex Desktop\n\n#### Plugin/);
   assert.match(home, /\n##### /);
   assert.doesNotMatch(home, /\n## Codex Desktop/);
@@ -318,7 +351,7 @@ try {
     await assert.rejects(exportMarkdown(options), expected);
   }
   console.log('Markdown export integration passed: multiple instances, versioned routes, locale fallback, links, anchors, SDK order and fences, '
-    + 'prop SdkTabs, graphs, skill hosts, admonitions, descriptions, llms.txt sections, and fail-closed syntax.');
+    + 'prop SdkTabs, framework files, graphs, skill hosts, admonitions, descriptions, llms.txt sections, and fail-closed syntax.');
 } finally {
   await rm(fixture, {recursive: true, force: true});
 }
