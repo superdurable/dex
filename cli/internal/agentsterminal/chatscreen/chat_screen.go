@@ -884,6 +884,10 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 			// Another session: hold typed messages until its first snapshot.
 			screen.isSessionLoaded = false
 			screen.pendingSwitchSessionID = ""
+			// Message sequences and turn IDs repeat across sessions.
+			screen.flushReplies()
+			screen.printedSequences = map[int64]bool{}
+			screen.replies = newReplyStream()
 		}
 		screen.session = typed
 		if !screen.isSessionKnown {

@@ -223,6 +223,12 @@ func (stack *realWorkerStack) testQueueAndSteer(t *testing.T) {
 }
 
 func newRealWorkerStack(t *testing.T) *realWorkerStack {
+	return newRealWorkerStackWithSummary(t, false)
+}
+
+// newRealWorkerStackWithSummary starts the stack; isSummaryIndexed turns on
+// the session summary Attributes, which registers their index keys.
+func newRealWorkerStackWithSummary(t *testing.T, isSummaryIndexed bool) *realWorkerStack {
 	uvPath, uvErr := exec.LookPath("uv")
 	pythonPath, pythonErr := exec.LookPath("python3")
 	serverZD := os.Getenv(agentstest.DexServerZDEnvironmentVariable)
@@ -261,6 +267,9 @@ func newRealWorkerStack(t *testing.T) *realWorkerStack {
 		"DEX_CONNECTORS_MCP_BINARY="+filepath.Join(stateDirectory, "dex-connectors-mcp-not-installed"),
 		"DEX_AGENTS_OPEN_BROWSER=0",
 	)
+	if isSummaryIndexed {
+		workerEnvironment = append(workerEnvironment, "REMOTE_SESSION_SUMMARY_INDEXED=1")
+	}
 	require.NoError(t, stack.worker.Start(context.Background(),
 		[]string{uvPath, "run", "--project", pythonCore, "--frozen", "python", script, realWorkerFlowType},
 		workerEnvironment, agentstest.WorkerReadyLine, realWorkerTimeout))
@@ -384,6 +393,9 @@ type chatLaunch struct {
 	hasImages     bool
 	launcherSteps []any
 	isDebugLogOn  bool
+	// resumeSessionID launches the sessions mode instead, which must send
+	// this result.
+	resumeSessionID string
 }
 
 func (stack *realWorkerStack) openChat(t *testing.T, sessionID string, isResumed bool) *chatRun {
@@ -412,13 +424,20 @@ func (stack *realWorkerStack) openChatWithLaunch(t *testing.T, sessionID string,
 		"notices":      []any{},
 		"log_path":     "~/.dex/agents/test.log",
 	}
+	lastSteps := []any{map[string]any{"close": "tui"}}
+	if options.resumeSessionID != "" {
+		launch["mode"] = "sessions"
+		launch["session"] = map[string]any{"flow_type": realWorkerFlowType}
+		launch["capabilities"] = map[string]any{}
+		lastSteps = []any{map[string]any{"from": "tui", "message": map[string]any{"type": "result", "resume_session_id": options.resumeSessionID}}}
+	}
 	transcript := map[string]any{
 		"name": "real_worker_chat", "description": "Hold the channel open while the test types into dexcli.",
 		"real_roles": []string{"tui"}, "terminal_ui_environment": map[string]any{},
 		"steps": append(append([]any{
 			map[string]any{"from": "launcher", "message": launch},
 			map[string]any{"from": "tui", "message": map[string]any{"type": "ready"}},
-		}, options.launcherSteps...), map[string]any{"close": "tui"}),
+		}, options.launcherSteps...), lastSteps...),
 		"tui_exit": 0,
 	}
 	transcriptPath := filepath.Join(directory, "transcript.json")
@@ -490,6 +509,12 @@ func (chat *chatRun) waitForScreen(text string) {
 func (chat *chatRun) exit() {
 	chat.t.Helper()
 	chat.typeText("\x04")
+	chat.waitForHostExit()
+}
+
+// waitForHostExit waits for the host, which checks every step and exit 0.
+func (chat *chatRun) waitForHostExit() {
+	chat.t.Helper()
 	select {
 	case err := <-chat.hostDone:
 		require.NoError(chat.t, err, "the host saw the expected exit")

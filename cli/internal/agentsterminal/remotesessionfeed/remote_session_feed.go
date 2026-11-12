@@ -102,6 +102,9 @@ type RemoteSessionFeedConfig struct {
 	// Debugf writes one debug log line: a constant event name and the kind of
 	// err, from ErrorKindForLog, never its text. nil for none.
 	Debugf func(event string, err error)
+	// OpenSessionPicker opens the session picker for /sessions. nil hides
+	// /sessions.
+	OpenSessionPicker func()
 }
 
 // RemoteSessionFeed is a sessionfeed.ChatSessionSource over one agent session.
@@ -114,6 +117,8 @@ type RemoteSessionFeed struct {
 	workDir  string
 	now      func() time.Time
 	debugf   func(event string, err error)
+
+	openSessionPicker func()
 
 	updates *updateQueue
 	inputs  chan loopInput
@@ -154,8 +159,11 @@ func NewRemoteSessionFeed(config RemoteSessionFeedConfig) *RemoteSessionFeed {
 		workDir:  config.WorkingDirectory,
 		now:      now,
 		debugf:   debugf,
-		updates:  newUpdateQueue(),
-		inputs:   make(chan loopInput, 256),
+
+		openSessionPicker: config.OpenSessionPicker,
+
+		updates: newUpdateQueue(),
+		inputs:  make(chan loopInput, 256),
 
 		sessionID: config.Launch.Session.SessionID,
 	}
@@ -215,6 +223,9 @@ func (feed *RemoteSessionFeed) SlashCommands() []sessionfeed.SlashCommand {
 	}
 	if feed.launch.HasMethod(launchcontract.MethodStartSession) {
 		commands = append(commands, sessionfeed.SlashCommand{Name: newCommandName, Description: "start a new session and switch to it"})
+	}
+	if feed.openSessionPicker != nil {
+		commands = append(commands, sessionfeed.SlashCommand{Name: sessionsCommandName, Description: "switch to another session of this command"})
 	}
 	if feed.launch.HasMethod(launchcontract.MethodOpenURL) && feed.launch.WebURL() != "" {
 		commands = append(commands, sessionfeed.SlashCommand{Name: webCommandName, Description: "open this session in Dex Web"})

@@ -173,6 +173,14 @@ func (channel *LauncherChannel) SendReady() error {
 	return err
 }
 
+// SendResult sends the picked session, once, right before the channel
+// closes.
+func (channel *LauncherChannel) SendResult(resumeSessionID string) error {
+	return channel.writeMessage(map[string]any{
+		"type": launchcontract.MessageTypeResult, "resume_session_id": resumeSessionID,
+	})
+}
+
 // SendLaunchRejected tells the launcher why the launch failed.
 func (channel *LauncherChannel) SendLaunchRejected(rejection *launchcontract.LaunchRejection) error {
 	return channel.writeMessage(map[string]any{

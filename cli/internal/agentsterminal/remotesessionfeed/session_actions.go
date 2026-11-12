@@ -34,6 +34,7 @@ const (
 	newCommandName        = "new"
 	webCommandName        = "web"
 	connectorsCommandName = "connectors"
+	sessionsCommandName   = "sessions"
 )
 
 // maxLockRetryDelay caps the pause between lock conflict retries.
@@ -84,7 +85,7 @@ func (feed *RemoteSessionFeed) runAction(ctx context.Context, action sessionfeed
 		feed.notice(sessionfeed.NoticeSeverityInfo, "The new session keeps starting; this chat goes on meanwhile.")
 		return nil
 	case sessionfeed.SwitchSession:
-		return feed.postInput(ctx, sessionSwitchRequested{sessionID: typed.SessionID})
+		return feed.postInput(ctx, sessionSwitchRequested{sessionID: typed.SessionID, isResumed: typed.IsResumed})
 	}
 	return fmt.Errorf("remotesessionfeed: unknown action %T", action)
 }
@@ -281,6 +282,11 @@ func (feed *RemoteSessionFeed) runSlashCommand(ctx context.Context, command sess
 		feed.actionMutex.Lock()
 		defer feed.actionMutex.Unlock()
 		feed.listConnectors(ctx)
+		return nil
+	case sessionsCommandName:
+		if feed.openSessionPicker != nil {
+			feed.openSessionPicker()
+		}
 		return nil
 	}
 	return fmt.Errorf("/%s is not a command of this session", command.Name)
