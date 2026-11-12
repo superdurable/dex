@@ -16,6 +16,7 @@ import { crc32, deflateSync } from "node:zlib";
 import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { CliProcess, TestHome, enginePorts, mockApiKey, openSessionClient } from "../fixtures/cli-test-support.js";
+import { runWithTerminalUi } from "../fixtures/terminal-ui-handoff.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { MockResponsesApi } from "../fixtures/mock-responses-api.js";
 
@@ -211,5 +212,15 @@ describe("dex-agents-openai-sdk with the OpenAI Agents SDK provider against a sc
     assert.equal(await cli.waitForExit(), 2);
     assert.match(cli.stderr.all, /schema at "\/openai\/max_turns"/);
     assert.deepEqual(api.modelRequests(), []);
+  });
+
+  test("at a terminal with the terminal UI switched on, the chat runs in the terminal UI and nothing prints over it", async () => {
+    const home = newHome(noConnectors);
+    const run = await runWithTerminalUi(home.environment());
+    assert.equal(run.exitCode, 0, run.terminal);
+    assert.equal(run.launchCount, 1, run.terminal);
+    assert.equal(run.whileTerminalUiRan, "", run.terminal);
+    // After ready, the terminal UI's exit summary is the only resume line.
+    assert.doesNotMatch(run.terminal, /keeps running\. Resume it with/);
   });
 });

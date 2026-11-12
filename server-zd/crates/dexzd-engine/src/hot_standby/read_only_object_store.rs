@@ -108,11 +108,15 @@ impl ObjectStore for ReadOnlyObjectStore {
     ) -> ObjectStoreResult<ObjectListing> {
         self.inner.list(prefix, start_after, max_keys).await
     }
+
+    fn supports_replace_if_etag_matches_on_every_key(&self) -> bool {
+        self.inner.supports_replace_if_etag_matches_on_every_key()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use dexzd_object_store::InMemoryObjectStore;
+    use dexzd_object_store::{InMemoryObjectStore, InMemoryObjectStoreOptions};
 
     use super::*;
 
@@ -182,5 +186,17 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn forwards_whether_the_inner_store_replaces_every_key() {
+        let inner: Arc<dyn ObjectStore> = Arc::new(InMemoryObjectStore::with_options(
+            InMemoryObjectStoreOptions {
+                rejects_replace_if_etag_matches: true,
+                ..InMemoryObjectStoreOptions::default()
+            },
+        ));
+        let read_only = ReadOnlyObjectStore::new(inner, Arc::new(AtomicU64::new(0)));
+        assert!(!read_only.supports_replace_if_etag_matches_on_every_key());
     }
 }

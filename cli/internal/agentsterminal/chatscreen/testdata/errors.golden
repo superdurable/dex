@@ -21,6 +21,6 @@
 
 
 ␛[2m────────────────────────────────────────────────────────────────────────────────␛[m
- ␛[34m›␛[m ␛[2mtype a message␛[m
+ ␛[2m›␛[m ␛[2mthis chat cannot continue␛[m
  openai-sdk␛[2m · ␛[mgpt-5.2␛[2m · ␛[m␛[2m~/dex-agent-workspace␛[m                             ␛[2mturn 1␛[m
  ␛[31m✗␛[m Worker stopped                                          ␛[2mPress any key to exit␛[m

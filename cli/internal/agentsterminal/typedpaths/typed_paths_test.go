@@ -37,6 +37,14 @@ func TestResolveTypedPath(t *testing.T) {
 	require.ErrorContains(t, err, "~ needs HOME")
 }
 
+func TestShortenHomePaths(t *testing.T) {
+	resolver := NewPathResolver("/home/user", "/work")
+	require.Equal(t, "Image not attached: ~/pictures/a.png does not exist.", resolver.ShortenHomePaths("Image not attached: /home/user/pictures/a.png does not exist."))
+	require.Equal(t, "~", resolver.ShortenHomePaths("/home/user"))
+	require.Equal(t, "/home/username/a.png", resolver.ShortenHomePaths("/home/username/a.png"), "only the whole home directory shortens")
+	require.Equal(t, "/home/user/a.png", NewPathResolver("", "/work").ShortenHomePaths("/home/user/a.png"))
+}
+
 func TestPastedImagePath(t *testing.T) {
 	directory := t.TempDir()
 	imagePath := filepath.Join(directory, "my diagram.png")

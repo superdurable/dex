@@ -26,6 +26,7 @@ use tempfile::TempDir;
 use tokio::time::Instant;
 
 use crate::PRIMARY_PREFIX;
+use crate::harness::TestObjectStoreProvider;
 use crate::robustness::workload::{LoadShape, ReconnectingWorker, RunningLoad, Workload};
 use node_group::{
     DirectoryFate, GroupReport, LOG_DELETION_DELAY, NodeGroup, ProcessSignal, SNAPSHOT_INTERVAL,
@@ -295,9 +296,19 @@ struct FailoverScenario {
 impl FailoverScenario {
     /// Starts `first` serving under load and `second` as a standby of the slots' mode.
     async fn start(phase: &str, slots: &[SlotSettings<'_>]) -> Self {
+        Self::start_with_provider(phase, slots, TestObjectStoreProvider::S3).await
+    }
+
+    /// Starts like [`Self::start`], with `provider` as every process's object storage.
+    async fn start_with_provider(
+        phase: &str,
+        slots: &[SlotSettings<'_>],
+        provider: TestObjectStoreProvider,
+    ) -> Self {
         let directory = TempDir::new().expect("a temporary test directory can be created");
         let workload = Workload::new();
-        let mut group = NodeGroup::start(directory.path(), &workload, slots).await;
+        let mut group =
+            NodeGroup::start_with_provider(directory.path(), &workload, slots, provider).await;
         group.spawn(FIRST);
         assert_eq!(group.wait_for_serving(STARTUP_BUDGET).await, FIRST);
         let worker = workload.start_reconnecting_worker(group.router_address());

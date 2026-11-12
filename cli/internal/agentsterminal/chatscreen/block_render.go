@@ -19,10 +19,13 @@ import (
 )
 
 const (
-	contentIndent            = "  "
-	maximumToolNameWidth     = 24
-	minimumToolNameWidth     = 16
-	toolSummaryColumnWidth   = 14
+	contentIndent          = "  "
+	maximumToolNameWidth   = 24
+	minimumToolNameWidth   = 16
+	toolSummaryColumnWidth = 14
+	// maximumToolSummaryWidth keeps a long result from pushing out the
+	// argument and dropping the summary column.
+	maximumToolSummaryWidth  = 28
 	toolDurationColumnWidth  = 6
 	maximumToolOutputLines   = 3
 	spinnerDelay             = 200 * time.Millisecond
@@ -149,7 +152,7 @@ func renderToolRow(call sessionfeed.ToolCallChanged, nameWidth int, width int, c
 		nameWidth = min(max(nameWidth, terminaltheme.DisplayWidth(call.ToolName), minimumToolNameWidth), maximumToolNameWidth)
 	}
 	name := terminaltheme.PadRight(terminaltheme.TruncateToWidth(call.ToolName, nameWidth, theme.Symbols.Ellipsis), nameWidth)
-	columns := newToolRowColumns(call, clock.now, theme.Symbols.Image)
+	columns := newToolRowColumns(call, clock.now, theme.Symbols)
 	room := width - len(contentIndent) - 2 - nameWidth - 2
 	for room-columns.Width() < minimumToolArgumentWidth {
 		if !columns.DropOne() {
@@ -172,7 +175,34 @@ func renderToolRow(call sessionfeed.ToolCallChanged, nameWidth int, width int, c
 		line = contentIndent + symbol + " " + name + "  " + theme.Secondary.Render(rest)
 	}
 	lines := []string{line}
-	return append(lines, renderToolOutput(call, width, theme)...)
+	lines = append(lines, renderToolOutput(call, width, theme)...)
+	return append(lines, renderPlanChecklist(call, width, theme)...)
+}
+
+// renderPlanChecklist draws the steps a finished write_todos call wrote.
+func renderPlanChecklist(call sessionfeed.ToolCallChanged, width int, theme terminaltheme.Theme) []string {
+	if len(call.PlanItems) == 0 || !call.Status.IsFinished() || call.Status == sessionfeed.ToolCallFailed {
+		return nil
+	}
+	return renderPlanItems(call.PlanItems, contentIndent+"  ", width, theme)
+}
+
+// renderPlanItems draws plan steps as ☐/☑ checklist lines after indent.
+func renderPlanItems(items []sessionfeed.PlanItem, indent string, width int, theme terminaltheme.Theme) []string {
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		var line string
+		switch item.Status {
+		case sessionfeed.PlanItemDone:
+			line = theme.Ok.Render(theme.Symbols.TaskDone) + " " + theme.Secondary.Render(item.Title)
+		case sessionfeed.PlanItemInProgress:
+			line = theme.Accent.Render(theme.Symbols.TaskOpen) + " " + theme.Strong.Render(item.Title)
+		default:
+			line = theme.Secondary.Render(theme.Symbols.TaskOpen) + " " + item.Title
+		}
+		lines = append(lines, terminaltheme.TruncateToWidth(indent+line, width, theme.Symbols.Ellipsis))
+	}
+	return lines
 }
 
 // toolRowColumns follow a tool row's argument. The summary column holds the
@@ -185,19 +215,19 @@ type toolRowColumns struct {
 	hasDurationColumn bool
 }
 
-func newToolRowColumns(call sessionfeed.ToolCallChanged, now time.Time, imageSymbol string) toolRowColumns {
+func newToolRowColumns(call sessionfeed.ToolCallChanged, now time.Time, symbols terminaltheme.SymbolSet) toolRowColumns {
 	columns := toolRowColumns{hasSummaryColumn: true, duration: toolDurationText(call, now), hasDurationColumn: true}
 	if note := toolStatusNote(call); note != "" {
 		columns.summary, columns.isNote = note, true
 		return columns
 	}
 	if call.Status.IsFinished() {
-		columns.summary = call.Summary
+		columns.summary = terminaltheme.TruncateToWidth(call.Summary, maximumToolSummaryWidth, symbols.Ellipsis)
 		if call.IsOutputTruncated {
 			columns.summary += " (truncated)"
 		}
 		if call.ImageCount > 0 {
-			columns.summary = strings.TrimLeft(fmt.Sprintf("%s %s %d", columns.summary, imageSymbol, call.ImageCount), " ")
+			columns.summary = strings.TrimLeft(fmt.Sprintf("%s %s %d", columns.summary, symbols.Image, call.ImageCount), " ")
 		}
 	}
 	return columns
@@ -266,7 +296,7 @@ func toolStatusSymbol(call sessionfeed.ToolCallChanged, clock toolRowClock, them
 			return theme.Info.Render(theme.Symbols.SpinnerFrame(clock.spinnerFrame))
 		}
 		return theme.Info.Render(theme.Symbols.Running)
-	case sessionfeed.ToolCallAwaitingApproval:
+	case sessionfeed.ToolCallAwaitingApproval, sessionfeed.ToolCallAwaitingAnswer:
 		return theme.Warning.Render(theme.Symbols.AwaitingUser)
 	case sessionfeed.ToolCallSucceeded:
 		return theme.Ok.Render(theme.Symbols.Succeeded)
@@ -294,6 +324,8 @@ func toolStatusNote(call sessionfeed.ToolCallChanged) string {
 	switch call.Status {
 	case sessionfeed.ToolCallAwaitingApproval:
 		return "awaiting approval"
+	case sessionfeed.ToolCallAwaitingAnswer:
+		return "awaiting your answer"
 	case sessionfeed.ToolCallQueued:
 		return "queued"
 	case sessionfeed.ToolCallOutcomeUnknown:
@@ -405,11 +437,13 @@ func renderPlanLine(items []sessionfeed.PlanItem, width int, theme terminaltheme
 var helpKeyRows = [][2]string{
 	{"Enter", "send, or queue while a turn runs"},
 	{"Shift-Enter", "new line (also Alt-Enter, Ctrl-J)"},
-	{"Ctrl-C", "cancel the turn; again to exit"},
+	{"Ctrl-C", "cancel the turn or clear the input; press again to exit"},
+	{"Esc", "cancel the running turn (empty input)"},
 	{"Ctrl-D", "exit (empty input)"},
-	{"Tab", "complete a /command or an /image path; on empty input, focus waiting approvals and queued messages"},
+	{"Tab", "complete a /command or an /image path; on empty input, focus waiting approvals and queued messages, then Up/Down picks one"},
 	{"Up/Down", "recall earlier messages"},
 	{"Ctrl-O", "open the last tool's full output"},
+	{"Ctrl-P", "show the plan's steps"},
 	{"PgUp/PgDn", "scroll the messages; End follows new ones"},
 	{"F1", "show this help"},
 }
@@ -425,11 +459,7 @@ func renderHelpOverlay(registry slashCommandRegistry, width int, theme terminalt
 	}
 	lines = append(lines, "", contentIndent+theme.Title.Render("Commands"))
 	for _, command := range registry.Commands() {
-		name := "/" + command.Name
-		if command.ArgumentHint != "" {
-			name += " " + command.ArgumentHint
-		}
-		lines = append(lines, renderHelpRow(name, command.Description, keyWidth, descriptionWidth)...)
+		lines = append(lines, renderHelpRow(completionName(command), command.Description, keyWidth, descriptionWidth)...)
 	}
 	return lines
 }

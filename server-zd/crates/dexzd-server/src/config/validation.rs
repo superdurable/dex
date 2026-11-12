@@ -67,7 +67,7 @@ impl Config {
         )?;
         validate_prefix("objectStore.prefix", &self.object_store.prefix)?;
         match self.object_store.provider {
-            ObjectStoreProvider::S3 => {
+            ObjectStoreProvider::S3 | ObjectStoreProvider::AliyunOss => {
                 ensure(
                     !self.object_store.region.trim().is_empty(),
                     "objectStore.region",
@@ -79,6 +79,15 @@ impl Config {
                         self.object_store.credentials.is_some(),
                         "objectStore.credentialsSource",
                         "environment credentials must be resolved before serving",
+                    )?;
+                }
+                if self.object_store.provider == ObjectStoreProvider::AliyunOss {
+                    validate_aliyun_oss_addressing(
+                        ("objectStore.endpoint", &self.object_store.endpoint),
+                        (
+                            "objectStore.forcePathStyle",
+                            self.object_store.force_path_style,
+                        ),
                     )?;
                 }
             }
@@ -109,30 +118,104 @@ impl Config {
                     "db9 uses DEX_ZD_DB9_CONNECTION_STRING; omit S3 credentialsSource",
                 )?;
             }
-        }
-        if let Some(hard_delete) = &self.object_store.hard_delete_store {
-            ensure(
-                !hard_delete.region.trim().is_empty(),
-                "objectStore.hardDeleteStore.region",
-                "must be non-empty",
-            )?;
-            ensure(
-                !hard_delete.bucket.trim().is_empty(),
-                "objectStore.hardDeleteStore.bucket",
-                "must be non-empty",
-            )?;
-            validate_endpoint(
-                "objectStore.hardDeleteStore.endpoint",
-                &hard_delete.endpoint,
-            )?;
-            validate_prefix("objectStore.hardDeleteStore.prefix", &hard_delete.prefix)?;
-            if hard_delete.credentials_source == CredentialSource::Environment {
-                ensure(
-                    hard_delete.credentials.is_some(),
-                    "objectStore.hardDeleteStore.credentialsSource",
-                    "environment credentials must be resolved before serving",
+            ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
+                validate_azure_gcs_destination(
+                    &PRIMARY_STORE_FIELDS,
+                    &AzureGcsDestination {
+                        provider: self.object_store.provider,
+                        endpoint: &self.object_store.endpoint,
+                        is_force_path_style: self.object_store.force_path_style,
+                        credentials_source: self.object_store.credentials_source,
+                        has_resolved_credentials: match self.object_store.provider {
+                            ObjectStoreProvider::AzureBlob => {
+                                self.object_store.azure_blob_credentials.is_some()
+                            }
+                            _ => self.object_store.google_cloud_storage_credentials.is_some(),
+                        },
+                    },
                 )?;
             }
+        }
+        validate_azure_account(
+            PRIMARY_STORE_FIELDS.azure_account,
+            self.object_store.provider,
+            &self.object_store.azure_account,
+        )?;
+        if let Some(hard_delete) = &self.object_store.hard_delete_store {
+            let provider = hard_delete.effective_provider(self.object_store.provider);
+            match provider {
+                ObjectStoreProvider::S3 | ObjectStoreProvider::AliyunOss => {
+                    ensure(
+                        !hard_delete.region.trim().is_empty(),
+                        "objectStore.hardDeleteStore.region",
+                        "must be non-empty",
+                    )?;
+                    ensure(
+                        !hard_delete.bucket.trim().is_empty(),
+                        "objectStore.hardDeleteStore.bucket",
+                        "must be non-empty",
+                    )?;
+                    validate_endpoint(
+                        "objectStore.hardDeleteStore.endpoint",
+                        &hard_delete.endpoint,
+                    )?;
+                    validate_prefix("objectStore.hardDeleteStore.prefix", &hard_delete.prefix)?;
+                    if provider == ObjectStoreProvider::AliyunOss {
+                        validate_aliyun_oss_addressing(
+                            (
+                                "objectStore.hardDeleteStore.endpoint",
+                                &hard_delete.endpoint,
+                            ),
+                            (
+                                "objectStore.hardDeleteStore.forcePathStyle",
+                                hard_delete.force_path_style,
+                            ),
+                        )?;
+                    }
+                    if hard_delete.credentials_source == CredentialSource::Environment {
+                        ensure(
+                            hard_delete.credentials.is_some(),
+                            "objectStore.hardDeleteStore.credentialsSource",
+                            "environment credentials must be resolved before serving",
+                        )?;
+                    }
+                }
+                ObjectStoreProvider::Db9 => {
+                    return Err(ConfigError::Invalid {
+                        field: "objectStore.hardDeleteStore.provider",
+                        message: "must be s3, aliyunOSS, azureBlob, or googleCloudStorage"
+                            .to_owned(),
+                    });
+                }
+                ObjectStoreProvider::AzureBlob | ObjectStoreProvider::GoogleCloudStorage => {
+                    ensure(
+                        !hard_delete.bucket.trim().is_empty(),
+                        "objectStore.hardDeleteStore.bucket",
+                        "must be non-empty",
+                    )?;
+                    validate_prefix("objectStore.hardDeleteStore.prefix", &hard_delete.prefix)?;
+                    validate_azure_gcs_destination(
+                        &HARD_DELETE_STORE_FIELDS,
+                        &AzureGcsDestination {
+                            provider,
+                            endpoint: &hard_delete.endpoint,
+                            is_force_path_style: hard_delete.force_path_style,
+                            credentials_source: hard_delete.credentials_source,
+                            has_resolved_credentials: match provider {
+                                ObjectStoreProvider::AzureBlob => {
+                                    hard_delete.azure_blob_credentials.is_some()
+                                }
+                                _ => hard_delete.google_cloud_storage_credentials.is_some(),
+                            },
+                        },
+                    )?;
+                }
+            }
+            validate_azure_account(
+                HARD_DELETE_STORE_FIELDS.azure_account,
+                provider,
+                &hard_delete.azure_account,
+            )?;
         }
         ensure(
             !self.local_storage.directory.as_os_str().is_empty(),
@@ -708,8 +791,108 @@ fn validate_endpoint(field: &'static str, endpoint: &str) -> Result<(), ConfigEr
     )
 }
 
+/// Aliyun OSS has no AWS endpoint resolution and rejects path-style requests.
+fn validate_aliyun_oss_addressing(
+    (endpoint_field, endpoint): (&'static str, &str),
+    (path_style_field, is_force_path_style): (&'static str, bool),
+) -> Result<(), ConfigError> {
+    ensure(
+        !endpoint.is_empty(),
+        endpoint_field,
+        "aliyunOSS requires the S3-compatible endpoint of the bucket's region, such as \
+         https://s3.oss-cn-hangzhou.aliyuncs.com",
+    )?;
+    ensure(
+        !is_force_path_style,
+        path_style_field,
+        "aliyunOSS accepts only virtual-hosted-style requests; remove forcePathStyle",
+    )
+}
+
 fn validate_prefix(field: &'static str, prefix: &str) -> Result<(), ConfigError> {
     ensure(!prefix.starts_with('/'), field, "must not begin with '/'")
+}
+
+/// YAML paths of one object-store destination's fields, for error messages.
+struct ObjectStoreFieldPaths {
+    endpoint: &'static str,
+    force_path_style: &'static str,
+    azure_account: &'static str,
+    credentials_source: &'static str,
+}
+
+const PRIMARY_STORE_FIELDS: ObjectStoreFieldPaths = ObjectStoreFieldPaths {
+    endpoint: "objectStore.endpoint",
+    force_path_style: "objectStore.forcePathStyle",
+    azure_account: "objectStore.azureAccount",
+    credentials_source: "objectStore.credentialsSource",
+};
+
+const HARD_DELETE_STORE_FIELDS: ObjectStoreFieldPaths = ObjectStoreFieldPaths {
+    endpoint: "objectStore.hardDeleteStore.endpoint",
+    force_path_style: "objectStore.hardDeleteStore.forcePathStyle",
+    azure_account: "objectStore.hardDeleteStore.azureAccount",
+    credentials_source: "objectStore.hardDeleteStore.credentialsSource",
+};
+
+/// The settings of an azureBlob or googleCloudStorage destination that validation checks.
+struct AzureGcsDestination<'a> {
+    provider: ObjectStoreProvider,
+    endpoint: &'a str,
+    is_force_path_style: bool,
+    credentials_source: CredentialSource,
+    has_resolved_credentials: bool,
+}
+
+fn validate_azure_gcs_destination(
+    fields: &ObjectStoreFieldPaths,
+    destination: &AzureGcsDestination<'_>,
+) -> Result<(), ConfigError> {
+    let provider_name = match destination.provider {
+        ObjectStoreProvider::AzureBlob => "azureBlob",
+        _ => "googleCloudStorage",
+    };
+    if !destination.endpoint.is_empty() {
+        return Err(ConfigError::Invalid {
+            field: fields.endpoint,
+            message: format!("{provider_name} uses the cloud's public endpoint; remove endpoint"),
+        });
+    }
+    ensure(
+        !destination.is_force_path_style,
+        fields.force_path_style,
+        "applies only to s3",
+    )?;
+    if destination.credentials_source == CredentialSource::Anonymous {
+        return Err(ConfigError::Invalid {
+            field: fields.credentials_source,
+            message: format!("{provider_name} needs credentials; use defaultChain or environment"),
+        });
+    }
+    ensure(
+        destination.has_resolved_credentials,
+        fields.credentials_source,
+        "credentials must be resolved before serving",
+    )
+}
+
+/// Requires a valid storage account name for azureBlob and none for other providers.
+fn validate_azure_account(
+    field: &'static str,
+    provider: ObjectStoreProvider,
+    azure_account: &str,
+) -> Result<(), ConfigError> {
+    if provider != ObjectStoreProvider::AzureBlob {
+        return ensure(azure_account.is_empty(), field, "applies only to azureBlob");
+    }
+    ensure(
+        (3..=24).contains(&azure_account.len())
+            && azure_account
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+        field,
+        "azureBlob needs the storage account name: 3-24 lowercase letters and digits",
+    )
 }
 
 /// The schema goes into a `search_path` connection option, which splits on commas and spaces.

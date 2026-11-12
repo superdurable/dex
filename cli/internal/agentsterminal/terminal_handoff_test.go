@@ -22,7 +22,7 @@ import (
 func newRunningSignals(t *testing.T, stops *atomic.Int32) *terminalSignals {
 	t.Helper()
 	handler := newTerminalSignals(os.Stdin, nil)
-	handler.stopProcess = func() { stops.Add(1) }
+	handler.stopProcess = func(uint64) { stops.Add(1) }
 	handler.wait.Add(1)
 	go handler.run()
 	t.Cleanup(func() {

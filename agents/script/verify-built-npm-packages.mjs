@@ -43,9 +43,15 @@ for (const packageDirectoryName of packages) {
   const manifest = JSON.parse(execFileSync("tar", ["-xzOf", tarball, "package/package.json"], { encoding: "utf8" }));
   const label = `${packageName}@${releaseVersion}`;
 
-  // The CLI core also ships the shared configuration schemas.
+  // The CLI core also ships the shared configuration schemas and the terminal UI contract schemas.
   const schemaMembers = packageName === cliCorePackageName
-    ? ["package/dist/schemas/config.schema.json", "package/dist/schemas/session-settings.schema.json"]
+    ? [
+        "package/dist/schemas/config.schema.json",
+        "package/dist/schemas/session-settings.schema.json",
+        "package/dist/schemas/terminal-ui-launch.schema.json",
+        "package/dist/schemas/terminal-ui-channel.schema.json",
+        "package/dist/schemas/terminal-ui-describe.schema.json",
+      ]
     : [];
   for (const member of ["package/LICENSE", "package/README.md", "package/dist/src/index.js", "package/dist/src/index.d.ts", ...schemaMembers]) {
     if (!members.includes(member)) problems.push(`${label} lacks ${member}`);

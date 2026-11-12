@@ -1,0 +1,461 @@
+---
+title: Client requests
+sidebar_label: Client requests
+description: "The Client page explains the concepts. For each language's names, parameters, and errors, see the SDK doc comments in the language references, such as the Go reference."
+---
+
+# Client requests
+
+The [Client](/concepts/client) page explains the concepts. For each language's names, parameters, and errors, see
+the SDK doc comments in the language references, such as the
+[Go reference](/reference/go/).
+
+## Start a Flow {#start-a-flow}
+
+**StartFlow** creates a Flow run. It takes a registered Flow, a business
+**Flow ID**, the start Step input, and **StartFlowOptions**. It returns as soon
+as the server accepts the request.
+
+The Flow ID is the identity your application chooses. The server creates the
+Run ID. See [StartFlowOptions](/reference/python/start-flow-options) for the timeout,
+request idempotency, ID reuse, retry, initial Attributes, and configuration
+overrides.
+
+## Stop a Flow {#stop-a-flow}
+
+**StopFlow** closes an active Flow. By default, it asks the Flow to cancel and
+lets the Flow handle the cancellation. You can instead terminate it
+immediately, or fail it with a reason.
+
+## Invoke an RPC {#invoke-an-rpc}
+
+**InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and
+returns its result. A query-only RPC can also read a closed Flow run that the
+server still retains. An RPC that commits effects needs an active Flow run.
+
+## Requests during Flow close {#requests-during-flow-close}
+
+While a Flow closes, the server rejects these new requests with gRPC
+**FAILED_PRECONDITION** and sub-status **FLOW_CLOSING**:
+
+- transactional or locking RPCs;
+- **WaitForStepCompletion** and **WaitForAttributeMatch**;
+- Channel message deletion;
+- Channel publication by a client (**PublishToChannel**).
+
+A rejected publication stores no message. A closing Flow starts no Step, so no
+Step could consume the message. Changed in 0.1.26: before, the server accepted
+the publication and stored the message.
+
+While a Flow closes, the server still accepts **SetAttributes** and RPCs that
+are neither transactional nor locking. An RPC that commits during the close,
+including one the server accepted before the close began, keeps its Attribute
+writes and Channel publications. It starts and cancels no Steps.
+
+The Flow reports **RUNNING** until the server records the close.
+
+Each SDK exposes a typed Flow closing error. When you get it, read the Flow
+state again after the close, before you decide whether to do anything more.
+The error does not prove that an earlier request succeeded.
+
+## Read Attributes {#read-attributes}
+
+**GetAttributes** reads registered Attributes and AttributeMap instances from
+outside the Flow. The API has only a batch form. Pass one read for each value:
+a singleton Attribute, or one AttributeMap instance. To read one value, pass one
+read.
+
+See
+[Read Attributes from outside a Flow](/reference/server/0.1.27/runtime-data#read-attributes-from-outside-a-flow)
+for the read semantics: one commit, the current or latest Flow run, no Worker,
+committed state only, no locks, and large and hard-delete values.
+
+The Rust call blocks the calling thread, like every other Rust Client method. It
+takes a tuple of 1 to 12 reads and returns a tuple of the same size. To read
+more values, make several calls. Values from different calls can come from
+different commits.
+
+The Attribute primitive example reads a status Attribute, the **payment** instance of a progress AttributeMap, and an email Attribute that the Flow never sets.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/attribute/controller.py', go: 'examples/go/primitives/attribute/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeController.java', typescript: 'examples/typescript/src/primitives/attribute/controller.ts', rust: 'examples/rust/src/primitives/attribute/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+flow = app_state.attribute
+payment_progress = flow.progress.instance("payment")
+try:
+    values = await app_state.client.get_attributes(
+        required_query("workflowId"),
+        flow.status,
+        payment_progress,
+        flow.email,
+    )
+except FlowNotFoundError as error:
+    response = jsonify({"error": str(error)})
+    response.status_code = 404
+    return response
+return jsonify(
+    {
+        "status": values.get(flow.status, "not started"),
+        "paymentProgress": values.get(payment_progress, "not started"),
+        # This Flow never sets email, so get returns None.
+        "email": values.get(flow.email),
+    }
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+// An unset value leaves its destination unchanged, so these defaults remain.
+status := "not started"
+paymentProgress := "not started"
+var email string
+result, err := controller.client.GetAttributes(
+	request.Request.Context(),
+	flowID,
+	sdk.ReadAttribute(Status, &status),
+	sdk.ReadAttributeMapInstance(Progress, "payment", &paymentProgress),
+	sdk.ReadAttribute(Email, &email),
+)
+var notFound *sdk.FlowNotFoundError
+if errors.As(err, &notFound) {
+	request.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	return
+}
+if err != nil {
+	httputil.Respond(request, nil, err)
+	return
+}
+// This Flow never sets Email, so IsSet reports false.
+var emailOrNil *string
+if result.IsSet(Email) {
+	emailOrNil = &email
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+if (workflowId == null || workflowId.isEmpty()) {
+    return ResponseEntity.badRequest().body(Map.of("error", "workflowId is required"));
+}
+final AttributeMapInstance<String> paymentProgress = flow.progress.instance("payment");
+final AttributeValues values;
+try {
+    values = client.getAttributes(workflowId, flow.status, paymentProgress, flow.email);
+} catch (final FlowNotFoundException notFound) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(Map.of("error", notFound.getMessage()));
+}
+return ResponseEntity.ok(new AttributeReadResponse(
+        values.get(flow.status).orElse("not started"),
+        values.get(paymentProgress).orElse("not started"),
+        // This Flow never sets email, so get returns Optional.empty().
+        values.get(flow.email).orElse(null)));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const workflowId = String(request.query.workflowId ?? "");
+if (workflowId === "") {
+  response.status(400).json({ error: "workflowId is required" });
+  return;
+}
+try {
+  const [status, paymentProgress, email] = await client.getAttributes(
+    workflowId,
+    attributeFlow.status,
+    attributeFlow.progress.instance("payment"),
+    attributeFlow.email,
+  );
+  response.json({
+    status: status ?? "not started",
+    paymentProgress: paymentProgress ?? "not started",
+    // This Flow never sets email, so it reads as undefined.
+    email: email ?? null,
+  });
+} catch (error) {
+  if (error instanceof FlowNotFoundError) {
+    response.status(404).json({ error: error.message });
+    return;
+  }
+  throw error;
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let flow_id = query.workflow_id;
+if flow_id.is_empty() {
+    return error_response(StatusCode::BAD_REQUEST, "workflowId is required".to_owned());
+}
+match run_blocking(move || {
+    client.get_attributes(&flow_id, (&STATUS, &PROGRESS.instance("payment"), &EMAIL))
+}) {
+    Ok((status, payment_progress, email)) => ok_json(AttributeReadResponse {
+        status: status.unwrap_or_else(|| "not started".to_owned()),
+        payment_progress: payment_progress.unwrap_or_else(|| "not started".to_owned()),
+        // This Flow never sets EMAIL, so it reads as None.
+        email,
+    }),
+    Err(error @ SdkError::FlowNotFound { .. }) => {
+        error_response(StatusCode::NOT_FOUND, error.to_string())
+    }
+    Err(error) => map_sdk_error(error).into_response(),
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Run the HTTP example from the
+[examples playground](https://github.com/superdurable/dex/tree/main/examples/playground).
+Its **Read Attributes** endpoint is available in every example server.
+
+### Unset values {#unset-values}
+
+An Attribute or AttributeMap instance without a stored value is unset. Each SDK
+represents an unset read in its own way:
+
+| SDK | Unset read |
+| --- | --- |
+| Go | The destination keeps its previous value. **AttributeReadResult.IsSet** and **IsMapInstanceSet** return false. |
+| Python | The read is absent from the returned **AttributeValues**. **values.get(read, default)** returns the default, **read in values** is false, and **values[read]** raises **KeyError**. |
+| Java | **AttributeValues.get(read)** returns **Optional.empty()**. |
+| TypeScript | The tuple element is **undefined**. |
+| Rust | The tuple element is **None**. Each element is an **Option** of the read's value type. |
+
+In Python and TypeScript, a stored value that decodes to **None** or **null** is
+still set. In Java, a stored value that decodes to **null** reads as
+**Optional.empty()**, the same as an unset value. An **Optional** cannot hold
+**null**.
+
+### Definitions {#read-definitions}
+
+Each read must use a definition that a Flow in the Client's Registry declares.
+A definition from any registered Flow works. Dex reads the key by name, and does
+not check that the target Flow's type declares it. If the target Flow has a
+same-named Attribute with another value type, the value fails to decode.
+
+### Errors {#read-attributes-errors}
+
+- A Flow ID that does not exist, or whose latest Flow run is being purged,
+  returns a Flow-not-found error.
+- A definition that is not registered in the Client's Registry, or that does not
+  match the registered definition, fails before any request. Go, Python, and
+  Rust compare the definition with the registered one, including its value type.
+  Java and TypeScript require the exact registered definition object.
+- These inputs are rejected before any request: an empty or blank Flow ID, no
+  reads, two reads of the same value, an empty AttributeMap instance key, or a
+  key that contains **/**.
+- An AttributeMap passed without an instance is rejected. Python and TypeScript
+  raise **TypeError** before any request. Go, Java, and Rust reject it at
+  compile time.
+- A stored value that cannot be decoded returns a value mapping error.
+
+The SDK doc comments name each error type.
+
+<a id="等待-flow"></a>
+
+## Wait for a Flow {#wait-for-a-flow}
+
+**WaitForFlow** waits for a terminal Flow status. A bounded wait can return a
+long-poll timeout while the Flow is still open. Call it again to keep waiting.
+
+Only a COMPLETED Flow returns the outputs of its completing Step decisions. A
+Flow that fails, is canceled, is terminated, or times out returns no outputs.
+This holds even when a Step gave a completing decision with an output before
+another Step or a client closed the Flow. **GetFlowState** and the result that a parent receives from
+a child Flow follow the same rule. Changed in 0.1.26: before, such a Flow kept
+the outputs collected before it closed.
+
+## Wait for a Step {#wait-for-a-step}
+
+**WaitForStepCompletion** waits for one **StepExecutionID** to complete while
+the Flow continues. It confirms completion but does not return the Step output.
+
+## Wait for an Attribute match {#wait-for-an-attribute-match}
+
+**WaitForAttributeMatch** waits until an Attribute satisfies a typed scalar
+comparison, and returns the matched current value. It targets the current
+active Flow run. For an AttributeMap, also supply the instance.
+
+- String and Boolean values support equal and not-equal.
+- Integer and floating-point values also support greater-than,
+  greater-than-or-equal, less-than, and less-than-or-equal.
+- A missing Attribute never matches.
+- The server rejects object, bytes, null, blob-backed, non-finite
+  floating-point, cross-type, and invalid ordering comparisons.
+- The wait works only while the Flow is active.
+
+Treat a revision Attribute as a watermark: when it changes quickly, the wait
+may return only the latest of several changes. See
+[Wait for Attribute Match](/design-patterns/responsive-update/attribute-match)
+for the complete revision pattern and its code.
+
+## Wait timeouts and limits {#wait-timeouts-and-limits}
+
+These rules apply to **WaitForStepCompletion**, **WaitForAttributeMatch**, and
+Stream long-polls.
+
+- **RequestTimeout** is the total time the SDK call may take. The default, 0,
+  waits until success, Flow close, or caller cancellation. With a positive
+  value, the call returns a typed request-timeout error when it expires. A later
+  call waits again from the current state.
+- Each Flow allows 1,000 concurrent waits by default. The server setting is
+  **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a
+  resource-exhausted error. See [Limits](/reference/server/0.1.27/configuration#limits).
+- A waiting call holds one slot until it returns, times out, is cancelled, or
+  the caller disconnects.
+- The server caps how long each transport attempt waits. When an attempt hits
+  the cap, the SDK reattaches automatically with the same Request ID. The cap
+  does not reset **RequestTimeout**.
+
+<a id="查看-flow"></a>
+
+## Describe a Flow {#describe-a-flow}
+
+**DescribeFlow** reads the IDs, Flow type, status, and start time of the current
+or latest Flow run. The Go SDK also returns the close time when available.
+DescribeFlow does not wait for the Flow to finish. Use it for a one-off status check, for example
+after a read-only RPC returns a non-terminal business state. A missing ID, or an
+ID that does not belong to a Flow, returns a typed Flow-not-found error.
+
+<a id="搜索-flow"></a>
+
+## Search Flows {#search-flows}
+
+**SearchFlows** returns one page of Flow runs that match a search query. It
+excludes the server's internal Flow runs. To get the next page, pass the
+returned page token with the same query. See
+[Search backends](/reference/server/0.1.27/search) for the query backends.
+
+## Skip a Timer {#skip-a-timer}
+
+**SkipTimer** makes one waiting [Timer](/concepts/primitives/timer) ready immediately.
+Choose the Step execution, and either the Timer's condition ID or its zero-based
+condition index.
+
+<a id="更新-flowconfig"></a>
+
+## Update FlowConfig {#update-flowconfig}
+
+**UpdateFlowConfig** changes the **FlowConfig** of an active Flow. See
+[Update FlowConfig with a Client](/reference/python/flow#update-flow-config-with-a-client)
+for the merge rules and the fields.
+
+<a id="触发-continue-as-new"></a>
+<a id="trigger-continue-as-new"></a>
+
+**TriggerContinueAsNew** was removed in server-zd 0.1.26. See the
+[change log](/reference/server/0.1.27/changelog#v0-1-26).
+
+## Flow definitions {#flow-definitions}
+
+Since 0.1.26. The server stores Flow Definition Graph (FDG 2.0) JSON documents
+that Workers upload, one document for each Flow type. Dex Web reads them to
+render Flows without a definition directory. Three FlowService RPCs serve them.
+Any authenticated caller may use them; they are not admin RPCs.
+
+**UploadFlowDefinitions** stores up to 256 documents. Each item names a Flow
+type, carries the JSON bytes, and has a **generated_at** time. The request also
+carries an **uploader** string of at most 128 bytes, such as the SDK name and
+version, for diagnostics. The server decides each item on its own and returns
+one outcome for it, in request order:
+
+| Outcome | When | Write |
+| --- | --- | --- |
+| **CREATED** | No document is stored for the Flow type. | Yes |
+| **UNCHANGED** | The stored document has the same SHA-256 digest. | No |
+| **REPLACED** | The digest differs, and **generated_at** is strictly later than the stored one, or **force** is set. | Yes |
+| **KEPT_EXISTING** | Otherwise. The result reports the stored digest and **generated_at**. | No |
+
+Times compare at microsecond precision. Restarting a Worker with the same
+documents writes nothing. During a rolling deployment, an older Worker that
+starts after a newer one keeps the newer graph, because its **generated_at** is
+older. Runs that the older code starts then show the newer graph. Set
+**force** to replace a stored document whatever its **generated_at**: use it to
+roll a definition back on purpose, or to replace a document whose
+**generated_at** came from a fast clock. An identical document is still
+**UNCHANGED** with **force**.
+
+Concurrent uploads of one Flow type are safe. Each item is written with a
+conditional write and decided again when another write wins, so a newer
+document is never lost. Items are not atomic as a group: when a call fails with
+**UNAVAILABLE** partway, earlier items may already be stored. Repeating the
+call is safe.
+
+The server checks only the basics, and Dex Web validates the full graph when
+it reads it. Each of these fails the whole request with **INVALID_ARGUMENT**
+and the **FLOW_DEFINITION_INVALID** sub-status before anything is stored:
+
+- more than 256 items, or one Flow type twice;
+- an empty Flow type, one longer than **matching.maxFlowTypeLength** bytes, or
+  one whose percent-encoded object key, with **objectStore.prefix**, would be
+  longer than 1024 bytes. The check is conservative: a non-empty prefix counts
+  as its length plus one byte with every object store, so a key of exactly
+  1024 bytes may be rejected;
+- content larger than [**flowDefinitions.maxDefinitionBytes**](/reference/server/0.1.27/configuration#flow-definitions);
+- content that is not a JSON object, nests objects and arrays more than 128
+  levels deep, lacks a **schemaVersion** that starts with **2.**, or has a
+  **flow.name** different from the Flow type;
+- a missing **generated_at**, one outside the protobuf Timestamp range (years
+  1 to 9999), or one more than 24 hours after the server's clock;
+- an **uploader** longer than 128 bytes.
+
+The whole request must also fit in **api.grpcMaxMessageBytes**.
+
+**ListFlowDefinitions** returns the Flow types that have a stored document,
+names only, one page at a time. A page holds at most **page_size** names; 0 and
+values above 1000 mean 1000. Pass the returned page token to read the next
+page; an empty token means the last page. Tokens are opaque. Pages follow the
+order of the stored object keys, which is stable but not exactly the order of
+Flow types. Objects under the prefix that the server did not write are skipped,
+so a page can hold fewer names than **page_size**, even none, and still have a
+next page.
+
+**GetFlowDefinitions** returns the stored documents of up to 256 Flow types,
+with the digest, **generated_at**, upload time, and uploader of each. The
+content is byte for byte what was uploaded. A Flow type without a stored
+document is left out. The server reads the documents one at a time and never
+reads more than fits in one **api.grpcMaxMessageBytes** response. When they
+would not fit, the call fails with **RESOURCE_EXHAUSTED** and the
+**FLOW_DEFINITION_RESPONSE_TOO_LARGE** sub-status; request fewer Flow types.
+
+The server keeps each document in its own object under
+**PREFIX/registry/flow-definitions/**, so the documents use no server memory
+between calls. See
+[Object storage layout](/reference/server/0.1.27/object-storage#flow-definitions).
+There is no delete operation yet. A failure to read or write object storage
+returns **UNAVAILABLE**. A stored object that does not decode, names another
+Flow type, or has a digest that does not match its content fails Upload and
+Get for that Flow type with **INTERNAL**. A stored object larger than
+**api.grpcMaxMessageBytes** fails Upload with **INTERNAL**, and fails Get with
+**RESOURCE_EXHAUSTED** and the **FLOW_DEFINITION_RESPONSE_TOO_LARGE**
+sub-status. In [request metrics](/reference/server/0.1.27/metrics),
+uploads count as **flow_write**, and lists and gets as **flow_read**.
+
+## Time travel {#time-travel}
+
+Time travel creates a new attempt of a Flow run from a point in its history.
+The FlowService call is **ResetFlow**. The Flow run keeps its Run ID. The point must be inside the
+[recent history window](/reference/server/0.1.27/configuration#history-window);
+otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
+beginning is always available.
+
+Write reapply is on by default. It applies again the RPC calls, Channel
+publications, and Attribute writes that reached the run after the target point.
+While it is on, **ResetFlow** keeps those writes in memory, to apply them again. Memory grows with the number and size of
+those writes. A long Flow run with large values can exceed the replay budget
+even when the target state is small. The request then fails with
+**RESOURCE_EXHAUSTED** and changes nothing. Set **skip_writes_reapply** to
+**true** if those writes should not be applied again. Or raise
+[**history.timeTravelReplayMemoryBytes**](/reference/server/0.1.27/configuration#history-checkpoints)
+and restart the node before you retry.

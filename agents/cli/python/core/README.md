@@ -106,8 +106,8 @@ exits. Ctrl-C while idle, Ctrl-D, and `/exit` also exit. Exiting never ends the
 session: it stays in Dex, and the command prints the `--resume` line that
 continues it. New sessions are named `<name>-YYYYMMDD-HHMMSS-<6 hex digits>`.
 
-`sessions` loads up to five pages of 50 sessions, sorts them by last activity,
-and says when more sessions exist. It prints one per line: the ID, the
+`sessions` loads up to 250 sessions, sorts them by last activity, and says
+when more sessions exist. It prints one per line: the ID, the
 status, the start time, and, when the session has them, the time of its
 latest turn, its turn count, and its title, the first 80 Unicode code points
 of the first message. `sessions.summary` in the configuration file decides

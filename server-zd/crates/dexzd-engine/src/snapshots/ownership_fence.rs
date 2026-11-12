@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use dexzd_clock::WallClock;
 use dexzd_cluster_metadata::{ManifestChange, MetadataError};
-use dexzd_object_store::ObjectStore;
+use dexzd_object_store::{ObjectStore, node_lease_object_key};
 use dexzd_protocol::dexzd::v1::{Manifest, NodeLease};
 use prost::Message;
 
@@ -39,7 +39,7 @@ impl OwnershipFence {
 
     pub(crate) async fn ensure_current_lease(&self) -> Result<(), SnapshotError> {
         self.ensure_serving()?;
-        let lease_key = format!("lease/{}", self.node_id);
+        let lease_key = node_lease_object_key(&self.node_id);
         let lease = self.object_store.get(&lease_key).await?;
         let is_current = lease
             .map(|content| NodeLease::decode(content.bytes))

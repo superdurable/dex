@@ -18,10 +18,12 @@ import (
 // replyStream turns streamed text into finished blocks. Corrections are
 // appended, because the scrollback cannot change.
 type replyStream struct {
-	groups          map[replyGroupKey]*replyGroup
-	activeGroupKey  replyGroupKey
-	hasActiveGroup  bool
-	pendingText     string
+	groups         map[replyGroupKey]*replyGroup
+	activeGroupKey replyGroupKey
+	hasActiveGroup bool
+	pendingText    string
+	// pendingGroupKey is the group whose text pendingText holds.
+	pendingGroupKey replyGroupKey
 	reconciledTurns map[string]bool
 }
 
@@ -49,6 +51,8 @@ const (
 type replyOutput struct {
 	kind replyOutputKind
 	text string
+	// group is the reply group the output belongs to.
+	group replyGroupKey
 }
 
 func newReplyStream() *replyStream {
@@ -81,8 +85,9 @@ func (stream *replyStream) AppendDelta(delta sessionfeed.AssistantTextDelta) []r
 		outputs = append(outputs, stream.FlushPending()...)
 		if group.streamedText != "" {
 			outputs = append(outputs, replyOutput{
-				kind: replyOutputCorrection,
-				text: fmt.Sprintf("retrying model call (attempt %d); text above is from attempt %d", delta.Attempt, group.attempt),
+				kind:  replyOutputCorrection,
+				group: key,
+				text:  fmt.Sprintf("retrying model call (attempt %d); text above is from attempt %d", delta.Attempt, group.attempt),
 			})
 		}
 		group.attempt = delta.Attempt
@@ -90,6 +95,7 @@ func (stream *replyStream) AppendDelta(delta sessionfeed.AssistantTextDelta) []r
 	}
 	group.streamedText += delta.Text
 	stream.pendingText += delta.Text
+	stream.pendingGroupKey = key
 	return append(outputs, stream.takeCompletedBlocks()...)
 }
 
@@ -116,6 +122,7 @@ func (stream *replyStream) RecordFinalMessage(message sessionfeed.AssistantMessa
 	}
 	// streamedText is exactly the printed blocks plus the unfinished block.
 	streamedText := group.streamedText
+	stream.pendingGroupKey = key
 	switch {
 	case streamedText == "":
 		stream.pendingText = message.Text
@@ -125,7 +132,8 @@ func (stream *replyStream) RecordFinalMessage(message sessionfeed.AssistantMessa
 		// The record only lacks trailing whitespace that was streamed.
 	default:
 		outputs = append(outputs, stream.FlushPending()...)
-		outputs = append(outputs, replyOutput{kind: replyOutputCorrection, text: "reply from the session record:"})
+		outputs = append(outputs, replyOutput{kind: replyOutputCorrection, text: "reply from the session record:", group: key})
+		stream.pendingGroupKey = key
 		stream.pendingText = message.Text
 	}
 	outputs = append(outputs, stream.FlushPending()...)
@@ -154,7 +162,18 @@ func (stream *replyStream) FlushPending() []replyOutput {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	return []replyOutput{{kind: replyOutputMarkdown, text: text}}
+	return []replyOutput{{kind: replyOutputMarkdown, text: text, group: stream.pendingGroupKey}}
+}
+
+// HasGroup reports whether text of key's Step arrived before.
+func (stream *replyStream) HasGroup(key replyGroupKey) bool {
+	_, exists := stream.groups[key]
+	return exists
+}
+
+// PendingGroupKey returns the group of the unfinished block.
+func (stream *replyStream) PendingGroupKey() replyGroupKey {
+	return stream.pendingGroupKey
 }
 
 // PendingText returns the unfinished block shown in the live area.
@@ -172,7 +191,7 @@ func (stream *replyStream) takeCompletedBlocks() []replyOutput {
 	if strings.TrimSpace(completed) == "" {
 		return nil
 	}
-	return []replyOutput{{kind: replyOutputMarkdown, text: completed}}
+	return []replyOutput{{kind: replyOutputMarkdown, text: completed, group: stream.pendingGroupKey}}
 }
 
 // completedBlockBoundary returns the byte offset after the last finished

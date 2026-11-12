@@ -226,7 +226,7 @@ func (feed *RemoteSessionFeed) SubmitUserAction(ctx context.Context, action sess
 // SlashCommands returns the commands the launch document's methods allow.
 func (feed *RemoteSessionFeed) SlashCommands() []sessionfeed.SlashCommand {
 	commands := []sessionfeed.SlashCommand{
-		{Name: modelCommandName, ArgumentHint: "ID", Description: "change the model from the next turn"},
+		{Name: modelCommandName, ArgumentHint: "ID", IsArgumentOptional: true, Description: "show the model, or change it from the next turn"},
 	}
 	if feed.launch.HasMethod(launchcontract.MethodPutImage) && feed.launch.Capabilities.Images != nil {
 		commands = append(commands, sessionfeed.SlashCommand{Name: imageCommandName, ArgumentHint: "PATH", Description: "attach an image to the next message"})

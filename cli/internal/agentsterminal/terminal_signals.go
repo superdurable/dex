@@ -64,7 +64,15 @@ type terminalSignals struct {
 	isEarlyReported        bool
 
 	isForeground func() bool
-	stopProcess  func()
+	// stopProcess stops for a SIGTSTP seen at continuedBefore SIGCONTs and
+	// returns once running again.
+	stopProcess func(continuedBefore uint64)
+	// canStopProcessGroup reports a job-control parent that can continue us.
+	canStopProcessGroup func() bool
+	// sendStop sends this process SIGSTOP.
+	sendStop func() error
+	// continueCount counts the SIGCONTs received.
+	continueCount atomic.Uint64
 
 	signals      chan os.Signal
 	continued    chan struct{}
@@ -74,18 +82,24 @@ type terminalSignals struct {
 }
 
 func newTerminalSignals(terminal *os.File, onEarlySignal func()) *terminalSignals {
-	return &terminalSignals{
+	handler := &terminalSignals{
 		onEarlySignal: onEarlySignal,
 		isForeground:  func() bool { return isForegroundProcessGroup(terminal) },
-		stopProcess:   stopThisProcess,
 		signals:       make(chan os.Signal, 8),
 		continued:     make(chan struct{}, 1),
 		done:          make(chan struct{}),
 	}
+	handler.stopProcess = handler.stopUnlessContinued
+	handler.canStopProcessGroup = processGroupHasJobControl
+	handler.sendStop = func() error { return unix.Kill(os.Getpid(), unix.SIGSTOP) }
+	return handler
 }
 
 // Start begins handling the signals.
 func (handler *terminalSignals) Start() {
+	// The shell may take the terminal back mid-suspend; tcsetattr must not
+	// stop the chat.
+	signal.Ignore(syscall.SIGTTOU)
 	signal.Notify(handler.signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGTSTP, syscall.SIGCONT)
 	handler.wait.Add(1)
 	go handler.run()
@@ -125,6 +139,7 @@ func (handler *terminalSignals) EarlyExitCode() int {
 // Stop ends the handling and restores the default dispositions.
 func (handler *terminalSignals) Stop() {
 	signal.Stop(handler.signals)
+	signal.Reset(syscall.SIGTTOU)
 	close(handler.done)
 	handler.wait.Wait()
 }
@@ -146,6 +161,7 @@ func (handler *terminalSignals) run() {
 			case syscall.SIGTSTP:
 				handler.suspend()
 			case syscall.SIGCONT:
+				handler.continueCount.Add(1)
 				select {
 				case handler.continued <- struct{}{}:
 				default:
@@ -178,17 +194,19 @@ func (handler *terminalSignals) suspend() {
 	if !handler.isSuspending.CompareAndSwap(false, true) {
 		return
 	}
+	// A SIGCONT after this one cancels the stop: fg came before it.
+	continuedBefore := handler.continueCount.Load()
 	if program := handler.attachedProgram(); program != nil {
-		go program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler}})
+		go program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler, continuedBefore: continuedBefore}})
 		return
 	}
 	// Off the signal loop, so exit signals never wait for the terminal mode.
-	go handler.stopBeforeChat()
+	go handler.stopBeforeChat(continuedBefore)
 }
 
 // stopBeforeChat stops this process once no one changes the terminal mode,
 // unless the chat was attached meanwhile.
-func (handler *terminalSignals) stopBeforeChat() {
+func (handler *terminalSignals) stopBeforeChat(continuedBefore uint64) {
 	if handler.beforeTerminalModeLock != nil {
 		handler.beforeTerminalModeLock()
 	}
@@ -196,14 +214,12 @@ func (handler *terminalSignals) stopBeforeChat() {
 	if program := handler.attachedProgram(); program != nil {
 		handler.terminalMode.Unlock()
 		// The chat owns the terminal now: suspend through its event loop.
-		go program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler}})
+		go program.Send(suspendRequestedMsg{command: &suspendCommand{handler: handler, continuedBefore: continuedBefore}})
 		return
 	}
 	defer handler.terminalMode.Unlock()
 	defer handler.isSuspending.Store(false)
-	signal.Reset(syscall.SIGTSTP)
-	handler.stopProcess()
-	signal.Notify(handler.signals, syscall.SIGTSTP)
+	handler.stopProcess(continuedBefore)
 }
 
 func (handler *terminalSignals) attachedProgram() terminalProgram {
@@ -217,16 +233,15 @@ func (handler *terminalSignals) attachedProgram() terminalProgram {
 // foreground again, so the program never draws or reads in the background.
 type suspendCommand struct {
 	handler *terminalSignals
+	// continuedBefore is the SIGCONT count when the SIGTSTP arrived.
+	continuedBefore uint64
 }
 
-// Run stops this process with the default SIGTSTP action, signalling only
-// its own pid, then waits for the foreground.
+// Run stops this process, then waits for the foreground.
 func (command *suspendCommand) Run() error {
 	handler := command.handler
 	defer handler.isSuspending.Store(false)
-	signal.Reset(syscall.SIGTSTP)
-	handler.stopProcess()
-	signal.Notify(handler.signals, syscall.SIGTSTP)
+	handler.stopProcess(command.continuedBefore)
 	ticker := time.NewTicker(foregroundPollInterval)
 	defer ticker.Stop()
 	for !handler.isForeground() {
@@ -249,9 +264,44 @@ func (command *suspendCommand) SetStdout(io.Writer) {}
 // SetStderr is unused: the command writes nothing.
 func (command *suspendCommand) SetStderr(io.Writer) {}
 
-func stopThisProcess() {
-	if err := syscall.Kill(os.Getpid(), syscall.SIGTSTP); err != nil {
+// terminalRetakeCommand does nothing; running it through tea.Exec releases
+// and retakes the terminal, restoring the chat's modes and screen.
+type terminalRetakeCommand struct{}
+
+// Run returns at once.
+func (terminalRetakeCommand) Run() error { return nil }
+
+// SetStdin is unused: the command reads nothing.
+func (terminalRetakeCommand) SetStdin(io.Reader) {}
+
+// SetStdout is unused: the command writes nothing.
+func (terminalRetakeCommand) SetStdout(io.Writer) {}
+
+// SetStderr is unused: the command writes nothing.
+func (terminalRetakeCommand) SetStderr(io.Writer) {}
+
+// stopUnlessContinued stops with uncatchable SIGSTOP and returns after
+// SIGCONT, unless SIGCONT already came or no job-control parent exists.
+func (handler *terminalSignals) stopUnlessContinued(continuedBefore uint64) {
+	// The kernel also discards SIGTSTP's stop in an orphaned group.
+	if handler.continueCount.Load() != continuedBefore || !handler.canStopProcessGroup() {
+		return
+	}
+	// The group check may take a while; a SIGCONT meanwhile cancels the stop.
+	if handler.continueCount.Load() != continuedBefore {
+		return
+	}
+	// A SIGCONT between this load and the kill goes unseen; the window is tiny.
+	if err := handler.sendStop(); err != nil {
 		debugLog("stop this process", err)
+		return
+	}
+	for handler.continueCount.Load() == continuedBefore {
+		select {
+		case <-handler.continued:
+		case <-handler.done:
+			return
+		}
 	}
 }
 

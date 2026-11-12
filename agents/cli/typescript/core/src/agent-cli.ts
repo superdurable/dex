@@ -21,7 +21,6 @@ import {
   sessionFlowDefinitionDocument,
   sortAgentSessionsByLastActivity,
   startAgentSession,
-  type AgentSessionSummary,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type DeferredToolOutcome,
@@ -40,7 +39,7 @@ import {
   type EffectiveConfig,
   type MediaConfig,
 } from "./cli-config.js";
-import { readCliEnvironment, type CliEnvironment } from "./cli-environment.js";
+import { isTerminalUiSwitchedOn, readCliEnvironment, type CliEnvironment } from "./cli-environment.js";
 import {
   askInitQuestions,
   defaultConfigPath,
@@ -65,6 +64,7 @@ import {
   type ConnectorToolIdentity,
   type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
+import { resolveDexcliExecutable } from "./dexcli-binary.js";
 import {
   StartedDexcliDevProcess,
   describeLostDexcliDev,
@@ -72,6 +72,16 @@ import {
   type DexServerConnection,
 } from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
+import { waitForQueuedOutput } from "./queued-output.js";
+import { collectSessionsForList } from "./session-list-pages.js";
+import { commandPackageVersion } from "./terminal-ui/command-package-version.js";
+import { TerminalUiChatLauncher, type TerminalUiChatOutcome } from "./terminal-ui/terminal-ui-chat-launcher.js";
+import { negotiateTerminalUi } from "./terminal-ui/terminal-ui-negotiation.js";
+import { isTerminalUiSelected } from "./terminal-ui/terminal-ui-selection.js";
+import { cleanUpLeftoverWorkerHosts } from "./worker-host/leftover-worker-hosts.js";
+import type { ToolProcessGroupRegistry } from "./worker-host/tool-process-groups.js";
+import { runWorkerHost } from "./worker-host/worker-host.js";
+import { workerHostSubcommand } from "./worker-host/worker-host-protocol.js";
 import { TerminalChat } from "./terminal-chat.js";
 import { TerminalInput, lineWaitAborted } from "./terminal-input.js";
 import { TurnConfigResolver } from "./turn-config-resolver.js";
@@ -80,8 +90,6 @@ import { describeUnavailableDexServer } from "./unavailable-dex-server.js";
 const subcommands = ["run", "init", "connectors", "sessions"] as const;
 type Subcommand = (typeof subcommands)[number];
 const blobCacheBytes = 256 * 1024 * 1024;
-/** Most pages of 50 sessions that the `sessions` subcommand loads before it sorts them. */
-const sessionListMaxPages = 5;
 
 /**
  * The process a command runs in: its arguments, streams, environment, and whether a person is at a terminal.
@@ -165,7 +173,14 @@ function requireSessionSummarySetting(
  *
  * Changed in 0.6.0: a started `dexcli dev` stops when the command exits instead of running on.
  *
- * A harness command's bin calls it and exits with its result, because open connections can keep Node running:
+ * A harness command's bin calls it and exits with its result, because open connections can keep Node running. When
+ * it returns or throws, its output on `io.stdout` and `io.stderr` has reached the operating system, so exiting at once
+ * loses no line, even when a slow reader such as a pipe has not read them yet. It waits at most 2 seconds for that
+ * output, so a reader that never reads cannot hang the command. A handled SIGTERM, SIGHUP, or SIGINT waits the same
+ * way before the process exits; a second signal exits at once.
+ *
+ * Changed in 0.6.0: it waits for its output before it returns. Before, `process.exit` could cut off the end of a long
+ * `sessions` list written to a pipe.
  *
  * @example
  * ```ts
@@ -183,6 +198,18 @@ function requireSessionSummarySetting(
  * @since 0.5.0
  */
 export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = processAgentCliIo()): Promise<number> {
+  try {
+    return await runAgentCliCommand(harness, io);
+  } finally {
+    // Callers exit the process at once, which drops writes still queued for a slow pipe.
+    await waitForQueuedOutput([io.stdout, io.stderr]);
+  }
+}
+
+async function runAgentCliCommand(harness: AgentHarness, io: AgentCliIo): Promise<number> {
+  if (io.argv[0] === workerHostSubcommand) {
+    return runWorkerHost(harness, io, (log) => AgentCliCommand.forWorkerHost(harness, io, log));
+  }
   const log = (line: string): void => {
     io.stderr.write(`${line}\n`);
   };
@@ -207,7 +234,7 @@ export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = proces
       return error.exitCode;
     }
     log(`dex-agents-${harness.name}: ${(await command.describeLostDexServer()) ?? describe(error)}`);
-    return error instanceof ConfigError || error instanceof UsageError ? 2 : 1;
+    return command.exitCodeOf(error);
   } finally {
     await command.close();
   }
@@ -219,10 +246,34 @@ interface ParsedArguments {
   readonly isYes: boolean;
   readonly resumeSessionId: string | undefined;
   readonly model: string | undefined;
+  readonly isPlainRequested: boolean;
   readonly isHelpRequested: boolean;
 }
 
-class UsageError extends Error {}
+/** A command-line or configuration error: the command exits with 2. */
+export class UsageError extends Error {}
+
+/** The Worker half of a chat: the session Flow, its Worker and Client, and the session. */
+export interface OpenedSessionWorker {
+  /** The Client, whose Registry contains {@link flow}. */
+  readonly client: Client;
+  /** The session Flow. */
+  readonly flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>;
+  /** The session Flow type of this execution environment. */
+  readonly flowType: string;
+  /** The session. */
+  readonly sessionId: string;
+  /** Whether the session was resumed rather than started. */
+  readonly isResumed: boolean;
+  /** The values each new session records as its `startEnvironment`. */
+  readonly startEnvironment: Record<string, string>;
+  /** The store that `/image` writes to. */
+  readonly mediaStore: MediaStore;
+  /** The connectors MCP source and its URL, or `undefined` when connectors are off. */
+  readonly connectors: { readonly source: ConnectorsMcpToolSource; readonly url: string } | undefined;
+  /** The workspace's real path. */
+  readonly workspace: string;
+}
 
 /** Ctrl-C or the end of input during the `init` questions, after which nothing was written. */
 class InitCancelledError extends Error {
@@ -235,7 +286,7 @@ class InitCancelledError extends Error {
 const interruptedExitCode = 130;
 
 /** One command run, owning everything it opened. */
-class AgentCliCommand {
+export class AgentCliCommand {
   private readonly environment: CliEnvironment;
   private input: TerminalInput | undefined;
   private isInitInterrupted = false;
@@ -261,7 +312,38 @@ class AgentCliCommand {
     this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log);
   }
 
+  /**
+   * Returns the command object of a Worker host, which opens the session its launcher asks for.
+   * @param harness - The command's harness.
+   * @param io - The Worker host's process.
+   * @param log - Writes the Worker host's log lines.
+   */
+  public static forWorkerHost(harness: AgentHarness, io: AgentCliIo, log: (line: string) => void): AgentCliCommand {
+    const parsed: ParsedArguments = {
+      subcommand: "run",
+      configPath: undefined,
+      isYes: false,
+      resumeSessionId: undefined,
+      model: undefined,
+      isPlainRequested: true,
+      isHelpRequested: false,
+    };
+    // The Worker host serves the person at the launcher's terminal, so it may open Dex Web pages for them.
+    return new AgentCliCommand(harness, { ...io, isInteractive: true }, parsed, log);
+  }
+
+  /**
+   * Returns the exit code of an error that stopped the command: 2 for arguments or configuration, else 1.
+   * @param error - The error.
+   */
+  public exitCodeOf(error: unknown): number {
+    return error instanceof ConfigError || error instanceof UsageError ? 2 : 1;
+  }
+
   public async run(): Promise<number> {
+    if (isTerminalUiSwitchedOn(this.io.environment) && process.platform !== "win32") {
+      await cleanUpLeftoverWorkerHosts(this.environment.agentsDirectory, this.log);
+    }
     const configPath =
       this.parsed.configPath === undefined
         ? defaultConfigPath(this.environment.agentsDirectory, this.harness)
@@ -286,8 +368,19 @@ class AgentCliCommand {
         return this.listConnectors(effective, server);
       case "sessions":
         return this.listSessions(effective, loaded, server);
-      default:
-        return this.chat(effective, loaded, server);
+      default: {
+        const outcome = await this.chatInTerminalUi(effective, loaded, server);
+        if (outcome?.kind === "exited") {
+          return outcome.exitCode;
+        }
+        return this.chat(
+          effective,
+          loaded,
+          server,
+          outcome?.resumeSessionId ?? this.parsed.resumeSessionId,
+          outcome === undefined,
+        );
+      }
     }
   }
 
@@ -356,7 +449,124 @@ class AgentCliCommand {
     return this.parsed.model === undefined ? effective : { ...effective, model: this.parsed.model };
   }
 
-  private async chat(effective: EffectiveConfig, loaded: LoadedConfig, server: DexServerConnection): Promise<number> {
+  private async chat(
+    effective: EffectiveConfig,
+    loaded: LoadedConfig,
+    server: DexServerConnection,
+    resumeSessionId: string | undefined,
+    isOpeningConnectorsPage: boolean,
+  ): Promise<number> {
+    const opened = await this.openSessionWorker(effective, loaded, server, {
+      resumeSessionId,
+      isOpeningConnectorsPage,
+      toolProcessGroups: undefined,
+    });
+    const sessionId = opened.sessionId;
+    if (opened.isResumed) {
+      this.io.stdout.write(`Resumed session ${sessionId}.\n`);
+    }
+    this.io.stdout.write(
+      `Session ${sessionId}. Type a message; /image <path> attaches an image to the next one; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
+    );
+    this.startedDexcliDev.releaseInterrupt();
+    const chat = new TerminalChat(opened.client, opened.flow, sessionId, this.terminalInput(), this.io.stdout, {
+      mediaStore: opened.mediaStore,
+      homeDirectory: this.environment.homeDirectory,
+    });
+    const isFailed = await chat.run();
+    this.io.stdout.write(`\nSession ${sessionId} keeps running. Resume it with: dex-agents-${this.harness.name} --resume ${sessionId}\n`);
+    return isFailed ? 1 : 0;
+  }
+
+  /**
+   * Runs the chat in the terminal UI when this run selects it and `dexcli` speaks a common contract.
+   * @returns How the terminal UI chat ended, or `undefined` for the plain chat.
+   */
+  private async chatInTerminalUi(
+    effective: EffectiveConfig,
+    loaded: LoadedConfig,
+    server: DexServerConnection,
+  ): Promise<TerminalUiChatOutcome | undefined> {
+    const isSelected = isTerminalUiSelected({
+      isTerminalUiEnabled: isTerminalUiSwitchedOn(this.io.environment),
+      platform: process.platform,
+      isPlainRequested: this.parsed.isPlainRequested,
+      isInteractive: this.io.isInteractive,
+      term: this.io.environment.TERM,
+      harnessTerminalInterface: this.harness.terminalInterface ?? "dexcli",
+    });
+    if (!isSelected) {
+      return undefined;
+    }
+    let dexcli: string;
+    try {
+      dexcli = resolve(await resolveDexcliExecutable(this.environment, this.log));
+    } catch (error: unknown) {
+      this.log(`Plain chat: ${describe(error)}.`);
+      return undefined;
+    }
+    const choice = await negotiateTerminalUi(dexcli, "chat");
+    if ("plainReason" in choice) {
+      this.log(`Plain chat: ${choice.detail}.`);
+      return undefined;
+    }
+    // The terminal UI reads the terminal from now on; the launcher must not.
+    this.input?.close();
+    this.input = undefined;
+    const launcher = new TerminalUiChatLauncher(
+      {
+        commandName: `dex-agents-${this.harness.name}`,
+        harnessName: this.harness.name,
+        commandVersion: commandPackageVersion(),
+        dexcli,
+        start: {
+          type: "start",
+          effective,
+          configPath: loaded.configPath,
+          isFromFile: loaded.isFromFile,
+          server,
+          resumeSessionId: this.parsed.resumeSessionId ?? null,
+        },
+        configPath: loaded.isFromFile ? loaded.configPath : null,
+        homeDirectory: this.environment.homeDirectory,
+        agentsDirectory: this.environment.agentsDirectory,
+        logFilePath: this.logFilePath(),
+        environment: this.environment.childProcessVariables,
+        isBrowserOpeningEnabled: this.environment.isBrowserOpeningEnabled !== false,
+        commandSignals: {
+          release: () => this.startedDexcliDev.releaseSignals(),
+          reclaim: () => this.startedDexcliDev.reclaimSignals(),
+        },
+        openInBrowser: launchBrowser,
+      },
+      this.log,
+    );
+    return launcher.run();
+  }
+
+  /**
+   * Opens the Worker half of a chat: the media store, the connectors, the local tools, the session Flow, the Worker,
+   * the session graph upload, and the new or resumed session. The plain chat and the Worker host both call it.
+   *
+   * @param effective - The effective configuration.
+   * @param loaded - The loaded configuration file.
+   * @param server - The Dex server.
+   * @param options - The session to resume, whether to open the Connectors page, and the tool process group
+   * registry of a Worker host.
+   * @returns The opened session; {@link close} releases it.
+   * @throws {UsageError} When the session to resume does not exist or belongs to another environment.
+   */
+  public async openSessionWorker(
+    effective: EffectiveConfig,
+    loaded: LoadedConfig,
+    server: DexServerConnection,
+    options: {
+      readonly resumeSessionId: string | undefined;
+      readonly isOpeningConnectorsPage: boolean;
+      readonly toolProcessGroups: ToolProcessGroupRegistry | undefined;
+    },
+  ): Promise<OpenedSessionWorker> {
+    this.mediaStore ??= await createMediaStore(effective.media, this.environment.agentsDirectory);
     const turns = new TurnConfigResolver(
       effective,
       readFileInstructions(effective, loaded.configPath, this.environment.homeDirectory),
@@ -367,13 +577,16 @@ class AgentCliCommand {
     const identity = this.sessionEnvironmentIdentity(loaded, workspace);
     const flowType = namespaceSessionFlowType(this.harness.flowType, identity);
     const mediaStore = this.mediaStore;
-    if (mediaStore === undefined) {
-      throw new Error("the run subcommand builds the media store before the chat starts");
-    }
     // Both sources stay registered even when switched off, so they refuse calls another process requested.
-    const connectorSource =
-      (await this.connectConnectors(effective, server, turns, true, mediaStore)) ?? new DisabledConnectorsToolSource();
-    this.localTools = new LocalToolSource(workspace, this.offeredLocalToolGroups(effective), turns, this.log);
+    const connectorsSource = await this.connectConnectors(effective, server, turns, options.isOpeningConnectorsPage, mediaStore);
+    const connectorSource = connectorsSource ?? new DisabledConnectorsToolSource();
+    this.localTools = new LocalToolSource(
+      workspace,
+      this.offeredLocalToolGroups(effective),
+      turns,
+      this.log,
+      options.toolProcessGroups,
+    );
     const toolSources: ToolSource[] = [connectorSource, this.localTools];
     const context: HarnessContext = {
       flowType,
@@ -418,18 +631,28 @@ class AgentCliCommand {
       throw unavailable === undefined ? error : new Error(unavailable, { cause: error });
     }
     await this.uploadSessionFlowDefinition(this.client, flowType);
-    const sessionId = await this.openSession(this.client, flow, flowType, identity);
-    this.io.stdout.write(
-      `Session ${sessionId}. Type a message; /image <path> attaches an image to the next one; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
-    );
-    this.startedDexcliDev.releaseInterrupt();
-    const chat = new TerminalChat(this.client, flow, sessionId, this.terminalInput(), this.io.stdout, {
+    const startEnvironment = sessionStartEnvironment(identity);
+    const resumeSessionId = options.resumeSessionId;
+    let sessionId: string;
+    if (resumeSessionId === undefined) {
+      sessionId = newSessionId(this.harness);
+      await startAgentSession(this.client, flow, sessionId, { startEnvironment });
+    } else {
+      sessionId = await this.checkResumedSession(this.client, flowType, resumeSessionId);
+    }
+    const connectorsUrl = effective.connectors.mcp === "auto" ? server.autoConnectorsMcpUrl : effective.connectors.mcp;
+    return {
+      client: this.client,
+      flow,
+      flowType,
+      sessionId,
+      isResumed: resumeSessionId !== undefined,
+      startEnvironment,
       mediaStore,
-      homeDirectory: this.environment.homeDirectory,
-    });
-    const isFailed = await chat.run();
-    this.io.stdout.write(`\nSession ${sessionId} keeps running. Resume it with: dex-agents-${this.harness.name} --resume ${sessionId}\n`);
-    return isFailed ? 1 : 0;
+      connectors:
+        connectorsSource === undefined || connectorsUrl === null ? undefined : { source: connectorsSource, url: connectorsUrl },
+      workspace,
+    };
   }
 
   /**
@@ -497,18 +720,7 @@ class AgentCliCommand {
     };
   }
 
-  private async openSession(
-    client: Client,
-    flow: Parameters<typeof startAgentSession>[1],
-    flowType: string,
-    identity: SessionEnvironmentIdentity,
-  ): Promise<string> {
-    const resumeSessionId = this.parsed.resumeSessionId;
-    if (resumeSessionId === undefined) {
-      const sessionId = newSessionId(this.harness);
-      await startAgentSession(client, flow, sessionId, { startEnvironment: sessionStartEnvironment(identity) });
-      return sessionId;
-    }
+  private async checkResumedSession(client: Client, flowType: string, resumeSessionId: string): Promise<string> {
     let info;
     try {
       info = await client.describeFlow(resumeSessionId);
@@ -526,7 +738,6 @@ class AgentCliCommand {
     if (info.status !== "running") {
       throw new UsageError(`session ${resumeSessionId} is ${info.status}, so it cannot continue`);
     }
-    this.io.stdout.write(`Resumed session ${resumeSessionId}.\n`);
     return resumeSessionId;
   }
 
@@ -692,17 +903,11 @@ class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     });
-    const loadedSessions: AgentSessionSummary[] = [];
-    let nextPageToken = "";
-    for (let pageNumber = 0; pageNumber < sessionListMaxPages; pageNumber += 1) {
-      const page = await listAgentSessions(this.client, flowType, { nextPageToken });
-      loadedSessions.push(...page.sessions);
-      nextPageToken = page.nextPageToken;
-      if (nextPageToken === "") {
-        break;
-      }
-    }
-    if (loadedSessions.length === 0) {
+    const client = this.client;
+    const { sessions: loadedSessions, hasMoreSessions } = await collectSessionsForList((nextPageToken) =>
+      listAgentSessions(client, flowType, { nextPageToken }),
+    );
+    if (loadedSessions.length === 0 && !hasMoreSessions) {
       this.io.stdout.write(`No ${flowType} sessions.\n`);
       return 0;
     }
@@ -718,7 +923,7 @@ class AgentCliCommand {
       ];
       this.io.stdout.write(`${columns.join("\t")}\n`);
     }
-    if (nextPageToken !== "") {
+    if (hasMoreSessions) {
       this.io.stdout.write(
         `More sessions exist; this list sorts the first ${loadedSessions.length} that Dex returns: ` +
           "running sessions first, then the most recently closed and started.\n",
@@ -947,6 +1152,7 @@ function parseCommandArguments(argv: readonly string[]): ParsedArguments {
       yes: { type: "boolean", short: "y" },
       resume: { type: "string", short: "r" },
       model: { type: "string", short: "m" },
+      plain: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -966,6 +1172,7 @@ function parseCommandArguments(argv: readonly string[]): ParsedArguments {
     isYes: values.yes === true,
     resumeSessionId: values.resume,
     model: values.model,
+    isPlainRequested: values.plain === true,
     isHelpRequested: values.help === true,
   };
 }
@@ -984,6 +1191,7 @@ function usage(harness: AgentHarness): string {
     "  -y, --yes             Write and use the defaults instead of asking.",
     "  -r, --resume <id>     Continue a session.",
     "  -m, --model <id>      Override the configured model.",
+    "      --plain           Chat in plain text, without the terminal UI.",
     "  -h, --help            Show this help.",
   ].join("\n");
 }
@@ -994,10 +1202,32 @@ function newSessionId(harness: AgentHarness): string {
 }
 
 function openInBrowser(url: string): void {
+  void launchBrowser(url);
+}
+
+/** How long a browser opener may run before it counts as having opened the page. */
+const browserOpenerWaitMs = 4_000;
+
+/**
+ * Opens a URL with the platform's browser opener.
+ * @returns Whether the opener started and did not fail within 4 s.
+ */
+function launchBrowser(url: string): Promise<boolean> {
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";
-  const child = spawn(command, [url], { stdio: "ignore", detached: true });
-  child.once("error", () => undefined);
-  child.unref();
+  return new Promise((resolve) => {
+    const child = spawn(command, [url], { stdio: "ignore", detached: true });
+    const timer = setTimeout(() => resolve(true), browserOpenerWaitMs);
+    timer.unref();
+    child.once("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+    child.unref();
+  });
 }
 
 /** A closed terminal fails writes with EIO; the command must still stop the dexcli dev it started. */

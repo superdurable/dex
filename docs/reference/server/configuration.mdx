@@ -52,10 +52,19 @@ required. Replace **BUCKET** and **PREFIX** with your bucket and key prefix.
 Leave **objectStore.endpoint** empty to use AWS endpoint resolution. For an
 S3-compatible store, set it to an HTTP or HTTPS URL. Set
 **objectStore.forcePathStyle** when that store needs path-style addressing.
-Since 0.1.24, **objectStore.provider: db9** stores this state in db9, a
-PostgreSQL-compatible database, instead of S3. The server then depends on that
-database instead of object storage. See
-[db9 provider](/reference/server/object-storage#db9).
+**objectStore.provider** selects where the server keeps this state:
+
+- **s3** (default): Amazon S3 or an S3-compatible store.
+- **db9**, since 0.1.24: db9, a PostgreSQL-compatible database. The server then
+  depends on that database instead of object storage. See
+  [db9 provider](/reference/server/object-storage#db9).
+- **aliyunOSS**, since 0.1.27: an Aliyun OSS bucket. See
+  [Aliyun OSS provider](/reference/server/object-storage#aliyun-oss).
+- **azureBlob** or **googleCloudStorage**, since 0.1.28: Azure Blob Storage or
+  Google Cloud Storage through its native API. See
+  [Azure Blob Storage and Google Cloud Storage](#azure-gcs).
+
+A prefix cannot switch providers on existing data.
 
 This configuration runs a single replica, so it sets **lease.duration** to 60
 seconds. No standby can take over a single replica, and the longer lease makes
@@ -71,6 +80,133 @@ The first start records **cluster.nodeId** and **cluster.partitionCount**.
 Neither can change later. A start with a different node ID fails and names the
 recorded one. A start with a different partition count fails and reports both
 counts. Never point two deployments at the same prefix.
+
+## Azure Blob Storage and Google Cloud Storage {#azure-gcs}
+
+Since 0.1.28, **serve** can keep its object storage in Azure Blob Storage or
+Google Cloud Storage. The server uses each cloud's native API. Both clouds
+support create-only and compare-and-swap writes, so the server stores the same
+objects under the prefix as it does on S3.
+
+~~~yaml
+objectStore:
+  provider: azureBlob
+  azureAccount: ACCOUNT
+  bucket: CONTAINER
+  prefix: PREFIX
+  credentialsSource: environment
+~~~
+
+~~~yaml
+objectStore:
+  provider: googleCloudStorage
+  bucket: BUCKET
+  prefix: PREFIX
+~~~
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| **objectStore.provider** | **s3** | **azureBlob** selects Azure Blob Storage; **googleCloudStorage** selects Google Cloud Storage |
+| **objectStore.azureAccount** | empty | Storage account name, 3 to 24 lowercase letters and digits. Required for **azureBlob**; other providers reject it. |
+| **objectStore.bucket** | required | The existing container for **azureBlob**, or the existing bucket for **googleCloudStorage** |
+| **objectStore.prefix** | empty | Key prefix inside the container or bucket |
+| **objectStore.credentialsSource** | **defaultChain** | **environment** or **defaultChain**, as described below. Both clouds reject **anonymous**. |
+
+Leave **objectStore.endpoint** empty and **objectStore.forcePathStyle** false.
+The server connects to the cloud's public endpoint. **objectStore.region** and
+**commit.multipartThresholdBytes** apply only to the **s3** and **aliyunOSS**
+providers. **dev** and **local**
+reject both providers.
+
+### Credentials {#azure-gcs-credentials}
+
+Keep secrets in the environment, not in the configuration file. The server never
+serializes or logs them.
+
+For **azureBlob**:
+
+| credentialsSource | Credentials |
+| --- | --- |
+| **environment** | The storage account access key in **DEX_ZD_OBJECT_STORE_AZURE_ACCOUNT_KEY** |
+| **defaultChain** | A Microsoft Entra ID identity. With **AZURE_CLIENT_ID**, **AZURE_TENANT_ID**, and **AZURE_CLIENT_SECRET**, a service principal. Otherwise, with **AZURE_CLIENT_ID**, **AZURE_TENANT_ID**, and **AZURE_FEDERATED_TOKEN_FILE**, workload identity, as the AKS workload identity webhook sets it up. Otherwise, a managed identity: user-assigned when **AZURE_CLIENT_ID** is set, and through **IDENTITY_ENDPOINT** when that is set. |
+
+An Entra ID identity needs the Storage Blob Data Contributor role on the
+container.
+
+For **googleCloudStorage**:
+
+| credentialsSource | Credentials |
+| --- | --- |
+| **environment** | The service account JSON key file at the path in **DEX_ZD_OBJECT_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH** |
+| **defaultChain** | Application default credentials: the file named by **GOOGLE_APPLICATION_CREDENTIALS**, then the gcloud application default credentials file, then the metadata server, which serves GKE Workload Identity |
+
+An application default credentials file must hold a service account key
+(**service_account**) or user credentials (**authorized_user**). Workload
+identity federation (**external_account**) and service account impersonation
+(**impersonated_service_account**) files are not supported. On GKE, use the
+metadata server instead.
+
+The service account needs the Storage Object User role
+(**roles/storage.objectUser**) on the bucket.
+
+### Account and bucket requirements {#azure-gcs-requirements}
+
+For Azure Blob Storage:
+
+- Turn hierarchical namespace (Data Lake Storage) off on the storage account.
+  With it on, deletes and listings behave differently.
+- Do not set an immutability policy on the container or its blobs.
+- Blob versioning and soft delete work. They keep deleted objects, so they add
+  storage cost.
+
+For Google Cloud Storage:
+
+- Do not set a retention policy or object holds on the bucket. Deletes fail
+  under them.
+- Object versioning and soft delete work. They keep deleted objects, so they add
+  storage cost.
+- Google Cloud Storage allows about one write per second to the same object.
+  The server writes each metadata object, such as the lease, far less often.
+  When the service throttles a write, the server retries it up to three times,
+  after 1, 2, and 4 seconds.
+- Add a lifecycle rule that aborts incomplete multipart uploads after 1 to 7
+  days. A crash can leave an incomplete upload behind. Azure Blob Storage
+  discards uncommitted blocks after 7 days on its own.
+
+Startup writes and deletes a probe object under the prefix, to check that
+conditional writes work.
+
+### Large objects {#azure-gcs-large-objects}
+
+The server uploads an object of up to 16 MiB in one request. It uploads a
+larger object in 8 MiB parts, and the 30-second request timeout applies to each
+part. A larger create-only object, such as a snapshot file, first uploads to a
+staging object under **PREFIX/staging/**. The server then copies it to its key,
+only if the key does not exist, and deletes the staging object.
+
+Azure Blob Storage can report such a copy as pending. The server then waits up
+to one minute for the copy to finish. If it is still pending after that, the
+write's outcome is unknown, and the server reads the key later to learn it.
+
+A crash or a copy that is still pending can leave a staging object behind. At
+startup, and at most hourly after a staged upload, the server deletes staging
+objects that the store last modified more than one hour earlier on Google Cloud
+Storage, or more than 15 days earlier on Azure Blob Storage. An Azure copy can
+stay pending, and keep reading its staging object, for up to two weeks.
+
+### Switching providers {#azure-gcs-switching}
+
+A prefix cannot switch providers. The server does not migrate data between
+providers, and each provider reports its own form of ETag. Start a new provider
+on a new, empty prefix.
+
+**objectStore.hardDeleteStore** takes **provider** and **azureAccount** too,
+with the same rules. Its **provider** can be **s3**, **aliyunOSS**,
+**azureBlob**, or **googleCloudStorage**, but not **db9**. Without one, it uses
+**aliyunOSS** when the primary store does, and **s3** otherwise. With
+**environment** credentials, it reads
+**DEX_ZD_HARD_DELETE_STORE_AZURE_ACCOUNT_KEY** or
+**DEX_ZD_HARD_DELETE_STORE_GCS_SERVICE_ACCOUNT_KEY_PATH**.
 
 ## Single node on local disk {#single-node-local}
 
