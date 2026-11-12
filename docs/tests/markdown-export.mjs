@@ -191,6 +191,8 @@ try {
   const homeJava = await readFile(join(outDir, 'index.java.md'), 'utf8');
   assert.match(homeJava, /\*\*Java\*\*\n\n```java\nvar fromProp = 1;\n```\n\n例子: \[examples\/java\/Sample.java\]/);
   const homeRust = await readFile(join(outDir, 'index.rust.md'), 'utf8');
+  // The note in a language file links the other language's file, not the file's own language.
+  assert.doesNotMatch(homeRust, /这部分没有 Rust 版本；见 \[[^\]]+\]\([^)]*index\.rust\.md\)/);
   assert.match(homeRust, /```rust\nlet sample = 1;\n```/);
   await assert.rejects(readFile(join(outDir, 'index.python.md'), 'utf8'), {code: 'ENOENT'});
   for (const file of [home, homeGo, homeJava, homeRust]) assert.doesNotMatch(file, /overridden/);

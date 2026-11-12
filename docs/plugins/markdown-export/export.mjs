@@ -523,7 +523,7 @@ function selectLanguage(nodes, language, pageUrl, copy) {
       if (node.variants[language]) return node.variants[language];
       const other = Object.keys(node.variants)[0];
       return [{type: 'paragraph', children: [text(copy.missingLanguage(sdkLabels[language])),
-        {type: 'link', url: pageUrl(other), children: [text(copy.missingLanguagePage(sdkLabels[other]))]}, text(copy.missingLanguageEnd)]}];
+        {type: 'link', url: pageUrl(other), data: {keepLanguage: true}, children: [text(copy.missingLanguagePage(sdkLabels[other]))]}, text(copy.missingLanguageEnd)]}];
     }
     if (!Array.isArray(node.children)) return [node];
     return [{...node, children: selectLanguage(node.children, language, pageUrl, copy)}];
@@ -537,7 +537,7 @@ function selectLanguage(nodes, language, pageUrl, copy) {
  */
 function keepLanguageInLinks(nodes, language, languageFiles) {
   return nodes.map(node => {
-    if (node.type === 'link' && typeof node.url === 'string') {
+    if (node.type === 'link' && typeof node.url === 'string' && !node.data?.keepLanguage) {
       const [base, hash] = node.url.split('#');
       const target = languageFiles.get(base);
       if (target && target.languages.includes(language) && target.languages[0] !== language) {
