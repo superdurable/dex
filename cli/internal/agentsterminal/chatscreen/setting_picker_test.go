@@ -161,6 +161,18 @@ func TestFooterKeepsTheEffortWithALongModel(t *testing.T) {
 	require.Regexp(t, ` openai-sdk · openrouter/anthropic/claude-sonnet-5-5-with-a-very[^ ]*… · high effort\n`, frame)
 }
 
+// Below four cells for the model, the row leaves the model out and keeps the effort.
+func TestStatusIdentityLeavesTheModelOutBelowItsMinimumWidth(t *testing.T) {
+	session := settingsSession()
+	session.Model = "openrouter/anthropic/claude-sonnet-5-5"
+	session.ReasoningEffort = "high"
+	harness := newSettingsHarness(t, session)
+	// " openai-sdk · " is 14 cells and " · high effort" 14, so 32 leaves the model 4.
+	require.Equal(t, " openai-sdk · ope… · high effort", terminaltheme.StripStyles(harness.screen.statusIdentity(32)))
+	require.Equal(t, " openai-sdk · high effort", terminaltheme.StripStyles(harness.screen.statusIdentity(31)))
+	require.Equal(t, " openai-sdk · high effort", terminaltheme.StripStyles(harness.screen.statusIdentity(20)), "the row truncates it at its end")
+}
+
 func TestHelpAndCompletionListEffort(t *testing.T) {
 	harness := newSettingsHarness(t, settingsSession())
 	harness.typeText("/ef")

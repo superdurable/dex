@@ -368,7 +368,7 @@ func (screen *ChatScreen) renderStatusBar(width int, now time.Time, spinnerFrame
 
 // statusIdentity is the session row's left part: the command, model,
 // reasoning effort, and workspace. A row too wide for width that shows an
-// effort drops the workspace, then shortens the model, to keep the effort.
+// effort drops the workspace, then shortens or drops the model, to keep it.
 func (screen *ChatScreen) statusIdentity(width int) string {
 	separator := screen.theme.Secondary.Render(screen.theme.Symbols.Separator)
 	effort := ""
@@ -389,15 +389,18 @@ func (screen *ChatScreen) statusIdentity(width int) string {
 	}
 	identity = join(model, "")
 	overflow := terminaltheme.DisplayWidth(identity) - width
-	modelWidth := terminaltheme.DisplayWidth(model) - overflow
-	if overflow <= 0 || modelWidth < minimumStatusModelWidth {
+	if overflow <= 0 {
 		return identity
 	}
-	return join(terminaltheme.TruncateToWidth(model, modelWidth, screen.theme.Symbols.Ellipsis), "")
+	if modelWidth := terminaltheme.DisplayWidth(model) - overflow; modelWidth >= minimumStatusModelWidth {
+		return join(terminaltheme.TruncateToWidth(model, modelWidth, screen.theme.Symbols.Ellipsis), "")
+	}
+	// The row truncates at its end when even the command and effort do not fit.
+	return join("", "")
 }
 
 // minimumStatusModelWidth is the shortest model statusIdentity shortens to;
-// below it, the row truncates at its end as before.
+// below it, the row leaves the model out.
 const minimumStatusModelWidth = 4
 
 // fittingHints joins as many leading hints as fit in room cells.
