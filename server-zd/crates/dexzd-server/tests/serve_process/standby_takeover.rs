@@ -48,6 +48,13 @@ async fn aliyun_oss_waiting_standby_takes_over_without_losing_writes() {
         .await;
 }
 
+/// The same takeover with `objectStore.provider: tencentCOS`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tencent_cos_waiting_standby_takes_over_without_losing_writes() {
+    assert_waiting_standby_takes_over_without_losing_writes(TestObjectStoreProvider::TencentCos)
+        .await;
+}
+
 async fn assert_waiting_standby_takes_over_without_losing_writes(
     provider: TestObjectStoreProvider,
 ) {

@@ -11,8 +11,8 @@
 use std::sync::Arc;
 
 use dexzd_object_store::{
-    AliyunOssObjectStore, ObjectStore, S3ApiDialect, S3Credentials, S3ObjectStore,
-    S3ObjectStoreConfig, node_lease_object_key,
+    AliyunOssObjectStore, ObjectStore, S3Credentials, S3ObjectStore, S3ObjectStoreConfig,
+    node_lease_object_key,
 };
 use dexzd_protocol::dexzd::v1::{LogBatchHeader, NodeLease, SnapshotManifest};
 use prost::Message;
@@ -48,9 +48,9 @@ impl ObjectStoreInspector {
             secret_access_key: harness::SECRET_ACCESS_KEY.to_owned(),
             session_token: None,
         };
-        let is_aliyun_oss = provider == TestObjectStoreProvider::AliyunOss;
-        if is_aliyun_oss {
-            config.api_dialect = S3ApiDialect::AliyunOss;
+        let versioned_store_dialect = provider.versioned_store_dialect();
+        if let Some(dialect) = versioned_store_dialect {
+            config.api_dialect = dialect;
         }
         let store: Arc<dyn ObjectStore> = Arc::new(
             S3ObjectStore::new(config)
@@ -58,7 +58,7 @@ impl ObjectStoreInspector {
                 .expect("the inspection store is configured"),
         );
         Self {
-            store: if is_aliyun_oss {
+            store: if versioned_store_dialect.is_some() {
                 Arc::new(AliyunOssObjectStore::new(store))
             } else {
                 store

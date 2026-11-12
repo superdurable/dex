@@ -34,6 +34,8 @@ mod standby_health;
 mod standby_takeover;
 mod startup_calls;
 mod stream_store_backend;
+mod tencent_cos_provider;
+mod tencent_cos_real_bucket;
 
 use std::time::Duration;
 

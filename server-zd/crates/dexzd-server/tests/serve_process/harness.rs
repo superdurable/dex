@@ -153,7 +153,23 @@ impl S3Emulator {
 
     /// Returns every key in `bucket` that starts with `prefix`, in key order.
     pub(crate) fn keys_under(&self, bucket: &str, prefix: &str) -> Vec<String> {
-        let mut keys = Vec::new();
+        self.objects_under(bucket, prefix)
+            .into_iter()
+            .map(|object| object.key)
+            .collect()
+    }
+
+    /// Returns the keys of the zero-byte objects in `bucket` that start with `prefix`.
+    pub(crate) fn empty_object_keys_under(&self, bucket: &str, prefix: &str) -> Vec<String> {
+        self.objects_under(bucket, prefix)
+            .into_iter()
+            .filter(|object| object.record.size == 0)
+            .map(|object| object.key)
+            .collect()
+    }
+
+    fn objects_under(&self, bucket: &str, prefix: &str) -> Vec<s3local::ListedObject> {
+        let mut objects = Vec::new();
         let mut continuation_token = None;
         loop {
             let page = self
@@ -169,9 +185,9 @@ impl S3Emulator {
                     },
                 )
                 .expect("the emulator lists objects");
-            keys.extend(page.objects.into_iter().map(|object| object.key));
+            objects.extend(page.objects);
             if !page.is_truncated {
-                return keys;
+                return objects;
             }
             continuation_token = page.next_continuation_token;
         }
@@ -264,6 +280,7 @@ async fn serve_emulator_store(
 pub(crate) enum TestObjectStoreProvider {
     S3,
     AliyunOss,
+    TencentCos,
 }
 
 impl TestObjectStoreProvider {
@@ -271,12 +288,30 @@ impl TestObjectStoreProvider {
         match self {
             Self::S3 => S3ApiDialect::AmazonS3,
             Self::AliyunOss => S3ApiDialect::AliyunOss,
+            Self::TencentCos => S3ApiDialect::TencentCos,
+        }
+    }
+
+    /// Returns the dialect of the server's store, or `None` for s3, which needs no versioning.
+    pub(crate) fn versioned_store_dialect(self) -> Option<dexzd_object_store::S3ApiDialect> {
+        match self {
+            Self::S3 => None,
+            Self::AliyunOss => Some(dexzd_object_store::S3ApiDialect::AliyunOss),
+            Self::TencentCos => Some(dexzd_object_store::S3ApiDialect::TencentCos),
+        }
+    }
+
+    fn yaml_name(self) -> &'static str {
+        match self {
+            Self::S3 => "s3",
+            Self::AliyunOss => "aliyunOSS",
+            Self::TencentCos => "tencentCOS",
         }
     }
 
     /// Rewrites the configuration at `path`, written for s3, to select this provider.
     ///
-    /// Every store then drops `forcePathStyle`, which aliyunOSS rejects.
+    /// Every store then drops `forcePathStyle`, which aliyunOSS and tencentCOS reject.
     pub(crate) fn select_in_config(self, path: &Path) {
         if self == Self::S3 {
             return;
@@ -285,7 +320,10 @@ impl TestObjectStoreProvider {
         // The SDK addresses an IP endpoint path-style, so aliyunOSS needs no forcePathStyle.
         let selected = contents.replacen(
             "  forcePathStyle: true\n  credentialsSource: environment\n",
-            "  provider: aliyunOSS\n  credentialsSource: environment\n",
+            &format!(
+                "  provider: {}\n  credentialsSource: environment\n",
+                self.yaml_name()
+            ),
             1,
         );
         assert_ne!(

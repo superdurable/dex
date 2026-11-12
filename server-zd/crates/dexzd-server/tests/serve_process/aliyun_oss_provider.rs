@@ -574,7 +574,7 @@ async fn wait_until(budget: Duration, what: &str, condition: impl Fn() -> bool) 
 }
 
 /// Checks that only versions hold the mutable object keys, which the adapter manages.
-fn assert_versioned_layout(primary: &S3Emulator) {
+pub(super) fn assert_versioned_layout(primary: &S3Emulator) {
     let manifest_keys = primary.keys_under(PRIMARY_BUCKET, &format!("{PRIMARY_PREFIX}/manifest"));
     assert!(
         !manifest_keys.is_empty()
@@ -594,7 +594,7 @@ fn assert_versioned_layout(primary: &S3Emulator) {
     );
 }
 
-async fn assert_completed(
+pub(super) async fn assert_completed(
     flow_client: &mut FlowServiceClient<Channel>,
     acknowledged: &[(String, String)],
     process: &ServeProcess,
@@ -624,7 +624,7 @@ async fn assert_completed(
 
 /// Starts `flow_id` with `input` on the pull Worker, waits until it completes, and returns its
 /// run ID.
-async fn run_flow_with_input(
+pub(super) async fn run_flow_with_input(
     flow_client: &mut FlowServiceClient<Channel>,
     flow_id: &str,
     input: &str,
@@ -666,7 +666,7 @@ async fn run_flow_with_input(
 }
 
 /// Returns `length` letters and digits from a fixed linear congruential sequence.
-fn pseudo_random_text(length: usize) -> String {
+pub(super) fn pseudo_random_text(length: usize) -> String {
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let mut state: u64 = 0x2545_f491_4f6c_dd1d;
     (0..length)
@@ -680,7 +680,7 @@ fn pseudo_random_text(length: usize) -> String {
         .collect()
 }
 
-fn snapshot_manifest_keys(primary: &S3Emulator) -> Vec<String> {
+pub(super) fn snapshot_manifest_keys(primary: &S3Emulator) -> Vec<String> {
     primary
         .keys_under(
             PRIMARY_BUCKET,
@@ -692,7 +692,7 @@ fn snapshot_manifest_keys(primary: &S3Emulator) -> Vec<String> {
 }
 
 /// Returns the seq of the oldest retained incarnation-1 log batch, or 0 without one.
-fn first_log_seq(primary: &S3Emulator) -> u64 {
+pub(super) fn first_log_seq(primary: &S3Emulator) -> u64 {
     primary
         .keys_under(
             PRIMARY_BUCKET,
