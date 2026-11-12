@@ -434,8 +434,14 @@ recorded in the session.
 - The allow list matches whole commands: **ls -la** does not match **ls**.
 - A shell command runs with the system shell in the workspace, in its own
   process group, so Ctrl-C never reaches it. It times out after 120 seconds by
-  default and 600 seconds at most. A command whose Worker died while it ran
-  records **outcome_unknown** and never runs again.
+  default and 600 seconds at most; a timeout stops the whole group. When the
+  command ends, what it left running in the background in its group, such as
+  **sleep 30 &**, gets SIGTERM, and SIGKILL 0.5 seconds later. The result
+  holds the output that arrived until 1 second after the command ended. A
+  process that left the group, for example with **setsid**, is not stopped
+  and no longer delays the result. The exit code is the shell's own number. A
+  command whose Worker died while it ran records **outcome_unknown** and never
+  runs again.
 - The browser is headless Chromium: Playwright's own when installed, else the
   system Chrome, else a Chromium that Playwright downloads the first time a
   browser tool runs. It opens only http and https URLs. Each session has one

@@ -17,7 +17,7 @@ import signal
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol
+from typing import IO, Any, Protocol
 
 from dex_agents import ToolExecutionError
 from dex_agents_cli_core.process_exit import wait_until_exited
@@ -29,6 +29,9 @@ MAX_SHELL_TIMEOUT_SECONDS = 600
 _MAX_OUTPUT_CHARACTERS = 50_000
 # How long background processes a finished shell left may take to end after SIGTERM.
 _LEFT_BEHIND_GRACE_SECONDS = 0.5
+# How long after the shell exits its output may still arrive.
+_OUTPUT_AFTER_EXIT_SECONDS = 1.0
+_READ_BYTES = 65536
 
 
 class ShellProcessGroups(Protocol):
@@ -60,64 +63,33 @@ async def run_shell_command(
     """Run one command with ``/bin/sh -c`` in the workspace and report its output.
 
     The command gets its own process group, so the terminal's Ctrl-C never
-    reaches it, and a timeout kills the whole group. With ``process_groups``,
-    as in the terminal UI's Worker host, the group is registered until it is
-    gone: when the shell exits, the processes it left in the background get
-    SIGTERM, then SIGKILL, and only then is the shell reaped and released.
+    reaches it, and a timeout kills the whole group. When the shell exits, the
+    processes it left in its group, such as ``sleep 30 &``, get SIGTERM, then
+    SIGKILL 0.5 s later; only then is the shell reaped. The output is what the
+    pipes held 1 s after the shell exited, at the latest: a process that left
+    the group (``setsid``) and still holds them is not stopped and does not
+    hold up the result.
 
     Args:
         command: The command text.
         workspace: The working directory.
         timeout_seconds: Seconds before the command is killed.
-        process_groups: Where to register the command's process group, or ``None``.
+        process_groups: Where to register the command's process group, as the
+            terminal UI's Worker host does, or ``None`` to keep it here.
 
     .. versionchanged:: 0.6.0
-        Added ``process_groups``.
+        Added ``process_groups``. The processes a command leaves in its group
+        stop when it ends, and a process holding its output after it ends no
+        longer delays the result by more than 1 s.
 
     Returns:
-        The exit code, standard output, and standard error.
+        The exit code (the shell's own number, or the negative signal number
+        when a signal killed it), standard output, and standard error.
 
     Raises:
         ToolExecutionError: If the command times out or cannot start.
     """
-    if process_groups is not None:
-        return await _run_registered_shell_command(
-            command, workspace, timeout_seconds, process_groups
-        )
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "/bin/sh",
-            "-c",
-            command,
-            cwd=workspace,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
-    except OSError as error:
-        raise ToolExecutionError(f"cannot start the command: {error.strerror}") from error
-    try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout_seconds)
-    except (TimeoutError, asyncio.CancelledError) as error:
-        _kill_process_group(process.pid)
-        await process.wait()
-        if isinstance(error, asyncio.CancelledError):
-            raise
-        raise ToolExecutionError(
-            f"the command ran longer than {timeout_seconds} seconds"
-        ) from error
-    return _report(process.returncode, stdout, stderr)
-
-
-async def _run_registered_shell_command(
-    command: str, workspace: Path, timeout_seconds: int, process_groups: ShellProcessGroups
-) -> str:
-    """Run a command whose process group stays registered until it is gone.
-
-    The shell is never reaped before its group is cleaned, so its pid, which
-    is the group's ID, cannot be reused while anything may signal it.
-    """
+    groups = process_groups if process_groups is not None else _OwnedProcessGroups()
     try:
         process = subprocess.Popen(
             ["/bin/sh", "-c", command],
@@ -131,38 +103,101 @@ async def _run_registered_shell_command(
         raise ToolExecutionError(f"cannot start the command: {error.strerror}") from error
     # Synchronous, so no cancellation can come between the spawn and the registration.
     try:
-        process_groups.register(process.pid)
+        groups.register(process.pid)
     except BaseException:
         _kill_and_reap(process)
         raise
     assert process.stdout is not None and process.stderr is not None
-    output = asyncio.ensure_future(
-        asyncio.gather(
-            asyncio.to_thread(process.stdout.read), asyncio.to_thread(process.stderr.read)
-        )
-    )
+    loop = asyncio.get_running_loop()
+    outputs = (_PipeOutput(loop, process.stdout), _PipeOutput(loop, process.stderr))
+    output = asyncio.ensure_future(asyncio.gather(*(pipe.done for pipe in outputs)))
+    # The shell is never reaped before its group is cleaned, so its pid, which
+    # is the group's ID, cannot be reused while anything may signal it.
     exited = asyncio.ensure_future(asyncio.to_thread(wait_until_exited, process.pid))
     interruption: BaseException | None = None
     try:
         await asyncio.wait_for(asyncio.shield(exited), timeout_seconds)
     except (TimeoutError, asyncio.CancelledError) as stopped:
         interruption = stopped
-        process_groups.signal_group(process.pid, signal.SIGKILL)
+        groups.signal_group(process.pid, signal.SIGKILL)
     finally:
         # The shell is a zombie now, so its group ID stays reserved while the group is cleaned.
         await asyncio.shield(exited)
-        await _stop_group_left_behind(process.pid, output, process_groups)
-        stdout, stderr = await asyncio.shield(output)
+        output_deadline = loop.time() + _OUTPUT_AFTER_EXIT_SECONDS
+        await _stop_group_left_behind(process.pid, output, groups)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(output), max(0.0, output_deadline - loop.time()))
+        for pipe in outputs:
+            pipe.stop()
         process.stdout.close()
         process.stderr.close()
-        returncode = _release(process, process_groups)
+        returncode = _release(process, groups)
     if isinstance(interruption, asyncio.CancelledError):
         raise interruption
     if interruption is not None:
         raise ToolExecutionError(
             f"the command ran longer than {timeout_seconds} seconds"
         ) from interruption
-    return _report(returncode, stdout, stderr)
+    return _report(returncode, outputs[0].data(), outputs[1].data())
+
+
+class _OwnedProcessGroups:
+    """The process group of one command that nothing outside this call signals."""
+
+    def __init__(self) -> None:
+        self._released: set[int] = set()
+
+    def register(self, pid: int) -> None:
+        """Nothing to record: the group lives only as long as this call."""
+
+    def signal_group(self, pid: int, signal_number: int) -> bool:
+        """Signal the group while its leader is unreaped."""
+        if pid in self._released:
+            return False
+        try:
+            os.killpg(pid, signal_number)
+        except (ProcessLookupError, PermissionError):
+            return False
+        return True
+
+    def release(self, pid: int, reap: Callable[[], object]) -> None:
+        """Reap the leader; no signal follows."""
+        reap()
+        self._released.add(pid)
+
+
+class _PipeOutput:
+    """Collect one pipe on the event loop until EOF, or until ``stop``."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, pipe: IO[bytes]) -> None:
+        self._loop = loop
+        self._fd = pipe.fileno()
+        self._chunks: list[bytes] = []
+        self.done: asyncio.Future[None] = loop.create_future()
+        os.set_blocking(self._fd, False)
+        loop.add_reader(self._fd, self._read)
+
+    def data(self) -> bytes:
+        """Return what the pipe held so far."""
+        return b"".join(self._chunks)
+
+    def stop(self) -> None:
+        """Stop reading, whether or not the pipe reached EOF."""
+        if not self.done.done():
+            self._loop.remove_reader(self._fd)
+            self.done.set_result(None)
+
+    def _read(self) -> None:
+        try:
+            chunk = os.read(self._fd, _READ_BYTES)
+        except BlockingIOError:
+            return
+        except OSError:
+            chunk = b""
+        if chunk:
+            self._chunks.append(chunk)
+        else:
+            self.stop()
 
 
 async def _stop_group_left_behind(
@@ -205,12 +240,6 @@ def _report(returncode: int | None, stdout: bytes, stderr: bytes) -> str:
     if stderr:
         sections.append("stderr:\n" + _truncate(stderr.decode("utf-8", errors="replace")))
     return "\n".join(sections)
-
-
-def _kill_process_group(pid: int) -> None:
-    # The group may be gone already when the command exits during the timeout.
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(pid, signal.SIGKILL)
 
 
 def _truncate(text: str) -> str:
