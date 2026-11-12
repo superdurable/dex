@@ -226,6 +226,12 @@ so each call is a Dex tool Step with the server's effect class, approval,
 idempotency key, and tasks. The agent sees each tool by its MCP name, such as
 `slack_post_thread_reply`, without a server prefix, and `approval.always`
 names it the same way.
+A call that waits for approval carries the display of
+`build_connector_tool_approval_display` in `AgentInterrupt.display`: the
+target `<connector>/<connection>` and a summary with the operation, the
+connection, and up to five short arguments, credential-like ones as
+`<redacted>`, read from the tool's `_meta`. A tool whose `_meta` names no
+connector and connection has no display.
 
 `connectors.enabled` filters by connector, connection, and operation. The
 CLI core reads them from the top-level `_meta` keys of each tool, which
@@ -361,6 +367,31 @@ These checks have limits:
   the browser tools take no screenshots. After a Worker restart a
   session has no page until the agent navigates again.
 - `approval.always` adds approval to any tool by name.
+- An approval says what the call acts on in `AgentInterrupt.display`. A file
+  write's target is its workspace path, and its preview is a unified diff of
+  the file as it is when the model asks against the new content, with the
+  header lines `--- <path> (the file now)` and `+++ <path> (after this write)`
+  (`--- /dev/null (no file now)` for a new file) and
+  `\ No newline at end of file` where a side lacks its last newline. A path's
+  control characters show as `\u00XX`. The preview reads the file with the
+  write's own checks, so it never follows a final link and gives no text when
+  the path changes during the read. It is left out for a file or new content
+  over 64 KiB, a diff over 200 lines, a path the write would refuse, a file
+  that is not UTF-8, an `edit_file` whose `old_text` does not occur once, a
+  side the best-effort credential redaction changes, such as one with
+  `password: …`, `key=value`, or an escaped name such as `pass\u0077ord`,
+  and a credential file
+  such as `.env`, `.aws/credentials`, `.kube/config`, `id_ed25519`,
+  `server.pem`, or `secrets.yaml`. A shell command's target is the working
+  directory, and its summary holds the command with common credential shapes
+  redacted and its control characters written as `\u00XX`, cut at 2 KiB;
+  nothing in it is decoded or rewritten otherwise, and the call's
+  arguments keep the full command. Paths, the working directory, and
+  connection names in a display get the same redaction. Browser actions have
+  no display. The redaction is best-effort hygiene, not a security boundary:
+  the session stores the call's full arguments, and the agent can read the
+  file with its own tools. `agents/conformance/approval_display.json` lists
+  the cases both CLI cores share.
 - Each tool's effect and approval are a floor. An explicit `ToolPolicy` in
   the session options may make a tool more cautious, such as a `read` that
   must be approved, but never less: a write stays a write, and

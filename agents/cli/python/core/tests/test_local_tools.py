@@ -27,7 +27,9 @@ from typing import Any
 import pytest
 
 from dex_agents import (
+    MAX_APPROVAL_SUMMARY_BYTES,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentSessionClient,
     AgentSnapshot,
     MessageRole,
@@ -366,6 +368,152 @@ async def test_a_listed_shell_command_runs_at_once_and_another_waits_for_approva
     assert await sessions.resolve_interrupt(unlisted, interrupt.interrupt_id, approved=True)
     outputs = tool_outputs(await wait_for_turn_end(sessions, unlisted))
     assert outputs == [("run_shell_command", "exit code 0\nstdout:\nallowed\n")]
+
+
+async def approval_display_of(
+    sessions: AgentSessionClient, tool_name: str, arguments: dict[str, Any]
+) -> AgentInterruptDisplay | None:
+    """Request one call, read its approval's display, and reject it."""
+    session_id = await start_turn(sessions, f"call {tool_name} {json.dumps(arguments)}")
+    interrupt = await wait_for_approval(sessions, session_id, tool_name)
+    assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=False)
+    await wait_for_turn_end(sessions, session_id)
+    return interrupt.display
+
+
+async def test_a_file_write_approval_carries_a_diff_against_the_file_now(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    sessions, workspace = local_tools_stack.sessions, local_tools_stack.workspace
+    (workspace / "display").mkdir()
+    (workspace / "display" / "today.txt").write_text("one\ntwo\nthree\n")
+
+    written = await approval_display_of(
+        sessions, "write_file", {"path": "display/today.txt", "content": "one\nTWO\nthree\n"}
+    )
+    assert written == AgentInterruptDisplay(
+        target="display/today.txt",
+        summary="Writes 14 bytes to display/today.txt.",
+        preview="--- display/today.txt (the file now)\n"
+        "+++ display/today.txt (after this write)\n"
+        "@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n",
+    )
+    created = await approval_display_of(
+        sessions, "write_file", {"path": "display/new/draft.md", "content": "# Title\n"}
+    )
+    assert created == AgentInterruptDisplay(
+        target="display/new/draft.md",
+        summary="Writes 8 bytes to display/new/draft.md.",
+        preview="--- /dev/null (no file now)\n+++ display/new/draft.md (after this write)\n"
+        "@@ -0,0 +1 @@\n+# Title\n",
+    )
+    edited = await approval_display_of(
+        sessions,
+        "edit_file",
+        {"path": "display/today.txt", "old_text": "three", "new_text": "3"},
+    )
+    assert edited == AgentInterruptDisplay(
+        target="display/today.txt",
+        summary="Replaces 5 bytes with 1 byte in display/today.txt.",
+        preview="--- display/today.txt (the file now)\n"
+        "+++ display/today.txt (after this write)\n"
+        "@@ -1,3 +1,3 @@\n one\n two\n-three\n+3\n",
+    )
+    missing = await approval_display_of(
+        sessions,
+        "edit_file",
+        {"path": "display/today.txt", "old_text": "absent", "new_text": "x"},
+    )
+    assert missing is not None
+    assert missing.preview is None
+
+
+async def test_a_shell_command_approval_carries_the_full_command_and_its_directory(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    command = "npm test -- --watch=false"
+    display = await approval_display_of(
+        local_tools_stack.sessions, "run_shell_command", {"command": command}
+    )
+    workspace = str(local_tools_stack.workspace)
+    assert display == AgentInterruptDisplay(
+        target=workspace, summary=f"Runs a shell command in {workspace}: {command}"
+    )
+
+
+async def test_a_shell_command_approval_redacts_inline_credentials_and_cuts_a_long_command(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    sessions = local_tools_stack.sessions
+    workspace = str(local_tools_stack.workspace)
+    secret_command = (
+        'curl -H "Authorization: Bearer abc123456" https://ci:hunter2@api.example.com?token=t1'
+    )
+    session_id = await start_turn(
+        sessions, "call run_shell_command " + json.dumps({"command": secret_command})
+    )
+    interrupt = await wait_for_approval(sessions, session_id, "run_shell_command")
+    assert interrupt.display is not None
+    assert interrupt.display.summary == (
+        f"Runs a shell command in {workspace}: "
+        'curl -H "Authorization: Bearer <redacted>" '
+        "https://ci:<redacted>@api.example.com?token=<redacted>"
+    )
+    # The display redacts; the arguments keep the full command.
+    assert json.loads(interrupt.arguments)["command"] == secret_command
+    assert await sessions.resolve_interrupt(session_id, interrupt.interrupt_id, approved=False)
+    await wait_for_turn_end(sessions, session_id)
+
+    long_command = "echo " + "x" * (20 * 1024)
+    display = await approval_display_of(sessions, "run_shell_command", {"command": long_command})
+    assert display is not None
+    assert len(display.summary.encode("utf-8")) == MAX_APPROVAL_SUMMARY_BYTES
+    assert display.summary.endswith("…")
+
+
+async def test_a_write_preview_is_left_out_when_too_large_secret_or_outside(
+    local_tools_stack: LocalToolsStack,
+) -> None:
+    sessions, workspace = local_tools_stack.sessions, local_tools_stack.workspace
+    outside = local_tools_stack.outside
+    (outside / "preview-secret.txt").write_text("outside secret\n")
+    (workspace / "preview-link.txt").symlink_to(outside / "preview-secret.txt")
+    (workspace / ".env").write_text("API_KEY=old-value\n")
+
+    huge = await approval_display_of(
+        sessions, "write_file", {"path": "huge.txt", "content": "x" * (70 * 1024)}
+    )
+    assert huge == AgentInterruptDisplay(
+        target="huge.txt", summary=f"Writes {70 * 1024} bytes to huge.txt."
+    )
+    many_lines = "\n".join(f"line {index}" for index in range(300))
+    long = await approval_display_of(
+        sessions, "write_file", {"path": "long.txt", "content": many_lines}
+    )
+    assert long is not None
+    assert long.preview is None
+    secret = await approval_display_of(
+        sessions, "write_file", {"path": ".env", "content": "API_KEY=new-value\n"}
+    )
+    assert secret == AgentInterruptDisplay(target=".env", summary="Writes 18 bytes to .env.")
+    linked = await approval_display_of(
+        sessions, "write_file", {"path": "preview-link.txt", "content": "x"}
+    )
+    assert linked == AgentInterruptDisplay(
+        target="preview-link.txt", summary="Writes 1 byte to preview-link.txt."
+    )
+    with_secret = await approval_display_of(
+        sessions,
+        "write_file",
+        {"path": "notes/settings.json", "content": '{"credentials": "topsecret"}\n'},
+    )
+    assert with_secret is not None
+    assert with_secret.preview is None
+    secrets_file = await approval_display_of(
+        sessions, "write_file", {"path": "config/secrets.yaml", "content": "a: 1\n"}
+    )
+    assert secrets_file is not None
+    assert secrets_file.preview is None
 
 
 async def test_a_shell_command_is_not_run_again_after_the_worker_dies_during_it(

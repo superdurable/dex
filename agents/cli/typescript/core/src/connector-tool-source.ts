@@ -8,6 +8,7 @@
 
 import {
   ToolExecutionError,
+  buildConnectorToolApprovalDisplay,
   type AgentToolCall,
   type AgentTurnContext,
   type DeferredToolCall,
@@ -268,7 +269,9 @@ export class ConnectorsMcpToolSource implements ToolSource {
   }
 
   /**
-   * Builds the deferred call, with the turn's approval rules.
+   * Builds the deferred call, with the turn's approval rules. A call that needs approval and whose tool's `_meta`
+   * names its connector and connection carries their names, the operation, and the short arguments as its
+   * approval display (see `buildConnectorToolApprovalDisplay`).
    * @param turn - The `RunModel` context.
    * @param call - The model's call.
    * @param approvalToolName - The name `approval.always` matches; defaults to `call.toolName`. A wrapper that offers
@@ -315,14 +318,22 @@ export class ConnectorsMcpToolSource implements ToolSource {
               operationName: identity.operationName,
             },
     };
+    const requiresApproval = inner.policy.requiresApproval || turnConfig.approval.always.includes(approvalToolName);
     return {
       ...inner,
       toolSourceReference: JSON.stringify(reference),
       toolName: call.toolName,
-      policy: {
-        effect: inner.policy.effect,
-        requiresApproval: inner.policy.requiresApproval || turnConfig.approval.always.includes(approvalToolName),
-      },
+      policy: { effect: inner.policy.effect, requiresApproval },
+      ...(requiresApproval && identity !== undefined
+        ? {
+            approvalDisplay: buildConnectorToolApprovalDisplay({
+              connectorId: identity.connector,
+              connectionName: identity.connection,
+              operation: identity.operation ?? identity.operationName ?? call.toolName,
+              arguments: call.arguments,
+            }),
+          }
+        : {}),
     };
   }
 

@@ -31,6 +31,7 @@
       {
         "input": {
           "record": {
+            "approval_display": null,
             "arguments": "{\"query\": \"7\"}",
             "cancellation_reason": null,
             "deferral_order": 0,
@@ -67,6 +68,7 @@
       {
         "input": {
           "record": {
+            "approval_display": null,
             "arguments": "{\"query\": \"7\"}",
             "cancellation_reason": null,
             "deferral_order": 0,
@@ -103,6 +105,7 @@
       {
         "input": {
           "record": {
+            "approval_display": null,
             "arguments": "{\"query\": \"7\"}",
             "cancellation_reason": null,
             "deferral_order": 0,
@@ -139,6 +142,7 @@
       {
         "input": {
           "record": {
+            "approval_display": null,
             "arguments": "{\"query\": \"7\"}",
             "cancellation_reason": null,
             "deferral_order": 0,
@@ -175,6 +179,7 @@
       {
         "input": {
           "record": {
+            "approval_display": null,
             "arguments": "{\"query\": \"7\"}",
             "cancellation_reason": null,
             "deferral_order": 0,
@@ -211,6 +216,7 @@
       {
         "input": {
           "record": {
+            "approval_display": null,
             "arguments": "{\"query\": \"7\"}",
             "cancellation_reason": null,
             "deferral_order": 0,
@@ -247,6 +253,7 @@
       {
         "input": {
           "record": {
+            "approval_display": null,
             "arguments": "{\"query\": \"7\"}",
             "cancellation_reason": null,
             "deferral_order": 0,
@@ -286,6 +293,7 @@
         "input": {
           "records": [
             {
+              "approval_display": null,
               "arguments": "{\"amount\": 5}",
               "cancellation_reason": null,
               "deferral_order": 2,
@@ -317,6 +325,7 @@
               "write_queued": false
             },
             {
+              "approval_display": null,
               "arguments": "{\"query\": \"7\"}",
               "cancellation_reason": null,
               "deferral_order": 0,
@@ -348,6 +357,7 @@
               "write_queued": false
             },
             {
+              "approval_display": null,
               "arguments": "{}",
               "cancellation_reason": null,
               "deferral_order": 3,
@@ -379,6 +389,7 @@
               "write_queued": false
             },
             {
+              "approval_display": null,
               "arguments": "{\"to\": \"ops\"}",
               "cancellation_reason": null,
               "deferral_order": 1,
@@ -419,6 +430,7 @@
         "input": {
           "records": [
             {
+              "approval_display": null,
               "arguments": "{\"amount\": 5}",
               "cancellation_reason": null,
               "deferral_order": 2,
@@ -450,6 +462,7 @@
               "write_queued": false
             },
             {
+              "approval_display": null,
               "arguments": "{\"query\": \"7\"}",
               "cancellation_reason": null,
               "deferral_order": 0,
@@ -490,6 +503,7 @@
         "input": {
           "records": [
             {
+              "approval_display": null,
               "arguments": "{}",
               "cancellation_reason": null,
               "deferral_order": 3,
@@ -521,6 +535,7 @@
               "write_queued": false
             },
             {
+              "approval_display": null,
               "arguments": "{\"to\": \"ops\"}",
               "cancellation_reason": null,
               "deferral_order": 1,

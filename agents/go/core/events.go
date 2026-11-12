@@ -44,7 +44,7 @@ const (
 	AgentEventTypeToolCallDeferred AgentEventType = "tool_call_deferred"
 	// AgentEventTypeInterruptRaised means a tool call waits for approval. Payload
 	// {"interrupt_id", "tool_call_id", "tool_name", "deadline", "kind", "question", "choices",
-	// "allows_free_text"}.
+	// "allows_free_text", "display"}; "display" is null when the source gave none, since 0.6.0.
 	AgentEventTypeInterruptRaised AgentEventType = "interrupt_raised"
 	// AgentEventTypeInterruptResolved means an interrupt was answered or expired. Payload
 	// {"interrupt_id", "approved", "rejection_message", "kind", "answered", "cancellation_reason"}.

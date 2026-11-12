@@ -221,7 +221,12 @@ export class FakeConnectorsMcpServer {
       "slack_post_thread_reply",
       {
         description: "Reply in a Slack thread.",
-        inputSchema: { text: z.string() },
+        inputSchema: {
+          text: z.string(),
+          channel: z.string().optional(),
+          token: z.string().optional(),
+          body: z.string().optional(),
+        },
         _meta: identityMeta("slack", this.slackConnection, "postThreadReply"),
       },
       (toolArguments, extra) => {

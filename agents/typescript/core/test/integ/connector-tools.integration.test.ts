@@ -440,6 +440,12 @@ describe("connector tools on a Dex engine", () => {
     const interrupt = await sessions.waitForPendingInterrupt(sessionId);
     assert.equal(interrupt.toolCallId, "call-1");
     assert.equal(harness.ledger.writes("postNote").length, 1);
+    // The queued write raises its approval with the display its source built when the model asked.
+    assert.deepEqual(interrupt.display, {
+      target: "fake-ledger/test-ledger",
+      summary: 'Calls fake-ledger createPayout with connection test-ledger; accountId: "a-1", amount: 5.',
+      preview: null,
+    });
 
     // A rejected approval stops the later writes too.
     assert.equal(await sessions.resolveInterrupt(sessionId, "call-1", false), true);
