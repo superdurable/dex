@@ -183,7 +183,13 @@ class DeepAgentsHarness:
             tool_sources=deep_agents_tool_sources(context.tool_sources),
             select_turn_chat_model=TurnChatModelSelector(file_model),
         )
-        return AgentSessionFlow(runner, flow_type=context.flow_type, options=AgentSessionOptions())
+        return AgentSessionFlow(
+            runner,
+            flow_type=context.flow_type,
+            options=AgentSessionOptions(
+                summary_attributes_indexed=context.is_session_summary_indexed
+            ),
+        )
 
 
 def build_deep_agent(file_model: str, workspace: Path) -> Any:

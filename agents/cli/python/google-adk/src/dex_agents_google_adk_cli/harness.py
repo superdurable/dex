@@ -91,6 +91,7 @@ class GoogleAdkHarness:
             flow_type=context.flow_type,
             tool_sources=context.tool_sources,
             media_store=context.media_store,
+            summary_attributes_indexed=context.is_session_summary_indexed,
         )
 
 

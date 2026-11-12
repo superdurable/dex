@@ -1307,6 +1307,48 @@ for interrupt in snapshot.pending_interrupts:
   without a display, and every approval a Worker before 0.6.0 raised, has
   `display` `None`: show the concrete arguments, not a guessed effect.
 
+## Listing sessions
+
+Since 0.6.0, a session can keep a summary that a session list needs: its
+title, the first 80 Unicode code points of the first user message; the time its
+latest turn started or ended; and its turn count. Turn it on with
+`AgentSessionOptions(summary_attributes_indexed=True)`; it is off by default.
+`list_agent_sessions` reads one page of sessions in one
+`AsyncClient.search_flows` call, without a snapshot per session and without a
+running Worker:
+
+```python
+page = await list_agent_sessions(client, flow.get_flow_type(), title_search="refund")
+for session in sort_agent_sessions_by_last_activity(page.sessions):
+    print(session.session_id, session.title or "—", session.last_activity_at, session.turn_count)
+```
+
+- Dex returns running sessions first, then the most recently closed and
+  started ones. It cannot sort by last activity, so
+  `sort_agent_sessions_by_last_activity` sorts the sessions you loaded.
+- `title_search` matches whole words of the title, without case: `flaky`
+  finds "Fix the flaky test", `flak` does not. Pass the same `title_search`
+  with each `next_page_token`.
+- A session without the option, or one that an earlier release started,
+  lists without the summary, and a title search never finds it. An earlier
+  session gains the last activity time and the turn count at its next turn on
+  a Worker with the option. Show each missing value as a dash. Until a Worker
+  with the option has started on the server, a title search raises
+  `SessionTitleSearchUnavailableError`.
+- A session that fails because its state would exceed the server's limit can
+  keep the values of its last turn start.
+- Privacy: the title is the user's own text, and anyone who can search the
+  namespace's Flows reads it. Turn the option on only when the first message
+  may be stored in the search index.
+- The three Attributes are indexed under `text1` (FULL_TEXT), `datetime1`
+  (DATETIME), and `int1` (INT), the generic keys that every Flow type of a
+  namespace shares. A Worker with the option registers them when it starts.
+  With PostgreSQL search, a namespace has three keys of each of these types;
+  the Worker fails to start with `FAILED_PRECONDITION` when the namespace
+  registered one of these keys with another type, or when all three keys of
+  the type are taken by other names. Search queries of other Flow types must
+  filter on `FlowType`.
+
 ## Showing sessions in Dex Web
 
 Dex Web draws a session and offers its Actions from the session Flow
@@ -1423,6 +1465,9 @@ Persistence, shared by every agent Flow type and exported from `dex_agents`:
 | `PlanExecutions` | ChannelMap `PLAN_EXECUTIONS`, key `plan_execution_key(revision)` (decimal) | `PlanExecutionRequest` |
 | `PendingPlanExecution` | Attribute `PENDING_PLAN_EXECUTION` | `PlanExecutionRequest` that `execute_plan` accepted and `AwaitUserMessage` has not consumed |
 | `ContextSummary` | Attribute `CONTEXT_SUMMARY` | `ContextSummary`, set once the session compacts |
+| `AgentSessionTitle` | Attribute `AGENT_SESSION_TITLE`, indexed FULL_TEXT `text1`; only with `summary_attributes_indexed` | `str`, the first user message's title; set by the first turn only |
+| `AgentSessionLastActivityAt` | Attribute `AGENT_SESSION_LAST_ACTIVITY_AT`, indexed DATETIME `datetime1`; only with `summary_attributes_indexed` | `str`, RFC 3339 time the latest turn started or ended |
+| `AgentSessionTurnCount` | Attribute `AGENT_SESSION_TURN_COUNT`, indexed INT `int1`; only with `summary_attributes_indexed` | `int`, `AgentState.turn_count` as of the latest turn start or end |
 | `AgentEvents` | Stream `flow.agent_events`, one per Flow type | `AgentEvent` |
 
 `AgentState.status` is `waiting_for_user_message`, `running_model`,

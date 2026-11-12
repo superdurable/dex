@@ -31,8 +31,9 @@ from the user message:
   once through ``ToolCallsRequested.new_messages``, which this runner may not do.
 
 The released 0.1.0 Worker imports this module too, so it uses only the 0.1.0
-API unless ``SCRIPTED_AGENT_BUILT_IN_TOOLS`` enables built-in tools or
-``SCRIPTED_AGENT_MESSAGE_WINDOW`` sets ``<window size>,<chunk size>``.
+API unless ``SCRIPTED_AGENT_BUILT_IN_TOOLS`` enables built-in tools,
+``SCRIPTED_AGENT_MESSAGE_WINDOW`` sets ``<window size>,<chunk size>``, or
+``SCRIPTED_AGENT_SUMMARY_INDEXED`` turns on the indexed session summary.
 
 Every tool accepts ``"gate"``, which waits at that ``FileGate`` first,
 ``"fail_attempts"``, which raises on attempts up to that number, and
@@ -81,6 +82,7 @@ SPEND_LIMIT_ENVIRONMENT_VARIABLE = "TEST_AGENT_SPEND_LIMIT"
 SPEND_LIMIT_TIMEOUT_ENVIRONMENT_VARIABLE = "TEST_AGENT_SPEND_LIMIT_TIMEOUT_SECONDS"
 BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_BUILT_IN_TOOLS"
 MESSAGE_WINDOW_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_MESSAGE_WINDOW"
+SUMMARY_INDEXED_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_SUMMARY_INDEXED"
 INVOCATION_LOG_NAME = "invocations.log"
 IDEMPOTENCY_KEY_LOG_NAME = "idempotency-keys.log"
 SESSION_SETTINGS_LOG_NAME = "session-settings.log"
@@ -330,6 +332,8 @@ def build_scripted_agent_flow(
         from dex_agents import BuiltInTool
 
         options["built_in_tools"] = frozenset(BuiltInTool(name) for name in built_in_tool_names)
+    if os.environ.get(SUMMARY_INDEXED_ENVIRONMENT_VARIABLE):
+        options["summary_attributes_indexed"] = True
     if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE):
         # Imported here, so the released 0.1.0 Worker can load this module.
         from dex_agents import session_flow

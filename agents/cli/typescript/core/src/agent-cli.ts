@@ -17,8 +17,11 @@ import { format, parseArgs } from "node:util";
 import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
   LocalDirectoryMediaStore,
+  listAgentSessions,
   sessionFlowDefinitionDocument,
+  sortAgentSessionsByLastActivity,
   startAgentSession,
+  type AgentSessionSummary,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type DeferredToolOutcome,
@@ -33,6 +36,7 @@ import {
   ConfigError,
   canonicalOperationName,
   isCoveredByConnectorEntry,
+  isSessionSummaryIndexed,
   type EffectiveConfig,
   type MediaConfig,
 } from "./cli-config.js";
@@ -74,8 +78,9 @@ import { TurnConfigResolver } from "./turn-config-resolver.js";
 
 const subcommands = ["run", "init", "connectors", "sessions"] as const;
 type Subcommand = (typeof subcommands)[number];
-const sessionsPageSize = 50;
 const blobCacheBytes = 256 * 1024 * 1024;
+/** Most pages of 50 sessions that the `sessions` subcommand loads before it sorts them. */
+const sessionListMaxPages = 5;
 
 /**
  * The process a command runs in: its arguments, streams, environment, and whether a person is at a terminal.
@@ -114,6 +119,33 @@ export function processAgentCliIo(): AgentCliIo {
     isInteractive: process.stdin.isTTY === true && process.stdout.isTTY === true,
     environment: process.env,
   };
+}
+
+const sessionSummaryAttributeNames: ReadonlySet<string> = new Set([
+  "AgentSessionTitle",
+  "AgentSessionLastActivityAt",
+  "AgentSessionTurnCount",
+]);
+
+/** Refuses a harness Flow whose declared indexed session summary differs from the file's `sessions.summary`. */
+function requireSessionSummarySetting(
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
+  isExpected: boolean,
+): void {
+  // The persistence schema decides what the Worker registers; the option must agree with it.
+  const declaredCount = (flow.getPersistenceSchema?.()?.attributes ?? []).filter(
+    (definition) => sessionSummaryAttributeNames.has(definition.name) && definition.index !== undefined,
+  ).length;
+  const isOptionOn = flow.options.summaryAttributesIndexed === true;
+  if (declaredCount === (isExpected ? sessionSummaryAttributeNames.size : 0) && isOptionOn === isExpected) {
+    return;
+  }
+  throw new Error(
+    `sessions.summary says the session Flow must ${isExpected ? "keep" : "leave out"} the indexed session summary, ` +
+      `but the harness built it declaring ${declaredCount} of its ${sessionSummaryAttributeNames.size} indexed ` +
+      `Attributes with summaryAttributesIndexed ${String(isOptionOn)}; the harness must pass ` +
+      "HarnessContext.isSessionSummaryIndexed",
+  );
 }
 
 /**
@@ -350,11 +382,13 @@ class AgentCliCommand {
       harnessOptions: effective.harness_options,
       toolSources,
       mediaStore,
+      isSessionSummaryIndexed: isSessionSummaryIndexed(effective),
       resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
       currentTurn: () => turns.currentTurn(),
       resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
     };
     const flow = this.harness.createSessionFlow(context);
+    requireSessionSummarySetting(flow, context.isSessionSummaryIndexed === true);
     if (flow.getFlowType() !== flowType) {
       throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
     }
@@ -652,13 +686,37 @@ class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     });
-    const page = await this.client.searchFlows(`FlowType = "${flowType}"`, sessionsPageSize);
-    if (page.flows.length === 0) {
+    const loadedSessions: AgentSessionSummary[] = [];
+    let nextPageToken = "";
+    for (let pageNumber = 0; pageNumber < sessionListMaxPages; pageNumber += 1) {
+      const page = await listAgentSessions(this.client, flowType, { nextPageToken });
+      loadedSessions.push(...page.sessions);
+      nextPageToken = page.nextPageToken;
+      if (nextPageToken === "") {
+        break;
+      }
+    }
+    if (loadedSessions.length === 0) {
       this.io.stdout.write(`No ${flowType} sessions.\n`);
       return 0;
     }
-    for (const flow of page.flows) {
-      this.io.stdout.write(`${flow.flowId}\t${flow.status}\t${flow.startedAt.toISOString()}\n`);
+    // A session an earlier release started has no summary fields; "—" stands for each one.
+    for (const session of sortAgentSessionsByLastActivity(loadedSessions)) {
+      const columns = [
+        session.sessionId,
+        session.status,
+        session.startedAt.toISOString(),
+        session.lastActivityAt?.toISOString() ?? "—",
+        session.turnCount === null ? "—" : String(session.turnCount),
+        session.title ?? "—",
+      ];
+      this.io.stdout.write(`${columns.join("\t")}\n`);
+    }
+    if (nextPageToken !== "") {
+      this.io.stdout.write(
+        `More sessions exist; this list sorts the first ${loadedSessions.length} that Dex returns: ` +
+          "running sessions first, then the most recently closed and started.\n",
+      );
     }
     this.io.stdout.write(`Resume one with: dex-agents-${this.harness.name} --resume <session>\n`);
     return 0;

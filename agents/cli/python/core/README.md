@@ -105,6 +105,26 @@ exits. Ctrl-C while idle, Ctrl-D, and `/exit` also exit. Exiting never ends the
 session: it stays in Dex, and the command prints the `--resume` line that
 continues it. New sessions are named `<name>-YYYYMMDD-HHMMSS-<6 hex digits>`.
 
+`sessions` loads up to five pages of 50 sessions, sorts them by last activity,
+and says when more sessions exist. It prints one per line: the ID, the
+status, the start time, and, when the session has them, the time of its
+latest turn, its turn count, and its title, the first 80 Unicode code points
+of the first message. `sessions.summary` in the configuration file decides
+whether the session Flow keeps that summary (`summary_attributes_indexed`):
+`auto`, the default, keeps it only with `dex.server: auto`, because a Dex
+server URL may be shared; `on` keeps it with any server; `off` never. The CLI
+core passes the result to the harness as
+`HarnessContext.is_session_summary_indexed`, and the harness builds its Flow
+with `summary_attributes_indexed` set to it. The command refuses to start when
+the Flow's persistence schema, or its `options.summary_attributes_indexed`,
+differs, so a custom harness must honor the field. The check verifies what the
+Flow declares; it does not sandbox harness code. A session that a release before 0.6.0 started has no title,
+and has no time or turn count until its next turn:
+
+```text
+builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  Find open issues about flaky tests
+```
+
 ## The Dex server
 
 `dex.server: auto` looks at the configured ports, 127.0.0.1:8801 for Dex and
