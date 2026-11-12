@@ -41,6 +41,7 @@ const sidebars: SidebarsConfig = {
       // Each framework is a tab on these pages. The built-in loop comes last because most agents use a framework.
       items: [
         'agent-frameworks/quick-start',
+        'agent-frameworks/in-your-app',
         'agent-frameworks/sessions',
         'agent-frameworks/tool-calls',
         'agent-frameworks/approvals',

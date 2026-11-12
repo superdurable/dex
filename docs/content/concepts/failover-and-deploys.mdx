@@ -101,15 +101,10 @@ publish to its Channel or skip its Timer, or start a new Flow.
 
 ## An ASYNC Step's start or result is lost
 
-An ASYNC Step moves on before Dex saves its start. If the node fails first, the
-same attempt runs again on a new state snapshot, so it can read different
-Attribute values.
-
-If the node fails before an ASYNC result is saved, the result is lost. The
-Step runs again, and so does work that started from that result. That repeat
-stops at the first SYNC Step. Dex writes a Flow's commands to its log in
-order, so a SYNC Step's stored start means every earlier result of that Flow is
-stored too. See [SYNC and ASYNC Steps](/concepts/step#sync-and-async).
+If a node fails before it saves an ASYNC Step's start or result, that Step
+runs again on a new state snapshot, and so does later work up to the first SYNC
+Step. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains why the
+repeat stops there.
 
 ## You run Time Travel
 

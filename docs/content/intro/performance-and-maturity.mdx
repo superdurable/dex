@@ -16,7 +16,7 @@ The numbers below were measured on 2026-11-09 in AWS us-west-2:
 
 - **Server:** one Dex Server node on a c7gd.large (2 vCPU) or a c7gd.4xlarge (16 vCPU). Its local store was on the instance's NVMe disk. Its log went to S3 Standard in the same Region.
 - **Load:** a separate c7g.8xlarge in the same Availability Zone ran the benchmark tool with a Go SDK Worker. Its CPU stayed below 38%.
-- **Versions:** server-zd v0.1.23 for Steps, Flows, and Channel wakes; v0.1.25 for RPCs and reads.
+- **Versions:** Dex Server (server-zd) v0.1.23 for Steps, Flows, and Channel wakes; v0.1.25 for RPCs and reads.
 - **Runs:** each point had a 10-second warmup and a 45-second measurement on a new server. Most points ran three times, and the tables show the median. Flow starts ran once per point.
 - **Load model:** a fixed number of concurrent clients, each sending its next request when the last one returns. Latency grows with the client count once the server is busy.
 
@@ -75,7 +75,7 @@ A worked example for a light load: 1 million orders a month, each a Flow with fi
 
 - instances: the active node, plus a standby if you run one, at your provider's hourly price;
 - PUTs: the estimate above, or the table's rows for a node that stays busy;
-- stored bytes: the runs kept in the retention window, at your provider's price. The benchmark did not measure stored bytes per Flow. A closed Flow run is deleted after the retention period, 7 days by default, so storage follows the number of runs in that window.
+- stored bytes: the runs kept in the retention window, at your provider's price. The benchmark did not measure stored bytes per Flow. Closed runs are deleted after [retention](/intro/limits-and-sharp-edges#defaults-to-change-before-production), so storage follows the number of runs in that window.
 
 To repeat a point on your own AWS account, run `benchmark/aws/reproduce.sh`. [Reproduce a result](https://github.com/superdurable/dex/blob/main/benchmark/README.md#reproduce-a-result) lists its inputs.
 

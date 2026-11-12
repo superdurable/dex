@@ -9,6 +9,16 @@ description: How Dex relates to replay-based workflow engines, journal-based dur
 
 Dex shares the goal of other durable execution tools: a process that survives crashes, restarts, and long waits. This page maps the terms of the main tool families onto Dex. It also says where each design differs and when another tool fits better.
 
+**Coming from Temporal?** Read these in order:
+
+1. [The main difference](#the-main-difference-an-explicit-step-graph-not-replayed-code) and [Determinism moved](#determinism-moved-it-did-not-vanish) on this page.
+2. [Step](/concepts/step), for the guarantees and the defaults.
+3. [Failover and Deploys](/concepts/failover-and-deploys), for what runs again.
+4. [Change Flow Code](/concepts/change-flow-code), for versioning without replay.
+5. [Attribute locks](/concepts/primitives/attribute#locking), for state shared by parallel Steps.
+6. [Client](/concepts/client), for starting Flows and sending commands.
+7. [Performance and Maturity](/intro/performance-and-maturity) and [Limits and Sharp Edges](/intro/limits-and-sharp-edges).
+
 ## What they share
 
 Every tool on this page records the progress of a process outside the process itself. After a crash, the process continues from the record instead of starting over. The workflow engines, runtimes, and libraries also offer durable timers, a way to wait for an outside event, and retries for failed work. An agent framework checkpointer covers less of this. [Its section](#agent-framework-checkpoints) says what it leaves to your application.
@@ -217,6 +227,8 @@ impl Step for ReminderStep {
 </SdkSnippet>
 </SdkTabs>
 
+The reminder passes no idempotency key, because a second reminder does no harm; see [Idempotency keys](/concepts/step#idempotency-keys).
+
 In Rust, `has_any_timer_fired` asks whether any Timer of the Wait fired; Rust's `has_timer_fired` takes a Timer index.
 
 The Temporal version reads top to bottom, and the engine rebuilds its local variables by replay. The Dex version names each state, and Dex stores the wait and the decision instead of replaying code.
@@ -224,16 +236,6 @@ The Temporal version reads top to bottom, and the engine rebuilds its local vari
 If you know iWF, Dex grew out of it. A Dex Step is an iWF State, and `WaitFor` is `WaitUntil`.
 
 ## Replay-based workflow engines
-
-**Coming from Temporal?** Read these in order:
-
-1. [The main difference](#the-main-difference-an-explicit-step-graph-not-replayed-code) and [Determinism moved](#determinism-moved-it-did-not-vanish) on this page.
-2. [Step](/concepts/step), for the guarantees and the defaults.
-3. [Failover and Deploys](/concepts/failover-and-deploys), for what runs again.
-4. [Change Flow Code](/concepts/change-flow-code), for versioning without replay.
-5. [Attribute locks](/concepts/primitives/attribute#locking), for state shared by parallel Steps.
-6. [Client](/concepts/client), for starting Flows and sending commands.
-7. [Performance and Maturity](/intro/performance-and-maturity) and [Limits and Sharp Edges](/intro/limits-and-sharp-edges).
 
 Temporal and Cadence are the best-known examples. A workflow function runs on a Worker. The engine records an event history, and the Worker replays the function against that history to rebuild its state. Side effects go in activities. Workflow code must be deterministic. It reads the time or a random value only through deterministic APIs, such as `workflow.Now` and `SideEffect`.
 
@@ -280,7 +282,7 @@ Restate is an example. A handler is a function. Each side effect runs through th
 | Workflow | Flow |
 | Service handler | A short Flow with no Attributes. A service handler is a durable, journaled invocation with retries and idempotency keys, but no key-value state. |
 | Journaled action (`ctx.run`) | Step `Execute` |
-| Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A Flow run closes, and a closed run is deleted after retention (7 days by default), while a virtual object lives on. |
+| Virtual object and its key | A long-lived Flow per key, with the key as the Flow ID. A Flow run closes, and a closed run is deleted after retention, while a virtual object lives on. |
 | Object state (key-value) | Attributes |
 | Awakeable or durable promise | Channel message that a Step waits for |
 | Durable sleep | Timer |
@@ -294,7 +296,7 @@ Restate is an example. A handler is a function. Each side effect runs through th
 - A virtual object allows one writer per key at a time. In Dex, Steps and RPCs of one Flow can run at the same time. Locks are opt-in per Attribute.
 - A Restate shared handler runs alongside others and cannot write the object's state. It can still call other services. A Dex RPC may write Attributes, and an RPC without a lock can run alongside Steps.
 - Restate deduplicates an invocation that carries the same idempotency key, and a Temporal Update carries an update ID. Both drop a repeated inbound request. Dex deduplicates a Flow start by Flow ID and request ID, but not yet a repeated Channel publish or RPC. See [Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat).
-- Restate's UI and CLI show an invocation's journal. Dex keeps each Step's input, output, and error with the Flow run until retention deletes it (7 days by default), and Dex Web shows them per Step on the Flow's graph and Timeline.
+- Restate's UI and CLI show an invocation's journal. Dex keeps each Step's input, output, and error with the Flow run until retention deletes it, and Dex Web shows them per Step on the Flow's graph and Timeline.
 
 ## Database-backed workflow libraries
 

@@ -313,9 +313,8 @@ Inside a Step or RPC, publish with the handler **Context**.
 
 Code outside a Worker, such as a web handler, publishes by calling an RPC of the
 Flow. This keeps validation, authorization, and related state changes inside the
-Flow. An RPC runs on a Worker, so a Worker of the Flow type must be connected.
-An RPC never queues: with no Worker, the call fails with **Unavailable** after
-10 seconds. See [Routing and availability](/reference/server/workers#routing-and-availability).
+Flow. An RPC runs on a Worker, so a Worker of the Flow type must be connected; see
+[RPC guarantees](/concepts/primitives/rpc#guarantees).
 
 Dex Server also accepts a `PublishToChannel` request on its FlowService API,
 for example through **dexcli api**. The server stores that message with no

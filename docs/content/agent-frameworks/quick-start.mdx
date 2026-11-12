@@ -10,11 +10,7 @@ Run an agent built with your framework as a durable Dex session, then stop it in
 
 Building a new agent without a framework? Start with the [Built-in Agent Loop](/agent-frameworks/built-in-agent-loop).
 
-:::info What changes in your app
-
-Your agent definition stays: step 2 wraps it. Your request handler changes shape: it sends a message to the session and reads the reply from the session's stream or snapshot. You also run a Worker process and Dex Server, which you host yourself. [Durable Agents](/agent-frameworks#do-you-need-this) and [Agents in Production](/agent-frameworks/production) cover the costs.
-
-:::
+Your agent definition stays the same; your app also runs a Worker and Dex Server. [What changes in your app](/agent-frameworks) lists the costs.
 
 ## What you will build {#what-you-will-build}
 
@@ -1023,175 +1019,47 @@ Now try a write. Ask to cancel order 1002 with the delay set, approve it, and ki
 
 You have run your first durable agent. Its Worker went away in the middle of a conversation, and the session lost nothing. The read that was cut off ran again, and the write that was cut off was reported as `outcome_unknown` instead of running twice.
 
-## Use it in your own agent {#use-it-in-your-own-agent}
+## Start in an empty folder {#start-in-an-empty-folder}
 
-Install the adapter with its framework. Each adapter brings in the Dex Agents core. Then copy [the complete files](#complete-files) below.
+The steps above run inside a clone of the Dex repository. To start in your own folder instead, use the one-file starter. It is the OpenAI Agents SDK agent from step 2 with its host in the same file, and it imports only published packages. It calls a real model, so it needs `OPENAI_API_KEY`.
 
-<FrameworkTabs>
-<FrameworkTab framework="claude-agent-sdk">
+```bash
+mkdir order-agent && cd order-agent
+python3 -m venv .venv && source .venv/bin/activate
+pip install dex-agents-openai-agents==0.5.0 dex-python-sdk==1.45.0
+curl -fsSLO https://raw.githubusercontent.com/superdurable/dex/main/examples/python/agent-starter/agent.py
+export OPENAI_API_KEY=...
+python agent.py "Cancel order 1002, it was a mistake"
+```
+
+Keep `dexcli dev` running in another terminal. The program asks **Approve cancel_order? [y/N]** before the write runs. This is the whole file:
 
 <SdkTabs
   examples={{
-    python: 'agents/python/claude-agent-sdk/README.md',
-    typescript: 'agents/typescript/claude-agent-sdk/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-claude-agent-sdk
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-**Authentication**
-
-The Worker authenticates the Claude Code CLI with `ANTHROPIC_API_KEY`. Set it in the Worker's environment. It never enters Flow state.
-
-The example builds the CLI's environment so that `ANTHROPIC_API_KEY` is its only credential. Without the key, the example does not register the Claude agent. It serves the other harnesses.
-
-</FrameworkTab>
-<FrameworkTab framework="google-adk">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/google-adk/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-google-adk
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="langchain-langgraph">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/langgraph/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-langgraph langchain-openai
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="mastra">
-
-<SdkTabs
-  examples={{
-    typescript: 'agents/typescript/mastra/README.md',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-mastra @superdurable/dex-agents @superdurable/dex @mastra/core zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="openai-agents-sdk">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/openai-agents/README.md',
-    typescript: 'agents/typescript/openai-agents/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-openai-agents
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-openai-agents @superdurable/dex-agents @superdurable/dex @openai/agents zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="pydantic-ai">
-
-<SdkTabs
-  examples={{
-    python: 'agents/python/pydantic-ai/README.md',
-  }}>
-<SdkSnippet lang="python">
-
-```bash
-pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-<FrameworkTab framework="vercel-ai-sdk">
-
-<SdkTabs
-  examples={{
-    typescript: 'agents/typescript/vercel-ai/README.md',
-  }}>
-<SdkSnippet lang="typescript">
-
-```bash
-npm i @superdurable/dex-agents-vercel-ai @superdurable/dex-agents @superdurable/dex ai @ai-sdk/openai zod
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-</FrameworkTab>
-</FrameworkTabs>
-
-### The complete files {#complete-files}
-
-The quick start program is three files per language. They use only Dex, Dex Agents, and your framework, apart from the example's order desk with its tools and the settings the entry point reads. Read them in the repository:
-
-| File | Python | TypeScript |
-| --- | --- | --- |
-| Your agent module, plain and durable, with every import | [claude_agent_sdk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/claude_agent_sdk_quick_start.py) · [google_adk](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/google_adk_quick_start.py) · [langchain](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/langchain_quick_start.py) · [openai_agents](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_quick_start.py) · [pydantic_ai](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/pydantic_ai_quick_start.py) | [claude-agent-sdk](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/claude-agent-sdk-quick-start.ts) · [mastra](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/mastra-quick-start.ts) · [openai-agents](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/openai-agents-quick-start.ts) · [vercel-ai](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/vercel-ai-quick-start.ts) |
-| The runner: Registry, Worker, Client, and one turn with approvals | [session.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/session.py) | [quick-start-session.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-session.ts) |
-| The entry point that asks for approval at the prompt | [\_\_main\_\_.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/__main__.py) | [quick-start-main.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/agent-harnesses/quick-start/quick-start-main.ts) |
-
-### Wire the session into your app {#wire-it-into-your-app}
-
-The change to your agent is small: the wrap in step 2. The rest is hosting code that every Dex app has, a Worker that runs Steps and a Client that calls them. This function is the smallest host. It runs one Worker and one Client in your process, starts a session, sends one message, and returns the session after the turn:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/embed.py',
-    typescript: 'examples/typescript/src/products/agent-harnesses/quick-start/quick-start-embed.ts',
+    python: 'examples/python/agent-starter/agent.py',
   }}>
 <SdkSnippet lang="python">
 
 ```python
-"""The smallest host for a durable agent: one Worker, one Client, one turn."""
+"""A durable OpenAI Agents SDK agent in one file.
+
+Run Dex with `dexcli dev`, set OPENAI_API_KEY, then run:
+
+    python agent.py "Cancel order 1002, it was a mistake"
+
+The Worker and the Client run in this process. Each tool call that needs
+approval asks on the terminal.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
+import uuid
+from collections.abc import Awaitable, Callable
 
+from agents import Agent, Model, function_tool
 from dex import (
     AsyncClient,
     AsyncWorker,
@@ -1201,234 +1069,151 @@ from dex import (
     WorkerOptions,
     open_blob_cache,
 )
-from dex_agents import AgentSessionClient, AgentSessionFlow, AgentSessionStatus, AgentSnapshot
+from dex_agents import (
+    AgentInterrupt,
+    AgentSessionClient,
+    AgentSessionFlow,
+    AgentSessionStatus,
+    MessageRole,
+    ToolEffect,
+    ToolPolicy,
+)
+from dex_agents_openai_agents import openai_agents_session_flow
+
+SERVER_ADDRESS = os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
+MODEL = os.environ.get("AGENT_MODEL", "gpt-5.2")
+
+ORDERS = {
+    "1001": {"item": "desk lamp", "status": "shipped"},
+    "1002": {"item": "office chair", "status": "processing"},
+}
 
 
-async def ask_agent(
+# The plain agent: your OpenAI Agents SDK code, unchanged by Dex.
+@function_tool
+def look_up_order(order_id: str) -> str:
+    """Look up one order by its order ID and return its item and status."""
+    order = ORDERS.get(order_id)
+    return f"order {order_id}: {order}" if order else f"order {order_id} not found"
+
+
+@function_tool
+def cancel_order(order_id: str, reason: str) -> str:
+    """Cancel one order that has not shipped yet."""
+    order = ORDERS.get(order_id)
+    if order is None or order["status"] == "shipped":
+        return f"order {order_id} cannot be cancelled"
+    order["status"] = "cancelled"
+    return f"order {order_id} cancelled: {reason}"
+
+
+def build_agent(model: str | Model) -> Agent:
+    return Agent(
+        name="OrderSupport",
+        instructions="Help with orders. Look an order up before you change it.",
+        model=model,
+        tools=[look_up_order, cancel_order],
+    )
+
+
+# The Dex change: wrap the agent and give each tool a policy.
+def build_session_flow(model: str | Model) -> AgentSessionFlow:
+    return openai_agents_session_flow(
+        build_agent(model),
+        flow_type="AgentStarter",
+        tool_policies={
+            "look_up_order": ToolPolicy(ToolEffect.READ),
+            "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+        },
+    )
+
+
+ApprovalDecider = Callable[[AgentInterrupt], Awaitable[bool]]
+
+
+# The host: one Worker and one Client in this process.
+async def ask(
     session_flow: AgentSessionFlow,
-    session_id: str,
     message: str,
-    server_address: str = "127.0.0.1:8801",
-    blob_cache_dir: str = ".dex-blob-cache",
-) -> AgentSnapshot:
-    """Starts a session, sends one message, and returns the session after the turn."""
+    decide_approval: ApprovalDecider,
+    session_id: str | None = None,
+) -> list[str]:
+    """Starts a session, sends message, answers approvals, and returns the replies."""
     registry = Registry((session_flow,), allow_async_handlers=True)
-    cache = open_blob_cache(BlobCacheConfig(blob_cache_dir, 1 << 30))
-    worker = AsyncWorker(registry, cache, WorkerOptions(server_address=server_address))
-    client = AsyncClient(registry, cache, ClientOptions(server_address=server_address))
+    cache = open_blob_cache(BlobCacheConfig(".dex-blob-cache", 1 << 30))
+    worker = AsyncWorker(registry, cache, WorkerOptions(server_address=SERVER_ADDRESS))
+    client = AsyncClient(registry, cache, ClientOptions(server_address=SERVER_ADDRESS))
     worker_task = asyncio.create_task(worker.start())
     try:
         await worker.wait_pull_registered(timeout=30)
         sessions = AgentSessionClient(client, session_flow)
+        session_id = session_id or f"agent-starter-{uuid.uuid4().hex[:8]}"
         await sessions.start_session(session_id)
         await sessions.send_user_message(session_id, message)
+        answered: set[str] = set()
         while True:
             snapshot = await sessions.get_agent_snapshot(session_id)
+            for interrupt in snapshot.pending_interrupts:
+                if interrupt.interrupt_id not in answered:
+                    answered.add(interrupt.interrupt_id)
+                    approved = await decide_approval(interrupt)
+                    await sessions.resolve_interrupt(
+                        session_id, interrupt.interrupt_id, approved=approved
+                    )
             state = snapshot.state
-            if state and state.turn_count >= 1:
-                if state.status == AgentSessionStatus.WAITING_FOR_USER_MESSAGE:
-                    return snapshot
             if state and state.status == AgentSessionStatus.FAILED:
                 raise RuntimeError(f"the session failed: {state.last_turn_error}")
+            if (
+                state
+                and state.turn_count >= 1
+                and state.status == AgentSessionStatus.WAITING_FOR_USER_MESSAGE
+            ):
+                return [
+                    item.text
+                    for item in snapshot.messages
+                    if item.role == MessageRole.ASSISTANT and item.text
+                ]
             await asyncio.sleep(0.5)
     finally:
         await client.close()
         await worker.close()
         await worker_task
         cache.close()
-```
 
-</SdkSnippet>
-<SdkSnippet lang="typescript">
 
-```ts
-// The smallest host for a durable agent: one Worker, one Client, one turn.
+async def ask_on_terminal(interrupt: AgentInterrupt) -> bool:
+    answer = await asyncio.to_thread(input, f"Approve {interrupt.tool_name}? [y/N] ")
+    return answer.strip().lower() == "y"
 
-import { Client, Registry, Worker, openBlobCache } from "@superdurable/dex";
-import {
-  readAgentSnapshot,
-  sendAgentUserMessage,
-  startAgentSession,
-  type AgentSessionFlow,
-  type AgentSnapshot,
-} from "@superdurable/dex-agents";
 
-/** Starts a session, sends one message, and returns the session after the turn. */
-export async function askAgent(
-  flow: AgentSessionFlow,
-  sessionId: string,
-  message: string,
-  serverAddress = "127.0.0.1:8801",
-  blobCacheDir = ".dex-blob-cache",
-): Promise<AgentSnapshot> {
-  const registry = new Registry([flow]);
-  const blobCache = openBlobCache({ directory: blobCacheDir, maxBytes: 1 << 30 });
-  const worker = new Worker(registry, blobCache, { serverAddress });
-  const client = new Client(registry, blobCache, { serverAddress });
-  try {
-    await worker.start();
-    await worker.waitPullRegistered({ timeoutMs: 30_000 });
-    await startAgentSession(client, flow, sessionId, {});
-    await sendAgentUserMessage(client, flow, sessionId, { text: message });
-    for (;;) {
-      const snapshot = await readAgentSnapshot(client, flow, sessionId);
-      const state = snapshot.state;
-      if (state?.status === "failed") {
-        throw new Error(`the session failed: ${state.lastTurnError ?? "unknown error"}`);
-      }
-      if (state !== null && state.turnCount >= 1 && state.status === "waiting_for_user_message") {
-        return snapshot;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-  } finally {
-    await client.close();
-    await worker.close();
-    blobCache.close();
-  }
-}
+def main() -> None:
+    message = " ".join(sys.argv[1:]) or "Look up order 1001"
+    replies = asyncio.run(ask(build_session_flow(MODEL), message, ask_on_terminal))
+    for reply in replies:
+        print(reply)
+
+
+if __name__ == "__main__":
+    main()
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-It takes the session Flow that your module's `build_durable_agent` or `buildDurableAgent` returns. A turn that needs an approval waits until your app resolves it; [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) shows how.
+## Use it in your own agent {#use-it-in-your-own-agent}
 
-A web app splits the same pieces across routes:
+[Agents in Your App](/agent-frameworks/in-your-app) has the install line for each framework, the complete files, and how to wire a session into a web app.
 
-1. A **Registry** with your session Flow, a **Worker** that runs its Steps, and a **Client** that calls it, as in the function above. The Worker connects out to Dex, so it needs no open port. Both open a blob cache, a local cache for large values; [Registry and blob cache](/components/application#blob-cache) explains it.
-2. A route that starts a session. The session ID is the Flow ID.
-3. A route that sends a user message, and one that reads the session snapshot with the agent's reply. To stream the reply as it is written, read the AgentEvents Stream, as [the next section](#web-handler) shows.
-4. A route that approves or rejects a waiting tool call. [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) covers it.
+### The complete files {#complete-files}
 
-The [Order Support Agent](/use-cases/order-support-agent) example has these routes over HTTP, for every framework.
+See [The complete files](/agent-frameworks/in-your-app#complete-files).
 
-#### What replaces Runner.run in a web handler {#web-handler}
+### Wire the session into your app {#wire-it-into-your-app}
 
-Without Dex, a handler calls the framework, such as `Runner.run`, and waits for the reply. With Dex, the handler queues the message on the session and returns. The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The polling in `ask_agent` above suits scripts and tests. A chat UI reads the stream instead. In Python, this complete app hosts the Worker and the Client and serves every route a chat UI needs: start a session, send a message, read the session, stream its events, and answer an approval. In TypeScript, the [AI Agent](/use-cases/ai-agent) example's chat routes show the same two halves.
+See [Wire the session into your app](/agent-frameworks/in-your-app#wire-it-into-your-app).
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/agent-harnesses/agent_harness_examples/quick_start/web.py',
-    typescript: 'examples/typescript/src/products/ai-agent',
-  }}>
-<SdkSnippet lang="python">
+<a id="web-handler"></a>
 
-The whole module, `quick_start/web.py`:
-
-```python
-"""A complete web app for a durable agent: start, message, read, stream, approve.
-
-It hosts the Worker and the Client in the web process. Add your own
-authentication before you expose these routes: anyone who knows a session ID
-can read and change that session here.
-"""
-
-from __future__ import annotations
-
-import uuid
-from pathlib import Path
-from typing import Any
-
-from dex_agents import AgentSessionFlow
-from dex_agents.ui_stream import (
-    AGENT_EVENT_STREAM_HEADERS,
-    agent_snapshot_to_json,
-    stream_agent_event_frames,
-)
-from quart import Quart, Response, jsonify, make_response, request
-
-from agent_harness_examples.quick_start.safe_send import send_user_message_once
-from agent_harness_examples.quick_start.session import QuickStartApp
-
-
-def create_web_app(
-    session_flow: AgentSessionFlow, server_address: str, blob_cache_dir: Path
-) -> Quart:
-    """Returns a Quart app whose routes run one durable agent's sessions."""
-    web = Quart(__name__)
-    apps: list[QuickStartApp] = []
-
-    def dex() -> QuickStartApp:
-        return apps[0]
-
-    # The Worker and the Client bind to the event loop that serves the app.
-    @web.before_serving
-    async def start_worker() -> None:
-        apps.append(QuickStartApp(session_flow, server_address, blob_cache_dir))
-        await dex().start_worker()
-
-    @web.after_serving
-    async def stop_worker() -> None:
-        await apps.pop().close()
-
-    @web.post("/sessions")
-    async def start_session() -> Response:
-        session_id = f"web-{uuid.uuid4().hex}"
-        await dex().sessions.start_session(session_id)
-        return jsonify(session_id=session_id)
-
-    @web.post("/sessions/<session_id>/messages")
-    async def send_message(session_id: str) -> Response:
-        body: dict[str, Any] = await request.get_json()
-        await send_user_message_once(dex().sessions, session_id, str(body["text"]))
-        return jsonify(accepted=True)
-
-    @web.get("/sessions/<session_id>")
-    async def read_session(session_id: str) -> Response:
-        return jsonify(agent_snapshot_to_json(await dex().sessions.get_agent_snapshot(session_id)))
-
-    @web.get("/sessions/<session_id>/events")
-    async def stream_events(session_id: str) -> Response:
-        resume_token = request.headers.get("Last-Event-ID", "")
-        frames = await stream_agent_event_frames(
-            dex().client, session_flow, session_id, resume_token=resume_token
-        )
-        response = await make_response(frames, dict(AGENT_EVENT_STREAM_HEADERS))
-        assert isinstance(response, Response)
-        response.timeout = None
-        return response
-
-    @web.post("/sessions/<session_id>/interrupts/<interrupt_id>")
-    async def resolve(session_id: str, interrupt_id: str) -> Response:
-        body: dict[str, Any] = await request.get_json()
-        accepted = await dex().sessions.resolve_interrupt(
-            session_id, interrupt_id, approved=body.get("approved") is True
-        )
-        return jsonify(accepted=accepted)
-
-    return web
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-One chat route queues the message, or the approval answers, and streams the reply in the Vercel AI SDK UI message format. A second route resumes the stream after a reconnect. This is an excerpt: `requireBody`, `authorizeSession`, `session`, and the other helpers are defined in the [full routes file](https://github.com/superdurable/dex/blob/main/examples/typescript/src/products/ai-agent/controller.ts).
-
-```ts
-  router.post("/api/chat", async (request, response) => {
-    const body = requireBody(request);
-    const flowId = authorizeSession(request, requireString(body, "id"));
-    const lastMessage = Array.isArray(body.messages) ? (body.messages.at(-1) as JsonBody | undefined) : undefined;
-    const signal = abortSignalOf(response);
-    if (lastMessage?.role === "assistant") {
-      const approvals = readAgentToolApprovalResponses(lastMessage);
-      await sendFetchResponse(response, resolveAgentToolApprovalsWithUIMessageStream({ ...session, flowId, approvals, signal }));
-      return;
-    }
-    const parts = (Array.isArray(lastMessage?.parts) ? lastMessage.parts : []) as JsonBody[];
-    const text = parts.map((part) => (part.type === "text" ? String(part.text) : "")).join("");
-    await sendFetchResponse(response, sendAgentUserMessageWithUIMessageStream({ ...session, flowId, text, signal }));
-  });
-  router.get("/api/chat/:id/stream", async (request, response) => {
-    const resumeToken = request.header(agentResumeTokenHeaderName);
-    const options = { ...session, flowId: sessionIdOf(request), resumeToken, signal: abortSignalOf(response) };
-    await sendFetchResponse(response, createAgentUIMessageStreamResponse(options));
-  });
-```
-
-</SdkSnippet>
-</SdkTabs>
 
 ## Next
 

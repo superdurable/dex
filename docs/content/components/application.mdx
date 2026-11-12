@@ -1,10 +1,10 @@
 ---
-title: Application (Worker and Client)
+title: Your Application
 sidebar_label: Your Application
 description: "Your Dex application is the code you deploy."
 ---
 
-# Application (Worker and Client)
+# Your Application
 
 Your Dex application is the code you deploy. It has two parts:
 
@@ -91,25 +91,26 @@ Configure the Worker with the server address. A Client needs only the server
 address too. You can also set pull options to tune task capacity,
 registration, and shutdown.
 
-### Registry and blob cache {#blob-cache}
+A Worker and a Client each take two more objects: a Registry and a blob cache.
 
-A Worker and a Client each take two more objects:
+### Registry {#registry}
 
-- **A Registry of your Flows.** The Worker runs the Steps and RPCs of the
-  Flows in it. The Client uses the same definitions to encode a Flow's start
-  input and its RPC arguments, and to decode results. So a Client builds the
-  Flow objects too, even though it never runs a Step. Pass stand-ins for the
-  Flow's services in a process that only starts Flows, because the Client never
-  calls them; [Start Flows from an API service](/concepts/client#start-from-an-api-service)
-  explains this. A service in another language either has the Flow code in its
-  own language, or calls the FlowService `StartFlow` request over gRPC with
-  the Flow type and an input that the Flow can decode, as
-  **dexcli flow start** does.
-- **A blob cache.** Dex sends a large value, such as a big Attribute, as a
-  reference. The blob cache is a local, size-limited directory that keeps
-  those values, so the process does not download them again. Give each Worker
-  and Client process its own directory. The cache holds only copies, so
-  deleting it loses no data.
+A Registry holds your Flows. The Worker runs the Steps and RPCs of the Flows
+in it. The Client uses the same definitions to encode a Flow's start input and
+its RPC arguments, and to decode results. So a Client builds the Flow objects
+too, even though it never runs a Step. Pass stand-ins for the Flow's services
+in a process that only starts Flows, because the Client never calls them;
+[Start Flows from an API service](/concepts/client#start-from-an-api-service)
+explains this. A service in another language either has the Flow code in its
+own language, or calls the FlowService `StartFlow` request over gRPC with the
+Flow type and an input that the Flow can decode, as `dexcli flow start` does.
+
+### Blob cache {#blob-cache}
+
+Dex sends a large value, such as a big Attribute, as a reference. The blob
+cache is a local, size-limited directory that keeps those values, so the
+process does not download them again. Give each Worker and Client process its
+own directory. The cache holds only copies, so deleting it loses no data.
 
 Each SDK reference has a runnable startup example:
 [Go](/reference/go/workers), [Python](/reference/python/workers),
@@ -234,7 +235,7 @@ Three start options make a retried request safe:
 - The **request ID** is **start-** plus the order ID. It is the same on every retry of this request.
 - The **already-started option** returns the existing run when its request ID matches. It is `ignore_already_started` in Python and Rust, `ignoreAlreadyStarted` in Java and TypeScript, and `AlreadyStarted.IgnoreError` in Go. A different request ID for the same order still gets an already-started error, which the service answers with 409.
 
-So when a client sends the request twice, the order is charged once. This holds while the run exists: after Dex deletes a closed run, 7 days by default, the same Flow ID starts a new Flow. [How long these protections last](/components/your-database#how-long-protections-last) gives the details. [Start options and configuration](/concepts/flow#start-options) lists the options, and [Dex and your database](/components/your-database#write-your-row-and-start-the-flow) shows the handler that also writes your own table. Run the service, then send an order.
+So when a client sends the request twice, the order is charged once. This holds only while the run exists; see [How long these protections last](/components/your-database#how-long-protections-last). [Start options and configuration](/concepts/flow#start-options) lists the options, and [Dex and your database](/components/your-database#write-your-row-and-start-the-flow) shows the handler that also writes your own table. Run the service, then send an order.
 
 Start the service from your language's Quick Start folder, such as `examples/python/quick-start`. It runs the Worker in the same process and listens on port 8080; set `QUICK_START_HTTP_PORT` to change it. Java builds the commands first with **./gradlew installDist**.
 
@@ -287,7 +288,7 @@ Both requests return the same Flow, and the Worker prints **Charged** once.
 
 ## Send commands and read state through RPCs {#send-commands-through-rpcs}
 
-A handler that changes a Flow calls an RPC, such as **approve**. An RPC needs a running Worker: when no Worker takes it within 10 seconds, the caller gets **Unavailable**. To store a message while no Worker runs, see [Deliver an event when no Worker runs](/concepts/client#deliver-without-a-worker). The RPC publishes the message to a Channel, and the waiting Step wakes. A handler that reads a Flow calls a read RPC, such as **describe**. An RPC runs against the Flow's current state on a Worker, so the handler reads and writes the same state that the Steps use. The handlers get the Client and the Flow from their constructor or factory arguments.
+A handler that changes a Flow calls an RPC, such as **approve**. An RPC needs a running Worker ([RPC guarantees](/concepts/primitives/rpc#guarantees)). To store a message while no Worker runs, see [Deliver an event when no Worker runs](/concepts/client#deliver-without-a-worker). The RPC publishes the message to a Channel, and the waiting Step wakes. A handler that reads a Flow calls a read RPC, such as **describe**. An RPC runs against the Flow's current state on a Worker, so the handler reads and writes the same state that the Steps use. The handlers get the Client and the Flow from their constructor or factory arguments.
 
 The [Order Processing](/use-cases/order-processing) example shows these three patterns in full code.
 

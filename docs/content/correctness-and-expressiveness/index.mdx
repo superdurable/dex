@@ -36,7 +36,8 @@ acknowledged write survives and that no read sees uncommitted or stale state. It
 also covers most of what the failure proof leaves out: RPCs, including
 [transactional RPCs](/concepts/primitives/rpc#transactional-reads-and-writes), Attribute locks, child Flows started as SubFlows, StopFlow,
 and hard-delete Attributes. Failure policies and recovery Steps run in its
-apply-level stage. ASYNC durability is not part of its workload. CI runs it
+apply-level stage, which tests the state machine that applies each command, without
+the engine around it. ASYNC durability is not part of its workload. CI runs it
 nightly. The
 [server integration tests](https://github.com/superdurable/dex/tree/main/server-zd/integ)
 run real Workers against a real server.

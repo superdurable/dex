@@ -46,6 +46,12 @@ and its failure policy applies. By default the Flow then fails. Dex Web shows
 the error type and message on the attempt. Fix the code, then rerun the Step
 with [Time Travel](#time-travel).
 
+To catch this before the retry window ends, watch Dex Server's
+`dexzd_step_attempt_failures_total` metric with `failure_kind="worker_error"`
+after each deploy. A decoding error counts there like any Step error. The
+metric has no Step type label, so open the failing attempts in Dex Web to see
+which Step and which error. See [Metrics](/reference/server/metrics).
+
 ### Keep old definitions until old Flows finish
 
 Do not delete or rename a Flow type, Step type, or RPC implementation while an
@@ -159,4 +165,4 @@ in the server reference covers the request options and limits.
 
 - [Failover and Deploys](/concepts/failover-and-deploys)
 - [Step guarantees](/concepts/step#guarantees)
-- [Application (Worker and Client)](/components/application)
+- [Your Application](/components/application)

@@ -11,24 +11,47 @@ description: A checklist for running Dex in production, with a link to the page 
 you run Dex Server yourself, next to your own Workers. This page lists what to
 decide and set up before launch. Each item links to the page with the details.
 
+## Smallest real deployment {#smallest-deployment}
+
+- One Dex Server node, with a hot standby if you need fast failover.
+- One object storage bucket and prefix for the cluster.
+- Authentication turned on before the API is reachable.
+- Retention set to at least your longest client retry window.
+- Metrics served and alerts on the node and its lease.
+
+The [minimal configuration](#minimal-configuration) below sets up this deployment.
+
 ## Before you launch
 
 | Item | What to know | Details |
 | --- | --- | --- |
-| Topology | One active Dex Server node serves the cluster. Hot standby nodes can take over when it stops. The active node holds a lease in object storage. | [Dex Server](/components/server), [Lease, hot standby, and step down](/reference/server/high-availability) |
-| Capacity and cost | Size the node from the measured peaks and the S3 request cost. As a starting point derived from the benchmark, a 2-vCPU node peaked near 1,800 SYNC Steps per second and a 16-vCPU node near 8,400; start small and watch CPU, which is the limit. Past one node, run separate clusters. | [Performance and Maturity](/intro/performance-and-maturity), [Grow past one node](/intro/limits-and-sharp-edges#grow-past-one-node) |
-| Storage | Object storage, such as Amazon S3, holds all server state. The db9 provider can replace it with a PostgreSQL-compatible database. Give each cluster its own bucket prefix and an IAM policy confined to it. | [Object storage and backup](/reference/server/object-storage) |
-| Search backend | The built-in search needs no database. For large or frequent searches, project search documents to PostgreSQL or ParadeDB. | [Search backends](/reference/server/search), [Dex Server dependencies](/components/server#dependencies) |
-| Configuration | **serve** reads one YAML file. Start from the [minimal configuration](#minimal-configuration) below. | [Install and configure server-zd](/reference/server/configuration) |
-| Retention | A closed Flow run stays available for 7 days by default, then the server may delete it. Set `retention.closedFlowDuration` to at least your longest client retry window, because a Flow ID can start again once its run is deleted. Copy data you must keep longer to your own tables with Attribute Store sync. | [Retention](/reference/server/configuration#retention) |
-| Backup and restore | The object storage prefix is the only source of truth. Protect it with bucket versioning, with a lifecycle rule that expires old versions, or with replication. Practice a restore. | [Backup and restore](/reference/server/object-storage#backup-and-restore) |
-| Kubernetes | Run the server as a StatefulSet with graceful shutdown and a local store volume. | [Kubernetes deployment](/reference/server/kubernetes) |
-| Authentication | Public API authentication is off by default. Require a bearer credential before you expose the API. | [Authentication](/reference/server/authentication) |
-| Monitoring | Serve metrics on their own listener, and alert on a node that is not serving and on failed lease renewals. | [Metrics and alerts](/reference/server/metrics) |
-| Workers | Workers connect out to the server. Size their task slots, and stop them gracefully during a deployment. | [Workers and the task queue](/reference/server/workers) |
-| Upgrades | Upgrades roll forward. Some releases need every server process stopped before the new version starts, and some agent releases need every older Worker stopped first. Read the release's notes before each upgrade. | [Upgrades and compatibility](/reference/server/upgrades), [Agent release notes](/reference/agents/upgrades#release-notes), [Limits and Sharp Edges](/intro/limits-and-sharp-edges#capacity-and-availability) |
-| Your database | Steps that write to your database must make the write safe to repeat. Attribute Store sync can drop entries after a long PostgreSQL outage. | [Dex and Your Database](/components/your-database) |
-| Code changes | Keep old Step types and RPCs until the Flows that use them close. | [Change Flow Code](/concepts/change-flow-code) |
+| Topology | One active node serves the cluster. Hot standbys can take over. | [Dex Server](/components/server), [Lease, hot standby, and step down](/reference/server/high-availability) |
+| Capacity and cost | CPU is the limit. Start small; see [Sizing](#sizing). | [Performance and Maturity](/intro/performance-and-maturity), [Grow past one node](/intro/limits-and-sharp-edges#grow-past-one-node) |
+| Storage | Object storage holds all server state. db9 (a separate PostgreSQL-compatible database product; stock PostgreSQL is not supported) can replace it. | [Object storage and backup](/reference/server/object-storage), [Dex Server dependencies](/components/server#dependencies) |
+| Search backend | Built-in search needs no database. Heavy search can use PostgreSQL or ParadeDB. | [Search backends](/reference/server/search) |
+| Configuration | `serve` reads one YAML file. Start from the [minimal configuration](#minimal-configuration). | [Install and configure server-zd](/reference/server/configuration) |
+| Retention | Closed runs are deleted after 7 days by default. See [Retention](#retention). | [Retention reference](/reference/server/configuration#retention) |
+| Backup and restore | The bucket prefix is the only source of truth. Version or replicate it, and practice a restore. | [Backup and restore](/reference/server/object-storage#backup-and-restore) |
+| Kubernetes | Run the server as a StatefulSet with graceful shutdown. | [Kubernetes deployment](/reference/server/kubernetes) |
+| Authentication | Off by default. Require a bearer credential before you expose the API. | [Authentication](/reference/server/authentication) |
+| Monitoring | Serve metrics on their own listener. Alert on a node that is not serving and on failed lease renewals. | [Metrics and alerts](/reference/server/metrics) |
+| Workers | Workers connect out. Size their task slots, and stop them gracefully in a deploy. | [Workers and the task queue](/reference/server/workers) |
+| Upgrades | Upgrades roll forward. Read each release's notes first; some need every process stopped. | [Upgrades and compatibility](/reference/server/upgrades), [Agent release notes](/reference/agents/upgrades#release-notes) |
+| Your database | Writes from Steps must be safe to repeat. | [Dex and Your Database](/components/your-database) |
+| Code changes | Keep old Step types and RPCs until their Flows close. | [Change Flow Code](/concepts/change-flow-code) |
+
+### Sizing {#sizing}
+
+As a starting point derived from the benchmark, a 2-vCPU node peaked near
+1,800 SYNC Steps per second and a 16-vCPU node near 8,400. Start small and
+watch CPU. Past one node, run separate clusters.
+
+### Retention {#retention}
+
+Set `retention.closedFlowDuration` to at least your longest client retry
+window: once a run is deleted, its Flow ID can start a new Flow. Copy data you
+must keep longer to your own tables with
+[Attribute Store sync](/components/your-database).
 
 ## Minimal configuration {#minimal-configuration}
 

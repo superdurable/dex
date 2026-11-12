@@ -441,7 +441,7 @@ A decision names the next Step by its type. Python, Java, and TypeScript pass th
 
 The Worker runs the Steps. It connects out to Dex for work, so it needs no open port. The Client starts Flows.
 
-Both programs build the same Flow and register it. So a web service that starts Flows needs the Flow's code too: it registers the Flow definition, but never runs its Steps. [Start Flows from an API service](/concepts/client#start-from-an-api-service) shows the pattern.
+Both programs build the same Flow and register it in a `Registry`, the list of Flows a Worker runs and a Client can start. So a web service that starts Flows needs the Flow's code too: it registers the Flow definition, but never runs its Steps. [Start Flows from an API service](/concepts/client#start-from-an-api-service) shows the pattern.
 
 :::note Details
 
@@ -920,6 +920,14 @@ Open [http://127.0.0.1:8802](http://127.0.0.1:8802) and select your Flow. The Ex
 The Timeline tab shows the same run's events from left to right:
 
 ![Dex Web Timeline](/img/quick-start/timeline.png)
+
+To check from a terminal instead, ask `dexcli` for the Flow's summary. Use the Flow ID that the start command printed:
+
+```bash
+dexcli flow summary -output table order-1a2b3c4d
+```
+
+The `flowStatus` row reads `FLOW_STATUS_COMPLETED`.
 
 You have run your first durable Flow. Its Worker stopped in the middle of a wait, and the Flow finished without running Charge again.
 

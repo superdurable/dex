@@ -277,8 +277,9 @@ other two.
 
 ### Idempotency keys {#idempotency-keys}
 
-Send an idempotency key with each external call that changes something, such
-as a payment or an email. The service that applies the effect uses the key to
+Send an idempotency key with each external call whose repeat would cause harm,
+such as a charge or an order email. A harmless repeat, such as a reminder, can
+skip the key. The service that applies the effect uses the key to
 drop a repeat. Build the key from values that stay the same on every attempt:
 
 - the Flow ID and a name for the call, such as **charge-order-1042**, when the
@@ -398,14 +399,13 @@ A Step's **durability** chooses when Dex stores its progress.
   carry the work of many Flows.
 - **ASYNC** hands the task to the Worker, and starts the next work, before the
   start and the result are stored. Dex batches these writes over about 20
-  milliseconds. A single Flow runs faster. If a Dex Server node fails before
+  milliseconds, so a single Flow runs faster. If a Dex Server node fails before
   the write, Dex runs the same attempt again on a new state snapshot, so it
-  can read different Attribute values. Later work that started from the lost
-  result runs again too, up to the first SYNC Step. Dex writes a Flow's
-  commands to its log in order, so once a SYNC Step's start is stored, every
-  earlier command of that Flow, including an ASYNC result, is stored too. A
-  SYNC Step that a Worker has received therefore does not run again because an
-  earlier ASYNC result was lost.
+  can read different Attribute values.
+- **A lost ASYNC result reruns later work only up to the first SYNC Step.** Dex
+  writes a Flow's commands to its log in order. Once a SYNC Step's start is
+  stored, every earlier command of that Flow is stored too, so a SYNC Step that
+  a Worker has received does not run again because of a lost ASYNC result.
 
 Choose **SYNC** for effects that need the tightest guarantees. Choose
 **ASYNC** for short Steps where latency matters and a rare rerun is

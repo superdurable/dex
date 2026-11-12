@@ -6,91 +6,18 @@ slug: /
 
 # Dex Docs
 
-Dex is a **Durable Execution** platform. A database stores your data. Dex also stores the progress of your process: which Steps ran, what they returned, and what the process is waiting for. After a crash, a restart, or a long wait, the process continues where it stopped.
-
-You write the process as a **Flow**: a set of **Steps** in your own language, each of which says which Step runs next. A **Worker** in your service runs the Steps. [Concepts](/concepts) introduces the other building blocks.
+Dex is a **Durable Execution** platform. A database stores your data; Dex also stores the progress of your process: which Steps ran, what they returned, and what the process is waiting for. After a crash, a restart, or a long wait, the process continues where it stopped.
 
 **Start here:** the [Quick Start](/quick-start). It takes about 10 minutes.
 
-## Try it
+## Pick a path
 
-<div className="docs-home-sections">
-  <DocsSection section="intro" to="/intro/what-is-dex" title="Why Dex">
-    The order process, from charge to ship or refund.
-  </DocsSection>
-  <DocsSection section="intro" to="/get-started#fix-a-process" title="Fix a process that breaks halfway">
-    A 20-minute first visit, then the pages to read before you port your own process.
-  </DocsSection>
-  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Durable agents">
-    Keep your agent framework. Each tool call runs in its own Step, and a tool that is not safe to repeat is not retried. Approvals can wait for days.
-  </DocsSection>
-  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="Build with AI">
-    Install Dex Skills so a coding agent writes correct Dex code.
-  </DocsSection>
-</div>
+- **Fix a process that breaks halfway:** [the 20-minute path](/get-started#fix-a-process) through [Why Dex](/intro/what-is-dex), the [Quick Start](/quick-start), and [Port Your Process](/intro/port-your-process).
+- **Evaluate Dex:** [Compared to Database](/intro/compared-to-database), [Compared to Existing Durable Execution](/intro/compared-to-durable-execution), [Limits and Sharp Edges](/intro/limits-and-sharp-edges), [Performance and Maturity](/intro/performance-and-maturity), and [Dex and Your Database](/components/your-database).
+- **Build a durable agent:** [Durable Agents](/agent-frameworks) and the [Agent Quick Start](/agent-frameworks/quick-start).
 
-Every other path, with the time each takes, is on [Get Started](/get-started).
-
-## Evaluate it
-
-<div className="docs-home-sections">
-  <DocsSection section="intro" to="/intro/compared-to-database" title="Compared to Database">
-    The same order process built on a database and queues, and as a Flow.
-  </DocsSection>
-  <DocsSection section="intro" to="/intro/compared-to-durable-execution" title="Compared to Existing Durable Execution">
-    How Dex differs from replay-based engines, and when to pick another tool.
-  </DocsSection>
-  <DocsSection section="intro" to="/intro/performance-and-maturity" title="Performance and Maturity">
-    Measured throughput and latency, release status, and the license.
-  </DocsSection>
-  <DocsSection section="intro" to="/intro/limits-and-sharp-edges" title="Limits and Sharp Edges">
-    What Dex does not do yet, and the defaults to know before production.
-  </DocsSection>
-  <DocsSection section="components" to="/components/your-database" title="Dex and Your Database">
-    How Steps write to the database you already run, and what Dex keeps.
-  </DocsSection>
-</div>
-
-## Use it in your service
-
-<div className="docs-home-sections">
-  <DocsSection section="components" to="/components/application#add-to-a-service" title="Add Dex to a service">
-    Install the SDK, run a Worker and a Client, and start Flows from your handlers.
-  </DocsSection>
-  <DocsSection section="intro" to="/intro/port-your-process" title="Port your process">
-    Split a function or a queue consumer into Steps, with a checklist.
-  </DocsSection>
-  <DocsSection section="components" to="/components/production" title="Run Dex in production">
-    The server, storage, defaults, and upgrades to plan for.
-  </DocsSection>
-  <DocsSection section="product-examples" to="/use-cases" title="Examples">
-    Orders, subscriptions, onboarding, money transfer, and agents.
-  </DocsSection>
-</div>
-
-If your coding agent has [Dex Skills](/build-with-ai/dex-developer-skill), you can paste this into it instead. It follows the same Quick Start for you:
-
-```text
-Build the Dex Quick Start app in this folder. Read
-https://docs.superdurable.io/quick-start.md and treat it as the source of truth.
-```
+To add Dex to a service you already run, see [Your Application: add Dex to a service](/components/application#add-to-a-service). To have a coding agent write Dex code, see [Build with AI](/build-with-ai/dex-developer-skill). [Get Started](/get-started) lists every path with the time it takes.
 
 ## Reference
 
-<div className="docs-home-sections">
-  <DocsSection section="reference" to="/reference" title="Developer Reference">
-    Versioned details for every SDK, the server, the CLI, Web, and the agents packages.
-  </DocsSection>
-  <DocsSection section="design-patterns" to="/design-patterns" title="Design Patterns">
-    Reusable Flow shapes for parallel work, timers, failures, and messaging.
-  </DocsSection>
-  <DocsSection section="concepts" to="/concepts" title="Concepts">
-    Flow, Step, and the six primitives.
-  </DocsSection>
-  <DocsSection section="correctness" to="/correctness-and-expressiveness" title="Correctness and Expressiveness">
-    A computer-checked proof of what a crash can change, with its limits stated, and which tests cover the rest.
-  </DocsSection>
-  <DocsSection section="glossary" to="/glossary" title="Glossary">
-    Every Dex term in one place.
-  </DocsSection>
-</div>
+[Concepts](/concepts) · [Developer Reference](/reference) · [Design Patterns](/design-patterns) · [Correctness and Expressiveness](/correctness-and-expressiveness) · [Glossary](/glossary)

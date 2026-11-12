@@ -29,6 +29,17 @@ SDK 发送命令的方式是 RPC。RPC 在 Worker 上运行。如果 10 秒内�
 
 FlowService 请求 `PublishToChannel` 在没有 Worker 连接时也会把 Channel 消息保存在 server 上。Worker 再次运行时，等待中的 Step 会被唤醒。SDK Client 没有提供这个请求。可以通过 gRPC 或 **dexcli api call PublishToChannel** 调用。目前重复发布不会被丢弃，见 [Limits and Sharp Edges](/intro/limits-and-sharp-edges)。
 
+## 一个命令最多处理一次 {#inbound-commands}
+
+Dex 目前不会丢弃重复的命令。调用方在响应丢失后重试的 RPC 会再运行一次，重复的 `PublishToChannel` 会把消息投递两次。[Limits and Sharp Edges](/intro/limits-and-sharp-edges#requests-that-can-repeat) 跟踪计划中的修复。
+
+按没有 Worker 运行时必须成立的条件选择方式：
+
+- **RPC** 立即应答并可以返回值，但需要有正在运行的 Worker。
+- **`PublishToChannel`** 在没有 Worker 连接时也会保存命令，等待中的 Step 之后再处理它。
+
+在 Dex 丢弃重复之前，请在 Flow 里丢弃它们。让调用方为每个命令生成一个请求 ID，并随 RPC 参数或 Channel 消息一起发送。把 Flow 已经处理过的 ID 保存在一个 Attribute 或 AttributeMap 里。处理命令的 RPC 或 Step 先检查这份记录，对已经处理过的 ID 什么也不做。如果有多个 Step 或 RPC 可能同时处理命令，就给这份记录[加锁](/concepts/primitives/attribute#locking)。
+
 ## 和其他 Primitive 的关系 {#related-primitives}
 
 - [Flow](/concepts/flow)：`StartFlow` 用你选择的 **Flow ID** 创建 Flow run。Flow ID 是业务身份，例如订单号。Dex 创建 Run ID。之后的调用都用 Flow ID 指定 Flow。
