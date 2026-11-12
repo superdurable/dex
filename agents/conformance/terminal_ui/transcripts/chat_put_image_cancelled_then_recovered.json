@@ -2,7 +2,6 @@
   "name": "chat_put_image_cancelled_then_recovered",
   "description": "The response is lost, dexcli's wait times out: it cancels the wait, which answers cancelled, then reads the stored outcome with get_request_result.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -69,7 +68,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {

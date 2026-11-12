@@ -69,7 +69,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {
