@@ -178,7 +178,10 @@ class ScriptedRunner(AgentFrameworkRunner):
             await asyncio.to_thread(
                 call.events.write_text_delta, f"publishing {arguments['message']}"
             )
-            return ToolExecutionResult(output=f"published {arguments['message']}")
+            return ToolExecutionResult(
+                output=f"published {arguments['message']}",
+                is_finished_by_resumed_turn=arguments.get("finished_by_resumed_turn") is True,
+            )
         if record.tool_name == "charge":
             if int(arguments["amount"]) <= 0:
                 raise ToolExecutionError("amount must be positive")

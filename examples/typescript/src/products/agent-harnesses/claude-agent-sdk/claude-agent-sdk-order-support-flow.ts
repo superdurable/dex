@@ -40,16 +40,19 @@ export function hasAnthropicApiKey(): boolean {
   return (process.env.ANTHROPIC_API_KEY ?? "") !== "";
 }
 
+/** Anthropic settings of the Worker that reach the Claude Code CLI besides its API key, as in the Python example. */
+const keptAnthropicSettingNames = ["ANTHROPIC_BASE_URL"];
+
 /** Worker environment variables the Claude Code CLI needs to run, besides its API key. */
 const claudeCliRuntimeVariableNames = ["PATH", "HOME", "TMPDIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"];
 
 /**
- * Builds the whole environment of the Claude Code CLI: `ANTHROPIC_API_KEY` and the variables the CLI needs to
- * run. Other credentials in the Worker's environment never reach the CLI.
+ * Builds the whole environment of the Claude Code CLI: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` when it is set,
+ * and the variables the CLI needs to run. Other credentials in the Worker's environment never reach the CLI.
  */
 export function buildClaudeCliEnvironment(): Record<string, string> {
   const cliEnvironment: Record<string, string> = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" };
-  for (const name of claudeCliRuntimeVariableNames) {
+  for (const name of [...keptAnthropicSettingNames, ...claudeCliRuntimeVariableNames]) {
     const value = process.env[name];
     if (value !== undefined) {
       cliEnvironment[name] = value;

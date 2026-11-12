@@ -82,6 +82,7 @@ describe('Designs page', () => {
     render(<MemoryRouter><FlowRenderingPage /></MemoryRouter>);
 
     expect((await screen.findByTestId('design-graph')).getAttribute('data-definition')).toBe('order.json');
+    expect(screen.getByText('3 definitions')).toBeTruthy();
     expect(screen.getByText('Directory file')).toBeTruthy();
     expect(screen.getAllByText('Uploaded to the Dex Server')).toHaveLength(2);
     expect(screen.getByText(/^Generated /)).toBeTruthy();
@@ -123,6 +124,14 @@ describe('Designs page', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByTestId('design-graph')).toBeNull();
     expect(screen.getByRole('alert').textContent).toContain('diagnostic 0 is malformed');
+  });
+
+  it('counts a single definition in the singular', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string) => (input === '/api/flow-definitions'
+      ? json({ configured: true, source: 'server', definitionCount: 1, definitions: [summary('uploaded:OrderFlow', 'OrderFlow', 'uploaded')] })
+      : json({ flowType: 'OrderFlow', definitionRevision: 'r', v2: null, definitions: [summary('uploaded:OrderFlow', 'OrderFlow', 'uploaded', { graph: graph('OrderFlow') })] }))));
+    render(<MemoryRouter><FlowRenderingPage /></MemoryRouter>);
+    expect(await screen.findByText('1 definition')).toBeTruthy();
   });
 
   it('explains uploading definitions at Worker start when there are none', async () => {

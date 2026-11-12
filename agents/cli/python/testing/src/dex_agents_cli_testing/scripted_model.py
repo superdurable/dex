@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -50,6 +50,7 @@ class ScriptedConversation:
         prompts: Every user prompt, oldest first; tool results are not prompts.
         tool_results: The tool results after the latest prompt.
         tool_names: The offered tool names.
+        reply_count: How many model replies follow the latest prompt.
     """
 
     model: str
@@ -57,6 +58,7 @@ class ScriptedConversation:
     prompts: Sequence[str]
     tool_results: Sequence[ScriptedToolResult]
     tool_names: Sequence[str]
+    reply_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -85,6 +87,10 @@ class ScriptedReply:
 
     text: str | None = None
     tool_calls: Sequence[ScriptedToolCall] = field(default_factory=tuple)
+
+
+ReplySource = Callable[[ScriptedConversation], ScriptedReply]
+"""Picks the model's reply to one request; ``scripted_reply`` is the default."""
 
 
 def scripted_reply(conversation: ScriptedConversation) -> ScriptedReply:
@@ -132,6 +138,11 @@ def _tool_reply(command: str, conversation: ScriptedConversation) -> ScriptedRep
             )
         )
     return ScriptedReply(tool_calls=tuple(calls))
+
+
+def resolve_tool_name(tool_name: str, tool_names: Sequence[str]) -> str | None:
+    """Return the offered tool that is ``tool_name`` or ends in ``__<tool_name>``, or ``None``."""
+    return _resolve_tool_name(tool_name, tool_names)
 
 
 def _resolve_tool_name(tool_name: str, tool_names: Sequence[str]) -> str | None:

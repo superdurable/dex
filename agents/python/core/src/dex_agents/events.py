@@ -44,6 +44,10 @@ class AgentEventType(StrEnum):
         TOOL_CALL_STARTED: A tool started. Payload ``{"tool_call_id", "tool_name"}``.
         TOOL_CALL_FINISHED: A tool call's record became final, including a
             rejection. Payload ``{"tool_call_id", "tool_name", "status"}``.
+            For a call whose tool Step returned
+            ``ToolExecutionResult.is_finished_by_resumed_turn``, the runner
+            writes it from the resumed turn's ``RunModel`` instead, when the
+            call really ran.
         TOOL_CALL_DEFERRED: The model asked for a tool call, which runs in its own Step.
             Payload ``{"tool_call_id", "tool_name", "effect", "requires_approval"}``.
         INTERRUPT_RAISED: A tool call waits for approval, or a question waits
@@ -276,6 +280,14 @@ class AgentEventWriter:
         status: ToolCallStatus,
     ) -> None:
         """Report that a tool finished running.
+
+        The session writes it when a call's record becomes final. A runner
+        writes it for a tool its framework cannot defer, and for a call whose
+        tool Step returned ``ToolExecutionResult.is_finished_by_resumed_turn``,
+        once the resumed turn runs that call.
+
+        .. versionchanged:: 0.6.0
+            A runner also writes it for a call that the resumed turn runs.
 
         Args:
             tool_call_id: Framework tool call ID.

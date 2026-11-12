@@ -482,7 +482,10 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             async for message in client.receive_response():
                 observer.observe(message)
         finally:
-            await client.disconnect()
+            try:
+                await client.disconnect()
+            finally:
+                tool_call_gate.finish_unreported_tool_calls()
         result = observer.successful_result()
         if tool_call_gate.built_in_tool_name_collisions:
             raise RuntimeError(
@@ -524,7 +527,9 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
         Returns:
             The source's outcome; the custom tool's text output; or
-            ``APPROVED_CLI_TOOL_OUTPUT`` for a tool that runs inside the CLI.
+            ``APPROVED_CLI_TOOL_OUTPUT`` with ``is_finished_by_resumed_turn``
+            for a tool that runs inside the CLI, whose ``tool_call_finished``
+            the resumed turn writes from the CLI's result.
             Non-text content of a custom tool is replaced by a short
             placeholder. With a media store, its ``image`` content is uploaded
             and returned as ``images`` instead.
@@ -552,7 +557,9 @@ class ClaudeAgentRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             )
         custom_tool = self._tool_catalog.custom_tool(record.tool_name)
         if custom_tool is None:
-            return ToolExecutionResult(output=APPROVED_CLI_TOOL_OUTPUT)
+            return ToolExecutionResult(
+                output=APPROVED_CLI_TOOL_OUTPUT, is_finished_by_resumed_turn=True
+            )
         arguments = json.loads(record.arguments)
         validation_error = self._tool_catalog.validate_custom_tool_input(
             record.tool_name, arguments
