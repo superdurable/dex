@@ -109,10 +109,8 @@ def test_no_output_reaches_the_terminal(
     assert session.wait_for_exit(timeout_seconds=90) == 0, session.describe()
     _assert_nothing_leaked(session)
     log_text = run.command_log_text()
-    for role in CANARY_ROLES:
-        for fd in (1, 2):
-            assert f"{CANARY_TEXT} {role} fd {fd}" in log_text, f"{role} fd {fd} left no log line"
-            assert f"{CANARY_TEXT} {role} child fd {fd}" in log_text
+    for expected in _expected_canary_log_lines(command):
+        assert expected in log_text, f"no log line {expected!r}"
 
 
 def test_killed_worker_host_is_shown(command: TerminalUiCommand, chat_runs: ChatRunFactory) -> None:
@@ -129,6 +127,24 @@ def test_killed_worker_host_is_shown(command: TerminalUiCommand, chat_runs: Chat
     assert exit_code == 1, session.describe()
     output = session.screen.output_text()
     assert f"--resume {session_id}" in output, output[-800:]
+
+
+def _expected_canary_log_lines(command: TerminalUiCommand) -> list[str]:
+    """Return the canary lines the command log must hold.
+
+    A Python launcher redirects fds 1 and 2, so its raw writes and an inherited
+    child's are checked. Node has no atomic dup2: a TypeScript launcher
+    redirects only its JavaScript output and starts no child on the terminal.
+    """
+    lines = []
+    for role in CANARY_ROLES:
+        if role == "launcher" and not command.case.is_python:
+            lines += [f"{CANARY_TEXT} {role} {kind}" for kind in ("console log", "console error")]
+            lines += [f"{CANARY_TEXT} {role} fd {fd}" for fd in (1, 2)]
+            continue
+        for fd in (1, 2):
+            lines += [f"{CANARY_TEXT} {role} fd {fd}", f"{CANARY_TEXT} {role} child fd {fd}"]
+    return lines
 
 
 def _assert_nothing_leaked(session: TerminalSession) -> None:

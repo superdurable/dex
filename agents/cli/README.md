@@ -278,4 +278,4 @@ DEXCLI=/path/to/dexcli agents/cli/python/terminal-ui-e2e/run-scenarios.sh \
 
 Without `DEXCLI`, the script builds `dexcli` from this checkout, which needs
 the Dex Web build in `web/assets/dist`. Agents terminal UI e2e CI runs
-`py-openai-sdk` on Linux; the other commands run locally.
+`py-openai-sdk` and `ts-openai-sdk` on Linux; the other commands run locally.

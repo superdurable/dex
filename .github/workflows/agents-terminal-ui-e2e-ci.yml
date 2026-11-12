@@ -30,8 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Add ts-openai-sdk once the TypeScript CLI core hands its chat to the terminal UI.
-        command: [py-openai-sdk]
+        command: [py-openai-sdk, ts-openai-sdk]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

@@ -26,8 +26,10 @@ host. A Python command loads `output_canary/python_path/sitecustomize.py`
 through `PYTHONPATH`. A TypeScript command loads
 `output_canary/node_canary.cjs` through `NODE_OPTIONS`. Once the scenario
 creates a trigger file, each process writes canary lines to fds 1 and 2,
-and so does a child it starts. The lines must reach the command log and never
-the terminal.
+and so does a child it starts. A TypeScript launcher is the exception: Node
+has no atomic `dup2`, so it redirects only its JavaScript output, and its
+canary writes through `process.stdout`, `process.stderr`, and `console`. The
+lines must reach the command log and never the terminal.
 
 ## Processes a command starts
 
@@ -48,9 +50,6 @@ DEXCLI=/path/to/dexcli ./run-scenarios.sh --command py-openai-sdk --command py-b
   feature runs only for commands that have it. `ask_user` needs the builtin
   harness. Slow streams need an OpenAI provider. The approval diff is checked
   only for the CLI core's file tools.
-- The TypeScript commands hand their chat to the terminal UI only with the
-  TypeScript launcher. Until it is on main, `--command ts-openai-sdk` gets
-  the plain chat and fails.
 - Builds, homes, terminal transcripts, request logs, and command logs go to
   `--work-dir`. Each terminal transcript is `cases/<scenario>/terminal-N.bin`.
 - `DEX_SERVER_ZD_BINARY` picks the `dex-server-zd` that `dexcli dev` runs.
