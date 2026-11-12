@@ -2409,3 +2409,29 @@ fn dev_rejects_the_aliyun_oss_provider_by_its_name() {
         "{error:?}"
     );
 }
+
+#[test]
+fn flow_definition_key_budget_counts_the_aliyun_oss_version_suffix() {
+    let key_overhead = |provider, prefix: &str| {
+        let mut configuration = valid_config();
+        configuration.object_store.provider = provider;
+        configuration.object_store.prefix = prefix.to_owned();
+        ComponentConfigs::from_config(&configuration, false)
+            .expect("component config")
+            .flow_definitions
+            .object_key_prefix_bytes
+    };
+    assert_eq!(key_overhead(ObjectStoreProvider::S3, ""), 0);
+    assert_eq!(key_overhead(ObjectStoreProvider::S3, "cluster-a"), 10);
+    assert_eq!(key_overhead(ObjectStoreProvider::Db9, "cluster-a"), 10);
+    let version_suffix = dexzd_object_store::VERSION_OBJECT_KEY_SUFFIX_BYTES;
+    assert_eq!(version_suffix, 23);
+    assert_eq!(
+        key_overhead(ObjectStoreProvider::AliyunOss, ""),
+        version_suffix + 1
+    );
+    assert_eq!(
+        key_overhead(ObjectStoreProvider::AliyunOss, "cluster-a"),
+        10 + version_suffix + 1
+    );
+}

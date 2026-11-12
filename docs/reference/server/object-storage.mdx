@@ -59,7 +59,8 @@ startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"
 ~~~
 
 Startup also writes and deletes a probe object under the prefix, to check that
-conditional writes work. The server needs no bucket-wide access and no bucket
+conditional writes work. Since 0.1.27, startup fails when this check does not
+finish within 5 minutes. The server needs no bucket-wide access and no bucket
 administration action.
 
 Hard-delete Attribute values use the primary bucket and prefix by default. To
@@ -273,7 +274,9 @@ each object that it replaces, such as the cluster manifest, node leases, the
 Attribute index registry, and Flow definitions, as a series of versions. A key
 **K** becomes objects under **K.v/**, one per change. The server manages these
 objects and deletes old versions itself. Do not edit, copy, or delete them, and
-do not add a lifecycle rule that expires them.
+do not add a lifecycle rule that expires them. A version key is 23 bytes longer
+than **K**, and OSS allows keys of at most 1023 bytes. So UploadFlowDefinitions
+accepts Flow types whose object keys are 24 bytes shorter than on S3.
 
 Data cannot move between **aliyunOSS** and another provider, because the
 object layouts differ. If the prefix holds a cluster manifest or an Attribute
