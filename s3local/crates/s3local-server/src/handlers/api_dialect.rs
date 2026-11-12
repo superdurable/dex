@@ -48,7 +48,7 @@ impl DialectWriteCondition {
             .is_some_and(|value| value.trim().eq_ignore_ascii_case("true"));
         Ok(Self {
             condition: if is_forbid_overwrite {
-                WriteCondition::IfNoneMatchAny
+                WriteCondition::ForbidOverwriteUnlessVersioned
             } else {
                 WriteCondition::Unconditional
             },

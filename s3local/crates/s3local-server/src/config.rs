@@ -66,7 +66,8 @@ pub struct ServerConfig {
     /// Request dialect the endpoint emulates. Default `amazon-s3`. `aliyun-oss` emulates the S3-compatible
     /// endpoint of Aliyun OSS: PutObject and CompleteMultipartUpload reject `If-None-Match` and `If-Match`
     /// with 400 NotImplemented and honor `x-oss-forbid-overwrite: true` with 409 FileAlreadyExists,
-    /// UploadPart responses omit checksum headers, and DeleteObjects requires `Content-MD5`.
+    /// UploadPart responses omit checksum headers, and DeleteObjects requires `Content-MD5`. As in OSS,
+    /// a bucket whose versioning was ever enabled or suspended ignores `x-oss-forbid-overwrite`.
     #[arg(long, env = "S3LOCAL_API_DIALECT", value_enum, default_value_t = S3ApiDialect::AmazonS3)]
     pub api_dialect: S3ApiDialect,
 }
@@ -105,6 +106,7 @@ pub enum ControlAuthentication {
 
 /// S3 request dialect served by the endpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[non_exhaustive]
 pub enum S3ApiDialect {
     AmazonS3,
     AliyunOss,

@@ -316,3 +316,105 @@ async fn amazon_s3_dialect_ignores_forbid_overwrite_and_echoes_part_checksums() 
     assert!(part.checksum_crc32().is_some());
     server.server.shutdown().await;
 }
+
+#[tokio::test]
+async fn forbid_overwrite_is_ignored_once_bucket_versioning_was_configured() {
+    use aws_sdk_s3::types::{BucketVersioningStatus, VersioningConfiguration};
+    let server = RunningServer::start(&ALIYUN_OSS_DIALECT).await;
+    for (bucket, status) in [
+        ("versioning-enabled", BucketVersioningStatus::Enabled),
+        ("versioning-suspended", BucketVersioningStatus::Suspended),
+    ] {
+        server
+            .client
+            .create_bucket()
+            .bucket(bucket)
+            .send()
+            .await
+            .expect("the bucket is created");
+        server
+            .client
+            .put_bucket_versioning()
+            .bucket(bucket)
+            .versioning_configuration(VersioningConfiguration::builder().status(status).build())
+            .send()
+            .await
+            .expect("the versioning status is set");
+        for body in [b"first".as_slice(), b"second".as_slice()] {
+            let response = server
+                .raw(
+                    "PUT",
+                    &format!("/{bucket}/single"),
+                    "x-oss-forbid-overwrite: true\r\n",
+                    body,
+                )
+                .await;
+            assert_eq!(status_line(&response), "HTTP/1.1 200 OK", "{bucket}");
+        }
+        for fill in *b"ab" {
+            let upload_id = server
+                .client
+                .create_multipart_upload()
+                .bucket(bucket)
+                .key("multipart")
+                .send()
+                .await
+                .expect("the upload starts")
+                .upload_id()
+                .expect("the upload has an ID")
+                .to_owned();
+            let part = server
+                .client
+                .upload_part()
+                .bucket(bucket)
+                .key("multipart")
+                .upload_id(&upload_id)
+                .part_number(1)
+                .body(vec![fill; 1024].into())
+                .send()
+                .await
+                .expect("the part uploads");
+            server
+                .client
+                .complete_multipart_upload()
+                .bucket(bucket)
+                .key("multipart")
+                .upload_id(&upload_id)
+                .multipart_upload(
+                    CompletedMultipartUpload::builder()
+                        .parts(
+                            CompletedPart::builder()
+                                .part_number(1)
+                                .e_tag(part.e_tag().expect("the part has an ETag"))
+                                .build(),
+                        )
+                        .build(),
+                )
+                .customize()
+                .mutate_request(insert_forbid_overwrite)
+                .send()
+                .await
+                .expect("a versioned bucket ignores forbid-overwrite on completion");
+        }
+        for (key, expected) in [
+            ("single", b"second".to_vec()),
+            ("multipart", vec![b'b'; 1024]),
+        ] {
+            let body = server
+                .client
+                .get_object()
+                .bucket(bucket)
+                .key(key)
+                .send()
+                .await
+                .expect("the object is readable")
+                .body
+                .collect()
+                .await
+                .expect("the body is readable")
+                .into_bytes();
+            assert_eq!(body.as_ref(), expected.as_slice(), "{bucket}/{key}");
+        }
+    }
+    server.server.shutdown().await;
+}

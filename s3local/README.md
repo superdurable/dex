@@ -200,6 +200,7 @@ binary; `start` uses explicit defaults and ignores `S3LOCAL_*` environment varia
 The `aliyun-oss` dialect emulates the S3-compatible endpoint of Aliyun OSS. PutObject and
 CompleteMultipartUpload reject `If-None-Match` and `If-Match` with `400 NotImplemented`. They honor
 `x-oss-forbid-overwrite: true` atomically and return `409 FileAlreadyExists` when the key exists.
+As in OSS, a bucket whose versioning was ever enabled or suspended ignores the header and overwrites.
 UploadPart responses omit checksum headers. DeleteObjects without `Content-MD5` returns
 `400 MissingArgument`. The `amazon-s3` dialect ignores `x-oss-forbid-overwrite`.
 
