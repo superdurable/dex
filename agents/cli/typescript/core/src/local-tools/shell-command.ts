@@ -6,9 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
-import { getSystemErrorMessage } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
+import { getSystemErrorMessage, promisify } from "node:util";
 
 import { ToolExecutionError } from "@superdurable/dex-agents";
 
@@ -19,6 +20,7 @@ export const defaultShellTimeoutSeconds = 120;
 /** The longest timeout a call may set, in seconds. */
 export const maximumShellTimeoutSeconds = 600;
 const maximumOutputBytes = 64 * 1024;
+const execFileAsync = promisify(execFile);
 /** How long processes a finished command left in its group get between SIGTERM and SIGKILL. */
 const leftBehindGraceMs = 500;
 /** How long output may still arrive after the shell, or on POSIX its gatekeeper, exited. */
@@ -45,7 +47,8 @@ const gatekeeperScript = [
  * Runs one command with the system shell in a directory and returns its exit status and output.
  *
  * The command runs in its own process group. When the command ends, so do the processes it left in that group, such
- * as one it started with `&`: they get SIGTERM, then SIGKILL 0.5 s later, and the call answers once they are gone.
+ * as one it started with `&`: they get SIGTERM, then SIGKILL 0.5 s later unless they all ended sooner, and the call
+ * answers once they are gone.
  * A timeout or the cancellation signal kills the whole group at once. A process that left the group, such as one
  * that called `setsid`, is not stopped; the call stops waiting for its output 1 s after the group ended. The status
  * is the number the shell reports, so a command that a signal ended shows 128 plus the signal's number. A non-zero
@@ -93,7 +96,6 @@ export function runShellCommand(
     });
     const stdout = new CappedOutput();
     const stderr = new CappedOutput();
-    const output = new OutputEnd([childStdout, childStderr]);
     let endReason: string | undefined;
     let commandStatus: number | undefined;
     const signalGroup = (name: NodeJS.Signals): void => {
@@ -132,7 +134,7 @@ export function runShellCommand(
       stopWaiting();
       // The command ended: what it left in its group ends too.
       signalGroup("SIGTERM");
-      void output.within(leftBehindGraceMs).then(() => signalGroup("SIGKILL"));
+      void waitForLeftBehind(child.pid, leftBehindGraceMs).then(() => signalGroup("SIGKILL"));
     });
     childStdout.on("data", (chunk: Buffer) => stdout.append(chunk));
     childStderr.on("data", (chunk: Buffer) => stderr.append(chunk));
@@ -256,27 +258,30 @@ function describeSpawnError(error: Error): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** Tells when every stream of a set has ended. */
-class OutputEnd {
-  private readonly ended: Promise<void>;
-
-  public constructor(streams: readonly Readable[]) {
-    this.ended = Promise.all(
-      streams.map((stream) => new Promise<void>((resolve) => stream.once("close", () => resolve()))),
-    ).then(() => undefined);
+/**
+ * Waits until no process but the gatekeeper is left in its group, or until the grace period after SIGTERM ended,
+ * whichever comes first. Closed output does not end the wait: a process may close its output and ignore SIGTERM.
+ * @param pgid - The group, whose leader is the gatekeeper.
+ * @param graceMs - The grace period.
+ */
+async function waitForLeftBehind(pgid: number | undefined, graceMs: number): Promise<void> {
+  if (pgid === undefined) {
+    return;
   }
+  const deadline = Date.now() + graceMs;
+  while (Date.now() < deadline && (await hasOtherGroupMembers(pgid))) {
+    await delay(25);
+  }
+}
 
-  /**
-   * Waits until every stream ended, or the time ran out.
-   * @param timeoutMs - The longest wait.
-   */
-  public async within(timeoutMs: number): Promise<void> {
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, timeoutMs);
-    });
-    await Promise.race([this.ended, timeout]);
-    clearTimeout(timer);
+/** Returns whether a process other than the group's leader is in the group; `true` when it cannot tell. */
+async function hasOtherGroupMembers(pgid: number): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync("pgrep", ["-g", String(pgid)], { encoding: "utf8" });
+    return stdout.split(/\s+/).some((pid) => pid !== "" && Number(pid) !== pgid);
+  } catch (error: unknown) {
+    // pgrep exits 1 when nothing matches: the group has no process left at all.
+    return (error as { code?: unknown }).code !== 1;
   }
 }
 

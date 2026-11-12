@@ -81,6 +81,40 @@ for (const mode of ["plain chat", "Worker host"] as const) {
       assert.ok(await isGoneWithin(Number(match[1]), 2_000), "the subshell is gone");
     });
 
+    test("a process left in the group that closed its output and ignores SIGTERM gets the full grace before SIGKILL", async () => {
+      const originalKill = process.kill.bind(process);
+      const groupSignals: { readonly signal: string; readonly atMs: number }[] = [];
+      process.kill = ((pid: number, name?: NodeJS.Signals | number) => {
+        if (pid < 0) {
+          groupSignals.push({ signal: String(name), atMs: Date.now() });
+        }
+        return originalKill(pid, name);
+      }) as typeof process.kill;
+      try {
+        const command =
+          "perl -e '$SIG{TERM} = \"IGNORE\"; close STDOUT; close STDERR; sleep 30' & pid=$!; sleep 0.3; echo $pid";
+        const result = await runShellCommand(command, tmpdir(), 60, new AbortController().signal, registered()?.registry);
+        const pid = Number(/^exit code 0\n--- stdout ---\n(\d+)\n/.exec(result)?.[1] ?? 0);
+        assert.ok(pid > 0, result);
+        assert.ok(await isGoneWithin(pid, 2_000), "SIGKILL ended the process that ignored SIGTERM");
+      } finally {
+        process.kill = originalKill;
+      }
+      const term = groupSignals.find((entry) => entry.signal === "SIGTERM");
+      const kill = groupSignals.find((entry) => entry.signal === "SIGKILL");
+      assert.ok(term !== undefined && kill !== undefined, JSON.stringify(groupSignals));
+      assert.ok(kill.atMs - term.atMs >= 450, `SIGKILL came ${kill.atMs - term.atMs} ms after SIGTERM`);
+    });
+
+    test("a command that leaves nothing behind answers without waiting for the grace", async () => {
+      const startedAt = Date.now();
+      assert.equal(
+        await runShellCommand("echo hi", tmpdir(), 60, new AbortController().signal, registered()?.registry),
+        "exit code 0\n--- stdout ---\nhi\n\n--- stderr ---\n",
+      );
+      assert.ok(Date.now() - startedAt < 400, `answered after ${Date.now() - startedAt} ms`);
+    });
+
     test("a timeout kills the whole group, background jobs included", async () => {
       const host = registered();
       const result = await runShellCommand("sleep 30 & echo $!; sleep 30", tmpdir(), 1, new AbortController().signal, host?.registry);
