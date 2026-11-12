@@ -21,8 +21,10 @@ dexzd-metrics.workspace = true
 async-trait.workspace = true
 aws-config.workspace = true
 aws-sdk-s3.workspace = true
+base64.workspace = true
 bytes.workspace = true
 dexzd-clock = { path = "../dexzd-clock" }
+md-5.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

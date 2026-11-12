@@ -22,6 +22,7 @@ mod signature;
 mod xml;
 
 pub use config::{
-    ControlAuthentication, DurabilityFlag, EtagModeFlag, ServerConfig, SignatureVerification,
+    ControlAuthentication, DurabilityFlag, EtagModeFlag, S3ApiDialect, ServerConfig,
+    SignatureVerification,
 };
 pub use server::{ServerHandle, start, start_with_config};

@@ -18,13 +18,15 @@ use s3local::{
 };
 
 use super::OWNER_ID;
+use super::api_dialect::{DialectWriteCondition, echoes_part_checksum};
 use super::bucket::status_response;
 use super::listing::{ListingEncoder, non_empty};
 use super::object::{expected_checksum, stream_upload};
 use super::request_body::read_small_body;
+use crate::config::S3ApiDialect;
 use crate::request_headers::{
     ObjectWrite, body_encoding, content_headers, header_text, refuse_unsupported_write_headers,
-    requested_checksum_algorithm, upload_checksum_plan, user_metadata, write_condition,
+    requested_checksum_algorithm, upload_checksum_plan, user_metadata,
 };
 use crate::routing::QueryParameters;
 use crate::s3_error::S3Error;
@@ -90,6 +92,7 @@ pub(crate) async fn upload_part(
     query: QueryParameters,
     headers: HeaderMap,
     body: crate::server::RequestBody,
+    api_dialect: S3ApiDialect,
 ) -> Result<S3Response, S3Error> {
     refuse_unsupported_write_headers(&headers, ObjectWrite::UploadPart)?;
     let upload_id = required_upload_id(&query)?;
@@ -134,7 +137,7 @@ pub(crate) async fn upload_part(
     .await?;
     let etag = format!("\"{}\"", part.etag);
     let mut response_headers = vec![("etag", etag.as_str())];
-    if is_checksum_echoed {
+    if is_checksum_echoed && echoes_part_checksum(api_dialect) {
         response_headers.push((
             part.checksum.algorithm.header_name(),
             part.checksum.base64_value.as_str(),
@@ -150,9 +153,11 @@ pub(crate) async fn complete_multipart_upload(
     query: QueryParameters,
     headers: &HeaderMap,
     body: crate::server::RequestBody,
+    api_dialect: S3ApiDialect,
 ) -> Result<S3Response, S3Error> {
     let upload_id = required_upload_id(&query)?;
-    let write_condition = write_condition(headers, "CompleteMultipartUpload")?;
+    let dialect_condition =
+        DialectWriteCondition::parse(headers, "CompleteMultipartUpload", api_dialect)?;
     let expected_checksum = ChecksumAlgorithm::ALL.into_iter().find_map(|algorithm| {
         header_text(headers, algorithm.header_name())
             .map(|value| (algorithm, value.trim().to_owned()))
@@ -207,7 +212,7 @@ pub(crate) async fn complete_multipart_upload(
     }
     let request = CompleteMultipartUploadRequest {
         parts,
-        write_condition,
+        write_condition: dialect_condition.condition.clone(),
         expected_checksum,
         expected_checksum_type,
         expected_object_size,
@@ -217,7 +222,8 @@ pub(crate) async fn complete_multipart_upload(
         run_store_operation(&store, move |store| {
             store.complete_multipart_upload(&bucket, &key, &upload_id, request)
         })
-        .await?
+        .await
+        .map_err(|error| dialect_condition.translate_error(error))?
     };
     let mut document = XmlWriter::new("CompleteMultipartUploadResult");
     document

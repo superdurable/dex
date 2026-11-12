@@ -30,7 +30,7 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, JoinSet};
 
-use crate::config::ServerConfig;
+use crate::config::{S3ApiDialect, ServerConfig};
 use crate::controls::{Controls, FaultAction, ObservedBody, RequestObservation};
 use crate::handlers;
 use crate::policy;
@@ -280,7 +280,16 @@ async fn handle_request(
         Ok((request, identity)) => match fault.as_ref().and_then(FaultAction::error) {
             Some(error) => Err(error),
             None => match routing::route(request.method(), request.uri(), request.headers()) {
-                Ok(operation) => dispatch(store, request, operation, identity).await,
+                Ok(operation) => {
+                    dispatch(
+                        store,
+                        request,
+                        operation,
+                        identity,
+                        controls.config.api_dialect,
+                    )
+                    .await
+                }
                 Err(error) => Err(error),
             },
         },
@@ -348,6 +357,7 @@ async fn dispatch(
     request: Request<RequestBody>,
     operation: S3Operation,
     identity: Identity,
+    api_dialect: S3ApiDialect,
 ) -> Result<S3Response, S3Error> {
     let should_hide_missing_key = match (&operation, identity.policy()) {
         (
@@ -401,6 +411,7 @@ async fn dispatch(
                 parts.headers,
                 body,
                 identity.policy().cloned(),
+                api_dialect,
             )
             .await
         }
@@ -408,11 +419,19 @@ async fn dispatch(
             handlers::create_multipart_upload(store, bucket, key, &parts.headers).await
         }
         S3Operation::UploadPart { bucket, key, query } => {
-            handlers::upload_part(store, bucket, key, query, parts.headers, body).await
+            handlers::upload_part(store, bucket, key, query, parts.headers, body, api_dialect).await
         }
         S3Operation::CompleteMultipartUpload { bucket, key, query } => {
-            handlers::complete_multipart_upload(store, bucket, key, query, &parts.headers, body)
-                .await
+            handlers::complete_multipart_upload(
+                store,
+                bucket,
+                key,
+                query,
+                &parts.headers,
+                body,
+                api_dialect,
+            )
+            .await
         }
         S3Operation::AbortMultipartUpload { bucket, key, query } => {
             handlers::abort_multipart_upload(store, bucket, key, query).await
@@ -438,7 +457,7 @@ async fn dispatch(
             handlers::list_object_versions(store, bucket, query).await
         }
         S3Operation::PutObject { bucket, key } => {
-            handlers::put_object(store, bucket, key, parts.headers, body).await
+            handlers::put_object(store, bucket, key, parts.headers, body, api_dialect).await
         }
         S3Operation::CopyObject {
             bucket,
