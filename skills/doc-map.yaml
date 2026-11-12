@@ -22,6 +22,7 @@ mappings:
   - skill: dex-sdk/references/core/step.md
     docs:
       - docs/content/concepts/step/index.mdx
+      - docs/content/concepts/step/advanced-guarantees.mdx
 
   - skill: dex-sdk/references/core/attribute.md
     docs:
@@ -63,10 +64,20 @@ mappings:
   - skill: dex-sdk/references/core/server.md
     docs:
       - docs/content/components/server.mdx
+      - docs/content/components/production.mdx
 
   - skill: dex-sdk/references/core/cli.md
     docs:
       - docs/content/components/cli.mdx
+      - docs/content/components/run-locally.mdx
+
+  - skill: dex-sdk/references/core/testing.md
+    docs:
+      - docs/content/components/testing.mdx
+
+  - skill: dex-sdk/references/core/data-handling.md
+    docs:
+      - docs/content/components/your-database.mdx
 
   - skill: dex-sdk/references/core/web.md
     docs:
@@ -147,11 +158,9 @@ mappings:
 unmapped:
   # Entry points and skill-only guidance.
   - skills/dex-sdk/SKILL.md
-  - skills/dex-sdk/references/core/data-handling.md
   - skills/dex-sdk/references/core/error-handling.md
   - skills/dex-sdk/references/core/plugin-version-check.md
   - skills/dex-sdk/references/core/self-check.md
-  - skills/dex-sdk/references/core/testing.md
   # Language idioms on top of the core rules.
   - skills/dex-sdk/references/go/*.md
   - skills/dex-sdk/references/java/*.md
@@ -166,3 +175,9 @@ unmapped:
   - skills/dex-connector-contributor/SKILL.md
   # The Concepts overview; dex-sdk/SKILL.md holds the agent mental model.
   - docs/content/concepts/index.mdx
+  # The Primitives overview lists the six primitives; each has its own mapping.
+  - docs/content/concepts/primitives/index.mdx
+  # Operations guides for people running Dex; the Skills cover code, not hosting choices or deploy runbooks.
+  - docs/content/components/choose-how-to-run.mdx
+  - docs/content/concepts/change-flow-code.mdx
+  - docs/content/concepts/failover-and-deploys.mdx

@@ -1,0 +1,111 @@
+---
+title: Run Dex in Production
+sidebar_label: Run Dex in Production
+slug: /components/production
+description: A checklist for running Dex in production, with a link to the page that covers each item, from the server topology and capacity to backup, upgrades, and monitoring.
+---
+
+# Run Dex in Production
+
+**dexcli dev** runs everything on one machine for development. This page
+covers a self-hosted production server, which you run next to your own Workers.
+It lists what to decide and set up before launch, and each item links to the
+page with the details. In [Dex Cloud](/components/choose-how-to-run#dex-cloud),
+Super Durable runs the server for you.
+
+## Smallest real deployment {#smallest-deployment}
+
+- One Dex Server node, with a hot standby if you need fast failover.
+- One object storage bucket and prefix for the cluster.
+- Authentication turned on before the API is reachable.
+- TLS in front of the API port, or a private network. See [TLS](/reference/server/authentication#tls).
+- [Retention](#retention) long enough for client retries.
+- Metrics served and alerts on the node and its lease.
+
+The [minimal configuration](#minimal-configuration) below sets up this deployment.
+
+## Before you launch
+
+| Item | What to know | Details |
+| --- | --- | --- |
+| Topology | One active node serves the cluster. Hot standbys can take over. | [Dex Server](/components/server), [Lease, hot standby, and step down](/reference/server/high-availability) |
+| Capacity and cost | CPU is the limit. Start small; see [Sizing](#sizing). | [Performance](/intro/performance), [Grow past one node](/intro/limits#grow-past-one-node) |
+| Storage | Object storage holds all server state. db9 (a separate PostgreSQL-compatible database product; stock PostgreSQL is not supported) can replace it. | [Object storage and backup](/reference/server/object-storage), [Dex Server dependencies](/components/server#dependencies) |
+| Search backend | Built-in search needs no database. Heavy search can use PostgreSQL or ParadeDB. | [Search backends](/reference/server/search) |
+| Configuration | `serve` reads one YAML file. Start from the [minimal configuration](#minimal-configuration). | [Install and configure server-zd](/reference/server/configuration) |
+| Retention | Size it for client retries, as [Retention](#retention) explains. The default is in [Defaults to change](#defaults-to-change-before-production). | [Retention reference](/reference/server/configuration#retention) |
+| Backup and restore | The bucket prefix is the only source of truth. Version or replicate it, and practice a restore. | [Backup and restore](/reference/server/object-storage#backup-and-restore) |
+| Kubernetes | Run the server as a StatefulSet with graceful shutdown. | [Kubernetes deployment](/reference/server/kubernetes) |
+| Authentication | Off by default. Require a bearer credential before you expose the API. | [Authentication](/reference/server/authentication) |
+| Monitoring | Serve metrics on their own listener. Alert on a node that is not serving and on failed lease renewals. | [Metrics and alerts](/reference/server/metrics) |
+| Workers | Workers connect out. Size their task slots, and stop them gracefully in a deploy. | [Workers and the task queue](/reference/server/workers) |
+| Upgrades | Upgrades roll forward. Read each release's notes first; some need every process stopped. | [Upgrades and compatibility](/reference/server/upgrades), [Agent release notes](/reference/agents/upgrades#release-notes) |
+| Your database | Writes from Steps must be safe to repeat. | [Dex and Your Database](/components/your-database) |
+| Code changes | Keep old Step types and RPCs until their Flows close. | [Change Flow Code](/concepts/change-flow-code) |
+
+### Defaults to change {#defaults-to-change-before-production}
+
+| Default | Change it |
+| --- | --- |
+| Closed runs, with their Step history, are deleted after 7 days. A deleted run frees its Flow ID. | Set a longer [retention](#retention), and copy what you must keep to [your own database](/components/your-database). |
+| Public API authentication is off, so any client that reaches the server can call it. | Configure an authenticator before you expose the port, as the [minimal configuration](#minimal-configuration) does. See [Authentication](/reference/server/authentication). |
+| Step retries stop after 4 hours, and then the Flow fails. | Set a retry policy or a failure route in [StepOptions](/concepts/step#stepoptions). |
+
+### Sizing {#sizing}
+
+As a starting point derived from the benchmark, a 2-vCPU node peaked near
+1,800 SYNC Steps per second and a 16-vCPU node near 8,400. Start small and
+watch CPU. Past one node, run separate clusters.
+
+### Retention {#retention}
+
+Set `retention.closedFlowDuration` to cover your longest client retry window,
+since a deleted run frees its Flow ID. Copy data you must keep longer to your
+own tables with [Attribute Store sync](/components/your-database).
+
+## Minimal configuration {#minimal-configuration}
+
+This configuration runs one Dex Server node on Amazon S3, with authentication on:
+
+~~~yaml
+cluster:
+  nodeId: dex-zd
+objectStore:
+  region: us-east-1
+  bucket: BUCKET
+  prefix: PREFIX
+localStorage:
+  directory: /var/lib/dex-server-zd/store
+lease:
+  duration: 60s
+retention:
+  closedFlowDuration: 7days
+metrics:
+  listen: 0.0.0.0:9090
+auth:
+  authenticators:
+    - kind: staticTokens
+      file: /etc/dex-server-zd/tokens.yaml
+~~~
+
+Replace `BUCKET` and `PREFIX` with your bucket and key prefix. The token file lists SHA-256 hashes of the bearer tokens that Workers and Clients send; [Authentication](/reference/server/authentication) shows its format and the JWT option. `cluster.nodeId`, `objectStore.bucket`, and `localStorage.directory` are required, and the node ID and partition count cannot change after the first start. The 60-second lease suits a single node; with hot standbys, keep the 10-second default. [Install and configure server-zd](/reference/server/configuration#minimal-production-configuration) explains every key.
+
+Give each Worker and Client its token through the SDK's `credential` option;
+a file credential rereads the token file, so you can rotate tokens without a
+restart. [Send credentials from Workers and Clients](/reference/server/authentication#sdk-credentials)
+lists the option in each SDK. The API port serves plaintext gRPC: put TLS in
+front of it, or keep it on a private network. [TLS](/reference/server/authentication#tls)
+lists the matching SDK option.
+
+## When something goes wrong
+
+- A Flow that does not advance or that failed:
+  [Troubleshoot a Flow run](/reference/web/debugging).
+- Recover a Flow after a fix by running it again from an earlier Step:
+  [Time Travel](/concepts/change-flow-code#time-travel).
+- Agent sessions in production:
+  [Agents reference](/reference/agents).
+
+## Next
+
+[Failover and Deploys](/concepts/failover-and-deploys): What runs again when a Worker crashes, a Dex Server node fails over, or you deploy new code, and what you must do about it.

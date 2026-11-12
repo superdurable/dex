@@ -3,6 +3,7 @@ id: dex-sdk
 title: Dex SDK
 sidebar_label: Dex SDK
 slug: /build-with-ai/dex-developer-skill/dex-sdk
+description: "Dex SDK 是一个专用 sub-skill。它帮助 agent 用公开的 Dex SDK 构建、调试、测试和运行应用，支持 Python、Go、Java、TypeScript 和 Rust。"
 ---
 
 # Dex SDK
@@ -12,7 +13,14 @@ Dex SDK 是一个专用 sub-skill。它帮助 agent 用公开的 Dex SDK 构建�
 
 ## 安装与使用
 
-<DexSkillHostTabs skill="dex-sdk" />
+先[安装 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills)，一次安装全部三个 Skills。然后在编程智能体中调用这个 Skill，例如在 Codex 中，以及在装了 Plugin 的 Claude Code 中：
+
+```text
+$dex-sdk Diagnose why this Flow retries after the payment Step completes.
+/superdurable-dex:dex-sdk Diagnose why this Flow retries after the payment Step completes.
+```
+
+[安装和使用 Dex Skills](/build-with-ai/dex-developer-skill#install-and-use-dex-skills) 列出了每个 host 的调用方式。
 
 完整的产品或业务流程需求，请从 [Dex App Builder](./dex-app-builder.mdx) 开始。
 App Builder 开始做后端时会加载 Dex SDK。
@@ -26,7 +34,7 @@ App Builder 开始做后端时会加载 Dex SDK。
 - typed RPC、Timer、SubFlow、Worker 和 Client；
 - 重试、超时、heartbeat、durability、lock 和恢复；
 - SDK 版本兼容、测试、排错或运维；
-- Dex Web、**dexcli**、Flow 可视化和应用可观测性。
+- Dex Web、`dexcli`、Flow 可视化和应用可观测性。
 
 这个 skill 处理的是你的应用，不是 Dex 本身。除非你明确要求它开发 Dex，否则它不会为了
 解决应用问题去修改 Dex Server。
@@ -70,7 +78,7 @@ Client 的配置是否兼容。
 
 ## 诊断与运维
 
-诊断问题时，skill 默认只读。它可以查看 Dex Web、**dexcli**、SDK 错误和应用日志。未经
+诊断问题时，skill 默认只读。它可以查看 Dex Web、`dexcli`、SDK 错误和应用日志。未经
 你授权，它不会 stop、time travel、publish、invoke、删除、编辑或以其他方式修改 Flow。
 
 skill 会保留 typed Dex 错误的原样，直到你的业务逻辑能区分以下几种情况：业务拒绝、与正在
@@ -86,3 +94,7 @@ skill 会保留 typed Dex 错误的原样，直到你的业务逻辑能区分以
 - 直接调用 Dex SDK 时，任务保持为范围明确的技术工作，不会扩展成完整的产品流程。
 
 返回 [Dex Skills 总览与安装](../dex-developer-skill.mdx)。
+
+## 下一步
+
+[Durable Agents](/agent-frameworks)

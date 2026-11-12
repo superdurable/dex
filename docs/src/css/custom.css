@@ -62,7 +62,7 @@
   --ifm-background-color: var(--ink);
   --ifm-background-surface-color: var(--surface-solid);
   --ifm-navbar-background-color: var(--header-surface);
-  --ifm-navbar-height: calc(4rem + 1px);
+  --ifm-navbar-height: calc(6.25rem + 2px);
   --ifm-footer-background-color: transparent;
   --ifm-font-family-base: 'Geist', 'Helvetica Neue', Arial, sans-serif;
   --ifm-font-family-monospace: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1405,4 +1405,18 @@ code {
 /* Alias anchors for moved sections must clear the sticky navbar like headings. */
 .markdown a[id]:not([href]) {
   scroll-margin-top: calc(var(--ifm-navbar-height) + 0.5rem);
+}
+
+/* Agent framework tabs: one scrollable row, never wrapped labels. */
+.framework-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.framework-tabs .tabs__item {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
 }

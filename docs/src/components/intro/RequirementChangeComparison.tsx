@@ -11,7 +11,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {Pencil, Plus} from 'lucide-react';
 
 import styles from './ComparedToDatabase.module.css';
-import {countNewParts, orderProcessCopy, type RequirementChangeSide} from './orderProcessParts';
+import {orderProcessCopy, type RequirementChangeSide} from './orderProcessParts';
 
 function ChangeCell({label, side, isDex}: {label: string; side: RequirementChangeSide; isDex: boolean}): ReactNode {
   return (
@@ -40,9 +40,12 @@ function ChangeCell({label, side, isDex}: {label: string; side: RequirementChang
 
 /**
  * Rows that show what each design adds for each new requirement of the order process.
- * The Markdown export uses markdownDescription in place of the rows.
+ * The Markdown export writes markdownTable as a table, or markdownDescription as a caption, in place of the rows.
  */
-export default function RequirementChangeComparison(_props: {markdownDescription: string}): ReactNode {
+export default function RequirementChangeComparison(_props: {
+  markdownDescription?: string;
+  markdownTable?: {header: string[]; rows: string[][]};
+}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = orderProcessCopy(i18n.currentLocale);
   const changes = copy.requirementChanges;
@@ -68,18 +71,6 @@ export default function RequirementChangeComparison(_props: {markdownDescription
             </div>
           );
         })}
-        <div className={styles.changeTotals}>
-          <span className={styles.totalQueues}>
-            <span className={styles.totalNumber}>{countNewParts(changes, 'queues')}</span>
-            {copy.newPartsTotal}
-            <span className={styles.totalDesign}>{copy.queues.name}</span>
-          </span>
-          <span className={styles.totalDex}>
-            <span className={styles.totalNumber}>{countNewParts(changes, 'dex')}</span>
-            {copy.newPartsTotal}
-            <span className={styles.totalDesign}>{copy.dex.name}</span>
-          </span>
-        </div>
       </div>
     </section>
   );

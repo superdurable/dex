@@ -18,9 +18,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/canc
 ## 工作方式
 
 - 取消 RPC 把原因发布到一个取消 Channel。
-- 启动 SubFlow 的 Step 用 **AnyOf** 同时等待 SubFlow 和取消 Channel。
-- 如果子 Flow 先结束，**Execute** 读取它的结果并继续。
-- 如果取消消息胜出，**Execute** 用 **SubFlowID** 读取子 Flow ID，用 Client 的 **StopFlow** 停止子 Flow，再用 **ForceFail** 关闭父 Flow。
+- 启动 SubFlow 的 Step 用 `AnyOf` 同时等待 SubFlow 和取消 Channel。
+- 如果子 Flow 先结束，`Execute` 读取它的结果并继续。
+- 如果取消消息胜出，`Execute` 用 `SubFlowID` 读取子 Flow ID，用 Client 的 `StopFlow` 停止子 Flow，再用 `ForceFail` 关闭父 Flow。
 - 之后每个需要等待的 Step 也同时等待取消 Channel。子 Flow 结束后才到达的取消，仍然能关闭这个 case。
 - 在每个等待中把取消 Condition 放在第一位。取消消息和另一个 Condition 同时就绪时，先声明的 Condition 胜出。这样，已经到达的取消总是优先于正常完成。
 - 如果最后一个 Step 已经消费了它的决定消息，或者 Flow 已经关闭，之后到达的取消不能再改变结果。
@@ -44,19 +44,19 @@ AwaitUnderwriterDecision.execute
 
 ## 停止子 Flow
 
-- **Execute** 可能被重试，子 Flow 也可能恰好同时结束。把 **StopFlow** 返回的“未找到”“不活跃”和“正在关闭”都当作已经停止。
-- Worker 需要一个 Client 才能调用 **StopFlow**。把 Client provider 传给 Flow 的构造函数。
+- `Execute` 可能被重试，子 Flow 也可能恰好同时结束。把 `StopFlow` 返回的“未找到”“不活跃”和“正在关闭”都当作已经停止。
+- Worker 需要一个 Client 才能调用 `StopFlow`。把 Client provider 传给 Flow 的构造函数。
 - 如果运维人员或测试需要找到被停止的子 Flow，把它的 Flow ID 记录在 Attribute 中。
 
 ## 限制
 
 只有取消通过取消 Channel 到达时，这个模式才会停止子 Flow。父 Flow 以其他方式关闭时，子 Flow 会继续运行：
 
-- 对父 Flow 调用 Client 的 **StopFlow**；
+- 对父 Flow 调用 Client 的 `StopFlow`；
 - 父 Flow 的 Flow timeout；
-- 父 Flow 中另一个 Step 返回的 **ForceFail** 或 **ForceComplete**。
+- 父 Flow 中另一个 Step 返回的 `ForceFail` 或 `ForceComplete`。
 
-给每个子 Flow 设置 Flow timeout，这样即使没有人停止它，它也会结束。示例给信用检查设置了 7 天的 timeout。客户端取消 case 时调用取消 RPC，而不是 **StopFlow**。
+给每个子 Flow 设置 Flow timeout，这样即使没有人停止它，它也会结束。示例给信用检查设置了 7 天的 timeout。客户端取消 case 时调用取消 RPC，而不是 `StopFlow`。
 
 ## 多个子 Flow
 
@@ -65,11 +65,11 @@ AwaitUnderwriterDecision.execute
 - 使用 ChannelMap，每个 Step 一个 key。取消 RPC 向每个 key 发布，每个 Step 等待自己的 key。
 - 或者让取消 RPC 向同一个 Channel 为每个等待中的 Step 各发布一条消息。
 
-不要在第一个看到取消消息的 Step 中关闭 Flow。它的 **ForceFail** 会在其他 Step 停止各自子 Flow 之前取消它们。在 Flow 被关闭之前，每个持有子 Flow 的 Step 都必须先停止自己的子 Flow。
+在 Flow 被关闭之前，每个持有子 Flow 的 Step 都必须先停止自己的子 Flow。如果在第一个看到取消消息的 Step 中关闭 Flow，它的 `ForceFail` 会在其他 Step 停止各自子 Flow 之前取消它们。
 
 ## 示例
 
-**LoanApplicationFlow** 以申请人 ID 启动。**RunCreditCheck** 以 7 天的 Flow timeout 启动 **CreditCheckFlow**，并等待它或 **cancelApplication** RPC。**AwaitUnderwriterDecision** 等待 **decideApplication** RPC 或之后到达的取消。取消停止了信用检查时，Flow 把子 Flow ID 存入 **stoppedCreditCheckFlowId** Attribute。
+`LoanApplicationFlow` 以申请人 ID 启动。`RunCreditCheck` 以 7 天的 Flow timeout 启动 `CreditCheckFlow`，并等待它或 `cancelApplication` RPC。`AwaitUnderwriterDecision` 等待 `decideApplication` RPC 或之后到达的取消。取消停止了信用检查时，Flow 把子 Flow ID 存入 `stoppedCreditCheckFlowId` Attribute。
 
 <SdkTabs
   examples={{
@@ -561,7 +561,7 @@ impl Step for AwaitUnderwriterDecision {
 
 - 取消 RPC 只设置一个 Attribute。没有任何东西会唤醒正在等待的 Step。
 
-## 相关内容
+## 下一步
 
 - [SubFlow](/concepts/primitives/subflow)
 - [Channel](/concepts/primitives/channel)

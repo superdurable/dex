@@ -50,6 +50,19 @@ pub struct EngineSimulationConfig {
     /// Whether the simulated task queue injects duplicate refs and Claims without a lease.
     /// Defaults to true. Regression seeds turn it off, so they keep reproducing their scenario.
     pub has_queue_faults: bool,
+    /// Which conditional writes the shared object storage offers.
+    /// Defaults to ETag replacement on every key, as on S3.
+    pub object_store_semantics: SimulatedObjectStoreSemantics,
+}
+
+/// Conditional writes of the simulated shared object storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulatedObjectStoreSemantics {
+    /// Create-only writes and ETag replacement on every key, as on S3.
+    EtagReplacementOnEveryKey,
+    /// Create-only writes only; mutable object keys are replaced through versions, as with
+    /// `AliyunOssObjectStore` on Aliyun OSS.
+    CreateOnlyWithVersionedMutableKeys,
 }
 
 impl Default for EngineSimulationConfig {
@@ -60,6 +73,7 @@ impl Default for EngineSimulationConfig {
             profile: EngineSimulationProfile::Standard,
             fault_probability_percent: None,
             has_queue_faults: true,
+            object_store_semantics: SimulatedObjectStoreSemantics::EtagReplacementOnEveryKey,
         }
     }
 }

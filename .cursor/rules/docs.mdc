@@ -29,9 +29,9 @@ or a single-language sample when the same API exists in other SDKs.
 
 Exempt: `bash` / `text` fences, tables of API names, and IDL excerpts.
 
-In prose outside fenced blocks, do not use inline backticks for API names,
-methods, types, or identifiers. Use **bold** instead. See
-`.cursor/rules/docs-writing.mdc`.
+In prose outside fenced blocks, write API names, methods, types, and
+identifiers in inline code. Use **bold** for a term's first definition and for
+UI labels. See `.cursor/rules/docs-writing.mdc`.
 Use the exact SDK nouns and call sites; do not invent APIs.
 
 Application snippets must be copied from runnable files under `examples/`.

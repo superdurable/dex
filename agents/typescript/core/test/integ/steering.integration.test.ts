@@ -542,6 +542,10 @@ describe("steering and turn cancellation with an in-process Worker", () => {
         turnFailureNoteFooter,
       ].join("\n"),
     );
+    assert.deepEqual(
+      steered.messages.map((message) => message.origin),
+      [undefined, "turn_steered_note", undefined, undefined],
+    );
     assert.equal(steered.messages.at(-1)?.text, "echo: instead");
 
     assert.equal(await noteSessions.sendUserMessage(sessionId, "call charge_card"), true);
@@ -550,6 +554,7 @@ describe("steering and turn cancellation with an in-process Worker", () => {
     await noteSessions.waitForCompletedTurns(sessionId, 3);
     const cancelled = await noteSessions.getAgentSnapshot(sessionId);
     assert.ok(cancelled.messages.at(-1)?.text?.startsWith(`${turnCancelledNoteHeader}\n- charge_card `));
+    assert.equal(cancelled.messages.at(-1)?.origin, "turn_cancelled_note");
     assert.equal(cancelled.state?.turnCount, 3);
   });
 

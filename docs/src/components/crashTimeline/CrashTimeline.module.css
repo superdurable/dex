@@ -1,0 +1,220 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Actor status chips on top; each event names its actor in a label column, stacked on narrow screens. */
+
+.timeline {
+  --ct-border: var(--ifm-color-emphasis-300);
+  --ct-muted: var(--ifm-color-emphasis-600);
+  --ct-surface: var(--ifm-background-surface-color);
+  --ct-accent: var(--ifm-color-primary);
+  --ct-stop: var(--ifm-color-danger);
+  --ct-wait: var(--ifm-color-warning-darkest);
+  margin: 1.25rem 0;
+  padding: 1rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 0.75rem;
+  background: var(--ct-surface);
+  container-type: inline-size;
+}
+
+[data-theme='dark'] .timeline {
+  --ct-wait: var(--ifm-color-warning-light);
+}
+
+.actors {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.actor {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  color: var(--ct-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: color 300ms, border-color 300ms;
+}
+
+.dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--ct-border);
+  transition: background 300ms;
+}
+
+.actor_on {
+  border-color: var(--ct-accent);
+  color: var(--ifm-font-color-base);
+}
+
+.actor_on .dot {
+  background: var(--ct-accent);
+}
+
+.actor_off {
+  border-style: dashed;
+  text-decoration: line-through;
+}
+
+.actor_off .dot {
+  background: var(--ct-stop);
+}
+
+.events {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.event {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  opacity: 0.15;
+  transform: translateY(0.25rem);
+  transition: opacity 400ms, transform 400ms;
+}
+
+.event.shown {
+  opacity: 1;
+  transform: none;
+}
+
+.lane {
+  color: var(--ct-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lane_server .lane {
+  color: var(--ct-accent);
+}
+
+.body {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.45rem 0.6rem;
+  border-left: 3px solid var(--ct-accent);
+  border-radius: 0.4rem;
+  background: var(--ifm-color-emphasis-100);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.kind_wait .body {
+  border-left-color: var(--ct-wait);
+}
+
+.kind_stop .body {
+  border-left-color: var(--ct-stop);
+}
+
+.kind_done .body {
+  font-weight: 600;
+}
+
+.icon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.1rem;
+}
+
+.kind_stop .icon {
+  color: var(--ct-stop);
+}
+
+.kind_wait .icon {
+  color: var(--ct-wait);
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  color: var(--ct-accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 400ms;
+}
+
+.summary {
+  flex-wrap: nowrap;
+}
+
+.summaryText {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.summary.shown {
+  opacity: 1;
+}
+
+.replay {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ifm-font-color-base);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.replay:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@container (max-width: 34rem) {
+  .actors {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .event {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.15rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .event,
+  .summary,
+  .actor,
+  .dot {
+    transition: none;
+  }
+}

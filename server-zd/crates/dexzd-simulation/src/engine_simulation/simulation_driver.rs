@@ -15,7 +15,6 @@ use std::time::Duration;
 use dexzd_clock::WallClock;
 use dexzd_engine::{EngineLocalStore, NodeStopReason, SeededEngineIdSourceForTest};
 use dexzd_keyspace::RunTable;
-use dexzd_object_store::{InMemoryObjectStore, ObjectStore};
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use tokio::task::JoinHandle;
@@ -43,8 +42,8 @@ use crate::engine_simulation::simulated_node::{
     wait_before_next_start,
 };
 use crate::engine_simulation::simulated_object_store::{
-    FAULT_PROBABILITIES, NoInjectedFaults, SharedObjectStorage, StorageObservations,
-    has_discarded_existing_store, replays_voided_closed_batch,
+    FAULT_PROBABILITIES, SharedObjectStorage, StorageObservations, has_discarded_existing_store,
+    replays_voided_closed_batch, shared_store_with_semantics,
 };
 use crate::engine_simulation::simulated_workers::SimulatedWorkers;
 use crate::engine_simulation::standby_takeovers::{StandbyTakeover, StandbyTakeovers};
@@ -147,10 +146,8 @@ impl Simulation {
         let storage_observations = Arc::new(Mutex::new(StorageObservations::default()));
         let id_clock: Arc<dyn WallClock> = Arc::new(SimulatedWallClock::new(origin, 0));
         let storage_clock: Arc<dyn WallClock> = Arc::new(SimulatedWallClock::new(origin, 0));
-        let shared_store = Arc::new(InMemoryObjectStore::with_injector_and_clock(
-            Arc::new(NoInjectedFaults),
-            storage_clock,
-        ));
+        let shared_store =
+            shared_store_with_semantics(config.object_store_semantics, seed, storage_clock);
         let workers = Arc::new(SimulatedWorkers::new(
             rng.random(),
             config.profile.has_step_failure_policies(),

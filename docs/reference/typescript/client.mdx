@@ -2,6 +2,7 @@
 id: client
 title: Client
 sidebar_label: Client
+description: "This page lists the TypeScript SDK names for the Client. The doc comment of each API gives its parameters, defaults, and errors. Read them in the TypeScript SDK API reference."
 ---
 
 # Client
@@ -28,7 +29,7 @@ them in the [TypeScript SDK API reference](./index.mdx#api-reference).
 | Update FlowConfig | **updateFlowConfig** | [Update FlowConfig](./flow.mdx#update-flow-config-with-a-client) |
 | Write and read a Stream | **writeStream**, **readStream**, and **listStreamMessages** | [Stream](./stream.mdx) |
 | Time travel a Flow | **timeTravel**, with **TimeTravelOptions** | [Time travel](/reference/server/runtime-client#time-travel) |
-| Upload Flow definitions | **uploadFlowDefinitions**, with **FlowDefinitionDocument**. Since 1.45 | [Flow definitions](./workers.mdx#flow-definitions) |
+| Upload Flow definitions | **uploadFlowDefinitions**, with **FlowDefinitionDocument**. Since 1.45.0 | [Flow definitions](./workers.mdx#flow-definitions) |
 | Handle a failed request | **DexServiceError**, with **ErrorSubStatus** | [Client requests](/reference/server/runtime-client) |
 
 Every **Client** request method is asynchronous and returns a Promise. Call

@@ -26,27 +26,27 @@ AwaitInbound.execute
 ## 规则
 
 - RPC 只校验输入，然后把它发布到 Channel。它不写入等待中的 Step 会读取或加锁的 Attribute。
-- 只有一个等待中的 Step。它用 **AnyOf** 等待回复 Channel、结论 Channel 和不活跃 Timer。
+- 只有一个等待中的 Step。它用 `AnyOf` 等待回复 Channel、结论 Channel 和不活跃 Timer。
 - 先声明回复 Channel，再声明结论 Channel。多个 Channel Condition 同时就绪时，先声明的那个胜出，并且只消费胜出者的消息。所以在结论之前收到的回复总会先被记录。
-- Channel Condition 只有胜出时才消费消息。**Execute** 运行期间到达的回复会留在队列里，由下一次执行处理，不会丢失。
-- **Execute** 把消费到的消息追加到一个 Attribute，例如 transcript。等待中的 Step 是这个 Attribute 唯一的写入者。
-- 然后 **Execute** 回到同一个 Step。新的执行会注册新的等待，所以每条消息之后不活跃 Timer 都会重新开始。
+- Channel Condition 只有胜出时才消费消息。`Execute` 运行期间到达的回复会留在队列里，由下一次执行处理，不会丢失。
+- `Execute` 把消费到的消息追加到一个 Attribute，例如 transcript。等待中的 Step 是这个 Attribute 唯一的写入者。
+- 然后 `Execute` 回到同一个 Step。新的执行会注册新的等待，所以每条消息之后不活跃 Timer 都会重新开始。
 - 要一次取走所有排队的回复，用“至少一条”的 Channel Condition。也可以每次执行只取一条。
 - 让 transcript 保持有界。长对话把消息存放在 [sequentially chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map) 中。
 
-## 为什么不让 RPC 写 transcript
+## 为什么由 Step 负责 transcript {#为什么不让-rpc-写-transcript}
 
 如果由 RPC 追加 transcript，等待中的 Step 就必须锁住 transcript，RPC 为了读取再修改也必须加锁。锁不会排队。只要 Step 或另一个 RPC 持有这把锁，新到的 RPC 都会因为锁冲突被拒绝，客户端只能重试。发布到 Channel 不需要锁，所以并发的回复不会冲突。
 
 ## 结论之后到达的回复
 
-如果 Resolve Step 立即结束 Flow，那么在结论之后、Flow 关闭之前收到的回复不会被记录。要保留每一条已接受的回复，让 Resolve 在回复 Channel 上用 **ForceCompleteIfChannelsEmpty** 结束 Flow，做法见 [Drain External Channels](/design-patterns/draining-channel-for-external-publishing)。如果回复 Channel 不为空，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。回复 Channel 只能由等待中的 Step 消费。
+如果 Resolve Step 立即结束 Flow，那么在结论之后、Flow 关闭之前收到的回复不会被记录。要保留每一条已接受的回复，让 Resolve 在回复 Channel 上用 `ForceCompleteIfChannelsEmpty` 结束 Flow，做法见 [Drain External Channels](/design-patterns/draining-channel-for-external-publishing)。如果回复 Channel 不为空，Dex 改走 fallback：带着结论回到等待中的 Step。这个 Step 记录剩下的回复，然后再次进入 Resolve。回复 Channel 只能由等待中的 Step 消费。
 
 ## 示例
 
-这个模式没有专门的可运行示例。可以从 [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) 的示例开始。它展示了 Timer 与 Channel 的竞争，以及回到同一个 Step 的循环。在它的基础上加上结论 Channel、transcript Attribute 和 RPC 里的输入校验。
+可以从 [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) 的示例开始。它展示了 Timer 与 Channel 的竞争，以及回到同一个 Step 的循环。在它的基础上加上结论 Channel、transcript Attribute 和 RPC 里的输入校验。
 
-## 相关内容
+## 下一步
 
 - [Channel](/concepts/primitives/channel)
 - [Timer](/concepts/primitives/timer)

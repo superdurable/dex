@@ -2,6 +2,7 @@
 title: Attribute
 sidebar_label: Attribute
 slug: /concepts/primitives/attribute
+description: "An Attribute is durable data that belongs to one Flow run. Steps and RPCs read and write it. Dex stores it with the Flow, so you do not need a database for intermediate state."
 ---
 
 # Attribute
@@ -11,8 +12,8 @@ RPCs read and write it. Dex stores it with the Flow, so you do not need a
 database for intermediate state.
 
 An Attribute lives as long as its Flow. Dex deletes it when it deletes the Flow,
-after the retention period that follows Flow closure. To keep the data longer,
-see [Keep data after the Flow](#attribute-store-projection).
+after the [retention period](/components/production#defaults-to-change-before-production) that follows Flow closure.
+To keep the data longer, see [Keep data after the Flow](#attribute-store-projection).
 
 ## When to use an Attribute
 
@@ -257,6 +258,10 @@ impl Step for AttributeStep {
 </SdkSnippet>
 </SdkTabs>
 
+The excerpt shows only the status Attribute. The example Flow also declares
+the AttributeMap and the other Attributes that the sections below use, and
+lists each of them in its persistence schema.
+
 ## AttributeMap {#attributemap}
 
 An **AttributeMap** is a set of Attributes with keys chosen at run time. Use it
@@ -268,9 +273,14 @@ collection.
 <SdkSnippet lang="python">
 
 ```python
-progress = AttributeMap("primitive-attribute-progress", str)
+class AttributeFlow(Flow[str]):
+    progress = AttributeMap(
+        "primitive-attribute-progress",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD, "keyword2"),
+    )
 
-progress.set(context, "payment", "authorized")
+self.flow.progress.set(context, "payment", "authorized")
 ```
 
 </SdkSnippet>
@@ -327,10 +337,20 @@ See [when a read needs an RPC](/concepts/client#related-primitives) and
 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow).
 To set values when the Flow starts, see [Initial values](/reference/server/runtime-data#initial-attribute-values).
 
-An indexed Attribute can be used in **SearchFlows** queries to find Flow
-runs. The example above indexes the status Attribute. See
+An indexed Attribute can be used in `SearchFlows` queries to find Flow
+runs. The example above indexes the status Attribute. Its index key,
+`keyword1`, names a search slot rather than a business field. Slots are
+numbered by type and shared by every Flow type in a namespace, so two Flow
+types can each put a different field in `keyword1`. Two indexed fields in
+one Flow need different slots, and a slot shared across Flow types must keep
+one index type.
+
+Slots are limited. With the PostgreSQL search backend, each tenant has 10
+Keyword slots and 3 for each other index type, and a slot cannot be freed. Keep
+a list of which slot each Flow type uses. See
 [Indexes](/reference/server/runtime-data#attribute-indexes) for index types,
-index keys, and AttributeMap indexes.
+index keys, and AttributeMap indexes, and
+[PostgreSQL search](/reference/server/search#postgresql-search) for the limits.
 
 ## Locks {#locking}
 
@@ -341,13 +361,37 @@ lock, two that read and then write it can overwrite each other's update. See
 the Step method or RPC starts and releases it when it finishes. A Step waits for
 its lock. An RPC that cannot get a lock fails, and you retry it.
 
+Lock any Attribute that two parallel Steps, or a Step and an RPC, read and then write. Dex has no lint or warning for an unlocked read-then-write today.
+To catch a missing lock, write a test that runs those Steps or RPCs at the same
+time and checks the final value.
+
 A lock affects only the Steps and RPCs that declare it. A Step or RPC that does
 not declare it can still write the Attribute. Steps get a lock in the order they started waiting for it. An RPC does
 not queue. It takes a free lock even when Steps are waiting for it. So a steady
 stream of locked RPCs can delay those Steps. Keep locked RPCs short.
 
+A method that declares several locks takes them all at once. It starts only
+when every lock is free and it is first in line for each one. It never holds
+one lock while it waits for another, so two locked methods cannot block each
+other in a cycle.
+
+A Step holds its lock for the whole method, including the external calls it
+makes. A retry keeps the lock while it waits in the queue, and an attempt that
+no Worker can run holds it until the Flow times out or stops. To release such a
+lock, start a Worker that has that Step type, or stop the Flow. Dex has no
+command that releases a single lock. The method timeout and the retry policy
+bound how long a running Step holds a lock. So keep locked methods short, and
+make slow external calls in a Step that holds no lock.
+
+This adds up when a locked Step keeps failing. Its retries keep the lock, and
+the default retry policy keeps retrying for up to 4 hours. For that whole time,
+every other Step and RPC that declares the same lock waits or fails. Set a
+short total duration, such as a few minutes, in the locked method's
+`StepOptions` retry policy, or keep external calls out of it. The
+[StepOptions defaults](/concepts/step#stepoptions) list the retry window.
+
 This Step locks a singleton Attribute and one AttributeMap instance while
-**Execute** runs:
+`Execute` runs:
 
 <SdkTabs
   examples={{
@@ -420,8 +464,8 @@ StepOptions::new()
 <a id="lock-an-rpc"></a>
 <a id="rpc-lock-conflicts"></a>
 
-See [Locks](/reference/server/runtime-data#attribute-locks) for lock timing and **WaitFor**,
-**Execute**, and RPC locks. See [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)
+See [Locks](/reference/server/runtime-data#attribute-locks) for lock timing and `WaitFor`,
+`Execute`, and RPC locks. See [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)
 and [whole-map coordination](/reference/server/runtime-data#whole-map-coordination) for the rest.
 
 ## Short-lived secrets {#hard-delete-attributes}
@@ -451,8 +495,8 @@ To sync an Attribute:
 1. Create the table before the server starts. Dex never creates, migrates, or
    backfills a table.
 2. Configure the store in the server configuration.
-3. Mark the Attribute or AttributeMap with **syncToAttributeStore**.
-4. List the store name in the Flow's **FlowConfig** when you start the Flow.
+3. Mark the Attribute or AttributeMap with `syncToAttributeStore`.
+4. List the store name in the Flow's `FlowConfig` when you start the Flow.
 
 What to expect:
 
@@ -461,8 +505,9 @@ What to expect:
 - Dex writes in the background. A write never delays a Step, an RPC, or a
   SetAttributes call. Writes for the same Flow ID keep their order.
 - When a write fails, Dex retries it for a limited time. It then drops the
-  write and logs an error. Dex does not replay old values or fill a newly
-  configured store.
+  write and logs a warning. Dex does not replay old values or fill a newly
+  configured store. [Dex and Your Database](/components/your-database) shows
+  how to detect a dropped write and repair the row.
 - When a Flow completes or fails on its own, it stays running until its
   pending writes are written or dropped. StopFlow does not wait.
 - Deleting an Attribute writes NULL to its column. Dex does not delete the row
@@ -477,9 +522,15 @@ retries, metrics, and local development. The
 
 ## Reference
 
+The links below open the Python reference. Each page has the same name in the [Go](/reference/go), [Java](/reference/java), [TypeScript](/reference/typescript), and [Rust](/reference/rust) references.
+
 The [Attribute](/reference/python/attribute) page of each SDK reference lists the
 API names in that language.
 
 [Data primitive semantics](/reference/server/runtime-data#attributes) covers
 initial values, Client reads, indexes, hard-delete Attributes, and locks in
 detail.
+
+## Next
+
+[RPC](/concepts/primitives/rpc): An RPC (Remote Procedure Call) lets code outside a Flow interact with a running Flow.

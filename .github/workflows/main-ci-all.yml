@@ -1,54 +1,253 @@
 name: Main CI (all)
 
+# Main pushes run no suites, so this catches semantic conflicts between back-to-back merges.
 on:
+  schedule:
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
-  group: main-ci-all
+  group: main-ci-all-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  dispatch:
-    name: Dispatch latest main CI
+  plan:
+    name: Decide whether main changed
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      should_test: ${{ steps.decide.outputs.should_test }}
     steps:
-      - name: Dispatch CI workflows
+      # A scheduled run skips a commit that an earlier finished scheduled run already tested.
+      - name: Compare with the last finished scheduled run
+        id: decide
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [[ "$EVENT_NAME" != "schedule" ]]; then
+            echo "should_test=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last_tested_sha="$(gh run list --repo "$REPO" --workflow main-ci-all.yml \
+            --event schedule --branch main --status completed --limit 20 \
+            --json headSha,conclusion \
+            --jq '[.[] | select(.conclusion == "success" or .conclusion == "failure")][0].headSha // ""')"
+          echo "Last finished scheduled run tested ${last_tested_sha:-nothing}; main is ${HEAD_SHA}."
+          if [[ "$last_tested_sha" == "$HEAD_SHA" ]]; then
+            echo "should_test=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_test=true" >> "$GITHUB_OUTPUT"
+          fi
 
-          workflows=(
-            agents-ci.yml
-            blob-cache-go-ci.yml
-            cli-ci.yml
-            copyright-ci.yml
-            examples-go-ci.yml
-            examples-java-ci.yml
-            examples-python-ci.yml
-            examples-rust-ci.yml
-            examples-typescript-ci.yml
-            generated-code-ci.yml
-            release-tooling-ci.yml
-            s3local-ci.yml
-            sdk-go-ci.yml
-            sdk-java-ci.yml
-            sdk-python-ci.yml
-            rust-rules-ci.yml
-            sdk-rust-ci.yml
-            sdk-typescript-ci.yml
-            server-zd-integ-ci.yml
-            web-ci.yml
-          )
+  agents:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/agents-ci.yml
+  blob-cache-go:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/blob-cache-go-ci.yml
+  cli:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/cli-ci.yml
+  copyright:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/copyright-ci.yml
+  examples-go:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/examples-go-ci.yml
+  examples-java:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/examples-java-ci.yml
+  examples-python:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/examples-python-ci.yml
+  examples-rust:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/examples-rust-ci.yml
+  examples-typescript:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/examples-typescript-ci.yml
+  generated-code:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/generated-code-ci.yml
+  release-tooling:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/release-tooling-ci.yml
+  rust-rules:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/rust-rules-ci.yml
+  s3local:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/s3local-ci.yml
+  sdk-go:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/sdk-go-ci.yml
+  sdk-java:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/sdk-java-ci.yml
+  sdk-python:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/sdk-python-ci.yml
+  sdk-rust:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/sdk-rust-ci.yml
+  sdk-typescript:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/sdk-typescript-ci.yml
+  server-zd:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/server-zd-ci.yml
+  server-zd-integ:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/server-zd-integ-ci.yml
+  server-zd-simulation-runner:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/server-zd-simulation-runner-ci.yml
+  skills:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/skills-ci.yml
+  web:
+    needs: plan
+    if: needs.plan.outputs.should_test == 'true'
+    uses: ./.github/workflows/web-ci.yml
 
-          for workflow in "${workflows[@]}"; do
-            gh workflow run "$workflow" --repo "$REPO" --ref main
-          done
+  full-tests:
+    name: Full tests
+    if: always()
+    needs:
+      - plan
+      - agents
+      - blob-cache-go
+      - cli
+      - copyright
+      - examples-go
+      - examples-java
+      - examples-python
+      - examples-rust
+      - examples-typescript
+      - generated-code
+      - release-tooling
+      - rust-rules
+      - s3local
+      - sdk-go
+      - sdk-java
+      - sdk-python
+      - sdk-rust
+      - sdk-typescript
+      - server-zd
+      - server-zd-integ
+      - server-zd-simulation-runner
+      - skills
+      - web
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      failed_suites: ${{ steps.verdict.outputs.failed_suites }}
+    steps:
+      - name: Check every suite
+        id: verdict
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          SHOULD_TEST: ${{ needs.plan.outputs.should_test }}
+        run: |
+          set -euo pipefail
+          if [[ "$SHOULD_TEST" == "false" ]]; then
+            echo "Main has not changed since the last finished scheduled run; no suite ran."
+            exit 0
+          fi
+          expected_result=success
+          failed_suites="$(jq -r --arg expected "$expected_result" \
+            '[to_entries[] | select(.value.result != $expected) | "\(.key) (\(.value.result))"] | join(", ")' \
+            <<<"$NEEDS_JSON")"
+          echo "failed_suites=$failed_suites" >> "$GITHUB_OUTPUT"
+          if [[ -n "$failed_suites" ]]; then
+            echo "Suites that did not succeed: $failed_suites"
+            exit 1
+          fi
+          echo "Every suite succeeded."
 
-          gh workflow run check-gate-ci.yml --repo "$REPO" --ref main
+  # Failures on main have no pull request to show them, so they open or update one issue.
+  report-failure:
+    name: Report a failure on main
+    needs: full-tests
+    if: always() && needs.full-tests.result == 'failure' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the main CI failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          FAILED_SUITES: ${{ needs.full-tests.outputs.failed_suites }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Main CI (all) fails on main"
+          body="$(printf '%s\n' \
+            "Main CI (all) failed on main." \
+            "" \
+            "- Run: ${RUN_URL}" \
+            "- Commit: ${HEAD_SHA}" \
+            "- Suites that did not succeed: ${FAILED_SUITES:-unknown}" \
+            "" \
+            "Close this issue once a later Main CI (all) run on main succeeds." \
+            "" \
+            "cc @longquanzheng")"
+          open_issues="$(gh issue list --repo "$REPO" --state open --search "in:title \"${title}\"" \
+            --json number,title)"
+          issue_number="$(jq -r --arg title "$title" \
+            '[.[] | select(.title == $title)][0].number // ""' <<<"$open_issues")"
+          if [[ -n "$issue_number" ]]; then
+            gh issue comment "$issue_number" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body" \
+              --label type:bug --label P1 --label area:ci --label size:S
+          fi

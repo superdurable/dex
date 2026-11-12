@@ -1330,7 +1330,12 @@ func (screen *ChatScreen) applySessionUpdate(update sessionfeed.SessionUpdate) t
 	case sessionfeed.UsageRecorded:
 		screen.totalTokens = typed.TotalTokens
 	case sessionfeed.NoticeRaised:
-		if shown, isShown := screen.notices.Admit(typed.Severity, typed.Text, screen.now()); isShown {
+		if typed.Sequence > 0 {
+			if !screen.printedSequences[typed.Sequence] {
+				screen.printedSequences[typed.Sequence] = true
+				screen.printNotice(typed.Severity, terminaltheme.TruncateCodePoints(typed.Text, maximumNoticeCodePoints, "…"))
+			}
+		} else if shown, isShown := screen.notices.Admit(typed.Severity, typed.Text, screen.now()); isShown {
 			screen.printNotice(typed.Severity, shown)
 		}
 	case sessionfeed.CancelRequestAnswered:

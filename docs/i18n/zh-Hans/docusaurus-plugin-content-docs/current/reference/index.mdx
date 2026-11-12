@@ -1,13 +1,13 @@
 ---
 id: index
 title: 开发者参考
-sidebar_label: Overview
+sidebar_label: Developer Reference
 slug: /reference
 ---
 
 # 开发者参考
 
-开发者参考记录随版本变化的细节：配置项、flag、默认值、限制、指标、边界情况和版本差异。概念请看 [概念](/concepts) 和 [Components](/components)。开发者参考只有英文版。
+开发者参考记录随版本变化的细节：配置项、flag、默认值、限制、指标、边界情况和版本差异。概念请看 [概念](/concepts) 和 [运行 Dex](/components)。开发者参考只有英文版。
 
 ## 先确认版本 {#check-your-version-first}
 
@@ -23,14 +23,14 @@ Dex 按一个共享的 release train 发版。每次发版只给有改动的组�
 
 | 组件 | 参考 | Release tag |
 | --- | --- | --- |
-| Server（server-zd） | [Server 参考](/reference/server/) | **server-zd/v0.1.N** |
-| CLI（dexcli） | [CLI 参考](/reference/cli/) | **cli-vX.Y.Z** |
-| Web（Dex Web） | [Web 参考](/reference/web/) | **web/vX.Y.Z** |
-| Go SDK | [Go 参考](/reference/go/) | **sdk-go/vX.Y.Z** |
-| Python SDK | [Python 参考](/reference/python/) | **sdk-python/vX.Y.Z** |
-| Java SDK | [Java 参考](/reference/java/) | **sdk-java/vX.Y.Z** |
-| TypeScript SDK | [TypeScript 参考](/reference/typescript/) | **sdk-typescript/vX.Y.Z** |
-| Rust SDK | [Rust 参考](/reference/rust/) | **sdk-rust/vX.Y.Z** |
+| Server（server-zd） | [Server 参考](/reference/server/) | `server-zd/v0.1.N` |
+| CLI（dexcli） | [CLI 参考](/reference/cli/) | `cli-vX.Y.Z` |
+| Web（Dex Web） | [Web 参考](/reference/web/) | `web/vX.Y.Z` |
+| Go SDK | [Go 参考](/reference/go/) | `sdk-go/vX.Y.Z` |
+| Python SDK | [Python 参考](/reference/python/) | `sdk-python/vX.Y.Z` |
+| Java SDK | [Java 参考](/reference/java/) | `sdk-java/vX.Y.Z` |
+| TypeScript SDK | [TypeScript 参考](/reference/typescript/) | `sdk-typescript/vX.Y.Z` |
+| Rust SDK | [Rust 参考](/reference/rust/) | `sdk-rust/vX.Y.Z` |
 
 ## 兼容性矩阵 {#compatibility-matrix}
 
@@ -38,22 +38,24 @@ Worker 和 Client 会和 server 协商协议版本。server-zd 0.1.17 及更新�
 
 | 组件 | 版本 | 需要的 server-zd |
 | --- | --- | --- |
-| Go、Python、Java、TypeScript 和 Rust SDK | 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
-| Dex Web | 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
+| Go SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
+| Python SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
+| Java SDK | 1.45, 1.43, 1.41, 1.40, 1.37 | 0.1.17 或更新（协议版本 4） |
+| TypeScript SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
+| Rust SDK | 1.45, 1.43, 1.40, 1.37, 1.35 | 0.1.17 或更新（协议版本 4） |
+| Dex Web | 1.45, 1.43, 1.41, 1.40, 1.37 | 0.1.17 或更新（协议版本 4） |
 
-server-zd 协议版本 4 没有提高最低协议版本。1.35 之前的 SDK 在 server-zd 0.1.17 及更新版本上继续可用。先升级 server，再升级 SDK。见 [Upgrades and compatibility](/reference/server/upgrades)。
+先升级 server，再升级 SDK。见 [Upgrades and compatibility](/reference/server/upgrades)。
 
-每个 **dexcli** 版本打包一个 server-zd 版本，**dexcli dev** 运行的就是它：
+每个 `dexcli` 版本打包一个 server-zd 版本，**dexcli dev** 运行的就是它：
 
 | dexcli | 打包的 server-zd |
 | --- | --- |
+| 1.45 | 0.1.26 |
+| 1.43 | 0.1.25 |
+| 1.41 | 0.1.25 |
+| 1.40 | 0.1.25 |
 | 1.37 | 0.1.20 |
-| 1.36 | 0.1.19 |
-| 1.35 | 0.1.18 |
-| 1.34 | 0.1.16 |
-| 1.33 | 0.1.15 |
-
-用 **dexcli dev** 运行 SDK 1.35 的应用时，使用 **dexcli** 1.35 或更新版本。
 
 ## 发版说明 {#release-notes}
 

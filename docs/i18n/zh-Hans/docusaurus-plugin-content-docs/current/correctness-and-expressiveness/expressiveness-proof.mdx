@@ -35,7 +35,7 @@ Dex 有一个经计算机检查的证明，说明它能表达什么。
 
 ## 这对你意味着什么 {#why-it-matters}
 
-Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是一组 Step：它们读写 Attribute，发布和消费 Channel 消息，并等待 Timer。所以你可能会担心：有些并发逻辑是不是没法写成 Flow？
+Dex 表达并发时，既不使用会阻塞的线程，也不跨等待持有锁。一个 Flow 是一组 Step：它们读写 Attribute，发布和消费 Channel 消息，并等待 Timer。所以你可能会担心：有些并发逻辑是不是没法写成 Flow？
 
 这个证明表明：凡是能用上面这些构件写出的并发逻辑，都能写成 Flow。
 
@@ -46,18 +46,18 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 | 构件 | Dex 构件 | 相关设计模式 |
 | --- | --- | --- |
 | 线程 | 一串 Step，通常每条语句一个。**wait** 用三个 Step，**sleep** 和带超时的 **select** 会多一个入口 Step。线程的位置和局部状态放在 Step 输入中传递。任一时刻，一个运行中的线程就是一个活跃的 Step 执行。 | |
-| **fork** | **GoToMany** 到父线程的下一个 Step 和子线程的第一个 Step。 | |
-| **join** | 结束的线程向自己的 join Channel 发布一条消息，然后返回 **DeadEnd**。执行 join 的 Step 用 **AnyOf** 等待这个 Channel 和自己的取消 Channel。 | [Await Parallel Steps](/design-patterns/parallel/await) |
-| 互斥锁 | 一个 Channel，在互斥锁空闲时持有一个 token。**lock** 用 **ForOne** 等待这个 token，等待者按开始等待的顺序获得服务。**unlock** 把 token 发布回去。 | [Critical Section](/design-patterns/critical-section) |
+| **fork** | `GoToMany` 到父线程的下一个 Step 和子线程的第一个 Step。 | |
+| **join** | 结束的线程向自己的 join Channel 发布一条消息，然后返回 `DeadEnd`。执行 join 的 Step 用 `AnyOf` 等待这个 Channel 和自己的取消 Channel。 | [Await Parallel Steps](/design-patterns/parallel/await) |
+| 互斥锁 | 一个 Channel，在互斥锁空闲时持有一个 token。**lock** 用 `ForOne` 等待这个 token，等待者按开始等待的顺序获得服务。**unlock** 把 token 发布回去。 | [Critical Section](/design-patterns/critical-section) |
 | 条件变量 | 一个 Attribute 保存等待线程的列表，每个等待者有自己的 Channel。**wait** 把线程加入列表，释放互斥锁，等待自己的 Channel，然后重新获取互斥锁。**signal** 移除第一个等待者，并向它的 Channel 发布消息。**broadcast** 对每个等待者都这样做。 | |
-| **sleep** | 一个定时 Step。它的 **WaitFor** 返回 **AnyOf**，包含一个 Timer 和线程的取消 Channel。 | |
-| 带超时的 **select** | 同一个定时 Step。它用 **AnyOf** 等待一个 Timer、输入 Channel 和取消 Channel。只有胜出的 Condition 会消费消息。 | [Deferred Choice](/design-patterns/deferred-choice) |
+| **sleep** | 一个定时 Step。它的 `WaitFor` 返回 `AnyOf`，包含一个 Timer 和线程的取消 Channel。 | |
+| 带超时的 **select** | 同一个定时 Step。它用 `AnyOf` 等待一个 Timer、输入 Channel 和取消 Channel。只有胜出的 Condition 会消费消息。 | [Deferred Choice](/design-patterns/deferred-choice) |
 | 取消 | 向被取消线程的取消 Channel 发布一条消息。线程只在本会阻塞的位置看到它。 | |
-| 异常 | 处理器栈放在 Step 输入中传递。**throw** 是一次 **GoTo**，跳到处理器的 Step。 | |
-| 退出或失败 | 带结果的 **ForceComplete**，或带错误的 **ForceFail**。 | |
-| 外部副作用 | 一个 **Execute**，它唯一的副作用就是这次外部调用。 | |
+| 异常 | 处理器栈放在 Step 输入中传递。**throw** 是一次 `GoTo`，跳到处理器的 Step。 | |
+| 退出或失败 | 带结果的 `ForceComplete`，或带错误的 `ForceFail`。 | |
+| 外部副作用 | 一个 `Execute`，它唯一的副作用就是这次外部调用。 | |
 
-互斥锁不能用 Attribute 锁实现，因为它只覆盖一个 Step 方法，不覆盖等待。Channel token 可以跨多个 Step 和等待持有。
+互斥锁用 Channel token 实现，因为 token 可以跨多个 Step 和等待持有，而 Attribute 锁只覆盖一个 Step 方法。
 
 ## 如何验证 {#how-it-was-checked}
 
@@ -65,8 +65,8 @@ Dex 没有会阻塞的线程，也没有跨等待持有的锁。一个 Flow 是�
 
 ## 故障 {#what-it-does-not-cover}
 
-这个证明覆盖没有故障的运行。[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)把它扩展到崩溃、恢复、重试和消息重投。在那个页面列出的条件下，从有故障的运行中去掉重复的外部副作用，剩下的就是一次无故障的运行。两个证明合起来表明：这门语言中格式良好的程序在 Dex 上运行时，产生的是一次无故障运行的事件，只是外部副作用可能重复。
+这个证明覆盖无故障的运行。[故障透明性证明](/correctness-and-expressiveness/failure-transparency-proof)把它扩展到崩溃、恢复、重试和消息重投。在那个页面列出的条件下，从有故障的运行中去掉重复的外部副作用，剩下的就是一次无故障的运行。两个证明合起来表明：这门语言中格式良好的程序在 Dex 上运行时，产生的是一次无故障运行的事件，只是外部副作用可能重复。
 
-## 相关证据 {#related-evidence}
+## 下一步
 
 [Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns)按 43 个 workflow 模式为 Dex 评级，每个评级都配有可运行的示例和针对真实 server 的测试。这些模式在真实 server 上测试常见情形；证明则覆盖这门语言的每个程序。

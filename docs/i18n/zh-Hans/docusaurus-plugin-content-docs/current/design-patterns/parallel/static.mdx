@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** 在同一个 decision 中为 **WorkAStep** 和 **WorkBStep** 各返回一个 movement。Dex 同时运行这两个 Step，它们各自完成。每个分支的职责和输入类型都已知时，使用这种形状。
+**Init** 在同一个 decision 中为 `WorkAStep` 和 `WorkBStep` 各返回一个 movement。Dex 同时运行这两个 Step，它们各自完成。每个分支的职责和输入类型都已知时，使用这种形状。
 
 ## 核心实现
 
@@ -207,6 +207,6 @@ impl Step for WorkB {
 </SdkSnippet>
 </SdkTabs>
 
-## 相关内容
+## 下一步
 
 - [并行 Step](/design-patterns/parallel)

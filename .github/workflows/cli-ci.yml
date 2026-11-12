@@ -1,24 +1,6 @@
 name: Dex CLI CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "cli/**"
-      - "web/**"
-      - "packages/flow-definition-renderer/**"
-      - "examples/go/**"
-      - "examples/python/**"
-      - "sdk-go/**"
-      - "protos/**"
-      - "go.work"
-      - "agents/go/core/**"
-      - "agents/cli/tests/terminal_ui_contract_host.py"
-      - "agents/cli/TERMINAL_UI_CONTRACT.md"
-      - "agents/cli/terminal-ui-*.schema.json"
-      - "agents/conformance/terminal_ui/**"
-      - "agents/python/core/**"
-      - ".github/workflows/cli-ci.yml"
   pull_request:
     paths:
       - "cli/**"
@@ -37,13 +19,15 @@ on:
       - "agents/python/core/**"
       - ".github/workflows/cli-ci.yml"
   workflow_dispatch:
+  # Main CI (all) and release workflows call this suite on main and release commits.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: cli-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: cli-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:

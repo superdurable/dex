@@ -1,0 +1,92 @@
+---
+title: Run Locally
+sidebar_label: Run Locally
+slug: /components/run-locally
+description: "Install dexcli and run Dex Server and Dex Web on your machine with dexcli dev, on macOS or Linux."
+---
+
+# Run Locally
+
+**dexcli dev** runs a complete Dex on your machine: Dex Server and Dex Web. Use it to build and test Flows before you deploy.
+
+## Install dexcli
+
+`dexcli` runs on macOS and Linux, on amd64 and arm64. Windows is not supported. The Linux archive may run under WSL 2; the docs do not cover it.
+
+With Homebrew, on macOS or Linux:
+
+```bash
+brew install superdurable/tap/dexcli
+brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
+```
+
+Without Homebrew, download the archive for your system from the [`dexcli` releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true). Each release has a **cli-v** tag and one archive per system, such as `dexcli_vVERSION_linux_amd64.tar.gz`. The archive holds `dexcli` and **dex-server-zd**. Keep both files in the same directory on your `PATH`:
+
+```bash
+tar xzf dexcli_vVERSION_linux_amd64.tar.gz   # VERSION is the release you downloaded
+sudo mv dexcli dex-server-zd /usr/local/bin/
+dexcli version
+```
+
+The release also has `checksums.txt` to verify the download.
+
+## Start Dex
+
+```bash
+dexcli dev
+```
+
+**dexcli dev** starts **Dex Server** (server-zd) and **Dex Web**. It stores state
+on local disk, in `RocksDB` and an embedded `s3local` object store. When the
+default ports are free, the addresses are:
+
+| Service | Address |
+| --- | --- |
+| Dex Web | `http://127.0.0.1:8802` |
+| Dex Server | **127.0.0.1:8801** |
+
+**dexcli dev** first prints server log lines. When Dex is ready, it ends with a
+summary like this:
+
+```text
+Dex development environment is ready
+
+Dex Web:       http://127.0.0.1:8802
+Connectors MCP: http://127.0.0.1:8802/mcp
+Dex Server:    127.0.0.1:8801
+State dir:     /Users/you/.dex/zd/8801
+
+Press Ctrl+C to stop.
+```
+
+Point your Workers and Clients at the **Dex Server** address. Open the
+**Dex Web** address in a browser. The state directory keeps your Flows across
+restarts of **dexcli dev**.
+
+## Troubleshooting {#if-something-does-not-work}
+
+- **A Worker or Client fails to connect.** Check that **dexcli dev** is still
+  running and printed **Dex development environment is ready**. Use the
+  **Dex Server** address that it printed. The examples read it from
+  `DEX_FLOW_SERVICE_ADDRESS` and default to **127.0.0.1:8801**.
+- **A port is taken.** **dexcli dev** then picks other free ports and prints
+  them. To choose the ports yourself, pass `-dex-port` and `-web-port`.
+- **The Worker is ready, but nothing runs.** Check that the Worker and the
+  start command register the same Flow, and that they connect to the same
+  **Dex Server**. Dex Web lists the Flow and shows the Step that waits.
+- **You want a clean start.** Stop **dexcli dev** and delete its state
+  directory. Every Flow is lost.
+
+## Run a second Dex
+
+A second **dexcli dev** on the same machine picks other free ports and its own
+state directory. Pass the **Dex Server** address that it prints to `-server`.
+
+## Reference
+
+The [CLI reference](/reference/cli) covers every command, its flags, and the
+persistence options of **dexcli dev**.
+
+## Next
+
+[Your Application](/components/application): Your Dex application is the code you deploy.

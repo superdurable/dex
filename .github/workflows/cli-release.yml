@@ -14,6 +14,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_tests:
+        description: Run the CLI suite first; false only when the caller already ran it on this commit
+        required: false
+        default: true
+        type: boolean
   workflow_dispatch:
     inputs:
       version:
@@ -25,10 +30,24 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  # Publishing waits for the CLI suite on this exact release commit.
+  tests:
+    name: CLI tests
     if: >
+      toJSON(inputs.run_tests) != 'false' && (
       inputs.version != '' ||
-      startsWith(github.event.release.tag_name, 'cli-v')
+      startsWith(github.event.release.tag_name, 'cli-v'))
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cli-ci.yml
+
+  release:
+    needs: tests
+    if: >
+      !cancelled() &&
+      (needs.tests.result == 'success' || toJSON(inputs.run_tests) == 'false') && (
+      inputs.version != '' ||
+      startsWith(github.event.release.tag_name, 'cli-v'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

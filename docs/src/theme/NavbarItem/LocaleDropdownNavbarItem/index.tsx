@@ -14,10 +14,11 @@ import {useAlternatePageUtils} from '@docusaurus/theme-common/internal';
 import {useLocation} from '@docusaurus/router';
 import {translate} from '@docusaurus/Translate';
 import type {Props} from '@theme/NavbarItem/LocaleDropdownNavbarItem';
+import {ChevronDown, Globe} from 'lucide-react';
 import {isDocsLocale, persistDocsLocale} from '@site/src/components/docsLocale';
 import {useDismissibleDetails} from '@site/src/components/useDismissibleDetails';
 
-// The header locale switch: a quiet dropdown on desktop, a row of links in the mobile menu.
+// The header locale switch: a labelled dropdown at the end of the tab row, a row of links in the mobile menu.
 export default function LocaleDropdownNavbarItem({mobile, queryString = ''}: Props): ReactNode {
   const {i18n: {currentLocale, locales, localeConfigs}} = useDocusaurusContext();
   const alternatePageUtils = useAlternatePageUtils();
@@ -60,18 +61,10 @@ export default function LocaleDropdownNavbarItem({mobile, queryString = ''}: Pro
   }
   return (
     <details className="sd-locale" ref={detailsRef}>
-      <summary className="sd-quiet-link" aria-label={`${languageLabel}: ${currentLocaleLabel}`}>
-        {currentLocaleLabel}
-        <svg aria-hidden="true" viewBox="0 0 12 12" width="12" height="12">
-          <path
-            d="M3 4.5 6 7.5 9 4.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+      <summary className="sd-locale-summary" aria-label={`${languageLabel}: ${currentLocaleLabel}`}>
+        <Globe size={16} strokeWidth={2} aria-hidden="true" />
+        <span>{currentLocaleLabel}</span>
+        <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
       </summary>
       <div className="sd-locale-menu">{localeLinks}</div>
     </details>

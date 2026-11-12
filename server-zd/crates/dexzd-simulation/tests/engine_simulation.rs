@@ -13,7 +13,8 @@ use std::path::PathBuf;
 
 use dexzd_simulation::{
     EngineSimulationConfig, EngineSimulationFailure, EngineSimulationProfile,
-    EngineSimulationSummary, run_engine_seed, run_engine_seed_with_final_state,
+    EngineSimulationSummary, SimulatedObjectStoreSemantics, run_engine_seed,
+    run_engine_seed_with_final_state,
 };
 
 const DEFAULT_SEED_COUNT: u64 = 64;
@@ -26,6 +27,12 @@ const FIRST_REDEPLOY_SEED: u64 = 0x4ede_0000;
 const DEFAULT_STEP_FAILURE_SEED_COUNT: u64 = 32;
 /// Step failure policies change every trajectory, so their seeds form their own group.
 const FIRST_STEP_FAILURE_SEED: u64 = 0x5fa1_0000;
+const DEFAULT_VERSIONED_STORAGE_SEED_COUNT: u64 = 8;
+/// Versioned storage changes every trajectory, so its seeds form their own group.
+const FIRST_VERSIONED_STORAGE_SEED: u64 = 0x0a11_0000;
+const DEFAULT_VERSIONED_STORAGE_HOT_STANDBY_SEED_COUNT: u64 = 4;
+/// Hot standbys over versioned storage form their own group too.
+const FIRST_VERSIONED_STORAGE_HOT_STANDBY_SEED: u64 = 0x0a11_5700;
 const DEFAULT_HOT_STANDBY_SEED_COUNT: u64 = 16;
 /// Hot standbys change every trajectory, so their seeds form their own group.
 const FIRST_HOT_STANDBY_SEED: u64 = 0x57a0_0000;
@@ -293,6 +300,85 @@ fn hot_standby_takeovers_keep_every_invariant() {
     );
 }
 
+/// Runs leases, failover, and fencing on storage whose only conditional write is create-only.
+#[test]
+fn create_only_storage_with_versioned_mutable_keys_keeps_every_invariant() {
+    let (seeds, is_single_seed) = configured(
+        DEFAULT_VERSIONED_STORAGE_SEED_COUNT,
+        FIRST_VERSIONED_STORAGE_SEED,
+        &[],
+    );
+    let mut total = run_seeds_on_storage(
+        &seeds,
+        EngineSimulationProfile::Standard,
+        SimulatedObjectStoreSemantics::CreateOnlyWithVersionedMutableKeys,
+    );
+    total.recent_events.clear();
+    println!("versioned storage coverage: {total:#?}");
+    if is_single_seed {
+        return;
+    }
+    assert_failover_covered(&total);
+}
+
+/// Runs hot standby takeovers on storage whose only conditional write is create-only.
+#[test]
+fn hot_standby_takeovers_on_create_only_storage_keep_every_invariant() {
+    let (seeds, is_single_seed) = configured(
+        DEFAULT_VERSIONED_STORAGE_HOT_STANDBY_SEED_COUNT,
+        FIRST_VERSIONED_STORAGE_HOT_STANDBY_SEED,
+        &[],
+    );
+    let mut total = run_seeds_on_storage(
+        &seeds,
+        EngineSimulationProfile::HotStandbyTakeovers,
+        SimulatedObjectStoreSemantics::CreateOnlyWithVersionedMutableKeys,
+    );
+    total.recent_events.clear();
+    println!("versioned storage hot standby coverage: {total:#?}");
+    if is_single_seed {
+        return;
+    }
+    assert!(
+        total
+            .hot_standby_events
+            .get("warm-takeover")
+            .is_some_and(|count| *count > 0),
+        "no warm takeover on versioned storage: {total:#?}"
+    );
+    assert_failover_covered(&total);
+}
+
+/// Requires lease contention, takeovers by later epochs, and fenced old-epoch writes.
+fn assert_failover_covered(total: &EngineSimulationSummary) {
+    let count = |counts: &std::collections::BTreeMap<String, u64>, name: &str| {
+        counts.get(name).copied().unwrap_or(0)
+    };
+    for (counts, name) in [
+        (&total.precondition_failed_puts, "lease"),
+        (&total.old_epoch_write_attempts, "lease"),
+        (&total.old_epoch_write_attempts, "log"),
+    ] {
+        assert!(
+            count(counts, name) > 0,
+            "missing {name} in a coverage count: {total:#?}"
+        );
+    }
+    let checks = [
+        ("old-epoch overlaps", total.old_epoch_overlaps),
+        ("self-stopped processes", total.self_stopped_processes),
+        ("acknowledged writes", total.acknowledged_writes),
+        ("checked reads", total.checked_reads),
+        (
+            "state comparisons after recovery",
+            total.recovered_state_comparisons,
+        ),
+    ];
+    for (name, value) in checks {
+        assert!(value > 0, "the seed set had no {name}: {total:#?}");
+    }
+}
+
 #[test]
 fn step_failure_policies_keep_every_invariant() {
     let (seeds, is_single_seed) = configured(
@@ -372,14 +458,27 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
     );
 }
 
+/// Runs seeds like [`run_seeds_on_storage`] on storage with ETag replacement on every key.
+fn run_seeds(
+    seeds: &BTreeMap<u64, u64>,
+    profile: EngineSimulationProfile,
+) -> EngineSimulationSummary {
+    run_seeds_on_storage(
+        seeds,
+        profile,
+        SimulatedObjectStoreSemantics::EtagReplacementOnEveryKey,
+    )
+}
+
 /// Runs each seed for its active seconds; a failing seed writes its report and panics.
 #[expect(
     clippy::print_stdout,
     reason = "nightly timeouts need per-seed progress"
 )]
-fn run_seeds(
+fn run_seeds_on_storage(
     seeds: &BTreeMap<u64, u64>,
     profile: EngineSimulationProfile,
+    object_store_semantics: SimulatedObjectStoreSemantics,
 ) -> EngineSimulationSummary {
     let failure_directory = std::env::var_os("DEXZD_SIMULATION_FAILURE_DIR").map(PathBuf::from);
     let mut total = EngineSimulationSummary::default();
@@ -397,6 +496,7 @@ fn run_seeds(
                 },
             ),
             has_queue_faults: !is_regression_seed(seed),
+            object_store_semantics,
             ..EngineSimulationConfig::default()
         };
         match run_engine_seed(seed, &config) {
@@ -592,24 +692,34 @@ fn one_seed_produces_the_same_trace_and_final_state_twice() {
             profile,
             ..EngineSimulationConfig::default()
         };
-        let run = || {
-            run_engine_seed_with_final_state(seed, &config)
-                .unwrap_or_else(|failure| panic!("{failure}"))
-        };
-        let (first_summary, first_state) = run();
-        let (second_summary, second_state) = run();
-        if let Some(difference) = first_state.first_difference(&second_state) {
-            panic!("two runs of seed {seed} differ: {difference}");
-        }
-        assert_eq!(first_summary.trace_hash, second_summary.trace_hash);
-        assert!(
-            first_state.trace_events.len() > 300,
-            "seed {seed} produced only {} events",
-            first_state.trace_events.len()
-        );
-        assert!(
-            first_state.local_store.is_some() && !first_state.objects.is_empty(),
-            "seed {seed} left no final state to compare"
-        );
+        assert_same_seed_reproduces(seed, &config);
     }
+    let versioned_storage = EngineSimulationConfig {
+        active_seconds: 60,
+        object_store_semantics: SimulatedObjectStoreSemantics::CreateOnlyWithVersionedMutableKeys,
+        ..EngineSimulationConfig::default()
+    };
+    assert_same_seed_reproduces(FIRST_VERSIONED_STORAGE_SEED, &versioned_storage);
+}
+
+/// Runs `seed` twice and requires identical traces and final states.
+fn assert_same_seed_reproduces(seed: u64, config: &EngineSimulationConfig) {
+    let run = || {
+        run_engine_seed_with_final_state(seed, config).unwrap_or_else(|failure| panic!("{failure}"))
+    };
+    let (first_summary, first_state) = run();
+    let (second_summary, second_state) = run();
+    if let Some(difference) = first_state.first_difference(&second_state) {
+        panic!("two runs of seed {seed} differ: {difference}");
+    }
+    assert_eq!(first_summary.trace_hash, second_summary.trace_hash);
+    assert!(
+        first_state.trace_events.len() > 300,
+        "seed {seed} produced only {} events",
+        first_state.trace_events.len()
+    );
+    assert!(
+        first_state.local_store.is_some() && !first_state.objects.is_empty(),
+        "seed {seed} left no final state to compare"
+    );
 }

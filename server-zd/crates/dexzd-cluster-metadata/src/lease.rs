@@ -13,7 +13,9 @@ use bytes::Bytes;
 use dexzd_clock::WallClock;
 use dexzd_keyspace::validate_node_identifier;
 use dexzd_metrics::{NodeMetrics, Outcome};
-use dexzd_object_store::{ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome};
+use dexzd_object_store::{
+    ObjectStore, ObjectStoreErrorKind, WriteCondition, WriteOutcome, node_lease_object_key,
+};
 use dexzd_protocol::dexzd::v1::NodeLease;
 use prost::Message;
 use tokio::sync::{oneshot, watch};
@@ -265,7 +267,7 @@ pub(super) async fn acquire_lease_inner(
             detail: "the held lease poll limit must be positive".to_owned(),
         });
     }
-    let key = format!("lease/{}", node.node_id);
+    let key = node_lease_object_key(&node.node_id);
     let held_lease_poll_interval = config.held_lease_poll_limit.min(config.duration / 3);
     let mut has_reported_wait = false;
     let mut delayed_lease_version = None;

@@ -9,9 +9,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
 
 当 Flow 需要等待外部系统就绪或完成时，使用 Polling。例如云端构建、Kubernetes rollout、资源开通任务，或第三方 API 的状态。
 
-整个等待由一个 Step 负责。它的 **Execute** 调用外部 API，sleep，然后再次调用，直到工作进入终态。
+整个等待由一个 Step 负责。它的 `Execute` 调用外部 API，sleep，然后再次调用，直到工作进入终态。
 
-Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling。用 **WaitFor** 等待它们。TTL、提醒、不活跃截止时间等业务 Timer 也使用 **WaitFor**；见 [Durable Timer](/design-patterns/durable-timer)。
+Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling。用 `WaitFor` 等待它们。TTL、提醒、不活跃截止时间等业务 Timer 也使用 `WaitFor`；见 [Durable Timer](/design-patterns/durable-timer)。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -39,21 +39,21 @@ loop:
 interval + call timeout <= HeartbeatTimeout - 10s
 ```
 
-示例使用一分钟的 **HeartbeatTimeout** 和 10 秒的调用 timeout，所以间隔最多 40 秒。默认值和最小值见 [Heartbeat](/reference/python/step-options#heartbeat)。
+示例使用一分钟的 `HeartbeatTimeout` 和 10 秒的调用 timeout，所以间隔最多 40 秒。默认值和最小值见 [Heartbeat](/reference/python/step-options#heartbeat)。
 
 根据等待场景选择间隔。用户正在等待时（例如等待刚启动的资源就绪），用几秒。构建这类长任务，用几十秒。
 
 ## 限定等待时间 {#limits}
 
-**ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/step-options#timeouts-and-total-duration)。
+`ExecuteMethodTimeout` 和 `TotalDuration` 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。`ExecuteRetry` 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/reference/python/step-options#timeouts-and-total-duration)。
 
-**TotalDuration** 只在失败之后决定是否 retry，所以最后一次 attempt 可能在它之后结束。有 Worker 可用时，总等待时间最多约为 **TotalDuration** 加一个 **ExecuteMethodTimeout**。
+`TotalDuration` 只在失败之后决定是否 retry，所以最后一次 attempt 可能在它之后结束。有 Worker 可用时，总等待时间最多约为 `TotalDuration` 加一个 `ExecuteMethodTimeout`。
 
 Polling Step 可以使用任一种 durability。见 [Step options](/reference/python/step-options#durability)。
 
 ## 等待超时之后
 
-**ExecuteMethodTimeout** 到期时，Dex 以 timeout 让该 attempt 失败。如果 **TotalDuration** 已经不够再 retry 一次，该 Step 失败。用 **ExecuteFailure** 选项把这个失败路由到一个短 Step，由它记录业务失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
+`ExecuteMethodTimeout` 到期时，Dex 以 timeout 让该 attempt 失败。如果 `TotalDuration` 已经不够再 retry 一次，该 Step 失败。用 `ExecuteFailure` 选项把这个失败路由到一个短 Step，由它记录业务失败。见 [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)。
 
 失败记录不包含最后观察到的状态。它可以在进度 Stream 和日志中看到。
 
@@ -61,17 +61,17 @@ Polling Step 可以使用任一种 durability。见 [Step options](/reference/py
 
 ## Checkpoint 和进度
 
-新的 attempt 从上一个 checkpoint 继续，用 **GetLastHeartbeatValue** 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以 retry 不会重复发送进度消息。
+新的 attempt 从上一个 checkpoint 继续，用 `GetLastHeartbeatValue` 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以 retry 不会重复发送进度消息。
 
 只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。Stream message 是 best-effort，所以消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/reference/python/step-options#heartbeat) 和 [Stream](/concepts/primitives/stream)。
 
 ## 锁
 
-不要在整个等待期间持有 **ExecuteLockAttributes**。由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中。
+由 polling Step 返回结果，需要加锁提交的内容放到随后一个短 Step 中，这样 `ExecuteLockAttributes` 只会短暂持有。
 
 ## 示例
 
-**PollingFlow** 等待一个模拟的外部 job。**StartJob** 以 Flow ID 作为幂等 job ID 启动 job。**AwaitJob** 每两秒查询一次 job 状态。状态变化时写入一条 **JobProgress** Stream message，并以 job 结果完成。十分钟的最长等待时间到期时，**AwaitJob** 移动到 **RecordJobWaitFailure**。这个 Step 以恢复错误让 Flow 失败。
+`PollingFlow` 等待一个模拟的外部 job。`StartJob` 以 Flow ID 作为幂等 job ID 启动 job。`AwaitJob` 每两秒查询一次 job 状态。状态变化时写入一条 `JobProgress` Stream message，并以 job 结果完成。十分钟的最长等待时间到期时，`AwaitJob` 移动到 `RecordJobWaitFailure`。这个 Step 以恢复错误让 Flow 失败。
 
 模拟 job 先报告 QUEUED，然后是 RUNNING，启动六秒后成功。调用 complete-job endpoint 可以让它提前完成。
 
@@ -447,13 +447,13 @@ impl Step for RecordJobWaitFailure {
 ## 反模式
 
 - Step 等待一个 Timer，再移动到自己来进行下一次 poll。
-- 把 retry policy、backoff 或 **RetryAfter** 当作 polling 循环，把“尚未就绪”作为错误返回。
-- 长时间循环却从不记录 heartbeat，也不写进度。
-- 外部调用没有自己的 timeout。
-- 手写一个截止时间，重复 **ExecuteMethodTimeout** 或 **TotalDuration** 已经提供的限制。
+- 把 retry policy、backoff 或 `RetryAfter` 当作 polling 循环，把“尚未就绪”作为错误返回。
+- 长时间循环，既不记录 heartbeat，也不写进度。
+- 外部调用缺少自己的 timeout。
+- 手写一个截止时间，重复 `ExecuteMethodTimeout` 或 `TotalDuration` 已经提供的限制。
 - 每一页结果都启动一个新的 Flow。应该把 page token 留在循环里。
 
-## 相关内容
+## 下一步
 
 - [Step options](/reference/python/step-options#timeouts-and-total-duration)
 - [Stream](/concepts/primitives/stream)

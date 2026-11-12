@@ -19,18 +19,14 @@
   --docs-code-bg: #f5f6f4;
   --docs-radius: 10px;
 
-  /* One accent per section. Each meets WCAG AA as text on white and on its own tint. */
-  --accent-intro: #9a3412;
-  --accent-concepts: #047857;
-  --accent-components: #1d4ed8;
-  --accent-agent-frameworks: #a21caf;
-  --accent-agent-skills: #be185d;
-  --accent-design-patterns: #6d28d9;
-  --accent-product-examples: #92400e;
-  --accent-correctness: #4338ca;
-  --accent-reference: #0f766e;
-  --accent-glossary: #3f6212;
-  --section-accent: var(--ifm-color-primary);
+  /* One brand accent for every section. Full strength for text and active marks (WCAG AA on both themes);
+     softer mixes where it repeats: heading dividers, link underlines, list markers, and icon tiles. */
+  --section-accent: var(--sd-accent);
+  --section-accent-soft: color-mix(in srgb, var(--sd-accent) 45%, transparent);
+  --section-icon-bg: var(--sd-accent-soft);
+  --section-icon-fg: color-mix(in srgb, var(--sd-accent) 70%, var(--docs-subtle));
+  /* Semantic, not a section colour: waits and warnings in diagrams. */
+  --docs-warn: #92400e;
   --ifm-table-head-background: transparent;
   --ifm-table-stripe-background: transparent;
   --ifm-table-border-color: transparent;
@@ -43,44 +39,11 @@ html[data-theme='dark'] {
   --docs-hairline: #222226;
   --docs-tint: #16161a;
   --docs-code-bg: #141417;
+  --docs-warn: #fbbf24;
 
-  --accent-intro: #fb923c;
-  --accent-concepts: #34d399;
-  --accent-components: #60a5fa;
-  --accent-agent-frameworks: #e879f9;
-  --accent-agent-skills: #f472b6;
-  --accent-design-patterns: #a78bfa;
-  --accent-product-examples: #fbbf24;
-  --accent-correctness: #a5b4fc;
-  --accent-reference: #2dd4bf;
-  --accent-glossary: #a3e635;
 }
 
-[data-docs-section='intro'] { --section-accent: var(--accent-intro); }
-[data-docs-section='concepts'] { --section-accent: var(--accent-concepts); }
-[data-docs-section='components'] { --section-accent: var(--accent-components); }
-[data-docs-section='agent-frameworks'] { --section-accent: var(--accent-agent-frameworks); }
-[data-docs-section='agent-skills'] { --section-accent: var(--accent-agent-skills); }
-[data-docs-section='design-patterns'] { --section-accent: var(--accent-design-patterns); }
-[data-docs-section='product-examples'] { --section-accent: var(--accent-product-examples); }
-[data-docs-section='correctness'] { --section-accent: var(--accent-correctness); }
-[data-docs-section='reference'] { --section-accent: var(--accent-reference); }
-[data-docs-section='glossary'] { --section-accent: var(--accent-glossary); }
 
-/* The whole docs layout takes the accent of the page's section. */
-.main-wrapper:has(.theme-doc-markdown) {
-  --section-accent: var(--ifm-color-primary);
-}
-.main-wrapper:has([data-docs-section='intro'] > .theme-doc-markdown) { --section-accent: var(--accent-intro); }
-.main-wrapper:has([data-docs-section='concepts'] > .theme-doc-markdown) { --section-accent: var(--accent-concepts); }
-.main-wrapper:has([data-docs-section='components'] > .theme-doc-markdown) { --section-accent: var(--accent-components); }
-.main-wrapper:has([data-docs-section='agent-frameworks'] > .theme-doc-markdown) { --section-accent: var(--accent-agent-frameworks); }
-.main-wrapper:has([data-docs-section='agent-skills'] > .theme-doc-markdown) { --section-accent: var(--accent-agent-skills); }
-.main-wrapper:has([data-docs-section='design-patterns'] > .theme-doc-markdown) { --section-accent: var(--accent-design-patterns); }
-.main-wrapper:has([data-docs-section='product-examples'] > .theme-doc-markdown) { --section-accent: var(--accent-product-examples); }
-.main-wrapper:has([data-docs-section='correctness'] > .theme-doc-markdown) { --section-accent: var(--accent-correctness); }
-.main-wrapper:has([data-docs-section='reference'] > .theme-doc-markdown) { --section-accent: var(--accent-reference); }
-.main-wrapper:has([data-docs-section='glossary'] > .theme-doc-markdown) { --section-accent: var(--accent-glossary); }
 
 /* ---------- Sidebar ---------- */
 
@@ -144,6 +107,14 @@ html[data-theme='dark'] {
   font-weight: 650;
 }
 
+/* A group header whose overview page is open: the same highlight as a current page, plus an edge mark. */
+.theme-doc-sidebar-menu .menu__list-item-collapsible--active > .menu__link[aria-current='page'],
+.theme-doc-sidebar-menu > .theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible--active > .menu__link[aria-current='page'] {
+  background: color-mix(in srgb, var(--section-accent, var(--sd-accent)) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--section-accent, var(--sd-accent));
+  color: var(--section-accent, var(--sd-accent));
+}
+
 .theme-doc-sidebar-menu .menu__caret::before,
 .theme-doc-sidebar-menu .menu__link--sublist-caret::after {
   background-size: 1.1rem;
@@ -157,8 +128,8 @@ html[data-theme='dark'] {
   height: 1.5rem;
   place-items: center;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--section-accent) 13%, transparent);
-  color: var(--section-accent);
+  background: var(--section-icon-bg);
+  color: var(--section-icon-fg);
 }
 
 .reference-version-selector-item {
@@ -209,7 +180,7 @@ html[data-theme='dark'] {
   height: 3px;
   margin-bottom: 0.85rem;
   border-radius: 3px;
-  background: var(--section-accent);
+  background: var(--section-accent-soft);
 }
 
 .theme-doc-markdown > h3 {
@@ -224,22 +195,22 @@ html[data-theme='dark'] {
   color: var(--docs-heading);
 }
 
-.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry) {
+.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry, .docs-home-actions a, .docs-home-sdks a) {
   color: var(--docs-heading);
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--section-accent) 55%, transparent);
+  text-decoration-color: var(--section-accent-soft);
   text-decoration-thickness: 1.5px;
   text-underline-offset: 0.2em;
   transition: color 120ms ease, text-decoration-color 120ms ease;
 }
 
-.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry):hover {
+.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry, .docs-home-actions a, .docs-home-sdks a):hover {
   color: var(--section-accent);
   text-decoration-color: var(--section-accent);
 }
 
 .theme-doc-markdown ul > li::marker {
-  color: var(--section-accent);
+  color: var(--section-accent-soft);
 }
 
 .theme-doc-markdown blockquote {
@@ -314,7 +285,7 @@ html[data-theme='dark'] {
 .theme-doc-markdown code {
   border: 0;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--section-accent) 8%, var(--docs-code-bg));
+  background: var(--docs-code-bg);
   color: var(--docs-heading);
   padding: 0.12em 0.38em;
 }
@@ -476,8 +447,8 @@ html[data-theme='dark'] {
 
 /* ---------- Docs home ---------- */
 
-.theme-doc-markdown:has(.docs-home-sections) h1 {
-  background: linear-gradient(100deg, var(--docs-heading) 30%, var(--accent-concepts) 62%, var(--accent-components) 100%);
+.theme-doc-markdown:has(.docs-home-actions) h1 {
+  background: linear-gradient(100deg, var(--docs-heading) 45%, var(--sd-accent) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -489,7 +460,93 @@ html[data-theme='dark'] {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
   gap: 0.5rem 1.5rem;
-  margin: 2.25rem 0 1rem;
+  margin: 1rem 0 1.5rem;
+}
+
+/* The home page's two calls to action and the SDK shortcuts under them. */
+.docs-home-actions p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 1.5rem 0 0;
+}
+
+.markdown .docs-home-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.6rem;
+  padding: 0 1.1rem;
+  border: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
+  border-radius: 999px;
+  color: var(--docs-heading);
+  font-weight: 600;
+  text-decoration: none !important;
+}
+
+.markdown .docs-home-actions a:first-child {
+  border-color: var(--sd-accent);
+  background: var(--sd-accent);
+  color: var(--sd-on-accent);
+}
+
+.markdown .docs-home-actions a:hover {
+  text-decoration: none;
+  border-color: var(--sd-accent);
+}
+
+.markdown .docs-home-actions a:first-child:hover {
+  background: var(--sd-accent-hover);
+}
+
+.docs-home-sdks p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.5rem;
+  margin: 1rem 0 0.5rem;
+  color: var(--docs-subtle);
+  font-size: 0.88rem;
+}
+
+.markdown .docs-home-sdks a {
+  padding: 0.2rem 0.65rem;
+  border: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
+  border-radius: 8px;
+  color: var(--docs-text);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.8rem;
+  text-decoration: none !important;
+}
+
+.markdown .docs-home-sdks a:hover {
+  border-color: var(--sd-accent);
+  color: var(--sd-accent);
+  text-decoration: none;
+}
+
+/* Compact link rows under the home page's card groups. */
+.docs-home-links {
+  margin: 2rem 0 1rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--docs-border, var(--ifm-color-emphasis-300));
+}
+
+.docs-home-links p {
+  margin: 0 0 0.75rem;
+  color: var(--docs-subtle);
+  font-size: 0.92rem;
+  line-height: 1.8;
+}
+
+.docs-home-links strong {
+  color: var(--docs-heading);
+  margin-right: 0.25rem;
+}
+
+.docs-section-entry__meta {
+  color: var(--section-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .docs-section-entry {
@@ -524,15 +581,15 @@ html[data-theme='dark'] {
   height: 2.6rem;
   place-items: center;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--section-accent) 14%, transparent);
-  color: var(--section-accent);
+  background: var(--section-icon-bg);
+  color: var(--section-icon-fg);
   transition: background-color 160ms ease, color 160ms ease;
 }
 
 .docs-section-entry:hover .docs-section-entry__icon,
 .docs-section-entry:focus-visible .docs-section-entry__icon {
-  background: var(--section-accent);
-  color: var(--ifm-background-color);
+  background: var(--sd-accent);
+  color: var(--sd-on-accent);
 }
 
 .docs-section-entry__text {
@@ -595,11 +652,11 @@ html[data-theme='dark'] {
 }
 
 .exec-node-accent {
-  background: color-mix(in srgb, var(--accent-concepts) 10%, var(--surface-solid));
+  background: color-mix(in srgb, var(--sd-accent) 10%, var(--surface-solid));
 }
 
 .exec-node-warn {
-  background: color-mix(in srgb, var(--accent-product-examples) 9%, var(--surface-solid));
+  background: color-mix(in srgb, var(--docs-warn) 9%, var(--surface-solid));
 }
 
 .exec-app {

@@ -25,27 +25,27 @@ AwaitInbound.execute
 ## Rules
 
 - The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
-- One waiting Step waits on **AnyOf** over the reply Channel, the resolution Channel, and the inactivity Timer.
+- One waiting Step waits on `AnyOf` over the reply Channel, the resolution Channel, and the inactivity Timer.
 - Declare the reply Channel before the resolution Channel. When several Channel Conditions are ready at once, the first one declared wins, and only the winner's messages are consumed. Replies accepted before the resolution are therefore recorded first.
-- A Channel Condition consumes messages only when it wins. A reply that arrives while **Execute** runs stays queued for the next execution, so no reply is lost.
-- **Execute** appends the consumed messages to an Attribute, such as a transcript. The waiting Step is the only writer of that Attribute.
-- **Execute** then moves back to the same Step. The new execution registers a new wait, so the inactivity Timer restarts after each message.
+- A Channel Condition consumes messages only when it wins. A reply that arrives while `Execute` runs stays queued for the next execution, so no reply is lost.
+- `Execute` appends the consumed messages to an Attribute, such as a transcript. The waiting Step is the only writer of that Attribute.
+- `Execute` then moves back to the same Step. The new execution registers a new wait, so the inactivity Timer restarts after each message.
 - To take every queued reply at once, use an at-least-one Channel Condition. You can also take one reply per execution.
 - Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map).
 
-## Why the RPC does not write the transcript
+## Why the Step owns the transcript {#why-the-rpc-does-not-write-the-transcript}
 
 If the RPC appended to the transcript, the waiting Step would have to lock the transcript, and the RPC would have to lock it too for its read-modify-write. Locks do not queue. Every RPC that arrives while the Step holds the lock, or while another RPC holds it, is rejected with a lock conflict, and the client must retry. Publishing to a Channel needs no lock, so concurrent replies never conflict.
 
 ## Replies after the resolution
 
-If the Resolve Step completes the Flow at once, a reply accepted after the resolution but before the Flow closes is not recorded. To keep every accepted reply, have Resolve complete with **ForceCompleteIfChannelsEmpty** on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). If the reply Channel is not empty, Dex follows the fallback instead: it moves back to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. Keep the waiting Step the only consumer of the reply Channel.
+If the Resolve Step completes the Flow at once, a reply accepted after the resolution but before the Flow closes is not recorded. To keep every accepted reply, have Resolve complete with `ForceCompleteIfChannelsEmpty` on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). If the reply Channel is not empty, Dex follows the fallback instead: it moves back to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. Keep the waiting Step the only consumer of the reply Channel.
 
 ## Examples
 
-This pattern has no runnable example of its own. Start from the [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) example. It shows the race between the Timer and the Channel, and the loop back to the same Step. Add a resolution Channel, a transcript Attribute, and input validation in the RPC.
+Start from the [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) example. It shows the race between the Timer and the Channel, and the loop back to the same Step. Add a resolution Channel, a transcript Attribute, and input validation in the RPC.
 
-## Related
+## Next
 
 - [Channel](/concepts/primitives/channel)
 - [Timer](/concepts/primitives/timer)

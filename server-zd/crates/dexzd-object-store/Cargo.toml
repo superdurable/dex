@@ -10,6 +10,8 @@ publish.workspace = true
 
 [features]
 db9-integration = []
+# Exposes deterministic constructors for simulations.
+test-util = []
 
 [dependencies]
 dexzd-postgres-connection.workspace = true
@@ -23,11 +25,15 @@ base64.workspace = true
 bytes.workspace = true
 dexzd-clock = { path = "../dexzd-clock" }
 md-5.workspace = true
+rand.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# Enables test-util for this crate's own integration tests.
+dexzd-object-store = { workspace = true, features = ["test-util"] }
+rand_chacha.workspace = true
 s3local.workspace = true
 s3local-server.workspace = true
 tempfile.workspace = true

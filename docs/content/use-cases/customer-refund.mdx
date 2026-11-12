@@ -1,17 +1,19 @@
 ---
-title: Customer refund
+title: Customer Refund
 ---
 
 import deterministicFlow from '@site/src/data/flow-definitions/customer-refund.json';
 import agenticFlow from '@site/src/data/flow-definitions/customer-refund-agentic.json';
 
-# Customer refund
+# Customer Refund
 
 The Go customer-refund example contains two independent Flows. Both publish Flow Definition Graph 2.0 metadata for Dex Web.
 
+**SDK:** Go
+
 ## Deterministic policy
 
-**CustomerRefundFlow** runs seven Steps. It checks that the order exists and applies the 30-day rule. It records an idempotency key before it calls the payment provider. When the provider declines the refund, or its result is unknown, the Flow records that outcome as the case status.
+`CustomerRefundFlow` runs seven Steps. It checks that the order exists and applies the 30-day rule. It records an idempotency key before it calls the payment provider. When the provider declines the refund, or its result is unknown, the Flow records that outcome as the case status.
 
 <DocsFlowDefinitionGraph graph={deterministicFlow} />
 
@@ -19,11 +21,11 @@ Its Summary shows the charge reference, requested amount, and recommendation. It
 
 ## Agentic review
 
-**AgenticCustomerRefundFlow** gathers evidence in a loop of Steps. A guardrail then either applies the decision automatically or waits for a manager to approve it. Each manager wait has its own gate key. The Flow records its intent before it runs the billing, subscription, and customer-message effects. These effects are idempotent.
+`AgenticCustomerRefundFlow` gathers evidence in a loop of Steps. A guardrail then either applies the decision automatically or waits for a manager to approve it. Each manager wait has its own gate key. The Flow records its intent before it runs the billing, subscription, and customer-message effects. These effects are idempotent.
 
 <DocsFlowDefinitionGraph graph={agenticFlow} />
 
-The approval Action has no input and appears as a direct button. The rejection Action asks for a reason. Dex Web fills in a hidden gate key. It takes the key from the Attribute values it read when the detail page opened. Before the RPC publishes a verdict, it compares that key with the current gate. If the gate has changed, the RPC returns an error and the operator must refresh the page.
+The approval Action appears as a direct button, with no input. The rejection Action asks for a reason. Dex Web fills in a hidden gate key. It takes the key from the Attribute values it read when the detail page opened. Before the RPC publishes a verdict, it compares that key with the current gate. If the gate has changed, the RPC returns an error and the operator must refresh the page.
 
 Both Actions also read the current case status. The visibility condition in Flow Definition Graph 2.0 only controls whether a button appears. It does not authorize anyone.
 
@@ -46,3 +48,7 @@ var deterministicCaseStatus = dex.DefineAttribute[string](
 </SdkTabs>
 
 See [Dex Web](/reference/web/dex-web) for the protocol and operator workflow.
+
+## Next
+
+[Run Dex](/components): A Dex application runs on four components: your application, the server, the CLI, and Web.
