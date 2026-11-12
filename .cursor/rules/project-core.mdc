@@ -49,6 +49,12 @@ Test each fact with one question: will this still hold in the next minor
 release? If yes, it may belong in skills. If no, it belongs in the Developer
 reference.
 
+Skills and the docs stable layer hold only stable core rules. UI and feature
+details belong in the Developer reference. So do nuanced edge-case semantics,
+such as the order of waiters and locks, cancellation and close corner cases,
+retry deduplication details, and naming-restriction corner cases. Skills link
+to that reference instead of restating it.
+
 Skills contain no Dex version numbers and no release-tag pins. A skills change
 does not wait for a Dex release, and a Dex release never requires a skills
 change. A skills release-prep pull request assembles the fragments and bumps
@@ -58,6 +64,12 @@ the version. Merging it syncs `skills/` to the read-only
 If the skills mirror is unavailable or contains work that cannot be safely
 synced, do not mark the skills release complete. Report the blocker
 explicitly.
+
+Every skills upgrade needs the owner's confirmation first. The owner is
+`longquanzheng` on GitHub. Confirm before you add a skills fragment, and
+confirm its bump level. Confirm before each dispatch of **Prepare skills
+release** and before each merge of a skills release-prep pull request. The
+workflow runs only when `longquanzheng` dispatches it.
 
 A stable skills content change adds a fragment: run
 `python3 script/release/changelog_fragments.py new skills --bump <level>` and
