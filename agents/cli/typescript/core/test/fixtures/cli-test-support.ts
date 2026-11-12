@@ -34,7 +34,8 @@ import {
   scriptedHarnessVariantVariable,
   scriptedHarnessWithoutImages,
   shellReplacingScriptedHarness,
-  wrappedFlowScriptedHarness,
+  summaryForcedOffScriptedHarness,
+  summaryForcedOnScriptedHarness,
 } from "./scripted-harness.js";
 
 const cliEntryPath = fileURLToPath(new URL("./scripted-harness-cli.js", import.meta.url));
@@ -262,7 +263,8 @@ export class TestHome {
       ...(this.harness === shellReplacingScriptedHarness ? { [scriptedHarnessVariantVariable]: "shell-replacing" } : {}),
       ...(this.harness === scriptedHarnessWithoutImages ? { [scriptedHarnessVariantVariable]: "without-images" } : {}),
       ...(this.harness === fixedToolSetScriptedHarness ? { [scriptedHarnessVariantVariable]: "fixed-tool-set" } : {}),
-      ...(this.harness === wrappedFlowScriptedHarness ? { [scriptedHarnessVariantVariable]: "wrapped-flow" } : {}),
+      ...(this.harness === summaryForcedOnScriptedHarness ? { [scriptedHarnessVariantVariable]: "summary-on" } : {}),
+      ...(this.harness === summaryForcedOffScriptedHarness ? { [scriptedHarnessVariantVariable]: "summary-off" } : {}),
     };
   }
 

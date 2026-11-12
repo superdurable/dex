@@ -15,14 +15,16 @@ import {
   scriptedHarnessVariantVariable,
   scriptedHarnessWithoutImages,
   shellReplacingScriptedHarness,
-  wrappedFlowScriptedHarness,
+  summaryForcedOffScriptedHarness,
+  summaryForcedOnScriptedHarness,
 } from "./scripted-harness.js";
 
 const variants: Readonly<Record<string, AgentHarness>> = {
   "shell-replacing": shellReplacingScriptedHarness,
   "fixed-tool-set": fixedToolSetScriptedHarness,
   "without-images": scriptedHarnessWithoutImages,
-  "wrapped-flow": wrappedFlowScriptedHarness,
+  "summary-on": summaryForcedOnScriptedHarness,
+  "summary-off": summaryForcedOffScriptedHarness,
 };
 const harness = variants[process.env[scriptedHarnessVariantVariable] ?? ""] ?? scriptedHarness;
 process.exit(await runAgentCli(harness, processAgentCliIo()));

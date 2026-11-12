@@ -34,7 +34,7 @@ from dex_agents.testing import (
 )
 from dex_agents_cli_core import SESSION_ACTION_PERMISSION, session_flow_type
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
-from tests.scripted_harness import SCRIPTED_FLOW_TYPE
+from tests.scripted_harness import FORCED_SUMMARY_ENVIRONMENT_VARIABLE, SCRIPTED_FLOW_TYPE
 
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
 
@@ -314,6 +314,27 @@ async def test_sessions_summary_follows_the_config_and_the_server(
         assert line.endswith("  1 turn  summary check"), line
     else:
         assert re.fullmatch(rf"{re.escape(session_id)}  running  started [0-9: -]+", line), line
+
+
+@pytest.mark.parametrize(
+    ("forced", "summary"),
+    [("off", None), ("on", "off")],
+)
+async def test_a_harness_that_ignores_sessions_summary_stops_the_command(
+    cli_home: CliHome, forced: str, summary: str | None
+) -> None:
+    values: dict[str, Any] = dict(NO_CONNECTORS)
+    if summary is not None:
+        values["sessions"] = {"summary": summary}
+    cli_home.write_config(config_yaml(values))
+    cli_home.extra_environment[FORCED_SUMMARY_ENVIRONMENT_VARIABLE] = forced
+
+    completed = await asyncio.to_thread(cli_home.run, stdin="hello\n")
+
+    assert completed.returncode != 0
+    assert "sessions.summary says the session Flow must" in completed.stderr
+    assert "HarnessContext.is_session_summary_indexed" in completed.stderr
+    assert "Session " not in completed.stdout
 
 
 async def test_sessions_sorts_several_pages_and_says_when_more_exist(

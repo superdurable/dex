@@ -14,14 +14,12 @@ import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { promisify } from "node:util";
 
-import type { Client } from "@superdurable/dex";
+import { DexServiceError, ErrorSubStatus, type Client } from "@superdurable/dex";
 
 import {
   SessionTitleSearchUnavailableError,
-  createAgentSessionFlow,
   listAgentSessions,
   sortAgentSessionsByLastActivity,
-  withSummaryAttributesIndexed,
   type AgentSessionSummary,
 } from "../../src/index.js";
 import {
@@ -43,7 +41,9 @@ describe("session summaries", () => {
 
   before(async () => {
     engine = await PrivateDexEngine.start();
-    flow = withSummaryAttributesIndexed(createScriptedAgentFlow(mkdtempSync(join(engine.stateDirectory, "markers-"))));
+    flow = createScriptedAgentFlow(mkdtempSync(join(engine.stateDirectory, "markers-")), {
+      summaryAttributesIndexed: true,
+    });
     flowType = flow.getFlowType();
     environment = await AgentTestEnvironment.start({
       serverAddress: engine.serverAddress,
@@ -218,26 +218,6 @@ describe("session summaries without summaryAttributesIndexed", () => {
     await engine?.stop();
   });
 
-  test("withSummaryAttributesIndexed rebuilds from the options the Flow was created with", () => {
-    const options: { messageWindowSize: number; toolPolicies: Record<string, { effect: "read" }> } = {
-      messageWindowSize: 64,
-      toolPolicies: { lookup: { effect: "read" } },
-    };
-    const original = createAgentSessionFlow(flow.runner, "SnapshotAgent", options);
-    options.messageWindowSize = 128;
-    options.toolPolicies["write"] = { effect: "read" };
-
-    const rebuilt = withSummaryAttributesIndexed(original);
-    assert.equal(original.options.messageWindowSize, 64);
-    assert.equal(rebuilt.options.messageWindowSize, 64);
-    assert.deepEqual(Object.keys(rebuilt.options.toolPolicies), ["lookup"]);
-    assert.equal(rebuilt.options.summaryAttributesIndexed, true);
-    assert.equal(rebuilt.getFlowType(), "SnapshotAgent");
-    assert.equal(rebuilt.runner, original.runner);
-    const names = (rebuilt.getPersistenceSchema?.()?.attributes ?? []).map((definition) => definition.name);
-    assert.ok(names.includes("AgentSessionTitle"));
-  });
-
   test("sessions list without a summary, and a title search says it is unavailable", async () => {
     const schema = flow.getPersistenceSchema?.() ?? {};
     assert.equal(
@@ -259,6 +239,33 @@ describe("session summaries without summaryAttributesIndexed", () => {
       SessionTitleSearchUnavailableError,
     );
   });
+});
+
+describe("title search errors", () => {
+  for (const [field, isUnavailable] of [
+    ["text1", true],
+    ["text2", false],
+  ] as const) {
+    test(`an unknown ${field} field ${isUnavailable ? "means the title index is unavailable" : "keeps the Dex error"}`, async () => {
+      const failure = new DexServiceError(
+        3,
+        ErrorSubStatus.UNCATEGORIZED,
+        `unknown visibility field "${field}"`,
+        "searchFlows",
+        undefined,
+      );
+      const client = {
+        searchFlows: () => Promise.reject(failure),
+      } as unknown as Client;
+
+      const listing = listAgentSessions(client, "SupportAgent", { titleSearch: "refund" });
+      if (isUnavailable) {
+        await assert.rejects(listing, SessionTitleSearchUnavailableError);
+      } else {
+        await assert.rejects(listing, (error: unknown) => error === failure);
+      }
+    });
+  }
 });
 
 async function listEveryPage(

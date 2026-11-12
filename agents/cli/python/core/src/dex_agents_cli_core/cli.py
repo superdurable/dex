@@ -340,11 +340,10 @@ async def _run(
         tool_sources=tuple(tool_sources),
         resolver=resolver,
         media_store=media_store,
+        is_session_summary_indexed=is_session_summary_indexed(config),
     )
     flow = with_turn_config(harness.create_session_flow(context), resolver)
-    if is_session_summary_indexed(config):
-        options = replace(flow.options, summary_attributes_indexed=True)
-        flow = AgentSessionFlow(flow.runner, flow_type=flow.get_flow_type(), options=options)
+    _require_session_summary_setting(flow, context.is_session_summary_indexed)
     if flow.get_flow_type() != flow_type:
         raise CommandError(f"the harness built Flow type {flow.get_flow_type()}, not {flow_type}")
     registry = Registry([flow], allow_async_handlers=True)
@@ -763,6 +762,19 @@ async def _print_connections(web_url: str) -> None:
             f"  {connection.get('connectorId')}/{connection.get('connectionName')}  "
             f"{connection.get('status')}"
         )
+
+
+def _require_session_summary_setting(flow: AgentSessionFlow, is_expected: bool) -> None:
+    """Refuse a harness Flow whose indexed session summary differs from ``sessions.summary``."""
+    if flow.options.summary_attributes_indexed == is_expected:
+        return
+    expected = "keep" if is_expected else "leave out"
+    raise CommandError(
+        f"sessions.summary says the session Flow must {expected} the indexed session summary, "
+        f"but the harness built it with summary_attributes_indexed="
+        f"{flow.options.summary_attributes_indexed}; the harness must pass "
+        "HarnessContext.is_session_summary_indexed"
+    )
 
 
 def _session_line(session: AgentSessionSummary) -> str:

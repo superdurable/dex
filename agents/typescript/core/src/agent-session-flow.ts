@@ -234,8 +234,9 @@ export interface AgentSessionOptions {
    * be stored in the search index. The Worker registers the index keys `text1` (FULL_TEXT), `datetime1` (DATETIME),
    * and `int1` (INT) when it starts; with PostgreSQL search, startup fails with `FAILED_PRECONDITION` when the
    * namespace already registered one of these keys with another type, or when all three keys of the type are taken
-   * by other names. Turning it off later stops new writes; the values written before stay in the index. To enable it
-   * on a Flow that a factory built, see {@link withSummaryAttributesIndexed}.
+   * by other names. Turning it off later stops new writes; the values written before stay in the index. The adapter
+   * factories, such as `createBuiltinAgentSessionFlow`, take the same option. A Flow reports its setting in
+   * `options.summaryAttributesIndexed`.
    *
    * @since 0.6.0
    */
@@ -528,38 +529,6 @@ export interface AgentSessionFlow<
   listAgentMessages(context: Context, input: ListAgentMessagesInput): RPCResult<AgentMessagesPage>;
 }
 
-// A registered symbol, so a Flow built by another copy of this package is rebuilt by that copy.
-const rebuildWithSummaryAttributesIndexed = Symbol.for("@superdurable/dex-agents/rebuildWithSummaryAttributesIndexed");
-
-/**
- * Returns a session Flow like `flow` with {@link AgentSessionOptions.summaryAttributesIndexed} turned on.
- *
- * Use it when a factory, such as an adapter's or a harness's, builds the Flow and does not take the option. The new
- * Flow has the same runner, Flow type, and other options; register it instead of `flow`. Read the privacy and index
- * capacity notes on {@link AgentSessionOptions.summaryAttributesIndexed} first.
- *
- * @example
- * ```ts
- * const flow = withSummaryAttributesIndexed(createBuiltinAgentSessionFlow(agent, "SupportAgent"));
- * const registry = new Registry([flow]);
- * ```
- *
- * @typeParam Runner - Type of the Flow's runner.
- * @param flow - A Flow that `createAgentSessionFlow` of this release or later built.
- * @returns A new Flow; `flow` is unchanged.
- * @throws {TypeError} When `flow` was not built by `createAgentSessionFlow` of 0.6.0 or later.
- * @since 0.6.0
- */
-export function withSummaryAttributesIndexed<Runner extends AgentFrameworkRunner<DeferredToolOutcome>>(
-  flow: AgentSessionFlow<Runner>,
-): AgentSessionFlow<Runner> {
-  const rebuild = (flow as unknown as Record<symbol, unknown>)[rebuildWithSummaryAttributesIndexed];
-  if (typeof rebuild !== "function") {
-    throw new TypeError("withSummaryAttributesIndexed needs a Flow that createAgentSessionFlow 0.6.0 or later built");
-  }
-  return (rebuild as () => AgentSessionFlow<Runner>).call(flow);
-}
-
 /**
  * Creates the shared agent session Flow for one agent and its framework runner.
  *
@@ -599,9 +568,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
   flowType: string,
   options: AgentSessionOptions = {},
 ): AgentSessionFlow<Runner> {
-  // A later change to the caller's object changes neither this Flow nor a rebuild of it.
-  const optionsSnapshot = copyAgentSessionOptions(options);
-  const config = resolveAgentSessionConfig(runner, flowType, optionsSnapshot);
+  const config = resolveAgentSessionConfig(runner, flowType, options);
   const persistence = createAgentSessionPersistence(config.eventStreamCapacityBytes);
   const transitions = new AgentSessionTransitions(
     persistence,
@@ -690,10 +657,6 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
 
     public getFlowType(): string {
       return config.flowType;
-    }
-
-    public [rebuildWithSummaryAttributesIndexed](): AgentSessionFlow<Runner> {
-      return createAgentSessionFlow(runner, flowType, { ...optionsSnapshot, summaryAttributesIndexed: true });
     }
 
     public getSteps(): StepList<AgentSessionStartInput> {
@@ -1046,25 +1009,6 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
   }
 
   return new AgentSessionFlowDefinition();
-}
-
-/** Returns a frozen copy of the options, with their plain nested objects and arrays copied too. */
-function copyAgentSessionOptions(options: AgentSessionOptions): AgentSessionOptions {
-  const toolPolicies = options.toolPolicies;
-  return Object.freeze({
-    ...options,
-    ...(toolPolicies === undefined
-      ? {}
-      : {
-          toolPolicies: Object.freeze(
-            Object.fromEntries(Object.entries(toolPolicies).map(([name, policy]) => [name, Object.freeze({ ...policy })])),
-          ),
-        }),
-    ...(options.builtInTools === undefined ? {} : { builtInTools: Object.freeze([...options.builtInTools]) }),
-    ...(options.tracing === undefined ? {} : { tracing: Object.freeze({ ...options.tracing }) }),
-    ...(options.compaction === undefined ? {} : { compaction: Object.freeze({ ...options.compaction }) }),
-    ...(options.runModelLimit === undefined ? {} : { runModelLimit: Object.freeze({ ...options.runModelLimit }) }),
-  });
 }
 
 function resolveAgentSessionConfig(

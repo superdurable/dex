@@ -42,7 +42,8 @@ export const scriptedHarnessDirectoryVariable = "DEX_AGENTS_CLI_TEST_DIRECTORY";
 /**
  * Environment variable that selects a harness variant: `shell-replacing` for {@link shellReplacingScriptedHarness},
  * `fixed-tool-set` for {@link fixedToolSetScriptedHarness}, `without-images` for {@link scriptedHarnessWithoutImages},
- * or `wrapped-flow` for {@link wrappedFlowScriptedHarness}.
+ * or `summary-on` and `summary-off` for {@link summaryForcedOnScriptedHarness} and
+ * {@link summaryForcedOffScriptedHarness}.
  */
 export const scriptedHarnessVariantVariable = "DEX_AGENTS_CLI_TEST_HARNESS";
 
@@ -79,18 +80,18 @@ export const scriptedHarnessWithoutImages: AgentHarness = {
   createSessionFlow: (context: HarnessContext) => createScriptedSessionFlow(context, [], false),
 };
 
-/**
- * The scripted harness returning its Flow behind a Proxy that hides how `createAgentSessionFlow` rebuilds it, as a
- * hand-written or wrapped Flow would.
- */
-export const wrappedFlowScriptedHarness: AgentHarness = {
+/** The scripted harness keeping the indexed session summary whatever `HarnessContext.isSessionSummaryIndexed` says. */
+export const summaryForcedOnScriptedHarness: AgentHarness = {
   ...scriptedHarness,
-  createSessionFlow: (context: HarnessContext) => {
-    const rebuildKey = Symbol.for("@superdurable/dex-agents/rebuildWithSummaryAttributesIndexed");
-    return new Proxy(createScriptedSessionFlow(context, [], true), {
-      get: (target, key) => (key === rebuildKey ? undefined : (Reflect.get(target, key, target) as unknown)),
-    });
-  },
+  createSessionFlow: (context: HarnessContext) =>
+    createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: true }, [], true),
+};
+
+/** The scripted harness leaving out the indexed session summary whatever `HarnessContext.isSessionSummaryIndexed` says. */
+export const summaryForcedOffScriptedHarness: AgentHarness = {
+  ...scriptedHarness,
+  createSessionFlow: (context: HarnessContext) =>
+    createScriptedSessionFlow({ ...context, isSessionSummaryIndexed: false }, [], true),
 };
 
 /** The scripted harness declaring that its runner fixes its tools when the Flow is built. */
@@ -168,10 +169,13 @@ function createScriptedSessionFlow(
     toolSources: context.toolSources,
     tools,
   };
+  const summaryAttributesIndexed = context.isSessionSummaryIndexed === true;
   if (!supportsImages || context.mediaStore === undefined) {
-    return createBuiltinAgentSessionFlow(definition, context.flowType);
+    return createBuiltinAgentSessionFlow(definition, context.flowType, { summaryAttributesIndexed });
   }
-  return createAgentSessionFlow(new ImageScriptedRunner(definition, context.mediaStore), context.flowType, {});
+  return createAgentSessionFlow(new ImageScriptedRunner(definition, context.mediaStore), context.flowType, {
+    summaryAttributesIndexed,
+  });
 }
 
 async function respond(request: ModelRequest, model: string): Promise<ScriptedModelReply> {

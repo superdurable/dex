@@ -141,11 +141,13 @@ export interface EffectiveConfig {
   /** The media store of the images. A turn's configuration always has the file's. */
   readonly media: MediaConfig;
   /**
-   * How the command keeps its sessions. A turn's configuration always has the file's.
+   * How the command keeps its sessions. A turn's configuration always has the file's. {@link resolveConfig} always
+   * sets it; it is optional so that code that builds an `EffectiveConfig` itself keeps compiling, and absent means
+   * `summary: "auto"`.
    *
    * @since 0.6.0
    */
-  readonly sessions: SessionsConfig;
+  readonly sessions?: SessionsConfig;
   /** The command's own harness section, or `{}`. */
   readonly harness_options: Readonly<Record<string, unknown>>;
 }
@@ -312,7 +314,7 @@ export function resolveConfig(
  * @since 0.6.0
  */
 export function isSessionSummaryIndexed(config: EffectiveConfig): boolean {
-  const summary = config.sessions.summary;
+  const summary = config.sessions?.summary ?? defaultSessionSummary;
   return summary === "on" || (summary === "auto" && config.dex.server === defaultDexServer);
 }
 

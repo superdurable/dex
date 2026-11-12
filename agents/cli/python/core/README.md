@@ -112,7 +112,12 @@ latest turn, its turn count, and its title, the first 80 Unicode code points
 of the first message. `sessions.summary` in the configuration file decides
 whether the session Flow keeps that summary (`summary_attributes_indexed`):
 `auto`, the default, keeps it only with `dex.server: auto`, because a Dex
-server URL may be shared; `on` keeps it with any server; `off` never. A session that a release before 0.6.0 started has no title,
+server URL may be shared; `on` keeps it with any server; `off` never. The CLI
+core passes the result to the harness as
+`HarnessContext.is_session_summary_indexed`, and the harness builds its Flow
+with `summary_attributes_indexed` set to it. The command refuses to start when
+the Flow's `options.summary_attributes_indexed` differs, so a custom harness
+must honor the field. A session that a release before 0.6.0 started has no title,
 and has no time or turn count until its next turn:
 
 ```text

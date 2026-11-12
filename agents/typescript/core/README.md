@@ -1290,8 +1290,8 @@ does not turn this on; pass `configOverride: { activeStepSearchMode: agentSessio
 
 Since 0.6.0, a session can keep a summary that a session list needs: its title, the first 80 Unicode code points of
 the first user message; the time its latest turn started or ended; and its turn count. Turn it on with
-`summaryAttributesIndexed: true`, or with `withSummaryAttributesIndexed(flow)` for a Flow that a factory built. It is
-off by default. `listAgentSessions` reads one page of sessions in one `Client.searchFlows` call, without a snapshot
+`summaryAttributesIndexed: true`; the adapter factories, such as `createBuiltinAgentSessionFlow`, take the same option.
+It is off by default, and `flow.options.summaryAttributesIndexed` tells whether a Flow keeps it. `listAgentSessions` reads one page of sessions in one `Client.searchFlows` call, without a snapshot
 per session and without a running Worker:
 
 ```ts

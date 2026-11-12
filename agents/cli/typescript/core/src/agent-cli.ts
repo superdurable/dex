@@ -21,7 +21,6 @@ import {
   sessionFlowDefinitionDocument,
   sortAgentSessionsByLastActivity,
   startAgentSession,
-  withSummaryAttributesIndexed,
   type AgentSessionSummary,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
@@ -115,6 +114,21 @@ export function processAgentCliIo(): AgentCliIo {
     isInteractive: process.stdin.isTTY === true && process.stdout.isTTY === true,
     environment: process.env,
   };
+}
+
+/** Refuses a harness Flow whose indexed session summary differs from the file's `sessions.summary`. */
+function requireSessionSummarySetting(
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
+  isExpected: boolean,
+): void {
+  const isIndexed = flow.options.summaryAttributesIndexed === true;
+  if (isIndexed !== isExpected) {
+    throw new Error(
+      `sessions.summary says the session Flow must ${isExpected ? "keep" : "leave out"} the indexed session summary, ` +
+        `but the harness built it with summaryAttributesIndexed ${String(isIndexed)}; the harness must pass ` +
+        "HarnessContext.isSessionSummaryIndexed",
+    );
+  }
 }
 
 /**
@@ -325,11 +339,13 @@ class AgentCliCommand {
       harnessOptions: effective.harness_options,
       toolSources,
       mediaStore,
+      isSessionSummaryIndexed: isSessionSummaryIndexed(effective),
       resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
       currentTurn: () => turns.currentTurn(),
       resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
     };
-    const flow = this.withSessionSummary(this.harness.createSessionFlow(context), effective);
+    const flow = this.harness.createSessionFlow(context);
+    requireSessionSummarySetting(flow, context.isSessionSummaryIndexed === true);
     if (flow.getFlowType() !== flowType) {
       throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
     }
@@ -658,26 +674,6 @@ class AgentCliCommand {
     }
     this.io.stdout.write(`Resume one with: dex-agents-${this.harness.name} --resume <session>\n`);
     return 0;
-  }
-
-  /** Returns the Flow with the indexed session summary when the configuration keeps it. */
-  private withSessionSummary<Flow extends AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>>(
-    flow: Flow,
-    effective: EffectiveConfig,
-  ): Flow {
-    if (!isSessionSummaryIndexed(effective)) {
-      return flow;
-    }
-    try {
-      return withSummaryAttributesIndexed(flow) as Flow;
-    } catch (error: unknown) {
-      // A harness may build its Flow without createAgentSessionFlow; its sessions then list without a summary.
-      if (!(error instanceof TypeError)) {
-        throw error;
-      }
-      this.log(`The session summary is off: ${error.message}.`);
-      return flow;
-    }
   }
 
   private prepareWorkspace(effective: EffectiveConfig, loaded: LoadedConfig): string {

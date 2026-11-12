@@ -89,7 +89,6 @@ export {
 } from "./agent-media.js";
 export {
   createAgentSessionFlow,
-  withSummaryAttributesIndexed,
   type AgentSessionFlow,
   type AgentSessionOptions,
   type ResolvedAgentSessionOptions,

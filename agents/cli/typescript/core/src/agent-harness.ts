@@ -141,11 +141,10 @@ export interface AgentHarness {
   /**
    * Builds the session Flow. The CLI core calls it once at startup and registers the Flow in its Worker and Client.
    *
-   * When the configuration keeps the session summary (`sessions.summary`), the CLI core registers
-   * `withSummaryAttributesIndexed(flow)` instead. That needs a Flow that `createAgentSessionFlow` of 0.6.0 or later
-   * built, directly or through an adapter's factory. For any other Flow, such as a hand-written or wrapped one, the
-   * CLI core logs one line and registers the Flow as it is, so its sessions list without a title, last activity time,
-   * or turn count.
+   * Build the Flow with `summaryAttributesIndexed` equal to {@link HarnessContext.isSessionSummaryIndexed}, such as
+   * through an adapter factory's `summaryAttributesIndexed` option. The CLI core reads `flow.options` and refuses to
+   * start when the Flow keeps the indexed session summary while the file's `sessions.summary` leaves it off, or the
+   * other way around.
    *
    * @param context - The configuration, the instructions, the tool sources, and the per-turn resolver.
    * @returns The session Flow, of type {@link HarnessContext.flowType}.
@@ -196,6 +195,17 @@ export interface HarnessContext {
    * @since 0.5.0
    */
   readonly mediaStore?: MediaStore;
+  /**
+   * Whether the session Flow must keep the indexed session summary, from the file's `sessions.summary` and
+   * `dex.server`. Pass it as the Flow's `summaryAttributesIndexed`, such as
+   * `summaryAttributesIndexed: context.isSessionSummaryIndexed === true`.
+   *
+   * The CLI core always sets it. It is optional only so that harness tests can build a context without it; absent
+   * means `false`.
+   *
+   * @since 0.6.0
+   */
+  readonly isSessionSummaryIndexed?: boolean;
   /**
    * Returns one turn's configuration and instructions from the session settings the turn started with.
    *

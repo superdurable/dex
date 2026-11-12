@@ -11,9 +11,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
+import grpc  # type: ignore[import-untyped]
 import pytest
-from dex import AsyncClient, FlowStatus
+from dex import AsyncClient, DexServiceError, ErrorSubStatus, FlowStatus
 
 from dex_agents import (
     AgentSessionSummary,
@@ -138,6 +140,32 @@ async def test_without_the_option_sessions_list_without_a_summary(
         await list_agent_sessions(
             harness.stack.client, harness.flow.get_flow_type(), title_search="refund"
         )
+
+
+@pytest.mark.parametrize(("field", "is_unavailable"), [("text1", True), ("text2", False)])
+async def test_only_an_unknown_text1_field_means_the_title_index_is_unavailable(
+    field: str, is_unavailable: bool
+) -> None:
+    failure = DexServiceError(
+        grpc.StatusCode.INVALID_ARGUMENT,
+        ErrorSubStatus.UNCATEGORIZED,
+        f'unknown visibility field "{field}"',
+        "search_flows",
+        None,
+    )
+
+    class FailingClient:
+        async def search_flows(self, query: str, page_size: int, next_page_token: str) -> None:
+            raise failure
+
+    client = cast(AsyncClient, FailingClient())
+    if is_unavailable:
+        with pytest.raises(SessionTitleSearchUnavailableError):
+            await list_agent_sessions(client, "SupportAgent", title_search="refund")
+    else:
+        with pytest.raises(DexServiceError) as raised:
+            await list_agent_sessions(client, "SupportAgent", title_search="refund")
+        assert raised.value is failure
 
 
 async def _wait_for_summary(

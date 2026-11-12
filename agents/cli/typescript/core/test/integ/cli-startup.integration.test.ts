@@ -18,7 +18,7 @@ import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurabl
 
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
 import { CliProcess, SessionClients, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
-import { wrappedFlowScriptedHarness } from "../fixtures/scripted-harness.js";
+import { summaryForcedOffScriptedHarness, summaryForcedOnScriptedHarness } from "../fixtures/scripted-harness.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { PseudoTerminalCliProcess } from "../fixtures/pseudo-terminal-cli-process.js";
 import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
@@ -510,21 +510,20 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     });
   }
 
-  test("a harness Flow without the rebuild hook runs without the summary", async () => {
-    const home = new TestHome(enginePorts(engine), wrappedFlowScriptedHarness);
-    home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
-    const chat = start(home);
-    const sessionId = await chat.waitForSession();
-    chat.writeLine("still works");
-    await chat.stdout.waitFor("echo: still works");
-    chat.writeLine("/exit");
-    assert.equal(await chat.waitForExit(), 0);
-    assert.equal(chat.stderr.all.split("\n").filter((line) => line.startsWith("The session summary is off:")).length, 1);
-
-    const list = start(home, ["sessions"]);
-    assert.equal(await list.waitForExit(), 0);
-    assert.match(list.stdout.all, new RegExp(`^${sessionId}\\trunning\\t[^\\t]+\\t—\\t—\\t—$`, "m"));
-  });
+  for (const [harness, config] of [
+    [summaryForcedOffScriptedHarness, ""],
+    [summaryForcedOnScriptedHarness, "sessions: {summary: off}\n"],
+  ] as const) {
+    test(`a harness that ignores sessions.summary (${config === "" ? "auto, Flow off" : "off, Flow on"}) stops the command`, async () => {
+      const home = new TestHome(enginePorts(engine), harness);
+      home.writeConfig(`connectors: {enabled: []}\nlocal_tools: {browser: false}\n${config}`);
+      const chat = start(home);
+      assert.notEqual(await chat.waitForExit(), 0);
+      assert.match(chat.stderr.all, /sessions\.summary says the session Flow must/);
+      assert.match(chat.stderr.all, /HarnessContext\.isSessionSummaryIndexed/);
+      assert.doesNotMatch(chat.stdout.all, /Session \S+\. Type a message/);
+    });
+  }
 
   test("the sessions subcommand sorts several pages and says when more exist", async () => {
     const sessionClients = new SessionClients(engine);

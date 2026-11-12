@@ -96,9 +96,10 @@ The session's Steps write them when a turn starts or ends:
 The session Flow keeps them only when you turn the option on: Python
 **AgentSessionOptions.summary_attributes_indexed**, TypeScript
 **summaryAttributesIndexed**. It is off by default, so the Flow neither
-declares nor writes them. In TypeScript, **withSummaryAttributesIndexed** turns
-it on for a Flow that a factory built. The CLI commands turn it on for the
-local **dexcli dev**; see **sessions.summary** in
+declares nor writes them. The adapter factories take the same option, such as
+**summary_attributes_indexed** of **builtin_agent_session_flow** and
+**summaryAttributesIndexed** of **createBuiltinAgentSessionFlow**. The CLI
+commands turn it on for the local **dexcli dev**; see **sessions.summary** in
 [CLI commands](/reference/agents/cli#configuration). Check two things before you
 turn it on:
 

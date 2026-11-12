@@ -260,5 +260,8 @@ export function createOpenAIAgentsSessionFlow<TContext = undefined>(
     ...(options.messageChunkSize === undefined ? {} : { messageChunkSize: options.messageChunkSize }),
     ...(options.messageChunkMaxBytes === undefined ? {} : { messageChunkMaxBytes: options.messageChunkMaxBytes }),
     ...(options.retainedMessageLimit === undefined ? {} : { retainedMessageLimit: options.retainedMessageLimit }),
+    ...(options.summaryAttributesIndexed === undefined
+      ? {}
+      : { summaryAttributesIndexed: options.summaryAttributesIndexed }),
   });
 }

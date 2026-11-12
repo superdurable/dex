@@ -37,6 +37,13 @@ export interface BuiltinAgentSessionFlowOptions {
    * @since 0.5.0
    */
   readonly mediaStore?: MediaStore;
+  /**
+   * Whether the session keeps the indexed session summary. Defaults to `false`. See
+   * `AgentSessionOptions.summaryAttributesIndexed` for what it stores and the index keys it registers.
+   *
+   * @since 0.6.0
+   */
+  readonly summaryAttributesIndexed?: boolean;
 }
 
 /**
@@ -93,6 +100,9 @@ export function createBuiltinAgentSessionFlow(
       : { eventStreamCapacityBytes: definition.eventStreamCapacityBytes }),
     ...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
     ...(definition.spendLimit === undefined ? {} : { spendLimit: definition.spendLimit }),
+    ...(flowOptions.summaryAttributesIndexed === undefined
+      ? {}
+      : { summaryAttributesIndexed: flowOptions.summaryAttributesIndexed }),
   };
   return createAgentSessionFlow(runner, flowType, options);
 }

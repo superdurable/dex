@@ -101,11 +101,13 @@ and says when more sessions exist. It prints one per line with tab-separated
 columns: the ID, the status, the start time, the time of the latest turn, the
 turn count, and the title, the first 80 Unicode code points of the first
 message. `sessions.summary` in the configuration file decides whether the
-session Flow keeps that summary, with `withSummaryAttributesIndexed`: `auto`,
-the default, keeps it only with `dex.server: auto`, because a Dex server URL
-may be shared; `on` keeps it with any server; `off` never. A harness Flow that
-`createAgentSessionFlow` did not build runs without it, and the command logs
-one line. A session that a release before 0.6.0 started shows `—` for the
+session Flow keeps that summary: `auto`, the default, keeps it only with
+`dex.server: auto`, because a Dex server URL may be shared; `on` keeps it with
+any server; `off` never. The CLI core passes the result to the harness as
+`HarnessContext.isSessionSummaryIndexed`, and the harness builds its Flow with
+`summaryAttributesIndexed` set to it. The command refuses to start when the
+Flow's `options.summaryAttributesIndexed` differs, so a custom harness must
+honor the field. A session that a release before 0.6.0 started shows `—` for the
 title, and for the time and the turn count until its next turn.
 Two processes in the same environment share their sessions' Steps. Because
 tool settings may differ between them, the Worker that runs a tool Step

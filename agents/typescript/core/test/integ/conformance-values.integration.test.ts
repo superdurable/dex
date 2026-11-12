@@ -72,7 +72,6 @@ import {
   messageRolloverMaxBytesPerCommit,
   messageRolloverMaxChunksPerCommit,
   snapshotMessageLimit,
-  withSummaryAttributesIndexed,
 } from "../../src/agent-session-flow.js";
 import { defaultAgentEventsCapacityBytes, messageSequenceKey, planExecutionKey } from "../../src/agent-session-persistence.js";
 import { buildSessionTitle, sessionTitleMaxCodePoints } from "../../src/agent-session-summary.js";
@@ -250,11 +249,10 @@ const texts = readConformanceJson<TextTable>("texts.json");
 const documents = new Map(readGoldenValueDocuments().map((document) => [document.type, document]));
 
 // The manifest lists the opt-in session summary too.
-const flow = withSummaryAttributesIndexed(
-  createBuiltinAgentSessionFlow(
-    { name: "conformance-manifest", instructions: "Describe the session Flow.", model: new ScriptedModelClient(() => ({ text: "ok" })) },
-    "ConformanceAgent",
-  ),
+const flow = createBuiltinAgentSessionFlow(
+  { name: "conformance-manifest", instructions: "Describe the session Flow.", model: new ScriptedModelClient(() => ({ text: "ok" })) },
+  "ConformanceAgent",
+  { summaryAttributesIndexed: true },
 );
 const steps = [...flow.getSteps()];
 const schema = flow.getPersistenceSchema?.() ?? {};
