@@ -4,6 +4,7 @@
   "real_roles": [
     "launcher"
   ],
+  "launcher_setup": "Let the launcher open a browser, for example with a fake opener on its PATH.",
   "terminal_ui_environment": {},
   "steps": [
     {
@@ -68,7 +69,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {

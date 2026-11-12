@@ -2,7 +2,6 @@
   "name": "chat_host_stopped",
   "description": "The Worker host dies while put_image runs: the request ends with host_stopped, later requests too, and dexcli does not resend.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -69,7 +68,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {

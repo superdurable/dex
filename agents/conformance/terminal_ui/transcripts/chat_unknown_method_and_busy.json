@@ -1,9 +1,7 @@
 {
   "name": "chat_unknown_method_and_busy",
-  "description": "A method the launcher does not serve fails with unknown_method. With 4 requests in flight a fifth fails with busy; get_request_result does not count.",
-  "real_roles": [
-    "launcher"
-  ],
+  "description": "A method the launcher does not serve fails with unknown_method. With 4 requests in flight a fifth fails with busy; get_request_result does not count. No real side can force the timing, so only the two host roles replay it.",
+  "real_roles": [],
   "terminal_ui_environment": {},
   "steps": [
     {
@@ -68,7 +66,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {

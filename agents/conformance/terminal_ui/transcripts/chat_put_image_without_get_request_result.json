@@ -2,7 +2,6 @@
   "name": "chat_put_image_without_get_request_result",
   "description": "The launcher does not list get_request_result: after a lost response dexcli resends the same key once.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -65,7 +64,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {
