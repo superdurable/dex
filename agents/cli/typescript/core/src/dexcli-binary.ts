@@ -29,6 +29,9 @@ const execFileAsync = promisify(execFile);
 const installedExecutables = ["dexcli", "dex-server-zd"] as const;
 const installRecordName = "install.json";
 
+/** `DEXCLI` names no executable file; the command cannot fall back from it. */
+export class DexcliVariableError extends Error {}
+
 /**
  * Returns a `dexcli` executable, downloading the pinned release on first use.
  *
@@ -54,7 +57,7 @@ export async function resolveDexcliExecutable(
 ): Promise<string> {
   if (environment.dexcliPath !== undefined) {
     if (!isExecutable(environment.dexcliPath)) {
-      throw new Error(
+      throw new DexcliVariableError(
         `DEXCLI is not an executable file: ${environment.dexcliPath}. Unset DEXCLI to use the dexcli on PATH or ` +
           "the downloaded release, or set it to the path of a dexcli executable.",
       );

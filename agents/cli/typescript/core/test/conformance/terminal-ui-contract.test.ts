@@ -326,6 +326,8 @@ describe("terminal UI contract 1: the launch document", () => {
       capabilities: { images: { max_per_message: 20, max_bytes: 3_750_000 }, plan_mode: false, turn_control: true },
       logPath: "/home/user/.dex/agents/scripted.log",
       homeDirectory: "/home/user",
+      startedDexcliDevLines: ["Starting dexcli dev\tnow", "dexcli dev is ready (pid 42)."],
+      workerHostStartupLines: ["x".repeat(600)],
     });
     const validate = terminalUiSchemaValidator("launch");
     assert.equal(validate(document), true, JSON.stringify(validate.errors));
@@ -335,6 +337,12 @@ describe("terminal UI contract 1: the launch document", () => {
       config_path: "~/.dex/agents/scripted.yaml",
     });
     assert.equal(document.log_path, "~/.dex/agents/scripted.log");
+    // The dexcli dev lines come first, as info; the Worker host's startup lines follow, as warnings.
+    assert.deepEqual(document.notices, [
+      { level: "info", text: "Starting dexcli dev now" },
+      { level: "info", text: "dexcli dev is ready (pid 42)." },
+      { level: "warning", text: `${"x".repeat(499)}…` },
+    ]);
   });
 });
 

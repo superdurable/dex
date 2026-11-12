@@ -20,7 +20,7 @@ import type { LocalRequestOutcome } from "./request-outcome-table.js";
 import { isOpenUrlAllowed } from "./open-url-policy.js";
 import { TerminalUiChannel, type ChannelMessage } from "./terminal-ui-channel.js";
 import { buildTerminalUiEnvironment } from "./terminal-ui-environment.js";
-import { LauncherOutputRedirect, TerminalModeGuard } from "./terminal-mode.js";
+import { LauncherOutputRedirect, TerminalModeGuard, type TerminalOutput } from "./terminal-mode.js";
 
 /** How long the terminal UI has, from its spawn, to send `ready`. */
 export const terminalUiReadyTimeoutMs = 5_000;
@@ -49,6 +49,8 @@ export interface TerminalUiChatLaunch {
   readonly homeDirectory: string;
   readonly agentsDirectory: string;
   readonly logFilePath: string;
+  /** The lines the command printed while it started a `dexcli dev`; empty when it started none. */
+  readonly startedDexcliDevLines: readonly string[];
   /** The launcher's environment, which the Worker host inherits. */
   readonly environment: NodeJS.ProcessEnv;
   /** Whether `open_url` may start a browser. */
@@ -80,6 +82,8 @@ interface TerminalUiExit {
 export class TerminalUiChatLauncher {
   private readonly writeLine: (line: string) => void;
   private host: WorkerHostProcess | undefined;
+  /** The Worker host's log lines before its session opened, which the launch document carries as notices. */
+  private readonly workerHostStartupLines: string[] = [];
 
   /**
    * Creates the launcher.
@@ -98,9 +102,17 @@ export class TerminalUiChatLauncher {
    * @returns How it ended.
    */
   public async run(): Promise<TerminalUiChatOutcome> {
-    const host = new WorkerHostProcess(this.launch.logFilePath, this.launch.environment, (text) => this.writeLine(text));
+    const host = new WorkerHostProcess(this.launch.logFilePath, this.launch.environment, (text) =>
+      this.workerHostStartupLines.push(text),
+    );
     this.host = host;
     const startup = await host.start(this.launch.start);
+    if (startup.type !== "worker_ready") {
+      // Without a terminal UI to show them in, the startup lines go to the terminal.
+      for (const line of this.workerHostStartupLines) {
+        this.writeLine(line);
+      }
+    }
     if (startup.type === "startup_failed") {
       this.writeLine(`${this.launch.commandName}: ${startup.message}`);
       await this.stopHost();
@@ -124,10 +136,14 @@ export class TerminalUiChatLauncher {
     this.launch.commandSignals.release();
     const signals = new LauncherSignals();
     try {
-      const redirect = new LauncherOutputRedirect(this.launch.logFilePath);
+      const redirect = await LauncherOutputRedirect.start(this.launch.logFilePath);
       let handoff: TerminalUiHandoff;
       try {
-        handoff = new TerminalUiHandoff(this.launch, host, ready, signals);
+        handoff = new TerminalUiHandoff(this.launch, host, ready, {
+          signals,
+          terminalOutput: redirect.terminalOutput,
+          workerHostStartupLines: this.workerHostStartupLines,
+        });
         await handoff.finished;
       } finally {
         redirect.close();
@@ -316,8 +332,14 @@ class TerminalUiHandoff {
     private readonly launch: TerminalUiChatLaunch,
     host: WorkerHostProcess,
     ready: WorkerHostReady,
-    signals: LauncherSignals,
+    terminal: {
+      readonly signals: LauncherSignals;
+      /** The terminal UI's stdout and stderr, which fds 1 and 2 of the launcher no longer are. */
+      readonly terminalOutput: readonly [TerminalOutput, TerminalOutput];
+      readonly workerHostStartupLines: readonly string[];
+    },
   ) {
+    const signals = terminal.signals;
     const methods = new Map<string, LocalRequestMethod>();
     for (const method of relayedChatMethods) {
       if (method !== "put_image" || ready.capabilities.images !== undefined) {
@@ -342,12 +364,14 @@ class TerminalUiHandoff {
       capabilities: ready.capabilities,
       logPath: launch.logFilePath,
       homeDirectory: launch.homeDirectory,
+      startedDexcliDevLines: launch.startedDexcliDevLines,
+      workerHostStartupLines: terminal.workerHostStartupLines,
     });
     this.finished = new Promise((resolve) => {
       this.resolveFinished = resolve;
     });
     this.child = spawn(launch.dexcli, ["agents-tui", "--channel-fd", String(channelFdInChild)], {
-      stdio: ["inherit", "inherit", "inherit", "pipe"],
+      stdio: ["inherit", ...terminal.terminalOutput, "pipe"],
       env: buildTerminalUiEnvironment(launch.environment, launchAuth),
     });
     // A failed spawn emits "error" and "close" but no "exit"; either ends the handoff, once.

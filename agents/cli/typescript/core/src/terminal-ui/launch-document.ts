@@ -40,6 +40,10 @@ export interface ChatLaunchDetails {
   readonly logPath: string;
   /** The home directory, written as `~` in displayed paths. */
   readonly homeDirectory: string;
+  /** The lines printed while the command started a `dexcli dev`, shown again as `info` notices. */
+  readonly startedDexcliDevLines: readonly string[];
+  /** The Worker host's log lines before its session opened, shown as `warning` notices. */
+  readonly workerHostStartupLines: readonly string[];
 }
 
 /** The `dex.auth` every launch document of this CLI core carries: its Client authenticates with nothing else. */
@@ -47,7 +51,8 @@ export const launchAuth: TerminalUiAuth = Object.freeze({ mode: "none" });
 
 /**
  * Returns the chat launch document of contract 1. It holds no secret, and every path in `display` writes the home
- * directory as `~`. Startup notices go to the terminal before the handoff, so `notices` is empty.
+ * directory as `~`. Its `notices` are the `dexcli dev` lines, then the Worker host's startup lines, each cut by
+ * {@link noticeText}.
  */
 export function chatLaunchDocument(details: ChatLaunchDetails): Record<string, unknown> {
   const home = (path: string): string => displayPath(path, details.homeDirectory);
@@ -75,7 +80,10 @@ export function chatLaunchDocument(details: ChatLaunchDetails): Record<string, u
     },
     methods: [...details.methods],
     capabilities: details.capabilities,
-    notices: [],
+    notices: [
+      ...details.startedDexcliDevLines.map((text) => ({ level: "info", text: noticeText(text) })),
+      ...details.workerHostStartupLines.map((text) => ({ level: "warning", text: noticeText(text) })),
+    ],
     log_path: home(details.logPath),
   };
 }

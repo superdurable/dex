@@ -69,6 +69,16 @@ export function chatTranscript(name: string, steps: readonly TranscriptStep[], t
   return { ...base, name, description: name, steps: [...base.steps, ...steps], tui_exit: tuiExit };
 }
 
+/**
+ * Returns a transcript whose launch step does not compare `notices`, for a command that starts its own `dexcli dev`.
+ * @param transcript - The transcript.
+ */
+export function ignoringLaunchNotices(transcript: Transcript): Transcript {
+  const [launch, ...rest] = transcript.steps;
+  const ignore = [...((launch?.ignore as readonly string[] | undefined) ?? []), "notices"];
+  return { ...transcript, steps: [{ ...launch, ignore }, ...rest] };
+}
+
 /** Returns the first Python 3.11 or later on `PATH`, as an absolute path, which the launcher's `dexcli` needs. */
 export function pythonExecutable(): string {
   return execFileSync("python3", ["-c", "import sys; assert sys.version_info >= (3, 11); print(sys.executable)"], {
@@ -100,6 +110,8 @@ export class FakeTerminalUi {
       readonly isUnrunnableAfterDescribe?: boolean;
       /** Transcript values to replace with real ones, such as a fixture path with a file this test wrote. */
       readonly aliases?: Readonly<Record<string, string>>;
+      /** Whether the record keeps the notices of each launch document it received. */
+      readonly isLaunchNoticeRecorded?: boolean;
     } = {},
   ) {
     this.directory = mkdtempSync(join(tmpdir(), "dex-agents-fake-tui-"));
@@ -122,7 +134,8 @@ export class FakeTerminalUi {
     const aliasArguments = Object.entries(options.aliases ?? {})
       .map(([fixture, actual]) => ` --alias ${quote(`${fixture}=${actual}`)}`)
       .join("");
-    const host = `${quote(python)} ${quote(contractHostPath)} tui --step-timeout ${options.stepTimeoutSeconds ?? 30}${aliasArguments}`;
+    const noticeArgument = options.isLaunchNoticeRecorded === true ? " --record-launch-notices" : "";
+    const host = `${quote(python)} ${quote(contractHostPath)} tui --step-timeout ${options.stepTimeoutSeconds ?? 30}${aliasArguments}${noticeArgument}`;
     const play =
       options.hasMarkers === true
         ? [

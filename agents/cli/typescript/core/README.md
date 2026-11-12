@@ -502,15 +502,17 @@ command then resolves `dexcli` as for `dexcli dev` and runs
 `dexcli agents-tui --describe` with an empty environment and a 5 s limit. When
 that fails, or no common contract has the chat mode, it prints one
 `Plain chat: <reason>.` line and runs the text chat in its own process, as
-before.
+before. When `--describe` fails, the line says the terminal UI needs dexcli
+1.46.0 or later and to point `DEXCLI` at one. A `DEXCLI` that names no
+executable file stops the command with exit code 1 instead.
 
 Otherwise the command becomes a thin **launcher** with two children:
 
 | Process | stdin | stdout and stderr | Process group | Environment |
 | --- | --- | --- | --- | --- |
-| launcher (the command) | the terminal, never read during the handoff | the terminal; its own JavaScript writes go to the log during the handoff | foreground | the user's |
+| launcher (the command) | the terminal, never read during the handoff | the terminal; during the handoff, fds 1 and 2 point at the log, so the launcher's writes and those of children it starts meanwhile land there | foreground | the user's |
 | Worker host: the same bin with the hidden `__worker-host` argument | `/dev/null` | `~/.dex/agents/<harness>.log` | its own (`detached`), which it leads | the user's, with the provider keys |
-| `dexcli agents-tui --channel-fd 3` | the terminal | the terminal | foreground | the contract's allow-list only |
+| `dexcli agents-tui --channel-fd 3` | the terminal | the terminal, through copies of the launcher's fds 1 and 2 | foreground | the contract's allow-list only |
 
 - The launcher sends the Worker host the effective configuration, the
   resolved Dex server, and the `--resume` ID over Node's IPC channel. That
@@ -521,9 +523,11 @@ Otherwise the command becomes a thin **launcher** with two children:
   `buildUserMessageWithImages`, `plan_mode` from the Flow's options, and
   `turn_control`. A startup failure, such as a `--resume` of another
   environment's session, exits with the code the text chat would use.
-- Its log lines before the handoff print on the terminal, as today. After
-  `ready` they reach the terminal UI as `notice` messages, cut to 500 code
-  points.
+- The launch document's `notices` are the lines the command printed while it
+  started a `dexcli dev`, as `info`, then the Worker host's log lines before
+  its session opened, as `warning`. Those Worker host lines print on the
+  terminal only when the startup fails. After `ready` its log lines reach the
+  terminal UI as `notice` messages. Every notice is cut to 500 code points.
 - The launcher saves the terminal mode with `stty -g`, starts `dexcli` with
   the channel on fd 3, and writes the launch document. `dexcli` must send
   `ready` within 5 s of its spawn. Before `ready`, any failure (`dexcli`
