@@ -654,7 +654,9 @@ python3 agents/cli/tests/terminal_ui_contract_host.py launcher \
 It passes the channel on an fd of 10 or higher, gives the terminal UI only
 the allow-listed environment (`--extra-env NAME=VALUE` adds more for a
 test), replays the launcher side, and exits 0 when everything matched and
-the exit code is `tui_exit`, or 1 with the first difference on stderr.
+the exit code is `tui_exit`, or 1 with the first difference on stderr. With
+`--pty-input-from-stdin` it copies its own stdin to the PTY, so a test can
+type the keys that make the terminal UI send its requests.
 
 Play the terminal UI against a launcher, to test a CLI core: point `DEXCLI` at
 a wrapper. The launcher gives `dexcli` no `PATH`, so write the interpreter's
