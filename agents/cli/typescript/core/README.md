@@ -390,8 +390,45 @@ names the port. This check also runs for a server that a command started.
 These are protocol checks, not authentication: a local process of another
 user that binds the ports first and imitates both answers is trusted. Without
 any server, it starts `dexcli dev` in the background on those ports. Its output goes to `~/.dex/agents/dexcli-dev.log`,
-and its pid and ports to `~/.dex/agents/dexcli-dev.json`. It keeps running
-after the command exits, so later commands and Dex Web reuse it.
+and its pid and ports to `~/.dex/agents/dexcli-dev.json`.
+
+A `dexcli dev` that the command started stops when the command exits: on
+`/exit`, the end of input, the Ctrl-C that exits, a failure, SIGTERM, or
+SIGHUP. The command owns it from its spawn on. It removes
+`~/.dex/agents/dexcli-dev.json` when the record still names that process; it
+renames the record aside first, so a record another command writes meanwhile
+stays. It then sends SIGTERM to the process group, which includes
+`dex-server-zd`, and SIGKILL after 20 seconds, and prints "Stopped the dexcli
+dev this command started." On SIGTERM or SIGHUP it then exits the process with
+128 plus the signal number. Its signal handlers stay installed during the
+stop: another SIGTERM, SIGHUP, or SIGINT sends SIGKILL at once and exits. The
+command signals the group only until Node reports the exit of `dexcli dev`,
+because Node has reaped it by then and the group ID may be reused. If group
+members seem to outlive `dexcli dev`, it says that processes may still run and
+prints a `kill` hint instead of signalling the group. On Windows, which has no
+process groups, it runs `taskkill /PID <pid> /T` and, after 20 seconds,
+`taskkill /PID <pid> /T /F`, which also end `dex-server-zd`; Node's own
+`kill` would end `dexcli dev` alone.
+
+A command killed with SIGKILL, or one that crashes, cannot stop the
+`dexcli dev` it started: it keeps running and its record stays. Later commands
+reuse it and never stop it. Stop it with `kill` and the pid in the record.
+
+The `dexcli dev` state
+stays in `~/.dex/zd/<dex port>`, so a later command that starts it again can
+`--resume` a session. `resolveDexServer` itself leaves a started `dexcli dev`
+running; only `runAgentCli` stops it.
+
+A `dexcli dev` that the command reused is never stopped: one the user started,
+or one that another command started and still records. Only the process this
+command spawned is stopped, never a pid read from the record. To share one
+server across sessions, run `dexcli dev` first. When a reused `dexcli dev`
+stops during the command, the command exits with code 1 and one line that
+names the stopped `dexcli dev`. During the chat, every `console.warn` and
+`console.error` of the Dex SDK and other libraries goes to
+`~/.dex/agents/<harness>.log`. The terminal shows the first line of each,
+except the Worker's task stream reconnect messages, which print stack traces.
+Issue #1657 tracks a logger option of the SDK that replaces this match.
 
 The CLI core finds `dexcli` in this order: `DEXCLI`; an earlier download in
 `~/.dex/bin/dexcli-<version>`, whose `dexcli` and `dex-server-zd` must still

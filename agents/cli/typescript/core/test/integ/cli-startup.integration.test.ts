@@ -17,7 +17,14 @@ import { after, afterEach, before, describe, test } from "node:test";
 import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
-import { CliProcess, SessionClients, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
+import {
+  CliProcess,
+  SessionClients,
+  TestHome,
+  TextCollector,
+  assertNoStartedServerLeft,
+  enginePorts,
+} from "../fixtures/cli-test-support.js";
 import { summaryForcedOffScriptedHarness, summaryForcedOnScriptedHarness } from "../fixtures/scripted-harness.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { PseudoTerminalCliProcess } from "../fixtures/pseudo-terminal-cli-process.js";
@@ -37,21 +44,16 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
   });
 
   afterEach(async () => {
+    // SIGTERM lets each command stop the dexcli dev it started; the test cannot prove it owns that group.
     for (const cli of processes.splice(0)) {
-      await cli.kill();
+      await cli.terminate();
     }
   });
 
   after(async () => {
-    for (const pid of startedServers) {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch {
-        // Already gone.
-      }
-    }
     await connectors?.stop();
     await engine?.stop();
+    assertNoStartedServerLeft(startedServers);
   });
 
   function start(home: TestHome, commandArguments: readonly string[] = []): CliProcess {
@@ -324,7 +326,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.match(cli.stderr.all, /is invalid: schema at \/local_tools\/files \(type\)/);
   });
 
-  test("dex.server auto starts dexcli dev when none runs, and the next command reuses it", async () => {
+  test("dex.server auto starts dexcli dev when none runs, a command meanwhile reuses it, and it stops with its starter", async () => {
     const [dexPort, webPort] = await findFreeLoopbackPorts(2);
     const home = new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 });
     home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
@@ -337,8 +339,6 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.deepEqual([record.dexPort, record.webPort], [dexPort, webPort]);
     first.writeLine("hello");
     await first.stdout.waitFor("echo: hello");
-    first.writeLine("/exit");
-    assert.equal(await first.waitForExit(), 0);
 
     const second = start(home);
     await second.waitForSession();
@@ -347,6 +347,13 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     await second.stdout.waitFor("echo: hello again");
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
+    assert.doesNotMatch(second.stderr.all, /Stopped the dexcli dev/);
+    assert.equal(readStartedDexcliDev(readCliEnvironment(home.environment()))?.pid, record.pid);
+
+    first.writeLine("/exit");
+    assert.equal(await first.waitForExit(), 0);
+    assert.match(first.stderr.all, /Stopped the dexcli dev this command started\./);
+    assert.equal(readStartedDexcliDev(readCliEnvironment(home.environment())), undefined);
   });
 
   test("dex.server auto refuses a server on its ports that is not a dexcli dev", async () => {
