@@ -14,10 +14,10 @@ The process represents one buyer's deal for one item. The item can be a dataset,
 
 1. Accept a definition containing a process ID, item ID and name, initial state, initial state data, states, actions, waits, and transitions.
 2. Validate the definition before execution. Every referenced state and action must exist, identifiers must be valid, and each condition name must belong to exactly one wait.
-3. Run **InitializeDeal** once. It stores a snapshot of the definition that later edits cannot change, the buyer and item, the initial state data, and the first state to enter.
-4. Run **WaitForDealCondition** before entering a state. If the state declares a precondition, the Step waits for one message on that condition's keyed Channel. Otherwise it proceeds immediately.
-5. Merge the condition message into **DealStateData**, then execute the state's actions in their declared order. Each action gets its own **ExecuteDealAction** execution and durable checkpoint.
-6. Run **EvaluateDealTransition** after the actions. It can wait for another external condition. It then compares one state-data value with a list of cases, in order, and selects the state of the first equal case or the fallback state.
+3. Run `InitializeDeal` once. It stores a snapshot of the definition that later edits cannot change, the buyer and item, the initial state data, and the first state to enter.
+4. Run `WaitForDealCondition` before entering a state. If the state declares a precondition, the Step waits for one message on that condition's keyed Channel. Otherwise it proceeds immediately.
+5. Merge the condition message into `DealStateData`, then execute the state's actions in their declared order. Each action gets its own `ExecuteDealAction` execution and durable checkpoint.
+6. Run `EvaluateDealTransition` after the actions. It can wait for another external condition. It then compares one state-data value with a list of cases, in order, and selects the state of the first equal case or the fallback state.
 7. Repeat the interpreter loop until it reaches a state without a transition. The Flow then completes with the accumulated state data.
 8. Edits to a definition must not change deals that are already running. The Go application stores editable definitions in PostgreSQL and passes a snapshot into each new Flow.
 
@@ -67,12 +67,12 @@ It uses these patterns:
 
 - **Finite-state machine**: the current state and every transition are explicit, so you can inspect them.
 - **Keyed Channel**: each named condition is a key on one Channel. You do not define a Channel for each condition.
-- **Shared state map**: condition messages and actions each add small key-value updates to one **DealStateData** map.
+- **Shared state map**: condition messages and actions each add small key-value updates to one `DealStateData` map.
 - [**Entity store**](/design-patterns/entity-store) gives each Go Flow run a stable Flow ID and searchable process, item, buyer, current-state, and pending-condition Attributes.
 
 The examples in every SDK use one action list per state. The Go example adds separate pre-actions and post-actions, a PostgreSQL definition catalog, search endpoints, and a browser UI.
 
-The Go example maps its six Keyword Attributes to **keyword1** through **keyword6**, in the order it declares them. Every Flow type in the namespace shares these slots. Its raw searches therefore always filter on **FlowType** first.
+The Go example maps its six Keyword Attributes to `keyword1` through `keyword6`, in the order it declares them. Every Flow type in the namespace shares these slots. Its raw searches therefore always filter on `FlowType` first.
 
 ## Core implementation
 
@@ -788,7 +788,7 @@ impl Step for EvaluateDealTransition {
 
 ## Demo
 
-This completed Go run sold the **Premium research package** item to **buyer-demo**. The Flow waited for **buyer-confirmation**, charged the buyer, delivered the item, and completed with **itemDeliveryStatus: delivered**. Each action appears as a separate completed **ExecuteDealAction** execution.
+This completed Go run sold the **Premium research package** item to **buyer-demo**. The Flow waited for **buyer-confirmation**, charged the buyer, delivered the item, and completed with **itemDeliveryStatus: delivered**. Each action appears as a separate completed `ExecuteDealAction` execution.
 
 <a href="/img/use-cases/deal-dsl-step-execution-graph.png" target="_blank" rel="noreferrer">
   <img

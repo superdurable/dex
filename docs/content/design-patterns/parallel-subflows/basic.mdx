@@ -10,7 +10,7 @@ Start one SubFlow for each input and wait for every SubFlow to complete.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-The SubFlows Step's WaitFor builds one SubFlow condition per request and combines them with **allOf**. The parent resumes only after all children finish. Use this shape when you need neither partial completion nor cancellation.
+The SubFlows Step's WaitFor builds one SubFlow condition per request and combines them with `allOf`. The parent resumes only after all children finish. Use this shape when you need neither partial completion nor cancellation.
 
 ## Core implementation
 

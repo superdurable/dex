@@ -18,12 +18,9 @@ for locale file layout.
 - State the problem, then the mechanism. Do not stack synonyms or repeat the
   same idea in three forms.
 - Use Dex terms exactly: Flow, Step, Attribute, Channel, RPC, Timer.
-- Do not wrap API names, method names, types, or identifiers in inline
-  backticks in prose. Use **bold** instead (for example **WaitFor**,
-  **StepDecision**, **InvokeRPC**). Fenced code blocks and
-  `bash` / `text` fences are exempt.
-- `make docs-prose-check` enforces this. Hooks run the same check on staged
-  docs when you commit.
+- Write API names, method names, types, and identifiers in inline code in
+  prose (for example `WaitFor`, `StepDecision`, `InvokeRPC`). Use **bold** for a
+  term's first definition and for UI labels.
 - Diagrams and examples should carry structure; prose should not over-explain
   what the diagram already shows.
 - Avoid bullet lists when a paragraph reads better. Avoid numbered lists unless
@@ -125,9 +122,8 @@ can skip a Timer".
 
 ### Formatting, code, and diagrams
 
-- Identifiers stay in **bold** until the code-font change in the plan (D8)
-  converts the pages and `docs-prose-check`. Bold is then kept only for a
-  term's first definition and for UI labels.
+- Identifiers use inline code (D8). Bold is kept only for a term's first
+  definition and for UI labels.
 - Use a table when three or more items share two or more attributes, with at
   most four columns. Use a list for parallel items, numbered only when order
   matters. Use a paragraph for reasoning.

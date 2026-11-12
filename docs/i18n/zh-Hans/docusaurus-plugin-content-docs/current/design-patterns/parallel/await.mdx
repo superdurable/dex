@@ -11,7 +11,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**InitStep** 用 **parallel-complete** 这个 Join 开启一轮。这次 fork 在同一个 decision 里为每一项启动一个 **DoWork** execution，并启动 **Await** Step。它把同一个 round token 交给所有这些 Step，token 里有 round key 和分支数。每个 worker 随机等待一小段时间，然后结束自己的分支，并把自己的序号作为结果上报。**Await** 在 **WaitFor** 中等待这一轮的全部分支，所以它要等所有 worker 都结束后才完成。结果是持久化的，因此即使结果在 **Await** 开始等待之前上报，也仍然会被计入。
+`InitStep` 用 **parallel-complete** 这个 Join 开启一轮。这次 fork 在同一个 decision 里为每一项启动一个 `DoWork` execution，并启动 **Await** Step。它把同一个 round token 交给所有这些 Step，token 里有 round key 和分支数。每个 worker 随机等待一小段时间，然后结束自己的分支，并把自己的序号作为结果上报。**Await** 在 `WaitFor` 中等待这一轮的全部分支，所以它要等所有 worker 都结束后才完成。结果是持久化的，因此即使结果在 **Await** 开始等待之前上报，也仍然会被计入。
 
 ## 核心实现
 
@@ -329,14 +329,14 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 - 每个分支每轮恰好上报一个结果，所有退出路径都要上报，包括失败路由去往的 Step。从不上报的分支会让汇合一直等下去。上报两次的分支会被计两次。
 - 由多个 Step 组成的分支，要把 round token 一直传到最后一个 Step，并且只由这个 Step 上报。
 - 分支自己不等待汇合。只有汇合 Step 等待它这一轮。
-- 被取消的分支不会上报。不要取消汇合正在等待的分支。要么把汇合和它们一起取消，要么用 **AnyOf** 同时等待汇合和一个 Timer。
+- 被取消的分支不会上报。不要取消汇合正在等待的分支。要么把汇合和它们一起取消，要么用 `AnyOf` 同时等待汇合和一个 Timer。
 - Join 底层是一个同名的 ChannelMap。可以通过它读取一轮中待处理的结果，例如在 RPC 中读取。不要直接向它发布消息。
 
 ## 只等待部分分支
 
 汇合 Step 也可以只等待第一个分支，或者等待 n 个分支。它可以用一个取消 sibling Step 的 decision 取消其余分支。fork 把分支和汇合一起启动，所以这些 sibling 正好是本轮的分支。如果 RPC 用显式 round key fork 一轮，这些分支是该 RPC 名称启动过的所有 Step 的 sibling，所以要按 Step type 显式取消。带取消的汇合，它的那一轮永远不复位：被取消的分支不会上报。在循环中，下一轮直接 fork 新的一轮。
 
-如果其余分支不取消、继续运行，它们的结果会晚到。在循环中，下一轮的拆分 Step 先复位上一轮：它的 **WaitFor** 等待上一轮剩下的结果，它的 **Execute** 可以读取这些结果。然后它 fork 下一轮。如果不复位，晚到的结果会一直待处理，直到 Flow 关闭。[Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns#wcp-30)链接了这两种写法的可运行示例。
+如果其余分支不取消、继续运行，它们的结果会晚到。在循环中，下一轮的拆分 Step 先复位上一轮：它的 `WaitFor` 等待上一轮剩下的结果，它的 `Execute` 可以读取这些结果。然后它 fork 下一轮。如果不复位，晚到的结果会一直待处理，直到 Flow 关闭。[Workflow Patterns 评估](/correctness-and-expressiveness/workflow-patterns#wcp-30)链接了这两种写法的可运行示例。
 
 ## 相关内容
 

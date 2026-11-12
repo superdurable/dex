@@ -49,9 +49,11 @@ with [Time Travel](#time-travel).
 ### Keep old definitions until old Flows finish
 
 Do not delete or rename a Flow type, Step type, or RPC implementation while an
-open Flow can still call it. Deploy the new definition alongside the old one,
-route only new-version Flows to it, and keep the old implementation available
-through retries and any approved Time Travel recovery.
+open Flow can still call it. Deploy the new definition alongside the old one.
+New Flows reach it in one of two ways: a decision that branches on the version
+stored at start goes to the new Step type, or new code starts a new Flow type.
+Keep the old implementation available through retries and any approved Time
+Travel recovery.
 
 During a rolling deployment, a Worker that lacks a requested Step or RPC can
 hand the call to another Worker that has it. This does not use up a Step
@@ -76,7 +78,7 @@ Dex has no command that tests a new Worker build against open Flows. Run these
 checks instead:
 
 1. **List the open Flows of the type.** Search for running Flows, and for the
-   Step types they wait in. **ActiveStepTypes** is a built-in search field.
+   Step types they wait in. `ActiveStepTypes` is a built-in search field.
 
    ~~~bash
    dexcli flow search --query 'FlowType = "OrderFlow" AND ExecutionStatus = "Running"'
@@ -105,11 +107,11 @@ keep the old price.
    so it is not affected.
 3. **Add a Step type for a changed contract.** Suppose the refund now needs a
    new input field that old Flows never stored. Add a new Step type, such as
-   **RefundWithFee**, and go to it only from version 2. Keep **Refund** for
+   `RefundWithFee`, and go to it only from version 2. Keep **Refund** for
    version 1 Flows.
 4. **Deploy both.** One Worker build contains **Charge** with the branch,
-   **Refund**, and **RefundWithFee**. During a rolling deployment, an older
-   Worker that lacks **RefundWithFee** hands that call to a newer one.
+   **Refund**, and `RefundWithFee`. During a rolling deployment, an older
+   Worker that lacks `RefundWithFee` hands that call to a newer one.
 5. **Retire the old path.** When no open Flow has version 1, remove the
    version 1 branch and **Refund**. Search for such Flows first. If
    **pricing-version** is an indexed Attribute, the search can filter on it
@@ -131,16 +133,16 @@ Time Travel restores the run's state as it was at that point: its Attributes,
 its Channel messages, and the Steps that were waiting or ready. Input that came
 from outside the run after that point is then applied again by default: RPC
 calls, Channel publications, and Attribute writes. This is **write reapply**.
-Turn it off with **skip_writes_reapply** (**dexcli**: **-skip-writes-reapply**)
+Turn it off with `skip_writes_reapply` (`dexcli`: `-skip-writes-reapply`)
 when that input should not count again. The FlowService call is named
-**ResetFlow**; these docs call it Time Travel.
+`ResetFlow`; these docs call it Time Travel.
 
 The target point must be inside the Flow's recent history window. By default
 the window keeps about the newest 50,000 history events of each run on
-**serve**, and 5,000 on **dev**. The server key is **history.windowEvents**, and
+**serve**, and 5,000 on **dev**. The server key is `history.windowEvents`, and
 a Flow can set its own size in its Flow configuration. Time Travel
 to the beginning of the run is always available. Start it from Dex Web,
-**dexcli**, or a Client. [Time travel](/reference/server/runtime-client#time-travel)
+`dexcli`, or a Client. [Time travel](/reference/server/runtime-client#time-travel)
 in the server reference covers the request options and limits.
 
 ## Related

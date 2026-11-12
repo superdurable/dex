@@ -52,6 +52,7 @@ The Channel wake throughput includes untimed setup before each publish. Only its
 
 - **A SYNC Step waits for S3.** Dex Server commits a SYNC Step's result to object storage before the Flow moves on. Each commit is one S3 PUT. At the SYNC peaks, a commit took 41 to 98 milliseconds on average. Under load, a SYNC Step also waits for its batch, so it needs many concurrent Flows to reach peak throughput.
 - **What a Flow adds.** At the half-peak load on c7gd.large, a SYNC Step took 105 milliseconds at p50. A Flow with five SYNC Steps in a row therefore spends about half a second waiting on Dex commits, plus the time of your own code. Agent sessions use SYNC Steps for model calls and tool calls, so each one adds a commit to a turn.
+- **At low load.** The benchmark did not measure SYNC Steps at low load. A lightly loaded SYNC Step still waits for its start and its result to reach object storage, so a handler that waits for **Charge** sees roughly one or two object-storage writes, plus your own code. Those writes averaged 41 to 98 milliseconds at the peaks; at low load, expect your object store's single-write latency. This is an estimate, not a measurement.
 - **An ASYNC Step does not wait.** The Flow moves on before the commit, so a Step takes 1 to 2 milliseconds at low load. [SYNC and ASYNC Steps](/concepts/step#sync-and-async) explains the trade-off.
 - **S3 requests follow batches, not Steps.** Dex Server groups writes into log batches. A busy node made 23 to 98 log PUTs per second, whatever its size. At USD 0.005 per 1,000 PUTs, that is at most about USD 1.8 per busy hour per node. An idle node renews its lease with about 0.3 PUTs per second.
 - **CPU is the limit.** The 2-vCPU node used 93 to 99% of its CPU at every peak. The 16-vCPU node used 68 to 87% at most peaks. Reads of large Attributes on the 16-vCPU node were limited by its 15 Gbps network instead.
@@ -76,7 +77,7 @@ A worked example for a light load: 1 million orders a month, each a Flow with fi
 - PUTs: the estimate above, or the table's rows for a node that stays busy;
 - stored bytes: the runs kept in the retention window, at your provider's price. The benchmark did not measure stored bytes per Flow. A closed Flow run is deleted after the retention period, 7 days by default, so storage follows the number of runs in that window.
 
-To repeat a point on your own AWS account, run **benchmark/aws/reproduce.sh**. [Reproduce a result](https://github.com/superdurable/dex/blob/main/benchmark/README.md#reproduce-a-result) lists its inputs.
+To repeat a point on your own AWS account, run `benchmark/aws/reproduce.sh`. [Reproduce a result](https://github.com/superdurable/dex/blob/main/benchmark/README.md#reproduce-a-result) lists its inputs.
 
 ## Release status
 
@@ -106,4 +107,4 @@ Dex is source-available under the **Sustainable Use License 1.0**. You run it yo
 - **You may not**, without a commercial license, white-label, host, or resell Dex. You may not build an automation, process, workflow, or software-building platform whose value comes entirely or mostly from Dex.
 - **You may** distribute Dex or changes to it only free of charge and for non-commercial purposes.
 
-Dex Skills are under the MIT License. The docs and examples keep their own licenses, and earlier material keeps its original license. The [licensing guide](https://github.com/superdurable/dex/blob/main/LICENSING.md) explains these terms, and the license text in the repository is what applies. For questions or a commercial license, write to **licensing@superdurable.io**.
+Dex Skills are under the MIT License. The docs and examples keep their own licenses, and earlier material keeps its original license. The [licensing guide](https://github.com/superdurable/dex/blob/main/LICENSING.md) explains these terms, and the license text in the repository is what applies. For questions or a commercial license, write to `licensing@superdurable.io`.

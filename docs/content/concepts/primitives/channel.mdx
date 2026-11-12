@@ -10,7 +10,7 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 A **Channel** is a durable first-in, first-out (FIFO) queue inside one Flow
 run. Steps and RPCs publish typed messages to it. A Step consumes messages
-by waiting on the Channel in **WaitFor**. Messages never move between Flow
+by waiting on the Channel in `WaitFor`. Messages never move between Flow
 runs.
 
 <ChannelScopeDiagram markdownDescription="A Flow run owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and one waiting consumer Step consumes each message." />
@@ -34,15 +34,15 @@ ChannelMap, and it counts the branches and keys each round for you. See
 - Messages stay in arrival order.
 - One wait consumes a message. Dex does not copy it to other waiting Steps.
 - A Step can be canceled after its wait consumed messages but before Dex saves
-  its **Execute** result. Then Dex puts the messages back at the front of their
+  its `Execute` result. Then Dex puts the messages back at the front of their
   Channel, in their original order. Another wait can consume them.
-- A canceled **Execute** may already have seen a returned message. So a message
-  can reach **Execute** twice. Make message processing idempotent.
+- A canceled `Execute` may already have seen a returned message. So a message
+  can reach `Execute` twice. Make message processing idempotent.
 - When a Step is canceled because the Flow closes, Dex drops the messages
-  instead. That happens on a **StopFlow** request, on a Flow timeout, and on a
-  decision that closes the Flow with **ForceComplete** or **ForceFail**.
+  instead. That happens on a `StopFlow` request, on a Flow timeout, and on a
+  decision that closes the Flow with `ForceComplete` or `ForceFail`.
 - Any other cancellation puts the messages back, even when the Flow closes later,
-  for example after **GracefulComplete**. No Step consumes them after the close.
+  for example after `GracefulComplete`. No Step consumes them after the close.
 - When one Step method cancels a Step and publishes messages, the canceled
   Step never receives those messages.
 - When several Steps wait on one Channel, the Step that started waiting first
@@ -62,12 +62,12 @@ A Channel has a stable name and a message type. Define it and add it to the
 Flow persistence schema.
 
 In this example, the start Step waits for one message on the
-**ApprovalMessages** Channel, or for a Timer. The
-**publishApprovalMessage** RPC publishes the approval.
+`ApprovalMessages` Channel, or for a Timer. The
+`publishApprovalMessage` RPC publishes the approval.
 
-The Step also reads a second Channel, **QueuedMessages**, without waiting on
-it. Its **StepOptions** ask Dex to load that Channel's pending messages for
-**Execute**. **Execute** checks them first. It deletes the message it uses by
+The Step also reads a second Channel, `QueuedMessages`, without waiting on
+it. Its `StepOptions` ask Dex to load that Channel's pending messages for
+`Execute`. `Execute` checks them first. It deletes the message it uses by
 its ID, so the message is not read again. [Manage pending
 messages](#manage-pending-messages) explains these calls. For a plain wait,
 you need only the first Channel and the RPC.
@@ -274,34 +274,38 @@ fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
 </SdkSnippet>
 </SdkTabs>
 
-**Execute** first takes a message that an RPC queued on a second Channel,
-**QueuedMessages**, if one is pending. See
+`Execute` first takes a message that an RPC queued on a second Channel,
+`QueuedMessages`, if one is pending. See
 [Manage pending messages](#manage-pending-messages). The Timer branch returns
 before it reads Channel results. If the approval wins,
 the Channel condition has consumed one message, so the first result is present.
-The full example also loads **QueuedMessages** in the Step options, registers
+The full example also loads `QueuedMessages` in the Step options, registers
 the Channels in the persistence schema, and registers the RPC.
 
 ## Wait and consume {#wait-and-consume}
 
-A Channel condition in **WaitFor** waits until enough messages are queued. Dex
-then removes the selected messages in FIFO order and passes them to **Execute**
+A Channel condition in `WaitFor` waits until enough messages are queued. Dex
+then removes the selected messages in FIFO order and passes them to `Execute`
 as Channel results.
 
 | Condition | When it proceeds | What it consumes |
 | --- | --- | --- |
-| **ForOne** | At least one message is queued. | Exactly one message. |
-| **ForN** | At least the requested number is queued. | Exactly that number of messages. |
-| **AtLeast** | At least the requested number is queued. | Every message currently available. |
-| **AtMost** | Immediately, including when the queue is empty. | Up to the requested number of currently queued messages. |
-| **AtLeastAtMost** | At least the lower bound is queued. | From the lower bound up to the upper bound of currently queued messages. |
+| `ForOne` | At least one message is queued. | Exactly one message. |
+| `ForN` | At least the requested number is queued. | Exactly that number of messages. |
+| `AtLeast` | At least the requested number is queued. | Every message currently available. |
+| `AtMost` | Immediately, including when the queue is empty. | Up to the requested number of currently queued messages. |
+| `AtLeastAtMost` | At least the lower bound is queued. | From the lower bound up to the upper bound of currently queued messages. |
 
-A wake includes commits to object storage before the woken Step runs, so it
-takes about as long as a SYNC Step. In the
+A wake chains commits to object storage before the woken Step runs. The
+publish is committed first. Then Dex records that the wait ended and starts the
+`Execute` attempt, and a SYNC Step stores that start before the Worker gets
+the task. So a wake takes at least as long as a SYNC Step. In the
 [benchmark](/intro/performance-and-maturity#latency-below-the-peak), the time
 from a publish to the start of the woken Step was 139 ms at p50 on the larger
-node at half of its peak. The benchmark's wake throughput also counts the client
-setup between wakes, so compare latency, not wakes per second, with Steps.
+node at half of its peak. Wakes per second look low for a second reason: before each
+publish, the benchmark client polls the Flow until the Step waits again, and
+that untimed setup counts against throughput. Compare latency, not wakes per
+second, with Steps.
 
 ## Publish messages {#publish-messages}
 
@@ -313,7 +317,7 @@ Flow. An RPC runs on a Worker, so a Worker of the Flow type must be connected.
 An RPC never queues: with no Worker, the call fails with **Unavailable** after
 10 seconds. See [Routing and availability](/reference/server/workers#routing-and-availability).
 
-Dex Server also accepts a **PublishToChannel** request on its FlowService API,
+Dex Server also accepts a `PublishToChannel` request on its FlowService API,
 for example through **dexcli api**. The server stores that message with no
 Worker online. The SDK Clients do not expose this request.
 

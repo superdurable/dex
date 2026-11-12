@@ -12,9 +12,9 @@ Process Channel messages that clients publish, and complete the Flow as soon as 
 
 Use this pattern when messages come from outside the Worker, possibly in bursts. A Client calls an RPC that appends each message to the Channel. The Flow completes as soon as the Channel is empty, so it runs only while there is work. The next message starts it again.
 
-**ProcessMessage** returns a **ForceCompleteIfChannelsEmpty** decision. Dex checks the Channel when it saves that decision, so no message can arrive between the check and the completion. If the Channel is empty, the Flow completes. If the Channel still holds messages, or a Step has taken a message but not finished its **Execute**, Dex takes the fallback movement back to **ProcessMessage** instead.
+`ProcessMessage` returns a `ForceCompleteIfChannelsEmpty` decision. Dex checks the Channel when it saves that decision, so no message can arrive between the check and the completion. If the Channel is empty, the Flow completes. If the Channel still holds messages, or a Step has taken a message but not finished its `Execute`, Dex takes the fallback movement back to `ProcessMessage` instead.
 
-Only one Step may consume a Channel checked by **ForceCompleteIfChannelsEmpty**.
+Only one Step may consume a Channel checked by `ForceCompleteIfChannelsEmpty`.
 
 ## Step graph
 

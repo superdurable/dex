@@ -12,9 +12,9 @@ holds the authoritative state, and every write goes through it. Dex updates the
 SQL table asynchronously, and the table holds only the latest values. Use it for
 reads and queries.
 
-The runnable example keeps one **UserProfileFlow** per user. Its Flow ID becomes
-the **user_id** primary key in **public.user_profiles**. The Server configuration
-names the target Attribute Store **entityStore**.
+The runnable example keeps one `UserProfileFlow` per user. Its Flow ID becomes
+the `user_id` primary key in `public.user_profiles`. The Server configuration
+names the target Attribute Store `entityStore`.
 
 ## When to use this pattern
 
@@ -26,7 +26,7 @@ Flow decisions from the SQL table. Read the Flow state instead.
 
 Use the entity ID as the Flow ID. Mark each projected Attribute and select the Attribute Store when you start the Flow. Update or delete Attributes through the Flow, and Dex projects the resulting values to SQL. See [Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection) for the setup.
 
-The example projects text, boolean, integer, double, datetime, and JSON values. Deleting an Attribute keeps the SQL row and projects **NULL** to its column. The [Attribute Store sync reference](/reference/server/attribute-store-sync) gives the column types, delivery timing, and retries.
+The example projects text, boolean, integer, double, datetime, and JSON values. Deleting an Attribute keeps the SQL row and projects `NULL` to its column. The [Attribute Store sync reference](/reference/server/attribute-store-sync) gives the column types, delivery timing, and retries.
 
 ## Core implementation
 
@@ -302,7 +302,7 @@ fn update(&self, context: &mut Context, replacement: UserProfile) -> HandlerResu
 
 ### Select the storage target at Flow start
 
-The Attribute Store is configured on the Server. Select it in **FlowConfig**
+The Attribute Store is configured on the Server. Select it in `FlowConfig`
 when you start the Flow. The initial Attribute values in that start request are
 projected to SQL too.
 
@@ -357,7 +357,7 @@ FlowConfig::new().attribute_store_names(vec![STORE_NAME.to_owned()])
 
 ## Run with PostgreSQL
 
-The [shared example setup](https://github.com/superdurable/dex/tree/main/examples/entity-store) creates **public.user_profiles** and starts **dexcli dev** with the **entityStore** configuration. It includes curl commands for every language example.
+The [shared example setup](https://github.com/superdurable/dex/tree/main/examples/entity-store) creates `public.user_profiles` and starts **dexcli dev** with the `entityStore` configuration. It includes curl commands for every language example.
 
 ## Related
 

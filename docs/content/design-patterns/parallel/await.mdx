@@ -10,7 +10,7 @@ Wait for every dynamically started Step before finishing the Flow.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**InitStep** forks one round of the **parallel-complete** Join. The fork starts one **DoWork** execution per item and the **Await** Step in the same decision. It gives all of them the same round token, which holds the round key and the branch count. Each worker sleeps for a random short time, then ends its branch and reports its index as the result. In **WaitFor**, **Await** waits for every branch of the round, so it completes only after every worker has finished. Results are durable, so a result reported before **Await** starts waiting still counts.
+`InitStep` forks one round of the **parallel-complete** Join. The fork starts one `DoWork` execution per item and the **Await** Step in the same decision. It gives all of them the same round token, which holds the round key and the branch count. Each worker sleeps for a random short time, then ends its branch and reports its index as the result. In `WaitFor`, **Await** waits for every branch of the round, so it completes only after every worker has finished. Results are durable, so a result reported before **Await** starts waiting still counts.
 
 ## Core implementation
 
@@ -328,14 +328,14 @@ static COMPLETE: LazyLock<Join<usize>> = LazyLock::new(|| Join::new("parallel-co
 - Each branch reports exactly one result per round, on every exit path. That includes the Step that a failure route goes to. A branch that never reports leaves the join waiting forever. A branch that reports twice counts twice.
 - A branch of several Steps passes the round token to its last Step, and only that Step reports.
 - A branch never waits for the join itself. Only the join Step waits for its round.
-- A canceled branch never reports. Do not cancel branches that the join waits for. Cancel the join together with them, or wait for the join and a Timer with **AnyOf**.
+- A canceled branch never reports. Do not cancel branches that the join waits for. Cancel the join together with them, or wait for the join and a Timer with `AnyOf`.
 - A Join stores its results in a ChannelMap with the same name. You can read a round's pending results through it, for example in an RPC. Never publish to it directly.
 
 ## Wait for some branches
 
 The join Step can also wait for the first branch or for n branches. It can cancel the rest with a decision that cancels its sibling Steps. Fork starts the branches and the join together, so the siblings are exactly this round's branches. When an RPC forks a round with an explicit round key, the branches are siblings of every Step that this RPC name ever started, so cancel them explicitly by Step type instead. A cancelling join's round is never reset: its canceled branches never report. In a loop, the next round forks a new round directly.
 
-When the other branches keep running instead, their results arrive later. In a loop, the next round's split Step resets the previous round first: its **WaitFor** waits for the remaining results of that round, and its **Execute** can read them. Then it forks the next round. Without a reset, late results stay pending until the Flow closes. The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns#wcp-30) links runnable examples of both shapes.
+When the other branches keep running instead, their results arrive later. In a loop, the next round's split Step resets the previous round first: its `WaitFor` waits for the remaining results of that round, and its `Execute` can read them. Then it forks the next round. Without a reset, late results stay pending until the Flow closes. The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns#wcp-30) links runnable examples of both shapes.
 
 ## Related
 

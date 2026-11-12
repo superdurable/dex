@@ -80,8 +80,8 @@ stricter rules of its own:
 
 - write the application backend in Go;
 - target strict Dex Web and Flow Definition Graph 2.0 rendering;
-- call external providers only from **Execute**;
-- keep provider calls and Dex changes out of **WaitFor**;
+- call external providers only from `Execute`;
+- keep provider calls and Dex changes out of `WaitFor`;
 - model each human operation as a typed Action with an explicit permission;
 - keep credentials inside Connectors or the runtime environment, not in
   application code;

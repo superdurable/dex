@@ -8,13 +8,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/grac
 
 当应用必须处理整个 Flow 的截止时间时，使用 Flow timeout handler。截止时间属于 Flow，所以不需要另写一个与工作赛跑的 Step。
 
-**FlowGracefulTimeout** 启动 **LongWait**。Flow 截止时间到达后，Dex 运行 **handleTimeout**。这个 handler 的用法和 **Execute** 方法一样。
+`FlowGracefulTimeout` 启动 `LongWait`。Flow 截止时间到达后，Dex 运行 `handleTimeout`。这个 handler 的用法和 `Execute` 方法一样。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## 核心实现
 
-Flow 注册 **LongWait** 和 timeout handler。启动 Flow 时设置一个正的 timeout。示例显式把 timeout policy 设为 **HANDLER**。Flow 定义了 timeout handler 时，**HANDLER** 也是默认值。**FlowTimeoutHandlerOptions** 为 handler 单独设置 attempt timeout 和重试策略。
+Flow 注册 `LongWait` 和 timeout handler。启动 Flow 时设置一个正的 timeout。示例显式把 timeout policy 设为 `HANDLER`。Flow 定义了 timeout handler 时，`HANDLER` 也是默认值。`FlowTimeoutHandlerOptions` 为 handler 单独设置 attempt timeout 和重试策略。
 
 <SdkTabs examples={{
   python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',

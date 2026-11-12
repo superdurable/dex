@@ -49,6 +49,16 @@ covers this and other limits, and
 [Performance and Maturity](/intro/performance-and-maturity) gives measured
 throughput and latency for one node.
 
+## When its own dependencies fail {#dependency-failures}
+
+| What fails | What Dex Server does | What clients and Workers see |
+| --- | --- | --- |
+| Object storage returns errors or slows down | It retries lease renewals with backoff inside the lease. A log write that object storage does not accept within 10 seconds, or a renewal that cannot finish in time, stops the node, and the process exits. | While no node serves, calls fail and clients retry. A hot or cold standby takes over after the lease ends. Without a standby, the node serves again only after it restarts. |
+| The lease is taken by another process, or storage reports a permanent error | The node stops at once. | The new active node serves. Attempts that Workers had received fail and run again, each using a retry. |
+| The node's local disk is lost | The local store is only a working copy. On restart, the node rebuilds it from object storage and replays the log. | Writes already in object storage are kept. The restart takes longer while the store rebuilds. |
+
+[Lease, hot standby, and step down](/reference/server/high-availability) gives the timings, and [Failover and Deploys](/concepts/failover-and-deploys) says what runs again.
+
 ## How it fits with the other components
 
 - [Workers and Clients](/components/application) connect to the
@@ -61,7 +71,7 @@ throughput and latency for one node.
   is a map of the Flow's Steps and every move their code can make.
   **dexcli visualize** builds it by reading your Flow's source code, without
   running it, so the graph lists possible moves, not the moves of one run.
-  Workers or **dexcli** publish it. Each graph records when it was generated. A graph with
+  Workers or `dexcli` publish it. Each graph records when it was generated. A graph with
   a later generation time replaces an older one, whatever the upload order. Dex
   Web reads it to draw the Flow.
 - Dex Server can write selected Attributes to PostgreSQL. See

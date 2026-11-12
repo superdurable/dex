@@ -16,6 +16,12 @@ After a crash or a restart, the process continues from the last recorded Step. I
 
 A Step that was cut off in the middle can run again, so each call to another system passes an idempotency key: a value that lets that system recognize a repeat and skip it. [Idempotency keys](/concepts/step#idempotency-keys) shows how to build one.
 
+:::info What you run
+
+You run Dex Server yourself, next to your own Workers. It stores every Flow in object storage, such as Amazon S3, and can have a standby that takes over if it stops. No hosted option is documented. Dex is in Beta, and Dex Server is at version 0.1. [Run Dex in Production](/components/production) lists what to set up, and [Performance and Maturity](/intro/performance-and-maturity) gives the numbers and the release status.
+
+:::
+
 ## The problem
 
 An online store charges the buyer and then ships the item. Between the two calls, the server can crash, a deploy can restart it, or the ship API can time out. The buyer is then charged, and the item never ships.
@@ -32,8 +38,8 @@ A Flow is made of **Steps**. Each Step does one unit of work, such as the charge
 
 A Step has two parts:
 
-- **WaitFor** waits for a condition: a **Channel** message, such as the seller's approval, or a **Timer**, such as the reminder. The wait lives in Dex, so it survives restarts and holds no thread.
-- **Execute** does the work. It returns a decision: the next Steps to run, or that the Flow is complete.
+- `WaitFor` waits for a condition: a **Channel** message, such as the seller's approval, or a **Timer**, such as the reminder. The wait lives in Dex, so it survives restarts and holds no thread.
+- `Execute` does the work. It returns a decision: the next Steps to run, or that the Flow is complete.
 
 The Flow keeps its data in **Attributes**, such as the order status. An **RPC** lets your application read the Flow or send it a command, such as the approval.
 

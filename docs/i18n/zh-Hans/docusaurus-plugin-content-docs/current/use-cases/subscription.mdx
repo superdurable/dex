@@ -35,15 +35,15 @@ Flow 用 Timer 等待试用期和每个计费周期结束，用 Channel 消息�
 
 **Initialize** 启动三个长期运行的分支：
 
-**Initialize** → **Trial** → **ChargeCurrentBill** ↻
+**Initialize** → **Trial** → `ChargeCurrentBill` ↻
 
 **Initialize** → **Cancel**
 
-**Initialize** → **UpdateChargeAmount** ↻
+**Initialize** → `UpdateChargeAmount` ↻
 
-**Trial** 等待试用期 Timer 触发，然后进入计费循环。每次 **ChargeCurrentBill** 执行都会先把计费周期 Attribute 加一，再等待本周期的 Timer。Timer 触发后，它扣除本期费用。最后一个周期结束后，它改为完成整个 Flow。**Cancel** 和 **UpdateChargeAmount** 与这条路径并行运行，每次各等待一条 Channel 消息。
+**Trial** 等待试用期 Timer 触发，然后进入计费循环。每次 `ChargeCurrentBill` 执行都会先把计费周期 Attribute 加一，再等待本周期的 Timer。Timer 触发后，它扣除本期费用。最后一个周期结束后，它改为完成整个 Flow。**Cancel** 和 `UpdateChargeAmount` 与这条路径并行运行，每次各等待一条 Channel 消息。
 
-计费计划是一个每期结束后回到自身的 Step，两次扣费之间不需要任何进程常驻内存。客户、计划和计费计数器保存在 Attribute 中，所以每个分支读到的都是当前值，而不是 Worker 内存里的副本。**Cancel** 和最后一次 **ChargeCurrentBill** 会强制完成 Flow，其他分支中的等待也随之结束。
+计费计划是一个每期结束后回到自身的 Step，两次扣费之间不需要任何进程常驻内存。客户、计划和计费计数器保存在 Attribute 中，所以每个分支读到的都是当前值，而不是 Worker 内存里的副本。**Cancel** 和最后一次 `ChargeCurrentBill` 会强制完成 Flow，其他分支中的等待也随之结束。
 
 Rust 示例的状态、计费循环和控制分支都相同，只有一点不同：客户端通过 RPC 更新金额或取消订阅，RPC 再把消息发布到内部 Channel。其他 SDK 示例由客户端直接向 Channel 发布。
 
@@ -314,7 +314,7 @@ impl Flow for SubscriptionFlow {
 
 ## 演示
 
-在这次 Go 运行中，Flow 保存了订阅，并启动 **Trial**、**Cancel** 和 **UpdateChargeAmount**。它应用了一次价格更新，随后因订阅被取消而完成。已完成的节点是执行完毕的 Step execution。等待中的节点显示取消结束 Flow 时，各 Step 仍在等待什么。
+在这次 Go 运行中，Flow 保存了订阅，并启动 **Trial**、**Cancel** 和 `UpdateChargeAmount`。它应用了一次价格更新，随后因订阅被取消而完成。已完成的节点是执行完毕的 Step execution。等待中的节点显示取消结束 Flow 时，各 Step 仍在等待什么。
 
 <a href="/img/use-cases/subscription-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img

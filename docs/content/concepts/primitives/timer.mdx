@@ -7,7 +7,7 @@ description: "A Timer is a durable wait until a point in time. Dex Server keeps 
 # Timer
 
 A **Timer** is a durable wait until a point in time. Dex Server keeps it. A
-Step returns it from **WaitFor**, and **Execute** runs when it fires. While the
+Step returns it from `WaitFor`, and `Execute` runs when it fires. While the
 Step waits, no Worker holds memory, a thread, or a connection for it.
 
 ## When to use a Timer
@@ -15,7 +15,7 @@ Step waits, no Worker holds memory, a thread, or a connection for it.
 Use a Timer for a delay, a reminder, or a deadline. Combine it with another
 condition to build a timeout. For example, a Step that waits for either a
 [Channel](/concepts/primitives/channel) message or a Timer proceeds with
-whichever comes first. In **Execute**, the Step checks whether its Timer fired.
+whichever comes first. In `Execute`, the Step checks whether its Timer fired.
 
 ## Guarantees
 
@@ -139,9 +139,9 @@ impl Step for TimerExampleStep {
 
 ## Skip a Timer
 
-A Client can skip a Timer with **SkipTimer**. It selects the Timer by Flow ID,
+A Client can skip a Timer with `SkipTimer`. It selects the Timer by Flow ID,
 Step execution ID, and either the Timer's condition ID or the index of its
-condition in **WaitFor**. A skipped
+condition in `WaitFor`. A skipped
 Timer acts as if it had fired. Use it in tests, or in production to run a
 waiting Step early. See [Skip a Timer](/reference/server/runtime-client#skip-a-timer).
 
@@ -216,7 +216,7 @@ match environment.client.skip_timer(
 </SdkSnippet>
 </SdkTabs>
 
-See [Step](/concepts/step) for how a Step combines conditions in **WaitFor**.
+See [Step](/concepts/step) for how a Step combines conditions in `WaitFor`.
 
 ## Reference
 

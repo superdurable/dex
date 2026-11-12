@@ -28,13 +28,13 @@ dexcli dev -bind-address 127.0.0.1 -dex-port 19802 -web-port 19902 -open=false \
 ```
 
 Wait until its output says **Dex development environment is ready**, then run
-the tests with **DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:19802**. The
-**processCrashSafe** setting skips fsync, which makes a test server faster. It
+the tests with `DEX_FLOW_SERVICE_ADDRESS=127.0.0.1:19802`. The
+`processCrashSafe` setting skips fsync, which makes a test server faster. It
 survives a killed process but not a host crash, so use it only for tests. See
 [Durability](/reference/server/configuration#single-node-local-durability).
 
 The examples in the repository run their tests this way in CI. Each language
-folder has a **run-integ-tests.sh** script that starts **dexcli dev**, waits for
+folder has a `run-integ-tests.sh` script that starts **dexcli dev**, waits for
 it, and runs the tests.
 
 ## Write a test
@@ -278,8 +278,8 @@ Follow the same rules in your own tests:
 - **Run the Worker inside the test.** Build it from the same Registry
   constructor that your application uses, so the test checks the real
   registration.
-- **Wait with Client calls, not sleeps.** **wait_for_step_completion** waits for
-  one Step, and **wait_for_flow** waits for the Flow to close.
+- **Wait with Client calls, not sleeps.** `wait_for_step_completion` waits for
+  one Step, and `wait_for_flow` waits for the Flow to close.
 - **Use fakes that record every call.** The test's mock API keeps each call, so
   the test can see a repeat and count it.
 - **Give a crash test its own Worker.** Workers that register the same Flow
@@ -289,7 +289,7 @@ Follow the same rules in your own tests:
 ## Skip a Timer
 
 A test should not wait 30 seconds for a Timer. Give the Timer a
-**condition_id** in the Flow, then skip it from the test with **skip_timer**.
+`condition_id` in the Flow, then skip it from the test with `skip_timer`.
 The call fails until the Step waits on the Timer, so the test retries it until
 a deadline:
 

@@ -28,11 +28,11 @@ Pass the mock payment and shipping API to the Flow constructor. Do not set them 
 
 Each Step passes an idempotency key built from the order ID, which is also the Flow ID. [Idempotency keys](/concepts/step#idempotency-keys) explains why.
 
-The **order-status** Attribute is indexed, so you can search Flows by status. Its index key, **keyword1**, names a search slot. Each indexed Attribute takes one slot, so the limit on slots matters only when you index many Attributes. [Read and search Attributes](/concepts/primitives/attribute#read-and-search-attributes) explains slots.
+The **order-status** Attribute is indexed, so you can search Flows by status. Its index key, `keyword1`, names a search slot. Each indexed Attribute takes one slot, so the limit on slots matters only when you index many Attributes. [Read and search Attributes](/concepts/primitives/attribute#read-and-search-attributes) explains slots.
 
-Ship's options route its failure to Refund once its retries run out. The second **StepOptions** in that route apply to the Refund Step it moves to, here a short retry.
+Ship's options route its failure to Refund once its retries run out. The second `StepOptions` in that route apply to the Refund Step it moves to, here a short retry.
 
-The **dex:group** and **dex:explanation** comments label each Step in the Flow graph that Dex Web and these docs draw. They do not change what the code does.
+The `dex:group` and `dex:explanation` comments label each Step in the Flow graph that Dex Web and these docs draw. They do not change what the code does.
 
 <SdkTabs
   examples={{
@@ -826,9 +826,9 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 ## 3. Worker and Client
 
-Create a Registry, a Worker, and a Client that connect to **dexcli** at **127.0.0.1:8801**. Construct the Flow with the mock API service, then register it. The samples app registers every example Flow in one Registry, so the snippets below show only the lines for this Flow where they can. The Python samples app runs on an async web framework, so it uses **AsyncWorker** and **AsyncClient**. The [Quick Start](/quick-start) uses the synchronous **Worker** and **Client**, which work the same way.
+Create a Registry, a Worker, and a Client that connect to `dexcli` at **127.0.0.1:8801**. Construct the Flow with the mock API service, then register it. The samples app registers every example Flow in one Registry, so the snippets below show only the lines for this Flow where they can. The Python samples app runs on an async web framework, so it uses `AsyncWorker` and `AsyncClient`. The [Quick Start](/quick-start) uses the synchronous **Worker** and **Client**, which work the same way.
 
-The Worker connects out to **dexcli** to receive tasks, so it needs no open inbound port.
+The Worker connects out to `dexcli` to receive tasks, so it needs no open inbound port.
 [Workers and the task queue](/reference/server/workers) covers capacity, readiness, and
 production setup.
 
@@ -1375,13 +1375,13 @@ In a third terminal, start an order, open Dex Web, and approve the shipment:
 curl -s 'http://127.0.0.1:8080/products/order-processing/start'
 ```
 
-Copy **flowID** from the JSON. Open [http://127.0.0.1:8802](http://127.0.0.1:8802), find that Flow, and open its details. The Ship Step is waiting.
+Copy `flowID` from the JSON. Open [http://127.0.0.1:8802](http://127.0.0.1:8802), find that Flow, and open its details. The Ship Step is waiting.
 
 ```bash
 curl -s "http://127.0.0.1:8080/products/order-processing/approve?flowId=FLOW_ID"
 ```
 
-Replace **FLOW_ID** with the **flowID** you copied. The Flow ships the item and completes.
+Replace `FLOW_ID` with the `flowID` you copied. The Flow ships the item and completes.
 
 ### Try the refund path
 

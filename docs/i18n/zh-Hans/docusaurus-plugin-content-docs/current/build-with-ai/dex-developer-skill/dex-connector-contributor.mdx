@@ -41,12 +41,12 @@ Connector。详细规则见该库的 [AGENTS.md](https://github.com/superdurable
 
 ## Repository 与 Fork 工作流
 
-skill 会先查找并检查你的 **superdurable/dex-connectors-library** GitHub fork。如果你
+skill 会先查找并检查你的 `superdurable/dex-connectors-library` GitHub fork。如果你
 还没有 fork，它会征求你的同意，然后打开 GitHub 的 fork 页面。你点击 **Create fork**
 之后，agent 才会 clone 这个 fork 并开始工作。
 
 在本地 clone 中，你的 fork 是 **origin**，官方 repository 是 **upstream**。agent 在
-自己的 **codex/** branch 上工作，这个 branch 基于最新的 **upstream/main** 创建。与本次
+自己的 `codex/` branch 上工作，这个 branch 基于最新的 `upstream/main` 创建。与本次
 工作无关的本地改动会保持原样。
 
 ## 贡献工作流
@@ -54,7 +54,7 @@ skill 会先查找并检查你的 **superdurable/dex-connectors-library** GitHub
 skill 按以下顺序工作：
 
 1. 确认 provider 的能力和它公开的 contract。
-2. 先更新 **connector.yaml**，再写 provider 代码。
+2. 先更新 `connector.yaml`，再写 provider 代码。
 3. 运行代码生成。Config、Credentials、definition、branch、operation factory、UI 常量
    和默认值都由 manifest 生成，不手写。
 4. 实现 provider adapter，以及调用 provider 的测试。
@@ -66,7 +66,7 @@ skill 按以下顺序工作：
 
 ## Durability 与 Security 边界
 
-- provider 调用只在 Connector Step 的 **Execute** 方法中执行。
+- provider 调用只在 Connector Step 的 `Execute` 方法中执行。
 - RPC 只负责转发请求或修改 Dex 状态，从不调用 provider。
 - 会修改 provider 数据的调用都是幂等的。如果这类调用的结果未知，Connector 会先向
   provider 查询实际发生了什么。

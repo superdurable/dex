@@ -19,8 +19,8 @@ decide and set up before launch. Each item links to the page with the details.
 | Capacity and cost | Size the node from the measured peaks and the S3 request cost. Past one node, run separate clusters. | [Performance and Maturity](/intro/performance-and-maturity), [Grow past one node](/intro/limits-and-sharp-edges#grow-past-one-node) |
 | Storage | Object storage, such as Amazon S3, holds all server state. The db9 provider can replace it with a PostgreSQL-compatible database. Give each cluster its own bucket prefix and an IAM policy confined to it. | [Object storage and backup](/reference/server/object-storage) |
 | Search backend | The built-in search needs no database. For large or frequent searches, project search documents to PostgreSQL or ParadeDB. | [Search backends](/reference/server/search), [Dex Server dependencies](/components/server#dependencies) |
-| Configuration | **serve** reads one YAML file. Start from the minimal production configuration. | [Install and configure server-zd](/reference/server/configuration) |
-| Retention | A closed Flow run stays available for 7 days by default, then the server may delete it. Set **retention.closedFlowDuration** to your audit needs. | [Retention](/reference/server/configuration#retention) |
+| Configuration | **serve** reads one YAML file. Start from the [minimal configuration](#minimal-configuration) below. | [Install and configure server-zd](/reference/server/configuration) |
+| Retention | A closed Flow run stays available for 7 days by default, then the server may delete it. Set `retention.closedFlowDuration` to at least your longest client retry window, because a Flow ID can start again once its run is deleted. Copy data you must keep longer to your own tables with Attribute Store sync. | [Retention](/reference/server/configuration#retention) |
 | Backup and restore | The object storage prefix is the only source of truth. Protect it with bucket versioning, with a lifecycle rule that expires old versions, or with replication. Practice a restore. | [Backup and restore](/reference/server/object-storage#backup-and-restore) |
 | Kubernetes | Run the server as a StatefulSet with graceful shutdown and a local store volume. | [Kubernetes deployment](/reference/server/kubernetes) |
 | Authentication | Public API authentication is off by default. Require a bearer credential before you expose the API. | [Authentication](/reference/server/authentication) |
@@ -29,6 +29,29 @@ decide and set up before launch. Each item links to the page with the details.
 | Upgrades | Upgrades roll forward. Some releases need every server process stopped before the new version starts, and some agent releases need every older Worker stopped first. Read the release's notes before each upgrade. | [Upgrades and compatibility](/reference/server/upgrades), [Agent release notes](/reference/agents/upgrades#release-notes), [Limits and Sharp Edges](/intro/limits-and-sharp-edges#capacity-and-availability) |
 | Your database | Steps that write to your database must make the write safe to repeat. Attribute Store sync can drop entries after a long PostgreSQL outage. | [Dex and Your Database](/components/your-database) |
 | Code changes | Keep old Step types and RPCs until the Flows that use them close. | [Change Flow Code](/concepts/change-flow-code) |
+
+## Minimal configuration {#minimal-configuration}
+
+This configuration runs one Dex Server node on Amazon S3:
+
+~~~yaml
+cluster:
+  nodeId: dex-zd
+objectStore:
+  region: us-east-1
+  bucket: BUCKET
+  prefix: PREFIX
+localStorage:
+  directory: /var/lib/dex-server-zd/store
+lease:
+  duration: 60s
+retention:
+  closedFlowDuration: 7days
+metrics:
+  listen: 0.0.0.0:9090
+~~~
+
+Replace `BUCKET` and `PREFIX` with your bucket and key prefix. `cluster.nodeId`, `objectStore.bucket`, and `localStorage.directory` are required, and the node ID and partition count cannot change after the first start. The 60-second lease suits a single node; with hot standbys, keep the 10-second default. [Install and configure server-zd](/reference/server/configuration#minimal-production-configuration) explains every key.
 
 ## When something goes wrong
 

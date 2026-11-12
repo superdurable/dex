@@ -31,10 +31,10 @@ only when a section genuinely doesn't apply.
   `bash` / `text` fences are exempt.
 - Product docs should read naturally: plain English, short sentences, no
   chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
-- In product-doc prose (`docs/content/` and the matching `zh-Hans` pages), do
-  not use inline backticks for API names, methods, types, or identifiers. Use
-  **bold** instead (for example **WaitFor**, **StepDecision**). Fenced code
-  blocks and `bash` / `text` fences are exempt.
+- In product-doc prose (`docs/content/` and the matching `zh-Hans` pages),
+  write API names, methods, types, and identifiers in inline code (for example
+  `WaitFor`, `StepDecision`). Use **bold** for a term's first definition and
+  for UI labels. Concept names such as Flow and Step stay plain or bold.
 - Docs pages outside the Developer reference ship in English and Simplified
   Chinese (`zh-Hans`); keep both locales in sync. The Developer reference is
   English only. See `.cursor/rules/docs-i18n.mdc`.

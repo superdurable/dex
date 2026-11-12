@@ -27,7 +27,7 @@ App Builder 开始做后端时会加载 Dex SDK。
 - typed RPC、Timer、SubFlow、Worker 和 Client；
 - 重试、超时、heartbeat、durability、lock 和恢复；
 - SDK 版本兼容、测试、排错或运维；
-- Dex Web、**dexcli**、Flow 可视化和应用可观测性。
+- Dex Web、`dexcli`、Flow 可视化和应用可观测性。
 
 这个 skill 处理的是你的应用，不是 Dex 本身。除非你明确要求它开发 Dex，否则它不会为了
 解决应用问题去修改 Dex Server。
@@ -71,7 +71,7 @@ Client 的配置是否兼容。
 
 ## 诊断与运维
 
-诊断问题时，skill 默认只读。它可以查看 Dex Web、**dexcli**、SDK 错误和应用日志。未经
+诊断问题时，skill 默认只读。它可以查看 Dex Web、`dexcli`、SDK 错误和应用日志。未经
 你授权，它不会 stop、time travel、publish、invoke、删除、编辑或以其他方式修改 Flow。
 
 skill 会保留 typed Dex 错误的原样，直到你的业务逻辑能区分以下几种情况：业务拒绝、与正在

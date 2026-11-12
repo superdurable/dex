@@ -19,7 +19,7 @@ The process accepts a username, email address, first name, and last name. It mus
 5. Mark onboarding as completed, send a welcome email, and complete the Flow only after task 2 finishes.
 6. Expose verification and both task completions as RPCs so an application can advance the process while it is waiting.
 
-Each waiting Step uses **AnyOf** to wait for a Timer or a Channel message. A Channel message moves the user to the next stage right away. If the Timer fires first, the Step sends a reminder and moves back to itself to wait again.
+Each waiting Step uses `AnyOf` to wait for a Timer or a Channel message. A Channel message moves the user to the next stage right away. If the Timer fires first, the Step sends a reminder and moves back to itself to wait again.
 
 Failures and other outcomes to handle:
 
@@ -38,15 +38,15 @@ The Go, Java, Python, TypeScript, and Rust examples all implement the full path:
 
 The Flow runs four waiting stages in order:
 
-**Submit** → **VerifyEmail** → **AccomplishTask1** → **AccomplishTask2**
+**Submit** → `VerifyEmail` → `AccomplishTask1` → `AccomplishTask2`
 
 It combines these design patterns:
 
 - [**Durable reminder**](/design-patterns/durable-timer/reminder) moves a waiting Step back to itself whenever its Timer fires.
-- [**Interruptible wait**](/design-patterns/interruptible) uses **AnyOf** so a Channel message can wake the Step before the reminder Timer.
+- [**Interruptible wait**](/design-patterns/interruptible) uses `AnyOf` so a Channel message can wake the Step before the reminder Timer.
 - [**Responsive update**](/design-patterns/responsive-update) uses RPCs to validate the current stage and publish the matching Channel message while the Flow is waiting.
 - **Sequential stages**: the Steps run in a fixed order, so a later task cannot skip an earlier one.
-- **Stage in an Attribute**: each Step sets the **Status** Attribute in its **WaitFor** method. Dex saves that value when the Step starts to wait. RPCs and operators therefore see the stage the Flow is actually waiting on.
+- **Stage in an Attribute**: each Step sets the **Status** Attribute in its `WaitFor` method. Dex saves that value when the Step starts to wait. RPCs and operators therefore see the stage the Flow is actually waiting on.
 
 Verification, task 1, and task 2 each have their own Channel. A user action can then wake only the one Step that waits for it. An RPC can also reject an action that arrives at the wrong stage.
 

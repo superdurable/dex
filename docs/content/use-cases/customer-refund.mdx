@@ -11,7 +11,7 @@ The Go customer-refund example contains two independent Flows. Both publish Flow
 
 ## Deterministic policy
 
-**CustomerRefundFlow** runs seven Steps. It checks that the order exists and applies the 30-day rule. It records an idempotency key before it calls the payment provider. When the provider declines the refund, or its result is unknown, the Flow records that outcome as the case status.
+`CustomerRefundFlow` runs seven Steps. It checks that the order exists and applies the 30-day rule. It records an idempotency key before it calls the payment provider. When the provider declines the refund, or its result is unknown, the Flow records that outcome as the case status.
 
 <DocsFlowDefinitionGraph graph={deterministicFlow} />
 
@@ -19,7 +19,7 @@ Its Summary shows the charge reference, requested amount, and recommendation. It
 
 ## Agentic review
 
-**AgenticCustomerRefundFlow** gathers evidence in a loop of Steps. A guardrail then either applies the decision automatically or waits for a manager to approve it. Each manager wait has its own gate key. The Flow records its intent before it runs the billing, subscription, and customer-message effects. These effects are idempotent.
+`AgenticCustomerRefundFlow` gathers evidence in a loop of Steps. A guardrail then either applies the decision automatically or waits for a manager to approve it. Each manager wait has its own gate key. The Flow records its intent before it runs the billing, subscription, and customer-message effects. These effects are idempotent.
 
 <DocsFlowDefinitionGraph graph={agenticFlow} />
 

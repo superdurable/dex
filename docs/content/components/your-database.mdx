@@ -96,7 +96,7 @@ state in your own table and check it before you start. See
 Requests on a running Flow, such as RPC calls, are deduplicated by request ID
 too, within a window: a run keeps its newest 1,000 request IDs, and a retry
 with an older one runs as a new request
-(**limits.maxRequestIdsPerRun** in the
+(`limits.maxRequestIdsPerRun` in the
 [Limits](/reference/server/configuration#limits) table).
 
 ## Dex copies Attributes to your database {#attribute-store-sync}
@@ -121,16 +121,16 @@ The copy is one way and eventually consistent:
 ### When Dex drops a sync entry {#dropped-entries}
 
 While PostgreSQL is unavailable, Flows keep running, and Dex retries the
-writes. An entry that is still pending after **syncRetryPolicy.totalDuration**
+writes. An entry that is still pending after `syncRetryPolicy.totalDuration`
 (one hour by default) is dropped. Dex logs a warning that names the Flow run
 and the store, and increases
-**dexzd_attribute_sync_dropped_entries_total**. The same metric counts writes
+`dexzd_attribute_sync_dropped_entries_total`. The same metric counts writes
 that PostgreSQL rejected with a non-retryable error, such as a value too long
 for its column.
 
 A dropped entry leaves the row's value uncertain. To repair it:
 
-1. Alert on any increase of **dexzd_attribute_sync_dropped_entries_total**.
+1. Alert on any increase of `dexzd_attribute_sync_dropped_entries_total`.
 2. Find the affected Flow runs in the server log. Each warning names the run
    and the store.
 3. Compare each row with the Flow's Attributes.

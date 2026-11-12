@@ -11,7 +11,7 @@ Go customer-refund 示例包含两个互相独立的 Flow。两者都会发布 F
 
 ## 确定性策略
 
-**CustomerRefundFlow** 运行七个 Step。它先确认订单存在，再应用 30 天规则。调用支付 provider 之前，它会先记录幂等 key。如果 provider 拒绝退款，或者结果未知，Flow 会把这个结果记为 case 状态。
+`CustomerRefundFlow` 运行七个 Step。它先确认订单存在，再应用 30 天规则。调用支付 provider 之前，它会先记录幂等 key。如果 provider 拒绝退款，或者结果未知，Flow 会把这个结果记为 case 状态。
 
 <DocsFlowDefinitionGraph graph={deterministicFlow} />
 
@@ -19,7 +19,7 @@ Summary 展示 charge reference、请求金额和 recommendation。Display 额�
 
 ## Agentic 审核
 
-**AgenticCustomerRefundFlow** 在一个由 Step 组成的循环里收集证据。随后由 guardrail 决定：要么自动执行决定，要么等待经理审批。每次等待经理审批都有自己的 gate key。Flow 会先记录要执行的操作，再执行 billing、subscription 和 customer-message 操作。这些操作都是幂等的。
+`AgenticCustomerRefundFlow` 在一个由 Step 组成的循环里收集证据。随后由 guardrail 决定：要么自动执行决定，要么等待经理审批。每次等待经理审批都有自己的 gate key。Flow 会先记录要执行的操作，再执行 billing、subscription 和 customer-message 操作。这些操作都是幂等的。
 
 <DocsFlowDefinitionGraph graph={agenticFlow} />
 

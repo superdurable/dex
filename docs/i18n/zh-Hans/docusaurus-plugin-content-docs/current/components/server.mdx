@@ -18,7 +18,7 @@ server-zd 先把每次写入提交到对象存储，再确认这次写入。它�
 - [Worker 和 Client](/components/application) 连接 server 的 API 端口。Worker 主动建立出站 stream，server 从不主动调用它们。
 - [Dex Web](/components/web) 作为单独的进程运行，通过同一个 API 读取 Flow。
 - [dexcli](/components/cli) 调用同一个 API。**dexcli dev** 还会在你的机器上启动 server-zd。
-- server-zd 为每个 Flow type 保存一份 Flow Definition Graph。Worker 或 **dexcli** 发布它。每份 graph 都记录了自己的生成时间。生成时间更晚的 graph 替换较早的，与上传顺序无关。Dex Web 读取它来画出 Flow。
+- server-zd 为每个 Flow type 保存一份 Flow Definition Graph。Worker 或 `dexcli` 发布它。每份 graph 都记录了自己的生成时间。生成时间更晚的 graph 替换较早的，与上传顺序无关。Dex Web 读取它来画出 Flow。
 - server-zd 可以把选定的 Attribute 写入 PostgreSQL，见[在 Flow 之后保留数据](/concepts/primitives/attribute#attribute-store-projection)。
 
 ## 依赖什么 {#dependencies}
@@ -32,6 +32,16 @@ server-zd 先把每次写入提交到对象存储，再确认这次写入。它�
 | metrics 监听端口 | 否 | Prometheus 指标。见英文的 [Metrics](/reference/server/metrics)。 |
 
 db9 是一个独立的数据库产品，使用 PostgreSQL 的通信协议。Dex Server 可以把命令日志、lease、快照和值存在 db9 里，而不是 S3。目前普通的 PostgreSQL 还不是受支持的生产存储，虽然 db9 provider 的测试也会在 PostgreSQL 16 上运行。这个数据库必须提供持久的事务、行锁和强一致读，所以只读副本不行。见英文的 [db9 provider](/reference/server/object-storage#db9)。
+
+## 依赖出故障时 {#dependency-failures}
+
+| 什么出了故障 | Dex Server 怎么做 | Client 和 Worker 看到什么 |
+| --- | --- | --- |
+| 对象存储返回错误或变慢 | 在 lease 期限内带退避重试 lease 续约。如果一次日志写入在 10 秒内没有被对象存储接受，或者续约无法按时完成，节点会停止，进程退出。 | 没有节点提供服务时，调用会失败，Client 会重试。lease 到期后，热备或冷备节点接管。没有备用节点时，要等这个节点重启后才恢复服务。 |
+| lease 被另一个进程拿走，或者存储报告永久错误 | 节点立即停止。 | 新的活跃节点提供服务。Worker 已经领取的 attempt 会失败并重新运行，每次都消耗一次重试。 |
+| 节点的本地磁盘丢失 | 本地存储只是工作副本。重启时，节点从对象存储重建它并重放日志。 | 已经写入对象存储的数据都会保留。重建期间重启会更慢。 |
+
+英文的 [Lease, hot standby, and step down](/reference/server/high-availability) 给出具体时间，[Failover and Deploys](/concepts/failover-and-deploys) 说明哪些会重新运行。
 
 ## 运行
 

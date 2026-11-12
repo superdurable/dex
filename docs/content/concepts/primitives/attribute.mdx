@@ -338,11 +338,11 @@ See [when a read needs an RPC](/concepts/client#related-primitives) and
 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow).
 To set values when the Flow starts, see [Initial values](/reference/server/runtime-data#initial-attribute-values).
 
-An indexed Attribute can be used in **SearchFlows** queries to find Flow
+An indexed Attribute can be used in `SearchFlows` queries to find Flow
 runs. The example above indexes the status Attribute. Its index key,
-**keyword1**, names a search slot rather than a business field. Slots are
+`keyword1`, names a search slot rather than a business field. Slots are
 numbered by type and shared by every Flow type in a namespace, so two Flow
-types can each put a different field in **keyword1**. Two indexed fields in
+types can each put a different field in `keyword1`. Two indexed fields in
 one Flow need different slots, and a slot shared across Flow types must keep
 one index type.
 
@@ -387,12 +387,13 @@ make slow external calls in a Step that holds no lock.
 
 This adds up when a locked Step keeps failing. Its retries keep the lock, and
 the default retry policy keeps retrying for up to 4 hours. For that whole time,
-every other Step and RPC that declares the same lock waits or fails. Give a
-locked method a short retry window, or keep external calls out of it. The
+every other Step and RPC that declares the same lock waits or fails. Set a
+short total duration, such as a few minutes, in the locked method's
+`StepOptions` retry policy, or keep external calls out of it. The
 [StepOptions defaults](/concepts/step#stepoptions) list the retry window.
 
 This Step locks a singleton Attribute and one AttributeMap instance while
-**Execute** runs:
+`Execute` runs:
 
 <SdkTabs
   examples={{
@@ -465,8 +466,8 @@ StepOptions::new()
 <a id="lock-an-rpc"></a>
 <a id="rpc-lock-conflicts"></a>
 
-See [Locks](/reference/server/runtime-data#attribute-locks) for lock timing and **WaitFor**,
-**Execute**, and RPC locks. See [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)
+See [Locks](/reference/server/runtime-data#attribute-locks) for lock timing and `WaitFor`,
+`Execute`, and RPC locks. See [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)
 and [whole-map coordination](/reference/server/runtime-data#whole-map-coordination) for the rest.
 
 ## Short-lived secrets {#hard-delete-attributes}
@@ -496,8 +497,8 @@ To sync an Attribute:
 1. Create the table before the server starts. Dex never creates, migrates, or
    backfills a table.
 2. Configure the store in the server configuration.
-3. Mark the Attribute or AttributeMap with **syncToAttributeStore**.
-4. List the store name in the Flow's **FlowConfig** when you start the Flow.
+3. Mark the Attribute or AttributeMap with `syncToAttributeStore`.
+4. List the store name in the Flow's `FlowConfig` when you start the Flow.
 
 What to expect:
 

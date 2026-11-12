@@ -245,8 +245,8 @@ impl Step for RenderPreview {
 
 Client 有两种方式读取 Stream：
 
-- <a id="可续读"></a>**ReadStream** 向前读取，每次一条消息。每条消息带一个 resume token。把 token 传回去就能读下一条。没有新消息时，调用会等待。
-- <a id="列出消息"></a>**ListStreamMessages** 从最新的消息向后分页。它立即返回。
+- <a id="可续读"></a>`ReadStream` 向前读取，每次一条消息。每条消息带一个 resume token。把 token 传回去就能读下一条。没有新消息时，调用会等待。
+- <a id="列出消息"></a>`ListStreamMessages` 从最新的消息向后分页。它立即返回。
 
 见 [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) 和 [List messages](/reference/server/runtime-data#stream-listing)。
 

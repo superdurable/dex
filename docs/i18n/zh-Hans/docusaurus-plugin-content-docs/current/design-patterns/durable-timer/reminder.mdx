@@ -7,7 +7,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/remi
 
 # Reminder
 
-**ReminderFlow** 按固定间隔发送提醒，直到接收者退订。**ReminderStep** 等待间隔 Timer 或 **OptOut** Channel。Timer 先触发时，Step 发送提醒并转回自身。**OptOut** 先到达时，Step 完成 Flow。
+`ReminderFlow` 按固定间隔发送提醒，直到接收者退订。`ReminderStep` 等待间隔 Timer 或 `OptOut` Channel。Timer 先触发时，Step 发送提醒并转回自身。`OptOut` 先到达时，Step 完成 Flow。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -122,21 +122,27 @@ class ReminderStep implements Step<void> {
 
 ```rust
 #[derive(Default)]
-struct ReminderStep;
+struct ReminderStep {
+    service: MyDependencyService,
+}
 
 impl Step for ReminderStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([Timer::by_duration(Duration::from_secs(5)), OPT_OUT.for_one()]))
+        Ok(Wait::any_of([
+            Timer::by_duration(Duration::from_secs(5)),
+            OPT_OUT.for_one(),
+        ]))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
         if !context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete("opted-out".to_string()));
         }
-        context.record_event("reminder", "sent".to_string())?;
-        Ok(StepDecision::go_to(&ReminderStep, ()))
+        self.service
+            .send_email("user@example.com", "Reminder: please respond", "Hello, ...");
+        Ok(StepDecision::go_to(&ReminderStep::default(), ()))
     }
 }
 ```

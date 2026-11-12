@@ -10,11 +10,11 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/manu
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**ManualRecoveryFlow** 从 **DoWork** 开始。**DoWork** 以指数退避重试三次，然后转到 **ManualStep**。**ManualStep** 等待 **Retry** Channel 或 **Skip** Channel。操作人员解决问题后，一条 **Retry** 消息让 Flow 回到 **DoWork**。一条 **Skip** 消息让 Flow 失败，并带上明确的原因。
+`ManualRecoveryFlow` 从 `DoWork` 开始。`DoWork` 以指数退避重试三次，然后转到 `ManualStep`。`ManualStep` 等待 **Retry** Channel 或 **Skip** Channel。操作人员解决问题后，一条 **Retry** 消息让 Flow 回到 `DoWork`。一条 **Skip** 消息让 Flow 失败，并带上明确的原因。
 
 ## 核心实现
 
-**DoWork** 设置重试策略，以及最后一次重试失败后转到 **ManualStep** 的 movement。**ManualStep** 等待操作人员的消息，并据此决定下一步。
+`DoWork` 设置重试策略，以及最后一次重试失败后转到 `ManualStep` 的 movement。`ManualStep` 等待操作人员的消息，并据此决定下一步。
 
 <SdkTabs
   examples={{

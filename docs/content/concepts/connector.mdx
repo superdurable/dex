@@ -37,7 +37,7 @@ uses the types generated for the exact Connector release it imports.
 
 Each operation has a factory that creates a Connector Step. Your application
 maps the current Step input to the provider input. It connects each required
-result branch to another Step. The provider call runs in **Execute**, so it
+result branch to another Step. The provider call runs in `Execute`, so it
 gets Dex retries, timeouts, durability, and recovery like any other
 [Step](/concepts/step).
 

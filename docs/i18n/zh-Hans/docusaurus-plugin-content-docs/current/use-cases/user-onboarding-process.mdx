@@ -19,7 +19,7 @@ import flowDefinition from '@site/src/data/flow-definitions/user-onboarding-proc
 5. 任务 2 完成后，将入驻状态标记为完成，发送欢迎邮件，并完成 Flow。
 6. 通过 RPC 暴露邮箱验证和两个任务完成操作，让应用可以在 Flow 等待时推进流程。
 
-每个等待 Step 都用 **AnyOf** 等待 Timer 或 Channel 消息。Channel 消息一到，用户立即进入下一阶段。如果 Timer 先触发，Step 会发送提醒，然后回到自身继续等待。
+每个等待 Step 都用 `AnyOf` 等待 Timer 或 Channel 消息。Channel 消息一到，用户立即进入下一阶段。如果 Timer 先触发，Step 会发送提醒，然后回到自身继续等待。
 
 需要处理的故障和其他结果：
 
@@ -38,15 +38,15 @@ Go、Java、Python、TypeScript 和 Rust 示例都实现了完整路径：邮箱
 
 这个 Flow 按顺序经过四个等待阶段：
 
-**Submit** → **VerifyEmail** → **AccomplishTask1** → **AccomplishTask2**
+**Submit** → `VerifyEmail` → `AccomplishTask1` → `AccomplishTask2`
 
 它组合了以下设计模式：
 
 - [**持久提醒**](/design-patterns/durable-timer/reminder)在 Timer 触发后把等待 Step 移回自身。
-- [**可中断等待**](/design-patterns/interruptible)使用 **AnyOf**，让 Channel 消息可以在提醒 Timer 之前唤醒 Step。
+- [**可中断等待**](/design-patterns/interruptible)使用 `AnyOf`，让 Channel 消息可以在提醒 Timer 之前唤醒 Step。
 - [**响应式更新**](/design-patterns/responsive-update)使用 RPC 校验当前阶段，并在 Flow 等待期间发布对应的 Channel 消息。
 - **顺序阶段**：Step 按固定顺序运行，后面的任务不能跳过前面的任务。
-- **用 Attribute 记录阶段**：每个 Step 在 **WaitFor** 方法里设置 **Status** Attribute。Dex 在 Step 开始等待时保存这个值，所以 RPC 和运维人员看到的就是 Flow 实际在等待的阶段。
+- **用 Attribute 记录阶段**：每个 Step 在 `WaitFor` 方法里设置 **Status** Attribute。Dex 在 Step 开始等待时保存这个值，所以 RPC 和运维人员看到的就是 Flow 实际在等待的阶段。
 
 邮箱验证、任务 1 和任务 2 各有自己的 Channel。这样一次用户操作只会唤醒等待它的那一个 Step。RPC 也能拒绝在错误阶段到达的操作。
 

@@ -5,7 +5,7 @@
       "actors": {"first": "Worker 1", "server": "Dex Server", "second": "Worker 2"},
       "events": [
         {"actor": "first", "kind": "step", "text": "Worker 1 runs Charge. Dex saves its result."},
-        {"actor": "server", "kind": "wait", "text": "Ship waits on a 30-second Timer. Dex Server holds the wait."},
+        {"actor": "server", "kind": "wait", "text": "Ship waits on a 60-second Timer. Dex Server holds the wait."},
         {"actor": "first", "kind": "stop", "text": "Worker 1 stops."},
         {"actor": "server", "kind": "wait", "text": "The Timer keeps running on Dex Server. No Worker is needed."},
         {"actor": "second", "kind": "start", "text": "Worker 2 starts and connects to Dex."},
@@ -21,7 +21,7 @@
       "actors": {"first": "Worker 1", "server": "Dex Server", "second": "Worker 2"},
       "events": [
         {"actor": "first", "kind": "step", "text": "Worker 1 运行 Charge。Dex 保存它的结果。"},
-        {"actor": "server", "kind": "wait", "text": "Ship 等一个 30 秒的 Timer。这个等待由 Dex Server 保管。"},
+        {"actor": "server", "kind": "wait", "text": "Ship 等一个 60 秒的 Timer。这个等待由 Dex Server 保管。"},
         {"actor": "first", "kind": "stop", "text": "Worker 1 停止。"},
         {"actor": "server", "kind": "wait", "text": "Timer 在 Dex Server 上继续计时，不需要 Worker。"},
         {"actor": "second", "kind": "start", "text": "Worker 2 启动并连接 Dex。"},

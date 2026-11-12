@@ -10,9 +10,9 @@ Finish a Flow only after one branch has processed every message that another bra
 
 ## Problem and approach
 
-Use this pattern when one branch of a Flow publishes work for another branch. In the example, **Init** starts **Main** and **Side** in parallel. **Main** publishes each document command to the **SideStepData** Channel. **Side** waits for one message, writes it, and waits again.
+Use this pattern when one branch of a Flow publishes work for another branch. In the example, **Init** starts **Main** and **Side** in parallel. **Main** publishes each document command to the `SideStepData` Channel. **Side** waits for one message, writes it, and waits again.
 
-To mark the end, **Finalize** publishes a final command, the sentinel, to **SideStepData** after **Main** has published every ordinary message. A Channel delivers messages in the order they were published, so **Side** receives the sentinel only after every earlier message. **Side** completes only when it receives the sentinel. The Flow therefore cannot finish before **Side** has handled every document. With several producer branches, make **Finalize** wait for all of them before it publishes the sentinel.
+To mark the end, **Finalize** publishes a final command, the sentinel, to `SideStepData` after **Main** has published every ordinary message. A Channel delivers messages in the order they were published, so **Side** receives the sentinel only after every earlier message. **Side** completes only when it receives the sentinel. The Flow therefore cannot finish before **Side** has handled every document. With several producer branches, make **Finalize** wait for all of them before it publishes the sentinel.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 

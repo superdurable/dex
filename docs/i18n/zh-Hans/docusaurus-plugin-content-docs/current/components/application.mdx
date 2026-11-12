@@ -8,7 +8,7 @@ description: "Dex 应用就是你部署的代码。"
 
 Dex 应用就是你部署的代码。它包含两部分：
 
-- **Worker** 承载 Flow 定义。Dex 分配工作时，它运行 **WaitFor**、**Execute** 和 RPC handler。
+- **Worker** 承载 Flow 定义。Dex 分配工作时，它运行 `WaitFor`、`Execute` 和 RPC handler。
 - **Client** 启动 Flow、调用 RPC、读取 Attribute 和搜索 Flow。见 [Client](/concepts/client)。
 
 一个进程可以只运行 Worker，只运行 Client，也可以两者都运行。
@@ -17,7 +17,7 @@ Dex 应用就是你部署的代码。它包含两部分：
 
 Worker 和 Client 连接 Dex Server（server-zd）。每个 Worker 都是拉取模式 Worker：它主动向 server 建立出站任务 stream，从不监听调用。因此 Worker 不需要开放入站端口，可以运行在 NAT 或防火墙后面。
 
-Dex 把所有 Flow、SubFlow、Step 和 RPC 调用都发给你的 Worker，不需要配置 Worker 地址。[Dex Web](/components/web) 或 **dexcli** 启动的 Flow 也在你的 Worker 上运行。
+Dex 把所有 Flow、SubFlow、Step 和 RPC 调用都发给你的 Worker，不需要配置 Worker 地址。[Dex Web](/components/web) 或 `dexcli` 启动的 Flow 也在你的 Worker 上运行。
 
 Worker 启动时，可以把它的 Flow 的 Flow Definition Graph 发布到 server。Dex Web 从 server 读取它们，画出每个 Flow。
 
@@ -34,7 +34,7 @@ npm install @superdurable/dex                    # TypeScript
 cargo add dex-sdk                                # Rust
 ~~~
 
-Java 项目在 Gradle 或 Maven 构建中加入 Maven Central 上的 **io.superdurable:dex-sdk**。
+Java 项目在 Gradle 或 Maven 构建中加入 Maven Central 上的 `io.superdurable:dex-sdk`。
 
 Worker 可以运行在两个地方：
 
@@ -172,7 +172,7 @@ pub fn start_order(client: &Client, order_flow: &OrderFlow, order_id: &str) -> S
 
 - **订单 ID 就是 Flow ID。** Dex 为每个 ID 只保留一个 Flow，默认的 ID 复用策略会拒绝第二次启动。
 - **request ID** 是 **start-** 加上订单 ID。这个请求每次重试时它都相同。
-- **already-started 选项**在 request ID 匹配时返回已有的 run。它在 Python 和 Rust 中是 **ignore_already_started**，在 Java 和 TypeScript 中是 **ignoreAlreadyStarted**，在 Go 中是 **AlreadyStarted.IgnoreError**。同一个订单如果用了不同的 request ID，仍然会收到 already-started 错误，服务用 409 回应。
+- **already-started 选项**在 request ID 匹配时返回已有的 run。它在 Python 和 Rust 中是 `ignore_already_started`，在 Java 和 TypeScript 中是 `ignoreAlreadyStarted`，在 Go 中是 `AlreadyStarted.IgnoreError`。同一个订单如果用了不同的 request ID，仍然会收到 already-started 错误，服务用 409 回应。
 
 所以客户端把请求发送两次，订单也只扣款一次。[Start options and configuration](/concepts/flow#start-options) 列出了这些选项，英文的 [Dex and Your Database](/components/your-database#write-your-row-and-start-the-flow) 展示了同时写入你自己的表的 handler。在示例目录中运行这个服务，然后发送一个订单：
 
@@ -230,8 +230,8 @@ dexcli flow search --query 'FlowType = "OldFlowType"'
 
 1. **在启动时记录版本。** 新的启动 handler 在启动 Flow 时把一个 Attribute（例如 **pricing-version**）设为 2。更早启动的 Flow 没有这个值，表示版本 1。
 2. **按保存的值分支。** **Charge** 读取 **pricing-version**。版本 1 只扣订单金额，版本 2 扣金额加手续费。今天正在 **Ship** 里等待的 Flow 不会再运行 **Charge**，所以不受影响。
-3. **契约变化时新增 Step type。** 假设退款现在需要一个旧 Flow 从未保存的新输入字段。新增一个 Step type，例如 **RefundWithFee**，只在版本 2 中跳转到它。为版本 1 的 Flow 保留 **Refund**。
-4. **一起部署。** 同一个 Worker 构建包含带分支的 **Charge**、**Refund** 和 **RefundWithFee**。滚动部署期间，缺少 **RefundWithFee** 的旧 Worker 会把这个调用交给新 Worker。
+3. **契约变化时新增 Step type。** 假设退款现在需要一个旧 Flow 从未保存的新输入字段。新增一个 Step type，例如 `RefundWithFee`，只在版本 2 中跳转到它。为版本 1 的 Flow 保留 **Refund**。
+4. **一起部署。** 同一个 Worker 构建包含带分支的 **Charge**、**Refund** 和 `RefundWithFee`。滚动部署期间，缺少 `RefundWithFee` 的旧 Worker 会把这个调用交给新 Worker。
 5. **退役旧路径。** 当没有任何运行中的 Flow 是版本 1 时，删除版本 1 的分支和 **Refund**。先搜索这样的 Flow。如果 **pricing-version** 是带索引的 Attribute，搜索时除了 Flow type 还可以按它过滤。
 
 整个过程都不需要在 Step 代码里加版本标记。无论哪个 Worker 构建来处理，都是保存的 Attribute 决定 Flow 走哪条路径。
@@ -242,4 +242,4 @@ Time Travel 把一次 Flow run 移回它历史中较早的一个点，并从那�
 
 这个点之后的 Step 会再次运行，它们的外部调用也会再次发生。按 [Step](/concepts/step#guarantees) 的说明给每次调用加上幂等键，重复的调用就不会产生第二次效果。
 
-目标点必须在 Flow 最近的历史窗口内。回到 run 开头的 Time Travel 总是可用。可以从 Dex Web、**dexcli** 或 Client 发起。服务端参考中的英文 [Time travel](/reference/server/runtime-client#time-travel) 介绍请求选项和限制。
+目标点必须在 Flow 最近的历史窗口内。回到 run 开头的 Time Travel 总是可用。可以从 Dex Web、`dexcli` 或 Client 发起。服务端参考中的英文 [Time travel](/reference/server/runtime-client#time-travel) 介绍请求选项和限制。

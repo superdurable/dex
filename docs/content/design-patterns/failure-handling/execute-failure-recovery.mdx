@@ -6,17 +6,17 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/exec
 
 # Execute Failure Recovery
 
-Recover automatically when an **Execute** method still fails after its retry policy is exhausted.
+Recover automatically when an `Execute` method still fails after its retry policy is exhausted.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**ExecuteFailureRecoveryFlow** starts **FailingStep**. Its **Execute** method can fail, and its **ExecuteFailure** policy sends the Flow to **RecoveryStep** after retries are exhausted. **RecoveryStep** performs the compensating action and completes the Flow.
+`ExecuteFailureRecoveryFlow` starts `FailingStep`. Its `Execute` method can fail, and its `ExecuteFailure` policy sends the Flow to `RecoveryStep` after retries are exhausted. `RecoveryStep` performs the compensating action and completes the Flow.
 
 Use this pattern when the Flow can recover without a person. Make the recovery Step idempotent, because Dex may retry it separately.
 
 ## Core implementation
 
-**FailingStep** sets both its retry policy and the movement to **RecoveryStep**. **RecoveryStep** receives the same input as **FailingStep**, and it can complete or fail the Flow.
+`FailingStep` sets both its retry policy and the movement to `RecoveryStep`. `RecoveryStep` receives the same input as `FailingStep`, and it can complete or fail the Flow.
 
 <SdkTabs
   examples={{

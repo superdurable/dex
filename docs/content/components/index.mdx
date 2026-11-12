@@ -14,7 +14,7 @@ CLI, and Web. You write the application. Dex provides the rest.
 | --- | --- |
 | [Application](/components/application) | Your Workers and Clients. Workers host Flow definitions and run Steps and RPCs. Clients start Flows, call RPCs, and read Attributes. |
 | [Dex Server](/components/server) | Stores Flow state and hands work to Workers. Its binary is **dex-server-zd** (server-zd). |
-| [CLI](/components/cli) | **dexcli** runs a local Dex and operates Flows from a shell. |
+| [CLI](/components/cli) | `dexcli` runs a local Dex and operates Flows from a shell. |
 | [Web](/components/web) | Dex Web is the operator UI for inspecting and acting on Flows. |
 
 Two more pages cover how they meet your systems:
@@ -33,7 +33,7 @@ dexcli  ──▶     ├──▶ object storage
                 └──▶ PostgreSQL (Attribute Store sync)
 ```
 
-Workers, Clients, Dex Web, and **dexcli** all connect to the server's API port.
+Workers, Clients, Dex Web, and `dexcli` all connect to the server's API port.
 A Worker opens outbound streams to the server and never listens for calls. The
 server keeps Flow state in object storage. It can also write selected Attributes
 to PostgreSQL for your own queries. See

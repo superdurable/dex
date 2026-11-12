@@ -15,7 +15,7 @@ This section answers two questions about Dex.
 
 Both proofs are computer-checked, and both have a limited scope. They cover
 one Flow that is started once and receives Channel messages. Under failures,
-RPCs, SubFlows, **StopFlow**, and Attribute locks are outside the proof. The
+RPCs, SubFlows, `StopFlow`, and Attribute locks are outside the proof. The
 failure proof also assumes **SYNC** methods only, retries that never run out,
 and no failure policy.
 The proofs are about a model of Dex, not the server code itself. Each failure
@@ -34,7 +34,7 @@ with writes still in flight, takeovers by a new process while the old one still
 writes, and Workers that hang, fail, or disconnect. It then checks that every
 acknowledged write survives and that no read sees uncommitted or stale state. It
 also covers most of what the failure proof leaves out: RPCs, including
-transactional RPCs, Attribute locks, child Flows started as SubFlows, StopFlow,
+[transactional RPCs](/concepts/primitives/rpc#transactional-reads-and-writes), Attribute locks, child Flows started as SubFlows, StopFlow,
 and hard-delete Attributes. Failure policies and recovery Steps run in its
 apply-level stage. ASYNC durability is not part of its workload. CI runs it
 nightly. The
@@ -46,14 +46,14 @@ run real Workers against a real server.
 | Feature | Lean failure proof | Deterministic simulation | Server integration tests |
 | --- | --- | --- | --- |
 | SYNC Steps | Yes | Yes | Yes |
-| ASYNC Steps | No | No | Yes (**create_test.go**, **any_command_close_test.go**) |
-| RPCs, including transactional RPCs | No | Yes | Yes (**rpc_test.go**) |
-| Attribute locks | No | Yes | Yes (**locking_test.go**) |
-| SubFlows | No | Yes | Yes (**subflow_test.go**) |
-| Failure policies and recovery Steps | No | Yes, in the apply-level stage | Yes (**wf_state_execute_method_fail_and_proceed_test.go**) |
-| Heartbeats | Partly: resuming from a heartbeat checkpoint is outside the proof | Yes, with and without values | Yes (**pull_worker_test.go**) |
-| Time Travel | No | No: the simulated clients do not call it | Yes (**reset_by_state_id_test.go**) |
-| StopFlow | No | Yes | Yes (**wf_stop_test.go**) |
+| ASYNC Steps | No | No | Yes (`create_test.go`, `any_command_close_test.go`) |
+| RPCs, including transactional RPCs | No | Yes | Yes (`rpc_test.go`) |
+| Attribute locks | No | Yes | Yes (`locking_test.go`) |
+| SubFlows | No | Yes | Yes (`subflow_test.go`) |
+| Failure policies and recovery Steps | No | Yes, in the apply-level stage | Yes (`wf_state_execute_method_fail_and_proceed_test.go`) |
+| Heartbeats | Partly: resuming from a heartbeat checkpoint is outside the proof | Yes, with and without values | Yes (`pull_worker_test.go`) |
+| Time Travel | No | No: the simulated clients do not call it | Yes (`reset_by_state_id_test.go`) |
+| StopFlow | No | Yes | Yes (`wf_stop_test.go`) |
 
 The proof column follows [What the proof assumes](/correctness-and-expressiveness/failure-transparency-proof#what-the-proof-assumes).
 The simulation column follows the simulation README. The test files are in

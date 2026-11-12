@@ -11,17 +11,17 @@ If you keep this data in a single Attribute, the value keeps growing. Every appe
 
 ## Data layout
 
-**ChunkedSubscriberFlow** is an RPC-only Flow. Start it once with no Flow timeout.
+`ChunkedSubscriberFlow` is an RPC-only Flow. Start it once with no Flow timeout.
 
-- **SubscriberArchiveState** stores the next sequence and the newest archived chunk token.
-- **SubscriberChunks[current]** is the only mutable chunk.
+- `SubscriberArchiveState` stores the next sequence and the newest archived chunk token.
+- `SubscriberChunks[current]` is the only mutable chunk.
 - A full chunk moves to an immutable instance named by its zero-padded first sequence, such as **00000000000000000101**.
 
-**RegisterSubscriber** locks the state and the **current** instance. Most calls rewrite only **current**. When **current** already holds 100 records, the same RPC call writes the archived chunk, starts a new **current** chunk, and advances the state. These writes take effect together.
+`RegisterSubscriber` locks the state and the **current** instance. Most calls rewrite only **current**. When **current** already holds 100 records, the same RPC call writes the archived chunk, starts a new **current** chunk, and advances the state. These writes take effect together.
 
 Concurrent appends can receive a lock-conflict error. Retry after it; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/reference/server/runtime-data#whole-map-coordination).
 
-**GetSubscriberPage** starts at **current** unless the caller supplies a page token. The HTTP controller uses **RPCInvokeOptions** to load only that instance. Each page returns its records newest first, plus the token of the next older page.
+`GetSubscriberPage` starts at **current** unless the caller supplies a page token. The HTTP controller uses **RPCInvokeOptions** to load only that instance. Each page returns its records newest first, plus the token of the next older page.
 
 <SdkTabs
   examples={{

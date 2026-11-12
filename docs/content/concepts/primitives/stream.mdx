@@ -258,10 +258,10 @@ impl Step for RenderPreview {
 
 A Client has two ways to read a Stream:
 
-- <a id="resumable-reads"></a>**ReadStream** reads forward, one message at a time. Each message carries a
+- <a id="resumable-reads"></a>`ReadStream` reads forward, one message at a time. Each message carries a
   resume token. Pass the token back to read the next message. When no new
   message exists, the call waits for one.
-- <a id="listing-messages"></a>**ListStreamMessages** pages backward from the
+- <a id="listing-messages"></a>`ListStreamMessages` pages backward from the
   newest message. It returns at once.
 
 See [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) and

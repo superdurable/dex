@@ -11,17 +11,17 @@ slug: /design-patterns/sequentially-chunked-attribute-map
 
 ## 数据布局
 
-**ChunkedSubscriberFlow** 是 RPC-only Flow。它只需手动启动一次，不设置 Flow timeout。
+`ChunkedSubscriberFlow` 是 RPC-only Flow。它只需手动启动一次，不设置 Flow timeout。
 
-- **SubscriberArchiveState** 保存下一个 sequence 和最新 archive chunk token。
-- **SubscriberChunks[current]** 是唯一可修改的 chunk。
+- `SubscriberArchiveState` 保存下一个 sequence 和最新 archive chunk token。
+- `SubscriberChunks[current]` 是唯一可修改的 chunk。
 - Chunk 满后会写入不可变 instance，名称是第一条 sequence 的 20 位补零形式，例如 **00000000000000000101**。
 
-**RegisterSubscriber** 会锁定 state 和 **current** instance。大多数调用只重写 **current**。如果 **current** 已有 100 条记录，同一次 RPC 调用会写入 archive chunk、创建新的 **current**，并推进 state。这些写入一起生效。
+`RegisterSubscriber` 会锁定 state 和 **current** instance。大多数调用只重写 **current**。如果 **current** 已有 100 条记录，同一次 RPC 调用会写入 archive chunk、创建新的 **current**，并推进 state。这些写入一起生效。
 
 并发 append 可能收到 lock-conflict 错误。收到后重试，见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/reference/server/runtime-data#whole-map-coordination)。
 
-**GetSubscriberPage** 默认从 **current** 开始，也可以接收 page token。HTTP controller 使用 **RPCInvokeOptions** 只加载目标 instance。每页的记录按从新到旧排列，并带上更旧一页的 token。
+`GetSubscriberPage` 默认从 **current** 开始，也可以接收 page token。HTTP controller 使用 **RPCInvokeOptions** 只加载目标 instance。每页的记录按从新到旧排列，并带上更旧一页的 token。
 
 <SdkTabs
   examples={{

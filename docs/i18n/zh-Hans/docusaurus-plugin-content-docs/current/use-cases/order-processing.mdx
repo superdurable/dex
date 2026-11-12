@@ -28,11 +28,11 @@ cd dex
 
 每个 Step 都带上用订单 ID 构造的幂等键，订单 ID 也就是 Flow ID。原因见 [幂等键](/concepts/step#idempotency-keys)。
 
-**order-status** Attribute 建了索引，所以可以按状态搜索 Flow。它的索引键 **keyword1** 指定一个搜索槽位。每个带索引的 Attribute 占用一个槽位，所以只有在给很多 Attribute 建索引时，槽位上限才有影响。槽位的说明见 [读取和搜索 Attribute](/concepts/primitives/attribute#read-and-search-attributes)。
+**order-status** Attribute 建了索引，所以可以按状态搜索 Flow。它的索引键 `keyword1` 指定一个搜索槽位。每个带索引的 Attribute 占用一个槽位，所以只有在给很多 Attribute 建索引时，槽位上限才有影响。槽位的说明见 [读取和搜索 Attribute](/concepts/primitives/attribute#read-and-search-attributes)。
 
-Ship 的选项在重试用完后把失败转到 Refund。这条路由里的第二个 **StepOptions** 作用于它转到的 Refund Step，这里是一个较短的重试。
+Ship 的选项在重试用完后把失败转到 Refund。这条路由里的第二个 `StepOptions` 作用于它转到的 Refund Step，这里是一个较短的重试。
 
-**dex:group** 和 **dex:explanation** 注释用来标注 Dex Web 和本文档所画 Flow 图里的每个 Step。它们不改变代码的行为。
+`dex:group` 和 `dex:explanation` 注释用来标注 Dex Web 和本文档所画 Flow 图里的每个 Step。它们不改变代码的行为。
 
 <SdkTabs
   examples={{
@@ -826,9 +826,9 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 
 ## 3. Worker 和 Client
 
-创建连接到 **dexcli**（**127.0.0.1:8801**）的 Registry、Worker 和 Client。用 mock API service 构造 Flow，再注册它。示例应用把所有示例 Flow 注册在同一个 Registry 里，所以下面的代码片段尽量只展示这条 Flow 相关的行。Python 示例应用运行在异步 Web 框架上，所以使用 **AsyncWorker** 和 **AsyncClient**。[Quick Start](/quick-start) 用的是同步的 **Worker** 和 **Client**，两者的工作方式相同。
+创建连接到 `dexcli`（**127.0.0.1:8801**）的 Registry、Worker 和 Client。用 mock API service 构造 Flow，再注册它。示例应用把所有示例 Flow 注册在同一个 Registry 里，所以下面的代码片段尽量只展示这条 Flow 相关的行。Python 示例应用运行在异步 Web 框架上，所以使用 `AsyncWorker` 和 `AsyncClient`。[Quick Start](/quick-start) 用的是同步的 **Worker** 和 **Client**，两者的工作方式相同。
 
-Worker 主动连到 **dexcli** 接收任务，所以不需要开放入站端口。容量、就绪状态和生产环境配置见英文的 [Workers and the task queue](/reference/server/workers)。
+Worker 主动连到 `dexcli` 接收任务，所以不需要开放入站端口。容量、就绪状态和生产环境配置见英文的 [Workers and the task queue](/reference/server/workers)。
 
 <SdkTabs
   examples={{
@@ -1373,13 +1373,13 @@ cargo run --locked
 curl -s 'http://127.0.0.1:8080/products/order-processing/start'
 ```
 
-从 JSON 里复制 **flowID**。打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，找到这条 Flow，打开详情。Ship Step 在等待。
+从 JSON 里复制 `flowID`。打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，找到这条 Flow，打开详情。Ship Step 在等待。
 
 ```bash
 curl -s "http://127.0.0.1:8080/products/order-processing/approve?flowId=FLOW_ID"
 ```
 
-把 **FLOW_ID** 换成刚才复制的 **flowID**。这条 Flow 会发货并完成。
+把 `FLOW_ID` 换成刚才复制的 `flowID`。这条 Flow 会发货并完成。
 
 ### 试试退款路径
 

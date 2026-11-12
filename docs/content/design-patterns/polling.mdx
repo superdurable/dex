@@ -8,9 +8,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/poll
 
 Use Polling when a Flow waits for an external system to become ready or to finish. Examples are a cloud build, a Kubernetes rollout, a provisioning job, or the status of a third-party API.
 
-One Step owns the whole wait. Its **Execute** calls the external API, sleeps, and calls again until the work reaches a terminal state.
+One Step owns the whole wait. Its `Execute` calls the external API, sleeps, and calls again until the work reaches a terminal state.
 
-Business signals inside Dex, such as Channel messages and RPCs, are not polling. Wait for them with **WaitFor**. Business timers, such as a TTL, a reminder, or an inactivity deadline, also use **WaitFor**; see [Durable Timer](/design-patterns/durable-timer).
+Business signals inside Dex, such as Channel messages and RPCs, are not polling. Wait for them with `WaitFor`. Business timers, such as a TTL, a reminder, or an inactivity deadline, also use `WaitFor`; see [Durable Timer](/design-patterns/durable-timer).
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
@@ -38,21 +38,21 @@ Keep each round inside the heartbeat window:
 interval + call timeout <= HeartbeatTimeout - 10s
 ```
 
-The example uses a one-minute **HeartbeatTimeout** and a 10-second call timeout. Its interval can be at most 40 seconds. See [Heartbeat](/reference/python/step-options#heartbeat) for the default and the minimum.
+The example uses a one-minute `HeartbeatTimeout` and a 10-second call timeout. Its interval can be at most 40 seconds. See [Heartbeat](/reference/python/step-options#heartbeat) for the default and the minimum.
 
 Choose the interval for the wait. Use a few seconds when a user is watching, such as the readiness of something they just started. Use tens of seconds for long jobs such as builds.
 
 ## Bound the wait {#limits}
 
-Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. Dex enforces them, so the Step does not compute a deadline. Neither the checkpoint nor the Step input carries one. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes. See [Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration).
+Use one maximum-wait value for both `ExecuteMethodTimeout` and `TotalDuration`. Dex enforces them, so the Step does not compute a deadline. Neither the checkpoint nor the Step input carries one. Give `ExecuteRetry` a few attempts with backoff for transient errors and Worker crashes. See [Timeouts and total duration](/reference/python/step-options#timeouts-and-total-duration).
 
-**TotalDuration** only decides whether Dex retries after a failure, so the last attempt can end after it. With Workers available, the total wait is at most about **TotalDuration** plus one **ExecuteMethodTimeout**.
+`TotalDuration` only decides whether Dex retries after a failure, so the last attempt can end after it. With Workers available, the total wait is at most about `TotalDuration` plus one `ExecuteMethodTimeout`.
 
 The polling Step can use either durability. See [Step options](/reference/python/step-options#durability).
 
 ## When the wait expires
 
-When **ExecuteMethodTimeout** expires, Dex fails the attempt with a timeout. If **TotalDuration** leaves no time for another retry, the Step fails. Route that failure with the **ExecuteFailure** option to a short Step that records the business failure. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+When `ExecuteMethodTimeout` expires, Dex fails the attempt with a timeout. If `TotalDuration` leaves no time for another retry, the Step fails. Route that failure with the `ExecuteFailure` option to a short Step that records the business failure. See [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
 
 The failure record does not include the last observed status. The progress Stream and the logs show it.
 
@@ -60,17 +60,17 @@ The timeouts bound only a fixed duration. Check any other business condition ins
 
 ## Checkpoint and progress
 
-A new attempt resumes from the last checkpoint, which **GetLastHeartbeatValue** returns. In the example, the checkpoint is the last reported job status, so a retry does not repeat a progress message.
+A new attempt resumes from the last checkpoint, which `GetLastHeartbeatValue` returns. In the example, the checkpoint is the last reported job status, so a retry does not repeat a progress message.
 
 Write a Stream message only when the observed status changes, and record a heartbeat otherwise. Stream messages are best effort, so consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Heartbeat](/reference/python/step-options#heartbeat) and [Stream](/concepts/primitives/stream).
 
 ## Locks
 
-Do not hold **ExecuteLockAttributes** for the whole wait. Return the result from the polling Step, and commit anything that needs a lock in a short following Step.
+Do not hold `ExecuteLockAttributes` for the whole wait. Return the result from the polling Step, and commit anything that needs a lock in a short following Step.
 
 ## Example
 
-**PollingFlow** waits for a fake external job. **StartJob** starts the job with the Flow ID as an idempotent job ID. **AwaitJob** polls the job status every two seconds. It writes a **JobProgress** Stream message when the status changes and completes with the job result. When the ten-minute maximum wait expires, **AwaitJob** moves to **RecordJobWaitFailure**. That Step fails the Flow with the recovery error.
+`PollingFlow` waits for a fake external job. `StartJob` starts the job with the Flow ID as an idempotent job ID. `AwaitJob` polls the job status every two seconds. It writes a `JobProgress` Stream message when the status changes and completes with the job result. When the ten-minute maximum wait expires, `AwaitJob` moves to `RecordJobWaitFailure`. That Step fails the Flow with the recovery error.
 
 The fake job reports QUEUED, then RUNNING, and succeeds six seconds after it starts. Call the complete-job endpoint to finish it early.
 
@@ -446,10 +446,10 @@ impl Step for RecordJobWaitFailure {
 ## Anti-patterns
 
 - A Step that waits for a Timer and moves to itself to poll again.
-- Using the retry policy, backoff, or **RetryAfter** as the polling loop, where "not ready" is returned as an error.
+- Using the retry policy, backoff, or `RetryAfter` as the polling loop, where "not ready" is returned as an error.
 - A long loop that never records a heartbeat or writes progress.
 - An external call without its own timeout.
-- A hand-written deadline that duplicates **ExecuteMethodTimeout** or **TotalDuration**.
+- A hand-written deadline that duplicates `ExecuteMethodTimeout` or `TotalDuration`.
 - Starting a new Flow for each page of results. Keep the page token in the loop instead.
 
 ## Related

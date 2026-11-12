@@ -21,16 +21,16 @@ brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 dexcli dev
 ```
 
-**dexcli dev** 会启动 **Dex Server**（server-zd）和 **Dex Web**。状态保存在本地磁盘上的 **RocksDB** 和内嵌的 **s3local** 对象存储中。默认端口空闲时，地址如下：
+**dexcli dev** 会启动 **Dex Server**（server-zd）和 **Dex Web**。状态保存在本地磁盘上的 `RocksDB` 和内嵌的 `s3local` 对象存储中。默认端口空闲时，地址如下：
 
 | Service | Address |
 | --- | --- |
-| Dex Web | **http://127.0.0.1:8802** |
+| Dex Web | `http://127.0.0.1:8802` |
 | Dex Server | **127.0.0.1:8801** |
 
 ## 再运行一个 Dex
 
-在同一台机器上再开一个 **dexcli dev**，它会改用其他空闲端口和独立的状态目录。把它打印出的 **Dex Server** 地址传给 **--server**。
+在同一台机器上再开一个 **dexcli dev**，它会改用其他空闲端口和独立的状态目录。把它打印出的 **Dex Server** 地址传给 `--server`。
 
 ## 参考
 

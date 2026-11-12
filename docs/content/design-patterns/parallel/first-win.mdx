@@ -10,7 +10,7 @@ Use the first completed concurrent Step and cancel the remaining siblings.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** starts several **DoWork** executions. Each one sleeps for a random short time, so any of them can finish first. The first execution to return a decision cancels its sibling **DoWork** executions. The Flow keeps the first result and stops work that can no longer change it.
+**Init** starts several `DoWork` executions. Each one sleeps for a random short time, so any of them can finish first. The first execution to return a decision cancels its sibling `DoWork` executions. The Flow keeps the first result and stops work that can no longer change it.
 
 ## Core implementation
 

@@ -23,8 +23,8 @@ Agent sessions run on the same Dex Server as every other Flow. Check each item b
 | Streaming | The AgentEvents Stream carries live text to your UI. Size it for your traffic. | [AgentEvents Stream](/reference/agents/event-stream) |
 | Tracing | Sessions can emit OpenTelemetry spans for each model call and tool call. Content capture is off by default. | [Tracing](/reference/agents/tracing) |
 | Deployment shape | Web replicas hold a Client. Worker processes run the session Flow. | [Deployment shape](#deployment-shape) |
-| Calls during a deploy | **send_user_message** and **resolve_interrupt** are RPCs. They need a running Worker, and a retried **send_user_message** can queue a message twice. | [RPCs during a deploy](#rpcs-during-a-deploy) |
-| Unknown outcomes | A write that a crash interrupted records **outcome_unknown** and does not run again. Decide who reconciles it. | [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) |
+| Calls during a deploy | `send_user_message` and `resolve_interrupt` are RPCs. They need a running Worker, and a retried `send_user_message` can queue a message twice. | [RPCs during a deploy](#rpcs-during-a-deploy) |
+| Unknown outcomes | A write that a crash interrupted records `outcome_unknown` and does not run again. Decide who reconciles it. | [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) |
 
 ## Deployment shape {#deployment-shape}
 
@@ -60,8 +60,8 @@ name them.
 
 ## RPCs during a deploy {#rpcs-during-a-deploy}
 
-Your application talks to a session through RPCs, such as **send_user_message**
-and **resolve_interrupt**. An RPC runs on a Worker. It never waits in a queue:
+Your application talks to a session through RPCs, such as `send_user_message`
+and `resolve_interrupt`. An RPC runs on a Worker. It never waits in a queue:
 if no Worker takes it within 10 seconds, the call fails with **Unavailable**.
 During a deploy that stops every Worker, these calls fail until a new Worker
 connects. The session itself loses nothing.
@@ -72,9 +72,9 @@ connects. The session itself loses nothing.
   returns **False** the second time, and nothing runs again.
 - **send_user_message is not.** Dex does not drop a repeated RPC. If the
   response is lost, a retry can queue the same message twice. Before you resend,
-  read the session with **get_agent_snapshot** and look for the message in
-  **messages** and **queued_messages**. If it is queued twice, remove the copy
-  with **delete_queued_message**.
+  read the session with `get_agent_snapshot` and look for the message in
+  **messages** and `queued_messages`. If it is queued twice, remove the copy
+  with `delete_queued_message`.
 
 This helper does that. It retries a send that may not have arrived, checks the
 session before each retry, and deletes an extra queued copy. It tells messages

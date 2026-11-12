@@ -32,10 +32,10 @@ Give each call that changes another system its own Step. A Step is the unit that
 
 | In your function | In the Flow |
 | --- | --- |
-| Charge the buyer | A **Charge** Step whose **Execute** calls the payment API and goes to **Ship** |
-| Wait for approval, remind after 24 hours | **Ship**'s **WaitFor**: wait for a message on a **Channel** or a 24-hour **Timer**, whichever comes first |
-| Send the reminder | **Ship**'s **Execute** when the Timer fired: send the reminder, then go to **Ship** again |
-| Ship the item | **Ship**'s **Execute** when the approval arrived |
+| Charge the buyer | A **Charge** Step whose `Execute` calls the payment API and goes to **Ship** |
+| Wait for approval, remind after 24 hours | **Ship**'s `WaitFor`: wait for a message on a **Channel** or a 24-hour **Timer**, whichever comes first |
+| Send the reminder | **Ship**'s `Execute` when the Timer fired: send the reminder, then go to **Ship** again |
+| Ship the item | **Ship**'s `Execute` when the approval arrived |
 | Refund after repeated failures | A failure route from **Ship** to a **Refund** Step, used when Ship's retries run out |
 | The status column | An **Attribute**, such as **order-status** |
 | The approval endpoint | An **RPC** that publishes the approval to the Channel |
@@ -43,7 +43,7 @@ Give each call that changes another system its own Step. A Step is the unit that
 
 ### How Ship knows which wait ended
 
-**Ship**'s **WaitFor** returns both conditions, and Dex wakes the Step when the first one is met. **Execute** then asks the context whether the Timer fired. If it did, Ship sends a reminder and goes to itself, which waits again. Otherwise the approval arrived, so Ship ships the order and completes the Flow. This is the code from [Order Processing](/use-cases/order-processing):
+**Ship**'s `WaitFor` returns both conditions, and Dex wakes the Step when the first one is met. `Execute` then asks the context whether the Timer fired. If it did, Ship sends a reminder and goes to itself, which waits again. Otherwise the approval arrived, so Ship ships the order and completes the Flow. This is the code from [Order Processing](/use-cases/order-processing):
 
 <SdkTabs
   examples={{
@@ -201,7 +201,125 @@ fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<St
 </SdkSnippet>
 </SdkTabs>
 
+The reminder email passes no idempotency key, because a second reminder does no harm. Ship's ship call does pass one. The Rust SDK names the check `has_any_timer_fired`, and its example also records a named diagnostic event with `record_event`; the other SDKs' examples leave that out.
+
 Keep two calls in one Step only when they succeed or fail together. A Step with two external calls repeats both when it runs again.
+
+### Route a failure to a recovery Step
+
+When the retries of a Step run out, its failure route can move the Flow to a recovery Step instead of failing it. In Order Processing, **Ship** retries, and then the Flow goes to **Refund**:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+    rust: 'examples/rust/src/products/order_processing',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(
+            # One hour in production; 3 seconds keeps the demo short.
+            total_duration=timedelta(seconds=3),
+        )
+    ).on_execute_failure_proceed_to(
+        Refund,
+        StepOptions(
+            execute_retry=RetryPolicy(
+                # One hour in production; 3 seconds keeps the demo short.
+                total_duration=timedelta(seconds=3),
+            )
+        ),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (step shipStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			// One hour in production; 3 seconds keeps the demo short.
+			TotalDuration: 3 * time.Second,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(
+			refundStep{},
+			&dex.StepOptions{
+				ExecuteRetry: &dex.RetryPolicy{
+					// One hour in production; 3 seconds keeps the demo short.
+					TotalDuration: 3 * time.Second,
+				},
+			},
+		),
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    // One hour in production; 3 seconds keeps the demo short.
+                    .totalDuration(Duration.ofSeconds(3))
+                    .build())
+            .onExecuteFailureProceedTo(
+                    Refund.class,
+                    StepOptions.newBuilder()
+                            .executeRetry(RetryPolicy.newBuilder()
+                                    // One hour in production; 3 seconds keeps the demo short.
+                                    .totalDuration(Duration.ofSeconds(3))
+                                    .build())
+                            .build())
+            .build();
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```ts
+public getStepOptions() {
+  return {
+    executeRetry: {
+      // One hour in production; 3 seconds keeps the demo short.
+      totalDurationMs: 3_000,
+    },
+    executeFailure: ExecuteFailure.proceedTo(Refund, {
+      executeRetry: {
+        // One hour in production; 3 seconds keeps the demo short.
+        totalDurationMs: 3_000,
+      },
+    }),
+  };
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_retry(
+            RetryPolicy::new()
+                // One hour in production; 3 seconds keeps the demo short.
+                .total_duration(Duration::from_secs(3)),
+        )
+        .on_execute_failure_proceed_to(&Refund::default())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Without a failure route, the default fails the Flow after 4 hours of retries. To let a person decide instead, route the failure to a Step that waits for them, as [Manual Recovery](/design-patterns/failure-handling/manual-recovery) shows. [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) shows the automatic route. After you fix the cause of a failed run, [Time Travel](/concepts/change-flow-code#time-travel) can run it again from an earlier point.
 
 ## Place the idempotency keys
 
@@ -224,11 +342,11 @@ You can keep the orders table that support and reporting read. Write to it from 
 
 - Each call that changes another system is in its own Step, or shares a Step only with calls that succeed or fail together.
 - Each such call passes an idempotency key built from the Flow ID, not from the time, a random value, or the attempt number.
-- Each wait is a **WaitFor** on a Channel, a Timer, or both, not a loop that polls.
+- Each wait is a `WaitFor` on a Channel, a Timer, or both, not a loop that polls.
 - Each command from outside, such as an approval, is an RPC.
 - Status that other code reads is an Attribute, or an upsert into your own table.
 - Each Step's retry policy fits the call. The default retries for 4 hours and then fails the Flow; see [Limits and Sharp Edges](/intro/limits-and-sharp-edges).
-- Each failure that needs a business answer, such as a refund, has a failure route to a recovery Step.
+- Each failure that needs a business answer, such as a refund, has a [failure route](#route-a-failure-to-a-recovery-step) to a recovery Step.
 - Parallel Steps or RPCs that read and then write the same Attribute declare a lock on it.
 - The handler starts the Flow with a stable Flow ID and a request ID, so a retried request does not start a second Flow. [A minimal service](/components/application#minimal-service) shows the handler.
 

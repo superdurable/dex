@@ -13,11 +13,11 @@ import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
 
 每个 Flow 在整个生命周期内代表一条职位信息。它必须：
 
-1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称保存在 **text1** 全文检索 Search Attribute 中。描述会保存，但不建索引。
-2. 只运行一次 Init Step，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待。
+1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称保存在 `text1` 全文检索 Search Attribute 中。描述会保存，但不建索引。
+2. 只运行一次 Init Step，并行启动 `UpdateLinkedInPosting` 和 `UpdateIndeedPosting`。之后每个 Step 在自己的 Channel 上等待。
 3. 通过读取 RPC 返回当前名称、描述和备注。
-4. 通过更新 RPC 接收新的名称、描述和备注。RPC 声明对 **UpdatePostingLock** 的 lock。这个 Attribute 没有值，只用来加 lock。这样 Dex 一次只运行一个更新，同一时间只有一个更新能分配版本并发布消息。
-5. 递增 **UpdateVersion**，持久化当前职位信息，并把同一个不可变 **PostingUpdate** 发布到 **LinkedInPostingUpdates** 和 **IndeedPostingUpdates**。消息包含版本、稳定的幂等键和职位快照。
+4. 通过更新 RPC 接收新的名称、描述和备注。RPC 声明对 `UpdatePostingLock` 的 lock。这个 Attribute 没有值，只用来加 lock。这样 Dex 一次只运行一个更新，同一时间只有一个更新能分配版本并发布消息。
+5. 递增 `UpdateVersion`，持久化当前职位信息，并把同一个不可变 `PostingUpdate` 发布到 `LinkedInPostingUpdates` 和 `IndeedPostingUpdates`。消息包含版本、稳定的幂等键和职位快照。
 6. 每个 consumer Step 每次从自己的 FIFO Channel 取一条消息。招聘网站调用成功后，Step 回到自身，等待下一条消息。
 7. 独立重试两个招聘网站的调用：首次间隔三秒，最大间隔 60 秒，最多 100 次，总时长不超过一小时。
 8. 删除职位时停止 Flow。搜索操作通过建立索引的 Attribute 查找活跃职位。
@@ -27,7 +27,7 @@ import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
 需要处理的故障：
 
 - 如果缺少必需的初始 Attribute，或者值无法编码，创建 Flow 会失败。这时 Dex 不会创建 Flow，也不会留下只有部分状态的 Flow。
-- Flow ID 不存在、Flow 已停止、输入无法持久化，或者另一个 RPC 持有 **UpdatePostingLock** 时，更新 RPC 会失败。lock conflict 可以安全重试。
+- Flow ID 不存在、Flow 已停止、输入无法持久化，或者另一个 RPC 持有 `UpdatePostingLock` 时，更新 RPC 会失败。lock conflict 可以安全重试。
 - LinkedIn 或 Indeed 可能不可用、超时、限流或拒绝职位信息。一个 consumer 可以继续运行，而另一个仍在重试或最终失败。
 - 远端请求可能已经成功，但响应丢失。幂等键由版本生成，外部适配器可以据此丢弃重复的重试。
 - consumer 重试期间，发往该招聘网站的后续消息会一直等到它成功或用完重试。这样能保持 FIFO 顺序：较新的职位信息不会越过较旧的。

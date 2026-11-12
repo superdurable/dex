@@ -35,15 +35,15 @@ Decide how your product handles these failures:
 
 **Initialize** starts three long-running branches:
 
-**Initialize** → **Trial** → **ChargeCurrentBill** ↻
+**Initialize** → **Trial** → `ChargeCurrentBill` ↻
 
 **Initialize** → **Cancel**
 
-**Initialize** → **UpdateChargeAmount** ↻
+**Initialize** → `UpdateChargeAmount` ↻
 
-**Trial** waits for the trial Timer, then moves to the billing loop. Each **ChargeCurrentBill** execution increments the billing-period Attribute and waits for the period's Timer. When the Timer fires, it charges the period. After the last period, it completes the whole Flow instead. **Cancel** and **UpdateChargeAmount** run alongside this path. Each waits for one Channel message at a time.
+**Trial** waits for the trial Timer, then moves to the billing loop. Each `ChargeCurrentBill` execution increments the billing-period Attribute and waits for the period's Timer. When the Timer fires, it charges the period. After the last period, it completes the whole Flow instead. **Cancel** and `UpdateChargeAmount` run alongside this path. Each waits for one Channel message at a time.
 
-The billing schedule is a Step that moves back to itself after each period. No process has to stay in memory between charges. The customer, plan, and billing counter live in Attributes, so every branch reads the current values instead of a copy in Worker memory. **Cancel** and the last **ChargeCurrentBill** force-complete the Flow, which also ends the waits in the other branches.
+The billing schedule is a Step that moves back to itself after each period. No process has to stay in memory between charges. The customer, plan, and billing counter live in Attributes, so every branch reads the current values instead of a copy in Worker memory. **Cancel** and the last `ChargeCurrentBill` force-complete the Flow, which also ends the waits in the other branches.
 
 The Rust example has the same state, billing loop, and control branches, with one difference. Clients update or cancel through RPCs, and each RPC publishes to an internal Channel. In the other SDK examples, clients publish to the Channels directly.
 
@@ -314,7 +314,7 @@ impl Flow for SubscriptionFlow {
 
 ## Demo
 
-In this Go run, the Flow stored the subscription and started **Trial**, **Cancel**, and **UpdateChargeAmount**. It applied a price update, then completed when the subscription was canceled. Completed nodes are finished Step executions. Waiting nodes show what each Step was still waiting for when the cancellation ended the Flow.
+In this Go run, the Flow stored the subscription and started **Trial**, **Cancel**, and `UpdateChargeAmount`. It applied a price update, then completed when the subscription was canceled. Completed nodes are finished Step executions. Waiting nodes show what each Step was still waiting for when the cancellation ended the Flow.
 
 <a href="/img/use-cases/subscription-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img

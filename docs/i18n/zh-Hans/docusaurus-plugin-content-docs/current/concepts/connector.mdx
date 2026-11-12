@@ -24,7 +24,7 @@ Connector 只提供它的服务商需要的能力。你的应用使用它所引�
 
 ## 操作就是现成的 Step {#operation-是-connector-step}
 
-每个操作都有一个工厂函数，用来创建 Connector Step。你的应用把当前 Step 的输入映射成服务商的输入，并把每个必需的结果分支连到另一个 Step。服务商调用在 **Execute** 中运行，所以和其他 [Step](/concepts/step) 一样，享有 Dex 的重试、超时、持久性和恢复。
+每个操作都有一个工厂函数，用来创建 Connector Step。你的应用把当前 Step 的输入映射成服务商的输入，并把每个必需的结果分支连到另一个 Step。服务商调用在 `Execute` 中运行，所以和其他 [Step](/concepts/step) 一样，享有 Dex 的重试、超时、持久性和恢复。
 
 Connector 的结果包含操作输出、回执、选中的分支，以及（如果有的话）安全的失败分类。结果不会把上一个 Step 的输入带下去。业务上下文要保存在 [Attribute](/concepts/primitives/attribute) 中，或者在调用 Connector 之前，通过应用自己的 Step 传递。
 

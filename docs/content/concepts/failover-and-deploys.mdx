@@ -16,7 +16,7 @@ was in progress. This page lists each event and what runs again.
 | A Worker crashes or stops | The Step attempts it was running | Key external calls with an [idempotency key](/concepts/step#idempotency-keys). |
 | A Dex Server node fails over | Every attempt that a Worker had received | The same. Each attempt also consumes a retry. |
 | You deploy new Step code | Nothing that already finished | Keep open Flows working. See [Versioning Flow code](/concepts/change-flow-code#versioning-flow-code). |
-| You change **WaitFor** code | Nothing that already waits | Expect old conditions on Steps that already wait. |
+| You change `WaitFor` code | Nothing that already waits | Expect old conditions on Steps that already wait. |
 | An ASYNC Step's start is lost | That attempt, on a new snapshot | Use SYNC when the Step must see one snapshot. |
 | You run Time Travel | Every Step after the chosen point | Key external calls so a repeat has no effect. |
 
@@ -37,7 +37,7 @@ by default to finish, then asks them to cancel. See
 
 When the active node crashes, a standby takes over after the lease expires,
 plus 1 second. The lease is 10 seconds by default. Recovery then fails every
-attempt that a Worker had received, with **NOT_COMPLETED**, and each attempt
+attempt that a Worker had received, with `NOT_COMPLETED`, and each attempt
 consumes a retry. So a Step that was running during a failover runs again,
 even if its Worker kept running. The reason is that the new node did not hand
 out those attempts. The old node's task streams ended with it, so the new node
@@ -67,7 +67,7 @@ A graceful step down releases the lease, so a standby takes over at once.
 
 Each Step attempt runs the code of the Worker that takes it; Dex does not
 [replay](/concepts/change-flow-code#versioning-flow-code) earlier Steps. A Flow that waits in a Step
-today runs the new **Execute** when its conditions are met.
+today runs the new `Execute` when its conditions are met.
 
 During a rolling deploy, a Worker that lacks a Step type or RPC declines it.
 Dex hands the call to another Worker, and the Step attempt is not used up. See
@@ -79,8 +79,8 @@ Attribute decides which path a Flow takes. See
 
 ## You change WaitFor code
 
-**WaitFor** returns a Wait, and Dex stores it. A Step that already waits keeps
-the conditions its **WaitFor** returned. New **WaitFor** code applies to Step
+`WaitFor` returns a Wait, and Dex stores it. A Step that already waits keeps
+the conditions its `WaitFor` returned. New `WaitFor` code applies to Step
 executions that start after the deploy. To change what an old Step waits for,
 publish to its Channel or skip its Timer, or start a new Flow.
 

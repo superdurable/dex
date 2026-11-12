@@ -10,34 +10,34 @@ A durable agent session is one Flow run that holds one conversation. Each model 
 
 ## A durable agent session {#a-durable-agent-session}
 
-One Flow run is one agent session. The Flow ID is the session ID. Dex Agents builds the session Flow: the **dex-agents** package in Python and **@superdurable/dex-agents** in TypeScript. A framework adapter adds one agent framework to it.
+One Flow run is one agent session. The Flow ID is the session ID. Dex Agents builds the session Flow: the **dex-agents** package in Python and `@superdurable/dex-agents` in TypeScript. A framework adapter adds one agent framework to it.
 
 The session stores the conversation in Attributes. A session waits for the next user message without using a Worker task slot.
 
-Model calls run in a **RunModel** Step. In most harnesses, each **RunModel** Step makes one model call, and each tool call runs in its own Step. The Steps of one turn are:
+Model calls run in a `RunModel` Step. In most harnesses, each `RunModel` Step makes one model call, and each tool call runs in its own Step. The Steps of one turn are:
 
 | Step | What it does |
 | --- | --- |
-| **RunModel** | Makes one model call and records the response. |
-| **CallTool** | Runs one call of a read or an idempotent write. Dex may retry it. |
-| **CallSingleAttemptTool** | Runs one call of any other write. Dex runs it at most once. |
-| **AwaitToolApproval** | Waits for a person to approve or reject a tool call. It holds no Worker. |
-| **ResumeTurn** | Waits for every tool result of the model response, then moves back to **RunModel**. |
+| `RunModel` | Makes one model call and records the response. |
+| `CallTool` | Runs one call of a read or an idempotent write. Dex may retry it. |
+| `CallSingleAttemptTool` | Runs one call of any other write. Dex runs it at most once. |
+| `AwaitToolApproval` | Waits for a person to approve or reject a tool call. See [Approvals](/agent-frameworks/approvals). |
+| `ResumeTurn` | Waits for every tool result of the model response, then moves back to `RunModel`. |
 
-The tool calls of one model response run in parallel. When they all finish, **ResumeTurn** sends their results to the model.
+The tool calls of one model response run in parallel. When they all finish, `ResumeTurn` sends their results to the model.
 
 ### Latency and cost {#latency-and-cost}
 
-Every session Step is SYNC: Dex commits the Step's result to object storage before the session moves on. A turn in which the model asks for three tools and then answers takes six Steps: two **RunModel**, three tool Steps, and one **ResumeTurn**. [Performance and Maturity](/intro/performance-and-maturity#latency-below-the-peak) measured a p50 of about 105 ms for a SYNC Step on a 2-vCPU server at half of its peak load. The three tool Steps run in parallel, so the turn waits on four Steps in a row. At that p50, they add about 0.4 seconds to the turn, on top of the model and tool time.
+Every session Step is SYNC: Dex commits the Step's result to object storage before the session moves on. A turn in which the model asks for three tools and then answers takes six Steps: two `RunModel`, three tool Steps, and one `ResumeTurn`. [Performance and Maturity](/intro/performance-and-maturity#latency-below-the-peak) measured a p50 of about 105 ms for a SYNC Step on a 2-vCPU server at half of its peak load. The three tool Steps run in parallel, so the turn waits on four Steps in a row. At that p50, they add about 0.4 seconds to the turn, on top of the model and tool time.
 
-A **RunModel** Step retries up to three attempts within 30 minutes. A retry sends the model call to the provider again, so you pay for its tokens again. **run_model_limit** in Python, or **runModelLimit** in TypeScript, lowers the attempts for an expensive call. [Step timeouts](/reference/agents/workers#timeouts) lists the defaults.
+A `RunModel` Step retries up to three attempts within 30 minutes. A retry sends the model call to the provider again, so you pay for its tokens again. `run_model_limit` in Python, or `runModelLimit` in TypeScript, lowers the attempts for an expensive call. [Step timeouts](/reference/agents/workers#timeouts) lists the defaults.
 
 A crash repeats only the Step that was running. Dex does not replay the loop. So the agent code needs no determinism rules, and a code change takes effect at the next Step.
 
 Two harnesses group more work into one Step:
 
-- **Claude Agent SDK.** The Claude Code CLI runs a turn segment in one **RunModel** Step. The segment holds the model calls and the read tool calls, and a failed segment reruns as a whole. Writes leave the segment one at a time, each in its own Step, so they never run in parallel.
-- **LangChain and LangGraph.** One **RunModel** Step runs the graph to its next tool calls. A graph can make several model calls on the way, and a retry repeats them together.
+- **Claude Agent SDK.** The Claude Code CLI runs a turn segment in one `RunModel` Step. The segment holds the model calls and the read tool calls, and a failed segment reruns as a whole. Writes leave the segment one at a time, each in its own Step, so they never run in parallel.
+- **LangChain and LangGraph.** One `RunModel` Step runs the graph to its next tool calls. A graph can make several model calls on the way, and a retry repeats them together.
 
 ### What a session remembers {#what-a-session-remembers}
 
@@ -49,7 +49,7 @@ A stopped session stays readable for the retention period, and then Dex deletes 
 
 ## How your framework runs a turn {#how-each-framework-runs-a-turn}
 
-Most adapters stop the framework before a tool runs, so each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The next **RunModel** gives the framework the recorded results, so no tool runs again. A turn that looks up an order runs **RunModel**, **CallTool**, **ResumeTurn**, and **RunModel**. The Claude Agent SDK is the exception: it runs reads inside **RunModel**.
+Most adapters stop the framework before a tool runs, so each tool call runs in its own Step, in parallel: `CallTool` for a read or an idempotent write, `CallSingleAttemptTool` for any other write. A call that needs approval waits in `AwaitToolApproval` first. The next `RunModel` gives the framework the recorded results, so no tool runs again. A turn that looks up an order runs `RunModel`, `CallTool`, `ResumeTurn`, and `RunModel`. The Claude Agent SDK is the exception: it runs reads inside `RunModel`.
 
 The tabs show how each framework is stopped and resumed, and where a framework differs.
 
@@ -66,13 +66,13 @@ Use the [built-in agent loop](/agent-frameworks/built-in-agent-loop) when you wa
 
 **How a session runs**
 
-Claude Code runs a whole turn, so the adapter splits a turn into segments. One **RunModel** Step runs the CLI for one segment. Model calls run inside the segment. So do read tools: a deferred read would restart the CLI. A Connector tool call is the exception: it always leaves the segment, even a read. See [Connect Connectors](/agent-frameworks/connectors-as-tools#connect-connectors).
+Claude Code runs a whole turn, so the adapter splits a turn into segments. One `RunModel` Step runs the CLI for one segment. Model calls run inside the segment. So do read tools: a deferred read would restart the CLI. A Connector tool call is the exception: it always leaves the segment, even a read. See [Connect Connectors](/agent-frameworks/connectors-as-tools#connect-connectors).
 
-A write tool call ends the segment. It waits in **AwaitToolApproval** when it needs approval. Then it runs in its own Step: **CallTool** for an idempotent write, **CallSingleAttemptTool** for any other write. **ResumeTurn** then returns to **RunModel**, which resumes the same Claude session. The CLI gets the recorded result and does not run the tool again.
+A write tool call ends the segment. It waits in `AwaitToolApproval` when it needs approval. Then it runs in its own Step: `CallTool` for an idempotent write, `CallSingleAttemptTool` for any other write. `ResumeTurn` then returns to `RunModel`, which resumes the same Claude session. The CLI gets the recorded result and does not run the tool again.
 
 A failed segment retries, up to three attempts, and reruns whole. Model calls and reads inside it run again. A write that ran in its own Step does not run again when the segment retries.
 
-A turn that looks up an order runs one **RunModel** Step. A turn that cancels an order runs **RunModel**, **AwaitToolApproval**, **CallSingleAttemptTool**, **ResumeTurn**, and **RunModel**.
+A turn that looks up an order runs one `RunModel` Step. A turn that cancels an order runs `RunModel`, `AwaitToolApproval`, `CallSingleAttemptTool`, `ResumeTurn`, and `RunModel`.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -85,26 +85,26 @@ Use it when your agent already uses Google ADK, including sequential, loop, and 
 
 **How a session runs**
 
-The adapter adds a plugin to the ADK App. For each tool call, the plugin asks ADK for a confirmation, so ADK pauses before the tool runs. Each **RunModel** Step makes one model call and stores the turn's ADK events.
+The adapter adds a plugin to the ADK App. For each tool call, the plugin asks ADK for a confirmation, so ADK pauses before the tool runs. Each `RunModel` Step makes one model call and stores the turn's ADK events.
 
-The tool Step runs the tool once. The next **RunModel** confirms the paused calls, and the plugin returns the recorded results instead of running the tools again.
+The tool Step runs the tool once. The next `RunModel` confirms the paused calls, and the plugin returns the recorded results instead of running the tools again.
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-LangChain **create_agent** builds a tool-calling agent on LangGraph. The Dex adapter runs a **create_agent** agent or a custom LangGraph graph inside a durable session. It is available for Python.
+LangChain `create_agent` builds a tool-calling agent on LangGraph. The Dex adapter runs a `create_agent` agent or a custom LangGraph graph inside a durable session. It is available for Python.
 
 **When to use it**
 
-Use it when your agent already uses LangChain **create_agent** or a LangGraph graph. Keep the graph, its middleware, and its tools, and let Dex own the session.
+Use it when your agent already uses LangChain `create_agent` or a LangGraph graph. Keep the graph, its middleware, and its tools, and let Dex own the session.
 
 **How a session runs**
 
-**DurableToolCallMiddleware** stops each tool call with a LangGraph interrupt, so no tool runs inside **RunModel**. The **RunModel** Step runs the graph to its next tool calls, usually with one model call, and stores the graph checkpoint.
+`DurableToolCallMiddleware` stops each tool call with a LangGraph interrupt, so no tool runs inside `RunModel`. The `RunModel` Step runs the graph to its next tool calls, usually with one model call, and stores the graph checkpoint.
 
-The tool Step validates the arguments and calls the tool once. The next **RunModel** restores the checkpoint and resumes the graph with the recorded results.
+The tool Step validates the arguments and calls the tool once. The next `RunModel` restores the checkpoint and resumes the graph with the recorded results.
 
-A custom graph builds its tool node with **durable_tool_node** instead of **ToolNode**. Its state must hold the conversation as LangChain messages.
+A custom graph builds its tool node with `durable_tool_node` instead of `ToolNode`. Its state must hold the conversation as LangChain messages.
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
@@ -117,9 +117,9 @@ Use it when your agent already uses Mastra. Keep the agent, its tools, and its m
 
 **How a session runs**
 
-Every agent tool, read tools included, goes to Mastra as a client tool. So Mastra stops after the model call with the tool calls. Each **RunModel** Step makes one model call.
+Every agent tool, read tools included, goes to Mastra as a client tool. So Mastra stops after the model call with the tool calls. Each `RunModel` Step makes one model call.
 
-Each tool call runs the agent's original tool once, in its own Step. The next **RunModel** adds the recorded results and calls the model again.
+Each tool call runs the agent's original tool once, in its own Step. The next `RunModel` adds the recorded results and calls the model again.
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
@@ -132,11 +132,11 @@ Use it when your agent already uses the OpenAI Agents SDK, with or without hando
 
 **How a session runs**
 
-The adapter copies the agent graph once and intercepts every function tool. So the SDK stops right after each model call and returns the tool calls the model asks for. Each **RunModel** Step makes one model call.
+The adapter copies the agent graph once and intercepts every function tool. So the SDK stops right after each model call and returns the tool calls the model asks for. Each `RunModel` Step makes one model call.
 
-Each function tool call runs in its own Step. The next **RunModel** restores the SDK's run state and gives it the recorded results. The tool does not run again.
+Each function tool call runs in its own Step. The next `RunModel` restores the SDK's run state and gives it the recorded results. The tool does not run again.
 
-A handoff is not a function tool. It runs inside **RunModel**, so a Step that hands off also makes the next agent's model call.
+A handoff is not a function tool. It runs inside `RunModel`, so a Step that hands off also makes the next agent's model call.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
@@ -149,9 +149,9 @@ Use it when your agent already uses Pydantic AI. Keep the agent, its tools, and 
 
 **How a session runs**
 
-Each **RunModel** Step runs the agent with a capability that marks every function tool as an external tool. Pydantic AI never runs an external tool, so the run ends right after the model asks for tools.
+Each `RunModel` Step runs the agent with a capability that marks every function tool as an external tool. Pydantic AI never runs an external tool, so the run ends right after the model asks for tools.
 
-The tool Step runs the tool once, through the agent, so the agent's tool hooks run there. The next **RunModel** resumes the run with the recorded results.
+The tool Step runs the tool once, through the agent, so the agent's tool hooks run there. The next `RunModel` resumes the run with the recorded results.
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
@@ -160,13 +160,13 @@ The Vercel AI SDK gives TypeScript one API for many model providers, with typed 
 
 **When to use it**
 
-Use it when your TypeScript application already uses AI SDK models and tools. Keep the model, the tools, and **stopWhen**, and let Dex own the session.
+Use it when your TypeScript application already uses AI SDK models and tools. Keep the model, the tools, and `stopWhen`, and let Dex own the session.
 
 **How a session runs**
 
-Every tool reaches the model without its **execute**, so the AI SDK returns the tool calls instead of running them. Each **RunModel** Step makes one model call with **streamText**.
+Every tool reaches the model without its **execute**, so the AI SDK returns the tool calls instead of running them. Each `RunModel` Step makes one model call with `streamText`.
 
-Each tool call runs the tool's original **execute** in its own Step. The next **RunModel** adds the recorded results, checks **stopWhen**, and calls the model again.
+Each tool call runs the tool's original **execute** in its own Step. The next `RunModel` adds the recorded results, checks `stopWhen`, and calls the model again.
 
 </FrameworkTab>
 </FrameworkTabs>
@@ -180,7 +180,7 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 
 - One write call per segment leaves the turn. A reply with two writes costs one more segment and model call. The writes of one reply never run as parallel Steps.
 - Tools that run inside the CLI, such as **Bash** or **Edit**, are at least once. They run again when a segment reruns. Files the CLI changes are not recorded.
-- A segment must finish within the **RunModel** method timeout, 15 minutes by default. Raise it with **run_model_limit** in Python or **runModelLimit** in TypeScript.
+- A segment must finish within the `RunModel` method timeout, 15 minutes by default. Raise it with `run_model_limit` in Python or `runModelLimit` in TypeScript.
 - Dex compaction is not available. Claude Code compacts its own transcript. A long session ends at the state limit, not the context window: the active state of one session, 64 MiB by default ([Session limits](/reference/agents/session-limits)).
 - A recorded tool result keeps text only.
 - A write call inside a subagent is denied. The model is asked to call it from the main conversation.
@@ -188,40 +188,40 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
 
-- The App root must be a **BaseAgent**. ADK **Workflow** roots are not supported.
-- A tool runs outside the ADK run, with a fresh **ToolContext**. Its state and artifact changes are discarded. Pass what it needs as arguments.
+- The App root must be a `BaseAgent`. ADK **Workflow** roots are not supported.
+- A tool runs outside the ADK run, with a fresh `ToolContext`. Its state and artifact changes are discarded. Pass what it needs as arguments.
 - A tool that asks for a confirmation or a credential inside its Step fails.
-- Agents that continue without tools make their model calls in the same **RunModel**.
-- A **before_tool_callback** runs in the **RunModel** that requests the call, and again if that Step retries.
-- Code executors other than **BuiltInCodeExecutor** are refused. Run such code from a tool instead.
+- Agents that continue without tools make their model calls in the same `RunModel`.
+- A `before_tool_callback` runs in the `RunModel` that requests the call, and again if that Step retries.
+- Code executors other than `BuiltInCodeExecutor` are refused. Run such code from a tool instead.
 - **app:** and **user:** state keys live in the Dex session, not across sessions.
 
 </FrameworkTab>
 <FrameworkTab framework="langchain-langgraph">
 
-- A graph whose nodes make several model calls before a tool node makes them all in one **RunModel**. Summarization middleware and a planner node are examples. A retry repeats them all.
-- Provider-run tools repeat when **RunModel** reruns.
+- A graph whose nodes make several model calls before a tool node makes them all in one `RunModel`. Summarization middleware and a planner node are examples. A retry repeats them all.
+- Provider-run tools repeat when `RunModel` reruns.
 - History is append-only. A graph that edits or removes earlier messages does not change the stored history.
 - Only the message list survives between turns. Other state keys start from their defaults on every turn; within one turn they survive. Keep a value that must last across turns in a store you own, read through a tool.
-- Tools run outside the graph. They cannot use **ToolRuntime**, **InjectedState**, or **InjectedStore**, and cannot return a graph **Command**. **InjectedToolCallId** works.
+- Tools run outside the graph. They cannot use `ToolRuntime`, `InjectedState`, or `InjectedStore`, and cannot return a graph **Command**. `InjectedToolCallId` works.
 - The graph may raise no interrupts of its own.
 
 </FrameworkTab>
 <FrameworkTab framework="mastra">
 
-- Tools Mastra runs itself, such as sub-agents, workflows, and Memory tools, cannot run in a Step. The adapter offers one only when **toolPolicies** names it as a read without approval. It then runs inside **RunModel** and repeats when that Step reruns.
+- Tools Mastra runs itself, such as sub-agents, workflows, and Memory tools, cannot run in a Step. The adapter offers one only when `toolPolicies` names it as a read without approval. It then runs inside `RunModel` and repeats when that Step reruns.
 - Mastra Memory is not used. Do not select a Memory thread in the agent's defaults or scopes. The session stores every message and gives the agent the history. For memory across sessions, give the agent a tool over a store you own, as [What a session remembers](#what-a-session-remembers) describes.
-- **beforeToolCall** and **afterToolCall** hooks run only for tools Mastra runs itself.
-- A tool result reaches the model as text. **toModelOutput** is not applied.
-- A tool that calls **suspend()** fails. Use the session's approval instead.
+- `beforeToolCall` and `afterToolCall` hooks run only for tools Mastra runs itself.
+- A tool result reaches the model as text. `toModelOutput` is not applied.
+- A tool that calls `suspend()` fails. Use the session's approval instead.
 - Tool names must be at most 63 characters of letters, digits, **_**, and **-**, and must not start with a digit or **-**.
 
 </FrameworkTab>
 <FrameworkTab framework="openai-agents-sdk">
 
-- Only function tools get their own Steps. Hosted tools, such as web search, run at the provider during the model call. They repeat when **RunModel** reruns.
-- Tools the SDK runs itself, such as tools of **Agent.mcp_servers** and local shell tools, cannot wait for approval. The adapter refuses them by default.
-  - For an MCP server, pass it through **McpToolSource** in **tool_sources** instead of **mcp_servers**. Each of its tools then runs in its own Step with a policy, and a tool marked **readOnlyHint** is a read. This function from the quick start example adds an MCP server to the Python quick start agent; [openai_agents_mcp.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_mcp.py) has the imports:
+- Only function tools get their own Steps. Hosted tools, such as web search, run at the provider during the model call. They repeat when `RunModel` reruns.
+- Tools the SDK runs itself, such as tools of `Agent.mcp_servers` and local shell tools, cannot wait for approval. The adapter refuses them by default.
+  - For an MCP server, pass it through `McpToolSource` in `tool_sources` instead of `mcp_servers`. Each of its tools then runs in its own Step with a policy, and a tool marked `readOnlyHint` is a read. This function from the quick start example adds an MCP server to the Python quick start agent; [openai_agents_mcp.py](https://github.com/superdurable/dex/blob/main/examples/python/agent-harnesses/agent_harness_examples/quick_start/openai_agents_mcp.py) has the imports:
 
     ```python
     def build_durable_agent_with_mcp(
@@ -243,31 +243,31 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
         )
     ```
 
-  - Or set **allow_at_least_once_tools=True**. Those tools then run inside **RunModel** and repeat when it retries, so use this only for reads.
+  - Or set `allow_at_least_once_tools=True`. Those tools then run inside `RunModel` and repeat when it retries, so use this only for reads.
   - Wrap a write in a function tool to give it its own Step.
 - Function tool names must be unique across the agent graph. The graph is copied when the Flow is built, so later changes to it do not reach the Flow.
-- The session is the history. Do not use server-managed conversation state or SDK sessions. Send each new message with **send_user_message**, and the session gives the agent the earlier turns.
+- The session is the history. Do not use server-managed conversation state or SDK sessions. Send each new message with `send_user_message`, and the session gives the agent the earlier turns.
 - An agent used as a tool runs its nested run inside one tool Step in Python. TypeScript rejects it; hand off instead.
 
 </FrameworkTab>
 <FrameworkTab framework="pydantic-ai">
 
-- Retries that Pydantic AI sends to the model itself make another model call in the same **RunModel** Step. Examples are invalid tool arguments and output that fails validation.
-- Output functions run inside **RunModel** and are at least once. Put a write in a tool instead.
-- Provider-run tools, such as **WebSearchTool**, repeat when **RunModel** reruns.
+- Retries that Pydantic AI sends to the model itself make another model call in the same `RunModel` Step. Examples are invalid tool arguments and output that fails validation.
+- Output functions run inside `RunModel` and are at least once. Put a write in a tool instead.
+- Provider-run tools, such as `WebSearchTool`, repeat when `RunModel` reruns.
 - A deferred tool returns text to the model. Images and files are lost.
-- A tool that asks for approval only while it runs needs a **ToolPolicy** with **requires_approval=True**.
-- **UsageLimits** and tool retry budgets apply per Step, not per turn.
+- A tool that asks for approval only while it runs needs a `ToolPolicy` with `requires_approval=True`.
+- `UsageLimits` and tool retry budgets apply per Step, not per turn.
 
 </FrameworkTab>
 <FrameworkTab framework="vercel-ai-sdk">
 
-- A crash in **RunModel** reruns that model call and any provider-executed tools in it.
-- A tool's **execute** gets **toolCallId** and **abortSignal**. Its **messages** are empty and its **context** is **undefined**.
-- Approval belongs to Dex. AI SDK **toolApproval** is not exposed, and a **needsApproval** function is rejected. Provider-executed tools never wait for approval.
+- A crash in `RunModel` reruns that model call and any provider-executed tools in it.
+- A tool's **execute** gets `toolCallId` and `abortSignal`. Its **messages** are empty and its **context** is **undefined**.
+- Approval belongs to Dex. AI SDK `toolApproval` is not exposed, and a `needsApproval` function is rejected. Provider-executed tools never wait for approval.
 - Every tool runs in Dex, so a tool without **execute**, such as a browser-side tool, is rejected.
 - Tool inputs and outputs must survive JSON.
-- **prepareStep**, **activeTools**, **output**, and stream transforms are not exposed.
+- `prepareStep`, `activeTools`, **output**, and stream transforms are not exposed.
 
 </FrameworkTab>
 </FrameworkTabs>
@@ -275,5 +275,5 @@ Each tab lists the limits of one adapter that change how you write an agent, wit
 ## Related
 
 - [Tool Calls](/agent-frameworks/tool-calls)
-- [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy): what **send_user_message** does while no Worker runs
+- [RPCs during a deploy](/agent-frameworks/production#rpcs-during-a-deploy): what `send_user_message` does while no Worker runs
 - [Agents reference](/reference/agents/)

@@ -14,19 +14,19 @@ Building a new agent without a framework? Start with the [Built-in Agent Loop](/
 
 A small order support agent. It has two tools on an in-memory order desk:
 
-- **look_up_order** reads an order. It is a read, so Dex may retry it.
-- **cancel_order** cancels an order that has not shipped. It is a write, so it runs at most once, and only after a person approves it.
+- `look_up_order` reads an order. It is a read, so Dex may retry it.
+- `cancel_order` cancels an order that has not shipped. It is a write, so it runs at most once, and only after a person approves it.
 
-You see what Dex adds to a plain agent, then run it from the command line and ask it to cancel an order. While the cancellation waits for your approval, you stop the program and start it again. Then you approve the call and check what ran. Last, you kill the program in the middle of a tool call and see what Dex runs again.
+You wrap a plain agent with Dex and ask it to cancel an order. Then you stop the program while the cancellation waits for approval, and again in the middle of a tool call, and check what Dex ran.
 
 <CrashTimeline variant="agent" />
 
 ## Before you start {#before-you-start}
 
-- **dexcli**: run **brew install superdurable/tap/dexcli**. [Run Locally](/components/run-locally) has the other ways to install it.
-- Git, to get the example, and **jq** for one check in step 5.
+- `dexcli`: run **brew install superdurable/tap/dexcli**. [Run Locally](/components/run-locally) has the other ways to install it.
+- Git, to get the example, and `jq` for one check in step 5.
 - **Python 3.11 or later with uv**, or **Node.js 22 or later with npm**, depending on your framework.
-- For Python, nothing else: Google ADK, LangChain, OpenAI Agents SDK, and Pydantic AI run on a local demo model that needs no API key. The Claude Agent SDK and every TypeScript framework call a real model, so they need your provider key, such as **ANTHROPIC_API_KEY** or **OPENAI_API_KEY**, in the environment.
+- For Python, nothing else: Google ADK, LangChain, OpenAI Agents SDK, and Pydantic AI run on a local demo model that needs no API key. The Claude Agent SDK and every TypeScript framework call a real model, so they need your provider key, such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, in the environment.
 
 ## 1. Get the example {#get-the-example}
 
@@ -44,7 +44,7 @@ Keep **dexcli dev** running. Open a second terminal in the **dex** folder for th
 
 Each framework's example file has two functions. The first is the agent as the framework alone writes it, with the two tools. The second wraps the same agent in a Dex agent session and gives each tool a policy. For these two function tools, that is the only change. Tools the framework runs itself, such as MCP servers and hosted tools, need the changes in your framework's [Limits](/agent-frameworks/sessions#limits).
 
-**look_up_order** is a read, and **cancel_order** is a non-idempotent write. [Tool Calls](/agent-frameworks/tool-calls) says how each kind runs and why the write waits for approval.
+`look_up_order` is a read, and `cancel_order` is a non-idempotent write. [Tool Calls](/agent-frameworks/tool-calls) says how each kind runs and why the write waits for approval.
 
 <FrameworkTabs>
 <FrameworkTab framework="claude-agent-sdk">
@@ -551,9 +551,9 @@ export function buildDurableAgent(orderDesk: OrderDesk, model: LanguageModel): A
 </FrameworkTab>
 </FrameworkTabs>
 
-Some adapters need one more thing. LangChain takes a factory and adds **DurableToolCallMiddleware**, which runs each tool call as its own Step. The Claude Agent SDK takes the tools in a list next to the options, so Dex can run each one itself.
+Some adapters need one more thing. LangChain takes a factory and adds `DurableToolCallMiddleware`, which runs each tool call as its own Step. The Claude Agent SDK takes the tools in a list next to the options, so Dex can run each one itself.
 
-The session also needs a Worker and a Client, as any Dex application does. The example creates both in one process. The Worker runs the session's Steps, and the Client starts the session and talks to it:
+The session also needs a Worker and a Client, as any Dex application does. The example creates both in one process. The Worker runs the session's Steps, and the Client starts the session and talks to it. Both also open a [blob cache](/components/application#blob-cache): a local, size-limited directory for large values, which you can delete at any time:
 
 <SdkTabs
   examples={{
@@ -780,13 +780,13 @@ Session openai-agents-quick-start-6792dcbb
 Agent: Local demo response: Order 1001: 2 notebooks, shipped.
 ```
 
-**look_up_order** is a read, so it ran without asking you. Now ask the agent to cancel an order. Use the same command with the message **Cancel order 1002**. This time the program stops and asks:
+`look_up_order` is a read, so it ran without asking you. Now ask the agent to cancel an order. Use the same command with the message **Cancel order 1002**. This time the program stops and asks:
 
 ```text
 cancel_order wants to run with {"order_id":"1002","reason":"requested by the customer"}. Approve? [y/N]
 ```
 
-The session waits in **AwaitToolApproval**. The program reads the waiting call from the session and sends your answer back:
+The session waits in `AwaitToolApproval`. The program reads the waiting call from the session and sends your answer back:
 
 <SdkTabs
   examples={{
@@ -833,7 +833,7 @@ Type **y**. The agent cancels the order and replies.
 
 ## 4. Stop the program while the agent waits {#stop-the-worker}
 
-Ask to cancel an order again, in a new session. When the program asks you to approve, press Ctrl+C instead. The program, its Worker, and its Client are gone, and the program prints how to resume. The session keeps waiting in Dex, and the wait holds no Worker.
+Ask to cancel an order again, in a new session: run the step 3 command again without `--session-id`, and the program starts a new session. When the program asks you to approve, press Ctrl+C instead. The program, its Worker, and its Client are gone, and the program prints how to resume. The session keeps waiting in Dex; [Approvals](/agent-frameworks/approvals) explains how the wait holds no Worker.
 
 Run the program again from the same folder, with the session ID it printed and no message:
 
@@ -968,7 +968,7 @@ npm run agent-quick-start -- vercel-ai --session-id SESSION_ID
 </FrameworkTab>
 </FrameworkTabs>
 
-A new Worker starts, and the program asks about the same **cancel_order** call. Type **y**. The order is cancelled once. The model calls and the look-up before the restart did not run again.
+A new Worker starts, and the program asks about the same `cancel_order` call. Type **y**. The order is cancelled once. The model calls and the look-up before the restart did not run again.
 
 A person can also approve the call in Dex Web instead of in your program. The program's Worker uploads the session graph, so Dex Web shows the **Agent session** tab with plain **dexcli dev**. [Approve in Dex Web](/agent-frameworks/approvals#approve-in-dex-web) shows the steps.
 
@@ -976,7 +976,7 @@ A person can also approve the call in Dex Web instead of in your program. The pr
 
 Step 4 stopped the program while nothing ran. A crash in the middle of a tool call is the harder case. The example can slow each tool call down, so you have time to stop it.
 
-1. Ask about an order again, with a 20-second delay on each tool call. Set **DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20** in front of the step 3 command.
+1. Ask about an order again, with a 20-second delay on each tool call. Set `DEX_ORDER_DESK_TOOL_DELAY_SECONDS=20` in front of the step 3 command.
 2. Within 20 seconds, kill the program as a crash would. Ctrl+C is not a crash: it lets a running call finish first.
 
 <SdkTabs
@@ -1000,7 +1000,7 @@ pkill -9 -f quick-start-main.js
 </SdkSnippet>
 </SdkTabs>
 
-3. Run the program again with **--session-id** and no message. The agent answers with the order.
+3. Run the program again with `--session-id` and no message. The agent answers with the order.
 4. Check how the tool call ran:
 
 ```bash
@@ -1009,13 +1009,13 @@ dexcli flow history --all SESSION_ID | jq '.events[]
   | .payload.context | {finalAttempt, failure: .lastFailureInfo.details.detail}'
 ```
 
-**finalAttempt** is **2**. The first attempt failed because the Worker disconnected. **look_up_order** is a read, so Dex ran it again on the new Worker. The model call before it did not run again.
+`finalAttempt` is **2**. The first attempt failed because the Worker disconnected. `look_up_order` is a read, so Dex ran it again on the new Worker. The model call before it did not run again.
 
-Now try a write. Ask to cancel order 1002 with the delay set, approve it, and kill the program within 20 seconds. Then run it again with **--session-id**.
+Now try a write. Ask to cancel order 1002 with the delay set, approve it, and kill the program within 20 seconds. Then run it again with `--session-id`.
 
-**cancel_order** is a non-idempotent write, so Dex does not run it a second time. The call records **outcome_unknown**, and the agent tells the user so. With the demo model, the reply reads: "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically." Your application then checks the order system before anyone tries again. [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) shows how.
+`cancel_order` is a non-idempotent write, so Dex does not run it a second time. The call records `outcome_unknown`, and the agent tells the user so. With the demo model, the reply reads: "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically." Your application then checks the order system before anyone tries again. [Reconcile outcome_unknown](/agent-frameworks/tool-calls#reconcile-outcome-unknown) shows how.
 
-You have run your first durable agent. Its Worker went away in the middle of a conversation, and the session lost nothing. The read that was cut off ran again, and the write that was cut off was reported as **outcome_unknown** instead of running twice.
+You have run your first durable agent. Its Worker went away in the middle of a conversation, and the session lost nothing. The read that was cut off ran again, and the write that was cut off was reported as `outcome_unknown` instead of running twice.
 
 ## Use it in your own agent {#use-it-in-your-own-agent}
 
@@ -1047,9 +1047,9 @@ npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superd
 
 **Authentication**
 
-The Worker authenticates the Claude Code CLI with **ANTHROPIC_API_KEY**. Set it in the Worker's environment. It never enters Flow state.
+The Worker authenticates the Claude Code CLI with `ANTHROPIC_API_KEY`. Set it in the Worker's environment. It never enters Flow state.
 
-The example builds the CLI's environment so that **ANTHROPIC_API_KEY** is its only credential. Without the key, the example does not register the Claude agent. It serves the other harnesses.
+The example builds the CLI's environment so that `ANTHROPIC_API_KEY` is its only credential. Without the key, the example does not register the Claude agent. It serves the other harnesses.
 
 </FrameworkTab>
 <FrameworkTab framework="google-adk">
@@ -1286,7 +1286,7 @@ export async function askAgent(
 </SdkSnippet>
 </SdkTabs>
 
-It takes the session Flow that your module's **build_durable_agent** or **buildDurableAgent** returns. A turn that needs an approval waits until your app resolves it; [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) shows how.
+It takes the session Flow that your module's `build_durable_agent` or `buildDurableAgent` returns. A turn that needs an approval waits until your app resolves it; [Approve from your application](/agent-frameworks/approvals#approve-from-your-application) shows how.
 
 A web app splits the same pieces across routes:
 
@@ -1299,7 +1299,7 @@ The [Order Support Agent](/use-cases/order-support-agent) example has these rout
 
 #### What replaces Runner.run in a web handler {#web-handler}
 
-Without Dex, a handler calls the framework, such as **Runner.run**, and waits for the reply. With Dex, the handler queues the message on the session and returns. The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The polling in **ask_agent** above suits scripts and tests. A chat UI reads the stream instead. The [AI Agent](/use-cases/ai-agent) example's routes show both halves:
+Without Dex, a handler calls the framework, such as `Runner.run`, and waits for the reply. With Dex, the handler queues the message on the session and returns. The reply arrives on the session's [AgentEvents Stream](/reference/agents/event-stream#read-the-stream), which your UI reads as server-sent events. The polling in `ask_agent` above suits scripts and tests. A chat UI reads the stream instead. The [AI Agent](/use-cases/ai-agent) example's routes show both halves:
 
 <SdkTabs
   examples={{
@@ -1371,5 +1371,5 @@ One chat route queues the message, or the approval answers, and streams the repl
 ## Next
 
 - [Sessions](/agent-frameworks/sessions) explains what survived the restart, and how your framework's turn maps onto Steps.
-- [Tool Calls](/agent-frameworks/tool-calls) explains why **cancel_order** runs at most once, and the one narrow case where a write can run twice.
+- [Tool Calls](/agent-frameworks/tool-calls) explains why `cancel_order` runs at most once, and the one narrow case where a write can run twice.
 - [Order Support Agent](/use-cases/order-support-agent) is the full example, with its HTTP routes.

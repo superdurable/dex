@@ -39,11 +39,15 @@ links to the page that covers it.
   seconds by default. A single-replica setup should use 60 seconds, so it waits
   up to about a minute after a crash. A graceful shutdown hands over at once.
   See [Lease](/reference/server/high-availability#lease).
+- **A stalled object store stops the node.** A log write that object storage
+  does not accept within 10 seconds stops the active node, and a standby takes
+  over after the lease ends. See
+  [When its own dependencies fail](/components/server#dependency-failures).
 - **Failover reruns in-flight Steps.** Recovery fails every attempt that a
   Worker had received, and each one consumes a retry. See
   [Failover and Deploys](/concepts/failover-and-deploys).
 - **The partition count is fixed at the first start.** The first start
-  records **cluster.partitionCount**, 1024 by default for **serve**, and a
+  records `cluster.partitionCount`, 1024 by default for **serve**, and a
   later start with a different count fails. Choose it before the first
   production start. See
   [Partition count](/reference/server/configuration#single-node-partition-count).
@@ -88,7 +92,7 @@ to. See [Install and configure server-zd](/reference/server/configuration).
   Attribute values. See [SYNC and ASYNC Steps](/concepts/step#sync-and-async).
 - **A retried RPC runs again.** Each RPC call is a new request, so a client
   retry can run the handler twice. See [RPC](/concepts/primitives/rpc#guarantees).
-- **A repeated Channel publish delivers twice.** A **PublishToChannel**
+- **A repeated Channel publish delivers twice.** A `PublishToChannel`
   request sent again after a lost response stores the message a second time.
   Publishing once through request IDs is planned in
   [issue 1519](https://github.com/superdurable/dex/issues/1519).

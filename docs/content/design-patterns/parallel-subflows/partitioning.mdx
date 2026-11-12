@@ -16,7 +16,7 @@ Changing the number or order of parents sends some keys to a different parent. I
 
 ## Core implementation
 
-**SubmitStep** first invokes the RPC of the selected parent. If that parent does not exist or is no longer running, **SubmitStep** starts it with the request as its initial input. The parent's **Init** publishes that input to **RequestChannel**, so the request is not lost. If another submitter starts the parent first, the start fails with **FlowAlreadyStarted** and **SubmitStep** retries. Its next execution invokes the RPC on the running parent.
+`SubmitStep` first invokes the RPC of the selected parent. If that parent does not exist or is no longer running, `SubmitStep` starts it with the request as its initial input. The parent's **Init** publishes that input to `RequestChannel`, so the request is not lost. If another submitter starts the parent first, the start fails with `FlowAlreadyStarted` and `SubmitStep` retries. Its next execution invokes the RPC on the running parent.
 
 <SdkTabs
   examples={{

@@ -8,7 +8,7 @@ description: "Your Dex application is the code you deploy."
 
 Your Dex application is the code you deploy. It has two parts:
 
-- A **Worker** hosts Flow definitions. It runs **WaitFor**, **Execute**, and RPC
+- A **Worker** hosts Flow definitions. It runs `WaitFor`, `Execute`, and RPC
   handlers when Dex hands it work.
 - A **Client** starts Flows, calls RPCs, reads Attributes, and searches Flows.
   See [Client](/concepts/client).
@@ -23,7 +23,7 @@ calls. So a Worker needs no inbound port and can run behind NAT or a firewall.
 
 Dex sends every Flow, SubFlow, Step, and RPC call to your Workers. There is no
 Worker address to configure. A Flow that [Dex Web](/components/web)
-or **dexcli** starts also runs on your Workers.
+or `dexcli` starts also runs on your Workers.
 
 A Worker can publish the Flow Definition Graphs of its Flows to the server when
 it starts. Dex Web reads them there to draw each Flow.
@@ -40,7 +40,7 @@ npm install @superdurable/dex                    # TypeScript
 cargo add dex-sdk                                # Rust
 ~~~
 
-For Java, add **io.superdurable:dex-sdk** from Maven Central to your Gradle or
+For Java, add `io.superdurable:dex-sdk` from Maven Central to your Gradle or
 Maven build.
 
 Pin the SDK version in your build, as the [Quick Start](/quick-start) examples
@@ -62,6 +62,29 @@ balancer or inbound port. Your handlers create a Client to start Flows and call
 RPCs. [Dex and your database](/components/your-database) explains how Steps
 write to the database your service already has. [Test Your Flows](/components/testing) shows how to test them against a real Dex Server.
 
+## Start a new project {#start-a-new-project}
+
+The [Quick Start](/quick-start) folder of each language is a complete small
+project. Copy your language's folder, such as `examples/python/quick-start`, out of
+the repository to start your own. Each copy has the same parts:
+
+| Part | Python | Go | Java | TypeScript | Rust |
+| --- | --- | --- | --- | --- | --- |
+| Pinned SDK | `pyproject.toml` and `uv.lock` | `go.mod` and `go.sum` | `build.gradle` | `package.json` and `package-lock.json` | `Cargo.toml` and `Cargo.lock` |
+| The Flow | `quick_start/order_flow.py` | `order_flow.go` | `OrderFlow.java` | `order-flow.ts` | `src/order_flow.rs` |
+| The services the Steps call | `quick_start/shop_api.py` | `shop_api.go` | `ShopApi.java` | `shop-api.ts` | `src/shop_api.rs` |
+| Server address and settings | `quick_start/config.py` | `config.go` | `QuickStartConfig.java` | `config.ts` | `src/config.rs` |
+| Worker program | `worker.py` | `cmd/worker` | `WorkerMain.java` | `worker.ts` | `src/bin/worker.rs` |
+| Start program | `start.py` | `cmd/start` | `StartMain.java` | `start.ts` | `src/bin/start.rs` |
+| HTTP service with the Worker inside | `service.py` | `cmd/service` and `service.go` | `ServiceMain.java` and `OrderService.java` | `service.ts` and `order-service.ts` | `src/bin/service.rs` and `src/order_service.rs` |
+| Integration test | `tests/test_quick_start.py` | `quickstart_test.go` | `QuickStartTest.java` | `test/quick-start.test.ts` | `tests/quick_start.rs` |
+
+After you copy it, rename the project: **name** in `pyproject.toml`, the
+**module** path in `go.mod`, `rootProject.name` in `settings.gradle` and
+the Java package, **name** in `package.json`, or **name** in `Cargo.toml`.
+Then replace the order Flow and the mock API with your own. Keep the SDK pin
+from the copied build file, and update it when you upgrade.
+
 ## Start a Worker {#enable-pull-mode}
 
 Configure the Worker with the server address. A Client needs only the server
@@ -76,7 +99,7 @@ A Worker and a Client each take two more objects:
   Flows in it. The Client uses the same definitions to encode a Flow's start
   input and its RPC arguments, and to decode results. So a Client builds the
   Flow objects too, even though it never runs a Step. A service in another language either has the Flow code in its
-  own language, or calls the FlowService **StartFlow** request over gRPC with
+  own language, or calls the FlowService `StartFlow` request over gRPC with
   the Flow type and an input that the Flow can decode, as
   **dexcli flow start** does.
 - **A blob cache.** Dex sends a large value, such as a big Attribute, as a
@@ -96,7 +119,7 @@ Pass each service that a Flow calls, such as a payment API, to the Flow construc
 
 ## Start a Flow from a handler {#start-a-flow-from-a-handler}
 
-A **start** handler starts the Flow. When the caller needs to know that the first Step finished, such as a charge before the order page shows "paid", the handler waits for that Step with the Client **wait-for-Step-completion** API. The wait ends when Dex records the Step, so the handler needs no status table or polling loop of its own.
+A **start** handler starts the Flow. When the caller needs to know that the first Step finished, such as a charge before the order page shows "paid", the handler waits for that Step with the Client's wait-for-Step-completion call: `wait_for_step_completion` in Python and Rust, `WaitForStepCompletion` in Go, and `waitForStepCompletion` in Java and TypeScript. The wait ends when Dex records the Step, so the handler needs no status table or polling loop of its own.
 
 ### A minimal service {#minimal-service}
 
@@ -206,13 +229,58 @@ Three start options make a retried request safe:
 
 - The **order ID is the Flow ID**. Dex keeps one Flow for each ID, and its default ID reuse policy rejects a second start.
 - The **request ID** is **start-** plus the order ID. It is the same on every retry of this request.
-- The **already-started option** returns the existing run when its request ID matches. It is **ignore_already_started** in Python and Rust, **ignoreAlreadyStarted** in Java and TypeScript, and **AlreadyStarted.IgnoreError** in Go. A different request ID for the same order still gets an already-started error, which the service answers with 409.
+- The **already-started option** returns the existing run when its request ID matches. It is `ignore_already_started` in Python and Rust, `ignoreAlreadyStarted` in Java and TypeScript, and `AlreadyStarted.IgnoreError` in Go. A different request ID for the same order still gets an already-started error, which the service answers with 409.
 
-So when a client sends the request twice, the order is charged once. This holds while the run exists: after Dex deletes a closed run, 7 days by default, the same Flow ID starts a new Flow. [How long these protections last](/components/your-database#how-long-protections-last) gives the details. [Start options and configuration](/concepts/flow#start-options) lists the options, and [Dex and your database](/components/your-database#write-your-row-and-start-the-flow) shows the handler that also writes your own table. Run the service from the example folder, then send an order:
+So when a client sends the request twice, the order is charged once. This holds while the run exists: after Dex deletes a closed run, 7 days by default, the same Flow ID starts a new Flow. [How long these protections last](/components/your-database#how-long-protections-last) gives the details. [Start options and configuration](/concepts/flow#start-options) lists the options, and [Dex and your database](/components/your-database#write-your-row-and-start-the-flow) shows the handler that also writes your own table. Run the service, then send an order.
+
+Start the service from your language's Quick Start folder, such as `examples/python/quick-start`. It runs the Worker in the same process and listens on port 8080; set `QUICK_START_HTTP_PORT` to change it. Java builds the commands first with **./gradlew installDist**.
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```bash
+uv run --frozen python service.py
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```bash
+go run ./cmd/service
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```bash
+build/install/quick-start/bin/service
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```bash
+npm run service
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```bash
+cargo run --locked --bin service
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Then send the same order twice:
 
 ```bash
 curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
+curl -X POST localhost:8080/orders -d '{"orderId": "order-1"}'
 ```
+
+Both requests return the same Flow, and the Worker prints **Charged** once.
 
 ## Send commands and read state through RPCs {#send-commands-through-rpcs}
 

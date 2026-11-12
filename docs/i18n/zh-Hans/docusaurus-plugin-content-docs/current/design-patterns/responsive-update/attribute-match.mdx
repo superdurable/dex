@@ -4,7 +4,7 @@ title: 等待 Attribute 匹配
 
 # 等待 Attribute 匹配
 
-当调用方需要在 durable 业务状态变化后刷新时，使用 **WaitForAttributeMatch**。这个 Attribute 由应用定义，含义也由应用决定。等待只检查这个 Attribute 的值。
+当调用方需要在 durable 业务状态变化后刷新时，使用 `WaitForAttributeMatch`。这个 Attribute 由应用定义，含义也由应用决定。等待只检查这个 Attribute 的值。
 
 常见做法是定义一个初始值为 0 的整数 revision Attribute。所有修改业务状态的 Step 和 RPC 都声明这个 Attribute 的 lock。持有 lock 时，它读取 revision、加一、写入业务状态，再写入新的 revision。
 
@@ -12,11 +12,11 @@ title: 等待 Attribute 匹配
 
 Revision 是 watermark，不是事件流。如果状态快速地从 0 变成 1、2、3，一次等待大于 0 的调用可能直接返回 3。调用方不能假设会观察到每个中间值。
 
-如果在 HTTP endpoint 或其他有自己截止时间的入口里执行等待，请设置 **RequestTimeout**。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
+如果在 HTTP endpoint 或其他有自己截止时间的入口里执行等待，请设置 `RequestTimeout`。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
 
 ## 在锁内推进 revision
 
-Job Posting 示例使用同一个 Attribute lock 串行化 update RPC，并在写入状态的同一次 invocation 中推进 **UpdateVersion**。
+Job Posting 示例使用同一个 Attribute lock 串行化 update RPC，并在写入状态的同一次 invocation 中推进 `UpdateVersion`。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/job_post_flow.py', go: 'examples/go/products/job-post/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostingFlow.java', typescript: 'examples/typescript/src/products/job-post/job-post-flow.ts', rust: 'examples/rust/src/products/job_post/flow.rs'}}>
 <SdkSnippet lang="python">

@@ -6,11 +6,11 @@ slug: /concepts/primitives/timer
 
 # Timer
 
-**Timer** 是一个等到某个时间点的 durable 等待，由 Dex Server 保存。Step 在 **WaitFor** 中返回它，Timer 触发后运行 **Execute**。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
+**Timer** 是一个等到某个时间点的 durable 等待，由 Dex Server 保存。Step 在 `WaitFor` 中返回它，Timer 触发后运行 `Execute`。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
 
 ## 什么时候用 Timer
 
-Timer 适合延迟、提醒或截止时间。把它和另一个 condition 组合，就能实现超时。例如，一个 Step 同时等待 [Channel](/concepts/primitives/channel) 消息和 Timer，哪个先到就继续。在 **Execute** 中，Step 检查它的 Timer 是否已触发。
+Timer 适合延迟、提醒或截止时间。把它和另一个 condition 组合，就能实现超时。例如，一个 Step 同时等待 [Channel](/concepts/primitives/channel) 消息和 Timer，哪个先到就继续。在 `Execute` 中，Step 检查它的 Timer 是否已触发。
 
 ## 保证
 
@@ -133,7 +133,7 @@ impl Step for TimerExampleStep {
 
 ## 跳过 Timer
 
-Client 可以用 **SkipTimer** 跳过一个 Timer。它按 Flow ID、Step execution ID，以及 Timer 的 condition ID 或它在 **WaitFor** 中的 condition 序号选择 Timer。被跳过的 Timer 等同于已经触发。在测试中可以用它；在生产中，也可以用它让等待中的 Step 提前运行。见 [Skip a Timer](/reference/server/runtime-client#skip-a-timer)。
+Client 可以用 `SkipTimer` 跳过一个 Timer。它按 Flow ID、Step execution ID，以及 Timer 的 condition ID 或它在 `WaitFor` 中的 condition 序号选择 Timer。被跳过的 Timer 等同于已经触发。在测试中可以用它；在生产中，也可以用它让等待中的 Step 提前运行。见 [Skip a Timer](/reference/server/runtime-client#skip-a-timer)。
 
 在 order-processing 示例的这个测试里，**Ship** Step 等待一个 Timer，测试跳过了它：
 
@@ -205,7 +205,7 @@ match environment.client.skip_timer(
 </SdkSnippet>
 </SdkTabs>
 
-Step 如何在 **WaitFor** 中组合 condition，见 [Step](/concepts/step)。
+Step 如何在 `WaitFor` 中组合 condition，见 [Step](/concepts/step)。
 
 ## 参考
 

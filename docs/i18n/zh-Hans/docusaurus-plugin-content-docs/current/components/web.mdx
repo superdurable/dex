@@ -19,7 +19,7 @@ Dex Web 是 Dex 的运维界面。用它查找 Flow、跟踪一次运行、读�
 
 Dex Web 作为单独的进程运行。它连接 [server](/components/server) 的 API，也就是 [Worker 和 Client](/components/application) 使用的同一个 API。Dex Web 启动的 Flow 在你的 Worker 上运行。本地开发时，Dex Web 还负责配置 [Connector](/concepts/connector)。
 
-Dex Web 从 server 读取 Flow Definition Graph。Worker 或 **dexcli** 把它们发布到 server。Dex Web 也可以从一个目录读取 graph。这个目录是可选的。同一个 Flow type 两边都有 graph 时，以目录为准。
+Dex Web 从 server 读取 Flow Definition Graph。Worker 或 `dexcli` 把它们发布到 server。Dex Web 也可以从一个目录读取 graph。这个目录是可选的。同一个 Flow type 两边都有 graph 时，以目录为准。
 
 Dex Web 单独校验每份 graph。无效的 graph 会显示它的错误。其他 Flow type 不受影响。
 

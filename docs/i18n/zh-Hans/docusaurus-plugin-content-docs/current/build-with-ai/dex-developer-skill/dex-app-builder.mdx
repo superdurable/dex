@@ -72,8 +72,8 @@ App Builder 在两种管理流程的方式中选一种：
 
 - 应用后端使用 Go；
 - 严格按照 Dex Web 和 Flow Definition Graph 2.0 的渲染要求来写；
-- 只在 **Execute** 中调用外部 provider；
-- **WaitFor** 中不调用 provider，也不修改 Dex 状态；
+- 只在 `Execute` 中调用外部 provider；
+- `WaitFor` 中不调用 provider，也不修改 Dex 状态；
 - 每个人工操作都建模为带明确权限的 typed Action；
 - 凭据放在 Connector 或运行环境中，不放在应用代码里；
 - 使用已发布 Connector 的能力，不在应用里新增 provider client。

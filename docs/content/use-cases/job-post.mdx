@@ -12,11 +12,11 @@ Store one job posting, make it searchable, and deliver every accepted update to 
 
 Each Flow is one job posting for its whole life. It must:
 
-1. Create the Flow with a title, description, last-update timestamp, and update version 0. The title is stored in the **text1** full-text Search Attribute. The description is stored but not indexed.
-2. Run the Init Step once. It starts **UpdateLinkedInPosting** and **UpdateIndeedPosting** in parallel. Each Step then waits on its own Channel.
+1. Create the Flow with a title, description, last-update timestamp, and update version 0. The title is stored in the `text1` full-text Search Attribute. The description is stored but not indexed.
+2. Run the Init Step once. It starts `UpdateLinkedInPosting` and `UpdateIndeedPosting` in parallel. Each Step then waits on its own Channel.
 3. Return the current title, description, and notes through a read RPC.
-4. Accept a replacement title, description, and notes through an update RPC. The RPC declares a lock on **UpdatePostingLock**, an Attribute that holds no value and exists only for this lock. Dex then runs one update at a time, so only one update at a time takes a version and publishes.
-5. Increment **UpdateVersion**, persist the current posting, and publish the same immutable **PostingUpdate** to **LinkedInPostingUpdates** and **IndeedPostingUpdates**. The payload contains the version, a stable idempotency key, and the posting snapshot.
+4. Accept a replacement title, description, and notes through an update RPC. The RPC declares a lock on `UpdatePostingLock`, an Attribute that holds no value and exists only for this lock. Dex then runs one update at a time, so only one update at a time takes a version and publishes.
+5. Increment `UpdateVersion`, persist the current posting, and publish the same immutable `PostingUpdate` to `LinkedInPostingUpdates` and `IndeedPostingUpdates`. The payload contains the version, a stable idempotency key, and the posting snapshot.
 6. Each consumer Step takes one message at a time from its FIFO Channel. After the job-board call succeeds, the Step moves back to itself and waits for the next message.
 7. Retry each job-board call independently with exponential backoff: three seconds initially, at most 60 seconds between attempts, no more than 100 attempts, and no longer than one hour.
 8. Stop the Flow when the posting is deleted. Search can find active postings through their indexed Attributes.
@@ -26,7 +26,7 @@ The update RPC does not wait for LinkedIn or Indeed. It returns the new version 
 Failures to handle:
 
 - Creating the Flow fails if a required initial Attribute is missing or cannot be encoded. Dex then creates no Flow, rather than one with partial state.
-- An update RPC can fail because the Flow ID is unknown, the Flow has stopped, the input cannot be persisted, or another RPC holds **UpdatePostingLock**. A lock conflict is safe to retry.
+- An update RPC can fail because the Flow ID is unknown, the Flow has stopped, the input cannot be persisted, or another RPC holds `UpdatePostingLock`. A lock conflict is safe to retry.
 - LinkedIn or Indeed can be unavailable, time out, rate-limit the request, or reject the posting. One consumer can continue while the other retries or ultimately fails.
 - A job-board request can succeed remotely while its response is lost. The idempotency key is built from the version, so the external adapter can drop the duplicate retry.
 - While a consumer retries, later messages for that job board wait until it succeeds or runs out of retries. This keeps FIFO order: a newer posting never overtakes an older one.

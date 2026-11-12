@@ -13,12 +13,12 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 流程以一个数据值启动，并且必须：
 
 1. 调用 API 1，然后把输入持久化到 **Data** Attribute。
-2. 并发启动 **CallAPI2** 和 **CallAPI3**。
-3. 让 **CallAPI2** 读取当前数据、调用 API 2，并结束自己的分支。
-4. 让 **CallAPI3** 等待一条 **Ready** Channel 消息或一个 24 小时的持久 Timer，任一条件满足即可继续。
+2. 并发启动 `CallAPI2` 和 `CallAPI3`。
+3. 让 `CallAPI2` 读取当前数据、调用 API 2，并结束自己的分支。
+4. 让 `CallAPI3` 等待一条 **Ready** Channel 消息或一个 24 小时的持久 Timer，任一条件满足即可继续。
 5. 允许调用方在 Flow 运行期间调用 **Swap** RPC。RPC 在一次操作中写入新值并返回旧值。
 6. 收到 **Ready** 消息后，使用最新数据调用 API 3，然后完成 Flow。
-7. 如果 Timer 先触发，则调用 API 3，继续到 **CallAPI4**，使用最新数据调用 API 4，然后完成。
+7. 如果 Timer 先触发，则调用 API 3，继续到 `CallAPI4`，使用最新数据调用 API 4，然后完成。
 
 **Ready** 消息通常由另一个服务在异步工作完成后发送。
 
@@ -27,8 +27,8 @@ import flowDefinition from '@site/src/data/flow-definitions/microservice-orchest
 - 下游 API 可能不可用、超时或拒绝输入。Step 必须返回这个错误，让它的重试和失败策略来处理。
 - 下游调用可能已经成功，但响应丢失了。这时 Dex 可能重试 Step，所以生产环境中的 API 操作必须是幂等的。
 - **Swap** RPC 或 **Ready** 发布可能指向不存在或已经完成的 Flow，并返回客户端错误。调用方应保留 Flow ID，并处理这个错误。
-- **Ready** 消息可能一直不来。这是预期内的结果。Timer 触发后，Flow 会继续走 **CallAPI4**。
-- 如果 **Swap** 恰好发生在 **CallAPI2** 和 **CallAPI3** 两次读取之间，两个 Step 会看到不同的值。两个分支不共享快照，各自读取运行时的当前值。
+- **Ready** 消息可能一直不来。这是预期内的结果。Timer 触发后，Flow 会继续走 `CallAPI4`。
+- 如果 **Swap** 恰好发生在 `CallAPI2` 和 `CallAPI3` 两次读取之间，两个 Step 会看到不同的值。两个分支不共享快照，各自读取运行时的当前值。
 
 示例调用的是本地 stub。生产环境中，要给每个 API 调用设置超时和幂等键，并配置适合该 API 的重试或恢复策略。
 
@@ -49,9 +49,9 @@ CallAPI1 ─┬─▶ CallAPI2 ─▶ DeadEnd
 它组合了以下设计模式：
 
 - [**静态并行 Step**](/design-patterns/parallel/static) 把两个服务调用放在不同的 Step 中，各自独立重试。
-- **事件或超时**：**CallAPI3** 用 **Wait.anyOf** 同时等待 Channel 和 Timer。Channel 接收正常的回调，Timer 限制最长等待时间。
+- **事件或超时**：`CallAPI3` 用 `Wait.anyOf` 同时等待 Channel 和 Timer。Channel 接收正常的回调，Timer 限制最长等待时间。
 - **用 Attribute 共享状态**：两个分支在运行时读取 **Data** Attribute，用的是最新值，而不是前面 Step 传下来的副本。
-- **结束分支**：**CallAPI2** 返回 **DeadEnd** 结束自己的分支，由等待的分支完成 Flow。
+- **结束分支**：`CallAPI2` 返回 `DeadEnd` 结束自己的分支，由等待的分支完成 Flow。
 
 每个下游 API 都有独立 Step。因此重试 API 3 不会重复 API 1 或 API 2，Step 执行图也能准确显示哪个调用正在等待、重试或已经完成。
 
@@ -435,7 +435,7 @@ impl Step for CallApiThree {
 
 ## 演示
 
-启动 Dex 和任意语言的示例服务，然后通过 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动 Microservice orchestration。在下面这次运行中，Flow 以 **test initial data** 启动，**Swap** RPC 把它替换为 **updated in-flight data**，随后一条 **Ready** 消息结束等待。**CallAPI1**、**CallAPI2** 和 **CallAPI3** 均已完成；因为 **Ready** 在 24 小时 Timer 触发之前到达，所以 **CallAPI4** 没有执行。
+启动 Dex 和任意语言的示例服务，然后通过 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动 Microservice orchestration。在下面这次运行中，Flow 以 **test initial data** 启动，**Swap** RPC 把它替换为 **updated in-flight data**，随后一条 **Ready** 消息结束等待。`CallAPI1`、`CallAPI2` 和 `CallAPI3` 均已完成；因为 **Ready** 在 24 小时 Timer 触发之前到达，所以 `CallAPI4` 没有执行。
 
 ![已完成的 Microservice orchestration Step 执行图](/img/use-cases/microservice-orchestration-step-execution-graph.jpg)
 

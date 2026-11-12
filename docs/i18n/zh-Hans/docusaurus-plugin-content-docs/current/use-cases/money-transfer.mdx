@@ -35,7 +35,7 @@ Rust 示例简化了余额检查：金额为正数即通过。它把账务变动
 
 这个 Flow 是一个依次运行各 Step 的 saga：
 
-**CheckBalance** → **CreateDebitMemo** → **Debit** → **CreateCreditMemo** → **Credit**
+`CheckBalance` → `CreateDebitMemo` → **Debit** → `CreateCreditMemo` → **Credit**
 
 它用到以下设计模式：
 

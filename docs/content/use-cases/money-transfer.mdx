@@ -35,7 +35,7 @@ Make the dependency calls idempotent. The remote system can complete a call befo
 
 The Flow is a saga that runs one Step after another:
 
-**CheckBalance** → **CreateDebitMemo** → **Debit** → **CreateCreditMemo** → **Credit**
+`CheckBalance` → `CreateDebitMemo` → **Debit** → `CreateCreditMemo` → **Credit**
 
 It uses these design patterns:
 

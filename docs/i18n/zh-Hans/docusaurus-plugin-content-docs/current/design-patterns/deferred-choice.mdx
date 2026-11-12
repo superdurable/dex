@@ -15,9 +15,9 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/defe
 
 ## 工作方式
 
-一个 Step 同时等待所有事件。它的 **WaitFor** 返回 **AnyOf**，每个事件一个 Condition。每种客户回应是一个 Channel Condition，截止时间是一个 Timer。
+一个 Step 同时等待所有事件。它的 `WaitFor` 返回 `AnyOf`，每个事件一个 Condition。每种客户回应是一个 Channel Condition，截止时间是一个 Timer。
 
-第一个 Condition 满足后，这个 Step 的 **Execute** 运行。它检查是哪个 Condition 胜出，然后进入对应的分支。
+第一个 Condition 满足后，这个 Step 的 `Execute` 运行。它检查是哪个 Condition 胜出，然后进入对应的分支。
 
 ```pseudocode
 rpc acceptCustomerOffer(note) -> OfferAccepted.publish(note)
@@ -34,21 +34,21 @@ AwaitOfferResponse.execute
 
 ## 规则
 
-- **AnyOf** 只消费胜出 Condition 的消息。落败的回应仍留在它的 Channel 中等待。
+- `AnyOf` 只消费胜出 Condition 的消息。落败的回应仍留在它的 Channel 中等待。
 - 多个 Channel Condition 同时就绪时，先声明的胜出。按业务优先级声明它们。在示例中，如果接受和拒绝都已在等待，选中的是接受。
-- 在 **Execute** 中，用 **HasTimerFired** 检查 Timer，不要把“没有回应”当作已过期。读取 Channel 结果判断客户回应。落败的 Channel 没有结果。
+- 在 `Execute` 中，用 `HasTimerFired` 检查 Timer，不要把“没有回应”当作已过期。读取 Channel 结果判断客户回应。落败的 Channel 没有结果。
 - Timer 从 Step 开始等待时计时。Worker 和 Server 重启后它仍然有效。Step 等待期间不占用 Worker。
 - 选择完成后才到达的回应不会改变已选的分支。Flow 仍在运行时，RPC 会成功，并发布一条没有 Step 消费的消息。Flow 关闭后，Dex 会拒绝这个 RPC。所以 RPC 调用成功并不代表这个回应胜出。调用方要知道最终结果，应读取 Flow 结果。
-- 测试过期分支时，用 Client 的 **SkipTimer** 跳过 Timer。不要为了测试缩短业务截止时间。
+- 测试过期分支时，用 Client 的 `SkipTimer` 跳过 Timer。不要为了测试缩短业务截止时间。
 
 ## 相关形状
 
-- [Reminder](/design-patterns/durable-timer/reminder)、[Inactivity tracker](/design-patterns/durable-timer/inactiveness-tracker-timer) 和 [Inbound Event Loop](/design-patterns/inbound-event-loop) 也等待 Timer 和 Channel 的 **AnyOf**。它们会回到同一个 Step 循环。Deferred Choice 只决定一次，然后继续往下走。
+- [Reminder](/design-patterns/durable-timer/reminder)、[Inactivity tracker](/design-patterns/durable-timer/inactiveness-tracker-timer) 和 [Inbound Event Loop](/design-patterns/inbound-event-loop) 也等待 Timer 和 Channel 的 `AnyOf`。它们会回到同一个 Step 循环。Deferred Choice 只决定一次，然后继续往下走。
 - [First-Win Parallel Steps](/design-patterns/parallel/first-win) 让 Flow 自己启动的工作互相竞争。Deferred Choice 让外部事件互相竞争。
 
 ## 示例
 
-**OfferResponseFlow** 以报价 ID 启动。**AwaitOfferResponse** 等待 **acceptCustomerOffer** RPC、**rejectCustomerOffer** RPC 或 3 天的 Timer，然后进入 **FulfillOffer**、**CloseRejectedOffer** 或 **ExpireOffer**。这三个 Step 都用各自的结果完成 Flow。
+`OfferResponseFlow` 以报价 ID 启动。`AwaitOfferResponse` 等待 `acceptCustomerOffer` RPC、`rejectCustomerOffer` RPC 或 3 天的 Timer，然后进入 `FulfillOffer`、`CloseRejectedOffer` 或 `ExpireOffer`。这三个 Step 都用各自的结果完成 Flow。
 
 <SdkTabs
   examples={{
@@ -244,7 +244,7 @@ impl Step for AwaitOfferResponse {
 
 ## 反模式
 
-- 为每个事件启动一个并行 Step，先完成的取消其余 Step。一个 **AnyOf** 等待就能做出选择，分支之间没有竞争。
+- 为每个事件启动一个并行 Step，先完成的取消其余 Step。一个 `AnyOf` 等待就能做出选择，分支之间没有竞争。
 - 用 Timer 循环检查某个 Attribute，看客户是否已回应。
 - 用单独的 Flow、cron 任务或数据库任务执行截止时间。
 
