@@ -120,11 +120,11 @@ class CliHome:
         environment.update(self.extra_environment)
         return environment
 
-    def spawn(self, *arguments: str) -> pexpect.spawn:
-        """Start the scripted command in a pseudo-terminal."""
+    def spawn(self, *arguments: str, command_module: str = "tests.scripted_cli") -> pexpect.spawn:
+        """Start the scripted command, or another test command, in a pseudo-terminal."""
         child = pexpect.spawn(
             sys.executable,
-            ["-m", "tests.scripted_cli", *arguments],
+            ["-m", command_module, *arguments],
             cwd=str(PACKAGE_DIR),
             env=self.environment(),
             encoding="utf-8",

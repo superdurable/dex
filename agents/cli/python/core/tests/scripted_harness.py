@@ -18,6 +18,7 @@ The last user message picks the reply:
 * ``calls <json list of [tool, arguments]>``: calls several tools in one response.
 * ``ask``: asks the user a question with the ``ask_user`` built-in tool.
 * ``slow``: waits five minutes before answering, so the turn can be cancelled.
+* ``block``: blocks the Worker's event loop in a sleep for a minute.
 * ``fail``: raises, so the model call fails and, after its retries, the turn.
 * ``images``: lists the session's images that the model call loaded from the
   media store, as ``saw image <sha256> <bytes>`` joined by ``; ``, or
@@ -34,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from pathlib import Path
@@ -80,6 +82,7 @@ DEFAULT_INSTRUCTIONS = "You are the scripted test agent."
 #: Set to ``1`` to make ``tests.scripted_cli`` run a harness whose runner takes no images.
 WITHOUT_IMAGES_ENVIRONMENT_VARIABLE = "DEX_AGENTS_TEST_WITHOUT_IMAGES"
 _SLOW_REPLY_SECONDS = 300
+_BLOCKED_LOOP_SECONDS = 60
 _MAX_SHOWN_OUTPUT = 300
 # The image bytes the running model call loaded, by SHA-256, in load order.
 _LOADED_IMAGES: ContextVar[Mapping[str, bytes]] = ContextVar(
@@ -249,6 +252,10 @@ def _responder(model_name: str, cached_at_build: list[str]) -> Any:
             case "slow":
                 await asyncio.sleep(_SLOW_REPLY_SECONDS)
                 return ScriptedModelReply(text="slow reply")
+            case "block":
+                # A blocking call on purpose: it stalls the event loop, but releases the GIL.
+                time.sleep(_BLOCKED_LOOP_SECONDS)  # noqa: ASYNC251
+                return ScriptedModelReply(text="unblocked")
         return ScriptedModelReply(text=f"echo: {text}")
 
     return respond
