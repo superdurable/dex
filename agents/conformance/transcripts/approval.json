@@ -200,7 +200,7 @@
         "turn_id": "turn-1",
         "attempt": 1,
         "step_execution_id": "RunModel-1",
-        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"interrupt_id\":\"RunModel-1-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\"}"
+        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"display\":null,\"interrupt_id\":\"RunModel-1-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-1-0\",\"tool_name\":\"send_email\"}"
       },
       {
         "type": "usage_recorded",
@@ -270,7 +270,7 @@
         "turn_id": "turn-2",
         "attempt": 1,
         "step_execution_id": "RunModel-3",
-        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"interrupt_id\":\"RunModel-3-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"send_email\"}"
+        "payload": "{\"allows_free_text\":true,\"choices\":[],\"deadline\":null,\"display\":null,\"interrupt_id\":\"RunModel-3-0\",\"kind\":\"tool_approval\",\"question\":null,\"tool_call_id\":\"RunModel-3-0\",\"tool_name\":\"send_email\"}"
       },
       {
         "type": "usage_recorded",
@@ -353,6 +353,7 @@
             "choices": [],
             "created_at": "<timestamp>",
             "deadline": null,
+            "display": null,
             "interrupt_id": "RunModel-1-0",
             "kind": "tool_approval",
             "question": null,
@@ -376,6 +377,7 @@
         "steered_messages": [],
         "tool_calls": [
           {
+            "approval_display": null,
             "arguments": "{\"to\": \"ops@example.com\", \"body\": \"Order 7 shipped ✓\"}",
             "cancellation_reason": null,
             "deferral_order": 0,

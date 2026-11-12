@@ -31,6 +31,7 @@ dex-agents-<name> [run|init|connectors|sessions] [options]
   -y, --yes             Write and use the defaults instead of asking.
   -r, --resume <id>     Continue a session.
   -m, --model <id>      Override the configured model.
+      --plain           Chat in plain text lines, without the dexcli terminal UI.
 ```
 
 Without a configuration file, `run` asks the `init` questions at a terminal
@@ -124,6 +125,129 @@ and has no time or turn count until its next turn:
 ```text
 builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  Find open issues about flaky tests
 ```
+
+### The terminal UI (off by default)
+
+With `DEX_AGENTS_TERMINAL_UI=1`, `run` on a terminal hands the chat to the
+`dexcli agents-tui` terminal UI, following
+[contract 1](../../TERMINAL_UI_CONTRACT.md). Until the terminal UI ships, the
+variable is the only way to turn it on; without it, `run` is the plain chat
+above. `--plain`, a standard input or output that is not a terminal,
+`TERM=dumb` or no `TERM`, Windows, and a harness whose `terminal_interface` is
+`TerminalInterface.PLAIN` always use the plain chat, before any `dexcli` probe.
+
+The command then splits into three processes:
+
+| Process | Runs | Terminal | Process group |
+| --- | --- | --- | --- |
+| Launcher (the command the user ran) | Configuration, `init` questions, the Dex server, `dexcli --describe`, the relay of local requests | Writes only before and after the handoff; its fds 1 and 2 point at the log meanwhile | The foreground one |
+| Worker host (`<command> __worker-host`) | The harness, local tools, connectors, the Worker, and the session | Never: standard input is `/dev/null`, output goes to `~/.dex/agents/<name>.log` | Its own session (`start_new_session`) |
+| `dexcli agents-tui --channel-fd <N>` | The chat screen; RPCs and Streams against Dex | Owns it | The foreground one |
+
+The steps of a run:
+
+1. The launcher stops what a killed Worker host left behind (below), finds
+   `dexcli` as `dexcli dev` does, and runs `dexcli agents-tui --describe`
+   (5 s). An older `dexcli`, no common contract, or no chat mode prints
+   `Plain chat: <why>.` and continues in the plain chat.
+2. It starts the Worker host with a `socketpair` control channel, passes the
+   actual fd number with `--control-fd`, and waits for `worker_ready`. A
+   startup failure exits with the code and message the plain chat would. A
+   control channel that ends first stops the Worker host and continues in the
+   plain chat. Startup notices, the session line, and the Dex Web line print before the
+   handoff, so they stay above the terminal UI.
+3. It saves the terminal mode, installs SIGINT, SIGTERM, and SIGHUP handlers
+   (never `SIG_IGN`, which `exec` would keep), leaves SIGTSTP at its default,
+   points its own fds 1 and 2 at the log, and starts `dexcli` with copies of
+   the terminal's fds, the channel fd, and only the allow-listed environment:
+   no provider key, no `PATH`. It watches both children with a thread that
+   waits for their real exit, because asyncio on Python 3.14 blocks its event
+   loop on a child that only stopped (macOS `waitid` reports stops).
+4. A failure before `ready` (5 s from the spawn) restores the terminal mode,
+   prints `Plain chat: <why>.`, stops the Worker host, and resumes the same
+   session in the plain chat.
+5. After `ready` the launcher relays `put_image`, `start_session`, and
+   `list_connectors` to the Worker host and serves `open_url` itself. It keeps
+   the one key table, the 4-request in-flight limit, and `cancel` for every
+   method, so a stopped Worker host never takes them with it. When the Worker
+   host exits, or its control channel ends and the launcher stops it, it
+   sends `worker stopped` and answers every waiting and later relayed request
+   with `host_stopped`. When the channel to `dexcli` ends, `dexcli` gets 1 s
+   to exit, then SIGTERM, and SIGKILL 2 s later. A SIGINT that reaches only
+   the launcher waits 1 s for `dexcli` to exit, forwards SIGINT, then sends
+   SIGTERM 2 s later, and exits 130 without a plain fallback.
+6. When `dexcli` exits, the launcher restores the terminal mode (and resets
+   the screen when `dexcli` died) and prints no `--resume` line of its own:
+   after `ready`, `dexcli`'s exit summary is the only one, because `/new` can
+   switch sessions. (Before `ready`, and in the plain chat, the command prints
+   it.) Then it sends
+   `shutdown`, and waits 10 s, then SIGTERM, then after 2 s SIGKILL to the
+   Worker host's group. The command exits like `dexcli`: 0, 1, or 130; 1
+   after a `dexcli` SIGTERM or crash, or after the Worker host stopped; 143
+   when the launcher itself got SIGTERM, which it forwards; 130 whenever the
+   launcher got SIGINT. A malformed line from `dexcli` after `ready` fails the
+   chat with 1 even when `dexcli` then exits 0; a closed channel followed by
+   `dexcli` exiting 0 is a normal end.
+
+`start_session` derives `<name>-YYYYMMDD-HHMMSS-<6 hex digits>` from the
+request's key, and the same with 12 digits. Every StartFlow passes the key as
+the request ID with `ignore_already_started`, so the Dex server returns the
+session a key already started and refuses one another request holds. It tries
+the long ID first when that Flow exists, then the short ID, then the long ID,
+and answers `id_conflict` when other keys hold both. A resent key never starts
+a second session while the server retains its run, even from a new launcher.
+
+**The Worker host never outlives the launcher for long.** It stops in order
+when the control channel ends, on `shutdown`, on SIGTERM, or when its
+watchdog thread finds `getppid()` changed (checked every second). Once a
+stop begins, the watchdog waits 15 s; then it sends SIGTERM to the
+registered tool process groups, SIGKILL 2 s later to those left, and SIGKILL
+to its own process group. So the Worker host and its registered tool groups
+are gone within about 1 + 15 + 2 = 18 s of the launcher's death, plus
+scheduling delay. On Linux the Worker host also sets `PR_SET_PDEATHSIG` to
+SIGKILL: the kernel kills it with the launcher at once, before it can stop
+its tool groups, so those wait for the leftover cleanup below. The bound
+holds only while the
+watchdog thread can take the GIL: a main thread stuck in native code that
+holds the GIL defeats it, as do SIGSTOP and a kernel-level hang. A blocked
+event loop or a blocking system call does not.
+
+The shell tool runs each command in its own process group, which the Worker
+host's group kill does not reach. So the shell tool registers the group right
+after the spawn. When the shell exits, it waits without reaping it
+(`waitid` with `WNOWAIT`, or kqueue on macOS before Python 3.13), so the
+group ID stays reserved; it sends SIGTERM to what the shell left in the
+group, SIGKILL 0.5 s later, and only then reaps the shell and unregisters
+the group, under the registry lock that every signal takes too. So in the
+Worker host a shell command's background processes end with the command,
+and, while the Worker host runs, it signals a group only while it holds the
+unreaped leader. A failed registration kills and reaps the shell at once.
+The Worker host
+mirrors the registry in its run record,
+`~/.dex/agents/run/<name>-<pid>.json`, with its own and the launcher's
+identity: start time from `ps`, and a SHA-256 of the command line, never its
+text, which can carry a secret. A later `run` with the
+terminal UI on stops what a record names when the record's launcher is gone:
+before each signal (SIGTERM, then SIGKILL 2 s later) it checks that the
+process still has the recorded start time and group and leads the group, and
+that a Worker host still has its recorded command line (a shell may replace
+itself with its command, so a tool group's command line may change);
+otherwise it only deletes the record. This cleanup is best effort, not a
+proof of ownership: `ps` reports start times to the second, and the check
+and the signal are separate steps, so a pid reused within the same second,
+or between the check and the signal, could still be signaled. The check
+right before each signal keeps that window small. On Linux, where the kernel kills the
+Worker host with the launcher, this cleanup is what stops its shell groups.
+It prints, for example,
+`Stopped a leftover worker host (pid 4242) and 1 tool process group.`
+Processes that a harness starts outside these groups, such as the ones Claude
+Code's own tools start, are not covered.
+
+`tests/test_terminal_ui_handoff.py` runs the real launcher and Worker host on
+a pseudo-terminal against the contract host's `tui` role as `dexcli`, and
+injects faults with SIGSTOP and SIGKILL. `tests/test_terminal_ui_rules.py`
+runs the launcher's rules over every case file in
+`agents/conformance/terminal_ui/`.
 
 ## The Dex server
 
@@ -226,6 +350,12 @@ so each call is a Dex tool Step with the server's effect class, approval,
 idempotency key, and tasks. The agent sees each tool by its MCP name, such as
 `slack_post_thread_reply`, without a server prefix, and `approval.always`
 names it the same way.
+A call that waits for approval carries the display of
+`build_connector_tool_approval_display` in `AgentInterrupt.display`: the
+target `<connector>/<connection>` and a summary with the operation, the
+connection, and up to five short arguments, credential-like ones as
+`<redacted>`, read from the tool's `_meta`. A tool whose `_meta` names no
+connector and connection has no display.
 
 `connectors.enabled` filters by connector, connection, and operation. The
 CLI core reads them from the top-level `_meta` keys of each tool, which
@@ -361,6 +491,31 @@ These checks have limits:
   the browser tools take no screenshots. After a Worker restart a
   session has no page until the agent navigates again.
 - `approval.always` adds approval to any tool by name.
+- An approval says what the call acts on in `AgentInterrupt.display`. A file
+  write's target is its workspace path, and its preview is a unified diff of
+  the file as it is when the model asks against the new content, with the
+  header lines `--- <path> (the file now)` and `+++ <path> (after this write)`
+  (`--- /dev/null (no file now)` for a new file) and
+  `\ No newline at end of file` where a side lacks its last newline. A path's
+  control characters show as `\u00XX`. The preview reads the file with the
+  write's own checks, so it never follows a final link and gives no text when
+  the path changes during the read. It is left out for a file or new content
+  over 64 KiB, a diff over 200 lines, a path the write would refuse, a file
+  that is not UTF-8, an `edit_file` whose `old_text` does not occur once, a
+  side the best-effort credential redaction changes, such as one with
+  `password: …`, `key=value`, or an escaped name such as `pass\u0077ord`,
+  and a credential file
+  such as `.env`, `.aws/credentials`, `.kube/config`, `id_ed25519`,
+  `server.pem`, or `secrets.yaml`. A shell command's target is the working
+  directory, and its summary holds the command with common credential shapes
+  redacted and its control characters written as `\u00XX`, cut at 2 KiB;
+  nothing in it is decoded or rewritten otherwise, and the call's
+  arguments keep the full command. Paths, the working directory, and
+  connection names in a display get the same redaction. Browser actions have
+  no display. The redaction is best-effort hygiene, not a security boundary:
+  the session stores the call's full arguments, and the agent can read the
+  file with its own tools. `agents/conformance/approval_display.json` lists
+  the cases both CLI cores share.
 - Each tool's effect and approval are a floor. An explicit `ToolPolicy` in
   the session options may make a tool more cautious, such as a `read` that
   must be approved, but never less: a write stays a write, and

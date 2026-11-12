@@ -32,7 +32,13 @@ import {
   type ConnectorPackageManifest,
 } from "../../src/connectors/index.js";
 import { isProvenNotSent, lowerCamelToSnake, mayHaveDispatched } from "../../src/connectors/connector-tool-source.js";
-import type { AgentToolCall, AgentTurnContext, ToolPolicy } from "../../src/index.js";
+import {
+  buildConnectorToolApprovalDisplay,
+  isCredentialLikeName,
+  type AgentToolCall,
+  type AgentTurnContext,
+  type ToolPolicy,
+} from "../../src/index.js";
 import {
   byIdManifest,
   ledgerConnection,
@@ -298,6 +304,57 @@ describe("connector tool approval", () => {
     assert.equal(approval("limited", { accountId: "a" }), false);
     assert.equal(approval("broken", payout), true);
     assert.equal(approval("recommended", payout, { recommended: { effect: "read", requiresApproval: false } }), false);
+  });
+
+  test("a call that needs approval names the operation, the connection, and its short arguments", () => {
+    const deferred = (name: string, toolArguments: unknown) =>
+      source.deferredToolCall(turn(), {
+        toolCallId: "call-1",
+        toolName: name,
+        arguments: JSON.stringify(toolArguments),
+        listedTool: { name, description: "", inputSchema: {} },
+      });
+    assert.deepEqual(deferred("recommended", { accountId: "a", amount: 10, memo: "line one\nline two" }).approvalDisplay, {
+      target: "fake-ledger/test-ledger",
+      summary: 'Calls fake-ledger createPayout with connection test-ledger; accountId: "a", amount: 10.',
+      preview: null,
+    });
+    assert.equal(deferred("never", { accountId: "a", amount: 10 }).approvalDisplay, undefined);
+  });
+
+  test("a connector display shows short scalar arguments and redacts credential-like names", () => {
+    const display = buildConnectorToolApprovalDisplay({
+      connectorId: "slack",
+      connectionName: "support-slack",
+      operation: "postChannelMessage",
+      arguments: JSON.stringify({
+        channel: "#eng",
+        apiKey: "k-1",
+        "X-Api-Key": "k-2",
+        client_secret: "k-3",
+        blocks: [{ type: "section" }],
+        text: "x".repeat(81),
+        isThreaded: true,
+        limit: 5,
+        later: "never listed, past the fifth",
+      }),
+    });
+    assert.deepEqual(display, {
+      target: "slack/support-slack",
+      summary:
+        'Calls slack postChannelMessage with connection support-slack; channel: "#eng", apiKey: <redacted>, X-Api-Key: <redacted>, client_secret: <redacted>, isThreaded: true.',
+      preview: null,
+    });
+    assert.equal(
+      buildConnectorToolApprovalDisplay({ connectorId: "a", connectionName: "b", operation: "c", arguments: "not json" }).summary,
+      "Calls a c with connection b.",
+    );
+    for (const name of ["token", "refreshToken", "Authorization", "set-cookie", "db_password", "SECRET"]) {
+      assert.equal(isCredentialLikeName(name), true, name);
+    }
+    for (const name of ["channel", "monkey", "keys", "tokenizer", "text"]) {
+      assert.equal(isCredentialLikeName(name), false, name);
+    }
   });
 
   test("a session policy never changes the effect class", () => {

@@ -157,7 +157,14 @@ def gmail_get_message(message_id: str, context: Context) -> str:
         "postThreadReply",
     )
 )
-def slack_post_thread_reply(thread: str, text: str, context: Context) -> str:
+def slack_post_thread_reply(
+    thread: str,
+    text: str,
+    context: Context,
+    channel: str | None = None,
+    token: str | None = None,
+    body: str | None = None,
+) -> str:
     """Reply in a Slack thread."""
     _record("slack_post_thread_reply", context)
     return f"posted {text!r} in {thread}"

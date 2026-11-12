@@ -8,12 +8,25 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import fs from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { rename, symlink, unlink } from "node:fs/promises";
 import { setImmediate as setImmediatePromise } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, test } from "node:test";
+import { syncBuiltinESMExports } from "node:module";
+import { describe, mock, test } from "node:test";
 
 import { ToolExecutionError, type AgentTurnContext, type DeferredToolExecution, type ToolPolicy } from "@superdurable/dex-agents";
 
@@ -36,6 +49,56 @@ function newWorkspace(): { root: string; workspace: string; files: WorkspaceFile
 }
 
 describe("the workspace boundary of the file tools", () => {
+  test("an approval preview reads only the file a write would replace, never through a link", async () => {
+    const { root, workspace, files } = newWorkspace();
+    mkdirSync(join(workspace, "notes"));
+    writeFileSync(join(workspace, "notes", "a.txt"), "inside");
+    writeFileSync(join(root, "outside-dir", "a.txt"), "outside secret");
+    symlinkSync(join(workspace, "notes", "a.txt"), join(workspace, "link.txt"));
+    symlinkSync(join(root, "outside-dir"), join(workspace, "outside-link"));
+    symlinkSync(join(workspace, "notes"), join(workspace, "notes-link"));
+
+    assert.deepEqual(files.readTextForPreview("notes/a.txt", 1024), { displayPath: "notes/a.txt", text: "inside" });
+    // The write refuses a final link, so the preview reads nothing through one.
+    assert.equal(files.readTextForPreview("link.txt", 1024), undefined);
+    await assert.rejects(files.writeFile("link.txt", "x"), /symbolic link/);
+    assert.equal(files.readTextForPreview("outside-link/a.txt", 1024), undefined);
+    assert.equal(files.readTextForPreview("../outside.txt", 1024), undefined);
+    assert.equal(files.readTextForPreview(join(root, "outside.txt"), 1024), undefined);
+    // A directory link that stays inside works, as it does for the write.
+    assert.deepEqual(files.readTextForPreview("notes-link/a.txt", 1024), { displayPath: "notes/a.txt", text: "inside" });
+    assert.deepEqual(files.readTextForPreview("notes/new/b.txt", 1024), { displayPath: "notes/new/b.txt", text: null });
+    assert.equal(files.readTextForPreview("outside-link/new/b.txt", 1024), undefined);
+    assert.equal(files.readTextForPreview("notes/a.txt", 3), undefined);
+  });
+
+  test("an approval preview gives no text when a directory is swapped for an outside link during the open", () => {
+    const { root, workspace, files } = newWorkspace();
+    mkdirSync(join(workspace, "notes"));
+    writeFileSync(join(workspace, "notes", "a.txt"), "inside");
+    writeFileSync(join(root, "outside-dir", "a.txt"), "outside secret");
+    const originalOpenSync = fs.openSync;
+    const swapped = mock.method(fs, "openSync", (...openArguments: Parameters<typeof fs.openSync>) => {
+      renameSync(join(workspace, "notes"), join(workspace, "notes-real"));
+      symlinkSync(join(root, "outside-dir"), join(workspace, "notes"));
+      try {
+        return originalOpenSync(...openArguments);
+      } finally {
+        unlinkSync(join(workspace, "notes"));
+        renameSync(join(workspace, "notes-real"), join(workspace, "notes"));
+      }
+    });
+    syncBuiltinESMExports();
+    try {
+      assert.equal(files.readTextForPreview("notes/a.txt", 1024), undefined);
+      assert.equal(swapped.mock.callCount(), 1);
+    } finally {
+      swapped.mock.restore();
+      syncBuiltinESMExports();
+    }
+    assert.deepEqual(files.readTextForPreview("notes/a.txt", 1024), { displayPath: "notes/a.txt", text: "inside" });
+  });
+
   test("a hard link to an outside file is refused for reads, writes, and edits", async () => {
     const { root, workspace, files } = newWorkspace();
     linkSync(join(root, "outside.txt"), join(workspace, "linked.txt"));

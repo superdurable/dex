@@ -20,6 +20,7 @@ from dex_agents import (
     TOOL_CALL_NOT_RUN_ERROR_PREFIX,
     TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL,
     AgentInterrupt,
+    AgentInterruptDisplay,
     AgentSnapshot,
     AgentToolCall,
     ToolCallStatus,
@@ -457,6 +458,12 @@ async def test_a_queued_write_asks_for_approval_only_when_its_turn_comes(
     interrupt = await _pending_interrupt(harness, session_id)
     assert interrupt.tool_call_id == "call-1"
     assert len(ledger.writes("postNote")) == 1
+    # The queued write raises its approval with the display its source built when the model asked.
+    assert interrupt.display == AgentInterruptDisplay(
+        target="fake-ledger/test-ledger",
+        summary='Calls fake-ledger createPayout with connection test-ledger; accountId: "a-1", '
+        "amount: 5.",
+    )
 
     # A rejected approval stops the later writes too.
     assert await harness.sessions.resolve_interrupt(session_id, "call-1", approved=False)

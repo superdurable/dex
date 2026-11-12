@@ -39,6 +39,7 @@ from dex_agents.built_in_tools import BuiltInTool
 from dex_agents.events import AgentEventWriter
 from dex_agents.values import (
     AgentImageReference,
+    AgentInterruptDisplay,
     AgentMessage,
     AgentPlan,
     AgentToolCall,
@@ -316,6 +317,24 @@ class DeferredToolCall:
             ``ConnectorToolSource`` sets it for connector writes.
 
             .. versionadded:: 0.4.0
+        approval_display: What the call acts on and does, for the person who
+            approves it, or ``None``, the default. The session stores it with
+            a call whose policy requires approval and shows it as
+            ``AgentInterrupt.display`` when it raises the approval; it ignores
+            it for other calls. Build it from the call's concrete arguments:
+            name the target and what the call does to it, show a
+            credential-like argument as ``"<redacted>"`` and pass shown text
+            through ``redact_inline_credentials`` as best-effort hygiene (the
+            session stores the full arguments anyway), and never promise how
+            often the call runs or what it achieves. The session cuts a target over
+            ``MAX_APPROVAL_TARGET_BYTES`` and a summary over
+            ``MAX_APPROVAL_SUMMARY_BYTES`` and drops a preview over
+            ``MAX_APPROVAL_PREVIEW_BYTES``. The
+            CLI's local tools, the CLI's connector tools, and
+            ``ConnectorToolSource`` set it. For example,
+            ``AgentInterruptDisplay(target="orders/42", summary="Cancels order 42.")``.
+
+            .. versionadded:: 0.6.0
     """
 
     tool_call_id: str
@@ -324,6 +343,7 @@ class DeferredToolCall:
     policy: ToolPolicy
     tool_source_reference: str | None = None
     ordered: bool = False
+    approval_display: AgentInterruptDisplay | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -122,6 +122,7 @@ func TestGoReEncodesPythonWireValuesByteForByte(t *testing.T) {
 	require.NoError(t, writer.WriteEvent(dexagents.AgentEventTypeInterruptRaised, map[string]any{
 		"interrupt_id": "call-2", "tool_call_id": "call-2", "tool_name": "refund_order", "deadline": nil,
 		"kind": "tool_approval", "question": nil, "choices": []string{}, "allows_free_text": true,
+		"display": map[string]any{"target": "orders/7", "summary": "Refunds order 7.", "preview": nil},
 	}))
 	require.NoError(t, writer.WriteEvent(dexagents.AgentEventTypeInterruptResolved, map[string]any{
 		"interrupt_id": "call-2", "approved": false, "rejection_message": ptr("Ünï <no>"),

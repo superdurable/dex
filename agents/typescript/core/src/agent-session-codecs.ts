@@ -12,6 +12,7 @@ import type {
   AgentEvent,
   AgentImageReference,
   AgentInterrupt,
+  AgentInterruptDisplay,
   AgentInterruptKind,
   AgentInterruptResolution,
   AgentMessage,
@@ -329,6 +330,32 @@ function decodeImages(reader: WireRecordReader): { readonly images?: readonly Ag
   return images.length === 0 ? {} : { images };
 }
 
+export function encodeAgentInterruptDisplay(value: AgentInterruptDisplay | null | undefined): unknown {
+  return value === null || value === undefined
+    ? null
+    : { target: value.target, summary: value.summary, preview: value.preview ?? null };
+}
+
+export function decodeAgentInterruptDisplay(value: unknown): AgentInterruptDisplay | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const reader = new WireRecordReader(value, "AgentInterruptDisplay");
+  return {
+    target: reader.readString("target"),
+    summary: reader.readString("summary"),
+    preview: reader.readNullableString("preview"),
+  };
+}
+
+/** Decoded values omit a display field when there is none, as they do `images`. */
+function omitNullDisplay<Name extends "display" | "approvalDisplay">(
+  name: Name,
+  display: AgentInterruptDisplay | null,
+): Partial<Record<Name, AgentInterruptDisplay>> {
+  return (display === null ? {} : { [name]: display }) as Partial<Record<Name, AgentInterruptDisplay>>;
+}
+
 export function encodeAgentMessage(value: AgentMessage): unknown {
   return {
     sequence: value.sequence,
@@ -393,6 +420,7 @@ export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
     truncated_output_bytes: value.truncatedOutputBytes ?? null,
     images: encodeImages(value.images),
     runner_tool_state: value.runnerToolState ?? null,
+    approval_display: encodeAgentInterruptDisplay(value.approvalDisplay),
   };
 }
 
@@ -428,6 +456,7 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
     runnerToolState: reader.readNullableString("runner_tool_state"),
     ...(traceContext === null ? {} : { traceContext }),
     ...decodeImages(reader),
+    ...omitNullDisplay("approvalDisplay", decodeAgentInterruptDisplay(reader.readObject("approval_display"))),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
   return toolSourceReference === null ? toolCall : { ...toolCall, toolSourceReference };
@@ -464,6 +493,7 @@ export function encodeAgentInterrupt(value: AgentInterrupt): unknown {
     question: value.question ?? null,
     choices: [...(value.choices ?? [])],
     allows_free_text: value.allowsFreeText ?? true,
+    display: encodeAgentInterruptDisplay(value.display),
   };
 }
 
@@ -480,6 +510,7 @@ export function decodeAgentInterrupt(value: unknown): AgentInterrupt {
     question: reader.readNullableString("question"),
     choices: reader.readStringArrayOrEmpty("choices"),
     allowsFreeText: reader.readBooleanOrDefault("allows_free_text", true),
+    ...omitNullDisplay("display", decodeAgentInterruptDisplay(reader.readObject("display"))),
   };
 }
 

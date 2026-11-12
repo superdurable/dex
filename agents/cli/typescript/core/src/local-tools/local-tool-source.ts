@@ -8,6 +8,7 @@
 
 import {
   ToolExecutionError,
+  type AgentInterruptDisplay,
   type AgentTurnContext,
   type DeferredToolCall,
   type DeferredToolExecution,
@@ -23,6 +24,7 @@ import { isLocalToolGroupEnabled, isShellCommandApprovalRequired, type LocalTool
 import type { TurnConfig } from "../cli-config.js";
 import { resolveTurnToolPolicy } from "../tool-policy.js";
 import type { TurnConfigResolver } from "../turn-config-resolver.js";
+import { buildEditFileDisplay, buildShellCommandDisplay, buildWriteFileDisplay } from "./approval-display.js";
 import { BrowserSessions } from "./browser-sessions.js";
 import { defaultShellTimeoutSeconds, maximumShellTimeoutSeconds, runShellCommand } from "./shell-command.js";
 import { fetchWebPage } from "./web-page-fetch.js";
@@ -221,7 +223,9 @@ const disabledReferenceKey = "disabled_tool";
  *
  * Reads run at once. `write_file`, `edit_file`, and each browser click, fill, and submission wait for approval. Each shell
  * command waits for approval unless the turn's allow list has its exact text. The turn's `local_tools` switches
- * and `approval.always` apply to each model call.
+ * and `approval.always` apply to each model call. A file write's approval carries its workspace path and a unified
+ * diff against the file as it is when the model asks, and a shell command's carries the working directory and the
+ * full command (see `AgentInterrupt.display`).
  *
  * @since 0.5.0
  */
@@ -296,12 +300,44 @@ export class LocalToolSource implements ToolSource {
       const command = readShellCommand(call.arguments);
       requiresApproval = command === undefined || isShellCommandApprovalRequired(turnConfig, command);
     }
+    const policy = resolveTurnToolPolicy(turn, call.toolName, tool.effect, requiresApproval, turnConfig);
+    const approvalDisplay = policy.requiresApproval ? this.approvalDisplay(call.toolName, call.arguments) : undefined;
     return {
       toolCallId: call.toolCallId,
       toolName: call.toolName,
       arguments: call.arguments,
-      policy: resolveTurnToolPolicy(turn, call.toolName, tool.effect, requiresApproval, turnConfig),
+      policy,
+      ...(approvalDisplay === undefined ? {} : { approvalDisplay }),
     };
+  }
+
+  /**
+   * What a file write or shell command acts on, for its approval: the file's workspace path with a diff against the
+   * file now, or the working directory with the full command. Browser actions and calls with invalid arguments
+   * have none.
+   */
+  private approvalDisplay(toolName: string, argumentsText: string): AgentInterruptDisplay | undefined {
+    let toolArguments: Readonly<Record<string, unknown>>;
+    try {
+      toolArguments = parseArguments(argumentsText);
+    } catch {
+      return undefined;
+    }
+    const { path, content, old_text: oldText, new_text: newText, command } = toolArguments;
+    switch (toolName) {
+      case "write_file":
+        return typeof path === "string" && typeof content === "string"
+          ? buildWriteFileDisplay(this.files, path, content)
+          : undefined;
+      case "edit_file":
+        return typeof path === "string" && typeof oldText === "string" && typeof newText === "string"
+          ? buildEditFileDisplay(this.files, path, oldText, newText)
+          : undefined;
+      case "run_shell_command":
+        return typeof command === "string" ? buildShellCommandDisplay(this.workspace, command) : undefined;
+      default:
+        return undefined;
+    }
   }
 
   /**
