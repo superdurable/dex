@@ -180,6 +180,25 @@
         ]
       }
     },
+    "sessions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the command keeps its sessions. Session settings cannot change it: they ignore a sessions key with a warning.",
+      "default": {
+        "summary": "auto"
+      },
+      "properties": {
+        "summary": {
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "default": "auto",
+          "description": "Whether each session keeps an indexed summary, its title, last activity time, and turn count, which the sessions subcommand shows. auto: on when dex.server is auto, the dexcli dev of this machine that the command reuses or starts, and off for a Dex server URL. on: always. off: never. With the summary, the title, the first 80 Unicode code points of the session's first message, is in the server's search index, readable by anyone who can search its Flows, and the Worker registers the index keys text1, datetime1, and int1, which can fail its start on a server with PostgreSQL search whose namespace already uses these keys with other types or has no free key of these types. Turning it off later stops new writes; values written before stay."
+        }
+      }
+    },
     "claude": {
       "$ref": "#/$defs/harness_options",
       "description": "Options of the Claude Agent SDK command. Omitted: its defaults."

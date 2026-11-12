@@ -112,6 +112,7 @@ def default_config_values(harness: AgentHarness) -> dict[str, Any]:
                 "browser": True,
             },
             "media": {"store": "auto"},
+            "sessions": {"summary": "auto"},
         }
     )
     return values

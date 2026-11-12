@@ -16,12 +16,14 @@ import contextlib
 import importlib
 import logging
 import secrets
+import signal
 import sys
 import webbrowser
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx2
 from dex import (
@@ -39,14 +41,26 @@ from dex import (
 )
 
 from dex_agents import (
+    AGENT_SESSION_LAST_ACTIVITY_AT,
+    AGENT_SESSION_TITLE,
+    AGENT_SESSION_TURN_COUNT,
     AgentSessionClient,
+    AgentSessionFlow,
+    AgentSessionSummary,
     LocalDirectoryMediaStore,
     MediaStore,
+    list_agent_sessions,
     session_flow_definition_document,
+    sort_agent_sessions_by_last_activity,
 )
 from dex_agents.builtin_loop import ToolSource
 from dex_agents_cli_core.chat import Terminal, TerminalChat
-from dex_agents_cli_core.config import AUTO, ConnectorEntry, EffectiveConfig
+from dex_agents_cli_core.config import (
+    AUTO,
+    ConnectorEntry,
+    EffectiveConfig,
+    is_session_summary_indexed,
+)
 from dex_agents_cli_core.config_file import (
     ConfigFileError,
     LoadedConfig,
@@ -67,7 +81,13 @@ from dex_agents_cli_core.connectors import (
     connectors_unavailable_line,
     read_connector_catalog,
 )
-from dex_agents_cli_core.dex_server import DexServerEndpoint, DexServerError, resolve_dex_server
+from dex_agents_cli_core.dex_server import (
+    DexServerEndpoint,
+    DexServerError,
+    StartedDexcliDevProcess,
+    describe_lost_dexcli_dev,
+    resolve_dex_server,
+)
 from dex_agents_cli_core.environment import CommandEnvironment
 from dex_agents_cli_core.harness import (
     SESSION_ACTION_PERMISSION,
@@ -88,15 +108,27 @@ CONNECTORS_WEB_PATH = "/v1/connectors"
 #: The directory under ``~/.dex/agents`` that ``media.store: auto`` keeps images in.
 MEDIA_DIRECTORY = "media"
 _BLOB_CACHE_BYTES = 64 * 1024 * 1024
+_SESSION_SUMMARY_ATTRIBUTE_NAMES = frozenset(
+    definition.name
+    for definition in (
+        AGENT_SESSION_TITLE,
+        AGENT_SESSION_LAST_ACTIVITY_AT,
+        AGENT_SESSION_TURN_COUNT,
+    )
+)
+#: Most pages of 50 sessions that ``sessions`` loads before it sorts them.
+SESSION_LIST_MAX_PAGES = 5
 _WORKER_REGISTRATION_TIMEOUT_SECONDS = 30.0
 # How long the command waits for the session graph upload before it logs a failure.
 _SESSION_FLOW_DEFINITION_UPLOAD_TIMEOUT_SECONDS = 10.0
-_SESSION_LIST_PAGE_SIZE = 50
 _SESSION_START_TIMEOUT_SECONDS = 60.0
 _SESSION_START_POLL_SECONDS = 0.1
 # The shell's exit code for a command that Ctrl-C ended.
 _INTERRUPTED_EXIT_CODE = 130
 _LOGGER = logging.getLogger(__name__)
+_TERMINATION_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
 
 
 class CommandError(Exception):
@@ -133,6 +165,18 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         >>> def run() -> None:
         ...     raise SystemExit(run_agent_cli(ClaudeHarness()))
 
+    A ``dexcli dev`` that the command started for ``dex.server: auto`` stops
+    when the command exits: on ``/exit``, the end of input, the Ctrl-C that
+    exits, a failure, SIGTERM, or SIGHUP. A signal makes it return 128 plus
+    the signal number. A ``dexcli dev`` the command reused keeps running. To
+    share one across sessions, run ``dexcli dev`` yourself first. When a
+    reused ``dexcli dev`` stops during the command, the command fails with a
+    short error that says so.
+
+    .. versionchanged:: 0.6.0
+       A started ``dexcli dev`` stops when the command exits instead of
+       running on.
+
     Args:
         harness: The command's harness.
         argv: The arguments without the program name; ``None`` reads ``sys.argv``.
@@ -140,9 +184,10 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     Returns:
         The exit code: 0 on success, 1 for a failure at run time, such as a
         Dex server or an explicit connectors MCP server that is unavailable,
-        2 for a usage or configuration error, and 130 for Ctrl-C during the init
-        questions. Input that ends during the init questions exits with 1. A
-        cancelled init writes no file.
+        2 for a usage or configuration error, 130 for Ctrl-C during the init
+        questions, and 128 plus the signal number after SIGTERM or SIGHUP.
+        Input that ends during the init questions exits with 1. A cancelled
+        init writes no file.
     """
     arguments = _parse_arguments(harness, argv)
     try:
@@ -151,6 +196,7 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 2
     log_path = _configure_logging(environment, harness)
+    server = _CommandDexServer(environment)
     try:
         if arguments.command == "init":
             return _init(arguments, environment, harness)
@@ -158,11 +204,11 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
         loaded = _load_config(arguments, environment, harness)
         match arguments.command:
             case "sessions":
-                return asyncio.run(_list_sessions(loaded, environment, harness))
+                return server.run(_list_sessions(loaded, environment, harness, server))
             case "connectors":
-                return asyncio.run(_list_connectors(loaded, environment, harness))
+                return server.run(_list_connectors(loaded, environment, harness, server))
             case _:
-                return asyncio.run(_run(arguments, loaded, environment, harness, log_path))
+                return server.run(_run(arguments, loaded, environment, harness, log_path, server))
     except _InitCancelled as cancelled:
         print("\nCancelled; no configuration written.", file=sys.stderr)
         return cancelled.exit_code
@@ -172,6 +218,80 @@ def run_agent_cli(harness: AgentHarness, argv: Sequence[str] | None = None) -> i
     except (CommandFailure, DexServerError) as error:
         print(f"{command_name(harness)}: {error}", file=sys.stderr)
         return 1
+    finally:
+        server.stop_started_dexcli_dev()
+
+
+class _CommandDexServer:
+    """The Dex server one command uses, and a ``dexcli dev`` it started, which it stops on exit."""
+
+    def __init__(self, environment: CommandEnvironment) -> None:
+        self._environment = environment
+        self._started_process = StartedDexcliDevProcess(environment)
+        self._reused_web_url: str | None = None
+
+    def run(self, command: Coroutine[Any, Any, int]) -> int:
+        """Run an async subcommand; SIGTERM and SIGHUP end it with 128 plus the signal number."""
+        return asyncio.run(self._run_until_terminated(command))
+
+    async def _run_until_terminated(self, command: Coroutine[Any, Any, int]) -> int:
+        # Cancelling the task, rather than raising in a signal handler, unwinds every await cleanly.
+        loop = asyncio.get_running_loop()
+        command_task = asyncio.current_task()
+        assert command_task is not None, "asyncio.run runs this coroutine in a task"
+        received_signals: list[int] = []
+
+        def cancel_on_signal(signal_number: int) -> None:
+            received_signals.append(signal_number)
+            command_task.cancel()
+
+        handled_signals: list[int] = []
+        for signal_number in _TERMINATION_SIGNALS:
+            try:
+                loop.add_signal_handler(signal_number, cancel_on_signal, signal_number)
+            except NotImplementedError:
+                break  # Windows loops take no signal handlers; Ctrl-C stays KeyboardInterrupt.
+            handled_signals.append(signal_number)
+        try:
+            return await self._fail_short_on_a_lost_server(command)
+        except asyncio.CancelledError:
+            if not received_signals:
+                raise
+            return 128 + received_signals[0]
+        finally:
+            for signal_number in handled_signals:
+                loop.remove_signal_handler(signal_number)
+
+    async def resolve(self, config: EffectiveConfig) -> DexServerEndpoint:
+        """Find or start the Dex server of ``dex.server``."""
+        endpoint = await resolve_dex_server(
+            config.dex.server,
+            self._environment,
+            report=print,
+            started_process=self._started_process,
+        )
+        if endpoint.started_pid is None and endpoint.web_url is not None:
+            self._reused_web_url = endpoint.web_url
+        return endpoint
+
+    def stop_started_dexcli_dev(self) -> None:
+        """Stop the ``dexcli dev`` this command started, if any."""
+        self._started_process.stop(report=print)
+
+    async def _fail_short_on_a_lost_server(self, command: Coroutine[Any, Any, int]) -> int:
+        try:
+            return await command
+        except (CommandError, ConfigFileError, CommandFailure, DexServerError):
+            raise
+        except Exception as error:
+            lost = (
+                None
+                if self._reused_web_url is None
+                else await describe_lost_dexcli_dev(self._reused_web_url)
+            )
+            if lost is None:
+                raise
+            raise CommandFailure(lost) from error
 
 
 def command_name(harness: AgentHarness) -> str:
@@ -294,6 +414,7 @@ async def _run(
     environment: CommandEnvironment,
     harness: AgentHarness,
     log_path: Path | None,
+    server: _CommandDexServer,
 ) -> int:
     config = _with_model_override(loaded.config, arguments)
     media_store = _build_media_store(config, environment)
@@ -305,7 +426,7 @@ async def _run(
         config.system_prompt if config.system_prompt is not None else prompt_text,
         _report_ignored_settings,
     )
-    endpoint = await _resolve_server(config, environment)
+    endpoint = await server.resolve(config)
     connectors = await _connect_connectors(
         config,
         endpoint,
@@ -330,8 +451,12 @@ async def _run(
         tool_sources=tuple(tool_sources),
         resolver=resolver,
         media_store=media_store,
+        is_session_summary_indexed=is_session_summary_indexed(config),
     )
-    flow = with_turn_config(harness.create_session_flow(context), resolver)
+    harness_flow = harness.create_session_flow(context)
+    _require_session_summary_setting(harness_flow, context.is_session_summary_indexed)
+    flow = with_turn_config(harness_flow, resolver)
+    _require_session_summary_setting(flow, context.is_session_summary_indexed)
     if flow.get_flow_type() != flow_type:
         raise CommandError(f"the harness built Flow type {flow.get_flow_type()}, not {flow_type}")
     registry = Registry([flow], allow_async_handlers=True)
@@ -435,12 +560,6 @@ def _read_system_prompt_file(
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as error:
         raise CommandError(f"cannot read system_prompt_file {path}: {error}") from error
-
-
-async def _resolve_server(
-    config: EffectiveConfig, environment: CommandEnvironment
-) -> DexServerEndpoint:
-    return await resolve_dex_server(config.dex.server, environment, report=print)
 
 
 def _connectors_mcp_url(config: EffectiveConfig, endpoint: DexServerEndpoint) -> str | None:
@@ -662,9 +781,12 @@ async def _open_session(
 
 
 async def _list_sessions(
-    loaded: LoadedConfig, environment: CommandEnvironment, harness: AgentHarness
+    loaded: LoadedConfig,
+    environment: CommandEnvironment,
+    harness: AgentHarness,
+    server: _CommandDexServer,
 ) -> int:
-    endpoint = await _resolve_server(loaded.config, environment)
+    endpoint = await server.resolve(loaded.config)
     workspace = environment.expand_path(loaded.config.workspace, loaded.directory)
     flow_type = session_flow_type(harness.flow_type, loaded.path, workspace)
     blob_cache = open_blob_cache(
@@ -676,26 +798,40 @@ async def _list_sessions(
         blob_cache,
         ClientOptions(server_address=endpoint.address, flow_service_tls=tls),
     )
+    sessions: list[AgentSessionSummary] = []
+    next_page_token = ""
     try:
-        page = await client.search_flows(f"FlowType = {_quote(flow_type)}", _SESSION_LIST_PAGE_SIZE)
+        for _ in range(SESSION_LIST_MAX_PAGES):
+            page = await list_agent_sessions(client, flow_type, next_page_token=next_page_token)
+            sessions.extend(page.sessions)
+            next_page_token = page.next_page_token
+            if not next_page_token:
+                break
     finally:
         await client.close()
         blob_cache.close()
-    if not page.flows:
+    if not sessions:
         print("No sessions yet.")
         return 0
-    for entry in page.flows:
-        started = entry.started_at.astimezone().strftime("%Y-%m-%d %H:%M")
-        print(f"{entry.flow_id}  {entry.status.name.lower()}  started {started}")
+    for session in sort_agent_sessions_by_last_activity(sessions):
+        print(_session_line(session))
+    if next_page_token:
+        print(
+            f"More sessions exist; this list sorts the first {len(sessions)} that Dex returns: "
+            "running sessions first, then the most recently closed and started."
+        )
     print(f"Resume one with: {command_name(harness)} --resume <session-id>")
     return 0
 
 
 async def _list_connectors(
-    loaded: LoadedConfig, environment: CommandEnvironment, harness: AgentHarness
+    loaded: LoadedConfig,
+    environment: CommandEnvironment,
+    harness: AgentHarness,
+    server: _CommandDexServer,
 ) -> int:
     config = loaded.config
-    endpoint = await _resolve_server(config, environment)
+    endpoint = await server.resolve(config)
     url = _connectors_mcp_url(config, endpoint)
     if url is None:
         raise CommandError("connectors.mcp is auto, which needs dex.server: auto")
@@ -741,5 +877,41 @@ async def _print_connections(web_url: str) -> None:
         )
 
 
-def _quote(text: str) -> str:
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+def _require_session_summary_setting(flow: AgentSessionFlow, is_expected: bool) -> None:
+    """Refuse a Flow whose declared indexed session summary differs from ``sessions.summary``."""
+    # The persistence schema decides what the Worker registers; the option must agree with it.
+    declared = {
+        definition.name
+        for definition in flow.get_persistence_schema().attributes
+        if definition.name in _SESSION_SUMMARY_ATTRIBUTE_NAMES
+        and getattr(definition, "index", None) is not None
+    }
+    expected_names = _SESSION_SUMMARY_ATTRIBUTE_NAMES if is_expected else frozenset()
+    if declared == expected_names and flow.options.summary_attributes_indexed == is_expected:
+        return
+    expected = "keep" if is_expected else "leave out"
+    raise CommandError(
+        f"sessions.summary says the session Flow must {expected} the indexed session summary, "
+        f"but the harness built it declaring {len(declared)} of its 3 indexed Attributes with "
+        f"summary_attributes_indexed={flow.options.summary_attributes_indexed}; the harness "
+        "must pass HarnessContext.is_session_summary_indexed"
+    )
+
+
+def _session_line(session: AgentSessionSummary) -> str:
+    """Return one ``sessions`` line; an earlier release's session lacks the last three parts."""
+    line = (
+        f"{session.session_id}  {session.status.name.lower()}  "
+        f"started {_local_minute(session.started_at)}"
+    )
+    if session.last_activity_at is not None:
+        line += f"  updated {_local_minute(session.last_activity_at)}"
+    if session.turn_count is not None:
+        line += f"  {session.turn_count} {'turn' if session.turn_count == 1 else 'turns'}"
+    if session.title is not None:
+        line += f"  {session.title}"
+    return line
+
+
+def _local_minute(moment: datetime) -> str:
+    return moment.astimezone().strftime("%Y-%m-%d %H:%M")

@@ -52,6 +52,7 @@ def openai_agents_session_flow(
     tool_sources: Sequence[ToolSource] = (),
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     media_store: MediaStore | None = None,
+    summary_attributes_indexed: bool = False,
 ) -> AgentSessionFlow:
     """Build the durable Step-mode agent session Flow for one OpenAI Agents SDK agent.
 
@@ -149,6 +150,13 @@ def openai_agents_session_flow(
 
             .. versionadded:: 0.5.0
 
+        summary_attributes_indexed: Whether the session keeps the indexed
+            session summary that ``list_agent_sessions`` reads. Defaults to
+            ``False``. See ``AgentSessionOptions.summary_attributes_indexed``
+            for what it stores and the index keys it registers.
+
+            .. versionadded:: 0.6.0
+
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``OpenAIAgentsRunner``.
 
@@ -171,6 +179,7 @@ def openai_agents_session_flow(
         interrupt_deadline=interrupt_deadline,
         compaction=compaction,
         retained_message_limit=retained_message_limit,
+        summary_attributes_indexed=summary_attributes_indexed,
     )
     runner = OpenAIAgentsRunner(
         agent,

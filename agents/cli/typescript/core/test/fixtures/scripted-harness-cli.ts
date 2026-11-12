@@ -18,6 +18,10 @@ import {
   scriptedHarnessVariantVariable,
   scriptedHarnessWithoutImages,
   shellReplacingScriptedHarness,
+  summaryForcedOffScriptedHarness,
+  summaryForcedOnScriptedHarness,
+  summaryMisreportedOffScriptedHarness,
+  summaryMisreportedOnScriptedHarness,
 } from "./scripted-harness.js";
 
 const variants: Readonly<Record<string, AgentHarness>> = {
@@ -25,6 +29,10 @@ const variants: Readonly<Record<string, AgentHarness>> = {
   "fixed-tool-set": fixedToolSetScriptedHarness,
   "without-images": scriptedHarnessWithoutImages,
   "plain-only": plainOnlyScriptedHarness,
+  "summary-on": summaryForcedOnScriptedHarness,
+  "summary-off": summaryForcedOffScriptedHarness,
+  "misreported-on": summaryMisreportedOnScriptedHarness,
+  "misreported-off": summaryMisreportedOffScriptedHarness,
 };
 
 // Writes to the terminal at import and later, as a framework's import side effects might.

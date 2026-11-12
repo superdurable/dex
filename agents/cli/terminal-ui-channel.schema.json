@@ -320,7 +320,7 @@
         },
         "code": {
           "$ref": "#/$defs/error_code",
-          "description": "invalid_launch, auth_missing, contract_unsupported, mode_unsupported, or terminal_failed in contract 1."
+          "description": "invalid_launch, auth_missing, contract_unsupported, mode_unsupported, terminal_failed, or dex_setup_failed in contract 1."
         },
         "message": {
           "type": "string"

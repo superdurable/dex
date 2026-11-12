@@ -14,10 +14,23 @@ import { PassThrough } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { findFreeLoopbackPorts, PrivateDexEngine } from "@superdurable/dex-agents/testing";
+import { findFreeLoopbackPorts, pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { parseConfigYaml, readCliEnvironment, readStartedDexcliDev, runAgentCli } from "../../src/index.js";
-import { CliProcess, TestHome, TextCollector, enginePorts } from "../fixtures/cli-test-support.js";
+import {
+  CliProcess,
+  SessionClients,
+  TestHome,
+  TextCollector,
+  assertNoStartedServerLeft,
+  enginePorts,
+} from "../fixtures/cli-test-support.js";
+import {
+  summaryForcedOffScriptedHarness,
+  summaryForcedOnScriptedHarness,
+  summaryMisreportedOffScriptedHarness,
+  summaryMisreportedOnScriptedHarness,
+} from "../fixtures/scripted-harness.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
 import { PseudoTerminalCliProcess } from "../fixtures/pseudo-terminal-cli-process.js";
 import { fixedToolSetScriptedHarness, scriptedHarness } from "../fixtures/scripted-harness.js";
@@ -36,21 +49,16 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
   });
 
   afterEach(async () => {
+    // SIGTERM lets each command stop the dexcli dev it started; the test cannot prove it owns that group.
     for (const cli of processes.splice(0)) {
-      await cli.kill();
+      await cli.terminate();
     }
   });
 
   after(async () => {
-    for (const pid of startedServers) {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch {
-        // Already gone.
-      }
-    }
     await connectors?.stop();
     await engine?.stop();
+    assertNoStartedServerLeft(startedServers);
   });
 
   function start(home: TestHome, commandArguments: readonly string[] = []): CliProcess {
@@ -94,6 +102,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       workspace: "~/dex-agent-workspace",
       local_tools: { files: true, shell: { enabled: true, allow: [] }, web_fetch: false, browser: false },
       media: { store: "auto" },
+      sessions: { summary: "auto" },
       builtin: {},
     });
     stdin.write("model\n");
@@ -303,6 +312,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
       workspace: "~/dex-agent-workspace",
       local_tools: { files: true, shell: { enabled: true, allow: [] }, web_fetch: true, browser: true },
       media: { store: "auto" },
+      sessions: { summary: "auto" },
       builtin: {},
     });
     cli.writeLine("/exit");
@@ -321,7 +331,7 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.match(cli.stderr.all, /is invalid: schema at \/local_tools\/files \(type\)/);
   });
 
-  test("dex.server auto starts dexcli dev when none runs, and the next command reuses it", async () => {
+  test("dex.server auto starts dexcli dev when none runs, a command meanwhile reuses it, and it stops with its starter", async () => {
     const [dexPort, webPort] = await findFreeLoopbackPorts(2);
     const home = new TestHome({ dexPort: dexPort ?? 0, webPort: webPort ?? 0 });
     home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
@@ -334,8 +344,6 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.deepEqual([record.dexPort, record.webPort], [dexPort, webPort]);
     first.writeLine("hello");
     await first.stdout.waitFor("echo: hello");
-    first.writeLine("/exit");
-    assert.equal(await first.waitForExit(), 0);
 
     const second = start(home);
     await second.waitForSession();
@@ -344,6 +352,13 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     await second.stdout.waitFor("echo: hello again");
     second.writeLine("/exit");
     assert.equal(await second.waitForExit(), 0);
+    assert.doesNotMatch(second.stderr.all, /Stopped the dexcli dev/);
+    assert.equal(readStartedDexcliDev(readCliEnvironment(home.environment()))?.pid, record.pid);
+
+    first.writeLine("/exit");
+    assert.equal(await first.waitForExit(), 0);
+    assert.match(first.stderr.all, /Stopped the dexcli dev this command started\./);
+    assert.equal(readStartedDexcliDev(readCliEnvironment(home.environment())), undefined);
   });
 
   test("dex.server auto refuses a server on its ports that is not a dexcli dev", async () => {
@@ -462,10 +477,113 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
     const chat = start(home);
     const sessionId = await chat.waitForSession();
+    chat.writeLine("hello   the  list");
+    await chat.stdout.waitFor("echo: hello");
     chat.writeLine("/exit");
     assert.equal(await chat.waitForExit(), 0);
     const list = start(home, ["sessions"]);
     assert.equal(await list.waitForExit(), 0);
-    assert.match(list.stdout.all, new RegExp(`${sessionId}\\trunning`));
+    const time = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z";
+    assert.match(list.stdout.all, new RegExp(`^${sessionId}\\trunning\\t${time}\\t${time}\\t1\\thello the list$`, "m"));
+  });
+
+  for (const [name, server, summary, isIndexed] of [
+    ["auto with dex.server auto keeps the summary", "auto", undefined, true],
+    ["auto with a Dex server URL leaves it off", "url", undefined, false],
+    ["on keeps it with a Dex server URL", "url", "on", true],
+    ["off leaves it off with dex.server auto", "auto", "off", false],
+  ] as const) {
+    test(`sessions.summary: ${name}`, async () => {
+      const home = new TestHome(enginePorts(engine));
+      const lines = ["connectors: {enabled: []}", "local_tools: {browser: false}"];
+      if (server === "url") {
+        lines.push(`dex: {server: "http://${engine.serverAddress}"}`);
+      }
+      if (summary !== undefined) {
+        lines.push(`sessions: {summary: ${summary}}`);
+      }
+      home.writeConfig(`${lines.join("\n")}\n`);
+      const chat = start(home);
+      const sessionId = await chat.waitForSession();
+      chat.writeLine("summary check");
+      await chat.stdout.waitFor("echo: summary check");
+      chat.writeLine("/exit");
+      assert.equal(await chat.waitForExit(), 0);
+
+      const list = start(home, ["sessions"]);
+      assert.equal(await list.waitForExit(), 0);
+      const line = list.stdout.all.split("\n").find((candidate) => candidate.startsWith(`${sessionId}\t`));
+      assert.ok(line !== undefined, list.stdout.all);
+      if (isIndexed) {
+        assert.match(line, /\t1\tsummary check$/);
+      } else {
+        assert.match(line, /\t—\t—\t—$/);
+      }
+    });
+  }
+
+  for (const [name, harness, config] of [
+    ["auto, Flow off", summaryForcedOffScriptedHarness, ""],
+    ["off, Flow on", summaryForcedOnScriptedHarness, "sessions: {summary: off}\n"],
+    // The options report off, but the schema declares the summary.
+    ["a server URL with auto, Flow declares it", summaryMisreportedOnScriptedHarness, "remote"],
+    ["off, Flow declares it", summaryMisreportedOnScriptedHarness, "sessions: {summary: off}\n"],
+    // The options report on, but the schema declares none of it.
+    ["a server URL with on, Flow declares none", summaryMisreportedOffScriptedHarness, "remote-on"],
+  ] as const) {
+    test(`a harness that ignores sessions.summary (${name}) stops the command`, async () => {
+      const home = new TestHome(enginePorts(engine), harness);
+      const server = `dex: {server: "http://${engine.serverAddress}"}\n`;
+      const extra =
+        config === "remote" ? server : config === "remote-on" ? `${server}sessions: {summary: on}\n` : config;
+      home.writeConfig(`connectors: {enabled: []}\nlocal_tools: {browser: false}\n${extra}`);
+      const chat = start(home);
+      assert.notEqual(await chat.waitForExit(), 0);
+      assert.match(chat.stderr.all, /sessions\.summary says the session Flow must/);
+      assert.match(chat.stderr.all, /HarnessContext\.isSessionSummaryIndexed/);
+      assert.doesNotMatch(chat.stdout.all, /Session \S+\. Type a message/);
+    });
+  }
+
+  test("the sessions subcommand sorts several pages and says when more exist", async () => {
+    const sessionClients = new SessionClients(engine);
+    try {
+      const home = new TestHome(enginePorts(engine));
+      home.writeConfig("connectors: {enabled: []}\nlocal_tools: {browser: false}\n");
+      const chat = start(home);
+      const oldest = await chat.waitForSession();
+      const sessions = await sessionClients.of(home);
+      for (let index = 0; index < 60; index += 1) {
+        await sessions.startSession(`later-${String(index).padStart(3, "0")}`);
+      }
+      // Activity times have one-second precision, so the next turn needs a later second.
+      const startedSecond = Math.floor(Date.now() / 1_000) * 1_000;
+      await pollUntil(() => (Date.now() >= startedSecond + 1_000 ? true : undefined), {
+        description: "the next second",
+      });
+      // The oldest session, last in Dex's order, becomes the most recently active one.
+      chat.writeLine("after the others");
+      await chat.stdout.waitFor("echo: after the others");
+      chat.writeLine("/exit");
+      assert.equal(await chat.waitForExit(), 0);
+
+      const listed = start(home, ["sessions"]);
+      assert.equal(await listed.waitForExit(), 0);
+      const lines = listed.stdout.all.split("\n").filter((line) => line.includes("\trunning\t"));
+      assert.equal(lines.length, 61);
+      assert.ok(lines[0]?.startsWith(`${oldest}\t`), listed.stdout.all);
+      assert.ok(lines.slice(1).every((line) => /\t0\t—$/.test(line)), listed.stdout.all);
+      assert.doesNotMatch(listed.stdout.all, /More sessions exist/);
+
+      for (let index = 0; index < 200; index += 1) {
+        await sessions.startSession(`extra-${String(index).padStart(3, "0")}`);
+      }
+      const capped = start(home, ["sessions"]);
+      assert.equal(await capped.waitForExit(), 0);
+      assert.equal(capped.stdout.all.split("\n").filter((line) => line.includes("\trunning\t")).length, 250);
+      assert.match(capped.stdout.all, /More sessions exist; this list sorts the first 250 that Dex returns/);
+    } finally {
+      await sessionClients.close();
+    }
   });
 });

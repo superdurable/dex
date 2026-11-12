@@ -57,11 +57,20 @@ export class PseudoTerminalCliProcess {
   }
 
   /**
+   * Ends the command: killing the relay closes the terminal, and the command's SIGHUP handling stops its server.
+   * @returns A Promise that resolves after the relay exited.
+   */
+  public async terminate(): Promise<void> {
+    await this.kill();
+  }
+
+  /**
    * Kills the relay and the command with SIGKILL.
    * @returns A Promise that resolves after the relay exited.
    */
   public async kill(): Promise<void> {
-    if (this.child.exitCode === null && this.child.pid !== undefined) {
+    // A reaped relay's group ID may belong to another process group by now.
+    if (this.child.exitCode === null && this.child.signalCode === null && this.child.pid !== undefined) {
       try {
         process.kill(-this.child.pid, "SIGKILL");
       } catch {

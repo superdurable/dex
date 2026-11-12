@@ -149,7 +149,8 @@ dex-agents-NAME [run|init|connectors|sessions] [options]
 The exit code is 0 on success. It is 1 for a failure at run time, such as a
 Dex server that does not start, an explicit **connectors.mcp** URL that does
 not answer, or a turn or session that failed during the chat. It is 2 for a
-usage or configuration error.
+usage or configuration error. After SIGTERM or SIGHUP, it is 128 plus the
+signal number.
 
 Ctrl-C at an **init** question, or at a first-run question, stops the command
 with exit code 130. Ctrl-D there stops it with exit code 1. Either way the
@@ -164,12 +165,47 @@ Web:
 - When nothing answers on the Dex Web port, the command starts **dexcli dev**
   in the background on those ports. Its output goes to
   **~/.dex/agents/dexcli-dev.log**, and its process and ports to
-  **~/.dex/agents/dexcli-dev.json**. It keeps running after the command exits,
-  so later commands and **--resume** reuse it.
+  **~/.dex/agents/dexcli-dev.json**.
 - When a **dexcli dev** answers, the command reuses it. It checks the Dex Web
   readiness answer and the Dex port first. While Dex Web reports that Dex is
   starting, it waits up to a minute.
 - When anything else answers, the command stops with exit code 1.
+
+Changed in 0.6.0: a **dexcli dev** that the command started stops when the
+command exits, and Dex Web stops with it. This happens on **/exit**, at the end
+of input, on the Ctrl-C that exits, on a failure, and on SIGTERM or SIGHUP. The
+command stops the whole process group of **dexcli dev**, which includes
+**dex-server-zd**. It removes **~/.dex/agents/dexcli-dev.json**, sends
+SIGTERM, and sends SIGKILL after 20 seconds. Another SIGTERM, SIGHUP, or
+Ctrl-C during those 20 seconds sends SIGKILL at once. The command then prints
+"Stopped the dexcli dev this command started." It signals the group only
+while **dexcli dev** itself still runs. If **dexcli dev** exits but its process
+group seems to have members left, the command says that processes may still
+run and how to stop them. On Windows, the TypeScript commands stop the process
+tree with **taskkill /T**, and add **/F** after 20 seconds. The Python commands
+first send **dexcli dev** CTRL_BREAK_EVENT, and then use **taskkill /T /F**.
+Before 0.6.0, the started **dexcli dev** kept running after the command
+exited.
+
+A **dexcli dev** that the command reused keeps running. This includes one you
+started yourself and one that another command started. Sessions and their
+state stay in **~/.dex/zd/&lt;Dex port&gt;**, so a later command that starts
+**dexcli dev** again can **--resume** them.
+
+To share one Dex server across commands, run **dexcli dev** yourself before
+you start them, or set **dex.server** to a URL. Two commands that both use
+**auto** share the **dexcli dev** that the first one started. It stops when
+the first command exits. The second command then fails with exit code 1 and a
+short error that names the stopped **dexcli dev**. In the TypeScript commands,
+the Worker's reconnect messages, such as for a lost Dex server, go only to the
+log file **~/.dex/agents/HARNESS.log**. Other library warnings show their first
+line on the terminal and their full text in that file.
+
+A command killed with SIGKILL, or one that crashes, cannot stop the
+**dexcli dev** it started. That **dexcli dev** keeps running, and its record in
+**~/.dex/agents/dexcli-dev.json** stays. A later command reuses it like any
+other running **dexcli dev** and never stops it. Stop it with **kill** and the
+pid in the record.
 
 These checks tell a **dexcli dev** from an unrelated service. They do not
 authenticate it: another local user's process that binds the ports first and
@@ -225,6 +261,8 @@ local_tools:
   browser: true
 media:
   store: auto
+sessions:
+  summary: auto
 claude: {}
 ```
 
@@ -245,6 +283,7 @@ claude: {}
 | **local_tools.browser** | **true** | Drive a local headless browser. |
 | **media.store** | **auto** | Where the session's images are stored. **auto** is **~/.dex/agents/media** on this machine. **s3://BUCKET** or **s3://BUCKET/PREFIX** is an S3 bucket. See [Images](#images). |
 | **media.endpoint** | None, which means AWS S3 | The http or https URL of an S3-compatible service, such as **http://127.0.0.1:9000**. Valid only with an **s3://** store. |
+| **sessions.summary** | **auto** | Since 0.6.0. Whether each session keeps the indexed title, last activity time, and turn count that **sessions** shows. **auto** keeps it with **dex.server: auto** only, and leaves a Dex server URL alone, because that server may be shared. **on** keeps it with any server, and **off** never. The command refuses to start when its harness builds a session Flow whose declared persistence schema does not follow this setting. The check verifies what the Flow declares; it does not sandbox harness code. See [List sessions](/reference/agents/approvals#list-sessions) for what it stores and the index keys it registers. |
 | **claude**, **openai**, **pydantic_ai**, **deepagents**, **google_adk**, **vercel_ai**, **mastra**, **pi**, **builtin** | Empty | The options of one harness. Each command reads only its own section. |
 
 Other keys are errors, and **null** is never valid: omit a field to take its
@@ -297,7 +336,8 @@ Web can edit its settings.
 
 Other top-level keys are ignored, so other readers can keep their own keys in
 the settings. This includes **dex**, **workspace**, **system_prompt_file**,
-**media**, and the harness sections, which belong to the file only. The
+**media**, **sessions**, and the harness sections, which belong to the file
+only. The
 command prints each ignored key as a warning, and the turn still runs. Inside
 a known field, an unknown key is an error, so **connectors.mcp** fails.
 
@@ -332,6 +372,22 @@ command prints the **--resume** line when you exit:
 ```bash
 dex-agents-claude-sdk sessions
 dex-agents-claude-sdk --resume SESSION_ID
+```
+
+**sessions** loads up to five pages of 50 sessions and sorts them by last
+activity. When more sessions exist, it says so. Each line has the session ID,
+the status, and the start time. Since 0.6.0 it also has the time of the latest
+turn, the turn count, and the title, the first 80 Unicode code points of the
+first message, when **sessions.summary** keeps the session summary: by
+default with **dex.server: auto** only. See
+[List sessions](/reference/agents/approvals#list-sessions). A session without
+the summary, such as one that an earlier release started, lists without these
+parts. An earlier session gains the time and the turn count at its next turn,
+and a title only if that turn is its first. The Python commands leave out a missing part,
+and the TypeScript commands print tab-separated columns with a dash for it:
+
+```text
+builtin-20261111-203123-3efeb4  running  started 2026-11-11 20:31  updated 2026-11-11 20:40  4 turns  Find open issues about flaky tests
 ```
 
 A session belongs to the environment that started it. The command registers
@@ -420,7 +476,10 @@ Each Deep Agents tool runs only while the turn switches its group on.
   refuse a path outside the workspace and any path with **..**. **Bash** is
   not confined. Claude Code reads no settings files, so their allow rules
   cannot skip an approval, and its other tools, such as subagents, are not
-  offered. These tools run inside the Claude Code CLI, not in their own Steps,
+  offered. The command uses only these Claude Code tools, the browser tools,
+  and the Connector tools. It loads no MCP servers and no claude.ai connectors
+  from your Claude Code configuration or login, so external tools come only
+  from Connectors that Dex approves and records. Changed in 0.6.0. These tools run inside the Claude Code CLI, not in their own Steps,
   so a Worker that dies during a turn segment can run one of them twice. The
   browser and Connector tools still run in their own Steps.
 - **Pi.** The agent keeps Pi's own tools and behavior and adds the Connector,
@@ -560,7 +619,9 @@ that **read** returns reaches the model too, after the result's text.
 When it starts, the command uploads the session graph of its session Flow
 type to the Dex Server. Dex Web then shows each session's Steps and its
 **Agent session** tab, with no **--flow-rendering-dir**. Open Dex Web at
-**http://127.0.0.1:8802** for the local **dexcli dev**.
+**http://127.0.0.1:8802** for the local **dexcli dev**. Dex Web stops with a
+**dexcli dev** that the command started; see
+[The local Dex server](#dex-server).
 
 - The **Agent session** tab shows the conversation and its tool calls, an
   approval card for each pending call, and a message box with **Steer** and
@@ -612,6 +673,10 @@ graph and its Actions.
   A long **dex-agents-deepagents** session ends when its input no longer fits
   the model's context window. Start a new session then. See
   [Compaction](/reference/agents/session-limits#compaction).
+- **A killed command leaves its dexcli dev running.** When the command gets
+  SIGKILL or crashes, the **dexcli dev** it started keeps running. Later
+  commands reuse it and do not stop it; stop it with **kill**. See
+  [The local Dex server](#dex-server).
 - **The local server check does not authenticate.** On a shared machine, set
   **dex.server** and **connectors.mcp** to URLs you trust. See
   [The local Dex server](#dex-server).

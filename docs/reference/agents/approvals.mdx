@@ -81,3 +81,65 @@ together with the Step change.
 Two things that need a person do not appear, because no Step waits on them: a
 tool call that recorded **outcome_unknown**, and a draft plan waiting for
 **execute_plan**.
+
+## List sessions {#list-sessions}
+
+Since 0.6.0. A session can keep three indexed Attributes for a session list.
+The session's Steps write them when a turn starts or ends:
+
+| Attribute | Index | Value |
+| --- | --- | --- |
+| **AgentSessionTitle** | FULL_TEXT **text1** | The first user message. Each run of ASCII spaces, tabs, and line breaks becomes one space, and the text is cut to its first 80 Unicode code points. Only the first turn writes it. |
+| **AgentSessionLastActivityAt** | DATETIME **datetime1** | When the latest turn started or ended, as RFC 3339 UTC text with milliseconds. It is the time the first attempt of that Step started, at one-second precision. |
+| **AgentSessionTurnCount** | INT **int1** | **AgentState.turn_count** as of the latest turn start or end. |
+
+The session Flow keeps them only when you turn the option on: Python
+**AgentSessionOptions.summary_attributes_indexed**, TypeScript
+**summaryAttributesIndexed**. It is off by default, so the Flow neither
+declares nor writes them. The adapter factories take the same option, such as
+**summary_attributes_indexed** of **builtin_agent_session_flow** and
+**summaryAttributesIndexed** of **createBuiltinAgentSessionFlow**. The CLI
+commands turn it on for the local **dexcli dev**; see **sessions.summary** in
+[CLI commands](/reference/agents/cli#configuration). Check two things before you
+turn it on:
+
+- **Privacy.** The title is the user's own words. Anyone who can search the
+  namespace's Flows reads it. Turn the option on only when the first message
+  may be stored in the search index.
+- **Index keys.** A Worker registers the three keys when it starts. With
+  [PostgreSQL search](/reference/server/search#postgresql-search), a namespace
+  has three keys of each of these types. The Worker fails to start with
+  **FAILED_PRECONDITION** when the namespace already registered one of these
+  keys with another type, or when all three keys of the type are taken by
+  other names.
+
+**SearchFlows** returns them with each session, so one call reads a page of
+sessions. It reads no snapshot and needs no Worker. The Python
+**list_agent_sessions** and the TypeScript **listAgentSessions** make that call
+and return typed pages. Each takes an optional title search:
+
+```text
+FlowType = "SupportAgent" AND text1 = "flaky test"
+```
+
+- A title search matches whole words without case. **flaky** finds "Fix the
+  flaky test", and **flak** does not. A session without a title never matches.
+- **SearchFlows** sorts by start or close time only. To sort by last activity,
+  sort the sessions you loaded: **sort_agent_sessions_by_last_activity** or
+  **sortAgentSessionsByLastActivity**.
+- A session that ran without the option, or one that a release before 0.6.0
+  started, lists without the three values. Show a missing value as a dash.
+  Such a session gains the last activity time and the turn count at its next
+  turn on a Worker with the option. It gains a title only if that turn is its
+  first one. During a rolling upgrade, a turn that an earlier Worker runs
+  leaves the three values as they were.
+- Turning the option off later stops new writes. The values written before
+  stay in the index.
+- A session that fails because its state would exceed the server's limit can
+  keep the values of its last turn start. See
+  [Limits for long sessions](/reference/agents/session-limits).
+- While the namespace has not registered **text1**, a title search fails with
+  **SessionTitleSearchUnavailableError**. A Worker with the option registers
+  it. List without the search instead.
+- The keys are generic, so other Flow types of the namespace can use them too.
+  Every query must filter on **FlowType**.

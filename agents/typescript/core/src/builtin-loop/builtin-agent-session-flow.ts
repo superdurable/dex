@@ -37,6 +37,13 @@ export interface BuiltinAgentSessionFlowOptions {
    * @since 0.5.0
    */
   readonly mediaStore?: MediaStore;
+  /**
+   * Whether the session keeps the indexed session summary. Defaults to `false`. See
+   * `AgentSessionOptions.summaryAttributesIndexed` for what it stores and the index keys it registers.
+   *
+   * @since 0.6.0
+   */
+  readonly summaryAttributesIndexed?: boolean;
 }
 
 /**
@@ -65,7 +72,8 @@ export interface BuiltinAgentSessionFlowOptions {
  * ```
  * @param definition - The agent definition.
  * @param flowType - Flow type, unique within the Registry. Keep it stable: running sessions resume by it.
- * @param flowOptions - The media store; see {@link BuiltinAgentSessionFlowOptions}. Since 0.5.0.
+ * @param flowOptions - The media store (since 0.5.0) and `summaryAttributesIndexed` (since 0.6.0, default `false`);
+ * see {@link BuiltinAgentSessionFlowOptions}.
  * @returns A new Flow; its `runner` is the {@link BuiltinLoopAgentRunner}.
  * @throws {TypeError} When the definition is invalid; see {@link BuiltinLoopAgentRunner} and
  * `createAgentSessionFlow`.
@@ -93,6 +101,9 @@ export function createBuiltinAgentSessionFlow(
       : { eventStreamCapacityBytes: definition.eventStreamCapacityBytes }),
     ...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
     ...(definition.spendLimit === undefined ? {} : { spendLimit: definition.spendLimit }),
+    ...(flowOptions.summaryAttributesIndexed === undefined
+      ? {}
+      : { summaryAttributesIndexed: flowOptions.summaryAttributesIndexed }),
   };
   return createAgentSessionFlow(runner, flowType, options);
 }

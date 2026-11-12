@@ -17,16 +17,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExecuteRequiresDemo(t *testing.T) {
+func TestExecuteRequiresAMode(t *testing.T) {
 	var stderr bytes.Buffer
-	err := Execute(context.Background(), nil, os.Stdin, os.Stdout, &stderr)
-	require.EqualError(t, err, "agents-tui: only --demo is available in this version")
+	err := Execute(context.Background(), nil, os.Stdin, os.Stdout, &stderr, "test")
+	require.EqualError(t, err, "agents-tui: pass --channel-fd, --describe, or --demo")
 }
 
 func TestExecuteRejectsArguments(t *testing.T) {
 	var stderr bytes.Buffer
-	err := Execute(context.Background(), []string{"--demo", "extra"}, os.Stdin, os.Stdout, &stderr)
-	require.EqualError(t, err, "agents-tui: unexpected arguments: [extra]")
+	err := Execute(context.Background(), []string{"--demo", "extra"}, os.Stdin, os.Stdout, &stderr, "test")
+	var exitError *ExitError
+	require.ErrorAs(t, err, &exitError)
+	require.Equal(t, 2, exitError.Code)
+	require.Empty(t, stderr.String())
+}
+
+// A bad flag exits 2 and writes nothing, because a launcher's stderr may be
+// the terminal it hands over.
+func TestExecuteDropsFlagErrors(t *testing.T) {
+	var stderr bytes.Buffer
+	err := Execute(context.Background(), []string{"--channel-fd=bad"}, os.Stdin, os.Stdout, &stderr, "test")
+	var exitError *ExitError
+	require.ErrorAs(t, err, &exitError)
+	require.Equal(t, 2, exitError.Code)
+	require.Empty(t, stderr.String())
 }
 
 func TestExecuteDemoNeedsATerminal(t *testing.T) {
@@ -37,6 +51,6 @@ func TestExecuteDemoNeedsATerminal(t *testing.T) {
 		require.NoError(t, writer.Close())
 	})
 	var stderr bytes.Buffer
-	err = Execute(context.Background(), []string{"--demo"}, reader, writer, &stderr)
+	err = Execute(context.Background(), []string{"--demo"}, reader, writer, &stderr, "test")
 	require.EqualError(t, err, "agents-tui: --demo needs a terminal on stdin and stdout")
 }

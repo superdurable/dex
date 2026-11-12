@@ -12,13 +12,16 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "no
 import { hostname, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { parseArgs } from "node:util";
+import { format, parseArgs } from "node:util";
 
 import { Client, FlowNotFoundError, Registry, Worker, openBlobCache, type BlobCache } from "@superdurable/dex";
 import {
   LocalDirectoryMediaStore,
+  listAgentSessions,
   sessionFlowDefinitionDocument,
+  sortAgentSessionsByLastActivity,
   startAgentSession,
+  type AgentSessionSummary,
   type AgentFrameworkRunner,
   type AgentSessionFlow,
   type DeferredToolOutcome,
@@ -33,6 +36,7 @@ import {
   ConfigError,
   canonicalOperationName,
   isCoveredByConnectorEntry,
+  isSessionSummaryIndexed,
   type EffectiveConfig,
   type MediaConfig,
 } from "./cli-config.js";
@@ -62,7 +66,12 @@ import {
   type ConnectorsMcpUnavailability,
 } from "./connector-tool-source.js";
 import { resolveDexcliExecutable } from "./dexcli-binary.js";
-import { resolveDexServer, type DexServerConnection } from "./dex-server.js";
+import {
+  StartedDexcliDevProcess,
+  describeLostDexcliDev,
+  resolveDexServerForCommand,
+  type DexServerConnection,
+} from "./dex-server.js";
 import { LocalToolSource } from "./local-tools/local-tool-source.js";
 import { commandPackageVersion } from "./terminal-ui/command-package-version.js";
 import { TerminalUiChatLauncher, type TerminalUiChatOutcome } from "./terminal-ui/terminal-ui-chat-launcher.js";
@@ -78,8 +87,9 @@ import { TurnConfigResolver } from "./turn-config-resolver.js";
 
 const subcommands = ["run", "init", "connectors", "sessions"] as const;
 type Subcommand = (typeof subcommands)[number];
-const sessionsPageSize = 50;
 const blobCacheBytes = 256 * 1024 * 1024;
+/** Most pages of 50 sessions that the `sessions` subcommand loads before it sorts them. */
+const sessionListMaxPages = 5;
 
 /**
  * The process a command runs in: its arguments, streams, environment, and whether a person is at a terminal.
@@ -120,6 +130,33 @@ export function processAgentCliIo(): AgentCliIo {
   };
 }
 
+const sessionSummaryAttributeNames: ReadonlySet<string> = new Set([
+  "AgentSessionTitle",
+  "AgentSessionLastActivityAt",
+  "AgentSessionTurnCount",
+]);
+
+/** Refuses a harness Flow whose declared indexed session summary differs from the file's `sessions.summary`. */
+function requireSessionSummarySetting(
+  flow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>>,
+  isExpected: boolean,
+): void {
+  // The persistence schema decides what the Worker registers; the option must agree with it.
+  const declaredCount = (flow.getPersistenceSchema?.()?.attributes ?? []).filter(
+    (definition) => sessionSummaryAttributeNames.has(definition.name) && definition.index !== undefined,
+  ).length;
+  const isOptionOn = flow.options.summaryAttributesIndexed === true;
+  if (declaredCount === (isExpected ? sessionSummaryAttributeNames.size : 0) && isOptionOn === isExpected) {
+    return;
+  }
+  throw new Error(
+    `sessions.summary says the session Flow must ${isExpected ? "keep" : "leave out"} the indexed session summary, ` +
+      `but the harness built it declaring ${declaredCount} of its ${sessionSummaryAttributeNames.size} indexed ` +
+      `Attributes with summaryAttributesIndexed ${String(isOptionOn)}; the harness must pass ` +
+      "HarnessContext.isSessionSummaryIndexed",
+  );
+}
+
 /**
  * Runs one Dex Agents CLI command for a harness: `run` (the default), `init`, `connectors`, or `sessions`.
  *
@@ -127,6 +164,14 @@ export function processAgentCliIo(): AgentCliIo {
  * terminal and writes the file, writes the defaults with `--yes`, and otherwise runs on the defaults without a
  * file. It then reuses or starts the Dex server, connects the connectors MCP server, starts a Worker in this
  * process, and chats in the terminal with a new session or the `--resume` one. Exiting keeps the session.
+ *
+ * A `dexcli dev` that the command started for `dex.server: auto` stops when the command exits: on `/exit`, the end
+ * of input, the Ctrl-C that exits, a failure, SIGTERM, or SIGHUP. On a signal, the command stops it and exits the
+ * process with 128 plus the signal number. A `dexcli dev` the command reused keeps running. To share one across
+ * sessions, run `dexcli dev` yourself first. When a reused `dexcli dev` stops during the command, the command fails
+ * with a short error that says so.
+ *
+ * Changed in 0.6.0: a started `dexcli dev` stops when the command exits instead of running on.
  *
  * A harness command's bin calls it and exits with its result, because open connections can keep Node running:
  *
@@ -164,13 +209,15 @@ export async function runAgentCli(harness: AgentHarness, io: AgentCliIo = proces
     return 0;
   }
   const command = new AgentCliCommand(harness, io, parsed, log);
+  ignoreWriteErrorsOfClosedTerminal(io.stdout);
+  ignoreWriteErrorsOfClosedTerminal(io.stderr);
   try {
     return await command.run();
   } catch (error: unknown) {
     if (error instanceof InitCancelledError) {
       return error.exitCode;
     }
-    log(`dex-agents-${harness.name}: ${describe(error)}`);
+    log(`dex-agents-${harness.name}: ${(await command.describeLostDexServer()) ?? describe(error)}`);
     return command.exitCodeOf(error);
   } finally {
     await command.close();
@@ -235,6 +282,9 @@ export class AgentCliCommand {
   private localTools: LocalToolSource | undefined;
   private mediaStore: ClosableMediaStore | undefined;
   private sessionFlow: AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> | undefined;
+  private readonly startedDexcliDev: StartedDexcliDevProcess;
+  private server: DexServerConnection | undefined;
+  private libraryConsole: LibraryConsoleRedirection | undefined;
 
   public constructor(
     private readonly harness: AgentHarness,
@@ -243,6 +293,7 @@ export class AgentCliCommand {
     private readonly log: (line: string) => void,
   ) {
     this.environment = readCliEnvironment(io.environment);
+    this.startedDexcliDev = new StartedDexcliDevProcess(this.environment, log);
   }
 
   /**
@@ -291,7 +342,8 @@ export class AgentCliCommand {
     if (this.parsed.subcommand === "run") {
       this.mediaStore = await createMediaStore(effective.media, this.environment.agentsDirectory);
     }
-    const server = await resolveDexServer(effective.dex.server, this.environment, this.log);
+    const server = await resolveDexServerForCommand(effective.dex.server, this.environment, this.log, this.startedDexcliDev);
+    this.server = server;
     if (server.webUrl !== null) {
       this.log(`Dex Web: ${server.webUrl}`);
     }
@@ -326,6 +378,17 @@ export class AgentCliCommand {
     if (this.blobCacheDirectory !== undefined) {
       rmSync(this.blobCacheDirectory, { recursive: true, force: true });
     }
+    this.libraryConsole?.restore();
+    await this.startedDexcliDev.stop();
+  }
+
+  /** Returns the short error for a reused `dexcli dev` that stopped, or `undefined` when that did not happen. */
+  public async describeLostDexServer(): Promise<string | undefined> {
+    const server = this.server;
+    if (server?.origin !== "reused" || server.webUrl === null) {
+      return undefined;
+    }
+    return describeLostDexcliDev(server.webUrl);
   }
 
   private async initConfig(configPath: string): Promise<LoadedConfig> {
@@ -389,6 +452,7 @@ export class AgentCliCommand {
     this.io.stdout.write(
       `Session ${sessionId}. Type a message; /image <path> attaches an image to the next one; /exit quits. Ctrl-C cancels a turn, and again exits.\n`,
     );
+    this.startedDexcliDev.releaseInterrupt();
     const chat = new TerminalChat(opened.client, opened.flow, sessionId, this.terminalInput(), this.io.stdout, {
       mediaStore: opened.mediaStore,
       homeDirectory: this.environment.homeDirectory,
@@ -453,6 +517,10 @@ export class AgentCliCommand {
         logFilePath: this.logFilePath(),
         environment: this.environment.childProcessVariables,
         isBrowserOpeningEnabled: this.environment.isBrowserOpeningEnabled !== false,
+        commandSignals: {
+          release: () => this.startedDexcliDev.releaseSignals(),
+          reclaim: () => this.startedDexcliDev.reclaimSignals(),
+        },
         openInBrowser: launchBrowser,
       },
       this.log,
@@ -512,11 +580,13 @@ export class AgentCliCommand {
       harnessOptions: effective.harness_options,
       toolSources,
       mediaStore,
+      isSessionSummaryIndexed: isSessionSummaryIndexed(effective),
       resolveTurn: (sessionSettings) => turns.resolveTurn(sessionSettings),
       currentTurn: () => turns.currentTurn(),
       resolveToolStepPermissions: (step) => turns.resolveToolStep(step),
     };
     const flow = this.harness.createSessionFlow(context);
+    requireSessionSummarySetting(flow, context.isSessionSummaryIndexed === true);
     if (flow.getFlowType() !== flowType) {
       throw new Error(`the harness built a ${flow.getFlowType()} Flow; build it with HarnessContext.flowType ${flowType}`);
     }
@@ -535,6 +605,8 @@ export class AgentCliCommand {
       ...connection,
       pull: { appWorkerID: `dex-agents-${this.harness.name}-${hostname()}-${process.pid}`, maxConcurrentTasks: 8 },
     });
+    mkdirSync(this.environment.agentsDirectory, { recursive: true });
+    this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath(), this.log);
     await this.worker.start();
     await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
     await this.uploadSessionFlowDefinition(this.client, flowType);
@@ -810,13 +882,37 @@ export class AgentCliCommand {
       serverAddress: server.serverAddress,
       ...(server.isTls ? { flowServiceTls: {} } : {}),
     });
-    const page = await this.client.searchFlows(`FlowType = "${flowType}"`, sessionsPageSize);
-    if (page.flows.length === 0) {
+    const loadedSessions: AgentSessionSummary[] = [];
+    let nextPageToken = "";
+    for (let pageNumber = 0; pageNumber < sessionListMaxPages; pageNumber += 1) {
+      const page = await listAgentSessions(this.client, flowType, { nextPageToken });
+      loadedSessions.push(...page.sessions);
+      nextPageToken = page.nextPageToken;
+      if (nextPageToken === "") {
+        break;
+      }
+    }
+    if (loadedSessions.length === 0) {
       this.io.stdout.write(`No ${flowType} sessions.\n`);
       return 0;
     }
-    for (const flow of page.flows) {
-      this.io.stdout.write(`${flow.flowId}\t${flow.status}\t${flow.startedAt.toISOString()}\n`);
+    // A session an earlier release started has no summary fields; "—" stands for each one.
+    for (const session of sortAgentSessionsByLastActivity(loadedSessions)) {
+      const columns = [
+        session.sessionId,
+        session.status,
+        session.startedAt.toISOString(),
+        session.lastActivityAt?.toISOString() ?? "—",
+        session.turnCount === null ? "—" : String(session.turnCount),
+        session.title ?? "—",
+      ];
+      this.io.stdout.write(`${columns.join("\t")}\n`);
+    }
+    if (nextPageToken !== "") {
+      this.io.stdout.write(
+        `More sessions exist; this list sorts the first ${loadedSessions.length} that Dex returns: ` +
+          "running sessions first, then the most recently closed and started.\n",
+      );
     }
     this.io.stdout.write(`Resume one with: dex-agents-${this.harness.name} --resume <session>\n`);
     return 0;
@@ -876,6 +972,41 @@ const mediaDirectoryName = "media";
 
 /** A media store that may hold connections, which `close` releases. */
 type ClosableMediaStore = MediaStore & { close?(): void };
+
+/** The SDK Worker's task-stream reconnect messages; issue #1657 tracks a logger option to replace this. */
+const workerReconnectMessage =
+  /^(Worker task stream disconnected|Worker task stream did not register|Worker task registration failed|send Worker (task|keepalive) Pong)\b/;
+
+/** Logs library `console.warn` and `console.error` calls, and shows their first line unless it is reconnect noise. */
+class LibraryConsoleRedirection {
+  private readonly originalWarn = console.warn;
+  private readonly originalError = console.error;
+
+  public constructor(
+    private readonly logFilePath: string,
+    private readonly showLine: (line: string) => void,
+  ) {
+    console.warn = (...values: unknown[]) => this.handle("WARN", values);
+    console.error = (...values: unknown[]) => this.handle("ERROR", values);
+  }
+
+  public restore(): void {
+    console.warn = this.originalWarn;
+    console.error = this.originalError;
+  }
+
+  private handle(level: string, values: readonly unknown[]): void {
+    const text = format(...values);
+    try {
+      appendFileSync(this.logFilePath, `${new Date().toISOString()} ${level} ${text}\n`);
+    } catch {
+      // An unwritable log file loses only this diagnostic line.
+    }
+    if (!workerReconnectMessage.test(text)) {
+      this.showLine(`${text.split("\n", 1)[0] ?? ""} (details in ${this.logFilePath})`);
+    }
+  }
+}
 
 /**
  * Builds the store of `media.store`: the local directory `~/.dex/agents/media` for `auto`, else the S3 bucket.
@@ -1081,6 +1212,18 @@ function launchBrowser(url: string): Promise<boolean> {
       resolve(code === 0);
     });
     child.unref();
+  });
+}
+
+/** A closed terminal fails writes with EIO; the command must still stop the dexcli dev it started. */
+function ignoreWriteErrorsOfClosedTerminal(stream: Writable): void {
+  if ((stream as { isTTY?: boolean }).isTTY !== true) {
+    return;
+  }
+  stream.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EIO") {
+      throw error;
+    }
   });
 }
 

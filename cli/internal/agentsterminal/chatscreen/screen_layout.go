@@ -449,6 +449,11 @@ func (screen *ChatScreen) renderPendingBar(width int) []string {
 		line := screen.theme.Secondary.Render(symbols.Queued+" waiting for the session") + "  " + message.Text
 		lines = append(lines, screen.renderPendingRow(line, false, width))
 	}
+	if screen.pendingSwitchSessionID != "" {
+		// The hint line shows the answers: y switch · n stay.
+		question := " Started session " + screen.pendingSwitchSessionID + ". Switch to it?"
+		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Accent.Render(symbols.AwaitingUser)+question, width, symbols.Ellipsis))
+	}
 	if screen.pendingDelete != nil {
 		question := fmt.Sprintf(" Delete the queued message %q? It will not be sent.", screen.pendingDelete.Text)
 		lines = append(lines, terminaltheme.TruncateToWidth(contentIndent+screen.theme.Warning.Render(symbols.Warning)+question, width, symbols.Ellipsis))
@@ -619,6 +624,10 @@ func (screen *ChatScreen) inputHints() []string {
 	switch {
 	case screen.pendingDelete != nil:
 		return []string{"y delete", "n keep"}
+	case screen.pendingSwitchSessionID != "" && screen.input.IsEmpty():
+		return []string{"y switch", "n stay"}
+	case screen.isSessionStartWaiting && !screen.isCompletionVisible():
+		return []string{"Esc keep starting in the background", "/help"}
 	case screen.pendingFocus == pendingFocusInterrupts:
 		return []string{"Enter opens", "Esc back"}
 	case screen.pendingFocus == pendingFocusQueuedMessage:

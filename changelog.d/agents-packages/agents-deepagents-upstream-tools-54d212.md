@@ -3,9 +3,8 @@ section: Fixed
 ---
 - Python LangGraph adapter: with `should_defer_tool_calls_before_middleware`,
   a tool Step runs the call through its root graph tool node's middleware tool
-  wrappers, such as Deep Agents' large-result eviction, and its tool error
-  handling, in each attempt; their side effects follow the tool's retry
-  policy. Before, the tool Step called the tool alone, so no wrapper ever
+  wrappers, such as Deep Agents' large-result eviction, in each attempt;
+  their side effects follow the tool's retry policy. Before, the tool Step called the tool alone, so no wrapper ever
   ran. The wrappers see the state of the call's deferral without the
   message list, and their state writes are recorded with the tool's.
   `RunModel` replays the wrapped result without running the wrappers. Every

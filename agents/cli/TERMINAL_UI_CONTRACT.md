@@ -213,6 +213,10 @@ leaves the terminal mode as it found it, and exits.
 | The document passes the contract's schema | `invalid_launch` | 2 |
 | The variable `dex.auth` needs is set and not empty | `auth_missing` | 2 |
 | The terminal could be set up (raw mode, window size) | `terminal_failed` | 1 |
+| The Dex client could be set up: the credential that `dex.auth` names is usable, `dex.tls.ca_file` is readable | `dex_setup_failed` | 1 |
+
+The last row runs only after every check above it passed, so it never hides
+one of them. A launcher treats `dex_setup_failed` like any failed handoff.
 
 ```json
 {"type":"launch_rejected","code":"auth_missing","message":"DEX_API_KEY is not set; dex.auth mode api_key needs it."}
@@ -239,7 +243,11 @@ retries, and a slow server never causes a fallback.
   saved before the spawn, prints `Plain chat: <reason>.`, and continues in the
   plain text chat on the same session.
 - A failure after `ready` never falls back. The launcher restores the
-  terminal, prints how to resume, and exits.
+  terminal and exits.
+- After `ready`, `dexcli`'s exit summary is the only line that says how to
+  resume: `/new` can switch sessions, so the launcher could name the wrong
+  one. The launcher prints its own resume line only when it continues in the
+  plain chat, or when `dexcli` never sent `ready`.
 
 ### When the channel ends
 
@@ -267,8 +275,8 @@ A SIGINT sent to the whole foreground process group reaches `dexcli` too, and
 1. waits 1 s for `dexcli` to exit by itself;
 2. then forwards SIGINT to `dexcli`;
 3. sends SIGTERM 2 s after that if `dexcli` still runs;
-4. restores the terminal, stops the Worker host, prints how to resume, and
-   exits 130.
+4. restores the terminal, stops the Worker host, prints how to resume only
+   when `dexcli` never sent `ready` (see [Ready](#ready)), and exits 130.
 
 This never falls back to the plain chat, even before `ready`.
 
@@ -277,7 +285,7 @@ This never falls back to the plain chat, even before `ready`.
 | Exit | When |
 | --- | --- |
 | 0 | The user exited. |
-| 1 | A failure: the session or a turn failed, the channel ended or broke after `ready`, or `terminal_failed`. |
+| 1 | A failure: the session or a turn failed, the channel ended or broke after `ready`, `terminal_failed`, or `dex_setup_failed`. |
 | 2 | `invalid_launch`, `auth_missing`, or `--channel-fd` is not a socket. |
 | 3 | `contract_unsupported` or `mode_unsupported`. |
 | 130 | An external SIGINT, after an orderly exit. A Ctrl-C key press in raw mode is a key, not a signal. |
@@ -329,8 +337,8 @@ errors use this one shape.
 
 `worker` reports the Worker host's state. `exit_code` is its exit status, or
 128 plus the signal number when a signal killed it. After `stopped` the chat
-stays open but cannot run turns; the launcher prints how to resume after the
-user exits.
+stays open but cannot run turns; `dexcli`'s exit summary says how to resume
+after the user exits.
 
 A launcher must send `stopped` when the Worker host exits, and should send
 `stopping` when it starts to shut the host down. `reconnecting` and `ready`
@@ -654,7 +662,11 @@ direction:
 
 `tui_exit` is `dexcli`'s exit code, or `"terminated"` when the launcher stops it
 with SIGTERM. `terminal_ui_environment` is the environment `dexcli` sees, for
-the launch checks. `real_roles` names the sides a real implementation can
+the launch checks. `later_check_failure`, when present, declares a launch
+that passes the line checks but fails a check after them: its `code`
+(`terminal_failed` or `dex_setup_failed`) and its `cause`, such as a token
+file that cannot be read. Without it, a launch that passes the line checks
+must reach `ready`. `real_roles` names the sides a real implementation can
 play in that transcript, deterministically, against a fresh Dex server:
 
 - `tui`: a real `dexcli` reproduces it against the host as launcher.
@@ -748,7 +760,9 @@ python3 agents/cli/tests/terminal_ui_contract_host.py launcher \
 It passes the channel on an fd of 10 or higher, gives the terminal UI only
 the allow-listed environment (`--extra-env NAME=VALUE` adds more for a
 test), replays the launcher side, and exits 0 when everything matched and
-the exit code is `tui_exit`, or 1 with the first difference on stderr.
+the exit code is `tui_exit`, or 1 with the first difference on stderr. With
+`--pty-input-from-stdin` it copies its own stdin to the PTY, so a test can
+type the keys that make the terminal UI send its requests.
 
 Play the terminal UI against a launcher, to test a CLI core: point `DEXCLI` at
 a wrapper. The launcher gives `dexcli` no `PATH`, so write the interpreter's
@@ -793,8 +807,7 @@ Node, a daemon thread in Python.
 1. Every 1 s it checks whether the parent is still the launcher. When it is
    not, it starts an orderly shutdown and arms the hard bound at once.
 2. A shutdown that starts for another reason (EOF on the control channel,
-   `shutdown` from the launcher, SIGTERM) also arms the bound. Node arms it at
-   once. Python arms it at the watchdog's next check, up to 1 s later.
+   `shutdown` from the launcher, SIGTERM) also arms the bound at once.
 3. Python: 15 s after the bound is armed, if the Worker host still runs, the
    watchdog sends SIGTERM to every registered tool process group, waits up to
    2 s for them, and sends SIGKILL to those left.
@@ -805,14 +818,34 @@ Node, a daemon thread in Python.
    orderly shutdown, and signals a group only while its leader's
    `ChildProcess` has not reported its exit.
 
+Python's watchdog may signal tool groups (step 3) because the Python shell
+tool owns every reap of a tool group leader: it spawns the shell with
+`subprocess.Popen` outside asyncio's child watcher, waits for its exit
+without reaping it (`waitid` with `WNOWAIT`, or kqueue on macOS before
+Python 3.13), stops what the shell left in its group, and only then reaps it
+with `waitpid`, under the registry lock that every signal also takes. A
+registration whose run record cannot be written is undone, and that shell is
+killed and reaped at once. So, within a running Worker host, no signal
+reaches a reaped leader's reused pid. A core whose tool leaders are reaped
+elsewhere, such as by an event loop's child watcher, must not signal tool
+groups from its watchdog.
+
+In Node, the leader of a tool group is a gatekeeper shell: it runs the
+command with `/bin/sh -c`, reports the command's exit status to the main
+thread, and waits until the main thread has stopped what the command left in
+the group (SIGTERM, then SIGKILL 0.5 s later). So the leader stays unreaped,
+and its pid stays the group's, for as long as the main thread may signal the
+group. When the Worker host goes away first, the gatekeeper kills its own
+group once the command ends.
+
 Each number below adds scheduling delay, and holds only while the watchdog
 can run:
 
 | Platform and core | Launcher died | A shutdown began |
 | --- | --- | --- |
 | Node (TypeScript), macOS and Linux | Worker host gone within about 1 + 15 = 16 s. Registered tool groups are gone within that bound when the orderly shutdown runs; when the main thread is stuck they are **not** bounded, and the next start's leftover cleanup stops them | about 15 s, with the same rule for tool groups |
-| Python, macOS | about 1 + 15 + 2 = 18 s | about 1 + 15 + 2 = 18 s |
-| Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 1 + 15 + 2 = 18 s |
+| Python, macOS | Worker host and registered tool groups gone within about 1 + 15 + 2 = 18 s | about 15 + 2 = 17 s |
+| Python, Linux | The Worker host dies at once: Python sets `PR_SET_PDEATHSIG` to SIGKILL, so the kernel kills it with the launcher, and its watchdog dies with it. Registered tool groups are **not** bounded: they run until the next start's leftover cleanup stops them | about 15 + 2 = 17 s |
 
 The bounds do not hold:
 
@@ -827,7 +860,7 @@ The bounds do not hold:
 
 The Worker host writes a run record of itself and of each tool process group
 it starts. On a later start, a launcher stops what a dead launcher left, and
-checks each group's identity again right before that group's SIGTERM and
+checks each group's identity again right before that group's own SIGTERM and
 before its SIGKILL, because signaling one group can end another group's
 leader.
 Any mismatch, or a process that is gone, removes the record entry and sends
@@ -841,9 +874,12 @@ nothing.
 A tool group leader is a shell that may `exec` its command, which changes its
 command line but not its pid, group, or start time. So the command line is
 not part of a tool group's identity. The start time is what the system
-reports, such as `ps -o lstart` in the C locale. It has a resolution of one
-second, so a process that reused a recorded pid within the same second as
-the recorded one passes the check. The cleanup is best effort, and this is
-its remaining risk. A record holds the SHA-256
+reports, such as `ps -o lstart` in the C locale. A record holds the SHA-256
 of the Worker host's command line (UTF-8, as `ps -ww -o command=` prints it),
 never its text, because a command line can carry a secret.
+
+This cleanup is best effort, not a proof of ownership. The start time has
+one-second resolution, and the identity check and the signal are separate
+steps. A pid reused within the same second, or between the check and the
+signal, could still be signaled. Checking right before each signal keeps that
+window small; nothing removes it.

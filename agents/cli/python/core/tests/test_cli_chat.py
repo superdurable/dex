@@ -17,11 +17,12 @@ import os
 import re
 import signal
 import socket
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pexpect
+import pytest
 
 from dex_agents import AgentSnapshot, MessageRole, render_session_flow_graph
 from dex_agents.session_graph import SESSION_FLOW_GRAPH_GENERATED_AT
@@ -33,7 +34,7 @@ from dex_agents.testing import (
 )
 from dex_agents_cli_core import SESSION_ACTION_PERMISSION, session_flow_type
 from tests.conftest import CliHome, config_yaml, expect, session_client, wait_for_exit
-from tests.scripted_harness import SCRIPTED_FLOW_TYPE
+from tests.scripted_harness import FORCED_SUMMARY_ENVIRONMENT_VARIABLE, SCRIPTED_FLOW_TYPE
 
 NO_CONNECTORS: dict[str, Any] = {"connectors": {"enabled": []}}
 
@@ -262,12 +263,131 @@ async def test_sessions_lists_this_agents_sessions(cli_home: CliHome) -> None:
     child = cli_home.spawn()
     session_id = await read_session_id(child)
     await expect(child, "> ")
+    child.sendline("hello   the  list")
+    await expect(child, "echo: hello")
+    await expect(child, "> ")
     child.sendeof()
     assert await wait_for_exit(child) == 0
     completed = cli_home.run("sessions")
     assert completed.returncode == 0, completed.stderr
-    assert session_id in completed.stdout
-    assert json.dumps(session_id)[1:-1] in completed.stdout
+    minute = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}"
+    assert re.search(
+        rf"^{re.escape(session_id)}  running  started {minute}  updated {minute}  1 turn  "
+        r"hello the list$",
+        completed.stdout,
+        re.MULTILINE,
+    ), completed.stdout
+
+
+@pytest.mark.parametrize(
+    ("server", "summary", "is_indexed"),
+    [
+        ("auto", None, True),
+        ("url", None, False),
+        ("url", "on", True),
+        ("auto", "off", False),
+    ],
+)
+async def test_sessions_summary_follows_the_config_and_the_server(
+    cli_home: CliHome, server: str, summary: str | None, is_indexed: bool
+) -> None:
+    values: dict[str, Any] = dict(NO_CONNECTORS)
+    if server == "url":
+        # A Dex server URL may be shared, so auto leaves its search index alone.
+        values["dex"] = {"server": f"http://{cli_home.address}"}
+    if summary is not None:
+        values["sessions"] = {"summary": summary}
+    cli_home.write_config(config_yaml(values))
+    child = cli_home.spawn()
+    session_id = await read_session_id(child)
+    await expect(child, "> ")
+    child.sendline("summary check")
+    await expect(child, "echo: summary check")
+    await expect(child, "> ")
+    child.sendeof()
+    assert await wait_for_exit(child) == 0
+
+    completed = cli_home.run("sessions")
+    assert completed.returncode == 0, completed.stderr
+    (line,) = [line for line in completed.stdout.splitlines() if line.startswith(session_id)]
+    if is_indexed:
+        assert line.endswith("  1 turn  summary check"), line
+    else:
+        assert re.fullmatch(rf"{re.escape(session_id)}  running  started [0-9: -]+", line), line
+
+
+@pytest.mark.parametrize(
+    ("forced", "server", "summary"),
+    [
+        ("off", "auto", None),
+        ("on", "auto", "off"),
+        # The options report off, but the schema declares the summary.
+        ("misreported-on", "url", None),
+        ("misreported-on", "auto", "off"),
+        # The options report on, but the schema declares none of it.
+        ("misreported-off", "url", "on"),
+    ],
+)
+async def test_a_harness_that_ignores_sessions_summary_stops_the_command(
+    cli_home: CliHome, forced: str, server: str, summary: str | None
+) -> None:
+    values: dict[str, Any] = dict(NO_CONNECTORS)
+    if server == "url":
+        values["dex"] = {"server": f"http://{cli_home.address}"}
+    if summary is not None:
+        values["sessions"] = {"summary": summary}
+    cli_home.write_config(config_yaml(values))
+    cli_home.extra_environment[FORCED_SUMMARY_ENVIRONMENT_VARIABLE] = forced
+
+    completed = await asyncio.to_thread(cli_home.run, stdin="hello\n")
+
+    assert completed.returncode != 0
+    assert "sessions.summary says the session Flow must" in completed.stderr
+    assert "HarnessContext.is_session_summary_indexed" in completed.stderr
+    assert "Session " not in completed.stdout
+
+
+async def test_sessions_sorts_several_pages_and_says_when_more_exist(
+    cli_home: CliHome, tmp_path: Path
+) -> None:
+    workspace = cli_home.home / "dex-agent-workspace"
+    cli_home.write_config(config_yaml(NO_CONNECTORS))
+    child = cli_home.spawn()
+    oldest = await read_session_id(child)
+    await expect(child, "> ")
+    flow_type = session_flow_type(SCRIPTED_FLOW_TYPE, cli_home.config_path, workspace)
+    async with session_client(cli_home.address, tmp_path / "client-cache", flow_type) as sessions:
+        for index in range(60):
+            await sessions.start_session(f"later-{index:03d}")
+        await _wait_for_the_next_second()
+        # The oldest session, last in Dex's order, becomes the most recently active one.
+        child.sendline("after the others")
+        await expect(child, "echo: after the others")
+        await expect(child, "> ")
+        child.sendeof()
+        assert await wait_for_exit(child) == 0
+
+        listed = cli_home.run("sessions")
+        assert listed.returncode == 0, listed.stderr
+        lines = [line for line in listed.stdout.splitlines() if "  started " in line]
+        assert len(lines) == 61
+        assert lines[0].startswith(f"{oldest}  running  "), listed.stdout
+        assert all(line.endswith("  0 turns") for line in lines[1:]), listed.stdout
+        assert "More sessions exist" not in listed.stdout
+
+        for index in range(200):
+            await sessions.start_session(f"extra-{index:03d}")
+    capped = cli_home.run("sessions")
+    assert capped.returncode == 0, capped.stderr
+    assert len([line for line in capped.stdout.splitlines() if "  started " in line]) == 250
+    assert "More sessions exist; this list sorts the first 250 that Dex returns" in capped.stdout
+
+
+async def _wait_for_the_next_second() -> None:
+    """Wait for a later second, since session activity times have one-second precision."""
+    started = datetime.now(UTC).replace(microsecond=0)
+    while datetime.now(UTC) < started + timedelta(seconds=1):
+        await asyncio.sleep(0.05)
 
 
 async def test_a_failed_turn_makes_the_command_exit_1(cli_home: CliHome) -> None:
