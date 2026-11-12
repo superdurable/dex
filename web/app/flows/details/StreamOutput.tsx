@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowDown, ArrowUp, CircleAlert, CircleStop, Radio } from 'lucide-react';
 import { storedValueJSONReplacer } from '@/lib/blobs';
@@ -191,52 +191,87 @@ export function trimStreamEntries(state: StreamEntriesState, maxKeptMessages: nu
   };
 }
 
-type ScrollMetrics = { scrollTop: number; scrollHeight: number; clientHeight: number };
-
-/** Whether a transcript scroll box is at, or within a small tolerance of, its newest text at the bottom. */
-export function isScrolledToLatest(metrics: ScrollMetrics): boolean {
-  return metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight <= LATEST_SCROLL_TOLERANCE_PIXELS;
+/** Where the Stream output sits in the window, and the part of the window the reader can see. */
+export interface StreamOutputBounds {
+  top: number;
+  bottom: number;
+  visibleTop: number;
+  visibleBottom: number;
 }
 
-/** Whether an entries scroll box is at, or within a small tolerance of, its newest entry at the top. */
-export function isScrolledToNewestEntry(metrics: ScrollMetrics): boolean {
-  return metrics.scrollTop <= LATEST_SCROLL_TOLERANCE_PIXELS;
+/** Whether the end of a transcript, its newest text, is in view or within a small tolerance of it. */
+export function isScrolledToLatest(bounds: StreamOutputBounds): boolean {
+  return bounds.bottom <= bounds.visibleBottom + LATEST_SCROLL_TOLERANCE_PIXELS;
 }
 
-/** The entry the reader is looking at: the first one whose bottom is below the scroll box top. */
+/** Whether the top of the entries, their newest entry, is in view or within a small tolerance of it. */
+export function isScrolledToNewestEntry(bounds: StreamOutputBounds): boolean {
+  return bounds.top >= bounds.visibleTop - LATEST_SCROLL_TOLERANCE_PIXELS;
+}
+
+/** Whether the page keeps the newest transcript text in view: the reader has scrolled down to its end. */
+export function isFollowingTranscriptEnd(bounds: StreamOutputBounds): boolean {
+  return isScrolledToLatest(bounds) && bounds.top < bounds.visibleTop;
+}
+
+// The sticky page header covers the window top; the output's scroll-margin-top states its height.
+function streamOutputBoundsOf(output: HTMLElement): StreamOutputBounds {
+  const { top, bottom } = output.getBoundingClientRect();
+  const style = getComputedStyle(output);
+  return {
+    top,
+    bottom,
+    visibleTop: parseFloat(style.scrollMarginTop) || 0,
+    visibleBottom: window.innerHeight - (parseFloat(style.scrollMarginBottom) || 0),
+  };
+}
+
+/**
+ * The entry that holds the reader's place: the first one that starts in view, or else the one the window top
+ * cuts through. An entry that starts in view keeps its top when a newer entry above it closes its JSON.
+ */
 interface StreamScrollAnchor {
   resumeToken: string;
-  offsetFromScrollBoxTop: number;
+  offsetFromVisibleTop: number;
 }
 
-function streamScrollAnchorOf(scrollBox: HTMLElement): StreamScrollAnchor | null {
-  const entryElements = scrollBox.querySelectorAll<HTMLElement>('.stream-entry');
-  const scrollBoxTop = scrollBox.getBoundingClientRect().top;
-  // Entries stack in order, so a binary search finds the first visible one.
-  let low = 0;
-  let high = entryElements.length - 1;
-  let anchorElement: HTMLElement | null = null;
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    if (entryElements[middle].getBoundingClientRect().bottom > scrollBoxTop) {
-      anchorElement = entryElements[middle];
-      high = middle - 1;
-    } else {
-      low = middle + 1;
+function streamScrollAnchorOf(output: HTMLElement): StreamScrollAnchor | null {
+  const entryElements = output.querySelectorAll<HTMLElement>('.stream-entry');
+  const { visibleTop, visibleBottom } = streamOutputBoundsOf(output);
+  const firstEntryIndexWhere = (isPastWindowTop: (rect: DOMRect) => boolean) => {
+    // Entries stack in order, so a binary search finds the first one.
+    let low = 0;
+    let high = entryElements.length - 1;
+    let foundIndex = -1;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      if (isPastWindowTop(entryElements[middle].getBoundingClientRect())) {
+        foundIndex = middle;
+        high = middle - 1;
+      } else {
+        low = middle + 1;
+      }
     }
-  }
+    return foundIndex;
+  };
+  const startingInViewIndex = firstEntryIndexWhere((rect) => rect.top >= visibleTop);
+  const isStartingInView = startingInViewIndex >= 0
+    && entryElements[startingInViewIndex].getBoundingClientRect().top < visibleBottom;
+  const anchorIndex = isStartingInView ? startingInViewIndex : firstEntryIndexWhere((rect) => rect.bottom > visibleTop);
+  const anchorElement = anchorIndex >= 0 ? entryElements[anchorIndex] : null;
   const resumeToken = anchorElement?.dataset.resumeToken;
   if (!anchorElement || resumeToken === undefined) return null;
-  return { resumeToken, offsetFromScrollBoxTop: anchorElement.getBoundingClientRect().top - scrollBoxTop };
+  return { resumeToken, offsetFromVisibleTop: anchorElement.getBoundingClientRect().top - visibleTop };
 }
 
-/** Scrolls so the anchored entry sits where it was; returns false when that entry is no longer on screen. */
-function restoreStreamScrollAnchor(scrollBox: HTMLElement, anchor: StreamScrollAnchor): boolean {
-  const anchorElement = [...scrollBox.querySelectorAll<HTMLElement>('.stream-entry')]
+/** Scrolls the page so the anchored entry sits where it was; returns false when that entry is no longer on screen. */
+function restoreStreamScrollAnchor(output: HTMLElement, anchor: StreamScrollAnchor): boolean {
+  const anchorElement = [...output.querySelectorAll<HTMLElement>('.stream-entry')]
     .find((element) => element.dataset.resumeToken === anchor.resumeToken);
   if (!anchorElement) return false;
-  const offsetFromScrollBoxTop = anchorElement.getBoundingClientRect().top - scrollBox.getBoundingClientRect().top;
-  scrollBox.scrollTop += offsetFromScrollBoxTop - anchor.offsetFromScrollBoxTop;
+  const offsetFromVisibleTop = anchorElement.getBoundingClientRect().top - streamOutputBoundsOf(output).visibleTop;
+  const scrollDelta = offsetFromVisibleTop - anchor.offsetFromVisibleTop;
+  if (scrollDelta !== 0) window.scrollBy(0, scrollDelta);
   return true;
 }
 
@@ -300,48 +335,66 @@ export function StreamOutput({
   const [pickedView, setPickedView] = useState<StreamOutputView | null>(null);
   const view: StreamOutputView = isAllText ? (pickedView ?? 'transcript') : 'entries';
   const isNewestFirst = view === 'entries';
-  const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
   const scrollAnchorRef = useRef<StreamScrollAnchor | null>(null);
+  const isFollowingTranscriptEndRef = useRef(false);
   const [isFollowingLatest, setIsFollowingLatest] = useState(true);
   const latestRecord = records.at(-1);
   const latestSequenceNumber = latestRecord?.sequenceNumber ?? 0;
   const [seenSequenceNumber, setSeenSequenceNumber] = useState(0);
   const newestFirstRecords = useMemo(() => [...records].reverse(), [records]);
 
-  useLayoutEffect(() => {
-    const scrollBox = scrollBoxRef.current;
-    if (!scrollBox) return;
-    if (isFollowingLatest) {
-      scrollBox.scrollTop = isNewestFirst ? 0 : scrollBox.scrollHeight;
-      setSeenSequenceNumber(latestSequenceNumber);
-      return;
+  // The page scrolls, not the output, so the reader's place is read from the window.
+  const followScrollPosition = useCallback(() => {
+    const output = outputRef.current;
+    if (!output) return;
+    const bounds = streamOutputBoundsOf(output);
+    let isAtLatest: boolean;
+    if (isNewestFirst) {
+      isAtLatest = isScrolledToNewestEntry(bounds);
+      scrollAnchorRef.current = isAtLatest ? null : streamScrollAnchorOf(output);
+    } else {
+      isAtLatest = isScrolledToLatest(bounds);
+      isFollowingTranscriptEndRef.current = isFollowingTranscriptEnd(bounds);
     }
-    if (!isNewestFirst) return;
-    const anchor = scrollAnchorRef.current;
-    if (!anchor || !restoreStreamScrollAnchor(scrollBox, anchor)) scrollAnchorRef.current = streamScrollAnchorOf(scrollBox);
-  }, [isFollowingLatest, isNewestFirst, latestSequenceNumber, records]);
+    setIsFollowingLatest(isAtLatest);
+    if (isAtLatest) setSeenSequenceNumber(latestSequenceNumber);
+  }, [isNewestFirst, latestSequenceNumber]);
 
-  const followScrollPosition = (scrollBox: HTMLDivElement) => {
-    if (!isNewestFirst) {
-      setIsFollowingLatest(isScrolledToLatest(scrollBox));
-      return;
+  useEffect(() => {
+    window.addEventListener('scroll', followScrollPosition, { passive: true });
+    window.addEventListener('resize', followScrollPosition);
+    return () => {
+      window.removeEventListener('scroll', followScrollPosition);
+      window.removeEventListener('resize', followScrollPosition);
+    };
+  }, [followScrollPosition]);
+
+  useLayoutEffect(() => {
+    const output = outputRef.current;
+    if (!output) return;
+    if (isNewestFirst) {
+      const anchor = scrollAnchorRef.current;
+      if (anchor) restoreStreamScrollAnchor(output, anchor);
+    } else if (isFollowingTranscriptEndRef.current) {
+      const bounds = streamOutputBoundsOf(output);
+      if (bounds.bottom > bounds.visibleBottom) window.scrollBy(0, bounds.bottom - bounds.visibleBottom);
     }
-    const isAtNewestEntry = isScrolledToNewestEntry(scrollBox);
-    scrollAnchorRef.current = isAtNewestEntry ? null : streamScrollAnchorOf(scrollBox);
-    setIsFollowingLatest(isAtNewestEntry);
-  };
+    followScrollPosition();
+  }, [followScrollPosition, isNewestFirst, records]);
 
   const pickView = (option: StreamOutputView) => {
     setPickedView(option);
     scrollAnchorRef.current = null;
-    setIsFollowingLatest(true);
+    isFollowingTranscriptEndRef.current = false;
   };
 
   const backToLatest = () => {
-    const scrollBox = scrollBoxRef.current;
-    if (scrollBox) scrollBox.scrollTop = isNewestFirst ? 0 : scrollBox.scrollHeight;
+    outputRef.current?.scrollIntoView({ block: isNewestFirst ? 'start' : 'end' });
     scrollAnchorRef.current = null;
+    isFollowingTranscriptEndRef.current = !isNewestFirst;
     setIsFollowingLatest(true);
+    setSeenSequenceNumber(latestSequenceNumber);
   };
 
   const unseenMessageCount = Math.max(latestSequenceNumber - seenSequenceNumber, 0);
@@ -350,6 +403,20 @@ export function StreamOutput({
       {droppedMessageCount} older {droppedMessageCount === 1 ? 'message' : 'messages'} dropped · showing the newest{' '}
       {records.length}
     </p>
+  );
+
+  // A zero-height sticky holder keeps the button on screen while the page scrolls.
+  const backToLatestButton = (
+    <div className={`stream-back-to-latest-holder stream-back-to-latest-holder--${isNewestFirst ? 'top' : 'bottom'}`}>
+      <button
+        className={`stream-back-to-latest stream-back-to-latest--${isNewestFirst ? 'top' : 'bottom'}`}
+        onClick={backToLatest}
+        type="button"
+      >
+        {isNewestFirst ? <ArrowUp aria-hidden="true" size={14} /> : <ArrowDown aria-hidden="true" size={14} />}
+        {unseenMessageCount > 0 ? `${unseenMessageCount} new · ` : ''}Back to latest
+      </button>
+    </div>
   );
 
   return (
@@ -376,11 +443,11 @@ export function StreamOutput({
           </div>
         )}
         <div className="stream-scroll-frame">
+          {!isFollowingLatest && isNewestFirst && backToLatestButton}
           <div
             className={`stream-scroll stream-scroll--${view}`}
             data-testid="stream-scroll"
-            onScroll={(event) => followScrollPosition(event.currentTarget)}
-            ref={scrollBoxRef}
+            ref={outputRef}
           >
             {view === 'transcript' ? (
               <>
@@ -412,16 +479,7 @@ export function StreamOutput({
               </>
             )}
           </div>
-          {!isFollowingLatest && (
-            <button
-              className={`stream-back-to-latest stream-back-to-latest--${isNewestFirst ? 'top' : 'bottom'}`}
-              onClick={backToLatest}
-              type="button"
-            >
-              {isNewestFirst ? <ArrowUp aria-hidden="true" size={14} /> : <ArrowDown aria-hidden="true" size={14} />}
-              {unseenMessageCount > 0 ? `${unseenMessageCount} new · ` : ''}Back to latest
-            </button>
-          )}
+          {!isFollowingLatest && !isNewestFirst && backToLatestButton}
         </div>
       </div>
     </StreamClock>
