@@ -40,7 +40,9 @@ from tests.connector_agent import (
     build_connector_agent_flows,
 )
 from tests.deep_agents import (
+    AUDIT_INVOCATION_PREFIX,
     DEEP_AGENT_FLOW_TYPE,
+    TOOL_STEP_WRAPPER_INVOCATION_PREFIX,
     TOOL_WRAPPER_INVOCATION_PREFIX,
     build_deep_agent_flows,
 )
@@ -91,7 +93,14 @@ class ScriptedAgentHarness:
         return [
             name
             for name in self.invocations.names()
-            if not name.startswith((MODEL_CALL_INVOCATION_PREFIX, TOOL_WRAPPER_INVOCATION_PREFIX))
+            if not name.startswith(
+                (
+                    MODEL_CALL_INVOCATION_PREFIX,
+                    TOOL_WRAPPER_INVOCATION_PREFIX,
+                    TOOL_STEP_WRAPPER_INVOCATION_PREFIX,
+                    AUDIT_INVOCATION_PREFIX,
+                )
+            )
         ]
 
     async def read_step_history(self, session_id: str) -> list[StepHistoryEntry]:

@@ -2,7 +2,6 @@
   "name": "chat_notices_and_worker_states",
   "description": "A launch notice, a notice message, and the Worker host reconnecting, recovering, and stopping; the user then exits.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -74,7 +73,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {

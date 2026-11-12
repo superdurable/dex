@@ -2,7 +2,6 @@
   "name": "chat_start_session_long_id",
   "description": "Another key started the short ID first, so start_session returns the long ID.",
   "real_roles": [
-    "launcher",
     "tui"
   ],
   "terminal_ui_environment": {},
@@ -69,7 +68,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {

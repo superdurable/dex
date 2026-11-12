@@ -5,6 +5,7 @@
     "launcher",
     "tui"
   ],
+  "launcher_setup": "Alias /home/user/pictures/screenshot.png to a PNG file named screenshot.png and /home/user/notes.txt to a text file named notes.txt.",
   "terminal_ui_environment": {},
   "steps": [
     {
@@ -69,7 +70,9 @@
         "session.flow_type",
         "session.session_id",
         "display",
-        "log_path"
+        "capabilities",
+        "log_path",
+        "connectors"
       ]
     },
     {
@@ -109,7 +112,12 @@
           },
           "name": "screenshot.png"
         }
-      }
+      },
+      "ignore": [
+        "result.image.uri",
+        "result.image.sha256",
+        "result.image.size_bytes"
+      ]
     },
     {
       "from": "tui",
