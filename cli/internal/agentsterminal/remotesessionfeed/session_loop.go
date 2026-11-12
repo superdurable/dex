@@ -301,15 +301,15 @@ func (loop *sessionLoop) applyFetchFailure(err error) {
 }
 
 // The history reads end events back to its oldest turn, at most this many
-// pages of the newest retained events.
+// pages.
 const (
 	historyEventPageSize  = 100
 	historyEventPageCount = 20
 )
 
-// readHistoryTurnEnds returns, for each turn whose end event it found, whether
-// it was cancelled. It stops after oldestTurnID's end, the oldest event, or a
-// read error.
+// readHistoryTurnEnds returns whether each turn with a found end event was
+// cancelled. It stops after oldestTurnID's end, the oldest event, or a read
+// error.
 func readHistoryTurnEnds(ctx context.Context, feed *RemoteSessionFeed, sessionID string, oldestTurnID string) map[string]bool {
 	isCancelledByTurn := map[string]bool{}
 	pageToken := ""

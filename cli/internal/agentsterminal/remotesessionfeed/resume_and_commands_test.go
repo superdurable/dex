@@ -48,8 +48,7 @@ func TestMessageQueuedBeforeTheChatCarriesNoOrigin(t *testing.T) {
 // The history marks turns that the recent events show as cancelled.
 func TestHistoryMarksCancelledTurns(t *testing.T) {
 	harness := newModelHarness(t)
-	// The newest page holds turn-2's cancel among many deltas; turn-1's end
-	// is two pages back, so the reader goes on until it has it.
+	// turn-1's end is two pages back, so the reader goes on until it has it.
 	pages := [][]dexagents.AgentEvent{
 		{endEvent("turn-2", "turn_cancelled", "{}"), textEvent("turn-2", "step-2", 1, "partial")},
 		{textEvent("turn-2", "step-2", 1, "more")},

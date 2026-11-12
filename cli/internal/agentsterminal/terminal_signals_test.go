@@ -46,7 +46,7 @@ func newTestSignals(t *testing.T, isForeground *atomic.Bool, stops *atomic.Int32
 	handler := newTerminalSignals(os.Stdin, nil)
 	handler.Attach(program)
 	handler.isForeground = isForeground.Load
-	handler.stopProcess = func() { stops.Add(1) }
+	handler.stopProcess = func(uint64) { stops.Add(1) }
 	handler.wait.Add(1)
 	go handler.run()
 	t.Cleanup(func() {
@@ -132,4 +132,65 @@ func TestExternalSignalsExitWithTheirCodes(t *testing.T) {
 		externalSignalMsg{exitCode: exitCodeHangUp},
 	}, program.sent())
 	require.Zero(t, stops.Load())
+}
+
+// newStoppingSignals runs the real stop decision with a fake SIGSTOP.
+func newStoppingSignals(t *testing.T, canStop bool, sentStops *atomic.Int32) (*terminalSignals, *recordingProgram) {
+	t.Helper()
+	var isForeground atomic.Bool
+	isForeground.Store(true)
+	var unused atomic.Int32
+	handler, program := newTestSignals(t, &isForeground, &unused)
+	handler.stopProcess = handler.stopUnlessContinued
+	handler.canStopProcessGroup = func() bool { return canStop }
+	handler.sendStop = func() error {
+		sentStops.Add(1)
+		return nil
+	}
+	return handler, program
+}
+
+// The stop waits for SIGCONT, which fg sends.
+func TestStopWaitsForTheContinue(t *testing.T) {
+	var sentStops atomic.Int32
+	handler, program := newStoppingSignals(t, true, &sentStops)
+	handler.signals <- syscall.SIGTSTP
+	command := suspendCommandOf(t, program)
+	returned := make(chan error, 1)
+	go func() { returned <- command.Run() }()
+	require.Eventually(t, func() bool { return sentStops.Load() == 1 }, time.Second, 10*time.Millisecond)
+	select {
+	case <-returned:
+		t.Fatal("the command returned before SIGCONT")
+	case <-time.After(100 * time.Millisecond):
+	}
+	handler.signals <- syscall.SIGCONT
+	select {
+	case err := <-returned:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the command did not return after SIGCONT")
+	}
+}
+
+// A SIGCONT after the SIGTSTP but before the stop cancels it: no second
+// SIGCONT would come.
+func TestContinueBeforeTheStopCancelsIt(t *testing.T) {
+	var sentStops atomic.Int32
+	handler, program := newStoppingSignals(t, true, &sentStops)
+	handler.signals <- syscall.SIGTSTP
+	command := suspendCommandOf(t, program)
+	handler.signals <- syscall.SIGCONT
+	require.Eventually(t, func() bool { return handler.continueCount.Load() == 1 }, time.Second, 10*time.Millisecond)
+	require.NoError(t, command.Run())
+	require.Zero(t, sentStops.Load())
+}
+
+// Without a job-control parent the chat keeps running instead of freezing.
+func TestOrphanedProcessGroupDoesNotStop(t *testing.T) {
+	var sentStops atomic.Int32
+	handler, program := newStoppingSignals(t, false, &sentStops)
+	handler.signals <- syscall.SIGTSTP
+	require.NoError(t, suspendCommandOf(t, program).Run())
+	require.Zero(t, sentStops.Load())
 }
