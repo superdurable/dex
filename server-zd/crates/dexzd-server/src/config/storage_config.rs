@@ -51,6 +51,20 @@ pub enum ObjectStoreProvider {
     S3,
     /// Transactional SQL objects stored in db9.
     Db9,
+    /// Aliyun OSS through its S3-compatible endpoint, with versioned objects for replaced keys.
+    #[serde(rename = "aliyunOSS")]
+    AliyunOss,
+}
+
+impl ObjectStoreProvider {
+    /// Returns the YAML spelling of the provider.
+    pub fn yaml_name(self) -> &'static str {
+        match self {
+            Self::S3 => "s3",
+            Self::Db9 => "db9",
+            Self::AliyunOss => "aliyunOSS",
+        }
+    }
 }
 
 /// Credentials resolved outside YAML and omitted from diagnostics.
@@ -67,7 +81,9 @@ impl fmt::Debug for Db9ConnectionString {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreConfig {
-    /// Defaults to s3; db9 selects transactional PostgreSQL-compatible storage.
+    /// Defaults to s3; db9 selects transactional PostgreSQL-compatible storage, and aliyunOSS
+    /// selects Aliyun OSS through its S3-compatible endpoint with virtual-hosted addressing.
+    /// aliyunOSS requires endpoint and rejects forcePathStyle; the hard-delete store uses it too.
     pub provider: ObjectStoreProvider,
     /// Defaults to empty; resolved from DEX_ZD_DB9_CONNECTION_STRING, never serialized.
     #[serde(skip)]

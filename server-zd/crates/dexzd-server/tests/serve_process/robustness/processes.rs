@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use s3local::{Durability, EtagMode, Store, StoreConfig};
-use s3local_server::{ServerConfig, ServerHandle, SignatureVerification};
+use s3local_server::{S3ApiDialect, ServerConfig, ServerHandle, SignatureVerification};
 use tempfile::TempDir;
 use tokio::process::{Child, Command};
 use tonic::transport::Channel;
@@ -56,6 +56,11 @@ pub(crate) struct DurableEmulator {
 
 impl DurableEmulator {
     pub(crate) async fn start() -> Self {
+        Self::start_with_dialect(S3ApiDialect::AmazonS3).await
+    }
+
+    /// Starts like [`Self::start`], answering requests as the endpoint of `api_dialect` does.
+    pub(crate) async fn start_with_dialect(api_dialect: S3ApiDialect) -> Self {
         let directory = TempDir::new().expect("a temporary emulator directory can be created");
         let store = Store::open(&StoreConfig {
             root_directory: directory.path().to_path_buf(),
@@ -76,6 +81,7 @@ impl DurableEmulator {
             ServerConfig {
                 data_directory: directory.path().to_path_buf(),
                 signature_verification: SignatureVerification::Off,
+                api_dialect,
                 ..ServerConfig::default()
             },
         )

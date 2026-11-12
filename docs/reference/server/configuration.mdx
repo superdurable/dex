@@ -56,6 +56,8 @@ Since 0.1.24, **objectStore.provider: db9** stores this state in db9, a
 PostgreSQL-compatible database, instead of S3. The server then depends on that
 database instead of object storage. See
 [db9 provider](/reference/server/object-storage#db9).
+Since 0.1.27, **objectStore.provider: aliyunOSS** stores it in an Aliyun OSS
+bucket. See [Aliyun OSS provider](/reference/server/object-storage#aliyun-oss).
 
 This configuration runs a single replica, so it sets **lease.duration** to 60
 seconds. No standby can take over a single replica, and the longer lease makes

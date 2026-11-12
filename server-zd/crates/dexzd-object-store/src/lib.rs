@@ -27,8 +27,9 @@ mod startup_self_check;
 use std::path::Path;
 
 pub use aliyun_oss::{
-    AliyunOssObjectStore, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION, STALE_STARTUP_PROBE_AGE,
-    VERSION_OBJECT_KEY_SUFFIX_BYTES,
+    AliyunOssBucketCheckError, AliyunOssObjectStore, MINIMUM_SUPERSEDED_AGE_BEFORE_RECLAMATION,
+    STALE_STARTUP_PROBE_AGE, VERSION_OBJECT_KEY_SUFFIX_BYTES, check_aliyun_oss_create_only_writes,
+    check_no_data_of_another_provider,
 };
 pub use db9::{Db9ObjectStore, Db9ObjectStoreConfig};
 pub use in_memory::{FaultAction, FaultInjector, InMemoryObjectStore, InMemoryObjectStoreOptions};

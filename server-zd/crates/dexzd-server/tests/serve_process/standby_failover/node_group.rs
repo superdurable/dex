@@ -31,7 +31,7 @@ use tonic_health::pb::health_client::HealthClient;
 use super::lease_epochs::{LeaseHistory, LeaseReport};
 use super::object_store_endpoints::{ObjectStoreEndpoint, ObjectStoreFault};
 use super::readiness_router::{ReadinessRouter, RouterBackend, ServingReport};
-use crate::harness::free_loopback_address;
+use crate::harness::{TestObjectStoreProvider, free_loopback_address};
 use crate::metrics::{sample_with_label, try_scrape};
 use crate::robustness::inspection::ObjectStoreInspector;
 use crate::robustness::processes::{
@@ -207,15 +207,27 @@ impl NodeGroup {
         workload: &Workload,
         settings: &[SlotSettings<'_>],
     ) -> Self {
+        Self::start_with_provider(directory, workload, settings, TestObjectStoreProvider::S3).await
+    }
+
+    /// Prepares the slots like [`Self::start`], with `provider` as every slot's object storage.
+    pub(crate) async fn start_with_provider(
+        directory: &Path,
+        workload: &Workload,
+        settings: &[SlotSettings<'_>],
+        provider: TestObjectStoreProvider,
+    ) -> Self {
         let running_permit = Arc::clone(&NODE_GROUP_PERMITS)
             .acquire_owned()
             .await
             .expect("the node group semaphore is never closed");
-        let emulator = DurableEmulator::start().await;
-        let inspector = ObjectStoreInspector::connect(&emulator.endpoint()).await;
+        let emulator = DurableEmulator::start_with_dialect(provider.api_dialect()).await;
+        let inspector =
+            ObjectStoreInspector::connect_for_provider(&emulator.endpoint(), provider).await;
         let mut slots = Vec::new();
         for slot in settings {
-            let object_store = ObjectStoreEndpoint::start(emulator.store()).await;
+            let object_store =
+                ObjectStoreEndpoint::start(emulator.store(), provider.api_dialect()).await;
             let address = free_loopback_address();
             let metrics_address = free_loopback_address();
             let config_path = directory.join(format!("{}.yaml", slot.name));
@@ -229,6 +241,7 @@ impl NodeGroup {
                 log_deletion_delay: slot.log_deletion_delay,
             }
             .write_with_metrics(&config_path, metrics_address);
+            provider.select_in_config(&config_path);
             let mut contents =
                 std::fs::read_to_string(&config_path).expect("the configuration is readable");
             // Waiting ReadStream calls must not hold up a step down or a shutdown.

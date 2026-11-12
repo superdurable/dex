@@ -22,8 +22,11 @@ use dexzd_protocol::dex::{
     invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task,
     poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
 };
-use s3local::{DeleteObjectRequest, Durability, EtagMode, ListObjectsRequest, Store, StoreConfig};
-use s3local_server::{ServerConfig, ServerHandle, SignatureVerification};
+use s3local::{
+    DeleteObjectRequest, Durability, EtagMode, ListObjectsRequest, Store, StoreConfig,
+    VersioningState,
+};
+use s3local_server::{S3ApiDialect, ServerConfig, ServerHandle, SignatureVerification};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional};
 use tokio::process::{Child, Command};
@@ -50,12 +53,21 @@ const READINESS_CALL_BUDGET: Duration = Duration::from_secs(1);
 pub(crate) struct S3Emulator {
     store: Arc<Store>,
     server: ServerHandle,
-    _directory: TempDir,
+    directory: TempDir,
 }
 
 impl S3Emulator {
     /// Starts on a free loopback port; strict verification accepts only [`ACCESS_KEY_ID`].
     pub(crate) async fn start(bucket: &str, signature_verification: SignatureVerification) -> Self {
+        Self::start_with_dialect(bucket, signature_verification, S3ApiDialect::AmazonS3).await
+    }
+
+    /// Starts like [`Self::start`], answering requests as the endpoint of `api_dialect` does.
+    pub(crate) async fn start_with_dialect(
+        bucket: &str,
+        signature_verification: SignatureVerification,
+        api_dialect: S3ApiDialect,
+    ) -> Self {
         let directory = TempDir::new().expect("a temporary emulator directory can be created");
         let store = Store::open(&StoreConfig {
             root_directory: directory.path().to_path_buf(),
@@ -67,30 +79,40 @@ impl S3Emulator {
             .create_bucket(bucket, false)
             .expect("the emulator bucket is created");
         let store = Arc::new(store);
-        let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
-            .await
-            .expect("the emulator binds a loopback port");
-        let server = s3local_server::start_with_config(
+        let server = serve_emulator_store(
             store.clone(),
-            listener,
-            ServerConfig {
-                data_directory: directory.path().to_path_buf(),
-                signature_verification,
-                access_key_id: ACCESS_KEY_ID.to_owned(),
-                secret_access_key: SECRET_ACCESS_KEY.to_owned(),
-                ..ServerConfig::default()
-            },
+            directory.path(),
+            signature_verification,
+            api_dialect,
         )
-        .expect("the emulator starts");
+        .await;
         Self {
             store,
             server,
-            _directory: directory,
+            directory,
         }
     }
 
     pub(crate) fn endpoint(&self) -> String {
         format!("http://{}", self.server.local_address())
+    }
+
+    /// Serves the same objects on another port in `api_dialect`; the caller shuts it down.
+    pub(crate) async fn start_second_endpoint(&self, api_dialect: S3ApiDialect) -> ServerHandle {
+        serve_emulator_store(
+            self.store.clone(),
+            self.directory.path(),
+            SignatureVerification::Strict,
+            api_dialect,
+        )
+        .await
+    }
+
+    /// Enables or suspends versioning of `bucket`.
+    pub(crate) fn set_bucket_versioning(&self, bucket: &str, versioning: VersioningState) {
+        self.store
+            .put_bucket_versioning(bucket, versioning)
+            .expect("the emulator bucket versioning changes");
     }
 
     /// Returns the first key segments of every object in `bucket`, such as `cluster-a/`.
@@ -209,6 +231,69 @@ impl S3Emulator {
 
     pub(crate) async fn shutdown(self) {
         self.server.shutdown().await;
+    }
+}
+
+/// Serves `store` on a free loopback port; strict verification accepts only [`ACCESS_KEY_ID`].
+async fn serve_emulator_store(
+    store: Arc<Store>,
+    data_directory: &Path,
+    signature_verification: SignatureVerification,
+    api_dialect: S3ApiDialect,
+) -> ServerHandle {
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+        .await
+        .expect("the emulator binds a loopback port");
+    s3local_server::start_with_config(
+        store,
+        listener,
+        ServerConfig {
+            data_directory: data_directory.to_path_buf(),
+            signature_verification,
+            access_key_id: ACCESS_KEY_ID.to_owned(),
+            secret_access_key: SECRET_ACCESS_KEY.to_owned(),
+            api_dialect,
+            ..ServerConfig::default()
+        },
+    )
+    .expect("the emulator starts")
+}
+
+/// The `objectStore.provider` of a test process, with the emulator dialect it needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TestObjectStoreProvider {
+    S3,
+    AliyunOss,
+}
+
+impl TestObjectStoreProvider {
+    pub(crate) fn api_dialect(self) -> S3ApiDialect {
+        match self {
+            Self::S3 => S3ApiDialect::AmazonS3,
+            Self::AliyunOss => S3ApiDialect::AliyunOss,
+        }
+    }
+
+    /// Rewrites the configuration at `path`, written for s3, to select this provider.
+    ///
+    /// Every store then drops `forcePathStyle`, which aliyunOSS rejects.
+    pub(crate) fn select_in_config(self, path: &Path) {
+        if self == Self::S3 {
+            return;
+        }
+        let contents = fs::read_to_string(path).expect("the serve configuration is readable");
+        // The SDK addresses an IP endpoint path-style, so aliyunOSS needs no forcePathStyle.
+        let selected = contents.replacen(
+            "  forcePathStyle: true\n  credentialsSource: environment\n",
+            "  provider: aliyunOSS\n  credentialsSource: environment\n",
+            1,
+        );
+        assert_ne!(
+            selected, contents,
+            "the configuration has a primary objectStore"
+        );
+        let selected = selected.replace("    forcePathStyle: true\n", "");
+        fs::write(path, selected).expect("the serve configuration is written");
     }
 }
 
