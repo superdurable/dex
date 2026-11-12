@@ -18,6 +18,19 @@ import redirects from './redirects.json';
 
 const developerReferenceComponents = Object.keys(referenceVersions) as (keyof typeof referenceVersions)[];
 
+// Search contexts, in the order the search page lists them. The labels match the reference landing page.
+const referenceSearchContexts = [
+  {path: 'reference/go', label: {en: 'Go SDK', 'zh-Hans': 'Go SDK'}},
+  {path: 'reference/python', label: {en: 'Python SDK', 'zh-Hans': 'Python SDK'}},
+  {path: 'reference/java', label: {en: 'Java SDK', 'zh-Hans': 'Java SDK'}},
+  {path: 'reference/typescript', label: {en: 'TypeScript SDK', 'zh-Hans': 'TypeScript SDK'}},
+  {path: 'reference/rust', label: {en: 'Rust SDK', 'zh-Hans': 'Rust SDK'}},
+  {path: 'reference/server', label: {en: 'Server', 'zh-Hans': 'Server'}},
+  {path: 'reference/cli', label: {en: 'CLI', 'zh-Hans': 'CLI'}},
+  {path: 'reference/web', label: {en: 'Dex Web', 'zh-Hans': 'Dex Web'}},
+  {path: 'reference/agents', label: {en: 'Agents packages', 'zh-Hans': 'Agents 包'}},
+];
+
 // src/theme/Navbar/Content renders the header itself; only the locale switch comes from themeConfig.
 const companyHeaderNavigation = {
   actions: [{type: 'localeDropdown', position: 'right'}],
@@ -175,6 +188,10 @@ const config: Config = {
         searchBarPosition: 'left',
         highlightSearchTermsOnTargetPage: false,
         explicitSearchResultPath: true,
+        // Each Developer reference component gets its own index, so reference pages never crowd guide results.
+        // Guide pages search the guides; reference pages search their component; the search page switches.
+        searchContextByPaths: referenceSearchContexts,
+        useAllContextsWithNoSearchContext: false,
       },
     ],
   ],

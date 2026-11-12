@@ -197,6 +197,8 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
       languages: frameworks.length > 0 ? frameworkLanguages(tree.children, frameworks[0], defaultChildren)
         : sdkLanguages(defaultChildren)});
   }
+  // Every Markdown URL this build writes for a page's default file, to check reference link targets.
+  const markdownTargets = new Set(exported.map(item => new URL(item.pathname, siteConfig.url).href));
   // Pages with code in several SDKs: the default file shows the first language, and each other
   // language gets its own file. Links in a language file keep the reader's language where they can.
   const languageFiles = new Map(exported.filter(item => item.languages.length > 1)
@@ -226,6 +228,9 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
           : base;
         if (output.language && output.language !== defaultLanguages[0]) {
           children = keepLanguageInLinks(children, output.language, languageFiles);
+        }
+        if (output.language && output.language !== 'python') {
+          children = referenceLinksInLanguage(children, output.language, markdownTargets);
         }
         children = resolveSdkQueryLinks(children, languageFiles);
         const notes = [];
@@ -765,6 +770,24 @@ function keepLanguageInLinks(nodes, language, languageFiles) {
   });
 }
 
+// Concept pages link the Python reference and say so. A language file links its own SDK's reference page
+// where one exists, and drops the sentence that names Python.
+const pythonReferenceNote = /^(The links below open the Python reference\.|下面的链接打开英文的 Python 参考。)/;
+function referenceLinksInLanguage(nodes, language, markdownTargets) {
+  return nodes.filter(node => !(node.type === 'paragraph' && pythonReferenceNote.test(mdastToString(node))))
+    .map(node => {
+      if (node.type === 'link' && typeof node.url === 'string' && node.url.includes('/reference/python/')) {
+        const [base, hash] = node.url.split('#');
+        const candidate = base.replace('/reference/python/', `/reference/${language}/`);
+        if (markdownTargets.has(candidate)) {
+          return {...node, url: candidate + (hash !== undefined ? `#${hash}` : '')};
+        }
+      }
+      if (!Array.isArray(node.children)) return node;
+      return {...node, children: referenceLinksInLanguage(node.children, language, markdownTargets)};
+    });
+}
+
 /**
  * Turns a link such as `/quick-start.md?sdk=go`, which picks a tab on the website, into that
  * language's file, `/quick-start.go.md`. A page without that language keeps its default file.
@@ -1171,7 +1194,7 @@ function leadWithList(tree) {
   const opening = text.replace(/[.。:：]$/, '');
   const summary = isChinese
     ? `${opening}：${items.join('；')}。`
-    : `${opening}: ${items.map(lowerFirstWord).join('; ')}${/[?!]$/.test(items.at(-1)) ? '' : '.'}`;
+    : `${opening}: ${items.map(lowerFirstWord).map((item, index) => (index === 0 ? item : `${/[?!]$/.test(items[index - 1]) ? ' ' : '; '}${item}`)).join('')}${/[?!]$/.test(items.at(-1)) ? '' : '.'}`;
   return summary.length <= 320 ? {text, summary} : undefined;
 }
 
