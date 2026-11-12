@@ -529,12 +529,16 @@ def _remove_record_of(environment: CommandEnvironment, pid: int) -> None:
         except FileExistsError:
             pass  # A newer record took its place; that one stays.
         except OSError:
-            # Without hard links, rename it back while the path is still empty.
-            if not path.exists():
-                with contextlib.suppress(OSError):
-                    claimed.rename(path)
-                    return
+            # Without hard links, copy it back; O_EXCL never overwrites a newer record.
+            with contextlib.suppress(OSError):  # FileExistsError: the newer record stays.
+                _write_new_file(path, claimed.read_bytes())
     claimed.unlink(missing_ok=True)
+
+
+def _write_new_file(path: Path, content: bytes) -> None:
+    descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    with os.fdopen(descriptor, "wb") as file:
+        file.write(content)
 
 
 def _is_process_alive(pid: int) -> bool:

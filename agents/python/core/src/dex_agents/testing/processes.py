@@ -224,14 +224,16 @@ class KillableProcess:
         """
         if self._process is None:
             return
-        try:
-            os.killpg(self._process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            # macOS refuses killpg once the group's leader has exited; that is not a failure.
-            if self._process.poll() is None:
-                raise
+        # Once Popen has reaped the leader, its group ID may be reused, so it is not signalled.
+        if self._process.returncode is None:
+            try:
+                os.killpg(self._process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                # macOS refuses killpg once the group's leader has exited; that is not a failure.
+                if self._process.poll() is None:
+                    raise
         self._process.wait()
         self._process = None
 
@@ -243,10 +245,9 @@ class KillableProcess:
         """
         if self._process is None:
             return
-        try:
-            os.killpg(self._process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+        if self._process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(self._process.pid, signal.SIGTERM)
         process = self._process
         try:
             await asyncio.wait_for(asyncio.to_thread(process.wait), timeout.total_seconds())

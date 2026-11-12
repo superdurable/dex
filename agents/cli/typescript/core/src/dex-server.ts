@@ -10,7 +10,6 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   closeSync,
-  existsSync,
   linkSync,
   mkdirSync,
   mkdtempSync,
@@ -566,13 +565,13 @@ function removeRecordOf(environment: CliEnvironment, pid: number): void {
     try {
       linkSync(claimedPath, recordPath);
     } catch (error: unknown) {
-      // EEXIST: a newer record took its place, and that one stays. Without hard links, rename it back.
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" && !existsSync(recordPath)) {
+      // EEXIST: a newer record took its place, and that one stays. Without hard links, copy it back.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
         try {
-          renameSync(claimedPath, recordPath);
-          return;
+          // "wx" creates the file only if it is absent, so a newer record is never overwritten.
+          writeFileSync(recordPath, readFileSync(claimedPath), { flag: "wx" });
         } catch {
-          // Losing the other command's record only costs it the connectors URL it recorded.
+          // A newer record exists, or the copy failed; losing it costs only the recorded connectors URL.
         }
       }
     }

@@ -209,7 +209,7 @@ export class CliProcess {
    * @returns A Promise that resolves after it exited.
    */
   public async kill(): Promise<void> {
-    if (this.child.exitCode === null && this.child.pid !== undefined) {
+    if (this.child.exitCode === null && this.child.signalCode === null && this.child.pid !== undefined) {
       try {
         process.kill(-this.child.pid, "SIGKILL");
       } catch {
