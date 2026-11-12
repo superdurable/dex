@@ -75,6 +75,7 @@ import { LocalToolSource } from "./local-tools/local-tool-source.js";
 import { TerminalChat } from "./terminal-chat.js";
 import { TerminalInput, lineWaitAborted } from "./terminal-input.js";
 import { TurnConfigResolver } from "./turn-config-resolver.js";
+import { describeUnreachableDexServer } from "./unreachable-dex-server.js";
 
 const subcommands = ["run", "init", "connectors", "sessions"] as const;
 type Subcommand = (typeof subcommands)[number];
@@ -409,8 +410,13 @@ class AgentCliCommand {
     });
     mkdirSync(this.environment.agentsDirectory, { recursive: true });
     this.libraryConsole = new LibraryConsoleRedirection(this.logFilePath(), this.log);
-    await this.worker.start();
-    await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
+    try {
+      await this.worker.start();
+      await this.worker.waitPullRegistered({ timeoutMs: 30_000 });
+    } catch (error: unknown) {
+      const unreachable = describeUnreachableDexServer(error, effective.dex.server, server.serverAddress);
+      throw unreachable === undefined ? error : new Error(unreachable, { cause: error });
+    }
     await this.uploadSessionFlowDefinition(this.client, flowType);
     const sessionId = await this.openSession(this.client, flow, flowType, identity);
     this.io.stdout.write(

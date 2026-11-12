@@ -6,8 +6,8 @@ section: Changed
   terminal UI, `/plan` drafts a plan with `write_todos` only, and `/run`
   approves it and runs it with every tool. `write_todos` is now a reserved
   tool name in this command.
-- Python and TypeScript CLI cores, terminal UI: the startup notices of the
-  Worker host, such as connector tools that are unavailable, and the lines
-  about a `dexcli dev` that the command started, such as its log file, reach
-  the terminal UI as launch notices. Before, they were printed only before the
-  terminal UI covered the screen, so the user saw them after exiting.
+- Python CLI core, terminal UI: the startup notices of the Worker host, such
+  as connector tools that are unavailable, and the lines about a `dexcli dev`
+  that the command started, such as its log file, reach the terminal UI as
+  launch notices. Before, they were printed only before the terminal UI
+  covered the screen, so the user saw them after exiting.

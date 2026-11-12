@@ -337,6 +337,19 @@ describe("CLI startup: configuration, the Dex server, and connectors", () => {
     assert.match(cli.stderr.all, /is invalid: schema at \/local_tools\/files \(type\)/);
   });
 
+  test("an unreachable Dex server stops the command with one line that says how to fix it", async () => {
+    const [closedPort] = await findFreeLoopbackPorts(1);
+    const home = new TestHome(enginePorts(engine));
+    home.writeConfig(`dex:\n  server: http://127.0.0.1:${closedPort}\nconnectors: {enabled: []}\nlocal_tools: {browser: false}\n`);
+    const cli = start(home);
+    assert.equal(await cli.waitForExit(), 1);
+    assert.equal(
+      cli.stderr.all,
+      `dex-agents-scripted: cannot reach the Dex server at 127.0.0.1:${closedPort}, which dex.server names. Start ` +
+        "that server, or set dex.server to auto to use dexcli dev on this machine.\n",
+    );
+  });
+
   test("an anyOf error names the values the field accepts", async () => {
     const home = new TestHome(enginePorts(engine));
     home.writeConfig("dex:\n  server: localhost:7233\n");
